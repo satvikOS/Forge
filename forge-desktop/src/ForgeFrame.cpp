@@ -18,6 +18,7 @@
 #include "KernelScene.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
@@ -39,6 +40,11 @@ constexpr float kToolbarH = 40.0f + kScrollbarSize;
 constexpr float kStatusH = 26.0f;
 constexpr float kSplitter = 5.0f;
 constexpr float kTabBarH = 26.0f;
+// How near the cursor an edge has to be, in PIXELS, to be picked. Every CAD
+// system picks edges on a screen-space radius rather than a world one, because
+// an edge is a line with no area and a world tolerance is unusable at both ends
+// of the zoom range. 8 px at 1x is the NX/Creo default band.
+constexpr double kEdgePickPixels = 8.0;
 
 ImVec4 rgb(int r, int g, int b, float a = 1.0f) {
   return ImVec4(static_cast<float>(r) / 255.0f, static_cast<float>(g) / 255.0f,
@@ -212,6 +218,24 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   } else {
     note("kernel body UNAVAILABLE: " + scene_.error());
   }
+}
+
+bool ForgeFrame::applyPendingFit() {
+  const std::size_t want = shell_.document().fitCount;
+  if (want == fitsApplied_) return false;
+  fitsApplied_ = want;
+  float c[3] = {0.0f, 0.0f, 0.0f};
+  scene_.bounds().centre(c);
+  // A body with no bounds has no sphere to frame; refusing is honest, and it
+  // keeps the camera where the user left it instead of teleporting it to a
+  // radius the geometry does not have.
+  if (!scene_.bounds().valid) {
+    note("view.fit: nothing to frame");
+    return false;
+  }
+  camera_.frame(c, scene_.bounds().radius());
+  note("view.fit: framed the body");
+  return true;
 }
 
 void ForgeFrame::rebuildTree() {
@@ -604,6 +628,10 @@ bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
 // ── selection ───────────────────────────────────────────────────────────────
 void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
   hoverFace_ = faceId;
+  // ONE hover at a time. Leaving the edge hover set would keep an edge lit under
+  // the cursor while the HUD names a face, which is the disagreement the single
+  // preselection slot in SelectionService exists to prevent.
+  hoverEdge_ = forge::ui::kNoEdge;
   if (faceId == 0) {
     shell_.selection().clearPreselection();
     return;
@@ -625,7 +653,14 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
     return;
   }
   forge::ui::EntityRef ref;
-  ref.bodyId = "body.bracket";
+  // activeBodyNode(), NOT the literal "body.bracket" this line used to hold.
+  // setPreselectedFace two functions up already read it from the document; only
+  // half the fix had landed, so hovering named the live body and CLICKING named
+  // a node that stops existing the moment a command rebinds it or a .fpart
+  // written by another tool names its body anything else -- and resolveValues()
+  // maps EntityRef::bodyId through PartDocument::valueFor(), so every solid
+  // command silently greys out. See this class's header: it says exactly that.
+  ref.bodyId = activeBodyNode();
   ref.kind = forge::ui::EntityKind::Face;
   ref.persistentName = "face@" + std::to_string(faceId);
   if (!shell_.selection().accepts(ref.kind)) {
@@ -656,6 +691,86 @@ std::vector<std::uint32_t> ForgeFrame::selectedFaceIds() const {
 
 void ForgeFrame::syncSelectionToScene() {
   if (scene_.applySelection(selectedFaceIds()) > 0) viewportRequest_.selectionDirty = true;
+}
+
+// ── edge selection ──────────────────────────────────────────────────────────
+bool ForgeFrame::edgePickMode() const {
+  return shell_.selection().filter() == forge::ui::EntityKind::Edge;
+}
+
+const forge::ui::EdgeSet& ForgeFrame::edges() {
+  const std::size_t tris = scene_.triangleCount();
+  if (edgesBuilt_ && edgeTriangles_ == tris) return edges_;
+  edges_ = forge::ui::deriveEdges(measureMesh());
+  edgeTriangles_ = tris;
+  edgesBuilt_ = true;
+  // An edge index is only meaningful against the set it came from, so a rebuild
+  // must not leave a hover pointing into the old one.
+  hoverEdge_ = forge::ui::kNoEdge;
+  return edges_;
+}
+
+std::vector<std::size_t> ForgeFrame::selectedEdgeIndices() {
+  std::vector<std::size_t> out;
+  const forge::ui::EdgeSet& set = edges();
+  for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+    if (r.kind != forge::ui::EntityKind::Edge) continue;
+    const std::size_t idx = set.indexOf(r.persistentName);
+    if (idx != forge::ui::kNoEdge) out.push_back(idx);
+  }
+  return out;
+}
+
+forge::ui::EdgeMeasure ForgeFrame::edgeMeasure() {
+  return forge::ui::measureEdges(edges(), selectedEdgeIndices());
+}
+
+void ForgeFrame::setPreselectedEdge(std::size_t index) {
+  const forge::ui::EdgeSet& set = edges();
+  hoverFace_ = 0;  // ONE hover at a time; see setPreselectedFace.
+  if (index >= set.size()) {
+    hoverEdge_ = forge::ui::kNoEdge;
+    shell_.selection().clearPreselection();
+    return;
+  }
+  hoverEdge_ = index;
+  forge::ui::EntityRef ref;
+  ref.bodyId = activeBodyNode();
+  ref.kind = forge::ui::EntityKind::Edge;
+  ref.persistentName = set.edges[index].key();
+  shell_.selection().setPreselection(ref);
+}
+
+void ForgeFrame::clickEdge(std::size_t index, bool additive) {
+  const forge::ui::EdgeSet& set = edges();
+  if (index >= set.size()) {
+    if (!additive) {
+      shell_.selection().clearSelection();
+      syncSelectionToScene();
+      note("selection cleared");
+    }
+    return;
+  }
+  forge::ui::EntityRef ref;
+  ref.bodyId = activeBodyNode();
+  ref.kind = forge::ui::EntityKind::Edge;
+  ref.persistentName = set.edges[index].key();
+  if (!shell_.selection().accepts(ref.kind)) {
+    note("selection filter rejects an Edge");
+    return;
+  }
+  if (additive) {
+    shell_.selection().toggle(ref);
+  } else {
+    shell_.selection().replaceWith({ref});
+  }
+  shell_.selection().setFocus(ref);
+  // An edge selection flags no face, so the vertex stream must be cleared of any
+  // face highlight left over from a face pick -- otherwise the viewport shows a
+  // face lit while the status strip and every command say an edge is selected.
+  syncSelectionToScene();
+  note("selected " + ref.persistentName + "  (" +
+       std::to_string(shell_.selection().count()) + " picked)");
 }
 
 // ── dock ratio writeback ────────────────────────────────────────────────────
@@ -729,6 +844,18 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   viewportRequest_.wireframe = shell_.document().wireframe;
   viewportRequest_.geometryDirty = geometryDirty_;
   geometryDirty_ = false;
+
+  // ── view.fit, ON THE SAME PATH AS view.wireframe ─────────────────────────
+  // `view.fit`'s whole execute body is `++doc_.fitCount` (ForgeShell.cpp), and
+  // camera_.frame() was called EXACTLY ONCE, in this class's constructor.
+  // Nothing read the counter. So F / Ctrl+F / Alt+F / Home ran, journalled,
+  // printed "view.fit -> ok" and DID NOT MOVE THE CAMERA -- the same
+  // counter-that-nobody-reads defect the retired model.* stubs were removed for.
+  // The line above is the pattern that already worked: the frame PULLS the
+  // shell's view state every frame rather than a handler pushing it, so the fit
+  // fires whoever asked for it -- menu, keystroke, palette, ribbon, macro or an
+  // Archie tool call -- with no invoker having to remember.
+  applyPendingFit();
 
   const ImGuiIO& io = ImGui::GetIO();
   const float W = io.DisplaySize.x;
@@ -936,6 +1063,18 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
         }
       }
       ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+      ImGui::SetTooltip(
+          "What a viewport click picks.\n"
+          "face  — the default; feeds Hole, Shell, Counterbore\n"
+          "edge  — feeds Edge Fillet, Edge Chamfer, Variable Fillet\n"
+          "The filter also REFUSES a pick of any other kind, so a command can "
+          "never run on the wrong topology.");
+    }
+    if (edgePickMode()) {
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(90, 184, 242), "edge pick");
     }
 
     ImGui::SameLine();
@@ -1235,21 +1374,79 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
   if (hovered && ImGui::GetIO().MouseWheel != 0.0f) camera_.zoom(ImGui::GetIO().MouseWheel);
 
   // ── picking: hover preselects, click selects ──────────────────────────────
+  // WHAT is picked follows the status strip's selection FILTER. Before edges
+  // existed that control could only refuse: choosing "edge" left every ray hit
+  // rejected by clickFace's accepts(Face) and the app unable to pick anything.
   if (hovered && verb == NavVerb::None && scene_.built()) {
     float ro[3], rd[3];
     camera_.ray(mouse.x - origin.x, mouse.y - origin.y, w, h, ro, rd);
-    const PickResult pick = scene_.pick(ro, rd);
-    setPreselectedFace(pick.faceId);
-    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-      clickFace(pick.faceId, ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
+    if (edgePickMode()) {
+      // The tolerance is a PIXEL radius converted to world units at the eye
+      // distance, so an edge stays as easy to hit zoomed out as zoomed in --
+      // a fixed world tolerance would make a 200 mm-away edge unhittable and a
+      // close one grab the whole screen.
+      const double origin3[3] = {ro[0], ro[1], ro[2]};
+      const double dir3[3] = {rd[0], rd[1], rd[2]};
+      const double worldPerPixel =
+          2.0 * static_cast<double>(camera_.distance()) *
+          std::tan(0.5 * static_cast<double>(camera_.fovY())) /
+          static_cast<double>(std::max(1.0f, h));
+      const forge::ui::EdgePick p =
+          forge::ui::pickEdge(edges(), origin3, dir3, kEdgePickPixels * worldPerPixel);
+      setPreselectedEdge(p.hit() ? p.index : forge::ui::kNoEdge);
+      if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        clickEdge(p.hit() ? p.index : forge::ui::kNoEdge,
+                  ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
+      }
+    } else {
+      const PickResult pick = scene_.pick(ro, rd);
+      setPreselectedFace(pick.faceId);
+      if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        clickFace(pick.faceId, ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
+      }
     }
-  } else if (!hovered && hoverFace_ != 0) {
-    setPreselectedFace(0);
+  } else if (!hovered && (hoverFace_ != 0 || hoverEdge_ != forge::ui::kNoEdge)) {
+    if (edgePickMode()) {
+      setPreselectedEdge(forge::ui::kNoEdge);
+    } else {
+      setPreselectedFace(0);
+    }
   }
   viewportRequest_.hoverFace = hoverFace_;
 
   drawViewportOverlays(origin.x, origin.y, w, h);
   drawContextMenu();
+}
+
+// Projects one recovered edge into the viewport rect and strokes it. Each
+// SEGMENT is clipped independently on w > 0 (a segment with an endpoint behind
+// the eye is dropped rather than smeared across the screen by a divide through a
+// negative w, which is the classic wrong-side artefact).
+void ForgeFrame::drawEdgePolyline(const forge::ui::MeshEdge& edge, float x, float y, float w,
+                                  float h, std::uint32_t colour, float thickness) {
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+  float vp[16];
+  camera_.viewProj(vp);
+  const auto project = [&vp, x, y, w, h](const double* p, ImVec2& out) {
+    const float px = static_cast<float>(p[0]);
+    const float py = static_cast<float>(p[1]);
+    const float pz = static_cast<float>(p[2]);
+    const float cx = vp[0] * px + vp[4] * py + vp[8] * pz + vp[12];
+    const float cy = vp[1] * px + vp[5] * py + vp[9] * pz + vp[13];
+    const float cw = vp[3] * px + vp[7] * py + vp[11] * pz + vp[15];
+    if (!(cw > 1e-6f)) return false;
+    // Vulkan NDC: x in [-1,1] left-to-right, y in [-1,1] TOP-to-bottom (the
+    // projection already carries the Y flip), so the viewport map adds y
+    // directly rather than subtracting it.
+    out = ImVec2(x + (cx / cw * 0.5f + 0.5f) * w, y + (cy / cw * 0.5f + 0.5f) * h);
+    return true;
+  };
+  for (std::size_t s = 0; s + 5 < edge.points.size(); s += 6) {
+    ImVec2 a, b;
+    if (!project(&edge.points[s], a)) continue;
+    if (!project(&edge.points[s + 3], b)) continue;
+    dl->AddLine(a, b, colour, thickness);
+  }
 }
 
 // The whole latency argument for ImGui, made concrete: these composite into the
@@ -1294,9 +1491,47 @@ void ForgeFrame::drawViewportOverlays(float x, float y, float w, float h) {
                     ImGui::GetColorU32(ImVec4(0, 0, 0, 0.45f)), 3.0f);
   dl->AddText(ImVec2(x + 12, y + 9), ink, buf);
 
+  // 2b. The picked and hovered EDGES, drawn as projected polylines. A face
+  //     highlight rides in the vertex stream (scene_.applySelection flags the
+  //     vertices of picked faces); an edge has no face to flag, so it is drawn
+  //     here, over the geometry, from the same camera the renderer uses.
+  //     The guard is not decoration: deriving the edges walks the whole triangle
+  //     soup, and calling edges() unconditionally would force that work on the
+  //     first frame after every rebuild even for a user who never picks an edge.
+  //     It is answered from the SELECTION, which costs nothing.
+  bool anyEdgeInPlay = hoverEdge_ != forge::ui::kNoEdge;
+  if (!anyEdgeInPlay) {
+    for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+      if (r.kind == forge::ui::EntityKind::Edge) {
+        anyEdgeInPlay = true;
+        break;
+      }
+    }
+  }
+  if (anyEdgeInPlay) {
+    const forge::ui::EdgeSet& set = edges();
+    const ImU32 selCol = ImGui::GetColorU32(rgb(242, 158, 38));
+    const ImU32 hovCol = ImGui::GetColorU32(rgb(90, 184, 242));
+    for (std::size_t idx : selectedEdgeIndices()) {
+      drawEdgePolyline(set.edges[idx], x, y, w, h, selCol, 2.6f * dpiScale_);
+    }
+    if (hoverEdge_ != forge::ui::kNoEdge && hoverEdge_ < set.size()) {
+      drawEdgePolyline(set.edges[hoverEdge_], x, y, w, h, hovCol, 1.8f * dpiScale_);
+    }
+  }
+
   // 3. Preselection HUD, following the cursor — the CAD convention that tells
   //    you what a click is about to pick BEFORE you commit to it.
-  if (hoverFace_ != 0) {
+  if (hoverEdge_ != forge::ui::kNoEdge && hoverEdge_ < edges_.size()) {
+    const forge::ui::MeshEdge& e = edges_.edges[hoverEdge_];
+    const ImVec2 m = ImGui::GetIO().MousePos;
+    char hud[96];
+    std::snprintf(hud, sizeof(hud), "Edge %u|%u  %.3f mm", e.faceA, e.faceB, e.length);
+    const ImVec2 ts = ImGui::CalcTextSize(hud);
+    dl->AddRectFilled(ImVec2(m.x + 14, m.y + 12), ImVec2(m.x + 22 + ts.x, m.y + 16 + ts.y),
+                      ImGui::GetColorU32(ImVec4(0.14f, 0.34f, 0.46f, 0.9f)), 3.0f);
+    dl->AddText(ImVec2(m.x + 18, m.y + 14), ink, hud);
+  } else if (hoverFace_ != 0) {
     const ImVec2 m = ImGui::GetIO().MousePos;
     char hud[64];
     std::snprintf(hud, sizeof(hud), "Face %u", hoverFace_);
@@ -1622,6 +1857,7 @@ forge::ui::SelectionMeasure ForgeFrame::selectionMeasure() {
 
 void ForgeFrame::drawMeasurePanel() {
   measureFaceRowsDrawn_ = 0;
+  measureEdgeRowsDrawn_ = 0;
   const forge::ui::MeasureMesh& mesh = measureMesh();
   const forge::ui::MeshMeasure& m = meshMeasure_;
 
@@ -1639,6 +1875,15 @@ void ForgeFrame::drawMeasurePanel() {
   ImGui::Text("diagonal  %.3f mm", m.box.diagonal());
   ImGui::Text("area      %.3f mm2", m.area);
   ImGui::Text("mesh      %zu triangles over %zu faces", m.triangles, m.faces);
+  {
+    // The recovered B-rep edges. The segment census is printed beside the count
+    // because the count is a LOWER BOUND -- a seam edge has the same face on
+    // both sides and cannot be recovered from face ids -- and a bound printed
+    // without the evidence for it reads as an equality.
+    const forge::ui::EdgeSet& es = edges();
+    ImGui::Text("edges     %zu recovered from %zu face-boundary segments", es.size(),
+                es.faceBoundarySegments);
+  }
   if (m.watertight) {
     ImGui::Text("volume    %.3f mm3", m.volume);
     ImGui::Text("centroid  %.3f  %.3f  %.3f", m.centroid[0], m.centroid[1], m.centroid[2]);
@@ -1657,9 +1902,35 @@ void ForgeFrame::drawMeasurePanel() {
   ImGui::Spacing();
   ImGui::TextColored(rgb(242, 158, 38), "Selection");
   ImGui::Separator();
+  // An EDGE selection is a different report from a face selection, so it is
+  // answered first and separately rather than folded into SelectionMeasure with
+  // half its fields meaningless.
+  const std::vector<std::size_t> pickedEdges = selectedEdgeIndices();
+  if (!pickedEdges.empty()) {
+    const forge::ui::EdgeSet& es = edges();
+    const forge::ui::EdgeMeasure em = forge::ui::measureEdges(es, pickedEdges);
+    for (std::size_t idx : pickedEdges) {
+      const forge::ui::MeshEdge& e = es.edges[idx];
+      ImGui::BulletText("%s   %.4f mm   %zu seg%s", e.key().c_str(), e.length, e.segments,
+                        e.closed ? "   closed" : "");
+      ImGui::Text("     between faces %u and %u", e.faceA, e.faceB);
+      ++measureEdgeRowsDrawn_;
+    }
+    ImGui::Text("total     %.4f mm over %zu edge%s", em.length, em.edges,
+                em.edges == 1 ? "" : "s");
+    ImGui::Text("extent    %.3f x %.3f x %.3f mm", em.box.size(0), em.box.size(1),
+                em.box.size(2));
+    if (em.hasPair) {
+      ImGui::Spacing();
+      ImGui::TextColored(rgb(120, 170, 230), "centre distance  %.3f mm", em.centreDistance);
+    }
+    return;
+  }
+
   const forge::ui::SelectionMeasure s = selectionMeasure();
   if (s.faces == 0) {
-    ImGui::TextDisabled("(pick a face in the viewport)");
+    ImGui::TextDisabled(edgePickMode() ? "(pick an edge in the viewport)"
+                                       : "(pick a face in the viewport)");
     return;
   }
   for (std::uint32_t id : selectedFaceIds()) {

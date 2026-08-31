@@ -192,7 +192,16 @@ jobs:
         # keg link. Do not "simplify" that probe.
         run: |
           brew update-reset >/dev/null 2>&1 || true
-          brew install opencascade sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
+          # boost is required by forge-kernel's ForgeDeps resolver (CMakeLists.txt:1188):
+          # planegcs uses boost::graph and boost::math::constants. Two dispatched dry runs
+          # failed on `could not resolve 'boost' 1.90.0` before this landed.
+          #
+          # THIS FIX HAS TO BE ON THIS BRANCH, not only on the default one. A run
+          # dispatched against a ref uses the workflow definition FROM THAT REF -- the copy
+          # on the default branch only makes the workflow SELECTABLE. The second dry run
+          # failed identically to the first because the fix had been merged to archdisc
+          # while the run was dispatched against this branch.
+          brew install opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
 
       - name: Record the toolchain that produced this artifact
         # An artifact whose provenance is not written down cannot be debugged
