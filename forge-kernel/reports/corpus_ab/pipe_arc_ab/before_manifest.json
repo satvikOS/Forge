@@ -1,0 +1,23 @@
+{
+  "generated_utc": "20260830T234004Z",
+  "corpus_dir": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+  "corpus_total": 600,
+  "sampling": "stride over the LC_ALL=C sorted file list (NOT a prefix: this corpus's ordering is undocumented and a prefix of a difficulty-ordered corpus is a biased sample)",
+  "stride": 1,
+  "offset": 0,
+  "requested_n": 600,
+  "realised_n": 600,
+  "families": "PIPE,PIPESHELL,THRUSECTIONS",
+  "arm_timeout_sec": 60,
+  "part_timeout_sec": 600,
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_cdc6f717-2d0-6/forge-kernel/.build-corpus-ab/corpus_ab_coverage",
+  "kernel_head_at_run": "94fb69fe1b700cbb2cb7ce10df52b9c3389db621",
+  "build_stamp": {
+  "built_utc": "2026-08-30T23:40:09Z",
+  "git_head": "94fb69fe1b700cbb2cb7ce10df52b9c3389db621",
+  "dirty_files_in_src_include_test": 2,
+  "flags": "-std=c++20 -O2 -DFORGE_NATIVE_BREP",
+  "occt_root": "/opt/homebrew/opt/opencascade",
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_cdc6f717-2d0-6/forge-kernel/.build-corpus-ab/corpus_ab_coverage"
+}
+}
