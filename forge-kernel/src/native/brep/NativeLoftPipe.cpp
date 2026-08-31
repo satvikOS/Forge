@@ -542,6 +542,19 @@ bool ringTranslate(const std::vector<gp_Pnt>& a, const std::vector<gp_Pnt>& b,
     return false;
 }
 
+// Total length of a closed wire. Decomposition-INDEPENDENT (it is the integral
+// of |dC| over the wire, so splitting an edge cannot change it) and exactly
+// INVARIANT under a rigid translation — which is what makes it the right
+// instrument for the guard below. Returns -1 on failure so a throw cannot be
+// read as a length of zero.
+double wireLength(const TopoDS_Wire& w) {
+    if (w.IsNull()) return -1.0;
+    GProp_GProps g;
+    try { BRepGProp::LinearProperties(w, g); } catch (...) { return -1.0; }
+    const double L = g.Mass();
+    return (L > 0.0 && std::isfinite(L)) ? L : -1.0;
+}
+
 // The ruled loft of two sections related by a translation, built as the exact
 // linear extrusion. Returns a null shape (with a label) when the pair is not a
 // translate or the extrusion is degenerate.
@@ -558,7 +571,54 @@ TopoDS_Shape thruSectionsTranslate(const std::vector<TopoDS_Shape>& sections,
     std::size_t n0 = 0, n1 = 0;
     if (!sampleWireRing(w0, r0, n0)) return kNull;   // reason set
     if (!sampleWireRing(w1, r1, n1)) return kNull;   // reason set
-    if (n0 != n1) FK_DEFER("xlate_edge_count_mismatch");
+
+    // ── the edge-count guard, and why it must not be the LAST word ─────────
+    // `ringTranslate` below is built on an edge-aligned rotation search, so it
+    // needs the two sample arrays to be the same length, i.e. the two wires to
+    // carry the same number of edges. A mismatch therefore has to decline here.
+    //
+    // ★ BUT "different edge count" IS NOT A DIAGNOSIS, and reporting it as one
+    //   sends the next engineer to the wrong fix. It is equally consistent with
+    //     (a) the SAME closed curve carrying an extra VERTEX that splits an edge
+    //         — a topological split, which real STEP carries constantly, and on
+    //         which the extrusion identity still holds exactly, so the fix would
+    //         be to relax this structural guard; and
+    //     (b) two GENUINELY DIFFERENT closed curves, on which no translate-based
+    //         path can ever be correct and the fix is a ruled-surface engine.
+    //   Those call for opposite work, and this guard cannot tell them apart
+    //   because it fires before any geometry is compared.
+    //
+    //   Total wire LENGTH separates them with no such blind spot: it is the
+    //   integral of |dC| along the wire, so it is INDEPENDENT of how the wire is
+    //   cut into edges, and it is EXACTLY INVARIANT under a translation. Two
+    //   wires of unequal length are therefore provably not translates of each
+    //   other, whatever their edge counts, and (b) is named rather than (a).
+    //
+    //   MEASURED (test/thrusections_pair_probe.cpp, over the corpus A/B's own
+    //   section pairs at 32ee7485, ALL 81 parts this guard declines on the
+    //   600-part corpus): EVERY ONE has unequal section lengths. Relative gap
+    //   min 0.96%, median 10.3%, max 55.4%; 0 of 81 are within even 1e-3, against
+    //   a translate tolerance of order 1e-7. NOT ONE IS A SPLIT. So reading (a)
+    //   is empty on this corpus, relaxing the edge-count guard would have bought
+    //   ZERO parts, and the whole bucket is reading (b) — it belongs with
+    //   `xlate_not_a_translate`, which is what the label now says.
+    //
+    // BEHAVIOUR-NEUTRAL BY CONSTRUCTION: this sits INSIDE the branch that
+    // already returned kNull, and both arms of it still return kNull. Only the
+    // recorded label differs — the same discipline as the FK_DEFER channel
+    // itself. A length that cannot be measured (-1) keeps the original label
+    // rather than inventing a verdict.
+    if (n0 != n1) {
+        const double L0 = wireLength(w0), L1 = wireLength(w1);
+        if (L0 > 0.0 && L1 > 0.0) {
+            const double big = std::max(L0, L1);
+            // The same relative floor the ring test uses below, applied to a
+            // length rather than a point, and never tighter than the caller's.
+            const double lt = std::max(tol, 1.0e-7 * big);
+            if (std::fabs(L0 - L1) > lt) FK_DEFER("xlate_not_a_translate_length");
+        }
+        FK_DEFER("xlate_edge_count_mismatch");
+    }
 
     // The samples come off imported STEP solids, whose coordinates already carry
     // the reader's own rounding, so a fixed 1e-6 would be a statement about the
