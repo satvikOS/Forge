@@ -152,6 +152,24 @@ jobs:
   #     ---------------------------------
   #     TOTAL                     147 SECONDS
   #
+  # ★ AND THE COUNT MISLEADS IN THE OTHER DIRECTION TOO, WHICH IS THE HALF THE
+  # CORRECTION ABOVE STILL MISSED. Per translation unit the DESKTOP files are the
+  # expensive ones. Cold, run 33440617438 (ccache 453/454 MISSES): the kernel
+  # compiled 421 TUs in 134s = 0.32 s/TU, and the desktop chain 30 TUs in 17s =
+  # 0.57 s/TU. ImGui, the UI layer and PartCommands' command table are simply
+  # heavier files than the kernel's.
+  #
+  # Run 33445851975 made that unmissable, by accident rather than by design. The
+  # archdisc merge changed app sources only, so the kernel was fully cached and
+  # 13 files were not:
+  #     ccache        442 / 455 hits (97.14%),  13 misses (2.86%)
+  #     forge_kernel_core   11s     442 cached TUs
+  #     forge_desktop       15s      13 REAL compiles
+  # THIRTEEN COMPILES COST MORE THAN FOUR HUNDRED AND FORTY-TWO CACHE HITS. In
+  # the steady state -- kernel unchanged, app sources moving, i.e. ordinary
+  # development -- the desktop half is the whole build, and the job the kernel
+  # was split out into is the cheap one.
+  #
   # The build was never near the ceiling. That same run was killed at 180.3
   # minutes because ONE app launch inside package_macos.sh hung for 176.5 of
   # them; see the note on `timeout-minutes` in the release job. The earlier
