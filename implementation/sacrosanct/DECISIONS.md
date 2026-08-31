@@ -1431,3 +1431,123 @@ else is wrong, which is exactly the outcome worth knowing.
 600, and it did not soften. The 15 degenerate-emission rows are reported separately rather
 than folded in, because they are a different defect (repetition, not vocabulary) and would
 not be fixed by a mask.
+
+## D-035 (2026-08-31): D-034 is RETRACTED — the "0/600 compile" was a UI-policy gate, not the kernel
+
+D-034 was merged this morning. Re-measuring its own inputs refutes its central table and its
+diagnosis. This entry supersedes it. The DIRECTION of D-031 survives; the CAUSE does not.
+
+### 1. The token table was a substring artifact
+
+D-034 reported `bore`/`BORE` 277 and `CYLINDER`/`cylinder` 301, and concluded "two concepts are
+578 of 585 (98.8%)". Both counts are wrong:
+
+* `bore` **never appears as an op**. It matched as a SUBSTRING of `CBORE`, which is a legal op.
+  This project already carries the rule *A SUBSTRING IS NOT AN OP*; D-034 broke it.
+* `runs/composite_anchor/axis_named_v7_e600/emissions.jsonl` contains **zero** occurrences of
+  the strings `bore` or `cylinder`, in any case, anywhere in the file.
+
+The real census, taken at the op position (`%\d+\s*=\s*NAME\s*\(`) over all 600 rows:
+
+```
+POLY 892 | VERIFY 533 | ROTATE 231 | CYL 225 | PLY 41
+RESULT 23 | FST 13 | CONE 9 | POISSON 8 | PUSH 3
+```
+
+### 2. The verifier accepts almost all of them
+
+Probing each op as `%1 = OP(1,2,3)` against the instrument itself — the method
+`scripts/oov_op_rate.py` already prescribes, "truth comes from the instrument" — both
+`tools/pinned/forge_verify` and `tools/baseline_pin_45e9ad9a/forge_verify` **accept 40 ops**,
+including `POLY`, `CYL`, `VERIFY`, `ROTATE` and `CONE`. They reject only five names:
+`FST`, `PLY`, `POISSON`, `PUSH`, `RESULT`.
+
+**95.6% of "illegal" op uses (1890 of 1978) are ops the kernel implements.** They are forbidden
+by `archie_op_vocabulary.json` for exactly one stated reason: *"no command in the forge::ui
+registry emits it, so no user can produce it."* That is a UI gap, not a model error.
+
+### 3. The emissions build
+
+All 600 v7 emissions were fed to `tools/pinned/forge_verify`. Against D-034's "0 compiled":
+
+```
+ok=true             249  (41.5%)
+valid=true          445  (74.2%)
+produced a solid    485  (80.8%)
+true unknown op       6  ( 1.0%)      <- D-034 said 585 (97.5%)
+```
+
+Failure taxonomy of the same 600:
+
+```
+248 (41.3%)  VERIFY assertion failed
+ 43 ( 7.2%)  empty feature tree
+ 32 ( 5.3%)  other
+ 23 ( 3.8%)  invalid / not-closed solid
+ 16 ( 2.7%)  parse error
+  6 ( 1.0%)  unknown op (true out-of-vocabulary)
+  6 ( 1.0%)  verifier crash or 300s timeout
+```
+
+### 4. What this changes
+
+**The decode-time op mask is deprioritised.** D-034 argued it was the right fix and cheap to
+falsify. It addresses **1.0%** of failures, not 97.5%. Spending GPU hours on it would have
+bought almost nothing — and the reason we would never have noticed is that it would have
+"worked": the masked rate would have moved, on six rows.
+
+*(Incidentally D-034's premise about how to build it was also wrong. `logits_processors` is not
+confined to `mlx_vlm/server/generation.py`: `mlx_vlm.generate` → `stream_generate` forwards
+`**kwargs` to `mlx_vlm/generate/ar.py::generate_step`, which accepts **both** `logit_bias` and
+`logits_processors`, and whose pop-list does not touch either. The hook was available on the
+path `archie_loop.py` already calls. Recorded so the next person does not re-derive it.)*
+
+**The real bottleneck is self-consistency, then fidelity.** The largest single failure is the
+model asserting a property its own output does not satisfy — `VERIFY failed: holes=36 (got 30)`
+— at 41.3%. That is a measurable training signal and it is not a vocabulary problem.
+
+**The app has the actual gap.** `POLY`, `CYL`, `CONE`, `ROTATE`, `SPHERE`, `TORUS`, `SLOT`,
+`TUBE`, `PRISM`, `REGPOLY`, `RRECT` and `SWEEP` are implemented in the kernel and reachable by
+no user. A CAD application at the grade this project targets cannot lack a cylinder primitive.
+Adding the commands closes the gap from the correct side and legalises ~95% of what Archie
+already emits, without touching the model.
+
+### 5. Why D-034 passed review
+
+It was internally consistent, and its number came from a real script over a real file. Nothing
+in it was invented. It was never checked against the instrument that judges emissions — the
+verifier binary — which is the one check that would have caught it, and which the repo already
+had a script for. **A gate's verdict is not the kernel's verdict.** The op-constraint bridge is
+correct and already distinguishes `ForbiddenOp` (the kernel has it, no UI command emits it) from
+`UnknownOp` (not a feature-IR op at all). D-034 collapsed that distinction into
+"out-of-vocabulary" and lost the entire finding.
+
+## D-036 (2026-08-31): D-033's per-arm means updated at n=576 — conclusion unchanged
+
+The v7 instrument-failure retry finished (72 rows attempted, 48 recovered, 24 still refused as
+`verifier timeout after 300s`). Merging them:
+
+| arm | n | mean | 95% CI | vs box floor 0.2367 |
+|---|---|---|---|---|
+| v5cap | 576 | 0.2767 | [0.2576, 0.2958] | +0.0400 |
+| v7 (as recorded in D-033) | 528 | 0.3076 | [0.2864, 0.3288] | +0.0709 |
+| **v7 (with retry)** | **576** | **0.2914** | **[0.2713, 0.3114]** | **+0.0547** |
+
+Paired comparison, before and after the recovered rows:
+
+```
+n=514   v5cap 0.2999   v7 0.3091   delta +0.0092   CI [-0.0165, +0.0349]
+n=555   v5cap 0.2819   v7 0.2947   delta +0.0128   CI [-0.0111, +0.0368]
+```
+
+**D-033's conclusion stands: axis-naming is unanswerable at this denominator.** The delta is not
+significant either way, and the smallest detectable effect at n=555 is 0.0343 — larger than any
+plausible effect here.
+
+**The exclusion rule is confirmed a third time.** Adding 41 excluded pairs moved both arms' means
+DOWN materially (v5cap 0.2999 → 0.2819, v7 0.3091 → 0.2947) and moved the paired delta by
++0.0036. Exclusions inflate the arms and cancel in the difference.
+
+**The sobering number.** Both arms sit barely above a box: +0.0400 and +0.0547 over the 0.2367
+floor. Read with D-035, the picture is consistent — the model builds a valid solid four times in
+five, and it is close to the wrong shape.
