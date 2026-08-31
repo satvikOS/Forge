@@ -23,19 +23,34 @@
 #   * nothing per-release has to be baked into the app;
 #   * it is not api.github.com, so it does not carry the 60-requests-an-hour
 #     unauthenticated rate limit that shipped updaters hit from behind a NAT;
-#   * a DRAFT release is invisible to every installed copy. The release workflow
-#     creates releases as drafts, so the human "press Publish" step is already
-#     the gate on auto-update. Nothing may be added that bypasses it.
+#   * a DRAFT release is invisible to every installed copy — and so is a
+#     PRERELEASE one. This used to say the workflow leaves releases as drafts so
+#     that "press Publish" is the human gate on auto-update, and that the
+#     resulting 404 was "the desired behaviour". BOTH HALVES WERE WRONG, and the
+#     second one was the expensive half.
 #
-#     MEASURED 2026-08-30, not taken from documentation. This repository has
-#     exactly one release, v0.1.0-alpha.0, and it is a DRAFT:
+#     MEASURED 2026-08-30, not taken from documentation. The repository had
+#     exactly one release, v0.1.0-alpha.0, and it was a DRAFT:
 #         $ gh release list
 #         Forge (native C++) - cutover placeholder, no binary  Draft  v0.1.0-alpha.0
 #         $ gh api repos/satvikOS/Forge/releases/latest
 #         404 Not Found
-#     A draft therefore does not resolve as "latest", and an installed Forge
-#     asking for releases/latest/download/appcast.json gets a 404 -- which the
-#     updater reports and does nothing about. That is the desired behaviour.
+#     Re-measured 2026-08-31 by test/release_visibility_check.sh: still DRAFT,
+#     and also PRERELEASE, with 0 assets.
+#
+#     That 404 is not a gate. A gate has a state in which it opens, and nothing
+#     in this repository ever moved a release out of draft — the workflow's
+#     publish step explicitly "left its draft state alone" on an existing
+#     release, so the one release that existed would have stayed invisible for
+#     ever while every check in the repository stayed green. An updater that
+#     can never find an update is indistinguishable from a broken one.
+#
+#     So the decision moved UPSTREAM, to the act that already required a human:
+#     pushing the tag. The tag run now creates the release, uploads every asset
+#     while it is still a draft, and only then flips draft=false /
+#     prerelease=false / latest, so it becomes visible already complete.
+#     test/release_visibility_check.sh re-reads the LIVE API afterwards and
+#     fails the build if an installed Forge still could not see it.
 #
 # ── WHY `url` NAMES ONE RELEASE ──────────────────────────────────────────────
 # The manifest and the payload are two separate HTTP requests, and `sha256`
@@ -61,7 +76,11 @@ while [ $# -gt 0 ]; do
     --out)        shift; [ $# -gt 0 ] || die "--out needs a value";        OUT="$1" ;;
     --min-macos)  shift; [ $# -gt 0 ] || die "--min-macos needs a value";  MIN_MACOS="$1" ;;
     --repo)       shift; [ $# -gt 0 ] || die "--repo needs a value";       REPO="$1" ;;
-    -h|--help)    sed -n '2,46p' "$0"; exit 0 ;;
+    # Print the whole leading comment block, found by SHAPE rather than by a
+    # hard-coded line range. The old form was `sed -n '2,46p'`, and editing this
+    # header — which happened — silently truncated --help mid-sentence with
+    # nothing to notice it.
+    -h|--help)    awk 'NR>1 && /^#/; NR>1 && !/^#/ {exit}' "$0"; exit 0 ;;
     *)            die "unknown argument: $1" ;;
   esac
   shift

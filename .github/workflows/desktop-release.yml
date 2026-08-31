@@ -49,14 +49,31 @@ name: Desktop Release (macOS arm64)
 #      no input to set wrongly and no way to reach the release API from a
 #      manual run.
 #
-#   2. When that is green, tag and push — THIS is the step that publishes:
+#   2. When that is green, tag and push — THIS is the step that publishes, and
+#      PUSHING THE TAG IS THE DECISION TO PUBLISH. Nothing downstream asks
+#      again:
 #        git tag -a v0.1.0 -m "Forge desktop v0.1.0"
 #        git push origin v0.1.0
+#      Use a CLEAN semver. A tag like v0.2.0-rc.1 yields a version with a '-',
+#      which emit_appcast.sh puts on the "prerelease" channel and a stable
+#      client refuses; the publish step rejects such a tag rather than ship a
+#      release nothing can install.
 #
-#   3. The tag run uploads the zip, its .sha256 and its report to the release
-#      for that tag, creating it as a DRAFT if it does not exist. A draft is not
-#      public until a human presses Publish, which is where the blockers below
-#      get a decision.
+#   3. The tag run creates the release as a draft, uploads the zip, its
+#      .sha256, its report and appcast.json, and THEN flips it to
+#      draft=false / prerelease=false / latest — in that order, so the release
+#      only ever becomes visible already complete. A final step re-reads the
+#      live API and fails the build if an installed Forge still could not see
+#      it.
+#
+#      IT DOES NOT STOP AT A DRAFT ANY MORE, and that is a correctness fix, not
+#      a relaxation. The shipped updater reads
+#      releases/latest/download/appcast.json, and GitHub's `latest` skips
+#      drafts AND prereleases, so a draft-only release is invisible to every
+#      installed copy — silently, with every other check in this file green.
+#      MEASURED 2026-08-31 by forge-desktop/test/release_visibility_check.sh:
+#      the repository's only release, v0.1.0-alpha.0, was DRAFT+PRERELEASE with
+#      0 assets and GET /releases/latest returned 404.
 #
 # ── TWO BLOCKERS A HUMAN MUST DECIDE ON BEFORE PUBLISHING ────────────────────
 #   * AN OS FLOOR SET BY SOMEBODY ELSE'S BINARIES. A Homebrew bottle carries the
@@ -652,17 +669,48 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach to the GitHub Release (pushed tags ONLY)
+      - name: Publish the GitHub Release (pushed tags ONLY)
         # The condition is deliberately BOTH halves. `ref_type == 'tag'` alone
         # would still let a manual dispatch against a tag ref reach the release
         # API; requiring event_name == 'push' means a dispatch structurally
         # cannot publish, which is what makes the dry run above safe by
         # construction rather than by remembering to set a flag.
         #
-        # --draft on create: a release is never made public by automation,
-        # because publishing asserts the artifact is fit to download, and the
-        # OS-floor and Gatekeeper blockers in the header make that a human's
-        # call. `gh` is preinstalled on GitHub runners.
+        # ── WHY THIS NO LONGER STOPS AT A DRAFT ──────────────────────────────
+        # It used to create the release as a draft and stop, on the reasoning
+        # that publishing asserts the artifact is fit to download and the
+        # Gatekeeper blocker in the header makes that a human's call. That
+        # reasoning had a consequence nobody had measured, and
+        # forge-desktop/emit_appcast.sh states the mechanism in its own header:
+        # the shipped updater fetches ONE fixed URL,
+        #
+        #     https://github.com/<repo>/releases/latest/download/appcast.json
+        #
+        # and GitHub resolves `latest` to the newest release that is NEITHER A
+        # DRAFT NOR A PRERELEASE. A draft-only release therefore 404s that URL.
+        #
+        # MEASURED 2026-08-31, before this change, by
+        # forge-desktop/test/release_visibility_check.sh:
+        #     1 release(s) exist
+        #       v0.1.0-alpha.0   DRAFT,PRERELEASE   assets=0
+        #     FAIL  GET /releases/latest returned nothing
+        # So "stop at a draft" is not a safe default that a human later lifts.
+        # It is a shipped artifact no installed copy of Forge can ever see, and
+        # every other check in this file passes on it exactly as it does on a
+        # published one. The human decision the draft was protecting is now
+        # taken UPSTREAM, by whoever pushes the tag: a tag push IS the act of
+        # publishing, and it is the only way to reach this step at all.
+        #
+        # ── ORDER MATTERS, AND IT IS DRAFT-FIRST-THEN-FLIP ───────────────────
+        # Creating the release visible and then uploading would leave a window
+        # in which `releases/latest` resolves to a release with NO appcast.json
+        # and NO zip; a client that polled inside that window would read a 404
+        # for the payload it had just been told about. So: create as a draft
+        # (invisible), upload every asset, and only then flip draft=false. The
+        # release becomes visible already complete.
+        #
+        # An EXISTING draft is flipped too. Leaving one alone, which is what the
+        # previous version did, is exactly how v0.1.0-alpha.0 sat invisible.
         if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -674,8 +722,6 @@ jobs:
           ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
           REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
 
-          # No substitution happens here any more; the notes were rendered
-          # and printed by the step above, on a dispatch as well as on a tag.
           # NOT re-rendered here. The "Render the release notes" step above
           # already produced these exact bytes and printed them, on a dispatch
           # too, so a dry run rehearses the publish instead of the publish being
@@ -683,14 +729,52 @@ jobs:
           NOTES="${{ steps.notes.outputs.notes }}"
           test -s "$NOTES" || { echo "::error::no rendered notes at $NOTES"; exit 1; }
 
+          # A version carrying a prerelease suffix goes out on the "prerelease"
+          # channel — emit_appcast.sh keys the channel off a '-' in the version
+          # — and a stable client refuses a foreign channel. Publishing such a
+          # build as `latest` would advertise it to clients that will then
+          # refuse it, which looks identical to a broken updater. Catch it here
+          # rather than shipping a release nothing can install.
+          case "$V" in
+            *-*) echo "::error::tag $TAG yields version '$V', which"          \
+                      "emit_appcast.sh puts on the PRERELEASE channel; a"     \
+                      "stable client refuses it. Tag a clean semver."; exit 1 ;;
+          esac
+
+          # ── 1. create as a DRAFT, or reuse whatever is already there ───────
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            echo "no release for $TAG yet - creating it as a DRAFT"
+            echo "no release for $TAG yet - creating it (draft, for now)"
             gh release create "$TAG" --draft --title "Forge $TAG" \
               --notes-file "$NOTES"
           else
-            echo "release $TAG exists - leaving its notes and draft state alone"
+            echo "release $TAG already exists - reusing it"
           fi
 
+          # ── 2. upload every asset WHILE IT IS STILL INVISIBLE ──────────────
           gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
           gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
-          echo "attached $ZIP and appcast.json to release $TAG"
+
+          # ── 3. flip it visible, complete, in one call ──────────────────────
+          # --latest is explicit: `latest` is what the updater's URL resolves
+          # through, and leaving it to GitHub's own ordering is a silent
+          # dependency on tag sort order.
+          gh release edit "$TAG" --draft=false --prerelease=false --latest
+
+          echo "published $TAG with $ZIP and appcast.json"
+
+      - name: Prove an installed Forge can actually SEE this release
+        # The step above can succeed in every observable way and still ship
+        # something invisible: a release that stayed a draft, or is marked
+        # prerelease, or is published with no appcast.json attached, breaks the
+        # updater silently and nothing else in this repository would notice.
+        # This asks the one question the other checks cannot — given what is
+        # published RIGHT NOW, would an installed Forge find it? — against the
+        # live API, after the fact, rather than against our intention.
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash forge-desktop/test/release_visibility_check.sh \
+            --expect-version "${{ steps.ver.outputs.version }}"
