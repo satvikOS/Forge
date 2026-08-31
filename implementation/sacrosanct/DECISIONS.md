@@ -1784,3 +1784,68 @@ Recorded so the next reader does not discover them as a surprise.
 **Reversible.** Each command is one self-contained block plus one id in `partCommandIds()`;
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
+
+## D-039 (2026-08-31): the holdout's dominant failure is SELF-INCONSISTENCY, not vocabulary — 55-58% across three arms, and ZERO counterbores in 1438 parts
+
+Measured on the 600-row holdout `data/forge/holdout_enlarged_600.jsonl` by rebuilding each
+arm's emitted IR through a kernel binary and reading the result, not a harness verdict.
+`built` is read off the presence of a MEASURED VOLUME rather than off `ok`, because a row
+whose VERIFY failed still built a solid — a gate's verdict is not the kernel's verdict.
+
+**ARM-QUALIFIED. Every number below was measured with `tools/pinned/forge_verify`
+(shim 947b8644 + kernel 2972e0e8).**
+
+| arm | n | built | rows emitting VERIFY | VERIFY FAILED | self-inconsistency | bore recall | parts with a CBORE |
+|---|---|---|---|---|---|---|---|
+| expert3d_v1_e600  | 600 | 60.8% | 443 | 244 | **55.1%** | 26.2% | **0** |
+| expert3d_v5cap_e600 | 600 | 73.5% | 442 | 249 | **56.3%** | 44.0% | **0** |
+| v6r8 (part1)      | 238 | 57.6% | 131 |  76 | **58.0%** | 38.3% | **0** |
+| box600 (floor)    | 600 | 100%  |   0 |   0 | n/a       |  0.0% |  0 |
+
+**The failure is the model asserting what its own construction does not satisfy.** On
+v5cap at full n, the status histogram is `verify_failed 249, op_error 99, ok 192,
+harness 39, unknown_op 18, parse_error 1`. A failing VERIFY is the LARGEST single
+category — 41.5% of all 600 rows — while the vocabulary story, `unknown_op`, is 18 rows
+(3.0%). At the level of individual assertions v5cap passes 709 and fails 548: **43.6% of
+every assertion the model writes about its own part is false.**
+
+**ZERO counterbores across 1438 parts, using an op it already has.** CBORE appears in the
+28-op surface, in the vocabulary, and in the kernel. Every arm emits it exactly never,
+while emitting 12,857 HOLE ops in v5cap alone. This is not a missing capability; the
+census (#150) already established vocabulary is 96.3% sufficient. Bore recall is 26-44%
+against a ground truth of 5-36 bores per part (median 9, mean 13, and NO holdout part has
+zero).
+
+**"80.8% built" is not reproducible because `built` is arm-dependent**, ranging 57.6% to
+73.5% across three real arms on one instrument. Any such figure is meaningless without
+naming the arm AND the binary pair.
+
+**THE BINARY PAIR IS PART OF THE MEASUREMENT.** `tools/pinned` (947b8644 + 2972e0e8) is a
+DIFFERENT instrument from the baseline pin `tools/baseline_pin_45e9ad9a` (45e9ad9a +
+20fe6e74), and `tools/pinned/BASELINE_PROVENANCE.txt` records that **zero scored artifacts
+were ever produced with 947b8644**. The numbers above are therefore internally comparable
+(one binary, all arms) but are NOT comparable to any published composite. The same arm is
+being re-measured through the baseline pin to size that gap.
+
+**What this decides.** The next round targets self-consistency and feature fidelity, not
+vocabulary. The corpus (`data/forge/selfconsist_v10`) is built measure-then-assert: every
+tree is BUILT by the kernel, every VERIFY value is read back out of the kernel's OWN
+assertion path, and the finished tree is REBUILT with that VERIFY in it, so a row whose
+assertion would fail cannot enter the corpus. An UNCHECKED assertion teaches exactly the
+defect being removed.
+
+Two design corrections worth keeping:
+
+* The census `bores` array and the VERIFY `holes` key are DIFFERENT implementations (raw
+  faces vs `unifyFaces`) and disagreed on 15 of 57 smoke rows. Reading each value back out
+  of the path that will later CHECK it removes that entire class of error.
+* The corpus asserts only what the prompt actually tells the model — `faces`, `holes`,
+  `bbox.x/y/z` are all in the census it is handed; `edges` and `volume` are not. An
+  assertion on a number the model cannot know does not teach self-consistency, it converts
+  a fidelity miss into a compile failure, which is strictly worse.
+
+**Powered?** The composite cannot answer this: sd of the paired difference is 0.2977, so
+at n=600 the smallest detectable delta is 0.0340 and +0.03 would need n=773 (D-033). The
+PRIMARY endpoints are therefore the two binomials, which this holdout resolves easily —
+build rate 57.6% -> 70% needs n=236; self-inconsistency 58% -> 25% needs 35 rows carrying
+a VERIFY, and 442 carry one. CBORE is answerable by Fisher exact at >=5 of 238 (p=0.031).
