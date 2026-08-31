@@ -13,6 +13,7 @@
 
 #include "Camera.hpp"
 #include "KernelScene.hpp"
+#include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
@@ -63,7 +64,7 @@ const char* prettyPanelName(const std::string& id) {
       {"loads", "Loads"},                 {"restraints", "Restraints"},
       {"contacts", "Contacts"},           {"convergence", "Convergence"},
       {"solver_log", "Solver Log"},       {"archie_chat", "Archie"},
-      {"archie_plan", "Plan"},            {"archie_tools", "Tools"},
+      {"archie_copilot", "CoPilot"},      {"archie_tools", "Tools"},
       {"archie_trace", "Trace"},          {"verify_report", "Verify"},
   };
   for (const Row& r : kRows) {
@@ -213,11 +214,34 @@ std::size_t ForgeFrame::wirePartCommands() {
   // command extrudes, and the solid a fillet/shell/pattern modifies. Their node
   // ids are the EntityRef::bodyId the selection carries, which is what binds a
   // typed UI selection to an IR value.
-  partDoc_.seed(forge::ui::IrValueKind::Profile, "sketch.base", "SKETCH",
-                {forge::ui::IrArg::keyword("XY")});
-  partDoc_.seed(forge::ui::IrValueKind::Solid, "body.bracket", "BOX",
-                {forge::ui::IrArg::num(80.0), forge::ui::IrArg::num(50.0),
-                 forge::ui::IrArg::num(20.0)});
+  //
+  // Two measured corrections live in these three lines.
+  //
+  // 1. The profile is a RECT, not a "SKETCH". SKETCH is not an op in the
+  //    kernel's table (FeatureIr.cpp irOpTable / forge::ft::opFromName), so
+  //    PartDocument::appendFeature REFUSED the statement, seed() returned 0, and
+  //    nothing was ever bound to "sketch.base". Measured on the code before this
+  //    changed: valueFor("sketch.base") == 0 — so part.extrude, part.revolve and
+  //    part.loft could never satisfy their own enabled predicate in the running
+  //    application. Three of the eighteen commands were dead, silently, because
+  //    seed()'s return value was discarded. It is checked now.
+  //
+  // 2. The solid is the EXTRUSION OF THAT PROFILE, not an unrelated BOX. Two
+  //    disconnected roots make every program this document emits carry an
+  //    ORPHAN — whichever seed the user did not build on — and forge::ft's s0.4
+  //    graph-quality gate refuses a program with an orphan outright:
+  //    "unexplained_orphans=1 [%2] — these ops contribute nothing to the result".
+  //    Measured: the document was not compilable at all. Chained, it is, and the
+  //    part still starts as a sketch that was extruded, which is what it is.
+  const int profileId = partDoc_.seed(forge::ui::IrValueKind::Profile, "sketch.base", "RECT",
+                                      {forge::ui::IrArg::num(80.0), forge::ui::IrArg::num(50.0)});
+  const int bodyId =
+      partDoc_.seed(forge::ui::IrValueKind::Solid, "body.bracket", "EXTRUDE",
+                    {forge::ui::IrArg::valueRef(profileId), forge::ui::IrArg::num(20.0)});
+  if (profileId == 0 || bodyId == 0) {
+    note(std::string("seed REFUSED by the document: ") +
+         forge::ui::toString(partDoc_.lastCheck()));
+  }
   const std::size_t added =
       forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
   partWired_ = true;
@@ -449,11 +473,134 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   dockArea.w = static_cast<double>(W);
   dockArea.h = static_cast<double>(H - menuH - tabsH - toolH - statH);
   if (dockArea.h < 40.0) dockArea.h = 40.0;
+  inWalk_ = true;
   drawDockedPanels(dockArea, viewportTexture);
+  inWalk_ = false;
+
+  // THE WALK IS OVER. Only now is it safe to re-seat the dock layout, the tree's
+  // row vector and the CoPilot's plan — every reference the walk was holding into
+  // them is dead. Anything recorded during the walk is applied here, and nowhere
+  // else. See applyDeferredIntent().
+  applyDeferredIntent();
 
   drawStatusStrip(H - statH, W, statH);
   drawCommandPalette();
 }
+
+// ── deferred mutation ───────────────────────────────────────────────────────
+void ForgeFrame::recordTabClick(const std::vector<std::size_t>& path, std::size_t index) {
+  if (!inWalk_) {
+    // Recorded from outside a frame: apply it now, since there is no walk to
+    // invalidate and a host that called this would otherwise see nothing happen
+    // until the next frame.
+    setActiveTabAt(path, index);
+    return;
+  }
+  pendingTabValid_ = true;
+  pendingTabPath_ = path;
+  pendingTabIndex_ = index;
+}
+
+void ForgeFrame::recordRatioDrag(const std::vector<std::size_t>& path, double ratio) {
+  if (!inWalk_) {
+    setRatioAt(path, ratio);
+    return;
+  }
+  pendingRatioValid_ = true;
+  pendingRatioPath_ = path;
+  pendingRatio_ = ratio;
+}
+
+void ForgeFrame::recordTreeExpand(forge::ui::NodeId rowId, bool expanded) {
+  if (!inWalk_) {
+    tree_.setExpanded(rowId, expanded);
+    tree_.rebuild();
+    return;
+  }
+  pendingExpandValid_ = true;
+  pendingExpandNode_ = rowId;
+  pendingExpandState_ = expanded;
+}
+
+void ForgeFrame::applyDeferredIntent() {
+  // A mutation reaching here while the walk is still live is the exact defect
+  // this whole pattern exists to prevent, so it is COUNTED rather than assumed
+  // away — deferredWalkViolations() is what the gate asserts on.
+  if (inWalk_) {
+    ++walkViolations_;
+    return;
+  }
+
+  if (pendingTabValid_) {
+    pendingTabValid_ = false;
+    setActiveTabAt(pendingTabPath_, pendingTabIndex_);
+  }
+  if (pendingRatioValid_) {
+    pendingRatioValid_ = false;
+    setRatioAt(pendingRatioPath_, pendingRatio_);
+  }
+  if (pendingExpandValid_) {
+    pendingExpandValid_ = false;
+    tree_.setExpanded(pendingExpandNode_, pendingExpandState_);
+    tree_.rebuild();
+  }
+
+  if (pendingDiscard_) {
+    pendingDiscard_ = false;
+    copilot_.discardPlan();
+  }
+  if (pendingSubmit_) {
+    pendingSubmit_ = false;
+    const std::string intent(copilotInput_);
+    const std::uint64_t id =
+        copilot_.submit(intent, forge::ui::planTools(shell_.registry(), shell_.selection()),
+                        std::to_string(shell_.selection().count()) + " entity(s) picked",
+                        std::to_string(partDoc_.records().size()) + " IR statement(s), " +
+                            std::to_string(partDoc_.featureCount()) + " feature(s)");
+    if (id != 0) {
+      copilotInput_[0] = '\0';
+      note("archie: asked for a plan (request " + std::to_string(id) + ")");
+    }
+  }
+  // Answer the request IN PROCESS with the deterministic local planner. A host
+  // that has a real model turns this off (setCopilotAutoPlan(false)), reads
+  // copilotRequest() after build(), does its own I/O and calls
+  // deliverCopilotPlan(). NOTHING HERE OPENS A SOCKET either way.
+  if (copilotAutoPlan_ && copilot_.requestPending()) {
+    const forge::ui::PlanResponse reply = localPlanner_.plan(copilot_.request());
+    const forge::ui::PlanCheck check = copilot_.deliver(reply, shell_.registry());
+    note(std::string("archie: local planner -> ") + forge::ui::toString(check));
+  }
+  if (pendingApply_) {
+    pendingApply_ = false;
+    const forge::ui::ApplyOutcome outcome = copilot_.apply(shell_, partDoc_);
+    if (outcome.requested > 0) {
+      syncSelectionToScene();
+      note("archie: " + outcome.summary());
+    }
+  }
+}
+
+// ── the CoPilot's app-facing seam ───────────────────────────────────────────
+const forge::ui::PlanRequest* ForgeFrame::copilotRequest() const noexcept {
+  return copilot_.requestPending() ? &copilot_.request() : nullptr;
+}
+
+forge::ui::PlanCheck ForgeFrame::deliverCopilotPlan(const forge::ui::PlanResponse& response) {
+  const forge::ui::PlanCheck check = copilot_.deliver(response, shell_.registry());
+  note(std::string("archie: delivered plan -> ") + forge::ui::toString(check));
+  return check;
+}
+
+void ForgeFrame::failCopilotRequest(const std::string& why) { copilot_.failRequest(why); }
+
+void ForgeFrame::copilotType(const std::string& text) {
+  std::snprintf(copilotInput_, sizeof(copilotInput_), "%s", text.c_str());
+}
+
+void ForgeFrame::copilotSubmit() { pendingSubmit_ = true; }
+void ForgeFrame::copilotApplyPlan() { pendingApply_ = true; }
+void ForgeFrame::copilotDiscardPlan() { pendingDiscard_ = true; }
 
 void ForgeFrame::drawMenuBar() {
   if (!ImGui::BeginMainMenuBar()) return;
@@ -740,7 +887,10 @@ void ForgeFrame::drawSplitter(const forge::ui::Rect& r, bool vertical,
       // splitter drift away from the cursor as the window is resized.
       const float delta = vertical ? ImGui::GetIO().MouseDelta.y : ImGui::GetIO().MouseDelta.x;
       if (parentExtent > 1.0 && delta != 0.0f) {
-        setRatioAt(path, ratio + static_cast<double>(delta) / parentExtent);
+        // RECORDED, not applied: setRatioAt() rebuilds shell_.layout(), and the
+        // drawNode() frames above this one are still holding `const DockNode&`
+        // references into the layout it frees.
+        recordRatioDrag(path, ratio + static_cast<double>(delta) / parentExtent);
       }
     }
   }
@@ -774,7 +924,12 @@ void ForgeFrame::drawTabGroup(const forge::ui::DockNode& node, const forge::ui::
       const bool on = (i == active);
       ImGui::PushStyleColor(ImGuiCol_Button, on ? rgb(52, 58, 68) : rgb(30, 33, 38));
       ImGui::PushStyleColor(ImGuiCol_Text, on ? rgb(240, 195, 120) : rgb(150, 157, 168));
-      if (ImGui::Button(prettyPanelName(node.panels[i]))) setActiveTabAt(path, i);
+      // RECORDED, not applied: `node` is a reference INTO shell_.layout(), and
+      // setActiveTabAt() re-seats that layout — the loop below would then read
+      // node.panels through a freed vector. This is one of the three
+      // use-after-frees this app has shipped; the fix is the pattern, not a
+      // careful ordering of the lines after it.
+      if (ImGui::Button(prettyPanelName(node.panels[i]))) recordTabClick(path, i);
       ImGui::PopStyleColor(2);
     }
     ImGui::PopStyleVar();
@@ -813,6 +968,8 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawMeasurePanel();
   } else if (panelId == "archie_tools") {
     drawToolsPanel();
+  } else if (panelId == "archie_copilot") {
+    drawCopilotPanel();
   } else {
     drawGenericPanel(panelId);
   }
@@ -1024,9 +1181,11 @@ void ForgeFrame::drawFeatureTreePanel() {
         ImGui::PushID(static_cast<int>(rowIndex));
         ImGui::Indent(static_cast<float>(row.depth) * 14.0f * dpiScale_);
         if (row.hasChildren) {
+          // RECORDED, not applied: rebuild() re-seats the row vector that
+          // `row` refers to and that this clipper loop keeps indexing with
+          // rowAt() for the rest of the window.
           if (ImGui::SmallButton(row.expanded ? "-" : "+")) {
-            tree_.setExpanded(row.id, !row.expanded);
-            tree_.rebuild();
+            recordTreeExpand(row.id, !row.expanded);
           }
           ImGui::SameLine();
         } else {
@@ -1273,6 +1432,103 @@ void ForgeFrame::drawToolsPanel() {
     }
   }
   ImGui::EndChild();
+}
+
+// ── the Archie CoPilot ──────────────────────────────────────────────────────
+// A transcript, an op plan, and one button that applies it. EVERY control here
+// RECORDS INTENT and returns; nothing below mutates the plan, the layout or the
+// document, because this function runs inside the dock walk. The plan rows are
+// drawn from a `const Plan&` that lives in copilot_, and applying would re-seat
+// exactly that vector.
+void ForgeFrame::drawCopilotPanel() {
+  copilotRowsDrawn_ = 0;
+  const forge::ui::ArchieCopilot& cp = copilot_;
+
+  ImGui::TextColored(rgb(242, 158, 38), "Archie CoPilot");
+  ImGui::SameLine();
+  ImGui::TextColored(rgb(130, 137, 148), "  %zu accepted | %zu refused | %zu step(s) applied",
+                     cp.plansAccepted(), cp.plansRefused(), cp.stepsApplied());
+  ImGui::TextDisabled("planner: %s%s", copilotAutoPlan_ ? "local (deterministic, offline)"
+                                                        : "host-supplied",
+                      cp.requestPending() ? "  |  REQUEST PENDING" : "");
+  ImGui::Separator();
+
+  // ── transcript ──────────────────────────────────────────────────────────
+  const float bodyH = ImGui::GetContentRegionAvail().y;
+  const float transcriptH = std::max(48.0f, bodyH * 0.34f);
+  if (ImGui::BeginChild("##copilot_log", ImVec2(0, transcriptH), ImGuiChildFlags_None)) {
+    if (cp.transcript().empty()) {
+      ImGui::TextDisabled("Ask for an edit. This planner is literal and offline: it acts on");
+      ImGui::TextDisabled("the verbs it knows, in the order you write them.");
+      std::string vocab;
+      for (const std::string& w : forge::ui::LocalPlanner::vocabulary()) {
+        if (!vocab.empty()) vocab += "  ";
+        vocab += w;
+      }
+      ImGui::TextWrapped("%s", vocab.c_str());
+      ImGui::TextDisabled("e.g.  \"extrude 20 then fillet 4\"");
+    }
+    for (const forge::ui::TranscriptLine& line : cp.transcript()) {
+      ImVec4 colour = rgb(150, 157, 168);
+      if (line.role == forge::ui::TranscriptRole::User) colour = rgb(226, 232, 240);
+      if (line.role == forge::ui::TranscriptRole::Copilot) colour = rgb(120, 200, 130);
+      ImGui::TextColored(colour, "%-7s", forge::ui::toString(line.role));
+      ImGui::SameLine();
+      ImGui::TextWrapped("%s", line.text.c_str());
+    }
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
+  }
+  ImGui::EndChild();
+  ImGui::Separator();
+
+  // ── the op plan ─────────────────────────────────────────────────────────
+  const forge::ui::Plan& plan = cp.plan();
+  const float inputH = ImGui::GetFrameHeightWithSpacing() * 2.0f + 6.0f * dpiScale_;
+  const float planH = std::max(40.0f, ImGui::GetContentRegionAvail().y - inputH);
+  if (ImGui::BeginChild("##copilot_plan", ImVec2(0, planH), ImGuiChildFlags_None)) {
+    if (plan.empty()) {
+      ImGui::TextDisabled("(no plan on offer)");
+    } else {
+      ImGui::TextColored(rgb(242, 158, 38), "PLAN  %s", plan.summary.c_str());
+      ImGui::TextDisabled("every step runs through ForgeShell::run -> CommandRegistry::dispatch,");
+      ImGui::TextDisabled("the same path a menu click takes. There is no other door.");
+      ImGui::Spacing();
+      for (std::size_t i = 0; i < plan.steps.size(); ++i) {
+        const forge::ui::PlanStep& step = plan.steps[i];
+        ImGui::PushID(static_cast<int>(i));
+        ImGui::TextColored(rgb(120, 170, 230), "%zu.", i + 1);
+        ImGui::SameLine();
+        ImGui::TextWrapped("%s", step.display().c_str());
+        ImGui::TextDisabled("    selects %s", forge::ui::toString(step.select));
+        if (!step.note.empty()) ImGui::TextDisabled("    %s", step.note.c_str());
+        ImGui::PopID();
+        ++copilotRowsDrawn_;
+      }
+    }
+  }
+  ImGui::EndChild();
+
+  ImGui::BeginDisabled(plan.empty());
+  // RECORD-THEN-APPLY. Not copilot_.apply(): that re-seats the very vector the
+  // loop above just walked, and the panel would be reading freed steps on the
+  // next frame's first draw.
+  if (ImGui::Button("Apply plan")) copilotApplyPlan();
+  ImGui::SameLine();
+  if (ImGui::Button("Discard")) copilotDiscardPlan();
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  ImGui::TextDisabled("%zu step(s)", plan.size());
+
+  // ── the input line ──────────────────────────────────────────────────────
+  ImGui::SetNextItemWidth(-90.0f * dpiScale_);
+  const bool entered =
+      ImGui::InputTextWithHint("##copilot_in", "describe the edit...", copilotInput_,
+                               sizeof(copilotInput_), ImGuiInputTextFlags_EnterReturnsTrue);
+  ImGui::SameLine();
+  ImGui::BeginDisabled(cp.requestPending());
+  const bool sent = ImGui::Button("Send");
+  ImGui::EndDisabled();
+  if (entered || sent) copilotSubmit();
 }
 
 void ForgeFrame::drawGenericPanel(const std::string& panelId) {

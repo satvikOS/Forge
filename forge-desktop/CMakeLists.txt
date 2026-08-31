@@ -185,8 +185,20 @@ target_link_libraries(forge_desktop_frame_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_frame_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# The Archie CoPilot gate. Same headless shape as the frame gate, and it links
+# the kernel core too: it follows the CoPilot's edits all the way through
+# forge::ft::compile, because "the panel dispatched something" is not the claim —
+# "what it dispatched builds the solid it said it would" is.
+add_executable(forge_desktop_copilot_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/copilot_gate.cpp")
+target_compile_options(forge_desktop_copilot_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_copilot_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_copilot_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 enable_testing()
 add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
+add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
 
 # A run helper that sets VK_ICD_FILENAMES, so "how do I run it" has one answer.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/run_forge.sh.in"
