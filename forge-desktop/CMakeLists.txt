@@ -139,7 +139,12 @@ endforeach()
 # Compiled from source rather than linked from a prebuilt library: ui/ has no
 # CMakeLists of its own (its gate compiles the sources directly), and adding one
 # would change what `ui/test/run_ui.sh` builds.
-file(GLOB FORGE_UI_SOURCES "${FORGE_UI_DIR}/src/*.cpp")
+# CONFIGURE_DEPENDS: without it this glob is evaluated ONCE, at configure time, and
+# a NEW forge::ui source added later is silently absent from the link -- the build
+# fails with undefined symbols in a file nobody touched, or worse, links against a
+# stale object and the gate reports a pass it did not earn. Cost is one re-glob per
+# build; the alternative is a class of failure that looks like someone else's bug.
+file(GLOB FORGE_UI_SOURCES CONFIGURE_DEPENDS "${FORGE_UI_DIR}/src/*.cpp")
 add_library(forge_ui STATIC ${FORGE_UI_SOURCES})
 target_include_directories(forge_ui PUBLIC "${FORGE_UI_DIR}/include")
 # SR-3: -Wall -Wextra -Werror on FIRST-PARTY code. forge::ui is first-party.
