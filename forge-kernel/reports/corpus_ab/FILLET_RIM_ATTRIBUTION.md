@@ -194,8 +194,8 @@ Every part moved in exactly one of two ways, and no part moved in any other:
 
 * `native |dV| / independent closed form` = **1.000000000 on 59/59**, computed by the
   census probe from the cap ring, sharing no code with the engine.
-* **All 59 are BRepCheck-VALID**, and on the 58 where OCCT also builds, both arms
-  report the same face count.
+* **All 59 are BRepCheck-VALID**, and on the 58 where OCCT also builds the two arms
+  agree on **face, edge AND vertex counts, 58/58 on each**.
 * The two arms' **total** volumes agree to **2.2e-6 - 5.0e-6** relative. That residual
   is OCCT's approximation of the blend on STEP extrusion surfaces (§2), of the same
   size and sign as the 7e-4 seen on the removed volume itself. It is larger than the
@@ -253,8 +253,9 @@ Four limits, stated because they bound what the numbers above mean:
   ok)" against the engine at `71df437a`** — the defect of §4 is real and this is what
   stops it); and the same prism with the hole at 1.5R must still build, be valid, and
   match OCCT, so the guard is not a blanket refusal of holed caps.
-  Compiled against the **pristine** engine the file scores **86/90** with both RIM
-  build cases red — the gate is red before the change and green after.
+  Compiled against the **pristine** engine the same file scores **90/96**, with six
+  failures: both RIM build cases, the holed-prism build, and the three deferral-reason
+  assertions. The gate is red before this work and green after.
 * `test/build_fillet_defer_census.sh --selftest` — **5/5** controls (was 4/4). The new
   RIM control asserts, before any corpus number exists, that OCCT propagates
   (351.62 against 84.98 for one edge), that the closed form reproduces OCCT to
