@@ -1,10 +1,15 @@
 # FORGE DELETION PLAN — what "delete all old Forge versions" comprises, and the order it becomes safe
 
-**Status: PLAN ONLY. Nothing is deleted by this document or by the PR that carries it.**
-The standing order is to delete all old Forge versions from the repo and locally. D-018 gated
-that on four conditions. This document supplies what D-018 deferred: the exact inventory, the
-load-bearing analysis, what each deletion breaks *by name*, and the order in which each tier
+**Status: §1–§8 were PLAN ONLY. §9 is a SECOND PASS that measured again and retired three more
+files.** The standing order is to delete all old Forge versions from the repo and locally. D-018
+gated that on four conditions. This document supplies what D-018 deferred: the exact inventory,
+the load-bearing analysis, what each deletion breaks *by name*, and the order in which each tier
 becomes safe.
+
+> **START HERE if you are the next pass.** §1–§8 were measured at `5adc26a0` and several of
+> their numbers have since moved. **§9.7 lists every one that changed**, §9.6 is the current
+> blocker list, and §9.0 names the tree §9 was measured on. Do not re-derive a plan from a §1–§8
+> figure without checking it against §9.7 first.
 
 ## 0. Provenance — the tree every number below was measured on
 
@@ -549,3 +554,265 @@ this machine. But the analysis moves the boundary: **T1–T3 — 124,572 LOC inc
 JavaScript kernel — are gated on engineering evidence this programme can produce, not on the
 Developer ID**, and the CTest wiring that the migration manifest called "the true blocker" is
 already in place.
+
+---
+
+# 9. SECOND PASS — 2026-08-31, after #140 / #142 / #143
+
+**Everything above §9 is the FIRST pass and its numbers were taken at `5adc26a0`.** Where §9
+contradicts it, §9 is the later measurement and §9.7 says so by row. Read §9.6 for the blocker
+list a third pass should start from.
+
+## 9.0 Provenance
+
+| | |
+|---|---|
+| Tree | a worktree branched from `origin/claude/sacrosanct-execution-20260828` (`d19a9d71`) with `origin/archdisc` (`7d92a709`) merged in |
+| Merge commit | `12a09d37` |
+| Why the merge was mandatory | the execution branch did **not** contain #138, #140, #142 or #143. Measured on it before the merge: `gen_archie_op_vocabulary.py --check` → *18 ops, 31 commands*. After the merge: *28 ops, 41 commands*. Regenerating either artefact on the pre-merge base would have silently deleted the ten ops #140 added. |
+| Generated artefacts | both `--check`s pass **as merged**, with no regeneration needed: `archie_op_vocabulary.json` (28 ops, 41 commands, 8 sources) and `ui/include/forge/ui/ArchieOpVocabulary.hpp` (28 allowed ops, sha `7508d957f421`) |
+
+## 9.1 What was retired this pass, and the citation for each
+
+Three files, 122 lines. Every one is verified by execution, not by reading.
+
+| File | Lines | Why it could go |
+|---|---:|---|
+| `e2e/forge/forge-v3-live.spec.js` | 33 | Its header says it mounts *"the v3 app"* and waits for *"the v3 grid"*. `frontend/src/forge-app` has **0 tracked files** (positive control: `frontend/src/forge-v4*` → 605). It carries **zero** `expect(` — measured — so its only outputs were a PNG named `99-v3-live` and a console dump of whatever `electron/main.js` rendered, which is v4. What it stood in for on the C++ side: `forge_desktop_frame_gate` and the new `forge_desktop_click_gate` (`forge-desktop/CMakeLists.txt:378,381`), which assert a rendered frame headlessly *and* assert it again after a real ImGui click. |
+| `e2e/forge/_helpers.js` | 71 | After the row above it had **no importer anywhere in the tree**. The grep that says so carries its own positive control in the same output: the identical pattern over `e2e/forge/*.js` returns `cadgenbench-cua-helper.js` ×3, `demo-leap1a-full-process.spec.js` ×1, `forge-v4/skeleton.js` ×1 and `_helpers` ×1 — it is not a blind grep. Its own header states its purpose: tests *"must not require the React-mounted Forge app shell to exist (Forge-26 is in flight)"*. That shell shipped; this is the pre-shell harness. The two specs the README paired it with (`forge-bridge.spec.js`, `forge-viewport.spec.js`) had already left the tree. |
+| `e2e/forge/demo-ge9x-full-process.spec.js` | 18 | A self-declared **"DEPRECATED SHIM → demo-leap1a-full-process"** whose entire body is `require('./demo-leap1a-full-process.spec.js')`. The replacement it names is present (54,157 bytes). Nothing referenced the shim, and under Playwright it registered the LEAP-1A tests a **second** time. This one's replacement is JS, not C++: it is the retirement of an older Forge *demo target* by a newer one, which is squarely "delete old Forge versions", and it is labelled as such rather than dressed up as a C++ citation. |
+
+`e2e/forge/*.spec.js` goes **244 → 241**. `e2e/forge/README.md` was corrected in the same commit:
+its file table had **two** rows naming specs that were already gone.
+
+**The `forge-v3` path prefix is now gone from the repository.** §3.1 measured
+`git ls-files | grep -oE 'forge-v[0-9]+'` as two prefixes — `forge-v4` (605) and `forge-v3` (2).
+The same command on this tree returns **`605 forge-v4`** and nothing else. That closes the
+literal reading of "delete all old Forge versions": no *named* old version remains. What remains
+is the far larger thing the standing order actually means — the JavaScript Forge itself — and
+§9.6 is its blocker list.
+
+**What was examined and NOT deleted** — the honest half:
+
+* The other four `e2e/forge` specs that assert no selector (`demo-ge9x…` was the fifth).
+  `v4-console-debug.spec.js` and `_front20-diag.spec.js` still smoke the boot path and the FEA
+  dispatch watchdog; `v4-199-sw.spec.js` and `v4-kernel-introspect.spec.js` assert addon
+  lifecycle. None is dead.
+* **All 201 orphaned `forge-kernel/test` JS files.** See §9.3 — the probe that was supposed to
+  find dead ones among them found **zero**, and the ones with the most obvious-looking C++ twin
+  turn out not to have one.
+* `e2e/forge/playwright.headless.config.js` — still cited by `cadgenbench-cua.spec.js`.
+
+## 9.2 GATE 3 was stuck at 11.0% because the instrument could not see #140
+
+`forge_deletion_inventory.py` reported **11.0% both before and after** #140 took the registry
+30 → 41 commands and 18 → 28 ops. The registry grew by ten and the measured coverage did not
+move. The cause was the synonym table, not the app: the JS names are `part.make-*` and the new
+C++ ids are `part.primitive_*`, so every new command landed in "C++ commands with NO JS
+counterpart".
+
+Eight pairs were checked on **both** sides — same primitive, same parameters, same units — and
+added, each with its file:line in the table so any one can be rejected individually:
+
+| JS tool | C++ command | evidence |
+|---|---|---|
+| `part.make-box` | `part.primitive_box` | `ForgeToolBridge.js:1009` (dx,dy,dz mm → `forge.makeBox`) vs `PartCommands.cpp:775` (dx,dy,dz → `BOX`, `requirePositive` on all three) |
+| `part.make-cylinder` | `part.primitive_cylinder` | `:1016` vs `PartCommands.cpp:811` |
+| `part.make-sphere` | `part.primitive_sphere` | `:1022` vs `PartCommands.cpp:901` |
+| `part.make-cone` | `part.primitive_cone` | `:1027` (r1,r2,h) vs `PartCommands.cpp:853` |
+| `part.make-torus` | `part.primitive_torus` | `:1034` (major,minor) vs `PartCommands.cpp:928` |
+| `part.make-prism` | `part.primitive_prism` | `:1040` (nSides, circumRadius, height) vs `PartCommands.cpp:970` |
+| `part.make-tube` | `part.primitive_tube` | `:1069` (rOuter, rInner, height, `rInner < rOuter`) vs `PartCommands.cpp:1011` — **the same `rInner < rOuter` guard on both sides** |
+| `part.rotate` | `part.rotate` | `:1102` (axis + angle in radians) vs `PartCommands.cpp:1108` |
+
+**Gate 3 is now 26 / 164 = 15.9%**, up from 11.0%. Nothing was relaxed and the denominator is
+unchanged. Five JS primitives still have no C++ command at all — `part.make-ellipsoid`,
+`part.make-pyramid`, `part.make-wedge`, `part.pipe`, `part.sweep` — and the per-discipline
+picture is unmoved where it matters:
+
+```
+part          25 / 104        simulate       0 / 29
+sketch         1 /   6        drawing        0 / 12
+                              assembly       0 /  8
+                              manufacture    0 /  5
+```
+
+Four of six disciplines are still at **zero**. Gate 3 is **NOT met**.
+
+The lesson is the one this programme keeps paying for: *a stale instrument reports the same
+number after a real change, and that steadiness reads exactly like a true negative.* The
+synonym table is now dated and commented so the next capability landing is checked against it.
+
+## 9.3 The 201 orphans: a probe that found nothing, and why that is the result
+
+Two hypotheses were tested against `forge-kernel/test`'s 201 JS files that have no invoker and
+no importer.
+
+**(a) Are any of them dead — naming a file that is not in the tree?** A probe resolved every
+relative module specifier and every literal path in all 201. **0 of 201.** The first run of that
+probe said **66 of 201**, and it was wrong: it counted `../build/Release/forge-kernel.node` — the
+cmake-js output, untracked and absent in a cold tree — as a missing dependency. *A build artifact
+is not evidence of death.* The same probe over `e2e/` (407 files) also returns **0**, after two
+corrections: its dependency pattern was newline-blind, and it counted `e2e-output/` directories
+the specs `mkdirSync` themselves. Both versions only became trustworthy once the **positive
+control** fired — the deleted `forge-v3-shell.spec.js`, restored from git into a temp name, must
+be flagged, and it is. Its two remaining flags in `e2e/` are false positives on inspection: a
+specifier inside a comment, and two `import()` calls inside `page.evaluate` that resolve in the
+*renderer*, one of which is guarded by `.catch(() => null)` beside a comment reading
+*"require() doesn't work in the renderer"*.
+
+**(b) Do any have a C++ replacement already registered as a CTest?** The six `native_*` orphans
+are the best-looking candidates. They do **not**:
+
+* `native_vs_occt_fillet_prism.mjs` and `native_vs_occt_chamfer_prism.mjs` exercise
+  `filletSolidStraightConvexEdgeAnalytic` on **non-orthogonal** dihedrals (n-gon prisms,
+  δ ∈ {60°, 120°, 135°}) against a closed form *and* OCCT. `git grep -l
+  filletSolidStraightConvexEdgeAnalytic` over `forge-kernel/{test,src,include}` returns the two
+  `.mjs` files and three implementation files — **no C++ test**. The registered gates
+  (`native_vs_occt_fillet`, `_curved`, `_ext`) cover the 90° box edge, the concave reflex edge
+  and edge chains. Deleting these two would delete the only written statement of the general
+  dihedral case.
+* `native_vs_occt_varfillet_box.mjs` / `native_vs_occt_partvarfillet_box.mjs` *do* have a C++
+  twin — `forge-kernel/test/native_vs_occt_fillet_var.cpp` — and it is **not in
+  `FORGE_AB_GATES`**, so CMake never compiles it and CTest never runs it. See §9.4.
+* `native_vs_occt_features_gap1.mjs` covers `shell` / `rib` / `holeWizard` / the pattern trio
+  with volume + COM + watertightness + Euler-χ/genus + a `kindOf()` check that the native path
+  was actually taken. No registered gate asserts that set.
+
+The ~120 `smoke-*.js` files are a different shape again: they test **C++ engineering solvers**
+(`kernel.bearing`, `kernel.woodbeam`, …) against published reference values, reachable only
+through the N-API layer. They are JS tests of C++ code, and there is no C++ test for them.
+
+**So T2's entry condition still binds per file, and the honest count of T2 files retireable
+today is zero.** "No caller" remains a reachability fact, not a value fact.
+
+## 9.4 NEW BLOCKER FOUND: 27 C++ harnesses that no gate runs
+
+`forge-kernel/CMakeLists.txt` names **45** A/B gates in `FORGE_AB_GATES`. The top level of
+`forge-kernel/test/` holds **73** `.cpp` files. **27 of them are in no CMake target at all** —
+**12,315 lines** of C++ acceptance code that is never compiled and never run:
+
+```
+ab_native_fillet_concave_occt   857   corpus_ab_coverage             1462
+ab_pipeshell_transition_occt    338   offsetshape_defer_census       1010
+callsite_concave_fillet_test    145   fillet_defer_census             895
+cam_inwardoffset_coverage_ab    143   native_occt_wire_activation_test 664
+cam_inwardoffset_geom_probe     185   native_vs_occt_iges             657
+cam_inwardoffset_ring_probe     164   native_occt_import_test         556
+draft_defer_probe               387   thicksolid_mixed_closedform     560
+golden_corpus_measure           312   thrusections_engine_census      490
+native_fuse_mesh_operand_test   255   thrusections_defer_census       357
+native_hlr_import_perf           67   tkoffset_gh_defer_census        388
+native_hlr_perf                 112   pipeshell_defer_census          333
+native_thicksolid_nesting_gate  210   thicksolid_input_census         421
+native_vs_occt_fillet_var       159   tkoffset_gh_quality_probe       210
+thicken_orientation_gate        108
+```
+
+Negative control: a typo in `FORGE_AB_GATES` would appear as *"listed but source ABSENT"*, and
+that count is **0**, so the list and the tree agree in the other direction.
+
+**A file nothing compiles cannot fail.** This is not a curiosity — it is the cheapest blocker on
+the board. Registering `native_vs_occt_fillet_var` is the single named prerequisite for retiring
+two of the six `native_*` orphans, and it costs one line in `FORGE_AB_GATES` plus a green run.
+Registering `thicken_orientation_gate` (108 lines) and `native_thicksolid_nesting_gate` (210) is
+comparably cheap. **This work is not gated on the Developer ID, on gate 3, or on any build the
+JS side owns.**
+
+## 9.5 The frontend bundle reaches 555 of 1,103 files — and only **5** of the 239 JS-kernel files
+
+Vite has exactly one entry: `frontend/index.html` → `src/main.jsx`. `frontend/vite.config.js`
+declares no additional `rollupOptions.input` (read, not assumed), and neither `electron/main.js`
+nor `electron/preload.js` imports anything under `frontend/`. Walking static imports, dynamic
+`import()`, `require()`, `export … from` and `import.meta.glob` from that entry:
+
+| | files | reachable | unreachable |
+|---|---:|---:|---:|
+| all tracked `frontend/**` code | 1,103 | 555 | **548** |
+| `frontend/src/forge-v4` (F1) | 597 | 534 | 63 |
+| `frontend/src/kernel` (F2 — the JS kernel) | 239 | **5** | **234** |
+| `frontend/src/foundation` (F3) | 171 | 7 | 164 |
+
+The **five** reachable JS-kernel files are, in full:
+
+```
+frontend/src/kernel/forge/index.js               (a 67-line window.forge facade, NOT a barrel — read)
+frontend/src/kernel/forge/RebuildEngine.js
+frontend/src/kernel/forge/ReferenceGeometry.js
+frontend/src/kernel/forge/Drawings.js
+frontend/src/kernel/forge/drawings/TitleBlocks.js
+```
+
+Controls, because a reachability number is worthless without them:
+
+* **Positive.** The `CommandBar → ForgeShellV4 → ForgeRunner → ForgeToolBridge → kernelDispatch`
+  chain is proved live by `e2e/forge/cadgenbench-cua-helper.js:16-23`. All five are reached. Had
+  the walk missed one, the 548 would be fiction.
+* **Bound on the unknown.** Exactly one unresolvable dynamic import exists in the tree —
+  `frontend/src/forge-v4/faiReportPdf.js:34`, `import(/* @vite-ignore */ specifier)` — and three
+  lines above it the specifier is built as `'js' + 'pdf'`. It resolves to a **bare package**, so
+  it cannot reach any tracked file and does not loosen the count.
+* **`import.meta.glob` roots expanded: 0.** Vite's directory-pulling form is not used, so no
+  subtree enters the graph invisibly.
+
+**NOT REACHED IS NOT UNUSED, and this must not be misread as a licence to delete 548 files.**
+`npm run forge:unit` runs `frontend/src/kernel/forge/__tests__/*.test.mjs` and the default
+branch's `npm test` runs `frontend/src/__tests__/*.mjs` — both are outside the bundle graph and
+both are live gates. What the number *does* establish is narrower and still large:
+
+**T1's second entry condition — "`frontend/` no longer imports `src/kernel`" — is five files
+away, not 239.** The duplicate JavaScript geometry kernel is 97.9% absent from the shipped
+application already. That reorders the tier: the expensive part of T1 was never the unpicking,
+it is entry condition 1, the per-op A/B oracle, and the 45 registered A/B gates compare
+`forge_kernel_core` against **OCCT**, not against the JS kernel. No gate in the tree compares
+the two kernels on anything.
+
+## 9.6 THE BLOCKER LIST A THIRD PASS STARTS FROM
+
+Ordered by cost, cheapest first. Each entry says what would have to be **built**, not what would
+have to be decided.
+
+| # | Blocker | Blocks | What has to be built | Gated on the Developer ID? |
+|---|---|---|---|---|
+| B1 | 27 C++ harnesses are in no CMake target (§9.4) | T2, T3 | add each to `FORGE_AB_GATES` (or its own `add_test`), fix whatever bit-rot the compile exposes, prove each fails by mutation | **no** |
+| B2 | No gate compares the JS kernel to `forge_kernel_core` | T1 (cond. 1) | a per-op A/B asserting a **vector** of observables — volume alone has been proved insufficient — plus a positive control that the two arms differ | **no** |
+| B3 | 5 files still couple the app to the JS kernel (§9.5) | T1 (cond. 2) | repoint `RebuildEngine` / `ReferenceGeometry` / `Drawings` / `TitleBlocks` at the C++ path, or move them out of `src/kernel` | **no** |
+| B4 | 201 orphans have no per-file evidence transcription (§9.3) | T2 | for each, a registered CTest asserting the same property — 6 `native_*` and ~120 `smoke-*` are individually named above | **no** |
+| B5 | `forge_capi.h` does not reach the 445-binding surface | T3 | CAPI coverage of the subset the 41 reachable JS tests exercise, plus `forge_capi_smoke.cpp` over it | **no** |
+| B6 | `kernel-tests.yml` runs node in 18 places (§9.7 table) | T3 | replace each `node …` step with a `ctest` step and prove the replacement fails by mutation | **no** |
+| B7 | No C++ owner for `frontend/src/foundation` (171 files) or the AI bridge | T4 | a C++ module + numeric gate per engineering domain; `bridge-prompt-contract.test.mjs` must move first — the default branch's `npm test` runs it | **no** |
+| B8 | Gate 3 at **15.9%** (§9.2) | T5 | ~24 more C++ commands to cover `part`; **all** of `simulate` (29), `drawing` (12), `assembly` (8), `manufacture` (5); the constraint sketcher | **no** |
+| B9 | 1,170 `data-testid` assertions have no native harness | T5 | a native UI-automation harness. `forge_desktop_click_gate` (450 lines, `forge-desktop/CMakeLists.txt:381`) is the **first real instalment** — it drives `io.AddMousePosEvent` / `io.AddMouseButtonEvent` headlessly and asserts on a **further** frame. It covers dock tabs and splitter drags, not the 1,170. | **no** |
+| B10 | No Gatekeeper-acceptable bundle | T5, T6 | a paid Developer ID + notarization. D-019 established with a positive control that a trivial one-Mach-O `.app` is still `rejected, exit 3` ad-hoc signed. | **YES — and only B10** |
+| B11 | `build-app.yml` on the default branch ships the JS app | T6 | retire it, after `desktop-release.yml` publishes an artifact | via B10 |
+
+**Cleared since the first pass:** `desktop-release.yml` **is now on `origin/archdisc`** —
+`git ls-tree origin/archdisc -- .github/workflows/` lists it beside `kernel-tests.yml`. §4.1 said
+it was absent and that `workflow_dispatch` therefore could not even dry-run there. That half of
+T5's third entry condition is met; the other half (a dispatched run that produced an artifact) is
+not measured here.
+
+**Still true, and worth restating because it is the most useful fact in this document:** of the
+eleven blockers, **exactly one** (B10) needs the credential. B1 is a day's work and unblocks
+part of B4.
+
+## 9.7 Corrections to the first pass
+
+| §  | Said at `5adc26a0` | Measured at `12a09d37` |
+|---|---|---|
+| §1 / §5 T5 cond. 3 | `desktop-release.yml` is **not** on the default branch | it **is** — `git ls-tree origin/archdisc -- .github/workflows/` lists `desktop-release.yml` and `kernel-tests.yml` |
+| §1.1 | forge-desktop registers **3** CTests | **5** + mutation variants: `frame`, `ir_pipeline`, `document`, **`click`**, **`update`** (`forge-desktop/CMakeLists.txt:378-392`) |
+| §2.3 / §2.4 | gate 3 coverage **11.0%**, registry **30** | **15.9%**, registry **41**, ops **28**. The 11.0% was correct for the tree it was taken on *and stayed 11.0% after #140 because the synonym table was stale* — §9.2 |
+| §2.4 | forge-kernel registers **44** A/B gates | **45** in `FORGE_AB_GATES`; and **27** further `.cpp` harnesses are in no target at all (§9.4) |
+| §3 | `e2e/forge` 250 files / 40,436 LOC | **246 files / 40,188 LOC** after #138's one deletion and this pass's three |
+| §4.2 | *(no consolidated list)* | §9 adds one: **55** lines across `kernel-tests.yml` (18), `package.json` (22) and `forge-kernel/CMakeLists.txt` (15) name a node runtime. `desktop-release.yml` and `forge-desktop/CMakeLists.txt` name it **zero** times — the C++ ship path has no Node dependency to lose. |
+| §5 T1 cond. 2 | *"`frontend/` no longer imports `src/kernel`"*, stated as if the whole 239 were coupled | **5 files**, named in §9.5 |
+| — | *(not measured)* | 548 of 1,103 frontend code files cannot enter the Vite bundle (§9.5) |
+
+## 9.8 The one-line answer, second pass
+
+**Four files and ~155 MiB of local residue are now retired; the next tranche is not blocked on
+the Developer ID, it is blocked on 27 C++ harnesses that nothing compiles.** Gate 3 moved
+11.0% → 15.9% — real progress from #140, invisible until the measuring instrument was repaired —
+and the duplicate JavaScript kernel turns out to be 234/239 unreachable from the shipped bundle,
+which makes T1 a question about building one A/B oracle rather than about unpicking a kernel.
