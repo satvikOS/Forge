@@ -1653,3 +1653,78 @@ Related: `FeatureTreeCompiler.cpp` calls `setForgeNativeBrepEnabled(false)` for 
 **100% of corpus booleans run on OCCT today**. And OCCT is not always a working incumbent — for
 THICKSOLID *all 133 of its successes are `BRepCheck`-INVALID*, and it segfaults on the gold
 reference parts (see the null-pcurve report).
+
+## D-039 (2026-08-31): a symbol reference is not a call path — the app-crash exposure was overstated, and the real crash is OFFSETSHAPE
+
+I relayed to the owner that the OCCT null-pcurve segfault was "reachable from ordinary modelling,
+not just SHELL", citing `BRepClass3d_SolidClassifier` / `UVBounds` / `BRepGProp` being referenced
+from ten kernel sources including `MassProps.cpp`. **That was wrong.** The agent that produced the
+claim ran the experiment that could disprove it, and did.
+
+### What the evidence actually shows
+
+| probe | result |
+|---|---|
+| all 600 gold parts through `forge::ft::compile` in ONE process, under the app's own `catch(...)` — the exact call `KernelScene.cpp:109` makes, ending in `massProperties` (`FeatureTreeCompiler.cpp:2325`) | **600 ok, 0 crashes** |
+| `SHELL(%0, 2.0)` — the app's default thickness | 351 parts, **0 crashes** |
+| `SHELL(%0, 5.0)` | 297 parts, **0 crashes** |
+| `THICKSOLID` (`MakeThickSolidByJoin`, exactly what `part.shell` calls) on the 66 worst parts | **0 crashes** |
+
+★And the reachability argument is decisive: the crashing engine has **no command, no keybinding,
+and no opcode in the IR's 40-op table** — `SHELL` is in it, `OFFSET` is not — and `offsetSolid`'s
+only caller is `binding.cpp:4940` in the Node addon, which `-DFORGE_BUILD_NODE_ADDON=OFF` excludes
+from the release build entirely.
+
+### The rule this establishes
+
+★**A SYMBOL REFERENCE IS NOT A CALL PATH.** A name in `nm -u` proves the linker resolved it. It
+does not prove any reachable code calls it, still less that a user can cause it to be called. The
+agent's own words: *"I treated a symbol reference as a call path. They are not the same thing."*
+
+This is the third member of a family that has now cost this project three separate wrong claims in
+one day:
+* a grep **hit** is not a capability (SubD: 17 of 18 hits were `subdiag` and octree `subdivide`)
+* a grep **miss** is not an absence (`ClassASurfacing.cpp` is 760 live lines; the code spells it
+  `ClassA`, and the search was for `"Class A"`)
+* a **symbol reference** is not a call path (this entry)
+
+In every case the remedy was the same and cheap: **ask the instrument.** Probe the binary, run the
+call, drive the real entry point.
+
+### The crash is real, and now precisely located
+
+`corpus_ab_coverage` already had a `--no-fork` flag, so the reproducer needed no new code — same
+binary, same part, same engine, one variable:
+
+```
+--no-fork   ->  "Segmentation fault: 11", rc=139, process dead
+(default)   ->  occt status: CRASH, note "signal 11", rc=0, run continues
+```
+
+Swept unforked over all 600 gold parts: **66 died (11.0%), every one rc=139, not a single
+timeout.** Re-run per family across 198 runs: **66/66 are OFFSETSHAPE**
+(`BRepOffsetAPI_MakeOffsetShape::PerformByJoin`). `THICKSOLID` 0/66. `THICKEN` 0/66.
+
+★The fork at `corpus_ab_coverage.cpp:335` is **per ARM, not per part** — more isolation than #137
+credited, and the whole reason the batch tooling has never been killed by this.
+
+### Two further retractions
+
+* The **arc-vs-inter caveat is withdrawn**: `corpus_ab_coverage` passes
+  `Standard_False`/`GeomAbs_Arc` at every offset call site too, so that distinction never separated
+  the app from the crashing harness.
+* **11.0%** is close to the low end of the `10.7–63.9%` build-rate range another agent reported
+  against my unqualified 80.8%. Both figures are being re-measured per arm; neither should be
+  quoted without naming its arm.
+
+### What this changes for the release
+
+The crash-risk case for holding `v0.1.0` is **materially weaker**: there is no demonstrated
+user-reachable crash, and the crashing engine is not in the release build. What survives is
+structural rather than demonstrated — the kernel is in-process, there is no `signal`/`sigaction`
+handler anywhere in `forge-desktop/src` or `ui/src`, there is no autosave, and this app has shipped
+SIGSEGVs before. Plus the product constraint that non-draft and non-prerelease leaves only a fully
+public release. That is a judgement for the owner, not a defect blocking them.
+
+The 66-part failing set is the right acceptance corpus for the out-of-process worker in #157: it is
+a known, reproducible, 11.0%-of-corpus population of real SIGSEGVs to prove isolation against.
