@@ -96,19 +96,50 @@ than crashes**, so the segfault rate is lower still. That undersells it for thre
 The faulting toolkits are `TKG2d`, `TKGeomBase`, `TKBRep`, `TKTopAlgo` — third-party code we do
 not control, and OCCT has no null check to enable. Two responses, in order:
 
-1. **Guard at construction, not at consumption.** The two paths share no consumer — one is a
-   classifier, the other is the offset builder — so guarding each call site is a losing game;
-   there will be a third path. Validate the p-curve invariant when a face is *built*, so a shape
-   that violates it never reaches OCCT. The check must not route through
-   `BRep_Tool::CurveOnSurface`, which faults in path B; inspect the edge's representation list
-   instead. A failure becomes a *diagnosable* error — "face N edge M has no p-curve on its
-   surface" — rather than a segfault.
+1. **REPAIR or TOLERATE at construction — never REJECT.** ★This is the second correction to
+   this section, and it matters more than the first. An earlier revision said to *validate* the
+   invariant at construction so a violating shape "never reaches OCCT". **That is a capability
+   gate wearing a safety hat, and it would be worse than the crash.**
+
+   The ground-truth parts this system exists to produce are exactly the shapes most likely to
+   trip it. `archie_edit_214`'s input inventory is 430 faces — `cylinder` 167, `torus` 125,
+   `bspline` 67, `sphere` 25, `cone` 4, `plane` 42 — and `task_101` is a 14-op tree yielding
+   **329 faces / 753 edges**. A construction-time reject would refuse long, dense, curved trees
+   at precisely the complexity the benchmark is made of, and the failure would look like "Archie
+   cannot build complex parts" when the truth is "we refused to".
+
+   So: when an edge has no p-curve on its face, **build one** (the p-curve is derivable from the
+   3D curve and the surface — this is what `BRepLib` exists for), and if it genuinely cannot be
+   derived, **omit that edge from the bounds accumulation and carry on**. A missing p-curve makes
+   one edge's UV contribution unknown; it does not make the solid invalid. Only if the operation
+   truly cannot proceed should it become a *diagnosable* error — "face N edge M has no p-curve on
+   its surface" — and even then it must name the face and edge so the repair loop can act.
+
+   The check must not route through `BRep_Tool::CurveOnSurface`, which faults in path B; inspect
+   the edge's representation list instead.
 2. **Native replacement removes the class.** Native code is ours and can be made total. This is
    a concrete argument for the drop ladder that is **independent of the closure count**:
    `TKGeomBase`, `TKG2d`, `TKBRep` and `TKOffset` are not merely dependencies to be retired for
    tidiness, they are actively crashing on our own generated input. Path B lands in `TKOffset`
    specifically, which the ledger already identifies as the next contested toolkit — and it
    raises the stakes on that work from "closure accounting" to "the SHELL operation segfaults".
+
+## What the target actually looks like — why "just reject it" is not available
+
+The emission length and detail this kernel has to survive are set by the ground-truth records,
+not by the current corpus:
+
+| fixture | shape |
+|---|---|
+| `task_101` | 14 authoring ops -> **329 faces, 753 edges**, volume 422 448 mm³, full per-face census |
+| `archie_edit_214` | input **430 faces**: torus 125, **cylinder 167**, bspline 67, sphere 25, cone 4, plane 42 |
+
+Two things follow. First, **the ground truth is built from primitives the 18-op UI vocabulary
+forbids** — `task_101` op 2 is literally `cylinder(r=45,h=15,at=(40,0,30))`, and `CYL` is not
+user-invocable. The gate cannot represent its own target. Second, **any safety mechanism that
+refuses degenerate geometry will fire hardest on the most valuable parts**, because face count
+and curved-surface density are what make a part both realistic and fragile. Tolerance is not a
+nicety here; it is the requirement.
 
 ## Reproducing
 
