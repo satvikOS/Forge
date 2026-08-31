@@ -144,7 +144,7 @@ jobs:
         run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
       - name: op-constraint bridge (drift check + 8 mutations)
         # The bridge is the vocabulary made ENFORCEABLE: it accepts or refuses a
-        # proposed op plan against the 18 user-invocable ops. run_ui.sh above already
+        # proposed op plan against the 28 user-invocable ops. run_ui.sh above already
         # runs its clean pass (it globs ui/test/*_test.cpp); this step is the half a
         # clean pass cannot give -- the PROOF that the gate can fail. It mutates the
         # generated header to prove the drift check refuses, then runs all 8 --mutate
