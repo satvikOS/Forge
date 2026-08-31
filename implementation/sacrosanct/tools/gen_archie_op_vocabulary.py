@@ -876,6 +876,29 @@ OP_ARG_OVERRIDES = {
                        "MIRROR(%a, px,py,pz, nx,ny,nz) -- arbitrary plane; reflect + FUSE"),
     ("MIRROR", "nz"): ("dimensionless", "plane_normal_component",
                        "MIRROR(%a, px,py,pz, nx,ny,nz) -- arbitrary plane; reflect + FUSE"),
+    # BOX's dx/dy/dz are SIDE LENGTHS, and the generic /^(dx|dy|dz)$/ rule -- written for
+    # PATTERN's and TRANSLATE's steps -- called them step_offset. Archie is trained from
+    # this file, so "the step between instances" on the argument that is the box's width
+    # is not a cosmetic mislabel. primBox: `makeBox(dx, dy, dz)` then translate by
+    # (cx - dx/2, cy - dy/2, cz).
+    ("BOX", "dx"): ("mm", "linear_size",
+                    "BOX(dx, dy, dz [, cx, cy, cz]) -- dx/dy/dz are the SIDE LENGTHS "
+                    "passed to forge::makeBox, not a pattern step"),
+    ("BOX", "dy"): ("mm", "linear_size",
+                    "BOX(dx, dy, dz [, cx, cy, cz]) -- dx/dy/dz are the SIDE LENGTHS "
+                    "passed to forge::makeBox, not a pattern step"),
+    ("BOX", "dz"): ("mm", "linear_size",
+                    "BOX(dx, dy, dz [, cx, cy, cz]) -- dx/dy/dz are the SIDE LENGTHS "
+                    "passed to forge::makeBox, not a pattern step"),
+    # A POLYGON's n counts SIDES, not copies. The generic /^(n|nx|ny|nSides|seg)$/ rule was
+    # written for the three PATTERN commands, where a count really is an instance count;
+    # reusing that word here would teach the model that REGPOLY replicates something.
+    ("REGPOLY", "n"): ("count", "side_count",
+                       "profRegPoly places n vertices at 2*pi*i/n and throws on n < 3 -- "
+                       "the number of SIDES of one polygon, not a number of copies"),
+    ("PRISM", "nSides"): ("count", "side_count",
+                          "makePrism(n, R, h) builds one n-gon profile and extrudes it; "
+                          "n is the side count of a single solid, not a number of copies"),
 }
 
 
