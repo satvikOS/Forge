@@ -65,6 +65,13 @@ class TestDocumentHost final : public DocumentHost {
     path_.clear();
     return true;
   }
+  // This stub has no starter part, so New and Reset happen to do the same thing.
+  // They are still SEPARATE overrides: a host where they coincide must say so by
+  // implementing both, not by inheriting one.
+  bool documentReset(std::string& error) override {
+    ++resets_;
+    return documentNew(error);
+  }
   bool documentOpen(const std::string& path, std::string& error) override {
     if (path.empty()) {
       error = "Open needs a path";
@@ -104,8 +111,10 @@ class TestDocumentHost final : public DocumentHost {
   void markClean() noexcept { savedRecords_ = doc_.records().size(); }
   std::size_t saves() const noexcept { return saves_; }
   std::size_t opens() const noexcept { return opens_; }
+  std::size_t resets() const noexcept { return resets_; }
 
  private:
+  std::size_t resets_ = 0;
   PartDocument& doc_;
   UndoStack& stack_;
   std::size_t savedRecords_ = 0;

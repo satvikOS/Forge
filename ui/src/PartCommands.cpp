@@ -465,8 +465,12 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.sketch_rect", "Rectangle", "RECT",
                                SelectionSignature::none());
-    c.schema.push_back(ParamSpec{"width", ParamType::Number, true, 40.0, ""});
-    c.schema.push_back(ParamSpec{"height", ParamType::Number, true, 30.0, ""});
+    c.schema.push_back(ParamSpec{.name = "width", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 40.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "height", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 30.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
     c.preview = PreviewPolicy::Live;
@@ -503,7 +507,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.sketch_circle", "Circle", "CIRCLE",
                                SelectionSignature::none());
-    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{.name = "radius", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
     c.preview = PreviewPolicy::Live;
@@ -546,9 +552,15 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.section_ring", "Section Ring", "RING",
                                SelectionSignature::none());
-    c.schema.push_back(ParamSpec{"rx", ParamType::Number, true, 20.0, ""});
-    c.schema.push_back(ParamSpec{"ry", ParamType::Number, true, 20.0, ""});
-    c.schema.push_back(ParamSpec{"z", ParamType::Number, true, 0.0, ""});
+    c.schema.push_back(ParamSpec{.name = "rx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 20.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "ry", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 20.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "z", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"p", ParamType::Number, false, 2.0, ""});
@@ -622,12 +634,23 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                                SelectionSignature::exactly(EntityKind::Sketch, 1));
     // hasDefault, so a GESTURE can run this command. ForgeShell::invoke() fills
     // only the parameters whose spec says the default MEANS something, and the
-    // braced-positional ParamSpec form below stops before that flag, so every
-    // required Part parameter defaulted to hasDefault=false and every keyboard
-    // shortcut for a Part command died on missing_required_parameter before the
-    // handler ran. The three values here are not invented: they are the honest
-    // defaults the retired ForgeShell model.* stubs already declared and shipped
-    // (distance 10, radius 1, thickness 2), moved onto the commands that emit IR.
+    // braced-positional ParamSpec form stops before that flag, so a required
+    // parameter written that way defaulted to hasDefault=false and every
+    // keyboard shortcut and menu click for it died on missing_required_parameter
+    // before the handler ran. distance 10 / radius 1 / thickness 2 are the
+    // honest defaults the retired ForgeShell model.* stubs already declared and
+    // shipped, moved onto the commands that emit IR.
+    //
+    // THIS WAS FIXED HERE FIRST AND ONLY HERE, and the other twenty-two required
+    // parameters kept the defect: measured against the registry, 23 required
+    // parameters across 13 of the 31 commands still had a usable value sitting
+    // in defaultNumber that applyDefaults() was forbidden to read. They are now
+    // all written in the designated form with hasDefault set, and
+    // forge::ui::gestureBlockedCommands() (KeymapAudit.hpp) is the standing
+    // measurement -- it reports every command a bare gesture still cannot run,
+    // and ui/test/keymap_audit_test.cpp pins that list to the two commands whose
+    // parameter genuinely has no honest value: a file path, and "the new value
+    // of the parameter you are editing".
     c.schema.push_back(ParamSpec{.name = "distance",
                                  .type = ParamType::Number,
                                  .required = true,
@@ -661,7 +684,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.revolve", "Revolve", "REVOLVE",
                                SelectionSignature::exactly(EntityKind::Sketch, 1));
-    c.schema.push_back(ParamSpec{"angle", ParamType::Number, true, 360.0, ""});
+    c.schema.push_back(ParamSpec{.name = "angle", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 360.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"axx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"axy", ParamType::Number, false, 1.0, ""});
     c.schema.push_back(ParamSpec{"axz", ParamType::Number, false, 0.0, ""});
@@ -727,7 +752,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.hole", "Hole", "HOLE",
                                SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{"diameter", ParamType::Number, true, 6.0, ""});
+    c.schema.push_back(ParamSpec{.name = "diameter", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 6.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"x", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"y", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"z", ParamType::Number, false, 0.0, ""});
@@ -756,9 +783,15 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.counterbore", "Counterbore Hole", "CBORE",
                                SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{"diameter", ParamType::Number, true, 6.0, ""});
-    c.schema.push_back(ParamSpec{"cbore_diameter", ParamType::Number, true, 11.0, ""});
-    c.schema.push_back(ParamSpec{"cbore_depth", ParamType::Number, true, 6.0, ""});
+    c.schema.push_back(ParamSpec{.name = "diameter", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 6.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "cbore_diameter", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 11.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "cbore_depth", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 6.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"x", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"y", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"z", ParamType::Number, false, 0.0, ""});
@@ -819,7 +852,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.chamfer", "Edge Chamfer", "CHAMFER",
                                SelectionSignature::atLeast(EntityKind::Edge, 1));
-    c.schema.push_back(ParamSpec{"distance", ParamType::Number, true, 1.0, ""});
+    c.schema.push_back(ParamSpec{.name = "distance", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 1.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"selector", ParamType::Text, false, 0.0, "ALL"});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
@@ -842,8 +877,12 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.variable_fillet", "Variable Fillet", "BLEND",
                                SelectionSignature::atLeast(EntityKind::Edge, 1));
-    c.schema.push_back(ParamSpec{"radius_start", ParamType::Number, true, 1.0, ""});
-    c.schema.push_back(ParamSpec{"radius_end", ParamType::Number, true, 3.0, ""});
+    c.schema.push_back(ParamSpec{.name = "radius_start", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 1.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "radius_end", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 3.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"smooth", ParamType::Flag, false, 0.0, ""});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
@@ -904,8 +943,12 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.pattern_linear", "Linear Pattern", "PATTERN",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"count", ParamType::Number, true, 2.0, ""});
-    c.schema.push_back(ParamSpec{"dx", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{.name = "count", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "dx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"dy", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"dz", ParamType::Number, false, 0.0, ""});
     c.preview = PreviewPolicy::OnDemand;
@@ -934,7 +977,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.pattern_circular", "Circular Pattern", "PATTERN",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"count", ParamType::Number, true, 4.0, ""});
+    c.schema.push_back(ParamSpec{.name = "count", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 4.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"total_angle", ParamType::Number, false, 360.0, ""});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
@@ -958,10 +1003,18 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.pattern_grid", "Grid Pattern", "PATTERN",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"nx", ParamType::Number, true, 2.0, ""});
-    c.schema.push_back(ParamSpec{"ny", ParamType::Number, true, 2.0, ""});
-    c.schema.push_back(ParamSpec{"dx", ParamType::Number, true, 10.0, ""});
-    c.schema.push_back(ParamSpec{"dy", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{.name = "nx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "ny", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "dx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "dy", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
       const double nx = num(ctx, "nx", 0.0);
@@ -984,7 +1037,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.mirror", "Mirror Body", "MIRROR",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"plane", ParamType::Text, true, 0.0, "XY"});
+    c.schema.push_back(ParamSpec{.name = "plane", .type = ParamType::Text,
+                                 .required = true, .defaultText = "XY",
+                                 .hasDefault = true});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
       const std::string p = txt(ctx, "plane", "");
