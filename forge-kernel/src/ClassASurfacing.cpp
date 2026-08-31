@@ -515,8 +515,8 @@ ContinuityReport continuityCheck(ShapeHandle face1, ShapeHandle face2,
         // G1 — tangent / normal angle. Flip nB if it points opposite to
         // nA (faces may have opposite outward normals around a shared
         // edge); we measure the acute angle.
-        double cosAng = nA.X() * nB.X() + nA.Y() * nB.Y() + nA.Z() * nB.Z();
-        cosAng = std::abs(cosAng);
+        const double nDot = nA.X() * nB.X() + nA.Y() * nB.Y() + nA.Z() * nB.Z();
+        double cosAng = std::abs(nDot);
         if (cosAng > 1.0) cosAng = 1.0;
         const double angRad = std::acos(cosAng);
         g1_max = std::max(g1_max, angRad);
@@ -528,6 +528,28 @@ ContinuityReport continuityCheck(ShapeHandle face1, ShapeHandle face2,
         try { kB = propB.MeanCurvature(); } catch (...) { kB = 0.0; }
         if (!std::isfinite(kA)) kA = 0.0;
         if (!std::isfinite(kB)) kB = 0.0;
+        // ORIENTATION. Mean curvature is signed WITH RESPECT TO THE FACE
+        // NORMAL, and two faces meeting at a shared edge routinely carry
+        // OPPOSITE outward normals (a sewn shell orients its faces by the
+        // shell, not by the pair). The G1 branch immediately above already
+        // corrects for exactly that, with std::abs(nDot); this branch did not,
+        // so it compared +k against -k and the metric ran INVERTED — the better
+        // the join, the worse the score.
+        //
+        // MEASURED on forge-kernel/build-makepipe/forge-kernel.node, two cubic
+        // patches sharing an edge with an EXACTLY matched tangent plane
+        // (g1 = 0.0000 deg) and a curvature ratio swept over the join:
+        //     curvature ratio   1x     2x     10x    40x    curved-vs-FLAT
+        //     g2_max_pct       200%   150%   110%   102.5%      100%
+        // i.e. the PERFECT G2 join scored 200% (the worst reading in the sweep)
+        // and the tangent-only join scored 100% (the best). Direct readback of
+        // the two faces confirmed the cause is purely the sign:
+        // H_A = +0.021467, H_B = -0.021467 at every sample on the shared edge.
+        // Thresholding "g2 < 5%" on the old metric accepted NOTHING; a
+        // threshold tuned to make parts pass would have selected FLAT joins.
+        // With the flip applied the same sweep is monotonic: 0%, 50%, 90%,
+        // 97.5%, 100%.
+        if (nDot < 0.0) kB = -kB;
         const double kRef = std::max({std::abs(kA), std::abs(kB), 1e-9});
         const double kDev = std::abs(kA - kB) / kRef;
         g2_max = std::max(g2_max, kDev);
@@ -538,6 +560,25 @@ ContinuityReport continuityCheck(ShapeHandle face1, ShapeHandle face2,
         // (d1 . n) * tEdge — i.e. project the edge torsion through the
         // face's normal so a face that meets the edge tangentially has
         // zero contribution. The G3 metric is the absolute difference.
+        //
+        // !!! THIS TERM IS INERT — IT IS NOT A MEASUREMENT. !!!
+        // "a face that meets the edge tangentially has zero contribution"
+        // describes EVERY face that owns the edge. d1 is the SHARED EDGE's
+        // tangent and the edge lies ON both faces, so d1 . nA == d1 . nB == 0
+        // identically and tDev is always 0. MEASURED (build-makepipe kernel,
+        // two patches with an exactly matched tangent plane and the curvature
+        // ratio swept 1x / 2x / 10x / 40x / curved-vs-flat): g3_max_pct came
+        // back 0.000e+00 in ALL FIVE cases. The `g3_max_pct < 5.0` clause in
+        // the verdict below therefore never fails, and `g3_continuity` is
+        // really a G0-and-G1-and-G2 verdict.
+        //
+        // Left in place rather than deleted so the field keeps its shape for
+        // callers, but nothing may THRESHOLD on it. A real G3 compares
+        // third-order surface derivatives (Geom_Surface::D3) across the
+        // boundary in the cross-boundary direction; that is scheduled work in
+        // forge-kernel/reports/CLASS_A_SURFACING_PROGRAMME.md. The existing
+        // push07 smoke test only asserts `typeof g3_max_pct === 'number'`,
+        // which a hardcoded 0 passes — that is why this survived.
         const gp_Vec& d1 = cProps.D1();
         const double tA = std::abs(d1.X() * nA.X() + d1.Y() * nA.Y() + d1.Z() * nA.Z()) * tEdge;
         const double tB = std::abs(d1.X() * nB.X() + d1.Y() * nB.Y() + d1.Z() * nB.Z()) * tEdge;
