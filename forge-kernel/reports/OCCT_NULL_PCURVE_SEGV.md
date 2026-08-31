@@ -1,12 +1,16 @@
-# OCCT segfaults on Archie-generated geometry — one defect class, two paths, still accumulating
+# OCCT segfaults on BOTH model output AND the GOLD REFERENCE parts — one defect class, two paths
 
 **Date:** 2026-08-31 · **Status:** MEASURED, not yet fixed · **Severity:** highest available —
 it is the only failure mode that produces no diagnostic at all.
 
 ## What happens
 
-Two different Forge binaries die with `SIGSEGV / KERN_INVALID_ADDRESS at 0x0` on
-model-emitted geometry. **At least eleven crash reports on this machine today, and the count was
+Two different Forge binaries die with `SIGSEGV / KERN_INVALID_ADDRESS at 0x0`. ★**The two paths
+crash on two different KINDS of input, and that is the most important fact in this report:**
+path A is Archie's emitted geometry, but **path B is the GOLD REFERENCE parts** —
+`runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps/*.step`, the ground truth we score
+against. OCCT's own offset operation segfaults on the reference corpus. This is therefore not a
+"the model emits bad geometry" defect. **At least eleven crash reports on this machine today, and the count was
 still rising at 16:57 while this was being written** — `corpus_ab_coverage` is crashing
 repeatedly under a running A/B job. All but one are the same bug, reached by two different
 paths. The table below is a sample, not a census; treat the rate as *sustained*, not as eleven.
@@ -60,9 +64,19 @@ BRep_Tool::CurveOnSurface(TopoDS_Edge const&, handle<Geom2d_Curve>&, ...)   <-- 
 ```
 
 Same missing p-curve, reached while OCCT intersects the edges of an offset — the operation
-behind `SHELL`. **This path is in `libTKOffset`**, which is the toolkit at the top of the drop
-ladder, and it means the crash is not confined to a read-only measurement path: it is in a
-modelling operation a user can invoke.
+behind `SHELL`. **This path is in `libTKOffset`**, the toolkit at the top of the drop ladder.
+
+Two things make it worse than path A. It is a **modelling operation a user can invoke**, not a
+read-only measurement path. And the inputs are the **gold reference STEP files**, observed live:
+
+```
+corpus_ab_coverage .../gold_ref_steps/ho1084.step --name=ho1084 --arm-timeout=20 --part-timeout=300
+```
+
+13 crashes inside four minutes during one 600-part A/B sweep. The sweep itself is sound — each
+part is a separate subprocess, so a segfault costs one part rather than the run — which is why
+this went unnoticed: **the harness was correctly designed to survive a failure mode nobody had
+looked at.**
 
 ### ★ This CORRECTS the guard proposed below
 
@@ -120,9 +134,10 @@ not control, and OCCT has no null check to enable. Two responses, in order:
 2. **Native replacement removes the class.** Native code is ours and can be made total. This is
    a concrete argument for the drop ladder that is **independent of the closure count**:
    `TKGeomBase`, `TKG2d`, `TKBRep` and `TKOffset` are not merely dependencies to be retired for
-   tidiness, they are actively crashing on our own generated input. Path B lands in `TKOffset`
+   tidiness, they are **crashing on the ground truth itself**. Path B lands in `TKOffset`
    specifically, which the ledger already identifies as the next contested toolkit — and it
-   raises the stakes on that work from "closure accounting" to "the SHELL operation segfaults".
+   raises the stakes on that work from "closure accounting" to "OCCT's offset cannot survive our
+   own reference corpus". The drop is no longer only a purity goal; it is a reliability fix.
 
 ## What the target actually looks like — why "just reject it" is not available
 
