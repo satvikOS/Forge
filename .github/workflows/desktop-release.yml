@@ -143,10 +143,24 @@ jobs:
   #
   # This job is kept, with its purpose corrected: it exists to WARM ccache, not
   # to cache a build tree. The build-tree cache it used to write is gone --
-  # measured useless, see the note on the cache step below. Because the two jobs
-  # now share ONE ccache namespace, the 422 objects compiled here are reachable
-  # from the release job, which is what the split was supposed to buy and did
-  # not.
+  # measured useless, see the note on the cache step below.
+  #
+  # ── WHAT IS AND IS NOT PROVEN ABOUT THE SHARING ─────────────────────────────
+  # PROVEN (run 33441755519): this job now SAVES, which it never did before --
+  # `Cache saved with key: ccache-forge-macOS-kernel-f460e353...`, where every
+  # prior run logged a Path Validation warning and saved nothing.
+  #
+  # PROVEN: the release job's build fell from 168s to 22s with ccache reporting
+  # `Hits: 454/454 (100.0%)`. That came from the release job restoring ITS OWN
+  # previous cache, which the ordered restore-keys now prefer.
+  #
+  # NOT PROVEN, and deliberately not claimed: that this job's cache is USABLE by
+  # the release job. In the same run this job restored the release job's cache
+  # through the shared prefix and still measured `Hits: 0/422 (0.00%)`, so
+  # objects compiled by one job did not hit for the other. The cause is not yet
+  # identified. Cross-job reuse is therefore an OPEN QUESTION, not a benefit
+  # this file may assume; the first run after a kernel-source-only change is the
+  # experiment that would settle it.
   #
   # Note the real constraint that DID justify a separate job: actions/cache saves
   # in a POST step, and on a cancelled run "Post Restore compiler cache" is
@@ -449,9 +463,11 @@ jobs:
       # note in the `kernel` job above: it restored perfectly (2s) and then the
       # kernel recompiled all 421 TUs anyway (121.5s), because actions/checkout
       # gives every source a newer mtime than the cached objects. It cost a cache
-      # slot and bought zero seconds. ccache does this job properly, and now uses
-      # a namespace shared with the kernel job so that job's 422 compilations are
-      # actually reachable from here.
+      # slot and bought zero seconds. ccache does this job properly: with the
+      # ordered restore-keys below this step restored its own previous cache and
+      # measured `Hits: 454/454 (100.0%)`, taking the build from 168s to 22s
+      # (run 33441755519). Whether the KERNEL job's cache is also usable here is
+      # unproven -- see "WHAT IS AND IS NOT PROVEN" in that job above.
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
