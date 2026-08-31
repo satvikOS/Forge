@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "bcefe3418ebb280390974aa6e8e0d1f858cadd728c631573478f8a1e8a63d93a",
-        "bytes": 80954,
-        "lines": 1805
+        "sha256": "163e7f69c99d4669f38b8e3c7a90878446719e185b809e14755cbf94a9340087",
+        "bytes": 93642,
+        "lines": 2076
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -24,9 +24,9 @@
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "ec95adb6e475dad0c25519dc53e7c0d950aaa482e65f4dbdaff0dfc86c0a09f3",
-        "bytes": 150615,
-        "lines": 2464
+        "sha256": "4df5866d0282a0d6dcc9648273c1b3a16e772f85cd63029917a84c9c9b528bfc",
+        "bytes": 151896,
+        "lines": 2481
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
