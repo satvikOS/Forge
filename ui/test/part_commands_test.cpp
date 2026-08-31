@@ -750,6 +750,279 @@ int main() {
     }
   }
 
+  // ── (d2) THE KERNEL PRIMITIVES ────────────────────────────────────────────
+  // Ten ops the kernel implemented, forge::ui::irOpTable() knew, and NO COMMAND
+  // EMITTED, so `archie_op_vocabulary.json` listed every one under `forbidden_ops`
+  // with the same reason: "no command in the forge::ui registry emits it, so no user
+  // can produce it". A CAD application with no cylinder primitive. The app even
+  // SEEDED a BOX into every document (see block (e) below, which does exactly that)
+  // while giving the user no way to author one.
+  //
+  // Two things are asserted per command, and neither is decoration:
+  //
+  //   THE EMITTED TEXT, because argument order is where a primitive goes wrong
+  //   SILENTLY. `REGPOLY(r, n)` takes the radius first and `PRISM(nSides, R, h)`
+  //   takes the count first -- opposite orders for the same two numbers -- and both
+  //   spellings compile either way. Every string below was measured against closed
+  //   form through the native kernel before the command was written (D-033).
+  //
+  //   THE REFUSAL of degenerate input, because Primitives.cpp THROWS on it
+  //   (requirePositive, "tube.rInner must be < rOuter", "torus.minorR must be <
+  //   majorR (self-intersecting otherwise)", "prism.nSides must be >= 3"). A command
+  //   that offers itself as callable where the kernel will throw is a menu item that
+  //   cannot work, so each predicate is driven to Disabled here rather than assumed.
+  //
+  // Nothing is seeded. These are creators: they take no selection, which is what
+  // makes them reachable from an empty document.
+  {
+    CommandRegistry regN;
+    PartDocument docN;
+    UndoStack stackN;
+    SelectionService selN;
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 31);
+    CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
+
+    // ── the minimal form of each: required parameters only ──────────────────
+    CommandParams p;
+    p.setNumber("dx", 40); p.setNumber("dy", 30); p.setNumber("dz", 20);
+    CHECK(regN.dispatch("part.primitive_box", selN, p).ok());
+    CHECK_EQ_STR(lastLine(docN), "%1 = BOX(40, 30, 20)");
+    CHECK_EQ_INT(static_cast<int>(docN.kindOf(1)), static_cast<int>(IrValueKind::Solid));
+    CHECK_EQ_INT(docN.valueFor("body_1"), 1);
+
+    CHECK(regN.dispatch("part.primitive_cylinder", selN,
+                        params2("radius", 10, "height", 25)).ok());
+    CHECK_EQ_STR(lastLine(docN), "%2 = CYL(10, 25)");
+
+    CommandParams cone;
+    cone.setNumber("radius_base", 10); cone.setNumber("radius_top", 4);
+    cone.setNumber("height", 25);
+    CHECK(regN.dispatch("part.primitive_cone", selN, cone).ok());
+    CHECK_EQ_STR(lastLine(docN), "%3 = CONE(10, 4, 25)");
+
+    CHECK(regN.dispatch("part.primitive_sphere", selN, params1("radius", 10)).ok());
+    CHECK_EQ_STR(lastLine(docN), "%4 = SPHERE(10)");
+
+    CHECK(regN.dispatch("part.primitive_torus", selN,
+                        params2("major_radius", 30, "minor_radius", 8)).ok());
+    CHECK_EQ_STR(lastLine(docN), "%5 = TORUS(30, 8)");
+
+    CommandParams prism;
+    prism.setNumber("sides", 6); prism.setNumber("radius", 15); prism.setNumber("height", 20);
+    CHECK(regN.dispatch("part.primitive_prism", selN, prism).ok());
+    CHECK_EQ_STR(lastLine(docN), "%6 = PRISM(6, 15, 20)");  // COUNT first
+
+    CommandParams tube;
+    tube.setNumber("outer_radius", 12); tube.setNumber("inner_radius", 8);
+    tube.setNumber("height", 30);
+    CHECK(regN.dispatch("part.primitive_tube", selN, tube).ok());
+    CHECK_EQ_STR(lastLine(docN), "%7 = TUBE(12, 8, 30)");
+
+    CommandParams rr;
+    rr.setNumber("width", 40); rr.setNumber("height", 30); rr.setNumber("corner_radius", 5);
+    CHECK(regN.dispatch("part.sketch_rounded_rect", selN, rr).ok());
+    CHECK_EQ_STR(lastLine(docN), "%8 = RRECT(40, 30, 5)");
+    CHECK_EQ_INT(static_cast<int>(docN.kindOf(8)), static_cast<int>(IrValueKind::Profile));
+    CHECK_EQ_INT(docN.valueFor("sketch_8"), 8);  // a PROFILE node, not a body node
+
+    CHECK(regN.dispatch("part.sketch_polygon", selN,
+                        params2("radius", 20, "sides", 6)).ok());
+    CHECK_EQ_STR(lastLine(docN), "%9 = REGPOLY(20, 6)");  // RADIUS first -- the other order
+    CHECK_EQ_INT(static_cast<int>(docN.kindOf(9)), static_cast<int>(IrValueKind::Profile));
+
+    CHECK_EQ_INT(docN.records().size(), 9);
+
+    // ── the optional tail is ONE positional group ───────────────────────────
+    // Every kernel primitive reads its optional arguments through
+    // `numOpt(op, i, default)`, so a partial group SHIFTS them: emitting `axx` without
+    // the centre would put the axis x-component in the `cx` slot and build a different
+    // solid that compiles cleanly. Supplying ONE member must emit the WHOLE group with
+    // the kernel's own defaults in the slots before it -- including CYL's `axz = 1`,
+    // which is the +Z the primitive is built along.
+    CommandParams cz;
+    cz.setNumber("radius", 6); cz.setNumber("height", 40); cz.setNumber("cz", -10);
+    CHECK(regN.dispatch("part.primitive_cylinder", selN, cz).ok());
+    CHECK_EQ_STR(lastLine(docN), "%10 = CYL(6, 40, 0, 0, -10, 0, 0, 1)");
+
+    CommandParams ax;
+    ax.setNumber("radius", 6); ax.setNumber("height", 40); ax.setNumber("axx", 1);
+    ax.setNumber("axz", 0);
+    CHECK(regN.dispatch("part.primitive_cylinder", selN, ax).ok());
+    CHECK_EQ_STR(lastLine(docN), "%11 = CYL(6, 40, 0, 0, 0, 1, 0, 0)");  // re-aimed onto +X
+
+    CommandParams boxAt = p;
+    boxAt.setNumber("cy", 12);
+    CHECK(regN.dispatch("part.primitive_box", selN, boxAt).ok());
+    CHECK_EQ_STR(lastLine(docN), "%12 = BOX(40, 30, 20, 0, 12, 0)");
+
+    CommandParams ngonAt;
+    ngonAt.setNumber("radius", 20); ngonAt.setNumber("sides", 5);
+    ngonAt.setNumber("rotation", 18);
+    CHECK(regN.dispatch("part.sketch_polygon", selN, ngonAt).ok());
+    CHECK_EQ_STR(lastLine(docN), "%13 = REGPOLY(20, 5, 0, 0, 18)");
+
+    CHECK_EQ_INT(docN.records().size(), 13);
+
+    // ── degenerate input is REFUSED, not built and thrown away ──────────────
+    // One term per kernel guard, each driven to Disabled. `records()` is re-checked
+    // after the sweep: a predicate that returned true and failed later would show up
+    // as a statement in the document rather than as a wrong status.
+    CommandParams bad;
+
+    bad = p; bad.setNumber("dx", 0);                       // makeBox requirePositive
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_box", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = p; bad.setNumber("dz", -5);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_box", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // a zero-radius cylinder is not a solid -- makeCylinder throws on it
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_cylinder", selN,
+                                        params2("radius", 0, "height", 25))),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_cylinder", selN,
+                                        params2("radius", 10, "height", 0))),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // CONE accepts a zero radius at ONE end -- that is the apex, and the ordinary cone
+    bad = cone; bad.setNumber("radius_top", 0);
+    CHECK(regN.dispatch("part.primitive_cone", selN, bad).ok());
+    CHECK_EQ_STR(lastLine(docN), "%14 = CONE(10, 0, 25)");
+    // ... and not at BOTH: makeCone shims equal radii to makeCylinder, which then throws
+    bad = cone; bad.setNumber("radius_base", 0); bad.setNumber("radius_top", 0);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_cone", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = cone; bad.setNumber("radius_base", -1);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_cone", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_sphere", selN, params1("radius", 0))),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // "torus.minorR must be < majorR (self-intersecting otherwise)" -- and a
+    // self-intersecting torus is exactly the shape whose VOLUME still looks plausible
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_torus", selN,
+                                        params2("major_radius", 10, "minor_radius", 10))),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_torus", selN,
+                                        params2("major_radius", 10, "minor_radius", 12))),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // "prism.nSides must be >= 3", and a count that is not WHOLE is not a count:
+    // primPrism reads it through static_cast<int>, which would record 5.9 and build 5
+    bad = prism; bad.setNumber("sides", 2);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_prism", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = prism; bad.setNumber("sides", 5.9);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_prism", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = prism; bad.setNumber("radius", 0);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_prism", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // "tube.rInner must be < rOuter"
+    bad = tube; bad.setNumber("inner_radius", 12);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_tube", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = tube; bad.setNumber("inner_radius", 0);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.primitive_tube", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // REGPOLY's own n >= 3 and whole-number rules
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.sketch_polygon", selN,
+                                        params2("radius", 20, "sides", 2))),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.sketch_polygon", selN,
+                                        params2("radius", 20, "sides", 6.5))),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // RRECT does not throw -- it CLAMPS, `rr = max(0.1, min(r, min(hw, hh) - 0.1))`, so
+    // RRECT(40, 30, 40) would be RECORDED as a 40 mm corner and BUILT as a 14.9 mm one.
+    // A statement the kernel reads as different numbers is worse than no statement, so
+    // the predicate refuses everything the clamp would touch -- the same rule
+    // part.section_ring applies to RING's silently clamped p and seg.
+    bad = rr; bad.setNumber("corner_radius", 40);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.sketch_rounded_rect", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = rr; bad.setNumber("corner_radius", 15);   // exactly height/2: still clamped
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.sketch_rounded_rect", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = rr; bad.setNumber("corner_radius", 0.05);  // below the 0.1 floor
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.sketch_rounded_rect", selN, bad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    bad = rr; bad.setNumber("corner_radius", 14.5);  // inside the band: accepted
+    CHECK(regN.dispatch("part.sketch_rounded_rect", selN, bad).ok());
+    CHECK_EQ_STR(lastLine(docN), "%15 = RRECT(40, 30, 14.5)");
+
+    // 13 + the two accepted rows above; every refusal left the document alone
+    CHECK_EQ_INT(docN.records().size(), 15);
+
+    // ── ROTATE, the other half of placement ─────────────────────────────────
+    // part.move made TRANSLATE reachable and left ROTATE orphaned, so every solid a
+    // user could author was axis-aligned. Like part.move it keeps the body's IDENTITY:
+    // the node is consumed and reproduced, so the body gains history.
+    selectOnly(selN, {ref("body_1", EntityKind::Body, "")});
+    CommandParams rot;
+    rot.setNumber("angle", 90);
+    rot.setNumber("axy", 1);
+    rot.setNumber("axz", 0);
+    CHECK(regN.dispatch("part.rotate", selN, rot).ok());
+    CHECK_EQ_STR(lastLine(docN), "%16 = ROTATE(%1, 90, 0, 1, 0)");
+    CHECK_EQ_INT(docN.valueFor("body_1"), 16);  // identity kept, not a new body
+    CHECK_EQ_INT(static_cast<int>(docN.kindOf(16)), static_cast<int>(IrValueKind::Solid));
+
+    // the pivot is the ONE optional group; the axis triple is required (arity 5..8).
+    // Note the operand: `%16`, not `%1`. The SAME selection now resolves to the value
+    // the first rotation produced, which is what "the body keeps its identity and gains
+    // history" means at the IR level -- a second rotation composes with the first
+    // instead of silently re-rotating the original.
+    CommandParams about = rot;
+    about.setNumber("ox", 10);
+    CHECK(regN.dispatch("part.rotate", selN, about).ok());
+    CHECK_EQ_STR(lastLine(docN), "%17 = ROTATE(%16, 90, 0, 1, 0, 10, 0, 0)");
+    CHECK_EQ_INT(docN.valueFor("body_1"), 17);
+
+    // a zero rotation is a no-op statement -- refused, as part.move refuses a zero move
+    CommandParams zero = rot;
+    zero.setNumber("angle", 0);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.rotate", selN, zero)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    // and a ZERO AXIS is worse than a no-op: unlike place(), which re-defaults a
+    // degenerate axis to +Z, opRotate hands the vector straight to forge::rotate, which
+    // throws "zero axis" natively and builds a gp_Dir from a null vector under OCCT.
+    CommandParams noAxis;
+    noAxis.setNumber("angle", 90);
+    noAxis.setNumber("axx", 0); noAxis.setNumber("axy", 0); noAxis.setNumber("axz", 0);
+    CHECK_EQ_INT(statusOf(regN.dispatch("part.rotate", selN, noAxis)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    // a creator needs no selection; ROTATE needs exactly one BODY
+    selN.clearSelection();
+    CHECK_EQ_INT(statusOf(regN.evaluate("part.rotate", selN, rot)),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+
+    // ── every statement is legal IR and command-authored, none seeded ───────
+    CHECK_EQ_INT(docN.records().size(), 17);
+    CHECK_EQ_INT(docN.featureCount(), 17);
+    for (const FeatureRecord& r : docN.records()) {
+      CHECK_EQ_INT(static_cast<int>(validateIr(r.line)), static_cast<int>(IrCheck::Ok));
+      CHECK(!r.commandId.empty());
+    }
+
+    // ── and SLOT has no command, ON PURPOSE ─────────────────────────────────
+    // SLOT is the fifth kernel profile and the one deliberately left out: measured
+    // through the native kernel, SLOT(len, wid) extruded 10 mm has area exactly
+    // |(len - wid)*wid - pi*(wid/2)^2| at every size and a bbox spanning
+    // +/-(len - wid)/2 rather than +/-len/2 -- both semicircular caps bow INWARD,
+    // -50.4% of the promised volume on SLOT(40, 12). See D-033. This asserts the
+    // ABSENCE so that adding a command later cannot slip past the decision.
+    CHECK(regN.find("part.sketch_slot") == nullptr);
+    for (const std::string& id : partCommandIds()) {
+      const CommandDescriptor* c = regN.find(id);
+      CHECK(c != nullptr);
+      if (c != nullptr) CHECK(c->featureIrOp != "SLOT");
+    }
+  }
+
   // ── (e) THE PARAMETER EDIT ────────────────────────────────────────────────
   // The document was APPEND-ONLY: appendFeature() refuses any statement not
   // numbered nextIrId(), so nothing could change a number already in the
