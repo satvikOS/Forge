@@ -15,6 +15,7 @@ part.boolean_union	Part	FUSE	document	transaction	none	1	-
 part.chamfer	Part	CHAMFER	document	transaction	live	1	distance:number:required,selector:text:optional
 part.counterbore	Part	CBORE	document	transaction	ondemand	1	diameter:number:required,cbore_diameter:number:required,cbore_depth:number:required,x:number:optional,y:number:optional,z:number:optional
 part.defeature	Part	DEFEATURE	document	transaction	ondemand	1	selector:text:required:hasdefault
+part.delete_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault
 part.edit_feature	Part	-	document	transaction	live	1	feature:number:optional:hasdefault,index:number:optional:hasdefault,value:number:required
 part.extrude	Part	EXTRUDE	document	transaction	live	1	distance:number:required:hasdefault,dirx:number:optional,diry:number:optional,dirz:number:optional
 part.fillet	Part	FILLET	document	transaction	live	1	radius:number:required:hasdefault,selector:text:optional
@@ -36,8 +37,12 @@ part.primitive_sphere	Part	SPHERE	document	transaction	live	1	radius:number:requ
 part.primitive_torus	Part	TORUS	document	transaction	live	1	major_radius:number:required:hasdefault,minor_radius:number:required:hasdefault,cx:number:optional,cy:number:optional,cz:number:optional,axx:number:optional,axy:number:optional,axz:number:optional
 part.primitive_tube	Part	TUBE	document	transaction	live	1	outer_radius:number:required:hasdefault,inner_radius:number:required:hasdefault,height:number:required:hasdefault,cx:number:optional,cy:number:optional,cz:number:optional
 part.push_face	Part	PUSHFACE	document	transaction	live	1	selector:text:required:hasdefault,distance:number:required:hasdefault
+part.rename_feature	Part	-	document	transaction	none	1	feature:number:optional:hasdefault,name:text:required
+part.reorder_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault,position:number:required
 part.resize_bore	Part	RESIZEBORE	document	transaction	live	1	selector:text:required:hasdefault,radius:number:required:hasdefault
 part.revolve	Part	REVOLVE	document	transaction	live	1	angle:number:required,axx:number:optional,axy:number:optional,axz:number:optional
+part.rollback_end	Part	-	document	transaction	none	1	-
+part.rollback_to	Part	-	document	transaction	ondemand	1	feature:number:required
 part.rotate	Part	ROTATE	document	transaction	live	1	angle:number:required:hasdefault,axx:number:optional,axy:number:optional,axz:number:optional,ox:number:optional,oy:number:optional,oz:number:optional
 part.section_ring	Part	RING	document	transaction	live	1	rx:number:required,ry:number:required,z:number:required,cx:number:optional,cy:number:optional,p:number:optional,seg:number:optional
 part.shell	Part	SHELL	document	transaction	ondemand	1	thickness:number:required:hasdefault,open_axx:number:optional,open_axy:number:optional,open_axz:number:optional
@@ -46,8 +51,10 @@ part.sketch_poly	Part	POLY	document	transaction	live	1	points:text:required:hasd
 part.sketch_polygon	Part	REGPOLY	document	transaction	live	1	radius:number:required:hasdefault,sides:number:required:hasdefault,cx:number:optional,cy:number:optional,rotation:number:optional
 part.sketch_rect	Part	RECT	document	transaction	live	1	width:number:required,height:number:required,cx:number:optional,cy:number:optional
 part.sketch_rounded_rect	Part	RRECT	document	transaction	live	1	width:number:required:hasdefault,height:number:required:hasdefault,corner_radius:number:required:hasdefault,cx:number:optional,cy:number:optional
+part.suppress_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault
 part.sweep_pipe	Part	SWEEP	document	transaction	ondemand	1	radius:number:required:hasdefault,path:text:required:hasdefault
-part.tag_feature	Part	TAG	document	transaction	none	1	name:text:required:hasdefault,selector:text:required:hasdefault
+part.tag_feature	Part	TAG	document	transaction	none	1	name:text:required,selector:text:optional
+part.unsuppress_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault
 part.variable_fillet	Part	BLEND	document	transaction	ondemand	1	radius_start:number:required,radius_end:number:required,smooth:flag:optional
 part.verify	Part	VERIFY	document	transaction	none	1	assertion:text:required:hasdefault,assertion2:text:optional
 part.wire_section	Part	WIRE	document	transaction	live	1	points:text:required:hasdefault

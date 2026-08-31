@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/FeatureHistory.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -74,13 +76,14 @@ const FeatureRecord* PartDocument::lastFeature() const noexcept {
   return nullptr;
 }
 
+// THE EMITTED PROGRAM IS DERIVED, and it is the plan's program: one code path,
+// so what the kernel compiles and what the tree reports can never disagree.
+// With no suppression, no tombstone and no rollback bar this is bit-identical to
+// the old `for (r : records_) out += r.line.text()` -- the plan keeps every
+// statement, in order, renumbered 1..N onto the ids they already had.
 std::string PartDocument::irProgram() const {
-  std::string out;
-  for (const FeatureRecord& r : records_) {
-    out += r.line.text();
-    out += "\n";
-  }
-  return out;
+  const EmissionPlan plan = emissionPlan();
+  return plan.program();
 }
 
 bool PartDocument::appendFeature(const FeatureRecord& record,
@@ -97,6 +100,13 @@ bool PartDocument::appendFeature(const FeatureRecord& record,
   if (check != IrCheck::Ok) return false;  // no partial mutation
 
   records_.push_back(record);
+  // IDENTITY, assigned once. `irId` is a position and a reorder renumbers it;
+  // `uid` is what a renumbering remaps THROUGH, so it may never be derived from
+  // the position. A record arriving with a uid already set (a restored file, a
+  // redo) keeps it, and the counter is pushed past it so nothing is reused.
+  FeatureRecord& stored = records_.back();
+  if (stored.uid == 0) stored.uid = nextUid_++;
+  if (stored.uid >= nextUid_) nextUid_ = stored.uid + 1;
   for (const std::string& node : consumedNodes) bindings_.erase(node);
   if (!producedNode.empty()) bindings_[producedNode] = record.irId;
   return true;
@@ -165,6 +175,421 @@ void PartDocument::restore(const Snapshot& state) {
   }
   bindings_ = state.bindings;
 }
+// ── history state ───────────────────────────────────────────────────────────
+std::uint64_t PartDocument::uidOf(int irId) const noexcept {
+  const FeatureRecord* rec = featureAt(irId);
+  return rec == nullptr ? 0 : rec->uid;
+}
+
+int PartDocument::idOfUid(std::uint64_t uid) const noexcept {
+  if (uid == 0) return 0;
+  for (const FeatureRecord& r : records_) {
+    if (r.uid == uid) return r.irId;
+  }
+  return 0;
+}
+
+bool PartDocument::setSuppressed(int irId, bool on) {
+  if (irId <= 0 || static_cast<std::size_t>(irId) > records_.size()) return false;
+  records_[static_cast<std::size_t>(irId) - 1].suppressed = on;
+  return true;
+}
+
+bool PartDocument::setDeleted(int irId, bool on) {
+  if (irId <= 0 || static_cast<std::size_t>(irId) > records_.size()) return false;
+  records_[static_cast<std::size_t>(irId) - 1].deleted = on;
+  return true;
+}
+
+bool PartDocument::setLabel(int irId, const std::string& label) {
+  if (irId <= 0 || static_cast<std::size_t>(irId) > records_.size()) return false;
+  records_[static_cast<std::size_t>(irId) - 1].label = label;
+  return true;
+}
+
+void PartDocument::setRollback(int irId) noexcept {
+  // CLAMPED, never refused. A bar dragged past the end of the tree means the end
+  // of the tree, and a bar dragged above the first statement means "nothing
+  // built" -- both are things a user does on purpose, and neither is an error.
+  if (irId < 0) irId = 0;
+  // A bar AT or PAST the last statement rolls nothing back, and 0 already means
+  // that, so it normalises to 0. Without this the state has two spellings for
+  // "off" and `rollback() != 0` -- which is what a menu greys out on and what a
+  // rolled-back badge is drawn from -- would be true for a tree that is fully
+  // built.
+  if (static_cast<std::size_t>(irId) >= records_.size()) irId = 0;
+  rollback_ = irId;
+}
+
+PartDocument::History PartDocument::captureHistory() const {
+  History h;
+  h.records = records_;
+  h.bindings = bindings_;
+  h.rollback = rollback_;
+  h.nextUid = nextUid_;
+  return h;
+}
+
+void PartDocument::restoreHistory(const History& state) {
+  records_ = state.records;
+  bindings_ = state.bindings;
+  rollback_ = state.rollback;
+  nextUid_ = state.nextUid;
+}
+
+// ── reorder ─────────────────────────────────────────────────────────────────
+void PartDocument::moveWindow(int irId, int& first, int& last) const {
+  first = 1;
+  last = static_cast<int>(records_.size());
+  const FeatureRecord* rec = featureAt(irId);
+  if (rec == nullptr) {
+    first = last = irId;
+    return;
+  }
+  // A statement may not move above any value it reads...
+  for (const IrArg& a : rec->line.args) {
+    if (a.kind != IrArgKind::Ref) continue;
+    if (a.ref + 1 > first) first = a.ref + 1;
+  }
+  // ...nor below any statement that reads it. TOMBSTONED dependents count: the
+  // record is still in the document, its `%N` must still resolve backwards, and
+  // un-deleting it must not produce a forward reference.
+  for (const FeatureRecord& r : records_) {
+    if (r.irId == irId) continue;
+    for (const IrArg& a : r.line.args) {
+      if (a.kind == IrArgKind::Ref && a.ref == irId && r.irId - 1 < last) last = r.irId - 1;
+    }
+  }
+  if (last < first) last = first;  // a pinned statement: the window is one slot
+}
+
+bool PartDocument::moveFeature(int irId, int newPosition, int& clampedTo, int& blockedBy) {
+  clampedTo = irId;
+  blockedBy = 0;
+  const FeatureRecord* rec = featureAt(irId);
+  if (rec == nullptr) return false;
+
+  int first = 1;
+  int last = static_cast<int>(records_.size());
+  moveWindow(irId, first, last);
+  int target = newPosition;
+  if (target < first) {
+    target = first;
+    // Name the statement that stopped it. Going UP the blocker is the LAST
+    // operand this statement reads; going down it is the FIRST that reads it.
+    for (const IrArg& a : rec->line.args) {
+      if (a.kind == IrArgKind::Ref && a.ref > blockedBy) blockedBy = a.ref;
+    }
+  } else if (target > last) {
+    target = last;
+    for (const FeatureRecord& r : records_) {
+      if (r.irId == irId) continue;
+      for (const IrArg& a : r.line.args) {
+        if (a.kind == IrArgKind::Ref && a.ref == irId &&
+            (blockedBy == 0 || r.irId < blockedBy)) {
+          blockedBy = r.irId;
+        }
+      }
+    }
+  }
+  clampedTo = target;
+  if (target == irId) return true;  // legal, and a no-op: nothing to renumber
+
+  // Everything below works on a COPY. A renumbering that half-applied would
+  // leave the document holding statements whose `%N` mean nothing, and there is
+  // no honest way back from that.
+  std::vector<FeatureRecord> moved = records_;
+  std::map<std::string, int> movedBindings = bindings_;
+  const std::uint64_t rollbackUid = rollback_ == 0 ? 0 : uidOf(rollback_);
+
+  // old id -> uid, taken BEFORE anything renumbers.
+  std::vector<std::uint64_t> uidAt(records_.size() + 1, 0);
+  for (const FeatureRecord& r : records_) {
+    uidAt[static_cast<std::size_t>(r.irId)] = r.uid;
+  }
+
+  const std::size_t from = static_cast<std::size_t>(irId) - 1;
+  const std::size_t to = static_cast<std::size_t>(target) - 1;
+  const FeatureRecord carried = moved[from];
+  moved.erase(moved.begin() + static_cast<std::ptrdiff_t>(from));
+  moved.insert(moved.begin() + static_cast<std::ptrdiff_t>(to), carried);
+
+  // Renumber by position, then remap every reference THROUGH the uid.
+  std::map<std::uint64_t, int> newIdOfUid;
+  for (std::size_t k = 0; k < moved.size(); ++k) {
+    moved[k].irId = static_cast<int>(k) + 1;
+    moved[k].line.id = moved[k].irId;
+    newIdOfUid[moved[k].uid] = moved[k].irId;
+  }
+  const auto remap = [&](int oldId) -> int {
+    if (oldId <= 0 || static_cast<std::size_t>(oldId) >= uidAt.size()) return 0;
+    auto it = newIdOfUid.find(uidAt[static_cast<std::size_t>(oldId)]);
+    return it == newIdOfUid.end() ? 0 : it->second;
+  };
+  for (FeatureRecord& r : moved) {
+    for (IrArg& a : r.line.args) {
+      if (a.kind != IrArgKind::Ref) continue;
+      const int mapped = remap(a.ref);
+      if (mapped != 0) a.ref = mapped;
+    }
+  }
+  for (auto& binding : movedBindings) binding.second = remap(binding.second);
+
+  // The window arithmetic above makes every reference backward by construction.
+  // This is the check that the arithmetic is right, and it REFUSES rather than
+  // committing a document whose statements do not resolve -- naming the
+  // statement, so a repair loop has something to act on.
+  for (const FeatureRecord& r : moved) {
+    if (validateIr(r.line) != IrCheck::Ok) {
+      blockedBy = r.irId;
+      clampedTo = irId;
+      return false;
+    }
+  }
+
+  records_ = std::move(moved);
+  bindings_ = std::move(movedBindings);
+  if (rollbackUid != 0) {
+    auto it = newIdOfUid.find(rollbackUid);
+    rollback_ = it == newIdOfUid.end() ? rollback_ : it->second;
+  }
+  return true;
+}
+
+// ── emission ────────────────────────────────────────────────────────────────
+const char* PartDocument::toString(OmitReason reason) noexcept {
+  switch (reason) {
+    case OmitReason::None:               return "none";
+    case OmitReason::Suppressed:         return "suppressed";
+    case OmitReason::Deleted:            return "deleted";
+    case OmitReason::RolledBack:         return "rolled_back";
+    case OmitReason::OperandUnavailable: return "operand_unavailable";
+    case OmitReason::Orphaned:           return "orphaned";
+  }
+  return "none";
+}
+
+int PartDocument::EmissionPlan::emittedIdFor(int documentId) const noexcept {
+  for (const Emitted& e : emitted_) {
+    if (e.documentId == documentId) return e.emittedId;
+  }
+  return 0;
+}
+
+int PartDocument::EmissionPlan::documentIdFor(int emittedId) const noexcept {
+  for (const Emitted& e : emitted_) {
+    if (e.emittedId == emittedId) return e.documentId;
+  }
+  return 0;
+}
+
+PartDocument::OmitReason PartDocument::EmissionPlan::omitReasonFor(int documentId) const noexcept {
+  for (const Omitted& o : omitted_) {
+    if (o.documentId == documentId) return o.reason;
+  }
+  return OmitReason::None;
+}
+
+int PartDocument::EmissionPlan::blockingFor(int documentId) const noexcept {
+  for (const Omitted& o : omitted_) {
+    if (o.documentId == documentId) return o.blockingId;
+  }
+  return 0;
+}
+
+PartDocument::EmissionPlan PartDocument::emissionPlan() const {
+  EmissionPlan plan;
+  const std::size_t n = records_.size();
+  if (n == 0) return plan;
+
+  // Pass 0 -- who has a CONSUMER AT ALL, before suppression is taken into
+  // account. A statement nothing consumes is a ROOT: a deliberate standalone body
+  // (two bodies in one document, never fused), or the last feature under the
+  // rollback bar. A root must NEVER be pruned as an orphan, and without this
+  // distinction suppressing anything in a two-body document silently deleted the
+  // other body, and rolling back to feature 3 emitted an empty program.
+  //
+  // ROLLED statements are excluded and TOMBSTONES ARE NOT, and the asymmetry is
+  // the whole content of this pass.
+  //
+  //   * A ROLLED statement does not exist YET. The bar means "the tree stops
+  //     here", so the last statement below it IS the result and must not be
+  //     pruned for having no consumer above the bar. Counting rolled references
+  //     made rolling back to feature 3 emit an EMPTY program.
+  //   * A DELETED statement DID exist and its operand DID have a real consumer.
+  //     Excluding tombstones made every such operand look like a deliberate
+  //     standalone root, so deleting the EXTRUDE out of RECT -> EXTRUDE -> ...
+  //     left the RECT emitted alone: a lone PROFILE, which builds nothing, and a
+  //     program the s0.4 graph gate fails for unexplained orphans. MEASURED on
+  //     the 71-statement fixture: 70 casualties where there are 71.
+  //
+  // The tail case the exclusion was protecting is NOT protected by it and never
+  // was -- deleting the SHELL at the end of a chain leaves the HOLE emitted
+  // because a deleted PASS-THROUGH rebases (mayRebase is true for a tombstone),
+  // so the HOLE becomes the SHELL's stand-in and `standsInFor` below pins it.
+  // Suppressed statements are counted for the same stand-in reason.
+  std::vector<bool> consumedInFull(n + 1, false);
+  for (const FeatureRecord& r : records_) {
+    if (rollback_ != 0 && r.irId > rollback_) continue;
+    for (const IrArg& a : r.line.args) {
+      if (a.kind == IrArgKind::Ref && a.ref >= 1 && static_cast<std::size_t>(a.ref) <= n) {
+        consumedInFull[static_cast<std::size_t>(a.ref)] = true;
+      }
+    }
+  }
+
+  // `stand[i]` = the DOCUMENT id whose emitted value stands in for statement i.
+  // For a kept statement that is itself; for a suppressed or deleted PASS-THROUGH
+  // it is whatever its own operand resolved to -- which is what makes suppressing
+  // a fillet leave the body it was filleting, rather than deleting the body.
+  // 0 means "no value": every consumer of it is broken, and says why.
+  std::vector<int> stand(n + 1, 0);
+  std::vector<OmitReason> reason(n + 1, OmitReason::None);
+  std::vector<int> blocking(n + 1, 0);
+  std::vector<int> kept;
+  kept.reserve(n);
+
+  for (std::size_t i = 1; i <= n; ++i) {
+    const FeatureRecord& rec = records_[i - 1];
+    OmitReason why = OmitReason::None;
+    if (rec.deleted) {
+      why = OmitReason::Deleted;
+    } else if (rollback_ != 0 && static_cast<int>(i) > rollback_) {
+      why = OmitReason::RolledBack;
+    } else if (rec.suppressed) {
+      why = OmitReason::Suppressed;
+    }
+
+    if (why != OmitReason::None) {
+      // A ROLLED statement has no value at all -- the bar means "the tree stops
+      // here", not "this feature is transparent" -- so only a suppression or a
+      // tombstone rebases.
+      const bool mayRebase = (why != OmitReason::RolledBack);
+      // PASS-THROUGH REBASE. An op that consumes a value and produces the SAME
+      // KIND returns its operand when it is not there -- FILLET, HOLE, SHELL,
+      // PATTERN, TRANSLATE, TAG, and CUT/FUSE/COMMON, whose first operand is the
+      // target body. An op whose kind CHANGES (EXTRUDE: profile -> solid, LOFT:
+      // wire -> solid) has no such operand, so its value genuinely ceases to
+      // exist, and every consumer of it is reported broken rather than silently
+      // rewired to a profile the kernel would throw on.
+      const bool passThrough = mayRebase && !rec.line.args.empty() &&
+                               rec.line.args.front().kind == IrArgKind::Ref &&
+                               kindOf(rec.line.args.front().ref) == rec.produces &&
+                               rec.produces != IrValueKind::None;
+      if (passThrough) {
+        const int operand = rec.line.args.front().ref;
+        if (operand >= 1 && static_cast<std::size_t>(operand) <= n) {
+          stand[i] = stand[static_cast<std::size_t>(operand)];
+        }
+      }
+      reason[i] = why;
+      continue;
+    }
+
+    int missing = 0;
+    for (const IrArg& a : rec.line.args) {
+      if (a.kind != IrArgKind::Ref) continue;
+      if (a.ref < 1 || static_cast<std::size_t>(a.ref) > n ||
+          stand[static_cast<std::size_t>(a.ref)] == 0) {
+        missing = a.ref;
+        break;
+      }
+    }
+    if (missing != 0) {
+      reason[i] = OmitReason::OperandUnavailable;
+      // NAME THE ROOT CAUSE, not the nearest broken neighbour. In a chain
+      // %2 -> %3 -> %4 -> %5, deleting %2 leaves %3 blaming %2 but %4 blaming %3
+      // and %5 blaming %4 -- three different answers to "what do I fix?", only
+      // one of them actionable. Walking to the statement that actually went
+      // missing makes every casualty name %2, which is what a repair loop acts on
+      // and what the "name the op" half of the binding constraint asks for.
+      //
+      // Terminates: `root` strictly decreases (a %ref resolves backwards, so
+      // blocking[root] < root), and every id below i already has its final
+      // blocking value because this loop runs in increasing i.
+      int root = missing;
+      while (root >= 1 && static_cast<std::size_t>(root) <= n &&
+             reason[static_cast<std::size_t>(root)] == OmitReason::OperandUnavailable &&
+             blocking[static_cast<std::size_t>(root)] != 0) {
+        root = blocking[static_cast<std::size_t>(root)];
+      }
+      blocking[i] = root;
+      continue;
+    }
+    kept.push_back(static_cast<int>(i));
+    stand[i] = static_cast<int>(i);
+  }
+
+  // Pass 2 -- ORPHAN PRUNE, to a fixpoint. Suppressing an EXTRUDE leaves the
+  // RECT it consumed with no consumer, and forge::ft's s0.4 graph-quality gate
+  // fails the WHOLE program on "unexplained_orphans". Only statements that WERE
+  // consumed before the history state was applied are prunable, so a deliberate
+  // second body is never touched.
+  //
+  // A statement that is the STAND-IN for a later one is also protected. Suppress
+  // the SHELL at the end of a chain and the HOLE before it has no consumer left
+  // among the kept statements -- but it IS the body the user is looking at,
+  // because the suppressed shell forwards to it. Without this the prune walked
+  // the whole chain backwards and emitted nothing.
+  std::vector<bool> standsInFor(n + 1, false);
+  for (std::size_t i = 1; i <= n; ++i) {
+    const int target = stand[i];
+    if (target >= 1 && static_cast<std::size_t>(target) != i) {
+      standsInFor[static_cast<std::size_t>(target)] = true;
+    }
+  }
+
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    std::vector<bool> consumedNow(n + 1, false);
+    for (int k : kept) {
+      for (const IrArg& a : records_[static_cast<std::size_t>(k) - 1].line.args) {
+        if (a.kind != IrArgKind::Ref) continue;
+        const int target = (a.ref >= 1 && static_cast<std::size_t>(a.ref) <= n)
+                               ? stand[static_cast<std::size_t>(a.ref)]
+                               : 0;
+        if (target >= 1) consumedNow[static_cast<std::size_t>(target)] = true;
+      }
+    }
+    for (std::size_t idx = kept.size(); idx > 0; --idx) {
+      const int k = kept[idx - 1];
+      if (consumedNow[static_cast<std::size_t>(k)]) continue;
+      if (standsInFor[static_cast<std::size_t>(k)]) continue;      // it IS the result
+      if (!consumedInFull[static_cast<std::size_t>(k)]) continue;  // a root by design
+      kept.erase(kept.begin() + static_cast<std::ptrdiff_t>(idx) - 1);
+      reason[static_cast<std::size_t>(k)] = OmitReason::Orphaned;
+      stand[static_cast<std::size_t>(k)] = 0;
+      changed = true;
+    }
+  }
+
+  // Pass 3 -- number the survivors 1..N and rewrite every reference.
+  std::vector<int> emittedIdOf(n + 1, 0);
+  int next = 1;
+  for (int k : kept) emittedIdOf[static_cast<std::size_t>(k)] = next++;
+
+  std::string out;
+  for (int k : kept) {
+    const FeatureRecord& rec = records_[static_cast<std::size_t>(k) - 1];
+    IrLine line = rec.line;
+    line.id = emittedIdOf[static_cast<std::size_t>(k)];
+    for (IrArg& a : line.args) {
+      if (a.kind != IrArgKind::Ref) continue;
+      a.ref = emittedIdOf[static_cast<std::size_t>(stand[static_cast<std::size_t>(a.ref)])];
+    }
+    out += line.text();
+    out += "\n";
+    plan.emitted_.push_back(Emitted{k, line.id});
+  }
+  for (std::size_t i = 1; i <= n; ++i) {
+    if (reason[i] == OmitReason::None) continue;
+    plan.omitted_.push_back(Omitted{static_cast<int>(i), reason[i], blocking[i]});
+  }
+  plan.program_ = std::move(out);
+  return plan;
+}
+
 
 // ── AppendFeatureEdit (GoF ConcreteCommand + Memento) ───────────────────────
 AppendFeatureEdit::AppendFeatureEdit(FeatureRecord record, std::vector<std::string> consumedNodes,
@@ -412,6 +837,28 @@ ParamTarget paramTarget(const PartDocument& doc, const CommandContext& ctx) {
     ++numbersSeen;
   }
   return t;  // that statement has no such numeric parameter: not editable
+}
+
+// ── which STATEMENT a history operation names ───────────────────────────────
+// The same convention paramTarget() uses, and deliberately so: `feature` is a
+// 1-based statement id, and 0 means THE LAST STATEMENT -- the feature you just
+// made, which is what a bare "suppress this" means. Returns 0 for "no such
+// statement", which is what both the enabled predicate and the handler read, so
+// a greyed-out menu item and the dispatcher can never disagree.
+int historyTarget(const PartDocument& doc, const CommandContext& ctx) {
+  const std::vector<FeatureRecord>& recs = doc.records();
+  if (recs.empty()) return 0;
+  const double feature = num(ctx, "feature", 0.0);
+  if (!wholeCount(feature)) return 0;
+  int irId = static_cast<int>(feature);
+  if (irId == 0) irId = static_cast<int>(recs.size());
+  if (irId < 1 || static_cast<std::size_t>(irId) > recs.size()) return 0;
+  return irId;
+}
+
+// What an undo entry calls a feature. The label if it has one, the op otherwise.
+std::string rowName(const FeatureRecord& rec) {
+  return rec.label.empty() ? rec.line.op : rec.label;
 }
 
 // The FAIL-CLOSED read of a selection-derived value list. solidTarget() already
@@ -1841,50 +2288,23 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
-  // ── TAG ───────────────────────────────────────────────────────────────────
-  // TAG(%body, "@name", "declaring-sel") -- bind a PERSISTENT name to a feature.
-  // It is a pass-through: opTag returns %body unchanged, because "a naming
-  // mechanism that can alter the solid is a defect generator". Afterwards
-  // "@name" is legal anywhere a selector is legal, and it survives the face
-  // renumbering that EVERY edit causes -- which is the entire reason it exists.
-  // Without it a two-edit sequence has to re-derive "the same bore" from a rank
-  // or a radius after the first edit already moved both.
+  // ── TAG LIVES WITH THE HISTORY OPERATIONS, NOT HERE ───────────────────────
+  // Two TAG commands were written independently -- one in the direct-edit batch
+  // above, one with the history operations below -- and both claimed the id
+  // `part.tag_feature`. CommandRegistry::add() refuses a duplicate id, so the
+  // second would have silently NOT been registered and `added` would have been
+  // one short of partCommandIds(); the registration count assertion in
+  // part_commands_test is what makes that visible rather than mysterious.
   //
-  // The '@' is REQUIRED here rather than repaired, and that is not a gate: it is
-  // the spelling of the value itself. opTag refuses a name without it, refuses an
-  // empty name, and refuses any character outside [a-z0-9_] so the name survives
-  // the lowercasing resolveSelector does. Stating the '@' rule in the enabled
-  // predicate puts it in the vocabulary, where Archie reads it, instead of
-  // leaving it to be discovered one compile failure at a time.
-  {
-    CommandDescriptor c = base("part.tag_feature", "Tag Feature", "TAG",
-                               SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{.name = "name",
-                                 .type = ParamType::Text,
-                                 .required = true,
-                                 .defaultText = "@bore1",
-                                 .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "selector",
-                                 .type = ParamType::Text,
-                                 .required = true,
-                                 .defaultText = "bore:largest",
-                                 .hasDefault = true});
-    c.preview = PreviewPolicy::None;
-    c.enabled = [d](const CommandContext& ctx) {
-      return solidTarget(*d, ctx.selection()).ok &&
-             txt(ctx, "name", "").rfind("@", 0) == 0 && !txt(ctx, "selector", "").empty();
-    };
-    c.execute = [d, s](CommandContext& ctx) {
-      const SolidTarget t = solidTarget(*d, ctx.selection());
-      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
-      std::vector<IrArg> args{IrArg::valueRef(t.value),
-                              IrArg::text(txt(ctx, "name", "@bore1")),
-                              IrArg::text(txt(ctx, "selector", "bore:largest"))};
-      emit(ctx, *d, *s, "part.tag_feature", "Tag Feature", "TAG", std::move(args),
-           IrValueKind::Solid, {}, t.node);
-    };
-    add(std::move(c));
-  }
+  // The surviving one is the history version, and it is the better of the two on
+  // a checkable point: opTag() refuses a name containing anything outside
+  // [a-z0-9_] ("so it survives lowercasing"), and only that version checks it --
+  // through forge::ui::persistentNameProblem(), in BOTH the enabled predicate and
+  // the handler. This one tested the leading '@' alone, so `@bore-main` would have
+  // been offered as callable and then refused by the kernel. TAG also belongs
+  // beside rollback/reorder/suppress: persistent naming is what makes a history
+  // edit survive the renumbering the other three cause.
+
 
   // ── VERIFY ────────────────────────────────────────────────────────────────
   // VERIFY(%body, "expr", ...) is an ASSERTION, not a geometry op: opVerify
@@ -2211,6 +2631,295 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── HISTORY OPERATIONS ────────────────────────────────────────────────────
+  // Everything below turns the record list into a HISTORY. None of them emits a
+  // statement -- they change which statements the document EMITS, and in one case
+  // what order it emits them in -- so `featureIrOp` is empty for the same reason
+  // part.edit_feature's is.
+  //
+  // They all take the feature by STATEMENT ID rather than by selection, because
+  // the thing a user clicks to suppress a feature is its TREE ROW, and a row
+  // knows its id. Requiring a viewport pick would make the tree the one surface
+  // that could not drive them.
+  //
+  // THE BINDING CONSTRAINT applies hardest here: not one of these refuses an
+  // edit because of its consequences. FeatureHistory.hpp's preview* functions
+  // report what breaks, the UI shows it, and the user proceeds.
+
+  // ── SUPPRESS ──────────────────────────────────────────────────────────────
+  {
+    CommandDescriptor c = base("part.suppress_feature", "Suppress Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      const FeatureRecord* rec = irId == 0 ? nullptr : d->featureAt(irId);
+      return rec != nullptr && !rec->suppressed && !rec->deleted;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      const FeatureRecord* rec = irId == 0 ? nullptr : d->featureAt(irId);
+      if (rec == nullptr) { ctx.fail("no such feature"); return; }
+      if (!s->perform(*d, std::make_unique<SuppressFeatureEdit>(
+                              irId, true, "Suppress " + rowName(*rec)))) {
+        ctx.fail("that feature is already suppressed");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── UNSUPPRESS ────────────────────────────────────────────────────────────
+  // A separate command, not a flag on the one above. A menu shows one of the two
+  // greyed out, which is the state a user reads; a single toggle whose label
+  // depends on the target is a control that means two things.
+  {
+    CommandDescriptor c = base("part.unsuppress_feature", "Unsuppress Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      const FeatureRecord* rec = irId == 0 ? nullptr : d->featureAt(irId);
+      return rec != nullptr && rec->suppressed;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      const FeatureRecord* rec = irId == 0 ? nullptr : d->featureAt(irId);
+      if (rec == nullptr) { ctx.fail("no such feature"); return; }
+      if (!s->perform(*d, std::make_unique<SuppressFeatureEdit>(
+                              irId, false, "Unsuppress " + rowName(*rec)))) {
+        ctx.fail("that feature is not suppressed");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── DELETE ────────────────────────────────────────────────────────────────
+  // A TOMBSTONE, not an erasure, and the difference is the whole safety property:
+  // `irId` is a position and every later `%N` is written against it, so compacting
+  // the list would rewrite what every surviving statement means. The record stays,
+  // the row leaves the tree, and the emitted program renumbers around it.
+  //
+  // It does NOT refuse a delete whose dependents break. FeatureHistory::
+  // previewDelete() reports exactly which ones and why, the app shows it before
+  // the click, and afterwards each broken row says which operand went missing.
+  {
+    CommandDescriptor c = base("part.delete_feature", "Delete Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      const FeatureRecord* rec = irId == 0 ? nullptr : d->featureAt(irId);
+      return rec != nullptr && !rec->deleted;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      const FeatureRecord* rec = irId == 0 ? nullptr : d->featureAt(irId);
+      if (rec == nullptr) { ctx.fail("no such feature"); return; }
+      if (!s->perform(*d, std::make_unique<DeleteFeatureEdit>(
+                              irId, "Delete " + rowName(*rec)))) {
+        ctx.fail("that feature is already deleted");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── RENAME ────────────────────────────────────────────────────────────────
+  // The TREE-ROW name. It is not the persistent name: this is a label a human
+  // reads, and part.tag_feature below is the one that binds a name the KERNEL
+  // resolves through face signatures. Both exist because they answer different
+  // questions -- "which row is this" and "which face did I mean".
+  {
+    CommandDescriptor c = base("part.rename_feature", "Rename Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    // No default: there is no honest default name for a feature, and inventing
+    // one would let a menu click rewrite a row the user did not mean to touch.
+    c.schema.push_back(ParamSpec{.name = "name", .type = ParamType::Text,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = false});
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      return historyTarget(*d, ctx) != 0 && !txt(ctx, "name", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      if (irId == 0) { ctx.fail("no such feature"); return; }
+      if (!s->perform(*d, std::make_unique<RenameFeatureEdit>(
+                              irId, txt(ctx, "name", ""), "Rename Feature"))) {
+        ctx.fail("that feature already has that name");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── ROLLBACK ──────────────────────────────────────────────────────────────
+  // The rollback bar: build the tree up to and including this statement, and stop.
+  // Everything after it is ROLLED, not lost, and comes back when the bar moves.
+  // The position CLAMPS into the tree rather than being refused -- a bar dragged
+  // past the end means the end, in every modeller that has one.
+  {
+    CommandDescriptor c = base("part.rollback_to", "Roll Back To Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = false});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return !d->records().empty() && wholeCount(num(ctx, "feature", -1.0)) &&
+             num(ctx, "feature", -1.0) >= 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      if (!s->perform(*d, std::make_unique<RollbackEdit>(
+                              static_cast<int>(num(ctx, "feature", 0.0)), "Roll Back"))) {
+        ctx.fail("the rollback bar is already there");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── ROLL FORWARD ──────────────────────────────────────────────────────────
+  // Put the bar back at the end of the tree. Its own command rather than
+  // `rollback_to(0)` because 0 means "before the first statement" there, and a
+  // single control whose extremes both mean "off" is a control nobody can aim.
+  {
+    CommandDescriptor c = base("part.rollback_end", "Roll Forward To End", "",
+                               SelectionSignature::none());
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      (void)ctx;
+      return d->rollback() != 0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      if (!s->perform(*d, std::make_unique<RollbackEdit>(
+                              static_cast<int>(d->records().size()), "Roll Forward"))) {
+        ctx.fail("the tree is not rolled back");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── REORDER ───────────────────────────────────────────────────────────────
+  // The one history operation that renumbers, because in this IR a statement's
+  // POSITION is its `%N`. `position` is 1-based and is CLAMPED into the window the
+  // dependency graph allows: a feature cannot move above a value it reads, nor
+  // below a statement that reads it, because a forward `%N` is not expressible.
+  // The gesture is never ignored -- it does as much as it can, and MoveFeatureEdit
+  // reports where it landed and which statement stopped it.
+  {
+    CommandDescriptor c = base("part.reorder_feature", "Reorder Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "position", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = false});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return historyTarget(*d, ctx) != 0 && wholeCount(num(ctx, "position", 0.0)) &&
+             num(ctx, "position", 0.0) >= 1.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const int irId = historyTarget(*d, ctx);
+      const FeatureRecord* rec = irId == 0 ? nullptr : d->featureAt(irId);
+      if (rec == nullptr) { ctx.fail("no such feature"); return; }
+      const int position = static_cast<int>(num(ctx, "position", 0.0));
+      // THE CLAMP IS READ FROM THE PREVIEW, NOT OFF THE EDIT.
+      //
+      // This used to keep a raw MoveFeatureEdit* across the perform() call and
+      // read blockedBy()/clampedTo() from it in the failure branch. That is a
+      // USE-AFTER-FREE: UndoStack::perform takes the unique_ptr BY VALUE and
+      // returns early on `if (!edit->apply(doc)) return false;` -- a refused edit
+      // is never pushed, so it is destroyed at that return and the pointer
+      // dangles. It read as a plausible wrong answer rather than a crash: the
+      // pinning statement came back as 0 and the message degraded to a bare "the
+      // feature cannot move there", silently dropping the one fact the user and a
+      // repair loop need.
+      //
+      // previewMove() is the right instrument and it is already the module's
+      // contract: it copies the document, performs the move on the copy and
+      // reports where it lands and what stopped it, so the preview and the
+      // outcome are the same computation by construction.
+      const Impact preview = previewMove(*d, irId, position);
+      auto edit = std::make_unique<MoveFeatureEdit>(
+          irId, position, "Reorder " + rowName(*rec));
+      if (!s->perform(*d, std::move(edit))) {
+        // Not a silent no-op: name the statement that pinned it, which is what a
+        // repair loop (and a user) needs to know.
+        std::string why = "the feature cannot move there";
+        if (preview.blockedBy != 0) {
+          why += "; %" + std::to_string(preview.blockedBy) + " pins it at position " +
+                 std::to_string(preview.clampedTo);
+        }
+        ctx.fail(why);
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── NAME A FEATURE PERSISTENTLY (TAG) ─────────────────────────────────────
+  // The op that makes an edit SURVIVE the tree changing under it. FeatureTree.hpp:
+  // TAG "binds a PERSISTENT name to a feature ... Afterwards "@name" is legal
+  // anywhere a selector is legal, and survives ops that renumber faces — which
+  // every edit does."  Until now it was a FORBIDDEN op purely because no command
+  // emitted it, so the app's own selectors were all positional ("bore:max",
+  // "face:12") and every one of them retargets the moment a feature is added
+  // above it. That is precisely the failure "shrink the diameter of the largest
+  // bore by 5 mm" hits on the second edit.
+  //
+  // The kernel does the hard half (FeatureTreeCompiler.cpp::resolveSelector):
+  // it re-finds the named face by SIGNATURE, refuses a candidate that has moved
+  // further than its own diameter rather than silently retargeting to a different
+  // hole, refuses an ambiguous match, and cross-checks the optional
+  // "@name|witness" form against an independent predicate. This command is the UI
+  // half: bind the name, so those guarantees are reachable from the app.
+  //
+  // Pass-through, so the body keeps its identity: the node is consumed and
+  // reproduced exactly as FILLET's is.
+  {
+    CommandDescriptor c = base("part.tag_feature", "Name Feature (Persistent)", "TAG",
+                               SelectionSignature::atLeast(EntityKind::Face, 1));
+    // REQUIRED, and hasDefault stays false (the braced-positional form stops
+    // before it), so a bare keyboard gesture prompts for a name instead of
+    // silently binding one -- the same shape part.mirror's `plane` has. The
+    // recorded default text is what a worked example uses; it is a legal
+    // persistent name, because an example the app would refuse is not an example.
+    c.schema.push_back(ParamSpec{"name", ParamType::Text, true, 0.0, "@feature"});
+    // "bore:max" is the kernel's own rank-based bore selector and it resolves to
+    // exactly ONE face, which is what opTag() requires ("a name must denote
+    // exactly ONE feature"). It is also the selector the ground-truth edit
+    // ("shrink the diameter of the largest bore") starts from.
+    c.schema.push_back(ParamSpec{"selector", ParamType::Text, false, 0.0, "bore:max"});
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      // The `name` parameter IS the emitted name, '@' and all. A command that
+      // silently rewrote it would make the statement in the tree differ from the
+      // thing the user typed, and the '@' is not decoration -- opTag() refuses a
+      // name without it. Callers that collect a bare word run it through
+      // forge::ui::toPersistentName() before dispatching.
+      return solidTarget(*d, ctx.selection()).ok &&
+             persistentNameProblem(txt(ctx, "name", "")) == nullptr &&
+             !txt(ctx, "selector", "bore:max").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      if (const char* problem = persistentNameProblem(txt(ctx, "name", ""))) {
+        ctx.fail(problem);
+        return;
+      }
+      std::vector<IrArg> args{IrArg::valueRef(t.value),
+                              IrArg::text(txt(ctx, "name", "@feature")),
+                              IrArg::text(txt(ctx, "selector", "bore:max"))};
+      emit(ctx, *d, *s, "part.tag_feature", "Name Feature (Persistent)", "TAG",
+           std::move(args), IrValueKind::Solid, {}, t.node);
+    };
+    add(std::move(c));
+  }
+
   // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
   // There used to be `part.undo` and `part.redo` beside `edit.undo` / `edit.redo`,
   // two pairs of buttons driving ONE stack. Whichever a user pressed, the other
@@ -2228,18 +2937,21 @@ const std::vector<std::string>& partCommandIds() {
     std::vector<std::string> v{
         "part.boolean_intersect",  "part.boolean_subtract",   "part.boolean_union",
         "part.chamfer",            "part.counterbore",        "part.defeature",
-        "part.edit_feature",       "part.extrude",            "part.fillet",
-        "part.fold",               "part.heal",               "part.hole",
-        "part.input",              "part.loft",               "part.mirror",
-        "part.move",               "part.pattern_circular",   "part.pattern_grid",
-        "part.pattern_linear",     "part.primitive_box",      "part.primitive_cone",
-        "part.primitive_cylinder", "part.primitive_prism",    "part.primitive_sphere",
-        "part.primitive_torus",    "part.primitive_tube",     "part.push_face",
-        "part.resize_bore",        "part.revolve",            "part.rotate",
-        "part.section_ring",       "part.shell",              "part.sketch_circle",
-        "part.sketch_poly",        "part.sketch_polygon",     "part.sketch_rect",
-        "part.sketch_rounded_rect","part.sweep_pipe",         "part.tag_feature",
-        "part.variable_fillet",    "part.verify",             "part.wire_section",
+        "part.delete_feature",     "part.edit_feature",       "part.extrude",
+        "part.fillet",             "part.fold",               "part.heal",
+        "part.hole",               "part.input",              "part.loft",
+        "part.mirror",             "part.move",               "part.pattern_circular",
+        "part.pattern_grid",       "part.pattern_linear",     "part.primitive_box",
+        "part.primitive_cone",     "part.primitive_cylinder", "part.primitive_prism",
+        "part.primitive_sphere",   "part.primitive_torus",    "part.primitive_tube",
+        "part.push_face",          "part.rename_feature",     "part.reorder_feature",
+        "part.resize_bore",        "part.revolve",            "part.rollback_end",
+        "part.rollback_to",        "part.rotate",             "part.section_ring",
+        "part.shell",              "part.sketch_circle",      "part.sketch_poly",
+        "part.sketch_polygon",     "part.sketch_rect",        "part.sketch_rounded_rect",
+        "part.suppress_feature",   "part.sweep_pipe",         "part.tag_feature",
+        "part.unsuppress_feature", "part.variable_fillet",    "part.verify",
+        "part.wire_section",
     };
     std::sort(v.begin(), v.end());
     return v;

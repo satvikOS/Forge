@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "475cc7f26eaba73fa63031595a30320ce6edf4b2acdc9eb78be42bb38127ebc4",
-        "bytes": 130147,
-        "lines": 2250
+        "sha256": "318a5e70fc06a37594a936831095bb2ef4252b5d82d4e17b9d4cfd5881246279",
+        "bytes": 165251,
+        "lines": 2962
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 52,
+    "registry_commands": 59,
     "commands_emitting_ir": 41,
     "user_invocable_ops": 39,
     "forbidden_ops": 1,
@@ -4564,15 +4564,15 @@
           "examples": [
             {
               "parameters": {
-                "name": "@bore1",
-                "selector": "bore:largest"
+                "name": "@feature",
+                "selector": "bore:max"
               },
               "ir_arguments": [
                 "%body",
-                "\"@bore1\"",
-                "\"bore:largest\""
+                "\"@feature\"",
+                "\"bore:max\""
               ],
-              "ir_text": "%<id> = TAG(%body, \"@bore1\", \"bore:largest\")"
+              "ir_text": "%<id> = TAG(%body, \"@feature\", \"bore:max\")"
             }
           ],
           "command": "part.tag_feature"
@@ -5564,6 +5564,31 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.delete_feature",
+      "label": "Delete Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.edit_feature",
@@ -7002,6 +7027,72 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.rename_feature",
+      "label": "Rename Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "name",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
+      "id": "part.reorder_feature",
+      "label": "Reorder Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "position",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.resize_bore",
       "label": "Resize Bore",
       "category": "Part",
@@ -7123,6 +7214,47 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.rollback_end",
+      "label": "Roll Forward To End",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
+      "id": "part.rollback_to",
+      "label": "Roll Back To Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.rotate",
@@ -7696,6 +7828,31 @@
       "produces_value_kind": "Profile"
     },
     {
+      "id": "part.suppress_feature",
+      "label": "Suppress Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.sweep_pipe",
       "label": "Sweep Pipe",
       "category": "Part",
@@ -7748,7 +7905,7 @@
     },
     {
       "id": "part.tag_feature",
-      "label": "Tag Feature",
+      "label": "Name Feature (Persistent)",
       "category": "Part",
       "feature_ir_op": "TAG",
       "emits_feature_ir": true,
@@ -7763,40 +7920,59 @@
           "type": "Text",
           "required": true,
           "default_number": 0.0,
-          "default_text": "@bore1",
-          "has_default": true
+          "default_text": "@feature",
+          "has_default": false
         },
         {
           "name": "selector",
           "type": "Text",
-          "required": true,
+          "required": false,
           "default_number": 0.0,
-          "default_text": "bore:largest",
-          "has_default": true
+          "default_text": "bore:max",
+          "has_default": false
         }
       ],
       "preview": "None",
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
-        "source": "solidTarget(*d, ctx.selection()).ok && txt(ctx, \"name\", \"\").rfind(\"@\", 0) == 0 && !txt(ctx, \"selector\", \"\").empty()",
+        "source": "solidTarget(*d, ctx.selection()).ok && persistentNameProblem(txt(ctx, \"name\", \"\")) == nullptr && !txt(ctx, \"selector\", \"bore:max\").empty()",
         "derived": [
           {
             "selection": "must resolve to exactly one SOLID value on one body"
-          },
-          {
-            "parameter": "name",
-            "comparison": "starts_with",
-            "value": "@"
-          },
-          {
-            "parameter": "selector",
-            "comparison": "is_non_empty"
           }
         ],
-        "unparsed_terms": []
+        "unparsed_terms": [
+          "persistentNameProblem(txt(ctx, \"name\", \"\")) == nullptr",
+          "!txt(ctx, \"selector\", \"bore:max\").empty()"
+        ]
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.unsuppress_feature",
+      "label": "Unsuppress Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.variable_fillet",
@@ -8025,7 +8201,7 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 23,
+      "count": 27,
       "parameters": [
         "width (part.sketch_rect)",
         "height (part.sketch_rect)",
@@ -8049,7 +8225,11 @@
         "dx (part.pattern_grid)",
         "dy (part.pattern_grid)",
         "plane (part.mirror)",
-        "value (part.edit_feature)"
+        "value (part.edit_feature)",
+        "name (part.rename_feature)",
+        "feature (part.rollback_to)",
+        "position (part.reorder_feature)",
+        "name (part.tag_feature)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"
