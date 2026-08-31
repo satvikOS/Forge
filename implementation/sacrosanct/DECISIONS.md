@@ -1189,3 +1189,283 @@ the closure.
 input is a SINGLE face carrying a `Geom_CylindricalSurface`; a shell with two or more faces, or one
 planar face, falls through to the code that has always handled it. Deleting that block restores
 67.8% exactly. The measurement above is what would have to be refuted first.
+## D-031 (2026-08-31): op-constrained TRAINING does not constrain EMISSION — the fix is a decode-time mask
+
+`adapters/archie-30b-vocab-legal-v8` had been trained and **never evaluated**. Running it is
+what produced this, and the result is the opposite of what the adapter's name asserts.
+
+**The corpus is perfectly legal.** Measured over every row, parsing the real target form
+(`%id = OP(args)`) rather than grepping for substrings:
+
+```
+data/forge/vocab_legal_v2/train.jsonl   rows=38000   distinct ops=18   ILLEGAL ops: NONE
+data/forge/vocab_legal_v2/valid.jsonl   rows=2000    distinct ops=18   ILLEGAL ops: NONE
+```
+
+Zero rows contain an op outside the allowed 18, and the system prompt enumerates them
+explicitly: *"The ONLY ops a user can invoke are: BLEND, CBORE, CHAMFER, CIRCLE, COMMON, CUT,
+EXTRUDE, FILLET, FUSE, HOLE, LOFT, MIRROR, PATTERN, RECT, REVOLVE, RING, SHELL, TRANSLATE."*
+
+**The model trained on it emits illegal ops anyway.** First 12 holdout rows, pinned verifier,
+expert LoRA confirmed loaded (36 switch keys / 276 modules):
+
+```
+rows=12   compiled=True: 0   compiled=False: 12
+out-of-vocabulary ops:  bore (6)   CYLINDER (4)   CUBOID (2)
+```
+
+None of `bore`, `CYLINDER` or `CUBOID` occurs anywhere in the 40,000-row corpus as an op.
+They are **base-model CAD priors reasserting themselves through the fine-tune** — `CYLINDER`
+and `CUBOID` are the primitive names a general CAD-trained model reaches for, and `bore` is
+the natural-language word for the feature Forge calls `CBORE`.
+
+**Therefore: teaching the vocabulary by example does not enforce it.** The corpus was not the
+problem, so a better or larger corpus is not the fix. The constraint has to be applied where
+tokens are actually chosen — a **decode-time mask or reject-and-resample over the op position**
+— which makes an illegal op unrepresentable rather than merely unattested.
+
+**A measurement trap this finding nearly fell into.** A first pass grepped the corpus for the
+literal string `bore` and reported it in **11,857 of 38,000 rows**, which would have supported
+exactly the wrong conclusion — that the corpus was contaminated. It is a SUBSTRING of `CBORE`
+and `cboreDia`. Counting op TOKENS instead gives zero. A substring is not an op.
+
+**Denominators, stated honestly.** The corpus side is complete and exact (40,000 rows). The
+emission side is **12 of 600** — 100% so far, three distinct illegal ops, and systematic rather
+than incidental, but it is not yet a rate. The run continues; if the pattern holds the rate is
+the number to quote, and if it does not, this entry is wrong and must be corrected.
+
+**What this unblocks.** [[D-015]] recorded that no `forge::ui` command creates a value, so a
+literal "only what users can use" rule made generation impossible. That premise is REFUTED at
+head (PR #128): a non-trivial program IS emittable from the allowed 18. So the remaining
+obstacle to op-constrained Archie is not expressiveness and not corpus quality — it is
+enforcement at decode time.
+
+## D-032 (2026-08-31): the COMPLETE OCCT ledger — every toolkit accounted for, and TKOffset is a capability decision, not an engineering one
+
+The standing instruction was "don't drop one and forget about the others". This is the
+full accounting, measured on real linked binaries rather than read off a document.
+
+**The number.** `occt_closure_count.sh` on three configurations:
+
+```
+default (committed defaults)        DIRECT=9  CLOSURE=14  PHANTOM=2
+nine families, FILLET off           DIRECT=8  CLOSURE=13  PHANTOM=2
+all twelve drop options ON          DIRECT=9  CLOSURE=11  PHANTOM=0
+```
+
+**A NEGATIVE CONTROL THAT SOLVES A RECURRING TRAP.** CMake accepts an unknown `-D`
+silently, which has already cost this programme an entire A/B whose two arms compiled to
+byte-identical binaries. There is now a discriminator:
+
+```
+-DFORGE_TOTALLY_FAKE_DROP_NATIVE=ON   ->  configures rc=0, NO warning anywhere,
+                                          lands as  FORGE_TOTALLY_FAKE_DROP_NATIVE:UNINITIALIZED=ON
+all twelve real options               ->  land as   FORGE_..._DROP_NATIVE:BOOL=ON
+```
+
+**The `:BOOL=` vs `:UNINITIALIZED=` suffix in CMakeCache.txt separates a live option from a
+silently-swallowed typo.** Use it before believing any flag did anything.
+
+**Every toolkit, with what actually holds it:**
+
+| Toolkit | Status | What holds it | Excl. syms |
+|---|---|---|---|
+| TKOffset | droppable **only in the all-drops arm** | 42 symbols still REFERENCED in the shipping build | 42 |
+| TKFillet | blocked-by-parent | TKOffset DT_NEEDs it | 11 |
+| TKBool | never-needed | zero exclusive symbols; falls free with the pair | 0 |
+| TKBO | blocked-by-engine | needs a native boolean/defeaturing engine | 32 |
+| TKPrim | never-needed | a DEAD link record naming a library it needs no export of | 0 |
+| TKG3d | no fix at any level | removing all 141 symbols moves closure by **zero** | 141 |
+| TKShHealing | worth 0 closure | 12 symbols survive its own partial drop | 12 |
+| TKTopAlgo | last rung | bounded for only 19 of 99 symbols (read side) | 99 |
+| TKBRep | blocked by everything | stays while TKTopAlgo et al. remain | — |
+
+**TKOffset's 42 symbols partition EXACTLY onto the nine families with no residue** —
+PipeShell 7 (F), ThruSections 6 (D), DraftAngle 6 (J), MakeFilling 5 (C),
+BRepOffset_MakeOffset 5 (I), MakeOffset 4 (A), MakeThickSolid 3 (G), MakePipe 3 (E),
+MakeOffsetShape 3 (H). With all nine plus FILLET on, the variant library has **0 needed and
+0 exclusive TKOffset symbols and dyld no longer maps libTKOffset**. It was built.
+
+**So the drop is available in the ALL-DROPS ARM, and what blocks shipping it is CAPABILITY.**
+Family J (DRAFT) is 0.0% native against 88.0% OCCT (497/565), with a measured 75.0% ceiling
+for the only bounded alternative. Shipping the drop now would delete geometry users can
+currently make. That is a product decision, not a compiler problem, and it should be recorded
+as one rather than presented as "blocked".
+
+### CORRECTED 2026-08-31 — three claims above were wrong, caught by adversarial verification
+
+The first draft of this entry inherited three errors from the ledger it was written from. The
+verifier rebuilt three arms from its own detached worktree at origin (31 commits ahead of the
+tree the ledger measured) and reproduced every headline number — closure 14/13/11, the
+parent-free set, TKG3d worth zero, TKShHealing worth zero. What it refuted was the framing:
+
+* **"Droppable now" was wrong as a status.** In the SHIPPING build TKOffset has **42
+  referenced exclusive symbols across 7 objects** (strict link, no `-undefined
+  dynamic_lookup`). It reaches zero ONLY with all nine family macros on — the configuration
+  that deletes 497 draft parts. The prose said this correctly; the status label contradicted
+  it. A one-word label that disagrees with the paragraph under it is how a reader takes away
+  the opposite of what was measured. No other label is wrong: TKBool, TKPrim, TKGeomAlgo and
+  TKGeomBase all measure exactly 0.
+* **"Eight of nine families fail their flip gate" was wrong.** TWO options pass, not one:
+  `FORGE_FILLING_DROP_NATIVE` and `FORGE_OFFSET_DROP_MAKEOFFSET` — the latter recorded at
+  `corpus_ab/makeoffset_shipped_bucket_600_summary.md` as *600 parts, both 594, native-only 6,
+  **OCCT-only 0**, 100.0% vs 99.0%, PASS*. The ledger read a superseded comment table in
+  `CMakeLists.txt` instead of the committed A/B summary sitting in the same tree it measured.
+* **The programme's stated PRICE is overstated by up to 5.6x.** Best committed 600-part rows
+  supersede four of the nine capability-cost figures: PIPE **106** deleted / 82.3% (not 598),
+  FILLET **59** / 67.2% (not 315), MAKEOFFSET **0** (not 27), PIPESHELL **1** / 99.8% (not
+  291), THICKEN **23** (not 193).
+
+**The conclusion survives all of it.** DRAFT is unchanged at 0.0% vs 88.0%, and
+`CMakeLists.txt:1053-1081` still requires all nine families, so the shippable ceiling stands.
+But "the drop costs 1,400 parts" and "the drop costs 190 parts" are different arguments, and
+only the second is true. A decision recorded with the wrong price is a decision made on the
+wrong grounds.
+
+**Two accounting traps this closes:**
+
+* **TKFillet alone is worth NEGATIVE progress.** Flipping only `FORGE_FILLET_DROP_NATIVE`
+  takes DIRECT **9 -> 10** and leaves CLOSURE at 14, with libTKFillet still mapped at
+  runtime. `{TKOffset, TKFillet}` is the unit that pays; scoring TKFillet on its own reports
+  a regression as an improvement.
+* **`FORGE_GEOM_DROP_NATIVE` has ZERO readers of its own name.** A grep would call it dead.
+  It gates an `if()` defining `FORGE_NATIVE_PROJECTION` / `_NURBS_CONVERT` / `_LAW`, read by
+  13 files, and is why TKGeomBase and TKGeomAlgo now export zero exclusive symbols. Proved by
+  diffing `flags.make` between configures — a flag can act **by proxy**.
+
+**Where the next real movement is.** Not more family work: the family programme's ceiling is
+CLOSURE 11 (D-027 / #127). Past that, **TKBO is worth 11 -> 10** and becomes the unique
+parent-free node in the all-drops arm — but it has no option, no family, no corpus harness,
+and 32 symbols across 14 files. It needs a native boolean/defeaturing engine. TKPrim's dead
+DIRECT record is free accounting (DIRECT 9 -> 8) and moves the ledger by nothing.
+
+## D-033 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
+
+`archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
+entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
+produce it."* That is not a kernel gap. It is a **missing app surface**, and the ops it hid are
+not exotic: `BOX`, `CYL`, `CONE`, `SPHERE`, `TORUS`, `PRISM`, `TUBE`, `RRECT`, `REGPOLY` and
+`ROTATE` — a CAD application with no cylinder primitive. The app even **seeded a `BOX` into
+every new document** (`ForgeFrame`'s default part) while giving the user no way to author one.
+
+**What was added.** Ten `forge::ui` commands, so `registerPartCommands` goes 21 -> 31 and the
+registry 31 -> 41:
+
+| command | op | kind |
+|---|---|---|
+| `part.primitive_box` | `BOX` | Solid |
+| `part.primitive_cylinder` | `CYL` | Solid |
+| `part.primitive_cone` | `CONE` | Solid |
+| `part.primitive_sphere` | `SPHERE` | Solid |
+| `part.primitive_torus` | `TORUS` | Solid |
+| `part.primitive_prism` | `PRISM` | Solid |
+| `part.primitive_tube` | `TUBE` | Solid |
+| `part.sketch_rounded_rect` | `RRECT` | Profile |
+| `part.sketch_polygon` | `REGPOLY` | Profile |
+| `part.rotate` | `ROTATE` | Solid (consumes one) |
+
+Nothing was hand-edited into the asset. `gen_archie_op_vocabulary.py --write` DERIVES the
+user-invocable set from the registry, so the ten moved out of `forbidden_ops` on their own:
+**18 -> 28 user-invocable ops, 22 -> 12 forbidden, 20 -> 30 commands emitting IR, 34 -> 54
+worked examples**, and `ui/include/forge/ui/ArchieOpVocabulary.hpp` was regenerated from the
+JSON in the same commit.
+
+**What it is worth, MEASURED on the repo's own IR corpus** (the four kernel smoke suites,
+`measure_vocabulary_coverage.py`, same four files each time):
+
+| revision | statements inside the vocabulary | programs fully inside |
+|---|---|---|
+| before any creator existed | 45.4% | 0.0% |
+| after D-023's five creators | 48.6% (89/183) | 3.8% (2/53) |
+| after this change | **74.9% (137/183)** | **54.7% (29/53)** |
+
+The program figure is the one that matters: a program counts only if EVERY statement is inside,
+so `BOX` (30 statements) and `CYL` (17) alone were disqualifying whole programs. What is left
+outside is the direct-edit family (`TAG`, `DEFEATURE`, `PUSHFACE`, `RESIZEBORE`), `INPUT`,
+`VERIFY`, and the three ops needing a points token `forge::ui::IrArgKind` does not model
+(`POLY`, `WIRE`, `SWEEP`).
+
+**Argument order was measured, not assumed.** Getting an optional-group order wrong produces
+geometry silently, so every emitted form was compiled through the pinned native verifier
+(`forge_verify` -> `forge::ft::compileText`) against closed form BEFORE the command was
+written, in both the minimal and the full form. All 54 recorded examples were then re-compiled
+after generation: **all 20 belonging to the new ops build a valid solid**. A VECTOR of
+observables, never volume alone — the divergence theorem gives a self-intersecting shell the
+right volume:
+
+```
+BOX(40,30,20)     24000.0000  = 40*30*20            6 faces genus 0  bbox [-20,-15,0]..[20,15,20]
+CYL(10,25)         7853.9816  = pi*100*25           3 faces genus 0
+CONE(10,4,25)      4084.0705  = pi*h/3*(r1^2+r1r2+r2^2)
+SPHERE(10)         4188.7902  = 4/3*pi*1000         1 face
+TORUS(30,8)       37899.2809  = 2*pi^2*30*64        GENUS 1
+PRISM(6,15,20)    11691.3430  = 0.5*6*15^2*sin60*20 8 faces = 6 sides + 2 caps
+TUBE(12,8,30)      7539.8224  = pi*(144-64)*30      GENUS 1, 4 faces
+RRECT(40,30,5)+E  11785.3982  = (40*30-(4-pi)*25)*10
+REGPOLY(20,6)+E   10392.3048  = 0.5*6*400*sin60*10  bbox 40.000 x 34.641 (corners vs flats)
+ROTATE(%1,90,0,1,0) on BOX(20,10,4): vol UNCHANGED at 800, bbox [0,-5,-10]..[4,5,10]
+```
+
+The two genus-1 rows and the ROTATE row are the point. A tube whose bore failed to cut keeps a
+plausible volume and reports genus 0; a rotation that did not happen keeps its volume exactly,
+because a rigid motion must. Only the bbox and the genus can tell.
+
+**SLOT IS BROKEN AND HAS NO COMMAND. This is the finding, not an omission.** `SLOT(len, wid)`
+extruded 10 mm, area read back as volume/10 through the same verifier:
+
+| statement | area | an obround is | bbox x |
+|---|---|---|---|
+| `SLOT(40, 12)` | 222.9027 | 449.0973 | −14.000 .. 14.000 |
+| `SLOT(60, 10)` | 421.4602 | 578.5398 | −25.000 .. 25.000 |
+| `SLOT(30, 20)` | 114.1593 | 514.1593 | −5.000 .. 5.000 |
+| `SLOT(100, 4)` | 371.4336 | 396.5664 | −48.000 .. 48.000 |
+
+Every row is EXACTLY `|(len - wid)*wid - pi*(wid/2)^2|` and every bbox spans `+/-(len - wid)/2`
+rather than `+/-len/2`. Both semicircular end caps bow **inward**: the shape is the straight
+section with a full circle's area REMOVED, not an obround with it added — **−50.4%** of the
+promised volume on the nominal case, and a part 28 mm long where the statement says 40.
+`profSlot`'s own source is correct (`addArc(s, cR, tr, br)` from `(l/2, r)` to `(l/2, -r)` about
+`(l/2, 0)` IS the outward cap), so the defect is in how a 180-degree arc's direction is resolved
+downstream. The control agrees: `RRECT`'s arcs are 90 degrees and its area is exact to ten
+significant figures through the same path. Adding the command would have put a broken solid one
+click away and taught Archie a shape `SLOT` is not. It stays forbidden until the arc is fixed
+and re-measured. **NOT fixed here** — a kernel arc change is a different blast radius and cannot
+be verified from this tree.
+
+**POLY, WIRE and SWEEP are also NOT added, structurally.** They take a `[x y; x y; ...]` points
+token, and `forge::ui::IrArgKind` models `Number/Ref/Keyword/Text` and deliberately no points
+kind ("a token kind nothing produces is a liability, not coverage"). Emitting `POLY(5)` would
+pass `validateIr` — arity 1..1 — and reach `profPoly`, which reads `op.poly`, finds it empty and
+builds an EMPTY SKETCH. That is the silent-geometry failure mode again, so the honest gap is
+recorded rather than papered over. POLY is 892 of the refused uses in the held-out sample and is
+the largest remaining item.
+
+**Two gate pins were RE-AIMED, and neither was weakened.** `op_constraint_bridge_test.cpp` named
+`BOX` as its example of a forbidden op; `BOX` is now allowed, so a named example had to be an op
+still out of reach — `POLY`, whose reason is structural rather than "nobody wrote the command".
+The same test's mutation 1 erased `RECT` to prove the closure check has teeth; with four PROFILE
+producers, erasing one of four leaves the language closed and the mutation would have been caught
+by a row count instead of by the check it exists to prove. It now erases the KIND, and the run
+confirms the intended path: *"NOT CLOSED — OWED, a forge::ui command that CREATES: profile;
+OWED, unreachable until then: EXTRUDE, REVOLVE."*
+
+**Every generated artifact was regenerated in this commit** — the repeated defect this project
+has hit five times. `archie_op_vocabulary.json`, `ArchieOpVocabulary.hpp`,
+`APP_SURFACE_MANIFEST.tsv` and the machine-checked numbers in `ARCHIE_OP_VOCABULARY.md`.
+Verified: both `--check` commands exit 0, `run_op_constraint_gate.sh` reports 8/8 mutations
+caught, and `run_ui.sh` reports ALL 15 UI GATES PASS.
+
+**Two curated entries were added to `OP_ARG_OVERRIDES`, the generator's only judgement layer.**
+`BOX`'s `dx/dy/dz` were classified `step_offset` by the generic `/^(dx|dy|dz)$/` rule written for
+`PATTERN` and `TRANSLATE` — they are SIDE LENGTHS, and Archie trains from this file. `REGPOLY.n`
+and `PRISM.nSides` were classified `instance_count`; they count SIDES of one solid, not copies.
+
+**Observed and NOT fixed here** (pre-existing, independent of this change): of the 34 examples
+that predate it, 5 do not build a solid in the pinned kernel — `LOFT(..., OPEN)` x2 ("not
+closed", which is what OPEN means), `REVOLVE(%rect, 360)` x2 where the fixture profile straddles
+the axis ("Pappus self-check"), and `SHELL(%body, 2, 3, 4, 4)` ("no face faces the open axis").
+Recorded so the next reader does not discover them as a surprise.
+
+**Reversible.** Each command is one self-contained block plus one id in `partCommandIds()`;
+deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
+above are what would have to be refuted first.
