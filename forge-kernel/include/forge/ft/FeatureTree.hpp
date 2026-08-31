@@ -94,7 +94,15 @@ enum class OpCode {
     SArc,        // SARC(%centre, %p0, %p1)               arc: centre + start + end
     Con,         // CON(%a, KIND [, %b, value])           constrain; PASS-THROUGH like TAG
                  //   KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON
-                 //   KIND dimensional: DIST RADIUS
+                 //   KIND dimensional: DIST
+                 //   That is EXACTLY the set forge::Sketcher dispatches today —
+                 //   9 of the 67 primitives planegcs actually has. RADIUS,
+                 //   DIAM, ANGLE, CONC, COLL, SYMM, MIDPT and FIX all exist in
+                 //   the ENGINE and are one switch arm each in the facade, but
+                 //   none is wired at this SHA, so none is listed here: a
+                 //   vocabulary that advertises a keyword the compiler skips is
+                 //   a worse defect than a short vocabulary. An unlisted
+                 //   keyword is skipped and NAMED, never fatal.
                  //   The kind is ALWAYS arg 1; the operands follow and are read
                  //   by token type, so one op covers unary/binary/dimensional
                  //   without four op names. CON returns the SKETCH it was handed
