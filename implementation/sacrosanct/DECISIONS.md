@@ -1189,3 +1189,53 @@ the closure.
 input is a SINGLE face carrying a `Geom_CylindricalSurface`; a shell with two or more faces, or one
 planar face, falls through to the code that has always handled it. Deleting that block restores
 67.8% exactly. The measurement above is what would have to be refuted first.
+## D-031 (2026-08-31): op-constrained TRAINING does not constrain EMISSION — the fix is a decode-time mask
+
+`adapters/archie-30b-vocab-legal-v8` had been trained and **never evaluated**. Running it is
+what produced this, and the result is the opposite of what the adapter's name asserts.
+
+**The corpus is perfectly legal.** Measured over every row, parsing the real target form
+(`%id = OP(args)`) rather than grepping for substrings:
+
+```
+data/forge/vocab_legal_v2/train.jsonl   rows=38000   distinct ops=18   ILLEGAL ops: NONE
+data/forge/vocab_legal_v2/valid.jsonl   rows=2000    distinct ops=18   ILLEGAL ops: NONE
+```
+
+Zero rows contain an op outside the allowed 18, and the system prompt enumerates them
+explicitly: *"The ONLY ops a user can invoke are: BLEND, CBORE, CHAMFER, CIRCLE, COMMON, CUT,
+EXTRUDE, FILLET, FUSE, HOLE, LOFT, MIRROR, PATTERN, RECT, REVOLVE, RING, SHELL, TRANSLATE."*
+
+**The model trained on it emits illegal ops anyway.** First 12 holdout rows, pinned verifier,
+expert LoRA confirmed loaded (36 switch keys / 276 modules):
+
+```
+rows=12   compiled=True: 0   compiled=False: 12
+out-of-vocabulary ops:  bore (6)   CYLINDER (4)   CUBOID (2)
+```
+
+None of `bore`, `CYLINDER` or `CUBOID` occurs anywhere in the 40,000-row corpus as an op.
+They are **base-model CAD priors reasserting themselves through the fine-tune** — `CYLINDER`
+and `CUBOID` are the primitive names a general CAD-trained model reaches for, and `bore` is
+the natural-language word for the feature Forge calls `CBORE`.
+
+**Therefore: teaching the vocabulary by example does not enforce it.** The corpus was not the
+problem, so a better or larger corpus is not the fix. The constraint has to be applied where
+tokens are actually chosen — a **decode-time mask or reject-and-resample over the op position**
+— which makes an illegal op unrepresentable rather than merely unattested.
+
+**A measurement trap this finding nearly fell into.** A first pass grepped the corpus for the
+literal string `bore` and reported it in **11,857 of 38,000 rows**, which would have supported
+exactly the wrong conclusion — that the corpus was contaminated. It is a SUBSTRING of `CBORE`
+and `cboreDia`. Counting op TOKENS instead gives zero. A substring is not an op.
+
+**Denominators, stated honestly.** The corpus side is complete and exact (40,000 rows). The
+emission side is **12 of 600** — 100% so far, three distinct illegal ops, and systematic rather
+than incidental, but it is not yet a rate. The run continues; if the pattern holds the rate is
+the number to quote, and if it does not, this entry is wrong and must be corrected.
+
+**What this unblocks.** [[D-015]] recorded that no `forge::ui` command creates a value, so a
+literal "only what users can use" rule made generation impossible. That premise is REFUTED at
+head (PR #128): a non-trivial program IS emittable from the allowed 18. So the remaining
+obstacle to op-constrained Archie is not expressiveness and not corpus quality — it is
+enforcement at decode time.
