@@ -840,6 +840,7 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   dpiScale_ = dpiScale > 0.1f ? dpiScale : 1.0f;
   panelsDrawn_ = 0;
   treeRowsDrawn_ = 0;
+  treeExpanderRect_.valid = false;
   viewportRequest_ = ViewportRequest{};
   viewportRequest_.wireframe = shell_.document().wireframe;
   viewportRequest_.geometryDirty = geometryDirty_;
@@ -886,6 +887,15 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   if (pendingTabValid_) {
     pendingTabValid_ = false;
     setActiveTabAt(pendingTabPath_, pendingTabIndex_);
+  }
+  if (pendingRatioValid_) {
+    pendingRatioValid_ = false;
+    setRatioAt(pendingRatioPath_, pendingRatioValue_);
+  }
+  if (pendingExpandValid_) {
+    pendingExpandValid_ = false;
+    tree_.setExpanded(pendingExpandId_, pendingExpandState_);
+    tree_.rebuild();
   }
 }
 
@@ -1230,7 +1240,11 @@ void ForgeFrame::drawSplitter(const forge::ui::Rect& r, bool vertical,
       // splitter drift away from the cursor as the window is resized.
       const float delta = vertical ? ImGui::GetIO().MouseDelta.y : ImGui::GetIO().MouseDelta.x;
       if (parentExtent > 1.0 && delta != 0.0f) {
-        setRatioAt(path, ratio + static_cast<double>(delta) / parentExtent);
+        // RECORD, do not apply -- setRatioAt() re-seats shell_.layout() and drawNode()
+        // dereferences node.children[1] immediately after this returns.
+        pendingRatioValid_ = true;
+        pendingRatioPath_ = path;
+        pendingRatioValue_ = ratio + static_cast<double>(delta) / parentExtent;
       }
     }
   }
@@ -1617,9 +1631,18 @@ void ForgeFrame::drawFeatureTreePanel() {
         ImGui::PushID(static_cast<int>(rowIndex));
         ImGui::Indent(static_cast<float>(row.depth) * 14.0f * dpiScale_);
         if (row.hasChildren) {
-          if (ImGui::SmallButton(row.expanded ? "-" : "+")) {
-            tree_.setExpanded(row.id, !row.expanded);
-            tree_.rebuild();
+          const bool expanderClicked = ImGui::SmallButton(row.expanded ? "-" : "+");
+          if (!treeExpanderRect_.valid) {
+            const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+            treeExpanderRect_ = {mn.x, mn.y, mx.x, mx.y, true};
+          }
+          if (expanderClicked) {
+            // RECORD, do not rebuild: the clipper is iterating a range sized from the
+            // rowCount taken at Begin(), and rebuild() changes rows_.size() underneath it.
+            // The next rowAt() then threw std::out_of_range and aborted the process.
+            pendingExpandValid_ = true;
+            pendingExpandId_ = row.id;
+            pendingExpandState_ = !row.expanded;
           }
           ImGui::SameLine();
         } else {
