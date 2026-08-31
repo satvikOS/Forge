@@ -54,6 +54,10 @@
 #include <gp_Ax2.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Elips.hxx>
+#include <Geom_BezierCurve.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <gp_Cylinder.hxx>
+#include <TColgp_Array1OfPnt.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <Bnd_Box.hxx>
@@ -168,6 +172,27 @@ TopoDS_Wire polyWire(const std::vector<gp_Pnt>& pts) {
     for (const gp_Pnt& q : pts) p.Add(q);
     p.Close();
     return p.Wire();
+}
+
+// A whole CIRCLE as one edge, and an OBROUND (two lines + two semicircular arcs).
+// Both exist for the translated-section path: every wire above is all-line-edged,
+// so nothing here reached the code that covers 189 of the 258 corpus parts the
+// THRUSECTIONS drop was deleting.
+TopoDS_Wire circleWire(double r, double z) {
+    const gp_Circ c(gp_Ax2(gp_Pnt(0.0, 0.0, z), gp_Dir(0, 0, 1)), r);
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(c).Edge()).Wire();
+}
+// Straight length L between the arc centres, radius r; area = 2 r L + pi r^2.
+TopoDS_Wire obroundWire(double L, double r, double z) {
+    const double hx = 0.5 * L;
+    const gp_Circ cr(gp_Ax2(gp_Pnt(hx, 0.0, z), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), r);
+    const gp_Circ cl(gp_Ax2(gp_Pnt(-hx, 0.0, z), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), r);
+    BRepBuilderAPI_MakeWire mw;
+    mw.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(-hx, -r, z), gp_Pnt(hx, -r, z)).Edge());
+    mw.Add(BRepBuilderAPI_MakeEdge(cr, -M_PI / 2.0, M_PI / 2.0).Edge());
+    mw.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(hx, r, z), gp_Pnt(-hx, r, z)).Edge());
+    mw.Add(BRepBuilderAPI_MakeEdge(cl, M_PI / 2.0, 3.0 * M_PI / 2.0).Edge());
+    return mw.Wire();
 }
 
 TopoDS_Wire regularNgon(int n, double r, double z) {
@@ -304,6 +329,30 @@ int main() {
         std::vector<TopoDS_Shape> s{rectWire(0, 0, 0, 20, 10), rectWire(0, 0, 10, 20, 10)};
         runThru("ts-shell-open", s, false, true, -1.0);
     }
+    {   // ★ THE TRANSLATED-SECTION PATH. Every case above is all-line-edged and so
+        // takes the polygonal engine; these are the first that cannot. Two EQUAL
+        // circles offset in z: the ruled loft is exactly the cylinder, and the
+        // closed form pins it. Instrumented on the 600-part corpus this shape of
+        // input was 291 of 291 native deferrals before the path existed.
+        const double r = 7.0, h = 13.0;
+        std::vector<TopoDS_Shape> s{circleWire(r, 0.0), circleWire(r, h)};
+        runThru("ts-xlate-cylinder", s, true, true, M_PI * r * r * h);
+    }
+    {   // The same pair with solid == false — the OPEN lateral skin. This is the
+        // branch forge::loftguide::loft reaches when its caller asks for an open
+        // loft, and it is the only isSolid=false case in the suite whose sections
+        // are not all-line-edged.
+        const double r = 7.0, h = 13.0;
+        std::vector<TopoDS_Shape> s{circleWire(r, 0.0), circleWire(r, h)};
+        runThru("ts-xlate-cyl-open", s, false, true, -1.0);
+    }
+    {   // MIXED lines and arcs — an obround, translated. This is the corpus's
+        // single most common declined signature in kind (a rounded outline whose
+        // two parallel faces are congruent): area = 2 r L + pi r^2.
+        const double L = 24.0, r = 6.0, t = 9.0;
+        std::vector<TopoDS_Shape> s{obroundWire(L, r, 0.0), obroundWire(L, r, t)};
+        runThru("ts-xlate-obround", s, true, true, (2.0 * r * L + M_PI * r * r) * t);
+    }
 
     // ================================ family F — MakePipeShell ===============
     {   // Straight spine up z, 10x10 square profile in z=0. Exact 100 * 30.
@@ -390,6 +439,19 @@ int main() {
                                           regularNgon(6, 8.0, 12.0)};
             check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
                   "defer: sections of differing vertex count are DECLINED");
+        }
+        // (2b) UNEQUAL circles. A cone frustum is a perfectly good ruled loft and
+        //      OCCT builds it; the translated-section path must NOT claim it,
+        //      because the two sections are not related by a translation and the
+        //      lateral surface is therefore not a linear extrusion. Without this
+        //      the new path could be a rubber stamp on any curved pair.
+        {
+            std::vector<TopoDS_Shape> sec{circleWire(7.0, 0.0), circleWire(4.0, 13.0)};
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: UNEQUAL circles are DECLINED (not a translate, so not an extrusion)");
+            check(!occtThru(sec, true, true).IsNull(),
+                  "control: OCCT DOES build that cone — the decline is a real coverage gap, "
+                  "not an impossible input");
         }
         // (3) Smoothed loft over THREE sections.
         {
@@ -868,6 +930,541 @@ int main() {
             }
         }
 
+
+        // ================================================================
+        // THE EXACT ARC-SWEPT LATERAL FACE — family E's fourth profile kind
+        // ================================================================
+        // Corpus census of the 351 parts family E still declined after the
+        // circular-hole kind: 141 have an ARC-CHAIN outer wire, 60 a POLYGON
+        // outer with an arc-chain (slot / kidney) hole, 44 a FULL-CIRCLE outer
+        // with holes, and 106 a B-SPLINE outer that no arc geometry can reach.
+        // Every case below is one of those four shapes, and every one carries an
+        // INDEPENDENT closed form so OCCT is never the only oracle.
+        {
+            std::printf("\n--- arc-chain profiles: the exact arc-swept lateral face ---\n");
+
+            // A closed wire of LINE and ARC edges, given as an ordered vertex
+            // list plus, for each edge, the bulge radius (0 == a straight line;
+            // sign gives the side the arc bulges towards).
+            // a -> b along the circle centred at `c`; `ccw` says which way round
+            // the profile normal the arc runs, so the SUBTENDED ANGLE is stated
+            // by the caller rather than inferred from a bulge sign. (Getting
+            // that inference wrong is how the first draft of this block built
+            // 270-degree bumps and then blamed the engine for them.)
+            auto arcEdge = [](const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c,
+                              bool ccw) {
+                const double r = c.Distance(a);
+                const gp_Circ ci(gp_Ax2(c, gp_Dir(0, 0, ccw ? 1 : -1)), r);
+                return BRepBuilderAPI_MakeEdge(ci, a, b).Edge();
+            };
+            auto lineEdge = [](const gp_Pnt& a, const gp_Pnt& b) {
+                return BRepBuilderAPI_MakeEdge(a, b).Edge();
+            };
+
+            // ---- (1) a ROUNDED RECTANGLE, the corpus's single most common
+            //          arc-chain outer wire (80 of the 141), 4 quarter-circle
+            //          corners.  area = W*H - (4 - pi) r^2, exactly.
+            const double RW = 40.0, RH = 30.0, RR = 6.0;
+            auto roundedRectWire = [&](double z) {
+                const double x0 = -RW / 2, x1 = RW / 2, y0 = -RH / 2, y1 = RH / 2;
+                const gp_Pnt p1(x0 + RR, y0, z), p2(x1 - RR, y0, z);
+                const gp_Pnt p3(x1, y0 + RR, z), p4(x1, y1 - RR, z);
+                const gp_Pnt p5(x1 - RR, y1, z), p6(x0 + RR, y1, z);
+                const gp_Pnt p7(x0, y1 - RR, z), p8(x0, y0 + RR, z);
+                BRepBuilderAPI_MakeWire w;
+                w.Add(lineEdge(p1, p2));
+                w.Add(arcEdge(p2, p3, gp_Pnt(x1 - RR, y0 + RR, z), true));
+                w.Add(lineEdge(p3, p4));
+                w.Add(arcEdge(p4, p5, gp_Pnt(x1 - RR, y1 - RR, z), true));
+                w.Add(lineEdge(p5, p6));
+                w.Add(arcEdge(p6, p7, gp_Pnt(x0 + RR, y1 - RR, z), true));
+                w.Add(lineEdge(p7, p8));
+                w.Add(arcEdge(p8, p1, gp_Pnt(x0 + RR, y0 + RR, z), true));
+                return w.Wire();
+            };
+            const double rrArea = RW * RH - (4.0 - M_PI) * RR * RR;
+            const TopoDS_Face rrFace =
+                BRepBuilderAPI_MakeFace(roundedRectWire(0.0), Standard_True).Face();
+
+            {
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, rrFace, 1.0e-6);
+                BRepOffsetAPI_MakePipe mk(sp, rrFace);
+                mk.Build();
+                check(!nat.IsNull(), "arc-roundrect-straight native pipe built (no defer)");
+                check(mk.IsDone() == Standard_True,
+                      "arc-roundrect-straight OCCT MakePipe built");
+                if (!nat.IsNull() && mk.IsDone()) {
+                    const Metrics n = measure(nat), o = measure(mk.Shape());
+                    std::printf("      native vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                n.vol, n.com[0], n.com[1], n.com[2], n.nFace, n.nEdge,
+                                n.nVert, n.nShell, static_cast<int>(n.valid));
+                    std::printf("      occt   vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                o.vol, o.com[0], o.com[1], o.com[2], o.nFace, o.nEdge,
+                                o.nVert, o.nShell, static_cast<int>(o.valid));
+                    compareAB("arc-roundrect-straight", n, o, /*wantClosed*/ true, /*report*/ true);
+                    check(relClose(n.vol, rrArea * 25.0, 1.0e-9),
+                          "arc-roundrect-straight volume native == CLOSED FORM "
+                          "(W*H - (4-pi)r^2) * L");
+                    check(relClose(o.vol, rrArea * 25.0, 1.0e-9),
+                          "arc-roundrect-straight volume OCCT == CLOSED FORM");
+                }
+            }
+
+            // ★ THE CONTROL THAT MAKES "EXACT ARC-SWEPT FACE" FALSIFIABLE.
+            // A chord-polygon answer — the octagon through the eight arc end
+            // points, which is what a decomposition that FORGOT its arcs would
+            // build — is a DIFFERENT solid. Its volume must differ, and the real
+            // answer must carry four analytic cylindrical faces of radius RR
+            // that the chord answer does not have at all.
+            {
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                const double x0 = -RW / 2, x1 = RW / 2, y0 = -RH / 2, y1 = RH / 2;
+                const TopoDS_Wire oct = polyWire({
+                    gp_Pnt(x0 + RR, y0, 0), gp_Pnt(x1 - RR, y0, 0),
+                    gp_Pnt(x1, y0 + RR, 0), gp_Pnt(x1, y1 - RR, 0),
+                    gp_Pnt(x1 - RR, y1, 0), gp_Pnt(x0 + RR, y1, 0),
+                    gp_Pnt(x0, y1 - RR, 0), gp_Pnt(x0, y0 + RR, 0)});
+                const TopoDS_Shape chord =
+                    forge::occtloft::pipe(sp, BRepBuilderAPI_MakeFace(oct, Standard_True).Face(),
+                                          1.0e-6);
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, rrFace, 1.0e-6);
+                check(!chord.IsNull() && !nat.IsNull(),
+                      "arc-vs-chord control: both the arc profile and its chord polygon built");
+                if (!chord.IsNull() && !nat.IsNull()) {
+                    const Metrics a = measure(nat), b = measure(chord);
+                    // octagon area = W*H - 4 * (r^2/2) = W*H - 2 r^2
+                    const double octArea = RW * RH - 2.0 * RR * RR;
+                    std::printf("      arc vol=%.10g   chord-polygon vol=%.10g   (differ by %.6g%%)\n",
+                                a.vol, b.vol, 100.0 * std::fabs(a.vol - b.vol) / a.vol);
+                    check(relClose(b.vol, octArea * 25.0, 1.0e-9),
+                          "arc-vs-chord control: the chord answer is EXACTLY the octagon prism");
+                    check(!relClose(a.vol, b.vol, 1.0e-6),
+                          "arc-vs-chord control: the arc answer is NOT the chord answer");
+                    // and the arcs are real analytic cylinders, not facets
+                    int nCyl = 0, nCylR = 0;
+                    TopTools_IndexedMapOfShape mf;
+                    TopExp::MapShapes(nat, TopAbs_FACE, mf);
+                    for (int i = 1; i <= mf.Extent(); ++i) {
+                        Handle(Geom_Surface) su = BRep_Tool::Surface(TopoDS::Face(mf(i)));
+                        Handle(Geom_CylindricalSurface) cy =
+                            Handle(Geom_CylindricalSurface)::DownCast(su);
+                        if (cy.IsNull()) continue;
+                        ++nCyl;
+                        if (std::fabs(cy->Cylinder().Radius() - RR) <= 1.0e-9) ++nCylR;
+                    }
+                    std::printf("      arc answer carries %d cylindrical face(s), %d of radius %.6g\n",
+                                nCyl, nCylR, RR);
+                    check(nCyl == 4 && nCylR == 4,
+                          "arc-vs-chord control: the four corners are ANALYTIC cylinders of "
+                          "exactly the arc radius");
+                    int nCylChord = 0;
+                    TopTools_IndexedMapOfShape mc;
+                    TopExp::MapShapes(chord, TopAbs_FACE, mc);
+                    for (int i = 1; i <= mc.Extent(); ++i)
+                        if (!Handle(Geom_CylindricalSurface)::DownCast(
+                                 BRep_Tool::Surface(TopoDS::Face(mc(i)))).IsNull()) ++nCylChord;
+                    check(nCylChord == 0,
+                          "arc-vs-chord control: the chord answer has NO cylindrical face");
+                }
+            }
+
+            // ---- (2) the same rounded rectangle on a BENT spine, where OCCT is
+            //          NOT an oracle. The derived law for the L-spine
+            //          (0,0,0)->(0,0,H)->(W,0,H) is  V = A * (H + W - 2*xbar),
+            //          and the rounded rectangle is symmetric so xbar = 0.
+            {
+                const double H = 25.0, W = 30.0;
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, H),
+                                                gp_Pnt(W, 0, H)});
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, rrFace, 1.0e-6);
+                check(!nat.IsNull(), "arc-roundrect-L native pipe built");
+                if (!nat.IsNull()) {
+                    const Metrics n = measure(nat);
+                    const double cf = rrArea * (H + W);
+                    std::printf("      native vol=%.10g (closed form %.10g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                n.vol, cf, n.nFace, n.nEdge, n.nVert, n.nShell,
+                                static_cast<int>(n.valid));
+                    check(relClose(n.vol, cf, 1.0e-9),
+                          "arc-roundrect-L volume == DERIVED CLOSED FORM A*(H+W-2*xbar)");
+                    check(n.valid, "arc-roundrect-L native solid VALID");
+                    check(n.nShell == 1, "arc-roundrect-L exactly ONE shell");
+                }
+            }
+
+            // ---- (3) a SLOT (obround) HOLE in a polygon outer — the 60-part
+            //          bucket. Two 180-degree arcs and two lines; the segment
+            //          angle is exactly pi, the boundary case of the
+            //          (r^2/2)(D - sin D) segment area.
+            const double SL = 14.0, SR = 4.0;   // centre-to-centre, radius
+            auto slotWire = [&](double cx, double cy) {
+                const gp_Pnt a(cx - SL / 2, cy - SR, 0), b(cx + SL / 2, cy - SR, 0);
+                const gp_Pnt c(cx + SL / 2, cy + SR, 0), d(cx - SL / 2, cy + SR, 0);
+                BRepBuilderAPI_MakeWire w;
+                w.Add(lineEdge(a, b));
+                w.Add(arcEdge(b, c, gp_Pnt(cx + SL / 2, cy, 0), true));
+                w.Add(lineEdge(c, d));
+                w.Add(arcEdge(d, a, gp_Pnt(cx - SL / 2, cy, 0), true));
+                return w.Wire();
+            };
+            const double slotArea = SL * 2.0 * SR + M_PI * SR * SR;
+            {
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                const TopoDS_Wire out40 = rectWire(-20, -20, 0, 40, 40);
+                BRepBuilderAPI_MakeFace mk(out40, Standard_True);
+                TopoDS_Wire sw = slotWire(0.0, 0.0);
+                sw.Reverse();
+                mk.Add(sw);
+                const TopoDS_Face slotted = mk.Face();
+                const double cfA = 1600.0 - slotArea;
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, slotted, 1.0e-6);
+                BRepOffsetAPI_MakePipe mp(sp, slotted);
+                mp.Build();
+                check(!nat.IsNull(), "arc-slothole-straight native pipe built (no defer)");
+                check(mp.IsDone() == Standard_True, "arc-slothole-straight OCCT MakePipe built");
+                if (!nat.IsNull() && mp.IsDone()) {
+                    const Metrics n = measure(nat), o = measure(mp.Shape());
+                    std::printf("      native vol=%.10g   occt vol=%.10g   closed form %.10g\n",
+                                n.vol, o.vol, cfA * 25.0);
+                    compareAB("arc-slothole-straight", n, o, true, true);
+                    check(relClose(n.vol, cfA * 25.0, 1.0e-9),
+                          "arc-slothole-straight volume native == CLOSED FORM "
+                          "(1600 - (2rL + pi r^2)) * 25");
+                    check(relClose(o.vol, cfA * 25.0, 1.0e-9),
+                          "arc-slothole-straight volume OCCT == CLOSED FORM");
+                }
+            }
+
+            // ---- (4) a MAJOR arc (subtended angle > pi), which is where the
+            //          "disc INTERSECT half-plane" reading of a circular segment
+            //          has to hold for the LARGER of the two pieces. Ring:
+            //          a 300-degree arc from A to B, then B->P->A.
+            {
+                const double r = 10.0, th = M_PI / 6.0;   // 30 degrees
+                const gp_Pnt A(r * std::cos(th), r * std::sin(th), 0.0);
+                const gp_Pnt B(r * std::cos(th), -r * std::sin(th), 0.0);
+                const gp_Pnt P(2.0 * r, 0.0, 0.0);
+                BRepBuilderAPI_MakeWire w;
+                w.Add(arcEdge(A, B, gp_Pnt(0, 0, 0), true));   // the LONG way: 300 deg
+                w.Add(lineEdge(B, P));
+                w.Add(lineEdge(P, A));
+                const TopoDS_Face f = BRepBuilderAPI_MakeFace(w.Wire(), Standard_True).Face();
+                const double D = 2.0 * M_PI - 2.0 * th;
+                const double majorSeg = 0.5 * r * r * (D - std::sin(D));
+                const double tri = 0.5 * (2.0 * r * std::sin(th)) * (P.X() - A.X());
+                const double area = tri + majorSeg;
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 20)});
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, f, 1.0e-6);
+                BRepOffsetAPI_MakePipe mp(sp, f);
+                mp.Build();
+                check(!nat.IsNull(), "arc-major-straight native pipe built (no defer)");
+                if (!nat.IsNull()) {
+                    const Metrics n = measure(nat);
+                    std::printf("      native vol=%.10g   closed form %.10g  (arc sweeps %.1f deg)\n",
+                                n.vol, area * 20.0, D * 180.0 / M_PI);
+                    check(relClose(n.vol, area * 20.0, 1.0e-9),
+                          "arc-major-straight volume == CLOSED FORM triangle + MAJOR segment");
+                    check(n.valid, "arc-major-straight native solid VALID");
+                    if (mp.IsDone()) {
+                        const Metrics o = measure(mp.Shape());
+                        compareAB("arc-major-straight", n, o, true, true);
+                    }
+                }
+            }
+
+            // ---- (5) an INWARD (subtracted) arc: a square whose bottom edge is
+            //          replaced by an arc bulging INTO the material. This is the
+            //          `add == false` branch, which 58 corpus parts need.
+            {
+                const double s = 30.0, r = 25.0;
+                const gp_Pnt a(-s / 2, -s / 2, 0), b(s / 2, -s / 2, 0);
+                const gp_Pnt c(s / 2, s / 2, 0), d(-s / 2, s / 2, 0);
+                BRepBuilderAPI_MakeWire w;
+                // centre BELOW the chord and traversed CLOCKWISE about +Z, so
+                // the arc passes through (0, -15 + (r - h)) — UP, into the
+                // square. This is also the only case whose supporting circle has
+                // its axis ANTIPARALLEL to the profile normal, so it exercises
+                // the sign branch in the engine's arc parser.
+                w.Add(arcEdge(a, b, gp_Pnt(0.0, -s / 2 - std::sqrt(r * r - 0.25 * s * s), 0.0),
+                              false));
+                w.Add(lineEdge(b, c));
+                w.Add(lineEdge(c, d));
+                w.Add(lineEdge(d, a));
+                const TopoDS_Face f = BRepBuilderAPI_MakeFace(w.Wire(), Standard_True).Face();
+                const double D = 2.0 * std::asin(0.5 * s / r);
+                const double seg = 0.5 * r * r * (D - std::sin(D));
+                const double area = s * s - seg;
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 18)});
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, f, 1.0e-6);
+                BRepOffsetAPI_MakePipe mp(sp, f);
+                mp.Build();
+                check(!nat.IsNull(), "arc-concave-straight native pipe built (no defer)");
+                if (!nat.IsNull()) {
+                    const Metrics n = measure(nat);
+                    std::printf("      native vol=%.10g   closed form %.10g (square MINUS segment)\n",
+                                n.vol, area * 18.0);
+                    check(relClose(n.vol, area * 18.0, 1.0e-9),
+                          "arc-concave-straight volume == CLOSED FORM square MINUS the segment");
+                    check(n.valid, "arc-concave-straight native solid VALID");
+                    if (mp.IsDone()) {
+                        const Metrics o = measure(mp.Shape());
+                        compareAB("arc-concave-straight", n, o, true, true);
+                    }
+                }
+            }
+
+            // ---- (6) a FULL-CIRCLE outer boundary WITH holes — the 44-part
+            //          bucket, which the circle path above declines because the
+            //          face has more than one wire.
+            {
+                const double RO = 20.0, RI = 6.0;
+                auto circWire2 = [](double cx, double cy, double r) {
+                    gp_Circ ci(gp_Ax2(gp_Pnt(cx, cy, 0.0), gp_Dir(0, 0, 1)), r);
+                    return BRepBuilderAPI_MakeWire(
+                               BRepBuilderAPI_MakeEdge(ci).Edge()).Wire();
+                };
+                BRepBuilderAPI_MakeFace mk(circWire2(0, 0, RO), Standard_True);
+                TopoDS_Wire h1 = circWire2(9, 0, RI), h2 = circWire2(-9, 0, RI);
+                h1.Reverse(); h2.Reverse();
+                mk.Add(h1); mk.Add(h2);
+                const TopoDS_Face f = mk.Face();
+                const double area = M_PI * (RO * RO - 2.0 * RI * RI);
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 22)});
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, f, 1.0e-6);
+                BRepOffsetAPI_MakePipe mp(sp, f);
+                mp.Build();
+                check(!nat.IsNull(), "arc-annulus-straight native pipe built (no defer)");
+                check(mp.IsDone() == Standard_True, "arc-annulus-straight OCCT MakePipe built");
+                if (!nat.IsNull() && mp.IsDone()) {
+                    const Metrics n = measure(nat), o = measure(mp.Shape());
+                    std::printf("      native vol=%.10g   occt vol=%.10g   closed form %.10g\n",
+                                n.vol, o.vol, area * 22.0);
+                    compareAB("arc-annulus-straight", n, o, true, true);
+                    check(relClose(n.vol, area * 22.0, 1.0e-9),
+                          "arc-annulus-straight volume native == CLOSED FORM pi(R^2-2r^2)*L");
+                    check(relClose(o.vol, area * 22.0, 1.0e-9),
+                          "arc-annulus-straight volume OCCT == CLOSED FORM");
+                }
+            }
+
+            // ---- (7) a rounded rectangle with an OFF-AXIS slot hole on a BENT
+            //          spine: BOTH new kinds at once, and the L-spine law
+            //          V = A_out*(H+W-2*xout) - A_hole*(H+W-2*xhole) separates
+            //          them, so a hole carried by the wrong arm cannot pass.
+            {
+                const double H = 25.0, W = 30.0, xh = 8.0;
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, H),
+                                                gp_Pnt(W, 0, H)});
+                BRepBuilderAPI_MakeFace mk(roundedRectWire(0.0), Standard_True);
+                TopoDS_Wire sw = slotWire(xh, 0.0);
+                sw.Reverse();
+                mk.Add(sw);
+                const TopoDS_Face f = mk.Face();
+                const double cf = rrArea * (H + W) - slotArea * (H + W - 2.0 * xh);
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, f, 1.0e-6);
+                check(!nat.IsNull(), "arc-roundrect-slot-offaxis-L native pipe built");
+                if (!nat.IsNull()) {
+                    const Metrics n = measure(nat);
+                    std::printf("      native vol=%.10g (closed form %.10g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                n.vol, cf, n.nFace, n.nEdge, n.nVert, n.nShell,
+                                static_cast<int>(n.valid));
+                    check(relClose(n.vol, cf, 1.0e-9),
+                          "arc-roundrect-slot-offaxis-L volume == DERIVED CLOSED FORM "
+                          "A_out*(H+W) - A_slot*(H+W-2*x)");
+                    check(n.valid, "arc-roundrect-slot-offaxis-L native solid VALID");
+                    check(n.nShell == 1, "arc-roundrect-slot-offaxis-L exactly ONE shell");
+                }
+            }
+
+            // ---- (8) FAMILY F gets the SAME arc-swept face. pipeShell is
+            //          handed the profile as a bare WIRE, which is the whole
+            //          reason profileFrame() reads the plane from the ring. On
+            //          the 600-part corpus family F is fed exactly the outer
+            //          wire of the same faces family E is fed the whole of.
+            {
+                const TopoDS_Wire rrw = roundedRectWire(0.0);
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                const TopoDS_Shape nat =
+                    forge::occtloft::pipeShell(sp, rrw, {}, /*makeSolid*/ true, 1.0e-6);
+                const TopoDS_Shape occ = occtPipeShell(sp, rrw, true);
+                check(!nat.IsNull(), "ps-arc-roundrect-straight native pipeShell built");
+                check(!occ.IsNull(), "ps-arc-roundrect-straight OCCT MakePipeShell built");
+                if (!nat.IsNull() && !occ.IsNull()) {
+                    const Metrics n = measure(nat), o = measure(occ);
+                    std::printf("      native vol=%.10g   occt vol=%.10g   closed form %.10g\n",
+                                n.vol, o.vol, rrArea * 25.0);
+                    compareAB("ps-arc-roundrect-straight", n, o, /*wantClosed*/ true,
+                              /*report*/ true);
+                    check(relClose(n.vol, rrArea * 25.0, 1.0e-9),
+                          "ps-arc-roundrect-straight volume native == CLOSED FORM");
+                    check(relClose(o.vol, rrArea * 25.0, 1.0e-9),
+                          "ps-arc-roundrect-straight volume OCCT == CLOSED FORM");
+                }
+            }
+            {
+                // BENT spine: the derived law again, and OCCT is NOT the oracle
+                // here — its default transition is Transformed, which does not
+                // carry the section through the corner (see PART 3 of the .cpp
+                // banner and the PIPESHELL_RC row of the corpus A/B).
+                const double H = 25.0, W = 30.0;
+                const TopoDS_Wire rrw = roundedRectWire(0.0);
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, H),
+                                                gp_Pnt(W, 0, H)});
+                const TopoDS_Shape nat =
+                    forge::occtloft::pipeShell(sp, rrw, {}, true, 1.0e-6);
+                check(!nat.IsNull(), "ps-arc-roundrect-L native pipeShell built");
+                if (!nat.IsNull()) {
+                    const Metrics n = measure(nat);
+                    std::printf("      native vol=%.10g (closed form %.10g) valid=%d\n",
+                                n.vol, rrArea * (H + W), static_cast<int>(n.valid));
+                    check(relClose(n.vol, rrArea * (H + W), 1.0e-9),
+                          "ps-arc-roundrect-L volume == DERIVED CLOSED FORM A*(H+W-2*xbar)");
+                    check(n.valid, "ps-arc-roundrect-L native solid VALID");
+                    check(n.nShell == 1, "ps-arc-roundrect-L exactly ONE shell");
+                }
+            }
+            {
+                // An OPEN SKIN of an arc chain is not something a boolean can
+                // hand back, and the engine says so instead of returning a solid
+                // where a skin was asked for.
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                check(forge::occtloft::pipeShell(sp, roundedRectWire(0.0), {},
+                                                 /*makeSolid*/ false, 1.0e-6).IsNull(),
+                      "defer: an arc-chain pipeShell with makeSolid=false is DECLINED "
+                      "(the boolean assembly builds solids, not skins)");
+            }
+
+            // ---- DEFER CONTROLS for the arc path. Each is a way the
+            //      decomposition could be wrong; each must DECLINE, not guess.
+            {
+                const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+
+                // (a) THE GATE MUST FIRE: a slot hole that pokes out through the
+                //     outer wall would carve material the profile never removed.
+                {
+                    BRepBuilderAPI_MakeFace mk(roundedRectWire(0.0), Standard_True);
+                    TopoDS_Wire sw = slotWire(19.0, 0.0);   // half outside x=+20
+                    sw.Reverse();
+                    mk.Add(sw);
+                    check(forge::occtloft::pipe(sp, mk.Face(), 1.0e-6).IsNull(),
+                          "defer: an arc-chain hole that pokes through the outer wall is "
+                          "DECLINED (the A*L gate fires)");
+                }
+                // (b) two OVERLAPPING slot holes double-count under a naive cut.
+                {
+                    BRepBuilderAPI_MakeFace mk(roundedRectWire(0.0), Standard_True);
+                    TopoDS_Wire s1 = slotWire(-2.0, 0.0), s2 = slotWire(2.0, 0.0);
+                    s1.Reverse(); s2.Reverse();
+                    mk.Add(s1); mk.Add(s2);
+                    check(forge::occtloft::pipe(sp, mk.Face(), 1.0e-6).IsNull(),
+                          "defer: two OVERLAPPING arc-chain holes are DECLINED "
+                          "(the A*L gate fires)");
+                }
+                // (c) an arc whose axis is NOT the profile normal sweeps to an
+                //     ELLIPTIC cylinder — a different surface, so it is declined
+                //     rather than approximated by a circular one.
+                {
+                    const gp_Pnt a(-10, 0, 0), b(10, 0, 0);
+                    gp_Circ tilted(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 1)), 12.0);
+                    BRepBuilderAPI_MakeWire w;
+                    w.Add(BRepBuilderAPI_MakeEdge(tilted).Edge());
+                    // a closed wire whose single edge is a tilted full circle is
+                    // read as a circle by fullCircleWire and must be rejected on
+                    // its axis, not silently swept.
+                    BRepBuilderAPI_MakeFace mk(roundedRectWire(0.0), Standard_True);
+                    TopoDS_Wire tw = w.Wire();
+                    tw.Reverse();
+                    mk.Add(tw);
+                    check(forge::occtloft::pipe(sp, mk.Face(), 1.0e-6).IsNull(),
+                          "defer: a TILTED arc in an arc-chain profile is DECLINED");
+                    (void)a; (void)b;
+                }
+                // (d) a B-SPLINE boundary is the 106-part wall: no arc geometry
+                //     reaches it and the engine says so.
+                {
+                    TColgp_Array1OfPnt pts(1, 4);
+                    pts(1) = gp_Pnt(-15, -10, 0); pts(2) = gp_Pnt(-5, 14, 0);
+                    pts(3) = gp_Pnt(9, -14, 0);   pts(4) = gp_Pnt(15, 10, 0);
+                    Handle(Geom_BezierCurve) bez = new Geom_BezierCurve(pts);
+                    BRepBuilderAPI_MakeWire w;
+                    w.Add(BRepBuilderAPI_MakeEdge(bez).Edge());
+                    w.Add(lineEdge(gp_Pnt(15, 10, 0), gp_Pnt(0, 25, 0)));
+                    w.Add(lineEdge(gp_Pnt(0, 25, 0), gp_Pnt(-15, -10, 0)));
+                    const TopoDS_Face f =
+                        BRepBuilderAPI_MakeFace(w.Wire(), Standard_True).Face();
+                    check(forge::occtloft::pipe(sp, f, 1.0e-6).IsNull(),
+                          "defer: a profile with a SPLINE edge is DECLINED "
+                          "(the 106-part wall, named not hidden)");
+                }
+                // (d2) ★ THE FOLD PREFLIGHT, POSITIVELY CONTROLLED — and the
+                //      one thing the A*L gate CANNOT see. BRepGProp integrates
+                //      the divergence theorem over the faces, so a shell that
+                //      has folded through itself still reports exactly the
+                //      SIGNED volume A*L that the gate compares against.
+                //
+                //      MEASURED with the preflight removed, on this profile (a
+                //      40x30 rectangle with ONE rounded corner on the near side,
+                //      so the FAR edge that folds is a straight line and the
+                //      per-segment arc check never looks at it):
+                //          spine (0,0,0)->(0,0,H)->(W,0,H)
+                //          H=W=40/25 : BUILT vol=77209.51305  valid=1   <- fine
+                //          H=W=5     : BUILT vol=11634.42469  valid=0   <- WRONG
+                //          H=W=8     : BUILT vol=18788.07069  valid=0   <- WRONG
+                //          H=W=12    : BUILT vol=28326.26536  valid=0   <- WRONG
+                //      Three self-intersecting solids that BRepCheck_Analyzer
+                //      rejects, every one of them past the A*L gate. With the
+                //      preflight in, the three decline and the valid one still
+                //      builds to the same 77209.51305. So the assertion names
+                //      the guard, not merely the null.
+                {
+                    const gp_Pnt q1(-20, -15, 0), q2(20, -15, 0), q3(20, 15, 0);
+                    const gp_Pnt q4(-20 + RR, 15, 0), q5(-20, 15 - RR, 0);
+                    BRepBuilderAPI_MakeWire fw;
+                    fw.Add(lineEdge(q1, q2)); fw.Add(lineEdge(q2, q3));
+                    fw.Add(lineEdge(q3, q4));
+                    fw.Add(arcEdge(q4, q5, gp_Pnt(-20 + RR, 15 - RR, 0), true));
+                    fw.Add(lineEdge(q5, q1));
+                    const TopoDS_Face ff =
+                        BRepBuilderAPI_MakeFace(fw.Wire(), Standard_True).Face();
+
+                    const TopoDS_Wire tight = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 5),
+                                                       gp_Pnt(5, 0, 5)});
+                    const TopoDS_Shape bad = forge::occtloft::pipe(tight, ff, 1.0e-6);
+                    const std::string why = forge::occtloft::lastDeferReason();
+                    check(bad.IsNull(),
+                          "defer: a section a sharp mitre would fold BACKWARDS is DECLINED");
+                    check(why.find("arc_section_folds_at_mitre") != std::string::npos,
+                          "defer: and it is the FOLD PREFLIGHT that declined it, not a "
+                          "downstream accident (reason: " + why + ")");
+
+                    // ...and the guard is not simply refusing every bent spine:
+                    // the same profile on a spine long enough not to fold still
+                    // builds, to the volume measured above.
+                    const TopoDS_Wire ok = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 40),
+                                                    gp_Pnt(25, 0, 40)});
+                    const TopoDS_Shape good = forge::occtloft::pipe(ok, ff, 1.0e-6);
+                    check(!good.IsNull(),
+                          "fold control: the SAME profile on a spine long enough not to "
+                          "fold still builds");
+                    if (!good.IsNull()) {
+                        const Metrics m = measure(good);
+                        check(relClose(m.vol, 77209.51305, 1.0e-9),
+                              "fold control: and to the volume measured with the guard "
+                              "removed, so the guard changed nothing it should not have");
+                        check(m.valid, "fold control: that answer is VALID");
+                    }
+                }
+                // (e) a 180-degree spine reversal still has no mitre plane, on
+                //     the arc path as on every other.
+                {
+                    const TopoDS_Wire rev = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25),
+                                                     gp_Pnt(0, 0, 5)});
+                    check(forge::occtloft::pipe(rev, rrFace, 1.0e-6).IsNull(),
+                          "defer: an arc-chain profile on a REVERSING spine is DECLINED");
+                }
+            }
+        }
+
         // ---- family E DEFER controls --------------------------------------
         std::printf("\n--- family E defer controls ---\n");
         {
@@ -894,13 +1491,38 @@ int main() {
                   "defer: a 180-degree spine reversal is DECLINED");
         }
         {
-            // A circle whose centre is off the spine start is outside scope.
-            gp_Ax2 off(gp_Pnt(3.0, 0, 0), gp_Dir(0, 0, 1));
+            // ★ THIS USED TO BE A DEFER CONTROL and is now a POSITIVE case, so the
+            // assertion is REPLACED rather than relaxed. pipeCircleMitre requires
+            // the circle's centre ON the spine start; the arc-swept path does not,
+            // because the station planes are properties of the SPINE and not of
+            // the section — so an off-axis circle is now built, and the DERIVED
+            // L-spine law V = A*(H + W - 2*xbar) is what says it is built RIGHT.
+            // xbar is the circle's own centre, 3.0, so a sweep that carried the
+            // section on the SPINE's arm instead of its own would read 55*A here
+            // rather than 49*A, and the second assertion rejects exactly that.
+            const double xoff = 3.0, H = 25.0, W = 30.0;
+            gp_Ax2 off(gp_Pnt(xoff, 0, 0), gp_Dir(0, 0, 1));
             const TopoDS_Wire ow =
                 BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(off, cr)).Edge()).Wire();
-            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(30, 0, 25)});
-            check(forge::occtloft::pipe(sp, ow, 1.0e-6).IsNull(),
-                  "defer: a circle centre off the spine start is DECLINED");
+            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, H), gp_Pnt(W, 0, H)});
+            const TopoDS_Shape nat = forge::occtloft::pipe(sp, ow, 1.0e-6);
+            check(!nat.IsNull(),
+                  "off-axis circle on a bent spine now BUILDS (the arc-swept path has "
+                  "no on-spine restriction)");
+            if (!nat.IsNull()) {
+                const Metrics n = measure(nat);
+                const double cf = M_PI * cr * cr * (H + W - 2.0 * xoff);
+                std::printf("      off-axis circle vol=%.10g (closed form %.10g) "
+                            "F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                            n.vol, cf, n.nFace, n.nEdge, n.nVert, n.nShell,
+                            static_cast<int>(n.valid));
+                check(relClose(n.vol, cf, 1.0e-9),
+                      "off-axis circle volume == DERIVED CLOSED FORM A*(H+W-2*xbar)");
+                check(!relClose(n.vol, M_PI * cr * cr * (H + W), 1.0e-6),
+                      "off-axis circle is NOT the on-axis answer A*(H+W)");
+                check(n.valid, "off-axis circle native solid VALID");
+                check(n.nShell == 1, "off-axis circle exactly ONE shell");
+            }
         }
     }
 

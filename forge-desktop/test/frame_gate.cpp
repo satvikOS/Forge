@@ -21,6 +21,13 @@
 //   5  the projection loses its Vulkan Y-flip           -> ray/pick disagree
 //   6  the Measure panel is not fed the live selection  -> it measures nothing
 //   7  the Tools panel answers from a STALE selection   -> it offers what refuses
+//   8  the viewport ignores the selection filter        -> "pick an edge" picks a
+//                                                          face, and the three
+//                                                          edge tools stay
+//                                                          unreachable
+//   9  the frame never pulls the shell's fit request    -> view.fit journals "ok"
+//                                                          and the camera does
+//                                                          not move
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -35,6 +42,7 @@
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "PartFile.hpp"
+#include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/MeasureModel.hpp"
@@ -313,6 +321,58 @@ int main(int argc, char** argv) {
             "a second frame costs the source NO new expensive fetch");
   }
 
+  // ── 5b. THE EXPANDER CLICK ──────────────────────────────────────────────
+  //
+  // A liveness probe cannot see this. The app presented 1165 frames and saved its
+  // state cleanly, then ABORTED with an uncaught std::out_of_range from
+  // FeatureTreeModel::rowAt() the moment a user clicked a tree expander:
+  // setExpanded()+rebuild() ran INSIDE the ImGuiListClipper loop, changing
+  // rows_.size() while the loop was still walking a range sized from the row count
+  // taken at Begin(). This is the THIRD instance of one root cause in this frame
+  // builder -- mutating a container mid-walk while indices into it are live (the
+  // other two were tab activation and splitter drag, both dangling DockNode&).
+  //
+  // So the assertion is not "a frame was drawn"; it is that a real click on the
+  // real widget leaves the model CONSISTENT and the walk INTACT.
+  {
+    const forge::desktop::ForgeFrame::WidgetRect r = frame.treeExpanderRect();
+    check(r.valid, "a feature-tree expander was drawn and located", "");
+    if (r.valid) {
+      const std::size_t before = frame.treeRowCount();
+      ImGuiIO& io = ImGui::GetIO();
+      const float cx = (r.x0 + r.x1) * 0.5f, cy = (r.y0 + r.y1) * 0.5f;
+      // ImGui buttons fire on RELEASE, so the click costs two frames.
+      io.AddMousePosEvent(cx, cy);
+      io.AddMouseButtonEvent(0, true);
+      buildOneFrame(frame, 0);
+      io.AddMouseButtonEvent(0, false);
+      buildOneFrame(frame, 0);   // <-- pre-fix, this frame ABORTED the process
+      const std::size_t after = frame.treeRowCount();
+      std::printf("[gate] expander click at (%.0f,%.0f): %zu rows -> %zu rows\n", cx, cy,
+                  before, after);
+      // NON-VACUOUS: if the click changed nothing the gate would pass while testing
+      // nothing, so require the collapse to have actually landed.
+      check(after != before, "the expander click actually changed the row set",
+            "click was a no-op -- the gate would be unfalsifiable");
+      // And the walk must still be sound afterwards: every row the model now reports
+      // must be addressable. This is the exact call that threw.
+      bool addressable = true;
+      for (std::size_t i2 = 0; i2 < frame.treeRowCount(); ++i2) {
+        try {
+          (void)frame.tree().rowAt(i2);
+        } catch (...) {
+          addressable = false;
+          break;
+        }
+      }
+      check(addressable, "every row the model reports is addressable after the click",
+            "rowAt() threw -- the abort is back");
+      buildOneFrame(frame, 0);
+      io.AddMousePosEvent(-1.0f, -1.0f);   // park the cursor for the sections below
+      buildOneFrame(frame, 0);
+    }
+  }
+
   // ── 6. selection: pick -> typed EntityRef -> flagged vertices ────────────
   {
     // MUTATION 3 skips the routing. The assertions below are UNCONDITIONAL: a
@@ -569,6 +629,238 @@ int main(int argc, char** argv) {
     checkEq(frame.toolRowsDrawn(), shell.registry().size(),
             "the Tools panel drew a row per registered command");
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+  }
+
+  // ── 14. EDGE selection: the three edge tools become reachable ────────────
+  //
+  // The gap this closes, in one sentence: part.fillet, part.chamfer and
+  // part.variable_fillet declare atLeast(EntityKind::Edge, 1), and until now the
+  // application could produce NO EntityRef of kind Edge from any gesture — both
+  // selection entry points wrote EntityKind::Face — so Edge Fillet was
+  // permanently unreachable. Section 13 above is the NEGATIVE CONTROL for this
+  // one: with two FACES picked it requires part.fillet to be NeedsSelection.
+  //
+  // MUTATION 8 reverts exactly the wiring under test: the viewport ignores the
+  // selection filter and picks a face where the user asked for an edge. Every
+  // check below is UNCONDITIONAL.
+  {
+    const forge::ui::EdgeSet& set = frame.edges();
+    std::printf("[gate] edges: %zu recovered | segments %zu face-boundary / %zu interior "
+                "/ %zu boundary / %zu non-manifold | kernel says %ld edges\n",
+                set.size(), set.faceBoundarySegments, set.interiorSegments,
+                set.boundarySegments, set.nonManifoldSegments, scene.lastBuild().edgeCount);
+
+    checkGe(set.size(), 1u, "edges were recovered from the tessellation");
+    // Cross-checked against MeasureModel, an independent module over the same
+    // soup: it already reported this body watertight with no boundary and no
+    // non-manifold edge, so the edge model must find none either. Two modules
+    // agreeing on a census neither one could fake alone.
+    checkEq(set.boundarySegments, 0u, "a watertight body has no boundary segment");
+    checkEq(set.nonManifoldSegments, 0u, "a watertight body has no non-manifold segment");
+    checkEq(set.segmentCount(),
+            set.faceBoundarySegments + set.interiorSegments + set.boundarySegments +
+                set.nonManifoldSegments,
+            "the census partitions every undirected segment");
+
+    // The recovered count is a LOWER BOUND on the B-rep's own edge count, never
+    // an equal: a seam has the same face id on both sides and is invisible to a
+    // face-pair construction. The reference is the KERNEL's number, read from
+    // its build report rather than restated here.
+    checkLe(static_cast<long>(set.size()), scene.lastBuild().edgeCount,
+            "recovered edges cannot exceed the B-rep's own edge count");
+
+    std::size_t ordered = 0;
+    std::size_t named = 0;
+    double totalLength = 0.0;
+    for (const forge::ui::MeshEdge& e : set.edges) {
+      if (e.faceA < e.faceB && e.faceA >= 1 && e.faceB <= scene.faceCount()) ++ordered;
+      if (set.indexOf(e.key()) != forge::ui::kNoEdge) ++named;
+      totalLength += e.length;
+    }
+    checkEq(ordered, set.size(), "every edge names two distinct faces of THIS body");
+    checkEq(named, set.size(), "every edge is addressable by its own persistent name");
+    // The plate is 80 x 50 x 20: its outline alone is 2*(80+50) top and bottom
+    // plus four verticals, so the total edge length cannot be under a single
+    // 80 mm side and cannot be a runaway sum over the whole triangle soup.
+    checkGe(totalLength, 80.0, "total edge length is at least one side of the plate");
+    checkLe(totalLength, 4.0 * (2.0 * (80.0 + 50.0) + 4.0 * 20.0),
+            "total edge length is not a per-triangle runaway");
+
+    // ── a ray down a known edge picks THAT edge ───────────────────────────
+    // Aimed at the midpoint of edge 0's first segment, from outside the body
+    // along the direction from the body centre, so the ray is a real sightline
+    // and not a degenerate zero-length one.
+    check(!set.edges.empty() && set.edges.front().points.size() >= 6,
+          "edge 0 carries a polyline to aim at", "");
+    if (!set.edges.empty() && set.edges.front().points.size() >= 6) {
+      const std::vector<double>& p = set.edges.front().points;
+      const double mid[3] = {0.5 * (p[0] + p[3]), 0.5 * (p[1] + p[4]), 0.5 * (p[2] + p[5])};
+      float c[3];
+      scene.bounds().centre(c);
+      double away[3] = {mid[0] - c[0], mid[1] - c[1], mid[2] - c[2]};
+      const double n = std::sqrt(away[0] * away[0] + away[1] * away[1] + away[2] * away[2]);
+      check(n > 1e-6, "the aimed edge is off the body centre", std::to_string(n));
+      for (int i = 0; i < 3; ++i) away[i] /= (n > 1e-6 ? n : 1.0);
+      const double eye[3] = {mid[0] + 500.0 * away[0], mid[1] + 500.0 * away[1],
+                             mid[2] + 500.0 * away[2]};
+      const double dir[3] = {-away[0], -away[1], -away[2]};
+      const forge::ui::EdgePick hit = forge::ui::pickEdge(set, eye, dir, 0.05);
+      check(hit.hit(), "a ray down an edge picks an edge", "nothing within 0.05 mm");
+      if (hit.hit()) {
+        checkEq(hit.index, 0u, "and it is the edge the ray was aimed at");
+        check(hit.distance < 1e-6, "the pick lands ON the edge", std::to_string(hit.distance));
+        check(hit.along > 400.0, "the pick is in front of the eye", std::to_string(hit.along));
+      } else {
+        check(false, "and it is the edge the ray was aimed at", "no hit");
+        check(false, "the pick lands ON the edge", "no hit");
+        check(false, "the pick is in front of the eye", "no hit");
+      }
+      // A ray parallel to the sightline but a metre off the part must MISS, or
+      // the tolerance is not a tolerance.
+      const double offEye[3] = {eye[0] + 1000.0, eye[1], eye[2]};
+      check(!forge::ui::pickEdge(set, offEye, dir, 0.05).hit(),
+            "a ray a metre off the part picks nothing", "");
+    }
+
+    // ── the pick becomes a typed Edge selection ───────────────────────────
+    shell.selection().clearSelection();
+    // The user's own control: the status strip's filter. Setting it to Edge used
+    // to make the app unable to pick ANYTHING, because clickFace's accepts(Face)
+    // then refused every ray hit.
+    shell.selection().setFilter(forge::ui::EntityKind::Edge);
+    check(frame.edgePickMode(), "the Edge filter puts the viewport in edge-pick mode", "");
+    if (g_mutation == 8) {
+      // MUTATION 8: the viewport ignores the filter and picks a face.
+      frame.clickFace(scene.vertices().front().faceId, false);
+    } else {
+      frame.clickEdge(0, false);
+    }
+    checkEq(shell.selection().count(), 1u, "an edge pick became one typed selection");
+    check(shell.selection().focus().has_value(), "focus follows the edge pick", "");
+    if (shell.selection().focus().has_value()) {
+      const forge::ui::EntityRef& f = *shell.selection().focus();
+      check(f.kind == forge::ui::EntityKind::Edge, "the focus is typed as an Edge",
+            forge::ui::toString(f.kind));
+      check(f.persistentName == set.edges.front().key(),
+            "the selection stores the edge's PERSISTENT NAME", f.persistentName);
+      // The bodyId must be the DOCUMENT's live node, or resolveValues() cannot
+      // map it to an IR value and every solid command greys out.
+      check(f.bodyId == frame.activeBodyNode(), "the ref names the document's live body",
+            f.bodyId + " vs " + frame.activeBodyNode());
+    } else {
+      check(false, "the focus is typed as an Edge", "no focus");
+      check(false, "the selection stores the edge's PERSISTENT NAME", "no focus");
+      check(false, "the ref names the document's live body", "no focus");
+    }
+
+    // ── THE PAYOFF: the edge tools are now callable ───────────────────────
+    // Same evaluate() the dispatcher uses, so what the panel offers and what
+    // runs cannot disagree. Section 13 asserted the opposite state on a FACE
+    // selection, which is this claim's negative control.
+    const forge::ui::ToolCatalog live = frame.toolCatalog();
+    const char* kEdgeTools[3] = {"part.fillet", "part.chamfer", "part.variable_fillet"};
+    for (const char* id : kEdgeTools) {
+      const forge::ui::ToolEntry* t = live.find(id);
+      check(t != nullptr, "an edge tool is listed", id);
+      if (t != nullptr) {
+        // The SELECTION barrier is what edge picking removes, and it is the only
+        // one it may claim. part.chamfer and part.variable_fillet still report
+        // NeedsParameters, because `distance` and `radius_start` declare no
+        // honest default and a dialog must supply them — asserting Available for
+        // those three would be asserting a second gap closed that is not.
+        check(t->availability != forge::ui::ToolAvailability::NeedsSelection,
+              "an edge tool no longer refuses the SELECTION",
+              std::string(id) + ": " + forge::ui::toString(t->availability) + "  " + t->reason);
+      } else {
+        check(false, "an edge tool no longer refuses the SELECTION", id);
+      }
+    }
+    // part.fillet declares radius = 1 mm as an honest default, so for that one
+    // the whole chain is now clear: it is CALLABLE.
+    const forge::ui::ToolEntry* filletTool = live.find("part.fillet");
+    check(filletTool != nullptr, "part.fillet is listed", "");
+    if (filletTool != nullptr) {
+      check(filletTool->callable(), "Edge Fillet is CALLABLE with an edge picked",
+            filletTool->reason);
+      checkEq(static_cast<int>(filletTool->availability),
+              static_cast<int>(forge::ui::ToolAvailability::Available),
+              "and the panel says Available by name");
+    } else {
+      check(false, "Edge Fillet is CALLABLE with an edge picked", "not listed");
+      check(false, "and the panel says Available by name", "not listed");
+    }
+    // ...and a FACE tool must now be refused, or the signature means nothing.
+    const forge::ui::ToolEntry* shellTool = live.find("part.shell");
+    check(shellTool != nullptr, "part.shell is still listed", "");
+    if (shellTool != nullptr) {
+      checkEq(static_cast<int>(shellTool->availability),
+              static_cast<int>(forge::ui::ToolAvailability::NeedsSelection),
+              "a face tool is NOT offered on an edge pick");
+    }
+
+    // ── the Measure panel reports the edge, not a face ────────────────────
+    const forge::ui::EdgeMeasure em = frame.edgeMeasure();
+    checkEq(em.edges, 1u, "one picked edge is one measured edge");
+    check(em.length > 0.0, "the picked edge has length", std::to_string(em.length));
+    check(em.length <= totalLength + 1e-9, "one edge cannot out-length the whole body",
+          std::to_string(em.length));
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+    frame.setActiveTabAt({1, 1}, 1);  // Measure
+    ImDrawData* d = buildOneFrame(frame, 0);
+    check(d != nullptr && d->TotalVtxCount > 500, "the Measure panel draws a real frame", "");
+    checkEq(frame.measureEdgeRowsDrawn(), 1u, "the Measure panel drew a row per picked edge");
+    checkEq(frame.measureFaceRowsDrawn(), 0u, "and no face row, because no face is picked");
+    frame.setActiveTabAt({1, 1}, 0);
+    shell.selection().setFilter(forge::ui::EntityKind::Any);
+  }
+
+  // ── 15. view.fit actually MOVES THE CAMERA ───────────────────────────────
+  //
+  // Section 7 above already proves the F key reaches view.fit and journals it.
+  // It proves nothing about the picture: `view.fit`'s whole execute body is
+  // `++doc_.fitCount` (ForgeShell.cpp) and camera_.frame() was called EXACTLY
+  // ONCE, in ForgeFrame's constructor, with nothing reading the counter. So the
+  // key ran, journalled, printed "ok" and the camera did not move -- and the one
+  // check that could have caught it was asserting the counter, which is the
+  // thing that was already true.
+  //
+  // MUTATION 9 removes the pull. Every check below is UNCONDITIONAL.
+  {
+    shell.setInputProfile(forge::ui::InputProfile::ForgeNative);
+    // Drive the camera somewhere a fit must undo: far too close, and aimed away
+    // from the body, so BOTH the distance and the target have to be restored.
+    for (int i = 0; i < 40; ++i) frame.camera().zoom(1.0f);
+    frame.camera().pan(600.0f, 400.0f, 800.0f);
+    const float tooClose = frame.camera().distance();
+    const float radius = scene.bounds().radius();
+    float centre[3];
+    scene.bounds().centre(centre);
+    const float driftedX = frame.camera().target()[0];
+    check(tooClose < radius, "the camera really is inside the body's sphere",
+          std::to_string(tooClose) + " < " + std::to_string(radius));
+    check(std::fabs(driftedX - centre[0]) > 1.0f, "and its target really has drifted off",
+          std::to_string(driftedX - centre[0]));
+
+    const std::size_t fitsBefore = frame.fitsApplied();
+    // Through the KEYBOARD, not by calling the camera: the claim is that the
+    // user's gesture moves the picture, and every invoker shares this path.
+    check(frame.onKey("F", 0), "F ran view.fit", "");
+    if (g_mutation != 9) buildOneFrame(frame, 0);
+    checkEq(frame.fitsApplied(), fitsBefore + 1, "the frame applied the pending fit");
+    checkGe(frame.camera().distance(), radius,
+            "the fit put the eye back outside the body's sphere");
+    check(std::fabs(frame.camera().target()[0] - centre[0]) < 1e-3f,
+          "and re-centred the target on the body",
+          std::to_string(frame.camera().target()[0] - centre[0]));
+
+    // Idempotent: a second frame with no new request must NOT re-fit, or an
+    // orbit would be undone every frame and the viewport would be unusable.
+    const float settled = frame.camera().distance();
+    frame.camera().zoom(2.0f);
+    buildOneFrame(frame, 0);
+    checkEq(frame.fitsApplied(), fitsBefore + 1, "a frame with no new request does not re-fit");
+    check(frame.camera().distance() < settled, "so a user zoom survives the next frame",
+          std::to_string(frame.camera().distance()) + " vs " + std::to_string(settled));
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

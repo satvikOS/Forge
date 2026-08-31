@@ -104,9 +104,17 @@ forge-kernel/test/native/gdt/fcf_evaluator_test.cpp
 # coverage gate). The .a and the per-run JSONL are regenerable from the scripts;
 # the committed baseline lives in forge-kernel/reports/corpus_ab/ instead.
 forge-kernel/.build-corpus-ab/
+forge-kernel/.build-cam-offset-ab/
 # Same deal for test/build_draft_defer_probe.sh's object cache and binary; its
 # committed results live in reports/corpus_ab/draft_defer_probe.jsonl.gz.
 forge-kernel/.build-draft-probe/
+# test/run_tkoffset_gh_defer_census.sh's binary; its committed rows live in
+# reports/corpus_ab/tkoffset_gh_defer_census_600.tsv and the write-up in
+# reports/TKOFFSET_GH_DEFER_CENSUS.md.
+forge-kernel/.build-gh-census/
+# test/run_thicksolid_nesting_gate.sh's binary — a gate, so it has no committed
+# artefact; it is rebuilt and rerun from source every time.
+forge-kernel/.build-thicksolid-nesting/
 
 # --- Forge local dependency plane (Sacrosanct 3.1 s10.6 / s21.2) -------------
 # .forge-local/ is the workstation execution plane: source mirror, build trees,

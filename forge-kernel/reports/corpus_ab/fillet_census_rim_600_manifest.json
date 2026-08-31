@@ -1,0 +1,19 @@
+{
+  "generated_utc": "20260831T000724Z",
+  "corpus_dir": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+  "corpus_total": 600,
+  "stride": 1,
+  "realised_n": 600,
+  "rows": 600,
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_cdc6f717-2d0-5/forge-kernel/.build-fillet-census/fillet_defer_census",
+  "kernel_head_at_run_start": "868dca6faec3a9b9a9037a8158df3fbadf3cc37a",
+  "kernel_head_at_run_end": "868dca6faec3a9b9a9037a8158df3fbadf3cc37a",
+  "build_stamp": {
+  "built_utc": "2026-08-30T23:50:52Z",
+  "git_head": "868dca6faec3a9b9a9037a8158df3fbadf3cc37a",
+  "dirty_files_in_src_include_test": 0,
+  "flags": "-std=c++20 -O2 -DFORGE_NATIVE_BREP",
+  "occt_root": "/opt/homebrew/opt/opencascade",
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_cdc6f717-2d0-5/forge-kernel/.build-fillet-census/fillet_defer_census"
+}
+}

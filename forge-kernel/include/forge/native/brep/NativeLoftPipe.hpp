@@ -89,11 +89,20 @@
 //       tree; reports/TKOFFSET_DECOMPOSITION.md §2 names family F the one
 //       genuine wall and this engine does not pretend otherwise);
 //     * a spine that is not an open polyline of >= 1 LINE edges;
-//     * a profile that is none of the FOUR kinds this engine can sweep EXACTLY:
+//     * a profile that is none of the FIVE kinds this engine can sweep EXACTLY:
 //       a closed planar POLYGON wire; a full CIRCLE wire (family E only); a face
 //       whose rings are all polygons; a face with a POLYGON outer boundary and
-//       CIRCULAR holes (family E only). Anything else -- an arc chain, a spline,
-//       an ellipse, a slot -- is DECLINED, never approximated;
+//       CIRCULAR holes (family E only); or a FACE whose every ring is a full
+//       circle or an ordered chain of LINE and CIRCULAR-ARC edges, in any
+//       combination (family E only -- the arc-swept lateral face). Anything
+//       else -- a spline, a Bezier, an ellipse, a hyperbola -- is DECLINED,
+//       never approximated;
+//     * an arc whose supporting circle's axis is not the profile normal (its
+//       swept surface is an ELLIPTIC cylinder, a genuinely different surface);
+//     * an arc-chain profile whose section a sharp mitre would carry BACKWARDS
+//       through a station plane (the sweep is then not a simple prism);
+//     * an arc-chain answer whose volume is not A * L for the CLOSED-FORM area
+//       A and the closed-form mitred path length L of the area centroid;
 //     * a hole ring that is not coplanar / not parallel with the outer ring, or
 //       a circular hole whose axis is not the sweep direction;
 //     * a mitre that is degenerate (a spine reversal, i.e. a 180-degree turn);
@@ -208,6 +217,30 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
 //     the tube volumes -- which is true iff every tube lies inside the outer
 //     solid and no two overlap. This kind took the family's measured corpus
 //     coverage from 2/600 to 249/600.
+//   * ARC CHAIN — the general kind, and THE EXACT ARC-SWEPT LATERAL FACE. Every
+//     ring of the face is a full circle or an ordered chain of LINE and
+//     CIRCULAR-ARC edges. A ring's region is decomposed EXACTLY as its chord
+//     polygon plus the circular segments that bulge away from it and minus
+//     those that bulge into it, and each segment is a disc intersected with the
+//     half-plane on the arc's side of its own chord. The mitred sweep is a
+//     boolean homomorphism (an affine station map, a cylindrical extrusion and
+//     a slab clip each commute with union / intersection / difference), so the
+//     SOLID is assembled with that same expression over swept atoms, all of
+//     which this file already builds. The arc's lateral surface is therefore a
+//     right circular Geom_CylindricalSurface on EVERY leg -- the section is
+//     transported RIGIDLY, the mitre composing to a rotation -- trimmed by two
+//     station planes and one chord plane per leg. Nothing is fitted, sampled or
+//     faceted. MEASURED on the same 600-part corpus: this kind is what the
+//     remaining 245 of the 351 declines needed (141 arc-chain outer wires, 60
+//     slot/kidney holes, 44 full-circle outer wires with holes), taking the
+//     family from 249/600 to 494/600. The other 106 have a B-SPLINE boundary
+//     and are declined -- no arc geometry reaches them, and this engine says so.
+//     ACCEPTED ONLY IF vol == A * L, with A the closed-form area (chord-polygon
+//     shoelace plus (r^2/2)(D - sin D) per segment) and L the closed-form
+//     mitred path length of the area centroid: BOTH sides independent of the
+//     B-rep being judged. The area half of that oracle was validated against
+//     OCCT's own BRepGProp on all 494 arc-chain faces of the corpus before a
+//     single solid was built -- worst relative disagreement 2.59e-14.
 //
 // Returns a null TopoDS_Shape on HONEST DEFER — never a plausible wrong shape.
 // Defers: a closed/curved/zero-length spine, a profile that is neither a polygon

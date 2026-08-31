@@ -232,7 +232,7 @@ set(OCCT_LIBS
 #   option                            native%   OCCT%   parts DELETED   McNemar p
 #   FORGE_FILLET_DROP_NATIVE            32.8      76.8      315/600       1.4e-47
 #   FORGE_OFFSET_DROP_MAKEOFFSET        94.5      99.0       27/600       1.5e-8
-#   FORGE_THICKSOLID_DROP_NATIVE         1.2      22.2      126/600       2.4e-38
+#   FORGE_THICKSOLID_DROP_NATIVE         0.0      22.2      133/600       2.4e-38   [1]
 #   FORGE_OFFSETSHAPE_DROP_NATIVE        1.2       6.3       38/600       3.1e-6
 #   FORGE_THRUSECTIONS_DROP_NATIVE       0.0      94.5      567/600      4.1e-171
 #   FORGE_PIPE_DROP_NATIVE               0.3     100.0      598/600      1.9e-180
@@ -246,6 +246,23 @@ set(OCCT_LIBS
 # ERROR. Nine of ten options fail with p < 1e-5 — these are not underpowered ties, the
 # intervals are in reports/corpus_ab/summary.md and none of the nine straddles zero.
 #
+# ★ [1] THICKSOLID's 1.2% WAS SEVEN INVALID SOLIDS AND IS NOW AN HONEST 0.0%. The seven
+#   parts the native thick-solid "built" on this corpus were every one of them
+#   BRepCheck_Analyzer-INVALID (IntersectingWires) — the corpus A/B already recorded
+#   "valid results: native 0, OCCT 0" for this family and the number was read as
+#   coverage anyway. CAUSE, measured on ho1041: the wall offset exceeded the local
+#   feature size, so the offset of a hole crossed the offset of the rim it sits inside
+#   (outer R 24.0192 against holes of r 4.6848 centred 23.808, reaching 28.493). The
+#   engine's two self-checks are both AREA/VOLUME identities in the radii and are blind
+#   to containment — the face's area matched its closed form to 2e-7 relative while its
+#   wires crossed. Fixed by a distance guard (circlesNest in
+#   src/native/brep/NativeThickSolid.cpp), gated two-sidedly by
+#   test/run_thicksolid_nesting_gate.sh, which is proved to FAIL against the pre-fix
+#   engine. The seven became honest defers, so the deletion bucket is 133/600, not 126.
+#   This LOWERS a native rate: it is a correction, not a regression — the capability it
+#   removes never existed, and reports/TKOFFSET_GH_DEFER_CENSUS.md has the per-part
+#   evidence for both G and H.
+#
 # ★ THE TABLE ABOVE IS THE f71ed98b BASELINE AND ONE ROW OF IT HAS SINCE MOVED. The
 #   THRUSECTIONS 0.0% was not a coverage fact about the corpus, it was a DEFECT in the
 #   native engine: it paired the two section rings by raw wire-explorer index and so
@@ -257,9 +274,31 @@ set(OCCT_LIBS
 #   and inside the 309 parts where BOTH arms build, ALL 309 agree with OCCT on the FULL
 #   observable vector (volume + centre of mass + bounding box + face/edge/vertex/shell
 #   counts + validity) with ZERO disagreements — so the added coverage is exact, not
-#   merely present. The option STILL FAILS its flip gate: the surviving 258-part gap is
-#   sections carrying CIRCLE (232 parts) or B-SPLINE (106 parts) edges, which a ruled
-#   loft of polygon rings does not cover and which is a different engine, not a fix.
+#   merely present. The option STILL FAILS its flip gate.
+#
+# ★★ AND THAT ROW HAS MOVED AGAIN, because the sentence that used to end the paragraph
+#   above was WRONG and is kept here struck through rather than deleted: it read "the
+#   surviving 258-part gap is sections carrying CIRCLE or B-SPLINE edges, which a ruled
+#   loft of polygon rings does not cover and which is a different engine, not a fix."
+#   It was a fix. The engine was INSTRUMENTED (FK_DEFER on every thruSections return,
+#   test/run_thrusections_engine_census.sh) and its own labels said the whole remainder
+#   was ONE cause — prof_edge_not_line, 291 of 291 deferrals — because a section was
+#   represented as a ring of VERTICES and so had to be all-line-edged. Faceting those
+#   arcs would have been the wrong solid; the fix is an IDENTITY instead: when section B
+#   is section A translated by T, the ruled loft between them IS the linear extrusion of
+#   A along T, exactly, for any edge geometry. 189 of the 258 deleted parts (73.3%) are
+#   exact translates. RE-MEASURED over the same 600 parts, stride 1, 0 part-level errors:
+#     FORGE_THRUSECTIONS_DROP_NATIVE     83.0      94.5       69/600       3.4e-21
+#   All 498 shared successes agree with OCCT on the FULL observable vector, 0 disagree,
+#   and all 498 native results are BRepCheck_Analyzer VALID. The 309 parts the engine
+#   already covered are byte-identical to the previous run (the new path is reached only
+#   on the polygonal path's defer), and the untouched control families measured in the
+#   same two runs did not move: PIPESHELL 51.5% and THICKEN 67.8%, 0 bucket changes and
+#   0 native-payload changes per part. The option STILL FAILS its flip gate: the
+#   surviving 69 parts are pairs that are NOT translates (81 of the 102 remaining
+#   deferrals are an edge-count mismatch between the two sections, 21 are a genuine
+#   non-translate), and a non-translated pair of curved sections needs ruled surfaces
+#   between the curves, which is a different engine.
 #
 # ★ THE THICKEN ROW HAS ALSO SINCE MOVED, and its 193-part gap was ONE SURFACE TYPE.
 #   Instrumenting the A/B's native THICKEN arm with occtthicken::thickenLastDeferReason()
@@ -824,7 +863,10 @@ endif()
 #       BRepOffsetAPI_DraftAngle   6   src/Features.cpp    draftFaces
 #       BRepOffsetAPI_MakeFilling  5   src/Healing.cpp     autoFillMissingFaces
 #
-# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 314/314 assertions — volume AND
+# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 493/493 assertions (314 when this
+#   paragraph was written, 431 after the ring-correspondence fix, 493 after the
+#   translated-section path added ts-xlate-cylinder / -cyl-open / -obround and the
+#   unequal-circles defer control) — volume AND
 #   centre of mass AND all six bbox bounds AND face/edge/vertex/shell counts AND
 #   BRepCheck_Analyzer validity AND the Euler-Poincare characteristic, against LIVE
 #   OCCT on straight spines and against the closed form V = area * spine-length on

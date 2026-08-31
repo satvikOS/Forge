@@ -902,9 +902,174 @@ sharpens that: `grep` for `playwright` over the workflows on BOTH branches retur
 **no CI job runs any of the 404 Playwright specs**. They are a manual reference. That is not a
 reason to delete them sooner; it is the reason they must be re-authored before they go, because
 nothing else in the tree would go red on the day their assertions stop being true.
+
+## D-025 (2026-08-30): the release is NOT blocked on a Developer ID — D-019's conclusion is CORRECTED by the user's distribution decision
+
+**D-019 concluded that the release was blocked on a Developer ID certificate. That conclusion
+was wrong, and the user corrected it.** The measurements behind it were sound; the inference
+from them was not. A paid certificate was treated as a hard PREREQUISITE when it is a
+FRICTION TRADEOFF, and the choice of how much friction to accept belongs to whoever ships the
+product, not to the person measuring it.
+
+**The distribution model, decided by the user:** Forge ships from GitHub Releases and later
+the ArchDisc website, with auto-update on, so a user downloads once and every later version
+arrives in place. Not the Mac App Store.
+
+**One factual correction to the user's framing, recorded because getting it backwards would
+misdirect future work.** Developer ID is not the App Store path -- it is precisely the
+OUTSIDE-the-App-Store path. Apple's split is: Mac App Store builds use an Apple Distribution
+certificate and get App Store review; anything distributed by web uses a **Developer ID
+Application** certificate plus **notarization**. So shipping from GitHub Releases does not
+sidestep Gatekeeper; it means the user meets Gatekeeper once. That does not change the
+decision, and the decision stands.
+
+**What was MEASURED on the existing bundle, rather than assumed:**
+
+* `codesign -v --deep --strict` **exits 0**. The ad-hoc signature is VALID and intact, so the
+  app runs normally once approved. This is the load-bearing fact: a BROKEN signature would
+  fail even after "Open Anyway", and this one does not.
+* `spctl -a -t exec` says **rejected**, with the quarantine attribute and without it. That is
+  expected and permanent for an ad-hoc signature -- spctl assesses signature POLICY, which
+  ad-hoc cannot satisfy. It is NOT a build defect and must not be chased.
+* A downloaded copy carries `com.apple.quarantine`, so the first launch shows "cannot be
+  opened because the developer cannot be verified". The user clears it once in System
+  Settings -> Privacy & Security -> "Open Anyway".
+
+**Two consequences that shape the implementation:**
+
+1. **The right-click -> Open shortcut was REMOVED in macOS 15.** Any instruction telling users
+   to right-click and Open is wrong on current macOS and sends them somewhere that does not
+   work. The first-launch documentation must say System Settings.
+2. **The updater must download and apply IN-APP, never via the browser.** A browser download
+   re-applies `com.apple.quarantine` and reproduces the scary dialog on every version, which
+   destroys the entire premise that the prompt is one-time. It must also verify a checksum
+   BEFORE swapping: an auto-updater without that is a remote code execution channel.
+
+**DECISION: ship ad-hoc signed, from GitHub Releases, with in-app auto-update.** No
+certificate is bought. D-019's floor analysis is unaffected and still correct: minos=26.0 is a
+runner-image property inherited from the Homebrew bottle tag, not an OCCT consequence, and
+`desktop-release.yml` already pins `runs-on: macos-15` with `FORGE_FLOOR_MAX 15.0`, which
+fixes it with OCCT still present. PR #86, which moves that workflow to the default branch so
+`workflow_dispatch` registers, remains a prerequisite for a CI-driven release.
+
+**Publishing remains a human action.** The agents preparing this are explicitly forbidden from
+pushing a tag or publishing a release, including a draft. Everything is staged so that
+publishing is one reviewed step.
+
+## D-026 (2026-08-30): the app crashed THREE times on one root cause — mutating a container mid-walk — and a liveness probe could not see any of them
+
+Three separate crashes were reported against the installed app. They were not three bugs
+in the ordinary sense; they were **one defect written three times** in `ForgeFrame`:
+
+| # | Trigger | Symptom | What was live during the mutation |
+|---|---------|---------|-----------------------------------|
+| 1 | first tab click | SIGSEGV at `0x17` | `DockNode&` held by the draw recursion |
+| 2 | splitter drag | SIGSEGV | `children[1]` of a re-seated layout |
+| 3 | feature-tree expander click | **SIGABRT**, uncaught `std::out_of_range` | clipper range sized from the previous `rowCount()` |
+
+In each case the draw walk held an index or reference into a container, and the click
+handler re-seated that container **during the walk**. The remedy is the same all three
+times: record the intent, apply it after the walk returns.
+
+**The third was found only because the second fix was verified by interaction.** The run
+that aborted had presented **1165 frames** and saved its workspace, layout and keymap
+cleanly. Every liveness signal was healthy. A GUI needs to be *used*, not pinged — and
+"the process is still up" is not evidence about a click path.
+
+**It is proven, not asserted.** `frame_gate.cpp` §5b clicks the real widget —
+`ForgeFrame` now exposes the expander's screen rect so the gate targets it instead of
+guessing pixels — and requires the row set to actually change, because a click that
+no-ops would make the check unfalsifiable. Positive control, same gate, only the defer
+removed:
+
+```
+pre-fix   exit 134   uncaught std::out_of_range: FeatureTreeModel::rowAt   <- the user's crash
+post-fix  exit 0     188 checks, 0 failures, expander click: 17 rows -> 1 rows
+```
+
+**Two traps worth carrying forward.** First, the rebuild after restoring the good source
+did **not** recompile: `cp` stamped the source in the same second the mutated object was
+written, so make saw it as current and the gate still reported 134. The exit code was
+right and the assumption was wrong. Second, `file(GLOB FORGE_UI_SOURCES ...)` had no
+`CONFIGURE_DEPENDS`, so a new `forge::ui` source was absent from the link and surfaced as
+undefined symbols in a file nobody had touched.
+
+## D-027 (2026-08-30): a count copied into a second place goes stale — three times in one session
+
+`EXPECTED_MUTATIONS` is pinned exactly, deliberately, and is never a floor. The number was
+nonetheless duplicated into two other places, and both drifted the moment it moved 17 → 24:
+
+* the CI **job name**, `forge-desktop compiles + its headless gates (17 mutation proofs)`,
+  which advertised 17 while the suite ran 24;
+* the **self-test fixture**, whose stub verdict lines were literal 17/16/18, so case A —
+  the one case that must be GREEN — went red.
+
+The second failure is the instructive one. It produced a **six-second job with no gate
+output**, which reads exactly like a build failure. Time was spent looking for a broken
+build that did not exist.
+
+Resolved by removing the duplicates rather than synchronising them: the job name no longer
+carries a count, and the self-test derives N from the pin and asserts the *relationship*
+(one below and one above must both go red) instead of a literal. What the cases were always
+about is that the check is exact; the integer was incidental.
+
+## D-028 (2026-08-30): a clean merge silently DROPPED mutation coverage
+
+Merging base into the release branch conflicted in exactly one place — a header comment
+about the mutation count. The **code** merged cleanly, by taking one side:
+
+```
+-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9    (base)
++run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7        (ours)
+```
+
+Frame mutations 8 and 9 are implemented in the merged `frame_gate.cpp`. They would simply
+have stopped running, with a green suite and no line in the diff to attribute it to.
+Resolving only the conflicted comment would have shipped that.
+
+**A conflict marks where git could not choose. It does not mark where the wrong choice was
+made.** When a merge touches a file that governs coverage, diff the merged result against
+*both* parents for what each side ran, not just the region that conflicted.
+
+Resolved as the union — 8 document + 9 frame + 7 update = 24 — with `EXPECTED_MUTATIONS`
+moved in the same commit, which is the constraint the base comment existed to state. The
+merge also exposed a real defect in code neither side touched: the missing-include preflight
+had never run against the updater branch, and `update_gate.cpp` used fixed-width integers
+without `<cstdint>`.
+
+## D-029 (2026-08-30): the auto-update endpoint cannot see a prerelease — VERIFIED, and it supersedes D-024's publishing prohibition
+
+The updater fetches `https://github.com/satvikOS/Forge/releases/latest/download/appcast.json`.
+GitHub's `latest` resolves to the newest release that is **neither a draft nor a
+prerelease**. Measured against the live repository:
+
+```
+releases:  tag=v0.1.0-alpha.0  draft=true  prerelease=true  assets=0
+GET /releases/latest  ->  404 Not Found
+```
+
+So the chain the user asked for — download once, update forever — is **inert** for a release
+published as a draft or flagged prerelease, and the failure is silent: the app simply never
+finds an update. The release workflow creates every release as a draft and never publishes,
+by design.
+
+That design encoded D-024's rule that publishing is a human's call. **The user has now made
+that call explicitly** ("all versions are put in the github releases", "auto updates on so
+user just downloads once"), which supersedes the prohibition recorded at the end of D-025 —
+recorded here rather than quietly ignored.
+
+Two caveats stand and are not resolved by that decision:
+* **minimum macOS 26.0**, set by Homebrew bottles' `LC_BUILD_VERSION`, not by any choice
+  in this codebase. Users below macOS 26 cannot run the bundle at all.
+* the signature is **ad-hoc**; first launch needs one pass through System Settings →
+  Privacy & Security → Open Anyway. The user has accepted this explicitly.
+
+A release must therefore be published as a **full release, not a prerelease**, for the
+updater to see it — despite the version reading `alpha`. That is a footgun worth a guard
+rather than a note.
 ---
 
-## D-026 (2026-08-30): THICKEN's whole 193-part deletion bucket was ONE surface type, and closing it moves native coverage 67.8% -> 96.2%
+## D-030 (2026-08-30): THICKEN's whole 193-part deletion bucket was ONE surface type, and closing it moves native coverage 67.8% -> 96.2%
 
 **The state this starts from.** D-022 measured the drop blocked on ENGINE COVERAGE, with THICKEN at
 native 67.8% vs OCCT 100.0% over 600 real parts — 193 parts where OCCT builds and native declines.
