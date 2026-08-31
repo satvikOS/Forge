@@ -978,7 +978,24 @@ private:
     // refuse: it always yields a profile, and it REPORTS what it had to demote.
     Handle skSolve(const Op& op, std::unordered_map<int, Val>& env) {
         const Handle s = refSketch(op, 0, env);
-        const forge::SketchSolveReport r = forge::solveOrRepair(s);
+        // "SOLVE always produces a PROFILE" is the guarantee this whole family
+        // rests on, so it is made TOTAL rather than nearly-total. solveOrRepair
+        // has no throw path of its own, but it drives ~370 KB of vendored
+        // numerics; if anything under there raises, the answer is still the
+        // as-drawn sketch -- which is the documented floor -- and NOT a dead
+        // tree. A guarantee with one uncovered path is not a guarantee, and the
+        // passing cases are exactly what would hide it.
+        forge::SketchSolveReport r{};
+        r.classification = "unsolved";
+        r.dof = -1;
+        try {
+            r = forge::solveOrRepair(s);
+        } catch (const std::exception& e) {
+            if (res)
+                res->verify.push_back("SOLVE %" + std::to_string(op.id) +
+                                      " SOLVER RAISED — kept the as-drawn coordinates: " + e.what());
+            return s;
+        }
         if (res) {
             std::string line = "SOLVE %" + std::to_string(op.id) + " " + r.classification +
                                " dof=" + std::to_string(r.dof) +
