@@ -393,9 +393,11 @@ int SceneFeatureTreeSource::featureIrIdOf(forge::ui::NodeId id) const {
   // The row count comes from the DOCUMENT, not from a second history on the
   // scene: KernelScene::features() was removed when the rows became the IR
   // statements themselves (see the header note above the class). This call site
-  // was the one left behind, and nothing caught it because no CI job compiles
-  // the forge-desktop project. featureCount() is document_.records().size(),
-  // which is the same number childCount() bounds the feature rows by.
+  // was the one left behind, and nothing caught it because at the time NO CI
+  // job compiled the forge-desktop project. One does now: the `desktop` job in
+  // .github/workflows/kernel-tests.yml, whose negative control is this exact
+  // call site. featureCount() is document_.records().size(), which is the same
+  // number childCount() bounds the feature rows by.
   const std::size_t features = featureCount();
   if (id < kFeatureBase || id >= kFeatureBase + features) return 0;
   return static_cast<int>(id - kFeatureBase) + 1;

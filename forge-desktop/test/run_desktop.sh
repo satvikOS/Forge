@@ -18,10 +18,18 @@
 #                       * frame       — real ImGui frames over the real forge::ui
 #                         services and a real tessellated kernel body, with no
 #                         window, no swapchain and no MoltenVK.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. Sixteen defects are
-#                       injected in turn and each MUST make its gate exit
-#                       non-zero; a mutation that stays green fails this script,
-#                       because an unfalsifiable check is not a check.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. SEVENTEEN
+#                       defects (8 document + 9 frame) are injected in turn and
+#                       each MUST make its gate exit non-zero; a mutation that
+#                       stays green fails this script, because an unfalsifiable
+#                       check is not a check.
+#
+# CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
+# this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
+# status is whatever ran last and a run that fell out of its own middle would
+# exit 0. That wrapper also pins the mutation count at an EXACT 17, so adding or
+# removing a --mutate case below means changing EXPECTED_MUTATIONS in
+# ci_desktop_gate.sh in the SAME commit.
 #
 # The windowed application is NOT launched here: it needs a display server, and
 # a gate that cannot run in CI is not a gate. Launch it yourself with
