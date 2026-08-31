@@ -301,11 +301,11 @@ int main(int argc, char** argv) {
   // on part.fillet, it is declared as Text, and these are Text. Only the VALUE
   // is different, and the value is what becomes a feature-IR argument.
   if (g_mutation == 7 && !reply.plan.steps.empty()) {
-    reply.plan.steps[0].args.push_back(forge::ui::PlanArg::str("selector", "SPHERE"));
+    reply.plan.steps[0].args.push_back(forge::ui::PlanArg::str("selector", "SLOT"));
   }
   if (g_mutation == 8 && !reply.plan.steps.empty()) {
     reply.plan.steps[0].args.push_back(
-        forge::ui::PlanArg::str("selector", "ALL\")\n%9 = SPHERE(50)\n#"));
+        forge::ui::PlanArg::str("selector", "ALL\")\n%9 = SLOT(50, 20)\n#"));
   }
 
   // ── 5. what the panel SHOWS is what will RUN ─────────────────────────────
@@ -535,29 +535,29 @@ int main(int argc, char** argv) {
   {
     // FIRST, MEASURED WITH THE REAL KERNEL: the smuggled text is not a
     // hypothetical. Parsed by forge::ft, it really does yield an op named
-    // SPHERE -- an op no forge::ui command declares.
+    // SLOT -- an op no forge::ui command declares.
     const std::string smuggled =
         "%1 = RECT(80, 50)\n"
         "%2 = EXTRUDE(%1, 20)\n"
         "%3 = FILLET(%2, 2, \"ALL\")\n"
-        "%4 = SPHERE(50)\n";
-    std::size_t sphereOps = 0;
+        "%4 = SLOT(50, 20)\n";
+    std::size_t slotOps = 0;
     try {
       const forge::ft::FeatureTree smuggledTree = forge::ft::parse(smuggled);
       for (const forge::ft::Op& op : smuggledTree.ops) {
-        if (op.name == "SPHERE") ++sphereOps;
+        if (op.name == "SLOT") ++slotOps;
       }
     } catch (const std::exception& e) {
       check(false, "the smuggled text parses at all", e.what());
     }
-    checkEq(sphereOps, 1u,
-            "the kernel really does read a SPHERE out of the smuggled text");
-    check(!opIsCommandReachable(shell.registry(), "SPHERE"),
-          "and SPHERE is an op NO registered command declares", "");
+    checkEq(slotOps, 1u,
+            "the kernel really does read a SLOT out of the smuggled text");
+    check(!opIsCommandReachable(shell.registry(), "SLOT"),
+          "and SLOT is an op NO registered command declares", "");
 
     // SECOND, THE PANEL REFUSES BOTH FORMS. Delivered exactly as a model's reply
     // arrives, through the same seam section 4 used.
-    const char* const kSmugglers[] = {"SPHERE", "ALL\")\n%9 = SPHERE(50)\n#"};
+    const char* const kSmugglers[] = {"SLOT", "ALL\")\n%9 = SLOT(50, 20)\n#"};
     for (const char* selector : kSmugglers) {
       const std::size_t recordsBeforeSmuggle = frame.document().records().size();
       const std::size_t journalBeforeSmuggle = shell.journal().size();
@@ -621,8 +621,8 @@ int main(int argc, char** argv) {
               "no statement reached the document");
       checkStr(frame.document().irProgram(), programBefore,
                "the emitted program is byte-identical to before");
-      check(frame.document().irProgram().find("SPHERE") == std::string::npos,
-            "and no SPHERE reached the program", "");
+      check(frame.document().irProgram().find("SLOT") == std::string::npos,
+            "and no SLOT reached the program", "");
       checkEq(frame.layoutReseatsDuringWalk(), 0u, "still no mid-walk mutation");
     }
 
