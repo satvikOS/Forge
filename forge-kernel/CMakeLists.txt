@@ -300,6 +300,31 @@ set(OCCT_LIBS
 #   non-translate), and a non-translated pair of curved sections needs ruled surfaces
 #   between the curves, which is a different engine.
 #
+# ★ THE PARENTHESIS ABOVE READS AS TWO POPULATIONS AND IT IS ONE. MEASURED
+#   2026-08-31 at 32ee7485 (test/thrusections_pair_probe.cpp, over the corpus
+#   A/B's own section pairs), the `xlate_edge_count_mismatch` bucket is NOT a
+#   separate, cheaper class. That label fires BEFORE any geometry is compared —
+#   the edge-aligned rotation search simply cannot run on unequal sample counts —
+#   so it could never distinguish
+#       (a) the SAME closed curve carrying an extra vertex that splits an edge, on
+#           which the extrusion identity still holds and the fix is to relax a
+#           structural guard, from
+#       (b) two GENUINELY DIFFERENT closed curves, which need the ruled engine.
+#   Total wire LENGTH settles it with no such blind spot: it is independent of how
+#   a wire is cut into edges and exactly invariant under a translation. Over ALL 81
+#   parts the guard declines on the 600-part corpus, the two section lengths
+#   DISAGREE — relative gap min 0.96%, median 10.3%, max 55.4%, and 0 of 81 within
+#   even 1e-3, against a translate tolerance of order 1e-7. NOT ONE IS A SPLIT. So
+#   reading (a) is empty on this corpus, relaxing the edge-count guard would have
+#   bought ZERO parts, and the whole residue is one class needing ruled surfaces —
+#   exactly as the sentence above concludes, but for all 81 rather than for 21.
+#   src/native/brep/NativeLoftPipe.cpp now records `xlate_not_a_translate_length`
+#   for that case so the label names the BINDING cause. It is behaviour-neutral by
+#   construction (it sits inside the branch that already returned kNull and both
+#   arms still do), and test/run_thrusections_xlate_label_gate.sh drives BOTH
+#   directions — a real split must still say `xlate_edge_count_mismatch` — with a
+#   two-mutant self-test proving the gate can fail.
+#
 # ★ THE THICKEN ROW HAS ALSO SINCE MOVED, and its 193-part gap was ONE SURFACE TYPE.
 #   Instrumenting the A/B's native THICKEN arm with occtthicken::thickenLastDeferReason()
 #   (the reasonFn hook runArm has carried since the PIPE family) attributed the whole
@@ -322,6 +347,35 @@ set(OCCT_LIBS
 #   rectangle (a trimmed or holed patch)": a hole cut in the tube wall, on which the
 #   closed form is measurably NOT OCCT's answer (rel 2e-2 .. 9e-2), so the engine
 #   declines rather than return a plausible wrong solid. That is the next bounded target.
+#
+# ★ "THE NEXT BOUNDED TARGET" IS MEASURED AND IT IS NOT BOUNDED. Corrected
+#   2026-08-31 at 32ee7485 by test/thicken_cylpatch_probe.cpp, which links no
+#   forge object and asks only what OCCT's own answer IS on those 23 parts —
+#   the paragraph above records the RECTANGLE closed form failing but never says
+#   what it should have been, and an engine cannot be designed against that.
+#   The probe independently reproduces the surface census (407 Plane / 193
+#   Cylinder over the same 600 parts) and the split (170 pass the rectangle
+#   certificate, 23 fail), then tests the exact generalisation: in cylindrical
+#   coordinates the offset body of a patch trimming the surface to a region D is
+#   D x [Rlo,Rhi], so V = 0.5*(Rhi^2-Rlo^2)*area_uv(D) and area_uv(D) is
+#   OBSERVABLE as area(face)/R without describing D at all.
+#     positive control  the 170 already covered   general form == OCCT, 170/170 at <=1e-9
+#     the residue       the 23                    rectangle form  rel 2.0e-2 .. 3.9e-1
+#                                                 GENERAL   form  rel 4.3e-5 .. 7.8e-5
+#                                                                 (p50 6.6e-5), exact on 2
+#   Read the third row: the exact radial-sweep identity is three orders closer
+#   than the shipped form and is still NOT OCCT's answer. 21 of the 23 carry a
+#   HOLE in the tube wall (wire counts 2:19, 4:1, 6:1) whose offset side wall is
+#   a ruled surface between the hole boundary and its radially scaled image —
+#   not constructible from canonical primitives, which is what this path is
+#   deliberately built out of (see the revolve note below). The 2 that ARE exact
+#   are single-wire non-rectangular trims, and their side wall is the same ruled
+#   surface. So the residue is ONE missing capability, a general radial-sweep
+#   wall, for all 23 — not a certificate that can be widened. Widening it to the
+#   general form would accept a body on a volume identity alone while its hole
+#   wall is missing — the exact shape of ratification this programme has already
+#   been bitten by, and the reason every path in this file carries a topology and
+#   surface-inventory check next to its closed form. Left as an honest defer.
 #
 # ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
 #   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
