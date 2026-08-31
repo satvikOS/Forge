@@ -9,7 +9,7 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — four headless gates, none of which needs a GPU:
+#   2. gates          — five headless gates, none of which needs a GPU:
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
 #                       * document    — the user-launchable slice: the ONE
@@ -100,7 +100,7 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + 4 headless gates (-Wall -Wextra -Werror clean)"
+echo "[desktop] built forge_desktop + 5 headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0

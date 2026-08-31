@@ -170,7 +170,7 @@ src/ViewportRenderer.{hpp,cpp}  the geometry pass into an offscreen colour+depth
 src/PlatformSDL2.{hpp,cpp}      first-party SDL2 -> ImGuiIO platform backend
 src/PngWriter.hpp               dependency-free RGBA8 PNG, for --screenshot
 src/main.cpp                    window, device, swapchain, frame loop, persistence
-test/frame_gate.cpp             185 headless checks + 9 injectable mutations
+test/frame_gate.cpp             188 headless checks + 9 injectable mutations
 test/document_gate.cpp          186 headless checks + 8 injectable mutations: the document edge,
                                 end to end, including a real .fpart on a real disk
 test/ir_pipeline_gate.cpp       18 checks: a UI-authored IR program compiles to a measured solid
