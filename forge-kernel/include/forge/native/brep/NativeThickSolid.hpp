@@ -96,6 +96,13 @@
 //   * a non-planar face with a boundary edge that is not a circle coaxial with it;
 //   * a planar face with a wire that is not exactly one full circle — so MIXED
 //     polygonal+quadric solids are declined (the all-planar case has its own path);
+//   * a planar face whose OFFSET circles stop nesting — a hole that reaches
+//     past the outer rim, or two holes that overlap, because the offset
+//     exceeded the local feature size. Merging the two openings is a real
+//     geometric operation this engine does not implement, so it declines.
+//     (The face's closed-form area self-check is an identity in the radii and
+//     is BLIND to this: MEASURED on ho1041 it passed to 2e-7 relative on a face
+//     whose hole wires crossed the rim by 4.47 mm. See circlesNest in the .cpp.)
 //   * two adjacent removed faces (a zero-width lip);
 //   * an offset that collapses a radius or inverts a v-range;
 //   * t >= the solid's minimum half-extent (planar path);
