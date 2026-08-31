@@ -234,9 +234,12 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 40 ops; anything else means the derivation
+  // forge::ft::opFromName registers 47 ops; anything else means the derivation
   // itself broke, and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 40);
+  // 40 -> 47 when the 2D sketch + constraint family landed (SKETCH SPT SLINE
+  // SCIRC SARC CON SOLVE), making the vendored planegcs solver addressable
+  // from a feature tree for the first time.
+  CHECK_EQ_INT(kernel.size(), 47);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -272,6 +275,18 @@ int main() {
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);
   CHECK_EQ_INT(kernel.at("BOX").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SHELL").firstArgIsValueRef ? 1 : 0, 1);
+  // the sketch family, read by eye out of the kernel header
+  CHECK_EQ_INT(kernel.at("SKETCH").minArgs, 1);                     // SKETCH(PLANE)
+  CHECK_EQ_INT(kernel.at("SKETCH").firstArgIsValueRef ? 1 : 0, 0);  // a keyword, not a %ref
+  CHECK_EQ_INT(kernel.at("SPT").minArgs, 3);                        // %sketch, x, y
+  CHECK_EQ_INT(kernel.at("SPT").maxArgs, 3);
+  CHECK_EQ_INT(kernel.at("SLINE").minArgs, 2);
+  CHECK_EQ_INT(kernel.at("SARC").minArgs, 3);
+  CHECK_EQ_INT(kernel.at("CON").minArgs, 2);                        // %a, KIND
+  CHECK_EQ_INT(kernel.at("CON").maxArgs, 4);                        // + %b, value
+  CHECK_EQ_INT(kernel.at("SOLVE").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("SOLVE").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("SOLVE").firstArgIsValueRef ? 1 : 0, 1);
 
   // ── 2. emission is textually exact ────────────────────────────────────────
   CHECK_EQ_STR(formatIrNumber(12.0), "12");

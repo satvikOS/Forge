@@ -73,6 +73,36 @@ enum class OpCode {
     Poly,        // POLY([x y; x y; ...])                       organic closed silhouette
     RegPoly,     // REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])      n-gon (vertex radius)
 
+    // --- 2D SKETCH + CONSTRAINTS (produce a SKETCH / SKETCHREF) ---------------
+    // The six profile ops above bake COORDINATES. These six plus SOLVE let a
+    // tree state RELATIONS instead and have the kernel compute the coordinates,
+    // through the planegcs solver that is already vendored, compiled and linked
+    // (3rdParty/planegcs, CMakeLists.txt ~1264-1271) and that nothing in the IR
+    // has ever called.
+    //
+    // The family bolts on IN FRONT of the existing IR: it terminates in a
+    // solved PROFILE, and a PROFILE is what EXTRUDE / REVOLVE / LOFT already
+    // consume. Not one existing op changes.
+    //
+    // (Prose here deliberately avoids writing an op name immediately followed
+    // by "(" — ui/test/feature_ir_test.cpp derives this table by READING this
+    // comment block, and would take such a line for an alternate form.)
+    Sketch,      // SKETCH(PLANE)                         PLANE = XY|YZ|XZ
+    SPt,         // SPT(%sketch, x, y)                    a point; produces a SKETCHREF
+    SLine,       // SLINE(%p0, %p1)                       line through two sketch points
+    SCirc,       // SCIRC(%centre, r)                     circle: centre point + radius
+    SArc,        // SARC(%centre, %p0, %p1)               arc: centre + start + end
+    Con,         // CON(%a, KIND [, %b, value])           constrain; PASS-THROUGH like TAG
+                 //   KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON
+                 //   KIND dimensional: DIST RADIUS
+                 //   The kind is ALWAYS arg 1; the operands follow and are read
+                 //   by token type, so one op covers unary/binary/dimensional
+                 //   without four op names. CON returns the SKETCH it was handed
+                 //   — a constraint statement that could itself move geometry
+                 //   before the solve is a defect generator (same reasoning as
+                 //   TAG and VERIFY).
+    Solve,       // SOLVE(%sketch)                        -> PROFILE. NEVER refuses.
+
     // --- 3D section rings (produce a WIRE — a loft cross-section placed in 3D) ---
     Ring,        // RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48]) superellipse ring @ height z
                  //   p=2 circle/ellipse, p=4..6 rounded-rect (impeller/nozzle/duct sections)

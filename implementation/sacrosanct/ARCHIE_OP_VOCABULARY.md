@@ -47,9 +47,15 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **41 commands**; **30 of them emit
-feature-IR**, reaching **28 distinct op names**. The kernel defines **40** ops
-(`opFromName`), so **12 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **28 distinct op names**. The kernel defines **47** ops
+(`opFromName`), so **19 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+The jump from 40 kernel ops to 47 is the 2D sketch + constraint family
+(`SKETCH` `SPT` `SLINE` `SCIRC` `SARC` `CON` `SOLVE`), which makes the vendored
+planegcs solver addressable from a feature tree. All seven are `forbidden_ops`
+today for the ordinary reason: no `forge::ui` registry command emits one yet.
+That is a UI gap, not a kernel gap — the ops compile and solve.
 
 Every number in that paragraph, and every op row in the table below, is now
 checked by `--check` against the JSON it describes. None of it was, and all of
