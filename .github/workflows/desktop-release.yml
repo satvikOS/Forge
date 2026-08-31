@@ -203,6 +203,36 @@ jobs:
           # while the run was dispatched against this branch.
           brew install opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
 
+      - name: Point the dependency plane at the Homebrew prefixes
+        # WHY THE RELEASE BUILD COULD NOT CONFIGURE. forge-kernel resolves
+        # opencascade and boost through the pinned dependency plane
+        # (cmake/ForgeDeps.cmake, Sacrosanct 3.1 s10.6), which REFUSES a
+        # machine-global prefix it was not told about:
+        #
+        #   This build is NOT reproducible on a clean machine — the prefix is not
+        #   part of the pinned local dependency plane.
+        #   Fix: seed and activate the local mirror, or pass
+        #        -DFORGE_DEPS_PREFIX_OPENCASCADE=<prefix>
+        #
+        # That refusal is CORRECT — it is what stops a release being built against
+        # whatever happened to be on one machine. The runner is not a clean machine
+        # either, so the honest fix is to NAME the prefixes rather than silence the
+        # check: ForgeDeps accepts FORGE_DEPS_PREFIX_<NAME> from the environment,
+        # so the versions recorded by the step below are exactly the ones used.
+        #
+        # Every release run before this one failed here, which is why no release
+        # has ever carried a binary.
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in opencascade boost; do
+            key="FORGE_DEPS_PREFIX_$(echo "$f" | tr '[:lower:]-' '[:upper:]_')"
+            prefix="$(brew --prefix "$f")"
+            test -d "$prefix" || { echo "::error::brew --prefix $f -> $prefix does not exist"; exit 1; }
+            echo "$key=$prefix" >> "$GITHUB_ENV"
+            echo "$key=$prefix"
+          done
+
       - name: Record the toolchain that produced this artifact
         # An artifact whose provenance is not written down cannot be debugged
         # later. These versions decide the OS floor and the geometry.
