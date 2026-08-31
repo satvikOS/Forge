@@ -16,6 +16,13 @@
 #   forge_desktop_ir_pipeline_gate
 #                             HEADLESS: a UI-authored IR program parses, compiles
 #                             and measures as a real solid.
+#   forge_desktop_click_gate  HEADLESS and INTERACTIVE: drives the real ImGui
+#                             input queue to click every dock tab and drag every
+#                             splitter in every workspace, steps a further frame
+#                             after each gesture, and asserts the app is still
+#                             alive and the dock tree still consistent. Built
+#                             with -fsanitize=address, because the defect it
+#                             exists for is a use-after-free.
 #
 # This is a SEPARATE CMake project from forge-kernel/CMakeLists.txt on purpose.
 # The kernel's build has its own option matrix, its own OCCT-drop gates and a CI
@@ -215,10 +222,72 @@ target_link_libraries(forge_desktop_document_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_document_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ============================================================================
+# The CLICK gate, and the ADDRESS-SANITIZED build it needs.
+#
+# The other three gates render frames and assert on the values that come out.
+# None of them clicks anything, and the defect this one exists for was a
+# use-after-free that only a click could reach: a tab button re-seated
+# shell_.layout() from INSIDE the dock walk, freeing the DockNode the recursion
+# held, and the next read faulted at 0x17. Reading freed memory is not reliably a
+# crash, so the gate is given a second instrument the others do not need: the
+# whole first-party stack is recompiled under -fsanitize=address for this
+# executable only, which turns "it happened to survive" into a report.
+#
+# The three existing gates are untouched -- same sources, same flags, same
+# binaries. What is added is a PARALLEL set of libraries, so nothing here can
+# make an existing gate slower, weaker or different.
+#
+# COST: three extra static libraries (forge::ui, Dear ImGui, the app core) plus
+# one executable. Measured on this machine, `cmake --build -j10` goes from 6.7 s
+# to about 20 s -- the sanitized objects are the same count as the unsanitized
+# ones, compiled once. That is the whole price of the second instrument.
+# ============================================================================
+set(FORGE_ASAN_FLAGS -fsanitize=address -fno-omit-frame-pointer -g)
+
+add_library(forge_ui_asan STATIC ${FORGE_UI_SOURCES})
+target_include_directories(forge_ui_asan PUBLIC "${FORGE_UI_DIR}/include")
+target_compile_options(forge_ui_asan PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
+
+add_library(forge_imgui_asan STATIC
+    "${IMGUI_DIR}/imgui.cpp"
+    "${IMGUI_DIR}/imgui_draw.cpp"
+    "${IMGUI_DIR}/imgui_tables.cpp"
+    "${IMGUI_DIR}/imgui_widgets.cpp"
+    "${IMGUI_DIR}/imgui_impl_vulkan.cpp")
+target_include_directories(forge_imgui_asan PUBLIC "${IMGUI_DIR}" "${VK_INC}")
+# Third-party: warnings are not errors here, but the sanitizer still applies --
+# ImGui owns the widget state the click machinery walks.
+target_compile_options(forge_imgui_asan PRIVATE ${FORGE_ASAN_FLAGS})
+target_link_libraries(forge_imgui_asan PUBLIC "${VK_LOADER_LIB}")
+
+add_library(forge_desktop_core_asan STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
+target_include_directories(forge_desktop_core_asan PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${FORGE_KERNEL_DIR}/include"
+    "${OCCT_PREFIX}/include/opencascade")
+target_compile_definitions(forge_desktop_core_asan PRIVATE FORGE_NATIVE_BREP=1)
+target_compile_options(forge_desktop_core_asan PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
+target_link_libraries(forge_desktop_core_asan
+    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}")
+
+add_executable(forge_desktop_click_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/click_gate.cpp")
+target_compile_options(forge_desktop_click_gate PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
+target_link_options(forge_desktop_click_gate PRIVATE -fsanitize=address)
+target_link_libraries(forge_desktop_click_gate PRIVATE forge_desktop_core_asan)
+set_target_properties(forge_desktop_click_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 enable_testing()
 add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
+add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)
 
 # A run helper that sets VK_ICD_FILENAMES, so "how do I run it" has one answer.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/run_forge.sh.in"

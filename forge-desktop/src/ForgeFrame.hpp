@@ -62,6 +62,31 @@ struct ViewportRequest {
   bool wireframe = false;
 };
 
+// Where one dock TAB BUTTON was drawn, in the same screen coordinates ImGui was
+// given. Recorded per tab, per frame, so a host can put a pointer on a tab
+// without re-deriving the dock layout arithmetic: the click gate uses it to
+// drive io.AddMousePosEvent, and it is equally what a UI-automation or
+// accessibility layer needs. `panelId` is a COPY, not a reference into the dock
+// tree, because the tree is re-seated by the very click this box invites.
+struct TabHit {
+  std::vector<std::size_t> path;  // node address from the main window's root
+  std::size_t index = 0;          // which tab within that Tabs node
+  std::string panelId;
+  float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+  float centreX() const noexcept { return x + 0.5f * w; }
+  float centreY() const noexcept { return y + 0.5f * h; }
+};
+
+// Where one SPLITTER grip was drawn, same coordinates and same reason: a drag is
+// the other gesture that writes into the dock tree mid-walk.
+struct SplitterHit {
+  std::vector<std::size_t> path;
+  bool vertical = false;  // true when the split stacks vertically (drag in Y)
+  float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+  float centreX() const noexcept { return x + 0.5f * w; }
+  float centreY() const noexcept { return y + 0.5f * h; }
+};
+
 // The frame builder is also THE DOCUMENT OWNER. It holds the PartDocument the
 // Part commands append to, and implements forge::ui::DocumentHost so the shell's
 // ONE file.new / file.open / file.save / edit.undo / edit.redo act on it. Before
@@ -145,6 +170,37 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 
   // Instrumentation the frame gate asserts on.
   std::size_t panelsDrawn() const noexcept { return panelsDrawn_; }
+  // WHICH panels were drawn, in draw order. panelsDrawn() counts; a click gate
+  // has to know that the panel behind the tab it clicked is the one that came
+  // up, and a count cannot say that.
+  const std::vector<std::string>& panelIdsDrawn() const noexcept { return panelIdsDrawn_; }
+  // Every tab button this frame drew, with the rectangle it occupies.
+  const std::vector<TabHit>& tabHits() const noexcept { return tabHits_; }
+  // Every splitter grip this frame drew.
+  const std::vector<SplitterHit>& splitterHits() const noexcept { return splitterHits_; }
+  // ── THE DOCK-WALK INVARIANT ─────────────────────────────────────────────
+  // How many times in this frame builder's WHOLE LIFETIME the DockLayout was
+  // re-seated while the draw was still walking it. A lifetime total, not a
+  // per-frame one, because every useful assertion about the violation is made
+  // after the frame FOLLOWING the gesture, and a per-frame counter would have
+  // zeroed itself by then. The only correct value is ZERO, always, and
+  // it is a memory-safety invariant rather than a preference: drawNode() and
+  // drawTabGroup() hold `const DockNode&` into shell_.layout() across their
+  // whole recursion, and setActiveTabAt()/setRatioAt() end in
+  // `shell_.layout() = std::move(rebuilt)`, which destroys every one of those
+  // nodes. A tab click that re-seated the layout inline made the very next
+  // statement -- drawPanel(node.panels[active]) -- read a freed std::string, and
+  // the shipped app SIGSEGV'd at 0x17 (the size byte of the dangling short
+  // string) on the FIRST tab click. Counting the violation makes the defect a
+  // VALUE a gate can assert on, in any build, sanitizer or not.
+  //
+  // The count is OBSERVABLE because the writers do not carry the violation out:
+  // an in-walk caller has its request DEFERRED to the end of the frame instead
+  // of re-seating under the walk, so the process survives to be asked. Without
+  // that net the counter would be unfalsifiable -- every in-walk re-seat kills
+  // the process before anyone can read it -- and an unfalsifiable check is not a
+  // check.
+  std::size_t layoutReseatsDuringWalk() const noexcept { return reseatsDuringWalk_; }
   std::size_t treeRowsDrawn() const noexcept { return treeRowsDrawn_; }
   std::size_t treeRowCount() const noexcept { return tree_.rowCount(); }
   std::size_t treeMaterialized() const noexcept { return tree_.materialized(); }
@@ -360,6 +416,25 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::string status_ = "Ready";
   std::vector<std::string> log_;
   std::size_t panelsDrawn_ = 0;
+  std::vector<std::string> panelIdsDrawn_;
+  std::vector<TabHit> tabHits_;
+  std::vector<SplitterHit> splitterHits_;
+  // ── deferred dock mutations, and why they are deferred ──────────────────
+  // A gesture inside the dock walk MUST NOT re-seat shell_.layout(): the walk
+  // holds `const DockNode&` into it, and the re-seat destroys those nodes. Both
+  // gestures therefore RECORD here and build() applies them after the walk has
+  // finished and no reference is live. The layout still changes on the same
+  // frame; it changes when nothing is pointing into it.
+  bool pendingTabValid_ = false;
+  std::vector<std::size_t> pendingTabPath_;
+  std::size_t pendingTabIndex_ = 0;
+  bool pendingRatioValid_ = false;
+  std::vector<std::size_t> pendingRatioPath_;
+  double pendingRatio_ = 0.5;
+  // Non-zero while drawNode()/drawTabGroup() are walking the dock tree. The
+  // write API reads it to count violations of the invariant above.
+  std::size_t walkDepth_ = 0;
+  std::size_t reseatsDuringWalk_ = 0;
   std::size_t treeRowsDrawn_ = 0;
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;

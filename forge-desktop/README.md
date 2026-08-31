@@ -170,16 +170,23 @@ src/ViewportRenderer.{hpp,cpp}  the geometry pass into an offscreen colour+depth
 src/PlatformSDL2.{hpp,cpp}      first-party SDL2 -> ImGuiIO platform backend
 src/PngWriter.hpp               dependency-free RGBA8 PNG, for --screenshot
 src/main.cpp                    window, device, swapchain, frame loop, persistence
-test/frame_gate.cpp             139 headless checks + 7 injectable mutations
-test/document_gate.cpp          139 headless checks + 5 injectable mutations: the document edge,
+test/frame_gate.cpp             185 headless checks + 9 injectable mutations
+test/document_gate.cpp          186 headless checks + 8 injectable mutations: the document edge,
                                 end to end, including a real .fpart on a real disk
 test/ir_pipeline_gate.cpp       18 checks: a UI-authored IR program compiles to a measured solid
-test/run_desktop.sh             build + all three gates + the 10-mutation proof
+test/click_gate.cpp             1144 headless checks + 5 injectable mutations. The one gate that
+                                INTERACTS: it drives io.AddMousePosEvent / io.AddMouseButtonEvent
+                                to click every dock tab and drag every splitter in all 8
+                                workspaces. Built with -fsanitize=address.
+test/run_click_gate.sh          the same gate, compiled DIRECTLY (no SDL2, no Vulkan, no CMake)
+                                so it runs in the kernel CI job -- the first CI step in this repo
+                                that compiles forge-desktop/src at all
+test/run_desktop.sh             build + all four gates + the 22-mutation proof
 ```
 
 ## The gates
 
-All three are headless: no window, no swapchain, no MoltenVK, no display. `ctest --test-dir
+All four are headless: no window, no swapchain, no MoltenVK, no display. `ctest --test-dir
 forge-desktop/build` runs them; `run_desktop.sh` runs them *and* the mutation proof.
 
 `forge_desktop_ir_pipeline_gate` drives the real `registerPartCommands()` registry, takes
@@ -199,7 +206,7 @@ dispatches onto the reopened document; and an op that throws inside OCCT is caug
 good body on screen. Geometry is never accepted on volume alone — every geometric claim is a vector
 of triangles, face ids, face count, edge count, volume and bounding box.
 
-Its five mutations:
+Its eight mutations:
 
 | mutation | the regression it stands for |
 | --- | --- |
@@ -207,7 +214,10 @@ Its five mutations:
 | 2 | the `.fpart` writer drops the node bindings → a reopened document loses them |
 | 3 | save/load skips the file → the round trip is not a round trip (9 checks red) |
 | 4 | the body node is a hard-coded literal → a document that names its body anything else is unpickable and every solid command on it refuses |
-| 5 | the parameter editor is aimed by TREE ROW POSITION instead of by STATEMENT ID → it edits the statement before the one the user picked, and the part silently never changes (13 checks red) |
+| 5 | the feature tree is bound to a SECOND, private history → the rows are a stale copy of a document nobody is editing |
+| 6 | the tree is bound to a history that is a list of NAMES → the rows describe the wrong statements |
+| 7 | the keystroke dispatches with a bare id instead of through the chord resolver → the shortcut dies on a multi-stroke sequence |
+| 8 | the parameter editor is aimed by TREE ROW POSITION instead of by STATEMENT ID → it edits the statement before the one the user picked, and the part silently never changes (13 checks red) |
 
 `forge_desktop_frame_gate` builds **real frames of the real shell** — no window, no swapchain, no
 MoltenVK — and asserts values against references: the bounding box is 80x50x20 to within the
@@ -216,7 +226,7 @@ CATIA's middle-drag pans while NX's rotates, the eight workspaces each draw four
 drag lands in the dock tree, save→load→save is byte-identical, and unplugging a monitor loses no
 panel.
 
-`run_desktop.sh` then injects seven more defects in turn and **requires each to turn it red**:
+`run_desktop.sh` then injects nine more defects in turn and **requires each to turn it red**:
 
 | mutation | the regression it stands for |
 | --- | --- |
@@ -227,6 +237,64 @@ panel.
 | 5 | the projection loses its Vulkan Y-flip → the picking ray and the image disagree |
 | 6 | the Measure panel is not fed the live selection → it measures nothing (7 checks red) |
 | 7 | the Tools panel answers from a stale selection → it offers a tool that refuses (2 checks red) |
+| 8 | the viewport ignores the selection filter → "pick an edge" picks a face, and the three edge tools stay unreachable (13 checks red) |
+| 9 | the frame never pulls the shell's fit request → `view.fit` journals "ok" and the camera does not move |
+
+### `forge_desktop_click_gate` — the one that CLICKS
+
+The three gates above render frames. **None of them clicks anything**, and that is exactly the shape
+of the hole two defects went through on 2026-08-30.
+
+The first was a call to `KernelScene::features()`, a method that no longer existed: the app was
+UNBUILDABLE for hours and nothing went red, because nothing in CI compiled `forge-desktop/src`. The
+second was worse, because it shipped. Clicking a dock tab SIGSEGV'd the installed app on the FIRST
+click, `EXC_BAD_ACCESS` at `0x17`. `drawTabGroup()` holds a `const DockNode&` into the live layout
+while it walks; the tab button called `setActiveTabAt()`, whose last line is
+`shell_.layout() = std::move(rebuilt)`, which destroys every node the recursion is holding — and the
+next statement reads `node.panels[active]` out of freed memory. `0x17` is 23 bytes into a libc++
+`std::string`: the size byte of the short-string form, so the fault was a dangling string header.
+`frame_gate` and `document_gate` both passed throughout. `frame_gate` calls `setActiveTabAt()`
+*directly*, from outside the walk — the one way to change a tab that was never broken.
+
+This gate enumerates every dock tab in every workspace, **clicks** each one through the real ImGui
+input queue, and steps **at least one FURTHER frame** after each click before it asserts. That last
+part is the whole point: the crash was the next read through a reference the click had already
+freed, so a click with no following frame would have gone green on an app that was already broken.
+It does the same for splitter drags, which had the identical hazard — `drawSplitter()` wrote through
+`setRatioAt()` from inside the walk, and `drawNode()` reads `node.children[1]` on the next line.
+
+Two independent instruments, because one can go quiet:
+
+* **A value.** `ForgeFrame::layoutReseatsDuringWalk()` counts every re-seat that happens while the
+  draw is walking the tree. The only correct value is zero. It is a LIFETIME total, not a per-frame
+  one — measured: with it reset each frame the gate stayed green against the reverted fix, because
+  the assertion is made after the FOLLOWING frame, which had already zeroed it.
+* **The sanitizer.** The whole first-party stack is recompiled under `-fsanitize=address` for this
+  executable only, so reading freed memory is a report and not a coin flip. Mutation 3 is the
+  positive control for it.
+
+Both writers also refuse to re-seat the layout mid-walk, deferring to the end of the frame instead.
+That is what makes the counter observable at all: without it every violation kills the process
+before anyone can read the count, and an unfalsifiable check is not a check.
+
+Its five mutations:
+
+| mutation | the regression it stands for |
+| --- | --- |
+| 1 | the pointer never reaches the tab → the press lands on empty air and no tab activates (66 checks red) |
+| 2 | no FURTHER frame after the click → the panel behind the clicked tab never comes up (96 checks red) |
+| 3 | the historical use-after-free, performed on purpose → the sanitizer must catch it. If this one STAYS GREEN, `-fsanitize=address` is not reaching the binary and half this gate is silent |
+| 4 | only the first workspace is exercised → the tab census goes unmet |
+| 5 | the splitter is pressed but never dragged → no ratio moves (24 checks red) |
+
+`run_click_gate.sh` builds and runs the same gate **without CMake, SDL2, the Vulkan loader, glslang
+or MoltenVK** — `imgui_impl_vulkan.cpp` is the only vendored file that needs a Vulkan header, and it
+is the one file this gate does not compile. That is what lets it ride the existing `kernel` CI job,
+which already installs OCCT and already builds `forge_kernel_core`: about 35 s measured on an
+M-series workstation, on the order of 2–3 minutes on a macOS runner. It is the first CI step in this
+repository that compiles `forge-desktop/src` at all, so the *unbuildable* defect is a red build here
+too — verified by re-injecting `scene_.features()`, which gives exit 3 and
+`no member named 'features' in 'forge::desktop::KernelScene'`.
 
 A mutation that stays green fails the script, because a check that cannot fail is not a check.
 

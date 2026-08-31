@@ -291,6 +291,34 @@ jobs:
         # a wrong solid matching a right volume to ten significant figures is a measured
         # failure mode in this programme, not a hypothetical one.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: Desktop CLICK gate (the first CI step that compiles forge-desktop/src)
+        # THE GATE THAT WOULD HAVE CAUGHT BOTH OF 2026-08-30's SHIPPED DEFECTS, and the
+        # first thing in CI that compiles forge-desktop/src at all.
+        #
+        # Until now nothing did. The IR-pipeline step above deliberately compiles only
+        # ui/src plus one gate TU so it needs no SDL2/Vulkan/ImGui, and desktop-release.yml
+        # was unregistered. In one day that gap let through (1) a call to a method that no
+        # longer existed -- KernelScene::features() -- which made the app UNBUILDABLE for
+        # hours with nothing going red, and (2) a use-after-free that SIGSEGV'd the
+        # installed app on the FIRST dock-tab click. The frame and document gates passed
+        # throughout: they render frames, and neither of them CLICKS anything.
+        #
+        # This step compiles the real ForgeFrame.cpp and KernelScene.cpp -- so defect (1) is
+        # a red build here -- and then drives the real ImGui input queue to click every dock
+        # tab and drag every splitter in all 8 workspaces, stepping a FURTHER frame after
+        # each gesture, which is what defect (2) needed to be seen: the crash was the next
+        # read through the reference the click had freed. Whole stack under
+        # -fsanitize=address, because reading freed memory is not reliably a crash. 1144
+        # assertions, and the script proves its own five mutations red before it goes green.
+        #
+        # COST: it rides THIS job, which already installed OCCT and already built
+        # forge-kernel/build-verify, so the marginal spend is one clang++ pass over
+        # forge::ui + 4 desktop TUs + ImGui core plus a 0.5 s run -- 35 s measured on an
+        # M-series workstation, so on the order of 2-3 minutes on a macOS runner, inside a
+        # job budgeted at 40. No SDL2, no Vulkan loader, no MoltenVK and no glslang are
+        # installed for it: imgui_impl_vulkan.cpp is the only vendored file that needs a
+        # Vulkan header and it is the one file this gate does not compile.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_click_gate.sh
       - name: live-OCCT A/B harnesses (ratcheted; a link failure is RED, not silence)
         # THE GATE THAT WOULD HAVE CAUGHT PR #64. Two harnesses -- thicken and loftpipe --
         # stopped LINKING the moment that PR merged, because it made their engines call
