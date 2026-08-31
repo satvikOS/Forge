@@ -55,9 +55,15 @@ nsis:
   shortcutName: ArchDisc Forge
 
 # ------------------------------------------------------------------ macOS
-# NOTE: no Apple Developer cert configured — builds are UNSIGNED.
-# - macOS Gatekeeper will block first launch (right-click > Open to bypass).
-# - Auto-update is unreliable without notarisation.
+# NOTE: no Apple Developer ID cert configured — builds are AD-HOC SIGNED
+# (`identity: "-"` below), which is a valid signature but not a notarized one.
+# - macOS Gatekeeper blocks FIRST LAUNCH of a downloaded copy. The user clears
+#   it once via System Settings > Privacy & Security > "Open Anyway"; the exact
+#   steps are docs/FIRST_LAUNCH_MACOS.md. Do NOT write "right-click > Open"
+#   here or anywhere else: Apple REMOVED that shortcut in macOS 15 (Sequoia),
+#   so it is advice that sends a user somewhere that does nothing.
+# - Auto-update itself works (electron-updater is wired in electron/main.js);
+#   what notarisation would remove is the one-time approval above.
 # To sign properly, provide CSC_LINK / CSC_KEY_PASSWORD + APPLE_ID /
 # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID secrets and replace
 # `identity: "-"` below with `notarize: true`.

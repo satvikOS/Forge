@@ -79,3 +79,69 @@ removes the *class*.
 - `stoi` guard: **owed**, with a malformed-escape reproducer under ASan/UBSan.
 - Harness distinction between a crashed verifier and a failed candidate: **owed, higher value**.
 - `jsonEscape`: **not a defect. Do not audit it.**
+
+
+---
+
+## RESOLVED 2026-08-28 — branch `fix/forge-verify-stoi`
+
+Fixed, gated, and both defects measured on real binaries built from the same kernel core.
+
+### What was wrong
+
+`jsonUnescape` read `\uXXXX` with `std::stoi(s.substr(i + 1, 4), nullptr, 16)`. Two defects,
+one loud and one silent:
+
+1. **`std::stoi` throws.** `std::invalid_argument` on `\uZZZZ`. `main()` calls `jsonString()`
+   SIX times before it opens its first `try`, so the throw escaped `main` and the process died
+   with SIGABRT, **taking every later record with it**.
+2. **Base-16 `std::stoi` stops at the first non-hex character.** `\u00ZZ` partially parsed to
+   `0` and **silently injected a NUL byte**. No crash, no message — corrupt output that looks
+   like clean output. Only reachable once defect 1 stopped killing the process first.
+
+### Measured, on the gate's own 6-record fixture
+
+| | exit | records emitted |
+| --- | --- | --- |
+| before | **134** (SIGABRT, `uncaught exception of type std::invalid_argument: stoi: no conversion`) | **2 of 6** |
+| after | **0** | **6 of 6** |
+
+Of the four records lost before the fix, **three were well-formed**. The silent defect, isolated:
+
+```
+before   X\u00ZZY  ->  X <NUL> Y      (echoed back as X\u0000Y)
+after    X\u00ZZY  ->  X u 0 0 Z Z Y  (kept literal)
+```
+
+Valid escapes are byte-for-byte unchanged: `\u0041`->A, `\u007A`->z, `\u20AC`->euro sign,
+`\u00F1`->n-tilde, identical on both binaries. The fix does not buy robustness with correctness.
+
+### The fix
+
+A strict four-hex-digit parse that cannot throw and cannot partially parse. Malformed or
+truncated escapes keep the `u` literally, exactly as the existing `default:` case already does
+for every other unknown escape — never a throw, never an invented byte.
+
+### The gate
+
+`forge-kernel/test/forge_verify_batch_gate.sh`, wired into the `kernel` CI job (which now builds
+`forge_verify`, since no job did). Proven able to fail, all three ways:
+
+- against the fixed binary: **GREEN**, 9 checks
+- against the unfixed binary: **RED (exit 1)**, 6 failing checks, stderr naming the exact cause
+- with the binary missing: **RED (exit 3)** — a check that could not run is not a check that
+  passed, so this is never a silent skip
+
+The file is deliberately pure ASCII and builds its fixture from octal escapes: a literal
+backslash-u in the source can be decoded in transit by any layer that carries the file. That is
+not hypothetical — it happened twice while writing this gate, and produced a fixture with **zero**
+malformed escapes that "passed" against both binaries and proved nothing.
+
+### Integration
+
+The fix is on `fix/forge-verify-stoi`, not on the execution branch: `forge_verify.cpp` is one of
+the 37 user-owned in-flight files. Their uncommitted diff to it is +33/-1 and **does not touch
+`jsonUnescape`**, so the two changes do not overlap textually — this merges cleanly once the
+in-flight work is committed.
+
+`jsonEscape` remains **not a defect. Do not audit it.**

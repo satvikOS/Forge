@@ -36,24 +36,17 @@
 #include "forge/ShapeRegistry.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
-#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
-#include <BRepLib.hxx>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepTools.hxx>
-#include <GeomAbs_CurveType.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
-#include <BRepGProp.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include "forge/OcctCurveSampling.hpp"  // K6: native GCPnts_QuasiUniformDeflection replacement
-#include <GProp_GProps.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
-#include <Precision.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>

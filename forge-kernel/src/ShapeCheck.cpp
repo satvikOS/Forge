@@ -13,7 +13,6 @@
 #include <BRepCheck_Status.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp.hxx>
-#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>

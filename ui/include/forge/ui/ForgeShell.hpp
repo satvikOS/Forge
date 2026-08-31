@@ -33,7 +33,6 @@ struct DocumentStats {
   std::size_t redoDepth = 0;
   std::size_t fitCount = 0;
   std::size_t deletedCount = 0;
-  double lastFeatureSize = 0.0;  // the size parameter the last feature actually used
   bool wireframe = false;
   bool dirty = false;
 };
@@ -46,6 +45,70 @@ struct InvokeOutcome {
   std::vector<std::string> promptFor;
   bool ran() const noexcept { return dispatch.ok(); }
   bool needsParameters() const noexcept { return !promptFor.empty(); }
+};
+
+// ── the document seam ───────────────────────────────────────────────────────
+//
+// THE REASON THIS EXISTS. `DocumentStats` below is a set of COUNTERS, and until
+// this interface existed they were the only document the shell had: `edit.undo`
+// ran `--doc_.undoDepth; ++doc_.redoDepth; if (doc_.features > 0) --doc_.features;`
+// and `file.open`'s entire execute body was `doc_.dirty = false;` — it never read
+// its own path argument. The application meanwhile owned a REAL document (a
+// PartDocument of feature-IR statements with a memento undo stack) that the shell
+// could not see, so the status strip reported "features 0 undo 0 redo 0" over a
+// document holding real features, and Save wrote nothing anywhere.
+//
+// The fix is NOT a second registry of file commands in the app — that is exactly
+// the "one command, two invokers, two outcomes" defect the single-registry rule
+// forbids. It is this: the shell keeps ONE `file.open`, and delegates what that
+// command MEANS to whoever owns the document.
+//
+// `edit.undo` and `edit.redo` now REQUIRE a host. Their counter fallback was a
+// second, private undo model that could only move numbers, and it made "there is
+// no document to undo" indistinguishable from a successful undo. With no host
+// they are disabled and say "no document is open"; the file commands still fall
+// back to setting `dirty`, because a shell with no document genuinely has
+// nothing to save and that is what the flag then means.
+class DocumentHost {
+ public:
+  virtual ~DocumentHost() = default;
+
+  // Each returns false and fills `error` when it could not do the thing. A host
+  // that cannot save must say so; silently succeeding is the failure mode this
+  // interface was written to remove.
+  virtual bool documentNew(std::string& error) = 0;
+  virtual bool documentOpen(const std::string& path, std::string& error) = 0;
+  virtual bool documentSave(const std::string& path, std::string& error) = 0;
+  virtual bool documentUndo() = 0;
+  virtual bool documentRedo() = 0;
+
+  // ── A COMMAND CHANGES THE PICTURE ───────────────────────────────────────
+  // Called by ForgeShell::run() after ANY command that dispatched OK and whose
+  // descriptor declares sideEffect == Document. The host re-evaluates whatever
+  // it derives from the document -- for the desktop app that is: emit the IR
+  // program, compile it through forge::ft, tessellate, and hand the viewport a
+  // new vertex stream.
+  //
+  // WHY IT IS HERE AND NOT IN THE CALLER. Every mutation of the document goes
+  // through one dispatch, so exactly one place has to notice. Before this, the
+  // frame builder called its own syncSceneToDocument() from each invocation site
+  // it knew about (a menu click, a key press) and once more per frame as a
+  // backstop -- so a dispatch from anywhere else (a macro runner, an Archie tool
+  // call, a headless script, a gate) changed the document and left the geometry
+  // behind until something happened to draw a frame. "A mutation path that
+  // forgets to call it" was reachable by construction; now there is no call to
+  // forget. It is PURE, not a defaulted no-op: a host that derives nothing from
+  // the document still has to say so.
+  virtual void documentChanged() = 0;
+
+  // What the status strip reports. Read from the real document every dispatch,
+  // never accumulated here, so the two cannot drift apart.
+  virtual std::size_t documentFeatureCount() const = 0;
+  virtual std::size_t documentUndoDepth() const = 0;
+  virtual std::size_t documentRedoDepth() const = 0;
+  virtual bool documentDirty() const = 0;
+  // The path a bare Save writes to. "" means "never saved"; the host picks one.
+  virtual std::string documentPath() const = 0;
 };
 
 struct KeyOutcome {
@@ -74,6 +137,15 @@ class ForgeShell {
   const SelectionService& selection() const noexcept { return selection_; }
   const Keymap& keymap() const noexcept { return keymap_; }
   const DocumentStats& document() const noexcept { return doc_; }
+
+  // ── the document seam ───────────────────────────────────────────────────
+  // Install the owner of the real document. Pass nullptr to detach. The counters
+  // are refreshed from the host immediately, and again after every dispatch.
+  void setDocumentHost(DocumentHost* host) noexcept;
+  DocumentHost* documentHost() const noexcept { return documentHost_; }
+  // Why the last file.* command did not do what it says. Empty when it did.
+  // `execute` returns void, so this is how a refused open reaches the UI.
+  const std::string& lastDocumentError() const noexcept { return documentError_; }
 
   // ── workspaces ──────────────────────────────────────────────────────────
   WorkspaceProfile workspace() const noexcept { return workspace_; }
@@ -114,6 +186,9 @@ class ForgeShell {
 
  private:
   void registerCommands();
+  // Pulls the counters out of the installed host. A no-op with no host, which is
+  // what keeps the host-free behaviour bit-identical.
+  void syncDocumentStats();
 
   CommandRegistry registry_;
   SelectionService selection_;
@@ -126,6 +201,8 @@ class ForgeShell {
   std::map<std::string, std::string> savedLayouts_;  // workspace name -> serialized layout
 
   DocumentStats doc_;
+  DocumentHost* documentHost_ = nullptr;
+  std::string documentError_;
   std::vector<std::string> journal_;
 };
 

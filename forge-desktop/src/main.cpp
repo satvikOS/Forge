@@ -61,6 +61,7 @@
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "PlatformSDL2.hpp"
+#include "UpdateService.hpp"
 #include "PngWriter.hpp"
 #include "ViewportRenderer.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -331,11 +332,22 @@ int main(int argc, char** argv) {
   int frameLimit = 0;
   std::string screenshot;
   std::string startWorkspace;
+  std::string openPath;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--frames") == 0 && i + 1 < argc) frameLimit = std::atoi(argv[++i]);
     if (std::strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) screenshot = argv[++i];
     if (std::strcmp(argv[i], "--workspace") == 0 && i + 1 < argc) startWorkspace = argv[++i];
+    if (std::strcmp(argv[i], "--open") == 0 && i + 1 < argc) openPath = argv[++i];
     if (std::strcmp(argv[i], "--headless") == 0) headless = true;
+    // A bare trailing path opens a document, which is what double-clicking a
+    // .fpart in a file manager hands the binary.
+    if (argv[i][0] != '-' && openPath.empty() && i > 0 &&
+        std::strcmp(argv[i - 1], "--frames") != 0 &&
+        std::strcmp(argv[i - 1], "--screenshot") != 0 &&
+        std::strcmp(argv[i - 1], "--workspace") != 0 &&
+        std::strcmp(argv[i - 1], "--open") != 0) {
+      openPath = argv[i];
+    }
   }
   if (headless) {
     std::printf("[forge] --headless is the frame gate's job; run forge_desktop_frame_gate\n");
@@ -348,8 +360,12 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "[forge] kernel scene: %s (the app still starts)\n",
                  scene.error().c_str());
   } else {
+    const forge::desktop::IrBuildReport& r = scene.lastBuild();
     std::printf("[forge] kernel body: %zu triangles, %u faces  [%s]\n", scene.triangleCount(),
                 scene.faceCount(), scene.backend().c_str());
+    std::printf("[forge] document: ops declared/parsed/compiled %zu/%zu/%zu, "
+                "V=%.3f mm3, valid=%s\n",
+                r.nDeclared, r.nParsed, r.nCompiled, r.volume, r.valid ? "yes" : "no");
   }
 
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
@@ -448,9 +464,46 @@ int main(int argc, char** argv) {
   }
 
   forge::desktop::ForgeFrame frame(shell, scene);
+
+  // ── auto-update ────────────────────────────────────────────────────────────
+  // The FIRST download is meant to be the last manual one. A shipped bundle is
+  // ad-hoc signed, so installing it costs a trip through System Settings > Privacy
+  // & Security; that cost is paid once only if the app can then update itself.
+  //
+  // The check is read-only -- it fetches the appcast and decides, downloading no
+  // payload -- and it runs off the UI thread, so a slow or unreachable GitHub
+  // cannot stall a frame. A version we cannot determine means no check at all,
+  // because an unknown running version cannot be ordered against a published one.
+  forge::desktop::UpdateService updates;
+  const std::string runningVersion =
+      forge::desktop::UpdateService::detectRunningVersion(argv[0]);
+  frame.setRunningVersion(runningVersion);
+  if (!runningVersion.empty()) {
+    std::printf("[forge] version %s; checking for updates in the background\n",
+                runningVersion.c_str());
+    updates.start(runningVersion);
+  } else {
+    std::printf("[forge] running outside an .app bundle - auto-update check skipped\n");
+  }
   const std::size_t partCommands = frame.wirePartCommands();
   std::printf("[forge] registry: %zu commands (%zu of them Part), %zu categories\n",
               shell.registry().size(), partCommands, shell.registry().categories().size());
+
+  // A document named on the command line is opened through THE SAME file.open
+  // the menu and Ctrl+O dispatch -- not a private loader beside it.
+  if (!openPath.empty()) {
+    forge::ui::CommandParams params;
+    params.setText("path", openPath);
+    const forge::ui::DispatchResult r = shell.run("file.open", params);
+    if (!r.ok() || !shell.lastDocumentError().empty()) {
+      std::fprintf(stderr, "[forge] could not open %s: %s\n", openPath.c_str(),
+                   shell.lastDocumentError().empty() ? forge::ui::toString(r.status)
+                                                     : shell.lastDocumentError().c_str());
+    } else {
+      std::printf("[forge] opened %s: %zu statements, %zu triangles\n", openPath.c_str(),
+                  frame.document().records().size(), scene.triangleCount());
+    }
+  }
 
   forge::desktop::ViewportRenderer viewport;
   if (!viewport.init(g_phys, g_device, g_queue, g_queueFamily, scene.vertices())) {
@@ -500,6 +553,14 @@ int main(int argc, char** argv) {
     }
     platform.clearKeyPresses();
 
+    // Hand this frame the latest update state, and honour a Help-menu request.
+    // ForgeFrame raises the request; the socket lives out here.
+    frame.setUpdateInfo(updates.snapshot());
+    if (frame.updateCheckRequested()) {
+      frame.clearUpdateCheckRequest();
+      updates.start(runningVersion);
+    }
+
     frame.build(viewport.texture(), platform.dpiScale());
     ImGui::Render();
     ImDrawData* drawData = ImGui::GetDrawData();
@@ -510,7 +571,22 @@ int main(int argc, char** argv) {
       viewport.resize(static_cast<std::uint32_t>(req.width),
                       static_cast<std::uint32_t>(req.height));
     }
-    if (req.selectionDirty) viewport.uploadVertices(scene.vertices());
+    // A DOCUMENT REBUILD changes the triangle count, so uploadVertices may
+    // destroy and recreate the vertex buffer. Doing that while a previous frame
+    // is still reading it is a use-after-free the validation layers would not
+    // even catch on a coherent host-visible allocation, so the device is drained
+    // first. A selection re-upload only rewrites mapped bytes and needs none.
+    if (req.geometryDirty) {
+      vkDeviceWaitIdle(g_device);
+      viewport.uploadVertices(scene.vertices());
+      // Re-frame the camera on the new body -- a rebuild can move the bounds
+      // (a pattern trebles them), and a camera left behind looks like a crash.
+      float c[3] = {0.0f, 0.0f, 0.0f};
+      scene.bounds().centre(c);
+      frame.camera().frame(c, scene.bounds().radius());
+    } else if (req.selectionDirty) {
+      viewport.uploadVertices(scene.vertices());
+    }
 
     // ── acquire, record, submit, present ───────────────────────────────────
     ImGui_ImplVulkanH_FrameSemaphores* sem =

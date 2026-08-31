@@ -628,3 +628,442 @@ it, do not fix it blind.** The correct remedy — reverse the solid, or leave th
 to consumers — depends on what downstream consumers assume about orientation, and that has
 not been measured. Fixing it without that measurement would be exactly the guesswork this
 programme keeps paying for.
+
+## D-021 (2026-08-29): Archie's allowed op set is the forge::ui vocabulary, and that vocabulary is NOT CLOSED — the gap is named and owed, not trained around
+
+The standing order is that Archie be "trained on where the features, functions, ops are in
+the Forge app so it only uses what Users can use". Executing that requires a decision the
+op inventory explicitly could not make for itself, because it is a decision and not a
+measurement: **which surface defines "what users can use"?**
+
+There are two candidate surfaces and they are far apart:
+
+* **`forge::ui` (C++)** — 31 commands, 16 emitting IR, **14 user-invocable kernel ops**.
+* **The shipped Electron/React app** — `package.json:6` -> `electron/main.js:404` ->
+  `frontend/dist/index.html`, whose `frontend/src/ai/ForgeToolBridge.js:962` defines
+  **154 tool ids**, including the very creators the C++ surface lacks (`part.make-box`,
+  `part.make-cylinder`, `sketch.add-circle`, ...).
+
+**DECISION: the C++ `forge::ui` vocabulary is the allowed set.** The C++ app is the
+shipping target, the JS app is under an explicit deletion order, and `ZERO_JS_MIGRATION_MANIFEST.md`
+already records forge-v4 as the app being replaced. Training Archie against a surface the
+programme intends to delete would buy a working demo today and a retraining bill later. The
+machine-readable form of that set already exists and is CI-gated:
+`implementation/sacrosanct/archie_op_vocabulary.json`, with `emission_policy.allowed_ops`
+listing the 14 and `forbidden_ops` giving a REASON for each of the 26.
+
+**But the honest consequence must be stated rather than papered over: that vocabulary is
+not closed, so the constraint as written is UNSATISFIABLE.** This is not an opinion; the
+artifact computes it about itself in `value_kind_closure.gaps`:
+
+| gap | needed by | producers in the allowed set | producers in the kernel |
+|---|---|---|---|
+| PROFILE | EXTRUDE, REVOLVE | **none** | CIRCLE, POLY, RECT, REGPOLY, RRECT, SLOT |
+| WIRE | LOFT | **none** | RING, WIRE |
+
+All 14 allowed ops take a value reference as their first argument, and the only value kind
+any of them PRODUCES is SOLID. So from an empty document no legal program exists: every
+generation must begin from a value the user cannot create. Independently confirmed by
+execution — seeding only `RECT` and driving the real commands yields a full nine-statement
+program (RECT -> EXTRUDE -> FUSE -> FILLET -> HOLE -> SHELL -> PATTERN), so **one profile
+producer unlocks the entire existing registry.**
+
+**DECISION: close the gap in the UI rather than relax the constraint in training.** The
+alternative — letting Archie emit ops no user can invoke — would reintroduce exactly the
+gap this constraint exists to remove, and would be invisible in any eval that scores
+geometry rather than reachability. The owed set, smallest first:
+
+1. **PROFILE producer — `RECT` (strict minimum, measured).** Unlocks EXTRUDE/REVOLVE and
+   through them every remaining op.
+2. **`CIRCLE`** — second profile producer; without it a large class of real parts is
+   unreachable.
+3. **WIRE producer — `WIRE` or `RING`** — closes the second gap and makes LOFT reachable.
+4. **`TRANSLATE`** — load-bearing and easy to miss: it is ORPHAN today, so nothing can be
+   POSITIONED, and every boolean would operate on bodies coincident at the origin.
+5. **`INPUT`** — the only creator for an imported body, so the whole edit family
+   (PUSHFACE, RESIZEBORE, DEFEATURE, TAG, VERIFY, HEAL) is unreachable without it.
+
+`ALIGN` is separately notable: orphan AND absent from the UI op table, which matters
+because ALIGN is this programme's recorded fix for derived placement — the sub-task
+measured as unlearnable.
+
+**Until (1) lands, any claim that Archie is "constrained to user-invocable ops" is a claim
+about an empty language.** That is recorded here so no future eval reports a score against
+this constraint without the reader knowing it.
+
+Seven `derived_defects` are already recorded in the artifact and are NOT re-litigated here,
+but two are worth naming because they are live: `edit.delete` declares `feature_ir_op
+"DELETE"`, an op the kernel does not have, so nothing can ever compile it; and
+`model.extrude`, `model.fillet`, `model.shell` all declare an op and emit nothing, because
+`ForgeShell` holds only a `DocumentStats` counter and no `PartDocument`.
+
+## D-022 (2026-08-30): the OCCT drop is blocked on ENGINE COVERAGE, not on integration — and the one shippable drop moves the ledger by ZERO
+
+Two measurements close the question of what to do next about the dependency drop.
+
+**1. The only family that passes its own flip gate buys nothing.** `FORGE_FILLING_DROP_NATIVE`
+is the single option the 600-part baseline cleared (67.8% vs 67.8%, deletion bucket ZERO).
+Built both arms from a worktree pinned to origin, with the arms PROVED to differ by `cmp`:
+
+| arm | direct | **OCCT_CLOSURE** |
+|---|---:|---:|
+| baseline | 11 | **14** |
+| `FORGE_FILLING_DROP_NATIVE=ON` | 11 | **14** |
+
+The ledger number does not move. `BRepOffsetAPI_MakeFilling` lives in a toolkit that many
+other still-live call sites also pull, so removing this one use changes no library's
+liveness. Shipping the one defensible drop is therefore correct hygiene and worth **0** on
+the north star.
+
+**2. The other nine cannot be shipped at all**, and not for want of integration work: three
+are total capability loss (PIPE 0.3%, DRAFT 0.0%, THRUSECTIONS 0.0% against OCCT's 100%,
+88.0%, 94.5%), and the rest delete between 27 and 315 parts of capability out of 600.
+
+**DECISION: stop treating the drop as an integration task and treat it as an ENGINE task.**
+There is no flag-flipping, build-plumbing or closure-accounting sequence that reduces the
+ledger from here. The only thing that moves OCCT_CLOSURE is native engines that actually
+build geometry on real parts. The ranked work is therefore:
+
+1. **PIPESHELL** — the most tractable by far. It already succeeds on 51.5% and its
+   disagreement is SYSTEMATIC, not noise: volume ratio 1.07051 with sd 0.00327, 8 of 15
+   sampled parts on exactly 1.07180. One convention error, one bounded fix.
+2. **MAKEOFFSET** — nearest miss at 94.5% vs 99.0%, 27 parts from parity.
+3. **THICKEN** — 67.8%, and its "disagreement" is already understood to be OCCT returning a
+   reversed solid rather than a native defect.
+4. **PIPE / DRAFT / THRUSECTIONS** — near-total gaps; these need capability, not tuning, and
+   should be scoped as such rather than promised as flips.
+
+**A correction that cost real time and is recorded so it is not repeated.** The first run of
+this experiment was made against the shared main checkout, which had drifted **41 commits
+behind origin**. There `FORGE_FILLING_DROP_NATIVE` does not exist, CMake accepted the
+unknown `-D` SILENTLY, and both arms compiled to a BYTE-IDENTICAL binary — which I nearly
+reported as "the drop buys zero closure". It happens to be the same conclusion, but it was
+not a measurement. Chasing that artifact produced a second wrong finding ("8 of 10 drop
+options are not real options"), which was also only the stale tree: on origin the CMake
+names and the source `#ifdef` names match exactly and the A/B report's option column is
+correct. **The positive control is what caught it — `cmp` said the two arms were the same
+file.** This is the FIFTH stale-tree error in one session. Every measured claim must name
+the tree it was measured against, and that tree must be pinned to origin at the moment of
+measurement.
+---
+
+## D-023 (2026-08-30): LOFT consumes WIRE — `part.loft` was a LATENT BUG, and closing the gap needed BOTH halves
+
+*(Numbered D-023, not D-022: PR #85 `decisions/d022-drop-blocked-on-engines` claims D-022
+concurrently for the OCCT-drop decision. If that PR never lands, D-022 is a gap rather
+than a duplicate, which is the cheaper of the two failures.)*
+
+D-021 left one question open on purpose: WIRE was the last unclosed value kind, and it named
+`WIRE or RING` as owed — but it also refused to add the producer blind, because the gap was
+entangled with a defect the vocabulary already recorded, `command_feeds_the_wrong_value_kind`
+for `part.loft`. Its words were: "deciding whether LOFT takes profiles or wires is a semantics
+question and is not answered blind here."
+
+**The kernel answers it, and it is not ambiguous.** `forge-kernel/src/ft/FeatureTreeCompiler.cpp`:
+`opLoft()` puts every `%ref` through `refWire()`, which throws unless the value's kind is
+`Val::Wire`; `Builder::kindOf()` assigns `Val::Wire` to exactly two OpCodes, `Ring` and `Wire`.
+`FeatureTree.hpp` says the same in prose ("WIRE ... consumed by LOFT"), and `FeatureIr.hpp`
+already states the standard this violates: "a UI that emits IR the kernel would reject is worse
+than a UI that emits none, because it looks like progress."
+
+**MEASURED, not read** — the four statements driven through the native verifier
+(`forge_verify` -> `forge::ft::compileText`), with the arms proved to differ:
+
+| program | result |
+|---|---|
+| `BOX(10,10,10)` (positive control) | ok, volume 1000 |
+| `RECT(40,40); CIRCLE(10); LOFT(%1,%2)` — **what `part.loft` emitted** | **ok=false**, `LOFT: %1 is not a WIRE section (use RING(...) or WIRE([...]))`, failedOpId 3 |
+| `RING(20,20,0); RING(10,10,30); LOFT(%1,%2)` | ok, volume 21928.4 |
+| `WIRE([...]); WIRE([...]); LOFT(%1,%2)` | ok, volume 24960 |
+
+So `part.loft` feeding PROFILE was **neither correct-by-accident nor a deliberate widening**: it
+was a statement `forge::ui` called well-formed and `forge::ft` refuses. Correct-by-accident was
+never available — `refWire()` rejects on the value KIND before any handle is used.
+
+**DECISION: do both halves, because either alone leaves LOFT unreachable.** Fixing only the
+command gives a right-kind command with nothing legal to select; adding only a producer leaves a
+command that still resolves PROFILE and would never enable on it. Both landed:
+
+1. `part.loft` now resolves `IrValueKind::Wire` and its signature is `atLeast(EntityKind::Wire, 2)`.
+2. `part.section_ring` (`RING`) is the WIRE producer, a creator taking no selection like
+   `part.sketch_rect` and `part.sketch_circle`.
+
+**RING and not WIRE.** `WIRE([x y z; ...])` needs a POINTS token, and `FeatureIr.hpp` deliberately
+does not model `IrArgKind::Points` ("a token kind nothing produces is a liability, not coverage").
+RING is all numbers, emits through the existing `IrArg::num` path, and its `z` is the point of the
+whole value kind: the Z=0 sketcher cannot express a section at another height.
+
+**`EntityKind::Wire` was added** rather than reusing `Sketch`. A sketch is a Z=0 profile; reusing
+that kind would have offered LOFT and EXTRUDE on each other's input, which is the mis-selection a
+typed signature exists to refuse.
+
+**Two kernel behaviours the command refuses rather than passes on.** `wireRing()` throws on
+`rx <= 0 || ry <= 0`, but it SILENTLY CLAMPS `p` to `>= 2` and `seg` to `>= 8`. A recorded statement
+the kernel reads as different numbers is worse than no statement, so the enabled predicate refuses
+both. Its four optional arguments are also emitted as ONE positional group: emitting `p` without
+`cx, cy` would put the superellipse exponent in the `cx` slot and build a different ring.
+
+**Result — the vocabulary is CLOSED.** `value_kind_closure.gaps` is now `[]` and
+`produced_by_allowed_ops` is `PROFILE, SOLID, WIRE`, computed by the artifact about itself. Counts
+UPDATED to new exact values, never relaxed: 17 -> 18 user-invocable ops, 23 -> 22 forbidden,
+34 -> 35 commands, 19 -> 20 emitting IR, 7 -> 6 derived defects
+(`command_feeds_the_wrong_value_kind` is gone because the defect is gone). ALL 12 UI GATES PASS,
+0 failures: part_commands 400 -> 450 checks, archie_op_vocabulary 1453 -> 1536 (32 -> 34 examples
+dispatched through the live registry), tool_catalog 854 -> 877. Vocabulary `--check` exits 0.
+
+**Verified end to end, not just in the gate.** The ten-statement program the part_commands gate
+builds from an EMPTY document using only user-invocable commands —
+`RECT; EXTRUDE; FILLET; CIRCLE; EXTRUDE; TRANSLATE; CUT; RING; RING; LOFT` — compiles in the kernel
+to a valid solid of volume 34964.0.
+
+**Observed and NOT fixed here** (pre-existing, independent of this change): `LOFT` over two
+COPLANAR sections returns `ok=true, valid=true, volume=0`. Two rings at the same `z` build a
+zero-volume shell that the kernel reports as valid. That is a kernel-side silent-zero, older than
+this decision and out of its scope; it is recorded so the next reader does not discover it as a
+surprise.
+
+**Reversible.** Both halves are local: `part.loft` reverts by changing one value kind back, and
+the producer reverts by deleting one command block plus its id. The measurement above is what
+would have to be refuted first.
+
+## D-024 (2026-08-30): the Forge deletion PLAN exists, gate 3 is re-assessed at 11.0%, and the Developer ID blocks only the last two tiers
+
+The standing order is to delete all old Forge versions from the repo and locally. D-018 gated
+that on four conditions and deferred the inventory. This decision records the inventory, the
+honest re-assessment of gate 3, and one consequence that changes what can be worked on now.
+The plan is `implementation/sacrosanct/FORGE_DELETION_PLAN.md`; every figure in it is
+reproduced by `implementation/sacrosanct/tools/forge_deletion_inventory.py`, run from a tree
+pinned to origin. **Nothing is deleted by this decision or by the PR that carries it.**
+
+**GATES 1 AND 2 RE-MEASURED, NOT RESTATED.** D-018's pass reported 135 checks, and three
+commits have touched `forge-desktop` since (#88, #91, #89). Re-run from scratch on this tree:
+`KCONF_RC=0 KCORE_RC=0 CONFIGURE_RC=0 GATE_BUILD_RC=0`, `ctest` reports `100% tests passed, 0
+tests failed out of 3`, and the frame gate prints **137 checks, 0 failures** — two more than
+before, so it grew rather than went quiet. The verdict is read from the printed line and not
+from `$?`, which after that pipeline belongs to `tee`.
+
+**GATE 3 IS NOT MET, AND THE CLOSURE RESULT DOES NOT MOVE IT.** The op vocabulary being closed
+(`value_kind_closure.gaps == []`) answers a different question from the one the gate asks.
+Closure asks whether the C++ vocabulary is self-consistent — whether any program can be written
+in it at all. Gate 3 asks whether the C++ UI covers the operations the JS app exposes. Measured
+on `5adc26a0`, mapping the JS app's 164 declared tools onto the 30 C++ registry commands with a
+synonym table printed in full so any row can be rejected individually:
+
+```
+JS tools with a C++ counterpart : 18 / 164   =  11.0%
+  part 17/104   simulate 0/29   drawing 0/12   assembly 0/8   sketch 1/6   manufacture 0/5
+```
+
+Four of the six disciplines are at zero, and the gap includes every primitive creator
+(`part.make-box` … `part.make-wedge`) and the whole constraint sketcher. On the wider surface
+the renderer actually has — 445 `contextBridge` kernel functions in `electron/preload.js` — the
+ratio is 30/445. What closure *did* change is that gate 3 is now a **size** problem rather than
+an **impossibility** problem, which is real progress and is why the tier order below moves.
+
+**Two counts in circulation are wrong and are corrected here.** Reachability is **30/30**, not
+34/34 — measured by running the 13 UI gates on this tree, with the gate's own negative control
+firing (`reaches 29 / 30`, FAIL, as designed). The "34" is the count of recorded IR examples
+`archie_op_vocabulary_test` dispatches, and a stale comment in
+`app_surface_reachability_test.cpp:9-10` quotes "13 of 34" from revision `6a7f3aa3`. Separately
+D-023's "35 commands" was correct when written: `80a26e0d` (#89) landed after `903cf338` (#92)
+and removed five rows — `model.extrude`, `model.fillet`, `model.shell` (D-021's
+"declares an op and emits nothing") and `part.undo`/`part.redo` (duplicates of `edit.*`).
+`user_invocable_ops` stayed 18 and `commands_emitting_ir` stayed 20 across it, so the shrink is
+de-stubbing and de-duplication, **not** a capability regression.
+
+**THE CONSEQUENCE THAT MATTERS: the Developer ID blocks only the last two tiers.** Gate 4 is
+re-confirmed blocked (`security find-identity -v -p codesigning` -> `0 valid identities found`,
+re-run today), and per D-019 it needs a paid credential, not code. But the deletion decomposes,
+and only T5–T6 touch it:
+
+```
+T0 today   the one provably dead spec + ~155 MiB of local residue
+T1 needs a per-op A/B vs forge_kernel_core     -> frontend/src/kernel   69,265 LOC
+T2 needs per-file evidence transcription       -> 200 unreachable JS acceptance files
+T3 needs CAPI@445 + CI moved to ctest          -> 41 reachable JS files, THEN the N-API layer
+T4 needs a C++ owner per module                -> foundation + the AI bridge
+T5 needs GATE 3 and GATE 4                     -> forge-v4, then e2e root, then e2e/forge LAST
+T6 needs the default branch on the C++ ship    -> electron, projects, the JS build config
+```
+
+**T1–T3 alone are 124,572 LOC and are gated on engineering evidence this programme can produce.**
+Two facts make that credible rather than optimistic, and both are measured rather than assumed:
+`git grep` for any JS path over `forge-desktop ui orchestration simulation retrieval` returns
+**0 files** (positive control: the same grep over `forge-kernel` returns 29), so the C++ app
+cannot break when the JS app is deleted; and CTest now exists — 44 registered A/B gates plus the
+native suite, the s0 ratchet, the CAPI smoke and the coaxial guard — which clears the blocker
+`ZERO_JS_MIGRATION_MANIFEST.md` §3 called "the true blocker on Z1".
+
+**What is refused.** No deletion is performed. No gate is lowered: gate 3 is restated as a
+ratchet with 11.0% attached, not relaxed to an inequality. `e2e/forge` stays, and stays **last**
+in the order — it is the reference gate 3 is measured against, and deleting the reference before
+the thing it measures is how a regression becomes invisible. A separate measured finding
+sharpens that: `grep` for `playwright` over the workflows on BOTH branches returns nothing, so
+**no CI job runs any of the 404 Playwright specs**. They are a manual reference. That is not a
+reason to delete them sooner; it is the reason they must be re-authored before they go, because
+nothing else in the tree would go red on the day their assertions stop being true.
+
+## D-025 (2026-08-30): the release is NOT blocked on a Developer ID — D-019's conclusion is CORRECTED by the user's distribution decision
+
+**D-019 concluded that the release was blocked on a Developer ID certificate. That conclusion
+was wrong, and the user corrected it.** The measurements behind it were sound; the inference
+from them was not. A paid certificate was treated as a hard PREREQUISITE when it is a
+FRICTION TRADEOFF, and the choice of how much friction to accept belongs to whoever ships the
+product, not to the person measuring it.
+
+**The distribution model, decided by the user:** Forge ships from GitHub Releases and later
+the ArchDisc website, with auto-update on, so a user downloads once and every later version
+arrives in place. Not the Mac App Store.
+
+**One factual correction to the user's framing, recorded because getting it backwards would
+misdirect future work.** Developer ID is not the App Store path -- it is precisely the
+OUTSIDE-the-App-Store path. Apple's split is: Mac App Store builds use an Apple Distribution
+certificate and get App Store review; anything distributed by web uses a **Developer ID
+Application** certificate plus **notarization**. So shipping from GitHub Releases does not
+sidestep Gatekeeper; it means the user meets Gatekeeper once. That does not change the
+decision, and the decision stands.
+
+**What was MEASURED on the existing bundle, rather than assumed:**
+
+* `codesign -v --deep --strict` **exits 0**. The ad-hoc signature is VALID and intact, so the
+  app runs normally once approved. This is the load-bearing fact: a BROKEN signature would
+  fail even after "Open Anyway", and this one does not.
+* `spctl -a -t exec` says **rejected**, with the quarantine attribute and without it. That is
+  expected and permanent for an ad-hoc signature -- spctl assesses signature POLICY, which
+  ad-hoc cannot satisfy. It is NOT a build defect and must not be chased.
+* A downloaded copy carries `com.apple.quarantine`, so the first launch shows "cannot be
+  opened because the developer cannot be verified". The user clears it once in System
+  Settings -> Privacy & Security -> "Open Anyway".
+
+**Two consequences that shape the implementation:**
+
+1. **The right-click -> Open shortcut was REMOVED in macOS 15.** Any instruction telling users
+   to right-click and Open is wrong on current macOS and sends them somewhere that does not
+   work. The first-launch documentation must say System Settings.
+2. **The updater must download and apply IN-APP, never via the browser.** A browser download
+   re-applies `com.apple.quarantine` and reproduces the scary dialog on every version, which
+   destroys the entire premise that the prompt is one-time. It must also verify a checksum
+   BEFORE swapping: an auto-updater without that is a remote code execution channel.
+
+**DECISION: ship ad-hoc signed, from GitHub Releases, with in-app auto-update.** No
+certificate is bought. D-019's floor analysis is unaffected and still correct: minos=26.0 is a
+runner-image property inherited from the Homebrew bottle tag, not an OCCT consequence, and
+`desktop-release.yml` already pins `runs-on: macos-15` with `FORGE_FLOOR_MAX 15.0`, which
+fixes it with OCCT still present. PR #86, which moves that workflow to the default branch so
+`workflow_dispatch` registers, remains a prerequisite for a CI-driven release.
+
+**Publishing remains a human action.** The agents preparing this are explicitly forbidden from
+pushing a tag or publishing a release, including a draft. Everything is staged so that
+publishing is one reviewed step.
+
+## D-026 (2026-08-30): the app crashed THREE times on one root cause — mutating a container mid-walk — and a liveness probe could not see any of them
+
+Three separate crashes were reported against the installed app. They were not three bugs
+in the ordinary sense; they were **one defect written three times** in `ForgeFrame`:
+
+| # | Trigger | Symptom | What was live during the mutation |
+|---|---------|---------|-----------------------------------|
+| 1 | first tab click | SIGSEGV at `0x17` | `DockNode&` held by the draw recursion |
+| 2 | splitter drag | SIGSEGV | `children[1]` of a re-seated layout |
+| 3 | feature-tree expander click | **SIGABRT**, uncaught `std::out_of_range` | clipper range sized from the previous `rowCount()` |
+
+In each case the draw walk held an index or reference into a container, and the click
+handler re-seated that container **during the walk**. The remedy is the same all three
+times: record the intent, apply it after the walk returns.
+
+**The third was found only because the second fix was verified by interaction.** The run
+that aborted had presented **1165 frames** and saved its workspace, layout and keymap
+cleanly. Every liveness signal was healthy. A GUI needs to be *used*, not pinged — and
+"the process is still up" is not evidence about a click path.
+
+**It is proven, not asserted.** `frame_gate.cpp` §5b clicks the real widget —
+`ForgeFrame` now exposes the expander's screen rect so the gate targets it instead of
+guessing pixels — and requires the row set to actually change, because a click that
+no-ops would make the check unfalsifiable. Positive control, same gate, only the defer
+removed:
+
+```
+pre-fix   exit 134   uncaught std::out_of_range: FeatureTreeModel::rowAt   <- the user's crash
+post-fix  exit 0     188 checks, 0 failures, expander click: 17 rows -> 1 rows
+```
+
+**Two traps worth carrying forward.** First, the rebuild after restoring the good source
+did **not** recompile: `cp` stamped the source in the same second the mutated object was
+written, so make saw it as current and the gate still reported 134. The exit code was
+right and the assumption was wrong. Second, `file(GLOB FORGE_UI_SOURCES ...)` had no
+`CONFIGURE_DEPENDS`, so a new `forge::ui` source was absent from the link and surfaced as
+undefined symbols in a file nobody had touched.
+
+## D-027 (2026-08-30): a count copied into a second place goes stale — three times in one session
+
+`EXPECTED_MUTATIONS` is pinned exactly, deliberately, and is never a floor. The number was
+nonetheless duplicated into two other places, and both drifted the moment it moved 17 → 24:
+
+* the CI **job name**, `forge-desktop compiles + its headless gates (17 mutation proofs)`,
+  which advertised 17 while the suite ran 24;
+* the **self-test fixture**, whose stub verdict lines were literal 17/16/18, so case A —
+  the one case that must be GREEN — went red.
+
+The second failure is the instructive one. It produced a **six-second job with no gate
+output**, which reads exactly like a build failure. Time was spent looking for a broken
+build that did not exist.
+
+Resolved by removing the duplicates rather than synchronising them: the job name no longer
+carries a count, and the self-test derives N from the pin and asserts the *relationship*
+(one below and one above must both go red) instead of a literal. What the cases were always
+about is that the check is exact; the integer was incidental.
+
+## D-028 (2026-08-30): a clean merge silently DROPPED mutation coverage
+
+Merging base into the release branch conflicted in exactly one place — a header comment
+about the mutation count. The **code** merged cleanly, by taking one side:
+
+```
+-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9    (base)
++run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7        (ours)
+```
+
+Frame mutations 8 and 9 are implemented in the merged `frame_gate.cpp`. They would simply
+have stopped running, with a green suite and no line in the diff to attribute it to.
+Resolving only the conflicted comment would have shipped that.
+
+**A conflict marks where git could not choose. It does not mark where the wrong choice was
+made.** When a merge touches a file that governs coverage, diff the merged result against
+*both* parents for what each side ran, not just the region that conflicted.
+
+Resolved as the union — 8 document + 9 frame + 7 update = 24 — with `EXPECTED_MUTATIONS`
+moved in the same commit, which is the constraint the base comment existed to state. The
+merge also exposed a real defect in code neither side touched: the missing-include preflight
+had never run against the updater branch, and `update_gate.cpp` used fixed-width integers
+without `<cstdint>`.
+
+## D-029 (2026-08-30): the auto-update endpoint cannot see a prerelease — VERIFIED, and it supersedes D-024's publishing prohibition
+
+The updater fetches `https://github.com/satvikOS/Forge/releases/latest/download/appcast.json`.
+GitHub's `latest` resolves to the newest release that is **neither a draft nor a
+prerelease**. Measured against the live repository:
+
+```
+releases:  tag=v0.1.0-alpha.0  draft=true  prerelease=true  assets=0
+GET /releases/latest  ->  404 Not Found
+```
+
+So the chain the user asked for — download once, update forever — is **inert** for a release
+published as a draft or flagged prerelease, and the failure is silent: the app simply never
+finds an update. The release workflow creates every release as a draft and never publishes,
+by design.
+
+That design encoded D-024's rule that publishing is a human's call. **The user has now made
+that call explicitly** ("all versions are put in the github releases", "auto updates on so
+user just downloads once"), which supersedes the prohibition recorded at the end of D-025 —
+recorded here rather than quietly ignored.
+
+Two caveats stand and are not resolved by that decision:
+* **minimum macOS 26.0**, set by Homebrew bottles' `LC_BUILD_VERSION`, not by any choice
+  in this codebase. Users below macOS 26 cannot run the bundle at all.
+* the signature is **ad-hoc**; first launch needs one pass through System Settings →
+  Privacy & Security → Open Anyway. The user has accepted this explicitly.
+
+A release must therefore be published as a **full release, not a prerelease**, for the
+updater to see it — despite the version reading `alpha`. That is a footgun worth a guard
+rather than a note.

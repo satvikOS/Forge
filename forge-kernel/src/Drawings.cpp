@@ -25,13 +25,10 @@
 
 #include "forge/ShapeRegistry.hpp"
 
-#include <BRepLib.hxx>
 // K5 — HLR retry now facets natively (no BRepMesh / TKMesh).
 #include "forge/OcctNativeMesh.hpp"
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Section.hxx>
-#include <BRepBuilderAPI_MakeFace.hxx>
-#include <BRepBuilderAPI_Transform.hxx>
 #include "forge/OcctCurveSampling.hpp"  // K6: native GCPnts_QuasiUniformDeflection replacement
 // TKHLR DROPPED (otool 14->13): the OCCT hidden-line-removal headers
 // (HLRBRep_Algo / HLRBRep_HLRToShape / HLRAlgo_Projector) are GONE. Every
@@ -49,7 +46,6 @@
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
-#include <gp_Trsf.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -954,11 +950,7 @@ ProjectedView projectShapeBroken(ShapeHandle h,
 // and an integrated 2D bbox, plus DXF/SVG text emitters.
 // ============================================================================
 
-#include <BRep_Tool.hxx>
-#include <BRepBuilderAPI_MakeFace.hxx>
-#include <ElSLib.hxx>
 #include <Standard_Failure.hxx>
-#include <TopoDS_Compound.hxx>
 
 #include <iomanip>
 #include <ios>

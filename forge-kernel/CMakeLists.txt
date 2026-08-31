@@ -213,6 +213,147 @@ set(OCCT_LIBS
     TKBRep TKTopAlgo TKShHealing
     TKOffset
 )
+# ═════════════════════════════════════════════════════════════════════════════════
+# ★★★ THE FLIP GATE FOR EVERY DEFAULT-OFF DROP OPTION BELOW IS NOW MEASURED.
+#
+# Each option below quotes the same condition — "native success rate >= the measured
+# OCCT baseline" (reports/TKOFFSET_DECOMPOSITION.md §5 step 6). That is a COVERAGE
+# measurement, and until 2026-08-29 no harness in this tree made it. It now exists:
+#
+#     forge-kernel/test/corpus_ab_coverage.cpp     the paired A/B, 10 families
+#     forge-kernel/test/run_corpus_ab_coverage.sh  the driver
+#     forge-kernel/reports/CORPUS_AB_COVERAGE.md   method, limits, and how to run it
+#     forge-kernel/reports/corpus_ab/              the committed baseline + raw rows
+#
+# MEASURED at f71ed98b over ALL 600 gold reference solids, 6000 paired trials, 0
+# part-level failures. Both arms get the SAME derived input; the OCCT arm is the exact
+# call Features.cpp / Cam.cpp / Healing.cpp makes today, quoted with its file:line.
+#
+#   option                            native%   OCCT%   parts DELETED   McNemar p
+#   FORGE_FILLET_DROP_NATIVE            32.8      76.8      315/600       1.4e-47
+#   FORGE_OFFSET_DROP_MAKEOFFSET        94.5      99.0       27/600       1.5e-8
+#   FORGE_THICKSOLID_DROP_NATIVE         0.0      22.2      133/600       2.4e-38   [1]
+#   FORGE_OFFSETSHAPE_DROP_NATIVE        1.2       6.3       38/600       3.1e-6
+#   FORGE_THRUSECTIONS_DROP_NATIVE       0.0      94.5      567/600      4.1e-171
+#   FORGE_PIPE_DROP_NATIVE               0.3     100.0      598/600      1.9e-180
+#   FORGE_PIPESHELL_DROP_NATIVE         51.5     100.0      291/600       5.0e-88
+#   FORGE_FILLING_DROP_NATIVE           67.8      67.8        0/600       1.0000  ← PASS
+#   FORGE_THICKEN_DROP_NATIVE           67.8     100.0      193/600       1.6e-58
+#   FORGE_DRAFT_DROP_NATIVE              0.0      88.0      497/565       4.9e-150
+#
+# "parts DELETED" = OCCT built a result the call site would have accepted and the native
+# engine DECLINED, on the same input. With the option ON, each of those becomes a THROWN
+# ERROR. Nine of ten options fail with p < 1e-5 — these are not underpowered ties, the
+# intervals are in reports/corpus_ab/summary.md and none of the nine straddles zero.
+#
+# ★ [1] THICKSOLID's 1.2% WAS SEVEN INVALID SOLIDS AND IS NOW AN HONEST 0.0%. The seven
+#   parts the native thick-solid "built" on this corpus were every one of them
+#   BRepCheck_Analyzer-INVALID (IntersectingWires) — the corpus A/B already recorded
+#   "valid results: native 0, OCCT 0" for this family and the number was read as
+#   coverage anyway. CAUSE, measured on ho1041: the wall offset exceeded the local
+#   feature size, so the offset of a hole crossed the offset of the rim it sits inside
+#   (outer R 24.0192 against holes of r 4.6848 centred 23.808, reaching 28.493). The
+#   engine's two self-checks are both AREA/VOLUME identities in the radii and are blind
+#   to containment — the face's area matched its closed form to 2e-7 relative while its
+#   wires crossed. Fixed by a distance guard (circlesNest in
+#   src/native/brep/NativeThickSolid.cpp), gated two-sidedly by
+#   test/run_thicksolid_nesting_gate.sh, which is proved to FAIL against the pre-fix
+#   engine. The seven became honest defers, so the deletion bucket is 133/600, not 126.
+#   This LOWERS a native rate: it is a correction, not a regression — the capability it
+#   removes never existed, and reports/TKOFFSET_GH_DEFER_CENSUS.md has the per-part
+#   evidence for both G and H.
+#
+# ★ THE TABLE ABOVE IS THE f71ed98b BASELINE AND ONE ROW OF IT HAS SINCE MOVED. The
+#   THRUSECTIONS 0.0% was not a coverage fact about the corpus, it was a DEFECT in the
+#   native engine: it paired the two section rings by raw wire-explorer index and so
+#   omitted the reorient/re-origin step BRepOffsetAPI_ThruSections performs (via
+#   BRepFill_CompatibleWires) before ITS index pairing. Fixed in
+#   src/native/brep/NativeLoftPipe.cpp::canonicalRing. RE-MEASURED over the same 600
+#   parts, stride 1, 0 part-level errors, at the commit that carries the fix:
+#     FORGE_THRUSECTIONS_DROP_NATIVE     51.5      94.5      258/600       4.3e-78
+#   and inside the 309 parts where BOTH arms build, ALL 309 agree with OCCT on the FULL
+#   observable vector (volume + centre of mass + bounding box + face/edge/vertex/shell
+#   counts + validity) with ZERO disagreements — so the added coverage is exact, not
+#   merely present. The option STILL FAILS its flip gate.
+#
+# ★★ AND THAT ROW HAS MOVED AGAIN, because the sentence that used to end the paragraph
+#   above was WRONG and is kept here struck through rather than deleted: it read "the
+#   surviving 258-part gap is sections carrying CIRCLE or B-SPLINE edges, which a ruled
+#   loft of polygon rings does not cover and which is a different engine, not a fix."
+#   It was a fix. The engine was INSTRUMENTED (FK_DEFER on every thruSections return,
+#   test/run_thrusections_engine_census.sh) and its own labels said the whole remainder
+#   was ONE cause — prof_edge_not_line, 291 of 291 deferrals — because a section was
+#   represented as a ring of VERTICES and so had to be all-line-edged. Faceting those
+#   arcs would have been the wrong solid; the fix is an IDENTITY instead: when section B
+#   is section A translated by T, the ruled loft between them IS the linear extrusion of
+#   A along T, exactly, for any edge geometry. 189 of the 258 deleted parts (73.3%) are
+#   exact translates. RE-MEASURED over the same 600 parts, stride 1, 0 part-level errors:
+#     FORGE_THRUSECTIONS_DROP_NATIVE     83.0      94.5       69/600       3.4e-21
+#   All 498 shared successes agree with OCCT on the FULL observable vector, 0 disagree,
+#   and all 498 native results are BRepCheck_Analyzer VALID. The 309 parts the engine
+#   already covered are byte-identical to the previous run (the new path is reached only
+#   on the polygonal path's defer), and the untouched control families measured in the
+#   same two runs did not move: PIPESHELL 51.5% and THICKEN 67.8%, 0 bucket changes and
+#   0 native-payload changes per part. The option STILL FAILS its flip gate: the
+#   surviving 69 parts are pairs that are NOT translates (81 of the 102 remaining
+#   deferrals are an edge-count mismatch between the two sections, 21 are a genuine
+#   non-translate), and a non-translated pair of curved sections needs ruled surfaces
+#   between the curves, which is a different engine.
+#
+# ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
+#   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
+#   pairs in 600 trials, and all 407 shared successes agree on the FULL observable
+#   vector (volume, area, centroid, all six bbox bounds, every sub-shape count). Not
+#   "not significantly worse" — the same call on every single part. That is a coverage
+#   result only; it does not by itself authorise the flip, which still needs the
+#   Law-10 gate chain green under the option.
+#
+# ★ THE TWO REMAINING OPTIONS ARE OUT OF THIS GATE'S SCOPE, deliberately.
+#   FORGE_SHHEAL_DROP_NATIVE and FORGE_GEOM_DROP_NATIVE both DEFAULT ON already and
+#   replace low-level routines called from inside other ops, so there is no "native
+#   declined where OCCT would have built it" event to count. Stated, not skipped.
+#
+# ★ FAMILY J's 0.0% IS DIAGNOSED, and the diagnosis changes what would have to be built.
+#   test/draft_defer_probe.cpp re-runs the A/B's OWN DRAFT derivation over the same 600
+#   parts and reads occtdraft::draftLastDeferReason(), so the guard is the engine's, not a
+#   replica of it. It reproduces the row exactly: 35 not applicable, 565 DEFER, 0 native OK,
+#   0 disagreements with the committed A/B on either applicability or the native verdict.
+#   Results: reports/corpus_ab/draft_defer_probe.jsonl.gz.
+#
+#   NOT a wiring defect. The probe's POSITIVE CONTROL drafts a 10mm cube's side wall
+#   through the same binary and gets 973.796 mm^3 — exactly 1000 - (1/2)(10)(10)(10 tan3
+#   deg) — with an empty defer reason. The engine is reached and it is correct.
+#
+#   The two guards that fire are WHOLE-SHAPE preconditions of the plane-arrangement
+#   formulation, not properties of the face being drafted:
+#       375  a face of the solid carries more than one wire (a hole)
+#       190  a face of the solid is not a plane
+#   That 375/190 split is only the order faces happen to be visited in. Counted
+#   order-independently, ALL 565 parts violate BOTH: 565 have a non-planar face, 565 have a
+#   multi-wire face, and the parts violating exactly one are 0 and 0. So NO relaxation of
+#   either guard moves this number by a single part. 37.0% of the corpus's 72,201 faces are
+#   non-planar (per-part median 58.6%); zero parts are polyhedra.
+#
+#   AND THE BOUNDED ALTERNATIVE IS MEASURED AND STILL FAILS. The only construction that
+#   could move the number is a different engine: rebuild only the faces incident to the
+#   drafted wall's own vertices and carry every other face over verbatim. Its ceiling is
+#   the parts whose local neighbourhood is all-planar — 424/565 = 75.0%, against the OCCT
+#   baseline of 497/565 = 88.0% this gate must MEET. Those 424 are a strict SUBSET of
+#   OCCT's 497: 73 parts stay in the deletion bucket and there are 0 native-only wins. The
+#   same 424 are also exactly the parts whose every MOVED edge is a line, and a subset of
+#   the 490 whose drafted wall is single-wire — one predicate, three ways. 75.0% is an
+#   upper bound (it assumes every local rebuild then sews and validates), so the real
+#   engine would land below it, and it fails the gate before any of that.
+#
+#   ROADMAP CONSEQUENCE: family J is not one predicate away from shipping. Reaching 88%
+#   needs draft on CURVED faces (a drafted cylinder becomes a cone and its neighbours'
+#   trims change type), which is a different engine from the one in NativeDraft.cpp.
+#
+# ★ RE-MEASURE AFTER TOUCHING ANY ENGINE. The build stamps the SHA it compiled from and
+#   the driver REFUSES to run against a different HEAD (exit 3) — the first run of this
+#   harness was compiled from one commit and measured against another, three engines
+#   differed, and it was thrown away. Do not quote a number without its manifest.
+# ═════════════════════════════════════════════════════════════════════════════════
 # ── TKFillet DROP (authored 2026-07-25; DEFAULT OFF — NOT gate-passing yet) ────────
 # FORGE_FILLET_DROP_NATIVE routes forge::part::{filletEdges,chamferEdges,variableFilletEdge}
 # + forge::varfillet::fillet through the TKFillet-free native occtfillet::make{Fillet,Chamfer,
@@ -220,16 +361,57 @@ set(OCCT_LIBS
 # COMPILES OUT the OCCT BRepFilletAPI fallback (each call site: native-or-throw under the
 # macro, OCCT baseline under #else). ON removes TKFillet from the link list; OFF keeps it so
 # the OCCT A/B baseline still links.
-#   DEFAULT OFF — the native routines cover ONLY a convex STRAIGHT edge between two
-#   AS-YET-UNFILLETED PLANAR faces (single / non-adjacent). Severing the fallback therefore
-#   (a) throws on curved / concave / S-law fillets on OCCT-backed shapes, AND (b) reds the
-#   core.mjs drop gate itself: its 'fillet ALL box edges' / 'fillet 4 VERTICAL box edges' /
-#   'chamfer ALL box edges' cases fillet MULTIPLE ADJACENT box edges, and occtfillet DEFERS
-#   the moment a shared face carries a prior fillet/chamfer arc (non-straight boundary) →
-#   the OCCT-reference side (setNativeBrep(false)) would throw → FAIL. Flip ON only after a
-#   general MULTI-EDGE / curved native fillet (corner ball-blend + arced-face retrim) lands.
+#   ★ THIS NOTE WAS STALE AND IS NOW MEASURED (2026-08-29). It used to read: "the native
+#   routines cover ONLY a convex STRAIGHT edge between two AS-YET-UNFILLETED PLANAR faces
+#   (single / non-adjacent) … occtfillet DEFERS the moment a shared face carries a prior
+#   fillet/chamfer arc … Flip ON only after a general MULTI-EDGE / curved native fillet
+#   (corner ball-blend + arced-face retrim) lands." TWO of those three blockers have since
+#   landed and the note was never corrected, which mis-scoped the work queued against it:
+#     * arced-face retrim  — landed (RingSeg carries arcs through planarFaceFromSegs);
+#     * corner ball-blend  — landed (blendBatch + sphericalCorner, exact octant);
+#     * CONCAVE (reflex) edges — landed 2026-08-29 (this is the L-bracket / pocket / rib
+#       inside corner; the cylinder axis moves to +nA and the blend ADDS material).
+#   MEASURED against live OCCT on this machine, native == OCCT to 1e-9 on volume, centre of
+#   mass, all six bbox bounds, face/edge/vertex/shell counts, Euler characteristic and
+#   BRepCheck validity, for all three cases this note named as blockers:
+#       fillet ALL 12 box edges  R=3  -> 5572.619358586   F=26 E=56  valid
+#       fillet 4 VERTICAL edges  R=3  -> 5922.743338823   F=10 E=24  valid
+#       chamfer ALL 12 box edges d=2  -> 5562.666666667   F=26 E=48  valid
+#   plus L- and T-prisms with reflex corners and a non-90-degree reflex chevron:
+#       forge-kernel/test/run_ab_native_fillet_concave.sh  (66/66 assertions)
+#   And the drop configuration BUILDS AND LINKS: `cmake -DFORGE_FILLET_DROP_NATIVE=ON`
+#   produced libforge_kernel_core.dylib with ZERO TKFillet link records AND — the check
+#   that matters for the Linux strict-link CI, since macOS can load a dylib with
+#   undefined symbols — ZERO imported TKFillet SYMBOLS, against 11 in the default build
+#   (nm -u INTERSECT nm -gU libTKFillet; 11 is exactly the TKFillet symbol count in
+#   reports/OCCT_DROP_ORDER.md 1.2, and the non-zero default is the control that keeps
+#   the zero meaningful). Both numbers are re-measured on every run of
+#   forge-kernel/test/run_callsite_concave_fillet.sh, which FAILS if the control
+#   collapses to zero. NOTE the scope: this is libforge_kernel_core, NOT the shipped
+#   .node — scripts/occt_drop_gate.sh runs the same intersection against the addon and
+#   still must, and Linux CI remains the ultimate gate. And
+#   forge-kernel/test/callsite_concave_fillet_test.cpp passes 6/6 through the real
+#   forge::part::filletEdges / chamferEdges in that binary (4/6 with the pre-2026-08-29
+#   engine, which is the before/after).
+#
+#   ★ STILL DEFAULT OFF, and here is exactly what is left — do NOT flip on the above.
+#     (a) CURVED adjacent faces. The cylinder-top-rim blend is a TORUS and is not authored;
+#         OCCT rounds it, the engine declines it. Any part with a rounded boss or a hole rim
+#         would start THROWING.
+#     (b) A vertex where a concave blend meets another blend, and any vertex with exactly
+#         TWO blended edges (the two-edge corner surface). OCCT serves both.
+#     (c) The variable-radius law fillet's remaining gaps (NativeVariableFillet).
+#     (d) No corpus A/B has been run. Three shapes are not a corpus; the flip gate is
+#         "native success rate >= the measured OCCT baseline over the corpus", the same
+#         gate families D/F/G/H are held to.
+#
+#   ★ AND IT IS WORTH ZERO CLOSURE ON ITS OWN. Measured: the drop takes the DIRECT link
+#     records 11 -> 10, but libTKOffset itself DT_NEEDs TKFillet, so TKFillet still LOADS
+#     and OCCT_CLOSURE does not move. Per reports/OCCT_DROP_ORDER.md the pair
+#     {TKFillet, TKOffset} is the unit that pays (-3 closure for 53 symbols); TKFillet alone
+#     is -0. Score it as distance travelled toward that pair, never as a drop.
 option(FORGE_FILLET_DROP_NATIVE
-       "route fillet/chamfer native & DROP TKFillet (needs general multi-edge/curved native fillet first)"
+       "route fillet/chamfer native & DROP TKFillet (still needs curved-face blends + a corpus A/B)"
        OFF)
 if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
     add_compile_definitions(FORGE_FILLET_DROP_NATIVE=1)
@@ -433,6 +615,17 @@ endif()
 #   measured OCCT baseline"); for H it is the same measurement over the corpus parts that
 #   actually call offsetSolid.
 #
+#   ★★ THAT GATE NOW EXISTS AND BOTH FAMILIES FAIL IT. test/corpus_ab_coverage.cpp,
+#   run over all 600 gold reference solids at f71ed98b (reports/CORPUS_AB_COVERAGE.md,
+#   raw rows in reports/corpus_ab/):
+#       G THICKSOLID   native  1.2% vs OCCT 22.2%   126/600 parts deleted, p=2.4e-38
+#       H OFFSETSHAPE  native  1.2% vs OCCT  6.3%    38/600 parts deleted, p=3.1e-6
+#   "parts deleted" = OCCT built a result the call site would have accepted and the
+#   native engine declined, ON THE SAME INPUT. Under the option that decline becomes a
+#   thrown error. Note H's OCCT baseline is only 6.3% and its OCCT arm CRASHED on 66 of
+#   600 parts, so the incumbent is weak there too -- H is also the one family where the
+#   native engine answers a set OCCT does not (7 native-only against 0 shared).
+#
 # ★★★ FAMILY G's SIGN BLOCKER IS CLOSED — FIXED AND RE-MEASURED 2026-08-28.
 #   The blocker recorded here was REAL: `part.shell` and
 #   `forge::occtoffset::makeThickSolid` did not compute the same operation for a
@@ -473,7 +666,11 @@ endif()
 #   WHAT THIS DOES *NOT* CLEAR: FORGE_THICKSOLID_DROP_NATIVE stays OFF. The two routes
 #   now agree wherever both answer, but the flip gate is still the corpus A/B of
 #   reports/TKOFFSET_DECOMPOSITION.md §5 step 6 ("native success rate >= the measured
-#   OCCT baseline"), which is a COVERAGE measurement and is still outstanding — the
+#   OCCT baseline"), which is a COVERAGE measurement. ★ IT IS NO LONGER OUTSTANDING:
+#   it is test/corpus_ab_coverage.cpp and family G MEASURES 1.2% native against a 22.2%
+#   OCCT baseline over all 600 gold reference solids, 126 parts deleted (p=2.4e-38).
+#   See reports/CORPUS_AB_COVERAGE.md. The reason recorded below is exactly what the
+#   corpus shows at scale — the
 #   native engine honestly DECLINES cases OCCT answers (e.g. the closed-hollow box:
 #   shellNativeThick throws where the OCCT route returns, wrongly, the 512 cavity). Family H has no such problem: its A/B matches
 #   OCCT exactly on volume, position and topology across all nine cases.
@@ -555,6 +752,34 @@ endif()
 #   rather than an OCCT answer. The flip gate is a corpus A/B — "native success
 #   rate >= the measured OCCT baseline" — exactly as for families G/H.
 #
+#   ★★ THAT CORPUS A/B NOW EXISTS AND BOTH FAMILIES FAIL IT, D by the widest
+#   margin of any family measured. test/corpus_ab_coverage.cpp over all 600 gold
+#   reference solids at f71ed98b (reports/CORPUS_AB_COVERAGE.md):
+#       D THRUSECTIONS  native 0.0% vs OCCT 94.5%   567/600 parts deleted, p=4.1e-171
+#       F PIPESHELL     native 51.5% vs OCCT 100%   291/600 parts deleted, p=5.0e-88
+#   ★★ THE READING OF THE D ROW RECORDED HERE WAS WRONG AND IS RETRACTED. It said
+#   "D returned a defer on all 600 -- the corpus has essentially no polygonal sections,
+#   which is the scope this engine states." MEASURED per-part defer census over the same
+#   600: 309 of them present TWO 4-VERTEX ALL-LINE-EDGE polygon sections, i.e. the corpus
+#   is 51.5% polygonal, not "essentially no polygonal sections". Those 309 were declined
+#   for a reason inside this engine (raw wire-explorer index pairing, no reorient/
+#   re-origin), and on every one of the 309 a correspondence exists under which all four
+#   lateral quads are planar. With NativeLoftPipe.cpp::canonicalRing supplying the missing
+#   step, D RE-MEASURES 51.5% vs OCCT 94.5%, 258/600 deleted, p=4.3e-78, with all 309
+#   both-build parts agreeing with OCCT on the full observable vector. The gate is still
+#   FAILED, but by 258 CURVED-section parts (circle 232, B-spline 106) rather than by 567.
+#   THE LESSON, and it is the reason this paragraph is kept rather than replaced: a 0/600
+#   was read as a statement about the CORPUS when it was a statement about the ENGINE. A
+#   family that scores exactly zero deserves a per-part cause census before its number is
+#   quoted as a capability bound.
+#   F is the best-covered of the sweep family and
+#   the only one within sight of the gate. Family E (PIPE, below) measures native 0.3%
+#   against OCCT 100%, 598/600 deleted.
+#   ALSO MEASURED, and not a coverage fact: on ALL 309 parts where F and OCCT both
+#   build, the two solids DISAGREE on volume and extent (not merely on orientation).
+#   The mitre-transport difference this header records is not an edge case; it is
+#   every part.
+#
 # ★ ONE MEASURED CAPABILITY ADD, recorded here because it repeats the §4.2
 #   pattern: on a BENT spine OCCT's own MakePipeShell answer is INVALID.
 #   Measured, profile = the 10x10 square centred in z=0, spine
@@ -615,7 +840,11 @@ endif()
 #       BRepOffsetAPI_DraftAngle   6   src/Features.cpp    draftFaces
 #       BRepOffsetAPI_MakeFilling  5   src/Healing.cpp     autoFillMissingFaces
 #
-# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 314/314 assertions — volume AND
+# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 666/666 assertions (314 when this
+#   paragraph was written, 431 after the ring-correspondence fix, 493 after the
+#   translated-section path added ts-xlate-cylinder / -cyl-open / -obround and the
+#   unequal-circles defer control, 666 after the general planar-section transport
+#   and its RESULT-validity gate) — volume AND
 #   centre of mass AND all six bbox bounds AND face/edge/vertex/shell counts AND
 #   BRepCheck_Analyzer validity AND the Euler-Poincare characteristic, against LIVE
 #   OCCT on straight spines and against the closed form V = area * spine-length on
@@ -1995,3 +2224,284 @@ foreach(_t forge_kernel forge_kernel_core forge_foundation_probe forge_verify fo
 endforeach()
 add_custom_target(forge_all DEPENDS ${_forge_all_targets})
 message(STATUS "forge_all aggregates: ${_forge_all_targets}")
+
+# ============================================================================
+# CTEST SUITE (B1) — the kernel's own C++ acceptance evidence, runnable as a suite.
+#
+# WHY THIS BLOCK EXISTS. Until now `grep -nE "add_test|enable_testing" ` over this
+# file produced NO OUTPUT: forge-kernel had no CTest registration at all. Every gate
+# below already existed and already passed — they were just invoked by hand, one
+# bespoke shell command each. That made the JavaScript harness the kernel's ONLY
+# citable acceptance evidence, so no JS test file could be retired without deleting
+# the only proof the kernel still behaves. This block registers the EXISTING gates.
+# It invents no new assertion: every test named here is a file that was already in
+# forge-kernel/test/ (or an already-declared probe target) before this block.
+#
+# CONTRACT
+#   ctest --test-dir <build> --output-on-failure
+# The set that is actually registered depends on the configure:
+#   * plain configure                          -> the 3 self-contained shell suites
+#   * -DFORGE_BUILD_DESKTOP_FOUNDATION=ON      -> + the 4 probes, + the 2 C++ gates,
+#                                                 + the forge_verify-backed guard
+# Nothing is registered whose executable this configure did not build, so a green
+# ctest run never means "the test was skipped" — `ctest -N` prints exactly what ran.
+# ============================================================================
+enable_testing()
+
+option(FORGE_BUILD_TESTS
+       "Compile the C++ gate executables under forge-kernel/test/ and register CTests" ON)
+
+set(FORGE_TEST_DIR "${CMAKE_SOURCE_DIR}/test")
+
+# ---------------------------------------------------------------- 1. probe targets
+# forge_{foundation,mesh,step,feature}_probe are already declared above under
+# FORGE_BUILD_DESKTOP_FOUNDATION. Each is a self-asserting program: it prints
+# "ALL <n> CHECKS PASSED" and returns 0, or returns the failing check number /
+# 255 on a throw. Registering them costs nothing and makes them a suite.
+foreach(_probe forge_foundation_probe forge_mesh_probe forge_step_probe forge_feature_probe)
+    if(TARGET ${_probe})
+        string(REPLACE "forge_" "" _pname "${_probe}")
+        add_test(NAME kernel.${_pname} COMMAND ${_probe})
+        set_tests_properties(kernel.${_pname} PROPERTIES
+            TIMEOUT 300
+            FAIL_REGULAR_EXPRESSION "PROBE FAILED;PROBE THREW")
+    endif()
+endforeach()
+
+# ---------------------------------------------------------------- 2. C++ gate targets
+# These two .cpp gates already existed and already passed; they were compiled by
+# hand-rolled clang++ command lines (test/build_kernel_correctness_gate.sh) that
+# CMake never knew about. Declaring them as targets here changes no assertion —
+# it reproduces the same flags (including the -Wall -Wextra -Werror the gate
+# script calls SR-3) against the same node-free forge_kernel_core.
+if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
+
+    # kernel_correctness_gate.cpp — G1..G4, four measured value-vs-reference
+    # assertions (export-failure honesty, shellMultiThickness sign contract,
+    # per-axis bore counting, one weld-betti genus definition).
+    add_executable(forge_kernel_correctness_gate
+        "${FORGE_TEST_DIR}/kernel_correctness_gate.cpp")
+    target_include_directories(forge_kernel_correctness_gate PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}")
+    target_compile_options(forge_kernel_correctness_gate PRIVATE -Wall -Wextra -Werror)
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_kernel_correctness_gate PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_kernel_correctness_gate PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_kernel_correctness_gate PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+    endif()
+    add_test(NAME kernel.correctness_gate COMMAND forge_kernel_correctness_gate)
+    set_tests_properties(kernel.correctness_gate PROPERTIES
+        TIMEOUT 300
+        FAIL_REGULAR_EXPRESSION "FAIL ")
+
+    # capi/forge_capi_smoke.cpp — the K7 opaque-handle C-API black box, end to
+    # end. It #includes ONLY the C header, which is the boundary proof, so its
+    # include path is deliberately just include/ (no OCCT headers).
+    add_executable(forge_capi_smoke "${FORGE_TEST_DIR}/capi/forge_capi_smoke.cpp")
+    target_include_directories(forge_capi_smoke PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    target_link_libraries(forge_capi_smoke PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_capi_smoke PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+    endif()
+    add_test(NAME kernel.capi_smoke COMMAND forge_capi_smoke)
+    set_tests_properties(kernel.capi_smoke PROPERTIES
+        TIMEOUT 300
+        FAIL_REGULAR_EXPRESSION "FAIL check")
+
+endif()
+
+# ---------------------------------------------------------------- 2b. standalone A/B oracles
+# forge-kernel/test/*.cpp holds a large body of STANDALONE C++20 gates that build
+# the SAME case twice -- once through the in-house forge::native engine and once
+# through live OCCT 7.9.3 -- and assert the two agree, usually against a closed
+# form as well. Every one of them already existed and already passed; each was
+# run by hand, and several carried a comment saying so ("It is NOT part of the
+# native gate (run_native.sh) and does NOT touch binding.cpp / CMakeLists.txt").
+# That is precisely why the JS harness was the kernel's only citable evidence:
+# this evidence existed but was not a suite.
+#
+# HOW THE LIST BELOW WAS CHOSEN -- measured, not assumed. Every .cpp in test/ was
+# compiled against forge_kernel_core + OCCT and RUN with a 180 s kill. Only the
+# ones that COMPILED, RAN and EXITED 0 are listed. Deliberately EXCLUDED, with
+# the measurement that excluded them:
+#   native_hlr_perf, native_hlr_import_perf  -- both end in an unconditional
+#       `return 0;`. They are timing instruments with no threshold: registering
+#       them would add a test THAT CANNOT FAIL, which is worse than no test.
+#   golden_corpus_measure  -- a CLI tool, not a test: with no argv it prints
+#       "usage: --mode <occt|native> --step <file.step>" and exits 2.
+#   native_vs_occt_fillet_var (rc 1)  -- a REAL measured disagreement, not a
+#       harness fault: native matches the closed form to 4.6e-15 rel while OCCT
+#       differs by 4.444e-05, over a 1e-6 threshold. It is an open gap.
+#   native_vs_occt_iges (rc 1, 11/16)  -- case C PARTIAL, a 128-entity
+#       property-flag-count divergence.
+#   native_fuse_mesh_operand_test (rc 134 = SIGABRT),
+#   native_occt_import_test (rc 1), native_occt_wire_activation_test (rc 1).
+#
+#   ab_native_thicken_occt -- WITHHELD, and it is the most interesting exclusion
+#       here because THIS SUITE IS WHAT FOUND IT. The gate was measured GREEN at
+#       876b179a and is RED at a70dd1da (this branch's base): 208 passed, 19
+#       FAILED. Every one of the 19 is a SURFACE-TYPE count -- e.g. "case1 flat
+#       20x10 t=2 planar-face count : got 2 want 6" and "other-surface-type
+#       count : got 4 want 0". ZERO volume assertions fail, and the negative
+#       control still rejects an equal-volume impostor on 12 observables. So the
+#       thickened solid has the RIGHT VOLUME and the WRONG FACES.
+#       The only change to src/native/brep/NativeThickenShell.cpp between those
+#       two commits replaces BRepPrimAPI_MakePrism with the in-house
+#       forge::occtPrism (the TKPrim link-line drop): the swept faces are no
+#       longer classified GeomAbs_Plane. Re-register this gate the moment
+#       occtPrism's output surfaces are canonized back to analytic. It is
+#       withheld rather than weakened -- not one `want` was changed.
+#
+# Those six are NOT registered and NOT weakened. Nothing here lowers a
+# threshold or widens a tolerance to go green; the red ones simply stay out
+# until they are fixed, and are named in JS_RETIREMENT_LEDGER.md so they cannot
+# be quietly forgotten.
+#
+# ON THE OCCT LINK LINE: these are TEST EXECUTABLES. The OCCT ledger
+# (scripts/occt_closure_count.sh, occt_drop_gate.sh) measures a NAMED BINARY --
+# forge-kernel.node by default -- so the toolkits an A/B oracle needs in order to
+# BE an oracle (it must call the OCCT side) cannot move the drop counters. The
+# forge_kernel / forge_kernel_core link lines are byte-untouched by this block.
+if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
+
+    # The modeling+data-exchange toolkit set the oracles need for their OCCT
+    # half. Test-target only -- see the note above.
+    set(FORGE_TEST_OCCT_LIBS
+        TKernel TKMath TKG2d TKG3d TKGeomBase TKGeomAlgo TKBRep TKTopAlgo TKPrim
+        TKBO TKBool TKFillet TKOffset TKShHealing TKHLR TKMesh TKFeat TKXSBase
+        TKDE TKDESTEP TKDESTL TKDEIGES TKXCAF TKLCAF TKCAF TKCDF TKDECascade
+        TKRWMesh TKDEGLTF)
+
+    set(FORGE_AB_GATES
+        # TKOffset-family native-vs-OCCT A/B harnesses (each carries a negative
+        # control that rejects an equal-volume impostor on a VECTOR of observables)
+        ab_native_draft_occt
+        ab_native_filling_occt
+        ab_native_loftpipe_occt
+        ab_native_offsetshape_occt
+        ab_native_sweep_occt
+        # ab_native_thicken_occt -- WITHHELD, RED AT THIS COMMIT. See the note below.
+        # regression gates
+        io_stl_binary_solid_header      # binary STL whose 80-byte header says "solid"
+        matelib_quat_ab                 # in-house quaternion rotate vs the rotation matrix
+        # native-engine vs live-OCCT oracles
+        native_vs_occt_allbox
+        native_vs_occt_chamfer
+        native_vs_occt_chamfer_asym
+        native_vs_occt_convexhull
+        native_vs_occt_dataexchange_write
+        native_vs_occt_draft
+        native_vs_occt_exact_boolean
+        native_vs_occt_fillet
+        native_vs_occt_fillet_curved
+        native_vs_occt_fillet_ext
+        native_vs_occt_fuzzy_boolean
+        native_vs_occt_gear
+        native_vs_occt_gregory_nsided
+        native_vs_occt_heal
+        native_vs_occt_heal_ext
+        native_vs_occt_helical
+        native_vs_occt_hlr
+        native_vs_occt_hlr_import
+        native_vs_occt_hlr_persp
+        native_vs_occt_import_surfaces
+        native_vs_occt_interference
+        native_vs_occt_loftsweep
+        native_vs_occt_nurbs_ssi
+        native_vs_occt_offset_shape
+        native_vs_occt_pattern
+        native_vs_occt_query
+        native_vs_occt_section
+        native_vs_occt_sew
+        native_vs_occt_shell
+        native_vs_occt_step_read        # NOTE: its own verdict counts PARTIAL as passing
+        native_vs_occt_stl
+        native_vs_occt_surfacefill
+        native_vs_occt_surfacefill_g2
+        native_vs_occt_trimmed_face
+        native_vs_occt_validator
+        native_vs_occt_validator_ext
+        step_read_occt_projection_gate
+    )
+
+    foreach(_g IN LISTS FORGE_AB_GATES)
+        add_executable(forge_gate_${_g} "${FORGE_TEST_DIR}/${_g}.cpp")
+        target_include_directories(forge_gate_${_g} PRIVATE
+            "${CMAKE_SOURCE_DIR}/include"
+            "${OCCT_INC}")
+        if(FORGE_NATIVE_BREP)
+            target_compile_definitions(forge_gate_${_g} PRIVATE FORGE_NATIVE_BREP=1)
+        endif()
+        target_link_directories(forge_gate_${_g} PRIVATE "${OCCT_LIB}")
+        target_link_libraries(forge_gate_${_g} PRIVATE
+            forge_kernel_core ${FORGE_TEST_OCCT_LIBS})
+        if(APPLE)
+            set_target_properties(forge_gate_${_g} PROPERTIES
+                BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+        endif()
+        add_test(NAME kernel.ab.${_g} COMMAND forge_gate_${_g})
+        # 600 s: the slowest measured here is native_vs_occt_surfacefill_g2 at
+        # 104 s, then native_vs_occt_convexhull at 57 s and trimmed_face at 21 s.
+        set_tests_properties(kernel.ab.${_g} PROPERTIES TIMEOUT 600)
+    endforeach()
+
+endif()
+
+# ---------------------------------------------------------------- 3. shell gates
+# Self-contained: each builds whatever C++ it needs with a plain compiler and
+# returns a real exit code. They are registered as-is — the scripts are not
+# modified by this block.
+find_program(FORGE_BASH bash)
+if(FORGE_BASH)
+
+    # test/native/run_native.sh — the in-house pure-C++20 native kernel suite:
+    # it compiles every forge::native source once, then builds and RUNS each of
+    # the 138 tests under test/native/<class>/ against the whole object set.
+    # No OCCT, no Node, no CMake. This is the single largest body of existing
+    # C++ acceptance evidence in the repository.
+    add_test(NAME kernel.native_suite
+             COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/native/run_native.sh")
+    set_tests_properties(kernel.native_suite PROPERTIES TIMEOUT 3600)
+
+    # test/ft/s0_ratchet.sh — SACROSANCT 3.1 Appendix B s0 acceptance
+    # (s0.4 graph cardinality, s0.5 opaque macros, s0.6 pattern occurrence
+    # tables, s0.11 chunk/hash chain), under the project's own conformance
+    # RATCHET.
+    #
+    # It is the ratchet and NOT build_s0_acceptance.sh that is registered, and
+    # that is not a weakening — it is the only correct reading of this gate.
+    # MEASURED here: build_s0_acceptance.sh exits 1 with `TOTAL pass=42 fail=5`
+    # and prints "These failures are the deliverable. Do not weaken them." The
+    # suite deliberately asserts laws the implementation does not yet satisfy,
+    # so its raw exit code is 1 BY DESIGN and will stay 1 until those five gaps
+    # are closed. Registering the raw script would have parked a permanently red
+    # test in the suite, which is how a suite gets ignored. s0_ratchet.sh runs
+    # the identical, unmodified suite and compares its failure count with
+    # s0_conformance_baseline.txt (S0_EXPECTED_FAILURES=5): red if conformance
+    # REGRESSES, and also red if it IMPROVES without the baseline being lowered
+    # in the same commit. It is strictly stronger than "exit 0", not weaker.
+    add_test(NAME kernel.ft_s0_ratchet
+             COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/ft/s0_ratchet.sh")
+    set_tests_properties(kernel.ft_s0_ratchet PROPERTIES TIMEOUT 900)
+
+    # test/unify_coaxial_guard_test.sh — the mixed-representation coaxial-bore
+    # SIGSEGV guard: 3 crashers (rc=139 before the guard) and 6 must-not-move
+    # cases, each asserted on a VECTOR of observables (valid, volume, face count,
+    # edge count, shell count) against a closed form. It drives forge_verify, so
+    # it is registered only when this configure actually built one, and it is
+    # pointed at THIS build's binary instead of letting the script go build its
+    # own copy in the source tree.
+    if(TARGET forge_verify)
+        add_test(NAME kernel.unify_coaxial_guard
+                 COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/unify_coaxial_guard_test.sh")
+        set_tests_properties(kernel.unify_coaxial_guard PROPERTIES
+            TIMEOUT 900
+            ENVIRONMENT "FORGE_KERNEL_BUILD_DIR=${CMAKE_BINARY_DIR}")
+    endif()
+
+endif()

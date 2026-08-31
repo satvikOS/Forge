@@ -111,6 +111,14 @@ namespace occtdraft {
 //     the shipped kernel is byte-for-byte unchanged.
 bool draftNativeEnabled();
 
+// WHICH guard declined the LAST draftFaces() call on this thread, as one of the
+// HONEST-DEFER strings above; empty if the last call succeeded. Mirrors
+// occtthicken::thickenLastDeferReason(). A null shape alone says only THAT the
+// engine declined, and a coverage measurement that cannot name the guard cannot
+// tell a narrow applicability predicate apart from a capability gap — which is
+// exactly the question the 600-part corpus A/B's DRAFT row (0/565) posed.
+const char* draftLastDeferReason();
+
 // Tilt every face in `faces` by `angleRad` about its intersection line with the
 // `neutral` plane, in the mould-release sense for the `pull` direction, and
 // re-trim the solid. 1:1 drop-in for

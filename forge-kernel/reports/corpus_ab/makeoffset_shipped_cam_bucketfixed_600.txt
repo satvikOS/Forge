@@ -1,0 +1,8 @@
+
+parts 600
+  OCCT baseline (stock) ok 594 = 99.0%
+  native (drop)         ok 600 = 100.0%
+  both 594   native-only 6   OCCT-only (the deletion bucket) 0   neither 0
+  native-only parts: ho1040.step ho185.step ho408.step ho45.step ho707.step ho995.step
+  rate clause: PASS (native >= baseline)
+  Law 9 clause: PASS (deletion bucket empty)

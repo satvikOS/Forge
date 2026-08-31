@@ -35,7 +35,13 @@ OUT="$(mktemp -d "${TMPDIR:-/tmp}/forge_ab_thicken.XXXXXX")"
 trap 'rm -rf "$OUT"' EXIT
 
 ENGINE=forge-kernel/src/native/brep/NativeThickenShell.cpp
-DEPS=
+# NativeThickenShell.cpp calls forge::occtPrism since the TKPrim-free swap (PR #64
+# removed its three BRepPrimAPI_MakePrism sites, which were leaving UNDEFINED symbols
+# in the shipped dylib and a SIGSEGV on first call). occtPrism lives in
+# src/OcctPrimBuilder.cpp, so this harness -- which compiles the engine STANDALONE --
+# has to link it too or it dies with "symbol(s) not found for architecture arm64".
+# CI does not run the A/B harnesses, so nothing caught this at merge time.
+DEPS=forge-kernel/src/OcctPrimBuilder.cpp
 
 OCCT_LIBS=(-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKGeomAlgo
            -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool)
@@ -46,7 +52,7 @@ echo "[ab-thicken] OCCT $OCCT_ROOT"
 if ! "$CXX" -std=c++20 -O1 -Wall -Wextra -Wno-deprecated-declarations \
       -DFORGE_NATIVE_BREP=1 \
       -I "$INC" -I "$OCCT_INC" \
-      forge-kernel/test/ab_native_thicken_occt.cpp "$ENGINE" \
+      forge-kernel/test/ab_native_thicken_occt.cpp "$ENGINE" $DEPS \
       -L "$OCCT_LIB" "${OCCT_LIBS[@]}" -o "$OUT/ab_thicken" 2>"$OUT/build.err"; then
   echo "[ab-thicken] BUILD/LINK FAIL"; sed -n '1,100p' "$OUT/build.err"; exit 1
 fi

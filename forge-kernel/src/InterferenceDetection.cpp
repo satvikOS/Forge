@@ -7,10 +7,7 @@
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
-#include <gp_GTrsf.hxx>
 #include <gp_Trsf.hxx>
-#include <gp_Mat.hxx>
-#include <gp_XYZ.hxx>
 #include <TopoDS_Shape.hxx>
 
 #include <algorithm>
