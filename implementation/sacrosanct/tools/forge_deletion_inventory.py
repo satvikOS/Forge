@@ -292,12 +292,30 @@ def node_consumers() -> None:
 # ---------------------------------------- 5. C++ harnesses that are not gates yet
 
 def unregistered_cpp() -> None:
-    """A FILE NOTHING COMPILES CANNOT FAIL.
+    """Which top-level forge-kernel/test/*.cpp are outside FORGE_AB_GATES -- and,
+    separately, WHY.
 
-    forge-kernel/test/*.cpp holds A/B harnesses and censuses that CMake never
-    names, so CTest never runs them. When a JS orphan's only would-be replacement
-    is one of these, the replacement does not exist YET AS A GATE, and the orphan
-    cannot be retired against it.
+    ★ READ THIS BEFORE QUOTING THE COUNT. The first version of this section
+    printed the raw "27 outside FORGE_AB_GATES" and called them files no gate
+    runs. That was WRONG on two counts, both caught by reading the CMakeLists
+    rather than grepping it:
+
+      1. CTEST IS NOT THE ONLY RUNNER. forge-kernel/test/run_ab_all.sh drives 8
+         A/B harnesses through `run_ab_native_$t.sh`, a name it BUILDS BY
+         VARIABLE EXPANSION, so no grep for a script basename can see the edge.
+         CI invokes run_ab_all.sh, not ctest, for those.
+      2. EIGHT ARE DELIBERATE, DOCUMENTED EXCLUSIONS with the measurement that
+         excluded them recorded in the CMakeLists "2b" comment block -- e.g.
+         native_hlr_perf and native_hlr_import_perf end in an unconditional
+         `return 0;` (registering them would add a test THAT CANNOT FAIL),
+         golden_corpus_measure is a CLI tool that exits 2 with no argv, and
+         native_vs_occt_fillet_var is RED on a REAL measured disagreement --
+         native matches the closed form to 4.6e-15 rel while OCCT differs by
+         4.444e-05, over a 1e-6 threshold. That is an open engineering gap, NOT
+         a wiring omission, and registering it is not a one-line fix.
+
+    So this section reports THREE buckets, not one number, and it names the
+    exclusion note it read.
     """
     print()
     print("=" * 78)
@@ -327,13 +345,47 @@ def unregistered_cpp() -> None:
     print(f"  listed but source ABSENT            : {len(missing_src)} {missing_src}"
           "   <- negative control: a typo in the list would show up here")
     unreg = sorted(k for k in stems if k not in listed and k not in named)
-    print(f"  source present, NOT registered      : {len(unreg)}")
-    tot = 0
+    print(f"  source present, NOT in FORGE_AB_GATES: {len(unreg)}")
+
+    # bucket (b): the CMakeLists "2b" comment block records the measurement that
+    # excluded each of these. An exclusion with a number attached is a decision,
+    # not an oversight.
+    try:
+        note = cml[cml.index("2b. standalone A/B oracles"):cml.index("set(FORGE_TEST_OCCT_LIBS")]
+    except ValueError:
+        note = ""
+    # bucket (a): named by ANY shell harness in the tree. Deliberately a broad
+    # net -- run_ab_all.sh builds its script names by expansion, so a narrow
+    # "is this script itself reachable" test produces FALSE DARKNESS.
+    shell = {}
+    for f in git_files("forge-kernel/test/*.sh", "forge-kernel/tools/*.sh",
+                       "scripts/*.sh", ".github/workflows/*.yml"):
+        try:
+            shell[f] = open(f, errors="ignore").read()
+        except OSError:
+            pass
+    a, b, c = [], [], []
     for k in unreg:
-        n = loc([stems[k]])
-        tot += n
-        print(f"     {k:<44} {n:>6} lines")
-    print(f"  -> {tot} lines of C++ acceptance code that no gate runs")
+        hits = sorted(f for f, t in shell.items() if k in t)
+        if hits:
+            a.append((k, hits))
+        elif k in note:
+            b.append(k)
+        else:
+            c.append(k)
+    print(f"     (a) named by a shell harness or workflow : {len(a)}")
+    for k, h in a:
+        print(f"         {k:<40} {h[0]}" + (f"  (+{len(h)-1} more)" if len(h) > 1 else ""))
+    print(f"     (b) DELIBERATE exclusion, measurement in the CMakeLists 2b note : {len(b)}")
+    for k in b:
+        print(f"         {k}")
+    print(f"     (c) neither -- genuinely unaccounted for : {len(c)}")
+    for k in c:
+        print(f"         {k:<40} {loc([stems[k]]):>6} lines")
+    print("     NOTE: (a) means SOMETHING NAMES IT, not that CI runs it. Proving the"
+          "\n     latter needs the runner graph, and run_ab_all.sh's `run_ab_native_$t.sh`"
+          "\n     expansion is invisible to a basename grep -- so do not upgrade (a) to"
+          "\n     'covered' without following that edge by hand.")
 
 
 # ------------------------------------- 6. what the frontend bundle can contain

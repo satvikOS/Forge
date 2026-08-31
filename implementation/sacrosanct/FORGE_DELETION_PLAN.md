@@ -674,7 +674,9 @@ are the best-looking candidates. They do **not**:
   dihedral case.
 * `native_vs_occt_varfillet_box.mjs` / `native_vs_occt_partvarfillet_box.mjs` *do* have a C++
   twin — `forge-kernel/test/native_vs_occt_fillet_var.cpp` — and it is **not in
-  `FORGE_AB_GATES`**, so CMake never compiles it and CTest never runs it. See §9.4.
+  `FORGE_AB_GATES`**, because it is **RED on a real measured disagreement**: native matches the
+  closed form to `4.6e-15` rel while OCCT differs by `4.444e-05`, over a `1e-6` threshold. It is
+  an open engineering gap, so the twin exists but does not yet assert anything. §9.4.
 * `native_vs_occt_features_gap1.mjs` covers `shell` / `rib` / `holeWizard` / the pattern trio
   with volume + COM + watertightness + Euler-χ/genus + a `kindOf()` check that the native path
   was actually taken. No registered gate asserts that set.
@@ -686,38 +688,68 @@ through the N-API layer. They are JS tests of C++ code, and there is no C++ test
 **So T2's entry condition still binds per file, and the honest count of T2 files retireable
 today is zero.** "No caller" remains a reachability fact, not a value fact.
 
-## 9.4 NEW BLOCKER FOUND: 27 C++ harnesses that no gate runs
+## 9.4 RETRACTED AND REPLACED: "27 C++ harnesses that no gate runs" was wrong
 
-`forge-kernel/CMakeLists.txt` names **45** A/B gates in `FORGE_AB_GATES`. The top level of
-`forge-kernel/test/` holds **73** `.cpp` files. **27 of them are in no CMake target at all** —
-**12,315 lines** of C++ acceptance code that is never compiled and never run:
+**This section first read: *"NEW BLOCKER FOUND: 27 C++ harnesses that no gate runs — 12,315
+lines … registering `native_vs_occt_fillet_var` costs one line in `FORGE_AB_GATES` plus a green
+run."* That is retracted.** It survives here as a retraction rather than a silent edit, because
+the mistake is the exact one this programme keeps making and the correction is more useful than
+the claim was.
 
-```
-ab_native_fillet_concave_occt   857   corpus_ab_coverage             1462
-ab_pipeshell_transition_occt    338   offsetshape_defer_census       1010
-callsite_concave_fillet_test    145   fillet_defer_census             895
-cam_inwardoffset_coverage_ab    143   native_occt_wire_activation_test 664
-cam_inwardoffset_geom_probe     185   native_vs_occt_iges             657
-cam_inwardoffset_ring_probe     164   native_occt_import_test         556
-draft_defer_probe               387   thicksolid_mixed_closedform     560
-golden_corpus_measure           312   thrusections_engine_census      490
-native_fuse_mesh_operand_test   255   thrusections_defer_census       357
-native_hlr_import_perf           67   tkoffset_gh_defer_census        388
-native_hlr_perf                 112   pipeshell_defer_census          333
-native_thicksolid_nesting_gate  210   thicksolid_input_census         421
-native_vs_occt_fillet_var       159   tkoffset_gh_quality_probe       210
-thicken_orientation_gate        108
-```
+**What was actually measured, and it is still true:** `forge-kernel/CMakeLists.txt` names **45**
+gates in `FORGE_AB_GATES`; the top level of `forge-kernel/test/` holds **73** `.cpp` files; **27
+of them are outside that list.** Negative control: a typo in `FORGE_AB_GATES` would surface as
+*"listed but source ABSENT"*, and that count is **0**.
 
-Negative control: a typo in `FORGE_AB_GATES` would appear as *"listed but source ABSENT"*, and
-that count is **0**, so the list and the tree agree in the other direction.
+**What was inferred from it, and was wrong on two counts.**
 
-**A file nothing compiles cannot fail.** This is not a curiosity — it is the cheapest blocker on
-the board. Registering `native_vs_occt_fillet_var` is the single named prerequisite for retiring
-two of the six `native_*` orphans, and it costs one line in `FORGE_AB_GATES` plus a green run.
-Registering `thicken_orientation_gate` (108 lines) and `native_thicksolid_nesting_gate` (210) is
-comparably cheap. **This work is not gated on the Developer ID, on gate 3, or on any build the
-JS side owns.**
+1. **CTest is not the only runner.** `forge-kernel/test/run_ab_all.sh:37` drives eight A/B
+   harnesses — `draft filling loftpipe offsetshape sweep fillet_concave thicken
+   thicksolid_mixed` — through `run_ab_native_$t.sh`, a filename it **builds by variable
+   expansion**. No grep for a script basename can see that edge, so a census that counts CMake
+   membership reports harnesses as dark that CI runs on every push. `.github/workflows/kernel-tests.yml`
+   invokes `run_ab_all.sh`, not `ctest`, for those eight.
+2. **Eight of the 27 are deliberate, documented exclusions**, each with the measurement that
+   excluded it recorded in the CMakeLists "2b" comment block — a block that says in its own
+   words *"HOW THE LIST BELOW WAS CHOSEN — measured, not assumed. Every .cpp in test/ was
+   compiled against forge_kernel_core + OCCT and RUN with a 180 s kill. Only the ones that
+   COMPILED, RAN and EXITED 0 are listed."*
+
+   | excluded | the measurement that excluded it |
+   |---|---|
+   | `native_hlr_perf`, `native_hlr_import_perf` | both end in an unconditional `return 0;` — timing instruments with no threshold. Registering them would add **a test that cannot fail**, which is worse than no test. |
+   | `golden_corpus_measure` | a CLI tool, not a test: with no argv it prints a usage line and exits 2. |
+   | **`native_vs_occt_fillet_var`** | **rc 1 — a REAL measured disagreement.** Native matches the closed form to `4.6e-15` rel; OCCT differs by `4.444e-05`, over a `1e-6` threshold. **An open engineering gap, not a wiring omission.** |
+   | `native_vs_occt_iges` | rc 1, 11/16 — case C PARTIAL, a 128-entity property-flag-count divergence. |
+   | `native_fuse_mesh_operand_test` | rc 134 = SIGABRT. |
+   | `native_occt_import_test`, `native_occt_wire_activation_test` | rc 1. |
+
+   The block ends *"Those six are NOT registered and NOT weakened. Nothing here lowers a
+   threshold or widens a tolerance to go green; the red ones simply stay out until they are
+   fixed."* **So the cheap unblock does not exist.** `native_vs_occt_fillet_var` cannot be
+   registered until the OCCT-vs-closed-form disagreement is resolved, and the two variable-fillet
+   JS orphans (§9.3) stay put behind that, not behind a missing line of CMake.
+
+**The corrected census**, re-run by `forge_deletion_inventory.py` §5, splits the 27 three ways:
+
+| bucket | n | |
+|---|---:|---|
+| (a) named by some shell harness or workflow in the tree | 24 | e.g. `ab_native_fillet_concave_occt` → `run_ab_native_fillet_concave.sh`; `thicksolid_mixed_closedform` → `run_ab_native_thicksolid_mixed.sh`, one of `run_ab_all.sh`'s eight |
+| (b) deliberate exclusion, measurement recorded in the 2b note | 2 | `native_vs_occt_fillet_var`, `native_vs_occt_iges` — the other six of the eight above fall in (a) because a `build_*.sh` also names them |
+| (c) **neither — no CMake entry, no shell harness, no recorded exclusion** | **1** | `tkoffset_gh_quality_probe`, 210 lines |
+
+**(a) means SOMETHING NAMES IT, not that CI runs it**, and the tool says so in its own output:
+`build_foo.sh` existing is not proof that anything invokes `build_foo.sh`. Turning (a) into
+"covered" needs the runner graph followed by hand, and the `run_ab_native_$t.sh` expansion means
+a mechanical version of that walk produces **false darkness** — it reported
+`thicksolid_mixed_closedform` and `run_ab_native_sweep.sh` as unreachable when `run_ab_all.sh`
+runs both.
+
+**What is left of the blocker, honestly:** exactly **one** file, `tkoffset_gh_quality_probe`
+(210 lines), is unaccounted for by every runner and by the exclusion note. That is a loose end
+worth closing, not a 12,315-line finding. The real lesson is the one in the header: *a census of
+CMake membership is a census of one runner*, and this repository has at least three (ctest,
+`run_ab_all.sh`, `run_native.sh`).
 
 ## 9.5 The frontend bundle reaches 555 of 1,103 files — and only **5** of the 239 JS-kernel files
 
@@ -774,7 +806,8 @@ have to be decided.
 
 | # | Blocker | Blocks | What has to be built | Gated on the Developer ID? |
 |---|---|---|---|---|
-| B1 | 27 C++ harnesses are in no CMake target (§9.4) | T2, T3 | add each to `FORGE_AB_GATES` (or its own `add_test`), fix whatever bit-rot the compile exposes, prove each fails by mutation | **no** |
+| B1 | `native_vs_occt_fillet_var` is RED on a real disagreement (§9.4) | T2 (2 files) | resolve OCCT-vs-closed-form on the variable fillet: native is `4.6e-15` rel from the closed form, OCCT is `4.444e-05`, threshold `1e-6`. Until then `native_vs_occt_varfillet_box.mjs` and `native_vs_occt_partvarfillet_box.mjs` have no green C++ twin to retire against. **NOT the one-line CMake fix an earlier draft of §9.4 claimed** | **no** |
+| B1b | One harness is unaccounted for by every runner (§9.4) | nothing yet | decide `tkoffset_gh_quality_probe` (210 lines): register it, fold it into a shell harness, or record the measurement that excludes it the way the 2b note does for the other eight | **no** |
 | B2 | No gate compares the JS kernel to `forge_kernel_core` | T1 (cond. 1) | a per-op A/B asserting a **vector** of observables — volume alone has been proved insufficient — plus a positive control that the two arms differ | **no** |
 | B3 | 5 files still couple the app to the JS kernel (§9.5) | T1 (cond. 2) | repoint `RebuildEngine` / `ReferenceGeometry` / `Drawings` / `TitleBlocks` at the C++ path, or move them out of `src/kernel` | **no** |
 | B4 | 201 orphans have no per-file evidence transcription (§9.3) | T2 | for each, a registered CTest asserting the same property — 6 `native_*` and ~120 `smoke-*` are individually named above | **no** |
@@ -793,8 +826,8 @@ T5's third entry condition is met; the other half (a dispatched run that produce
 not measured here.
 
 **Still true, and worth restating because it is the most useful fact in this document:** of the
-eleven blockers, **exactly one** (B10) needs the credential. B1 is a day's work and unblocks
-part of B4.
+twelve blockers, **exactly one** (B10) needs the credential. Everything else is engineering this
+programme can do without waiting on Apple.
 
 ## 9.7 Corrections to the first pass
 
@@ -811,8 +844,10 @@ part of B4.
 
 ## 9.8 The one-line answer, second pass
 
-**Four files and ~155 MiB of local residue are now retired; the next tranche is not blocked on
-the Developer ID, it is blocked on 27 C++ harnesses that nothing compiles.** Gate 3 moved
+**Four files and ~155 MiB of local residue are now retired, and of the twelve blockers exactly
+one needs the Developer ID.** The next tranche is not blocked on Apple; it is blocked on
+engineering — an open OCCT-vs-closed-form disagreement on the variable fillet, and 201 JS files
+whose behaviour has never been written down in C++. Gate 3 moved
 11.0% → 15.9% — real progress from #140, invisible until the measuring instrument was repaired —
 and the duplicate JavaScript kernel turns out to be 234/239 unreachable from the shipped bundle,
 which makes T1 a question about building one A/B oracle rather than about unpicking a kernel.
