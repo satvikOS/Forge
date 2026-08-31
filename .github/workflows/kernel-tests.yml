@@ -204,6 +204,42 @@ jobs:
       - name: NAFEMS ratchet self-test
         run: bash forge-kernel/test/fea_nafems_ratchet_selftest.sh
 
+  desktop_update:
+    name: auto-update path — and prove the gate can fail
+    # macOS, and not by preference: the update path IS macOS. It stages with
+    # ditto, checks an ad-hoc code signature with codesign, clears
+    # com.apple.quarantine with xattr, and swaps the bundle with
+    # renamex_np(RENAME_SWAP). None of those exist on ubuntu, so a Linux runner
+    # could only test the arithmetic and would report green on a path that had
+    # never been exercised.
+    #
+    # NO KERNEL BUILD. libforge_updater deliberately links nothing but libc++ —
+    # not OCCT, not SDL, not Vulkan, not the kernel — so this whole job is two
+    # compiler invocations and finishes in under a minute. That is the point: an
+    # update path that could only be checked after a 40-minute OCCT build is an
+    # update path nobody would check.
+    #
+    # NO NETWORK. The only networked function in the updater is Fetcher::get, and
+    # the gate injects a fetcher that copies a local file. The flags that make a
+    # real download safe are asserted by building curlArgv() and reading it,
+    # which tests more than watching a download succeed would.
+    #
+    # SR-3: the second half of this job is the negative control. Seven mutations,
+    # each a defect a maintainer could plausibly write — a lexicographic version
+    # compare, a skipped sha256, a non-atomic swap — and each MUST make the gate
+    # go red. A mutation that stops being caught fails the job.
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: update gate + all seven negative controls
+        run: bash forge-desktop/test/run_update_gate.sh --mutations
+      - name: the release pipeline and the app agree on the appcast
+        # The producer is bash (forge-desktop/emit_appcast.sh) and the consumer
+        # is C++ (src/update/Manifest.cpp) with a parser stricter than json.load.
+        # Two halves of one contract that had never been run together.
+        run: bash forge-desktop/test/appcast_selftest.sh
+
   simulation:
     name: real-time simulation frame contract (SR-4)
     runs-on: ubuntu-latest
@@ -345,7 +381,12 @@ jobs:
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh
 
   desktop:
-    name: forge-desktop compiles + its headless gates (17 mutation proofs)
+    # The count is deliberately NOT in this name. It said "17 mutation proofs" while
+    # the suite ran 24, because a number duplicated into a display string has no
+    # reason to be updated with the thing it describes. ci_desktop_gate.sh pins the
+    # exact figure and prints it in its verdict line, which is the copy that is
+    # checked.
+    name: forge-desktop compiles + its headless gates (mutation-proved)
     # THE JOB THAT WOULD HAVE CAUGHT #107, AND THE REASON IT EXISTS.
     #
     # Until this landed, NOTHING in CI compiled the forge-desktop CMake project.

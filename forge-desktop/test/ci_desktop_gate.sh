@@ -39,7 +39,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-EXPECTED_MUTATIONS=17
+EXPECTED_MUTATIONS=24
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

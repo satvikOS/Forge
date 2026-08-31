@@ -381,6 +381,17 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Upload as a CI artifact (always)
+        # Every run keeps its build, tag or not, so a dry run is downloadable
+        # and testable WITHOUT touching a release.
+        uses: actions/upload-artifact@v4
+        with:
+          name: Forge-macos-arm64-${{ steps.ver.outputs.version }}
+          path: |
+            forge-desktop/dist/Forge-macos-arm64-*.zip
+            forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
+            forge-desktop/dist/Forge-macos-arm64-*.dryrun.json
+            forge-desktop/dist/Forge-macos-arm64-*.notes.md
           if-no-files-found: error
           retention-days: 30
 
@@ -424,4 +435,5 @@ jobs:
           fi
 
           gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
-          echo "attached $ZIP to release $TAG"
+          gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
+          echo "attached $ZIP and appcast.json to release $TAG"

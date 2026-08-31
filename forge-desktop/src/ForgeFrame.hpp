@@ -146,6 +146,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Instrumentation the frame gate asserts on.
   std::size_t panelsDrawn() const noexcept { return panelsDrawn_; }
   std::size_t treeRowsDrawn() const noexcept { return treeRowsDrawn_; }
+  // Test instrumentation: screen rect of the FIRST feature-tree expander drawn this
+  // frame, so a headless gate can click the real widget instead of guessing pixels.
+  struct WidgetRect { float x0 = 0, y0 = 0, x1 = 0, y1 = 0; bool valid = false; };
+  WidgetRect treeExpanderRect() const noexcept { return treeExpanderRect_; }
   std::size_t treeRowCount() const noexcept { return tree_.rowCount(); }
   std::size_t treeMaterialized() const noexcept { return tree_.materialized(); }
   std::size_t treePeakMaterialized() const noexcept { return tree_.peakMaterialized(); }
@@ -360,7 +364,31 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::string status_ = "Ready";
   std::vector<std::string> log_;
   std::size_t panelsDrawn_ = 0;
+  // A tab click MUST NOT re-seat the layout while the draw is walking it.
+  // setActiveTabAt() does `shell_.layout() = std::move(rebuilt)`, which destroys every
+  // DockNode the recursion is holding by const reference; drawTabGroup then dereferenced
+  // the freed node and the app SIGSEGV'd at 0x17 -- the size byte of the dangling
+  // std::string -- on the very first tab click. The click is RECORDED here and applied
+  // after the walk finishes.
+  // The SPLITTER has the identical defect the tab click had: setRatioAt() ends in
+  // `shell_.layout() = std::move(rebuilt)`, and drawNode() reads node.children[1] on the
+  // next line. Deferred for the same reason and applied at the same point.
+  // THE THIRD INSTANCE of one root cause: mutating a container mid-walk while indices or
+  // references into it are still live. Expand/collapse called tree_.rebuild() inside the
+  // ImGuiListClipper loop, which changes rows_.size() while the clipper is iterating a range
+  // computed from the PREVIOUS rowCount -- so the next rowAt() threw std::out_of_range and
+  // the app aborted. Deferred like the other two.
+  bool pendingExpandValid_ = false;
+  forge::ui::NodeId pendingExpandId_{};
+  bool pendingExpandState_ = false;
+  bool pendingRatioValid_ = false;
+  std::vector<std::size_t> pendingRatioPath_;
+  double pendingRatioValue_ = 0.0;
+  bool pendingTabValid_ = false;
+  std::vector<std::size_t> pendingTabPath_;
+  std::size_t pendingTabIndex_ = 0;
   std::size_t treeRowsDrawn_ = 0;
+  WidgetRect treeExpanderRect_{};
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
