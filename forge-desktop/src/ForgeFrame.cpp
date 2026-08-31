@@ -807,7 +807,23 @@ void ForgeFrame::setRatioAt(const std::vector<std::size_t>& path, double ratio) 
     }
     rebuilt.addWindow(std::move(copy));
   }
-  if (changed && rebuilt.valid()) shell_.layout() = std::move(rebuilt);
+  if (changed && rebuilt.valid()) {
+    // THE SAFETY NET. Re-seating while the draw is walking the tree destroys
+    // every DockNode the recursion holds by const reference, and drawNode()
+    // reads node.children[1] on the line AFTER the splitter is drawn. A caller
+    // inside the walk gets its request DEFERRED to the end of the frame rather
+    // than a use-after-free -- the same frame, just after the walk -- and the
+    // violation is COUNTED so a gate can see the sloppy call site that the net
+    // just caught. Loud in test, safe in production.
+    if (walkDepth_ != 0) {
+      ++reseatsDuringWalk_;
+      pendingRatioValid_ = true;
+      pendingRatioPath_ = path;
+      pendingRatioValue_ = ratio;
+      return;
+    }
+    shell_.layout() = std::move(rebuilt);
+  }
 }
 
 void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_t active) {
@@ -827,7 +843,19 @@ void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_
     }
     rebuilt.addWindow(std::move(copy));
   }
-  if (changed && rebuilt.valid()) shell_.layout() = std::move(rebuilt);
+  if (changed && rebuilt.valid()) {
+    // The same safety net as setRatioAt above, for the gesture that actually
+    // shipped broken: a tab button that called this from inside drawTabGroup
+    // freed the node the loop was walking, and the next read faulted at 0x17.
+    if (walkDepth_ != 0) {
+      ++reseatsDuringWalk_;
+      pendingTabValid_ = true;
+      pendingTabPath_ = path;
+      pendingTabIndex_ = active;
+      return;
+    }
+    shell_.layout() = std::move(rebuilt);
+  }
 }
 
 // ── the frame ───────────────────────────────────────────────────────────────
@@ -839,7 +867,18 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
 
   dpiScale_ = dpiScale > 0.1f ? dpiScale : 1.0f;
   panelsDrawn_ = 0;
+  panelIdsDrawn_.clear();
+  tabHits_.clear();
+  splitterHits_.clear();
+  // reseatsDuringWalk_ is deliberately NOT reset here. It is a LIFETIME total,
+  // not a per-frame one: the violation happens during the frame that carries the
+  // gesture, and every useful assertion about it is made after the FOLLOWING
+  // frame -- which is precisely the frame a per-frame counter would have zeroed.
+  // Measured: with the counter reset here, the click gate stayed green against
+  // the reverted fix. A check that resets itself before anyone reads it is not a
+  // check.
   treeRowsDrawn_ = 0;
+  treeExpanderRect_.valid = false;
   viewportRequest_ = ViewportRequest{};
   viewportRequest_.wireframe = shell_.document().wireframe;
   viewportRequest_.geometryDirty = geometryDirty_;
@@ -880,6 +919,29 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
 
   drawStatusStrip(H - statH, W, statH);
   drawCommandPalette();
+
+  // ── the deferred mutations ───────────────────────────────────────────────
+  // The walk is over and no DockNode reference is live, so it is now safe to
+  // re-seat the layout and to rebuild the tree. Doing any of these INSIDE the walk
+  // is what crashed the shipped app: setActiveTabAt() ends in
+  // `shell_.layout() = std::move(rebuilt)`, which frees the node drawTabGroup was
+  // holding, and the next statement read node.panels[active] out of it.
+  // drawSplitter() had the identical hazard on a drag -- drawNode() reads
+  // node.children[1] on the line AFTER the splitter is drawn -- and the feature
+  // tree had it a third time, where tree_.rebuild() resized rows_ mid-clipper.
+  if (pendingTabValid_) {
+    pendingTabValid_ = false;
+    setActiveTabAt(pendingTabPath_, pendingTabIndex_);
+  }
+  if (pendingRatioValid_) {
+    pendingRatioValid_ = false;
+    setRatioAt(pendingRatioPath_, pendingRatioValue_);
+  }
+  if (pendingExpandValid_) {
+    pendingExpandValid_ = false;
+    tree_.setExpanded(pendingExpandId_, pendingExpandState_);
+    tree_.rebuild();
+  }
 }
 
 void ForgeFrame::drawMenuBar() {
@@ -926,6 +988,28 @@ void ForgeFrame::drawMenuBar() {
     if (ImGui::MenuItem("Quit")) quit_ = true;
     ImGui::EndMenu();
   }
+
+  // ── Help: the ONE place a user learns a new version exists ──────────────────
+  // A shipped copy of Forge is ad-hoc signed, so its FIRST launch costs a trip
+  // through System Settings. Every launch after that is free ONLY if the app can
+  // update itself, which is why this menu is not cosmetic.
+  if (ImGui::BeginMenu("Help")) {
+    if (!runningVersion_.empty()) {
+      ImGui::MenuItem((std::string("Forge ") + runningVersion_).c_str(), nullptr, false, false);
+      ImGui::Separator();
+    }
+    const bool checking = update_.state == UpdateState::Checking;
+    if (ImGui::MenuItem(checking ? "Checking for Updates..." : "Check for Updates...", nullptr,
+                        false, !checking)) {
+      updateCheckPending_ = true;
+    }
+    if (!update_.message.empty()) {
+      ImGui::Separator();
+      ImGui::MenuItem(update_.message.c_str(), nullptr, false, false);
+    }
+    ImGui::EndMenu();
+  }
+
 
   if (ImGui::BeginMenu("Input Profile")) {
     for (forge::ui::InputProfile p : forge::ui::allInputProfiles()) {
@@ -1157,7 +1241,27 @@ void ForgeFrame::drawDockedPanels(const forge::ui::Rect& area, std::uint64_t vie
   // These windows are sized by the dock MODEL, never by the user, so the minimum
   // is a constraint with nothing to protect.
   ImGui::PushStyleVar(ImGuiStyleVar_WindowMinSize, ImVec2(1.0f, 1.0f));
-  drawNode(main->root, area, {}, viewportTexture);
+  // THE WALK IS OPEN. From here until drawNode() returns, `main->root` and every
+  // node reached from it is held by const reference across the whole recursion,
+  // so nothing may re-seat shell_.layout() until the bracket closes. The write
+  // API counts any violation into reseatsDuringWalk_, which the click gate
+  // asserts is zero.
+  //
+  // Balanced by a scope guard, not by a matching statement: a throw out of a
+  // panel body would otherwise leave walkDepth_ non-zero for ever, and every
+  // later gesture would silently defer a frame and climb the counter. That is a
+  // benign failure, but it is a failure nobody would ever be told about.
+  struct WalkGuard {
+    std::size_t& d;
+    explicit WalkGuard(std::size_t& depth) : d(depth) { ++d; }
+    ~WalkGuard() { --d; }
+    WalkGuard(const WalkGuard&) = delete;
+    WalkGuard& operator=(const WalkGuard&) = delete;
+  };
+  {
+    WalkGuard walking(walkDepth_);
+    drawNode(main->root, area, {}, viewportTexture);
+  }
   ImGui::PopStyleVar();
 }
 
@@ -1223,10 +1327,18 @@ void ForgeFrame::drawSplitter(const forge::ui::Rect& r, bool vertical,
       // splitter drift away from the cursor as the window is resized.
       const float delta = vertical ? ImGui::GetIO().MouseDelta.y : ImGui::GetIO().MouseDelta.x;
       if (parentExtent > 1.0 && delta != 0.0f) {
-        setRatioAt(path, ratio + static_cast<double>(delta) / parentExtent);
+        // RECORD, do not apply: setRatioAt() re-seats shell_.layout(), and the
+        // caller drawNode() reads node.children[1] on the line after this one.
+        // Applying it here was the same use-after-free the tab click had.
+        pendingRatioValid_ = true;
+        pendingRatioPath_ = path;
+        pendingRatioValue_ = ratio + static_cast<double>(delta) / parentExtent;
       }
     }
   }
+  splitterHits_.push_back(SplitterHit{path, vertical, static_cast<float>(r.x),
+                                      static_cast<float>(r.y), static_cast<float>(r.w),
+                                      static_cast<float>(r.h)});
   ImGui::End();
   ImGui::PopStyleColor();
   ImGui::PopStyleVar();
@@ -1255,9 +1367,24 @@ void ForgeFrame::drawTabGroup(const forge::ui::DockNode& node, const forge::ui::
     for (std::size_t i = 0; i < node.panels.size(); ++i) {
       if (i > 0) ImGui::SameLine();
       const bool on = (i == active);
+      // A COPY, taken before the button can fire. Everything after the button
+      // must be reachable without touching `node` again, because a click used to
+      // free it -- and the recorded hit box outlives this frame besides.
+      const std::string panelId = node.panels[i];
       ImGui::PushStyleColor(ImGuiCol_Button, on ? rgb(52, 58, 68) : rgb(30, 33, 38));
       ImGui::PushStyleColor(ImGuiCol_Text, on ? rgb(240, 195, 120) : rgb(150, 157, 168));
-      if (ImGui::Button(prettyPanelName(node.panels[i]))) setActiveTabAt(path, i);
+      // RECORD, do not apply: setActiveTabAt() re-seats shell_.layout(), which
+      // frees the DockNode `node` refers to. Applying it here made the next
+      // read -- node.panels[active], four lines below -- a use-after-free, and
+      // the shipped app SIGSEGV'd on the first tab click.
+      if (ImGui::Button(prettyPanelName(panelId))) {
+        pendingTabValid_ = true;
+        pendingTabPath_ = path;
+        pendingTabIndex_ = i;
+      }
+      const ImVec2 lo = ImGui::GetItemRectMin();
+      const ImVec2 hi = ImGui::GetItemRectMax();
+      tabHits_.push_back(TabHit{path, i, panelId, lo.x, lo.y, hi.x - lo.x, hi.y - lo.y});
       ImGui::PopStyleColor(2);
     }
     ImGui::PopStyleVar();
@@ -1278,6 +1405,7 @@ void ForgeFrame::drawTabGroup(const forge::ui::DockNode& node, const forge::ui::
 
 void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTexture) {
   ++panelsDrawn_;
+  panelIdsDrawn_.push_back(panelId);
   if (isViewportPanel(panelId)) {
     drawViewportPanel(viewportTexture);
   } else if (panelId == "feature_tree" || panelId == "model_browser" ||
@@ -1603,9 +1731,18 @@ void ForgeFrame::drawFeatureTreePanel() {
         ImGui::PushID(static_cast<int>(rowIndex));
         ImGui::Indent(static_cast<float>(row.depth) * 14.0f * dpiScale_);
         if (row.hasChildren) {
-          if (ImGui::SmallButton(row.expanded ? "-" : "+")) {
-            tree_.setExpanded(row.id, !row.expanded);
-            tree_.rebuild();
+          const bool expanderClicked = ImGui::SmallButton(row.expanded ? "-" : "+");
+          if (!treeExpanderRect_.valid) {
+            const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+            treeExpanderRect_ = {mn.x, mn.y, mx.x, mx.y, true};
+          }
+          if (expanderClicked) {
+            // RECORD, do not rebuild: the clipper is iterating a range sized from the
+            // rowCount taken at Begin(), and rebuild() changes rows_.size() underneath it.
+            // The next rowAt() then threw std::out_of_range and aborted the process.
+            pendingExpandValid_ = true;
+            pendingExpandId_ = row.id;
+            pendingExpandState_ = !row.expanded;
           }
           ImGui::SameLine();
         } else {

@@ -174,7 +174,7 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
 | FILLET | `FORGE_FILLET_DROP_NATIVE` | 600 | 146 | 51 | **315** | 88 | 32.8% | 76.8% | -44.0% [-49.2, -38.8] | 1.4e-47 | FAIL |
 | MAKEOFFSET | `FORGE_OFFSET_DROP_MAKEOFFSET` | 600 | 567 | 0 | **27** | 6 | 94.5% | 99.0% | -4.5% [-6.2, -2.8] | 1.5e-8 | FAIL |
-| THICKSOLID | `FORGE_THICKSOLID_DROP_NATIVE` | 600 | 7 | 0 | **126** | 467 | 1.2% | 22.2% | -21.0% [-24.3, -17.7] | 2.4e-38 | FAIL |
+| THICKSOLID | `FORGE_THICKSOLID_DROP_NATIVE` | 600 | 7 | 0 | **126** | 467 | 1.2% | 22.2% | -21.0% [-24.3, -17.7] | 2.4e-38 | FAIL |  <!-- superseded 2026-08-30: 8 / 0 / 125 / 467, see the THICKSOLID block in 3.2 -->
 | OFFSETSHAPE | `FORGE_OFFSETSHAPE_DROP_NATIVE` | 600 | 0 | 7 | **38** | 555 | 1.2% | 6.3% | -5.2% [-7.3, -3.0] | 3.1e-6 | FAIL |
 | THRUSECTIONS | `FORGE_THRUSECTIONS_DROP_NATIVE` | 600 | 0 | 0 | **567** | 33 | 0.0% | 94.5% | -94.5% [-96.3, -92.7] | 4.1e-171 | FAIL |
 | PIPE | `FORGE_PIPE_DROP_NATIVE` | 600 | 2 | 0 | **598** | 0 | 0.3% | 100.0% | -99.7% [-100.1, -99.2] | 1.9e-180 | FAIL |
@@ -204,6 +204,61 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > curved-section parts rather than 567. Artefacts:
 > `reports/corpus_ab/thrusections_canonicalring_600_summary.md`, raw rows in
 > the matching `_results.jsonl.gz`, provenance in `_manifest.json`.
+
+> ### ⚠ AND THE RE-MEASURED `THRUSECTIONS` ROW IS ITSELF SUPERSEDED
+>
+> The paragraph above closed by calling the surviving 258 "curved-section parts",
+> which reads as a property of the corpus. It was not. `thruSections` returned a
+> bare null shape from twelve places, so the bucket was unattributable; every
+> return now records a label (`FK_DEFER`) and
+> `test/run_thrusections_engine_census.sh` reports the label the **engine** wrote
+> rather than a replica of its predicates. Its answer, over the same 600 parts:
+>
+> | engine's own defer label | parts |
+> |---|---:|
+> | `prof_edge_not_line` | **291 of 291** |
+>
+> One cause, not a tail: a section was represented as a ring of **vertices**, so
+> every section edge had to be a LINE. Faceting the arcs would have answered with
+> the wrong solid. The fix is an identity instead — **when section B is section A
+> translated by T, the ruled loft between them IS the linear extrusion of A along
+> T**, exactly, for any edge geometry — and `forge::occtPrism` (already linked
+> into that file) is that extrusion, `FACE` giving laterals plus both caps and
+> `WIRE` the open lateral skin, which is exactly the `isSolid` distinction
+> `BRepOffsetAPI_ThruSections` draws. Measured, **189 of the 258 deleted parts
+> (73.3%) are exact translates**. Re-measured over the same 600 parts, stride 1,
+> 0 part-level errors, arms proved to differ (binary 716320 → 716800 bytes,
+> sha `17105475…` → `8875d28b…`):
+>
+> | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
+> |---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
+> | THRUSECTIONS (translate path) | 600 | 498 | 0 | **69** | 33 | 83.0% | 94.5% | -11.5% [-14.1, -8.9] | 3.4e-21 | FAIL |
+>
+> All **498** both-build parts agree with OCCT on the full observable vector, **0
+> disagree**, and all 498 native results are `BRepCheck_Analyzer` VALID. The
+> change is **strictly additive** and that is measured, not asserted: the 309
+> parts the engine already covered are **byte-identical** between the two runs,
+> the OCCT arm did not move on any part, and the only bucket transition anywhere
+> is `OCCT_ONLY → BOTH_OK` ×189. Two **untouched control families** measured in
+> the same two runs did not move: PIPESHELL 51.5% and THICKEN 67.8%, with **0**
+> bucket changes and **0** native-payload changes per part.
+>
+> It adds **no OCCT toolkit**: the seven symbols the change introduces are all
+> `BRepAdaptor_Curve` (the sampler) resolving to `libTKBRep` and `libTKG3d`,
+> which that translation unit already reached (17 and 13 symbols before), and no
+> symbol of the native path resolves to `libTKOffset` — the toolkit this option
+> exists to remove.
+>
+> The option **still fails** its flip gate. The surviving 69 are pairs that are
+> not translates: of the 102 remaining deferrals 81 are an edge-count mismatch
+> between the two sections and 21 are a genuine non-translate. A non-translated
+> pair of curved sections needs ruled surfaces built between the curves, which is
+> a different engine, and this time the claim is the engine's own label rather
+> than an inference from the corpus. Artefacts:
+> `reports/corpus_ab/thrusections_translate_600_{BEFORE,AFTER}_summary.md`, raw
+> rows in the matching `_results.jsonl.gz`, provenance in `_manifest.json`, and
+> the per-part defer labels in
+> `reports/corpus_ab/thrusections_engine_census_600_{BEFORE,AFTER}.tsv.gz`.
 
 > ### ⚠ THE `FILLET` ROW ABOVE IS SUPERSEDED, AND SO IS ITS `NATIVE_ONLY` CELL
 >
@@ -309,6 +364,57 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > predicate. Artefacts: `reports/corpus_ab/full600_after_rim_summary.md`, raw rows in
 > the matching `_results.jsonl.gz`, provenance in `_manifest.json`, and the per-part
 > census in `fillet_census_rim_600.jsonl.gz`.
+> ### ⚠ THE `PIPESHELL` ROW ABOVE IS SUPERSEDED
+>
+> Every one of the 291 declines carried the SAME `FK_DEFER` label,
+> `prof_edge_not_line`. **One label over a whole deletion bucket is not an
+> attribution** — it names the precondition, not the input, and "an edge that is not
+> a line" is equally consistent with "free-form blobs no bounded engine will sweep"
+> and with "rounded outlines". `test/pipeshell_defer_census.cpp` reproduces the A/B's
+> own input (same face pick, same outer wire, same spine) and names every edge's
+> curve type:
+>
+> | count | the profile's outer boundary | closes into a planar face |
+> |---:|---|---:|
+> | 141 | LINES AND CIRCULAR ARCS (mean 10.3 edges) | 141/141 |
+> | 106 | contains B-SPLINE edges (mean 31.7 edges) | 106/106 |
+> | 44 | a SINGLE full circle (1 edge) | 44/44 |
+>
+> **291/291 close into a planar face**, so the bucket was never "sections that are
+> not planar regions" — it was `polygonRing()` reading VERTICES. The mitre plane
+> bisects the two legs, so the reflection in it maps one leg's direction to minus the
+> other's and fixes the plane pointwise; an infinite prism is its section swept in
+> both senses, so each leg's prism is a RIGID MOTION of the first and a rigid motion
+> carries a circle to a circle and a B-spline to a congruent B-spline. Nothing is
+> fitted and nothing is tessellated. Implemented as
+> `src/native/brep/NativeLoftPipe.cpp::sweepFaceMitre`. Re-measured over the same 600
+> parts, stride 1, 0 part-level errors, with THRUSECTIONS and FILLING carried as
+> controls (both unmoved, 258 and 0 deleted exactly as before):
+>
+> | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
+> |---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
+> | PIPESHELL (re-measured) | 600 | 599 | 0 | **1** | 0 | 99.8% | 100.0% | -0.2% [-0.5, 0.2] | 1.0000 | FAIL |
+>
+> **The flip gate is still FAIL, missed by exactly one part.** The rule is the gate's
+> own words, `native % >= occt %`; a CI that straddles zero is a different statement
+> and is not made here. The one part is `ho1190`, an 8-edge all-B-spline outline
+> whose volume misses its closed form by 1.46e-6 against a 1e-6 gate — the maximum of
+> the whole 291-part deviation distribution (p50 1.5e-10, p99 1.4e-7), left declined
+> rather than tuned away.
+>
+> **The added coverage is checked by an oracle that is not the engine's own closed
+> form.** OCCT's default transition mode does not carry the section through the
+> corner, so on this harness's equal-leg 30-degree spine `native / OCCT-default` must
+> equal `2/(1+cos 30) = 1.0717967697` for every part whatever its section. Measured
+> per class: `LINE_ONLY` 1.0717967697 (the already-proven control), `LINE_ARC`
+> 1.0717967697, `HAS_BSPLINE` 1.0717967696, `ARC_ONLY` 1.0717967601. Of the 273 rows
+> that do not match OCCT(`RightCorner`) on the full observable vector, **243 differ
+> only in face counts or in the VERTEX-DERIVED bbox of a tube** — volume, area and
+> centre of mass all agree, and OCCT is valid on all 243 — and **all 30 that differ
+> geometrically are rows where OCCT's own arm is `BRepCheck`-INVALID** (native is
+> valid on 599/599, OCCT(`RightCorner`) on 567/598). Artefacts, the census, the
+> oracle-ratio distribution and the independent check script:
+> `reports/corpus_ab/pipeshell_defer_audit/`.
 
 ### 3.1 The headline
 
@@ -365,9 +471,64 @@ a working operation into a thrown error.
   here.
 - **`PIPESHELL` 291/600 deleted, but 309 built.** The best-covered of the sweep
   family, and the only one within sight of the gate.
+
+  > **⚠ SUPERSEDED — 291 became 1 and 51.5% became 99.8%.** See the supersede block
+  > after the table and `reports/corpus_ab/pipeshell_defer_audit/`. The transferable
+  > lesson is the one `PIPE` recorded in its other direction: a deletion bucket in
+  > which every part carries the SAME defer label is not yet attributed, because the
+  > label names the precondition and not the input. Censusing the input is what
+  > separated "sections no bounded engine can sweep" from "sections whose boundary
+  > happens to be curved", and those call for opposite engineering.
 - **`THICKSOLID` 126 deleted on a 22.2% OCCT baseline.** Note the baseline: OCCT
   itself only manages 133/600 here. The native engine's 7 is still far behind, but
   this family is hard for both.
+
+  > **⚠ ATTRIBUTED 2026-08-30, and "hard for both" understates it in one direction
+  > and overstates it in another.** Full per-part census in
+  > `reports/corpus_ab/THICKSOLID_ATTRIBUTION.md`; the two findings that change how
+  > this row should be read:
+  >
+  > **All 126 of the deletion bucket have ONE cause, and it is not NURBS.** The
+  > 593 native deferrals split two ways and only two: 370 on a single line of the
+  > quadric path — a PLANAR face is admissible only if every one of its wires is
+  > exactly one full circle — and 223 on an unsupported surface type. The
+  > deletion bucket is **126/126 in the first group and 0/126 in the second**. The
+  > NURBS parts cost the ledger nothing, because OCCT declines every one of them
+  > too. The corpus is polygonal plates with cylindrical holes, not curved parts:
+  > 377/600 are wholly analytic and **0/600 are all-planar**, so `planarThickSolid`
+  > is dead code here and every deferral is the quadric path's.
+  >
+  > **Every one of OCCT's 133 successes is an INVALID solid** — `BRepCheck_Analyzer`
+  > 0/133 — on a corpus whose 600 source solids are valid 600/600, and six of them
+  > have MORE volume than the body they hollowed. This is the only family of the
+  > eleven measured where every success on both arms fails validity; the same
+  > harness on the same run reports OCCT valid 600/600 on `PIPE` and 455/461 on
+  > `FILLET`. **The flip gate counts `IsDone()`, so it cannot see this.** Nothing
+  > here argues for flipping the option — it argues against reading this row's
+  > 22.2% as capability.
+  >
+  > Three exact fixes followed the census (polygon planar wires; the coplanar face
+  > split and its cylindrical riser; rank-deficient polygon corners), each gated by
+  > closed forms in `test/thicksolid_mixed_closedform.cpp` and one of them
+  > mutation-proved. **They moved the row by one part**, 7 → 8 and 126 → 125, and
+  > the census says why: 195 of the parts they unblocked are two-lump bodies that
+  > sew into two shells — and all 271 multi-lump parts in the corpus are `NEITHER`,
+  > so finishing them would move the deletion bucket by zero — while the 20
+  > remaining reachable deletion-bucket parts hit a genuine topology change, their
+  > offset hole loops merging (measured: seven holes grow to `sum(Rh^2) = 469.2`
+  > against an offset outer `Ro^2 = 459.7`, so they can no longer fit). Re-measured
+  > over the same 600 parts, stride 1, 0 part-level errors:
+  >
+  > | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | McNemar p | verdict |
+  > |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+  > | THICKSOLID (re-measured) | 600 | 8 | 0 | **125** | 467 | 1.3% | 22.2% | 4.7e-38 | FAIL |
+  > | `OFFSETSHAPE` (CONTROL, same file, unchanged) | 600 | 0 | 7 | **38** | 555 | 1.2% | 6.3% | 3.1e-6 | FAIL |
+  >
+  > Every part moved in exactly one way: one `OCCT_ONLY -> BOTH_OK`, 599 unmoved.
+  > The `OFFSETSHAPE` control shares this file and four of its helpers and
+  > reproduces the baseline cell for cell. Artefacts:
+  > `reports/corpus_ab/thicksolid_mixed_600_{summary.md,results.jsonl.gz,manifest.json}`,
+  > input census in `reports/corpus_ab/thicksolid_input_census_600.jsonl.gz`.
 - **`OFFSETSHAPE` has the weakest OCCT baseline of all, 6.3%** — and the OCCT arm
   **CRASHED on 66 parts**. Without the per-arm fork those 66 SIGSEGVs would have
   killed the harness process, and a harness that dies produces silence, which reads

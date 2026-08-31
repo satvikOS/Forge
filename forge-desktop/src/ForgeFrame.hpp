@@ -62,6 +62,31 @@ struct ViewportRequest {
   bool wireframe = false;
 };
 
+// Where one dock TAB BUTTON was drawn, in the same screen coordinates ImGui was
+// given. Recorded per tab, per frame, so a host can put a pointer on a tab
+// without re-deriving the dock layout arithmetic: the click gate uses it to
+// drive io.AddMousePosEvent, and it is equally what a UI-automation or
+// accessibility layer needs. `panelId` is a COPY, not a reference into the dock
+// tree, because the tree is re-seated by the very click this box invites.
+struct TabHit {
+  std::vector<std::size_t> path;  // node address from the main window's root
+  std::size_t index = 0;          // which tab within that Tabs node
+  std::string panelId;
+  float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+  float centreX() const noexcept { return x + 0.5f * w; }
+  float centreY() const noexcept { return y + 0.5f * h; }
+};
+
+// Where one SPLITTER grip was drawn, same coordinates and same reason: a drag is
+// the other gesture that writes into the dock tree mid-walk.
+struct SplitterHit {
+  std::vector<std::size_t> path;
+  bool vertical = false;  // true when the split stacks vertically (drag in Y)
+  float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+  float centreX() const noexcept { return x + 0.5f * w; }
+  float centreY() const noexcept { return y + 0.5f * h; }
+};
+
 // The frame builder is also THE DOCUMENT OWNER. It holds the PartDocument the
 // Part commands append to, and implements forge::ui::DocumentHost so the shell's
 // ONE file.new / file.open / file.save / edit.undo / edit.redo act on it. Before
@@ -145,7 +170,61 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 
   // Instrumentation the frame gate asserts on.
   std::size_t panelsDrawn() const noexcept { return panelsDrawn_; }
+  // WHICH panels were drawn, in draw order. panelsDrawn() counts; a click gate
+  // has to know that the panel behind the tab it clicked is the one that came
+  // up, and a count cannot say that.
+  const std::vector<std::string>& panelIdsDrawn() const noexcept { return panelIdsDrawn_; }
+  // Every tab button this frame drew, with the rectangle it occupies.
+  const std::vector<TabHit>& tabHits() const noexcept { return tabHits_; }
+  // Every splitter grip this frame drew.
+  const std::vector<SplitterHit>& splitterHits() const noexcept { return splitterHits_; }
+  // ── THE DOCK-WALK INVARIANT ─────────────────────────────────────────────
+  // How many times in this frame builder's WHOLE LIFETIME the DockLayout was
+  // re-seated while the draw was still walking it. A lifetime total, not a
+  // per-frame one, because every useful assertion about the violation is made
+  // after the frame FOLLOWING the gesture, and a per-frame counter would have
+  // zeroed itself by then. The only correct value is ZERO, always, and
+  // it is a memory-safety invariant rather than a preference: drawNode() and
+  // drawTabGroup() hold `const DockNode&` into shell_.layout() across their
+  // whole recursion, and setActiveTabAt()/setRatioAt() end in
+  // `shell_.layout() = std::move(rebuilt)`, which destroys every one of those
+  // nodes. A tab click that re-seated the layout inline made the very next
+  // statement -- drawPanel(node.panels[active]) -- read a freed std::string, and
+  // the shipped app SIGSEGV'd at 0x17 (the size byte of the dangling short
+  // string) on the FIRST tab click. Counting the violation makes the defect a
+  // VALUE a gate can assert on, in any build, sanitizer or not.
+  //
+  // The count is OBSERVABLE because the writers do not carry the violation out:
+  // an in-walk caller has its request DEFERRED to the end of the frame instead
+  // of re-seating under the walk, so the process survives to be asked. Without
+  // that net the counter would be unfalsifiable -- every in-walk re-seat kills
+  // the process before anyone can read it -- and an unfalsifiable check is not a
+  // check.
+  std::size_t layoutReseatsDuringWalk() const noexcept { return reseatsDuringWalk_; }
   std::size_t treeRowsDrawn() const noexcept { return treeRowsDrawn_; }
+  // Test instrumentation: screen rect of the FIRST feature-tree expander drawn this
+  // frame, so a headless gate can click the real widget instead of guessing pixels.
+  struct WidgetRect { float x0 = 0, y0 = 0, x1 = 0, y1 = 0; bool valid = false; };
+  WidgetRect treeExpanderRect() const noexcept { return treeExpanderRect_; }
+
+  // ── auto-update, as PLAIN DATA ──────────────────────────────────────────────
+  // ForgeFrame never opens a socket. The check runs in the app layer, which owns
+  // the thread and the curl call and hands the outcome back in as data; the frame
+  // only RAISES a request and RENDERS a result. That split is what keeps
+  // frame_gate.cpp hermetic -- a frame builder that could reach the network would
+  // make every gate run depend on GitHub being up.
+  enum class UpdateState { Idle, Checking, UpToDate, Available, Failed };
+  struct UpdateInfo {
+    UpdateState state = UpdateState::Idle;
+    std::string version;  // the offered version, when Available
+    std::string message;  // always printable, never empty once a check has run
+  };
+  void setUpdateInfo(const UpdateInfo& u) { update_ = u; }
+  const UpdateInfo& updateInfo() const noexcept { return update_; }
+  void setRunningVersion(const std::string& v) { runningVersion_ = v; }
+  // Raised by the Help menu, consumed and cleared by the app layer.
+  bool updateCheckRequested() const noexcept { return updateCheckPending_; }
+  void clearUpdateCheckRequest() noexcept { updateCheckPending_ = false; }
   std::size_t treeRowCount() const noexcept { return tree_.rowCount(); }
   std::size_t treeMaterialized() const noexcept { return tree_.materialized(); }
   std::size_t treePeakMaterialized() const noexcept { return tree_.peakMaterialized(); }
@@ -360,7 +439,46 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::string status_ = "Ready";
   std::vector<std::string> log_;
   std::size_t panelsDrawn_ = 0;
+  std::vector<std::string> panelIdsDrawn_;
+  std::vector<TabHit> tabHits_;
+  std::vector<SplitterHit> splitterHits_;
+  // ── deferred mutations, and why every one of them is deferred ───────────────
+  // ONE root cause, found THREE times in this frame builder: a gesture mutates a
+  // container while the draw walk still holds indices or references into it.
+  //
+  //  1. TAB CLICK      setActiveTabAt() ends in `shell_.layout() = std::move(rebuilt)`,
+  //                    which destroys every DockNode the recursion holds by const
+  //                    reference; drawTabGroup then dereferenced the freed node and the
+  //                    SHIPPED app SIGSEGV'd at 0x17 -- the size byte of the dangling
+  //                    std::string -- on the very first tab click.
+  //  2. SPLITTER DRAG  setRatioAt() ends in the same re-seat, and drawNode() reads
+  //                    node.children[1] on the next line.
+  //  3. TREE EXPANDER  tree_.rebuild() inside the ImGuiListClipper loop changes
+  //                    rows_.size() while the clipper iterates a range sized from the
+  //                    PREVIOUS rowCount, so the next rowAt() threw std::out_of_range
+  //                    and the app aborted.
+  //
+  // All three RECORD here; build() applies them after the walk has finished and no
+  // reference is live. The layout still changes on the same frame -- it changes when
+  // nothing is pointing into it.
+  bool pendingTabValid_ = false;
+  std::vector<std::size_t> pendingTabPath_;
+  std::size_t pendingTabIndex_ = 0;
+  bool pendingRatioValid_ = false;
+  std::vector<std::size_t> pendingRatioPath_;
+  double pendingRatioValue_ = 0.0;
+  bool pendingExpandValid_ = false;
+  forge::ui::NodeId pendingExpandId_{};
+  bool pendingExpandState_ = false;
+  // Non-zero while drawNode()/drawTabGroup() are walking the dock tree. The
+  // write API reads it to count violations of the invariant above.
+  std::size_t walkDepth_ = 0;
+  std::size_t reseatsDuringWalk_ = 0;
   std::size_t treeRowsDrawn_ = 0;
+  WidgetRect treeExpanderRect_{};
+  UpdateInfo update_{};
+  std::string runningVersion_;
+  bool updateCheckPending_ = false;
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;

@@ -955,3 +955,237 @@ fixes it with OCCT still present. PR #86, which moves that workflow to the defau
 **Publishing remains a human action.** The agents preparing this are explicitly forbidden from
 pushing a tag or publishing a release, including a draft. Everything is staged so that
 publishing is one reviewed step.
+
+## D-026 (2026-08-30): the app crashed THREE times on one root cause — mutating a container mid-walk — and a liveness probe could not see any of them
+
+Three separate crashes were reported against the installed app. They were not three bugs
+in the ordinary sense; they were **one defect written three times** in `ForgeFrame`:
+
+| # | Trigger | Symptom | What was live during the mutation |
+|---|---------|---------|-----------------------------------|
+| 1 | first tab click | SIGSEGV at `0x17` | `DockNode&` held by the draw recursion |
+| 2 | splitter drag | SIGSEGV | `children[1]` of a re-seated layout |
+| 3 | feature-tree expander click | **SIGABRT**, uncaught `std::out_of_range` | clipper range sized from the previous `rowCount()` |
+
+In each case the draw walk held an index or reference into a container, and the click
+handler re-seated that container **during the walk**. The remedy is the same all three
+times: record the intent, apply it after the walk returns.
+
+**The third was found only because the second fix was verified by interaction.** The run
+that aborted had presented **1165 frames** and saved its workspace, layout and keymap
+cleanly. Every liveness signal was healthy. A GUI needs to be *used*, not pinged — and
+"the process is still up" is not evidence about a click path.
+
+**It is proven, not asserted.** `frame_gate.cpp` §5b clicks the real widget —
+`ForgeFrame` now exposes the expander's screen rect so the gate targets it instead of
+guessing pixels — and requires the row set to actually change, because a click that
+no-ops would make the check unfalsifiable. Positive control, same gate, only the defer
+removed:
+
+```
+pre-fix   exit 134   uncaught std::out_of_range: FeatureTreeModel::rowAt   <- the user's crash
+post-fix  exit 0     188 checks, 0 failures, expander click: 17 rows -> 1 rows
+```
+
+**Two traps worth carrying forward.** First, the rebuild after restoring the good source
+did **not** recompile: `cp` stamped the source in the same second the mutated object was
+written, so make saw it as current and the gate still reported 134. The exit code was
+right and the assumption was wrong. Second, `file(GLOB FORGE_UI_SOURCES ...)` had no
+`CONFIGURE_DEPENDS`, so a new `forge::ui` source was absent from the link and surfaced as
+undefined symbols in a file nobody had touched.
+
+## D-027 (2026-08-30): a count copied into a second place goes stale — three times in one session
+
+`EXPECTED_MUTATIONS` is pinned exactly, deliberately, and is never a floor. The number was
+nonetheless duplicated into two other places, and both drifted the moment it moved 17 → 24:
+
+* the CI **job name**, `forge-desktop compiles + its headless gates (17 mutation proofs)`,
+  which advertised 17 while the suite ran 24;
+* the **self-test fixture**, whose stub verdict lines were literal 17/16/18, so case A —
+  the one case that must be GREEN — went red.
+
+The second failure is the instructive one. It produced a **six-second job with no gate
+output**, which reads exactly like a build failure. Time was spent looking for a broken
+build that did not exist.
+
+Resolved by removing the duplicates rather than synchronising them: the job name no longer
+carries a count, and the self-test derives N from the pin and asserts the *relationship*
+(one below and one above must both go red) instead of a literal. What the cases were always
+about is that the check is exact; the integer was incidental.
+
+## D-028 (2026-08-30): a clean merge silently DROPPED mutation coverage
+
+Merging base into the release branch conflicted in exactly one place — a header comment
+about the mutation count. The **code** merged cleanly, by taking one side:
+
+```
+-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9    (base)
++run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7        (ours)
+```
+
+Frame mutations 8 and 9 are implemented in the merged `frame_gate.cpp`. They would simply
+have stopped running, with a green suite and no line in the diff to attribute it to.
+Resolving only the conflicted comment would have shipped that.
+
+**A conflict marks where git could not choose. It does not mark where the wrong choice was
+made.** When a merge touches a file that governs coverage, diff the merged result against
+*both* parents for what each side ran, not just the region that conflicted.
+
+Resolved as the union — 8 document + 9 frame + 7 update = 24 — with `EXPECTED_MUTATIONS`
+moved in the same commit, which is the constraint the base comment existed to state. The
+merge also exposed a real defect in code neither side touched: the missing-include preflight
+had never run against the updater branch, and `update_gate.cpp` used fixed-width integers
+without `<cstdint>`.
+
+## D-029 (2026-08-30): the auto-update endpoint cannot see a prerelease — VERIFIED, and it supersedes D-024's publishing prohibition
+
+The updater fetches `https://github.com/satvikOS/Forge/releases/latest/download/appcast.json`.
+GitHub's `latest` resolves to the newest release that is **neither a draft nor a
+prerelease**. Measured against the live repository:
+
+```
+releases:  tag=v0.1.0-alpha.0  draft=true  prerelease=true  assets=0
+GET /releases/latest  ->  404 Not Found
+```
+
+So the chain the user asked for — download once, update forever — is **inert** for a release
+published as a draft or flagged prerelease, and the failure is silent: the app simply never
+finds an update. The release workflow creates every release as a draft and never publishes,
+by design.
+
+That design encoded D-024's rule that publishing is a human's call. **The user has now made
+that call explicitly** ("all versions are put in the github releases", "auto updates on so
+user just downloads once"), which supersedes the prohibition recorded at the end of D-025 —
+recorded here rather than quietly ignored.
+
+Two caveats stand and are not resolved by that decision:
+* **minimum macOS 26.0**, set by Homebrew bottles' `LC_BUILD_VERSION`, not by any choice
+  in this codebase. Users below macOS 26 cannot run the bundle at all.
+* the signature is **ad-hoc**; first launch needs one pass through System Settings →
+  Privacy & Security → Open Anyway. The user has accepted this explicitly.
+
+A release must therefore be published as a **full release, not a prerelease**, for the
+updater to see it — despite the version reading `alpha`. That is a footgun worth a guard
+rather than a note.
+---
+
+## D-030 (2026-08-30): THICKEN's whole 193-part deletion bucket was ONE surface type, and closing it moves native coverage 67.8% -> 96.2%
+
+**The state this starts from.** D-022 measured the drop blocked on ENGINE COVERAGE, with THICKEN at
+native 67.8% vs OCCT 100.0% over 600 real parts — 193 parts where OCCT builds and native declines.
+Its geometric disagreement was already understood and was NOT a native defect (OCCT's
+`MakeThickSolid` returns a negatively oriented solid, which is why `Features.cpp` normalises
+orientation; the `thicken_orientation_gate` pins it). So the open question was purely: WHY does
+native defer on 193 parts?
+
+**Instrument first, and the answer was not a scatter.** `runArm` in `test/corpus_ab_coverage.cpp`
+has carried a `reasonFn` hook since the PIPE family's 598-part bucket was unattributable; the
+THICKEN family simply never passed one. Wiring
+`&forge::occtthicken::thickenLastDeferReason` into the native arm is a ONE-LINE change and it
+attributed the bucket completely:
+
+    193 of 193 deferred with the SINGLE reason "a face is not a Geom_Plane"
+
+Not 193 spread over the file's twenty-odd named defers. One.
+
+**A surface census named the type.** The THICKEN family's derivation feeds the largest face of the
+part, of ANY surface type. Replicating that picker in a standalone probe over the same 600 parts:
+
+    surface type of the picked face   BOTH_OK   OCCT_ONLY
+    Plane                                 407           0
+    Cylinder                                0         193
+
+There is no third surface type anywhere in that slot. The deletion bucket was not "curved faces" in
+general — it was cylinders, all of them, and every one spanning a full 2*pi turn.
+
+**The closed form was READ OFF live OCCT, not reasoned about.** Skinning a cylindrical patch of
+radius R by a signed t gives the coaxial cylinder R' = R + s*t. Which way s points is exactly the
+kind of thing that is easy to argue and easy to get backwards, so the same
+`BRepOffset_MakeOffset` call `src/Features.cpp` makes was run on all 193 picked faces and its
+volume compared with BOTH candidates:
+
+    face REVERSED (119 parts) -> OCCT's volume == the R-t form   rel < 1e-9
+    face FORWARD   (51 parts) -> OCCT's volume == the R+t form   rel < 1e-9
+    the remaining  (23 parts) -> NEITHER form                    rel 2e-2 .. 9e-2
+
+**And that measurement handed over the guard for free.** The 170 that match are EXACTLY the parts
+that pass a RECTANGLE CERTIFICATE, and the 23 that miss are exactly the ones that fail it. The
+certificate is exact, not heuristic: a cylindrical face trims its surface to some UV region D inside
+the adaptor box, and its area is exactly `R * area(D)`, so `area(face) == R*du*dv` if and only if D
+IS the whole rectangle. A hole cut in the tube wall has strictly less area. So one area comparison
+decides whether the closed form is OCCT's answer — the predicate was not invented, it was found by
+measuring where the formula stops holding.
+
+**The construction was CHANGED after measuring, because the first one shipped a regression.**
+`forge::occtRevol` of the axial-section rectangle gives the right volume and is TKPrim-free, and it
+was written and measured first. On corpus part ho1002 it returned 4F/**8E** where OCCT returns
+4F/**6E**: every face a `Geom_SurfaceOfRevolution`, the two annular caps carrying a seam a planar
+annulus does not have. That is a coverage gain paid for with a SURFACE-TYPE regression — every
+downstream consumer asking "is this face a cylinder" would have started getting "no", including the
+corpus picker itself. It was replaced with
+`occtCylinderSolid(Rhi) CUT occtCylinderSolid(Rlo)`, which leaves exactly two
+`Geom_CylindricalSurface` walls and two `Geom_Plane` caps — the same inventory OCCT returns, now
+4F/6E/4V on both sides. The rejected construction is named in the engine banner so it is not
+rediscovered.
+
+**MEASURED, paired, same 600 parts, same derivation, nothing else changed:**
+
+    THICKEN   before   native 407/600 = 67.8%   OCCT 600 = 100.0%   deletion bucket 193
+              after    native 577/600 = 96.2%   OCCT 600 = 100.0%   deletion bucket  23
+              170 parts GAINED, 0 parts LOST, McNemar exact two-sided p = 1.34e-51
+
+Of the 170 newly-built parts: **all 170 are BRepCheck-VALID**, and the worst |volume| difference
+against live OCCT over all 170 is **0.000e+00** — bit-exact, not merely inside tolerance. 165 of the
+170 agree with OCCT on the FULL observable vector up to solid orientation; the 5 that do not differ
+ONLY in face/edge counts, where native emits the canonical 4F/6E/4V and OCCT emits a redundantly
+split 6F/13E/8V of the identical body.
+
+**The untouched control families did not move.** Run in the same process, same corpus, same commit:
+
+    FILLING      native 67.8%  OCCT 67.8%   deletion 0    (the known value, reproduced exactly)
+    MAKEOFFSET   native 94.5%  OCCT 99.0%   deletion 27   (the known value, reproduced exactly)
+
+A control that reproduces the prior number to the decimal is what makes the THICKEN delta readable
+as the change and not as the harness.
+
+**The remaining 23 are ONE named cause, not a mystery.** Every one of them defers with
+`"cylindrical path: the face is not the full parametric rectangle (a trimmed or holed patch)"` —
+the certificate declining exactly the inputs on which the closed form is provably not OCCT's answer.
+Closing them needs the holed-patch case, and that is now an attributable target rather than a
+silent null. THICKEN is still 3.8% short of parity, so `FORGE_THICKEN_DROP_NATIVE` does NOT flip:
+the gate is `>=`, and 96.2 < 100.0.
+
+**A withheld gate was restored, on a measurement — and the scope of that is SMALLER than it first
+reads.** `ab_native_thicken_occt` was excluded from `FORGE_AB_GATES` with a note recording it RED at
+a70dd1da (208 passed, 19 failed, all surface-type counts). That note had gone stale — the case5
+`want`s were re-measured and pinned on 2026-08-28. Measured on this tree BEFORE any change here:
+**227 passed, 0 failed, exit 0**. It is re-registered on that measurement, and it now builds and
+passes through ctest as `kernel.ab.ab_native_thicken_occt`.
+
+★ BUT `FORGE_AB_GATES` IS THE ctest LIST, AND CI DOES NOT INVOKE ctest FOR IT. Checked rather than
+assumed: `.github/workflows/kernel-tests.yml` runs `forge-kernel/test/run_ab_all.sh`, whose
+`HARNESSES` line ALREADY contained `thicken`, and this PR's CI run shows
+`[ab-all] ok thicken: 0 failure(s), baseline 0`. So the harness was never actually dark — it was
+running through the shell ratchet the whole time, and what the re-registration restores is its
+ctest membership, not its execution. Claiming otherwise would have been a bigger number than the
+measurement supports.
+
+**Nothing was weakened to get there.** The gate's defer control (a) used to feed a cylinder's
+lateral face and require a DECLINE with the reason "a face is not a Geom_Plane". That face is now
+BUILT, so the assertion is obsolete rather than inconvenient, and it was REPLACED by two stronger
+controls, not deleted: a HOLED cylindrical patch must decline with the certificate's own reason, and
+a SPHERICAL face must still decline with the original one — the engine gained ONE surface type, not
+a licence to approximate every one. Plus a new case 6 asserting the cylindrical result against live
+OCCT and against both closed forms, with the surface inventory pinned on both sides. The gate goes
+227 -> **285 passed, 0 failed**. Not one `want` was relaxed.
+
+**Drop hygiene, checked on the object file and not on the comment.**
+`NativeThickenShell.cpp.o` imports **0** `BRepOffset*`, **0** `BRepOffsetAPI*` and **0**
+`BRepPrimAPI*` symbols. The new path adds only `BRepAlgoAPI_Cut` (TKBO — the same toolkit the file's
+n-ary fuse already needed) and `forge::occtCylinderSolid` (in-house, TKPrim-free). No toolkit enters
+the closure.
+
+**Reversible.** The whole change is one guarded early-return in `thickenShell`, live only when the
+input is a SINGLE face carrying a `Geom_CylindricalSurface`; a shell with two or more faces, or one
+planar face, falls through to the code that has always handled it. Deleting that block restores
+67.8% exactly. The measurement above is what would have to be refuted first.
