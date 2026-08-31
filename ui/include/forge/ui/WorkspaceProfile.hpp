@@ -52,8 +52,9 @@ std::vector<std::string> workspaceCategories(WorkspaceProfile profile);
 // claims lands on the default (Part) workspace, so a command can never be
 // registered into a ribbon-less category.
 //
-// It could, and did. `registerPartCommands` registers 21 commands under the
-// category "Part"; workspaceCategories() named "Model" for the Part workspace
+// It could, and did. `registerPartCommands` registers every one of its commands
+// (21 at the revision measured below, 31 today) under the category "Part";
+// workspaceCategories() named "Model" for the Part workspace
 // and "Part" for nothing at all. Measured on 6a7f3aa3: the union of every
 // workspace's ribbon was 13 of 34 commands, and the 21 missing ones were every
 // command that builds geometry — extrude, revolve, loft, shell, the booleans,
