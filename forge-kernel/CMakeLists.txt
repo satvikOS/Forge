@@ -1312,6 +1312,11 @@ set(FORGE_KERNEL_SOURCES
     src/CamAdvanced.cpp
     src/GcodePost.cpp
     src/IoExchange.cpp
+    src/ExchangeService.cpp       # options-driven import/export (units, healing, tolerance,
+                                  # diagnostics) over src/IoExchange.cpp; the kernel half of
+                                  # forge::ui::ExchangeModel. Also the ONLY door to the OBJ
+                                  # codec, and the route that lets an OCCT-backed body reach
+                                  # STL/OBJ at all (forge::io::exportStl throws on one).
     src/DirectModeling.cpp
     src/Healing.cpp
     src/Features.cpp
@@ -1971,6 +1976,41 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
     target_link_libraries(forge_verify PRIVATE forge_kernel_core)
     if(APPLE)
         set_target_properties(forge_verify PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
+        )
+    endif()
+
+    # -------- forge_exchange_probe : ONE FILE, ONE PROCESS ----------------------
+    # The import/export instrument. Round-trip fidelity cannot be measured across
+    # a corpus in one address space: OCCT segfaults on some real parts (see
+    # reports/OCCT_NULL_PCURVE_SEGV.md) and a handful exceed any sane timeout, so
+    # a batch tool reports the first crash and nothing else. This probe does one
+    # file per process, prints one FLUSHED NDJSON line per stage, and a bad part
+    # costs exactly that part.
+    #
+    # ★ It compiles ui/src/ExchangeModel.cpp (headless forge::ui — no ImGui, no
+    # GPU, no kernel) so the options, the sniffer and the LOSS COMPARISON are the
+    # same code the application runs and the same code ui/test/run_ui.sh asserts
+    # on. A comparison written separately for the experiment would be a second
+    # definition of "fidelity".
+    add_executable(forge_exchange_probe
+        "${CMAKE_SOURCE_DIR}/src/tools/forge_exchange_probe.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/ExchangeModel.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/CommandRegistry.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/SelectionService.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/Types.cpp"
+    )
+    target_include_directories(forge_exchange_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_SOURCE_DIR}/../ui/include"
+        "${OCCT_INC}"
+    )
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_exchange_probe PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_exchange_probe PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_exchange_probe PROPERTIES
             BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
         )
     endif()
