@@ -122,7 +122,22 @@ jobs:
   macos-arm64:
     name: build + package Forge.app (macOS arm64)
     runs-on: macos-15
-    timeout-minutes: 90
+    # 90 was never exercised. Until the dependency-plane prefixes were exported this
+    # job died inside `release_dryrun.sh`'s kernel configure within SECONDS of starting,
+    # so no run had ever reached a real compile and the ceiling had never been tested
+    # against the work it actually has to do.
+    #
+    # The first run that got past configure built for 89.0 minutes and was killed by
+    # this timeout at 90.3 — a cancellation, which reads like an infrastructure blip
+    # rather than the honest "this build does not fit" that it is. Measured: 11 of 17
+    # steps completed, ccache restored a hit, and the kill landed inside "Build,
+    # package, and report the floor".
+    #
+    # 180 is a ceiling with headroom, not an estimate: the true cold-build cost is
+    # still unknown because no run has finished one yet. If a run ever approaches this
+    # number, the answer is a faster build (a warmer ccache key, or prebuilt OCCT),
+    # NOT a larger number.
+    timeout-minutes: 180
     env:
       # The floor this artifact is ALLOWED to have. macos-15 bottles are
       # arm64_sequoia, which measure 15.0. The build FAILS if the measured floor
