@@ -139,7 +139,12 @@ endforeach()
 # Compiled from source rather than linked from a prebuilt library: ui/ has no
 # CMakeLists of its own (its gate compiles the sources directly), and adding one
 # would change what `ui/test/run_ui.sh` builds.
-file(GLOB FORGE_UI_SOURCES "${FORGE_UI_DIR}/src/*.cpp")
+# CONFIGURE_DEPENDS: without it this glob is evaluated ONCE, at configure time, and
+# a NEW forge::ui source added later is silently absent from the link -- the build
+# fails with undefined symbols in a file nobody touched, or worse, links against a
+# stale object and the gate reports a pass it did not earn. Cost is one re-glob per
+# build; the alternative is a class of failure that looks like someone else's bug.
+file(GLOB FORGE_UI_SOURCES CONFIGURE_DEPENDS "${FORGE_UI_DIR}/src/*.cpp")
 add_library(forge_ui STATIC ${FORGE_UI_SOURCES})
 target_include_directories(forge_ui PUBLIC "${FORGE_UI_DIR}/include")
 # SR-3: -Wall -Wextra -Werror on FIRST-PARTY code. forge::ui is first-party.
@@ -176,11 +181,19 @@ target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui "${FORGE_KE
 add_executable(forge_desktop
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PlatformSDL2.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateService.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ViewportRenderer.cpp"
     ${SHADER_HEADERS})
 target_include_directories(forge_desktop PRIVATE "${SDL2_INC}" "${SHADER_GEN_DIR}")
 target_compile_options(forge_desktop PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_desktop PRIVATE forge_desktop_core "${SDL2_LIB}" "${VK_LOADER_LIB}")
+# forge_updater is linked into the APP, not into forge_desktop_core. The core is what
+# every headless gate drives, and a frame builder that could reach the network would
+# make each gate run depend on GitHub being up. The app owns the socket; the frame
+# renders the result. Until this line existed the shipped bundle contained ZERO
+# updater symbols -- the library, the CLI and its 130-check gate were all real, and
+# none of them was in the thing users install.
+target_link_libraries(forge_desktop PRIVATE forge_desktop_core forge_updater
+                      "${SDL2_LIB}" "${VK_LOADER_LIB}")
 set_target_properties(forge_desktop PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
@@ -215,10 +228,75 @@ target_link_libraries(forge_desktop_document_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_document_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------------------------------ updating
+# THE AUTO-UPDATER. Deliberately its own library with NO project dependencies --
+# not the kernel, not OCCT, not ImGui, not SDL, not Vulkan, and no third-party
+# code at all. Two reasons, both practical:
+#
+#   * The update path is what makes the Gatekeeper prompt one-time (see the
+#     header of src/update/Updater.hpp), so it must stay reviewable. A library
+#     whose whole link closure is libc++ is a library a person can audit.
+#   * It lets test/run_update_gate.sh build and run the gate with ONE c++
+#     invocation, in a tree that has never built the kernel. That script is the
+#     escape hatch from the FATAL_ERROR at the top of this file: configuring this
+#     project at all needs libforge_kernel_core, and "you must spend 40 minutes
+#     on OCCT before you can check the updater" is how a gate stops being run.
+#
+# Sparkle was NOT vendored. It is the right answer for a Developer-ID app that
+# needs delta updates, staged rollout and EdDSA appcasts; this ships ad-hoc
+# signed from GitHub Releases with a single zip per release, and the whole path
+# below is ~700 lines against a framework's several tens of thousands. The one
+# thing Sparkle would buy that is genuinely missing -- a signature over the
+# manifest -- is written down as owed in Updater.hpp rather than implied.
+add_library(forge_updater STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Version.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Sha256.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Manifest.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Updater.cpp")
+target_include_directories(forge_updater PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_options(forge_updater PRIVATE -Wall -Wextra -Werror)
+
+# `forge_update` — the same library, addressable from a shell. This is how the
+# update path gets exercised against the REAL GitHub release, which the headless
+# gate deliberately cannot do (it never opens a socket). It links forge_updater
+# and nothing else, so it builds in seconds and can be run on a machine that has
+# never built the kernel:
+#     forge_update check
+#     forge_update apply --app /Applications/Forge.app --relaunch
+add_executable(forge_update
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/update/main_update_cli.cpp")
+target_compile_options(forge_update PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_update PRIVATE forge_updater)
+
+# The UPDATE gate: headless, offline, and it never opens a socket. It drives the
+# real manifest parser, version ordering, digest, ditto staging, ad-hoc signature
+# check and atomic swap against real files in a temp directory, with a Fetcher
+# that copies from disk. `--mutate 1..7` proves it can fail; run_update_gate.sh
+# --mutations runs every one and requires each to go red.
+add_executable(forge_desktop_update_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/update_gate.cpp")
+target_compile_options(forge_desktop_update_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_update_gate PRIVATE forge_updater)
+
 enable_testing()
 add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
+add_test(NAME forge_desktop_update_gate COMMAND forge_desktop_update_gate)
+# The negative controls are their own ctest entries, so a mutation that stops
+# being caught is a RED TEST rather than a line nobody reads.
+#
+# WILL_FAIL is the whole point. update_gate keeps the same exit convention as the
+# other three gates -- non-zero means checks failed -- so a mutated run is
+# EXPECTED to be red, and WILL_FAIL says so declaratively. A mutation that starts
+# exiting ZERO is one whose defect the gate no longer detects, and ctest reports
+# that as a failure. Do not "fix" one of these by removing WILL_FAIL.
+foreach(_m RANGE 1 7)
+    add_test(NAME forge_desktop_update_gate_mutation_${_m}
+             COMMAND forge_desktop_update_gate --mutate ${_m})
+    set_tests_properties(forge_desktop_update_gate_mutation_${_m}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
 
 # A run helper that sets VK_ICD_FILENAMES, so "how do I run it" has one answer.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/run_forge.sh.in"

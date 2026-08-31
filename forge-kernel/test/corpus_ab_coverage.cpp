@@ -598,6 +598,37 @@ TopoDS_Wire spineFromFace(const gp_Pnt& origin, const gp_Dir& n, double len) {
     return mp.Wire();
 }
 
+// -- DIAGNOSTIC-ONLY DEFER-REASON CHANNEL for family A (behaviour-neutral) ---
+// The same device NativeLoftPipe.cpp uses for PIPE/PIPESHELL (its FK_DEFER
+// macro, src/native/brep/NativeLoftPipe.cpp:149-169), reproduced here because
+// family A's native path is not a library function -- it is nativeInwardOffset
+// below, in this file -- so there is no forge::occt* symbol to read a reason
+// out of. Every MO_DEFER expands to "record a label, then do EXACTLY what the
+// bare `return TopoDS_Shape()` did". No predicate, no tolerance, no branch and
+// no engine argument changes; the buffer is written and is never read by
+// anything but runArm's reasonFn, and only on a DEFER. It exists because all 33
+// of this family's native declines came back as a bare null shape, which made
+// the 27-part deletion bucket -- the closest any family has come to parity --
+// unattributable.
+thread_local char g_moReason[192] = {0};
+void moReasonClear() { g_moReason[0] = '\0'; }
+void moReasonAdd(const char* label) {
+    const std::size_t n = std::strlen(g_moReason);
+    // Collapse an immediately repeated label, for the reason NativeLoftPipe
+    // states: a wire with forty edges that all fail the same test says the same
+    // thing forty times and overflows the buffer, hiding the label that differs.
+    const std::size_t k = std::strlen(label);
+    if (n >= k && std::strcmp(g_moReason + n - k, label) == 0 &&
+        (n == k || g_moReason[n - k - 1] == '|')) return;
+    if (n + 2 >= sizeof g_moReason) return;
+    std::snprintf(g_moReason + n, sizeof g_moReason - n, "%s%s", n ? "|" : "", label);
+}
+#define MO_DEFER(label) do { moReasonAdd(label); return TopoDS_Shape(); } while (0)
+
+// Read by runArm ONLY on a DEFER, to fill ArmResult::note. Stale (meaningless)
+// after a call that succeeded, exactly like occtloft::lastDeferReason.
+const char* makeOffsetDeferReason() { return g_moReason; }
+
 // Family A's native path, replicated from src/Cam.cpp:257 tryNativeInwardOffset
 // (that function is in an anonymous namespace and cannot be linked). The wire
 // walk, the inward-sign rule and the default OffsetOptions are copied from that
@@ -612,7 +643,9 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
     using forge::native::geom::Point2;
     using forge::native::geom::PolygonOffset2D;
 
-    if (wire.IsNull() || offsetMm <= 0.0) return TopoDS_Shape();
+    moReasonClear();
+    if (wire.IsNull()) MO_DEFER("wire_null");
+    if (offsetMm <= 0.0) MO_DEFER("offset_le_zero");
 
     const gp_Ax3 ax(plane.Location(), plane.Axis().Direction());
     gp_Trsf toLocal;
@@ -646,7 +679,7 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
         for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
             const TopoDS_Edge e = ex.Current();
             BRepAdaptor_Curve ad;
-            try { ad.Initialize(e); } catch (...) { return TopoDS_Shape(); }
+            try { ad.Initialize(e); } catch (...) { MO_DEFER("curve_init_throw"); }
             const double f = ad.FirstParameter(), l = ad.LastParameter();
             const int N = (ad.GetType() == GeomAbs_Line) ? 1 : 24;
             const bool rev = (e.Orientation() == TopAbs_REVERSED);
@@ -654,7 +687,7 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
                 const double t = static_cast<double>(i) / static_cast<double>(N);
                 const double u = rev ? (l + (f - l) * t) : (f + (l - f) * t);
                 gp_Pnt p;
-                try { p = ad.Value(u); } catch (...) { return TopoDS_Shape(); }
+                try { p = ad.Value(u); } catch (...) { MO_DEFER("curve_value_throw"); }
                 push(p);
             }
         }
@@ -664,12 +697,49 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
         const Point2& la = loop.pts.back();
         if (std::fabs(fr.x - la.x) < 1e-9 && std::fabs(fr.y - la.y) < 1e-9) loop.pts.pop_back();
     }
-    if (loop.pts.size() < 3) return TopoDS_Shape();
+    if (loop.pts.size() < 3) {
+        char b[48];
+        std::snprintf(b, sizeof b, "lt3_pts_n%zu", loop.pts.size());
+        MO_DEFER(b);
+    }
+
+    // INVESTIGATION HOOK, off unless FORGE_MO_DUMP is set in the environment:
+    // print the ring this function actually handed the offset engine so a
+    // standalone probe can replay it. Writes to stderr only; no predicate,
+    // branch or argument depends on it.
+    if (std::getenv("FORGE_MO_DUMP")) {
+        std::fprintf(stderr, "MOLOOP n=%zu d=%.17g allLines=%d ccw=%d\n",
+                     loop.pts.size(), offsetMm, allLines ? 1 : 0,
+                     loop.isCCW() ? 1 : 0);
+        for (const Point2& q : loop.pts)
+            std::fprintf(stderr, "MOPT %.17g %.17g\n", q.x, q.y);
+    }
 
     const double signedDist = loop.isCCW() ? -offsetMm : offsetMm;
     OffsetOptions opts;                       // Round joins, auto arc tolerance
     OffsetResult res = PolygonOffset2D::offsetLoop(loop, signedDist, opts);
-    if (!res.ok || res.loops.empty()) return TopoDS_Shape();
+    if (!res.ok) {
+        char b[144];
+        std::snprintf(b, sizeof b, "engine_not_ok:%s", res.reason.c_str());
+        moReasonAdd(b);
+    } else if (res.loops.empty()) {
+        char b[64];
+        std::snprintf(b, sizeof b, "all_loops_collapsed_dropped%zu", res.droppedLoops);
+        moReasonAdd(b);
+    }
+    if (!res.ok || res.loops.empty()) {
+        // The census the attribution is actually made from: how the ring was
+        // walked, how big it is, which way it wound, and how far in it was
+        // pushed relative to its own size. Appended AFTER the label so a
+        // truncated buffer loses the numbers, never the cause.
+        char c[112];
+        std::snprintf(c, sizeof c, "walk=%s|pts=%zu|ccw=%d|d=%.4g|sqrtA=%.4g",
+                      allLines ? "lines" : "sampled", loop.pts.size(),
+                      loop.isCCW() ? 1 : 0, offsetMm,
+                      std::sqrt(std::fabs(loop.signedArea())));
+        moReasonAdd(c);
+        return TopoDS_Shape();
+    }
 
     const gp_Trsf toWorld = toLocal.Inverted();
     std::vector<TopoDS_Wire> outWires;
@@ -684,7 +754,11 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
         poly.Close();
         if (poly.IsDone()) outWires.push_back(poly.Wire());
     }
-    if (outWires.empty()) return TopoDS_Shape();
+    if (outWires.empty()) {
+        char b[64];
+        std::snprintf(b, sizeof b, "no_wire_from_%zu_loops", res.loops.size());
+        MO_DEFER(b);
+    }
     if (outWires.size() == 1) return outWires.front();
     TopoDS_Compound comp;
     BRep_Builder bb;
@@ -1108,7 +1182,7 @@ int main(int argc, char** argv) {
                 std::snprintf(od, sizeof od, "inward wire offset d=%.6g", d);
                 const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                     return nativeInwardOffset(w, d, pl);
-                }, false, T, NF);
+                }, false, T, NF, &makeOffsetDeferReason);
                 const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                     BRepOffsetAPI_MakeOffset off(w, GeomAbs_Arc);
                     off.Init(GeomAbs_Arc);
@@ -1137,7 +1211,7 @@ int main(int argc, char** argv) {
                 TopTools_ListOfShape faces;
                 faces.Append(rm);
                 return forge::occtoffset::makeThickSolid(src, wall, faces, 1.0e-3);
-            }, true, T, NF);
+            }, true, T, NF, &forge::occtoffset::lastThickSolidDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                 TopTools_ListOfShape faces;
                 faces.Append(rm);
@@ -1203,7 +1277,7 @@ int main(int argc, char** argv) {
                     secs.push_back(w1);
                     secs.push_back(w2);
                     return forge::occtloft::thruSections(secs, true, true, 1.0e-6);
-                }, true, T, NF);
+                }, true, T, NF, &forge::occtloft::lastDeferReason);
                 const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                     BRepOffsetAPI_ThruSections mk(Standard_True, Standard_True, 1.0e-6);
                     mk.AddWire(w1);

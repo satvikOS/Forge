@@ -135,6 +135,55 @@ ZIP="$DIST/Forge-macos-arm64-${VERSION}.zip"
 [ -f "$ZIP" ] || die "no zip at $ZIP"
 [ -x "$APP/Contents/MacOS/forge_desktop" ] || die "no executable inside the bundle"
 
+# ── 3b. the appcast must describe THIS zip ───────────────────────────────────
+# appcast.json is what every already-installed copy of Forge reads to find and
+# verify this release. A release whose appcast names a different build is a
+# release nobody's app can install, and that failure would surface on a user's
+# machine weeks later rather than here.
+#
+# Capability-detected the same way --macos-min is above: a ref whose packager
+# predates the updater writes no appcast, and this dry run must still be usable
+# on such a ref. The signal is the emitter's existence, not a silent skip.
+APPCAST="$DIST/appcast.json"
+APPCAST_OK="not-applicable"
+if [ -f "$ROOT/forge-desktop/emit_appcast.sh" ]; then
+  [ -f "$APPCAST" ] || die "this ref has emit_appcast.sh but produced no $APPCAST"
+  if python3 - "$APPCAST" "$ZIP" "$VERSION" <<'APPCAST_PY'
+import hashlib, json, os, sys
+m = json.load(open(sys.argv[1]))
+zip_path, version = sys.argv[2], sys.argv[3]
+errs = []
+if m.get("schema") != "forge-appcast/1":
+    errs.append("schema is %r" % m.get("schema"))
+if m.get("version") != version:
+    errs.append("version is %r, the build is %r" % (m.get("version"), version))
+size = os.path.getsize(zip_path)
+if m.get("size") != size:
+    errs.append("size is %r, the zip is %d" % (m.get("size"), size))
+digest = hashlib.sha256(open(zip_path, "rb").read()).hexdigest()
+if m.get("sha256") != digest:
+    errs.append("sha256 is %r, the zip hashes to %s" % (m.get("sha256"), digest))
+url = m.get("url", "")
+if not url.startswith("https://"):
+    errs.append("payload url is not https: %r" % url)
+if "/releases/latest/" in url or "/releases/download/" not in url:
+    # A floating payload URL makes the digest undescribable, and the app refuses
+    # one outright -- see forge-desktop/src/update/Manifest.hpp.
+    errs.append("payload url is not pinned to one release: %r" % url)
+if errs:
+    sys.stderr.write("appcast does not describe this build: " + "; ".join(errs) + "\n")
+    sys.exit(1)
+APPCAST_PY
+  then
+    APPCAST_OK="yes"
+    say "appcast describes this zip (version, size, sha256, pinned https url)"
+  else
+    die "the appcast does not describe the zip that was just built"
+  fi
+else
+  say "note: this ref has no emit_appcast.sh; no appcast to check"
+fi
+
 # ── 4. measure the floor, independently of the packager ──────────────────────
 # The highest minos across every Mach-O file in the bundle IS the artifact's
 # minimum macOS. Measured here rather than parsed out of the packager's prose so
@@ -177,6 +226,7 @@ REPORT="$DIST/Forge-macos-arm64-${VERSION}.dryrun.json"
   printf '  "version": "%s",\n' "$VERSION"
   printf '  "zip": "%s",\n' "$(basename "$ZIP")"
   printf '  "zip_sha256": "%s",\n' "$SHA"
+  printf '  "appcast_describes_this_zip": "%s",\n' "$APPCAST_OK"
   printf '  "host_macos": "%s",\n' "$(sw_vers -productVersion)"
   printf '  "deployment_target_requested": "%s",\n' "$MACOS_MIN"
   printf '  "measured_floor": "%s",\n' "$FLOOR"
@@ -201,6 +251,7 @@ cat <<SUMMARY
   zip             $ZIP  ($ZIP_SZ)
   sha256          $SHA
   report          $REPORT
+  appcast         $APPCAST  (describes this zip: $APPCAST_OK)
   version         $VERSION
   host macOS      $(sw_vers -productVersion)
   Mach-O files    $NMACH
@@ -214,10 +265,13 @@ cat <<SUMMARY
   GATEKEEPER               spctl exit $SPCTL_RC (accepted: $GK)
     $SPCTL_OUT
     codesigning identities on this host: ${IDENTITIES:-none}
-    An ad-hoc signature is NOT notarization. Until a Developer ID certificate
-    and a notarytool submission exist, every downloaded copy is refused until
-    the user runs:  xattr -dr com.apple.quarantine Forge.app
-    This is a CREDENTIAL blocker. No change to this repository can clear it.
+    An ad-hoc signature is NOT notarization, and spctl can never accept one:
+    this rejection is EXPECTED and is not a packaging defect. A downloaded
+    copy is refused on FIRST LAUNCH until the user approves it once via
+    System Settings > Privacy & Security > "Open Anyway" — the shipped steps
+    are docs/FIRST_LAUNCH_MACOS.md, and the release page carries them from
+    docs/RELEASE_BODY_macos.md. Removing the prompt entirely is a CREDENTIAL
+    blocker. No change to this repository can clear it.
 
   PUBLISHED       NO — no tag was created, no release was touched.
 ────────────────────────────────────────────────────────────────────────────
@@ -237,8 +291,11 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "| signature | ad-hoc, NOT notarized |"
     echo "| zip sha256 | \`$SHA\` |"
     echo
-    echo 'Gatekeeper rejection is expected and is blocked on a paid Developer ID certificate.'
-    echo 'Downloaders must run `xattr -dr com.apple.quarantine /Applications/Forge.app`.'
+    echo 'Gatekeeper rejection is EXPECTED for an ad-hoc signature and is not a build defect;'
+    echo 'clearing it entirely is blocked on a paid Developer ID certificate.'
+    echo 'Downloaders approve the app ONCE via System Settings > Privacy & Security >'
+    echo '"Open Anyway" — steps in `docs/FIRST_LAUNCH_MACOS.md`. Do not tell anyone to'
+    echo 'right-click > Open: Apple removed that shortcut in macOS 15 (Sequoia).'
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 

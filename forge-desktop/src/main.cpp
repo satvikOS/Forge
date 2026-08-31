@@ -61,6 +61,7 @@
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "PlatformSDL2.hpp"
+#include "UpdateService.hpp"
 #include "PngWriter.hpp"
 #include "ViewportRenderer.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -463,6 +464,27 @@ int main(int argc, char** argv) {
   }
 
   forge::desktop::ForgeFrame frame(shell, scene);
+
+  // ── auto-update ────────────────────────────────────────────────────────────
+  // The FIRST download is meant to be the last manual one. A shipped bundle is
+  // ad-hoc signed, so installing it costs a trip through System Settings > Privacy
+  // & Security; that cost is paid once only if the app can then update itself.
+  //
+  // The check is read-only -- it fetches the appcast and decides, downloading no
+  // payload -- and it runs off the UI thread, so a slow or unreachable GitHub
+  // cannot stall a frame. A version we cannot determine means no check at all,
+  // because an unknown running version cannot be ordered against a published one.
+  forge::desktop::UpdateService updates;
+  const std::string runningVersion =
+      forge::desktop::UpdateService::detectRunningVersion(argv[0]);
+  frame.setRunningVersion(runningVersion);
+  if (!runningVersion.empty()) {
+    std::printf("[forge] version %s; checking for updates in the background\n",
+                runningVersion.c_str());
+    updates.start(runningVersion);
+  } else {
+    std::printf("[forge] running outside an .app bundle - auto-update check skipped\n");
+  }
   const std::size_t partCommands = frame.wirePartCommands();
   std::printf("[forge] registry: %zu commands (%zu of them Part), %zu categories\n",
               shell.registry().size(), partCommands, shell.registry().categories().size());
@@ -530,6 +552,14 @@ int main(int argc, char** argv) {
       frame.onKey(kp.key, kp.mods);
     }
     platform.clearKeyPresses();
+
+    // Hand this frame the latest update state, and honour a Help-menu request.
+    // ForgeFrame raises the request; the socket lives out here.
+    frame.setUpdateInfo(updates.snapshot());
+    if (frame.updateCheckRequested()) {
+      frame.clearUpdateCheckRequest();
+      updates.start(runningVersion);
+    }
 
     frame.build(viewport.texture(), platform.dpiScale());
     ImGui::Render();

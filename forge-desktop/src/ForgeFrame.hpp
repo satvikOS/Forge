@@ -35,6 +35,7 @@
 #include "Camera.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MeasureModel.hpp"
@@ -120,6 +121,15 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Feed one key press. Returns true when it resolved to a command that ran.
   bool onKey(const std::string& key, forge::ui::ModMask mods);
 
+  // Re-frames the camera when the shell's fit counter has moved since the last
+  // call, and reports whether it did. Called once per build(), which is what
+  // makes `view.fit` work for EVERY invoker -- before this the counter was
+  // written by the command and read by nobody, and camera_.frame() ran exactly
+  // once, in the constructor. Public so the gate can drive it without a frame.
+  bool applyPendingFit();
+  // How many fits this frame builder has actually applied.
+  std::size_t fitsApplied() const noexcept { return fitsApplied_; }
+
   // Build the frame. Must be called between ImGui::NewFrame() and ImGui::Render().
   // `viewportTexture` is 0 when there is no 3D texture yet (headless, or the
   // first frame before the renderer has drawn one).
@@ -136,6 +146,29 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Instrumentation the frame gate asserts on.
   std::size_t panelsDrawn() const noexcept { return panelsDrawn_; }
   std::size_t treeRowsDrawn() const noexcept { return treeRowsDrawn_; }
+  // Test instrumentation: screen rect of the FIRST feature-tree expander drawn this
+  // frame, so a headless gate can click the real widget instead of guessing pixels.
+  struct WidgetRect { float x0 = 0, y0 = 0, x1 = 0, y1 = 0; bool valid = false; };
+  WidgetRect treeExpanderRect() const noexcept { return treeExpanderRect_; }
+
+  // ── auto-update, as PLAIN DATA ──────────────────────────────────────────────
+  // ForgeFrame never opens a socket. The check runs in the app layer, which owns
+  // the thread and the curl call and hands the outcome back in as data; the frame
+  // only RAISES a request and RENDERS a result. That split is what keeps
+  // frame_gate.cpp hermetic -- a frame builder that could reach the network would
+  // make every gate run depend on GitHub being up.
+  enum class UpdateState { Idle, Checking, UpToDate, Available, Failed };
+  struct UpdateInfo {
+    UpdateState state = UpdateState::Idle;
+    std::string version;  // the offered version, when Available
+    std::string message;  // always printable, never empty once a check has run
+  };
+  void setUpdateInfo(const UpdateInfo& u) { update_ = u; }
+  const UpdateInfo& updateInfo() const noexcept { return update_; }
+  void setRunningVersion(const std::string& v) { runningVersion_ = v; }
+  // Raised by the Help menu, consumed and cleared by the app layer.
+  bool updateCheckRequested() const noexcept { return updateCheckPending_; }
+  void clearUpdateCheckRequest() noexcept { updateCheckPending_ = false; }
   std::size_t treeRowCount() const noexcept { return tree_.rowCount(); }
   std::size_t treeMaterialized() const noexcept { return tree_.materialized(); }
   std::size_t treePeakMaterialized() const noexcept { return tree_.peakMaterialized(); }
@@ -160,6 +193,22 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   forge::ui::SelectionMeasure selectionMeasure();
   // Per-face rows the Measure panel drew on its last draw.
   std::size_t measureFaceRowsDrawn() const noexcept { return measureFaceRowsDrawn_; }
+  // Per-edge rows it drew. Separate counter because an edge selection and a face
+  // selection are different reports, and one counter for both cannot say which
+  // one was actually drawn.
+  std::size_t measureEdgeRowsDrawn() const noexcept { return measureEdgeRowsDrawn_; }
+
+  // ── the recovered B-rep edges ───────────────────────────────────────────
+  // Derived from the SAME triangle soup the Measure panel uses and cached on the
+  // same witness (the scene's triangle count), so a rebuild invalidates both at
+  // once and a stale edge can never be picked into a live selection. Non-const
+  // because the first call is what builds it.
+  const forge::ui::EdgeSet& edges();
+  // What the Measure panel reports for an EDGE selection.
+  forge::ui::EdgeMeasure edgeMeasure();
+  // The edge indices the typed selection currently names, decoded through the
+  // one key() vocabulary so the overlay and the Measure panel cannot disagree.
+  std::vector<std::size_t> selectedEdgeIndices();
 
   // ── the Archie Tools panel's data ───────────────────────────────────────
   forge::ui::ToolCatalog toolCatalog() const;
@@ -169,6 +218,16 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // into a typed EntityRef through SelectionService and re-flags the mesh.
   void setPreselectedFace(std::uint32_t faceId);
   void clickFace(std::uint32_t faceId, bool additive);
+  // The same round trip for an EDGE. `index` indexes edges(); kNoEdge clears.
+  // Without this pair the app could produce no EntityRef of kind Edge at all,
+  // and the three edge-signature commands in the registry -- part.fillet,
+  // part.chamfer, part.variable_fillet -- were unreachable from every gesture.
+  void setPreselectedEdge(std::size_t index);
+  void clickEdge(std::size_t index, bool additive);
+  // TRUE when the live selection filter means the viewport picks edges. The
+  // filter is the status strip's existing control; before this it could only
+  // REFUSE picks, because nothing ever offered it an Edge.
+  bool edgePickMode() const;
 
   // ── the feature PARAMETER editor ────────────────────────────────────────
   // Which statement, and which of its NUMBER arguments, the Properties panel is
@@ -256,6 +315,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // viewport highlight AND by the Measure panel, so the two cannot disagree
   // about which faces are picked.
   std::vector<std::uint32_t> selectedFaceIds() const;
+  // Draws one edge's polyline into the viewport overlay, projected through the
+  // live camera. Edges are highlighted here rather than in the vertex stream
+  // because a segment is not a triangle: scene_.applySelection flags VERTICES of
+  // picked faces, and there is no face to flag for an edge.
+  void drawEdgePolyline(const forge::ui::MeshEdge& edge, float x, float y, float w, float h,
+                        std::uint32_t colour, float thickness);
 
   forge::ui::ForgeShell& shell_;
   KernelScene& scene_;
@@ -287,6 +352,9 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool geometryDirty_ = false;            // latched for the host's re-upload
   std::size_t rebuilds_ = 0;
   std::string rebuildError_;
+  // The shell's fitCount as of the last fit this builder actually applied. The
+  // constructor frames the body once, so it starts at the shell's initial 0.
+  std::size_t fitsApplied_ = 0;
 
   // Measure panel cache. `measureTriangles_` is the triangle count the cache was
   // built from: it is the cheap witness that the scene has not been re-built
@@ -295,6 +363,13 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   forge::ui::MeshMeasure meshMeasure_{};
   std::size_t measureTriangles_ = 0;
   bool measureBuilt_ = false;
+
+  // The recovered edges, on the SAME triangle-count witness as the measure
+  // cache. Two witnesses for one tessellation is how one of them goes stale.
+  forge::ui::EdgeSet edges_;
+  std::size_t edgeTriangles_ = 0;
+  bool edgesBuilt_ = false;
+  std::size_t hoverEdge_ = forge::ui::kNoEdge;
 
   Camera camera_;
   ViewportRequest viewportRequest_;
@@ -308,8 +383,36 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::string status_ = "Ready";
   std::vector<std::string> log_;
   std::size_t panelsDrawn_ = 0;
+  // A tab click MUST NOT re-seat the layout while the draw is walking it.
+  // setActiveTabAt() does `shell_.layout() = std::move(rebuilt)`, which destroys every
+  // DockNode the recursion is holding by const reference; drawTabGroup then dereferenced
+  // the freed node and the app SIGSEGV'd at 0x17 -- the size byte of the dangling
+  // std::string -- on the very first tab click. The click is RECORDED here and applied
+  // after the walk finishes.
+  // The SPLITTER has the identical defect the tab click had: setRatioAt() ends in
+  // `shell_.layout() = std::move(rebuilt)`, and drawNode() reads node.children[1] on the
+  // next line. Deferred for the same reason and applied at the same point.
+  // THE THIRD INSTANCE of one root cause: mutating a container mid-walk while indices or
+  // references into it are still live. Expand/collapse called tree_.rebuild() inside the
+  // ImGuiListClipper loop, which changes rows_.size() while the clipper is iterating a range
+  // computed from the PREVIOUS rowCount -- so the next rowAt() threw std::out_of_range and
+  // the app aborted. Deferred like the other two.
+  bool pendingExpandValid_ = false;
+  forge::ui::NodeId pendingExpandId_{};
+  bool pendingExpandState_ = false;
+  bool pendingRatioValid_ = false;
+  std::vector<std::size_t> pendingRatioPath_;
+  double pendingRatioValue_ = 0.0;
+  bool pendingTabValid_ = false;
+  std::vector<std::size_t> pendingTabPath_;
+  std::size_t pendingTabIndex_ = 0;
   std::size_t treeRowsDrawn_ = 0;
+  WidgetRect treeExpanderRect_{};
+  UpdateInfo update_{};
+  std::string runningVersion_;
+  bool updateCheckPending_ = false;
   std::size_t measureFaceRowsDrawn_ = 0;
+  std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
   char toolQuery_[96] = {0};
   std::uint32_t hoverFace_ = 0;
