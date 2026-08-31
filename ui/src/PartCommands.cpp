@@ -616,6 +616,61 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── ROTATE ────────────────────────────────────────────────────────────────
+  // The other half of placement, and ORPHAN for the same reason TRANSLATE was:
+  // ROTATE sat in the kernel's op table with no command emitting it, so the op
+  // vocabulary listed it forbidden with the reason "no command in the forge::ui
+  // registry emits it". Without it a body could be moved but never turned, which
+  // makes every mating boolean between two features that are not already
+  // axis-aligned unreachable -- and orientation, like derived placement, is one
+  // of the sub-tasks this programme has measured as hardest for Archie, so
+  // leaving it unreachable made that failure permanent by construction.
+  //
+  // It is what the viewport's ROTATE gizmo commits to
+  // (forge::ui::kManipulatorRotateCommand): a drag on a ring ends in this one
+  // command, so a gizmo turn lands in the same journal, the same undo stack and
+  // the same feature tree as a menu invocation, because it IS the same command.
+  //
+  // All EIGHT arguments are always emitted -- angle, axis, and the pivot. The
+  // kernel's last three default to the world origin, and a gizmo turns a body
+  // about the SELECTION's centroid, so leaving them out would rotate a part that
+  // sits away from the origin right off the screen.
+  {
+    CommandDescriptor c = base("part.rotate_body", "Rotate Body", "ROTATE",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{.name = "angle",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 90.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"axx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"axy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"axz", ParamType::Number, false, 1.0, ""});
+    c.schema.push_back(ParamSpec{"ox", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"oy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"oz", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      // A zero angle is a no-op statement in the history, and a zero AXIS is not
+      // a rotation at all -- the kernel would be handed a degenerate frame.
+      // Refuse both rather than record them.
+      return solidTarget(*d, ctx.selection()).ok && num(ctx, "angle", 0.0) != 0.0 &&
+             (num(ctx, "axx", 0.0) != 0.0 || num(ctx, "axy", 0.0) != 0.0 ||
+              num(ctx, "axz", 0.0) != 0.0);
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value),      IrArg::num(num(ctx, "angle", 0.0)),
+                              IrArg::num(num(ctx, "axx", 0.0)), IrArg::num(num(ctx, "axy", 0.0)),
+                              IrArg::num(num(ctx, "axz", 1.0)), IrArg::num(num(ctx, "ox", 0.0)),
+                              IrArg::num(num(ctx, "oy", 0.0)),  IrArg::num(num(ctx, "oz", 0.0))};
+      emit(ctx, *d, *s, "part.rotate_body", "Rotate Body", "ROTATE", std::move(args),
+           IrValueKind::Solid, {t.node}, t.node);
+    };
+    add(std::move(c));
+  }
+
   // ── EXTRUDE ───────────────────────────────────────────────────────────────
   {
     CommandDescriptor c = base("part.extrude", "Extrude", "EXTRUDE",
@@ -1140,8 +1195,8 @@ const std::vector<std::string>& partCommandIds() {
         "part.extrude",           "part.fillet",            "part.hole",
         "part.loft",              "part.mirror",            "part.move",
         "part.pattern_circular",  "part.pattern_grid",      "part.pattern_linear",
-        "part.revolve",           "part.section_ring",      "part.shell",
-        "part.sketch_circle",     "part.sketch_rect",
+        "part.revolve",           "part.rotate_body",       "part.section_ring",
+        "part.shell",             "part.sketch_circle",     "part.sketch_rect",
         "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());

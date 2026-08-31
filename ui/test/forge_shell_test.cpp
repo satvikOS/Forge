@@ -160,7 +160,14 @@ int main() {
   // chord to them, so those keys reported Ok and changed nothing -- and with a
   // DocumentHost installed even the counters were overwritten on the way out of
   // run(). They are retired; the real commands come from the workspace.
-  CHECK_EQ_INT(app.shellCommands, 10);
+  // 10 core (file/edit/app/workspace) + 18 VIEWPORT commands: 5 display modes
+  // (view.wireframe was already one of the 10, so 4 are new), 7 standard views,
+  // zoom-to-selection, 4 section-plane commands, and the 2 selection commands.
+  // Before those, the app's whole view surface was `view.fit` and a wireframe
+  // BOOLEAN -- four of the seven standard views existed only as Camera methods
+  // no command called, and the selection filter could be changed by no macro,
+  // keystroke or Archie tool call at all.
+  CHECK_EQ_INT(app.shellCommands, 28);
   CHECK(!shell.registry().contains("model.extrude"));
   CHECK(!shell.registry().contains("model.fillet"));
   CHECK(!shell.registry().contains("model.shell"));

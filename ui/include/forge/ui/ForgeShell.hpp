@@ -22,9 +22,40 @@
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
+#include "forge/ui/ViewOrientation.hpp"
+#include "forge/ui/ViewStyle.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
 namespace forge::ui {
+
+// ── the viewport's own state ────────────────────────────────────────────────
+//
+// It is HERE, in the shell, and not in the frame builder, for the same reason
+// the selection and the dock tree are: a view command must be dispatchable from
+// a macro, a keystroke and an Archie tool call, and a piece of state only the
+// ImGui frame owns is reachable from none of them. The shell owns WHAT the view
+// is; the frame owns the camera that realises it.
+//
+// The two counters are REQUESTS, following `DocumentStats::fitCount` exactly: a
+// command bumps one, and the frame applies it once per build() and remembers how
+// far it has got. That is what makes `view.top` work for every invoker -- before
+// fitCount was applied that way, `view.fit` journalled "ok" and the camera did
+// not move, which is the defect the pattern exists to prevent.
+struct ViewState {
+  DisplayMode mode = DisplayMode::ShadedEdges;
+  // What `view.wireframe` toggles BACK to. A toggle that always returned to
+  // Shaded would silently discard a user's shaded-with-edges or transparent
+  // choice every time they glanced at the wireframe.
+  DisplayMode restoreMode = DisplayMode::ShadedEdges;
+  SectionPlane section{};
+
+  ViewOrientation orientation{};  // what the last standard-view command asked for
+  std::size_t orientationCount = 0;
+  std::size_t zoomSelectionCount = 0;
+  // Bumped by any change to `mode` or `section`, so a renderer can re-upload on
+  // a witness rather than on a flag somebody has to remember to set.
+  std::size_t styleCount = 0;
+};
 
 // Observable document state, mutated only by registered command handlers.
 struct DocumentStats {
@@ -137,6 +168,16 @@ class ForgeShell {
   const SelectionService& selection() const noexcept { return selection_; }
   const Keymap& keymap() const noexcept { return keymap_; }
   const DocumentStats& document() const noexcept { return doc_; }
+  const ViewState& view() const noexcept { return view_; }
+
+  // ── the view seam ───────────────────────────────────────────────────────
+  // The shell owns the section PLANE but not where the model is, so the host
+  // places it: `view.section_toggle` turns a plane on, and the frame builder
+  // parks it through the middle of the body's bounding box. Both bump the same
+  // styleCount, so a renderer cannot tell a command-driven change from a
+  // host-driven one -- and does not need to.
+  void setSectionPlane(const SectionPlane& plane) noexcept;
+  void setDisplayMode(DisplayMode mode) noexcept;
 
   // ── the document seam ───────────────────────────────────────────────────
   // Install the owner of the real document. Pass nullptr to detach. The counters
@@ -189,6 +230,11 @@ class ForgeShell {
   // Pulls the counters out of the installed host. A no-op with no host, which is
   // what keeps the host-free behaviour bit-identical.
   void syncDocumentStats();
+  // Records a standard-view REQUEST. Private because a view is asked for through
+  // its command id -- the shell must not offer a second path that skips the
+  // journal, which is the "same command, two invokers, two outcomes" defect the
+  // single registry exists to prevent.
+  void requestView(StandardViewId id) noexcept;
 
   CommandRegistry registry_;
   SelectionService selection_;
@@ -201,6 +247,7 @@ class ForgeShell {
   std::map<std::string, std::string> savedLayouts_;  // workspace name -> serialized layout
 
   DocumentStats doc_;
+  ViewState view_;
   DocumentHost* documentHost_ = nullptr;
   std::string documentError_;
   std::vector<std::string> journal_;

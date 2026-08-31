@@ -48,15 +48,15 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "7c838860ce559ef2473c414317354b78954ec3b581675eea5b95ea81c2f7ecd9",
-        "bytes": 59916,
-        "lines": 1153
+        "sha256": "6dd9bf53a1de6f8021fec7051af126e2e7ff70ea579fa5d783e792948b270bbd",
+        "bytes": 63534,
+        "lines": 1208
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "6fcc1fc9d6a53889ec711c0c8f64849b5d7222ed634ab4f9dcce1f9ea888ab13",
-        "bytes": 17932,
-        "lines": 474
+        "sha256": "cc183f2630c512f95d25150786f3f63301343ce55cc61b19e138792b33cc355a",
+        "bytes": 31213,
+        "lines": 797
       }
     ],
     "build_configuration": {
@@ -78,10 +78,10 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 31,
-    "commands_emitting_ir": 20,
-    "user_invocable_ops": 18,
-    "forbidden_ops": 22,
+    "registry_commands": 50,
+    "commands_emitting_ir": 21,
+    "user_invocable_ops": 19,
+    "forbidden_ops": 21,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
@@ -103,6 +103,7 @@
       "RECT",
       "REVOLVE",
       "RING",
+      "ROTATE",
       "SHELL",
       "TRANSLATE"
     ],
@@ -2398,6 +2399,156 @@
       ]
     },
     {
+      "op": "ROTATE",
+      "kernel_enum": "Rotate",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 5,
+        "max_args": 8,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "angleDeg",
+              "index": 1,
+              "unit": "deg",
+              "semantic": "angle",
+              "classified_by": "rule: /Deg$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "axx",
+              "index": 2,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "axy",
+              "index": 3,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "axz",
+              "index": 4,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "ox",
+              "default": "0",
+              "index": 5,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "oy",
+              "default": "0",
+              "index": 6,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "oz",
+              "default": "0",
+              "index": 7,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.rotate_body"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "angle",
+            "axx",
+            "axy",
+            "axz",
+            "ox",
+            "oy",
+            "oz"
+          ],
+          "argument_count": {
+            "min": 8,
+            "max": 8
+          },
+          "examples": [
+            {
+              "parameters": {
+                "angle": 90.0,
+                "axx": 3.0,
+                "axy": 4.0,
+                "axz": 6.0,
+                "ox": 6.0,
+                "oy": 7.0,
+                "oz": 8.0
+              },
+              "ir_arguments": [
+                "%body",
+                "90",
+                "3",
+                "4",
+                "6",
+                "6",
+                "7",
+                "8"
+              ],
+              "ir_text": "%<id> = ROTATE(%body, 90, 3, 4, 6, 6, 7, 8)"
+            }
+          ],
+          "command": "part.rotate_body"
+        }
+      ]
+    },
+    {
       "op": "SHELL",
       "kernel_enum": "Shell",
       "produces": "SOLID",
@@ -2735,15 +2886,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "RESIZEBORE(%body, \"sel\", newRadius)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "ROTATE",
-      "kernel_enum": "Rotate",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -3844,6 +3986,96 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.rotate_body",
+      "label": "Rotate Body",
+      "category": "Part",
+      "feature_ir_op": "ROTATE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "angle",
+          "type": "Number",
+          "required": true,
+          "default_number": 90.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "axx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axz",
+          "type": "Number",
+          "required": false,
+          "default_number": 1.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "ox",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "oy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "oz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && num(ctx, \"angle\", 0.0) != 0.0 && (num(ctx, \"axx\", 0.0) != 0.0 || num(ctx, \"axy\", 0.0) != 0.0 || num(ctx, \"axz\", 0.0) != 0.0)",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "angle",
+            "comparison": "!=",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": [
+          "num(ctx, \"axx\", 0.0) != 0.0 || num(ctx, \"axy\", 0.0) != 0.0 || num(ctx, \"axz\", 0.0) != 0.0"
+        ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.section_ring",
       "label": "Section Ring",
       "category": "Part",
@@ -4188,6 +4420,79 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "select.clear",
+      "label": "Clear Selection",
+      "category": "Selection",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "select.filter",
+      "label": "Selection Filter",
+      "category": "Selection",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "any",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.back",
+      "label": "Back",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.bottom",
+      "label": "Bottom",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
       "id": "view.fit",
       "label": "Fit View",
       "category": "View",
@@ -4204,8 +4509,250 @@
       "source": "ui/src/ForgeShell.cpp"
     },
     {
+      "id": "view.front",
+      "label": "Front",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.hidden_line",
+      "label": "Hidden Line",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.iso",
+      "label": "Isometric",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.left",
+      "label": "Left",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.right",
+      "label": "Right",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.section_axis",
+      "label": "Section Plane Axis",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "axis",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.section_flip",
+      "label": "Flip Section",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.section_offset",
+      "label": "Section Plane Offset",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "offset",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.section_toggle",
+      "label": "Section View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.shaded",
+      "label": "Shaded",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.shaded_edges",
+      "label": "Shaded with Edges",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.top",
+      "label": "Top",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.transparent",
+      "label": "Transparent",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
       "id": "view.wireframe",
       "label": "Wireframe Display",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.zoom_selection",
+      "label": "Zoom to Selection",
       "category": "View",
       "feature_ir_op": null,
       "emits_feature_ir": false,

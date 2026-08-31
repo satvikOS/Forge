@@ -18,6 +18,33 @@ namespace forge::ui {
 
 ForgeShell::ForgeShell() { registerCommands(); }
 
+// ── the view seam ───────────────────────────────────────────────────────────
+void ForgeShell::setDisplayMode(DisplayMode mode) noexcept {
+  if (mode != DisplayMode::Wireframe) {
+    // Remember where a wireframe toggle should come BACK to. Recording it only
+    // for non-wireframe modes is what stops "wireframe, wireframe" from making
+    // wireframe its own restore target and stranding the user there.
+    view_.restoreMode = mode;
+  }
+  if (view_.mode == mode) return;
+  view_.mode = mode;
+  // The one boolean the status strip and ViewportRequest have always read. It is
+  // DERIVED here rather than set alongside, so the two cannot disagree about
+  // whether the viewport is in wireframe.
+  doc_.wireframe = mode == DisplayMode::Wireframe;
+  ++view_.styleCount;
+}
+
+void ForgeShell::setSectionPlane(const SectionPlane& plane) noexcept {
+  view_.section = plane;
+  ++view_.styleCount;
+}
+
+void ForgeShell::requestView(StandardViewId id) noexcept {
+  view_.orientation = orientationForStandardView(id);
+  ++view_.orientationCount;
+}
+
 // ── the command set ─────────────────────────────────────────────────────────
 // Every one of these carries the full s19.2 contract: stable ID, label,
 // category, selection signature, enabled predicate, parameter schema, preview
@@ -184,7 +211,303 @@ void ForgeShell::registerCommands() {
     c.sideEffect = SideEffectClass::ViewOnly;
     c.undo = UndoContract::NotUndoable;
     c.enabled = always;
-    c.execute = [this](CommandContext&) { doc_.wireframe = !doc_.wireframe; };
+    // Still a TOGGLE, and still the id every input profile's keymap binds --
+    // renaming a stable id would break every recorded macro. What changed is
+    // what it toggles: the display MODE, of which wireframe is one of five,
+    // rather than the one boolean that used to be the whole display model.
+    // `doc_.wireframe` is kept in step because the status strip and the
+    // renderer's ViewportRequest both read it.
+    c.execute = [this](CommandContext&) {
+      setDisplayMode(view_.mode == DisplayMode::Wireframe ? view_.restoreMode
+                                                          : DisplayMode::Wireframe);
+    };
+    registry_.add(std::move(c));
+  }
+  // ── the other four display modes ──────────────────────────────────────────
+  // Shaded, shaded-with-edges, hidden-line and transparent. Each id below is
+  // ALSO a row in the ONE table in ViewStyle.hpp, which the View menu, the
+  // status strip and a saved workspace all read; forge_shell_test asserts the
+  // two agree in both directions, so a mode with no command and a command with
+  // no mode are both caught. They are written out one block apiece, not looped,
+  // because a stable command id must be a greppable literal -- and because the
+  // Archie op-vocabulary derivation reads THIS FUNCTION as its source of truth
+  // for what the registry holds.
+  //
+  // view.wireframe is not here: it exists above with its toggle semantics.
+  {
+    CommandDescriptor c;
+    c.id = "view.shaded";
+    c.label = "Shaded";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    // Selecting the mode you are already in is a no-op, not an error: greying it
+    // out would make the View menu unable to SHOW which mode is active.
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { setDisplayMode(DisplayMode::Shaded); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.shaded_edges";
+    c.label = "Shaded with Edges";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { setDisplayMode(DisplayMode::ShadedEdges); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.hidden_line";
+    c.label = "Hidden Line";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { setDisplayMode(DisplayMode::HiddenLine); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.transparent";
+    c.label = "Transparent";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { setDisplayMode(DisplayMode::Transparent); };
+    registry_.add(std::move(c));
+  }
+  // ── the seven standard views ──────────────────────────────────────────────
+  // Front, back, left, right, top, bottom and isometric. Not one angle is typed
+  // here: every pose is DERIVED from its view-cube zone (ViewOrientation.hpp),
+  // so clicking the cube's top face and picking View > Top are one pose and
+  // cannot drift apart. Before this the app had FOUR views and no way to reach
+  // any of them but an orbit drag -- Camera::setFront/setTop/setRight/
+  // setIsometric existed and no command called them, and there was no back, left
+  // or bottom view at all.
+  {
+    CommandDescriptor c;
+    c.id = "view.front";
+    c.label = "Front";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { requestView(StandardViewId::Front); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.back";
+    c.label = "Back";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { requestView(StandardViewId::Back); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.left";
+    c.label = "Left";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { requestView(StandardViewId::Left); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.right";
+    c.label = "Right";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { requestView(StandardViewId::Right); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.top";
+    c.label = "Top";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { requestView(StandardViewId::Top); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.bottom";
+    c.label = "Bottom";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { requestView(StandardViewId::Bottom); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.iso";
+    c.label = "Isometric";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { requestView(StandardViewId::Isometric); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.zoom_selection";
+    c.label = "Zoom to Selection";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    // It needs SOMETHING picked. Offering it on an empty selection would either
+    // do nothing while reporting Ok, or fly the camera to the world origin and
+    // lose the part -- both worse than a greyed-out menu item that says why.
+    c.enabled = [](const CommandContext& ctx) { return ctx.selection().count() > 0; };
+    c.execute = [this](CommandContext&) { ++view_.zoomSelectionCount; };
+    registry_.add(std::move(c));
+  }
+  // ── the section plane ─────────────────────────────────────────────────────
+  // A section is the only way to see a bore's wall thickness, and on the
+  // 329-430-face parts this app targets the inside of the model is otherwise
+  // unreachable. It is a plane ACROSS the modes, not a sixth mode: sectioned
+  // wireframe and sectioned shaded are both real and both used.
+  {
+    CommandDescriptor c;
+    c.id = "view.section_toggle";
+    c.label = "Section View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      SectionPlane p = view_.section;
+      p.enabled = !p.enabled;
+      // A plane with a zero normal cuts nothing and would report `enabled` while
+      // doing nothing at all. Turning one on always gives it a real normal.
+      if (p.enabled && !p.valid()) p = axisSectionPlane(0, p.offset);
+      setSectionPlane(p);
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.section_axis";
+    c.label = "Section Plane Axis";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.schema.push_back(ParamSpec{.name = "axis",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 0.0,
+                                 .hasDefault = true});
+    c.enabled = always;
+    c.execute = [this](CommandContext& ctx) {
+      const double a = ctx.params().number("axis").value_or(0.0);
+      if (!(a >= 0.0 && a <= 2.0)) {
+        ctx.fail("section axis must be 0 (X), 1 (Y) or 2 (Z)");
+        return;
+      }
+      setSectionPlane(axisSectionPlane(static_cast<int>(a), view_.section.offset));
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.section_offset";
+    c.label = "Section Plane Offset";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.schema.push_back(ParamSpec{.name = "offset",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 0.0,
+                                 .hasDefault = true});
+    c.enabled = always;
+    c.execute = [this](CommandContext& ctx) {
+      SectionPlane p = view_.section;
+      p.offset = ctx.params().number("offset").value_or(0.0);
+      setSectionPlane(p);
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.section_flip";
+    c.label = "Flip Section";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    // Flipping a plane that is off changes nothing a user can see, and a menu
+    // item that does nothing is how a control stops being trusted.
+    c.enabled = [this](const CommandContext&) { return view_.section.enabled; };
+    c.execute = [this](CommandContext&) {
+      SectionPlane p = view_.section;
+      p.flip();
+      setSectionPlane(p);
+    };
+    registry_.add(std::move(c));
+  }
+  // ── the selection filter, as a COMMAND ────────────────────────────────────
+  // The filter is what makes "pick an edge" mean it, and it already exists on
+  // SelectionService and in the status strip's combo. What it did not have was a
+  // dispatchable id: a macro, a keystroke and an Archie tool call could not
+  // change it, so a recorded workflow that fillets an edge could not put the app
+  // into edge-picking mode first and would fail on whatever the user had left
+  // selected.
+  {
+    CommandDescriptor c;
+    c.id = "select.filter";
+    c.label = "Selection Filter";
+    c.category = "Selection";
+    c.sideEffect = SideEffectClass::Selection;
+    c.undo = UndoContract::NotUndoable;
+    c.schema.push_back(ParamSpec{.name = "kind",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "any",
+                                 .hasDefault = true});
+    c.enabled = always;
+    c.execute = [this](CommandContext& ctx) {
+      const std::string want = ctx.params().text("kind").value_or(std::string("any"));
+      const EntityKind kinds[] = {EntityKind::Any,    EntityKind::Vertex, EntityKind::Edge,
+                                  EntityKind::Face,   EntityKind::Body,   EntityKind::Sketch,
+                                  EntityKind::Wire,   EntityKind::Feature};
+      for (EntityKind k : kinds) {
+        if (want == toString(k)) {
+          selection_.setFilter(k);
+          return;
+        }
+      }
+      // NAME the refusal. "something failed" is not actionable by a UI or by a
+      // repair loop; the offending spelling is.
+      ctx.fail("no selection filter named \"" + want + "\"");
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "select.clear";
+    c.label = "Clear Selection";
+    c.category = "Selection";
+    c.sideEffect = SideEffectClass::Selection;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return selection_.count() > 0; };
+    c.execute = [this](CommandContext&) { selection_.clearSelection(); };
     registry_.add(std::move(c));
   }
   // ── THERE ARE NO MODELLING COMMANDS HERE ──────────────────────────────────
