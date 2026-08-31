@@ -75,6 +75,8 @@ namespace {
 
 int g_pass = 0, g_total = 0;
 
+const double kPi = 3.14159265358979323846;
+
 void check(bool cond, const std::string& what) {
     ++g_total;
     std::printf("  %s %s\n", cond ? "[PASS]" : "[FAIL]", what.c_str());
@@ -914,9 +916,17 @@ int main() {
                 }
             }
 
-            // A hole this engine cannot represent must DEFER, never be dropped.
-            // An ELLIPTICAL hole is neither a polygon nor a circle: no exact
-            // swept surface exists in this engine's vocabulary for it.
+            // ★ AN ELLIPTICAL HOLE IS NOW CARRIED, NOT DECLINED — and the thing
+            // this case has always been protecting against is the hole being
+            // silently DROPPED. Until the curved-section transport landed there
+            // was no exact swept surface in this engine's vocabulary for an
+            // ellipse and the only honest answer was a defer; sweepFaceMitre
+            // extrudes the section FACE, so every boundary curve — the four
+            // outer lines and the elliptical inner wire alike — gets its own
+            // Geom_SurfaceOfLinearExtrusion lateral face. The assertion is
+            // therefore STRENGTHENED rather than relaxed: the closed form now
+            // has to come out right WITH the hole subtracted, and the extra wall
+            // has to be present, which a dropped hole could not fake.
             {
                 const TopoDS_Wire sp = spineOf(straightSpine);
                 gp_Elips he(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 6.0, 3.0);
@@ -925,8 +935,29 @@ int main() {
                 ew.Reverse();
                 BRepBuilderAPI_MakeFace mkEl(outer, Standard_True);
                 mkEl.Add(ew);
-                check(forge::occtloft::pipe(sp, mkEl.Face(), 1.0e-6).IsNull(),
-                      "defer: a face with an ELLIPTICAL hole is DECLINED, not swept without it");
+                const TopoDS_Shape natEl = forge::occtloft::pipe(sp, mkEl.Face(), 1.0e-6);
+                const TopoDS_Face solidFace =
+                    BRepBuilderAPI_MakeFace(outer, Standard_True).Face();
+                const TopoDS_Shape natFull = forge::occtloft::pipe(sp, solidFace, 1.0e-6);
+                check(!natEl.IsNull(),
+                      "elliptical hole: the sweep BUILDS (curved-section transport)");
+                check(!natFull.IsNull(), "elliptical hole control: the hole-free sweep builds");
+                if (!natEl.IsNull() && !natFull.IsNull()) {
+                    const Metrics ne = measure(natEl), nf = measure(natFull);
+                    const double cf = (1600.0 - kPi * 6.0 * 3.0) * 25.0;
+                    std::printf("      elliptical-hole vol=%.10g F=%d S=%d valid=%d   "
+                                "hole-free vol=%.10g F=%d\n",
+                                ne.vol, ne.nFace, ne.nShell, static_cast<int>(ne.valid),
+                                nf.vol, nf.nFace);
+                    check(relClose(ne.vol, cf, 1.0e-9),
+                          "elliptical hole: volume == CLOSED FORM (square minus pi*a*b) * 25");
+                    check(!relClose(ne.vol, nf.vol, 1.0e-6),
+                          "elliptical hole: the hole is THERE — volume differs from hole-free");
+                    check(ne.nFace == nf.nFace + 1,
+                          "elliptical hole: exactly ONE extra face, the elliptical wall");
+                    check(ne.nShell == 1, "elliptical hole: exactly ONE shell");
+                    check(ne.valid, "elliptical hole: the solid is BRepCheck VALID");
+                }
             }
         }
 
@@ -1379,8 +1410,20 @@ int main() {
                           "defer: a TILTED arc in an arc-chain profile is DECLINED");
                     (void)a; (void)b;
                 }
-                // (d) a B-SPLINE boundary is the 106-part wall: no arc geometry
-                //     reaches it and the engine says so.
+                // (d) ★ THE 106-PART WALL, NOW A POSITIVE ROW. A B-SPLINE
+                //     boundary was the largest single decline bucket in the corpus
+                //     census (106 of the 291 declined profiles) and this row
+                //     asserted that defer. The general planar-section transport
+                //     carries it, so the row is INVERTED rather than deleted -- a
+                //     decline that becomes a build is exactly the kind of change
+                //     that must show up in the suite.
+                //
+                //     Checked against an INDEPENDENT closed form, not the engine's
+                //     own oracle: the spine here is STRAIGHT, so the sweep is a
+                //     prism and V = area(section) x 25, with the area measured off
+                //     the FACE by BRepGProp rather than taken from the sweep.
+                //     Validity is asserted SEPARATELY, because volume cannot see a
+                //     fold -- see (d2) directly below.
                 {
                     TColgp_Array1OfPnt pts(1, 4);
                     pts(1) = gp_Pnt(-15, -10, 0); pts(2) = gp_Pnt(-5, 14, 0);
@@ -1392,9 +1435,64 @@ int main() {
                     w.Add(lineEdge(gp_Pnt(0, 25, 0), gp_Pnt(-15, -10, 0)));
                     const TopoDS_Face f =
                         BRepBuilderAPI_MakeFace(w.Wire(), Standard_True).Face();
-                    check(forge::occtloft::pipe(sp, f, 1.0e-6).IsNull(),
-                          "defer: a profile with a SPLINE edge is DECLINED "
-                          "(the 106-part wall, named not hidden)");
+                    // This particular outline is SELF-INTERSECTING: the S-shaped
+                    // Bezier crosses its own closing lines, so the FACE is not valid
+                    // and the section gate declines it. Measured, not assumed --
+                    // the reason is asserted below. Declining it is correct, and the
+                    // row is kept as a decline WITH ITS REASON NAMED, which is a
+                    // stronger claim than the bare IsNull() it replaces: it says the
+                    // engine refused for the right cause rather than by accident.
+                    const TopoDS_Shape spl = forge::occtloft::pipe(sp, f, 1.0e-6);
+                    const std::string splWhy = forge::occtloft::lastDeferReason();
+                    std::printf("      self-intersecting spline outline: reason %s\n",
+                                splWhy.c_str());
+                    check(spl.IsNull(),
+                          "a SELF-INTERSECTING spline outline is DECLINED");
+                    check(splWhy.find("gen_section_invalid") != std::string::npos,
+                          "and it is the SECTION-VALIDITY gate that declined it");
+
+                    // ★ THE 106-PART WALL ITSELF, positively. A WELL-FORMED spline
+                    // outline is the capability the census counted (106 of 291
+                    // declined profiles carried B-spline edges), and it must BUILD.
+                    // Checked against an INDEPENDENT closed form rather than the
+                    // engine's own oracle: the spine here is STRAIGHT, so the sweep
+                    // is a prism and V = area(section) x 25, with the area measured
+                    // off the FACE by BRepGProp. Validity is asserted SEPARATELY,
+                    // because volume cannot see a fold -- see (d2) below.
+                    {
+                        TColgp_Array1OfPnt gp_(1, 4);
+                        gp_(1) = gp_Pnt(-15, -8, 0); gp_(2) = gp_Pnt(-5, 4, 0);
+                        gp_(3) = gp_Pnt(5, 4, 0);    gp_(4) = gp_Pnt(15, -8, 0);
+                        Handle(Geom_BezierCurve) gb = new Geom_BezierCurve(gp_);
+                        BRepBuilderAPI_MakeWire gw;
+                        gw.Add(BRepBuilderAPI_MakeEdge(gb).Edge());
+                        gw.Add(lineEdge(gp_Pnt(15, -8, 0), gp_Pnt(0, 20, 0)));
+                        gw.Add(lineEdge(gp_Pnt(0, 20, 0), gp_Pnt(-15, -8, 0)));
+                        const TopoDS_Face gf =
+                            BRepBuilderAPI_MakeFace(gw.Wire(), Standard_True).Face();
+                        const TopoDS_Shape good = forge::occtloft::pipe(sp, gf, 1.0e-6);
+                        if (good.IsNull())
+                            std::printf("      well-formed spline DECLINED, reason: %s\n",
+                                        forge::occtloft::lastDeferReason());
+                        check(!good.IsNull(),
+                              "the 106-part wall: a WELL-FORMED spline profile BUILDS");
+                        if (!good.IsNull()) {
+                            GProp_GProps ag;
+                            BRepGProp::SurfaceProperties(gf, ag);
+                            const double area = ag.Mass();
+                            const Metrics ms = measure(good);
+                            const double want = area * 25.0;
+                            const double rel =
+                                want > 0.0 ? std::fabs(ms.vol - want) / want : 1.0;
+                            std::printf("      spline profile vol=%.10g want=%.10g rel=%.3g "
+                                        "valid=%d shells=%d\n",
+                                        ms.vol, want, rel, ms.valid ? 1 : 0, ms.nShell);
+                            check(rel < 1.0e-6,
+                                  "spline profile: volume == area x straight-spine length");
+                            check(ms.valid, "spline profile: the solid is BRepCheck-VALID");
+                            check(ms.nShell == 1, "spline profile: exactly one shell");
+                        }
+                    }
                 }
                 // (d2) ★ THE FOLD PREFLIGHT, POSITIVELY CONTROLLED — and the
                 //      one thing the A*L gate CANNOT see. BRepGProp integrates
@@ -1476,13 +1574,27 @@ int main() {
                   "defer: a profile plane not perpendicular to the first leg is DECLINED");
         }
         {
-            // An ELLIPSE profile is neither a polygon nor a circle.
+            // ★ AN ELLIPSE PROFILE IS NEITHER A POLYGON NOR A CIRCLE, AND IS NOW
+            // COVERED. On a STRAIGHT spine the curved-section transport needs no
+            // boolean at all — both stations are perpendicular to the leg, so the
+            // answer IS occtPrism's prism — and the closed form is met exactly.
+            // The old row asserted the defer this replaces.
             gp_Elips el(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 6.0, 3.0);
             const TopoDS_Wire ew =
                 BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(el).Edge()).Wire();
             const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
-            check(forge::occtloft::pipe(sp, ew, 1.0e-6).IsNull(),
-                  "defer: an ELLIPSE profile is DECLINED (neither polygon nor circle)");
+            const TopoDS_Shape nat = forge::occtloft::pipe(sp, ew, 1.0e-6);
+            check(!nat.IsNull(), "ELLIPSE profile: the sweep BUILDS on a straight spine");
+            if (!nat.IsNull()) {
+                const Metrics m = measure(nat);
+                std::printf("      ellipse-profile vol=%.10g F=%d S=%d valid=%d\n",
+                            m.vol, m.nFace, m.nShell, static_cast<int>(m.valid));
+                check(relClose(m.vol, kPi * 6.0 * 3.0 * 25.0, 1.0e-9),
+                      "ELLIPSE profile: volume == CLOSED FORM pi*a*b*L");
+                check(m.nFace == 3, "ELLIPSE profile: 3 faces (one lateral wall, two caps)");
+                check(m.nShell == 1, "ELLIPSE profile: exactly ONE shell");
+                check(m.valid, "ELLIPSE profile: the solid is BRepCheck VALID");
+            }
         }
         {
             // A 180-degree spine reversal has no mitre plane.
@@ -1491,38 +1603,45 @@ int main() {
                   "defer: a 180-degree spine reversal is DECLINED");
         }
         {
-            // ★ THIS USED TO BE A DEFER CONTROL and is now a POSITIVE case, so the
-            // assertion is REPLACED rather than relaxed. pipeCircleMitre requires
-            // the circle's centre ON the spine start; the arc-swept path does not,
-            // because the station planes are properties of the SPINE and not of
-            // the section — so an off-axis circle is now built, and the DERIVED
-            // L-spine law V = A*(H + W - 2*xbar) is what says it is built RIGHT.
-            // xbar is the circle's own centre, 3.0, so a sweep that carried the
-            // section on the SPINE's arm instead of its own would read 55*A here
-            // rather than 49*A, and the second assertion rejects exactly that.
-            const double xoff = 3.0, H = 25.0, W = 30.0;
-            gp_Ax2 off(gp_Pnt(xoff, 0, 0), gp_Dir(0, 0, 1));
+            // ★ A CIRCLE CENTRED OFF THE SPINE START WAS OUT OF SCOPE FOR
+            // pipeCircleMitre (which requires the centre ON the spine) AND IS NOW
+            // COVERED by the curved-section transport, which needs no such
+            // restriction: the mitre is a rigid motion of the whole section
+            // wherever it sits. The old row asserted the defer this replaces.
+            //
+            // THE CLOSED FORM. The centroid starts at (3,0,0). The mitre plane at
+            // (0,0,25) has normal (1,0,1)/sqrt2, so the centroid travels
+            //   s0 = ((0,0,25)-(3,0,0)).n / ((0,0,1).n) = (25-3) = 22
+            // to (3,0,22); the end plane is x = 30, so s1 = 30-3 = 27. Hence
+            //   V = pi r^2 (22+27) = pi*16*49.
+            // OCCT is NOT an oracle on a bent spine (see the banner), so this is
+            // checked against that closed form — and, crucially, against the SAME
+            // circle centred ON the spine, which must give a DIFFERENT answer.
+            // Volume alone would ratify an engine that quietly ignored the offset.
+            gp_Ax2 off(gp_Pnt(3.0, 0, 0), gp_Dir(0, 0, 1));
             const TopoDS_Wire ow =
                 BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(off, cr)).Edge()).Wire();
-            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, H), gp_Pnt(W, 0, H)});
-            const TopoDS_Shape nat = forge::occtloft::pipe(sp, ow, 1.0e-6);
-            check(!nat.IsNull(),
-                  "off-axis circle on a bent spine now BUILDS (the arc-swept path has "
-                  "no on-spine restriction)");
-            if (!nat.IsNull()) {
-                const Metrics n = measure(nat);
-                const double cf = M_PI * cr * cr * (H + W - 2.0 * xoff);
-                std::printf("      off-axis circle vol=%.10g (closed form %.10g) "
-                            "F/E/V/S=%d/%d/%d/%d valid=%d\n",
-                            n.vol, cf, n.nFace, n.nEdge, n.nVert, n.nShell,
-                            static_cast<int>(n.valid));
-                check(relClose(n.vol, cf, 1.0e-9),
-                      "off-axis circle volume == DERIVED CLOSED FORM A*(H+W-2*xbar)");
-                check(!relClose(n.vol, M_PI * cr * cr * (H + W), 1.0e-6),
-                      "off-axis circle is NOT the on-axis answer A*(H+W)");
-                check(n.valid, "off-axis circle native solid VALID");
-                check(n.nShell == 1, "off-axis circle exactly ONE shell");
-            }
+            gp_Ax2 on(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+            const TopoDS_Wire onw =
+                BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(on, cr)).Edge()).Wire();
+            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(30, 0, 25)});
+            const TopoDS_Shape natOff = forge::occtloft::pipe(sp, ow, 1.0e-6);
+            const TopoDS_Shape natOn = forge::occtloft::pipe(sp, onw, 1.0e-6);
+            check(!natOff.IsNull(), "circle off spine: the sweep BUILDS");
+            check(!natOn.IsNull(), "circle off spine control: the ON-spine sweep builds");
+            if (!natOff.IsNull() && !natOn.IsNull()) {
+                const Metrics mo = measure(natOff), mn = measure(natOn);
+                std::printf("      off-spine vol=%.10g F=%d S=%d valid=%d   "
+                            "on-spine vol=%.10g\n",
+                            mo.vol, mo.nFace, mo.nShell, static_cast<int>(mo.valid), mn.vol);
+                check(relClose(mo.vol, kPi * cr * cr * 49.0, 1.0e-6),
+                      "circle off spine: volume == CLOSED FORM pi*r^2*(22+27)");
+                check(relClose(mn.vol, kPi * cr * cr * 55.0, 1.0e-6),
+                      "circle off spine control: ON-spine volume == pi*r^2*(25+30)");
+                check(!relClose(mo.vol, mn.vol, 1.0e-3),
+                      "circle off spine: the OFFSET is honoured — the two differ");
+                check(mo.nShell == 1, "circle off spine: exactly ONE shell");
+                check(mo.valid, "circle off spine: the solid is BRepCheck VALID");            }
         }
     }
 

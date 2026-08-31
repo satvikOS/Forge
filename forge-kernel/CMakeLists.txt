@@ -863,10 +863,11 @@ endif()
 #       BRepOffsetAPI_DraftAngle   6   src/Features.cpp    draftFaces
 #       BRepOffsetAPI_MakeFilling  5   src/Healing.cpp     autoFillMissingFaces
 #
-# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 493/493 assertions (314 when this
+# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 666/666 assertions (314 when this
 #   paragraph was written, 431 after the ring-correspondence fix, 493 after the
 #   translated-section path added ts-xlate-cylinder / -cyl-open / -obround and the
-#   unequal-circles defer control) — volume AND
+#   unequal-circles defer control, 666 after the general planar-section transport
+#   and its RESULT-validity gate) — volume AND
 #   centre of mass AND all six bbox bounds AND face/edge/vertex/shell counts AND
 #   BRepCheck_Analyzer validity AND the Euler-Poincare characteristic, against LIVE
 #   OCCT on straight spines and against the closed form V = area * spine-length on

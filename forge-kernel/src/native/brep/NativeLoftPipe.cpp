@@ -108,12 +108,15 @@
 #include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include "forge/OcctPrimBuilder.hpp"  // TKPrim-free analytic cylinder
 #include <Bnd_Box.hxx>
@@ -127,16 +130,20 @@
 #include <Geom_Line.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <Standard_Failure.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
+#include <TopoDS_Wire.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
 #include "forge/native/brep/NativeShapeHeal.hpp"  // occtheal::solidFromShell
@@ -946,7 +953,121 @@ TopoDS_Shape sweepPolygonProfile(const TopoDS_Wire& spine,
 // (Same anonymous namespace, so this is the same internal-linkage function.)
 TopoDS_Shape pipeArcChainProfile(const TopoDS_Wire& spine,
                                  const TopoDS_Shape& profile, double t);
+// ── A PROFILE THAT IS NOT A POLYGON — the two predicates, and the engine ─────
+//
+// ★ WHY THIS PATH EXISTS, MEASURED NOT GUESSED. On the 600-part corpus A/B the
+// native PIPESHELL engine covered 309 parts and declined 291, and every single
+// one of the 291 carried ONE FK_DEFER label: `prof_edge_not_line`. One label
+// over a whole deletion bucket is not yet an attribution — "an edge that is not
+// a line" is equally consistent with "these are free-form blobs no bounded
+// engine will sweep" and with "these are rounded outlines". A per-part curve
+// census of the SAME profiles the A/B hands the engine
+// (test/pipeshell_defer_census.cpp, run by test/run_pipeshell_defer_census.sh)
+// settles it:
+//     141  the outer boundary is LINES AND CIRCULAR ARCS   (mean 10.3 edges)
+//     106  it contains B-SPLINE edges                      (mean 31.7 edges)
+//      44  it is a SINGLE full circle                      (exactly 1 edge)
+//     ---
+//     291  and ALL 291 close into a planar face — measured, the census's
+//          `planar_face_ok` column, 291/291.
+// So the bucket was never "sections that are not planar regions". It was ONE
+// precondition — polygonRing() reading VERTICES — applied to sections whose
+// boundary happens to be curved.
+//
+// ★ THE CONSTRUCTION, and why it is EXACT rather than a fit. Write Prism_j for
+// the INFINITE prism of leg j: the section at station j swept along d_j in both
+// senses. The mitre plane M_j bisects d_{j-1} and d_j, so the reflection R_j in
+// M_j maps d_{j-1} to -d_j (with |d|=1 and c = d_{j-1}·d_j,
+//   R_j(d_{j-1}) = d_{j-1} - 2((1+c)/(2+2c))(d_{j-1}+d_j) = -d_j)
+// and it FIXES M_j pointwise, hence fixes the section lying in it. An infinite
+// prism is the section swept in BOTH senses, so
+//     R_j(Prism_{j-1}) = Prism_j   EXACTLY,
+// and therefore Prism_j = g_j(Prism_0) with g_j = R_j∘…∘R_1 a RIGID MOTION. A
+// rigid motion carries a circle to a circle and a B-spline to a congruent
+// B-spline: there is nothing to approximate. The leg's solid is then that prism
+// cut by its two station planes, exactly as pipeCircleMitre already does for a
+// circular section, and the legs are fused.
+//
+// ★ WHY EVERY TRANSFORM APPLIED IS PROPER. g_j is a composition of j
+// reflections, so for odd j it is orientation-REVERSING, and a mirrored solid
+// handed to BRepAlgoAPI_Common is a silently wrong operand (the complement
+// survives the cut). It does not have to be: let sigma be the reflection in the
+// SECTION'S OWN plane. Prism_0 is invariant under sigma (it is the section swept
+// in both senses along the plane's normal), so g_j∘sigma maps Prism_0 to Prism_j
+// just as g_j does — and it is PROPER whenever g_j is not. sigma maps the
+// section face onto ITSELF as a point set, so this changes the geometry by
+// nothing at all and the handedness by everything. The volume sign is then
+// checked anyway before any boolean, because "should be proper" is not a
+// measurement.
+//
+// ★ THE ORACLE. Over leg j the axial thickness between the two station planes is
+// AFFINE on the right cross-section (each station's crossing parameter is affine
+// and their difference is too), so its integral is area × its value at the
+// section CENTROID — that is, area × the length of the centroid's own
+// mitre-transported path. The result is accepted only if its measured volume
+// meets that to 1e-6 relative. A leg trimmed on the wrong side of a station, a
+// dropped fuse operand or an inverted boolean operand are all percent-level
+// effects and none can hide under that bound.
+//
+// ★★ AND THAT ORACLE IS SELF-REFERENTIAL, so it is not the only one. It checks the
+// construction against the identity the construction was derived from, and cannot
+// separate "built the mitred sweep" from "built some other solid of the same
+// volume" — this repository has four measured cases where volume alone ratified a
+// wrong solid. The INDEPENDENT check is
+// reports/corpus_ab/pipeshell_defer_audit/mitre_ratio_check.py. OCCT's
+// MakePipeShell at its DEFAULT transition mode does NOT carry the section through
+// the corner, so it encloses A*(L1 + L2 cos theta) where the mitre encloses
+// A*(L1 + L2). The corpus A/B's spine is two EQUAL legs at exactly 30 degrees, so
+// native / OCCT-default must be 2/(1 + cos 30) = 1.0717967697 for EVERY part,
+// whatever its section's shape, area or edge types — a number nothing in this file
+// computes, measured against a separate implementation. Per class median over the
+// 600-part corpus:
+//     LINE_ONLY   (already proven)   1.0717967697   off by 1.2e-11
+//     LINE_ARC    (new here)         1.0717967697   off by 7.4e-11
+//     HAS_BSPLINE (new here)         1.0717967695   off by 2.2e-10
+//     ARC_ONLY    (new here)         1.0717967579   off by 1.2e-08
+// The new coverage lands on the closed form to the same precision as the polygon
+// path already proved exact against OCCT(RightCorner) on all 309 of its parts.
+//
+// Defined below, next to halfSpaceThrough, which it uses.
+TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
+                            const std::vector<gp_Dir>& leg,
+                            const TopoDS_Face& sec, double t);
 
+// Is every edge of the profile a straight line? That is the precondition of the
+// vertex-ring transport above. It is asked EXPLICITLY, rather than by sniffing
+// the defer label, so the curved path can never absorb a polygon profile that
+// declined on some OTHER precondition (a non-planar ring, a tilted hole): those
+// stay honest defers and the 309 parts the polygon path already covers stay on
+// a byte-identical code path.
+bool allLineEdges(const TopoDS_Shape& s) {
+    if (s.IsNull()) return false;
+    int n = 0;
+    for (TopExp_Explorer ex(s, TopAbs_EDGE); ex.More(); ex.Next()) {
+        if (!isLineEdge(TopoDS::Edge(ex.Current()))) return false;
+        ++n;
+    }
+    return n > 0;
+}
+
+// The profile as a FACE. A FACE is taken as it stands — its holes come along and
+// occtPrism carries them. A closed WIRE is capped into a planar face. Anything
+// else, or a wire that will not close, yields a null face (an honest defer at
+// the caller).
+TopoDS_Face planarProfileFace(const TopoDS_Shape& s) {
+    if (s.IsNull()) return TopoDS_Face();
+    if (s.ShapeType() == TopAbs_FACE) return TopoDS::Face(s);
+    if (s.ShapeType() != TopAbs_WIRE) return TopoDS_Face();
+    const TopoDS_Wire w = TopoDS::Wire(s);
+    if (!BRep_Tool::IsClosed(w)) return TopoDS_Face();
+    try {
+        BRepBuilderAPI_MakeFace mkf(w, Standard_True);
+        if (!mkf.IsDone()) return TopoDS_Face();
+        return mkf.Face();
+    } catch (const Standard_Failure&) {
+        return TopoDS_Face();
+    }
+}
 }  // namespace
 
 TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
@@ -957,21 +1078,38 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
     reasonClear();
     if (!guides.empty()) FK_DEFER("guides_present");
     const double t = std::max(tol, 1.0e-9);
+
     const TopoDS_Shape poly = sweepPolygonProfile(spine, profile, makeSolid, t);
     if (!poly.IsNull()) return poly;
 
-    // ARC CHAIN — the same exact arc-swept lateral face family E uses, on the
-    // same mitre transport. Family F is handed the profile as a bare WIRE, which
-    // is why profileFrame() reads the plane from the ring rather than from a
-    // face surface. Tried LAST, so every input the polygon transport accepts
-    // still takes exactly the path it took before.
-    //
-    // SOLIDS ONLY. The arc region is assembled as a BOOLEAN of swept atoms and a
-    // boolean hands back a solid; ThruSections(isSolid=false)'s open skin is not
-    // something it can produce, so that combination is an honest defer rather
-    // than a solid returned where a skin was asked for.
+    // A CURVED section is still a planar region and the mitre transport is a
+    // RIGID motion, so it carries one exactly. See the derivation above.
+    if (allLineEdges(profile)) return kNull;   // the polygon path was the right
+                                               // one; its decline stands
+
+    // An OPEN skin (makeSolid=false) is a different construction -- there is no
+    // prism to trim, and the arc region is assembled as a BOOLEAN of swept atoms,
+    // which hands back a solid. An honest defer rather than a solid returned where
+    // a skin was asked for. Base's label is kept because it is the one the corpus
+    // census and the A/B harness already attribute against.
     if (!makeSolid) FK_DEFER("arc_open_skin_not_supported");
-    return pipeArcChainProfile(spine, profile, t);
+
+    // ARC CHAIN FIRST, and NON-TERMINAL. Base returned this directly; leaving it
+    // terminal would make the general engine below dead code. It is tried first
+    // because it is the narrower, longer-established path -- every input it accepts
+    // takes exactly the route it took before, and only what it DECLINES falls
+    // through to the general transport.
+    {
+        const TopoDS_Shape arc = pipeArcChainProfile(spine, profile, t);
+        if (!arc.IsNull()) return arc;
+    }
+
+    std::vector<gp_Pnt> node;
+    std::vector<gp_Dir> leg;
+    if (!spinePolyline(spine, t, node, leg)) return kNull;   // reason already set
+    const TopoDS_Face sec = planarProfileFace(profile);
+    if (sec.IsNull()) FK_DEFER("gen_no_planar_section");
+    return sweepFaceMitre(node, leg, sec, t);
 }
 
 // =========================================================== family E
@@ -1110,6 +1248,350 @@ TopoDS_Shape halfSpaceThrough(const gp_Pnt& q, const gp_Dir& n,
     } catch (const std::exception&) {
         return kNull;
     }
+}
+
+// ── THE CURVED-SECTION MITRE TRANSPORT (families E and F) ────────────────────
+// Declared next to sweepPolygonProfile, where the derivation, the measured
+// census that motivates it and the correctness oracle are all written out.
+// Defined here because it is built from halfSpaceThrough above.
+//
+// EVERY OCCT CALL BELOW IS WRAPPED. Under the drop option a throw out of this
+// engine is a hard failure at the call site, so an OCCT exception must surface
+// as a LABELLED DEFER and never as a throw.
+TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
+                            const std::vector<gp_Dir>& leg,
+                            const TopoDS_Face& sec, double t) {
+    const std::size_t k = leg.size();
+    if (k == 0 || node.size() != k + 1) FK_DEFER("gen_bad_spine");
+    if (sec.IsNull()) FK_DEFER("gen_null_section");
+
+    // ★ THE SECTION MUST BE A VALID FACE, and this is the load-bearing
+    // precondition of the whole path — not a formality. Extruding a face is only
+    // a sweep of a REGION if the face bounds one, and BRepGProp will hand back an
+    // area for a face that bounds nothing, so the volume oracle below would then
+    // be checking a wrong answer against a wrong expectation and agreeing. The
+    // three ways the family-E A/B constructs a malformed section are all caught
+    // here and by nothing else downstream (measured, this machine, all with a
+    // 40x40 outer square):
+    //     an OPEN half-circle inner wire      BRepCheck 0, area 1574.87 (a lie)
+    //     two OVERLAPPING circular holes      BRepCheck 0, area 1373.81 (double-
+    //                                         counted overlap)
+    //     a hole POKING THROUGH the wall      BRepCheck 0, area -363.50
+    //     CONTROL one legal circular hole     BRepCheck 1, area 1549.73
+    //     CONTROL no hole                     BRepCheck 1, area 1600
+    // The first two were swept into plausible-looking solids before this gate
+    // existed. A section this engine cannot vouch for is an honest defer.
+    {
+        bool ok = false;
+        try { ok = BRepCheck_Analyzer(sec).IsValid() == Standard_True; }
+        catch (const Standard_Failure&) { ok = false; }
+        if (!ok) FK_DEFER("gen_section_invalid");
+    }
+
+    // ---- the section: plane, area, centroid --------------------------------
+    gp_Pln pln;
+    double area = 0.0;
+    gp_Pnt com;
+    try {
+        BRepAdaptor_Surface as(sec);
+        if (as.GetType() != GeomAbs_Plane) FK_DEFER("gen_section_not_planar");
+        pln = as.Plane();
+        GProp_GProps props;
+        BRepGProp::SurfaceProperties(sec, props);
+        area = props.Mass();
+        com = props.CentreOfMass();
+    } catch (const Standard_Failure&) {
+        FK_DEFER("gen_section_read_threw");
+    }
+    if (!(area > 1.0e-12)) FK_DEFER("gen_section_zero_area");
+    const gp_Dir pn = pln.Axis().Direction();
+    // The same precondition the polygon path enforces: the mitre map is the
+    // rigid transport derived above only if the section is perpendicular to the
+    // first leg. Anything else would be a guess.
+    if (std::fabs(std::fabs(pn.Dot(leg[0])) - 1.0) > 1.0e-9)
+        FK_DEFER("gen_not_perp_to_leg0");
+
+    // ---- the station planes ------------------------------------------------
+    // ★ STATION 0 IS THE SECTION'S OWN PLANE, not a plane through node[0].
+    // MakePipeShell carries the profile by spine(t) - spine(0) and does NOT
+    // relocate it onto the spine (PART 3a, measured), and sweepPolygonMitre
+    // above starts from `rings` exactly as given for that reason. A plane
+    // through node[0] here would silently shift the answer by the section's
+    // offset along the first leg.
+    std::vector<gp_Pnt> stPt;
+    std::vector<gp_Dir> stN;
+    stPt.push_back(pln.Location());
+    stN.push_back(leg[0]);
+    for (std::size_t j = 1; j < k; ++j) {
+        const gp_Vec b = gp_Vec(leg[j - 1]) + gp_Vec(leg[j]);
+        if (b.Magnitude() <= 1.0e-12) FK_DEFER("gen_mitre_reversal");
+        const gp_Dir mn(b);
+        if (gp_Vec(leg[j - 1]).Dot(gp_Vec(mn)) <= 1.0e-12) FK_DEFER("gen_mitre_denom");
+        stPt.push_back(node[j]);
+        stN.push_back(mn);
+    }
+    stPt.push_back(node[k]);
+    stN.push_back(leg[k - 1]);
+
+    // ---- the centroid's own transported path: the volume oracle ------------
+    // This is the SAME point map sweepPolygonMitre applies to every ring vertex,
+    // applied to one point. Its total length times the section area is the
+    // enclosed volume; see the derivation next to sweepPolygonProfile.
+    std::vector<gp_Pnt> cpath;
+    cpath.push_back(com);
+    double pathLen = 0.0;
+    for (std::size_t j = 0; j < k; ++j) {
+        const gp_Pnt c = cpath[j];
+        const double den = gp_Vec(leg[j]).Dot(gp_Vec(stN[j + 1]));
+        if (den <= 1.0e-12) FK_DEFER("gen_centroid_grazing");
+        const double s = vec(c, stPt[j + 1]).Dot(gp_Vec(stN[j + 1])) / den;
+        if (!(s > 0.0)) FK_DEFER("gen_centroid_backtrack");
+        cpath.push_back(c.Translated(s * gp_Vec(leg[j])));
+        pathLen += s;
+    }
+    if (!(pathLen > 0.0)) FK_DEFER("gen_zero_path");
+
+    // ---- one trimmed prism per leg, fused ----------------------------------
+    gp_Trsf sigma;
+    sigma.SetMirror(gp_Ax2(pln.Location(), pn));   // the section's OWN plane
+    gp_Trsf g;                                      // g_0 = identity
+    bool improper = false;
+
+    TopoDS_Shape acc;
+    for (std::size_t j = 0; j < k; ++j) {
+        const gp_Dir d = leg[j];
+
+        // The right cross-section of leg j is g_j(sec), pre-composed with sigma
+        // whenever g_j is improper. sigma maps the section onto itself, so the
+        // FACE is identical and only the transform's handedness changes.
+        TopoDS_Face fj = sec;
+        if (j > 0) {
+            const gp_Trsf h = improper ? g.Multiplied(sigma) : g;
+            try {
+                BRepBuilderAPI_Transform tr(sec, h, Standard_True);
+                if (!tr.IsDone() || tr.Shape().IsNull()) FK_DEFER("gen_transform_fail");
+                if (tr.Shape().ShapeType() != TopAbs_FACE) FK_DEFER("gen_transform_not_face");
+                fj = TopoDS::Face(tr.Shape());
+            } catch (const Standard_Failure&) {
+                FK_DEFER("gen_transform_threw");
+            }
+        }
+
+        // The radial reach of the section about this leg's axis, over-estimated
+        // from the bounding box corners. An over-estimate only makes the raw
+        // prism longer before it is trimmed, so it costs nothing and cannot
+        // truncate the answer; an under-estimate would.
+        Bnd_Box bb;
+        try { BRepBndLib::Add(fj, bb); } catch (const Standard_Failure&) { FK_DEFER("gen_bbox_threw"); }
+        if (bb.IsVoid()) FK_DEFER("gen_bbox_void");
+        Standard_Real xa, ya, za, xb, yb, zb;
+        bb.Get(xa, ya, za, xb, yb, zb);
+        double rmax = 0.0;
+        for (int cx = 0; cx < 2; ++cx)
+            for (int cy = 0; cy < 2; ++cy)
+                for (int cz = 0; cz < 2; ++cz) {
+                    const gp_Pnt q(cx ? xb : xa, cy ? yb : ya, cz ? zb : za);
+                    const gp_Vec v = vec(node[j], q);
+                    const gp_Vec radial = v - gp_Vec(d) * v.Dot(gp_Vec(d));
+                    rmax = std::max(rmax, radial.Magnitude());
+                }
+
+        // Where each station plane crosses this leg's axis, how far the OBLIQUE
+        // cut can excurse axially over a section of reach rmax, and — the point
+        // of the `oblique` flag — WHETHER A CUT IS NEEDED AT ALL.
+        //
+        // ★ A PERPENDICULAR STATION IS NOT CUT, IT IS THE PRISM'S OWN END.
+        // Station 0 is the section's plane and station k is normal to the last
+        // leg, so BOTH are perpendicular to their leg by construction, and only
+        // the interior MITRE stations are oblique. Measured on an elliptical
+        // section: the raw occtPrism volume equals the closed form to rel=0,
+        // while trimming it with two redundant perpendicular half-space Commons
+        // moved it by 2e-5 relative — OCCT's boolean re-approximates a
+        // Geom_SurfaceOfLinearExtrusion section curve. So a straight spine now
+        // costs ZERO booleans and is exact, and a k-leg spine costs one cut per
+        // leg-end that is genuinely mitred instead of two.
+        double axial[2] = {0.0, 0.0}, margin[2] = {0.0, 0.0};
+        bool oblique[2] = {false, false};
+        for (int e = 0; e < 2; ++e) {
+            const std::size_t st = j + static_cast<std::size_t>(e);
+            const double c = gp_Vec(d).Dot(gp_Vec(stN[st]));
+            if (std::fabs(c) <= 1.0e-9) FK_DEFER("gen_grazing_station");
+            axial[e] = vec(node[j], stPt[st]).Dot(gp_Vec(stN[st])) / c;
+            oblique[e] = std::fabs(std::fabs(c) - 1.0) > 1.0e-12;
+            margin[e] = rmax * std::sqrt(std::max(0.0, 1.0 - c * c)) / std::fabs(c);
+        }
+        // The pad only lengthens the RAW prism before it is trimmed, so it costs
+        // nothing and cannot truncate the answer. It takes the caller's tolerance
+        // with 1e-6 as a FLOOR: a caller asking for 1e-9 wants a tighter answer,
+        // not a raw prism that might fall short of its own oblique cut.
+        const double padU = std::max(t, 1.0e-6);
+        const double pad = padU + padU * std::max(rmax, 1.0);
+        const double lo = axial[0] - (oblique[0] ? margin[0] + pad : 0.0);
+        const double len = (axial[1] + (oblique[1] ? margin[1] + pad : 0.0)) - lo;
+        if (!(len > 0.0)) FK_DEFER("gen_leg_span_nonpositive");
+
+        // Slide the section along the leg to the base of the raw prism.
+        double af = 0.0;
+        try {
+            BRepAdaptor_Surface asf(fj);
+            if (asf.GetType() != GeomAbs_Plane) FK_DEFER("gen_leg_section_not_planar");
+            af = vec(node[j], asf.Plane().Location()).Dot(gp_Vec(d));
+        } catch (const Standard_Failure&) {
+            FK_DEFER("gen_leg_section_threw");
+        }
+        TopoDS_Face base;
+        try {
+            gp_Trsf mv;
+            mv.SetTranslation(gp_Vec(d) * (lo - af));
+            BRepBuilderAPI_Transform mvt(fj, mv, Standard_True);
+            if (!mvt.IsDone() || mvt.Shape().IsNull()) FK_DEFER("gen_base_move_fail");
+            base = TopoDS::Face(mvt.Shape());
+        } catch (const Standard_Failure&) {
+            FK_DEFER("gen_base_move_threw");
+        }
+
+        // occtPrism is the in-house TKPrim-free linear sweep: one
+        // Geom_SurfaceOfLinearExtrusion lateral face per profile edge — LINE,
+        // CIRCLE and B-SPLINE alike — plus the two caps. Nothing is tessellated
+        // and nothing is fitted. It carries its own V = area*|vec.n| self-check.
+        TopoDS_Shape piece;
+        try {
+            piece = ::forge::occtPrism(base, gp_Vec(d) * len);
+        } catch (const Standard_Failure&) {
+            FK_DEFER("gen_prism_threw");
+        } catch (const std::exception&) {
+            FK_DEFER("gen_prism_fail");
+        }
+        if (piece.IsNull()) FK_DEFER("gen_prism_null");
+
+        // An INVERTED solid is a silently wrong boolean operand — Common would
+        // keep the complement. The transform above is constructed to be proper,
+        // but "constructed to be" is not a measurement, so the sign is read.
+        {
+            GProp_GProps vp;
+            try { BRepGProp::VolumeProperties(piece, vp); }
+            catch (const Standard_Failure&) { FK_DEFER("gen_prism_volume_threw"); }
+            if (vp.Mass() < 0.0) piece.Reverse();
+            else if (!(vp.Mass() > 0.0)) FK_DEFER("gen_prism_zero_volume");
+        }
+
+        // Trim to the two station planes. The material side is the one holding
+        // the midpoint of the CENTROID PATH's segment for this leg — which lies
+        // strictly between the two station planes by construction. (The leg
+        // midpoint would be wrong for leg 0, whose start station is the
+        // section's own plane and not a plane through node[0].)
+        const gp_Pnt mid((cpath[j].X() + cpath[j + 1].X()) * 0.5,
+                         (cpath[j].Y() + cpath[j + 1].Y()) * 0.5,
+                         (cpath[j].Z() + cpath[j + 1].Z()) * 0.5);
+        for (int e = 0; e < 2; ++e) {
+            if (!oblique[e]) continue;   // the prism already ends on that plane
+            const std::size_t st = j + static_cast<std::size_t>(e);
+            const TopoDS_Shape h = halfSpaceThrough(stPt[st], stN[st], mid, piece);
+            if (h.IsNull()) FK_DEFER("gen_halfspace_fail");
+            try {
+                BRepAlgoAPI_Common cut(piece, h);
+                cut.Build();
+                if (!cut.IsDone()) FK_DEFER("gen_trim_fail");
+                piece = cut.Shape();
+            } catch (const Standard_Failure&) {
+                FK_DEFER("gen_trim_threw");
+            }
+            if (piece.IsNull()) FK_DEFER("gen_trim_null");
+        }
+
+        if (acc.IsNull()) {
+            acc = piece;
+        } else {
+            try {
+                BRepAlgoAPI_Fuse fu(acc, piece);
+                fu.Build();
+                if (!fu.IsDone()) FK_DEFER("gen_fuse_fail");
+                acc = fu.Shape();
+            } catch (const Standard_Failure&) {
+                FK_DEFER("gen_fuse_threw");
+            }
+            if (acc.IsNull()) FK_DEFER("gen_fuse_null");
+        }
+
+        // g_{j+1} = R_{j+1} o g_j, and one more reflection flips the handedness.
+        if (j + 1 < k) {
+            gp_Trsf R;
+            R.SetMirror(gp_Ax2(stPt[j + 1], stN[j + 1]));
+            g = R.Multiplied(g);
+            improper = !improper;
+        }
+    }
+    if (acc.IsNull()) FK_DEFER("gen_empty");
+
+    // The legs meet exactly on their shared mitre plane, so the fuse leaves a
+    // seam face pair; unify it away so the answer carries the same face count a
+    // one-piece sweep would. A failure here is a defer, never a shipped seam.
+    TopoDS_Shape out;
+    try {
+        ShapeUpgrade_UnifySameDomain uni(acc, Standard_True, Standard_True, Standard_True);
+        uni.Build();
+        out = uni.Shape();
+    } catch (const Standard_Failure&) {
+        FK_DEFER("gen_unify_threw");
+    }
+    if (out.IsNull()) FK_DEFER("gen_unify_null");
+
+    // ---- THE ORACLE --------------------------------------------------------
+    // V = area(section) * (length of the centroid's transported path). Derived
+    // next to sweepPolygonProfile; independent of OCCT, and tight enough that a
+    // mis-trimmed leg, a dropped fuse operand or an inverted operand cannot pass.
+    GProp_GProps vp;
+    try { BRepGProp::VolumeProperties(out, vp); }
+    catch (const Standard_Failure&) { FK_DEFER("gen_out_volume_threw"); }
+    const double actual = std::fabs(vp.Mass());
+    const double expected = area * pathLen;
+    if (!(expected > 0.0)) FK_DEFER("gen_zero_expected");
+    const double rel = std::fabs(actual - expected) / expected;
+    // ★ WHERE 1e-6 COMES FROM. It is ANCHORED, not chosen: it is exactly the
+    // relative volume tolerance the corpus A/B's own comparator uses to declare
+    // two solids to AGREE (test/corpus_ab_coverage.cpp, close_()). Accepting a
+    // build whose volume misses its closed form by more than that would be
+    // accepting a build the A/B could not then call correct.
+    //
+    // And it is MEASURED against the distribution it has to separate. With
+    // FORGE_GEN_ORACLE_REPORT set this ratio is printed for every build, accepted
+    // or rejected, so the number can be re-derived rather than re-argued. Over
+    // the 291 curved sections of the 600-part corpus:
+    //     min 0   p50 1.5e-10   p90 1.0e-8   p99 1.4e-7   max 1.46e-6
+    // 108 of 291 sit above 1e-9 and only 3 above 1e-7. The entire spread is OCCT's
+    // boolean re-approximating a MITRE section curve — a straight spine, which
+    // needs no boolean at all, measures rel = 0 exactly. ONE part (ho1190, an
+    // 8-edge all-B-spline outline) lands at 1.46e-6 and is declined. That is a
+    // close call and it is left as a decline rather than tuned away: a tolerance
+    // widened until the last part fits is not a tolerance.
+    if (std::getenv("FORGE_GEN_ORACLE_REPORT") != nullptr)
+        std::fprintf(stderr, "gen_oracle rel=%.6g actual=%.12g expected=%.12g\n",
+                     rel, actual, expected);
+    if (rel > 1.0e-6) FK_DEFER("gen_volume_oracle");
+
+    // ★ THE RESULT MUST BE A VALID SOLID, and the volume oracle above CANNOT
+    // establish that. BRepGProp integrates the divergence theorem, so a shell that
+    // SELF-INTERSECTS still reports the signed volume area*length and sails straight
+    // through `rel <= 1e-6`. That is not a hypothesis: base measured three folded
+    // solids at vol = 11634.42469 / 18788.07069 / 28326.26536, every one of them
+    // BRepCheck valid=0, every one of them PASSING the A*L gate.
+    //
+    // pipeArcChainProfile blocks those inputs with an explicit station preflight
+    // (`arc_section_folds_at_mitre`, NativeLoftPipe.cpp) — but this engine is now
+    // reached precisely BECAUSE that path declined, so relying on it would be relying
+    // on the check that just said no. This engine also cannot reuse the preflight: it
+    // carries an ARBITRARY planar face, which has no per-point radius to test.
+    //
+    // So it validates the RESULT instead, which is strictly more general than the
+    // preflight it stands in for — it catches a self-intersection whatever produced
+    // it, not only the sharp-mitre fold that motivated the check.
+    {
+        bool ok = false;
+        try { ok = BRepCheck_Analyzer(out).IsValid() == Standard_True; }
+        catch (const Standard_Failure&) { ok = false; }
+        if (!ok) FK_DEFER("gen_result_folds_or_self_intersects");
+    }
+    return out;
 }
 
 // The mitre-trimmed cylinder chain (family E, CIRCLE profile).
@@ -2228,25 +2710,34 @@ TopoDS_Shape pipe(const TopoDS_Wire& spine, const TopoDS_Shape& profile,
     const TopoDS_Shape holed = pipePolygonWithCircularHoles(spine, profile, t);
     if (!holed.IsNull()) return holed;
 
-    // CIRCLE profile — the mitre-trimmed cylinder chain.
+    // CIRCLE profile — the mitre-trimmed cylinder chain. The label is recorded
+    // rather than returned on, because the curved-section transport below is a
+    // further chance for exactly the profiles that are not circles.
     gp_Pnt c0;
     gp_Dir ax0;
     double r = 0.0;
-    if (circleProfile(profile, c0, ax0, r)) {
-        std::vector<gp_Pnt> node;
-        std::vector<gp_Dir> leg;
-        if (!spinePolyline(spine, t, node, leg)) return kNull;  // reason already set
+    const bool isCircle = circleProfile(profile, c0, ax0, r);
+    if (!isCircle) reasonAdd("circ_not_circle");
+    std::vector<gp_Pnt> node;
+    std::vector<gp_Dir> leg;
+    if (!spinePolyline(spine, t, node, leg)) return kNull;   // reason already set
+    if (isCircle) {
         const TopoDS_Shape circ = pipeCircleMitre(node, leg, c0, ax0, r, t);
         if (!circ.IsNull()) return circ;
-    } else {
-        reasonAdd("circ_not_circle");
     }
 
-    // ARC CHAIN — the general profile kind: every ring a full circle or an
-    // ordered chain of LINE and CIRCULAR-ARC edges. This is the LAST attempt,
-    // so every input the three kinds above accept still takes exactly the path
-    // it took before and returns exactly the shape it returned before.
-    return pipeArcChainProfile(spine, profile, t);
+    // ARC CHAIN, NON-TERMINAL for the same reason as in pipeShell().
+    {
+        const TopoDS_Shape arc = pipeArcChainProfile(spine, profile, t);
+        if (!arc.IsNull()) return arc;
+    }
+
+    // ANY OTHER planar section with a curved boundary -- lines and arcs, a spline
+    // outline, a circle that is not centred on the spine.
+    if (allLineEdges(profile)) return kNull;   // the polygon path already had it
+    const TopoDS_Face sec = planarProfileFace(profile);
+    if (sec.IsNull()) FK_DEFER("gen_no_planar_section");
+    return sweepFaceMitre(node, leg, sec, t);
 }
 
 }  // namespace occtloft
