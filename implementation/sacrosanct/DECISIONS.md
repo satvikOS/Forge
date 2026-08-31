@@ -1551,3 +1551,105 @@ DOWN materially (v5cap 0.2999 → 0.2819, v7 0.3091 → 0.2947) and moved the pa
 **The sobering number.** Both arms sit barely above a box: +0.0400 and +0.0547 over the 0.2367
 floor. Read with D-035, the picture is consistent — the model builds a valid solid four times in
 five, and it is close to the wrong shape.
+
+## D-037 (2026-08-31): ZERO of the 14 OCCT toolkits are dropped, and the number that says so was never gated
+
+The owner asked directly whether all the kernel dependencies are dropped, and told us not to
+drop one and forget the others. **The answer is no — none of them are.** `OCCT_CLOSURE = 14`
+today, the same number as the day the ledger was created. Nothing was dropped and forgotten;
+nothing has been dropped at all.
+
+### The measurement
+
+Three arms built at one tree (`32ee7485`, a worktree pinned to `origin/archdisc`, 0 tracked
+edits), with every option read back out of `CMakeCache.txt` rather than trusted from the flag —
+**CMake accepts an unknown `-D` silently**:
+
+| arm | DIRECT | **CLOSURE** | PHANTOM | what leaves |
+|---|---:|---:|---:|---|
+| default — what ships | 9 | **14** | 2 | **nothing** |
+| only the options that PASS their flip gate (FILLING, MAKEOFFSET) | 9 | **14** | 2 | **nothing** |
+| all 12 drop options forced ON | 9 | **11** | 0 | TKOffset, TKFillet, TKBool |
+
+Positive control that the arms genuinely differ: `cmp` differs at char 66; 9,104,000 vs
+9,011,664 bytes; the configure log prints `TKOffset REMOVED FROM OCCT_LIBS`.
+
+### Two recorded claims are corrected
+
+* **"All nine families at parity moves closure 14 → 13" is wrong.** The two families that
+  actually pass their gate move it by **zero**, because `CMakeLists.txt:1080` removes TKOffset
+  only when all nine of A,C,D,E,F,G,H,I,J are compiled out — and **7 of the 9 fail their gate**.
+* **"The ceiling is 12" is wrong; it is 11** (three leave, because TKBool rides out free with
+  TKFillet). ★And **11 is the ceiling of a capability-DELETING configuration. With capability
+  preserved the closure is 14.** Never quote 11 as progress.
+
+### One thing gates all thirteen waves
+
+The graph is a chain — exactly one toolkit is parent-free at a time, so there is no parallel
+path and family work cannot compound. Wave 1 is TKOffset, and TKOffset needs family **J,
+DRAFT**, which is **0.0% native (0/565) against OCCT's 88.0% (497/565)**, McNemar
+p = 4.9e-150. Not a wiring defect: the control drafts a cube wall to 973.796 mm³, exactly
+`1000 − ½·10·10·10·tan 3°`. **No bounded fix exists and that is measured, not asserted** — all
+565 parts violate *both* whole-shape guards, and the number violating *exactly one* is 0 and 0,
+so no relaxation of either guard moves a single part. The only alternative construction ceilings
+at 424/565 = 75.0% against an 88.0% gate, a strict subset of OCCT's wins with 0 native-only wins.
+
+**501 exclusive symbols remain, and 404 of them are waves 6–13** — the opaque-handle rewrite
+(replacing `TopoDS_Shape`, `Handle(Geom_*)`, `Handle(Geom2d_Curve)`, `gp_*` and `Standard_*` as
+interchange types). No option, harness or corpus exists for any of them.
+
+**Four toolkits are free riders with nothing to build** — TKBool, TKPrim, TKGeomAlgo, TKGeomBase
+export zero needed symbols. Work scheduled against them is wasted.
+
+### ★D1 — the number the programme is scored by had no gate. FIXED IN THIS COMMIT.
+
+`grep -rn 'occt_closure_count\|tkoffset_ledger_gate' .github/ package.json` returned **zero
+hits**. `scripts/tkoffset_ledger_gate.sh` exists, is well-written, encodes the correct ceilings —
+and was invoked by no workflow, no npm script, no test runner.
+
+That is not hypothetical. The gate's own header records the regression it was built to catch: a
+family-E wiring change silently took `OCCT_PHANTOM` 2 → 3, invisible on macOS
+(`-undefined dynamic_lookup`) and a hard link error on Linux.
+
+`kernel-tests.yml` now runs `occt_closure_count.sh --assert-closure 14 --assert-direct 9` right
+after the kernel build. **Proved to fire in both directions** against the census build: rc=0 at
+ceiling 14, and rc=1 printing `FAIL: OCCT_CLOSURE=14 exceeds --assert-closure 13` at 13. The
+numbers are a ceiling, so a genuine drop is never blocked — lower them in the commit that
+retires the toolkit, and that edit *is* the ledger entry.
+
+`--assert-no-phantom` is deliberately not set: there are two phantoms today (TKBO 32 symbols,
+TKG2d 24), and naming them is accounting worth 0 closure, so demanding zero would fail the build
+for a defect this step exists to report rather than forbid.
+
+### Five more defects, recorded not fixed
+
+* **D2** — `FORGE_GEOM_DROP_NATIVE` has `option(` = 1 and source reads = **0**, so the standard
+  dead-flag check calls it dead. It is live: it guards an `if()` defining three *other* macros.
+  Falsified by configuring both ways — `flags.make` carries `FORGE_NATIVE_{LAW,NURBS_CONVERT,
+  PROJECTION}` by default and none of them with the option OFF. **A flag can act by proxy.**
+* **D3** — TKPrim's DIRECT link record is dead (raw symbol intersection = 0; the binary defines
+  `forge::occtPrism` itself). The comment at `CMakeLists.txt:~470` justifying it went stale when
+  PR #64 swapped `BRepPrimAPI_MakePrism` out. Removing it is DIRECT 9 → 8 at **0 closure** —
+  accounting, never to be scored as a drop.
+* **D4** — the two phantoms (TKBO, TKG2d) are called with no link record and survive only on
+  macOS; on a strict-link CI they are hard errors.
+* **D5** — `occt_drop_gate.sh` returns `DROP-SAFE` for three libraries that are not on the link
+  line at all. Scheduling from that output produces exactly the wasted work noted above.
+* **D6** — ★**the committed per-family corpus numbers are stale and two of them contradict.**
+  Two PIPESHELL numbers (82.3% and 99.8%) are both committed at this SHA, and a later commit
+  tightened the mitre transport with a `BRepCheck_Analyzer` gate because taking both merge sides
+  cleanly *ships a known-invalid solid and the volume oracle cannot see a fold*. **The current
+  PIPESHELL and THRUSECTIONS coverage rates are NOT MEASURED.**
+
+### The one instruction this supports
+
+The only work that moves this number is a **general native draft-angle engine**, and after it a
+**native boolean/defeaturing engine** (TKBO, wave 4 — the first *unowned* frontier: no option, no
+family, no harness). Everything else is already done, free, or unreachable until those two land.
+**There is no parallel front to open here** — which is worth stating plainly, because the
+instruction was to parallelise, and the lattice does not permit it.
+
+Related: `FeatureTreeCompiler.cpp` calls `setForgeNativeBrepEnabled(false)` for every build, so
+**100% of corpus booleans run on OCCT today**. And OCCT is not always a working incumbent — for
+THICKSOLID *all 133 of its successes are `BRepCheck`-INVALID*, and it segfaults on the gold
+reference parts (see the null-pcurve report).
