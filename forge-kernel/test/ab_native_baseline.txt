@@ -24,3 +24,9 @@ AB_BASELINE_offsetshape=0
 AB_BASELINE_sweep=0
 AB_BASELINE_fillet_concave=0
 AB_BASELINE_thicken=0
+# thicksolid_mixed: the closed-form gate for the polygon / coplanar-split / rank-2
+# corner constructions added after the 600-part THICKSOLID defer census. It has
+# never had a failure; 39 assertions across 5 cases and 3 negative controls, and
+# case E is mutation-proved (else if (uniq.size() == 2) -> else if (false) makes it
+# fail and nothing else move).
+AB_BASELINE_thicksolid_mixed=0

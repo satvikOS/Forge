@@ -955,3 +955,115 @@ fixes it with OCCT still present. PR #86, which moves that workflow to the defau
 **Publishing remains a human action.** The agents preparing this are explicitly forbidden from
 pushing a tag or publishing a release, including a draft. Everything is staged so that
 publishing is one reviewed step.
+
+## D-026 (2026-08-30): the app crashed THREE times on one root cause — mutating a container mid-walk — and a liveness probe could not see any of them
+
+Three separate crashes were reported against the installed app. They were not three bugs
+in the ordinary sense; they were **one defect written three times** in `ForgeFrame`:
+
+| # | Trigger | Symptom | What was live during the mutation |
+|---|---------|---------|-----------------------------------|
+| 1 | first tab click | SIGSEGV at `0x17` | `DockNode&` held by the draw recursion |
+| 2 | splitter drag | SIGSEGV | `children[1]` of a re-seated layout |
+| 3 | feature-tree expander click | **SIGABRT**, uncaught `std::out_of_range` | clipper range sized from the previous `rowCount()` |
+
+In each case the draw walk held an index or reference into a container, and the click
+handler re-seated that container **during the walk**. The remedy is the same all three
+times: record the intent, apply it after the walk returns.
+
+**The third was found only because the second fix was verified by interaction.** The run
+that aborted had presented **1165 frames** and saved its workspace, layout and keymap
+cleanly. Every liveness signal was healthy. A GUI needs to be *used*, not pinged — and
+"the process is still up" is not evidence about a click path.
+
+**It is proven, not asserted.** `frame_gate.cpp` §5b clicks the real widget —
+`ForgeFrame` now exposes the expander's screen rect so the gate targets it instead of
+guessing pixels — and requires the row set to actually change, because a click that
+no-ops would make the check unfalsifiable. Positive control, same gate, only the defer
+removed:
+
+```
+pre-fix   exit 134   uncaught std::out_of_range: FeatureTreeModel::rowAt   <- the user's crash
+post-fix  exit 0     188 checks, 0 failures, expander click: 17 rows -> 1 rows
+```
+
+**Two traps worth carrying forward.** First, the rebuild after restoring the good source
+did **not** recompile: `cp` stamped the source in the same second the mutated object was
+written, so make saw it as current and the gate still reported 134. The exit code was
+right and the assumption was wrong. Second, `file(GLOB FORGE_UI_SOURCES ...)` had no
+`CONFIGURE_DEPENDS`, so a new `forge::ui` source was absent from the link and surfaced as
+undefined symbols in a file nobody had touched.
+
+## D-027 (2026-08-30): a count copied into a second place goes stale — three times in one session
+
+`EXPECTED_MUTATIONS` is pinned exactly, deliberately, and is never a floor. The number was
+nonetheless duplicated into two other places, and both drifted the moment it moved 17 → 24:
+
+* the CI **job name**, `forge-desktop compiles + its headless gates (17 mutation proofs)`,
+  which advertised 17 while the suite ran 24;
+* the **self-test fixture**, whose stub verdict lines were literal 17/16/18, so case A —
+  the one case that must be GREEN — went red.
+
+The second failure is the instructive one. It produced a **six-second job with no gate
+output**, which reads exactly like a build failure. Time was spent looking for a broken
+build that did not exist.
+
+Resolved by removing the duplicates rather than synchronising them: the job name no longer
+carries a count, and the self-test derives N from the pin and asserts the *relationship*
+(one below and one above must both go red) instead of a literal. What the cases were always
+about is that the check is exact; the integer was incidental.
+
+## D-028 (2026-08-30): a clean merge silently DROPPED mutation coverage
+
+Merging base into the release branch conflicted in exactly one place — a header comment
+about the mutation count. The **code** merged cleanly, by taking one side:
+
+```
+-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9    (base)
++run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7        (ours)
+```
+
+Frame mutations 8 and 9 are implemented in the merged `frame_gate.cpp`. They would simply
+have stopped running, with a green suite and no line in the diff to attribute it to.
+Resolving only the conflicted comment would have shipped that.
+
+**A conflict marks where git could not choose. It does not mark where the wrong choice was
+made.** When a merge touches a file that governs coverage, diff the merged result against
+*both* parents for what each side ran, not just the region that conflicted.
+
+Resolved as the union — 8 document + 9 frame + 7 update = 24 — with `EXPECTED_MUTATIONS`
+moved in the same commit, which is the constraint the base comment existed to state. The
+merge also exposed a real defect in code neither side touched: the missing-include preflight
+had never run against the updater branch, and `update_gate.cpp` used fixed-width integers
+without `<cstdint>`.
+
+## D-029 (2026-08-30): the auto-update endpoint cannot see a prerelease — VERIFIED, and it supersedes D-024's publishing prohibition
+
+The updater fetches `https://github.com/satvikOS/Forge/releases/latest/download/appcast.json`.
+GitHub's `latest` resolves to the newest release that is **neither a draft nor a
+prerelease**. Measured against the live repository:
+
+```
+releases:  tag=v0.1.0-alpha.0  draft=true  prerelease=true  assets=0
+GET /releases/latest  ->  404 Not Found
+```
+
+So the chain the user asked for — download once, update forever — is **inert** for a release
+published as a draft or flagged prerelease, and the failure is silent: the app simply never
+finds an update. The release workflow creates every release as a draft and never publishes,
+by design.
+
+That design encoded D-024's rule that publishing is a human's call. **The user has now made
+that call explicitly** ("all versions are put in the github releases", "auto updates on so
+user just downloads once"), which supersedes the prohibition recorded at the end of D-025 —
+recorded here rather than quietly ignored.
+
+Two caveats stand and are not resolved by that decision:
+* **minimum macOS 26.0**, set by Homebrew bottles' `LC_BUILD_VERSION`, not by any choice
+  in this codebase. Users below macOS 26 cannot run the bundle at all.
+* the signature is **ad-hoc**; first launch needs one pass through System Settings →
+  Privacy & Security → Open Anyway. The user has accepted this explicitly.
+
+A release must therefore be published as a **full release, not a prerelease**, for the
+updater to see it — despite the version reading `alpha`. That is a footgun worth a guard
+rather than a note.
