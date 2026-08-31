@@ -9,7 +9,7 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — four headless gates, none of which needs a GPU:
+#   2. gates          — five headless gates, none of which needs a GPU:
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
 #                       * document    — the user-launchable slice: the ONE
@@ -22,16 +22,25 @@
 #                         SemVer ordering, sha256 verification, ditto staging,
 #                         the ad-hoc signature check and the atomic bundle swap,
 #                         against real files and WITHOUT opening a socket.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. TWENTY-FOUR
-#                       defects (8 document + 9 frame + 7 update) are injected in
-#                       turn and each MUST make its gate exit non-zero; a mutation
-#                       that stays green fails this script, because an
+#                       * click       — the same nothing, but it INTERACTS: it
+#                         drives io.AddMousePosEvent / io.AddMouseButtonEvent to
+#                         click every dock tab and drag every splitter in every
+#                         workspace, steps a FURTHER frame after each gesture,
+#                         and asserts the app is alive and the dock tree intact.
+#                         Built with -fsanitize=address, because the defect it
+#                         exists for was a use-after-free that made the SHIPPED
+#                         app SIGSEGV on the first tab click while the frame and
+#                         document gates both stayed green -- neither clicks.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. TWENTY-NINE
+#                       defects (8 document + 9 frame + 7 update + 5 click) are
+#                       injected in turn and each MUST make its gate exit non-zero;
+#                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
 #
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
 # status is whatever ran last and a run that fell out of its own middle would
-# exit 0. That wrapper also pins the mutation count at an EXACT 24, so adding or
+# exit 0. That wrapper also pins the mutation count at an EXACT 29, so adding or
 # removing a --mutate case below means changing EXPECTED_MUTATIONS in
 # ci_desktop_gate.sh in the SAME commit.
 #
@@ -49,6 +58,13 @@ APP_BUILD="${APP_BUILD:-$ROOT/forge-desktop/build}"
 JOBS="${JOBS:-$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )}"
 LOG="$(mktemp -d /tmp/forge_desktop_gate.XXXXXX)"
 trap 'rm -rf "$LOG"' EXIT
+
+# The click gate is sanitized, and AddressSanitizer's default is to ABORT on a
+# report. A SIGABRT makes bash print its own "Abort trap: 6" job notice into the
+# transcript, one line adrift of the verdict it belongs to. Exiting instead keeps
+# the verdict in one place; a report is still a non-zero status, which is all
+# run_gate reads. Respects an ASAN_OPTIONS the caller already set.
+export ASAN_OPTIONS="${ASAN_OPTIONS:-abort_on_error=0:exitcode=1}"
 
 echo "[desktop] ROOT=$ROOT JOBS=$JOBS"
 
@@ -84,7 +100,7 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + 4 headless gates (-Wall -Wextra -Werror clean)"
+echo "[desktop] built forge_desktop + 5 headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0
@@ -113,6 +129,12 @@ run_gate() {
       BAD=$((BAD+1))
     else
       first="$(grep -m1 '  FAIL' "$LOG/$name.mut$m.log" | sed 's/^  FAIL  //')"
+      # A sanitized gate can die on the defect before it can print a FAIL line.
+      # Its verdict is then the sanitizer's own SUMMARY, which is the more
+      # specific answer, not a less specific one.
+      if [ -z "$first" ]; then
+        first="$(grep -m1 'SUMMARY: AddressSanitizer' "$LOG/$name.mut$m.log" || true)"
+      fi
       echo "  $name mutation $m: RED (exit $rc, $fails checks failed) <- $first"
     fi
   done
@@ -132,6 +154,13 @@ run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9
 # it covers is the one that decides whether a shipped copy of Forge can ever
 # reach the next version.
 run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
+
+# The click gate goes LAST: it is the only one that needs the sanitized copy of
+# the stack, so a plain compile error in the app surfaces on a cheaper gate
+# first. Mutation 3 is its positive control for the sanitizer itself -- if that
+# one STAYS GREEN, -fsanitize=address is not reaching the binary and this gate's
+# memory-safety half is silent.
+run_gate forge_desktop_click_gate 1 2 3 4 5
 
 # ── 3. mutation verdict ──────────────────────────────────────────────────────
 if [ "$BAD" -ne 0 ]; then

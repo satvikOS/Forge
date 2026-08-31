@@ -300,6 +300,29 @@ set(OCCT_LIBS
 #   non-translate), and a non-translated pair of curved sections needs ruled surfaces
 #   between the curves, which is a different engine.
 #
+# ★ THE THICKEN ROW HAS ALSO SINCE MOVED, and its 193-part gap was ONE SURFACE TYPE.
+#   Instrumenting the A/B's native THICKEN arm with occtthicken::thickenLastDeferReason()
+#   (the reasonFn hook runArm has carried since the PIPE family) attributed the whole
+#   bucket to a SINGLE reason: 193 of 193 declined on "a face is not a Geom_Plane". A
+#   surface census of the same picked face over the same 600 parts named the type —
+#   407 Plane / 193 Cylinder, no third type in that slot, every one a full 2*pi turn.
+#   src/native/brep/NativeThickenShell.cpp now carries a single-cylindrical-face path
+#   (see its PATH C banner: the closed form, the exact rectangle certificate, and the
+#   live-OCCT measurement the offset SIGN was read off rather than reasoned about).
+#   RE-MEASURED over the same 600 parts, stride 1, 0 part-level errors:
+#     FORGE_THICKEN_DROP_NATIVE          96.2     100.0       23/600       2.4e-7
+#   Paired against the row above on the same corpus: 170 parts GAINED, 0 LOST, McNemar
+#   exact p = 1.34e-51. All 170 newly-built parts are BRepCheck-VALID and their worst
+#   |volume| difference from live OCCT is 0.000e+00 — bit-exact, not merely in tolerance.
+#   Run in the SAME process as two UNTOUCHED CONTROL families, both of which reproduced
+#   their rows above to the decimal (FILLING 67.8/67.8 deletion 0; MAKEOFFSET 94.5/99.0
+#   deletion 27), which is what makes the THICKEN delta readable as the change and not
+#   as the harness. The option STILL FAILS its flip gate — 96.2 < 100.0 and the gate is
+#   ">=". The surviving 23 are one named cause, "the face is not the full parametric
+#   rectangle (a trimmed or holed patch)": a hole cut in the tube wall, on which the
+#   closed form is measurably NOT OCCT's answer (rel 2e-2 .. 9e-2), so the engine
+#   declines rather than return a plausible wrong solid. That is the next bounded target.
+#
 # ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
 #   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
 #   pairs in 600 trials, and all 407 shared successes agree on the FULL observable
@@ -2342,20 +2365,20 @@ endif()
 #   native_fuse_mesh_operand_test (rc 134 = SIGABRT),
 #   native_occt_import_test (rc 1), native_occt_wire_activation_test (rc 1).
 #
-#   ab_native_thicken_occt -- WITHHELD, and it is the most interesting exclusion
-#       here because THIS SUITE IS WHAT FOUND IT. The gate was measured GREEN at
-#       876b179a and is RED at a70dd1da (this branch's base): 208 passed, 19
-#       FAILED. Every one of the 19 is a SURFACE-TYPE count -- e.g. "case1 flat
-#       20x10 t=2 planar-face count : got 2 want 6" and "other-surface-type
-#       count : got 4 want 0". ZERO volume assertions fail, and the negative
-#       control still rejects an equal-volume impostor on 12 observables. So the
-#       thickened solid has the RIGHT VOLUME and the WRONG FACES.
-#       The only change to src/native/brep/NativeThickenShell.cpp between those
-#       two commits replaces BRepPrimAPI_MakePrism with the in-house
-#       forge::occtPrism (the TKPrim link-line drop): the swept faces are no
-#       longer classified GeomAbs_Plane. Re-register this gate the moment
-#       occtPrism's output surfaces are canonized back to analytic. It is
-#       withheld rather than weakened -- not one `want` was changed.
+#   ab_native_thicken_occt -- WAS WITHHELD HERE, NOW RE-REGISTERED BELOW. The
+#       note this replaces recorded it RED at a70dd1da (208 passed, 19 FAILED,
+#       every failure a SURFACE-TYPE count left behind by the BRepPrimAPI_MakePrism
+#       -> forge::occtPrism swap) and said to re-register it "the moment occtPrism's
+#       output surfaces are canonized back to analytic". That note had gone STALE:
+#       the case5 `want`s were re-measured and pinned on 2026-08-28, and the gate
+#       has been GREEN since. MEASURED on this tree before any change in this
+#       commit: 227 passed, 0 failed, exit 0. It is registered on that measurement,
+#       not on the old note.
+#       ★ AND THE SCOPE OF THAT IS SMALLER THAN IT READS, checked rather than assumed:
+#       this list is the ctest list, and .github/workflows/kernel-tests.yml does not
+#       invoke ctest for it -- it runs test/run_ab_all.sh, whose HARNESSES line ALREADY
+#       contained `thicken`. The harness was never dark; what this restores is its ctest
+#       membership, not its execution.
 #
 # Those six are NOT registered and NOT weakened. Nothing here lowers a
 # threshold or widens a tolerance to go green; the red ones simply stay out
@@ -2385,7 +2408,7 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         ab_native_loftpipe_occt
         ab_native_offsetshape_occt
         ab_native_sweep_occt
-        # ab_native_thicken_occt -- WITHHELD, RED AT THIS COMMIT. See the note below.
+        ab_native_thicken_occt
         # regression gates
         io_stl_binary_solid_header      # binary STL whose 80-byte header says "solid"
         matelib_quat_ab                 # in-house quaternion rotate vs the rotation matrix

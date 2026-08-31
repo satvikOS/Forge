@@ -1237,7 +1237,7 @@ int main(int argc, char** argv) {
             std::snprintf(od, sizeof od, "whole-solid grow d=%.6g", d);
             const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                 return forge::occtoffset::offsetSolidShape(src, d, 1.0e-7);
-            }, true, T, NF);
+            }, true, T, NF, &forge::occtoffset::lastOffsetDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                 BRepOffsetAPI_MakeOffsetShape mk;
                 mk.PerformByJoin(src, d, 1.0e-7, BRepOffset_Skin,
@@ -1416,7 +1416,7 @@ int main(int argc, char** argv) {
             std::snprintf(od, sizeof od, "skin the largest face t=%.6g", t);
             const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                 return forge::occtthicken::thickenShell(f, t, 1.0e-4);
-            }, true, T, NF);
+            }, true, T, NF, &forge::occtthicken::thickenLastDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                 BRepOffset_MakeOffset mk;
                 mk.Initialize(f, t, 1.0e-4, BRepOffset_Skin,
