@@ -27,9 +27,20 @@ census that says how many, and of what.
 | 2 | polygon | none | OK |
 
 **494 of 600** profile faces have every ring a closed chain of LINE and CIRCULAR
-ARC edges, every arc's axis parallel to the face normal. **106 carry a B-spline
-edge on the outer boundary and no arc geometry reaches them** — that is a wall,
-not a to-do, and it is what caps this family at 494/600 rather than 600/600.
+ARC edges, every arc's axis parallel to the face normal. The other **106 carry an
+edge that is neither**, and the tool NAMES it rather than lumping it into an
+"other" bucket — because "out of reach" is only a defensible claim if you can say
+what it is:
+
+```
+  NOT an arc chain            106  {'edge_type': 106}
+  the curve kind that put them out of reach: {'Geom_BSplineCurve': 106}
+```
+
+All 106, and only `Geom_BSplineCurve` — not one ellipse, Bezier, hyperbola or
+parabola among them. No arc geometry reaches a B-spline boundary, so that is a
+wall, not a to-do, and it is what caps this family at 494/600 rather than
+600/600.
 
 The 141 arc-chain outer wires are not exotic. 80 of them are one word:
 

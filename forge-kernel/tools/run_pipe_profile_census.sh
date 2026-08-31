@@ -59,6 +59,11 @@ err = [r for r in rows if "err" in r]
 print("  parts                       %d" % len(rows))
 print("  every ring a LINE/ARC chain %d" % len(arc))
 print("  NOT an arc chain            %d  %s" % (len(bad), dict(collections.Counter(r["why"] for r in bad))))
+if bad:
+    # NAME the curve kind rather than lumping every non-arc into one bucket:
+    # "out of reach" is only a defensible claim if you can say what it IS.
+    print("  the curve kind that put them out of reach: %s"
+          % dict(collections.Counter(r.get("bad_type", "?") for r in bad)))
 if err: print("  read errors                 %d" % len(err))
 if arc:
     ra = max(r["rel_area"] for r in arc)

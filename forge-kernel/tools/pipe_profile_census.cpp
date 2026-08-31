@@ -51,6 +51,7 @@
 #include <Geom_Line.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <Standard_Transient.hxx>
 #include <STEPControl_Reader.hxx>
 #include <Standard_Type.hxx>
 #include <TopExp.hxx>
@@ -106,7 +107,7 @@ struct Seg { bool arc = false; gp_Pnt a, b, c; double r = 0.0, dth = 0.0; };
 // Parse a wire into an ordered LINE / ARC chain. `why` names the first thing
 // that made it not one.
 bool parseRing(const TopoDS_Wire& w, const gp_Dir& n, std::vector<Seg>& out,
-               const char*& why, std::string& types) {
+               const char*& why, std::string& types, std::string& badType) {
     out.clear();
     types.clear();
     gp_Ax2 fr(gp_Pnt(0, 0, 0), n);
@@ -134,7 +135,13 @@ bool parseRing(const TopoDS_Wire& w, const gp_Dir& n, std::vector<Seg>& out,
             if (ci.Axis().Direction().Dot(n) < 0.0) sgn = -sgn;
             s.dth = sgn * std::fabs(l - f);
         } else {
-            types += "S";
+            // ★ REPORT WHAT IT ACTUALLY IS. An earlier draft wrote "S" for every
+            // curve that was neither a line nor a circle, which would have made
+            // the claim "the 106 out-of-reach parts are B-SPLINES" unverifiable
+            // from this tool's own output -- an ellipse or a Bezier would have
+            // read identically. The OCCT type name is recorded instead.
+            badType = cv->DynamicType()->Name();
+            types += "?";
             why = "edge_type";
             return false;
         }
@@ -241,7 +248,7 @@ int main(int argc, char** argv) {
         const gp_Pnt org = bigP.Location();
 
         // ---- the census: what kind is every ring? --------------------------
-        std::string outerTypes, holeTypes;
+        std::string outerTypes, holeTypes, badType;
         int nRing = 0, nHole = 0, nArcRing = 0;
         const char* why = "";
         bool parsed = true;
@@ -254,7 +261,7 @@ int main(int argc, char** argv) {
             if (!outer) ++nHole;
             std::vector<Seg> sg;
             std::string types;
-            if (!parseRing(w, n, sg, why, types)) {
+            if (!parseRing(w, n, sg, why, types, badType)) {
                 parsed = false;
                 if (outer) outerTypes = types;
                 break;
@@ -274,8 +281,8 @@ int main(int argc, char** argv) {
         }
         if (!parsed) {
             std::printf("{\"part\":\"%s\",\"arcchain\":0,\"why\":\"%s\","
-                        "\"outer_types\":\"%s\",\"rings\":%d}\n",
-                        base.c_str(), why, outerTypes.c_str(), nRing);
+                        "\"bad_type\":\"%s\",\"outer_types\":\"%s\",\"rings\":%d}\n",
+                        base.c_str(), why, badType.c_str(), outerTypes.c_str(), nRing);
             std::fflush(stdout);
             continue;
         }
