@@ -895,7 +895,15 @@ def classify(op_name, param):
 # ---------------------------------------------------------------------------
 # 6. what each op CONSUMES, read out of the compiler's own type checks
 # ---------------------------------------------------------------------------
-REF_ACCESSOR_KIND = {"refSolid": "SOLID", "refProfile": "PROFILE", "refWire": "WIRE"}
+# refSurface is the fourth entry because SURFACE is the fourth IR value kind.
+# It contributes nothing to the JSON TODAY -- every surface op is forbidden, and
+# a forbidden op records only its name and the reason -- but omitting it would be
+# a latent WRONG answer rather than a missing one: the moment a forge::ui command
+# emits THICKEN or CAP, its `consumes_value_kinds` would come back EMPTY, which
+# this file spells "a CREATOR", and the value-kind closure would report the
+# allowed set as closed when it is not.
+REF_ACCESSOR_KIND = {"refSolid": "SOLID", "refProfile": "PROFILE", "refWire": "WIRE",
+                     "refSurface": "SURFACE"}
 
 
 def parse_compiler_ref_kinds(cpp):

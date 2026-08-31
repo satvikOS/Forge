@@ -46,8 +46,8 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **31 commands**; **20 of them emit
-feature-IR**, reaching **18 distinct op names**. The kernel defines **40** ops
-(`opFromName`), so **22 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **18 distinct op names**. The kernel defines **46** ops
+(`opFromName`), so **28 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
 Every number in that paragraph, and every op row in the table below, is now

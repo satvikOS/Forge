@@ -38,7 +38,7 @@ std::string lower(std::string_view text) {
 // of it -- add a kind to IrValueKind and this keeps working.
 bool mapValueKind(std::string_view spelling, IrValueKind& out) {
   const IrValueKind kinds[] = {IrValueKind::None, IrValueKind::Profile, IrValueKind::Wire,
-                               IrValueKind::Solid};
+                               IrValueKind::Solid, IrValueKind::Surface};
   const std::string want = lower(spelling);
   for (const IrValueKind kind : kinds) {
     if (want == toString(kind)) {
