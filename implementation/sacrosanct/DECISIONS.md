@@ -1340,7 +1340,7 @@ and 32 symbols across 14 files. It needs a native boolean/defeaturing engine. TK
 DIRECT record is free accounting (DIRECT 9 -> 8) and moves the ledger by nothing.
 
 
-## D-033 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
+## D-038 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
 
 **The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
 (`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
