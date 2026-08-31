@@ -381,7 +381,12 @@ jobs:
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh
 
   desktop:
-    name: forge-desktop compiles + its headless gates (17 mutation proofs)
+    # The count is deliberately NOT in this name. It said "17 mutation proofs" while
+    # the suite ran 24, because a number duplicated into a display string has no
+    # reason to be updated with the thing it describes. ci_desktop_gate.sh pins the
+    # exact figure and prints it in its verdict line, which is the copy that is
+    # checked.
+    name: forge-desktop compiles + its headless gates (mutation-proved)
     # THE JOB THAT WOULD HAVE CAUGHT #107, AND THE REASON IT EXISTS.
     #
     # Until this landed, NOTHING in CI compiled the forge-desktop CMake project.
