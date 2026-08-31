@@ -244,6 +244,72 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > option still fails its flip gate, now by 117 parts rather than 315, and the residue
 > is now entirely the engine header's own scope statements.
 
+> ### ⚠ AND SUPERSEDED AGAIN — 117 became 59
+>
+> The block above left the remainder attributed by the engine's own guard text.
+> Attributed one level deeper — by what the parts ARE rather than which guard fired —
+> six rows turn out to be two facts. Full working in
+> `reports/corpus_ab/FILLET_RIM_ATTRIBUTION.md`; the summary:
+>
+> **115 of the 117 fail directly ON a curved face**, and the other two, which fail on
+> vertex valence, have a cylinder at that very vertex. 86 have a CYLINDER at the ends
+> of the picked edge (the `end face not planar` 58, the `non-straight outer boundary`
+> 21 and the `extent not measurable` 7 all do), 29 have one adjacent to it. **Not one
+> part in the bucket is a fully planar neighbourhood held back by a predicate**, so
+> relaxing the ring predicate — the largest apparent win in the guard table — would
+> have moved 28 parts from one guard to the next and changed no count.
+>
+> **The 58 are one population and the operation they name is not the edge.** Cap outer
+> ring `Circle,Line,Circle,Line,Circle,Line,Circle,Line`, G1 at all eight junctions
+> (worst tangent deviation 0.000e+00, 58/58), a planar prismatic wall behind every line
+> and a quarter cylinder behind every arc (232/232), dihedral exactly 90°, convex
+> 58/58. `BRepFilletAPI` propagates a contour across tangent junctions, so OCCT blends
+> the WHOLE RIM there: it removes **2.53x to 4.11x** the single-edge closed form. A
+> per-edge native blend would have been a different solid reported as the same
+> operation.
+>
+> `forge::occtfillet` gains a rim path — the cap re-trimmed to its own ring offset
+> inward by R, every wall pulled back R, one `Geom_CylindricalSurface` patch per line
+> segment and one `Geom_ToroidalSurface` patch per arc segment. Analytic throughout, no
+> new toolkit (`Geom_ToroidalSurface` is TKG3d). It is tried LAST, after the per-edge
+> and corner-aware builds have both declined, so it cannot change an answer either
+> already gives — and the measurement confirms it: all 344 parts that passed before
+> pass now with a BIT-IDENTICAL volume, 344/344.
+>
+> Re-measured over the same 600 parts, stride 1, 0 part-level errors:
+>
+> | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
+> |---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
+> | FILLET (rim) | 600 | 402 | 1 | **59** | 138 | 67.2% | 76.8% | -9.7% [-12.1, -7.3] | 1.1e-16 | FAIL |
+>
+> Every part moved in exactly one of two ways: 58 `OCCT_ONLY -> BOTH_OK`, 1
+> `NEITHER -> NATIVE_ONLY`; the other 541 did not move. All 59 are BRepCheck-VALID and
+> their removed volume equals an INDEPENDENT closed form (Pappus on the corner sections)
+> with ratio **1.000000000, 59/59**.
+>
+> **THE FIRST VERSION OF THAT PATH SCORED 80, AND 21 OF THEM WERE WRONG BODIES WITH
+> EXACTLY THE RIGHT VOLUME.** BRepCheck called 21 of its 22 `NATIVE_ONLY` results
+> invalid — `IntersectingWires` on one planar face, 21/21 — because the cap's nearest
+> HOLE lay closer to the rim than R (measured 0.104-1.000 of R against 1.000-10.59 on
+> the 59 that are fine, the boundary exactly where the geometry puts it). The volume
+> self-check matched the closed form to the last printed digit on all 21, and so did
+> the cap-AREA identity that had been added *specifically* to catch a hole: **both are
+> computed as (outer region) minus (hole regions), the same subtraction whether or not
+> the regions overlap. Area was not a different enough observable from volume.** The
+> guard is now topological (`BRepCheck` on the rebuilt cap face and on the assembled
+> body), and the A/B pins it with a prism whose hole sits 0.5R from the rim — a case
+> that FAILS with "engine DEFERS (got: ok)" against the version that lacked the guard.
+>
+> This is §3.2's lesson in its third form: a `NATIVE_ONLY` cell is where an engine's
+> own success predicate is least trustworthy, and the cheapest way to settle it is a
+> per-part census with an observable the engine is not already using.
+>
+> The option still fails its flip gate, now by 59 parts. Every one of the 59 has a
+> curved face in the blend neighbourhood and needs new surface geometry, not a relaxed
+> predicate. Artefacts: `reports/corpus_ab/full600_after_rim_summary.md`, raw rows in
+> the matching `_results.jsonl.gz`, provenance in `_manifest.json`, and the per-part
+> census in `fillet_census_rim_600.jsonl.gz`.
+
 ### 3.1 The headline
 
 **One family of ten passes the flip gate. `FORGE_FILLING_DROP_NATIVE` is the only
@@ -351,9 +417,11 @@ a working operation into a thrown error.
 - **`FILLET` 315 deleted, native 32.8%.** See §3.4 — this number moved sharply
   between two commits and should be read with that in mind.
 
-  > **⚠ SUPERSEDED — 315 became 117 and the 51 `NATIVE_ONLY` became 0.** Both cells
-  > were engine defects; see the supersede block after the table and
-  > `reports/corpus_ab/FILLET_ATTRIBUTION.md`. The transferable half is the same
+  > **⚠ SUPERSEDED TWICE — 315 became 117 (both cells were engine defects), and 117
+  > then became 59 when the residue was attributed by what the parts ARE rather than
+  > which guard fired.** See the two supersede blocks after the table,
+  > `reports/corpus_ab/FILLET_ATTRIBUTION.md` and
+  > `reports/corpus_ab/FILLET_RIM_ATTRIBUTION.md`. The transferable half is the same
   > lesson §3.2 already records for `THRUSECTIONS`, now in its other direction: a
   > `NATIVE_ONLY` cell cannot distinguish "a capability OCCT lacks" from "the engine
   > returned the input unchanged and the success predicate accepted it". A cell that
