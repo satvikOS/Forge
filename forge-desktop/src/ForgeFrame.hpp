@@ -34,6 +34,7 @@
 
 #include "Camera.hpp"
 #include "KernelScene.hpp"
+#include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -113,6 +114,50 @@ class ForgeFrame {
   forge::ui::ToolCatalog toolCatalog() const;
   std::size_t toolRowsDrawn() const noexcept { return toolRowsDrawn_; }
 
+  // ── the Archie CoPilot panel ────────────────────────────────────────────
+  //
+  // THE FRAME BUILDER OPENS NO SOCKET. The CoPilot panel RAISES A REQUEST and
+  // RENDERS A RESULT; whatever fills the gap between them is the app layer's
+  // business, exactly as the 3D viewport works (build() fills a plain
+  // ViewportRequest and the renderer reads it afterwards — see :ViewportRequest).
+  //
+  // A host that wants a real model behind Archie:
+  //     frame.setCopilotAutoPlan(false);            // stop answering locally
+  //     ... build the frame ...
+  //     if (const auto* req = frame.copilotRequest()) {
+  //         PlanResponse reply = myTransport.ask(*req);   // I/O lives HERE
+  //         frame.deliverCopilotPlan(reply);
+  //     }
+  // With auto-plan left on (the default), forge::ui::LocalPlanner answers in
+  // process: deterministic, offline, and honest about the vocabulary it knows.
+  forge::ui::ArchieCopilot& copilot() noexcept { return copilot_; }
+  const forge::ui::ArchieCopilot& copilot() const noexcept { return copilot_; }
+  void setCopilotAutoPlan(bool on) noexcept { copilotAutoPlan_ = on; }
+  bool copilotAutoPlan() const noexcept { return copilotAutoPlan_; }
+  const forge::ui::PlanRequest* copilotRequest() const noexcept;
+  forge::ui::PlanCheck deliverCopilotPlan(const forge::ui::PlanResponse& response);
+  void failCopilotRequest(const std::string& why);
+
+  // The panel's controls, reachable without a mouse — for a host, a macro and
+  // the gate. They RECORD INTENT exactly as the widgets do and are applied after
+  // the dock walk finishes, so they exercise the shipping path rather than a
+  // private one beside it.
+  void copilotType(const std::string& text);
+  void copilotSubmit();
+  void copilotApplyPlan();
+  void copilotDiscardPlan();
+  std::size_t copilotRowsDrawn() const noexcept { return copilotRowsDrawn_; }
+  // Times a CoPilot/dock/tree mutation was applied while the dock walk was still
+  // holding references into the containers it re-seats. MUST be 0: this app has
+  // shipped three use-after-frees of exactly that shape (tab click, splitter
+  // drag, feature-tree expander), which is why intent is recorded and applied
+  // after build() instead.
+  std::size_t deferredWalkViolations() const noexcept { return walkViolations_; }
+
+  // The feature-IR document the Part commands write. Read-only: the ONLY writer
+  // is a registered command handler, under the undo stack.
+  const forge::ui::PartDocument& document() const noexcept { return partDoc_; }
+
   // Selection round-trip: the viewport writes a pick here, the frame turns it
   // into a typed EntityRef through SelectionService and re-flags the mesh.
   void setPreselectedFace(std::uint32_t faceId);
@@ -154,6 +199,7 @@ class ForgeFrame {
   void drawTimelinePanel();
   void drawMeasurePanel();
   void drawToolsPanel();
+  void drawCopilotPanel();
   void drawGenericPanel(const std::string& panelId);
   void drawCommandPalette();
   void drawViewportOverlays(float x, float y, float w, float h);
@@ -163,6 +209,22 @@ class ForgeFrame {
   void invoke(const std::string& id);
   bool commandEnabled(const std::string& id) const;
   std::string shortcutText(const std::string& id) const;
+
+  // ── deferred mutation ───────────────────────────────────────────────────
+  // MUTATING A CONTAINER MID-WALK IS THE BUG THIS APP KEEPS SHIPPING. drawNode()
+  // holds `const DockNode&` references into shell_.layout(); setActiveTabAt() and
+  // setRatioAt() REBUILD that layout, freeing them under the walk. The feature
+  // tree has the same shape: rebuild() re-seats the row vector the clipper loop
+  // is still indexing. So every interactive control RECORDS its intent, and
+  // applyDeferredIntent() applies it after the walk is over.
+  //
+  // The public setRatioAt()/setActiveTabAt() stay immediate: they are the
+  // layout's write API for a host and a gate, called from OUTSIDE a frame, where
+  // there is no walk to invalidate.
+  void applyDeferredIntent();
+  void recordTabClick(const std::vector<std::size_t>& path, std::size_t index);
+  void recordRatioDrag(const std::vector<std::size_t>& path, double ratio);
+  void recordTreeExpand(forge::ui::NodeId rowId, bool expanded);
 
   void syncSelectionToScene();
   // The face ids the typed selection currently names. One decoder, used by the
@@ -205,6 +267,29 @@ class ForgeFrame {
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
   char toolQuery_[96] = {0};
+
+  // ── the CoPilot ─────────────────────────────────────────────────────────
+  forge::ui::ArchieCopilot copilot_;
+  forge::ui::LocalPlanner localPlanner_;
+  bool copilotAutoPlan_ = true;
+  char copilotInput_[256] = {0};
+  std::size_t copilotRowsDrawn_ = 0;
+
+  // ── recorded intent (applied after the walk, never during it) ───────────
+  bool inWalk_ = false;
+  std::size_t walkViolations_ = 0;
+  bool pendingSubmit_ = false;
+  bool pendingApply_ = false;
+  bool pendingDiscard_ = false;
+  bool pendingTabValid_ = false;
+  std::vector<std::size_t> pendingTabPath_;
+  std::size_t pendingTabIndex_ = 0;
+  bool pendingRatioValid_ = false;
+  std::vector<std::size_t> pendingRatioPath_;
+  double pendingRatio_ = 0.5;
+  bool pendingExpandValid_ = false;
+  forge::ui::NodeId pendingExpandNode_ = forge::ui::kInvalidNode;
+  bool pendingExpandState_ = false;
   std::uint32_t hoverFace_ = 0;
   float dpiScale_ = 1.0f;
   // Live parameter for the next parametric command, edited in Properties.
