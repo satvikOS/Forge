@@ -50,7 +50,7 @@
 //      dropped from the table                   disagree about what is reachable
 //   8  part.sketch_circle is made to require -> a creator that is no longer
 //      a selection                              reachable from an empty document
-//   9  SPHERE is promoted from forbidden to  -> the ARGUMENT-VALUE rules stop
+//   9  SLOT is promoted from forbidden to  -> the ARGUMENT-VALUE rules stop
 //      allowed                                  reading the vocabulary; a
 //                                               transcribed list would not notice
 #include <algorithm>
@@ -197,25 +197,25 @@ OpVocabulary perturbed(OpVocabulary v) {
       }
       break;
     }
-    case 9: {  // SPHERE is promoted out of the forbidden set into the allowed one
+    case 9: {  // SLOT is promoted out of the forbidden set into the allowed one
       // The argument-value rules in section 4c must be READING THE VOCABULARY,
-      // not a list transcribed into OpConstraintBridge.cpp. Move SPHERE across
+      // not a list transcribed into OpConstraintBridge.cpp. Move SLOT across
       // and a selector spelling it stops being ForbiddenOpInArgument -- which is
       // exactly what a hardcoded list would fail to notice.
       v.forbidden.erase(std::remove_if(v.forbidden.begin(), v.forbidden.end(),
                                        [](const OpVocabulary::Forbidden& f) {
-                                         return f.op == "SPHERE";
+                                         return f.op == "SLOT";
                                        }),
                         v.forbidden.end());
-      OpVocabulary::Op sphere;
-      sphere.op = "SPHERE";
-      sphere.produces = IrValueKind::Solid;
-      sphere.kernelMinArgs = 1;
-      sphere.kernelMaxArgs = 4;
-      sphere.firstArgIsValueRef = false;
-      sphere.emittedForms.push_back(OpVocabulary::ArgCounts{1, 1});
-      sphere.commands.push_back("part.make_sphere");
-      v.ops.push_back(std::move(sphere));
+      OpVocabulary::Op slot;
+      slot.op = "SLOT";
+      slot.produces = IrValueKind::Solid;
+      slot.kernelMinArgs = 2;
+      slot.kernelMaxArgs = 5;
+      slot.firstArgIsValueRef = false;
+      slot.emittedForms.push_back(OpVocabulary::ArgCounts{2, 2});
+      slot.commands.push_back("part.make_slot");
+      v.ops.push_back(std::move(slot));
       break;
     }
     default:
@@ -554,7 +554,7 @@ int main(int argc, char** argv) {
     // ── the bypass, at its full size ────────────────────────────────────────
     // A three-statement plan. Every `line.op` is user-invocable: RECT, EXTRUDE,
     // FILLET. The FILLET carries a selector whose VALUE closes the quote, opens
-    // a NEW LINE, and writes a SPHERE -- an op the vocabulary forbids outright.
+    // a NEW LINE, and writes a SLOT -- an op the vocabulary forbids outright.
     // forge::ft::parse reads statements line by line, so the text this plan
     // renders to is a program of THREE statements, the last of which no command
     // in this app can emit.
@@ -563,14 +563,14 @@ int main(int argc, char** argv) {
     smuggler.push_back(step(2, "EXTRUDE", {IrArg::valueRef(1), IrArg::num(20)}));
     smuggler.push_back(step(3, "FILLET",
                             {IrArg::valueRef(2), IrArg::num(2),
-                             IrArg::text("ALL\")\n%4 = SPHERE(50)\n#")}));
+                             IrArg::text("ALL\")\n%4 = SLOT(50, 20)\n#")}));
 
     // FIRST, the escalation MEASURED rather than asserted: the rendered text
     // really does gain a statement, and it really is a statement this same
     // bridge refuses when it is written where a gate can see it.
     const std::string text = render(smuggler);
-    CHECK(text.find("\n%4 = SPHERE(50)\n") != std::string::npos);
-    const OpRuling passenger = bridge.check(step(4, "SPHERE", {IrArg::num(50)}));
+    CHECK(text.find("\n%4 = SLOT(50, 20)\n") != std::string::npos);
+    const OpRuling passenger = bridge.check(step(4, "SLOT", {IrArg::num(50), IrArg::num(20)}));
     CHECK_EQ_INT(static_cast<int>(passenger.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
 
     // SECOND, the refusal. The carrier is refused for the value it carries, and
@@ -596,7 +596,7 @@ int main(int argc, char** argv) {
     // A value whose only defect IS the newline names the newline.
     const OpRuling nl = bridge.check(step(3, "FILLET",
                                           {IrArg::valueRef(2), IrArg::num(2),
-                                           IrArg::text("ALL\n%4 = SPHERE(50)")}));
+                                           IrArg::text("ALL\n%4 = SLOT(50, 20)")}));
     CHECK_EQ_INT(static_cast<int>(nl.verdict),
                  static_cast<int>(OpConstraint::MalformedArgumentValue));
     CHECK(nl.reason.find("newline") != std::string::npos);
@@ -605,16 +605,16 @@ int main(int argc, char** argv) {
     CHECK_EQ_INT(sr.accepted, 2);
 
     // ── the same hole without any injection: a bare forbidden op ────────────
-    // No quote, no newline, nothing malformed -- the word SPHERE simply sitting
+    // No quote, no newline, nothing malformed -- the word SLOT simply sitting
     // in the argument slot. This is the plainest reading of "an op name hides in
     // an argument", and it is a DIFFERENT fact from the one above, so it gets a
     // different verdict.
     const OpRuling quoted = bridge.check(step(3, "FILLET",
                                               {IrArg::valueRef(2), IrArg::num(2),
-                                               IrArg::text("SPHERE")}));
+                                               IrArg::text("SLOT")}));
     CHECK_EQ_INT(static_cast<int>(quoted.verdict),
                  static_cast<int>(OpConstraint::ForbiddenOpInArgument));
-    CHECK(quoted.reason.find("SPHERE") != std::string::npos);
+    CHECK(quoted.reason.find("SLOT") != std::string::npos);
     // ForbiddenOp's own words are quoted through, so the refusal cites the
     // vocabulary rather than paraphrasing it.
     CHECK(quoted.reason.find("no command in the forge::ui registry emits it") !=
@@ -624,10 +624,10 @@ int main(int argc, char** argv) {
     // so the lower-case spelling must be refused by the same fact.
     const OpRuling kw = bridge.check(step(3, "FILLET",
                                           {IrArg::valueRef(2), IrArg::num(2),
-                                           IrArg::keyword("sphere")}));
+                                           IrArg::keyword("slot")}));
     CHECK_EQ_INT(static_cast<int>(kw.verdict),
                  static_cast<int>(OpConstraint::ForbiddenOpInArgument));
-    CHECK(kw.reason.find("SPHERE") != std::string::npos);
+    CHECK(kw.reason.find("SLOT") != std::string::npos);
 
     // An ALLOWED op as a bare keyword is a different fact again: not an
     // escalation, but no command emits an op name in a keyword slot.
@@ -714,7 +714,7 @@ int main(int argc, char** argv) {
     // The argument rules are additive. A forbidden op as a STATEMENT op is still
     // ForbiddenOp, and a word that is no feature-IR op at all is still
     // UnknownOp -- two different facts, and neither has become the other.
-    CHECK_EQ_INT(static_cast<int>(bridge.check(step(1, "SPHERE", {IrArg::num(50)})).verdict),
+    CHECK_EQ_INT(static_cast<int>(bridge.check(step(1, "SLOT", {IrArg::num(50), IrArg::num(20)})).verdict),
                  static_cast<int>(OpConstraint::ForbiddenOp));
     CHECK_EQ_INT(static_cast<int>(bridge.check(step(1, "NOTANOP", {IrArg::num(1)})).verdict),
                  static_cast<int>(OpConstraint::UnknownOp));
