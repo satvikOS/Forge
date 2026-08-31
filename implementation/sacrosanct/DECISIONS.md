@@ -1795,12 +1795,13 @@ whose VERIFY failed still built a solid — a gate's verdict is not the kernel's
 **ARM-QUALIFIED. Every number below was measured with `tools/pinned/forge_verify`
 (shim 947b8644 + kernel 2972e0e8).**
 
-| arm | n | built | rows emitting VERIFY | VERIFY FAILED | self-inconsistency | bore recall | parts with a CBORE |
-|---|---|---|---|---|---|---|---|
-| expert3d_v1_e600  | 600 | 60.8% | 443 | 244 | **55.1%** | 26.2% | **0** |
-| expert3d_v5cap_e600 | 600 | 73.5% | 442 | 249 | **56.3%** | 44.0% | **0** |
-| v6r8 (part1)      | 238 | 57.6% | 131 |  76 | **58.0%** | 38.3% | **0** |
-| box600 (floor)    | 600 | 100%  |   0 |   0 | n/a       |  0.0% |  0 |
+| arm | n | built | rows emitting VERIFY | VERIFY FAILED | self-inconsistency | assertions false | bore recall | parts with a CBORE |
+|---|---|---|---|---|---|---|---|---|
+| axis_named_v7_e600 | 600 | **80.8%** | 416 | 243 | **58.4%** | 46.4% | 48.7% | **0** |
+| expert3d_v5cap_e600 | 600 | 73.5% | 442 | 249 | **56.3%** | 43.6% | 44.0% | **0** |
+| expert3d_v1_e600  | 600 | 60.8% | 443 | 244 | **55.1%** | 54.8% | 26.2% | **0** |
+| v6r8 (part1)      | 238 | 57.6% | 131 |  76 | **58.0%** | 59.1% | 38.3% | **0** |
+| box600 (floor)    | 600 | 100%  |   0 |   0 | n/a       | n/a   |  0.0% |  0 |
 
 **The failure is the model asserting what its own construction does not satisfy.** On
 v5cap at full n, the status histogram is `verify_failed 249, op_error 99, ok 192,
@@ -1816,9 +1817,20 @@ census (#150) already established vocabulary is 96.3% sufficient. Bore recall is
 against a ground truth of 5-36 bores per part (median 9, mean 13, and NO holdout part has
 zero).
 
-**"80.8% built" is not reproducible because `built` is arm-dependent**, ranging 57.6% to
-73.5% across three real arms on one instrument. Any such figure is meaningless without
-naming the arm AND the binary pair.
+**THE 80.8% IS FOUND, AND IT IS THE AXIS-NAMED v7 ARM** — 484 of 600, reproduced to the
+decimal on this instrument. It was irreproducible only because it was never arm-qualified:
+`built` ranges 57.6% to 80.8% across four real arms measured with ONE binary, a 23-point
+spread. The 10.7-63.9% another agent saw on "other traces" is the same fact seen from the
+other arms. No figure of this kind means anything without naming the arm AND the binary
+pair.
+
+**AND THE 23-POINT SPREAD IN `built` MOVES SELF-INCONSISTENCY BY NOTHING.** Across arms
+whose build rates differ by 23 points, self-inconsistency sits in a 3.3-point band:
+55.1 / 56.3 / 58.0 / 58.4. v7 is the best arm ever built on this holdout and it is no more
+self-consistent than the worst. Whatever the arms have been varying — axis naming,
+capacity, decoding — none of it touches this defect, which is the strongest available
+argument that it needs a corpus-level intervention rather than another prompt or schedule
+change.
 
 **THE BINARY PAIR IS PART OF THE MEASUREMENT.** `tools/pinned` (947b8644 + 2972e0e8) is a
 DIFFERENT instrument from the baseline pin `tools/baseline_pin_45e9ad9a` (45e9ad9a +
