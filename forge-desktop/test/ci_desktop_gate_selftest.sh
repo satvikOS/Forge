@@ -10,13 +10,13 @@
 #
 # Six cases:
 #   A  the exact verdict, exit 0                     -> GREEN  (positive control)
-#   B  mutation count FELL 17 -> 16, still exit 0    -> RED    (coverage shrank)
-#   C  mutation count ROSE 17 -> 18, still exit 0    -> RED    (exact, not a floor)
+#   B  mutation count FELL by one, still exit 0      -> RED    (coverage shrank)
+#   C  mutation count ROSE by one, still exit 0      -> RED    (exact, not a floor)
 #   D  a mutation STAYED GREEN, still exit 0         -> RED    (unfalsifiable check)
 #   E  the script died, no verdict                   -> RED    (a real failure)
 #   F  exit 0 and no verdict line at all             -> RED    (fell out mid-run)
 #
-# C is the case that matters most to read twice. A check written as ">= 17"
+# C is the case that matters most to read twice. A check written as ">= N"
 # would pass it, and would then never notice mutation coverage being replaced
 # rather than added to. The count is an equality on purpose.
 #
@@ -38,9 +38,17 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/ci_desktop_selftest.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/forge-desktop/test"
 
-V17='[desktop] ALL FORGE DESKTOP GATES PASS, and all 17 mutations proved red-then-green'
-V16='[desktop] ALL FORGE DESKTOP GATES PASS, and all 16 mutations proved red-then-green'
-V18='[desktop] ALL FORGE DESKTOP GATES PASS, and all 18 mutations proved red-then-green'
+# The count is READ from ci_desktop_gate.sh rather than written here. It used to be
+# literal 17/16/18, and when EXPECTED_MUTATIONS moved to 24 this self-test went red
+# on case A -- the one case that is supposed to be GREEN -- with a six-second job and
+# no gate output, which reads exactly like a build failure and not like a stale
+# fixture. What these cases assert is a RELATIONSHIP (the wrapper demands an EXACT
+# count, not a floor); the specific integer is incidental, so it is derived.
+N="$(sed -n 's/^EXPECTED_MUTATIONS=\([0-9][0-9]*\)$/\1/p' "$(dirname "$0")/ci_desktop_gate.sh")"
+case "$N" in ''|*[!0-9]*) echo "[selftest] cannot read EXPECTED_MUTATIONS"; exit 1 ;; esac
+VN="[desktop] ALL FORGE DESKTOP GATES PASS, and all ${N} mutations proved red-then-green"
+VLESS="[desktop] ALL FORGE DESKTOP GATES PASS, and all $((N-1)) mutations proved red-then-green"
+VMORE="[desktop] ALL FORGE DESKTOP GATES PASS, and all $((N+1)) mutations proved red-then-green"
 STAYED='  forge_desktop_frame_gate mutation 4: STAYED GREEN - the check it targets is unfalsifiable'
 
 BAD=0
@@ -66,17 +74,17 @@ run_case() {
 
 echo "[selftest] driving ci_desktop_gate.sh against stub run_desktop.sh scripts"
 
-run_case "A exact verdict, exit 0 -> GREEN" 0 "echo \"$V17\"
+run_case "A exact verdict, exit 0 -> GREEN" 0 "echo \"$VN\"
 exit 0"
 
-run_case "B count FELL 17 -> 16, exit 0" 1 "echo \"$V16\"
+run_case "B count FELL by one, exit 0" 1 "echo \"$VLESS\"
 exit 0"
 
-run_case "C count ROSE 17 -> 18, exit 0" 1 "echo \"$V18\"
+run_case "C count ROSE by one, exit 0" 1 "echo \"$VMORE\"
 exit 0"
 
 run_case "D a mutation STAYED GREEN, exit 0" 1 "echo \"$STAYED\"
-echo \"$V17\"
+echo \"$VN\"
 exit 0"
 
 run_case "E script failed, no verdict" 1 "echo '[desktop] app build FAILED'
