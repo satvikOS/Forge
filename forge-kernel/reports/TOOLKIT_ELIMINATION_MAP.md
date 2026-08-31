@@ -124,8 +124,32 @@ entire reach of the current family programme; from wave 4 on there is no flag, n
 and no corpus number — TKBO's 32 symbols across 14 files have never been measured by the
 coverage harness because no option exists to measure them against.
 
-The ten family numbers in flight therefore buy **waves 1 and 2 and nothing else**: closure
-14 → 12, with wave 3 (TKBool) falling free. That is the honest ceiling of the current programme.
+The ten family numbers in flight therefore buy **waves 1, 2 and 3**: closure **14 → 11**,
+with wave 3 (TKBool) falling free.
+
+★ CORRECTED 2026-08-31, BY BUILDING IT. This paragraph and §7.4 both used to say the ceiling
+was **12**, which contradicted this document's own wave table (row 3 reads `TKBool | 12 → 11 |
+none — falls for free`) and its own ladder in §3. The build settles it — three configurations,
+`occt_closure_count.sh` on each, measured from a detached worktree pinned to origin/archdisc:
+
+    default (committed defaults)       DIRECT=9  CLOSURE=14  PHANTOM=2
+    nine TKOffset families, FILLET off DIRECT=8  CLOSURE=13  PHANTOM=2  (only TKOffset leaves)
+    all twelve drop options ON         DIRECT=9  CLOSURE=11  PHANTOM=0  (TKOffset, TKFillet, TKBool)
+
+THREE toolkits leave, not two. `DIRECT` climbs back 8 → 9 in the all-twelve arm because
+CMakeLists.txt:415 appends TKBO+TKG2d in the FILLET branch — which is also why PHANTOM falls
+2 → 0. PHANTOM did not RISE, so nothing reaches TKOffset under `-undefined dynamic_lookup`.
+
+The arms were proved to differ rather than assumed: `cmp` reports baseline 9,010,272 B vs
+all-twelve 8,917,888 B; the all-twelve configure log prints `★ TKOffset REMOVED FROM
+OCCT_LIBS`; and re-running the default configuration reproduced a byte-identical baseline
+binary. All twelve options were confirmed to exist in that tree (`option(NAME` = 1 each) AND
+re-read back out of `CMakeCache.txt` as `got=ON` — because CMake accepts an unknown `-D`
+silently, so a wrong flag name is otherwise invisible.
+
+The ceiling of **11** is structural, not engine-dependent: wave 4 is TKBO, which has no drop
+option, no family and no harness. Engine work moves the REACHABILITY of 11 without deleting
+capability; it does not move the number.
 
 ## 4. Minimal family set per toolkit
 
@@ -942,7 +966,8 @@ TKGeomAlgo are two of the four zero-work toolkits (§5) and leave only at waves 
    TKGeomAlgo or TKGeomBase is wasted.
 3. **TKFillet must never be scored alone** — worth 0 closure while TKOffset lives, and it
    *raises* `OCCT_DIRECT` by appending TKBO and TKG2d.
-4. **The family programme's ceiling is closure 12**, reached at wave 3. Waves 4-13 have no
+4. **The family programme's ceiling is closure 11**, reached at wave 3 — CORRECTED from 12 on
+   2026-08-31 by building all three configurations; see §2. Waves 4-13 have no
    flags and no harness; TKBO (wave 4) is the first unowned frontier and has 32 symbols across
    14 files with no native boolean engine behind them.
 5. **Two honesty fixes are free**: drop TKPrim's dead link record (`OCCT_DIRECT` 9 → 8), and
