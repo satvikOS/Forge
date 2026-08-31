@@ -243,6 +243,18 @@ target_link_libraries(forge_desktop_frame_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_frame_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# The Archie CoPilot gate. Same headless shape as the frame gate, and it links
+# the kernel core too: it follows the CoPilot's edits all the way through
+# forge::ft::compile, because "the panel dispatched something" is not the claim --
+# "what it dispatched builds the solid it said it would, and what the
+# op-constraint gate refused never reached the kernel at all" is.
+add_executable(forge_desktop_copilot_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/copilot_gate.cpp")
+target_compile_options(forge_desktop_copilot_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_copilot_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_copilot_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # ---------------------------------------------------------------- the gates
 # ir_pipeline_gate.cpp EXISTED for a while and was built only by a standalone
 # script (test/run_ir_pipeline.sh) -- so the one edge that authorises deleting
@@ -376,6 +388,7 @@ target_link_libraries(forge_desktop_update_gate PRIVATE forge_updater)
 
 enable_testing()
 add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
+add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
 add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)
