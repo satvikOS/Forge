@@ -232,7 +232,7 @@ set(OCCT_LIBS
 #   option                            native%   OCCT%   parts DELETED   McNemar p
 #   FORGE_FILLET_DROP_NATIVE            32.8      76.8      315/600       1.4e-47
 #   FORGE_OFFSET_DROP_MAKEOFFSET        94.5      99.0       27/600       1.5e-8
-#   FORGE_THICKSOLID_DROP_NATIVE         1.2      22.2      126/600       2.4e-38
+#   FORGE_THICKSOLID_DROP_NATIVE         0.0      22.2      133/600       2.4e-38   [1]
 #   FORGE_OFFSETSHAPE_DROP_NATIVE        1.2       6.3       38/600       3.1e-6
 #   FORGE_THRUSECTIONS_DROP_NATIVE       0.0      94.5      567/600      4.1e-171
 #   FORGE_PIPE_DROP_NATIVE               0.3     100.0      598/600      1.9e-180
@@ -245,6 +245,23 @@ set(OCCT_LIBS
 # engine DECLINED, on the same input. With the option ON, each of those becomes a THROWN
 # ERROR. Nine of ten options fail with p < 1e-5 — these are not underpowered ties, the
 # intervals are in reports/corpus_ab/summary.md and none of the nine straddles zero.
+#
+# ★ [1] THICKSOLID's 1.2% WAS SEVEN INVALID SOLIDS AND IS NOW AN HONEST 0.0%. The seven
+#   parts the native thick-solid "built" on this corpus were every one of them
+#   BRepCheck_Analyzer-INVALID (IntersectingWires) — the corpus A/B already recorded
+#   "valid results: native 0, OCCT 0" for this family and the number was read as
+#   coverage anyway. CAUSE, measured on ho1041: the wall offset exceeded the local
+#   feature size, so the offset of a hole crossed the offset of the rim it sits inside
+#   (outer R 24.0192 against holes of r 4.6848 centred 23.808, reaching 28.493). The
+#   engine's two self-checks are both AREA/VOLUME identities in the radii and are blind
+#   to containment — the face's area matched its closed form to 2e-7 relative while its
+#   wires crossed. Fixed by a distance guard (circlesNest in
+#   src/native/brep/NativeThickSolid.cpp), gated two-sidedly by
+#   test/run_thicksolid_nesting_gate.sh, which is proved to FAIL against the pre-fix
+#   engine. The seven became honest defers, so the deletion bucket is 133/600, not 126.
+#   This LOWERS a native rate: it is a correction, not a regression — the capability it
+#   removes never existed, and reports/TKOFFSET_GH_DEFER_CENSUS.md has the per-part
+#   evidence for both G and H.
 #
 # ★ THE TABLE ABOVE IS THE f71ed98b BASELINE AND ONE ROW OF IT HAS SINCE MOVED. The
 #   THRUSECTIONS 0.0% was not a coverage fact about the corpus, it was a DEFECT in the

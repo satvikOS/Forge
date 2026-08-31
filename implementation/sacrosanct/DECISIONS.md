@@ -825,3 +825,133 @@ surprise.
 **Reversible.** Both halves are local: `part.loft` reverts by changing one value kind back, and
 the producer reverts by deleting one command block plus its id. The measurement above is what
 would have to be refuted first.
+
+## D-024 (2026-08-30): the Forge deletion PLAN exists, gate 3 is re-assessed at 11.0%, and the Developer ID blocks only the last two tiers
+
+The standing order is to delete all old Forge versions from the repo and locally. D-018 gated
+that on four conditions and deferred the inventory. This decision records the inventory, the
+honest re-assessment of gate 3, and one consequence that changes what can be worked on now.
+The plan is `implementation/sacrosanct/FORGE_DELETION_PLAN.md`; every figure in it is
+reproduced by `implementation/sacrosanct/tools/forge_deletion_inventory.py`, run from a tree
+pinned to origin. **Nothing is deleted by this decision or by the PR that carries it.**
+
+**GATES 1 AND 2 RE-MEASURED, NOT RESTATED.** D-018's pass reported 135 checks, and three
+commits have touched `forge-desktop` since (#88, #91, #89). Re-run from scratch on this tree:
+`KCONF_RC=0 KCORE_RC=0 CONFIGURE_RC=0 GATE_BUILD_RC=0`, `ctest` reports `100% tests passed, 0
+tests failed out of 3`, and the frame gate prints **137 checks, 0 failures** — two more than
+before, so it grew rather than went quiet. The verdict is read from the printed line and not
+from `$?`, which after that pipeline belongs to `tee`.
+
+**GATE 3 IS NOT MET, AND THE CLOSURE RESULT DOES NOT MOVE IT.** The op vocabulary being closed
+(`value_kind_closure.gaps == []`) answers a different question from the one the gate asks.
+Closure asks whether the C++ vocabulary is self-consistent — whether any program can be written
+in it at all. Gate 3 asks whether the C++ UI covers the operations the JS app exposes. Measured
+on `5adc26a0`, mapping the JS app's 164 declared tools onto the 30 C++ registry commands with a
+synonym table printed in full so any row can be rejected individually:
+
+```
+JS tools with a C++ counterpart : 18 / 164   =  11.0%
+  part 17/104   simulate 0/29   drawing 0/12   assembly 0/8   sketch 1/6   manufacture 0/5
+```
+
+Four of the six disciplines are at zero, and the gap includes every primitive creator
+(`part.make-box` … `part.make-wedge`) and the whole constraint sketcher. On the wider surface
+the renderer actually has — 445 `contextBridge` kernel functions in `electron/preload.js` — the
+ratio is 30/445. What closure *did* change is that gate 3 is now a **size** problem rather than
+an **impossibility** problem, which is real progress and is why the tier order below moves.
+
+**Two counts in circulation are wrong and are corrected here.** Reachability is **30/30**, not
+34/34 — measured by running the 13 UI gates on this tree, with the gate's own negative control
+firing (`reaches 29 / 30`, FAIL, as designed). The "34" is the count of recorded IR examples
+`archie_op_vocabulary_test` dispatches, and a stale comment in
+`app_surface_reachability_test.cpp:9-10` quotes "13 of 34" from revision `6a7f3aa3`. Separately
+D-023's "35 commands" was correct when written: `80a26e0d` (#89) landed after `903cf338` (#92)
+and removed five rows — `model.extrude`, `model.fillet`, `model.shell` (D-021's
+"declares an op and emits nothing") and `part.undo`/`part.redo` (duplicates of `edit.*`).
+`user_invocable_ops` stayed 18 and `commands_emitting_ir` stayed 20 across it, so the shrink is
+de-stubbing and de-duplication, **not** a capability regression.
+
+**THE CONSEQUENCE THAT MATTERS: the Developer ID blocks only the last two tiers.** Gate 4 is
+re-confirmed blocked (`security find-identity -v -p codesigning` -> `0 valid identities found`,
+re-run today), and per D-019 it needs a paid credential, not code. But the deletion decomposes,
+and only T5–T6 touch it:
+
+```
+T0 today   the one provably dead spec + ~155 MiB of local residue
+T1 needs a per-op A/B vs forge_kernel_core     -> frontend/src/kernel   69,265 LOC
+T2 needs per-file evidence transcription       -> 200 unreachable JS acceptance files
+T3 needs CAPI@445 + CI moved to ctest          -> 41 reachable JS files, THEN the N-API layer
+T4 needs a C++ owner per module                -> foundation + the AI bridge
+T5 needs GATE 3 and GATE 4                     -> forge-v4, then e2e root, then e2e/forge LAST
+T6 needs the default branch on the C++ ship    -> electron, projects, the JS build config
+```
+
+**T1–T3 alone are 124,572 LOC and are gated on engineering evidence this programme can produce.**
+Two facts make that credible rather than optimistic, and both are measured rather than assumed:
+`git grep` for any JS path over `forge-desktop ui orchestration simulation retrieval` returns
+**0 files** (positive control: the same grep over `forge-kernel` returns 29), so the C++ app
+cannot break when the JS app is deleted; and CTest now exists — 44 registered A/B gates plus the
+native suite, the s0 ratchet, the CAPI smoke and the coaxial guard — which clears the blocker
+`ZERO_JS_MIGRATION_MANIFEST.md` §3 called "the true blocker on Z1".
+
+**What is refused.** No deletion is performed. No gate is lowered: gate 3 is restated as a
+ratchet with 11.0% attached, not relaxed to an inequality. `e2e/forge` stays, and stays **last**
+in the order — it is the reference gate 3 is measured against, and deleting the reference before
+the thing it measures is how a regression becomes invisible. A separate measured finding
+sharpens that: `grep` for `playwright` over the workflows on BOTH branches returns nothing, so
+**no CI job runs any of the 404 Playwright specs**. They are a manual reference. That is not a
+reason to delete them sooner; it is the reason they must be re-authored before they go, because
+nothing else in the tree would go red on the day their assertions stop being true.
+
+## D-025 (2026-08-30): the release is NOT blocked on a Developer ID — D-019's conclusion is CORRECTED by the user's distribution decision
+
+**D-019 concluded that the release was blocked on a Developer ID certificate. That conclusion
+was wrong, and the user corrected it.** The measurements behind it were sound; the inference
+from them was not. A paid certificate was treated as a hard PREREQUISITE when it is a
+FRICTION TRADEOFF, and the choice of how much friction to accept belongs to whoever ships the
+product, not to the person measuring it.
+
+**The distribution model, decided by the user:** Forge ships from GitHub Releases and later
+the ArchDisc website, with auto-update on, so a user downloads once and every later version
+arrives in place. Not the Mac App Store.
+
+**One factual correction to the user's framing, recorded because getting it backwards would
+misdirect future work.** Developer ID is not the App Store path -- it is precisely the
+OUTSIDE-the-App-Store path. Apple's split is: Mac App Store builds use an Apple Distribution
+certificate and get App Store review; anything distributed by web uses a **Developer ID
+Application** certificate plus **notarization**. So shipping from GitHub Releases does not
+sidestep Gatekeeper; it means the user meets Gatekeeper once. That does not change the
+decision, and the decision stands.
+
+**What was MEASURED on the existing bundle, rather than assumed:**
+
+* `codesign -v --deep --strict` **exits 0**. The ad-hoc signature is VALID and intact, so the
+  app runs normally once approved. This is the load-bearing fact: a BROKEN signature would
+  fail even after "Open Anyway", and this one does not.
+* `spctl -a -t exec` says **rejected**, with the quarantine attribute and without it. That is
+  expected and permanent for an ad-hoc signature -- spctl assesses signature POLICY, which
+  ad-hoc cannot satisfy. It is NOT a build defect and must not be chased.
+* A downloaded copy carries `com.apple.quarantine`, so the first launch shows "cannot be
+  opened because the developer cannot be verified". The user clears it once in System
+  Settings -> Privacy & Security -> "Open Anyway".
+
+**Two consequences that shape the implementation:**
+
+1. **The right-click -> Open shortcut was REMOVED in macOS 15.** Any instruction telling users
+   to right-click and Open is wrong on current macOS and sends them somewhere that does not
+   work. The first-launch documentation must say System Settings.
+2. **The updater must download and apply IN-APP, never via the browser.** A browser download
+   re-applies `com.apple.quarantine` and reproduces the scary dialog on every version, which
+   destroys the entire premise that the prompt is one-time. It must also verify a checksum
+   BEFORE swapping: an auto-updater without that is a remote code execution channel.
+
+**DECISION: ship ad-hoc signed, from GitHub Releases, with in-app auto-update.** No
+certificate is bought. D-019's floor analysis is unaffected and still correct: minos=26.0 is a
+runner-image property inherited from the Homebrew bottle tag, not an OCCT consequence, and
+`desktop-release.yml` already pins `runs-on: macos-15` with `FORGE_FLOOR_MAX 15.0`, which
+fixes it with OCCT still present. PR #86, which moves that workflow to the default branch so
+`workflow_dispatch` registers, remains a prerequisite for a CI-driven release.
+
+**Publishing remains a human action.** The agents preparing this are explicitly forbidden from
+pushing a tag or publishing a release, including a draft. Everything is staged so that
+publishing is one reviewed step.

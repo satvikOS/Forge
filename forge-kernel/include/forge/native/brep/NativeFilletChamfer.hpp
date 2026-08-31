@@ -37,6 +37,30 @@
 //       and where a vertex is consumed by an earlier blend the simultaneous
 //       corner-aware build (blendBatch) closes a convex trihedral corner with an
 //       exact spherical octant (fillet) or planar triangle (chamfer).
+//     * a TANGENT-CONTINUOUS PRISMATIC RIM — one straight edge of a planar cap
+//       whose whole outer ring is a G1 loop of lines and CONVEX arcs, with a
+//       prismatic planar wall behind every line and a cylinder (axis ‖ the cap
+//       normal, radius = the arc's) behind every arc. OCCT's BRepFilletAPI
+//       PROPAGATES a contour across tangent junctions, so the operation such a
+//       request names is the WHOLE rim, not the picked edge — MEASURED, it removes
+//       2.53x to 4.11x the single-edge closed form on the corpus parts that are
+//       this shape. The engine answers it in closed form: the cap re-trimmed to its
+//       own ring offset inward by R (lines by R, arcs to radius rho-R — exact,
+//       because tangency makes the two agree at every junction), every wall pulled
+//       back R, one cylinder patch per line and one Geom_ToroidalSurface patch per
+//       arc (centre R below the cap, major radius rho-R, minor radius R). Holes in
+//       the cap are preserved verbatim. Requires rho > R, one wall per rim segment,
+//       every wall deeper than R, and every HOLE at least R clear of the rim — that
+//       last one checked TOPOLOGICALLY on the rebuilt cap face (BRepCheck), because
+//       the volume self-check and the cap-area identity are both computed as (outer
+//       region) minus (hole regions) and are therefore blind to a hole the offset
+//       ring has crossed: MEASURED, 21 corpus parts built with the removed volume
+//       matching the closed form exactly and the cap's wires intersecting.
+//       FILLET only — no rim CHAMFER is authored —
+//       and only for a single-edge request. This path is tried LAST, after the
+//       per-edge and corner-aware builds have both declined, so it cannot change an
+//       answer either of them already gives; a POLYGON rim (a plain box lid) is not
+//       a propagating contour and is deliberately left to the per-edge path.
 //   DEFERS to the OCCT fallback (Result.ok == false, reason set — NOT a throw):
 //     * curved edges / curved adjacent faces (contact surface would be a torus
 //       or pipe, not a cylinder — a real follow-up; MEASURED gap: OCCT rounds a
@@ -57,7 +81,7 @@
 //       native-analytic linear-law engine and the remaining OCCT-topology gap.
 //
 // EVERY line of that scope statement is MEASURED against live OCCT, not asserted:
-//   forge-kernel/test/run_ab_native_fillet_concave.sh — 66 assertions, each in-scope
+//   forge-kernel/test/run_ab_native_fillet_concave.sh — 114 assertions, each in-scope
 //   case compared to BRepFilletAPI on volume, centre of mass, all six bbox bounds,
 //   face/edge/vertex/shell counts, Euler characteristic + genus and BRepCheck
 //   validity, PLUS an independent closed form; each defer control asserting both
