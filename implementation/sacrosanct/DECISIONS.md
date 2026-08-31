@@ -1787,3 +1787,67 @@ Recorded so the next reader does not discover them as a surprise.
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
 
+
+## D-040 (2026-08-31): the build rate, arm-qualified — and two parts in six hundred explain the OOM
+
+Two agents reported irreconcilable build rates: I said **80.8%**, another measured **10.7–63.9%**
+on "other traces". Neither of us named the arm. Re-measured with a per-process memory cap:
+
+```
+ARM axis_named_v7_e600   n=600   verifier tools/pinned/forge_verify   cap 3000MB   timeout 120s
+   242 (40.3%)  built_a_solid
+   226 (37.7%)  ok_and_valid
+   102 (17.0%)  no_solid
+    23 ( 3.8%)  ok_not_valid
+     4 ( 0.7%)  timeout
+     2 ( 0.3%)  memory_blowup
+     1 ( 0.2%)  crash_rc-11
+  --> produced a solid: 491/600 = 81.8%
+  --> peak RSS: max 3035MB, median 1MB
+```
+
+**81.8% for this arm**, against my earlier 80.8% — the difference is a tighter 120 s timeout. The
+other figure came from different arms and different traces. Neither number was ever wrong; both
+were **unqualified**, which made them look contradictory. ★From here a build rate is quoted with
+its arm, its verifier and its timeout, or not at all.
+
+### The distribution is the finding, not the headline
+
+★**Peak RSS: max 3035 MB, median 1 MB.** The median part costs a megabyte. **Two parts in six
+hundred** hit the ceiling. That single fact explains the jetsam event that killed a whole session
+earlier today: the machine did not fall over under sustained load, it fell over because a
+0.3%-frequency part allocated without bound while eleven other agents held their own working sets.
+
+### Why the previous attempt could not have found this
+
+The first runner used `--jobs 2` and checked swap **between arms**. Both were useless:
+
+* ★**PER-JOB CONCURRENCY DOES NOT BOUND PER-JOB MEMORY.** One part grew a single `forge_verify` to
+  **9.9 GB in 101 seconds** and drove swap from 375 MB to 35 GB. A limit of two such jobs is not a
+  limit.
+* A gate *between* arms cannot see growth *within* a part.
+
+The replacement gives each part its own subprocess, polls RSS every 250 ms, and kills at 3 GB —
+so `memory_blowup` becomes **a named outcome next to `timeout` and `crash_rc139`** rather than an
+invisible near-miss that occasionally takes the machine with it.
+
+### A second self-inflicted lesson, recorded so it is not repeated
+
+The attempt before that printed **"ARM-QUALIFICATION COMPLETE"** while every arm had failed with
+`No such file or directory` — it never checked exit codes. ★**A SCRIPT THAT PRINTS "COMPLETE"
+WITHOUT CHECKING rc IS LYING.** Two causes: the tool path pointed at the **main checkout, which is
+stale at `267891bc`**, while the tool lives in the `appbuild` worktree — *measure only from a tree
+pinned to origin*, in the small as well as the large — and the pipeline's status was read from
+`tail` rather than `${pipestatus[1]}`.
+
+### What this unblocks
+
+This is step 1 of the training characterisation: the failure taxonomy the corpus rebuild has to
+target. `no_solid` at 17.0% and `ok_not_valid` at 3.8% are model-fidelity failures. `timeout`,
+`memory_blowup` and `crash_rc-11` together are **1.2%** and are *kernel* defects, not model ones —
+they should never be counted against the model's score, and previously they were indistinguishable
+from a model failure because the harness simply died.
+
+Cross-reference: the unforked sweep in [D-039] found **66 of 600 (11.0%)** gold-reference parts
+SIGSEGV, all OFFSETSHAPE. That is a different population — gold parts through the offset engine,
+not model emissions through the compiler — which is exactly why both numbers need their arm.
