@@ -116,12 +116,21 @@ DockLayout defaultLayout(WorkspaceProfile profile) {
 std::vector<std::string> workspaceCategories(WorkspaceProfile profile) {
   std::vector<std::string> cats{"Application", "Edit", "File", "View"};  // always present
   switch (profile) {
+<<<<<<< HEAD
     // "Part", not "Model": the Part workspace's ribbon is the category
     // registerPartCommands() actually files its sixteen commands under. While
     // this said "Model" the ribbon and the workspace menu showed the three
     // ForgeShell counter stubs and NONE of the real modelling commands, which is
     // how a toolbar full of Extrude/Fillet/Shell buttons could change nothing.
     case WorkspaceProfile::Part:          cats.push_back("Part"); break;
+=======
+    // "Part" as well as "Model": registerPartCommands() files its 21 commands
+    // under "Part", and the Part workspace is where part modelling happens. It
+    // was claimed by no workspace at all, which put every one of those commands
+    // on no ribbon in any of the eight workspaces.
+    case WorkspaceProfile::Part:          cats.push_back("Model");
+                                          cats.push_back("Part"); break;
+>>>>>>> origin/claude/sacrosanct-execution-20260828
     case WorkspaceProfile::Sketch:        cats.push_back("Sketch"); break;
     case WorkspaceProfile::Assembly:      cats.push_back("Assembly"); break;
     case WorkspaceProfile::Surface:       cats.push_back("Surface"); break;
@@ -129,6 +138,28 @@ std::vector<std::string> workspaceCategories(WorkspaceProfile profile) {
     case WorkspaceProfile::Drawing:       cats.push_back("Drawing"); break;
     case WorkspaceProfile::Simulation:    cats.push_back("Simulation"); break;
     case WorkspaceProfile::Archie:        cats.push_back("Archie"); break;
+  }
+  std::sort(cats.begin(), cats.end());
+  return cats;
+}
+
+std::vector<std::string> ribbonCategories(WorkspaceProfile profile,
+                                          const std::vector<std::string>& registryCategories) {
+  std::vector<std::string> cats = workspaceCategories(profile);
+  if (profile == kDefaultWorkspace) {
+    // Sweep in every registry category NO workspace claims. Without this, adding
+    // a command under a new category name silently puts it on no ribbon: the
+    // failure is invisible because the command still exists, still dispatches,
+    // and still appears in the menu bar. Claiming it here makes the ribbon TOTAL
+    // by construction rather than by a rule somebody has to remember.
+    for (const std::string& c : registryCategories) {
+      bool claimed = false;
+      for (WorkspaceProfile p : allWorkspaceProfiles()) {
+        const std::vector<std::string> owned = workspaceCategories(p);
+        if (std::find(owned.begin(), owned.end(), c) != owned.end()) { claimed = true; break; }
+      }
+      if (!claimed && std::find(cats.begin(), cats.end(), c) == cats.end()) cats.push_back(c);
+    }
   }
   std::sort(cats.begin(), cats.end());
   return cats;

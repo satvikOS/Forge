@@ -67,8 +67,38 @@ std::string jsonUnescape(const std::string& s) {
             case '\\': out.push_back('\\'); break;
             case '/': out.push_back('/'); break;
             case 'u': {
-                if (i + 4 < s.size()) {
-                    const int cp = std::stoi(s.substr(i + 1, 4), nullptr, 16);
+                // A STRICT four-hex-digit parse, and deliberately NOT std::stoi.
+                //
+                // std::stoi throws std::invalid_argument on "\uZZZZ" (and std::out_of_range on a
+                // value it cannot represent). main() calls jsonString() SIX times before it opens
+                // its first try block, so that throw escaped main and killed the WHOLE BATCH: one
+                // malformed byte in one record left every LATER record unverified, and the run
+                // looked like a verifier crash rather than one bad input. That is the same
+                // "one failure destroys the batch" shape the NAFEMS gate had.
+                //
+                // std::stoi is also wrong here in a quieter way that no crash would reveal:
+                // base-16 parsing STOPS at the first non-hex character, so "\u00ZZ" partially
+                // parses to 0 and silently emits a NUL byte instead of reporting bad input.
+                // Parsing exactly four digits, and rejecting unless all four are hex, fixes both.
+                int cp = 0;
+                bool okHex = (i + 4 < s.size());
+                for (int k = 1; okHex && k <= 4; ++k) {
+                    const unsigned char h = static_cast<unsigned char>(s[i + k]);
+                    int d;
+                    if      (h >= '0' && h <= '9') d = h - '0';
+                    else if (h >= 'a' && h <= 'f') d = h - 'a' + 10;
+                    else if (h >= 'A' && h <= 'F') d = h - 'A' + 10;
+                    else { okHex = false; break; }
+                    cp = (cp << 4) | d;
+                }
+                if (!okHex) {
+                    // Malformed or truncated: keep the 'u' literally, exactly as `default:` does
+                    // for any other unknown escape, and do NOT consume what follows. Never throw
+                    // -- a bad byte in one record must cost that record, never the batch.
+                    out.push_back('u');
+                    break;
+                }
+                {
                     i += 4;
                     if (cp < 0x80) {
                         out.push_back(static_cast<char>(cp));

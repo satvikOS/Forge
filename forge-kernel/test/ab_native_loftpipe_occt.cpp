@@ -540,6 +540,334 @@ int main() {
             }
         }
 
+        // ---- HOLED profiles (family E): the sweep carries the holes --------
+        // profileRings() used to reject any face with more than one wire. On the
+        // 600-part corpus A/B that one line was 581 of 598 PIPE defers (97.2%),
+        // so the hole path is now built -- and everything below exists to prove
+        // the hole is REALLY THERE rather than quietly dropped, which is the one
+        // way this change could be worse than the defer it replaces.
+        {
+            std::printf("\n--- holed profiles: outer polygon + polygon holes ---\n");
+            const TopoDS_Wire outer = rectWire(-20, -20, 0, 40, 40);   // area 1600
+            TopoDS_Wire hole1 = rectWire(-5, -5, 0, 10, 10);           // area  100
+            hole1.Reverse();
+            BRepBuilderAPI_MakeFace mkHoled(outer, Standard_True);
+            mkHoled.Add(hole1);
+            const TopoDS_Face holedFace = mkHoled.Face();
+            const double holedArea = 1600.0 - 100.0;
+
+            TopoDS_Wire h2a = rectWire(-14, -4, 0, 8, 8);              // area 64
+            TopoDS_Wire h2b = rectWire(6, -4, 0, 8, 8);                // area 64
+            h2a.Reverse(); h2b.Reverse();
+            BRepBuilderAPI_MakeFace mkTwo(outer, Standard_True);
+            mkTwo.Add(h2a);
+            mkTwo.Add(h2b);
+            const TopoDS_Face twoHoleFace = mkTwo.Face();
+            const double twoHoleArea = 1600.0 - 64.0 - 64.0;
+
+            // STRAIGHT spine: OCCT MakePipe IS a trustworthy oracle here (the
+            // banner's measurement), so this is a full A/B, not a closed form
+            // standing alone.
+            struct HoledCase { const char* tag; const TopoDS_Face* prof; double area; };
+            const std::vector<HoledCase> holed{
+                {"pipe-holed-straight",   &holedFace,   holedArea},
+                {"pipe-2holes-straight",  &twoHoleFace, twoHoleArea},
+            };
+            const std::vector<gp_Pnt> straightSpine{gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)};
+            for (const HoledCase& c : holed) {
+                std::printf("\n--- %s ---\n", c.tag);
+                const TopoDS_Wire sp = spineOf(straightSpine);
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, *c.prof, 1.0e-6);
+                BRepOffsetAPI_MakePipe mk(sp, *c.prof);
+                mk.Build();
+                check(!nat.IsNull(),
+                      std::string(c.tag) + " native pipe produced a shape (no defer)");
+                check(mk.IsDone() == Standard_True,
+                      std::string(c.tag) + " OCCT MakePipe produced a shape");
+                if (nat.IsNull() || !mk.IsDone()) continue;
+                const Metrics n = measure(nat), o = measure(mk.Shape());
+                std::printf("      native vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                            n.vol, n.com[0], n.com[1], n.com[2], n.nFace, n.nEdge, n.nVert,
+                            n.nShell, static_cast<int>(n.valid));
+                std::printf("      occt   vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                            o.vol, o.com[0], o.com[1], o.com[2], o.nFace, o.nEdge, o.nVert,
+                            o.nShell, static_cast<int>(o.valid));
+                compareAB(c.tag, n, o, /*wantClosed*/ true, /*report*/ true);
+                const double cf = c.area * 25.0;
+                check(relClose(n.vol, cf, 1.0e-9),
+                      std::string(c.tag) + " volume native==CLOSED FORM (outer minus holes)");
+                check(relClose(o.vol, cf, 1.0e-9),
+                      std::string(c.tag) + " volume OCCT==CLOSED FORM (outer minus holes)");
+            }
+
+            // ★ THE CONTROL THAT MATTERS: prove the HOLE IS THERE. A sweep that
+            // silently dropped the hole would still be a valid closed solid with
+            // a plausible volume, and every assertion above except the closed
+            // form would still pass. So compare it, on the SAME spine, with the
+            // sweep of the hole-free outer wire.
+            {
+                const TopoDS_Wire sp = spineOf(straightSpine);
+                const TopoDS_Face solidFace = BRepBuilderAPI_MakeFace(outer, Standard_True).Face();
+                const TopoDS_Shape natHole = forge::occtloft::pipe(sp, holedFace, 1.0e-6);
+                const TopoDS_Shape natFull = forge::occtloft::pipe(sp, solidFace, 1.0e-6);
+                check(!natHole.IsNull() && !natFull.IsNull(),
+                      "hole control: both the holed and the hole-free sweep built");
+                if (!natHole.IsNull() && !natFull.IsNull()) {
+                    const Metrics nh = measure(natHole), nf = measure(natFull);
+                    std::printf("      holed vol=%.10g F=%d   hole-free vol=%.10g F=%d\n",
+                                nh.vol, nh.nFace, nf.vol, nf.nFace);
+                    check(!relClose(nh.vol, nf.vol, 1.0e-6),
+                          "hole control: the holed sweep is NOT the hole-free sweep (volume)");
+                    check(relClose(nf.vol - nh.vol, 100.0 * 25.0, 1.0e-9),
+                          "hole control: the missing volume is EXACTLY the hole's prism");
+                    check(nh.nFace == nf.nFace + 4,
+                          "hole control: the holed sweep carries 4 extra lateral faces");
+                    check(std::fabs(nh.bb[0] - nf.bb[0]) <= 1.0e-9 &&
+                          std::fabs(nh.bb[3] - nf.bb[3]) <= 1.0e-9,
+                          "hole control: the OUTER boundary is unchanged by the hole");
+                }
+            }
+
+            // BENT spine, profile centroid ON the spine: OCCT is not an oracle,
+            // so the closed form is, exactly as the bent cases above.
+            {
+                const std::vector<gp_Pnt> bentSpine{gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25),
+                                                    gp_Pnt(30, 0, 25)};
+                std::printf("\n--- pipe-holed-L: bent spine — native vs CLOSED FORM ---\n");
+                const TopoDS_Wire sp = spineOf(bentSpine);
+                const TopoDS_Shape nat = forge::occtloft::pipe(sp, holedFace, 1.0e-6);
+                check(!nat.IsNull(), "pipe-holed-L native pipe produced a shape");
+                if (!nat.IsNull()) {
+                    const Metrics n = measure(nat);
+                    const double cf = holedArea * (25.0 + 30.0);
+                    std::printf("      native vol=%.10g (closed form %.10g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                n.vol, cf, n.nFace, n.nEdge, n.nVert, n.nShell,
+                                static_cast<int>(n.valid));
+                    check(relClose(n.vol, cf, 1.0e-9),
+                          "pipe-holed-L native volume == CLOSED FORM (outer minus hole) * length");
+                    check(n.valid, "pipe-holed-L native solid VALID (BRepCheck_Analyzer)");
+                    check(n.closedShells, "pipe-holed-L native shell CLOSED");
+                    check(n.nShell == 1, "pipe-holed-L native has exactly ONE shell");
+                }
+            }
+
+            // ---- CIRCULAR holes -------------------------------------------
+            // The corpus census: of 3426 hole wires across 600 real parts, 3426
+            // are full circles and none is a polygon. So this kind, not the
+            // polygon-hole kind, is what the coverage number turns on.
+            {
+                std::printf("\n--- circular holes in a polygon outer boundary ---\n");
+                auto circWire = [](double cx, double cy, double r) {
+                    gp_Circ ci(gp_Ax2(gp_Pnt(cx, cy, 0.0), gp_Dir(0, 0, 1)), r);
+                    return BRepBuilderAPI_MakeWire(
+                               BRepBuilderAPI_MakeEdge(ci).Edge()).Wire();
+                };
+                auto holedFaceOf = [&](const std::vector<TopoDS_Wire>& hs) {
+                    BRepBuilderAPI_MakeFace mk(outer, Standard_True);
+                    for (TopoDS_Wire h : hs) { h.Reverse(); mk.Add(h); }
+                    return mk.Face();
+                };
+
+                const double r1 = 5.0;
+                const TopoDS_Face oneCirc = holedFaceOf({circWire(0, 0, r1)});
+                const double aOne = 1600.0 - M_PI * r1 * r1;
+
+                const double r2 = 4.0;
+                const TopoDS_Face twoCirc =
+                    holedFaceOf({circWire(-10, 0, r2), circWire(10, 0, r2)});
+                const double aTwo = 1600.0 - 2.0 * M_PI * r2 * r2;
+
+                // STRAIGHT spine -> OCCT MakePipe is a trustworthy oracle.
+                struct CC { const char* tag; const TopoDS_Face* f; double area; };
+                const std::vector<CC> cc{{"pipe-circhole-straight",  &oneCirc, aOne},
+                                         {"pipe-2circholes-straight", &twoCirc, aTwo}};
+                for (const CC& c : cc) {
+                    std::printf("\n--- %s ---\n", c.tag);
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                    const TopoDS_Shape nat = forge::occtloft::pipe(sp, *c.f, 1.0e-6);
+                    BRepOffsetAPI_MakePipe mk(sp, *c.f);
+                    mk.Build();
+                    check(!nat.IsNull(),
+                          std::string(c.tag) + " native pipe produced a shape (no defer)");
+                    check(mk.IsDone() == Standard_True,
+                          std::string(c.tag) + " OCCT MakePipe produced a shape");
+                    if (nat.IsNull() || !mk.IsDone()) continue;
+                    const Metrics n = measure(nat), o = measure(mk.Shape());
+                    std::printf("      native vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                n.vol, n.com[0], n.com[1], n.com[2], n.nFace, n.nEdge,
+                                n.nVert, n.nShell, static_cast<int>(n.valid));
+                    std::printf("      occt   vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                o.vol, o.com[0], o.com[1], o.com[2], o.nFace, o.nEdge,
+                                o.nVert, o.nShell, static_cast<int>(o.valid));
+                    compareAB(c.tag, n, o, /*wantClosed*/ true, /*report*/ true);
+                    const double cf = c.area * 25.0;
+                    check(relClose(n.vol, cf, 1.0e-9),
+                          std::string(c.tag) + " volume native==CLOSED FORM");
+                    check(relClose(o.vol, cf, 1.0e-9),
+                          std::string(c.tag) + " volume OCCT==CLOSED FORM");
+                }
+
+                // BENT spine. OCCT is not an oracle, so the closed form is, and
+                // it is DERIVED rather than assumed: for the L-spine
+                // (0,0,0)->(0,0,H)->(W,0,H) a section point (x,y) travels
+                // (H - x) along +Z to the mitre plane and then (W - x) along +X,
+                // so its total path is the AFFINE L(x) = H + W - 2x and the swept
+                // volume of a region is A * (H + W - 2*xbar). An off-axis hole
+                // therefore has a DIFFERENT arm than the outer boundary, which is
+                // exactly the case a centroid-on-spine formula would get wrong.
+                {
+                    const double H = 25.0, W = 30.0;
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, H),
+                                                    gp_Pnt(W, 0, H)});
+                    // hole ON the spine axis
+                    const double cfOn = 1600.0 * (H + W - 0.0)
+                                      - M_PI * r1 * r1 * (H + W - 0.0);
+                    // hole OFF the spine axis, centre x = 8
+                    const double rOff = 3.0, xOff = 8.0;
+                    const TopoDS_Face offFace = holedFaceOf({circWire(xOff, 0, rOff)});
+                    const double cfOff = 1600.0 * (H + W)
+                                       - M_PI * rOff * rOff * (H + W - 2.0 * xOff);
+
+                    struct BC { const char* tag; const TopoDS_Face* f; double cf; };
+                    const std::vector<BC> bc{{"pipe-circhole-L", &oneCirc, cfOn},
+                                             {"pipe-circhole-offaxis-L", &offFace, cfOff}};
+                    for (const BC& b : bc) {
+                        std::printf("\n--- %s: bent spine — native vs DERIVED CLOSED FORM ---\n",
+                                    b.tag);
+                        const TopoDS_Shape nat = forge::occtloft::pipe(sp, *b.f, 1.0e-6);
+                        check(!nat.IsNull(), std::string(b.tag) + " native pipe produced a shape");
+                        if (nat.IsNull()) continue;
+                        const Metrics n = measure(nat);
+                        std::printf("      native vol=%.10g (closed form %.10g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                    n.vol, b.cf, n.nFace, n.nEdge, n.nVert, n.nShell,
+                                    static_cast<int>(n.valid));
+                        check(relClose(n.vol, b.cf, 1.0e-9),
+                              std::string(b.tag) + " native volume == CLOSED FORM A*(H+W-2*xbar)");
+                        check(n.valid, std::string(b.tag) + " native solid VALID");
+                        check(n.closedShells, std::string(b.tag) + " native shell CLOSED");
+                        check(n.nShell == 1, std::string(b.tag) + " native has exactly ONE shell");
+                    }
+                }
+
+                // ★ THE CONTROL: prove the circular hole is REALLY THERE.
+                {
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                    const TopoDS_Face solidFace =
+                        BRepBuilderAPI_MakeFace(outer, Standard_True).Face();
+                    const TopoDS_Shape nh = forge::occtloft::pipe(sp, oneCirc, 1.0e-6);
+                    const TopoDS_Shape nf = forge::occtloft::pipe(sp, solidFace, 1.0e-6);
+                    check(!nh.IsNull() && !nf.IsNull(),
+                          "circ-hole control: both the holed and hole-free sweep built");
+                    if (!nh.IsNull() && !nf.IsNull()) {
+                        const Metrics a = measure(nh), b = measure(nf);
+                        std::printf("      holed vol=%.10g F=%d   hole-free vol=%.10g F=%d\n",
+                                    a.vol, a.nFace, b.vol, b.nFace);
+                        check(!relClose(a.vol, b.vol, 1.0e-6),
+                              "circ-hole control: the holed sweep is NOT the hole-free sweep");
+                        check(relClose(b.vol - a.vol, M_PI * r1 * r1 * 25.0, 1.0e-9),
+                              "circ-hole control: the removed volume is EXACTLY the hole cylinder");
+                        check(std::fabs(a.bb[0] - b.bb[0]) <= 1.0e-9 &&
+                              std::fabs(a.bb[3] - b.bb[3]) <= 1.0e-9,
+                              "circ-hole control: the OUTER boundary is unchanged by the hole");
+                    }
+                }
+
+                // A hole stored as TWO SEMICIRCULAR ARCS is the same circle a
+                // STEP writer may have split; it must build, and build the SAME
+                // solid as the one-edge form. A half-arc wire that does NOT
+                // close the turn must still be declined.
+                {
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                    const gp_Ax2 hax(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+                    const gp_Circ hc(hax, r1);
+                    BRepBuilderAPI_MakeWire mw(
+                        BRepBuilderAPI_MakeEdge(hc, 0.0, M_PI).Edge(),
+                        BRepBuilderAPI_MakeEdge(hc, M_PI, 2.0 * M_PI).Edge());
+                    TopoDS_Wire twoArc = mw.Wire();
+                    twoArc.Reverse();
+                    BRepBuilderAPI_MakeFace mkTA(outer, Standard_True);
+                    mkTA.Add(twoArc);
+                    const TopoDS_Shape natA = forge::occtloft::pipe(sp, mkTA.Face(), 1.0e-6);
+                    check(!natA.IsNull(),
+                          "two-arc hole: a circle split into two arcs BUILDS (no defer)");
+                    if (!natA.IsNull()) {
+                        const Metrics m = measure(natA);
+                        std::printf("      two-arc hole vol=%.10g F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                                    m.vol, m.nFace, m.nEdge, m.nVert, m.nShell,
+                                    static_cast<int>(m.valid));
+                        check(relClose(m.vol, aOne * 25.0, 1.0e-9),
+                              "two-arc hole: volume == the SAME closed form as the one-edge circle");
+                        check(m.valid, "two-arc hole: native solid VALID");
+                        check(m.nShell == 1, "two-arc hole: exactly ONE shell");
+                    }
+                }
+                {
+                    // HALF a circle is not a circle: an open arc wire closed by
+                    // nothing must NOT be read as a full hole.
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                    const gp_Circ hc(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), r1);
+                    BRepBuilderAPI_MakeWire mh(BRepBuilderAPI_MakeEdge(hc, 0.0, M_PI).Edge());
+                    TopoDS_Wire half = mh.Wire();
+                    half.Reverse();
+                    BRepBuilderAPI_MakeFace mkH(outer, Standard_True);
+                    mkH.Add(half);
+                    check(forge::occtloft::pipe(sp, mkH.Face(), 1.0e-6).IsNull(),
+                          "defer: a HALF-circle hole wire is DECLINED (it is not a full turn)");
+                }
+
+                // ★ THE GATE MUST FIRE: a hole bigger than the outer boundary
+                // would carve the wall. It must be DECLINED, not chewed.
+                {
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                    BRepBuilderAPI_MakeFace mkBad(outer, Standard_True);
+                    TopoDS_Wire big = circWire(0, 0, 25.0);   // r=25 in a 40x40 square
+                    big.Reverse();
+                    mkBad.Add(big);
+                    check(forge::occtloft::pipe(sp, mkBad.Face(), 1.0e-6).IsNull(),
+                          "defer: a hole that pokes through the outer wall is DECLINED "
+                          "(removed-volume gate fires)");
+                }
+                {
+                    // Two OVERLAPPING holes double-count under a naive cut; the
+                    // same gate must catch it.
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                    BRepBuilderAPI_MakeFace mkOv(outer, Standard_True);
+                    TopoDS_Wire o1 = circWire(-2, 0, 6.0), o2 = circWire(2, 0, 6.0);
+                    o1.Reverse(); o2.Reverse();
+                    mkOv.Add(o1); mkOv.Add(o2);
+                    check(forge::occtloft::pipe(sp, mkOv.Face(), 1.0e-6).IsNull(),
+                          "defer: two OVERLAPPING holes are DECLINED (removed-volume gate fires)");
+                }
+                {
+                    // A hole circle whose plane is not the profile plane.
+                    const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+                    gp_Circ tc(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 1)), 4.0);
+                    TopoDS_Wire tw =
+                        BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(tc).Edge()).Wire();
+                    tw.Reverse();
+                    BRepBuilderAPI_MakeFace mkT(outer, Standard_True);
+                    mkT.Add(tw);
+                    check(forge::occtloft::pipe(sp, mkT.Face(), 1.0e-6).IsNull(),
+                          "defer: a TILTED hole circle is DECLINED (its sweep is not a cylinder)");
+                }
+            }
+
+            // A hole this engine cannot represent must DEFER, never be dropped.
+            // An ELLIPTICAL hole is neither a polygon nor a circle: no exact
+            // swept surface exists in this engine's vocabulary for it.
+            {
+                const TopoDS_Wire sp = spineOf(straightSpine);
+                gp_Elips he(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 6.0, 3.0);
+                TopoDS_Wire ew =
+                    BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(he).Edge()).Wire();
+                ew.Reverse();
+                BRepBuilderAPI_MakeFace mkEl(outer, Standard_True);
+                mkEl.Add(ew);
+                check(forge::occtloft::pipe(sp, mkEl.Face(), 1.0e-6).IsNull(),
+                      "defer: a face with an ELLIPTICAL hole is DECLINED, not swept without it");
+            }
+        }
+
         // ---- family E DEFER controls --------------------------------------
         std::printf("\n--- family E defer controls ---\n");
         {

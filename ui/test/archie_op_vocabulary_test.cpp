@@ -310,8 +310,11 @@ std::string locateVocabulary() {
 }
 
 // ── the fixture every example is dispatched against ─────────────────────────
-// Five seeded values with KNOWN ids, so the %role placeholders in the file
-// resolve to exact tokens: %profile1..3 = %1..%3, %body = %4, %tool = %5.
+// Seven seeded values with KNOWN ids, so the %role placeholders in the file
+// resolve to exact tokens: %profile1..3 = %1..%3, %body = %4, %tool = %5,
+// %wire1..2 = %6..%7. The two WIRE sections are here because LOFT consumes WIRE
+// and not PROFILE -- the kernel's opLoft() reads every %ref through refWire() --
+// so a fixture of profiles alone could not dispatch a single LOFT example.
 struct Fixture {
   PartDocument doc;
   UndoStack undo;
@@ -327,12 +330,17 @@ struct Fixture {
              {IrArg::num(50), IrArg::num(40), IrArg::num(20)});
     doc.seed(IrValueKind::Solid, "body_y", "BOX",
              {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
+    doc.seed(IrValueKind::Wire, "wire_1", "RING",
+             {IrArg::num(20), IrArg::num(20), IrArg::num(0)});
+    doc.seed(IrValueKind::Wire, "wire_2", "RING",
+             {IrArg::num(12), IrArg::num(12), IrArg::num(30)});
   }
 
   bool seeded() const {
     return doc.valueFor("sketch_1") == 1 && doc.valueFor("sketch_2") == 2 &&
            doc.valueFor("sketch_3") == 3 && doc.valueFor("body_x") == 4 &&
-           doc.valueFor("body_y") == 5;
+           doc.valueFor("body_y") == 5 && doc.valueFor("wire_1") == 6 &&
+           doc.valueFor("wire_2") == 7;
   }
 };
 
@@ -361,9 +369,17 @@ std::vector<EntityRef> selectionFor(const CommandDescriptor& c) {
       refs.push_back(ref("body_x", EntityKind::Body, "b1"));
       if (want >= 2) refs.push_back(ref("body_y", EntityKind::Body, "b2"));
       break;
+<<<<<<< HEAD
     case EntityKind::Any:
       // edit.delete takes a mixed bag; one ref of any kind satisfies it.
       refs.push_back(ref("body_x", EntityKind::Body, "b1"));
+=======
+    case EntityKind::Wire:
+      for (std::size_t i = 0; i < want && i < 2; ++i) {
+        refs.push_back(ref("wire_" + std::to_string(i + 1), EntityKind::Wire,
+                           "w" + std::to_string(i + 1)));
+      }
+>>>>>>> origin/claude/sacrosanct-execution-20260828
       break;
     default:
       break;
@@ -379,6 +395,9 @@ std::string resolvePlaceholder(const std::string& token) {
   if (token == "%profile1") return "%1";
   if (token == "%profile2") return "%2";
   if (token == "%profile3") return "%3";
+  if (token == "%wire") return "%6";
+  if (token == "%wire1") return "%6";
+  if (token == "%wire2") return "%7";
   return token;
 }
 
@@ -456,7 +475,11 @@ int main() {
   PartDocument partDoc;
   UndoStack partUndo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), partDoc, partUndo);
+<<<<<<< HEAD
   CHECK_EQ_INT(partAdded, 19);
+=======
+  CHECK_EQ_INT(partAdded, 22);
+>>>>>>> origin/claude/sacrosanct-execution-20260828
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
   CHECK_EQ_INT(liveIds.size(), static_cast<long long>(j.num(counts, "registry_commands")));
