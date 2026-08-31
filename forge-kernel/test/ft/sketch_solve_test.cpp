@@ -297,6 +297,42 @@ int main() {
         check(verifyMentions(r, "SKIPPED"), "the skipped constraint is NAMED, not silently dropped");
     }
 
+    // ── 4b. a KNOWN keyword on the WRONG OPERANDS is also skipped ───────────
+    // TANG is a real constraint kind, but the facade wants {line, circle} and
+    // THROWS when handed two points. Case 4 covers an unknown keyword; this
+    // covers a known one misapplied, which is the likelier model error of the
+    // two. Both must behave identically — otherwise the contract has a hole
+    // exactly where a model is most likely to fall in, and a 200-statement tree
+    // dies on one mistyped operand.
+    {
+        const forge::SketchHandle sk4 = nextSketchHandle();
+        const char* src =
+            "%1 = SKETCH(XY)\n"
+            "%2 = SPT(%1, 0, 0)\n"
+            "%3 = SPT(%1, 10, 0)\n"
+            "%4 = CON(%2, TANG, %3)\n"
+            "%5 = CON(%2, DIST, %3, 25)\n"
+            "%6 = SOLVE(%1)\n";
+        const FeatureTree ft = parseOrFail(src, "TANG between two points");
+        const CompileResult r = compile(ft);
+        std::printf("  [known kind, wrong operands] nCompiled=%zu\n", r.nCompiled);
+        dumpVerify(r);
+        check(r.nCompiled == 6, "a misapplied constraint did not cost the tree");
+        check(r.error.empty() || r.error.find("no SOLID produced") != std::string::npos,
+              "no sketch op refused: " + r.error);
+        check(verifyMentions(r, "SKIPPED"), "the rejected constraint is NAMED");
+        // and the GOOD constraint after it must still have been applied
+        check(forge::SketchRegistry::instance().exists(sk4), "the sketch is addressable");
+        if (forge::SketchRegistry::instance().exists(sk4)) {
+            const forge::SketchPoint a = forge::readPoint(sk4, 0);
+            const forge::SketchPoint b = forge::readPoint(sk4, 1);
+            const double d = std::hypot(b.x - a.x, b.y - a.y);
+            std::printf("    |p1-p0| = %.10f (the DIST 25 after it still applied)\n", d);
+            check(std::fabs(d - 25.0) < 1e-6,
+                  "the statement AFTER the bad one still took effect");
+        }
+    }
+
     // ── 5. ★ NEGATIVE CONTROLS — TYPE errors must STILL refuse ──────────────
     // Cases 2 and 4 prove the compiler is TOLERANT. On their own they would be
     // equally consistent with a compiler that is merely PERMISSIVE, which is a

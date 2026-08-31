@@ -956,7 +956,21 @@ private:
                                       kind + "' (known: COINC PARA PERP DIST HORIZ VERT PTON EQUAL TANG)");
             return owner;
         }
-        forge::addConstraint(owner, it->second, refs, value);
+        // The facade THROWS on a type-mismatched operand — TANG wants
+        // {line, circle}, PTON wants {point, line}, and handing it two points
+        // raises. A known keyword applied to the wrong entities is still ONE
+        // statement's mistake, and letting it escape would cost the whole tree
+        // for the same reason an unknown keyword would. Same treatment: skip it,
+        // NAME it, keep building. (The unknown-keyword arm above is the other
+        // half of this; both must behave identically or the contract has a hole
+        // exactly where a model is most likely to fall in.)
+        try {
+            forge::addConstraint(owner, it->second, refs, value);
+        } catch (const std::exception& e) {
+            if (res)
+                res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — " + kind +
+                                      " rejected these operands: " + e.what());
+        }
         return owner;   // PASS-THROUGH: CON returns the SKETCH unchanged.
     }
 
