@@ -1832,12 +1832,29 @@ capacity, decoding — none of it touches this defect, which is the strongest av
 argument that it needs a corpus-level intervention rather than another prompt or schedule
 change.
 
-**THE BINARY PAIR IS PART OF THE MEASUREMENT.** `tools/pinned` (947b8644 + 2972e0e8) is a
-DIFFERENT instrument from the baseline pin `tools/baseline_pin_45e9ad9a` (45e9ad9a +
-20fe6e74), and `tools/pinned/BASELINE_PROVENANCE.txt` records that **zero scored artifacts
-were ever produced with 947b8644**. The numbers above are therefore internally comparable
-(one binary, all arms) but are NOT comparable to any published composite. The same arm is
-being re-measured through the baseline pin to size that gap.
+**THE BINARY PAIR IS PART OF THE MEASUREMENT — AND HERE IT MAKES NO DIFFERENCE, WHICH IS
+A MEASURED RESULT AND NOT AN ASSUMPTION.** `tools/pinned` (947b8644 + 2972e0e8) is a
+different instrument from the baseline pin `tools/baseline_pin_45e9ad9a` (45e9ad9a +
+20fe6e74), and `tools/pinned/BASELINE_PROVENANCE.txt` records that zero scored artifacts
+were ever produced with 947b8644. So the v6r8 arm was re-measured, same emissions, through
+both pairs:
+
+```
+metric                pinned 947b8644   baseline 45e9ad9a
+built %                        57.6              57.6
+rows emitting VERIFY            131               131
+VERIFY failed rows               76                76
+self-inconsistency %           58.0              58.0
+bores built                     938               938
+bore recall %                  38.3              38.3
+CBORE rows                        0                 0
+status histogram   verify_failed 76, op_error 91, ok 61, verify_malformed 1, unknown_op 9
+                                        -- IDENTICAL in every bucket
+```
+
+**Bit-identical.** The provenance warning is real for the COMPOSITE, which is an
+IoU-over-a-grid and is genuinely instrument-sensitive; it does NOT reach these structural
+counts. Every number in this decision therefore stands in the baseline lineage too.
 
 **What this decides.** The next round targets self-consistency and feature fidelity, not
 vocabulary. The corpus (`data/forge/selfconsist_v10`) is built measure-then-assert: every
