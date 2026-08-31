@@ -196,11 +196,24 @@ lines.push('');
 lines.push(`parts: ${parts.size}   rows: ${rows.length}   part-level errors: ${errs.length}` +
            (malformed ? `   malformed lines: ${malformed}` : ''));
 lines.push('');
-lines.push('| family | option | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |');
-lines.push('|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|');
+lines.push('| family | option | N | both | nat only | **OCCT only** | neither | nat % | occt % | **agree** | delta (95% CI) | McNemar p | verdict |');
+lines.push('|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|');
 for (const s of summary) {
+  // AGREE, on the headline row and not only in the detail below it. The verdict
+  // is a COVERAGE comparison — it asks whether each arm returned a shape and
+  // never whether the two shapes are the same. Families E and F measured 99.8%
+  // vs 100.0% ("one part from parity") while agreeing on ZERO of 599 parts,
+  // because the native engine mitres the section through the spine corner and
+  // OCCT's default BRepBuilderAPI_Transformed does not: the volume ratio is a
+  // constant 2/(1+cos30) = 1.071797 on every part. A reader of the old table had
+  // no way to see that from the row that carries the verdict.
+  // NOTHING ABOUT THE VERDICT CHANGES HERE — this column is additive reporting.
+  const agr = s.both_ok > 0
+    ? `${s.both_ok_agree}/${s.both_ok} (${(100 * s.both_ok_agree / s.both_ok).toFixed(1)}%)`
+    : '-';
   lines.push(`| ${s.family} | \`${s.option}\` | ${s.N} | ${s.both_ok} | ${s.native_only} | ` +
     `**${s.occt_only}** | ${s.neither} | ${pct(s.native_rate).trim()} | ${pct(s.occt_rate).trim()} | ` +
+    `${agr} | ` +
     `${(100 * s.delta).toFixed(1)}% [${(100 * s.ci95[0]).toFixed(1)}, ${(100 * s.ci95[1]).toFixed(1)}] | ` +
     `${s.mcnemar_p < 1e-4 ? s.mcnemar_p.toExponential(1) : s.mcnemar_p.toFixed(4)} | ` +
     `${s.verdict}${s.underpowered && s.verdict === 'PASS' ? ' (CI straddles 0)' : ''}` +
@@ -210,6 +223,14 @@ lines.push('');
 lines.push('**OCCT only** is the capability the drop deletes: OCCT built a result the call site');
 lines.push('would have accepted and the native engine declined, on the same input. Under the drop');
 lines.push('option that decline becomes a thrown error at every one of those call sites.');
+lines.push('');
+lines.push('**agree** is how many of the `both` pairs match on the full observable vector');
+lines.push('(volume, bbox, face/edge/vertex/shell/solid counts, centre of mass). THE VERDICT DOES');
+lines.push('NOT READ IT. A family can be one part from a green coverage gate and still return');
+lines.push('different geometry on every part it builds — measured for E and F, which agree on 0 of');
+lines.push('599 while reading 99.8% vs 100.0%. A LOW agree COLUMN NEXT TO A NEAR-PASS VERDICT MEANS');
+lines.push('THE TWO ARMS ARE COMPUTING DIFFERENT OPERATIONS, and the coverage number is not a');
+lines.push('statement about how close the drop is.');
 lines.push('');
 lines.push('## Per-family detail');
 for (const s of summary) {
