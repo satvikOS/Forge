@@ -105,6 +105,38 @@ than crashes**, so the segfault rate is lower still. That undersells it for thre
 3. **The input is not malformed.** These trees parse, and the shapes build far enough to reach
    solid classification. The geometry is merely *degenerate in a way OCCT does not check*.
 
+## ★ PRIOR ART — this bug class was already solved once, and it refutes the remedy below
+
+`forge-kernel/src/DirectEdit.cpp:94-198` carries a **measured** guard for the same defect class,
+dated 2026-08-29, with a reproducer (`test/ft_unify_concentric_hole_segv.ir`) and a 20-case sweep
+(`unify_coaxial_guard_test.sh`). Read it before designing anything here. Three of its findings
+bear directly on this report:
+
+1. **`ShapeUpgrade_UnifySameDomain::IntUnifyFaces` dereferences a NULL `Geom2d_Curve` and
+   SIGSEGVs** — the identical mechanism, a third path.
+2. ★**"A pre-check for null pcurves on the INPUT cannot work: the input is clean
+   (nullPcurves=0, measured on the crashing shape)."** The null is *produced inside OCCT's own
+   merge*, not carried in. **This falsifies "repair the p-curve at construction" as a general
+   remedy** — there may be nothing to repair. Whether that also holds for paths A and B here is
+   NOT yet measured and must not be assumed either way.
+3. **The targeted fix was tried and failed.** Withholding just the offending pair via
+   `KeepShapes` was implemented and measured: all six crashing cases still SIGSEGV, because
+   `IntUnifyFaces` still traverses a kept face and still asks it for the absent pcurve.
+   `KeepShapes` stops a face being merged away; it does not keep the traversal off it.
+
+**What shipped is the pattern to copy**: detect the *configuration* that triggers the crash
+(mixed-representation coaxial equal-radius seam walls — an analytic `Geom_CylindricalSurface`
+from `HOLE` against a `Geom_SurfaceOfLinearExtrusion` from `CIRCLE+EXTRUDE+CUT`), and where it
+fires, return the body **unmerged**. The cost is a bore wall left split in two — a face count we
+would rather not have, and *not a wrong solid*. That is exactly "tolerate, do not reject", and it
+is already proven in this codebase.
+
+Note also how narrow the trigger was: **exact radius coincidence and nothing else** (4.4950 ==
+the cut radius SIGSEGVs; 4.4900 and 4.5000 are fine), and two coaxial equal-radius *analytic*
+cylinders merge fine — so the mixed representation is load-bearing, not the coincidence. Expect
+paths A and B to be similarly narrow, and do not generalise from a stack trace to a mechanism
+without a sweep.
+
 ## The fix belongs on our side of the boundary
 
 The faulting toolkits are `TKG2d`, `TKGeomBase`, `TKBRep`, `TKTopAlgo` — third-party code we do
@@ -122,15 +154,21 @@ not control, and OCCT has no null check to enable. Two responses, in order:
    at precisely the complexity the benchmark is made of, and the failure would look like "Archie
    cannot build complex parts" when the truth is "we refused to".
 
-   So: when an edge has no p-curve on its face, **build one** (the p-curve is derivable from the
-   3D curve and the surface — this is what `BRepLib` exists for), and if it genuinely cannot be
-   derived, **omit that edge from the bounds accumulation and carry on**. A missing p-curve makes
-   one edge's UV contribution unknown; it does not make the solid invalid. Only if the operation
-   truly cannot proceed should it become a *diagnosable* error — "face N edge M has no p-curve on
-   its surface" — and even then it must name the face and edge so the repair loop can act.
+   ★**But NOT necessarily by repairing the input** — see the prior art above, where the crashing
+   shape measured `nullPcurves=0` and the null was born inside OCCT's merge. The first job is
+   therefore a MEASUREMENT, not a fix: for paths A and B, is the null pcurve *present on the
+   input* or *generated inside the operation*? Run the sweep before writing the guard.
 
-   The check must not route through `BRep_Tool::CurveOnSurface`, which faults in path B; inspect
-   the edge's representation list instead.
+   - **If present on input:** build the missing p-curve (derivable from the 3D curve and the
+     surface — what `BRepLib` is for), and failing that, omit that edge from the bounds
+     accumulation and carry on. One edge's unknown UV contribution does not invalidate a solid.
+   - **If generated inside:** input repair is worthless. Follow the shipped precedent — detect
+     the triggering *configuration* and fall back to a degraded-but-correct path (as `unifyFaces`
+     returns the body unmerged).
+
+   Either way the check must not route through `BRep_Tool::CurveOnSurface`, which faults in path
+   B. And either way, if it must fail, the error names the face and edge so the repair loop can
+   act.
 2. **Native replacement removes the class.** Native code is ours and can be made total. This is
    a concrete argument for the drop ladder that is **independent of the closure count**:
    `TKGeomBase`, `TKG2d`, `TKBRep` and `TKOffset` are not merely dependencies to be retired for
