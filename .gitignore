@@ -104,6 +104,7 @@ forge-kernel/test/native/gdt/fcf_evaluator_test.cpp
 # coverage gate). The .a and the per-run JSONL are regenerable from the scripts;
 # the committed baseline lives in forge-kernel/reports/corpus_ab/ instead.
 forge-kernel/.build-corpus-ab/
+forge-kernel/.build-cam-offset-ab/
 # Same deal for test/build_draft_defer_probe.sh's object cache and binary; its
 # committed results live in reports/corpus_ab/draft_defer_probe.jsonl.gz.
 forge-kernel/.build-draft-probe/
