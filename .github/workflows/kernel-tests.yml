@@ -1,17 +1,42 @@
 name: Kernel + Guards
 
-# A6 + C0 ratchets (PLATFORM_UPGRADE.md). Dedicated, SEPARATE from the release
-# pipeline (build-app.yml) so a heavy native-kernel build can never delay a
-# desktop release — and so the native kernel's own smoke suite can never
-# silently regress. Two independent jobs:
-#   guards  (ubuntu, fast)  — brand-guard + dep-allowlist + bridge↔prompt contract
-#   kernel  (macOS, heavy)  — builds forge-kernel.node on OCCT 7.9 and runs the smokes
+# Native-C++-first CI for Forge.
 #
-# Hardware-calm: the kernel build is its own job, never stacked onto the
-# Electron/Vite build. Neither job `needs` the other, so an OCCT-env hiccup in
-# CI surfaces as a red kernel check without blocking the guards check.
+# 2026-08-28 (Sacrosanct 3.1 alignment): the Electron desktop release pipeline
+# (build-app.yml) and the AWS deployment guide were REMOVED. Forge's desktop
+# client is being rebuilt ground-up in native C++ (Qt 6 Widgets + KDDockWidgets
+# + a single Diligent/Metal viewport, Sacrosanct s19.2), so an Electron
+# installer/auto-update pipeline no longer describes a product we ship. The
+# `guards` job went with it: it existed only to npm-install `frontend/` and run
+# the React/Electron brand-guard, deps-allowlist, and bridge-prompt contract
+# tests. None of those describe the C++ target.
+#
+# What remains is ordered by Sacrosanct authority:
+#
+#   native   (ubuntu, PRIMARY)  pure C++20 in-house kernel gate. No OCCT, no
+#                               npm, no WASM, no vendor deps. This is the gate
+#                               that speaks for the product.
+#   scoring  (ubuntu, fast)     kernel-side ForgeCADScore self-tests. Kernel
+#                               logic, no frontend install.
+#   kernel   (macOS, heavy)     TRANSITIONAL. Builds forge-kernel.node against
+#                               homebrew OCCT 7.9 and runs the smoke suites.
+#                               This is the ONLY coverage the OCCT-linked kernel
+#                               has today, so it is retained deliberately until
+#                               its native C++ test harness exists and parity is
+#                               proved. It is tracked as a deletion target in
+#                               implementation/sacrosanct/ZERO_JS_MIGRATION_MANIFEST.md
+#                               and MUST NOT be removed by extension alone.
+#
+# Hardware-calm: no job `needs` another, so an OCCT-env hiccup surfaces as one
+# red check instead of blocking the pure-C++ gate.
 
 on:
+  # push is deliberately limited to the integration target. A feature branch that matches a push
+  # filter AND has an open PR fires BOTH triggers, and no concurrency key collapses them: a push
+  # event carries a null github.event.pull_request and falls back to refs/heads/<branch>, while the
+  # PR event uses refs/pull/<n>/merge. Two different keys, two full runs — observed as 33151110282
+  # and 33151114401 on the same sha. pull_request already covers feature branches, so this removes
+  # the duplicate at the source rather than trying to key around it.
   push:
     branches: [archdisc]
   pull_request:
@@ -21,46 +46,34 @@ permissions:
   contents: read
 
 concurrency:
-  group: kernel-tests-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  guards:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm install --no-audit --no-fund --ignore-scripts
-      - name: Brand-guard + dep-allowlist + bridge↔prompt contract
-        working-directory: frontend
-        run: npm test
-      - name: ForgeCADScore v2 canonical-formula self-test (kernel-free)
-        run: node forge-kernel/test/cadscore_v2_selftest.mjs
-      - name: ForgeCADScore mechanism-axis self-test (kernel-free)
-        run: node forge-kernel/test/mechanism_axis_selftest.mjs
-
   native:
+    name: native C++ kernel gate (pure C++20, no deps)
     # In-house pure-C++ kernel gates (forge::native) — NO OCCT, NO deps, NO WASM,
     # so this runs on ubuntu with just a C++20 compiler. The gate compiles ~125
-    # native sources + ~121 tests sequentially; on CI's 2-core ubuntu this grew
-    # past the old 10-min cap as the kernel expanded (8 OCCT-zero bursts) — raised
-    # to 30 (gate ~12 min on CI today, headroom for further growth).
+    # native sources once, then compiles AND LINKS each of ~121 tests against the
+    # whole object set. On a 4-core runner that is ~45 min cold; ccache makes warm
+    # runs minutes. 120 covers cold.
     runs-on: ubuntu-latest
-    # The gate compiles ~125 native sources once, then compiles AND LINKS each of ~121 tests
-    # against the whole object set. On a 4-core runner that is ~45 min cold, which is exactly the
-    # cap it used to sit under. It only started TIMING OUT once the missing-include preflight was
-    # fixed (2026-07-10) and the job got past 18s for the first time since 2026-07-07 -- the
-    # timeout was latent behind a hard failure. ccache makes warm runs minutes; 120 covers cold.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - name: Install ccache
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+        run: |
+          # The runner image ships Microsoft's apt repos. Neither gate needs them, and
+          # on 2026-08-29 they returned 403/'no longer signed', which made
+          # `apt-get update` exit 100 and failed this job in 17 s while an identical
+          # apt step in the OCCT job passed on the same run. Dropping repositories we
+          # do not use means a third-party outage cannot break our build. This weakens
+          # nothing: ccache and the OCCT headers both come from Ubuntu's own archive.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/microsoft.list || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ccache
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
@@ -76,7 +89,140 @@ jobs:
           bash forge-kernel/test/native/run_native.sh
           ccache --show-stats
 
+  scoring:
+    name: ForgeCADScore self-tests (kernel-free)
+    # Kernel-side scoring logic. Deliberately does NOT install frontend/ — these
+    # two self-tests are kernel scoring formulae, not app guards. They remain on
+    # the Node runner only until the scorer's C++ entry point lands; tracked in
+    # the zero-JS migration manifest.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: ForgeCADScore v2 canonical-formula self-test
+        run: node forge-kernel/test/cadscore_v2_selftest.mjs
+      - name: ForgeCADScore mechanism-axis self-test
+        run: node forge-kernel/test/mechanism_axis_selftest.mjs
+
+  ui:
+    name: forge::ui workstation gates (headless, no ImGui, no GPU)
+    # Pure C++20 services — command registry, typed selection, keymap, dock model, feature-tree
+    # model. Nothing here includes an ImGui header, which is why it runs headless in CI: the ImGui
+    # frame builder is a CONSUMER of this state, not its owner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: forge::ui gates
+        run: bash ui/test/run_ui.sh
+      - name: run_ui.sh self-protection contracts
+        # run_ui.sh gates forge::ui; this gates run_ui.sh. All three cases are
+        # silent-green failures -- an unresolvable repo root that keeps going, a
+        # cleanup that cannot report a delete it failed to make, and ONLY=<typo>
+        # exiting 0 after running nothing.
+        run: bash ui/test/run_ui_contract_test.sh
+      - name: Archie op vocabulary is still what the sources imply
+        # implementation/sacrosanct/archie_op_vocabulary.json is the closed list of
+        # feature-IR ops Archie may emit -- the ops a USER can reach through this
+        # registry. archie_op_vocabulary_test.cpp (run by run_ui.sh above) proves the
+        # file matches the RUNNING code; this proves it matches the SOURCE TEXT, which
+        # is the half that catches a kernel-header signature change nothing in ui/
+        # would notice. Stdlib-only Python, no install step.
+        run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
+
+  retrieval:
+    name: SearXNG client + redaction (incl. network-denied phase)
+    # Phase 1 runs the gate normally; phase 2 re-runs the ENTIRE gate under an LD_PRELOAD/
+    # DYLD_INSERT_LIBRARIES interposer that aborts a real socket(). Law 13 says every non-browser
+    # function must behave identically with the network denied — phase 2 is that proof.
+    # macOS, deliberately. Phase 2 re-runs the WHOLE gate under a __DATA,__interpose dyld
+    # interposer that aborts a real socket() — that is the Law 13 / s12.4 proof this job is NAMED
+    # after, and it is macOS-only. Running it on ubuntu-latest meant phase 2 silently skipped while
+    # the check went green carrying "incl. network-denied phase" in its title. The script now hard
+    # fails on a platform where the proof cannot run, so this can never regress into a silent skip.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: retrieval gates (phase 1 + network-denied phase 2)
+        run: bash retrieval/run_retrieval_tests.sh
+
+  s0_conformance:
+    name: s0 Appendix B conformance ratchet
+    # The acceptance suite deliberately asserts laws the implementation does not yet satisfy, so its
+    # RAW exit is 1 by design and its failures are the deliverable. A permanently-red gate teaches
+    # people to ignore it, so CI applies a ratchet: red if the failure count RISES (a regression)
+    # and red if it FALLS (lower the committed baseline in the same commit, so a stale baseline can
+    # never silently re-admit a regression). Green only at the exact known-gap count.
+    # Runs on macOS, deliberately. The suite exercises parse() only and leaves ~20 forge::* kernel
+    # symbols unresolved; Apple's ld resolves those LAZILY under -undefined dynamic_lookup, so an
+    # unreferenced symbol never has to exist. GNU ld has no equivalent: --unresolved-symbols=
+    # ignore-all links successfully and then the loader refuses the binary at startup with
+    # "unexpected PLT reloc type 0x00" (exit 127). The two flags are not equivalent, and pretending
+    # they were is what kept this gate red.
+    #
+    # The real fix is to split parse() into its own translation unit so the link is complete rather
+    # than permissive. That is deferred because FeatureTreeCompiler.cpp carries large uncommitted
+    # work in the main checkout and the edit would conflict — see RECONCILIATION_OWED.md. Until
+    # then the gate runs where its linker semantics genuinely exist.
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OCCT (headers only are needed)
+        run: brew install opencascade
+      - name: s0 ratchet
+        run: bash forge-kernel/test/ft/s0_ratchet.sh
+
+  nafems_ratchet_selftest:
+    name: NAFEMS ratchet — prove the gate can fail
+    # SR-3: a gate whose failure path cannot produce a non-zero exit is not a gate. Until
+    # 2026-08-28 fea_nafems_gate.mjs printed FAIL for a missed NAFEMS benchmark and still
+    # exited 0. The ratchet that replaces it is therefore not trusted on its say-so: this
+    # job drives every one of its documented red paths with stub gates and asserts each
+    # exit code. No kernel build needed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: NAFEMS ratchet self-test
+        run: bash forge-kernel/test/fea_nafems_ratchet_selftest.sh
+
+  simulation:
+    name: real-time simulation frame contract (SR-4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install OCCT headers (Debian packages)
+        run: |
+          # The runner image ships Microsoft's apt repos. Neither gate needs them, and
+          # on 2026-08-29 they returned 403/'no longer signed', which made
+          # `apt-get update` exit 100 and failed this job in 17 s while an identical
+          # apt step in the OCCT job passed on the same run. Dropping repositories we
+          # do not use means a third-party outage cannot break our build. This weakens
+          # nothing: ccache and the OCCT headers both come from Ubuntu's own archive.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/microsoft.list || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libocct-foundation-dev libocct-modeling-data-dev \
+            libocct-modeling-algorithms-dev libocct-data-exchange-dev
+          ls -d /usr/include/opencascade >/dev/null
+      - name: simulation gates
+        run: bash simulation/run_simulation_tests.sh
+        env:
+          OCCT_INCLUDE: /usr/include/opencascade
+
   kernel:
+    name: OCCT kernel smoke (TRANSITIONAL — pending native C++ harness)
     runs-on: macos-latest
     timeout-minutes: 40
     steps:
@@ -96,9 +242,94 @@ jobs:
         run: npm run forge:kernel
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
-      - name: Bridge smoke
-        run: npm run forge:bridge:test
       - name: Coherence + logic scorer (random scenes each run)
         run: npm run forge:coherence
       - name: Native binding smoke (forge.native.* callable in-platform)
         run: node forge-kernel/test/native_binding_smoke.js
+      - name: Tet4 element convergence vs Lame exact solution (observed order)
+        # Hard pass/fail: the linear tetrahedron must reach its theoretical order
+        # (O(h^2) displacement, O(h^1) stress) on a curved-boundary problem with a
+        # closed-form answer. This is what exonerates the ELEMENT, so that the NAFEMS
+        # misses below cannot be blamed on it without evidence.
+        run: node forge-kernel/test/fea_tet4_convergence.mjs
+      - name: NAFEMS known-answer accuracy ratchet
+        # Runs fea_nafems_gate.mjs and ratchets its band misses against
+        # forge-kernel/test/fea_nafems_baseline.txt. Red if the miss count OR the miss set
+        # changes in either direction; red if the gate trips a kernel-correctness guard;
+        # red if the result cannot be parsed. Never run the gate bare in CI -- its own exit
+        # code does not cover a missed benchmark. See reports/FEA_NAFEMS_GAP.md.
+        #
+        # THREE axes, and BLOCKED is judged before accuracy. A case that did not run is
+        # neither a pass nor a miss: LE11's ball+cone+cylinder fuse is refused on the GitHub
+        # runner and succeeds on the workstation FROM THE SAME COMMIT -- measured, both are
+        # macOS arm64 with the same OCCT 7.9.3, so the cause is environment-sensitivity in the
+        # NATIVE boolean, not the platform, and it is not yet established (open finding).
+        # Folding that into the miss count made an environment-dependent
+        # kernel gap look like an accuracy change -- misses dropped 3 -> 2 here and the ratchet
+        # read a CAPABILITY LOSS as an ACCURACY IMPROVEMENT, then asked for the baseline to be
+        # lowered, which would have locked it in. The baseline is now a CEILING on blocked plus
+        # a miss set among the cases that ran, so one committed baseline is correct on both
+        # platforms. Proven by cases 11a/11b of fea_nafems_ratchet_selftest.sh, which drive the
+        # two shapes against the same baseline file.
+        run: bash forge-kernel/test/fea_nafems_ratchet.sh
+      - name: Build forge_kernel_core (node-free, for the C++ gates)
+        # Same build dir and flags PR #62's forge_verify step uses, so when that merges the
+        # second configure is a no-op rather than a second full build.
+        run: |
+          cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: IR pipeline gate (a forge::ui program -> forge::ft -> an asserted SOLID)
+        # THE GATE THAT AUTHORISES DELETING THE JAVASCRIPT. forge::ui emits an SSA feature-IR
+        # program and forge::ft can compile one, but nothing ever fed one into the other --
+        # ft::compile appeared in ui/ ZERO times, and part_commands_test only compared the
+        # emitted TEXT against an expected string, which is an assertion about characters and
+        # not about geometry. This drives the real Part commands through the same registry the
+        # app uses, parses and compiles what they emit, and asserts the solid on a VECTOR of
+        # observables -- validity, face and edge counts, volume AND bbox, plus the s0.4
+        # declared/parsed/compiled reconciliation. Volume alone is not accepted as proof:
+        # a wrong solid matching a right volume to ten significant figures is a measured
+        # failure mode in this programme, not a hypothetical one.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: live-OCCT A/B harnesses (ratcheted; a link failure is RED, not silence)
+        # THE GATE THAT WOULD HAVE CAUGHT PR #64. Two harnesses -- thicken and loftpipe --
+        # stopped LINKING the moment that PR merged, because it made their engines call
+        # forge::occtPrism / occtCylinderSolid while they compile the engine STANDALONE
+        # without src/OcctPrimBuilder.cpp. 541 assertions stopped running and nothing said
+        # so, because CI ran neither. A gate that cannot build is a gate that cannot fail.
+        # run_ab_all.sh therefore treats a BUILD/LINK failure as RED (exit 2) and never as
+        # "0 failures", and ratchets each harness against test/ab_native_baseline.txt in
+        # the same idiom as the NAFEMS and s0 ratchets: red if a count RISES, red if it
+        # FALLS without the baseline being lowered in the same commit. All seven run in
+        # about 93 seconds on this runner, which already has OCCT installed.
+        run: bash forge-kernel/test/run_ab_all.sh
+      - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
+        # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
+        # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
+        # whole verifier process down, so before the guard a single such row silently
+        # invalidated every row that followed it in the same emission run. The gate asserts
+        # BOTH halves: three crashers must come back as the RIGHT solid (checked against the
+        # closed-form volume, plus face/edge/shell counts -- volume alone is not accepted as
+        # proof of geometry in this programme), and six shapes that already unified must not
+        # move by a single count.
+        run: |
+          cmake --build forge-kernel/build-verify -j3 --target forge_verify
+          FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify \
+            bash forge-kernel/test/unify_coaxial_guard_test.sh
+      - name: Build forge_verify (the native verifier)
+        # forge_verify is guarded by FORGE_BUILD_DESKTOP_FOUNDATION and is NOT part of the
+        # .node addon build above, so it needs its own configure. Without this the batch gate
+        # below cannot find a binary and exits 3 -- deliberately red, never a silent skip.
+        run: |
+          cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          cmake --build forge-kernel/build-verify -j3 --target forge_verify
+      - name: forge_verify batch survival (one bad record must not kill the batch)
+        # main() calls jsonString() six times BEFORE its first try block, and jsonUnescape()
+        # used std::stoi for \uXXXX. std::stoi throws on "\uZZZZ", the throw escaped main, and
+        # the process died with SIGABRT taking every LATER record with it. MEASURED on the
+        # gate's own 6-record fixture: before, exit=134 with 2 of 6 emitted (3 of the 4 lost
+        # records were WELL-FORMED); after, exit=0 with 6 of 6. The gate also pins the quieter
+        # defect the crash was hiding -- base-16 stoi stops at the first non-hex character, so
+        # "\u00ZZ" partially parsed to 0 and silently injected a NUL byte.
+        run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh

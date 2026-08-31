@@ -61,6 +61,7 @@
 #include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
 #include "forge/ShapeRegistry.hpp"             // ShapeKind, getNativeSolid
+#include "forge/native/brep/NativeLoftPipe.hpp" // TKOffset family F: pipe-shell on OCCT wires
 
 #include <unordered_set>
 #endif
@@ -73,12 +74,11 @@
 #include <BRepLProp_SLProps.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRep_Tool.hxx>
-#include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomLProp_SLProps.hxx>
+#include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
 #include <Precision.hxx>
-#include <TopAbs_ShapeEnum.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
@@ -479,10 +479,18 @@ ContinuityReport continuityCheck(ShapeHandle face1, ShapeHandle face2,
         // Project edgePt onto each face to find (uA, vA), (uB, vB).
         double uA = 0.0, vA = 0.0, uB = 0.0, vB = 0.0;
         try {
+#ifdef FORGE_NATIVE_PROJECTION
+            auto projA = forge::occtproj::projectPointOnSurface(edgePt, sA);
+#else
             GeomAPI_ProjectPointOnSurf projA(edgePt, sA);
+#endif
             if (projA.NbPoints() < 1) continue;
             projA.LowerDistanceParameters(uA, vA);
+#ifdef FORGE_NATIVE_PROJECTION
+            auto projB = forge::occtproj::projectPointOnSurface(edgePt, sB);
+#else
             GeomAPI_ProjectPointOnSurf projB(edgePt, sB);
+#endif
             if (projB.NbPoints() < 1) continue;
             projB.LowerDistanceParameters(uB, vB);
         } catch (...) {
@@ -703,14 +711,29 @@ ShapeHandle sweepWithGuides(ShapeHandle profileWire,
     TopoDS_Wire spine = firstWireOf(fetch(spineCurve), "sweepWithGuides(spine)");
     TopoDS_Wire profile = firstWireOf(fetch(profileWire), "sweepWithGuides(profile)");
 
+    std::vector<TopoDS_Wire> guideWires;
+    guideWires.reserve(guideCurves.size());
+    for (auto gh : guideCurves) {
+        guideWires.push_back(firstWireOf(fetch(gh), "sweepWithGuides(guide)"));
+    }
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family F — native pipe-shell on the OCCT wires themselves. Any
+    // guide is an unconditional HONEST DEFER (there is no native guided sweep),
+    // and so is a Frenet framing request, so this only ADDS the unguided case.
+    if (::forge::occtloft::pipeShellNativeEnabled() && !isFrenet) {
+        const TopoDS_Shape nat =
+            ::forge::occtloft::pipeShell(spine, profile, guideWires, isSolid);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPESHELL_DROP_NATIVE
     BRepOffsetAPI_MakePipeShell mk(spine);
     if (isFrenet) {
         mk.SetMode(/*IsFrenet*/ Standard_True);
     }
     // Each guide is added in curvilinear-equivalence mode so the pipe
     // follows the guide curvature, not just the spine.
-    for (auto gh : guideCurves) {
-        TopoDS_Wire g = firstWireOf(fetch(gh), "sweepWithGuides(guide)");
+    for (const auto& g : guideWires) {
         // SetMode(auxiliarySpine, curvilinearEquivalence) is the guide
         // entry point. (KeepContact = ContactOnBorder lets the profile
         // ride the guide rather than being merely guided by tangent.)
@@ -726,6 +749,12 @@ ShapeHandle sweepWithGuides(ShapeHandle profileWire,
         mk.MakeSolid();
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.classa.sweepWithGuides: the native pipe-shell DECLINED this sweep and "
+        "the OCCT BRepOffsetAPI_MakePipeShell fallback is compiled out "
+        "(FORGE_PIPESHELL_DROP_NATIVE=ON)");
+#endif
 }
 
 }}  // namespace forge::classa

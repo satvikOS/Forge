@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Sacrosanct 3.1 s21.2:  tools/deps/export-bundle --output <explicit-path>
+# Exports the activated local dependency plane (prefixes for the lock's triplet plus
+# the source mirror) together with a manifest recording the bundle's own sha256.
+set -euo pipefail
+exec python3 "$(dirname "$0")/forge_deps.py" export-bundle "$@"

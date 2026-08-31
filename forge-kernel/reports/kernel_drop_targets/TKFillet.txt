@@ -1,0 +1,11 @@
+BRepFilletAPI_MakeChamfer::Add(double, double, TopoDS_Edge const&, TopoDS_Face const&)
+BRepFilletAPI_MakeChamfer::Add(double, TopoDS_Edge const&)
+BRepFilletAPI_MakeChamfer::BRepFilletAPI_MakeChamfer(TopoDS_Shape const&)
+BRepFilletAPI_MakeChamfer::Build(Message_ProgressRange const&)
+BRepFilletAPI_MakeFillet::Add(double, TopoDS_Edge const&)
+BRepFilletAPI_MakeFillet::Add(NCollection_Array1<gp_Pnt2d> const&, TopoDS_Edge const&)
+BRepFilletAPI_MakeFillet::BRepFilletAPI_MakeFillet(TopoDS_Shape const&, ChFi3d_FilletShape)
+BRepFilletAPI_MakeFillet::Build(Message_ProgressRange const&)
+ChFi3d_Builder::~ChFi3d_Builder()
+vtable for BRepFilletAPI_MakeChamfer
+vtable for BRepFilletAPI_MakeFillet

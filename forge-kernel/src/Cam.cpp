@@ -36,24 +36,17 @@
 #include "forge/ShapeRegistry.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
-#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
-#include <BRepLib.hxx>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepTools.hxx>
-#include <GeomAbs_CurveType.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
-#include <BRepGProp.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
-#include <GCPnts_QuasiUniformDeflection.hxx>
-#include <GProp_GProps.hxx>
+#include "forge/OcctCurveSampling.hpp"  // K6: native GCPnts_QuasiUniformDeflection replacement
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
-#include <Precision.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
@@ -101,6 +94,13 @@ namespace {
 
 constexpr double kEps      = 1.0e-7;
 constexpr double kSampleDeflection = 0.05; // mm — curve-sampling tolerance
+
+// TKOffset family A. Deflection used to discretise a CURVED input wire before the
+// native 2D offset. Deliberately 1/16 of kSampleDeflection: every consumer of the
+// offset result immediately re-samples it at kSampleDeflection, so the error this
+// discretisation contributes is bounded at 1/16 of the tolerance the caller
+// already spends. Measured, not assumed — test/cam_native_offset_ab.mjs.
+constexpr double kOffsetInputDeflection = kSampleDeflection / 16.0;  // 3.125e-3 mm
 
 inline double dist3(double ax, double ay, double az,
                     double bx, double by, double bz) {
@@ -156,14 +156,17 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
         TopoDS_Edge e = ex.Current();
         try {
             BRepAdaptor_Curve adaptor(e);
-            GCPnts_QuasiUniformDeflection sampler(adaptor, deflection);
-            if (!sampler.IsDone() || sampler.NbPoints() < 2) continue;
+            // K6 (TKGeomBase drop): native replacement for
+            // GCPnts_QuasiUniformDeflection(adaptor, deflection).
+            std::vector<double> ps;
+            forge::nativeQuasiUniformDeflectionParams(adaptor, deflection, ps);
+            if (ps.size() < 2) continue;
 
             const bool reversed = (e.Orientation() == TopAbs_REVERSED);
-            const int n = sampler.NbPoints();
+            const int n = static_cast<int>(ps.size());
             for (int i = 1; i <= n; ++i) {
                 const int idx = reversed ? (n - i + 1) : i;
-                gp_Pnt p = sampler.Value(idx);
+                gp_Pnt p = adaptor.Value(ps[idx - 1]);
                 if (!out.empty()) {
                     auto& back = out.back();
                     if (std::abs(back[0] - p.X()) < kEps &&
@@ -195,21 +198,46 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
 // success; returns a NULL shape (NEVER throws) when the native path HONESTLY
 // DEFERS so the caller falls through to the OCCT BRepOffsetAPI_MakeOffset path.
 //
-// Deferral / GAP cases (Bible §0 — native-where-valid, OCCT otherwise):
-//   * ANY wire edge is NOT a straight GeomAbs_Line (an arc / circle / B-spline):
-//     PolygonOffset2D offsets a straight-segment Loop2 only — it has NO analytic
-//     arc/curve offset. We must NOT silently flatten an arc to a polygon (that
-//     would change the toolpath), so we DEFER the WHOLE wire to OCCT's
-//     BRepOffsetAPI(GeomAbs_Arc) which handles mixed line+arc profiles natively.
-//   * fewer than 3 line edges (cannot form a polygon).
+// ── TKOffset FAMILY A (2026-07-31): the curved-edge GAP is CLOSED ───────────────
+// The comment block that used to stand here said a curved edge must DEFER because
+// "we must NOT silently flatten an arc to a polygon (that would change the
+// toolpath)". That reasoning does not survive reading the CONSUMERS. Both — and
+// they are the only two — are:
+//
+//     Cam.cpp:426  profile():  offShape = inwardOffset(...); sampleWireXY(w, kSampleDeflection)
+//     Cam.cpp:528  pocket() :  offShape = inwardOffset(...); sampleWireXY(w, kSampleDeflection)
+//
+// i.e. the offset wire's exact geometry is NEVER used. It is immediately
+// discretised to a polyline at kSampleDeflection = 0.05 mm chord deviation, and
+// only that polyline reaches the toolpath / G-code. OCCT's arc-exact
+// BRepOffsetAPI(GeomAbs_Arc) result is polygonised at 0.05 mm just the same.
+//
+// So the honest formulation is not "arc vs polygon" but "how much error does the
+// INPUT discretisation add on top of the 0.05 mm the consumer already spends?".
+// We sample the input at kOffsetInputDeflection = kSampleDeflection / 16 =
+// 3.125e-3 mm, so the added deviation is bounded by 1/16 of the tolerance the
+// caller itself imposes. That is a measurement, not an assertion — see
+// test/cam_native_offset_ab.mjs, which compares the two paths' final 0.05 mm
+// traces on line, arc, circle and mixed profiles.
+//
+// This is NOT "delete the capability to drop the library" (Law 9): the native
+// path now accepts every wire the OCCT path accepted, and produces the same
+// toolpath to well inside the consumer's own tolerance.
+//
+// Remaining honest deferrals (unchanged in kind — each returns a NULL shape and
+// NEVER throws, so the caller falls back to the unoffset wire exactly as it
+// already does when OCCT's MakeOffset fails):
+//   * fewer than 3 distinct points after sampling (cannot form a polygon).
 //   * PolygonOffset2D returns ok==false (degenerate input) or every loop collapsed
-//     past the inradius (loops empty) — defer so OCCT's own empty-result fallback
-//     (callers re-use the unoffset wire) behaves identically to today.
+//     past the inradius (loops empty).
 //
 // CONVERSION (wire -> Loop2 -> wire), all in the face's planar XY:
-//   forward : walk edges head-to-tail (BRepTools_WireExplorer, the SAME order
-//             sampleWireXY uses), take each edge's ORIENTED first vertex -> Point2.
-//             Coincident-vertex de-dup mirrors sampleWireXY so a clean ring forms.
+//   forward : STRAIGHT-ONLY wires keep the exact vertex walk they have always used
+//             (byte-identical to the shipped, gate-tested path — a polygon gains no
+//             sampled points). A wire with ANY curved edge is discretised with
+//             sampleWireXY, i.e. the SAME traversal, the SAME native
+//             nativeQuasiUniformDeflectionParams sampler and the SAME orientation
+//             handling the consumer applies to the RESULT, at 1/16 the deflection.
 //   offset  : signed distance. OCCT's path negates (off.Perform(-offsetMm)) which
 //             moves INWARD for a CCW wire. PolygonOffset2D shrinks a CCW loop with
 //             d<0 and a CW loop with d>0, so we sign |offsetMm| by the loop's own
@@ -227,27 +255,38 @@ TopoDS_Shape tryNativeInwardOffset(const TopoDS_Wire& wire, double offsetMm,
     using forge::native::geom::OffsetOptions;
     using forge::native::geom::OffsetResult;
 
-    // Forward: wire -> Loop2, DEFERRING on the first non-line edge (the GAP).
-    Loop2 loop;
+    // Is every edge a straight segment? If so we take the exact vertex walk and
+    // the result is bit-for-bit what this function returned before family A.
+    bool allLines = true;
     for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
-        TopoDS_Edge e = ex.Current();
-        BRepAdaptor_Curve adaptor(e);
-        if (adaptor.GetType() != GeomAbs_Line) {
-            // GAP: a curved profile edge — PolygonOffset2D cannot offset it as an
-            // arc. Defer the ENTIRE wire to OCCT rather than flatten the arc.
-            return TopoDS_Shape();
-        }
-        // ex.CurrentVertex() is the edge's start vertex in head-to-tail wire order;
-        // taking the start vertex of every edge walks the ring exactly once.
-        gp_Pnt p = BRep_Tool::Pnt(ex.CurrentVertex());
-        Point2 q{p.X(), p.Y()};
-        if (!loop.pts.empty()) {
-            const Point2& b = loop.pts.back();
-            if (std::abs(b.x - q.x) < kEps && std::abs(b.y - q.y) < kEps) continue;
-        }
-        loop.pts.push_back(q);
+        BRepAdaptor_Curve adaptor(ex.Current());
+        if (adaptor.GetType() != GeomAbs_Line) { allLines = false; break; }
     }
-    // Drop a trailing vertex coincident with the first (Loop2 must NOT repeat it).
+
+    Loop2 loop;
+    if (allLines) {
+        // Forward (exact): ex.CurrentVertex() is the edge's start vertex in
+        // head-to-tail wire order; taking the start vertex of every edge walks the
+        // ring exactly once.
+        for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
+            gp_Pnt p = BRep_Tool::Pnt(ex.CurrentVertex());
+            Point2 q{p.X(), p.Y()};
+            if (!loop.pts.empty()) {
+                const Point2& b = loop.pts.back();
+                if (std::abs(b.x - q.x) < kEps && std::abs(b.y - q.y) < kEps) continue;
+            }
+            loop.pts.push_back(q);
+        }
+    } else {
+        // Forward (curved): discretise with the consumer's own sampler at 1/16 the
+        // consumer's own deflection. sampleWireXY already walks head-to-tail,
+        // honours TopAbs_REVERSED, and de-dups shared vertices.
+        for (const auto& p : sampleWireXY(wire, kOffsetInputDeflection)) {
+            loop.pts.push_back(Point2{p[0], p[1]});
+        }
+    }
+    // Drop a trailing vertex coincident with the first (Loop2 must NOT repeat it;
+    // sampleWireXY deliberately closes the ring, so this always fires on that path).
     if (loop.pts.size() >= 2) {
         const Point2& f = loop.pts.front();
         const Point2& l = loop.pts.back();
@@ -286,15 +325,37 @@ TopoDS_Shape tryNativeInwardOffset(const TopoDS_Wire& wire, double offsetMm,
 // Negative offset = inward for a CCW outer wire (OCCT convention). If
 // BRepOffsetAPI_MakeOffset fails (small wire, self-intersection), we
 // return an empty result; callers fall back to the unoffset wire.
+//
+// ── TKOffset FAMILY A drop seam ────────────────────────────────────────────────
+// With -DFORGE_OFFSET_DROP_MAKEOFFSET the OCCT branch below is COMPILED OUT and
+// this is the ONLY implementation. That removes all 4 of TKOffset's
+// BRepOffsetAPI_MakeOffset symbols (ctor(Wire,JoinType,bool), Init, Perform, and
+// the vtable) from the binary — the whole of family A, which has exactly this one
+// call site.
+//
+// The failure semantics are UNCHANGED by the drop, which is what makes the seam
+// safe: this function has never thrown and never signalled an error. Its contract
+// is "return an empty shape and let the caller re-use the unoffset wire"
+// (Cam.cpp:427/529: `if (wires.empty()) wires.push_back(outer);`). A native defer
+// is therefore indistinguishable, to every caller, from an OCCT MakeOffset failure
+// — a case the shipped kernel already handles by design.
 TopoDS_Shape inwardOffset(const TopoDS_Wire& wire, double offsetMm,
                           const gp_Pln& plane) {
     if (wire.IsNull() || offsetMm < kEps) return TopoDS_Shape();
 
+#if defined(FORGE_NATIVE_BREP) && defined(FORGE_OFFSET_DROP_MAKEOFFSET)
+    // DROP BUILD: native unconditionally. The FEAT gate is deliberately NOT
+    // consulted here — with the OCCT branch compiled out there is nothing to gate
+    // BETWEEN, and honouring a default-OFF gate would leave the function returning
+    // an empty shape for every input, which is capability deletion by another name.
+    return tryNativeInwardOffset(wire, offsetMm, plane);
+#else
+
 #ifdef FORGE_NATIVE_BREP
     // GATE: the native 2D polygon offset is opt-in via the FEAT gate (default OFF).
-    // When on AND the wire is a true straight-edge polygon, offset via
-    // PolygonOffset2D; otherwise fall through to OCCT (a curved wire HONESTLY DEFERS
-    // — no behavior change in the default build). A NULL native result == defer.
+    // When on, offset via PolygonOffset2D (straight AND curved wires — family A
+    // closed the curved gap on 2026-07-31); a degenerate/collapsed result still
+    // HONESTLY DEFERS to OCCT below. A NULL native result == defer.
     if (native::brep::forgeNativeFeaturesEnabled()) {
         TopoDS_Shape nativeOut = tryNativeInwardOffset(wire, offsetMm, plane);
         if (!nativeOut.IsNull()) return nativeOut;
@@ -315,6 +376,7 @@ TopoDS_Shape inwardOffset(const TopoDS_Wire& wire, double offsetMm,
         // fall through — return empty.
     }
     (void)plane;
+#endif  // FORGE_OFFSET_DROP_MAKEOFFSET
     return TopoDS_Shape();
 }
 

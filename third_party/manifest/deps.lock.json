@@ -1,0 +1,599 @@
+{
+  "$schema_version": "forge-deps-lock/1",
+  "$doc": [
+    "Sacrosanct 3.1 s10.6 / s21.2 \u2014 the checked-in dependency LOCK.",
+    "This file is the reproducibility control plane. It records every dependency the",
+    "Forge kernel build actually consumes: exact revision, archive hash, enabled",
+    "features, patches, toolchain constraint, target triplet and expected artifact",
+    "fingerprint. `deps.resolved.json` (generated, gitignored) records what a given",
+    "workstation actually realized; it never edits this file.",
+    "",
+    "HASH HONESTY RULE \u2014 read before editing:",
+    "  upstream.archive_sha256 is the sha256 of the UPSTREAM SOURCE ARCHIVE at",
+    "  upstream.url. It is recorded ONLY when it was read from a real source. Where",
+    "  the installed build predates the current homebrew-core formula, the archive",
+    "  hash for the INSTALLED version is not obtainable offline, so it is null with",
+    "  an explicit archive_sha256_reason. A null is never replaced by a guess, and",
+    "  never by the bottle hash or by the hash of a DIFFERENT version's archive.",
+    "  fingerprint.* are hashes of the INSTALLED TREE on this workstation, computed",
+    "  by tools/deps/forge_deps.py. They are artifact fingerprints, not provenance.",
+    "  Their construction is defined in that file's module docstring."
+  ],
+  "generated_by": "tools/deps/forge_deps.py hash",
+  "authored": "2026-08-28",
+  "triplet": "macos-arm64",
+  "toolchain": {
+    "cxx_standard": 20,
+    "cmake_minimum": "3.20",
+    "cmake_recorded": "4.3.3",
+    "generator": "Ninja",
+    "generator_fallback": {
+      "name": "Unix Makefiles",
+      "reason": "Sacrosanct s21.2 mandates Ninja. Ninja is NOT installed on this workstation (`which ninja` -> not found), so the -make preset variants exist as an explicitly non-conforming workstation fallback. tools/deps/forge_deps.py resolve reports ninja: null until it is seeded."
+    },
+    "apple_sdk": "host default (not pinned yet \u2014 open gap)"
+  },
+  "modes": {
+    "ONLINE_SEED": "FORGE_NETWORK=ON. tools/deps/seed fetches exactly the missing pinned archives into .forge-local/sources/<name>/<revision>/ and verifies each against upstream.archive_sha256. An archive whose lock hash is null is REFUSED, not fetched.",
+    "OFFLINE_BUILD": "FORGE_NETWORK=OFF (the default). cmake/ForgeDeps.cmake blocks every configure-time fetch primitive and fails the configure if any CMake file in the project contains one."
+  },
+  "dependencies": [
+    {
+      "name": "opencascade",
+      "version": "7.9.3",
+      "required": true,
+      "purpose": "OCCT B-rep kernel \u2014 the A/B baseline the in-house forge::native kernel is measured against, and the STEP/BRep data-exchange path still in use. forge-kernel links a shrinking subset of its toolkits (OCCT-zero programme).",
+      "source": {
+        "kind": "archive",
+        "acquired_as": "homebrew bottle (poured_from_bottle=true per the Cellar INSTALL_RECEIPT.json)"
+      },
+      "upstream": {
+        "repository": "https://github.com/Open-Cascade-SAS/OCCT",
+        "revision": "V7_9_3",
+        "url": "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_3.tar.gz",
+        "archive_sha256": "5ecf094ec6b12d5413dfb851d8c3590c354058aee556e32e408bdfbf8c357d57",
+        "archive_sha256_provenance": "homebrew-core formula `opencascade` 7.9.3 revision 0, read offline from the local Homebrew API cache via `brew info --json=v2 opencascade` -> .urls.stable.checksum. The INSTALLED version 7.9.3 EQUALS the formula version, so this hash is the archive of what is installed."
+      },
+      "binary_provenance": {
+        "kind": "homebrew-bottle",
+        "tag": "arm64_tahoe",
+        "bottle_sha256": "7f142d6d6e9e14e95f63a4d44251930ceddbe1a1e105187a6c7afe0d3bc4c2c9",
+        "note": "The bottle hash identifies the PREBUILT tarball Homebrew poured, not the source archive. It is recorded separately from archive_sha256 on purpose."
+      },
+      "features": {
+        "linked_toolkits_default": [
+          "TKernel",
+          "TKMath",
+          "TKG3d",
+          "TKBRep",
+          "TKTopAlgo",
+          "TKShHealing",
+          "TKOffset"
+        ],
+        "linked_toolkits_conditional": {
+          "TKFillet": "linked unless FORGE_FILLET_DROP_NATIVE=ON",
+          "TKBO, TKG2d": "linked when the OCCT A/B baseline path is enabled"
+        },
+        "version_pin_enforced_by_cmake": "EXPECTED_OCCT_VERSION=7.9 (major.minor) \u2014 the TKDE* data-exchange toolkit names differ across minor versions."
+      },
+      "license": {
+        "spdx": "LGPL-2.1-only WITH OCCT-exception-1.0",
+        "linkage": "dynamic (dylib)",
+        "file_in_prefix": "share/doc/opencascade/LICENSE_LGPL_21.txt"
+      },
+      "installed": {
+        "system_prefix_template": "{brew_prefix}/opt/opencascade",
+        "note": "LAST-RESORT fallback only. cmake/ForgeDeps.cmake warns loudly when this path is taken; before this track the hardcoded literal /opt/homebrew/opt/opencascade was the ONLY resolution path."
+      },
+      "layout": {
+        "presence_marker": "include/opencascade/Standard_Version.hxx",
+        "include_subdir": "include/opencascade",
+        "lib_subdir": "lib",
+        "version_probe": {
+          "file": "include/opencascade/Standard_Version.hxx",
+          "regex": "#define\\s+OCC_VERSION_COMPLETE\\s+\"([0-9.]+)\""
+        },
+        "verify_globs": [
+          "include/opencascade/*",
+          "lib/*.dylib"
+        ],
+        "anchor_globs": [
+          "include/opencascade/Standard_Version.hxx",
+          "lib/libTKernel.7.9.3.dylib",
+          "lib/libTKMath.7.9.3.dylib",
+          "lib/libTKG3d.7.9.3.dylib",
+          "lib/libTKBRep.7.9.3.dylib",
+          "lib/libTKTopAlgo.7.9.3.dylib",
+          "lib/libTKShHealing.7.9.3.dylib",
+          "lib/libTKOffset.7.9.3.dylib"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "2948ffabbbb0349b6bff9c085fc1c7584121237c17230901d324f84f5c452dcd",
+          "files": 7642,
+          "links": 134,
+          "bytes": 199101477
+        },
+        "installed_anchor_sha256": {
+          "sha256": "3aa0cd57c01edcc61c8cd0c0277cd0e7112d3f63624c17339c723f5179f5711a",
+          "files": 8,
+          "links": 0,
+          "bytes": 10065383
+        },
+        "computed_from_prefix_source": "system-fallback(homebrew)"
+      }
+    },
+    {
+      "name": "boost",
+      "version": "1.90.0",
+      "required": true,
+      "purpose": "Header-only Boost.Graph (connected_components) and Boost.Math constants, used ONLY by the vendored planegcs sketch solver. No Boost library is linked.",
+      "source": {
+        "kind": "archive",
+        "acquired_as": "homebrew bottle (poured_from_bottle=true)"
+      },
+      "upstream": {
+        "repository": "https://github.com/boostorg/boost",
+        "revision": "boost-1.90.0",
+        "url": "https://github.com/boostorg/boost/releases/download/boost-1.90.0/boost-1.90.0-b2-nodocs.tar.xz",
+        "archive_sha256": null,
+        "archive_sha256_reason": "The INSTALLED version is 1.90.0 (Cellar 1.90.0_1) but the current homebrew-core formula has already moved to 1.92.0, so the offline formula cache carries the 1.92.0 archive hash, NOT 1.90.0's. Recording that hash here would be a fabrication. Resolve by seeding the mirror while online (tools/deps/seed) and recording the hash of the archive actually downloaded, or by pinning the formula revision."
+      },
+      "binary_provenance": {
+        "kind": "homebrew-bottle",
+        "cellar": "1.90.0_1",
+        "bottle_sha256": null,
+        "note": "Same reason as archive_sha256: the cached formula's bottle hash is 1.92.0's."
+      },
+      "features": {
+        "header_only": true,
+        "used_headers": [
+          "boost/graph/adjacency_list.hpp",
+          "boost/graph/connected_components.hpp",
+          "boost/math/constants/constants.hpp"
+        ]
+      },
+      "license": {
+        "spdx": "BSL-1.0",
+        "linkage": "headers only (no link)",
+        "file_in_prefix": "share/LICENSE_1_0.txt",
+        "note": "MEASURED: no license file is present anywhere under the installed prefix (`find <prefix> -maxdepth 3 -iname '*LICENSE*'` returned nothing). tools/deps/forge_deps.py notices therefore reports this attribution record as INCOMPLETE rather than inventing the text."
+      },
+      "installed": {
+        "system_prefix_template": "{brew_prefix}/opt/boost",
+        "note": "LAST-RESORT fallback only; before this track the literal /opt/homebrew/opt/boost/include was hardcoded in forge-kernel/CMakeLists.txt."
+      },
+      "layout": {
+        "presence_marker": "include/boost/graph/adjacency_list.hpp",
+        "include_subdir": "include",
+        "version_probe": {
+          "file": "include/boost/version.hpp",
+          "regex": "#define\\s+BOOST_LIB_VERSION\\s+\"([0-9_]+)\"",
+          "expect": "1_90"
+        },
+        "verify_globs": [
+          "include/boost/*"
+        ],
+        "anchor_globs": [
+          "include/boost/version.hpp",
+          "include/boost/graph/adjacency_list.hpp",
+          "include/boost/graph/connected_components.hpp",
+          "include/boost/math/constants/constants.hpp"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "38b53c2fa8e6d01caeb5387cc8b28ad0105ccf96cf64f92b7a8954e92d77ba98",
+          "files": 15987,
+          "links": 0,
+          "bytes": 150815898
+        },
+        "installed_anchor_sha256": {
+          "sha256": "dc556fd28eb7e1a65fe1731f07ba0e575ad88030e29b0210dab7e25d657efa40",
+          "files": 4,
+          "links": 0,
+          "bytes": 46732
+        },
+        "computed_from_prefix_source": "system-fallback(homebrew)"
+      }
+    },
+    {
+      "name": "planegcs",
+      "version": "freecad-0a45a0a",
+      "required": true,
+      "purpose": "FreeCAD's 2D plane geometric constraint solver, vendored in-tree so Forge ships a sketch solver without depending on the wider FreeCAD codebase.",
+      "source": {
+        "kind": "vendored",
+        "path": "forge-kernel/3rdParty/planegcs"
+      },
+      "upstream": {
+        "repository": "https://github.com/FreeCAD/FreeCAD",
+        "revision": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
+        "subtree": "src/Mod/Sketcher/App/planegcs/",
+        "url": null,
+        "archive_sha256": null,
+        "archive_sha256_reason": "Vendored as a source subtree, not as an archive. Identity is the pinned upstream commit plus the fingerprint of the vendored files below."
+      },
+      "features": {
+        "compiled_sources": [
+          "Constraints.cpp",
+          "GCS.cpp",
+          "Geo.cpp",
+          "SubSystem.cpp",
+          "qp_eq.cpp"
+        ],
+        "eigen": "NONE \u2014 compiled against the in-house drop-in <Eigen/...> shim forge-kernel/3rdParty/planegcs_eigen_shim, backed by forge::native::linalg. No real Eigen package is a dependency."
+      },
+      "license": {
+        "spdx": "LGPL-2.1-or-later",
+        "linkage": "static (compiled into forge_kernel)",
+        "file_in_prefix": null,
+        "note": "SPDX-License-Identifier header is present in every vendored source file; provenance and the Forge-local edits are documented in forge-kernel/3rdParty/planegcs/UPSTREAM.md."
+      },
+      "installed": {},
+      "layout": {
+        "presence_marker": "GCS.cpp",
+        "verify_globs": [
+          "*.cpp",
+          "*.h",
+          "*.md"
+        ],
+        "anchor_globs": [
+          "GCS.cpp",
+          "Constraints.cpp",
+          "Geo.cpp",
+          "SubSystem.cpp",
+          "qp_eq.cpp"
+        ]
+      },
+      "patches": [
+        {
+          "id": "0001-standalone-includes",
+          "path": "third_party/patches/planegcs/0001-standalone-includes.md",
+          "kind": "documented-edit-record",
+          "diffable_against_upstream": false,
+          "reason": "The upstream FreeCAD tree is not present in the local mirror, so a byte-exact reverse diff cannot be produced offline without fabricating the upstream side. Instead the edit is recorded as an executable CONTRACT: the content_checks below are enforced by `tools/deps/forge_deps.py verify` and fail if the vendored sources ever drift back toward, or away from, the recorded state.",
+          "content_checks": [
+            {
+              "file": "forge-kernel/3rdParty/planegcs/GCS.cpp",
+              "must_contain": [
+                "#include \"forge_planegcs_stub.h\"",
+                "#include <boost/graph/adjacency_list.hpp>",
+                "#include <boost/graph/connected_components.hpp>"
+              ],
+              "must_not_contain": [
+                "#include <Base/Console.h>",
+                "#include <FCConfig.h>",
+                "#include <boost_graph_adjacency_list.hpp>"
+              ]
+            },
+            {
+              "file": "forge-kernel/3rdParty/planegcs/GCS.h",
+              "must_contain": [
+                "#include \"SketcherGlobal.h\""
+              ],
+              "must_not_contain": [
+                "#include \"../../SketcherGlobal.h\""
+              ]
+            },
+            {
+              "file": "forge-kernel/3rdParty/planegcs/Constraints.h",
+              "must_contain": [
+                "#include \"SketcherGlobal.h\""
+              ],
+              "must_not_contain": [
+                "#include \"../../SketcherGlobal.h\""
+              ]
+            },
+            {
+              "file": "forge-kernel/3rdParty/planegcs/Geo.h",
+              "must_contain": [
+                "#include \"SketcherGlobal.h\""
+              ],
+              "must_not_contain": [
+                "#include \"../../SketcherGlobal.h\""
+              ]
+            }
+          ]
+        }
+      ],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "05df3d7b314203bb4a094fe5a57cf2d3a6882885fc136f48e4ea74d2354b0ab5",
+          "files": 14,
+          "links": 0,
+          "bytes": 460657
+        },
+        "installed_anchor_sha256": {
+          "sha256": "a0ccda28b420b6bdbdd52c99d26a5c06ad687a8571bd60a68a86e2cbcc36d386",
+          "files": 5,
+          "links": 0,
+          "bytes": 372845
+        },
+        "computed_from_prefix_source": "vendored"
+      }
+    },
+    {
+      "name": "node-addon-api",
+      "version": "8.8.0",
+      "required": true,
+      "purpose": "Header-only Node-API C++ wrapper for the forge_kernel N-API addon (src/binding.cpp). Not needed by the node-free forge_kernel_core / forge::native targets.",
+      "source": {
+        "kind": "npm",
+        "spec": "node-addon-api@^8.8.0 (package.json dependencies)"
+      },
+      "upstream": {
+        "repository": "https://github.com/nodejs/node-addon-api",
+        "revision": "v8.8.0",
+        "url": "https://registry.npmjs.org/node-addon-api/-/node-addon-api-8.8.0.tgz",
+        "archive_sha256": null,
+        "archive_sha256_reason": "STILL NULL, and the field name is why: no sha256 OF THE TARBALL can be computed on this workstation. package-lock.json is gitignored (.gitignore line 10) and untracked, so nothing in Git states the tarball's hash, and the npm content-addressed cache no longer holds the tarball (~/.npm/_cacache/content-v2/sha512/73/92/a8d5... is absent), so it cannot be hashed locally either. What IS readable offline is npm's own recorded sha512 integrity for the exact installed version — recorded below in archive_integrity_sha512_npm rather than here, because a sha512 of a tarball is not a sha256 of a tarball and writing it into this field would be the conflation this lock exists to prevent. Fix: stop gitignoring package-lock.json, or seed the tarball into .forge-local/sources and record its sha256.",
+        "archive_integrity_sha512_npm": "sha512-c5Ko1fZJIJmzhFIkhRN76WTq+fC6tWnGy9CXA0fA+XygsWZmEwG8vmbkNqxMyoaa0Tin4djul49NzdVcJJcjeA==",
+        "archive_integrity_sha512_npm_hex": "7392a8d5f6492099b384522485137be964eaf9f0bab569c6cbd0970347c0f97ca0b166661301bcbe66e436ac4cca869ad138a7e1d8ee978f4dcdd55c24972378",
+        "archive_integrity_sha512_npm_provenance": "WHICH ARTIFACT: the upstream npm TARBALL named by upstream.url (node-addon-api-8.8.0.tgz) — NOT the installed prefix, which is fingerprinted separately under fingerprint.installed_tree_sha256. WHERE READ: the `integrity` field of the `node_modules/node-addon-api` entry in the repo's local, untracked package-lock.json (/Users/account_clawteam1/archdisc-Mech/package-lock.json), read offline. VERSION CHECK: that entry records version 8.8.0, which EQUALS this dependency's pinned version, so the hash describes the archive of what is installed. It was NOT verified against the tarball's bytes — the tarball is absent from the npm cache — so this is npm's recorded integrity, not an independently recomputed digest. UNTRACKED-SOURCE CAVEAT: package-lock.json is gitignored, so this value is not reproducible from a fresh clone and does not by itself make the build verifiable on a clean machine."
+      },
+      "features": {
+        "header_only": true
+      },
+      "license": {
+        "spdx": "MIT",
+        "linkage": "headers only",
+        "file_in_prefix": "LICENSE.md"
+      },
+      "installed": {
+        "system_prefix_template": "{repo}/node_modules/node-addon-api",
+        "note": "Also resolvable from $FORGE_NODE_MODULES for worktree builds that reuse the main checkout's node_modules."
+      },
+      "layout": {
+        "presence_marker": "napi.h",
+        "version_probe": {
+          "file": "package.json",
+          "regex": "\"version\":\\s*\"([0-9][^\"]*)\""
+        },
+        "verify_globs": [
+          "napi.h",
+          "napi-inl.h",
+          "package.json",
+          "*.gypi"
+        ],
+        "anchor_globs": [
+          "napi.h",
+          "package.json"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "658b88a5f8f62707bae2cc7825a5c90790f4bba4029daa7de05a78afe871298d",
+          "files": 6,
+          "links": 0,
+          "bytes": 376528
+        },
+        "installed_anchor_sha256": {
+          "sha256": "9c0148a14670590dd9ba6c1fc7bfa49dc48aaca8010ccee8fa8c4b103ce36000",
+          "files": 2,
+          "links": 0,
+          "bytes": 133366
+        },
+        "computed_from_prefix_source": "env:FORGE_NODE_MODULES"
+      }
+    },
+    {
+      "name": "vulkan-headers",
+      "version": "1.4.350.1",
+      "required": false,
+      "enabled_when": "FORGE_BUILD_DESKTOP_RENDERER=ON or FORGE_BUILD_DESKTOP_UI=ON (both OFF by default)",
+      "purpose": "Vulkan API headers for the headless MoltenVK offscreen renderer and Dear ImGui UI probes.",
+      "source": {
+        "kind": "archive",
+        "acquired_as": "homebrew bottle"
+      },
+      "upstream": {
+        "repository": "https://github.com/KhronosGroup/Vulkan-Headers",
+        "revision": "vulkan-sdk-1.4.350.1",
+        "url": "https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/vulkan-sdk-1.4.350.1.tar.gz",
+        "archive_sha256": null,
+        "archive_sha256_reason": "Installed 1.4.350.1; the cached homebrew-core formula is already at 1.4.357.0, so no hash for 1.4.350.1 is available offline."
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "linkage": "headers only",
+        "file_in_prefix": null,
+        "note": "not recorded \u2014 optional dependency, prefix not activated in this lock revision"
+      },
+      "installed": {
+        "system_prefix_template": "{brew_prefix}/opt/vulkan-headers"
+      },
+      "layout": {
+        "presence_marker": "include/vulkan/vulkan.h",
+        "verify_globs": [
+          "include/vulkan/*"
+        ],
+        "anchor_globs": [
+          "include/vulkan/vulkan_core.h"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "6fc69e06faf96f1c6ff57a1b7b141dcfef6acec0ab632a25c5965c6397b05c51",
+          "files": 37,
+          "links": 0,
+          "bytes": 21478517
+        },
+        "installed_anchor_sha256": {
+          "sha256": "cdf79710d8118aa8abbdb68a571a3b0cc51b550b6a07aa0cb0e7a496f4251903",
+          "files": 1,
+          "links": 0,
+          "bytes": 1317089
+        },
+        "computed_from_prefix_source": "system-fallback(homebrew)"
+      }
+    },
+    {
+      "name": "vulkan-loader",
+      "version": "1.4.350.1",
+      "required": false,
+      "enabled_when": "FORGE_BUILD_DESKTOP_RENDERER=ON or FORGE_BUILD_DESKTOP_UI=ON",
+      "purpose": "libvulkan.dylib loader linked by the renderer/UI probes.",
+      "source": {
+        "kind": "archive",
+        "acquired_as": "homebrew bottle"
+      },
+      "upstream": {
+        "repository": "https://github.com/KhronosGroup/Vulkan-Loader",
+        "revision": "vulkan-sdk-1.4.350.1",
+        "url": "https://github.com/KhronosGroup/Vulkan-Loader/archive/refs/tags/vulkan-sdk-1.4.350.1.tar.gz",
+        "archive_sha256": null,
+        "archive_sha256_reason": "Installed 1.4.350.1; cached formula is 1.4.357.0."
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "linkage": "dynamic",
+        "file_in_prefix": null,
+        "note": "not recorded \u2014 optional dependency"
+      },
+      "installed": {
+        "system_prefix_template": "{brew_prefix}/opt/vulkan-loader"
+      },
+      "layout": {
+        "presence_marker": "lib/libvulkan.dylib",
+        "verify_globs": [
+          "lib/*.dylib"
+        ],
+        "anchor_globs": [
+          "lib/libvulkan.dylib"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "749d41d9f2009ca043fa08f7f7de2573840128bbd3fffce2deaaae7589d2324c",
+          "files": 1,
+          "links": 2,
+          "bytes": 1893744
+        },
+        "installed_anchor_sha256": {
+          "sha256": "c727977c23514ffada3647d36c8339ab51485777b937cadefab9f013440dac41",
+          "files": 0,
+          "links": 1,
+          "bytes": 631248
+        },
+        "computed_from_prefix_source": "system-fallback(homebrew)"
+      }
+    },
+    {
+      "name": "glslang",
+      "version": "16.4.0",
+      "required": false,
+      "enabled_when": "FORGE_BUILD_DESKTOP_RENDERER=ON or FORGE_BUILD_DESKTOP_UI=ON",
+      "purpose": "glslangValidator \u2014 compiles the probes' GLSL to SPIR-V at build time.",
+      "source": {
+        "kind": "archive",
+        "acquired_as": "homebrew bottle"
+      },
+      "upstream": {
+        "repository": "https://github.com/KhronosGroup/glslang",
+        "revision": "16.4.0",
+        "url": "https://github.com/KhronosGroup/glslang/archive/refs/tags/16.4.0.tar.gz",
+        "archive_sha256": null,
+        "archive_sha256_reason": "Installed 16.4.0; cached formula is 16.5.0."
+      },
+      "license": {
+        "spdx": "BSD-3-Clause AND Apache-2.0",
+        "linkage": "build-time tool",
+        "file_in_prefix": null,
+        "note": "not recorded \u2014 optional dependency"
+      },
+      "installed": {
+        "system_prefix_template": "{brew_prefix}/opt/glslang"
+      },
+      "layout": {
+        "presence_marker": "bin/glslangValidator",
+        "verify_globs": [
+          "bin/glslangValidator"
+        ],
+        "anchor_globs": [
+          "bin/glslangValidator"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "3a373e78b8ed2090d4f7767382f3da1a220eca49b5585deb6f36d04b7cfd9ff8",
+          "files": 0,
+          "links": 1,
+          "bytes": 159296
+        },
+        "installed_anchor_sha256": {
+          "sha256": "3a373e78b8ed2090d4f7767382f3da1a220eca49b5585deb6f36d04b7cfd9ff8",
+          "files": 0,
+          "links": 1,
+          "bytes": 159296
+        },
+        "computed_from_prefix_source": "system-fallback(homebrew)"
+      }
+    },
+    {
+      "name": "molten-vk",
+      "version": "1.4.1",
+      "required": false,
+      "enabled_when": "FORGE_BUILD_DESKTOP_RENDERER=ON or FORGE_BUILD_DESKTOP_UI=ON",
+      "purpose": "Vulkan-on-Metal ICD used at RUN time by the headless probes (VK_ICD_FILENAMES).",
+      "source": {
+        "kind": "archive",
+        "acquired_as": "homebrew bottle"
+      },
+      "upstream": {
+        "repository": "https://github.com/KhronosGroup/MoltenVK",
+        "revision": "v1.4.1",
+        "url": "https://github.com/KhronosGroup/MoltenVK/archive/refs/tags/v1.4.1.tar.gz",
+        "archive_sha256": null,
+        "archive_sha256_reason": "Installed 1.4.1; cached formula is 1.4.2."
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "linkage": "runtime ICD",
+        "file_in_prefix": null,
+        "note": "not recorded \u2014 optional dependency"
+      },
+      "installed": {
+        "system_prefix_template": "{brew_prefix}/opt/molten-vk"
+      },
+      "layout": {
+        "presence_marker": "lib/libMoltenVK.dylib",
+        "verify_globs": [
+          "lib/*.dylib"
+        ],
+        "anchor_globs": [
+          "lib/libMoltenVK.dylib"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "67d41cb7e30e375fae25eb4be14f5929cdb477ee5ccfb3be3fcfc0d28db26dd5",
+          "files": 1,
+          "links": 0,
+          "bytes": 5121104
+        },
+        "installed_anchor_sha256": {
+          "sha256": "67d41cb7e30e375fae25eb4be14f5929cdb477ee5ccfb3be3fcfc0d28db26dd5",
+          "files": 1,
+          "links": 0,
+          "bytes": 5121104
+        },
+        "computed_from_prefix_source": "system-fallback(homebrew)"
+      }
+    }
+  ],
+  "known_gaps": [
+    "SEVEN of eight dependencies carry archive_sha256=null with an explicit reason; only opencascade has one. (An earlier revision of this file and of tools/deps/README.md said 'five of eight' — that was miscounted, corrected 2026-08-28 by counting the field directly.) One of the seven, planegcs, is vendored as a source subtree and has no upstream archive by design, so the archive-bearing deps still null number SIX. Of those six, five (boost, vulkan-headers, vulkan-loader, glslang, molten-vk) are unclosable offline and this was checked, not assumed: the installed Cellar INSTALL_RECEIPT.json for each records source.spec/source.versions but contains no sha256 at all, and no matching archive remains in ~/Library/Caches/Homebrew/downloads. The sixth, node-addon-api, now carries npm's recorded sha512 integrity for the exact installed version under upstream.archive_integrity_sha512_npm — deliberately NOT in archive_sha256. Closing the remaining five needs one ONLINE_SEED run (tools/deps/seed) plus recording the hashes actually observed.",
+    "No dependency is served from .forge-local/prefixes yet, so every resolution today ends at the machine-global fallback and warns. The plane is wired; the mirror is not yet populated.",
+    "The Apple SDK / compiler is not pinned. The installed_tree_sha256 fingerprints therefore identify the bottle, not the full toolchain.",
+    "Ninja is not installed on this workstation, so the spec-conforming presets cannot be executed here; the -make variants exist as a labelled fallback."
+  ]
+}

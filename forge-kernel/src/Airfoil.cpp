@@ -3,21 +3,33 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
-#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Geom_BSplineCurve.hxx>
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+#include "forge/native/geom/NativeNurbsConvert.hpp"
+#endif
 #include <Precision.hxx>
 #include <TColgp_Array1OfPnt.hxx>
-#include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Wire.hxx>
-#include <gp_Ax1.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
-#include <gp_Trsf.hxx>
-#include <gp_Vec.hxx>
+
+// K6-seed (OCCT-zero migration): the airfoil point/transform math is rewritten
+// onto the in-house native Vec3 + a native 3x3 rotation Matrix (see the
+// nativeXform anonymous-namespace block below). OCCT types are now touched ONLY
+// at the thin geometry boundary where a curve/edge/wire/face must enter the
+// ShapeRegistry (which still stores TopoDS_Shape) and for the ONE op native
+// cannot yet do — the smooth degree-3 C2 B-spline interpolation-through-points
+// (GeomAPI_PointsToBSpline; the native brep::NurbsCurve is an evaluator with no
+// global cubic fitter yet). This drops the gp_Trsf/gp_Ax1/gp_Vec/
+// BRepBuilderAPI_Transform/TopoDS-cast call surface (4 OCCT headers) without
+// dropping the OCCT dylib (still transitively pinned by the B-spline + edge/
+// wire/face builders), and proves the migration pattern for the rest of the
+// module family.
+#include "forge/native/brep/Nurbs.hpp"   // forge::native::brep::Vec3 (dependency-free)
 
 #include <algorithm>
 #include <cctype>
@@ -67,6 +79,7 @@
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/LoftSweep.hpp"     // loftSolid (native unguided loft)
 #include "forge/native/brep/Topology.hpp"      // Point3, Solid, TopologyBuilder
+#include "forge/native/brep/NativeLoftPipe.hpp" // TKOffset family D: ruled loft on OCCT wires
 #endif
 
 namespace forge { namespace airfoil {
@@ -74,6 +87,64 @@ namespace forge { namespace airfoil {
 namespace {
 
 constexpr double PI = 3.14159265358979323846;
+
+// ---------------------------------------------------------------------------
+// K6-seed native transform substrate — the OCCT-free replacement for this
+// module's gp_Trsf / gp_Ax1 / gp_Vec / BRepBuilderAPI_Transform usage.
+//
+// NVec3 is the in-house B-rep Euclidean point (forge::native::brep::Vec3). Mat3
+// is a row-major 3x3 linear map built by Rodrigues' axis-angle formula (the same
+// construction Pattern.cpp / Gear.cpp use for native rigid transforms). All wing
+// station point math now runs through these native types; OCCT gp_Pnt appears
+// ONLY at the boundary where the world-frame points are handed to the B-spline
+// interpolator / edge builder.
+// ---------------------------------------------------------------------------
+using NVec3 = forge::native::brep::Vec3;
+
+struct Mat3 {
+    // row-major 3x3: m[row*3 + col]
+    double m[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    NVec3 apply(const NVec3& p) const {
+        return NVec3{ m[0] * p.x + m[1] * p.y + m[2] * p.z,
+                      m[3] * p.x + m[4] * p.y + m[5] * p.z,
+                      m[6] * p.x + m[7] * p.y + m[8] * p.z };
+    }
+};
+
+// Rotation matrix about an arbitrary unit-normalisable axis by `ang` radians
+// (Rodrigues' formula). Reused for the wing-twist rotation about +Y.
+Mat3 rotationAxisAngle(const NVec3& axis, double ang) {
+    const double len = std::sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z);
+    const double inv = (len > 0.0) ? 1.0 / len : 0.0;
+    const double x = axis.x * inv, y = axis.y * inv, z = axis.z * inv;
+    const double c = std::cos(ang), s = std::sin(ang), t = 1.0 - c;
+    return Mat3{{ c + x * x * t,     x * y * t - z * s, x * z * t + y * s,
+                  y * x * t + z * s, c + y * y * t,     y * z * t - x * s,
+                  z * x * t - y * s, z * y * t + x * s, c + z * z * t }};
+}
+
+// Lay a station's chord-normalised 2D profile down in the local XZ plane
+// (X = chord, Z = thickness, Y = span), scale by chord, rotate about the LE
+// (+Y axis) by -twistDeg, then translate by (sweepMm, yMm, zMm) — the exact
+// affine the former gp_Trsf pipeline applied, now in native Vec3/Mat3. The
+// closure-duplicate profile point is dropped (returned points are the open ring
+// the B-spline interpolates through). This is the single source of the station
+// world transform, shared by the OCCT wire builder and the native ring path.
+std::vector<NVec3> stationLocalToWorld(const WingStation& st) {
+    const auto& pts = st.profile.points;
+    const std::size_t n = (pts.size() >= 1) ? pts.size() - 1 : 0; // drop closure dup
+    const Mat3 rot = rotationAxisAngle(NVec3{0.0, 1.0, 0.0},
+                                       -st.twistDeg * PI / 180.0);
+    const NVec3 tr{ st.sweepMm, st.yMm, st.zMm };
+    std::vector<NVec3> out;
+    out.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const NVec3 local{ pts[i].x * st.chordMm, 0.0, pts[i].y * st.chordMm };
+        const NVec3 w = rot.apply(local);
+        out.push_back(NVec3{ w.x + tr.x, w.y + tr.y, w.z + tr.z });
+    }
+    return out;
+}
 
 // Cosine x-distribution on [0,1] with N sample points, clustering near 0 and 1.
 //   x_i = 0.5 * (1 - cos( pi * i / (N-1) ))   for i = 0..N-1
@@ -386,24 +457,36 @@ ShapeHandle profileToFace(const Profile& p, double chordMm) {
     std::vector<ProfilePoint> pts(p.points.begin(),
                                    p.points.end() - 1); // drop closure
     const std::size_t n = pts.size();
+    // Scale the chord-normalised profile into the XY plane using native Vec3 math;
+    // OCCT gp_Pnt is filled only at the array boundary feeding the interpolator.
+    std::vector<NVec3> world;
+    world.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        world.push_back(NVec3{ pts[i].x * chordMm, pts[i].y * chordMm, 0.0 });
+    }
     TColgp_Array1OfPnt arr(1, static_cast<Standard_Integer>(n));
     for (std::size_t i = 0; i < n; ++i) {
         arr.SetValue(static_cast<Standard_Integer>(i + 1),
-                     gp_Pnt(pts[i].x * chordMm, pts[i].y * chordMm, 0.0));
+                     gp_Pnt(world[i].x, world[i].y, world[i].z));
     }
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+    Handle(Geom_BSplineCurve) bspl =
+        forge::occtconv::pointsToBSpline(arr, 3, 3, 1.0e-6 * chordMm);
+#else
     GeomAPI_PointsToBSpline interp(arr,
                                    /*deg min*/ 3,
                                    /*deg max*/ 3,
                                    /*continuity*/ GeomAbs_C2,
                                    /*tol*/ 1.0e-6 * chordMm);
     Handle(Geom_BSplineCurve) bspl = interp.Curve();
+#endif
     if (bspl.IsNull()) {
         throw std::runtime_error("forge.airfoil.profileToFace: BSpline interpolation failed");
     }
     TopoDS_Edge edgeMain = BRepBuilderAPI_MakeEdge(bspl).Edge();
     // Close with a straight TE segment from last → first if they differ.
-    const gp_Pnt last(pts.back().x  * chordMm, pts.back().y  * chordMm, 0.0);
-    const gp_Pnt first(pts.front().x * chordMm, pts.front().y * chordMm, 0.0);
+    const gp_Pnt last(world.back().x,  world.back().y,  world.back().z);
+    const gp_Pnt first(world.front().x, world.front().y, world.front().z);
     BRepBuilderAPI_MakeWire wireMaker;
     wireMaker.Add(edgeMain);
     if (last.Distance(first) > 1.0e-9 * chordMm) {
@@ -437,41 +520,43 @@ TopoDS_Wire stationToWorldWire(const WingStation& st) {
     if (!(st.chordMm > Precision::Confusion())) {
         throw std::invalid_argument("forge.airfoil.loftWing: chord must be > 0");
     }
-    // Build the profile in local frame, oriented in XZ plane (so the wing
-    // extends along Y between stations) — common aerospace convention:
-    // X = chord, Y = span, Z = thickness.
-    const auto& pts = st.profile.points;
-    const std::size_t n = pts.size() - 1; // drop closure for BSpline
+    // Build the station's world-frame section points with native Vec3/Mat3 math
+    // (X = chord, Y = span, Z = thickness — the common aerospace convention). The
+    // former "build local OCCT wire, then gp_Trsf rotate+translate it" pipeline is
+    // gone: we transform the CONTROL POINTS natively and interpolate the smooth
+    // B-spline directly in world frame. Because the interpolant is an affine
+    // function of its data points (with rotation-invariant chord-length
+    // parameterisation), transform-then-fit is geometrically identical to the old
+    // fit-then-transform, so the wing surface is unchanged.
+    const std::vector<NVec3> world = stationLocalToWorld(st);
+    const std::size_t n = world.size();
     TColgp_Array1OfPnt arr(1, static_cast<Standard_Integer>(n));
     for (std::size_t i = 0; i < n; ++i) {
         arr.SetValue(static_cast<Standard_Integer>(i + 1),
-                     gp_Pnt(pts[i].x * st.chordMm, 0.0, pts[i].y * st.chordMm));
+                     gp_Pnt(world[i].x, world[i].y, world[i].z));
     }
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+    // Native least-squares B-spline fit (drops TKGeomAlgo GeomAPI_PointsToBSpline).
+    // Bounded, overshoot-guarded control net so the per-station sections skin
+    // cleanly through BRepOffsetAPI_ThruSections (see NativeNurbsConvert.cpp).
+    Handle(Geom_BSplineCurve) bspl =
+        forge::occtconv::pointsToBSpline(arr, 3, 3, 1.0e-6 * st.chordMm);
+#else
     GeomAPI_PointsToBSpline interp(arr, 3, 3, GeomAbs_C2, 1.0e-6 * st.chordMm);
     Handle(Geom_BSplineCurve) bspl = interp.Curve();
+#endif
     if (bspl.IsNull()) {
         throw std::runtime_error("forge.airfoil.loftWing: BSpline interp failed");
     }
     TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(bspl).Edge();
-    const gp_Pnt last (pts[n-1].x * st.chordMm, 0.0, pts[n-1].y * st.chordMm);
-    const gp_Pnt first(pts[0  ].x * st.chordMm, 0.0, pts[0  ].y * st.chordMm);
+    const gp_Pnt last (world[n-1].x, world[n-1].y, world[n-1].z);
+    const gp_Pnt first(world[0  ].x, world[0  ].y, world[0  ].z);
     BRepBuilderAPI_MakeWire mw;
     mw.Add(edge);
     if (last.Distance(first) > 1.0e-9 * st.chordMm) {
         mw.Add(BRepBuilderAPI_MakeEdge(last, first).Edge());
     }
-    TopoDS_Wire localWire = mw.Wire();
-
-    // Rotate around the LE (origin) about Y for twist (positive = nose down).
-    gp_Trsf rot;
-    rot.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 1, 0)),
-                    -st.twistDeg * PI / 180.0);
-    // Translate to the spanwise station + sweep + dihedral height.
-    gp_Trsf tr;
-    tr.SetTranslation(gp_Vec(st.sweepMm, st.yMm, st.zMm));
-    BRepBuilderAPI_Transform t1(localWire, rot, /*copy*/ Standard_True);
-    BRepBuilderAPI_Transform t2(t1.Shape(), tr, /*copy*/ Standard_True);
-    return TopoDS::Wire(t2.Shape());
+    return mw.Wire();
 }
 
 } // anonymous namespace
@@ -490,20 +575,14 @@ namespace {
 forge::native::brep::LoftSection stationToWorldRing(const WingStation& st) {
     using forge::native::brep::Point3;
     forge::native::brep::LoftSection ring;
-    const auto& pts = st.profile.points;
-    const std::size_t n = (pts.size() >= 1) ? pts.size() - 1 : 0; // drop closure dup
-    const double tw = -st.twistDeg * PI / 180.0;
-    const double ct = std::cos(tw), stw = std::sin(tw);
-    ring.points.reserve(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        // Local XZ-plane point (matches stationToWorldWire's gp_Pnt construction).
-        const double lx = pts[i].x * st.chordMm;
-        const double lz = pts[i].y * st.chordMm;
-        // Rotate about +Y axis at the LE by tw:  x' = x cos + z sin, z' = -x sin + z cos.
-        const double rx =  lx * ct + lz * stw;
-        const double rz = -lx * stw + lz * ct;
-        // Translate to the spanwise station + sweep + dihedral height.
-        ring.points.push_back(Point3{ rx + st.sweepMm, st.yMm, rz + st.zMm });
+    // Reuse the SAME native world transform the OCCT wire path uses
+    // (stationLocalToWorld → native Vec3/Mat3), so the section->ring seam and the
+    // OCCT section wire are guaranteed to share one transform definition. NVec3
+    // and Point3 are the same POD shape (x,y,z); convert field-for-field.
+    const std::vector<NVec3> world = stationLocalToWorld(st);
+    ring.points.reserve(world.size());
+    for (const NVec3& w : world) {
+        ring.points.push_back(Point3{ w.x, w.y, w.z });
     }
     return ring;
 }
@@ -605,17 +684,37 @@ ShapeHandle loftWing(const std::vector<WingStation>& stations, bool capTips) {
         }
     }
 
+    std::vector<TopoDS_Wire> stationWires;
+    stationWires.reserve(normalised.size());
+    for (const auto& st : normalised) stationWires.push_back(stationToWorldWire(st));
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family D — native ruled loft. loftWing asks for the SMOOTHED skin
+    // (ruled=false), which the native engine only covers for exactly two sections
+    // (NativeLoftPipe.cpp PART 2); a multi-station wing therefore DEFERS honestly.
+    if (::forge::occtloft::loftNativeEnabled()) {
+        const std::vector<TopoDS_Shape> secs(stationWires.begin(), stationWires.end());
+        const TopoDS_Shape nat =
+            ::forge::occtloft::thruSections(secs, capTips, /*ruled*/ false);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_THRUSECTIONS_DROP_NATIVE
     BRepOffsetAPI_ThruSections mk(/*solid*/ capTips ? Standard_True : Standard_False,
                                   /*ruled*/ Standard_False,
                                   /*pres*/ 1.0e-6);
-    for (const auto& st : normalised) {
-        mk.AddWire(stationToWorldWire(st));
-    }
+    for (const auto& w : stationWires) mk.AddWire(w);
     mk.Build();
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.airfoil.loftWing: ThruSections failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.airfoil.loftWing: the native ruled loft DECLINED these stations (a "
+        "smoothed multi-station skin is outside its scope) and the OCCT "
+        "BRepOffsetAPI_ThruSections fallback is compiled out "
+        "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ trapezoidalWing

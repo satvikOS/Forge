@@ -12,13 +12,10 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
-#include <Precision.hxx>
-#include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Shape.hxx>
-#include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Pnt.hxx>
 
@@ -60,6 +57,7 @@
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/LoftSweep.hpp"     // loftSolid (native unguided loft)
 #include "forge/native/brep/Topology.hpp"      // Point3, Solid
+#include "forge/native/brep/NativeLoftPipe.hpp" // TKOffset family D: ruled loft on OCCT wires
 #endif
 
 namespace forge::loftguide {
@@ -83,7 +81,9 @@ TopoDS_Wire asWire(const TopoDS_Shape& s, ShapeHandle h) {
     return TopoDS::Wire(s);
 }
 
-TopoDS_Edge asEdge(const TopoDS_Shape& s, ShapeHandle h) {
+// [[maybe_unused]]: the only caller is the guide-edge -> AddVertex loop in the
+// OCCT ThruSections path, which FORGE_THRUSECTIONS_DROP_NATIVE compiles out.
+[[maybe_unused]] TopoDS_Edge asEdge(const TopoDS_Shape& s, ShapeHandle h) {
     if (s.ShapeType() != TopAbs_EDGE) {
         TopExp_Explorer ex(s, TopAbs_EDGE);
         if (ex.More()) return TopoDS::Edge(ex.Current());
@@ -191,6 +191,33 @@ ShapeHandle loft(const std::vector<ShapeHandle>& profileWires,
             std::to_string(profileWires.size()) + ")");
     }
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family D — TKOffset-free ruled loft on the OCCT wires themselves.
+    // Unlike tryNativeLoftGuide above (which needs a native LoftSection and so
+    // defers on 100% of inputs), this engine consumes the TopoDS_Wire directly.
+    // Guide edges become AddVertex point-sections in the OCCT path, which the
+    // native engine only accepts at the ends; a guided call therefore DEFERS.
+    if (::forge::occtloft::loftNativeEnabled() && guideEdges.empty()) {
+        std::vector<TopoDS_Shape> secs;
+        secs.reserve(profileWires.size());
+        bool ok = true;
+        for (auto h : profileWires) {
+            const auto& s = ShapeRegistry::instance().get(h);
+            if (s.IsNull()) { ok = false; break; }
+            secs.push_back(asWire(s, h));
+        }
+        if (ok) {
+            const TopoDS_Shape nat = ::forge::occtloft::thruSections(secs, solid, ruled);
+            if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+        }
+    }
+#endif
+#ifdef FORGE_THRUSECTIONS_DROP_NATIVE
+    throw std::runtime_error(
+        "forge.loftguide.loft: the native ruled loft DECLINED these profiles and the "
+        "OCCT BRepOffsetAPI_ThruSections fallback is compiled out "
+        "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#else
     BRepOffsetAPI_ThruSections mk(
         /*isSolid*/ solid ? Standard_True : Standard_False,
         /*ruled*/  ruled ? Standard_True : Standard_False,
@@ -238,6 +265,7 @@ ShapeHandle loft(const std::vector<ShapeHandle>& profileWires,
             "forge.loftguide.loft: BRepOffsetAPI_ThruSections build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#endif  // !FORGE_THRUSECTIONS_DROP_NATIVE
 }
 
 }  // namespace forge::loftguide

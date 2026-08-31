@@ -1,3 +1,12 @@
+> ★ METRIC CORRECTION (2026-07-31, MEASURED). The north-star number is the LOAD
+> CLOSURE, not `otool -L | grep opencascade`. Direct records read **8**; the real
+> closure is **14**. Six libraries load without appearing in the direct list, and two
+> of them are called directly by the binary while being masked by a parent:
+> **TKBO (31 symbols)** and **TKG2d (36 symbols)**. Dropping a library that merely
+> converts DIRECT → PHANTOM leaves the process byte-for-byte unchanged and is worth
+> ZERO. Rank every drop by closure reduction. Counter: `scripts/occt_closure_count.sh`.
+> Evidence: `reports/OCCT_CLOSURE_TRUTH.md`.
+
 # Forge Kernel → OCCT-Zero Migration Roadmap
 
 > Generated 2026-06-23 by an 8-agent per-file audit of the live kernel

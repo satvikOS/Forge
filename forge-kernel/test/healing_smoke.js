@@ -8,7 +8,15 @@
 
 const path = require('path');
 const assert = require('assert');
-const forge = require(path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node'));
+// FORGE_KERNEL (a dir or a .node path) selects the build under test, matching
+// test/directedit.mjs and test/ft/*.mjs. Without it the default build/Release is used,
+// so the existing invocation is unchanged. Needed to A/B this gate against an
+// experimental build tree (e.g. build-shheal) without touching build/.
+const _fk = process.env.FORGE_KERNEL;
+const forge = require(
+  _fk
+    ? (_fk.endsWith('.node') ? path.resolve(_fk) : path.resolve(process.cwd(), _fk, 'forge-kernel.node'))
+    : path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node'));
 
 console.log('[heal-smoke] version =', forge.version());
 

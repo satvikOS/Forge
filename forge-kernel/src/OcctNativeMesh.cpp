@@ -40,6 +40,7 @@
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
 #include <GeomAdaptor_Surface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
@@ -233,7 +234,9 @@ FaceMesh tessellateFace(const TopoDS_Face& face, EdgeCache& cache,
     const int nU = isoSegments([&](double u) { return Sloc(u, vmid); }, umin, umax, linDefl, angDefl);
     const int nV = isoSegments([&](double v) { return Sloc(umid, v); }, vmin, vmax, linDefl, angDefl);
 
-    GeomAPI_ProjectPointOnSurf projector;
+#ifndef FORGE_NATIVE_PROJECTION
+    GeomAPI_ProjectPointOnSurf projector;   // OCCT: reused object, re-Init per call
+#endif
     // shift a periodic coord by k*period to lie nearest `target` (continuity / box-pin).
     auto shiftNear = [](double val, double period, bool per, double target) -> double {
         if (!per || period <= 0.0) return val;
@@ -263,11 +266,19 @@ FaceMesh tessellateFace(const TopoDS_Face& face, EdgeCache& cache,
     // bounded projection of a GLOBAL 3-D point onto this face's surface → (u,v).
     auto projectUV = [&](const gp_Pnt& gpos, double& u, double& v) -> bool {
         const gp_Pnt lp = gpos.Transformed(invTr);
+#ifdef FORGE_NATIVE_PROJECTION
+        auto projector = forge::occtproj::projectPointOnSurface(lp, surf, umin, umax, vmin, vmax);
+        if (!projector.IsDone() || projector.NbPoints() < 1) {
+            projector = forge::occtproj::projectPointOnSurface(lp, surf);
+            if (!projector.IsDone() || projector.NbPoints() < 1) return false;
+        }
+#else
         projector.Init(lp, surf, umin, umax, vmin, vmax);
         if (!projector.IsDone() || projector.NbPoints() < 1) {
             projector.Init(lp, surf);
             if (!projector.IsDone() || projector.NbPoints() < 1) return false;
         }
+#endif
         projector.LowerDistanceParameters(u, v);
         return true;
     };

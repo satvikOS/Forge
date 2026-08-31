@@ -18,7 +18,6 @@
 #ifndef FORGE_NATIVE_BREP
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
-#include <IFSelect_ReturnStatus.hxx>
 #include <Interface_Static.hxx>
 #endif
 // OCCT_ZERO Wave-0 (B2): <StlAPI_Reader.hxx> / <StlAPI_Writer.hxx> REMOVED — STL
@@ -29,9 +28,6 @@
 // in-house native reader (forge/native/brep/IgesRead.hpp), A/B-certified vs OCCT
 // in test/native_vs_occt_iges.cpp. OCCT's TKDEIGES reader is no longer linked here.
 #include <TopoDS_Shape.hxx>
-#include <TopoDS_Shell.hxx>
-#include <TopoDS_Compound.hxx>
-#include <TopExp_Explorer.hxx>
 
 #include <fstream>
 #include <sstream>
@@ -48,6 +44,7 @@
 #include "forge/Tessellate.hpp"                     // OCCT-zero STEP export — soup for an OCCT-handle body
 #include "forge/native/brep/NativeRoute.hpp"        // forgeNativeBrepEnabled
 #include "forge/native/brep/StepAnalytic.hpp"       // analytic codec (NativeSolid)
+#include "forge/native/brep/StepRead.hpp"            // K1 — foreign trimmed-NURBS STEP -> NATIVE B-rep
 #include "forge/native/brep/StepReadOcct.hpp"        // TKDESTEP-free foreign STEP -> OCCT transfer
 #include "forge/native/brep/StepWriteOcct.hpp"       // ANALYTIC STEP write for OCCT-backed handles
 #include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh + OCCT-handle export)
@@ -94,6 +91,28 @@ ShapeHandle importStep(const std::string& filepath) {
         if (rr.ok && rr.solid && rr.owner) {
             return ShapeRegistry::instance().addNativeSolid(rr.owner, rr.solid);
         }
+        // K1 — TRIMMED-NURBS route. StepAnalytic only round-trips Forge's OWN
+        // analytic dialect (the 5 quadrics); it returns !ok on any B_SPLINE_SURFACE
+        // face or a foreign NX/SW/CATIA export. Before conceding to the OCCT-handle
+        // transfer below, try the native FOREIGN reader (readForeignStep), which
+        // reconstructs the full core AP203/214/242 zoo — the 5 quadrics AND trimmed
+        // B-spline surfaces + curves — into a NATIVE B-rep (directly usable by the
+        // native query/op layer, unlike foreignStepToOcct's OCCT handle), then SEWS
+        // it. We accept it ONLY when it is a COMPLETE watertight solid with NO
+        // unsupported entities (mirrors importIges's strict acceptance): every
+        // ADVANCED_FACE/FACE_SURFACE reconstructed AND the sewn body closed.
+        // On ANY gap (an unsupported surface such as SURFACE_OF_REVOLUTION /
+        // OFFSET_SURFACE, or an open/non-manifold sew) we DO NOT hand back a partial
+        // solid — we fall through to foreignStepToOcct so nothing regresses. This
+        // routes real trimmed-NURBS files through native and shrinks the OCCT
+        // surface to the unsupported tail.
+        auto fr = native::brep::readForeignStep(text);
+        if (fr.ok && fr.solid && fr.owner && fr.unsupported.empty() && fr.closed) {
+            return ShapeRegistry::instance().addNativeSolid(fr.owner, fr.solid);
+        }
+        // else: honest fall-through to the TKDESTEP-free OCCT transfer (a surface
+        // entity the native reader does not yet reconstruct, or a body the native
+        // sew could not close watertight).
     }
     return ShapeRegistry::instance().add(native::brep::foreignStepToOcct(text));
 #else
@@ -252,6 +271,60 @@ ShapeHandle importStl(const std::string& filepath) {
     // welded soup is built into a NativeMesh (HalfEdgeMesh) handle; a non-manifold /
     // inconsistently-wound STL fails LOUD (no silent repair — Bible §0/§9).
     std::string text = slurpFile(filepath);
+
+    // BINARY STL. The reader is ASCII-only, so a binary STL must be transcoded here
+    // (a scanned part arrives as binary far more often than ASCII, and L13's feedback
+    // loop depends on it entering the kernel — Law 3, not a Python pre-pass).
+    // Layout: 80-byte header, little-endian uint32 triangle count, then per triangle
+    // a 12-float record (normal + 3 vertices) and a uint16 attribute word.
+    //
+    // DISCRIMINATION IS BY THE **SIZE RULE**, NOT BY THE HEADER TEXT.
+    // The previous sniff treated any file whose first 5 bytes were "solid" as ASCII.
+    // That is WRONG and it silently broke a common real case: the binary format's
+    // 80-byte header is ARBITRARY bytes, and many exporters write a part name that
+    // begins "solid ..." straight into it. Such a file was classified ASCII, skipped
+    // this transcode, and was then rejected by the ASCII reader — a valid file that
+    // could not be imported. Nor does the absence of "facet normal" help: that text
+    // can occur by chance in a binary float payload.
+    // The discriminator every robust STL reader uses instead is arithmetic and
+    // self-checking: a binary STL is EXACTLY 84 + 50*nTri bytes, where nTri is the
+    // uint32 at offset 80 (80 header + 4 count + a 50-byte record per triangle).
+    // A file that satisfies that equation is binary whatever its header spells; an
+    // ASCII file of exactly that byte length whose bytes 80..83 also happen to encode
+    // its own triangle count is not realisable in practice.
+    bool isBinaryStl = false;
+    std::uint32_t nTri = 0;
+    if (text.size() >= 84) {
+        // Explicit LITTLE-ENDIAN load — the STL binary count is defined LE, so the
+        // classification must not depend on the host's byte order.
+        const auto* p80 = reinterpret_cast<const unsigned char*>(text.data()) + 80;
+        nTri = static_cast<std::uint32_t>(p80[0]) |
+               (static_cast<std::uint32_t>(p80[1]) << 8) |
+               (static_cast<std::uint32_t>(p80[2]) << 16) |
+               (static_cast<std::uint32_t>(p80[3]) << 24);
+        isBinaryStl = (static_cast<std::size_t>(84) +
+                       static_cast<std::size_t>(50) * static_cast<std::size_t>(nTri)
+                       == text.size());
+    }
+    if (isBinaryStl) {
+        std::ostringstream ascii;
+        ascii.precision(17);
+        ascii << "solid binary\n";
+        for (std::uint32_t t = 0; t < nTri; ++t) {
+            const char* rec = text.data() + 84 + static_cast<std::size_t>(50) * t;
+            float v[12];
+            std::memcpy(v, rec, 48);
+            ascii << "facet normal " << v[0] << ' ' << v[1] << ' ' << v[2]
+                  << "\nouter loop\n";
+            for (int k = 1; k <= 3; ++k)
+                ascii << "vertex " << v[k * 3] << ' ' << v[k * 3 + 1] << ' '
+                      << v[k * 3 + 2] << '\n';
+            ascii << "endloop\nendfacet\n";
+        }
+        ascii << "endsolid binary\n";
+        text = ascii.str();
+    }
+
     native::brep::ReadResult rr = native::brep::MeshExchange::readSTL(text);
     if (!rr.ok) {
         throw std::runtime_error("forge.io: STL read failed for " + filepath + " — " + rr.reason);

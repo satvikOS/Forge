@@ -28,34 +28,30 @@
 
 #include "forge/Nurbs.hpp"
 
-#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
-#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
-#include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2d_Curve.hxx>
 #include <Geom2d_Line.hxx>
-#include <GCE2d_MakeSegment.hxx>
+#include <gp_Dir2d.hxx>
+#include <gp_Vec2d.hxx>
 #include <BRepLib.hxx>
 #include <Geom_BSplineSurface.hxx>
-#include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
 #include <GeomLProp_SLProps.hxx>
 #include <Precision.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array2OfPnt.hxx>
-#include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
-#include <TopoDS_Shell.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
@@ -566,10 +562,18 @@ ShapeHandle trimNurbsFace(ShapeHandle face, const std::vector<double>& trimUV) {
     for (std::size_t i = 0; i < n; ++i) {
         gp_Pnt2d a = uv(i);
         gp_Pnt2d b = uv((i + 1) % n);
-        if (a.Distance(b) < Precision::PConfusion()) continue;
-        Handle(Geom2d_TrimmedCurve) seg = GCE2d_MakeSegment(a, b);
-        if (seg.IsNull()) continue;
-        BRepBuilderAPI_MakeEdge edgeMk(seg, s);
+        const double segLen = a.Distance(b);
+        if (segLen < Precision::PConfusion()) continue;
+        // Native straight UV pcurve: a Geom2d_Line through `a` toward `b`,
+        // bounded to [0, |b-a|] by MakeEdge's parametric (pcurve,surface,p1,p2)
+        // overload. Geometrically identical to GCE2d_MakeSegment(a,b) — origin
+        // a, unit direction a->b, trim [0,dist] — but reached with only the
+        // already-resolved Geom2d_Line ctor + the directly-linked TKTopAlgo
+        // edge builder, dropping the TKGeomBase-exclusive GCE2d symbols
+        // (OCCT-zero drop-gate: TKGeomBase 12 -> 10 exclusive uses).
+        Handle(Geom2d_Curve) seg =
+            new Geom2d_Line(a, gp_Dir2d(gp_Vec2d(a, b)));
+        BRepBuilderAPI_MakeEdge edgeMk(seg, s, 0.0, segLen);
         if (!edgeMk.IsDone()) continue;
         wireMk.Add(edgeMk.Edge());
     }
@@ -704,7 +708,11 @@ PointOnSurface projectPointToSurface(ShapeHandle face,
     TopoDS_Face f = firstFaceOf(fetch(face), "projectPointToSurface");
     Handle(Geom_Surface) s = surfaceOf(f, "projectPointToSurface");
     gp_Pnt P(px, py, pz);
+#ifdef FORGE_NATIVE_PROJECTION
+    auto proj = forge::occtproj::projectPointOnSurface(P, s);
+#else
     GeomAPI_ProjectPointOnSurf proj(P, s);
+#endif
     if (proj.NbPoints() < 1) {
         throw std::runtime_error(
             "forge.surfacing.projectPointToSurface: no projection found");

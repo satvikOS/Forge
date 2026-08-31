@@ -4,36 +4,27 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
-#include <GCPnts_TangentialDeflection.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
-#include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
-#include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
-#include <GeomAbs_SurfaceType.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_Surface.hxx>
-#include <Geom_ToroidalSurface.hxx>
 #include <ShapeFix_Shape.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Shell.hxx>
-#include <TopoDS_Solid.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Dir.hxx>
@@ -110,6 +101,7 @@
 #include "forge/native/brep/SolidTessellate.hpp"   // tessellateSolid (native edge picking)
 #include "forge/native/brep/Fillet.hpp"            // enumerateSharpConvexEdges
 #include "forge/native/brep/NativeRoute.hpp"       // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/NativeShapeHeal.hpp"    // occtheal::finalizeShape (TKShHealing-free light heal)
 #include "forge/native/brep/Boolean.hpp"           // booleanSolid, BoolOp, BooleanResult (lineage-carrying)
 #include "forge/native/brep/Sweep.hpp"             // prism, Profile, SweepResult (native extrude)
 #include "forge/native/brep/Topology.hpp"          // Solid, TopologyBuilder
@@ -248,6 +240,83 @@ TopoDS_Shape extrudeFace(const TopoDS_Face& face, const NVec3& vec) {
     return occtPrism(face, toVec(vec));
 }
 
+// ---------------------------------------------------------------------------
+// K6 (OCCT-zero, TKGeomBase): native curvature-adaptive curve sampler — the
+// in-house replacement for GCPnts_TangentialDeflection (whose ctor
+// _ZN27GCPnts_TangentialDeflectionC1E... is a TKGeomBase-EXCLUSIVE symbol). Same
+// family of geometry sampler as OcctImport.cpp's nativeUniformAbscissaParams
+// (which dropped GCPnts_UniformAbscissa): that one spaces points by ARC LENGTH via
+// Simpson + Newton; this one places points ADAPTIVELY by recursive midpoint
+// subdivision so the chordal polyline tracks curvature — used for viewport edge
+// picking (edgeSegments). Both use ONLY the adaptor's D0/D1 evaluators (TKG3d), so
+// no TKGeomBase symbol is referenced.
+//
+// adaptiveSubdivide: recursively bisect [ta,tb], appending the interior split
+// parameters IN ORDER to `out`. A cell is split while EITHER the sagitta (distance
+// of the true curve midpoint to the chord Pa->Pb) exceeds the curvature tolerance
+// `curvTol`, OR the tangent turn (angle between C'(ta) and C'(tb)) exceeds the
+// angular tolerance `angTol` — the exact two GCPnts_TangentialDeflection stop
+// criteria. Bounded by `maxDepth` and a minimum parameter span `minStep`.
+void adaptiveSubdivide(BRepAdaptor_Curve& ad, double ta, double tb,
+                       double curvTol, double angTol, double minStep,
+                       int depth, int maxDepth, std::vector<double>& out) {
+    if (depth >= maxDepth || (tb - ta) <= minStep) return;
+    const double tm = 0.5 * (ta + tb);
+    const NVec3 a = toN(ad.Value(ta));
+    const NVec3 b = toN(ad.Value(tb));
+    const NVec3 m = toN(ad.Value(tm));
+    const NVec3 chord = nSub(b, a);
+    const double clen = nMag(chord);
+    // sagitta = perpendicular distance of the curve midpoint to the chord segment
+    const double sag = (clen > 1e-12)
+        ? nMag(nCross(nSub(m, a), chord)) / clen
+        : nMag(nSub(m, a));
+    // tangent turn across the cell (D1 -> velocity vectors at the ends)
+    gp_Pnt tp; gp_Vec va, vb;
+    ad.D1(ta, tp, va);
+    ad.D1(tb, tp, vb);
+    const NVec3 Ta = toN(va), Tb = toN(vb);
+    const double ma = nMag(Ta), mb = nMag(Tb);
+    double ang = 0.0;
+    if (ma > 1e-12 && mb > 1e-12) {
+        double c = nDot(Ta, Tb) / (ma * mb);
+        if (c > 1.0) c = 1.0; else if (c < -1.0) c = -1.0;
+        ang = std::acos(c);
+    }
+    if (sag > curvTol || ang > angTol) {
+        adaptiveSubdivide(ad, ta, tm, curvTol, angTol, minStep, depth + 1, maxDepth, out);
+        out.push_back(tm);
+        adaptiveSubdivide(ad, tm, tb, curvTol, angTol, minStep, depth + 1, maxDepth, out);
+    }
+}
+
+// Fill `params` with monotone-increasing parameters t0..t1 (endpoints inclusive)
+// whose chordal polyline stays within `curvatureDeflection` of the curve and turns
+// by <= `angularDeflection` per segment; at least `minPts` samples. Matches the
+// GCPnts_TangentialDeflection(curve, t0, t1, angularDeflection, curvatureDeflection,
+// minPts) call it replaces. Falls back to uniform-parameter sampling when the
+// adaptive pass under-fills (e.g. a straight edge) so the minPts floor still holds.
+void nativeTangentialDeflectionParams(BRepAdaptor_Curve& ad, double t0, double t1,
+                                      double angularDeflection,
+                                      double curvatureDeflection, int minPts,
+                                      std::vector<double>& params) {
+    params.clear();
+    const double span = t1 - t0;
+    if (!(span > 0.0)) { params.push_back(t0); return; }
+    const double curvTol = (curvatureDeflection > 0.0) ? curvatureDeflection : 1.0e-3;
+    const double angTol  = (angularDeflection  > 0.0) ? angularDeflection  : 0.1;
+    const double minStep = span * 1.0e-4;
+    params.push_back(t0);
+    adaptiveSubdivide(ad, t0, t1, curvTol, angTol, minStep, 0, 24, params);
+    params.push_back(t1);
+    if (static_cast<int>(params.size()) < minPts && minPts >= 2) {
+        params.clear();
+        params.reserve(static_cast<std::size_t>(minPts));
+        for (int i = 0; i < minPts; ++i)
+            params.push_back(t0 + span * static_cast<double>(i) / (minPts - 1));
+    }
+}
+
 } // namespace
 
 #ifdef FORGE_NATIVE_BREP
@@ -313,6 +382,26 @@ std::size_t edgeCount(ShapeHandle shape) {
     return static_cast<std::size_t>(map.Extent());
 }
 
+// The complete census. One MapShapes pass per level; the same deterministic
+// order faceCount/edgeCount return, so an index taken from either still means
+// the same sub-shape here.
+TopoCounts topoCounts(ShapeHandle shape) {
+    const auto& s = ShapeRegistry::instance().get(shape);
+    const auto count = [&s](TopAbs_ShapeEnum type) -> std::size_t {
+        TopTools_IndexedMapOfShape map;
+        TopExp::MapShapes(s, type, map);
+        return static_cast<std::size_t>(map.Extent());
+    };
+    TopoCounts c;
+    c.solids   = count(TopAbs_SOLID);
+    c.shells   = count(TopAbs_SHELL);
+    c.faces    = count(TopAbs_FACE);
+    c.wires    = count(TopAbs_WIRE);
+    c.edges    = count(TopAbs_EDGE);
+    c.vertices = count(TopAbs_VERTEX);
+    return c;
+}
+
 // Slice-3 edge picking — sample every edge into a world-space polyline,
 // tagged with a 0-based edge id that matches the TopExp_Explorer order
 // used by edgeById (and therefore part.filletEdges / chamferEdges /
@@ -364,11 +453,13 @@ std::vector<EdgePolyline> edgeSegments(ShapeHandle shape, double deflection) {
             out.push_back(std::move(poly));
             continue;
         }
-        GCPnts_TangentialDeflection sampler(curve, t0, t1, 0.1, deflection, 2);
-        const int n = sampler.NbPoints();
-        poly.points.reserve(static_cast<std::size_t>(n) * 3);
-        for (int i = 1; i <= n; ++i) {
-            gp_Pnt p = sampler.Value(i);
+        // K6 (TKGeomBase drop): native curvature-adaptive sampler replaces
+        // GCPnts_TangentialDeflection(curve, t0, t1, 0.1, deflection, 2).
+        std::vector<double> ps;
+        nativeTangentialDeflectionParams(curve, t0, t1, 0.1, deflection, 2, ps);
+        poly.points.reserve(ps.size() * 3);
+        for (double t : ps) {
+            gp_Pnt p = curve.Value(t);
             poly.points.push_back(static_cast<float>(p.X()));
             poly.points.push_back(static_cast<float>(p.Y()));
             poly.points.push_back(static_cast<float>(p.Z()));
@@ -424,6 +515,13 @@ ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
     }
 
     // Light heal pass — closes any sub-µm gaps the boolean engine left.
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKShHealing-free) light finalize behind the FEAT gate (SameParameter +
+    // outward orient + closed-shell->solid); OCCT ShapeFix_Shape kept as #else. Default OFF.
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(out, 0.0, 0.0).shape);
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(out);
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());
@@ -471,6 +569,11 @@ ShapeHandle moveFace(ShapeHandle shape, FaceId faceId,
         work = op.Shape();
     }
 
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(work, 0.0, 0.0).shape);   // TKShHealing-free light heal; OCCT #else kept
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(work);
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());
@@ -519,6 +622,11 @@ ShapeHandle rotateFace(ShapeHandle shape, FaceId faceId,
     if (!op.IsDone()) {
         throw std::runtime_error("forge.direct.rotateFace: fuse failed");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(op.Shape(), 0.0, 0.0).shape);   // TKShHealing-free light heal; OCCT #else kept
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(op.Shape());
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());
@@ -617,6 +725,11 @@ ShapeHandle replaceFace(ShapeHandle shape, FaceId faceId, const SurfaceSpec& spe
     sew.Add(shell);
     sew.Perform();
     TopoDS_Shape sewn = sew.SewedShape();
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(sewn, 0.0, 0.0).shape);   // TKShHealing-free light heal; OCCT #else kept
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(sewn);
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());

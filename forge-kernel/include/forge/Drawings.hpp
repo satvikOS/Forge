@@ -13,8 +13,8 @@
 //
 // Each polyline is a std::vector< std::pair<double,double> >. The HLR
 // output is a TopoDS_Compound of TopoDS_Edges, each of which we
-// discretise with GCPnts_QuasiUniformDeflection to keep curved arcs
-// faithful at modest vertex counts. Lines are emitted as 2-vertex
+// discretise with the native curvature-adaptive deflection sampler to keep
+// curved arcs faithful at modest vertex counts. Lines are emitted as 2-vertex
 // polylines.
 //
 // This is the C++ side of the Forge engineering-drawings system; the

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# run_forge.sh — launch the Forge desktop application.
+#
+# The one thing a Vulkan app on macOS needs that a Linux one does not: the loader
+# must be told where the MoltenVK ICD manifest is. Homebrew's vulkan-loader does
+# not look in Homebrew's molten-vk prefix by default, so without this the app
+# enumerates zero physical devices and exits with a message saying exactly that.
+set -euo pipefail
+export VK_ICD_FILENAMES="${VK_ICD_FILENAMES:-@MOLTENVK_ICD@}"
+if [ ! -f "$VK_ICD_FILENAMES" ]; then
+  echo "MoltenVK ICD manifest not found at $VK_ICD_FILENAMES (brew install molten-vk)" >&2
+  exit 1
+fi
+exec "@CMAKE_BINARY_DIR@/forge_desktop" "$@"

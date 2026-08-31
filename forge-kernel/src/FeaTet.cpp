@@ -9,16 +9,16 @@
 #include "forge/FeaTet.hpp"
 #include "forge/OcctNativeMesh.hpp"   // K5 — native surface mesher (no TKMesh)
 #include <cstdio>
+#include <cstdlib>
 
 #include <BRep_Tool.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <Bnd_Box.hxx>
+#include <Standard_Handle.hxx>
 #include <Poly_Triangle.hxx>
 #include <Poly_Triangulation.hxx>
 #include <Precision.hxx>
-#include <Standard_Handle.hxx>
-#include <TopAbs_State.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
@@ -103,6 +103,49 @@ struct Vec3 {
 
 double tetVolume(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d) {
     return (b - a).cross(c - a).dot(d - a) / 6.0;
+}
+
+// Resolve the interior Steiner-seed lattice budget: explicit argument wins, then the
+// FORGE_FEA_TET_SEED_BUDGET env escape hatch, then kDefaultSeedGridBudget. See the
+// FeaTet.hpp note — this is a RUNTIME guard against the measured ~1.25 ms/tet meshing
+// cost, not a mesh-quality choice, and exceeding it COARSENS the interior spacing.
+int resolveSeedGridBudget(int requested) {
+    if (requested > 0) return requested;
+    if (const char* e = std::getenv("FORGE_FEA_TET_SEED_BUDGET")) {
+        char* end = nullptr;
+        long v = std::strtol(e, &end, 10);
+        if (end != e && v > 0 && v <= 100000000L) return static_cast<int>(v);
+    }
+    return kDefaultSeedGridBudget;
+}
+
+// Size the interior lattice for an AABB extent under a budget, and REPORT whether the
+// budget forced a coarsening. `nx/ny/nz` are counts of interior planes; the resulting
+// spacing is extent/(n+1). Returns true when the budget bound (and therefore inflated)
+// the spacing above `targetEdge`.
+bool sizeSeedGrid(double ex, double ey, double ez, double targetEdge, int budget,
+                  int& nx, int& ny, int& nz, double& spacingOut) {
+    nx = std::max(1, static_cast<int>(std::ceil(ex / targetEdge)));
+    ny = std::max(1, static_cast<int>(std::ceil(ey / targetEdge)));
+    nz = std::max(1, static_cast<int>(std::ceil(ez / targetEdge)));
+    const long long total = static_cast<long long>(nx) * ny * nz;
+    bool capped = false;
+    if (total > budget) {
+        capped = true;
+        double f = std::pow(static_cast<double>(total) / budget, 1.0 / 3.0);
+        nx = std::max(1, static_cast<int>(nx / f));
+        ny = std::max(1, static_cast<int>(ny / f));
+        nz = std::max(1, static_cast<int>(nz / f));
+    }
+    spacingOut = std::max(ex / (nx + 1), std::max(ey / (ny + 1), ez / (nz + 1)));
+    return capped;
+}
+
+void stampSeedDiag(Mesh& m, double targetEdge, int budget, bool capped, double spacing) {
+    m.requestedEdge   = targetEdge;
+    m.seedGridBudget  = budget;
+    m.seedGridCapped  = capped;
+    m.interiorSpacing = spacing;
 }
 
 // Inc1b — closed-form principal stresses (eigenvalues of the symmetric 3×3
@@ -713,7 +756,10 @@ void extractTrianglesAndVertices(const TopoDS_Shape& shape,
 
 // ============================================================= public surface
 
-Mesh meshShape(const TopoDS_Shape& shape, double targetEdge) {
+Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget) {
+    const int seedBudget = resolveSeedGridBudget(seedGridBudget);
+    bool  seedCapped     = false;
+    double seedSpacing   = 0.0;
     if (shape.IsNull()) {
         throw std::invalid_argument("forge::fea::tet::meshShape: null shape");
     }
@@ -818,17 +864,9 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge) {
         }
         // (b) Interior grid.
         BRepClass3d_SolidClassifier classifier(shape);
-        int nx = std::max(1, static_cast<int>(std::ceil((xmax - xmin) / targetEdge)));
-        int ny = std::max(1, static_cast<int>(std::ceil((ymax - ymin) / targetEdge)));
-        int nz = std::max(1, static_cast<int>(std::ceil((zmax - zmin) / targetEdge)));
-        const int kMax = 20000;
-        long long total = static_cast<long long>(nx) * ny * nz;
-        if (total > kMax) {
-            double f = std::pow(static_cast<double>(total) / kMax, 1.0 / 3.0);
-            nx = std::max(1, static_cast<int>(nx / f));
-            ny = std::max(1, static_cast<int>(ny / f));
-            nz = std::max(1, static_cast<int>(nz / f));
-        }
+        int nx = 0, ny = 0, nz = 0;
+        seedCapped = sizeSeedGrid(xmax - xmin, ymax - ymin, zmax - zmin,
+                                  targetEdge, seedBudget, nx, ny, nz, seedSpacing);
         double dx = (xmax - xmin) / (nx + 1);
         double dy = (ymax - ymin) / (ny + 1);
         double dz = (zmax - zmin) / (nz + 1);
@@ -899,12 +937,15 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge) {
                 T.id = idc++;
                 out.tets.push_back(T);
             }
+            stampSeedDiag(out, targetEdge, seedBudget, seedCapped, seedSpacing);
             return out;
         }
     }
 
     // 5. Shell fallback (documented).
-    return buildShellTetFallback(bndPts, triangles, shape);
+    Mesh fb = buildShellTetFallback(bndPts, triangles, shape);
+    stampSeedDiag(fb, targetEdge, seedBudget, seedCapped, seedSpacing);
+    return fb;
 }
 
 #ifdef FORGE_NATIVE_BREP
@@ -982,8 +1023,12 @@ Mesh buildShellTetFallbackNative(const std::vector<Vec3>& bndPts,
 // (tessellateSolid) -> seed densify (triangle midpoints/barycenters + an interior grid
 // classified by native pointInSolid) -> Bowyer-Watson (the SAME backend-agnostic mesher)
 // -> centroid inside-filter (native pointInSolid) -> documented native shell fallback.
-bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, Mesh& out) {
+bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridBudget,
+                        Mesh& out) {
     using namespace forge::native::brep;
+    const int seedBudget = resolveSeedGridBudget(seedGridBudget);
+    bool   seedCapped    = false;
+    double seedSpacing   = 0.0;
     auto& reg = ::forge::ShapeRegistry::instance();
 
     // Resolve the input to a native analytic Solid. A NativeSolid handle is used
@@ -1090,17 +1135,9 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, Mesh& out) {
             double area = 0.5 * (B - A).cross(C - A).norm();
             if (area > minArea) tryAdd((A + B + C) * (1.0 / 3.0));
         }
-        int nx = std::max(1, static_cast<int>(std::ceil((xmax - xmin) / targetEdge)));
-        int ny = std::max(1, static_cast<int>(std::ceil((ymax - ymin) / targetEdge)));
-        int nz = std::max(1, static_cast<int>(std::ceil((zmax - zmin) / targetEdge)));
-        const int kMax = 20000;
-        long long total = static_cast<long long>(nx) * ny * nz;
-        if (total > kMax) {
-            double f = std::pow(static_cast<double>(total) / kMax, 1.0 / 3.0);
-            nx = std::max(1, static_cast<int>(nx / f));
-            ny = std::max(1, static_cast<int>(ny / f));
-            nz = std::max(1, static_cast<int>(nz / f));
-        }
+        int nx = 0, ny = 0, nz = 0;
+        seedCapped = sizeSeedGrid(xmax - xmin, ymax - ymin, zmax - zmin,
+                                  targetEdge, seedBudget, nx, ny, nz, seedSpacing);
         double dx = (xmax - xmin) / (nx + 1);
         double dy = (ymax - ymin) / (ny + 1);
         double dz = (zmax - zmin) / (nz + 1);
@@ -1169,19 +1206,21 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, Mesh& out) {
                 m.tets.push_back(T);
             }
             out = std::move(m);
+            stampSeedDiag(out, targetEdge, seedBudget, seedCapped, seedSpacing);
             return true;
         }
     }
 
     // 5. Shell fallback (documented; native inside-test variant).
     out = buildShellTetFallbackNative(bndPts, triangles, solid);
+    stampSeedDiag(out, targetEdge, seedBudget, seedCapped, seedSpacing);
     return true;
 }
 
 } // namespace
 #endif
 
-Mesh meshShapeFromHandle(::forge::ShapeHandle h, double targetEdge) {
+Mesh meshShapeFromHandle(::forge::ShapeHandle h, double targetEdge, int seedGridBudget) {
 #ifdef FORGE_NATIVE_BREP
     // GATE: the native boundary-tessellation + AABB + point-in-solid tet-domain build is
     // opt-in via the FEAT gate (default OFF). When on AND the input is a NativeSolid, build
@@ -1190,12 +1229,12 @@ Mesh meshShapeFromHandle(::forge::ShapeHandle h, double targetEdge) {
     // return == defer.
     if (::forge::native::brep::forgeNativeFeaturesEnabled() && targetEdge > 0.0) {
         Mesh nativeMesh;
-        if (tryNativeMeshShape(h, targetEdge, nativeMesh)) return nativeMesh;
+        if (tryNativeMeshShape(h, targetEdge, seedGridBudget, nativeMesh)) return nativeMesh;
         // native deferred -> OCCT path below (unchanged).
     }
 #endif
     const TopoDS_Shape& s = ::forge::ShapeRegistry::instance().get(h);
-    return meshShape(s, targetEdge);
+    return meshShape(s, targetEdge, seedGridBudget);
 }
 
 Result solveLinearStatic(const Mesh& mesh, const Material& mat, const BC& bc) {

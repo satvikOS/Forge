@@ -12,10 +12,21 @@
 #include <GProp_GProps.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <BRep_Tool.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <Precision.hxx>
+#include <TopExp_Explorer.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Lin.hxx>
+#include <vector>
 #include <TopAbs.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
@@ -27,6 +38,8 @@
 #ifdef FORGE_NATIVE_BREP
 #include <memory>
 #include "forge/native/brep/UnifyFaces.hpp"
+#include "forge/native/brep/NativeRoute.hpp"      // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/NativeShapeHeal.hpp"  // occtheal::finalizeShape (TKShHealing-free light heal)
 #endif
 
 namespace forge {
@@ -54,6 +67,18 @@ std::array<double, 3> unit(const std::array<double, 3>& v) {
 }
 
 TopoDS_Shape heal(const TopoDS_Shape& s) {
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKShHealing-free) LIGHT finalize behind the FEAT gate: SameParameter
+    // reconcile + outward orient by signed volume + closed-shell->solid promote
+    // (occtheal::finalizeShape — surface-preserving, no faceting). This is the
+    // load-bearing part of the defensive post-boolean ShapeFix_Shape pass these
+    // DirectEdit ops use. The OCCT ShapeFix_Shape path is kept as the #else fallback;
+    // GATE DEFAULT OFF (forgeNativeFeaturesEnabled()), so the production build runs the
+    // OCCT path byte-for-byte until the FEAT gate is flipped on.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        return forge::occtheal::finalizeShape(s, 0.0, 0.0).shape;
+    }
+#endif
     ShapeFix_Shape fixer(s);
     fixer.Perform();
     return fixer.Shape();
@@ -65,6 +90,107 @@ TopoDS_Shape makeCylinder(const std::array<double, 3>& base,
     const auto a = unit(axis);
     gp_Ax2 ax(gp_Pnt(base[0], base[1], base[2]), gp_Dir(a[0], a[1], a[2]));
     return forge::occtCylinderSolid(ax, radius, length);
+}
+
+// ---- unifySameDomain crash guard: the MIXED-REPRESENTATION coaxial bore ----
+//
+// MEASURED 2026-08-29 (forge-kernel/test/ft_unify_concentric_hole_segv.ir and the
+// 20-case sweep in unify_coaxial_guard_test.sh). ShapeUpgrade_UnifySameDomain::
+// IntUnifyFaces dereferences a NULL Geom2d_Curve (a pcurve) and SIGSEGVs when the
+// shape carries two coaxial, EQUAL-RADIUS, seam-carrying cylindrical walls that are
+// STORED DIFFERENTLY -- one an analytic Geom_CylindricalSurface (what HOLE builds)
+// and one a Geom_SurfaceOfLinearExtrusion of a circle (what CIRCLE+EXTRUDE+CUT
+// leaves behind). OCCT judges the pair same-domain and merges a periodic analytic
+// surface with a periodic extrusion surface; the pcurve that merge needs does not
+// exist, and the null is produced INSIDE the merge.
+//
+// The trigger is EXACT radius coincidence and nothing else. On a plate with ONE
+// bore: hole radius 4.4950 == the cut's radius -> SIGSEGV; 4.4900 -> ok; 4.5000 ->
+// ok; and it crashes again at 5.0 and at 3.0 whenever the two coincide exactly.
+// Two coaxial equal-radius ANALYTIC cylinders (HOLE then CUT) merge FINE, so the
+// mixed representation is load-bearing, not the coincidence on its own -- which is
+// also why the order of the ops matters and the hole COUNT does not.
+//
+// A pre-check for null pcurves on the INPUT cannot work: the input is clean
+// (nullPcurves=0, measured on the crashing shape). So the guard detects the
+// CONFIGURATION instead, and where it fires the body is returned UNMERGED. That
+// leaves a bore wall split in two, which is a face count we would rather not have.
+// It is not a wrong solid, and on exactly these inputs the alternative is a SIGSEGV
+// that takes the whole verifier process down.
+struct SeamWall {
+    TopoDS_Face face;
+    gp_Ax1      axis;
+    double      radius;
+    bool        analytic;  // true = Geom_CylindricalSurface, false = extrusion-of-circle
+};
+
+// Collect every full-turn (seam-carrying) cylindrical wall, however it is stored.
+std::vector<SeamWall> seamWalls(const TopoDS_Shape& shape) {
+    std::vector<SeamWall> out;
+    for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
+        const TopoDS_Face f = TopoDS::Face(fx.Current());
+
+        // A wall with no seam edge is a partial arc, not the periodic face OCCT
+        // merges here, so it cannot be half of the crashing pair.
+        bool seam = false;
+        for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More() && !seam; ex.Next()) {
+            if (BRep_Tool::IsClosed(TopoDS::Edge(ex.Current()), f)) seam = true;
+        }
+        if (!seam) continue;
+
+        const Handle(Geom_Surface) srf = BRep_Tool::Surface(f);
+        if (srf.IsNull()) continue;
+
+        const Handle(Geom_CylindricalSurface) cyl =
+            Handle(Geom_CylindricalSurface)::DownCast(srf);
+        if (!cyl.IsNull()) {
+            out.push_back({f, cyl->Cylinder().Axis(), cyl->Cylinder().Radius(), true});
+            continue;
+        }
+
+        const Handle(Geom_SurfaceOfLinearExtrusion) ext =
+            Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(srf);
+        if (ext.IsNull()) continue;
+
+        Handle(Geom_Curve) basis = ext->BasisCurve();
+        for (;;) {
+            const Handle(Geom_TrimmedCurve) trimmed =
+                Handle(Geom_TrimmedCurve)::DownCast(basis);
+            if (trimmed.IsNull()) break;
+            basis = trimmed->BasisCurve();
+        }
+        const Handle(Geom_Circle) circ = Handle(Geom_Circle)::DownCast(basis);
+        if (circ.IsNull()) continue;
+
+        // Only an extrusion ALONG the circle's own axis is geometrically a
+        // cylinder; a skewed sweep is an oblique tube and never same-domain
+        // with an analytic cylinder.
+        const gp_Ax1 ax = circ->Circ().Axis();
+        if (!ax.Direction().IsParallel(ext->Direction(), Precision::Angular())) continue;
+        out.push_back({f, ax, circ->Circ().Radius(), false});
+    }
+    return out;
+}
+
+// The faces of every pair that would make IntUnifyFaces dereference null.
+// Non-empty means "do not hand this shape to ShapeUpgrade_UnifySameDomain".
+TopTools_MapOfShape mixedCoaxialSameRadiusFaces(const TopoDS_Shape& shape) {
+    TopTools_MapOfShape keep;
+    const std::vector<SeamWall> w = seamWalls(shape);
+    for (std::size_t i = 0; i < w.size(); ++i) {
+        for (std::size_t j = i + 1; j < w.size(); ++j) {
+            // Same representation is exactly the case that merges correctly.
+            if (w[i].analytic == w[j].analytic) continue;
+            if (std::fabs(w[i].radius - w[j].radius) > Precision::Confusion()) continue;
+            if (!w[i].axis.Direction().IsParallel(w[j].axis.Direction(),
+                                                  Precision::Angular())) continue;
+            if (gp_Lin(w[i].axis).Distance(w[j].axis.Location()) > Precision::Confusion())
+                continue;
+            keep.Add(w[i].face);
+            keep.Add(w[j].face);
+        }
+    }
+    return keep;
 }
 
 } // namespace
@@ -119,6 +245,17 @@ ShapeHandle unifyFaces(ShapeHandle body) {
     }
 #endif
     const TopoDS_Shape& shape = ShapeRegistry::instance().get(body);
+    // See mixedCoaxialSameRadiusFaces: OCCT SIGSEGVs merging this one pair, so a
+    // body carrying it is returned UNMERGED rather than crashing the process.
+    //
+    // Withholding just the offending pair with ShapeUpgrade_UnifySameDomain::
+    // KeepShapes -- which would have preserved every other merge in the body -- was
+    // implemented and MEASURED: all six crashing cases still SIGSEGV, because
+    // IntUnifyFaces still traverses a kept face and still asks it for the pcurve
+    // that is not there. KeepShapes prevents a face being merged AWAY; it does not
+    // keep the traversal off it. So the whole-shape skip is what is shipped, and
+    // the map is kept because it NAMES the pair for any future targeted repair.
+    if (!mixedCoaxialSameRadiusFaces(shape).IsEmpty()) return body;
     ShapeUpgrade_UnifySameDomain u(shape, Standard_True, Standard_True, Standard_True);
     u.Build();
     return ShapeRegistry::instance().add(u.Shape());

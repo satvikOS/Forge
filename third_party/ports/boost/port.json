@@ -1,0 +1,44 @@
+{
+  "name": "boost",
+  "lock_version": "1.90.0",
+  "status": "recipe-authored",
+  "status_note": "NOT yet executed. Boost is consumed headers-only, so the 'build' step is a copy of the header tree — but the acquire step still needs a real archive hash, which deps.lock.json currently records as null with a reason.",
+  "triplets": ["macos-arm64"],
+  "acquire": {
+    "kind": "archive",
+    "url": "https://github.com/boostorg/boost/releases/download/boost-1.90.0/boost-1.90.0-b2-nodocs.tar.xz",
+    "sha256_from": "deps.lock.json dependencies[boost].upstream.archive_sha256",
+    "blocked_by": "That field is null: the installed 1.90.0 predates the cached homebrew-core formula (1.92.0), so no hash for 1.90.0 is available offline. tools/deps/seed REFUSES to fetch it rather than trusting an unverified download.",
+    "into": ".forge-local/sources/boost/1.90.0/"
+  },
+  "patches": [],
+  "features": {
+    "header_only": true,
+    "note": "Forge links no Boost library. Only three headers are reachable from the vendored planegcs sources, so the activated prefix could in principle be trimmed to Boost.Graph + Boost.Math and their transitive includes; it is NOT trimmed today because the header closure has not been measured."
+  },
+  "configure": { "kind": "none", "reason": "header-only" },
+  "build": {
+    "kind": "copy-headers",
+    "from": "boost/",
+    "to": "include/boost/"
+  },
+  "provides": {
+    "presence_marker": "include/boost/graph/adjacency_list.hpp",
+    "must_contain": [
+      "include/boost/version.hpp",
+      "include/boost/graph/adjacency_list.hpp",
+      "include/boost/graph/connected_components.hpp",
+      "include/boost/math/constants/constants.hpp",
+      "share/LICENSE_1_0.txt"
+    ],
+    "note": "share/LICENSE_1_0.txt is listed because the CURRENT Homebrew prefix does not ship it — `find <prefix> -maxdepth 3 -iname '*LICENSE*'` returns nothing — which makes the generated attribution record INCOMPLETE. A Forge-built port must fix that; the check is here so it cannot be forgotten."
+  },
+  "smoke_test": {
+    "description": "planegcs is the only consumer; compiling it is the smoke test.",
+    "command": "cmake --build --preset macos-arm64-release --target forge_all",
+    "expect": "GCS.cpp compiles, which requires boost/graph/adjacency_list.hpp and boost/graph/connected_components.hpp to resolve from the activated prefix"
+  },
+  "known_gaps": [
+    "Boost 1.90.0's archive hash is unknown offline (see acquire.blocked_by). Until one ONLINE_SEED run records it, this port cannot be executed."
+  ]
+}

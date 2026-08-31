@@ -76,10 +76,37 @@ struct FaceThickness {
     double        thickness;
 };
 
+// HOLLOW `shape` to a uniform wall, opening the faces in `faceIdsToRemove`.
+//
+// SIGN CONTRACT: `thickness` is a WALL THICKNESS and the hollow is INWARD —
+// the OUTER ENVELOPE IS PRESERVED and the cavity is inset by |thickness|. The
+// sign of the argument is IGNORED (both +t and -t hollow inward), because the
+// two historical callers spell it differently: ft/FeatureTreeCompiler.cpp
+// opShell passes -|wall| while the UI/AI bridges pass +wall. Every internal
+// route -- native shellSolid, native makeThickSolid, and OCCT
+// MakeThickSolidByJoin -- is now driven from that one magnitude with its own
+// spelling of "inward" (OCCT's is NEGATIVE; a positive offset there grows the
+// wall OUTWARD with a rounded join, which is a DIFFERENT operation).
 ShapeHandle shell(ShapeHandle shape,
                   const std::vector<std::uint32_t>& faceIdsToRemove,
                   double thickness,
                   const std::vector<FaceThickness>& multiThickness);
+
+// TKOffset family G — the NATIVE TopoDS thick-solid ONLY
+// (forge::occtoffset::makeThickSolid, src/native/brep/NativeThickSolid.cpp).
+// Hollows an OCCT-backed solid to a uniform wall of `thickness`, opening the
+// faces named in `faceIdsToRemove` (empty => a fully-enclosed void). Exact
+// analytic surfaces throughout: planes, cylinders, cones, spheres and tori keep
+// their type in the cavity — nothing is tessellated.
+//
+// It NEVER falls back to BRepOffsetAPI_MakeThickSolid: outside the class it
+// supports it THROWS, so a gate can tell "declined" from "wrong answer". That
+// is what makes it the entry point the closed-form gate
+// (test/native_thicksolid_closedform.mjs) drives; production `shell()` above
+// keeps the OCCT fallback.
+ShapeHandle shellNativeThick(ShapeHandle shape,
+                             const std::vector<std::uint32_t>& faceIdsToRemove,
+                             double thickness);
 
 // Forge-36: true multi-thickness shell. Each entry in `perFaceOverrides`
 // causes a per-face BRepOffsetAPI_MakeThickSolid pass at the override

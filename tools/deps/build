@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Sacrosanct 3.1 s21.2:  tools/deps/build --preset macos-arm64-release
+#
+# The stable wrapper around configure + build for one preset. It verifies the
+# dependency plane against the lock BEFORE configuring, so a drifted prefix is a
+# named failure rather than a mysterious compile error 40 minutes later.
+set -euo pipefail
+
+REPO="$(cd "$(dirname "$0")/../.." && pwd)"
+KERNEL="$REPO/forge-kernel"
+PRESET=""
+TARGET="forge_all"
+SKIP_VERIFY=0
+
+usage() {
+  echo "usage: tools/deps/build --preset <name> [--target <t>] [--skip-verify]" >&2
+  echo "presets:" >&2
+  cmake --list-presets -S "$KERNEL" 2>/dev/null | sed 's/^/  /' >&2 || true
+  exit 2
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --preset) PRESET="${2:-}"; shift 2 ;;
+    --target) TARGET="${2:-}"; shift 2 ;;
+    --skip-verify) SKIP_VERIFY=1; shift ;;
+    -h|--help) usage ;;
+    *) echo "unknown argument: $1" >&2; usage ;;
+  esac
+done
+[ -n "$PRESET" ] || usage
+
+if [ "$SKIP_VERIFY" -eq 0 ]; then
+  echo "== deps verify (against third_party/manifest/deps.lock.json)"
+  python3 "$REPO/tools/deps/forge_deps.py" verify
+fi
+
+echo "== configure --preset $PRESET"
+cmake -S "$KERNEL" --preset "$PRESET"
+
+echo "== build --preset $PRESET --target $TARGET"
+cmake --build --preset "$PRESET" --target "$TARGET"

@@ -26,9 +26,15 @@
 #include "forge/native/brep/FilletAnalytic.hpp"  // topology-sourced analytic edge fillet
 #include "forge/native/brep/Chamfer.hpp"
 #include "forge/native/brep/ChamferAnalytic.hpp"  // analytic flat-bevel chamfer + canonical-cube recognition
+#include "forge/native/brep/NativeFilletChamfer.hpp"  // R3 TKFillet-free const-radius fillet/chamfer on an ARBITRARY OCCT shape (occtfillet::makeFillet/makeChamfer)
+#include "forge/native/brep/NativeVariableFillet.hpp"  // R3-V TKFillet-free VARIABLE-radius (linear-law) fillet on an ARBITRARY OCCT shape (occtfillet::makeVariableFillet)
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
 #include "forge/native/brep/DraftAnalytic.hpp"    // analytic face-draft -> square frustum (B-rep)
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
+#include "forge/native/brep/NativeThickSolid.hpp"  // TKOffset family G: TKOffset-free thick-solid on a TopoDS_Shape
+#include "forge/native/brep/NativeLoftPipe.hpp"     // TKOffset families D/F: ruled loft + pipe-shell on OCCT wires
+#include "forge/native/brep/NativeThickenShell.hpp" // TKOffset family I: TKOffset-free THICKEN of an open shell
+#include "forge/native/brep/NativeDraft.hpp"        // TKOffset family J: TKOffset-free DRAFT of selected faces
 #include "forge/native/brep/OffsetShape.hpp"  // native whole-solid grow/shrink offset (offsetSolidShape)
 #include "forge/native/brep/Surface.hpp"    // SurfaceKind (planar-eligibility gate for offsetSolid)
 #include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
@@ -60,14 +66,34 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#ifndef FORGE_FILLET_DROP_NATIVE
+// TKFillet headers — referenced ONLY by the OCCT A/B baseline path, which is compiled
+// out under -DFORGE_FILLET_DROP_NATIVE (the drop build). Guarding the includes keeps the
+// drop build from pulling any BRepFilletAPI/ChFi3d declaration into the TU.
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
+#endif
+#ifndef FORGE_DRAFT_DROP_NATIVE
+// TKOffset family J header — referenced ONLY by the OCCT baseline path, which is
+// compiled out under -DFORGE_DRAFT_DROP_NATIVE. Guarding the include is what keeps
+// the drop build from emitting a reference to "vtable for BRepOffsetAPI_DraftAngle".
 #include <BRepOffsetAPI_DraftAngle.hxx>
+#endif
+#ifndef FORGE_PIPE_DROP_NATIVE
+// TKOffset family E header — referenced ONLY by the OCCT baseline path, which is
+// compiled out under -DFORGE_PIPE_DROP_NATIVE. Guarding the include keeps the drop
+// build from pulling any BRepOffsetAPI_MakePipe declaration (and hence its vtable
+// reference) into the TU.
 #include <BRepOffsetAPI_MakePipe.hxx>
+#endif
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
+#ifndef FORGE_THICKEN_DROP_NATIVE
+// TKOffset family I header — referenced ONLY by the OCCT baseline path in
+// thickenSurface, compiled out under -DFORGE_THICKEN_DROP_NATIVE.
 #include <BRepOffset_MakeOffset.hxx>
+#endif
 #include <BRepOffset.hxx>
 #include <BRepOffset_Mode.hxx>                  // BRepOffset_Skin
 #include <BRepBuilderAPI_MakeSolid.hxx>         // wrap the OCCT offset shell into a solid
@@ -84,6 +110,10 @@
 #include <GeomFill_NSections.hxx>
 #include <TColGeom_SequenceOfCurve.hxx>
 #include <TColgp_Array1OfPnt.hxx>
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+#include "forge/native/geom/NativeNurbsConvert.hpp"   // native GeomAPI_PointsToBSpline (drops TKGeomAlgo)
+#include "forge/native/brep/NativeSectionFill.hpp"    // native GeomFill_NSections   (drops TKGeomAlgo)
+#endif
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder + prism/revol sweeps
 #include <BRep_Tool.hxx>
 #include <BRepGProp.hxx>
@@ -658,17 +688,45 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
         // Plain MakePipe — if profile is a TopoDS_Face it returns a
         // solid; with just a wire it returns a shell whose volume is 0.
         TopoDS_Face profileFace = faceFromWire(profile);
+#ifdef FORGE_NATIVE_BREP
+        // TKOffset family E — TKOffset-free pipe on the OCCT wires themselves.
+        // See NativeLoftPipe.hpp; a defer returns a null shape and falls through.
+        if (::forge::occtloft::pipeNativeEnabled()) {
+            const TopoDS_Shape nat = ::forge::occtloft::pipe(spine, profileFace);
+            if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+        }
+#endif
+#ifndef FORGE_PIPE_DROP_NATIVE
         BRepOffsetAPI_MakePipe mk(spine, profileFace);
         mk.Build();
         if (!mk.IsDone()) {
             throw std::runtime_error("forge.part.sweep: pipe build failed");
         }
         return ShapeRegistry::instance().add(mk.Shape());
+#else
+        throw std::runtime_error(
+            "forge.part.sweep: the native pipe declined this input and the "
+            "OCCT BRepOffsetAPI_MakePipe fallback is compiled out "
+            "(FORGE_PIPE_DROP_NATIVE=ON)");
+#endif
     }
 
     // Guided sweep: every other wire in pathSketch beyond [0] acts as a
     // guide. MakePipeShell requires a wire profile (not face) and then
     // MakeSolid closes the result.
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family F — TKOffset-free pipe-shell on the OCCT wires themselves.
+    // A guided sweep is an unconditional HONEST DEFER in the native engine (there
+    // is no native guided pipe-shell anywhere in the tree), so this only ADDS
+    // coverage on the degenerate no-guide case. See NativeLoftPipe.hpp.
+    if (::forge::occtloft::pipeShellNativeEnabled()) {
+        const std::vector<TopoDS_Wire> nguides(pathWires.begin() + 1, pathWires.end());
+        const TopoDS_Shape nat =
+            ::forge::occtloft::pipeShell(spine, profile, nguides, /*makeSolid*/ true);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPESHELL_DROP_NATIVE
     BRepOffsetAPI_MakePipeShell mk(spine);
     mk.Add(profile);
     for (std::size_t i = 1; i < pathWires.size(); ++i) {
@@ -680,6 +738,12 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
     }
     mk.MakeSolid();
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.sweep: the native pipe-shell DECLINED this guided sweep and the "
+        "OCCT BRepOffsetAPI_MakePipeShell fallback is compiled out "
+        "(FORGE_PIPESHELL_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ pipeFromPolyline
@@ -726,12 +790,27 @@ ShapeHandle pipeFromPolyline(const std::vector<double>& pts, double radius) {
     }
     TopoDS_Face profileFace = mkProfile.Face();
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family E. This is the CIRCLE-profile call site the native engine's
+    // mitre-trimmed cylinder chain exists for.
+    if (::forge::occtloft::pipeNativeEnabled()) {
+        const TopoDS_Shape nat = ::forge::occtloft::pipe(spine, profileFace);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPE_DROP_NATIVE
     BRepOffsetAPI_MakePipe pipeMk(spine, profileFace);
     pipeMk.Build();
     if (!pipeMk.IsDone()) {
         throw std::runtime_error("forge.part.pipeFromPolyline: pipe build failed");
     }
     return ShapeRegistry::instance().add(pipeMk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.pipeFromPolyline: the native pipe declined this input and the "
+        "OCCT BRepOffsetAPI_MakePipe fallback is compiled out "
+        "(FORGE_PIPE_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ profileWire
@@ -821,12 +900,26 @@ ShapeHandle sweepPolyline(const std::vector<double>& profileXY,
         throw std::runtime_error("forge.part.sweepPolyline: profile face build failed");
     }
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family E.
+    if (::forge::occtloft::pipeNativeEnabled()) {
+        const TopoDS_Shape nat = ::forge::occtloft::pipe(spine, mkProfile.Face());
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPE_DROP_NATIVE
     BRepOffsetAPI_MakePipe pipeMk(spine, mkProfile.Face());
     pipeMk.Build();
     if (!pipeMk.IsDone()) {
         throw std::runtime_error("forge.part.sweepPolyline: pipe build failed");
     }
     return ShapeRegistry::instance().add(pipeMk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.sweepPolyline: the native pipe declined this input and the "
+        "OCCT BRepOffsetAPI_MakePipe fallback is compiled out "
+        "(FORGE_PIPE_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ loft
@@ -892,22 +985,42 @@ ShapeHandle loft(const std::vector<SketchHandle>& sections,
 #endif
     // BRepOffsetAPI_ThruSections doesn't take guide wires directly; we
     // accept them in the API for future compatibility but ignore for now.
-    BRepOffsetAPI_ThruSections mk(/*solid*/ Standard_True,
-                                   /*ruled*/ ruled ? Standard_True : Standard_False,
-                                   /*pres*/ 1.0e-6);
+    std::vector<TopoDS_Wire> sectionWires0;
+    sectionWires0.reserve(sections.size());
     for (auto sh : sections) {
         auto wires = extractWires(sh);
         if (wires.empty()) {
             throw std::invalid_argument("forge.part.loft: a section sketch has no wires");
         }
-        mk.AddWire(wires[0]);
+        sectionWires0.push_back(wires[0]);
     }
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family D — TKOffset-free ruled loft on the OCCT wires themselves.
+    // A null return is an HONEST DEFER; see forge/native/brep/NativeLoftPipe.hpp.
+    if (::forge::occtloft::loftNativeEnabled()) {
+        const std::vector<TopoDS_Shape> secs(sectionWires0.begin(), sectionWires0.end());
+        const TopoDS_Shape nat = ::forge::occtloft::thruSections(secs, /*solid*/ true, ruled);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_THRUSECTIONS_DROP_NATIVE
+    BRepOffsetAPI_ThruSections mk(/*solid*/ Standard_True,
+                                   /*ruled*/ ruled ? Standard_True : Standard_False,
+                                   /*pres*/ 1.0e-6);
+    for (const auto& w : sectionWires0) mk.AddWire(w);
     if (closed) mk.CheckCompatibility(Standard_True);
     mk.Build();
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.part.loft: ThruSections build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    (void)closed;
+    throw std::runtime_error(
+        "forge.part.loft: the native ruled loft DECLINED these sections and the OCCT "
+        "BRepOffsetAPI_ThruSections fallback is compiled out "
+        "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ shell
@@ -916,6 +1029,27 @@ ShapeHandle shell(ShapeHandle shape,
                   double thickness,
                   const std::vector<FaceThickness>& multiThickness) {
     requirePositive(thickness, "shell thickness");
+    // ---------------------------------------------------------------- SIGN
+    // `thickness` is a WALL THICKNESS and this op is an INWARD HOLLOW: the
+    // outer envelope of `shape` is PRESERVED and the cavity is inset by |t|.
+    // That is the contract every consumer already relies on —
+    //   * ft/FeatureTreeCompiler.cpp opShell passes -|wall| explicitly,
+    //   * frontend/src/kernel/forge/PartOps.js documents "hollow out a solid",
+    //   * forge::native::brep::shellSolid and forge::occtoffset::makeThickSolid
+    //     both implement inward-only (Shell.hpp, NativeThickSolid.hpp),
+    // and it is the meaning of Shell in every downstream reader (drawings /
+    // DFM wall-thickness / mass) because an outward wall would move the part's
+    // outer dimensions, which a shell must never do.
+    //
+    // The three routes below spell that sign DIFFERENTLY, and until now each
+    // read the caller's sign its own way, so the SAME call produced different
+    // OPERATIONS depending on which route it took (measured on box(10) t=1,
+    // one face removed: OCCT 564.926 outward vs native 424.000 inward —
+    // CMakeLists.txt "FAMILY G HAS A HARD BLOCKER", reports/TKOFFSET_DECOMPOSITION.md
+    // §4.2). `wall` is now the single source of that sign:
+    //   native shellSolid / makeThickSolid : +wall  == inward
+    //   OCCT MakeThickSolidByJoin          : -wall  == inward (+ grows outward)
+    const double wall = std::abs(thickness);
 #ifdef FORGE_NATIVE_BREP
     // GAP1 — native analytic SHELL (forge::native::brep::shellSolid): hollow the
     // solid INWARD to a uniform wall of `thickness`, opening the faces named in
@@ -935,7 +1069,7 @@ ShapeHandle shell(ShapeHandle shape,
         auto owner = std::make_shared<nb::TopologyBuilder>();
         nb::Solid* clone = nb::transformSolid(srcSolid, I, t0, owner);
         nb::ShellOptions opt;
-        opt.thickness = thickness;
+        opt.thickness = wall;   // native convention: +t hollows INWARD
         opt.removedFaces.assign(faceIdsToRemove.begin(), faceIdsToRemove.end());
         nb::ShellResult r = nb::shellSolid(*owner, clone, opt);
         if (r.ok && r.solid) {
@@ -953,8 +1087,61 @@ ShapeHandle shell(ShapeHandle shape,
         facesToRemove.Append(faceById(src, id));
     }
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family G — the TKOffset-FREE thick-solid on the OCCT shape itself
+    // (src/native/brep/NativeThickSolid.cpp). Exact planar + quadric hollow; a
+    // null return is an HONEST DEFER and we fall through to OCCT below, so this
+    // can only ever ADD coverage, never remove it.
+    //
+    // OPT-IN (FORGE_THICKSOLID_NATIVE=1) while the corpus A/B demanded by
+    // reports/TKOFFSET_DECOMPOSITION.md §5 step 6 is outstanding: the flip gate
+    // is "native success rate >= the measured OCCT baseline", not "it compiles".
+    // The engine itself is always built and is gated directly, without this
+    // switch, by forge::part::shellNativeThick + test/native_thicksolid_closedform.mjs.
+    //
+    // FORGE_THICKSOLID_DROP_NATIVE (CMake option, DEFAULT OFF) is the compile-time
+    // form of the same routing: it makes the native attempt UNCONDITIONAL and
+    // COMPILES OUT the BRepOffsetAPI_MakeThickSolid fallback below, which is what
+    // actually removes family G's three symbols from the binary. It is OFF by
+    // default for the reason stated above — the flip gate is the corpus A/B, not
+    // a compile — and because with the fallback gone a native defer becomes a
+    // thrown error rather than an OCCT answer.
+    static const bool kThickSolidNative = [] {
+        const char* v = std::getenv("FORGE_THICKSOLID_NATIVE");
+        return v && (*v == '1' || *v == 'y' || *v == 'Y' || *v == 't' || *v == 'T');
+    }();
+#ifdef FORGE_THICKSOLID_DROP_NATIVE
+    (void)kThickSolidNative;
+    if (multiThickness.empty()) {
+        TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
+            src, wall, facesToRemove, 1.0e-3);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+    throw std::runtime_error(
+        "forge.part.shell: native thick-solid DECLINED this shape and the OCCT "
+        "BRepOffsetAPI_MakeThickSolid fallback is compiled out "
+        "(FORGE_THICKSOLID_DROP_NATIVE=ON)");
+#else
+    if (multiThickness.empty() && kThickSolidNative) {
+        TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
+            src, wall, facesToRemove, 1.0e-3);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#endif
+
+#ifndef FORGE_THICKSOLID_DROP_NATIVE
     BRepOffsetAPI_MakeThickSolid mk;
-    mk.MakeThickSolidByJoin(src, facesToRemove, thickness, 1.0e-3);
+    // -wall, NOT +wall: MakeThickSolidByJoin with a POSITIVE offset grows the
+    // retained faces OUTWARD with a rounded (GeomAbs_Arc) join — a different
+    // operation from the hollow this entry point promises. Negative insets the
+    // cavity and preserves the outer envelope, which is what every other route
+    // here does. MEASURED on box(10^3), top face removed, |t| = 1:
+    //   -1 -> 424.00000 == 1000 - 8*8*9   (exact inward wall)
+    //   +1 -> 564.92625 == 500 + 20*pi + 2*pi/3
+    //         (= the Minkowski sum box(+)ball(1), 1000+600+30pi+4pi/3, minus the
+    //          cap above z=10, 100+10pi+2pi/3, minus the 1000 that became void)
+    mk.MakeThickSolidByJoin(src, facesToRemove, -wall, 1.0e-3);
     // Per-face thickness overrides aren't natively supported by the join
     // API — we approximate by applying the dominant `thickness` here and
     // re-shelling any overridden face with its own thickness on the
@@ -967,6 +1154,38 @@ ShapeHandle shell(ShapeHandle shape,
         throw std::runtime_error("forge.part.shell: ThickSolid build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#endif  // !FORGE_THICKSOLID_DROP_NATIVE
+}
+
+// ============================================================ shellNativeThick
+//
+// TKOffset family G gate entry — the NATIVE thick-solid, alone, with NO OCCT
+// fallback (see Features.hpp). A shape the native engine does not support is an
+// exception, never a silently-substituted OCCT answer, so a gate that passes has
+// necessarily measured the native geometry.
+ShapeHandle shellNativeThick(ShapeHandle shape,
+                             const std::vector<std::uint32_t>& faceIdsToRemove,
+                             double thickness) {
+    requirePositive(thickness, "shell thickness");
+#ifdef FORGE_NATIVE_BREP
+    const TopoDS_Shape& src = fetch(shape);
+    TopTools_ListOfShape facesToRemove;
+    for (auto id : faceIdsToRemove) facesToRemove.Append(faceById(src, id));
+
+    TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
+        src, std::abs(thickness), facesToRemove, 1.0e-3);
+    if (nat.IsNull()) {
+        throw std::runtime_error(
+            "forge.part.shellNativeThick: native thick-solid DECLINED this shape "
+            "(unsupported surface, non-circular trim, partial revolution, collapsed "
+            "offset, or a sew that did not close) — no OCCT fallback on this entry point");
+    }
+    return ShapeRegistry::instance().add(nat);
+#else
+    (void)shape; (void)faceIdsToRemove;
+    throw std::runtime_error(
+        "forge.part.shellNativeThick: built without FORGE_NATIVE_BREP");
+#endif
 }
 
 // ============================================================ thickenSurface
@@ -988,6 +1207,15 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
     if (side < 0) offset = -std::abs(thickness);
     else if (side > 0) offset = std::abs(thickness);
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family I — TKOffset-free thicken on the OCCT shell itself.
+    // See NativeThickenShell.hpp; a defer returns a null shape and falls through.
+    if (::forge::occtthicken::thickenNativeEnabled()) {
+        const TopoDS_Shape nat = ::forge::occtthicken::thickenShell(src, offset, tol);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_THICKEN_DROP_NATIVE
     BRepOffset_MakeOffset mk;
     mk.Initialize(src, offset, tol, BRepOffset_Skin,
                   /*Intersection*/ Standard_False,
@@ -999,7 +1227,34 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
         throw std::runtime_error("forge.part.thickenSurface: offset build failed "
                                  "(surface may be non-manifold or self-intersecting)");
     }
-    return ShapeRegistry::instance().add(mk.Shape());
+    // BRepOffset_MakeOffset hands back a NEGATIVELY ORIENTED solid here. MEASURED, not
+    // suspected: the corpus A/B ran this exact call against the native engine over 600
+    // reference parts, and every one of the 407 shared successes disagreed on SIGNED
+    // volume while agreeing on |volume| with face, edge, vertex, area, centre of mass and
+    // bounding box all identical -- e.g. native +114690.606 against this -114690.606.
+    // Registering it unmodified put a reversed solid into the ShapeRegistry.
+    //
+    // Normalising is the convention the rest of the kernel already keeps, at six sites:
+    // OcctPrimBuilder.cpp:76,106,315 and NativeOcctBridge.cpp:120,296,695 all do exactly
+    // this. It matters to a real consumer: SheetMetalExtended.cpp:327 isDownstream()
+    // tests `Mass() <= kEps`, which a NEGATIVE volume PASSES, silently dropping a good
+    // solid into the bounding-box-centre fallback and answering from the wrong geometry.
+    TopoDS_Shape out = mk.Shape();
+    {
+        GProp_GProps vp;
+        BRepGProp::VolumeProperties(out, vp);
+        if (vp.Mass() < 0.0) out.Reverse();
+    }
+    return ShapeRegistry::instance().add(out);
+#else
+    // The engine NAMES why it declined; passing that through is the difference
+    // between "thicken failed" and a message a caller can act on.
+    throw std::runtime_error(
+        std::string("forge.part.thickenSurface: the native thicken declined this "
+                    "input (") + ::forge::occtthicken::thickenLastDeferReason() +
+        ") and the OCCT BRepOffset_MakeOffset fallback is compiled out "
+        "(FORGE_THICKEN_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ offsetSolid
@@ -1063,6 +1318,42 @@ ShapeHandle offsetSolid(ShapeHandle shape, double distance) {
 #endif
     const TopoDS_Shape& src = fetch(shape);
 
+#ifdef FORGE_NATIVE_BREP
+    // ── TKOffset family H — the TKOffset-FREE whole-solid offset on the OCCT
+    // shape itself (forge::occtoffset::offsetSolidShape, PART 5b of
+    // src/native/brep/NativeThickSolid.cpp). It is the SAME corner solve and the
+    // SAME closed-form circle re-trim the native thick-solid already uses, with
+    // the retained/removed split dropped and the displacement taken ALONG the
+    // outward normal instead of into the material.
+    //
+    // This runs UNCONDITIONALLY (not behind an env switch) because a null return
+    // is an HONEST DEFER and the OCCT path below is untouched — it can only ever
+    // ADD coverage. Proven equivalent to BRepOffsetAPI_MakeOffsetShape on volume
+    // AND centre of mass AND bounding box AND face/edge/vertex/shell counts over
+    // box / triangular prism / NON-CONVEX L-prism (grow and shrink) / capped
+    // cylinder (grow and shrink) / sphere / torus / cone frustum, and against an
+    // INDEPENDENT closed form wherever one exists, by
+    // test/run_ab_native_offsetshape.sh (206/206). That test also carries a
+    // negative control — two solids matching on volume to 1e-16 that the same
+    // comparator rejects — because volume alone proves nothing here.
+    {
+        const TopoDS_Shape nat = ::forge::occtoffset::offsetSolidShape(src, distance, 1.0e-7);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+
+#ifdef FORGE_OFFSETSHAPE_DROP_NATIVE
+    // The OCCT fallback is compiled out: a native defer is an error, never a
+    // silently-substituted OCCT answer. See CMakeLists.txt for why this is OFF
+    // by default (the native engine declines NURBS faces, faces with holes, and
+    // corners with no exact sharp-join meet — Law 9 forbids deleting those).
+    throw std::runtime_error(
+        "forge.part.offsetSolid: native whole-solid offset DECLINED this shape "
+        "(non-analytic face, face with a hole, rank-deficient or over-determined "
+        "corner, collapsed offset, or a sew that did not close) — the OCCT "
+        "BRepOffsetAPI_MakeOffsetShape fallback is compiled out "
+        "(FORGE_OFFSETSHAPE_DROP_NATIVE=ON)");
+#else
     // OCCT whole-solid offset: BRepOffset_Skin with the sharp INTERSECTION join
     // (matches the native intersection-join corner re-trim). PerformByJoin
     // delivers a SHELL; wrap it into a solid so mass/tessellation integrate the
@@ -1088,6 +1379,7 @@ ShapeHandle offsetSolid(ShapeHandle shape, double distance) {
         }
     }
     return ShapeRegistry::instance().add(off);
+#endif  // !FORGE_OFFSETSHAPE_DROP_NATIVE
 }
 
 // ============================================================ filletEdges
@@ -1247,6 +1539,75 @@ ShapeHandle filletEdges(ShapeHandle shape,
     }
 #endif
     const auto& src = fetch(shape);
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKFillet-free) constant-radius fillet on an ARBITRARY OCCT shape:
+    // STRAIGHT edges shared by two PLANAR faces — CONVEX **or CONCAVE (reflex)** —
+    // are rounded by an exact rolling-ball cylinder blend (local-neighbourhood retrim
+    // + watertight sew) via forge::occtfillet::makeFillet — NO BRepFilletAPI symbol
+    // referenced. Edges are addressed by the SAME TopExp order the OCCT fallback below
+    // uses (edgeById), so the selection is identical on both backends and the A/B
+    // harness drives the same geometric set. ANY out-of-scope edge (curved adjacent
+    // face / >3-face vertex / non-perpendicular end face / a setback deeper than the
+    // adjacent face / a concave blend meeting another at a vertex / dense faceted
+    // body) makes makeFillet return ok==false and we FALL THROUGH to the OCCT
+    // BRepFilletAPI path below unchanged.
+    //
+    // ★ CONCAVE landed 2026-08-29. Before it, EVERY reflex edge — the inside corner
+    //   of an L-bracket, a pocket, a rib-to-floor joint — fell through to TKFillet
+    //   from here. Proven at THIS call site by test/callsite_concave_fillet_test.cpp,
+    //   which is built BOTH ways: under FORGE_FILLET_DROP_NATIVE=ON there is no
+    //   BRepFilletAPI in the binary at all, so a reflex fillet that returns a solid
+    //   can only have come from occtfillet. Engine-level A/B: test/
+    //   run_ab_native_fillet_concave.sh (66 assertions vs live OCCT).
+    // GATE DEFAULT OFF (forgeNativeFeaturesEnabled()): the production build is byte-
+    // for-byte the OCCT path until the FEAT gate is flipped on.
+    // Under the TKFillet DROP (FORGE_FILLET_DROP_NATIVE) the native occtfillet path is the
+    // ONLY fillet backend (no BRepFilletAPI compiled), so attempt it UNCONDITIONALLY and, on
+    // an out-of-native-scope decline, REFUSE (throw) — there is no OCCT fallback. In the A/B
+    // baseline it stays FEAT-gated and falls through to the OCCT path on decline (unchanged).
+    {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        const bool tryNativeFillet = true;
+#else
+        const bool tryNativeFillet = native::brep::forgeNativeFeaturesEnabled();
+#endif
+        if (tryNativeFillet) {
+            std::vector<::forge::occtfillet::FilletSpec> nspecs;
+            nspecs.reserve(edgeIds.size());
+            bool built = true;
+            std::unordered_set<std::uint32_t> nseen;
+            for (std::uint32_t id : edgeIds) {
+                if (!nseen.insert(id).second) continue;   // dedup, like the analytic path
+                ::forge::occtfillet::FilletSpec fs;
+                try { fs.edge = edgeById(src, id); }
+                catch (...) { built = false; break; }     // out-of-range id
+                fs.radius = radius;
+                nspecs.push_back(fs);
+            }
+            std::string declineReason = built ? "no unique edges to fillet"
+                                              : "an edge id is out of range";
+            if (built && !nspecs.empty()) {
+                ::forge::occtfillet::Result nr = ::forge::occtfillet::makeFillet(src, nspecs);
+                if (nr.ok && !nr.shape.IsNull())
+                    return ShapeRegistry::instance().add(nr.shape);
+                declineReason = nr.reason;
+                // native deferred (ok==false) -> OCCT BRepFilletAPI baseline (if compiled).
+            }
+#ifdef FORGE_FILLET_DROP_NATIVE
+            // TKFillet DROPPED — no OCCT fallback. Out-of-native-scope (a curved adjacent
+            // face / an over-size setback / a concave blend sharing a vertex with another /
+            // dense-faceted / unresolved id) is an HONEST feature refusal, not a silent
+            // OCCT round.
+            throw std::runtime_error(
+                "forge.part.filletEdges: native (TKFillet-free) fillet covers a straight "
+                "convex OR concave edge between two planar faces; this request is out "
+                "of native scope and TKFillet is dropped (no OCCT fallback) — refused. reason: "
+                + declineReason);
+#endif
+        }
+    }
+#endif  // FORGE_NATIVE_BREP
+#ifndef FORGE_FILLET_DROP_NATIVE
     // ───────────────── PRE-DETECT: dense/faceted body fillet guard ────────────
     // ROOT CAUSE of the dense-bolt-circle+fillet stall (measured 2026-06-28):
     // a NativeSolid boolean result — e.g. a bolt-circle plate (140×130×16 box −
@@ -1350,6 +1711,12 @@ ShapeHandle filletEdges(ShapeHandle shape,
     }
     worker.join();
     return ShapeRegistry::instance().add(fut.get());   // rethrows any worker error
+#else
+    // TKFillet DROPPED: the native block above always returns or throws; this keeps the
+    // non-void function well-formed with the entire OCCT BRepFilletAPI path compiled out.
+    throw std::runtime_error(
+        "forge.part.filletEdges: native fillet path exhausted (TKFillet dropped)");
+#endif  // FORGE_FILLET_DROP_NATIVE
 }
 
 // ============================================================ variableFilletEdge
@@ -1405,6 +1772,53 @@ ShapeHandle variableFilletEdge(ShapeHandle shape, std::uint32_t edgeId,
     }
 #endif
     const auto& src = fetch(shape);
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKFillet-free) VARIABLE-radius fillet on an ARBITRARY OCCT shape via the
+    // exact rational-NURBS variable-arc blend (occtfillet::makeVariableFillet): a CONVEX
+    // straight edge between two PLANAR faces under a LINEAR radius law. Under the TKFillet
+    // DROP this is the ONLY path (no BRepFilletAPI_MakeFillet compiled) and REFUSES on
+    // decline; the A/B baseline keeps it FEAT-gated and falls through to the OCCT
+    // Pnt2d-array path on any decline (non-linear anchors, curved/concave edge, ...).
+    {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        const bool tryNativeVarFil = true;
+#else
+        // This site had NO native occtfillet attempt before the drop, so keep it OFF in
+        // the baseline (unlike the const fillet/chamfer siblings, whose native attempt was
+        // already FEAT-gated) — guarantees byte-for-byte baseline + A/B behavior.
+        const bool tryNativeVarFil = false;
+#endif
+        if (tryNativeVarFil) {
+            std::string declineReason = "variable-fillet anchors are not a linear law "
+                "(the native TKFillet-free variable blend is linear-law only)";
+            double R0 = 0.0, R1 = 0.0;
+            if (anchorsAreLinearLaw(anchors, R0, R1)) {
+                TopoDS_Edge ne; bool haveEdge = true;
+                try { ne = edgeById(src, edgeId); } catch (...) { haveEdge = false; }
+                if (!haveEdge) {
+                    declineReason = "edge id out of range";
+                } else {
+                    ::forge::occtfillet::VariableFilletSpec vs;
+                    vs.edge = ne;
+                    vs.law  = ::forge::occtlaw::Law::Linear(0.0, R0, 1.0, R1);
+                    ::forge::occtfillet::Result nr =
+                        ::forge::occtfillet::makeVariableFillet(src, {vs});
+                    if (nr.ok && !nr.shape.IsNull())
+                        return ShapeRegistry::instance().add(nr.shape);
+                    declineReason = nr.reason;
+                }
+            }
+#ifdef FORGE_FILLET_DROP_NATIVE
+            throw std::runtime_error(
+                "forge.part.variableFilletEdge: native (TKFillet-free) variable fillet covers "
+                "only a convex straight planar-planar edge under a LINEAR radius law; this "
+                "request is out of native scope and TKFillet is dropped (no OCCT fallback) — "
+                "refused. reason: " + declineReason);
+#endif
+        }
+    }
+#endif  // FORGE_NATIVE_BREP
+#ifndef FORGE_FILLET_DROP_NATIVE
     BRepFilletAPI_MakeFillet mk(src);
     TopoDS_Edge e = edgeById(src, edgeId);
 
@@ -1422,6 +1836,12 @@ ShapeHandle variableFilletEdge(ShapeHandle shape, std::uint32_t edgeId,
             "forge.part.variableFilletEdge: fillet build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    // TKFillet DROPPED: the native block above always returns or throws; keeps the
+    // non-void function well-formed with the OCCT Pnt2d-array MakeFillet path gone.
+    throw std::runtime_error(
+        "forge.part.variableFilletEdge: native variable-fillet path exhausted (TKFillet dropped)");
+#endif  // FORGE_FILLET_DROP_NATIVE
 }
 
 // ============================================================ chamferEdges
@@ -1535,6 +1955,70 @@ ShapeHandle chamferEdges(ShapeHandle shape,
 #endif
     const bool asymmetric = distance2 > Precision::Confusion();
     const auto& src = fetch(shape);
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKFillet-free) flat-bevel chamfer on an ARBITRARY OCCT shape: STRAIGHT
+    // edges shared by two PLANAR faces — CONVEX **or CONCAVE (reflex)**, the latter
+    // since 2026-08-29, where the bevel FILLS the notch instead of cutting the corner
+    // — are beveled by an exact plane bevel
+    // face (local-neighbourhood retrim + watertight sew) via forge::occtfillet::
+    // makeChamfer — NO BRepFilletAPI_MakeChamfer symbol referenced. Edges are
+    // addressed by the SAME TopExp order the OCCT fallback below uses; for an
+    // asymmetric two-distance chamfer the contact face is picked the SAME way (first
+    // TopExp face touching the edge), so the native distance->face assignment matches
+    // OCCT. ANY out-of-scope edge DEFERS (ok==false) to the OCCT path below unchanged.
+    // GATE DEFAULT OFF.
+    // Under the TKFillet DROP the native occtfillet chamfer is the ONLY path (no
+    // BRepFilletAPI_MakeChamfer compiled) — attempt unconditionally and REFUSE on decline.
+    // A/B baseline keeps it FEAT-gated and falls through to OCCT on decline (unchanged).
+    {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        const bool tryNativeChamfer = true;
+#else
+        const bool tryNativeChamfer = native::brep::forgeNativeFeaturesEnabled();
+#endif
+        if (tryNativeChamfer) {
+            std::vector<::forge::occtfillet::ChamferSpec> nspecs;
+            nspecs.reserve(edgeIds.size());
+            bool built = true;
+            std::unordered_set<std::uint32_t> nseen;
+            for (std::uint32_t id : edgeIds) {
+                if (!nseen.insert(id).second) continue;
+                ::forge::occtfillet::ChamferSpec cs;
+                try { cs.edge = edgeById(src, id); }
+                catch (...) { built = false; break; }
+                cs.dist  = distance;
+                cs.dist2 = asymmetric ? distance2 : 0.0;   // <=0 => symmetric
+                if (asymmetric) {
+                    for (TopExp_Explorer fe(src, TopAbs_FACE); fe.More(); fe.Next()) {
+                        bool found = false;
+                        for (TopExp_Explorer ee(fe.Current(), TopAbs_EDGE); ee.More(); ee.Next()) {
+                            if (ee.Current().IsSame(cs.edge)) { found = true; break; }
+                        }
+                        if (found) { cs.contact = TopoDS::Face(fe.Current()); break; }
+                    }
+                }
+                nspecs.push_back(cs);
+            }
+            std::string declineReason = built ? "no unique edges to chamfer"
+                                              : "an edge id is out of range";
+            if (built && !nspecs.empty()) {
+                ::forge::occtfillet::Result nr = ::forge::occtfillet::makeChamfer(src, nspecs);
+                if (nr.ok && !nr.shape.IsNull())
+                    return ShapeRegistry::instance().add(nr.shape);
+                declineReason = nr.reason;
+                // native deferred -> OCCT BRepFilletAPI_MakeChamfer baseline (if compiled).
+            }
+#ifdef FORGE_FILLET_DROP_NATIVE
+            throw std::runtime_error(
+                "forge.part.chamferEdges: native (TKFillet-free) chamfer covers only a convex "
+                "straight edge between two as-yet-beveled planar faces; this request is out of "
+                "native scope and TKFillet is dropped (no OCCT fallback) — refused. reason: "
+                + declineReason);
+#endif
+        }
+    }
+#endif  // FORGE_NATIVE_BREP
+#ifndef FORGE_FILLET_DROP_NATIVE
     // PRE-DETECT: same dense/faceted-body guard as filletEdges — OCCT
     // BRepFilletAPI_MakeChamfer crashes/hangs on the thousands-of-edge faceted
     // bridge of a many-hole NativeSolid boolean result (the app's chamferAllEdges
@@ -1582,6 +2066,12 @@ ShapeHandle chamferEdges(ShapeHandle shape,
         throw std::runtime_error("forge.part.chamferEdges: chamfer build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    // TKFillet DROPPED: the native block above always returns or throws; keeps the
+    // non-void function well-formed with the OCCT BRepFilletAPI_MakeChamfer path gone.
+    throw std::runtime_error(
+        "forge.part.chamferEdges: native chamfer path exhausted (TKFillet dropped)");
+#endif  // FORGE_FILLET_DROP_NATIVE
 }
 
 // ============================================================ draftFaces
@@ -1699,10 +2189,23 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
     }
 #endif
     const auto& src = fetch(shape);
-    BRepOffsetAPI_DraftAngle mk(src);
     gp_Pln plane(gp_Pnt(neutral.ox, neutral.oy, neutral.oz),
                  gp_Dir(neutral.nx, neutral.ny, neutral.nz));
     gp_Dir pull(neutral.nx, neutral.ny, neutral.nz);
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family J — TKOffset-free draft on the OCCT solid itself. This is
+    // the OCCT-typed mirror of DraftAnalytic's native-B-rep draft, reached from an
+    // OCCT-backed handle. See NativeDraft.hpp; a defer returns a null shape.
+    if (::forge::occtdraft::draftNativeEnabled()) {
+        TopTools_ListOfShape natFaces;
+        for (auto id : faceIds) natFaces.Append(faceById(src, id));
+        const TopoDS_Shape nat =
+            ::forge::occtdraft::draftFaces(src, natFaces, pull, angleRad, plane);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_DRAFT_DROP_NATIVE
+    BRepOffsetAPI_DraftAngle mk(src);
     for (auto id : faceIds) {
         TopoDS_Face f = faceById(src, id);
         mk.Add(f, pull, angleRad, plane);
@@ -1715,6 +2218,13 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
         throw std::runtime_error("forge.part.draftFaces: draft build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.draftFaces: the native draft declined this input (it covers "
+        "planar-faced solids whose selected faces are not parallel to the neutral "
+        "plane) and the OCCT BRepOffsetAPI_DraftAngle fallback is compiled out "
+        "(FORGE_DRAFT_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ holeWizard
@@ -2215,16 +2725,29 @@ ShapeHandle sweepWithGuides(SketchHandle profileSketch, SketchHandle pathSketch,
     const TopoDS_Wire& spine = pathWires[0];
     const TopoDS_Wire& profile = profWires[0];
 
+    std::vector<TopoDS_Wire> guideWires;
+    for (auto sk : guides) {
+        auto gw = extractWires(sk);
+        if (gw.empty()) continue;
+        guideWires.push_back(gw[0]);
+    }
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family F — native pipe-shell; any guide is an HONEST DEFER.
+    if (::forge::occtloft::pipeShellNativeEnabled()) {
+        const TopoDS_Shape nat =
+            ::forge::occtloft::pipeShell(spine, profile, guideWires, /*makeSolid*/ true);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPESHELL_DROP_NATIVE
     BRepOffsetAPI_MakePipeShell mk(spine);
     mk.Add(profile);
 
     // Register every guide as a curvilinear-equivalence constraint. Some
     // OCCT versions reject this when the guide and profile aren't
     // coplanar; the binding's safe() wrapper relays the OCCT failure.
-    for (auto sk : guides) {
-        auto gw = extractWires(sk);
-        if (gw.empty()) continue;
-        mk.SetMode(gw[0], /*CurvilinearEquivalence*/ Standard_True);
+    for (const auto& g : guideWires) {
+        mk.SetMode(g, /*CurvilinearEquivalence*/ Standard_True);
     }
     mk.Build();
     if (!mk.IsDone()) {
@@ -2233,6 +2756,12 @@ ShapeHandle sweepWithGuides(SketchHandle profileSketch, SketchHandle pathSketch,
     }
     mk.MakeSolid();
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.sweepWithGuides: the native pipe-shell DECLINED this sweep and the "
+        "OCCT BRepOffsetAPI_MakePipeShell fallback is compiled out "
+        "(FORGE_PIPESHELL_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ loftWithGuides
@@ -2266,6 +2795,16 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
 
     // No guides → reuse the plain ThruSections path.
     if (guides.empty()) {
+#ifdef FORGE_NATIVE_BREP
+        // TKOffset family D — native ruled loft; null == HONEST DEFER.
+        if (::forge::occtloft::loftNativeEnabled()) {
+            const std::vector<TopoDS_Shape> secs(sectionWires.begin(), sectionWires.end());
+            const TopoDS_Shape nat =
+                ::forge::occtloft::thruSections(secs, /*solid*/ true, ruled);
+            if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+        }
+#endif
+#ifndef FORGE_THRUSECTIONS_DROP_NATIVE
         BRepOffsetAPI_ThruSections mk(/*solid*/ Standard_True,
                                        /*ruled*/ ruled ? Standard_True : Standard_False,
                                        /*pres*/ 1.0e-6);
@@ -2277,6 +2816,13 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
                 "forge.part.loftWithGuides: ThruSections build failed");
         }
         return ShapeRegistry::instance().add(mk.Shape());
+#else
+        (void)closed;   // only the compiled-out CheckCompatibility call reads it
+        throw std::runtime_error(
+            "forge.part.loftWithGuides: the native ruled loft DECLINED these sections "
+            "and the OCCT BRepOffsetAPI_ThruSections fallback is compiled out "
+            "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#endif
     }
 
     // Guides supplied — interpret each section as a B-spline curve, then
@@ -2295,8 +2841,12 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
         for (std::size_t i = 0; i < pts.size(); ++i) {
             arr.SetValue(static_cast<Standard_Integer>(i + 1), pts[i]);
         }
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+        return forge::occtconv::pointsToBSpline(arr, 1, 5, 1.0e-3);
+#else
         GeomAPI_PointsToBSpline bs(arr, 1, 5, GeomAbs_C2);
         return bs.Curve();
+#endif
     };
 
     TColGeom_SequenceOfCurve seqCurves;
@@ -2310,9 +2860,16 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
     }
     (void)guides;  // guides are advisory at the GeomFill level for now;
                   // the caller's smoke ensures the API contract is met.
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+    // Native N-section skin (drops TKGeomAlgo GeomFill_NSections). Interpolates
+    // through every section — a faithful, stronger contract than the OCCT
+    // tolerance-bounded approximation. Null => honest defer (throws below).
+    Handle(Geom_BSplineSurface) skin = forge::occtfill::sectionFillSurface(seqCurves, 3);
+#else
     GeomFill_NSections filler(seqCurves);
     filler.ComputeSurface();
     Handle(Geom_BSplineSurface) skin = filler.BSplineSurface();
+#endif
     if (skin.IsNull()) {
         throw std::runtime_error(
             "forge.part.loftWithGuides: GeomFill_NSections returned no surface");
@@ -2340,20 +2897,39 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
                                 double baseThickness,
                                 const std::vector<FaceThickness>& perFaceOverrides) {
     requirePositive(baseThickness, "shell base thickness");
+    // SAME SIGN CONTRACT as shell() above — a wall thickness, hollowed INWARD.
+    // Both routes are spelled from this one magnitude (native +, OCCT -).
+    const double baseWall = std::abs(baseThickness);
     const auto& src = fetch(shape);
 
     // ---- 1) base shell at baseThickness ---------------------------------
     TopTools_ListOfShape facesToRemove;
     for (auto id : faceIdsToRemove) facesToRemove.Append(faceById(src, id));
 
+    // TKOffset family G — the same routing shell() carries. With
+    // FORGE_THICKSOLID_DROP_NATIVE the native engine is the ONLY path and the OCCT
+    // fallback is compiled out; this second site has to move with the first or the
+    // three MakeThickSolid symbols stay in the binary (MEASURED: dropping only the
+    // shell() site left TKOffset at 36, not 32).
+#ifdef FORGE_THICKSOLID_DROP_NATIVE
+    TopoDS_Shape acc = ::forge::occtoffset::makeThickSolid(
+        src, baseWall, facesToRemove, 1.0e-3);
+    if (acc.IsNull()) {
+        throw std::runtime_error(
+            "forge.part.shellMultiThickness: native thick-solid DECLINED the base "
+            "shell and the OCCT BRepOffsetAPI_MakeThickSolid fallback is compiled "
+            "out (FORGE_THICKSOLID_DROP_NATIVE=ON)");
+    }
+#else
     BRepOffsetAPI_MakeThickSolid baseMk;
-    baseMk.MakeThickSolidByJoin(src, facesToRemove, baseThickness, 1.0e-3);
+    baseMk.MakeThickSolidByJoin(src, facesToRemove, -baseWall, 1.0e-3);
     baseMk.Build();
     if (!baseMk.IsDone()) {
         throw std::runtime_error(
             "forge.part.shellMultiThickness: base ThickSolid build failed");
     }
     TopoDS_Shape acc = baseMk.Shape();
+#endif
 
     // ---- 2) per-face overrides ------------------------------------------
     // For each override, build a single-face removal at the override
@@ -2362,8 +2938,15 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
     // thickness"; OCCT does not natively expose face-local offsets in a
     // single call.
     for (const auto& ovr : perFaceOverrides) {
-        if (ovr.thickness <= Precision::Confusion()) continue;
-        if (std::abs(ovr.thickness - baseThickness) < Precision::Confusion()) {
+        // |thickness|, per the SIGN CONTRACT above and the std::abs() this loop
+        // already applies four lines down: the sign of a wall thickness is
+        // IGNORED, both spellings mean the same inward hollow. Testing the RAW
+        // value here silently DROPPED every negative override — and -|wall| is
+        // exactly how the IR spells a wall (ft/FeatureTreeCompiler.cpp opShell),
+        // so an IR-driven multi-thickness shell quietly returned the uniform
+        // shell (MEASURED: 424.0 = 1000-8*8*9) where the override says 632.5.
+        if (std::abs(ovr.thickness) <= Precision::Confusion()) continue;
+        if (std::abs(std::abs(ovr.thickness) - baseWall) < Precision::Confusion()) {
             continue;  // no-op override
         }
         TopTools_ListOfShape ovrRemove;
@@ -2377,11 +2960,18 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
         } catch (...) {
             continue;
         }
+#ifdef FORGE_THICKSOLID_DROP_NATIVE
+        const TopoDS_Shape ovrShape = ::forge::occtoffset::makeThickSolid(
+            src, std::abs(ovr.thickness), ovrRemove, 1.0e-3);
+        if (ovrShape.IsNull()) continue;   // same skip-this-override contract as !IsDone()
+#else
         BRepOffsetAPI_MakeThickSolid ovrMk;
-        ovrMk.MakeThickSolidByJoin(src, ovrRemove, ovr.thickness, 1.0e-3);
+        ovrMk.MakeThickSolidByJoin(src, ovrRemove, -std::abs(ovr.thickness), 1.0e-3);
         ovrMk.Build();
         if (!ovrMk.IsDone()) continue;
-        BRepAlgoAPI_Fuse fuse(acc, ovrMk.Shape());
+        const TopoDS_Shape ovrShape = ovrMk.Shape();
+#endif
+        BRepAlgoAPI_Fuse fuse(acc, ovrShape);
         fuse.Build();
         if (fuse.IsDone()) {
             acc = fuse.Shape();

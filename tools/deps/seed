@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Sacrosanct 3.1 s21.2:  tools/deps/seed --lock third_party/manifest/deps.lock.json
+# ONLINE_SEED. Obtains exactly the missing pinned artifacts, verifies each hash, and
+# populates .forge-local/sources. Refuses to run while FORGE_NETWORK=OFF (the default),
+# and refuses to fetch any artifact whose lock hash is null.
+set -euo pipefail
+exec python3 "$(dirname "$0")/forge_deps.py" seed "$@"

@@ -88,13 +88,21 @@ name: Desktop Release (macOS arm64)
 #     The signature is ad-hoc: no Developer ID, no notarization.
 #     MEASURED 2026-08-30: `spctl -a -vvv -t exec Forge.app` -> "rejected",
 #     exit 3; `security find-identity -v -p codesigning` -> 0 valid identities.
-#     A user who downloads the zip gets a refusal dialog until they run
-#         xattr -dr com.apple.quarantine Forge.app
-#     Clearing this needs a PAID Apple Developer ID certificate plus a
-#     notarytool submission — i.e. credentials and secrets, not code. Until
-#     those exist the dry run REPORTS the rejection and never asserts on it: a
-#     check that cannot pass without a credential is a permanently red gate,
-#     which is the same as no gate at all.
+#     A user who downloads the zip gets a refusal dialog on FIRST LAUNCH and
+#     clears it ONCE, by hand, via System Settings > Privacy & Security >
+#     "Open Anyway". That is a DECISION the user has taken, not a defect to be
+#     fixed here. The measured steps live in docs/FIRST_LAUNCH_MACOS.md and the
+#     text the release page carries lives in docs/RELEASE_BODY_macos.md.
+#
+#     Do NOT document "right-click > Open" anywhere. That shortcut was REMOVED
+#     in macOS 15 (Sequoia), so telling a user to do it sends them somewhere
+#     that does nothing.
+#
+#     Removing the prompt entirely needs a PAID Apple Developer ID certificate
+#     plus a notarytool submission, i.e. credentials and secrets, not code.
+#     Until those exist the dry run REPORTS the rejection and never asserts on
+#     it: a check that cannot pass without a credential is a permanently red
+#     gate, which is the same as no gate at all.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -146,7 +154,8 @@ jobs:
           for f in forge-kernel/CMakeLists.txt \
                    forge-desktop/CMakeLists.txt \
                    forge-desktop/package_macos.sh \
-                   forge-desktop/release_dryrun.sh; do
+                   forge-desktop/release_dryrun.sh \
+                   docs/RELEASE_BODY_macos.md; do
             if [ -f "$f" ]; then printf 'ok       %s\n' "$f"
             else printf 'MISSING  %s\n' "$f"; missing=1; fi
           done
@@ -183,12 +192,15 @@ jobs:
         # keg link. Do not "simplify" that probe.
         run: |
           brew update-reset >/dev/null 2>&1 || true
-          # boost is required by forge-kernel's ForgeDeps resolver (CMakeLists.txt:1205).
-          # The first dispatched dry run FAILED on exactly this:
-          #   ForgeDeps: could not resolve 'boost' 1.90.0
-          #   [dryrun] FATAL: kernel configure failed
-          # It builds locally only because boost happens to be installed there, which is
-          # precisely the class of difference a CI dry run exists to expose.
+          # boost is required by forge-kernel's ForgeDeps resolver (CMakeLists.txt:1188):
+          # planegcs uses boost::graph and boost::math::constants. Two dispatched dry runs
+          # failed on `could not resolve 'boost' 1.90.0` before this landed.
+          #
+          # THIS FIX HAS TO BE ON THIS BRANCH, not only on the default one. A run
+          # dispatched against a ref uses the workflow definition FROM THAT REF -- the copy
+          # on the default branch only makes the workflow SELECTABLE. The second dry run
+          # failed identically to the first because the fix had been merged to archdisc
+          # while the run was dispatched against this branch.
           brew install opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
 
       - name: Record the toolchain that produced this artifact
@@ -283,16 +295,92 @@ jobs:
           echo "--- report ---"
           cat "$REPORT"
 
-      - name: Upload as a CI artifact (always)
-        # Every run keeps its build, tag or not, so a dry run is downloadable
-        # and testable WITHOUT touching a release.
-        uses: actions/upload-artifact@v4
-        with:
-          name: Forge-macos-arm64-${{ steps.ver.outputs.version }}
-          path: |
-            forge-desktop/dist/Forge-macos-arm64-*.zip
-            forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
-            forge-desktop/dist/Forge-macos-arm64-*.dryrun.json
+      - name: Render the release notes (EVERY run, tag or not)
+        # The rendering used to happen only inside the publish step, which is
+        # tag-gated. That put the notes on the half of the path a human cannot
+        # rehearse: a broken body would first be discovered by the run that
+        # PUBLISHES. Same shape of mistake as this workflow's own history, where
+        # the only trigger that worked was the one that published.
+        #
+        # So the body is rendered HERE, on a dispatch too, from the same source
+        # and with the same measured values. The publish step below does not
+        # re-render; it uploads THESE bytes, so what a dry run shows is exactly
+        # what a tag would publish.
+        id: notes
+        shell: bash
+        env:
+          # A tag run has the real tag. A dispatch has none, so the version
+          # string is used, which already carries the short sha and makes an
+          # unreleasable build obviously unreleasable.
+          TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          BODY_SRC="docs/RELEASE_BODY_macos.md"
+          test -f "$BODY_SRC" || { echo "::error::$BODY_SRC missing"; exit 1; }
+
+          FLOOR="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$REPORT")"
+          SHA="$(awk '{print $1}' "$ZIP.sha256")"
+          OUT="forge-desktop/dist/Forge-macos-arm64-${V}.notes.md"
+
+          # Drop the leading HTML comment block (authoring instructions for
+          # whoever edits the body), then substitute the MEASURED values. A
+          # hard-coded minimum macOS or sha256 is wrong the moment the runner
+          # image or the build moves.
+          sed '/^<!--$/,/^-->$/d' "$BODY_SRC" \
+            | sed -e "s|@@REPO_URL@@|${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}|g" \
+                  -e "s|@@TAG@@|${TAG_NAME}|g" \
+                  -e "s|@@VERSION@@|${V}|g" \
+                  -e "s|@@FLOOR@@|${FLOOR}|g" \
+                  -e "s|@@SHA@@|${SHA}|g" > "$OUT"
+
+          # An unsubstituted placeholder would publish a literal "@@SHA@@" to
+          # users. Deliberately `grep -q` inside an `if` and NOT
+          # `LEFT=$(grep -c ...)`: this step runs under `set -e`, grep exits 1
+          # when it finds nothing, and an assignment carries its substitution's
+          # status, so counting would abort the step on the SUCCESS path.
+          if grep -q '@@[A-Z_]*@@' "$OUT"; then
+            grep -n '@@[A-Z_]*@@' "$OUT" >&2
+            echo "::error::unsubstituted placeholder(s) in the release body"
+            exit 1
+          fi
+          test -s "$OUT" || { echo "::error::release body rendered empty"; exit 1; }
+
+          # The one instruction that must never come back. Apple REMOVED the
+          # Control-click override in macOS 15 (Sequoia), so shipping it sends
+          # users to a menu item that does not exist. The second grep lets the
+          # body keep its explicit "ignore anything that says right-click"
+          # warning while still failing on a line that TELLS them to do it.
+          #
+          # The result is captured into a variable rather than read from the
+          # pipeline's status: `grep -q` exits on its FIRST match and closes the
+          # pipe, which can SIGPIPE the upstream grep, and under `pipefail` that
+          # non-zero status would read as "clean" and silently disable the
+          # guard. Neither grep here is -q, both read to EOF, and the decision
+          # is made on the TEXT.
+          BAD="$(grep -iE 'right[ -]click|control[ -]click' "$OUT" \
+                 | grep -ivE 'ignore|removed|do not|does nothing|no longer' \
+                 || true)"
+          if [ -n "$BAD" ]; then
+            printf '%s\n' "$BAD" >&2
+            echo "::error::the release body tells users to right-click to Open;" \
+                 "that shortcut was REMOVED in macOS 15 (Sequoia)"
+            exit 1
+          fi
+
+          echo "notes=$OUT" >> "$GITHUB_OUTPUT"
+          echo "--- release notes that a tag would publish VERBATIM ---"
+          cat "$OUT"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### Release notes this build would publish"
+              echo
+              cat "$OUT"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           if-no-files-found: error
           retention-days: 30
 
@@ -318,32 +406,22 @@ jobs:
           ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
           REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
 
-          # Substitute the MEASURED floor into the notes. A hard-coded minimum
-          # macOS is wrong the moment the runner changes — exactly the kind of
-          # note that outlives its truth.
-          FLOOR="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$REPORT")"
-          SHA="$(awk '{print $1}' "$ZIP.sha256")"
+          # No substitution happens here any more; the notes were rendered
+          # and printed by the step above, on a dispatch as well as on a tag.
+          # NOT re-rendered here. The "Render the release notes" step above
+          # already produced these exact bytes and printed them, on a dispatch
+          # too, so a dry run rehearses the publish instead of the publish being
+          # the first place the notes are ever built.
+          NOTES="${{ steps.notes.outputs.notes }}"
+          test -s "$NOTES" || { echo "::error::no rendered notes at $NOTES"; exit 1; }
 
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "no release for $TAG yet - creating it as a DRAFT"
-            gh release create "$TAG" --draft --title "Forge $TAG" --notes \
-          "Native C++ Forge desktop app for macOS (Apple Silicon).
-
-          REQUIREMENTS AND CAVEATS — please read before publishing this draft:
-
-          * Apple Silicon only, and macOS ${FLOOR} or newer. That floor is
-            MEASURED from the shipped bundle, not asserted: it is the highest
-            LC_BUILD_VERSION minos across every bundled Mach-O file, and it is
-            inherited from the Homebrew bottles' build host.
-          * The app is AD-HOC SIGNED and NOT notarized. macOS Gatekeeper will
-            refuse to open it after download. To run it:
-                xattr -dr com.apple.quarantine /Applications/Forge.app
-            or System Settings > Privacy & Security > Open Anyway.
-            Fixing this needs a paid Apple Developer ID certificate and a
-            notarytool submission.
-          * sha256: ${SHA}"
+            gh release create "$TAG" --draft --title "Forge $TAG" \
+              --notes-file "$NOTES"
           else
             echo "release $TAG exists - leaving its notes and draft state alone"
           fi
+
           gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
           echo "attached $ZIP to release $TAG"

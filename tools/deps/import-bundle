@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Sacrosanct 3.1 s21.2:  tools/deps/import-bundle --input <path> --verify-only|--activate
+# Verifies the bundle against its manifest hash before anything is written, then either
+# stops (--verify-only) or activates it into .forge-local/ (--activate).
+set -euo pipefail
+exec python3 "$(dirname "$0")/forge_deps.py" import-bundle "$@"

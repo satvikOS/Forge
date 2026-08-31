@@ -1503,6 +1503,17 @@ Napi::Value ProjectShape(const Napi::CallbackInfo& info) {
                     "forge.drawings.projectShape: direction must be Float64Array[3]");
             }
             dir = { arr.Data()[0], arr.Data()[1], arr.Data()[2] };
+        } else if (info.Length() > 1 && !info[1].IsUndefined() && !info[1].IsNull()) {
+            // Anything else silently fell through to the FRONT view. A caller
+            // passing {x,y,z} — the obvious guess, and what the C++ signature takes
+            // — got four identical "views" back and no indication why. A wrong
+            // answer delivered confidently is the worst failure mode there is, so
+            // an unrecognised direction is now an error rather than a default.
+            throw Napi::TypeError::New(env,
+                "forge.drawings.projectShape: direction must be a preset string "
+                "(\"front\"|\"top\"|\"right\"|\"iso\") or a Float64Array[3]; a plain "
+                "{x,y,z} object is NOT accepted and previously fell through to the "
+                "front view silently");
         }
 
         ProjectedView pv = projectShape(h, dir);
@@ -3405,7 +3416,7 @@ Napi::Value FeaSolveNonlinearPlastic(const Napi::CallbackInfo& info) {
 // ----------------------------------------------------------- FEA / Tet (PUSH-11)
 //
 // JS surface — under `forge.fea.tet`:
-//   meshShape(handle, targetEdge)
+//   meshShape(handle, targetEdge, [seedGridBudget])
 //     → { nodes: Float64Array (flat xyz, length 3N),
 //         ids:   Int32Array (length N),
 //         tets:  Int32Array (flat a,b,c,d × E),
@@ -3446,6 +3457,14 @@ Napi::Object feaTetMeshToJs(Napi::Env env, const forge::fea::tet::Mesh& m) {
     out.Set("nodeCount", Napi::Number::New(env, static_cast<double>(m.nodes.size())));
     out.Set("tetCount",  Napi::Number::New(env, static_cast<double>(m.tets.size())));
     out.Set("shellTetsOnly", Napi::Boolean::New(env, m.shellTetsOnly));
+    // Seed-grid budget diagnostics (NAFEMS track). `seedGridCapped` true means the
+    // interior Steiner spacing was FORCED coarser than the requested targetEdge to stay
+    // inside `seedGridBudget` — i.e. asking for a finer mesh did NOT produce one. Read
+    // these before trusting any h-refinement / convergence result.
+    out.Set("seedGridCapped",  Napi::Boolean::New(env, m.seedGridCapped));
+    out.Set("seedGridBudget",  Napi::Number::New(env, static_cast<double>(m.seedGridBudget)));
+    out.Set("requestedEdge",   Napi::Number::New(env, m.requestedEdge));
+    out.Set("interiorSpacing", Napi::Number::New(env, m.interiorSpacing));
     return out;
 }
 
@@ -3596,7 +3615,11 @@ Napi::Value FeaTetMeshShape(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto h = requireHandle(info, 0);
         double te = requireNumber(info, 1, "targetEdge");
-        auto m = forge::fea::tet::meshShapeFromHandle(h, te);
+        // Optional 3rd arg: interior seed-grid budget (candidate lattice points). <=0 or
+        // absent selects the default (kDefaultSeedGridBudget / FORGE_FEA_TET_SEED_BUDGET).
+        int budget = 0;
+        if (info.Length() > 2 && info[2].IsNumber()) budget = info[2].As<Napi::Number>().Int32Value();
+        auto m = forge::fea::tet::meshShapeFromHandle(h, te, budget);
         return feaTetMeshToJs(info.Env(), m);
     });
 }
@@ -4533,6 +4556,25 @@ Napi::Value DirectEdgeCount(const Napi::CallbackInfo& info) {
     });
 }
 
+// The COMPLETE sub-shape census { solids, shells, faces, wires, edges, vertices }.
+// faceCount/edgeCount answer two of the six; a gate that uses topology as an
+// oracle needs the other four (see forge::direct::TopoCounts for the measurement
+// that says why).
+Napi::Value DirectTopoCounts(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        const forge::direct::TopoCounts c = forge::direct::topoCounts(requireHandle(info, 0));
+        auto out = Napi::Object::New(env);
+        out.Set("solids",   Napi::Number::New(env, static_cast<double>(c.solids)));
+        out.Set("shells",   Napi::Number::New(env, static_cast<double>(c.shells)));
+        out.Set("faces",    Napi::Number::New(env, static_cast<double>(c.faces)));
+        out.Set("wires",    Napi::Number::New(env, static_cast<double>(c.wires)));
+        out.Set("edges",    Napi::Number::New(env, static_cast<double>(c.edges)));
+        out.Set("vertices", Napi::Number::New(env, static_cast<double>(c.vertices)));
+        return out;
+    });
+}
+
 // Slice-3 — edge polylines for viewport edge picking. Returns
 // [{ id, points:Float32Array }] where id is the 0-based fillet/chamfer
 // edge id and points are world-space x,y,z samples along the edge.
@@ -4862,6 +4904,19 @@ Napi::Value PartShell(const Napi::CallbackInfo& info) {
             }
         }
         return Napi::Number::New(info.Env(), forge::part::shell(h, faces, t, mt));
+    });
+}
+
+// TKOffset family G gate entry — the native TopoDS thick-solid with NO OCCT
+// fallback. Throws "DECLINED" outside its supported class, so a passing gate has
+// necessarily measured native geometry (see test/native_thicksolid_closedform.mjs).
+Napi::Value PartShellNativeThick(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto faces = part_bind::readU32Array(info, 1, "faceIdsToRemove");
+        double t = requireNumber(info, 2, "thickness");
+        return Napi::Number::New(info.Env(),
+                                 forge::part::shellNativeThick(h, faces, t));
     });
 }
 
@@ -6188,6 +6243,7 @@ namespace forge { namespace bind {
 void InitGeom(Napi::Env, Napi::Object);
 void InitField(Napi::Env, Napi::Object);
 void InitSketchdiag(Napi::Env, Napi::Object);
+void InitFt(Napi::Env, Napi::Object);   // declarative feature-tree IR compiler (forge.ft.*)
 } }  // namespace forge::bind
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
@@ -6493,6 +6549,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     part.Set("sweep",               Napi::Function::New(env, PartSweep));
     part.Set("loft",                Napi::Function::New(env, PartLoft));
     part.Set("shell",               Napi::Function::New(env, PartShell));
+    part.Set("shellNativeThick",    Napi::Function::New(env, PartShellNativeThick));
     part.Set("thickenSurface",      Napi::Function::New(env, PartThickenSurface));
     part.Set("offsetSolid",         Napi::Function::New(env, PartOffsetSolid));
     part.Set("pipeFromPolyline",    Napi::Function::New(env, PartPipeFromPolyline));
@@ -6552,6 +6609,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     direct.Set("inferFeature",      Napi::Function::New(env, DirectInferFeature));
     direct.Set("faceCount",         Napi::Function::New(env, DirectFaceCount));
     direct.Set("edgeCount",         Napi::Function::New(env, DirectEdgeCount));
+    direct.Set("topoCounts",        Napi::Function::New(env, DirectTopoCounts));
     direct.Set("edgeSegments",      Napi::Function::New(env, DirectEdgeSegments));
     exports.Set("direct", direct);
 
@@ -17844,6 +17902,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     forge::bind::InitGeom(env, exports);
     forge::bind::InitField(env, exports);
     forge::bind::InitSketchdiag(env, exports);
+    forge::bind::InitFt(env, exports);
 
     return exports;
 }

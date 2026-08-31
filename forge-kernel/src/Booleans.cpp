@@ -20,7 +20,6 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <TopExp.hxx>
-#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopAbs.hxx>
@@ -31,12 +30,7 @@
 #include "forge/OcctNativeMesh.hpp"
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
-#include <BRep_Tool.hxx>
-#include <Poly_Triangulation.hxx>
-#include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Face.hxx>
-#include <gp_Pnt.hxx>
 #endif
 #include <algorithm>                        // OCCT-boolean watchdog: per-call deadline cap
 #include <chrono>                           // OCCT-boolean watchdog deadline
@@ -177,6 +171,14 @@ struct BoolBudgetState {
   std::mutex mx;
   std::chrono::steady_clock::time_point winStart{};
   std::chrono::steady_clock::time_point lastEnd{};
+  // Time actually SPENT INSIDE boolean Build() calls in this window. The budget
+  // must meter boolean work, not wall-clock: metering elapsed time since the
+  // window opened counts every millisecond the caller spent doing something
+  // else, so a sustained stream of FAST booleans (a corpus build doing thousands
+  // of 50 ms cuts back to back) tripped the hang guard after 20 s of ordinary
+  // progress. That is the opposite of the intent — the guard exists to collapse
+  // a storm of SLOW degenerate ops, which accumulates real Build() time quickly.
+  std::chrono::milliseconds spent{0};
   bool active = false;
 };
 inline BoolBudgetState& boolBudget() { static BoolBudgetState s; return s; }
@@ -210,8 +212,10 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
     BoolBudgetState& bs = boolBudget();
     std::lock_guard<std::mutex> lk(bs.mx);
     const BoolClock::time_point now = BoolClock::now();
-    if (!bs.active || (now - bs.lastEnd) > kGap) { bs.winStart = now; bs.active = true; }
-    const auto used = std::chrono::duration_cast<std::chrono::milliseconds>(now - bs.winStart);
+    if (!bs.active || (now - bs.lastEnd) > kGap) {
+      bs.winStart = now; bs.active = true; bs.spent = std::chrono::milliseconds{0};
+    }
+    const auto used = bs.spent;
     if (used >= kBudget)
       throw std::runtime_error(
           std::string("forge: boolean ") + opName +
@@ -238,12 +242,16 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
         return holder->op->Shape();
       });
   std::future<TopoDS_Shape> fut = task->get_future();
+  const BoolClock::time_point callStart = BoolClock::now();
   std::thread worker([task]() { (*task)(); });
   const std::future_status st = fut.wait_for(remaining);
   {
     BoolBudgetState& bs = boolBudget();
     std::lock_guard<std::mutex> lk(bs.mx);
-    bs.lastEnd = BoolClock::now();
+    const BoolClock::time_point done = BoolClock::now();
+    // charge the window ONLY for the time this Build() actually took
+    bs.spent += std::chrono::duration_cast<std::chrono::milliseconds>(done - callStart);
+    bs.lastEnd = done;
   }
   if (st == std::future_status::timeout) {
     worker.detach();   // abandon the non-cancellable OCCT build (no inner hook)
@@ -422,19 +430,61 @@ void throwIfTangentPinch(ShapeHandle a, ShapeHandle b,
         opName, 2.0 * tp.radius, tp.wall, tp.eps);
     throw std::runtime_error(msg);
 }
+
+// K2 — NATIVE-ONLY BOOLEAN CLASS (kill the OCCT BRepAlgoAPI fallback for
+// all-native operands). When BOTH operands are native (analytic Solid and/or
+// mesh-bridge) the native analytic/mesh boolean OWNS this class — it is the
+// verified native_vs_occt path. If tryNativeBoolean DEFERRED on such a pair
+// (and it was not a tangent pinch, handled just above by throwIfTangentPinch),
+// the request is a genuine degenerate or an unimplemented native intersection:
+// reject it HONESTLY rather than silently masking a native gap with OCCT
+// (Bible §0 — never fake native; a kind=occt that still shows is an honest FAIL).
+//
+// OCCT booleans are RETAINED (below, via runBoolean<>) only for the genuinely-
+// unsupported cases: (1) at least one OCCT-backed operand — an imported
+// trimmed-NURBS/torus STEP solid the native analytic boolean cannot consume —
+// and (2) the A/B oracle path (setNativeBrep(false), forgeNativeBrepEnabled()
+// == false), which never reaches this guard. Fuzzy/Splitter stay OCCT-only in
+// their own translation units (BooleanTol / SheetMetal / Mold).
+void throwIfNativeOnlyDeferred(ShapeHandle a, ShapeHandle b, const char* opName) {
+    auto& reg = ShapeRegistry::instance();
+    const ShapeKind ka = reg.kindOf(a);
+    const ShapeKind kb = reg.kindOf(b);
+    const bool aNative = (ka == ShapeKind::NativeSolid || ka == ShapeKind::NativeMesh);
+    const bool bNative = (kb == ShapeKind::NativeSolid || kb == ShapeKind::NativeMesh);
+    if (!(aNative && bNative))
+        return;  // >= 1 OCCT-backed operand -> genuinely-unsupported -> OCCT below
+    throw std::runtime_error(
+        std::string("forge: boolean ") + opName +
+        ": native analytic/mesh boolean deferred on an all-native operand pair. "
+        "This operand class is NATIVE-ONLY — the OCCT BRepAlgoAPI fallback was "
+        "removed (K2). The operands are degenerate or hit an unimplemented native "
+        "intersection; refusing rather than masking a native gap with OCCT "
+        "(Bible \xC2\xA7""0). OCCT booleans remain only for OCCT-backed operands "
+        "(imported trimmed-NURBS/torus STEP solids) and fuzzy/splitter.");
+}
 #endif
 
 }  // namespace
+
+void resetBooleanBudget() {
+    BoolBudgetState& bs = boolBudget();
+    std::lock_guard<std::mutex> lk(bs.mx);
+    bs.active = false;                 // the next boolean opens a fresh window
+    bs.spent = std::chrono::milliseconds{0};
+}
 
 ShapeHandle fuse(ShapeHandle a, ShapeHandle b) {
 #ifdef FORGE_NATIVE_BREP
     if (native::brep::forgeNativeBrepEnabled()) {
         ShapeHandle out = kInvalidHandle;
         if (tryNativeBoolean(a, b, native::brep::BoolOp::Fuse, out)) return out;
-        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+        // native deferred. Fast-reject a tangent/degenerate pinch, then refuse an
+        // all-native deferral (native-only class — K2), else fall through to OCCT
+        // only for an OCCT-backed operand (get() lazily bridges native operands).
+        throwIfTangentPinch(a, b, native::brep::BoolOp::Fuse, "fuse");
+        throwIfNativeOnlyDeferred(a, b, "fuse");
     }
-    // Fast-reject a tangent/degenerate pinch BEFORE the OCCT fallback can spin.
-    throwIfTangentPinch(a, b, native::brep::BoolOp::Fuse, "fuse");
 #endif
     return runBoolean<BRepAlgoAPI_Fuse>(a, b, "fuse");
 }
@@ -443,10 +493,12 @@ ShapeHandle cut(ShapeHandle a, ShapeHandle b) {
     if (native::brep::forgeNativeBrepEnabled()) {
         ShapeHandle out = kInvalidHandle;
         if (tryNativeBoolean(a, b, native::brep::BoolOp::Cut, out)) return out;
-        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+        // native deferred. Fast-reject a tangent/degenerate pinch, then refuse an
+        // all-native deferral (native-only class — K2), else fall through to OCCT
+        // only for an OCCT-backed operand (get() lazily bridges native operands).
+        throwIfTangentPinch(a, b, native::brep::BoolOp::Cut, "cut");
+        throwIfNativeOnlyDeferred(a, b, "cut");
     }
-    // Fast-reject a tangent/degenerate pinch BEFORE the OCCT fallback can spin.
-    throwIfTangentPinch(a, b, native::brep::BoolOp::Cut, "cut");
 #endif
     return runBoolean<BRepAlgoAPI_Cut>(a, b, "cut");
 }
@@ -455,10 +507,12 @@ ShapeHandle common(ShapeHandle a, ShapeHandle b) {
     if (native::brep::forgeNativeBrepEnabled()) {
         ShapeHandle out = kInvalidHandle;
         if (tryNativeBoolean(a, b, native::brep::BoolOp::Common, out)) return out;
-        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+        // native deferred. Fast-reject a tangent/degenerate pinch, then refuse an
+        // all-native deferral (native-only class — K2), else fall through to OCCT
+        // only for an OCCT-backed operand (get() lazily bridges native operands).
+        throwIfTangentPinch(a, b, native::brep::BoolOp::Common, "common");
+        throwIfNativeOnlyDeferred(a, b, "common");
     }
-    // Fast-reject a tangent/degenerate pinch BEFORE the OCCT fallback can spin.
-    throwIfTangentPinch(a, b, native::brep::BoolOp::Common, "common");
 #endif
     return runBoolean<BRepAlgoAPI_Common>(a, b, "common");
 }

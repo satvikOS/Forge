@@ -63,7 +63,30 @@ TopoDS_Solid occtWedgeSolid(double dx, double dy, double dz, double ltx);
 // edge curve — lines, arcs, splines alike). Throws on a degenerate / non-closed
 // sweep; planar profiles get a closed-form volume self-check (area*|vec.n|).
 // NO BRepPrimAPI symbol is referenced.
-TopoDS_Shape occtPrism(const TopoDS_Shape& profile, const gp_Vec& vec);
+//
+// `canonize` mirrors BRepPrimAPI_MakePrism's Canonize flag, which DEFAULTED TO TRUE in
+// the OCCT call this function replaced. When set, a lateral whose swept surface has an
+// exact canonical form with the IDENTICAL (u,v) parametrisation is emitted as that form
+// instead of a Geom_SurfaceOfLinearExtrusion:
+//     LINE   swept PERPENDICULAR to itself      -> Geom_Plane
+//     CIRCLE swept ALONG its own axis           -> Geom_CylindricalSurface
+// Anything else (oblique line sweep, splines) is left as the extrusion surface, so the
+// result is always GEOMETRICALLY IDENTICAL either way — only the surface TYPE of the
+// lateral differs, never the point set. Volume, centre of mass, bounding box, topology
+// and validity are unaffected; faceInventory's kind census is not.
+//
+// ★ DEFAULT **false** — i.e. today's shipped behaviour — deliberately. Since the TKPrim
+//   drop every prism in the kernel has carried extrusion-typed laterals where OCCT
+//   emitted Planes, and faceInventory reports those as kind "other". Flipping this
+//   default would change the face-type census of every extrude, push/pull, rib, parting
+//   slab and base flange in the product at once, so it needs the full Models-OS gate and
+//   is deliberately NOT bundled with a per-callsite fix. Callers that need canonical
+//   laterals opt in explicitly; NativeThickenShell.cpp does, because it is a
+//   BRepPrimAPI_MakePrism callsite that was swapped to occtPrism (PR #64) and MakePrism
+//   canonized by default — without it the thicken A/B's face-type census fails on 19
+//   assertions while every geometric observable still passes (MEASURED).
+TopoDS_Shape occtPrism(const TopoDS_Shape& profile, const gp_Vec& vec,
+                       bool canonize = false);
 
 // ---------------------------------------------------------- ROTATIONAL SWEEP
 // TKPrim-free rotational sweep (revolve) of a FACE about `ax` through `angle`

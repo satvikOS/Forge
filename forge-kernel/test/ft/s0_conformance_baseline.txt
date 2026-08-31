@@ -1,0 +1,14 @@
+# s0 conformance ratchet baseline.
+#
+# The Appendix B acceptance suite deliberately asserts laws the implementation does not yet
+# satisfy, so its raw exit code is 1 by design and its failures ARE the deliverable. A gate that
+# is permanently red teaches people to ignore it, so CI applies a RATCHET instead of the raw code:
+#
+#   fail  > baseline  -> RED. A conformance regression; the change under review broke a law.
+#   fail  < baseline  -> RED. A gap was closed — LOWER THIS NUMBER in the same commit. This
+#                        direction is deliberately red so the baseline can never silently drift
+#                        away from reality and quietly re-admit a regression.
+#   fail == baseline  -> GREEN, with the outstanding gaps printed every run.
+#
+# Lower it, never raise it. Raising it requires an explicit decision recorded in DECISIONS.md.
+S0_EXPECTED_FAILURES=5
