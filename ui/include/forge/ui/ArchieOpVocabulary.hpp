@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = d2c91b29d81ee5c5742ca4ec2c6459809583d25a1ec8917f88d219d5230dce5d
+// sha256(vocabulary) = 0f148c99df5aa1a3f42dd8dc6a1f59bd955bbda9976ae275cb0c1c7733833490
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,21 +35,21 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "d2c91b29d81ee5c5742ca4ec2c6459809583d25a1ec8917f88d219d5230dce5d";
+inline constexpr std::string_view kVocabularySha256 = "0f148c99df5aa1a3f42dd8dc6a1f59bd955bbda9976ae275cb0c1c7733833490";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
 inline constexpr std::size_t kKernelOpsCount = 40;
-inline constexpr std::size_t kRegistryCommandsCount = 31;
-inline constexpr std::size_t kCommandsEmittingIrCount = 20;
-inline constexpr std::size_t kUserInvocableOpsCount = 18;
-inline constexpr std::size_t kForbiddenOpsCount = 22;
+inline constexpr std::size_t kRegistryCommandsCount = 39;
+inline constexpr std::size_t kCommandsEmittingIrCount = 21;
+inline constexpr std::size_t kUserInvocableOpsCount = 19;
+inline constexpr std::size_t kForbiddenOpsCount = 21;
 
 // ---------------------------------------------------------------- side tables
 // Sliced by the (first, count) pairs in the rows below.
-inline constexpr std::array<std::string_view, 15> kConsumedValueKinds = {{
+inline constexpr std::array<std::string_view, 16> kConsumedValueKinds = {{
     "SOLID",
     "SOLID",
     "SOLID",
@@ -65,6 +65,7 @@ inline constexpr std::array<std::string_view, 15> kConsumedValueKinds = {{
     "PROFILE",
     "SOLID",
     "SOLID",
+    "SOLID",
 }};
 
 // An argument COUNT a user command can actually emit.  Deliberately narrower
@@ -74,7 +75,7 @@ struct ArgCountRange {
   std::size_t min = 0;
   std::size_t max = 0;  // kUnboundedArgs when the op is variadic
 };
-inline constexpr std::array<ArgCountRange, 32> kEmittedArgCounts = {{
+inline constexpr std::array<ArgCountRange, 33> kEmittedArgCounts = {{
     ArgCountRange{3, 3},
     ArgCountRange{5, 5},
     ArgCountRange{7, 7},
@@ -106,10 +107,11 @@ inline constexpr std::array<ArgCountRange, 32> kEmittedArgCounts = {{
     ArgCountRange{7, 7},
     ArgCountRange{2, 2},
     ArgCountRange{5, 5},
+    ArgCountRange{3, 3},
     ArgCountRange{4, 4},
 }};
 
-inline constexpr std::array<std::string_view, 20> kOpCommandIds = {{
+inline constexpr std::array<std::string_view, 21> kOpCommandIds = {{
     "part.variable_fillet",
     "part.counterbore",
     "part.chamfer",
@@ -129,6 +131,7 @@ inline constexpr std::array<std::string_view, 20> kOpCommandIds = {{
     "part.revolve",
     "part.section_ring",
     "part.shell",
+    "part.tag_feature",
     "part.move",
 }};
 
@@ -146,7 +149,7 @@ struct OpRow {
   std::size_t commandFirst = 0;        // slice of kOpCommandIds
   std::size_t commandCount = 0;
 };
-inline constexpr std::array<OpRow, 18> kAllowedOps = {{
+inline constexpr std::array<OpRow, 19> kAllowedOps = {{
     OpRow{"BLEND", "SOLID", 0, 1, 3, 5, true, 0, 2, 0, 1},
     OpRow{"CBORE", "SOLID", 1, 1, 7, 10, true, 2, 1, 1, 1},
     OpRow{"CHAMFER", "SOLID", 2, 1, 2, 3, true, 3, 1, 2, 1},
@@ -164,7 +167,8 @@ inline constexpr std::array<OpRow, 18> kAllowedOps = {{
     OpRow{"REVOLVE", "SOLID", 12, 1, 2, 8, true, 25, 2, 16, 1},
     OpRow{"RING", "WIRE", 13, 0, 3, 7, false, 27, 2, 17, 1},
     OpRow{"SHELL", "SOLID", 13, 1, 2, 5, true, 29, 2, 18, 1},
-    OpRow{"TRANSLATE", "SOLID", 14, 1, 4, 4, true, 31, 1, 19, 1},
+    OpRow{"TAG", "SOLID", 14, 1, 3, 3, true, 31, 1, 19, 1},
+    OpRow{"TRANSLATE", "SOLID", 15, 1, 4, 4, true, 32, 1, 20, 1},
 }};
 
 // ------------------------------------------------------------- forbidden ops
@@ -174,7 +178,7 @@ struct ForbiddenRow {
   std::string_view op;
   std::string_view reason;
 };
-inline constexpr std::array<ForbiddenRow, 22> kForbiddenOps = {{
+inline constexpr std::array<ForbiddenRow, 21> kForbiddenOps = {{
     ForbiddenRow{"BOX",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"CONE",
@@ -209,8 +213,6 @@ inline constexpr std::array<ForbiddenRow, 22> kForbiddenOps = {{
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"SWEEP",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
-    ForbiddenRow{"TAG",
-                 "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"TORUS",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"TUBE",
@@ -231,7 +233,7 @@ struct CommandRow {
   std::size_t selectionMax = 0;        // kUnboundedArgs when open-ended
   std::string_view producesValueKind;  // "Profile" | "Wire" | "Solid"
 };
-inline constexpr std::array<CommandRow, 20> kEmittingCommands = {{
+inline constexpr std::array<CommandRow, 21> kEmittingCommands = {{
     CommandRow{"part.boolean_intersect", "COMMON", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_subtract", "CUT", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_union", "FUSE", "Body", 2, 2, "Solid"},
@@ -251,6 +253,7 @@ inline constexpr std::array<CommandRow, 20> kEmittingCommands = {{
     CommandRow{"part.shell", "SHELL", "Face", 1, kUnboundedArgs, "Solid"},
     CommandRow{"part.sketch_circle", "CIRCLE", "None", 0, kUnboundedArgs, "Profile"},
     CommandRow{"part.sketch_rect", "RECT", "None", 0, kUnboundedArgs, "Profile"},
+    CommandRow{"part.tag_feature", "TAG", "Face", 1, kUnboundedArgs, "Solid"},
     CommandRow{"part.variable_fillet", "BLEND", "Edge", 1, kUnboundedArgs, "Solid"},
 }};
 

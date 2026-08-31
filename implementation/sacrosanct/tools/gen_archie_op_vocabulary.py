@@ -661,6 +661,12 @@ def slot_of(call):
             return {"token": "keyword", "from_local": expr}
         raise DeriveError("unparsed keyword argument %r" % expr)
     if kind == "text":
+        # Same two shapes the keyword branch above accepts, for the same reason: a
+        # quoted IR argument is either a literal or comes straight from a Text
+        # parameter. TAG's "@name" and its declaring selector are the second form.
+        m = re.match(r'^txt\(ctx, "(\w+)", "([^"]*)"\)$', expr)
+        if m:
+            return {"token": "text", "from_parameter": m.group(1), "fallback": m.group(2)}
         if re.match(r"^\w+$", expr):
             return {"token": "text", "from_local": expr}
         raise DeriveError("unparsed text argument %r" % expr)
@@ -1045,6 +1051,10 @@ def slot_token(slot, cmd):
             return slot["literal"]
         dom = keyword_domain(cmd["enabled_predicate_source"], slot["from_parameter"])
         return "|".join(dom) if dom else slot["from_parameter"]
+    if slot["token"] == "text":
+        # A QUOTED argument, and the quotes are part of the token: forge::ft's
+        # lexer reads `"@bore_main"` as TokKind::Str and `@bore_main` as nothing.
+        return '"<%s>"' % slot["from_parameter"] if "from_parameter" in slot else '"<text>"'
     raise DeriveError("cannot render slot %r" % slot)
 
 
@@ -1104,6 +1114,9 @@ def render_example(cmd, slots, active, params, selector_choice=None):
             continue
         if s["token"] == "keyword":
             args.append(s["literal"] if "literal" in s else params[s["from_parameter"]])
+            continue
+        if s["token"] == "text":
+            args.append('"%s"' % params[s["from_parameter"]])
             continue
         raise DeriveError("cannot render slot %r" % s)
     return args

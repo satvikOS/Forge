@@ -14,6 +14,7 @@ part.boolean_subtract	Part	CUT	document	transaction	none	1	-
 part.boolean_union	Part	FUSE	document	transaction	none	1	-
 part.chamfer	Part	CHAMFER	document	transaction	live	1	distance:number:required,selector:text:optional
 part.counterbore	Part	CBORE	document	transaction	ondemand	1	diameter:number:required,cbore_diameter:number:required,cbore_depth:number:required,x:number:optional,y:number:optional,z:number:optional
+part.delete_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault
 part.edit_feature	Part	-	document	transaction	live	1	feature:number:optional:hasdefault,index:number:optional:hasdefault,value:number:required
 part.extrude	Part	EXTRUDE	document	transaction	live	1	distance:number:required:hasdefault,dirx:number:optional,diry:number:optional,dirz:number:optional
 part.fillet	Part	FILLET	document	transaction	live	1	radius:number:required:hasdefault,selector:text:optional
@@ -24,11 +25,18 @@ part.move	Part	TRANSLATE	document	transaction	live	1	dx:number:optional,dy:numbe
 part.pattern_circular	Part	PATTERN	document	transaction	ondemand	1	count:number:required,total_angle:number:optional
 part.pattern_grid	Part	PATTERN	document	transaction	ondemand	1	nx:number:required,ny:number:required,dx:number:required,dy:number:required
 part.pattern_linear	Part	PATTERN	document	transaction	ondemand	1	count:number:required,dx:number:required,dy:number:optional,dz:number:optional
+part.rename_feature	Part	-	document	transaction	none	1	feature:number:optional:hasdefault,name:text:required
+part.reorder_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault,position:number:required
 part.revolve	Part	REVOLVE	document	transaction	live	1	angle:number:required,axx:number:optional,axy:number:optional,axz:number:optional
+part.rollback_end	Part	-	document	transaction	none	1	-
+part.rollback_to	Part	-	document	transaction	ondemand	1	feature:number:required
 part.section_ring	Part	RING	document	transaction	live	1	rx:number:required,ry:number:required,z:number:required,cx:number:optional,cy:number:optional,p:number:optional,seg:number:optional
 part.shell	Part	SHELL	document	transaction	ondemand	1	thickness:number:required:hasdefault,open_axx:number:optional,open_axy:number:optional,open_axz:number:optional
 part.sketch_circle	Part	CIRCLE	document	transaction	live	1	radius:number:required,cx:number:optional,cy:number:optional
 part.sketch_rect	Part	RECT	document	transaction	live	1	width:number:required,height:number:required,cx:number:optional,cy:number:optional
+part.suppress_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault
+part.tag_feature	Part	TAG	document	transaction	none	1	name:text:required,selector:text:optional
+part.unsuppress_feature	Part	-	document	transaction	ondemand	1	feature:number:optional:hasdefault
 part.variable_fillet	Part	BLEND	document	transaction	ondemand	1	radius_start:number:required,radius_end:number:required,smooth:flag:optional
 view.fit	View	-	view	none	none	1	-
 view.wireframe	View	-	view	none	none	1	-
