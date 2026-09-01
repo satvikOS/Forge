@@ -2046,8 +2046,11 @@ int System::addConstraintP2PAngle(Point& p1, Point& p2, double* angle,
 ```
 
 The parameter is commented out and **0 — planegcs's "no tag" sentinel — is hard-coded in its
-place.** It is the ONLY delegating overload in that file that does this: 30 delegations were
-checked and 29 forward `tagId`. A constraint left on tag 0 is invisible to `getConflicting()`,
+place.** It is the ONLY delegating overload in that file that does this: **34** delegating definitions were
+counted and **33** forward `tagId`. (A first pass said 30/29 — the three multi-line
+`addConstraintTangentCircumf` calls forward the tag on a continuation line, which a one-line grep
+cannot see. Recorded because it is the same shape as the rest of this entry: a count is only worth
+what the instrument that produced it can see.) A constraint left on tag 0 is invisible to `getConflicting()`,
 `clearByTag()` and `calculateConstraintErrorByTag()`, so the geometry still solves while **the
 repair loop can never demote it and its residual reads NaN** — a silent hole in exactly the
 never-refuse contract this family exists to honour. Fixed in the FACADE, not in the vendored file

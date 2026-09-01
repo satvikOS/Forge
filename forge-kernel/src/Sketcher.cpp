@@ -542,8 +542,10 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
             //
             // with the parameter commented out and 0 — planegcs's "no tag"
             // sentinel — hard-coded in its place. It is the ONLY delegating
-            // overload in that file that does this; every other one forwards
-            // tagId (checked: 30 delegations, one offender).
+            // overload in that file that does this. Counted: 34 delegating
+            // definitions, 33 of which forward tagId (the three
+            // addConstraintTangentCircumf calls do too -- they are multi-line,
+            // so a one-line grep MISSES them and a first count said 30/29).
             //
             // A constraint left on tag 0 is invisible to getConflicting(),
             // clearByTag() and calculateConstraintErrorByTag(), so the geometry
