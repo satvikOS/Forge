@@ -916,6 +916,148 @@ void testClosedVocabulary() {
     }
 }
 
+// ---------------------------------------------------------------- ARC form
+// The ARC op accepts one point ring whose rows are `x y` (the segment arriving
+// here is a straight line) or `x y mx my` (that segment is the circular arc
+// through (mx,my)). This group is the FORM contract, both directions.
+//
+// It exists because a measurement contradicted a belief. The 48 BenchCAD GT
+// programs that use ARC were reported as failing on FORM. They do not: all 86 of
+// their ARC statements, 1635 coordinate rows, satisfy the grammar below with
+// ZERO violations. They failed because the op was absent from opFromName. The
+// literals in 7a and 7b are verbatim GT statements, so if the accepted form ever
+// drifts away from the corpus, these go red rather than the corpus going quiet.
+//
+// Parse level only: compile() is never called here, so nothing below builds a
+// solid. What is asserted is the shape of the parsed Op — vertex ring, per-vertex
+// line/arc flags, and through-points — which is precisely what profArc() reads.
+void testArcForm() {
+    group("ARC FORM — the GT form IS the accepted form, and a 3-column row is REFUSED");
+
+    // ---- 7a: a verbatim GT statement (family parallel_key) -----------------
+    // 4 rows: two straight, two arcs. Row 0 is 2 numbers, so the CLOSING segment
+    // (last vertex -> row 0) is a straight line.
+    {
+        const std::string ir =
+            "%1 = ARC([50.835 -2.23; 50.835 2.23 53.065 0; "
+            "-50.835 2.23; -50.835 -2.23 -53.065 0])";
+        ParseOutcome o = tryParse(ir);
+        bool ok = !o.threw && o.tree.ops.size() == 1 &&
+                  o.tree.ops[0].code == OpCode::Arc &&
+                  o.tree.ops[0].poly.size() == 4 &&
+                  o.tree.ops[0].arcIsArc.size() == 4 &&
+                  o.tree.ops[0].arcThrough.size() == 4;
+        if (ok) {
+            const Op& a = o.tree.ops[0];
+            ok = ok && a.arcIsArc[0] == 0 && a.arcIsArc[1] == 1 &&
+                       a.arcIsArc[2] == 0 && a.arcIsArc[3] == 1;
+            ok = ok && a.poly[0].x == 50.835 && a.poly[0].y == -2.23;
+            ok = ok && a.arcThrough[1].x == 53.065 && a.arcThrough[1].y == 0;
+            ok = ok && a.arcThrough[3].x == -53.065 && a.arcThrough[3].y == 0;
+        }
+        check(ok,
+              "verbatim GT ARC (parallel_key) parses: 4 vertices, arcs at 1 and 3, "
+              "through-points read",
+              o.threw ? "threw: " + o.message
+                      : "ops=" + std::to_string(o.tree.ops.size()) + " pts=" +
+                            std::to_string(o.tree.ops.empty() ? 0
+                                                             : o.tree.ops[0].poly.size()));
+    }
+
+    // ---- 7b: a verbatim GT statement (family wing_nut) ---------------------
+    // 6 rows, exactly ONE of them an arc. This is the common shape in the corpus:
+    // 281 of the 1635 GT rows are straight and 1354 are arcs, spread over
+    // statements of 3 to 233 rows.
+    {
+        const std::string ir =
+            "%1 = ARC([0 0; -5 0; -12.5 7.5; -8.75 12 -11.679 10.628; -4 5; 0 5])";
+        ParseOutcome o = tryParse(ir);
+        bool ok = !o.threw && o.tree.ops.size() == 1 &&
+                  o.tree.ops[0].code == OpCode::Arc &&
+                  o.tree.ops[0].poly.size() == 6;
+        if (ok) {
+            const Op& a = o.tree.ops[0];
+            int arcs = 0;
+            for (char f : a.arcIsArc) arcs += (f != 0);
+            ok = ok && arcs == 1 && a.arcIsArc[3] == 1 &&
+                 a.arcThrough[3].x == -11.679 && a.arcThrough[3].y == 10.628;
+        }
+        check(ok, "verbatim GT ARC (wing_nut) parses: 6 vertices, exactly one arc at 3",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+
+    // ---- 7c: two points ARE enough when a segment bows ---------------------
+    // A lens is two opposed arcs; a D is a line closed by an arc. Refusing them
+    // would be an arbitrary restriction, so the minimum is 2 when any row is an
+    // arc and 3 when none is.
+    {
+        ParseOutcome o = tryParse("%1 = ARC([-10 0 0 8; 10 0 0 -8])");
+        check(!o.threw && o.tree.ops.size() == 1 && o.tree.ops[0].poly.size() == 2,
+              "ARC with 2 vertices and both segments bowed (a lens) is ACCEPTED",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+
+    // ---- 7d: a 3-number row is a HARD error, not a silent chord ------------
+    // This is the whole reason ARC is a separate op rather than a widening of
+    // POLY. A 3-column row is most likely a bulge list pasted into an ARC, and
+    // dropping the odd column would build a profile with every arc replaced by
+    // its chord: a wrong solid, no error. That failure mode must be impossible.
+    {
+        ParseOutcome o = tryParse("%1 = ARC([0 0 0.5; 10 0 0.5; 10 10 0.5])");
+        check(o.threw, "ARC row of 3 numbers is REFUSED (a bulge list is not an ARC)",
+              o.threw ? "" : "parse() ACCEPTED it — arcs would build as chords, silently");
+    }
+
+    // ---- 7e: the remaining refusals ---------------------------------------
+    {
+        ParseOutcome o = tryParse("%1 = ARC(1,2,3)");
+        check(o.threw, "ARC(1,2,3) — no point ring — is REFUSED",
+              o.threw ? "" : "parse() ACCEPTED a bracket-less ARC");
+    }
+    {
+        ParseOutcome o = tryParse("%1 = ARC([0 0; 10 0])");
+        check(o.threw,
+              "ARC with 2 vertices and NO arc segment is REFUSED (that is a POLY)",
+              o.threw ? "" : "parse() ACCEPTED a 2-point straight loop");
+    }
+
+    // ---- 7f: POSITIVE CONTROL IN THE OTHER DIRECTION -----------------------
+    // Adding ARC must not have moved POLY. Same literal ring, still OpCode::Poly,
+    // still the same vertices, and still refusing anything but `x y` rows.
+    {
+        ParseOutcome o = tryParse("%1 = POLY([0 0; 10 0; 10 10])");
+        bool ok = !o.threw && o.tree.ops.size() == 1 &&
+                  o.tree.ops[0].code == OpCode::Poly &&
+                  o.tree.ops[0].poly.size() == 3 &&
+                  o.tree.ops[0].arcIsArc.empty() &&
+                  o.tree.ops[0].arcThrough.empty();
+        if (ok) {
+            const Op& a = o.tree.ops[0];
+            ok = ok && a.poly[0].x == 0 && a.poly[1].x == 10 && a.poly[2].y == 10;
+        }
+        check(ok,
+              "POLY is UNCHANGED by ARC: same ring, code Poly, no arc columns populated",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+    {
+        ParseOutcome o = tryParse("%1 = POLY([0 0; 10 0])");
+        check(o.threw, "POLY still needs >= 3 points",
+              o.threw ? "" : "parse() ACCEPTED a 2-point POLY");
+    }
+
+    // ---- 7g: an unknown op that CONTAINS "ARC" is still rejected -----------
+    // The closed vocabulary is unchanged by the addition. `ARCSLOT` is not an op;
+    // it must fail, and the repair hint must name the real ops it is made of.
+    {
+        ParseOutcome o = tryParse("%1 = ARCSLOT([0 0; 10 0; 10 10])");
+        const bool named = o.message.find("ARC") != std::string::npos &&
+                           o.message.find("SLOT") != std::string::npos;
+        check(o.threw && named,
+              "unknown op `ARCSLOT` is REJECTED and the hint names ARC and SLOT",
+              o.threw ? "message: " + o.message : "parse() ACCEPTED ARCSLOT");
+    }
+}
+
 int main() {
     std::printf("SACROSANCT 3.1 Appendix B — feature-DAG acceptance tests (s0)\n");
     std::printf("target: forge::ft IR (parse-level; compile() is not invoked)\n");
@@ -926,6 +1068,7 @@ int main() {
     testChunkCorruption();
     testGraphQualityGate();
     testClosedVocabulary();
+    testArcForm();
 
     std::printf("\n---------------------------------------------------------------\n");
     std::printf("TOTAL  pass=%d  fail=%d\n", g_pass, g_fail);
