@@ -9,7 +9,7 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — six headless gates, none of which needs a GPU:
+#   2. gates          — seven headless gates, none of which needs a GPU:
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
 #                       * document    — the user-launchable slice: the ONE
@@ -37,9 +37,11 @@
 #                         exists for was a use-after-free that made the SHIPPED
 #                         app SIGSEGV on the first tab click while the frame and
 #                         document gates both stayed green -- neither clicks.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. THIRTY-SEVEN
+#                       * isolation   — the out-of-process kernel worker: an OCCT
+#                         segfault must kill the WORKER and leave the app alive.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. THIRTY-NINE
 #                       defects (8 document + 9 frame + 8 copilot + 7 update +
-#                       5 click) are
+#                       7 click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -47,7 +49,7 @@
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
 # status is whatever ran last and a run that fell out of its own middle would
-# exit 0. That wrapper also pins the mutation count at an EXACT 37, so adding or
+# exit 0. That wrapper also pins the mutation count at an EXACT 39, so adding or
 # removing a --mutate case below means changing EXPECTED_MUTATIONS in
 # ci_desktop_gate.sh in the SAME commit.
 #
@@ -107,7 +109,7 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + forge_kernel_worker + 6 headless gates (-Wall -Wextra -Werror clean)"
+echo "[desktop] built forge_desktop + forge_kernel_worker + 7 headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0

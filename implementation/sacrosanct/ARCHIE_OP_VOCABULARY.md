@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 68 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 69 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,8 +46,8 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **57 commands**; **42 of them emit
-feature-IR**, reaching **39 distinct op names**. The kernel defines **46** ops
+Measured at this revision: the registry holds **58 commands**; **43 of them emit
+feature-IR**, reaching **40 distinct op names**. The kernel defines **47** ops
 (`opFromName`), so **7 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
@@ -126,6 +126,7 @@ check that silently stops checking is the failure it was written to prevent.
 | `PATTERN` | part.pattern_linear / _circular / _grid | `PATTERN(%body, LINEAR, count, dx[, dy, dz])`<br>`PATTERN(%body, POLAR, count, total_angle)`<br>`PATTERN(%body, GRID, nx, ny, dx, dy)` |
 | `MIRROR` | part.mirror | `MIRROR(%body, XY\|XZ\|YZ)` |
 | `FUSE` / `CUT` / `COMMON` | part.boolean_union / _subtract / _intersect | `FUSE(%body, %tool)` etc. |
+| `SECTION` | part.section_curve | `SECTION(%body, %tool)` |
 | `INPUT` | part.input_solid | `INPUT()` |
 | `HEAL` | part.heal | `HEAL(%body)` |
 | `DEFEATURE` | part.defeature | `DEFEATURE(%body, "<selector>")` |
@@ -193,11 +194,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 68 on every CI run), not a hand-written illustration.
+dispatches all 69 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 39 names are legal; after the name, the argument count is bounded
+head, only the 40 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).

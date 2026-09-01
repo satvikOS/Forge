@@ -41,6 +41,7 @@ part.push_face	Part	PUSHFACE	document	transaction	live	1	selector:text:required:
 part.resize_bore	Part	RESIZEBORE	document	transaction	ondemand	1	selector:text:required:hasdefault,radius:number:required:hasdefault
 part.revolve	Part	REVOLVE	document	transaction	live	1	angle:number:required:hasdefault,axx:number:optional,axy:number:optional,axz:number:optional
 part.rotate	Part	ROTATE	document	transaction	live	1	angle:number:required:hasdefault,axx:number:optional,axy:number:optional,axz:number:optional,ox:number:optional,oy:number:optional,oz:number:optional
+part.section_curve	Part	SECTION	document	transaction	none	1	-
 part.section_ring	Part	RING	document	transaction	live	1	rx:number:required:hasdefault,ry:number:required:hasdefault,z:number:required:hasdefault,cx:number:optional,cy:number:optional,p:number:optional,seg:number:optional
 part.section_wire	Part	WIRE	document	transaction	live	1	ring:text:required:hasdefault
 part.shell	Part	SHELL	document	transaction	ondemand	1	thickness:number:required:hasdefault,open_axx:number:optional,open_axy:number:optional,open_axz:number:optional

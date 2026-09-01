@@ -2193,6 +2193,38 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── SECTION CURVE ─────────────────────────────────────────────────────────
+  // The FOURTH boolean, and the one the app never had because the kernel never had
+  // it either: OCCT's BRepAlgoAPI ships Fuse, Cut, Common AND Section, and the IR
+  // stopped at three. Nobody noticed because no benchmark row demanded it.
+  //
+  // It is registered next to the other three because a user reaches it the same way
+  // -- pick two bodies -- and it is NOT one of them because of what comes back. The
+  // other three return a body and CONSUME the tool. This one returns the CURVE where
+  // the two bodies' faces cross and consumes NOTHING: both operands are still there
+  // afterwards, which is the whole point of taking a section. So its consumed-node
+  // list is empty and its produced node carries the `wire_` prefix, exactly as
+  // part.section_ring's does -- a WIRE has to be selectable as a wire, because LOFT
+  // is what consumes it and EXTRUDE must not be offered for it.
+  {
+    CommandDescriptor c = base("part.section_curve", "Section Curve", "SECTION",
+                               SelectionSignature::exactly(EntityKind::Body, 2));
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() == 2;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> bodies = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      // resolveValues on an empty selection returns an empty vector, and indexing it
+      // is the SIGSEGV requireValues() exists to stop. Same guard the booleans use.
+      if (!requireValues(ctx, bodies, 2)) return;
+      std::vector<IrArg> args{IrArg::valueRef(bodies[0]), IrArg::valueRef(bodies[1])};
+      emit(ctx, *d, *s, "part.section_curve", "Section Curve", "SECTION", std::move(args),
+           IrValueKind::Wire, {}, wireNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
   // ── SWEEP: TWO COMMANDS, ONE OP ───────────────────────────────────────────
   // SWEEP has two forms that differ in the KIND of their first argument, not in an
   // argument count or a keyword:
@@ -2363,20 +2395,20 @@ const std::vector<std::string>& partCommandIds() {
   static const std::vector<std::string> ids = [] {
     std::vector<std::string> v{
         "part.boolean_intersect",  "part.boolean_subtract",   "part.boolean_union",
-        "part.chamfer",            "part.counterbore",        "part.defeature",
-        "part.edit_feature",       "part.extrude",            "part.fillet",
-        "part.fold_flange",        "part.heal",               "part.hole",
-        "part.input_solid",        "part.loft",               "part.mirror",
-        "part.move",               "part.pattern_circular",   "part.pattern_grid",
-        "part.pattern_linear",     "part.primitive_box",      "part.primitive_cone",
-        "part.primitive_cylinder", "part.primitive_prism",    "part.primitive_sphere",
-        "part.primitive_torus",    "part.primitive_tube",     "part.push_face",
-        "part.resize_bore",        "part.revolve",            "part.rotate",
-        "part.section_ring",       "part.section_wire",       "part.shell",
-        "part.sketch_circle",      "part.sketch_poly",        "part.sketch_polygon",
-        "part.sketch_rect",        "part.sketch_rounded_rect", "part.sweep_pipe",
-        "part.sweep_profile",      "part.tag_feature",        "part.variable_fillet",
-        "part.verify",
+        "part.chamfer", "part.counterbore", "part.defeature",
+        "part.edit_feature", "part.extrude", "part.fillet",
+        "part.fold_flange", "part.heal", "part.hole",
+        "part.input_solid", "part.loft", "part.mirror",
+        "part.move", "part.pattern_circular", "part.pattern_grid",
+        "part.pattern_linear", "part.primitive_box", "part.primitive_cone",
+        "part.primitive_cylinder", "part.primitive_prism", "part.primitive_sphere",
+        "part.primitive_torus", "part.primitive_tube", "part.push_face",
+        "part.resize_bore", "part.revolve", "part.rotate",
+        "part.section_curve", "part.section_ring", "part.section_wire",
+        "part.shell", "part.sketch_circle", "part.sketch_poly",
+        "part.sketch_polygon", "part.sketch_rect", "part.sketch_rounded_rect",
+        "part.sweep_pipe", "part.sweep_profile", "part.tag_feature",
+        "part.variable_fillet", "part.verify",
     };
     std::sort(v.begin(), v.end());
     return v;
