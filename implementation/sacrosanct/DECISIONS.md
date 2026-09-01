@@ -1948,3 +1948,102 @@ uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf
 OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
 change for every corpus already written against `LOFT`, and it belongs in its own commit with
 its own measurement.
+
+---
+
+## D-042 (2026-09-01): the sketch family's binding limit was its CONSTRAINT VOCABULARY, not its value kind — CON 9 -> 19, and a merge proved a fourth value kind can be added twice without a compile error
+
+*(Numbering: **D-041 is deliberately skipped.** It is already allocated by concurrent
+self-consistency work — "build rate spans 57.6-80.8% across four arms while self-inconsistency is
+FLAT at 55.1 / 56.3 / 58.0 / 58.4" — which has not merged here yet. Taking the next free number in
+this file would have reproduced exactly the D-033/D-038 collision this branch spent a merge
+resolving.)*
+
+**What was already true, and is not claimed here as new.** The `SKETCH` / `SKETCHREF` value kinds,
+the `SOLVE -> PROFILE -> EXTRUDE` exit, `solveOrRepair`'s never-refuse contract and the
+conflict/residual demotion loop all landed with the family (PRs #159 and #163). This branch merges
+them with the `SURFACE` kind (#146) and closes what was left.
+
+**The finding.** The census
+(`forge-kernel/reports/family_census/SKETCH_AND_CONSTRAINTS.md` §4) specified `CON`'s keyword set
+as **nineteen** and closed: *"Every one of those routes to a primitive that ALREADY EXISTS in
+GCS.h. This is facade exposure, not numerics."* **Nine** shipped. `FeatureTree.hpp` listed the
+other ten as absent on a correct principle — a vocabulary naming a keyword the compiler skips is
+worse than a short one — but the consequence was that the value kind was reachable and the
+DRAWING was not.
+
+A ground-truth sketch is **dimensioned**: a bolt circle is a `RADIUS`, a counterbore is a `DIAM`,
+a bracket arm is an `ANGLE`. With `COINC / PARA / PERP / DIST` alone a tree can state a sketch's
+TOPOLOGY and must then bake every coordinate — which is the baked form the whole family exists to
+replace. So `SKETCH` was decorative in the way that matters even with the extrude path proven.
+
+Ten switch arms in `forge::Sketcher`, each one line of planegcs, plus three refusals removed where
+the primitive was declared in the very header the facade was calling into: `EQUAL` on arcs
+(`EqualRadius(Arc,Arc)` exists), `TANG` on anything but line-circle (five pairings exist), and
+`PTON` onto a circle or an arc (`PointOnCircle` / `PointOnArc` exist).
+
+**★ The merge is the load-bearing evidence for the value-kind rule.** `SURFACE` and
+`SKETCH`/`SKETCHREF` were each added as "the fourth kind" on branches that never saw each other.
+They merged into a tree where `kAllIrValueKinds` — the ONE list the `.fpart` reader, the
+vocabulary bridge and the round-trip gate all walk — was **missing a kind, and nothing failed to
+compile.** The comment above it promised "a kind added to the enum is a compile error here"; that
+was not true of an unsized array. It is now, via a `static_assert` on
+`std::size(kAllIrValueKinds) == SketchRef + 1`. Two more sites were silently wrong the same way:
+`kindName()` had no arm for `Sketch` or `SketchRef` (every sketch diagnostic would have printed
+`"?"`), and `gen_archie_op_vocabulary.py`'s `REF_ACCESSOR_KIND` had no row for `refSurface`, which
+would have published `THICKEN`/`CAP` as CREATORS reachable from an empty document.
+
+**★ And the gate was measuring a stale build.** `build_sketch_solve.sh` cached an object whenever
+it was newer than its `.cpp`, comparing against **no headers**. Editing `Sketcher.hpp` — where this
+family's constraint enum lives — left the old object in place and the gate reported PASS for the
+previous build. That is "a gate that cannot build cannot fail" with an extra step: it *does* build,
+it just builds something else. Every number below is from a clean `.sketchbuild`, and the fix was
+verified by touching a header and watching all eight TUs recompile.
+
+**Measured, from a clean build** (`forge-kernel/test/ft/build_sketch_solve.sh`, 57 -> 100 checks,
+0 failures). Every case asserts a NUMBER the constraint had to move, because "it did not throw" is
+also what a keyword mapped to the wrong primitive looks like:
+
+```
+[RADIUS]  seeded 5 -> solved 12.000000 (want 12)
+[DIAM]    DIAM 30 -> radius 15.000000 (want 15, NOT 30)
+[ANGLE]   |cos| between the two lines = 0.000000000 (want 0)
+[FIX]     anchor stayed at (0.000000000, 0.000000000)
+[DISTXY]  partner at (25.000000000, -7.000000000) (want 25, -7)
+[CONC]    centre separation 0.000000000 (was 24.41)
+[COLL]    the other line's endpoints y = -0.000000000, -0.000000000
+[MIDPT]   midpoint at (20.000000000, 10.000000000)
+[SYMM]    mirrored point at (12.000000000, 20.000000000)
+[PTON]    point distance from centre 10.000000000 (want 10)
+[COLL/repair] demotions = 1 (want 1); every FIXed point still where it was drawn
+[keywords] 19 of 19 documented CON keywords dispatch
+```
+
+**Falsifiability proved by mutation, not asserted.** Three mutants, each reverted:
+
+| mutant | result |
+|---|---|
+| the degrees->radians conversion removed | `[ANGLE] \|cos\| = 0.448073616` — FAIL. The case comment PREDICTED 0.447 before the mutant ran. |
+| `DIAM` routed to `CircleRadius` | `[DIAM] radius 30.000000` — FAIL |
+| `COLL`'s two constraints split across two tags | `demotions = 2` — FAIL |
+
+**★ The third mutant is the one worth recording, because the FIRST version of that case did not
+catch it.** With line B pinned horizontal, `COLL`'s Parallel half was already satisfied, so
+splitting the tag still needed only one demotion and the test passed against the mutant — an
+unfalsifiable check dressed as a measurement of a claim written in a code comment. The geometry was
+changed so both halves independently conflict, and only then did the mutant turn it red. *Running
+the mutation is what found this; the check had already "passed".*
+
+**The unit seam, stated because a wrong answer here still builds.** The IR is degrees (`ROTATE`,
+`PATTERN POLAR`, `REVOLVE`); planegcs is radians. The conversion is at the IR boundary and both
+sides name it. Unconverted, `ANGLE 90` aims at 90 rad = 116.6 deg after wrapping: it compiles,
+solves, converges and reports a clean DOF while making the wrong part.
+
+**What this does NOT claim.** The seven sketch ops are still **forbidden in the app vocabulary** —
+no `forge::ui` command emits `SKETCH`/`SPT`/`SLINE`/`SCIRC`/`SARC`/`CON`/`SOLVE`, so 25 of the
+kernel's 53 ops remain unreachable from a user gesture and an Archie plan naming `SOLVE` is refused
+by the op-constraint bridge before dispatch. That is the emission-surface work (PRs #161/#164), not
+this branch, and it is the next thing standing between this family and a benchmark score. No
+benchmark number is claimed here: nothing in this branch was scored against BenchCAD, CADGenBench
+or MUSE.
+

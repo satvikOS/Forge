@@ -803,6 +803,66 @@ int main() {
             }
         }
 
+        // ---- L2. ★ ONE TAG, TWO SOLVER CONSTRAINTS, ONE DEMOTION -----------
+        // COLL registers addConstraintParallel AND addConstraintPointOnLine, and
+        // FIX registers CoordinateX AND CoordinateY. Both share a single tag on
+        // purpose, and the Sketcher.cpp comment claims what that buys: a repair
+        // demotes the statement the author WROTE, never half of it. This case
+        // measures the claim instead of asserting it in a comment.
+        //
+        // Line A is pinned along y = 0. Line B is pinned from (0,5) to (10,9) —
+        // OFFSET from A and at a DIFFERENT ANGLE, so BOTH halves of COLL are
+        // independently impossible. That double conflict is the whole design of
+        // the case, and the first version of it did not have it: with B pinned
+        // horizontal at y = 5 the Parallel half was already satisfied, so
+        // splitting the tag STILL needed only one demotion and the case passed
+        // against a mutant. An unfalsifiable check is not a check. Measured
+        // against the split-tag mutant, this geometry gives 2 demotions.
+        //
+        // So the two observables are: exactly ONE demotion, and all four pinned
+        // points still where they were drawn.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 10, 0)\n"
+                                  "%4 = SLINE(%2, %3)\n"
+                                  "%5 = SPT(%1, 0, 5)\n"
+                                  "%6 = SPT(%1, 10, 9)\n"
+                                  "%7 = SLINE(%5, %6)\n"
+                                  "%8 = CON(%2, FIX)\n"
+                                  "%9 = CON(%3, FIX)\n"
+                                  "%10 = CON(%5, FIX)\n"
+                                  "%11 = CON(%6, FIX)\n"
+                                  "%12 = CON(%4, COLL, %7)\n"
+                                  "%13 = SOLVE(%1)\n", "COLL against four FIXes");
+            std::printf("  [COLL/repair] nCompiled=%zu\n", b.r.nCompiled);
+            dumpVerify(b.r);
+            check(b.r.nCompiled == 13, "all 13 statements compiled");
+            // Count the demotions the verify line names.
+            std::size_t demotions = 0;
+            for (const std::string& line : b.r.verify) {
+                std::size_t at = 0;
+                while ((at = line.find("DEMOTED", at)) != std::string::npos) { ++demotions; at += 7; }
+            }
+            std::printf("  [COLL/repair] demotions = %zu (want 1)\n", demotions);
+            check(demotions == 1,
+                  "ONE demotion freed BOTH of COLL's solver constraints — a half-demoted "
+                  "COLL would have left the system inconsistent and cost a second tag");
+            if (b.ok) {
+                const forge::SketchPoint p0 = forge::readPoint(b.sk, 0);
+                const forge::SketchPoint p1 = forge::readPoint(b.sk, 1);
+                const forge::SketchPoint p2 = forge::readPoint(b.sk, 2);
+                const forge::SketchPoint p3 = forge::readPoint(b.sk, 3);
+                std::printf("  [COLL/repair] pinned points (%.6f,%.6f) (%.6f,%.6f) "
+                            "(%.6f,%.6f) (%.6f,%.6f)\n",
+                            p0.x, p0.y, p1.x, p1.y, p2.x, p2.y, p3.x, p3.y);
+                check(near(p0.y, 0.0, 1e-9) && near(p1.y, 0.0, 1e-9) &&
+                      near(p2.y, 5.0, 1e-9) && near(p3.y, 9.0, 1e-9),
+                      "every FIXed point is still where it was drawn — the repair spent "
+                      "the impossible statement and nothing else");
+            }
+        }
+
         // ---- M. EVERY DOCUMENTED KEYWORD IS DISPATCHED -----------------------
         // The defect this closes by construction: "a vocabulary that names a
         // keyword the compiler skips is a worse defect than a short vocabulary"
