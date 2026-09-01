@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
   // The corpus must not be able to shrink to nothing and report a pass: an empty
   // sweep is not a green sweep. Pinned EXACTLY so adding a tree is a deliberate,
   // reviewed act.
-  CHECK_EQ_INT(corpus.size(), 8u);
+  CHECK_EQ_INT(corpus.size(), 9u);
 
   std::size_t agreed = 0;
   for (const forge::difftest::Tree& t : corpus) {

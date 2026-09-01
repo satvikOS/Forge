@@ -263,21 +263,47 @@ inline const std::vector<Tree>& trees() {
       // whole tree through `ok` and the s0.4 census; the RESULT is the last SOLID,
       // which is the shelled box -- the more interesting of the two to measure,
       // being thin-walled with a high face count.
-      {"revolve_and_shell",
-       "a profile revolved about the Y axis, and a box hollowed -- REVOLVE and SHELL",
+      // -- 5. REVOLVE and SHELL, as TWO trees -------------------------------
+      // These were one tree, `revolve_and_shell`, and it did not build. Not on
+      // the geometry -- on the GRAPH:
+      //
+      //   [revolve_and_shell] both arms report NOT BUILT:
+      //     "s0.4 graph-quality gate: unexplained_orphans=2 [%1, %2] -- these ops
+      //      contribute nothing to the result."
+      //
+      // And the gate was right. `%4 = SHELL(%3, 2)` is the result, `%3` is a fresh
+      // BOX, and the revolve above it fed NOTHING. The tree was two independent
+      // programs sharing a name, and the earlier repair -- moving SHELL off the
+      // revolved torus, which has no planar face for its open axis, onto a box --
+      // is what orphaned the revolve.
+      //
+      // Splitting is the repair that adds NO operation the corpus did not already
+      // require, so it cannot introduce a new way to fail: each half is exactly
+      // the statements that were already there, minus the ones that fed nothing.
+      // Coverage is unchanged -- REVOLVE and SHELL each still have their only path
+      // through the corpus -- and each tree is now a program whose every op
+      // contributes to its result, which is all the s0.4 gate ever asked for.
+      {"revolved_ring",
+       "a rectangular section swept 360 degrees -- the only path through REVOLVE",
        {},
        {
            {"part.sketch_rect", EntityKind::None, {},
             {{"width", 10}, {"height", 40}, {"cx", 30}, {"cy", 0}}, {}, {}},
            {"part.revolve", EntityKind::Sketch, {"sketch_1"}, {{"angle", 360}}, {}, {}},
-           {"part.primitive_box", EntityKind::None, {}, {{"dx", 60}, {"dy", 40}, {"dz", 25}},
-            {}, {}},
-           {"part.shell", EntityKind::Face, {"body_3"}, {{"thickness", 2}}, {}, {}},
        },
        "%1 = RECT(10, 40, 30, 0)\n"
-       "%2 = REVOLVE(%1, 360)\n"
-       "%3 = BOX(60, 40, 25)\n"
-       "%4 = SHELL(%3, 2)\n"},
+       "%2 = REVOLVE(%1, 360)\n"},
+
+      {"shelled_box",
+       "a primitive box hollowed to a 2 mm wall -- the only path through SHELL",
+       {},
+       {
+           {"part.primitive_box", EntityKind::None, {}, {{"dx", 60}, {"dy", 40}, {"dz", 25}},
+            {}, {}},
+           {"part.shell", EntityKind::Face, {"body_1"}, {{"thickness", 2}}, {}, {}},
+       },
+       "%1 = BOX(60, 40, 25)\n"
+       "%2 = SHELL(%1, 2)\n"},
 
       // -- 6. the counterbore + variable-fillet feature family ---------------
       {"cbore_and_blend",

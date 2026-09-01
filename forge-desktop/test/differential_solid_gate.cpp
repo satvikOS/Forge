@@ -575,9 +575,9 @@ int main(int argc, char** argv) {
   // The corpus is shared with the kernel-free tier. If it ever shrinks to
   // nothing, an empty sweep must not be able to report a pass.
   ++checks;
-  if (corpus.size() != 8) {
+  if (corpus.size() != 9) {
     ++failures;
-    std::printf("  [FAIL] the shared corpus has %zu trees, expected 8 -- the two tiers are\n"
+    std::printf("  [FAIL] the shared corpus has %zu trees, expected 9 -- the two tiers are\n"
                 "         no longer reading the same file.\n",
                 corpus.size());
   }
