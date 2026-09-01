@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 69 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 80 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,18 +46,35 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **58 commands**; **43 of them emit
-feature-IR**, reaching **40 distinct op names**. The kernel defines **48** ops
-(`opFromName`), so **8 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **64 commands**; **49 of them emit
+feature-IR**, reaching **46 distinct op names**. The kernel defines **48** ops
+(`opFromName`), so **2 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The eight are `SLOT`, the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`, `SKIN`,
-`SEW`, `SURFCHECK` -- and `ARC`. They are out for three DIFFERENT reasons, which
-is the distinction a single "no command emits it" line would hide.
+**The two are `SLOT` and `ARC`.** The six SURFACE ops that stood beside them --
+`FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands, and
+the split between the reasons is why they could go and these two could not. `ARC`
+arrived on the base after this branch was written and is the ordinary kind of gap
+-- a kernel op no command spells yet -- so it is the one a future command can
+close. `SLOT` is not, and that distinction is the next two paragraphs.
 
-The six SURFACE ops arrived with the SURFACE value kind (D-038) and are simply
-NEW: the kind exists, the kernel builds them, and no command emits one yet. That
-is the ordinary kind of gap, and one command apiece closes it.
+The registry reads 64 rather than the 60 this branch measured alone: the base it
+merges has since added four commands that emit nothing (`app.toggle_theme`,
+`app.load_sample` and the two `view.focus_*_panel`), so `registry_commands` moved
+and `commands_emitting_ir` did not. Diffing the regenerated manifest against the
+base's shows this branch's own delta is exactly six rows -- `part.skin`,
+`part.extract_faces`, `part.sew`, `part.thicken`, `part.cap`, `part.surfcheck` --
+and nothing removed.
+
+The six were out for the ordinary reason: they arrived with the SURFACE value
+kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
+built them, and no command emitted one yet. One command apiece closed it. What actually unblocked them was not six commands but ONE
+SELECTION KIND -- four of the six CONSUME a sheet, and until `EntityKind::Surface`
+and a `surface_N` node prefix existed, a sheet parked in `body_N` read back as a
+SOLID and `THICKEN` would have offered itself on a fillet's output. That is the
+same structural fix `WIRE` needed before `LOFT` became reachable, and it is the
+last one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
+`IrValueKind`, and each now has an entity kind and a node prefix.
 
 `ARC` is the 48th kernel op and the same ordinary kind of gap: it takes the
 `[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
@@ -134,7 +151,6 @@ check that silently stops checking is the failure it was written to prevent.
 | `PATTERN` | part.pattern_linear / _circular / _grid | `PATTERN(%body, LINEAR, count, dx[, dy, dz])`<br>`PATTERN(%body, POLAR, count, total_angle)`<br>`PATTERN(%body, GRID, nx, ny, dx, dy)` |
 | `MIRROR` | part.mirror | `MIRROR(%body, XY\|XZ\|YZ)` |
 | `FUSE` / `CUT` / `COMMON` | part.boolean_union / _subtract / _intersect | `FUSE(%body, %tool)` etc. |
-| `SECTION` | part.section_curve | `SECTION(%body, %tool)` |
 | `INPUT` | part.input_solid | `INPUT()` |
 | `HEAL` | part.heal | `HEAL(%body)` |
 | `DEFEATURE` | part.defeature | `DEFEATURE(%body, "<selector>")` |
@@ -146,6 +162,13 @@ check that silently stops checking is the failure it was written to prevent.
 | `WIRE` | part.section_wire | `WIRE([x y z; ...])` |
 | `SWEEP` | part.sweep_pipe / _profile | `SWEEP(radius, [x y z; ...])`<br>`SWEEP([x y; ...], [x y z; ...])` |
 | `FOLD` | part.fold_flange | `FOLD(%body, hinge_x, hinge_y, hinge_z, length, flange_height, thickness, angle)`<br>`FOLD(..., angle, run_angle)` |
+| `SKIN` | part.skin | `SKIN(%wire...)`<br>`SKIN(%wire..., RULED)` |
+| `FACES` | part.extract_faces | `FACES(%body, "<selector>")` |
+| `SEW` | part.sew | `SEW(%sheet...)`<br>`SEW(%sheet..., tol)` |
+| `THICKEN` | part.thicken | `THICKEN(%surface, wall)`<br>`THICKEN(%surface, wall, IN\|MID\|OUT)` |
+| `CAP` | part.cap | `CAP(%surface)`<br>`CAP(%surface, tol)` |
+| `SURFCHECK` | part.surfcheck | `SURFCHECK(%surface, "<assertion>")`<br>`SURFCHECK(%surface, "<assertion>", "<assertion2>")` |
+| `SECTION` | part.section_curve | `SECTION(%bodyA, %bodyB)` — the **fourth** boolean. It produces a **WIRE**, not a solid: the curve where the two bodies' faces cross. It consumes neither operand, so both survive; the wire is consumed by `LOFT`, like `RING`'s. |
 
 Details that a wrong signature would teach wrongly, all derived from the kernel
 header rather than assumed:
@@ -202,11 +225,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 69 on every CI run), not a hand-written illustration.
+dispatches all 80 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 40 names are legal; after the name, the argument count is bounded
+head, only the 46 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).

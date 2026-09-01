@@ -33,6 +33,15 @@ enum class EntityKind : std::uint8_t {
   // would offer themselves on each other's input -- which is the mis-selection a
   // typed signature exists to refuse.
   Wire,
+  // A SHEET body (forge::ft's SURFACE value: SKIN / FACES / SEW). NOT a Body:
+  // a sheet bounds no volume, and the whole reason the kernel has a separate
+  // SURFACE kind is that THICKEN/CAP consume the one and FILLET/SHELL the other.
+  // Selecting a sheet has to be distinguishable from selecting a solid for the
+  // SAME reason Wire had to be distinguishable from Sketch -- otherwise THICKEN
+  // offers itself on a solid and SHELL offers itself on a sheet, and the kernel
+  // throws on both swaps. This is the fourth value-kind entity, and the last:
+  // PROFILE, WIRE, SOLID and SURFACE are the whole of IrValueKind.
+  Surface,
   Feature,
   Component,
   Datum,

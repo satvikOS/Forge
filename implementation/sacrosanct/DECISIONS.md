@@ -2033,6 +2033,7 @@ quarters of a feature. Read it at every capability landing.
    bucket; and treat "all checks settled" as a claim to verify whenever the row count is small.
 
 
+
 ## D-042 (2026-08-31): the IR had three of OCCT's four Boolean operators, and the fourth is the only one that is not a body
 
 *(Numbering: D-040 and D-041 are allocated on `decisions/d040-arm-qualified` and
@@ -2118,3 +2119,94 @@ it; the gate calls `forge::section` and `forge::ft::parse` directly and never `c
 numbers are the OPERATOR's and not a whole-pipeline result. Nothing here measures a benchmark: the
 interface term scores planes and cylinders only, and a section curve scores zero points on it. This
 closes a hole in the op table, and it is not claimed to move a score.
+## D-043 (2026-09-01): the forbidden set was 18, not 12 — and the last SIX needed one SELECTION KIND, not six commands
+
+*(Numbering collision, resolved at merge — the THIRD in this file. `D-042` was surveyed as free across every `decisions/*` branch at `origin` before it was taken, and #165 allocated it on the execution branch in the same window. The SECTION entry keeps `D-042` because it is the one already merged; this entry is renumbered **D-043**. Content unchanged. The lesson is that surveying the `decisions/*` branches is not enough — a feature PR can allocate a number too.)*
+
+**Number chosen by survey, not by increment.** `D-040` and `D-041` are both
+already allocated on unmerged branches (`decisions/d040-arm-qualified` and
+`decisions/d041-selfconsistency-flat`), and this file has just spent a merge
+untangling a DOUBLE collision where two branches each allocated D-033 and D-038.
+`D-042` was free on every decision branch at `origin` when this was written. The
+survey is recorded so the next writer can do it in one command instead of one
+merge.
+
+### What was actually forbidden
+
+The standing brief said twelve ops were forbidden "ONLY because no forge::ui
+command emits them". Regenerating the asset on the merged tree says **eighteen**,
+and the extra six are the SURFACE ops #146 landed while that list was being
+written. `kernel_ops` is **46**, not the 41 the brief carried — re-measured, as
+the brief itself instructed.
+
+Of the eighteen, **seventeen are now closed**: eleven by #164, six here. The
+count moved **28 -> 39 -> 45**, and `forbidden_ops` **18 -> 7 -> 1**.
+
+### The six were not six problems
+
+Four of the six CONSUME a sheet, and nothing in the app could hold one. A click
+yields an `EntityRef`; `resolveValues()` maps it `bodyId -> valueFor() ->
+kindOf()`; and every node any command produced was `body_N`, `sketch_N` or
+`wire_N`. A sheet parked in `body_N` reads back as a SOLID — so `THICKEN` would
+have offered itself on a fillet's output and `SHELL` on a skin, and the kernel
+throws on both.
+
+`EntityKind::Surface` + `surfaceNodeFor()` is the whole unlock, and it is the
+LAST one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
+`IrValueKind`, and each now has an entity kind and a node prefix. **This is the
+same shape as #164's finding** — POLY/WIRE/SWEEP were blocked by a missing
+`IrArgKind::Points`, not by three missing commands. Twice now, a batch of
+"missing commands" has turned out to be one missing TYPE.
+
+### A COUNT IS NOT A CAPABILITY, and this one was not
+
+`user_invocable_ops` means "some forge::ui command emits this op". It does NOT
+mean a user can run that command, and for these it did not:
+
+* **`resolveSelection()` knew two of the four kinds.** It chose
+  `want = (select == LatestProfile) ? Profile : Solid`, so a Wire- or
+  Surface-signature command got a ref naming a SOLID, `resolveValues()` returned
+  `{}`, and the command greyed out — reported as `SelectionSignatureMismatch` on
+  a document that HELD the value. **`part.loft` has been shipped and undrivable
+  by the CoPilot this entire time.**
+
+  This is D-023's defect ("part.loft was resolving PROFILE values") standing in a
+  SECOND place. It survived the fix because that search went looking for the
+  command and this is the concept — the third time this file records that shape.
+  Measured red-then-green: 7 of 7 cases failed before, 7 of 7 apply after.
+
+* **The viewport still cannot pick a wire or a sheet, and that is NOT fixed.**
+  `ForgeFrame`'s only two selection entry points build `Face` and `Edge` refs;
+  clicking a feature-tree row calls `setEditTarget()`, which aims the parameter
+  editor and writes nothing to the selection. So Archie can now drive these
+  through the CoPilot and a HUMAN still cannot click them. Named rather than
+  half-done: the fix is a forge-desktop change inside the tree walk that has
+  already shipped three container-mutation crashes, so it needs the click gate,
+  and this machine is sharing itself with a 600-row evaluation.
+
+### SLOT is the one left, and it is not a missing command
+
+`SLOT`'s extruded area is `|(len-wid)*wid - pi*(wid/2)^2|` at every measured size
+and its bbox spans `+/-(len-wid)/2` — both semicircular caps bow INWARD, -50.4%
+of the promised volume at `SLOT(40, 12)`. The mechanism is located (`addArc`
+records only centre/start/end, which cannot express a semicircle), but the two
+candidate repairs differ in FACE COUNT, so which one is right is itself a
+question only a measurement answers, through a kernel build. No command in the
+app layer can close it, and adding one would put `SLOT` into Archie's training
+vocabulary as a shape it is not.
+
+That makes `SLOT` the right negative control, and `surface_value_kind_test`
+section 7 now uses it as one. That test was written by #146 to assert the six
+SURFACE ops were forbidden and it predicted its own end — "it lifts the moment a
+command emits these ops". It was INVERTED rather than deleted, and the
+Ok / ForbiddenOp / UnknownOp three-way distinction it existed to protect is kept
+in full. `Ok` is asserted for the first time: while all six were forbidden,
+nothing tested the allowed verdict at all.
+
+### One correction to the merge recipe
+
+There are three generated artifacts, and they do not have three generators.
+`APP_SURFACE_MANIFEST.tsv`'s ONLY writer is the `capability_manifest_test` binary
+under `FORGE_WRITE_APP_SURFACE=1`. `forge_deletion_inventory.py` READS it and
+never writes it — running that script to "regenerate" the manifest regenerates
+nothing and leaves the gate red with no indication why.

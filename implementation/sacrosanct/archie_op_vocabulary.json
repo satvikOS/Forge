@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "d869c68c1455bb07697c7922740af35384c285305c13f7764a796de3e5f4ec81",
-        "bytes": 140209,
-        "lines": 2419
+        "sha256": "bb8ff3fe8acbeff3cd18f03559697e83053faa9ca03ffc894192b8e898868eec",
+        "bytes": 158552,
+        "lines": 2708
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,17 +78,18 @@
   "counts": {
     "kernel_ops": 48,
     "ui_validator_ops": 48,
-    "registry_commands": 58,
-    "commands_emitting_ir": 43,
-    "user_invocable_ops": 40,
-    "forbidden_ops": 8,
-    "uncertain_entries": 1,
+    "registry_commands": 64,
+    "commands_emitting_ir": 49,
+    "user_invocable_ops": 46,
+    "forbidden_ops": 2,
+    "uncertain_entries": 3,
     "derived_defects": 3
   },
   "emission_policy": {
     "allowed_ops": [
       "BLEND",
       "BOX",
+      "CAP",
       "CBORE",
       "CHAMFER",
       "CIRCLE",
@@ -98,6 +99,7 @@
       "CYL",
       "DEFEATURE",
       "EXTRUDE",
+      "FACES",
       "FILLET",
       "FOLD",
       "FUSE",
@@ -118,10 +120,14 @@
       "ROTATE",
       "RRECT",
       "SECTION",
+      "SEW",
       "SHELL",
+      "SKIN",
       "SPHERE",
+      "SURFCHECK",
       "SWEEP",
       "TAG",
+      "THICKEN",
       "TORUS",
       "TRANSLATE",
       "TUBE",
@@ -422,6 +428,99 @@
             }
           ],
           "command": "part.primitive_box"
+        }
+      ]
+    },
+    {
+      "op": "CAP",
+      "kernel_enum": "Cap",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 1,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "CAP(%surface [, tol=0.001])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "surface",
+              "index": 0
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "tol",
+              "default": "0.001",
+              "index": 1,
+              "unit": null,
+              "uncertain": true,
+              "uncertain_reason": "no unit rule matched the argument name 'tol'"
+            }
+          ],
+          "prose": "sheet -> SOLID by sewing it and"
+        }
+      ],
+      "kernel_notes": [
+        "filling every free boundary (heal::autoFillMissingFaces)."
+      ],
+      "user_commands": [
+        "part.cap"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%surface"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%surface"
+              ],
+              "ir_text": "%<id> = CAP(%surface)"
+            }
+          ],
+          "command": "part.cap"
+        },
+        {
+          "when": "hasNumber(ctx, \"tol\")",
+          "when_human": "any of tol is supplied",
+          "arguments": [
+            "%surface",
+            "tol"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "tol": 2.001
+              },
+              "ir_arguments": [
+                "%surface",
+                "2.001"
+              ],
+              "ir_text": "%<id> = CAP(%surface, 2.001)"
+            }
+          ],
+          "command": "part.cap"
         }
       ]
     },
@@ -1489,6 +1588,79 @@
             }
           ],
           "command": "part.extrude"
+        }
+      ]
+    },
+    {
+      "op": "FACES",
+      "kernel_enum": "Faces",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "FACES(%body, \"sel\")",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "text",
+              "name": "sel",
+              "index": 1
+            }
+          ],
+          "prose": "extract the selected faces of a"
+        }
+      ],
+      "kernel_notes": [
+        "SOLID as a sheet -- the SOLID -> SURFACE direction, without which",
+        "the kind is a dead end. \"sel\" is the SAME face-selector grammar",
+        "DEFEATURE/PUSHFACE/RESIZEBORE use (\"bore:r=47.5\", \"+z\", \"@name\",",
+        "\"face:12\", \"plane:max-area\", \"radial:all\"). A selector that",
+        "matches NOTHING returns an empty SURFACE and records the miss;",
+        "it does not abort the tree."
+      ],
+      "user_commands": [
+        "part.extract_faces"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "\"<selector>\""
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "selector": "all"
+              },
+              "ir_arguments": [
+                "%body",
+                "\"all\""
+              ],
+              "ir_text": "%<id> = FACES(%body, \"all\")"
+            }
+          ],
+          "command": "part.extract_faces"
         }
       ]
     },
@@ -4234,6 +4406,110 @@
       ]
     },
     {
+      "op": "SEW",
+      "kernel_enum": "Sew",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 1,
+        "max_args": null,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SEW(%s0 [, %s1 ...] [, tol=0.001])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "s0",
+              "index": 0
+            },
+            {
+              "optional": true,
+              "variadic": true,
+              "token": "ref",
+              "name": "s1",
+              "index": 1
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "tol",
+              "default": "0.001",
+              "index": 2,
+              "unit": null,
+              "uncertain": true,
+              "uncertain_reason": "no unit rule matched the argument name 'tol'"
+            }
+          ],
+          "prose": "stitch sheets into one sheet."
+        }
+      ],
+      "kernel_notes": [
+        "Stays a SURFACE even when the stitch closes it -- promotion to a",
+        "SOLID is CAP's job, and a sew that silently changed value kind",
+        "would make the kind depend on geometry the emitter cannot see."
+      ],
+      "user_commands": [
+        "part.sew"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%sheet..."
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%sheet1"
+              ],
+              "ir_text": "%<id> = SEW(%sheet1)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 1",
+          "command": "part.sew"
+        },
+        {
+          "when": "hasNumber(ctx, \"tol\")",
+          "when_human": "any of tol is supplied",
+          "arguments": [
+            "%sheet...",
+            "tol"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {
+                "tol": 2.001
+              },
+              "ir_arguments": [
+                "%sheet1",
+                "2.001"
+              ],
+              "ir_text": "%<id> = SEW(%sheet1, 2.001)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 1",
+          "command": "part.sew"
+        }
+      ]
+    },
+    {
       "op": "SHELL",
       "kernel_enum": "Shell",
       "produces": "SOLID",
@@ -4370,6 +4646,117 @@
       ]
     },
     {
+      "op": "SKIN",
+      "kernel_enum": "Skin",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "WIRE"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": null,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SKIN(%w0, %w1 [, %w2 ...] [, RULED])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "w0",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "w1",
+              "index": 1
+            },
+            {
+              "optional": true,
+              "variadic": true,
+              "token": "ref",
+              "name": "w2",
+              "index": 2
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "keyword",
+              "name": "ruled",
+              "keyword": "RULED",
+              "index": 3
+            }
+          ],
+          "prose": "skin >=2 WIRE sections as an"
+        }
+      ],
+      "kernel_notes": [
+        "OPEN SHEET (no end caps). This is LOFT's lateral skin typed as",
+        "what it is. LOFT(..., OPEN) returns the same geometry but is",
+        "typed SOLID, which is the pre-existing mistyping SKIN exists to",
+        "let a tree avoid without changing LOFT's meaning."
+      ],
+      "user_commands": [
+        "part.skin"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%wire..."
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%wire1",
+                "%wire2"
+              ],
+              "ir_text": "%<id> = SKIN(%wire1, %wire2)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
+          "command": "part.skin"
+        },
+        {
+          "when": "flagOn(ctx, \"ruled\")",
+          "when_human": "the ruled flag is set",
+          "arguments": [
+            "%wire...",
+            "RULED"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {
+                "ruled": true
+              },
+              "ir_arguments": [
+                "%wire1",
+                "%wire2",
+                "RULED"
+              ],
+              "ir_text": "%<id> = SKIN(%wire1, %wire2, RULED)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
+          "command": "part.skin"
+        }
+      ]
+    },
+    {
       "op": "SPHERE",
       "kernel_enum": "Sphere",
       "produces": "SOLID",
@@ -4489,6 +4876,112 @@
             }
           ],
           "command": "part.primitive_sphere"
+        }
+      ]
+    },
+    {
+      "op": "SURFCHECK",
+      "kernel_enum": "SurfCheck",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": null,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SURFCHECK(%surface, \"expr\", ...)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "surface",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": true,
+              "token": "text",
+              "name": "expr",
+              "index": 1
+            }
+          ],
+          "prose": "measure a sheet and record the"
+        }
+      ],
+      "kernel_notes": [
+        "answer. Pass-through like VERIFY/TAG: it returns %surface unchanged.",
+        "Known quantities: faces, freeedges, closed, pcurves, selfintersect,",
+        "area, shells. A FAILED assertion is recorded and fails the compile at",
+        "the end -- it never aborts the walk, so the geometry is still built",
+        "and still measurable. THIS IS THE DIAGNOSTIC HALF OF THE TOLERANCE",
+        "CONTRACT: degenerate sheets are representable BECAUSE they are",
+        "answerable.",
+        "These make the feature-tree IR the single emission format for BOTH",
+        "generation and editing. Face SELECTORs are quoted predicate strings",
+        "resolved against the live faceInventory at compile time (see",
+        "resolveSelector in FeatureTreeCompiler.cpp)."
+      ],
+      "user_commands": [
+        "part.surfcheck"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%surface",
+            "\"<assertion>\""
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "assertion": "freeedges = 0"
+              },
+              "ir_arguments": [
+                "%surface",
+                "\"freeedges = 0\""
+              ],
+              "ir_text": "%<id> = SURFCHECK(%surface, \"freeedges = 0\")"
+            }
+          ],
+          "command": "part.surfcheck"
+        },
+        {
+          "when": "hasText(ctx, \"assertion2\")",
+          "when_human": "hasText(ctx, \"assertion2\")",
+          "arguments": [
+            "%surface",
+            "\"<assertion>\"",
+            "\"<assertion2>\""
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "assertion": "freeedges = 0",
+                "assertion2": "faces >= 1"
+              },
+              "ir_arguments": [
+                "%surface",
+                "\"freeedges = 0\"",
+                "\"faces >= 1\""
+              ],
+              "ir_text": "%<id> = SURFCHECK(%surface, \"freeedges = 0\", \"faces >= 1\")"
+            }
+          ],
+          "command": "part.surfcheck"
         }
       ]
     },
@@ -4688,6 +5181,113 @@
             }
           ],
           "command": "part.tag_feature"
+        }
+      ]
+    },
+    {
+      "op": "THICKEN",
+      "kernel_enum": "Thicken",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "THICKEN(%surface, wall [, side=MID])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "surface",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "wall",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "keyword",
+              "name": "side",
+              "keyword_default": "MID",
+              "index": 2
+            }
+          ],
+          "prose": "sheet -> SOLID by offsetting the"
+        }
+      ],
+      "kernel_notes": [
+        "sheet to a wall. side = IN | OUT | MID."
+      ],
+      "user_commands": [
+        "part.thicken"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%surface",
+            "wall"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "wall": 2.0
+              },
+              "ir_arguments": [
+                "%surface",
+                "2"
+              ],
+              "ir_text": "%<id> = THICKEN(%surface, 2)"
+            }
+          ],
+          "command": "part.thicken"
+        },
+        {
+          "when": "hasText(ctx, \"side\")",
+          "when_human": "hasText(ctx, \"side\")",
+          "arguments": [
+            "%surface",
+            "wall",
+            "IN|MID|OUT"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "wall": 2.0,
+                "side": "OUT"
+              },
+              "ir_arguments": [
+                "%surface",
+                "2",
+                "OUT"
+              ],
+              "ir_text": "%<id> = THICKEN(%surface, 2, OUT)"
+            }
+          ],
+          "command": "part.thicken"
         }
       ]
     },
@@ -5277,65 +5877,11 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
-      "op": "CAP",
-      "kernel_enum": "Cap",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "CAP(%surface [, tol=0.001])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "FACES",
-      "kernel_enum": "Faces",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "FACES(%body, \"sel\")"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SEW",
-      "kernel_enum": "Sew",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SEW(%s0 [, %s1 ...] [, tol=0.001])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SKIN",
-      "kernel_enum": "Skin",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SKIN(%w0, %w1 [, %w2 ...] [, RULED])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SURFCHECK",
-      "kernel_enum": "SurfCheck",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SURFCHECK(%surface, \"expr\", ...)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "THICKEN",
-      "kernel_enum": "Thicken",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "THICKEN(%surface, wall [, side=MID])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     }
@@ -5605,6 +6151,39 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.cap",
+      "label": "Cap Sheet",
+      "category": "Part",
+      "feature_ir_op": "CAP",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "tol",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.001,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0",
+        "derived": [],
+        "unparsed_terms": [
+          "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0"
+        ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.chamfer",
       "label": "Edge Chamfer",
       "category": "Part",
@@ -5819,6 +6398,43 @@
       "preview": "Live",
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp"
+    },
+    {
+      "id": "part.extract_faces",
+      "label": "Extract Faces",
+      "category": "Part",
+      "feature_ir_op": "FACES",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Face",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "selector",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "all",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && !txt(ctx, \"selector\", \"\").empty()",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          }
+        ],
+        "unparsed_terms": [
+          "!txt(ctx, \"selector\", \"\").empty()"
+        ]
+      },
+      "produces_value_kind": "Surface"
     },
     {
       "id": "part.extrude",
@@ -7584,6 +8200,39 @@
       "produces_value_kind": "Wire"
     },
     {
+      "id": "part.sew",
+      "label": "Sew Sheets",
+      "category": "Part",
+      "feature_ir_op": "SEW",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "tol",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.001,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty()) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0",
+        "derived": [],
+        "unparsed_terms": [
+          "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty()) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0"
+        ]
+      },
+      "produces_value_kind": "Surface"
+    },
+    {
       "id": "part.shell",
       "label": "Shell Body",
       "category": "Part",
@@ -7960,6 +8609,90 @@
       "produces_value_kind": "Profile"
     },
     {
+      "id": "part.skin",
+      "label": "Skin Sections",
+      "category": "Part",
+      "feature_ir_op": "SKIN",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Wire",
+        "min": 2,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "ruled",
+          "type": "Flag",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Wire).size() >= 2",
+        "derived": [
+          {
+            "selection_values_of_kind": "Wire",
+            "comparison": ">=",
+            "value": 2
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Surface"
+    },
+    {
+      "id": "part.surfcheck",
+      "label": "Assert Sheet Property",
+      "category": "Part",
+      "feature_ir_op": "SURFCHECK",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "assertion",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "freeedges = 0",
+          "has_default": true
+        },
+        {
+          "name": "assertion2",
+          "type": "Text",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "faces >= 1",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() == 1 && !txt(ctx, \"assertion\", \"\").empty()",
+        "derived": [
+          {
+            "selection_values_of_kind": "Surface",
+            "comparison": "==",
+            "value": 1
+          }
+        ],
+        "unparsed_terms": [
+          "!txt(ctx, \"assertion\", \"\").empty()"
+        ]
+      },
+      "produces_value_kind": "Surface"
+    },
+    {
       "id": "part.sweep_pipe",
       "label": "Swept Pipe",
       "category": "Part",
@@ -8091,6 +8824,55 @@
           "legalTagName(txt(ctx, \"name\", \"\"))",
           "!txt(ctx, \"selector\", \"\").empty()"
         ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.thicken",
+      "label": "Thicken Sheet",
+      "category": "Part",
+      "feature_ir_op": "THICKEN",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "wall",
+          "type": "Number",
+          "required": true,
+          "default_number": 2.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "side",
+          "type": "Text",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "OUT",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) false; if (num(ctx, \"wall\", 2.0) <= 0.0) false; if (!hasText(ctx, \"side\")) true; const std::string side = txt(ctx, \"side\", \"\"); side == \"IN\" || side == \"OUT\" || side == \"MID\"",
+        "derived": [
+          {
+            "parameter": "side",
+            "comparison": "one_of",
+            "values": [
+              "IN",
+              "MID",
+              "OUT"
+            ]
+          }
+        ],
+        "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
     },
@@ -8285,15 +9067,26 @@
     "produced_by_allowed_ops": [
       "PROFILE",
       "SOLID",
+      "SURFACE",
       "WIRE"
     ],
     "gaps": []
   },
   "uncertain": [
     {
+      "op": "CAP",
+      "argument": "tol",
+      "reason": "no unit rule matched the argument name 'tol'"
+    },
+    {
       "op": "PATTERN",
       "argument": "axz",
       "reason": "the header writes this default as the compound axis '+Z', not as a per-argument number"
+    },
+    {
+      "op": "SEW",
+      "argument": "tol",
+      "reason": "no unit rule matched the argument name 'tol'"
     }
   ],
   "derived_defects": [
