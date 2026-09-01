@@ -1886,3 +1886,68 @@ Whether the null on paths A and B is present on the input or generated inside th
 **still not measured**, and the report's instruction to run that sweep before writing any guard
 stands. This decision buys the app the right to stay alive and to say which statement died; it does
 not buy a correct offset.
+
+## D-040 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
+
+*(Numbering collision, resolved at merge: allocated **D-038** on `archdisc`, which had already been taken by the primitives entry above when THAT entry was itself renumbered out of a D-033 collision. Renumbered **D-040** here; D-039 is the out-of-process kernel worker directly above.)*
+
+**The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
+(`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
+`forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
+no surfacing: a NURBS patch, a lofted skin and an extracted face set are none of PROFILE
+(planar, at Z=0), WIRE (1-dimensional) or SOLID (must bound a volume), so **no op could produce
+or consume one**, and the surfacing machinery already sitting in the kernel had no route into
+the emission target. Counted by `grep -ril` over `forge-kernel/src`: NURBS 58 files, Sweep 68,
+G2 32, Loft 27, curvature 21, SubD 18, Subdiv 17, Blend 17, BSpline 24 — plus
+`ClassASurfacing.{hpp,cpp}` (760 lines), which a `grep -ril "class a"` misses because the file
+spells it `ClassA`.
+
+**Why it is not deferrable.** The canonical ground-truth edit fixture (`archie_edit_214`) opens
+on an INPUT inventory of **430 faces, 67 of them BSPLINE** — 15% of the part. The IR could not
+name one of them.
+
+**The decision.** `SURFACE` — a sheet body: an ordered set of faces that is NOT required to be
+closed, sewn, manifold, or non-empty. Six ops give it producers and consumers in both
+directions, each a thin wiring of a kernel entry point that already existed: `SKIN` (open
+`loftguide::loft`), `FACES` (new `forge::surf::facesOf`), `SEW` (`heal::sewShape` /
+`sewing::sew`), `THICKEN` (`part::thickenSurface`), `CAP` (`heal::autoFillMissingFaces`),
+`SURFCHECK` (`surf::statsOf` + `heal::checkValidity`).
+
+**Its invariant is deliberately the weakest of the four, and that is the decision.** The
+governing constraint is the owner's: *don't gate anything; a validator that refuses input is a
+capability gate wearing a safety hat, and it fires hardest on the longest, densest, most curved
+trees.* So an unsewn face set, edges without p-curves, a self-intersecting patch and an EMPTY
+sheet are all representable SURFACE values, answerable through `SURFCHECK`, and none of them
+aborts a walk. `THICKEN`/`CAP` sew an unsewn sheet as a REPAIR; `SKIN` records an unknown flag
+instead of throwing; a bare `SURFCHECK "expr"` is repaired to the explicit form exactly as
+`VERIFY` already is. Where a refusal is unavoidable the message names the op id, the face count
+and the free-edge count.
+
+**A wrong answer wearing the shape of a right one — found by RUNNING it.** The first
+`facesOf` read an EMPTY index list as "every face". That collides with the one case the kind
+exists to survive: a selector that matched nothing. Measured through
+`build_surface_compile_probe.sh`, `FACES(%body, "bore:r=99999")` on a 6-face box returned all
+SIX faces and `THICKEN` built a **5587 mm³ body** out of them, reported `ok=1 valid=1`. Every
+headless gate was green. "Give me the whole boundary" is now a different function
+(`boundaryOf`), so the two can never be spelled the same way again. **The lesson is the
+familiar one and it recurred here: a capability that is only compile-verified is not verified —
+the defect was invisible to three green gates and took one run to expose.**
+
+**What is measured, on real geometry** (`surface_compile_probe`, 15/15):
+`FACES("+z")` → 1 face / 4 free edges → `THICKEN(3)` → a valid solid, vol 14400.
+`SKIN` of two `RING` sections → **48 free-form faces, 96 free edges** → `CAP` → a valid solid,
+50 faces, vol 52961.5. A `FUSE` handed a sheet now says *"%2 is a SURFACE, expected a SOLID — a
+sheet is not a body: use THICKEN(%2, wall) or CAP(%2)"* instead of the old hard-coded, and by
+then false, *"is a PROFILE"*.
+
+**The one gate that remains, named honestly.** All six ops land in the vocabulary's FORBIDDEN
+list (kernel ops 40 → 46, forbidden 22 → 28) because no `forge::ui` command emits them. That is
+the PRE-EXISTING app-surface policy of D-021, not a new rule about surfaces, and it lifts the
+moment a command does. It is asserted rather than described in
+`ui/test/surface_value_kind_test.cpp` §7.
+
+**Known mistyping, recorded rather than silently changed.** `LOFT(..., OPEN)` produces the same
+uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf` keys on the
+OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
+change for every corpus already written against `LOFT`, and it belongs in its own commit with
+its own measurement.
