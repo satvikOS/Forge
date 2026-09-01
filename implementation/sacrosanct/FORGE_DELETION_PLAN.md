@@ -1002,6 +1002,21 @@ which the same command finds in both `package.json` and `kernel-tests.yml`.
 * **`forge-kernel/test/knit_surface_smoke.js`, `thicken_surface_smoke.js`,
   `trim_surface_smoke.js`.** These looked like the obvious harvest from #146, and they are not.
   See §10.2.
+* **All 404 `e2e/` specs — a second probe that found nothing, reported because it did.** The
+  assertion-count filter that retired `camx_gcode_peek.cjs` was run over the whole of `e2e/`:
+  **13 of 404** files contain no `expect(`, `assert`, `throw` or `exit(1)`. **Ten of the thirteen
+  assert anyway**, through `page.waitForSelector(..., {state:'visible', timeout})`, which *throws
+  on timeout* — a real behavioural check that carries no assertion keyword. **A grep for
+  assertion syntax is not a measure of whether a file asserts**, and this is the same shape as the
+  §9.3 correction: the instrument's own blind spot has to be read out before its output means
+  anything. One of the thirteen is `playwright.headless.config.js`, a config and not a spec. The
+  remaining two — `v4-console-debug.spec.js` and `v4-kernel-introspect.spec.js` — are the two
+  §9.1 already examined and kept, and re-reading `v4-kernel-introspect.spec.js` sharpens the
+  reason: it is not a weak test, it is **an instrument**. It walks `window.forge` at runtime and
+  writes the live binding surface to `/tmp/forge-kernel-surface.json` — the **runtime counterpart
+  to B5's static 445-key `contextBridge` count**, and the only thing in the tree that can say what
+  that surface contains when the app is actually running. Deleting it would delete the measuring
+  device for the blocker it serves.
 * **The 199 remaining orphans.** §9.3's finding survives re-measurement. My own dead-import
   probe, run independently over all five JS scopes, reproduces it exactly: `forge-kernel` **0**,
   `electron` **0**, `projects` **0**, and `e2e` **1** — which is
