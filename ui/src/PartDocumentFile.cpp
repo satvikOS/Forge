@@ -493,6 +493,11 @@ PartFileDoc capturePartDocument(const PartDocument& doc, const std::string& name
   out.parameters = doc.parameters();
   out.materials = doc.materials();
   out.materialAssignments = doc.materialAssignments();
+  // The `X-` lines a NEWER version wrote and this build could not interpret.
+  // Without this the forward-compatibility promise in PartDocumentFile.hpp held
+  // only for readPartFile -> writePartFile and failed on Open-edit-Save, which
+  // is the only path a user takes. See PartCommands.hpp, extensions().
+  out.extensions = doc.extensions();
 
   // The reverse index of node -> value, built ONCE. std::map is ordered, so the
   // node list per feature is deterministic, and EVERY node is kept: a value two
@@ -517,6 +522,9 @@ bool restorePartDocument(const PartFileDoc& file, PartDocument& doc, std::string
     PartDocument::BatchEdit hold(doc);
     doc.setName(file.name);
     if (!file.units.empty()) doc.setUnits(file.units);
+    // Carried onto the DOCUMENT, not left on the PartFileDoc, so the next Save
+    // -- which reads the document, never the file it came from -- still has them.
+    doc.setExtensions(file.extensions);
 
     for (const Parameter& p : file.parameters) {
       if (!doc.setParameter(p)) {

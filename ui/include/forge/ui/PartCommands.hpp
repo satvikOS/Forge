@@ -40,6 +40,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
@@ -286,6 +287,23 @@ class PartDocument {
   bool setPersistentName(int irId, const std::string& name);
   int featureNamed(const std::string& persistentName) const noexcept;
 
+  // ── FORWARD COMPATIBILITY: lines this build did not understand ────────────
+  //
+  // PartDocumentFile.hpp promises that an `X-` line from a NEWER format version
+  // "is PRESERVED VERBATIM and re-emitted on the next save". The reader kept
+  // them, in PartFileDoc::extensions -- and then the document dropped them on
+  // the floor, because a PartDocument had nowhere to put them and
+  // capturePartDocument() rebuilds a PartFileDoc from the DOCUMENT, not from the
+  // file it came from. So the promise held for readPartFile -> writePartFile and
+  // failed for the only path a user ever takes: Open, edit, Save. The mechanism
+  // that lets version 3 add a field which survives this build was itself the
+  // thing that did not survive.
+  //
+  // They are held opaque and never interpreted. This build cannot know what
+  // `X-SIM-MESH-SEED` means; it can know that deleting it loses someone's work.
+  const std::vector<std::string>& extensions() const noexcept { return extensions_; }
+  void setExtensions(std::vector<std::string> lines) { extensions_ = std::move(lines); }
+
   // ── suppression, rollback, reorder ────────────────────────────────────────
   bool setSuppressed(int irId, bool suppressed);
 
@@ -426,6 +444,7 @@ class PartDocument {
   std::map<std::string, std::string> materialOfNode_;
   int rollback_ = kRollbackEnd;
   std::vector<FeatureDiagnostic> diags_;
+  std::vector<std::string> extensions_;
   int holdRecompute_ = 0;
 };
 
