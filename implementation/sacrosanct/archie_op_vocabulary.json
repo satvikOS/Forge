@@ -30,21 +30,21 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "50247fe32d190f2bf4c5329ebd1db7713edc29151aa738e9b9e3ec6f6bcb80e4",
-        "bytes": 155881,
-        "lines": 2955
+        "sha256": "7a3a4aec57c51e100c9421f28f3f583ebb27f5445f791c473c5d74e130c36f66",
+        "bytes": 168406,
+        "lines": 3180
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "8b1021b64ef9b4555326adab35b54f6a7e9af3b499a425af86ea3542439589eb",
-        "bytes": 24631,
-        "lines": 410
+        "sha256": "fe7b235d3c2e52a75e7f72a17919bc892e62b5f73e3694db59ffd627f04fa213",
+        "bytes": 27288,
+        "lines": 448
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "96d3cd5b3c6261a3d9782a8a153ef4f560ed33ca0aa952df81727ee57ee574ee",
-        "bytes": 10541,
-        "lines": 290
+        "sha256": "270513417b7ad60ea83e8ce0db55f363e82cd84e4b9d25d0e9ff860ec10e210e",
+        "bytes": 10774,
+        "lines": 298
       },
       {
         "path": "ui/src/PartCommands.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 47,
-    "ui_validator_ops": 47,
+    "kernel_ops": 54,
+    "ui_validator_ops": 54,
     "registry_commands": 66,
     "commands_emitting_ir": 43,
     "user_invocable_ops": 40,
-    "forbidden_ops": 7,
+    "forbidden_ops": 14,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
@@ -3336,7 +3336,21 @@
           "prose": "n-gon (vertex radius)"
         }
       ],
-      "kernel_notes": [],
+      "kernel_notes": [
+        "The six profile ops above bake COORDINATES. These six plus SOLVE let a",
+        "tree state RELATIONS instead and have the kernel compute the coordinates,",
+        "through the planegcs solver that is already vendored, compiled and linked",
+        "(3rdParty/planegcs, CMakeLists.txt ~1264-1271) and that nothing in the IR",
+        "has ever called.",
+        "",
+        "The family bolts on IN FRONT of the existing IR: it terminates in a",
+        "solved PROFILE, and a PROFILE is what EXTRUDE / REVOLVE / LOFT already",
+        "consume. Not one existing op changes.",
+        "",
+        "(Prose here deliberately avoids writing an op name immediately followed",
+        "by \"(\" -- ui/test/feature_ir_test.cpp derives this table by READING this",
+        "comment block, and would take such a line for an alternate form.)"
+      ],
       "user_commands": [
         "part.sketch_polygon"
       ],
@@ -5277,11 +5291,38 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
+      "op": "CON",
+      "kernel_enum": "Con",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "CON(%a, KIND [, %b, value])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "FACES",
       "kernel_enum": "Faces",
       "compiled_into_a_default_build": true,
       "signature": [
         "FACES(%body, \"sel\")"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SARC",
+      "kernel_enum": "SArc",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SARC(%centre, %p0, %p1)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SCIRC",
+      "kernel_enum": "SCirc",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SCIRC(%centre, r)"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -5295,6 +5336,15 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
+      "op": "SKETCH",
+      "kernel_enum": "Sketch",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SKETCH(PLANE)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "SKIN",
       "kernel_enum": "Skin",
       "compiled_into_a_default_build": true,
@@ -5304,11 +5354,38 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
+      "op": "SLINE",
+      "kernel_enum": "SLine",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SLINE(%p0, %p1)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SOLVE",
+      "kernel_enum": "Solve",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SOLVE(%sketch)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SPT",
+      "kernel_enum": "SPt",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SPT(%sketch, x, y)"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -5335,7 +5412,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 47 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 54 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [
