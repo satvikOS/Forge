@@ -467,6 +467,31 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
   }
   if (arg.kind == IrArgKind::Ref) return OpConstraint::Ok;  // an int; shape-checked by the plan
 
+  if (arg.kind == IrArgKind::Points) {
+    // The SAME writability rule as a bare number, applied per coordinate, and it has to
+    // be stated here rather than left to the Number branch: a ring's coordinates never
+    // pass through that branch. Without this a POLY carrying one NaN vertex renders as
+    // `[10 nan; ...]`, forge::ft's lexer reads `nan` with strtod as a coordinate it
+    // consumed, and the statement builds a solid nobody asked for -- the argument-value
+    // bypass this whole function exists to close, one kind later.
+    for (const IrPoint& p : arg.pts) {
+      if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)) continue;
+      reason = "a point ring with a non-finite coordinate: formatIrNumber() renders it as a "
+               "bare word inside the `[x y; ...]` token, so the ring forge::ft reads back is "
+               "not the ring that was written";
+      return OpConstraint::MalformedArgumentValue;
+    }
+    if (arg.pts.empty()) {
+      reason = "an EMPTY point ring: it renders as the literal `[]`, which forge::ft's lexer "
+               "refuses outright (\"empty point list\") -- the statement cannot be parsed at all";
+      return OpConstraint::MalformedArgumentValue;
+    }
+    // Rule 2 (NOT AN OP) cannot apply: a ring carries no word, and IrArg::token()
+    // writes only digits, '-', '.', 'e', ' ', ';' and the one bracket pair -- there is
+    // no spelling of it that closes the token and opens another.
+    return OpConstraint::Ok;
+  }
+
   if (arg.kind == IrArgKind::Keyword && !bareKeyword(arg.word)) {
     reason = arg.word.empty()
                  ? std::string("an EMPTY keyword argument: it renders as nothing at all, and "

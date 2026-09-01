@@ -31,25 +31,68 @@ namespace forge::ui {
 // many arguments; every other op has a hard ceiling.
 inline constexpr std::size_t kIrArgsUnbounded = static_cast<std::size_t>(-1);
 
+// ── one point of a ring ─────────────────────────────────────────────────────
+// Mirrors forge::ft::Point3. A 2D ring stores z = 0 and is WRITTEN with two
+// coordinates per point; `IrArg::dim` is what decides which, exactly as the
+// kernel lexer's `tok.dim` does.
+struct IrPoint {
+  double x = 0.0;
+  double y = 0.0;
+  double z = 0.0;
+};
+
 // ── one argument ────────────────────────────────────────────────────────────
-// Mirrors forge::ft::TokKind (Number, Ref, Keyword, Str). `Points` is not
-// modelled: no Part-workspace command emits a point ring today, and a token
-// kind nothing produces is a liability, not coverage.
-enum class IrArgKind : std::uint8_t { Number, Ref, Keyword, Text };
+// Mirrors forge::ft::TokKind (Number, Ref, Keyword, Str, Points).
+//
+// `Points` was deliberately ABSENT until three commands needed it, on the stated
+// rule that "a token kind nothing produces is a liability, not coverage". That
+// rule cut both ways and this is the other edge of it: POLY, WIRE and SWEEP are
+// the only three kernel ops whose argument is a `[x y; ...]` ring, and while this
+// enum had no such kind NO forge::ui command could spell any of them -- the
+// vocabulary recorded all three as forbidden for a reason that was structural
+// rather than "nobody has written the command yet". The kind is added here
+// TOGETHER WITH the three commands that produce it, so it is never a kind
+// nothing produces.
+enum class IrArgKind : std::uint8_t { Number, Ref, Keyword, Text, Points };
 
 struct IrArg {
   IrArgKind kind = IrArgKind::Number;
   double number = 0.0;
   int ref = 0;            // kind == Ref: a prior op's 1-based creation id
   std::string word;       // kind == Keyword (bare) or Text (emitted quoted)
+  std::vector<IrPoint> pts;  // kind == Points: the ring, in order
+  int dim = 0;               // kind == Points: 2 or 3 coordinates WRITTEN per point
 
   static IrArg num(double v);
   static IrArg valueRef(int id);
   static IrArg keyword(std::string k);
   static IrArg text(std::string s);
+  // `dim` is 2 or 3 and is NOT inferred from the data here: a caller that means a
+  // 2D ring and hands over points whose z happens to be 0 must still say so, because
+  // `[x y; ...]` and `[x y z; ...]` are different tokens to forge::ft (a 2D ring is
+  // lifted to z=0; a 3D one is placed) and guessing would let the difference turn on
+  // whether a coordinate rounded to zero.
+  static IrArg points(std::vector<IrPoint> ring, int dim);
+  // The spelling a COMMAND uses: text in, one ring out, ONE statement of the
+  // dimension. `IrArg::points(pts(...), 2)` would name the dim twice and two
+  // statements of one fact are a defect waiting for an edit to disagree with
+  // itself. It is also the form the vocabulary generator reads -- it matches
+  // `IrArg::<factory>(` and then the inline `txt(ctx, "name", "fallback")`, so a
+  // ring hoisted into a local would make it REFUSE rather than guess.
+  static IrArg pointsFromText(const std::string& text, int dim);
 
   std::string token() const;
 };
+
+// Read a ring out of the text a user types: `x y; x y; ...` (dim 2) or
+// `x y z; ...` (dim 3), whitespace-separated coordinates, `;`-separated points,
+// a trailing `;` tolerated. NO brackets -- IrArg::token() writes those.
+//
+// Returns an EMPTY vector on anything it cannot read completely, including a
+// point with too few coordinates or a non-finite one. Empty is the signal, so a
+// caller's `enabled` predicate is the same expression as its `execute` guard and
+// a half-parsed ring can never reach the document.
+std::vector<IrPoint> parseIrPoints(const std::string& text, int dim);
 
 // ── one statement ───────────────────────────────────────────────────────────
 struct IrLine {
@@ -88,6 +131,11 @@ enum class IrCheck : std::uint8_t {
   TooManyArgs,
   FirstArgNotValueRef,
   ForwardValueRef,
+  //   EmptyPointList      — forge::ft's lexer fails an empty `[]` outright
+  //                         ("empty point list"), and POLY additionally refuses
+  //                         fewer than three. An empty ring is not a small ring:
+  //                         it is a statement the kernel cannot parse.
+  EmptyPointList,
 };
 
 const char* toString(IrCheck check) noexcept;
