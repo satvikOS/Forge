@@ -283,6 +283,18 @@ jobs:
           test -f "$REPORT" || { echo "::error::no report at $REPORT"; exit 1; }
           test -x forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop || {
             echo "::error::no executable inside the bundle"; exit 1; }
+          # The crash-isolation worker. Its absence is SILENT at runtime -- the
+          # app prints "kernel isolation: UNAVAILABLE" and models in process --
+          # so a bundle missing it is a shipped product that is merely less
+          # safe, with nothing going red. Asserted here as well as in
+          # release_dryrun.sh because this step exists for exactly the failure
+          # of a packaging run that exits 0 having produced the wrong thing.
+          test -x forge-desktop/dist/Forge.app/Contents/MacOS/forge_kernel_worker || {
+            echo "::error::no forge_kernel_worker in the bundle -- the app would" \
+                 "ship with NO crash isolation and would not say so at runtime"
+            exit 1; }
+          echo "--- Contents/MacOS (both executables must be here) ---"
+          ls -la forge-desktop/dist/Forge.app/Contents/MacOS/
           ls -la forge-desktop/dist/
           echo "--- executable link closure ---"
           otool -L forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop
