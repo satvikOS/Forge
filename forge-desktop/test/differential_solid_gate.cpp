@@ -32,6 +32,24 @@
 //      the last written place, and no sharper, because a tighter tolerance would
 //      be comparing the formatter.
 //
+//   E. THE COPILOT'S SOLID -- forge::ft over ArchieCopilot's own program.
+//      A, B, C and D all compile a program whose OPERANDS were stated. The
+//      CoPilot's plan steps cannot carry a `%ref`, so `resolveSelection` CHOOSES
+//      them at apply time, and an operand chosen differently is a different solid
+//      built from the same request. Where tier 1 says the two texts agree, the
+//      solids must agree; where tier 1 pins a divergence, the solids must DIFFER
+//      and the cost is printed. A divergence that built the SAME solid would mean
+//      the text comparison is measuring something that does not matter.
+//
+// ── AND IS EACH ARM COHERENT AT ALL? ────────────────────────────────────────
+// A differential compares arms; on its own it does not notice that they agree on
+// NONSENSE. So every arm is also checked against invariants true of ANY solid --
+// positive volume and area, a bbox whose min does not exceed its max, and a centre
+// of mass INSIDE that bbox. That last one is what caught `boss_on_plate` reporting
+// com=(2.0e+33, -2.0e+33, 23.4) on a body 50 mm across whose volume is exact to
+// every digit (CI run 33453484236). Two arms running the same broken measurement
+// agree perfectly.
+//
 // ── THE OBSERVABLE VECTOR ───────────────────────────────────────────────────
 // VOLUME CANNOT VALIDATE GEOMETRY. A wrong solid reproducing a right volume to
 // ten significant figures has been measured four times here, and in the worst
@@ -255,6 +273,110 @@ void compareScene(const std::string& tree, const Observed& b,
           static_cast<long long>(b.nCompiled));
 }
 
+// ── IS EACH ARM PHYSICALLY COHERENT AT ALL? ─────────────────────────────────
+// A differential compares arms. It does NOT, on its own, notice that both arms
+// agree on NONSENSE -- two measurements of the same broken thing agree perfectly,
+// and the gate goes green having measured nothing. This programme has the scar:
+// an instrument can measure backwards, so a positive control is required.
+//
+// These are physical invariants of ANY solid, checked per arm, and they cost
+// nothing. They are what caught the finding below.
+//
+// MEASURED, CI run 33453484236, tree `boss_on_plate` -- a 50x50x8 plate FUSEd with
+// an r=12 h=20 boss:
+//     V=25428.6717306   faces=9   edges=16
+//     com=(2.02759422756e+33, -2.02759422756e+33, 23.4083321608)
+// The volume is EXACT to every digit -- 50*50*8 + pi*144*20 - pi*144*8 = 25428.67
+// -- and the centre of mass is 2e33 mm on a body 50 mm across, with x and y exact
+// negatives of each other. Both arms reported it identically, so the differential
+// alone called it agreement. VOLUME CANNOT VALIDATE GEOMETRY, and neither can two
+// arms that run the same broken measurement.
+bool coherent(const std::string& tree, const char* arm, const Observed& o) {
+  if (!o.ok) return true;  // a failure to build is judged by `error`, not by geometry
+  bool ok = true;
+  auto bad = [&](const char* what, const std::string& detail) {
+    ++checks;
+    ++failures;
+    ok = false;
+    std::printf("  [INCOHERENT] %-22s %-6s %-16s %s\n", tree.c_str(), arm, what,
+                detail.c_str());
+  };
+  ++checks;
+  if (!(o.volume > 0.0)) bad("volume>0", num(o.volume));
+  ++checks;
+  if (!(o.area > 0.0)) bad("area>0", num(o.area));
+  for (int i = 0; i < 3; ++i) {
+    ++checks;
+    if (!(o.bboxMin[i] <= o.bboxMax[i])) {
+      bad("bbox min<=max", num(o.bboxMin[i]) + " > " + num(o.bboxMax[i]));
+    }
+  }
+  // THE CENTRE OF MASS OF A SOLID LIES INSIDE ITS BOUNDING BOX. Always, for any
+  // shape, convex or not: it is an average of points in the box. The slack is one
+  // part in a thousand of the box's own span, so a tessellation-driven bbox that is
+  // a hair tight cannot produce a false red.
+  for (int i = 0; i < 3; ++i) {
+    const double span = o.bboxMax[i] - o.bboxMin[i];
+    const double slack = std::fmax(1e-6, 1e-3 * std::fabs(span));
+    ++checks;
+    if (o.com[i] < o.bboxMin[i] - slack || o.com[i] > o.bboxMax[i] + slack) {
+      char axis[2] = {static_cast<char>('x' + i), '\0'};
+      bad("com in bbox", std::string(axis) + "=" + num(o.com[i]) + " outside [" +
+                             num(o.bboxMin[i]) + ", " + num(o.bboxMax[i]) + "]");
+    }
+  }
+  return ok;
+}
+
+// ── ARM E -- THE COPILOT'S SOLID ────────────────────────────────────────────
+// Tier 1 proves the CoPilot's PROGRAM matches the planner's text for every tree
+// but one. This is what that costs in GEOMETRY, and it is a positive control in
+// both directions: where the text agrees the solids must agree, and where the text
+// diverges the solids must DIFFER. A divergence that turned out to build the same
+// solid would mean the text comparison was measuring something that does not
+// matter, which is worth knowing either way.
+//
+// A text divergence is SANCTIONED for exactly one tree and only on a clean run.
+// Tier 1 ratchets that set; this arm must not turn every divergence into an
+// expected one, or `copilot-applies-one-step-short` would inject a defect and be
+// reported as the known gap. Anything else that diverges is a FAILURE here.
+constexpr const char* kSanctionedCopilotDivergence = "lofted_nozzle";
+
+void compareCopilot(const std::string& tree, const Observed& a, const Observed& e,
+                    bool textAgreed, Mutation mutation) {
+  if (textAgreed) {
+    compare(tree + "/copilot", a, e);
+    return;
+  }
+  if (mutation != Mutation::None || tree != kSanctionedCopilotDivergence) {
+    ++checks;
+    ++failures;
+    std::printf("  [DIVERGE] %-22s the CoPilot emitted a program the planner did not, and\n"
+                "            this tree is not the one divergence tier 1 pins.\n",
+                tree.c_str());
+    return;
+  }
+  // The texts differ. Require the SOLIDS to differ too, on at least one observable.
+  ++checks;
+  const bool same = a.ok == e.ok && a.faceCount == e.faceCount &&
+                    a.edgeCount == e.edgeCount && a.genus == e.genus &&
+                    a.shellCount == e.shellCount &&
+                    std::fabs(a.volume - e.volume) <= 1e-9 * std::fmax(1.0, std::fabs(a.volume));
+  if (same) {
+    ++failures;
+    std::printf("  [FAIL] %-22s the CoPilot emitted a DIFFERENT program and the kernel\n"
+                "         built an IDENTICAL solid. Either the text comparison is\n"
+                "         measuring something that does not matter, or this arm is not\n"
+                "         compiling what it thinks it is.\n",
+                tree.c_str());
+    return;
+  }
+  std::printf("  [%-22s] COPILOT DIVERGENCE, COSTED: planner V=%s faces=%ld genus=%ld"
+              " -> copilot V=%s faces=%ld genus=%ld\n",
+              tree.c_str(), num(a.volume).c_str(), a.faceCount, a.genus,
+              num(e.volume).c_str(), e.faceCount, e.genus);
+}
+
 // ── ARM D -- THE forge_verify BINARY, NOT ITS ENTRY POINT ───────────────────
 // Arms A/B/C above are three entry points inside ONE process. That is worth
 // checking and it is not what the integration invariant says. The headless path
@@ -472,6 +594,18 @@ int main(int argc, char** argv) {
       std::printf("%d\n", forge::difftest::kMutationCount);
       return 0;
     }
+    // The mutations THIS TIER CAN OBSERVE, space-separated. The runner sweeps
+    // exactly these. A mutation this tier cannot see reports "caught" only when
+    // something else in the run is already failing -- which is how CI run
+    // 33453484236 recorded case 7 as caught while it was catching nothing.
+    if (std::strcmp(argv[i], "--applicable-mutations") == 0) {
+      for (int n = 1; n <= forge::difftest::kMutationCount; ++n) {
+        if (!forge::difftest::mutationReachesSolids(static_cast<Mutation>(n))) continue;
+        std::printf("%d ", n);
+      }
+      std::printf("\n");
+      return 0;
+    }
     if (std::strcmp(argv[i], "--mutate") == 0 && i + 1 < argc) {
       const int n = std::atoi(argv[i + 1]);
       if (n <= 0 || n > forge::difftest::kMutationCount) {
@@ -515,6 +649,25 @@ int main(int argc, char** argv) {
     const Observed a = headlessArm(plannerIr);
     const Observed b = inAppArm(app.ir);
     compare(t.id, a, b);
+
+    // Each arm on its own, BEFORE they are compared to each other: two arms that
+    // agree on a physically impossible solid are still a green.
+    coherent(t.id, "A", a);
+    coherent(t.id, "B", b);
+
+    // ARM E -- the CoPilot, whose plan steps choose their own operands.
+    const forge::difftest::CopilotRun cop = forge::difftest::runViaCopilot(t, mutation);
+    ++checks;
+    if (cop.reach != forge::difftest::CopilotReach::Reachable || !cop.ran) {
+      ++failures;
+      std::printf("  [FAIL] %-22s the CoPilot arm did not run: %s\n", t.id.c_str(),
+                  cop.failure.empty() ? "no PlanSelect names its selection"
+                                      : cop.failure.c_str());
+    } else {
+      const Observed e = inAppArm(cop.ir);
+      coherent(t.id, "E", e);
+      compareCopilot(t.id, a, e, cop.ir == plannerIr, mutation);
+    }
 
     forge::desktop::KernelScene scene;
     const bool sceneOk = scene.buildFromIr(app.ir);

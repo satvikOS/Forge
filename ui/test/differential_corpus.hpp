@@ -137,6 +137,34 @@ inline const char* mutationName(Mutation m) {
 // the sweep in run_differential_gate.sh silently stops covering it.
 inline constexpr int kMutationCount = static_cast<int>(Mutation::Count_) - 1;
 
+// ── which mutations the SOLID tier can observe ──────────────────────────────
+// Tier 1 rules on TEXT and on the bridge's verdict; tier 2 rules on GEOMETRY. Not
+// every injected defect is visible to both, and a sweep that runs a mutation its
+// tier cannot see is worse than not running it: the case reports "caught" only if
+// something ELSE in that run was already failing, so it turns green the moment the
+// gate is otherwise healthy and nobody learns why.
+//
+// MEASURED, not assumed. CI run 33453484236 ran tier 2 over all seven mutations of
+// the day and case 7 came back "caught" with `325 checks, 1 failures` -- the SAME
+// failure count as the clean run, which was red for an unrelated reason (a corpus
+// tree that did not build). Fix the corpus and that case would have gone green and
+// been reported as NOT CAUGHT. It was never caught at all.
+//
+// So the tier declares what it can see and the runner sweeps exactly that, and the
+// declaration is a WHITELIST OF EXCLUSIONS: a mutation added later is observable
+// by default and has to be argued out, never quietly left out.
+inline bool mutationReachesSolids(Mutation m) {
+  switch (m) {
+    case Mutation::AppSkipsBridgeCheck:
+      // Renames an op inside the PROPOSAL handed to OpConstraintBridge. Tier 2
+      // rules on no proposal -- it compiles documents -- so nothing it measures
+      // moves. Tier 1 catches it, and that is the right place for it.
+      return false;
+    default:
+      return true;
+  }
+}
+
 // ----------------------------------------------------------------------------
 // THE TREES
 //
@@ -214,18 +242,42 @@ inline const std::vector<Tree>& trees() {
        "%5 = PATTERN(%4, LINEAR, 3, 30)\n"},
 
       // -- 5. a revolve, and a shelled result --------------------------------
-      {"revolved_shell",
-       "a profile revolved about the Y axis and hollowed",
+      // -- 5. REVOLVE and SHELL ----------------------------------------------
+      // SHELL IS NOT APPLIED TO THE REVOLVED BODY, and the reason is a MEASURED
+      // kernel fact rather than a style choice. This tree used to read
+      // RECT -> REVOLVE -> SHELL, and CI (run 33453484236) reported it failing in
+      // BOTH arms, identically:
+      //
+      //     [revolved_shell] both arms report NOT BUILT:
+      //       A="op %3 (line 3): SHELL: no face faces the open axis"
+      //       B="op %3 (line 3): SHELL: no face faces the open axis"
+      //
+      // Revolving a rectangle a full 360 degrees about the Y axis gives a torus of
+      // rectangular section: it has NO planar face at all, so SHELL's default open
+      // axis (0, 0, -1) can never find one. That is a corpus mistake, not a
+      // divergence -- the two arms agreed perfectly, on a failure -- and a corpus
+      // tree that does not build measures agreement on nothing.
+      //
+      // So SHELL is given a body that certainly has a -Z face (a BOX) and REVOLVE
+      // keeps its own. Both are compiled, so a REVOLVE regression still fails the
+      // whole tree through `ok` and the s0.4 census; the RESULT is the last SOLID,
+      // which is the shelled box -- the more interesting of the two to measure,
+      // being thin-walled with a high face count.
+      {"revolve_and_shell",
+       "a profile revolved about the Y axis, and a box hollowed -- REVOLVE and SHELL",
        {},
        {
            {"part.sketch_rect", EntityKind::None, {},
             {{"width", 10}, {"height", 40}, {"cx", 30}, {"cy", 0}}, {}, {}},
            {"part.revolve", EntityKind::Sketch, {"sketch_1"}, {{"angle", 360}}, {}, {}},
-           {"part.shell", EntityKind::Face, {"body_2"}, {{"thickness", 2}}, {}, {}},
+           {"part.primitive_box", EntityKind::None, {}, {{"dx", 60}, {"dy", 40}, {"dz", 25}},
+            {}, {}},
+           {"part.shell", EntityKind::Face, {"body_3"}, {{"thickness", 2}}, {}, {}},
        },
        "%1 = RECT(10, 40, 30, 0)\n"
        "%2 = REVOLVE(%1, 360)\n"
-       "%3 = SHELL(%2, 2)\n"},
+       "%3 = BOX(60, 40, 25)\n"
+       "%4 = SHELL(%3, 2)\n"},
 
       // -- 6. the counterbore + variable-fillet feature family ---------------
       {"cbore_and_blend",

@@ -89,6 +89,7 @@ trap cleanup EXIT
 BIN="$WORK/differential_solid_gate"
 
 FAILURES=0
+CAUGHT=0
 fail() { echo "[differential-solid] FAIL -- $1"; FAILURES=$((FAILURES + 1)); }
 
 # -Wall -Wextra -Werror to match every other gate in this tree: a warning nobody is
@@ -135,9 +136,29 @@ if [ $rc -ge 128 ]; then
 fi
 [ $rc -ne 0 ] && fail "the clean run is RED"
 
-# ── every mutation must be caught ────────────────────────────────────────────
-i=1
-while [ "$i" -le "$MUTATIONS" ]; do
+# ── every mutation THIS TIER CAN OBSERVE must be caught ──────────────────────
+# Not every injected defect is visible to every tier, and sweeping one that is not
+# is worse than skipping it: the case only reports "caught" when something ELSE in
+# the run is already failing, so it turns green the moment the gate is otherwise
+# healthy and nobody learns why. MEASURED -- CI run 33453484236 recorded case 7
+# (which renames an op inside the OpConstraintBridge PROPOSAL, and this tier rules
+# on no proposal) as caught with the SAME failure count as its red clean run.
+#
+# The binary declares what it can see; this script sweeps exactly that. The
+# declaration is a whitelist of EXCLUSIONS in differential_corpus.hpp, so a
+# mutation added later is swept by default and has to be argued out.
+APPLICABLE="$("$BIN" --applicable-mutations 2>/dev/null)"
+if [ -z "$APPLICABLE" ]; then
+  fail "the gate declares NO observable mutations -- an unfalsifiable tier is not a tier"
+fi
+# zsh does not word-split, but this script runs under bash (the shebang, and CI's
+# own bash --noprofile --norc). Split explicitly anyway rather than relying on it.
+# shellcheck disable=SC2206
+APPLICABLE_LIST=($APPLICABLE)
+echo "[differential-solid] sweeping ${#APPLICABLE_LIST[@]} of $MUTATIONS mutations:" \
+     "$APPLICABLE (the rest perturb nothing this tier measures)"
+
+for i in "${APPLICABLE_LIST[@]}"; do
   "$BIN" --mutate "$i" >"$WORK/m$i.out" 2>&1
   mrc=$?
   if [ $mrc -eq 0 ]; then
@@ -153,13 +174,18 @@ while [ "$i" -le "$MUTATIONS" ]; do
     name="$(sed -n 's/.*mutation=//p' "$WORK/m$i.out" | head -1)"
     verdict="$(grep -E 'checks, .* failures' "$WORK/m$i.out" | tail -1)"
     echo "[differential-solid] mutation $i caught: ${name:-?} -- ${verdict:-rc=$mrc}"
+    CAUGHT=$((CAUGHT + 1))
   fi
-  i=$((i + 1))
 done
+
+if [ "$CAUGHT" -ne "${#APPLICABLE_LIST[@]}" ]; then
+  fail "$CAUGHT of ${#APPLICABLE_LIST[@]} observable mutations caught"
+fi
 
 if [ "$FAILURES" -ne 0 ]; then
   echo "[differential-solid] VERDICT: RED -- $FAILURES failure(s)"
   exit 1
 fi
-echo "[differential-solid] VERDICT: PASS -- clean run green, $MUTATIONS/$MUTATIONS injected divergences caught"
+echo "[differential-solid] VERDICT: PASS -- clean run green, $CAUGHT/${#APPLICABLE_LIST[@]} observable" \
+     "divergences caught (of $MUTATIONS declared; the rest are tier 1's)"
 exit 0

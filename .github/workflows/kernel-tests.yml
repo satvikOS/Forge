@@ -391,7 +391,7 @@ jobs:
         # a wrong solid matching a right volume to ten significant figures is a measured
         # failure mode in this programme, not a hypothetical one.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
-      - name: two-path differential, tier 2 (THE SOLIDS, 4 arms, + 9 mutations)
+      - name: two-path differential, tier 2 (THE SOLIDS, 5 arms, mutation-swept)
         # The IR-pipeline step above proves a UI-authored program compiles to A solid. It
         # never compared that solid against anything, so a tree that builds headless and
         # builds DIFFERENTLY in the app was invisible -- the same "two artifacts from one
