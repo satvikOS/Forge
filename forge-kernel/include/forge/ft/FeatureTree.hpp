@@ -294,6 +294,33 @@ struct CompileResult {
 // IR that uses INPUT() without one fails loudly.
 CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath = std::string());
 
+// ------------------------------------------------ THE OP PROGRESS HOOK
+// Called immediately BEFORE each op is built, with that op's id, its raw name
+// and its 1-based source line. Default: nothing installed, and compile() is
+// byte-for-byte the function it was.
+//
+// WHY IT EXISTS. A SIGSEGV inside OCCT (see
+// forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md) is "the only failure mode that
+// produces no diagnostic at all": no verdict, no error string, no partial
+// measurement. Every OTHER failure here already names the op — `compile` returns
+// failedOpId for a throw and for an OpError. A signal returns nothing, because
+// there is no return.
+//
+// A supervisor running compile() in a child process can therefore learn WHAT
+// KILLED IT only if the child said so before it died. This hook is how: the
+// child announces each op on a stream the parent is reading, and when the child
+// dies the parent still holds the last announcement. That turns "the kernel
+// crashed" into "the kernel died on SIGSEGV while executing %7 = SHELL", which
+// is a fact a repair loop can act on. Anything the announcement costs is paid
+// only by a caller that installs a hook.
+//
+// The hook is a plain function pointer plus a user pointer (no <functional> in
+// this header) and is thread_local: a batch tool compiling on several threads
+// gets one hook per thread rather than a race. It must not throw and must not
+// re-enter compile().
+using CompileProgressHook = void (*)(int opId, const char* opName, int srcLine, void* user);
+void setCompileProgressHook(CompileProgressHook hook, void* user);
+
 // Convenience: parse + compile, and (if exportStepPath is non-empty) write the
 // result solid to STEP via forge::io::exportStep. A parse error is reported the
 // same way as a compile error (ok=false, error set).

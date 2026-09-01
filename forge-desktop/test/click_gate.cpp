@@ -427,6 +427,92 @@ int main(int argc, char** argv) {
     step(frame);
   }
 
+  // ══ ★ THE COMMAND SURFACE — the other 33 interactive call sites ══════════
+  //
+  // MEASURED COVERAGE GAP this section exists to close. ForgeFrame.cpp draws 35
+  // interactive widgets: 10 MenuItem, 9 Button, 4 Selectable, 4 BeginMenu, 2
+  // InvisibleButton, 2 InputText, 1 SmallButton, 1 SliderFloat, 1 RadioButton
+  // and 1 BeginPopupContextItem. Everything above this line exercises exactly
+  // TWO of them -- the tab button and the splitter grip -- because those are the
+  // only ones a headless test can address by RECTANGLE. The other 33 are laid
+  // out inside menus and popups whose geometry ImGui does not publish.
+  //
+  // They are not, however, 33 different behaviours. Every one of them ends in
+  // ForgeFrame::invoke(id) -> ForgeShell::run(id, params), so the surface that
+  // was untested is reachable by NAME even where it is not reachable by
+  // position. This sweep drives every registered command through the app's OWN
+  // invoke() -- not a re-implementation of it -- and steps A FURTHER FRAME after
+  // each, which is the discipline the historical use-after-free needed to be
+  // seen: the crash was not the click, it was the next read through what the
+  // click had freed.
+  //
+  // The whole stack is under -fsanitize=address, so "it happened to survive" is
+  // a report rather than a pass.
+  {
+    const std::vector<std::string> ids = shell.registry().ids();
+    check(!ids.empty(), "the registry has commands to exercise", "");
+
+    std::size_t invoked = 0;
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+      // MUTATION 6: stop after the first command. The census below is
+      // UNCONDITIONAL, so a truncated sweep cannot hide.
+      if (g_mutation == 6 && i > 0) break;
+      const std::string& id = ids[i];
+
+      // The command runs against a REAL frame with REAL geometry, exactly as it
+      // would from the menu.
+      frame.invoke(id);
+      ++invoked;
+
+      // ★ THE FURTHER FRAME, AND AN ASSERTION THAT ACTUALLY DEPENDS ON IT.
+      //
+      // The first version of this sweep stepped the frame and then checked the
+      // dock invariants -- and MUTATION 7 (remove the step) STAYED GREEN. That
+      // was the mutation doing its job on the gate's author: none of those
+      // invariants is rebuilt by the draw, so they read the same whether or not
+      // a frame was produced. The sweep was asserting against state the
+      // invocation left behind, which is a unit test wearing a click gate's
+      // clothes.
+      //
+      // What genuinely requires the redraw is the DRAW ITSELF: after every
+      // command the application must still be able to build a complete frame
+      // with real content. That is the property the historical use-after-free
+      // broke -- the crash was the next draw, not the click -- and it is
+      // unobservable without drawing.
+      ImDrawData* dd = (g_mutation != 7) ? step(frame) : nullptr;
+      check(dd != nullptr, "a frame was drawn after invoking", id);
+      if (dd != nullptr) {
+        checkGe(dd->TotalVtxCount, 500, "and the frame after the command drew real content", id);
+        checkGe(dd->CmdListsCount, 4, "menu, chrome and docked panels each drew after", id);
+      }
+
+      // The app is still coherent. Not "it did not crash" -- these are the
+      // invariants a freed or re-seated dock node breaks.
+      const Census after = censusOf(shell);
+      checkGe(after.tabs, std::size_t{1}, "the dock still has tabs after", id);
+      checkEq(frame.tabHits().size(), after.tabs, "every panel still drew its tab after", id);
+      checkEq(frame.splitterHits().size(), after.splits, "every split still drew its grip after",
+              id);
+      checkEq(frame.panelsDrawn(), after.tabGroups, "one panel body per tab group after", id);
+      check(shell.layout().valid(), "the dock tree is still valid after", id);
+      checkEq(frame.layoutReseatsDuringWalk(), std::size_t{0},
+              "the layout was not re-seated mid-walk by", id);
+
+      // A command that reports a side effect on the document must leave the
+      // viewport agreeing with the document -- the seam that made a stale
+      // KernelScene render a body the document no longer described.
+      check(!frame.syncSceneToDocument(), "the viewport already matches the document after", id);
+    }
+
+    std::printf("[gate] %zu of %zu registered commands invoked, each with a further frame\n",
+                invoked, ids.size());
+    // ★ THE CENSUS. A sweep that silently stopped covering commands as the
+    // registry grew would be worse than no sweep, because the number would still
+    // look like coverage. This is an EQUALITY against the registry's own count.
+    checkEq(invoked, ids.size(), "EVERY registered command was invoked", "");
+    checkGe(ids.size(), std::size_t{41}, "the registry did not shrink under the sweep", "");
+  }
+
   // ── coverage: what was clicked is what the model said was there ──────────
   std::printf("[gate] %zu workspaces, %zu tabs clicked, %zu splitters dragged, %zu frames "
               "built\n",

@@ -400,6 +400,29 @@ jobs:
         # installed for it: imgui_impl_vulkan.cpp is the only vendored file that needs a
         # Vulkan header and it is the one file this gate does not compile.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_click_gate.sh
+      - name: Desktop CRASH-ISOLATION gate (a REAL SIGSEGV in a REAL worker)
+        # THE GATE FOR THE ONE FAILURE MODE THAT PRODUCES NO DIAGNOSTIC AT ALL.
+        #
+        # forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null
+        # Geom2d_Curve dereferenced INSIDE OCCT on three paths, crashing on
+        # Archie's emitted geometry AND on the gold reference STEP files, and its
+        # own self-corrections rule out every cheaper remedy: the crashing shape
+        # had nullPcurves=0 so there is nothing on the input to repair, KeepShapes
+        # was implemented and still SIGSEGV'd all six cases, and the accessor a
+        # guard would call is itself a faulting frame. A SIGSEGV is not an
+        # exception either -- KernelScene's catch(...) cannot see a signal.
+        #
+        # So the kernel runs in forge_kernel_worker and this gate proves the app
+        # survives losing it, against a REAL child and a REAL fatal signal. It
+        # also proves the mechanism did NOT become a capability gate: re-
+        # submitting a program that just crashed must RUN IT AGAIN. Mutation S2
+        # grows exactly that quarantine and must turn this red.
+        #
+        # Rides this job for one more clang++ pass: OCCT and
+        # forge-kernel/build-verify are already here, and the gate needs no SDL2,
+        # no Vulkan and no ImGui. Seven mutations, five of them injected into a
+        # COPY of the production sources rather than into the test.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_isolation_gate.sh
       - name: live-OCCT A/B harnesses (ratcheted; a link failure is RED, not silence)
         # THE GATE THAT WOULD HAVE CAUGHT PR #64. Two harnesses -- thicken and loftpipe --
         # stopped LINKING the moment that PR merged, because it made their engines call
@@ -666,7 +689,8 @@ jobs:
           fi
           missing=0
           for b in forge_desktop forge_desktop_frame_gate \
-                   forge_desktop_document_gate forge_desktop_ir_pipeline_gate; do
+                   forge_desktop_document_gate forge_desktop_ir_pipeline_gate \
+                   forge_kernel_worker forge_desktop_isolation_gate; do
             if [ -x "forge-desktop/build/$b" ]; then printf 'ok       %s\n' "$b"
             else printf 'MISSING  %s\n' "$b"; missing=1; fi
           done
@@ -678,12 +702,12 @@ jobs:
       - name: forge-desktop gates + mutation proofs (headless -- no window, no GPU)
         # ci_desktop_gate.sh runs run_desktop.sh -- the missing-include
         # preflight, then the three headless gates (ir_pipeline, document,
-        # frame), then 17 injected defects each of which MUST turn its gate red
+        # frame, isolation), then 31 injected defects each of which MUST turn its gate red
         # -- and then JUDGES ITS OUTPUT rather than trusting its exit status.
         # run_desktop.sh has no `set -e`, so its status is the status of
         # whatever ran last and a run that fell out of its own middle would exit
         # 0; the gate script requires a zero status AND no mutation reported as
-        # having STAYED GREEN AND the exact verdict line naming exactly 17
+        # having STAYED GREEN AND the exact verdict line naming exactly 31
         # mutations. Its own red paths are proved by the self-test that runs as
         # the first step of this job.
         #

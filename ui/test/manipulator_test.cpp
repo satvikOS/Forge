@@ -14,6 +14,7 @@
 // forge-desktop is not compiled by this gate; if the two ever disagree, the app
 // draws the gizmo somewhere the hit test does not look, so the desktop click
 // gate asserts the agreement on the real Camera.
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
