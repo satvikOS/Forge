@@ -1010,7 +1010,7 @@ which the same command finds in both `package.json` and `kernel-tests.yml`.
   second is `.catch(() => null)`-guarded). An independent instrument reproducing a prior result,
   including its false positives, is the strongest thing that can be said for either.
 
-## 10.2 #146 SHIPPED A TYPE AND A GRAMMAR. IT SHIPPED NO DOOR.
+## 10.2 #146 SHIPPED A TYPE AND A GRAMMAR. IT SHIPPED NO DOOR. #165 SHIPPED THE DOOR.
 
 The pass expected #146 (SURFACE as the fourth IR value kind) to retire the three surfacing JS
 smokes. It retires none of them, and the reason is worth more than the deletion would have been.
@@ -1156,9 +1156,10 @@ the second pass and survives re-measurement with three blockers added and one cl
 ## 10.7 The one-line answer, third pass
 
 **Seven files are now retired across three passes, B11 is cleared, and the single most useful
-measurement this pass made is a number that did not move: two capability landings (#144, #146)
-changed gate 3 by zero, because SURFACE shipped as a type, a grammar and a parse gate with no
-`forge::ui` command to emit it and no gate that builds the geometry.** The next tranche is still
+measurement this pass made is a number that did not move: THREE capability landings (#144, #146,
+#165) changed gate 3 by zero — #146 because SURFACE shipped as a type, a grammar and a parse gate
+with no `forge::ui` command to emit it, and #165 because the command it DID add opens onto ground
+the JS tool surface never covered.** The next tranche is still
 not blocked on Apple — thirteen of fourteen blockers need no credential — and the cheapest real
 progress left is **B13**: eight files of a self-declared *dead pre-OCCT kernel*, pinned by five
 named JS importers, needing no C++ and waiting on no oracle.
