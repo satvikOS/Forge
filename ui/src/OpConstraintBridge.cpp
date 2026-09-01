@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -104,6 +106,64 @@ void addKind(std::vector<IrValueKind>& kinds, IrValueKind kind) {
 
 bool hasKind(const std::vector<IrValueKind>& kinds, IrValueKind kind) {
   return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
+}
+
+// ── argument-value helpers ──────────────────────────────────────────────────
+// forge::ft upper-cases every BARE keyword it reads, so `sphere` and `SPHERE`
+// are the same token to the kernel and must be the same token to this gate. A
+// quoted string is NOT upper-cased by the kernel, so a Text argument is compared
+// as written -- matching a lower-cased selector against the op table would refuse
+// "sphere" as a face name the kernel would have kept verbatim.
+std::string upperWord(const std::string& text) {
+  std::string out;
+  out.reserve(text.size());
+  for (const char ch : text) {
+    out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(ch))));
+  }
+  return out;
+}
+
+// A BARE keyword token: what forge::ft's tokenizer will read back as one
+// Keyword. Anything outside this set ends the token or ends the statement, so a
+// "keyword" holding it is not a keyword at all.
+bool bareKeyword(const std::string& word) {
+  if (word.empty()) return false;
+  for (const char ch : word) {
+    const unsigned char c = static_cast<unsigned char>(ch);
+    if (std::isalnum(c) == 0 && ch != '_') return false;
+  }
+  return true;
+}
+
+// Names the offending character so a refusal can be acted on. A control
+// character has no printable form, and printing it raw into a log or a panel
+// would reproduce the very injection being refused.
+std::string describeChar(char ch) {
+  switch (ch) {
+    case '\n': return "a newline (\\n)";
+    case '\r': return "a carriage return (\\r)";
+    case '\t': return "a tab (\\t)";
+    case '"':  return "a double quote (\")";
+    case '\'': return "a single quote (')";
+    default: break;
+  }
+  char buf[16];
+  std::snprintf(buf, sizeof(buf), "0x%02X", static_cast<unsigned>(static_cast<unsigned char>(ch)));
+  return std::string("the control character ") + buf;
+}
+
+// The character that would break `IrLine::text()` out of one token of one
+// statement, or '\0' when the value is writable. Both quote characters are
+// refused, not just the one IrArg::token() emits: forge::ft's tokenizer opens a
+// string on EITHER, so a single quote inside a double-quoted selector is a live
+// delimiter the moment anything re-renders the line.
+char unwritableChar(const std::string& value) {
+  for (const char ch : value) {
+    const unsigned char c = static_cast<unsigned char>(ch);
+    if (ch == '"' || ch == '\'') return ch;
+    if (c < 0x20 || c == 0x7F) return ch;
+  }
+  return '\0';
 }
 
 OpVocabulary buildFromGeneratedTable() {
@@ -241,6 +301,9 @@ const char* toString(OpConstraint check) noexcept {
     case OpConstraint::ForwardValueRef:     return "forward_value_ref";
     case OpConstraint::UnresolvedValueRef:  return "unresolved_value_ref";
     case OpConstraint::WrongValueKind:      return "wrong_value_kind";
+    case OpConstraint::ForbiddenOpInArgument:  return "forbidden_op_in_argument";
+    case OpConstraint::OpNameInArgument:       return "op_name_in_argument";
+    case OpConstraint::MalformedArgumentValue: return "malformed_argument_value";
   }
   return "unknown_op";
 }
@@ -366,6 +429,82 @@ OpRuling OpConstraintBridge::reject(const ProposedOp& proposal, OpConstraint ver
   return r;
 }
 
+// ── one argument's VALUE ────────────────────────────────────────────────────
+// See the header for why these two rules and no others. The order matters: a
+// value is judged WRITABLE first, because a value that cannot be written into
+// the IR text at all is broken whatever word it happens to spell, and reporting
+// the op-name fact for a string that also carries a newline would name the
+// smaller of the two problems.
+OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reason) const {
+  reason.clear();
+
+  // Rule 1: WRITABLE.
+  if (arg.kind == IrArgKind::Number) {
+    // std::isfinite, not a comparison: `v != v` is true for NaN but says nothing
+    // about an infinity, and "%.10g" writes BOTH as a bare word ("nan", "inf")
+    // that re-reads as a KEYWORD -- an argument that changed kind on the way to
+    // the kernel.
+    if (!std::isfinite(arg.number)) {
+      reason = "a non-finite number cannot be written as feature-IR: formatIrNumber() renders "
+               "it as a bare word, which forge::ft re-reads as a KEYWORD rather than a number";
+      return OpConstraint::MalformedArgumentValue;
+    }
+    return OpConstraint::Ok;
+  }
+  if (arg.kind == IrArgKind::Ref) return OpConstraint::Ok;  // an int; shape-checked by the plan
+
+  if (arg.kind == IrArgKind::Keyword && !bareKeyword(arg.word)) {
+    reason = arg.word.empty()
+                 ? std::string("an EMPTY keyword argument: it renders as nothing at all, and "
+                               "the statement comes back with one argument fewer than it was "
+                               "written with")
+                 : ("a keyword argument that is not a bare keyword: forge::ft reads a bare "
+                    "token as [A-Za-z0-9_]+ and this one carries something else, so it does "
+                    "not come back as the ONE keyword it was written as");
+    return OpConstraint::MalformedArgumentValue;
+  }
+  if (const char bad = unwritableChar(arg.word); bad != '\0') {
+    reason = "the value carries " + describeChar(bad) +
+             ", and IrArg::token() escapes nothing: rendered into a statement it does not "
+             "come back as one argument of one statement. forge::ft reads statements LINE BY "
+             "LINE and opens a string on either quote, so such a value can carry a whole "
+             "further statement -- including an op no command emits -- past a gate that only "
+             "read the op name";
+    return OpConstraint::MalformedArgumentValue;
+  }
+
+  // Rule 2: NOT AN OP. Whole token only.
+  const std::string word = arg.kind == IrArgKind::Keyword ? upperWord(arg.word) : arg.word;
+  if (const OpVocabulary::Forbidden* forbidden = vocabulary_.findForbidden(word)) {
+    reason = word + ": forbidden -- " + forbidden->reason +
+             "; it is here in an ARGUMENT, where the op name of the statement is " +
+             "not what carries it";
+    return OpConstraint::ForbiddenOpInArgument;
+  }
+  const bool allowed = vocabulary_.find(word) != nullptr;
+  if (!allowed && findIrOp(word) != nullptr) {
+    // Same DRIFT case check() reports for a statement op, and the same answer: an
+    // op nobody classified is not a permission.
+    reason = word + ": forbidden -- forge::ui::irOpTable() has this op but the generated "
+                    "vocabulary (" + vocabulary_.sourcePath + ") classifies it neither as "
+                    "user-invocable nor as forbidden, so no command is known to emit it";
+    return OpConstraint::ForbiddenOpInArgument;
+  }
+  if (allowed && arg.kind == IrArgKind::Keyword) {
+    // An op the app DOES expose, but as a STATEMENT. No command emits an op name
+    // as a bare keyword, so a plan that does was not produced by this app.
+    //
+    // Deliberately NOT applied to a quoted Text argument: a selector is free-form
+    // text the kernel resolves against the face inventory, and refusing a face a
+    // user legitimately named "EXTRUDE" would remove capability to fix nothing --
+    // an allowed op inside a quoted string escalates to nothing.
+    reason = word + ": user-invocable as a STATEMENT op, but no forge::ui command emits an op "
+                    "name as a bare keyword argument";
+    return OpConstraint::OpNameInArgument;
+  }
+  return OpConstraint::Ok;
+}
+
 OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
   const IrLine& line = proposal.line;
   if (line.op.empty()) {
@@ -437,7 +576,23 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
                       ") and takes no leading value reference, but one was given");
   }
 
-  // ── 5. the selection the user would have had to make ──────────────────────
+  // ── 5. what each argument SAYS ────────────────────────────────────────────
+  // Checks 3 and 4 read the argument list's SHAPE. This one reads its CONTENT,
+  // and it is the difference between "a plan whose statements name only allowed
+  // ops" and "a plan that can only produce allowed ops": FILLET's third argument
+  // is a word a caller supplies verbatim through the `selector` parameter, so
+  // without this the op name of the statement is not the only op the statement
+  // can carry.
+  for (std::size_t i = 0; i < line.args.size(); ++i) {
+    std::string why;
+    const OpConstraint verdict = checkValue(line.args[i], why);
+    if (verdict == OpConstraint::Ok) continue;
+    return reject(proposal, verdict,
+                  line.op + ": argument " + std::to_string(i + 1) + " of " +
+                      std::to_string(line.args.size()) + " -- " + why);
+  }
+
+  // ── 6. the selection the user would have had to make ──────────────────────
   if (proposal.selection != EntityKind::Any) {
     const std::vector<EntityKind> kinds = acceptedSelections(line.op);
     bool kindOk = false;

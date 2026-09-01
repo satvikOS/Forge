@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "3b96d9952acca4539311ba49dfe64d64343621d5f1eb45f56db6b52083fdeac4",
-        "bytes": 100424,
-        "lines": 2213
+        "sha256": "42a0352abe26c88296f8c3eb10aa8a74b824337f4971e84d0cda91cd590af60c",
+        "bytes": 111303,
+        "lines": 2438
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "3f3f50d6363526cbe43f4c338ed9931116ea414444b1d78077dbef4ebfe2c69e",
-        "bytes": 95476,
-        "lines": 1690
+        "sha256": "9c3d6ff4fe6f5b6403cf09e53684a4a44ebdb4f22d9ff3eb5eef64679be3eaf4",
+        "bytes": 96225,
+        "lines": 1712
       },
       {
         "path": "ui/src/ForgeShell.cpp",
