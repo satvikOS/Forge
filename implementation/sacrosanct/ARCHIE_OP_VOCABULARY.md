@@ -47,17 +47,25 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **58 commands**; **43 of them emit
-feature-IR**, reaching **40 distinct op names**. The kernel defines **47** ops
-(`opFromName`), so **7 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **40 distinct op names**. The kernel defines **48** ops
+(`opFromName`), so **8 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The seven are `SLOT` and the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
-`SKIN`, `SEW`, `SURFCHECK` -- and they are out for two DIFFERENT reasons, which
+The eight are `SLOT`, the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`, `SKIN`,
+`SEW`, `SURFCHECK` -- and `ARC`. They are out for three DIFFERENT reasons, which
 is the distinction a single "no command emits it" line would hide.
 
 The six SURFACE ops arrived with the SURFACE value kind (D-038) and are simply
 NEW: the kind exists, the kernel builds them, and no command emits one yet. That
 is the ordinary kind of gap, and one command apiece closes it.
+
+`ARC` is the 48th kernel op and the same ordinary kind of gap: it takes the
+`[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
+well as straight ones, the kernel builds it, and no forge::ui command emits one
+yet. It is here because the ground truth needs it -- 86 ARC statements across 48
+BenchCAD GT programs, which the reharvest could not parse at all without the op --
+and the count that did NOT move is the honest one: user-invocable ops stay at 40,
+because a kernel op is not a product surface until a command spells it.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
 pinned native verifier its extruded area is exactly
