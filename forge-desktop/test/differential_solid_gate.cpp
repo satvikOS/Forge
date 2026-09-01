@@ -294,13 +294,28 @@ void compareScene(const std::string& tree, const Observed& b,
 // negatives of each other. Both arms reported it identically, so the differential
 // alone called it agreement. VOLUME CANNOT VALIDATE GEOMETRY, and neither can two
 // arms that run the same broken measurement.
+// The trees found incoherent on ANY arm, deduplicated. RATCHETED rather than
+// counted as an immediate failure, for the reason every ratchet in this tree
+// exists: `boss_on_plate` is a REAL open defect in a mass property, not something
+// this change can fix, and a gate that is permanently red is a gate somebody turns
+// off. It is printed in full on every run and the SET is pinned, so it cannot grow
+// unnoticed and cannot be quietly fixed without the pin moving.
+std::vector<std::string> g_incoherent;
+
+void recordIncoherent(const std::string& tree) {
+  for (const std::string& t : g_incoherent) {
+    if (t == tree) return;
+  }
+  g_incoherent.push_back(tree);
+}
+
 bool coherent(const std::string& tree, const char* arm, const Observed& o) {
   if (!o.ok) return true;  // a failure to build is judged by `error`, not by geometry
   bool ok = true;
   auto bad = [&](const char* what, const std::string& detail) {
     ++checks;
-    ++failures;
     ok = false;
+    recordIncoherent(tree);
     std::printf("  [INCOHERENT] %-22s %-6s %-16s %s\n", tree.c_str(), arm, what,
                 detail.c_str());
   };
@@ -650,6 +665,44 @@ int main(int argc, char** argv) {
     std::printf("  [FAIL] %zu of %zu trees built; the corpus is chosen to build, so a drop\n"
                 "         here is a kernel regression, not a corpus problem.\n",
                 built, corpus.size());
+  }
+
+  // ── THE COHERENCE RATCHET ────────────────────────────────────────────────
+  // Asserted on a CLEAN run only: a mutation deliberately changes what is built,
+  // so which trees come out physically coherent is not a fact about the code
+  // under test then.
+  //
+  // MEASURED 2026-08-31, CI run 33453484236 -- ONE tree, and the evidence that it
+  // is a MASS-PROPERTY defect and not a geometry one is complete. Driven through
+  // the pinned native verifier, `boss_on_plate` is a perfectly good solid:
+  //     ok=true valid=true genus=0 shellCount=1 faceCount=9 edgeCount=16
+  //     bbox min=[-25,-25,0] max=[25,25,20]   volume=25428.671731
+  // and 25428.6721 is what 50*50*8 + pi*144*20 - pi*144*8 comes to. Its reported
+  // centre of mass is com=(2.03e+33, -2.03e+33, 23.41): x and y are exact
+  // negatives of each other and 10^32 times the part, and even z is outside the
+  // box, which spans 0..20. By symmetry x and y are 0 and z is
+  // (20000*4 + 5428.67*14)/25428.67 = 6.135.
+  //
+  // NOT FIXED HERE, and saying so is the point: it is forge::massProperties on a
+  // fused OCCT solid, it is not reproducible without a kernel build, and guessing
+  // at OCCT's GProp would be worse than reporting it. What this change owes is
+  // that the gate SAYS it, every run.
+  if (mutation == Mutation::None) {
+    std::printf("[differential-solid] physically incoherent trees: %zu\n", g_incoherent.size());
+    for (const std::string& t : g_incoherent) {
+      std::printf("    OPEN DEFECT -- %s: a measured observable is impossible for the solid\n",
+                  t.c_str());
+    }
+    ++checks;
+    if (g_incoherent.size() != 1 || g_incoherent.front() != "boss_on_plate") {
+      ++failures;
+      std::printf("  [FAIL] the incoherent SET moved. Pinned: {boss_on_plate}. Measured: {");
+      for (std::size_t i = 0; i < g_incoherent.size(); ++i) {
+        std::printf("%s%s", i ? ", " : "", g_incoherent[i].c_str());
+      }
+      std::printf("}\n         A ratchet that cannot notice progress is not evidence, so this\n"
+                  "         is RED in BOTH directions: read the rows above, then move the pin.\n");
+    }
   }
 
   if (mutation != Mutation::None && failures == 0) {

@@ -1975,3 +1975,59 @@ arms cannot reach — the CoPilot applies one step short, and the CoPilot picks 
 runners ask the **binary** for the mutation count rather than carrying a second copy of it, and
 both exit 3 (never 0) when they cannot build or an input artifact is missing: a check that could
 not run is not a check that passed.
+
+**WHAT THE FIRST CI RUN OF TIER 2 FOUND — three things a laptop could not.** The solid tier had
+never executed anywhere before CI run 33453484236, and it went red on all three.
+
+1. **A corpus tree that did not build, in BOTH arms, identically.**
+   `revolved_shell` reported `SHELL: no face faces the open axis` from A *and* B. Revolving a
+   rectangle a full 360° about Y gives a torus of rectangular section — no planar face at all, so
+   SHELL's default open axis `(0,0,-1)` can never find one. The two arms agreed perfectly, **on a
+   failure**, and a tree that does not build measures agreement on nothing. SHELL now gets a body
+   that has a −Z face; REVOLVE keeps its own and is still compiled, so a REVOLVE regression fails
+   the tree through `ok` and the s0.4 census.
+
+2. **A mutation that was never caught and reported itself as caught.** Case 7 renames an op inside
+   the `OpConstraintBridge` *proposal*; tier 2 rules on no proposal. It came back "caught" with
+   `325 checks, 1 failures` — the **same** count as the red clean run. It was riding the corpus
+   failure, and would have flipped to green the moment the gate became healthy. A mutation swept by
+   a tier that cannot see it is worse than one not swept at all. The tier now declares what it can
+   observe (`--applicable-mutations`) and the runner sweeps exactly that, written as a whitelist of
+   **exclusions** so a later mutation is swept by default and has to be argued out.
+
+3. **A centre of mass of 2×10³³ mm, which adding the centre of mass exposed.** `boss_on_plate` — a
+   50×50×8 plate FUSEd with an r=12 h=20 boss — reported
+   `com=(2.02759422756e+33, -2.02759422756e+33, 23.4083321608)`, x and y exact negatives of each
+   other, on a body 50 mm across.
+
+   **It is a mass-property defect and not a geometry defect, and that is measured, not inferred.**
+   Driven through the pinned native verifier the solid is faultless:
+   `ok=true valid=true genus=0 shellCount=1 faceCount=9 edgeCount=16`,
+   `bbox min=[-25,-25,0] max=[25,25,20]`, `volume=25428.671731` — and
+   50·50·8 + π·144·20 − π·144·8 = 25428.672. By symmetry the centre of mass is x=0, y=0,
+   z=(20000·4 + 5428.67·14)/25428.67 = 6.135. All three reported components are wrong and **all
+   three lie outside the bounding box**.
+
+   **Both arms reported it identically**, so the differential called it agreement and went green on
+   that tree. A differential compares arms; it does not, on its own, notice that they agree on
+   nonsense — two measurements of the same broken thing agree perfectly. So each arm is now checked
+   against invariants true of *any* solid: positive volume and area, `bbox min ≤ max`, and a
+   **centre of mass inside that bbox**. That is not a heuristic; a centre of mass is an average of
+   points in the box. The slack is one part in a thousand of the box's own span, so a
+   tessellation-tight bbox cannot produce a false red.
+
+   **Reported, not fixed.** It is `forge::massProperties` on a fused OCCT solid, it is not
+   reproducible without a kernel build, and guessing at GProp would be worse than saying so. The
+   set is ratcheted at exactly `{boss_on_plate}` and printed in full on every run: red if it grows,
+   red if it shrinks without the pin moving.
+
+**And the reader that arm D depends on is gated where it costs nothing.** A transcript reader that
+silently fails to find a field makes the comparison measure the arm's *default* — a green produced
+by an absence, which is the shape of every gate in this programme that turned out to be measuring
+nothing. It needs no kernel, so it lives in `ui/test/verify_transcript.hpp` and tier 1 checks it on
+every PR against a line captured **verbatim** from the verifier rather than written from the
+protocol comment — which lists neither `bodies` nor `vertexCount`, and does not show that `bores`
+carries its own `cx`, `at` and `axis`, the last two being exactly the shape a careless triple search
+collides with. The negative half is the half that matters: the captured line predates `area` and
+`com`, so the reader must report them **absent**, never 0.0, which is where a great many parts
+genuinely have a centre of mass.
