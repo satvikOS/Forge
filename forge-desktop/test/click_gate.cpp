@@ -513,10 +513,17 @@ int main(int argc, char** argv) {
     checkEq(invoked, ids.size(), "EVERY registered command was invoked", "");
     // A RATCHET, raised in the commit that adds a command. A floor left behind
     // cannot notice the registry shrinking back past it, which is the only
-    // thing this line is for. RAISED HERE to the merged registry's own size:
-    // the two sides of this merge carried 49 and 42, and both were floors
-    // under a registry that had grown past them.
-    checkGe(ids.size(), std::size_t{66}, "the registry did not shrink under the sweep", "");
+    // thing this line is for -- so a STALE floor is the failure mode, and BOTH
+    // sides of this merge were stale. MEASURED on the merged tree by building
+    // the registry exactly as this gate does (`ForgeShell` + registerPartCommands):
+    // 22 shell commands + 50 part commands = 72. This branch carried 50 against
+    // its own 66, and the base carried 66 against its own 72 -- picking either
+    // would have left the floor 22 or 6 below the registry it is supposed to
+    // guard. Cross-checked against two independent instruments on this same
+    // tree: APP_SURFACE_MANIFEST.tsv (72 rows, written from the live registry)
+    // and archie_op_vocabulary.json counts.registry_commands (72, derived from
+    // the SOURCES), plus forge_shell_test's shellCommands == 22.
+    checkGe(ids.size(), std::size_t{72}, "the registry did not shrink under the sweep", "");
   }
 
   // ── THE CAMERA ACTUALLY MOVES ────────────────────────────────────────────

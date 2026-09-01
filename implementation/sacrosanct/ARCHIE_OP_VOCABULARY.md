@@ -59,22 +59,22 @@ three DIFFERENT reasons, and the distinction is what a single "no command emits
 it" line would hide: `ARC` and the sketch family are ordinary gaps a command can
 close, and `SLOT` is not.
 
-The registry reads 72 where the base this branch merges reads 64, and the
-emitting half did not move at all -- that gap is this branch's whole shape.
-NEITHER parent's number was right on its own: this branch measured 66 alone and
-the base 64, because each carried only its own half -- the base's six SURFACE
-commands, this branch's eight views -- and 72 is what the MERGED registry
-actually holds. It is measured, not picked: diffing the REGENERATED manifest
-against the base's gives a delta of exactly eight rows added and nothing
-removed -- `view.front`, `view.back`, `view.left`, `view.right`, `view.top`,
-`view.bottom`, `view.iso` and `view.selection`.
+72 is the MERGED figure and neither parent could supply it. The base reads 72
+and this branch alone read 66, because this branch predates the eight viewport
+commands (`view.front`, `view.back`, `view.left`, `view.right`, `view.top`,
+`view.bottom`, `view.iso`, `view.selection`) that reached the base with the
+viewport work. Diffing the REGENERATED manifest against the base's -- rather
+than asserting it -- gives a delta for THIS branch of exactly ZERO rows: nothing
+added, nothing removed. **This branch adds no user-facing command at all.** It
+adds the DOCUMENT: what the app saves, loads and walks, behind commands the
+registry already had.
 
-A view command changes the CAMERA, never the document, so it carries no
-`featureIrOp`: `commands_emitting_ir` stays at 49 and `user_invocable_ops` at
-46, and the emission vocabulary Archie is trained on is untouched by the whole
-of this branch. They are registry commands rather than bespoke widgets so that
-the menu, the palette, the keymap and Archie's tool list all learn about them at
-once.
+That zero is the honest headline here, and it is why every count on this page
+is the base's and not a new measurement of this branch's doing:
+`registry_commands` 72, `commands_emitting_ir` 49, `user_invocable_ops` 46 --
+all unmoved. A save/load layer that changed Archie's emission vocabulary would
+be a defect, not a feature, and the regenerated asset is what proves it did
+not.
 
 The six were out for the ordinary reason: they arrived with the SURFACE value
 kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
