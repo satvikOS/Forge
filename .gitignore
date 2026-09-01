@@ -117,6 +117,11 @@ forge-kernel/.build-gh-census/
 # test/run_thicksolid_nesting_gate.sh's binary — a gate, so it has no committed
 # artefact; it is rebuilt and rerun from source every time.
 forge-kernel/.build-thicksolid-nesting/
+# test/ft/build_s0_acceptance.sh and test/ft/build_surface_round_trip.sh keep
+# their objects + binaries here. Both are gates, so there is no committed
+# artefact: they are rebuilt and rerun from source every time.
+forge-kernel/test/ft/.s0build/
+forge-kernel/test/ft/.surfacebuild/
 
 # --- Forge local dependency plane (Sacrosanct 3.1 s10.6 / s21.2) -------------
 # .forge-local/ is the workstation execution plane: source mirror, build trees,

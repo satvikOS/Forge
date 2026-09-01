@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = 6251d8e9a207871bce0adbb7f61b089947a086984d649410e8aba82faefdc7a3
+// sha256(vocabulary) = 3f2da1f2dfa25d3f70cec4b555bf6434bd03ab706e12e0e71cd423620b61629e
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,17 +35,17 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "6251d8e9a207871bce0adbb7f61b089947a086984d649410e8aba82faefdc7a3";
+inline constexpr std::string_view kVocabularySha256 = "3f2da1f2dfa25d3f70cec4b555bf6434bd03ab706e12e0e71cd423620b61629e";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
-inline constexpr std::size_t kKernelOpsCount = 40;
+inline constexpr std::size_t kKernelOpsCount = 46;
 inline constexpr std::size_t kRegistryCommandsCount = 41;
 inline constexpr std::size_t kCommandsEmittingIrCount = 30;
 inline constexpr std::size_t kUserInvocableOpsCount = 28;
-inline constexpr std::size_t kForbiddenOpsCount = 12;
+inline constexpr std::size_t kForbiddenOpsCount = 18;
 
 // ---------------------------------------------------------------- side tables
 // Sliced by the (first, count) pairs in the rows below.
@@ -215,8 +215,12 @@ struct ForbiddenRow {
   std::string_view op;
   std::string_view reason;
 };
-inline constexpr std::array<ForbiddenRow, 12> kForbiddenOps = {{
+inline constexpr std::array<ForbiddenRow, 18> kForbiddenOps = {{
+    ForbiddenRow{"CAP",
+                 "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"DEFEATURE",
+                 "no command in the forge::ui registry emits it, so no user can produce it"},
+    ForbiddenRow{"FACES",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"FOLD",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
@@ -230,11 +234,19 @@ inline constexpr std::array<ForbiddenRow, 12> kForbiddenOps = {{
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"RESIZEBORE",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
+    ForbiddenRow{"SEW",
+                 "no command in the forge::ui registry emits it, so no user can produce it"},
+    ForbiddenRow{"SKIN",
+                 "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"SLOT",
+                 "no command in the forge::ui registry emits it, so no user can produce it"},
+    ForbiddenRow{"SURFCHECK",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"SWEEP",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"TAG",
+                 "no command in the forge::ui registry emits it, so no user can produce it"},
+    ForbiddenRow{"THICKEN",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"VERIFY",
                  "no command in the forge::ui registry emits it, so no user can produce it"},

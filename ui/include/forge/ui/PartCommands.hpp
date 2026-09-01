@@ -47,11 +47,25 @@
 
 namespace forge::ui {
 
-// The three value kinds forge::ft's IR model defines (FeatureTree.hpp, "IR VALUE
+// The value kinds forge::ft's IR model defines (FeatureTree.hpp, "IR VALUE
 // MODEL"). A command's selection must resolve to the right one: EXTRUDE consumes
 // a PROFILE, FILLET consumes a SOLID, and offering either on the other is the
 // mis-selection a signature exists to refuse.
-enum class IrValueKind : std::uint8_t { None, Profile, Wire, Solid };
+//
+// `Surface` is a SHEET BODY -- a set of faces that is not required to be closed,
+// sewn, manifold or even non-empty. It is the kind free-form geometry lives in,
+// and its absence was structural rather than incidental: with only three kinds
+// there was no value a NURBS patch or an extracted face set could be held in, so
+// no op could produce or consume one and the whole surfacing half of the kernel
+// was unreachable from the IR.
+//
+// APPENDED, never inserted. Every use in this codebase is an equality test or a
+// name lookup, never an ordering or a numeric cast to a fixed set, so adding a
+// kind at the end cannot change what an existing comparison means. The one place
+// that must be updated by hand is the enumeration in OpConstraintBridge.cpp's
+// mapValueKind, and ui/test/op_constraint_bridge_test.cpp proves that mapping is
+// TOTAL by round-tripping every kind through toString.
+enum class IrValueKind : std::uint8_t { None, Profile, Wire, Solid, Surface };
 
 const char* toString(IrValueKind kind) noexcept;
 

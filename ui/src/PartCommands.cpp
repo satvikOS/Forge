@@ -22,6 +22,7 @@ const char* toString(IrValueKind kind) noexcept {
     case IrValueKind::Profile: return "profile";
     case IrValueKind::Wire:    return "wire";
     case IrValueKind::Solid:   return "solid";
+    case IrValueKind::Surface: return "surface";
   }
   return "none";
 }
