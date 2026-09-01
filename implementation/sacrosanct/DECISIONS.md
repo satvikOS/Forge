@@ -2040,10 +2040,17 @@ sides name it. Unconverted, `ANGLE 90` aims at 90 rad = 116.6 deg after wrapping
 solves, converges and reports a clean DOF while making the wrong part.
 
 **What this does NOT claim.** The seven sketch ops are still **forbidden in the app vocabulary** —
-no `forge::ui` command emits `SKETCH`/`SPT`/`SLINE`/`SCIRC`/`SARC`/`CON`/`SOLVE`, so 25 of the
-kernel's 53 ops remain unreachable from a user gesture and an Archie plan naming `SOLVE` is refused
-by the op-constraint bridge before dispatch. That is the emission-surface work (PRs #161/#164), not
-this branch, and it is the next thing standing between this family and a benchmark score. No
-benchmark number is claimed here: nothing in this branch was scored against BenchCAD, CADGenBench
-or MUSE.
+no `forge::ui` command emits `SKETCH`/`SPT`/`SLINE`/`SCIRC`/`SARC`/`CON`/`SOLVE`, and an Archie
+plan naming `SOLVE` is refused by the op-constraint bridge before dispatch. That is the
+emission-surface work, not this branch, and it is the next thing standing between this family and
+a benchmark score.
+
+*(Figure updated at the second `archdisc` merge, because it went stale by standing still — which is
+the defect class this whole entry is about. When D-042 was written the count was **25 of 53**
+forbidden. **#164 then landed** and closed the emission surface, so it is now **14 of 53**: the
+seven sketch ops, plus `SLOT` and the six SURFACE ops that #164 documents. The seven sketch ops are
+still every one of them out.)*
+
+No benchmark number is claimed here: nothing in this branch was scored against BenchCAD,
+CADGenBench or MUSE.
 
