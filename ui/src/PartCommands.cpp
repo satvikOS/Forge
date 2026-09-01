@@ -99,6 +99,7 @@ bool PartDocument::appendFeature(const FeatureRecord& record,
   records_.push_back(record);
   for (const std::string& node : consumedNodes) bindings_.erase(node);
   if (!producedNode.empty()) bindings_[producedNode] = record.irId;
+  recompute();  // the row's status is derived, never accumulated: see PartDocumentState.cpp
   return true;
 }
 
@@ -152,6 +153,7 @@ bool PartDocument::editFeatureArgs(int irId, const std::vector<IrArg>& args) {
   }
 
   rec.line = candidate;  // no binding, no id and no produces-kind moved
+  recompute();
   return true;
 }
 
@@ -164,6 +166,7 @@ void PartDocument::restore(const Snapshot& state) {
     records_.resize(state.records);
   }
   bindings_ = state.bindings;
+  recompute();
 }
 
 // ── AppendFeatureEdit (GoF ConcreteCommand + Memento) ───────────────────────
