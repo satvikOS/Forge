@@ -176,6 +176,141 @@ void ForgeShell::registerCommands() {
     c.execute = [this](CommandContext&) { ++doc_.fitCount; };
     registry_.add(std::move(c));
   }
+  // ── zoom to selection ─────────────────────────────────────────────────────
+  // The verb that separates a viewport from a picture. `view.fit` frames the
+  // WHOLE body, which on one of the 329-430 face ground-truth parts leaves the
+  // face you are working on a few pixels wide. This one frames what is picked.
+  //
+  // It declares a selection signature, so the command layer greys it out when
+  // nothing is selected rather than letting it run and do nothing -- which is
+  // the honest behaviour and the one SelectionSignature exists for.
+  {
+    CommandDescriptor c;
+    c.id = "view.selection";
+    c.label = "Zoom to Selection";
+    c.category = "View";
+    c.signature = SelectionSignature::atLeast(EntityKind::Any, 1);
+    c.signature.requireHomogeneous = false;  // framing a mixed bag is legitimate
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) { ++doc_.selectionFitCount; };
+    registry_.add(std::move(c));
+  }
+  // ── the standard views ────────────────────────────────────────────────────
+  // Seven descriptors with LITERAL ids, one per forge::ui::NamedView. They are
+  // spelled out rather than emitted from a loop for a reason that is not style:
+  // gen_archie_op_vocabulary.py reads THIS FILE AS DATA to derive the command
+  // vocabulary Archie is allowed to emit, and it REFUSES a descriptor whose id
+  // it cannot read literally rather than guessing one. A loop here makes the op
+  // vocabulary underivable.
+  //
+  // The pairing is not left to trust: forge_shell_test asserts that every
+  // NamedView has a `view.<commandSuffix>` command and that no view command
+  // exists without a NamedView behind it, so the two lists cannot drift apart.
+  //
+  // Before these existed, forge::desktop::Camera implemented four of the seven
+  // and NONE was reachable as a command -- `view.fit` was the only View entry in
+  // the registry, and the viewport's own corner buttons called the camera
+  // directly, bypassing the registry, the journal and the keymap.
+  {
+    CommandDescriptor c;
+    c.id = "view.front";
+    c.label = "Front View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      doc_.requestedView = NamedView::Front;
+      ++doc_.viewOrientCount;
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.back";
+    c.label = "Back View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      doc_.requestedView = NamedView::Back;
+      ++doc_.viewOrientCount;
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.left";
+    c.label = "Left View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      doc_.requestedView = NamedView::Left;
+      ++doc_.viewOrientCount;
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.right";
+    c.label = "Right View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      doc_.requestedView = NamedView::Right;
+      ++doc_.viewOrientCount;
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.top";
+    c.label = "Top View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      doc_.requestedView = NamedView::Top;
+      ++doc_.viewOrientCount;
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.bottom";
+    c.label = "Bottom View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      doc_.requestedView = NamedView::Bottom;
+      ++doc_.viewOrientCount;
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.iso";
+    c.label = "Isometric View";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      doc_.requestedView = NamedView::Isometric;
+      ++doc_.viewOrientCount;
+    };
+    registry_.add(std::move(c));
+  }
   {
     CommandDescriptor c;
     c.id = "view.wireframe";
