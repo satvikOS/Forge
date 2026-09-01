@@ -408,6 +408,13 @@ int main(int argc, char** argv) {
     const forge::occtdraftlocal::DraftLocalStats st =
         forge::occtdraftlocal::draftLocalLastStats();
 
+    // THE INPUT'S OWN VALIDITY. A defer on "the rebuilt solid is not
+    // BRepCheck-valid" means one of two very different things depending on this
+    // number: the engine broke a good solid, or it faithfully carried an input
+    // that was already invalid. Both look like a defer from outside.
+    bool inValid = false;
+    try { inValid = BRepCheck_Analyzer(shape).IsValid() == Standard_True; } catch (...) {}
+
     TopoDS_Shape occt;
     const bool occtOk = occtDraft(shape, faces, pull, ang, neutral, occt);
 
@@ -424,6 +431,7 @@ int main(int argc, char** argv) {
     std::printf("{\"part\":\"%s\",\"applicable\":true,\"status\":\"%s\",\"reason\":\"%s\","
                 "\"occt_ok\":%s,\"agrees\":%s,\"diff\":\"%s\","
                 "\"nat_vol\":%.10g,\"occt_vol\":%.10g,\"nat_valid\":%s,\"occt_valid\":%s,"
+                "\"in_valid\":%s,"
                 "\"nfaces\":%d,\"nplanar\":%d,\"nmultiwire\":%d,\"scale\":%.6g,"
                 "\"moved_verts\":%d,\"solve_plane\":%d,\"solve_anchor\":%d,\"solve_quadric\":%d,"
                 "\"faces_verbatim\":%d,\"faces_rebuilt\":%d,\"wires_verbatim\":%d,"
@@ -436,6 +444,7 @@ int main(int argc, char** argv) {
                 jesc(diff.c_str()).c_str(),
                 a.vol, b.vol,
                 a.valid ? "true" : "false", b.valid ? "true" : "false",
+                inValid ? "true" : "false",
                 nFaces, nPlanar, nMultiWire, scale,
                 st.movedVertices, st.solvedByPlaneMeet, st.solvedByAnchor, st.solvedByQuadric,
                 st.facesVerbatim, st.facesRebuilt, st.wiresVerbatim,

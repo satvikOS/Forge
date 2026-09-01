@@ -719,7 +719,15 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
         const gp_Pnt oldP = BRep_Tool::Pnt(v);
 
         // Constraints, split by what this file can verify.
-        std::vector<Plane> planes;                    // rotated walls + still planes
+        // The rotated WALL planes are kept apart from the untouched planar
+        // neighbours. They are the only constraints that MOVED, so they are the
+        // only ones the anchor solve can usefully root-find against: an anchor
+        // curve already lies on both of ITS faces, so solving it against one of
+        // those is degenerate and lands anywhere on the curve. (Measured: with
+        // `planes[0]` used instead, two of a four-corner wall's vertices came
+        // back missing the rotated plane, and the order decided which two.)
+        std::vector<Plane> wallPl;                    // rotated, the ones that moved
+        std::vector<Plane> stillPl;                   // untouched planar neighbours
         std::vector<Handle(Geom_Surface)> quadrics;   // analytic, non-planar
         std::vector<TopoDS_Face> unverifiable;        // no implicit form here
         for (TopTools_ListIteratorOfListOfShape it(vertFaces.FindFromKey(v));
@@ -728,7 +736,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
             const int fi = faceMap.FindIndex(f);
             if (fi == 0) return defer("a vertex is incident to a face not on the shape");
             if (isWall[static_cast<std::size_t>(fi) - 1]) {
-                planes.push_back(wallPlane[static_cast<std::size_t>(fi) - 1]);
+                wallPl.push_back(wallPlane[static_cast<std::size_t>(fi) - 1]);
                 continue;
             }
             const Handle(Geom_Surface) s = BRep_Tool::Surface(f);
@@ -737,13 +745,16 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     Plane pl;
                     if (!outwardPlaneOf(f, pl))
                         return defer("a planar neighbour would not yield its plane");
-                    planes.push_back(pl);
+                    stillPl.push_back(pl);
                     break;
                 }
                 case SurfKind::Unverifiable: unverifiable.push_back(f); break;
                 default:                     quadrics.push_back(s);     break;
             }
         }
+
+        std::vector<Plane> planes = wallPl;
+        planes.insert(planes.end(), stillPl.begin(), stillPl.end());
 
         // Anchor edges: incident edges NOT on any wall. Their curve is untouched,
         // so the vertex slides along one of them.
@@ -758,23 +769,37 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
         MovedVertex& rec = moved[static_cast<std::size_t>(vi) - 1];
 
         // ── solve 1: rank-3 linear meet. Closed form, no iteration. ─────────
+        // FORGE_DRAFT_LOCAL_NO_PLANE_MEET is a TEST switch and nothing else. The
+        // corpus measured solves 2 and 3 firing ZERO times — the linear meet
+        // reaches rank 3 at every moved vertex of all 565 parts — so without a
+        // way to turn it off those two paths are unexecuted code claiming to be
+        // capability. With it off, the A/B drives the SAME fixtures through the
+        // anchor solve and requires the SAME solid on every observable, which
+        // makes solve 2 a proved equivalent of solve 1 rather than an assertion.
+        // Read fresh, not cached in a static, so a test can toggle it per call.
         int rank = 0;
         gp_Pnt cand;
         bool have = false;
         ++statsSlot().movedVertices;
-        if (planes.size() >= 3 && intersectPlanes(planes, cand, rank)) {
+        const bool noPlaneMeet = envOn("FORGE_DRAFT_LOCAL_NO_PLANE_MEET");
+        if (!noPlaneMeet && planes.size() >= 3 && intersectPlanes(planes, cand, rank)) {
             have = true;
             ++statsSlot().solvedByPlaneMeet;
         }
 
         // ── solve 2: slide along an anchor curve onto ONE rotated plane. ────
-        if (!have && !anchors.empty() && !planes.empty()) {
+        if (!have && !anchors.empty() && !wallPl.empty()) {
             for (const TopoDS_Edge& a : anchors) {
                 double lo = 0.0, hi = 0.0;
                 const Handle(Geom_Curve) c = BRep_Tool::Curve(a, lo, hi);
                 if (c.IsNull()) continue;
                 double t = 0.0;
-                if (!curveMeetPlane(c, lo, hi, planes[0], oldP, t)) continue;
+                // Against the ROTATED plane: the anchor curve already satisfies
+                // its own two (untouched) faces, so the only constraint left to
+                // impose along it is the one that moved. A second distinct wall
+                // plane would over-determine the slide; the verification below
+                // catches that rather than this loop guessing.
+                if (!curveMeetPlane(c, lo, hi, wallPl[0], oldP, t)) continue;
                 const gp_Pnt p = basisCurve(c)->Value(t);
                 cand = p;
                 rec.anchor = a;
@@ -1080,8 +1105,15 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
     if (!(std::fabs(pn.Mass()) > 1.0e-12))
         return defer("the rebuilt solid has zero volume");
 
+    // FORGE_DRAFT_LOCAL_SKIP_VALIDITY is a MEASUREMENT switch, never a production
+    // path. The corpus showed a block of parts declining here, and "the gate is
+    // costing real coverage" and "the gate is catching real defects" look
+    // identical from outside it: both are a defer. With the gate off, the probe
+    // can compare those very shapes against OCCT on the full observable vector
+    // and the two hypotheses separate. It is read fresh so a probe can toggle
+    // it per call, it defaults OFF, and nothing in src/ sets it.
     BRepCheck_Analyzer an(out);
-    if (!an.IsValid())
+    if (!an.IsValid() && !envOn("FORGE_DRAFT_LOCAL_SKIP_VALIDITY"))
         return defer("the rebuilt solid is not BRepCheck-valid");
 
     return out;

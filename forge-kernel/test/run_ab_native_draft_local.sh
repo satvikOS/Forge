@@ -23,7 +23,7 @@
 # BRepOffsetAPI_DraftAngle. The zero-import claim is about the ENGINE's object
 # file, which is compiled separately below, and with -Werror.
 #
-# --mutations additionally proves the harness CAN fail: SEVEN defects are injected
+# --mutations additionally proves the harness CAN fail: EIGHT defects are injected
 # into a COPY of the engine and each must turn the A/B red. A gate that cannot
 # fail is not a gate.
 #
@@ -173,12 +173,12 @@ echo "[ab-draft-local] mutation proof (each injected defect must turn the A/B re
 # never fires on valid input changes no answer, so it proves nothing. Every
 # mutant below instead injects a WRONG ANSWER and requires the A/B to notice.
 #
-# ONE PATH IS DELIBERATELY NOT MUTATED HERE: the anchor / re-trim solve. It does
-# not fire on ANY case in this A/B (a mutant of it stayed green, which is how
-# that was discovered), because it needs a moved vertex touching a curved face
-# that the wall itself does not meet along an edge — a valence-4 configuration
-# no primitive fixture produces. It is measured on the corpus instead, by
-# test/draft_local_probe.cpp, which counts how often it fires.
+# THE ANCHOR SOLVE HAD TO BE MADE REACHABLE BEFORE IT COULD BE MUTATED. It fires
+# on no fixture here and on none of the 565 corpus parts, because the rank-3
+# plane meet reaches every moved vertex first. FORGE_DRAFT_LOCAL_NO_PLANE_MEET
+# turns that solve off so the SAME fixtures go down the anchor path and must
+# produce the SAME solid; mutation 8 then proves that comparison can fail.
+# Solve 3 (line versus quadric) is still unreached and is NOT claimed as proved.
 
 # 1. THE SIGN. theta = -angleRad mirrors every draft. NativeDraft.cpp's history
 #    records this exact defect reaching a first A/B run (cube 5 deg: 1185.18
@@ -217,6 +217,14 @@ mutate 6 "drafted face keeps its original plane" \
 #    REVERSED face, so half the drafted walls face inwards.
 mutate 7 "reversed-face normal not flipped" \
   's/            if (faceMap(fi).Orientation() == TopAbs_REVERSED) nrm.Reverse();/            if (false) nrm.Reverse();/'
+
+# 8. THE ANCHOR SOLVE. Displace the root found along the anchor curve. This one
+#    is only reachable at all because the A/B forces solve 2 with
+#    FORGE_DRAFT_LOCAL_NO_PLANE_MEET; before that case existed the path was
+#    unexecuted on every fixture AND on all 565 corpus parts, and a mutant of it
+#    stayed green. Now it must turn the equivalence comparison red.
+mutate 8 "anchor root displaced" \
+  's/                cand = p;/                cand = p.Translated(gp_Vec(0.0, 0.0, 1.0e-3));/'
 
 echo "[ab-draft-local] $MUT_TOTAL mutation(s) run, $MUT_BAD stayed green"
 if [ "$MUT_BAD" -ne 0 ]; then

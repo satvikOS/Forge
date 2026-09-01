@@ -34,6 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>   // setenv/unsetenv, for the anchor-solve equivalence case
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -453,6 +454,53 @@ void runAll() {
         ok(walls.Extent() == 4, "case7 : four walls found in the rotated frame");
         abCase("case7 rotated frame, holed plate, all-4-walls 5deg",
                part, walls, pull, alpha, neutral, 1.0e-6);
+    }
+
+    // ================================================== ANCHOR-SOLVE EQUIVALENCE
+    // ★ THE CORPUS SAYS SOLVE 2 NEVER FIRES. Over all 565 applicable parts the
+    // rank-3 linear meet carries EVERY moved vertex, so the anchor solve and the
+    // line-vs-quadric solve execute zero times and would otherwise be code
+    // claiming to be capability. FORGE_DRAFT_LOCAL_NO_PLANE_MEET turns solve 1
+    // off, which drives the SAME fixtures down solve 2 — and the two must agree
+    // on every observable, because they are two derivations of the same corner:
+    // solve 1 meets the incident planes, solve 2 slides along an untouched
+    // incident CURVE until it reaches the rotated plane. Agreement here is what
+    // makes solve 2 proved rather than asserted, and the assertion that it
+    // ACTUALLY FIRED is what stops this being a comparison of solve 1 to itself.
+    {
+        const double alpha = 7.0 * kPi / 180.0;
+        const TopoDS_Shape part = boxWithThroughHole(40.0, 25.0, 12.0, 20.0, 12.5, 5.0);
+        TopTools_ListOfShape one;
+        one.Append(faceTowards(part, gp_Dir(1, 0, 0)));
+
+        const TopoDS_Shape byPlaneMeet =
+            forge::occtdraftlocal::draftFacesLocal(part, one, zUp, alpha, nz0);
+        const forge::occtdraftlocal::DraftLocalStats s1 =
+            forge::occtdraftlocal::draftLocalLastStats();
+
+        setenv("FORGE_DRAFT_LOCAL_NO_PLANE_MEET", "1", 1);
+        const TopoDS_Shape byAnchor =
+            forge::occtdraftlocal::draftFacesLocal(part, one, zUp, alpha, nz0);
+        const forge::occtdraftlocal::DraftLocalStats s2 =
+            forge::occtdraftlocal::draftLocalLastStats();
+        unsetenv("FORGE_DRAFT_LOCAL_NO_PLANE_MEET");
+
+        ok(!byPlaneMeet.IsNull(), "anchor : the plane-meet solve produced a solid");
+        if (byAnchor.IsNull())
+            std::printf("  [defer] anchor-forced : %s\n",
+                        forge::occtdraftlocal::draftLocalLastDeferReason());
+        ok(!byAnchor.IsNull(), "anchor : the anchor solve produced a solid");
+        ok(s1.solvedByPlaneMeet > 0 && s1.solvedByAnchor == 0,
+           "anchor : the unforced run used the PLANE MEET");
+        ok(s2.solvedByAnchor > 0 && s2.solvedByPlaneMeet == 0,
+           "anchor : the forced run ACTUALLY used the anchor curve "
+           "(otherwise this compares solve 1 to itself)");
+        std::printf("  [anchor] plane-meet solves %d / anchor solves %d\n",
+                    s1.solvedByPlaneMeet, s2.solvedByAnchor);
+        if (!byPlaneMeet.IsNull() && !byAnchor.IsNull()) {
+            const Obs a = observe(byPlaneMeet), b = observe(byAnchor);
+            compareSolids(a, b, "anchor equivalence", 1.0e-9, /*report*/ true);
+        }
     }
 
     // ========================================================= NEGATIVE CONTROL
