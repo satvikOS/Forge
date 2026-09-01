@@ -10,7 +10,10 @@ namespace forge::desktop {
 namespace {
 
 constexpr float kPi = 3.14159265358979323846f;
-constexpr float kPoleGuard = 0.02f;  // radians kept clear of ±90° so up never degenerates
+// Radians kept clear of ±90° so up never degenerates. DERIVED from the headless
+// constant rather than repeated, so orbit's clamp and the Top/Bottom views
+// cannot end up guarding by different amounts.
+constexpr float kPoleGuard = static_cast<float>(forge::ui::kCameraPoleGuard);
 
 void cross(const float a[3], const float b[3], float out[3]) {
   out[0] = a[1] * b[2] - a[2] * b[1];
@@ -167,23 +170,19 @@ void Camera::zoom(float steps) noexcept {
   far_ = distance_ * 100.0f;
 }
 
-void Camera::setFront() noexcept {
-  azimuth_ = -kPi * 0.5f;
-  elevation_ = 0.0f;
+void Camera::setNamedView(forge::ui::NamedView view) noexcept {
+  // ONE table of view angles, in forge::ui, where a cheap gate can assert it.
+  // This used to be four hand-written cases here and nothing checked them.
+  double az = 0.0, el = 0.0;
+  forge::ui::namedViewAngles(view, az, el);
+  azimuth_ = static_cast<float>(az);
+  elevation_ = static_cast<float>(el);
 }
-void Camera::setTop() noexcept {
-  azimuth_ = -kPi * 0.5f;
-  elevation_ = kPi * 0.5f - kPoleGuard;
-}
-void Camera::setRight() noexcept {
-  azimuth_ = 0.0f;
-  elevation_ = 0.0f;
-}
-void Camera::setIsometric() noexcept {
-  azimuth_ = -kPi * 0.25f;
-  // True isometric: elevation = atan(1/sqrt(2)) = 35.264 degrees.
-  elevation_ = std::atan(1.0f / std::sqrt(2.0f));
-}
+
+void Camera::setFront() noexcept { setNamedView(forge::ui::NamedView::Front); }
+void Camera::setTop() noexcept { setNamedView(forge::ui::NamedView::Top); }
+void Camera::setRight() noexcept { setNamedView(forge::ui::NamedView::Right); }
+void Camera::setIsometric() noexcept { setNamedView(forge::ui::NamedView::Isometric); }
 
 void Camera::eye(float out[3]) const noexcept {
   const float ce = std::cos(elevation_);

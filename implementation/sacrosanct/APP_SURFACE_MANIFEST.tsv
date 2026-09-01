@@ -40,6 +40,14 @@ part.sketch_polygon	Part	REGPOLY	document	transaction	live	1	radius:number:requi
 part.sketch_rect	Part	RECT	document	transaction	live	1	width:number:required,height:number:required,cx:number:optional,cy:number:optional
 part.sketch_rounded_rect	Part	RRECT	document	transaction	live	1	width:number:required:hasdefault,height:number:required:hasdefault,corner_radius:number:required:hasdefault,cx:number:optional,cy:number:optional
 part.variable_fillet	Part	BLEND	document	transaction	ondemand	1	radius_start:number:required,radius_end:number:required,smooth:flag:optional
+view.back	View	-	view	none	none	1	-
+view.bottom	View	-	view	none	none	1	-
 view.fit	View	-	view	none	none	1	-
+view.front	View	-	view	none	none	1	-
+view.iso	View	-	view	none	none	1	-
+view.left	View	-	view	none	none	1	-
+view.right	View	-	view	none	none	1	-
+view.selection	View	-	view	none	none	1	-
+view.top	View	-	view	none	none	1	-
 view.wireframe	View	-	view	none	none	1	-
 workspace.next	Application	-	application	none	none	1	-

@@ -238,6 +238,69 @@ bool ForgeFrame::applyPendingFit() {
   return true;
 }
 
+// ── the standard views ──────────────────────────────────────────────────────
+// Same pull contract as applyPendingFit: compare the shell's monotonic counter
+// against this builder's watermark. The camera's angle table is
+// forge::ui::namedViewAngles, which the headless camera gate asserts, so the
+// corner button, the `view.top` command and the gate cannot disagree about
+// where "Top" is.
+bool ForgeFrame::applyPendingView() {
+  const std::size_t want = shell_.document().viewOrientCount;
+  if (want == viewsApplied_) return false;
+  viewsApplied_ = want;
+  const forge::ui::NamedView v = shell_.document().requestedView;
+  camera_.setNamedView(v);
+  note(std::string("view -> ") + forge::ui::toString(v));
+  return true;
+}
+
+// ── zoom to selection ───────────────────────────────────────────────────────
+// Resolves the LIVE selection against the same triangle soup picking resolves
+// to, then frames the union. The census that comes back is printed rather than
+// discarded: "framed 2 of 3" and "framed 3 of 3" are different answers, and a
+// user whose third pick silently did not count deserves to be told.
+bool ForgeFrame::applyPendingSelectionFit() {
+  const std::size_t want = shell_.document().selectionFitCount;
+  if (want == selectionFitsApplied_) return false;
+  selectionFitsApplied_ = want;
+
+  const std::vector<forge::ui::EntityRef>& refs = shell_.selection().selection();
+  if (refs.empty()) {
+    note("view.selection: nothing selected");
+    return false;
+  }
+
+  forge::ui::PickScene scene;
+  scene.mesh = &measureMesh();
+  scene.edges = &edges();
+  // No VertexSet is cached by this builder yet, so a Vertex ref resolves to
+  // nothing. That is REPORTED through the unresolved count below rather than
+  // being silently folded into "empty selection".
+  scene.bodyId = treeSource_.rootId();
+
+  const forge::ui::FramingBounds b = forge::ui::selectionBounds(scene, refs);
+  if (!b.usable()) {
+    note("view.selection: " + std::to_string(b.unresolved) +
+         " selected entities resolved to no geometry");
+    return false;
+  }
+
+  // The desktop Camera is float-facing and frames a SPHERE, so the box becomes
+  // its bounding sphere here -- half the DIAGONAL, not the largest half-extent,
+  // which is what keeps a long thin selection fully on screen.
+  double centre[3] = {0.0, 0.0, 0.0};
+  b.box.centre(centre);
+  const float c[3] = {static_cast<float>(centre[0]), static_cast<float>(centre[1]),
+                      static_cast<float>(centre[2])};
+  camera_.frame(c, static_cast<float>(b.box.diagonal() * 0.5));
+
+  std::string msg = "view.selection: framed " + std::to_string(b.resolved) + " of " +
+                    std::to_string(refs.size());
+  if (b.unresolved > 0) msg += " (" + std::to_string(b.unresolved) + " unresolved)";
+  note(msg);
+  return true;
+}
+
 void ForgeFrame::rebuildTree() {
   tree_.setExpanded(treeSource_.rootId(), true);
   const std::size_t n = treeSource_.featureCount();  // == partDoc_.records().size()
@@ -895,6 +958,8 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   // fires whoever asked for it -- menu, keystroke, palette, ribbon, macro or an
   // Archie tool call -- with no invoker having to remember.
   applyPendingFit();
+  applyPendingSelectionFit();
+  applyPendingView();
 
   const ImGuiIO& io = ImGui::GetIO();
   const float W = io.DisplaySize.x;
@@ -1677,17 +1742,32 @@ void ForgeFrame::drawViewportOverlays(float x, float y, float w, float h) {
 
   // 4. Standard-view buttons, top-right — an overlay that takes input, over the
   //    geometry, which is the thing a second GL context cannot do cheaply.
+  // These used to call `camera_.*fn` DIRECTLY through a member-function pointer
+  // table of four entries. That bypassed the registry, so the standard views
+  // were not journalled, could not be bound to a key, did not appear in the
+  // palette or the menu, and three of the seven simply did not exist. They now
+  // DISPATCH `view.<suffix>` like every other invoker, and the camera moves on
+  // the pull path in applyPendingView() -- one route to the camera, not two.
   const float bw = 34.0f * dpiScale_;
   const float bh = 22.0f * dpiScale_;
-  ImGui::SetCursorScreenPos(ImVec2(x + w - (bw + 4) * 4 - 8, y + 8));
-  struct { const char* name; void (Camera::*fn)() noexcept; } views[] = {
-      {"Iso", &Camera::setIsometric}, {"Fr", &Camera::setFront},
-      {"Tp", &Camera::setTop},        {"Rt", &Camera::setRight}};
-  for (int i = 0; i < 4; ++i) {
+  const int nViews = static_cast<int>(forge::ui::kNamedViewCount);
+  ImGui::SetCursorScreenPos(
+      ImVec2(x + w - (bw + 4) * static_cast<float>(nViews) - 8, y + 8));
+  // Short labels, in the enum's own order so the row cannot fall out of step
+  // with the commands behind it.
+  static const char* kShort[] = {"Fr", "Bk", "Lf", "Rt", "Tp", "Bt", "Iso"};
+  static_assert(sizeof(kShort) / sizeof(kShort[0]) == forge::ui::kNamedViewCount,
+                "one short label per NamedView");
+  for (int i = 0; i < nViews; ++i) {
     if (i > 0) ImGui::SameLine();
-    if (ImGui::Button(views[i].name, ImVec2(bw, bh))) {
-      (camera_.*views[i].fn)();
-      note(std::string("view -> ") + views[i].name);
+    const auto v = static_cast<forge::ui::NamedView>(i);
+    if (ImGui::Button(kShort[i], ImVec2(bw, bh))) {
+      // invoke(), the same path the ribbon and the menu bar use. The CAMERA
+      // is not touched here: the command only bumps the shell's counter, and
+      // applyPendingView() reads it at the TOP of the next build(), before the
+      // walk begins. So this interaction cannot mutate anything the walk is
+      // holding, which is the invariant the click gate asserts.
+      invoke(std::string("view.") + forge::ui::commandSuffix(v));
     }
   }
   if (!scene_.built()) {

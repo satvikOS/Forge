@@ -201,6 +201,20 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // How many fits this frame builder has actually applied.
   std::size_t fitsApplied() const noexcept { return fitsApplied_; }
 
+  // The same contract for the two camera verbs beside it: PULLED once per
+  // build(), so a menu item, a keystroke, the palette, the viewport's corner
+  // buttons and an Archie tool call all reach the camera by the one path.
+  //
+  // applyPendingView   orients to shell.document().requestedView.
+  // applyPendingSelectionFit  frames the CURRENT selection, resolving each
+  //   EntityRef against the same triangle soup picking uses. It returns false
+  //   and moves nothing when the selection resolves to no geometry -- framing
+  //   the origin because a ref did not resolve is how a part appears to vanish.
+  bool applyPendingView();
+  bool applyPendingSelectionFit();
+  std::size_t viewsApplied() const noexcept { return viewsApplied_; }
+  std::size_t selectionFitsApplied() const noexcept { return selectionFitsApplied_; }
+
   // Build the frame. Must be called between ImGui::NewFrame() and ImGui::Render().
   // `viewportTexture` is 0 when there is no 3D texture yet (headless, or the
   // first frame before the renderer has drawn one).
@@ -474,6 +488,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // The shell's fitCount as of the last fit this builder actually applied. The
   // constructor frames the body once, so it starts at the shell's initial 0.
   std::size_t fitsApplied_ = 0;
+  // The same watermark for the two camera verbs added beside it. Separate
+  // counters rather than one, because framing the selection and orienting the
+  // camera are independent requests and a shared counter would let one swallow
+  // the other.
+  std::size_t viewsApplied_ = 0;
+  std::size_t selectionFitsApplied_ = 0;
 
   // Measure panel cache. `measureTriangles_` is the triangle count the cache was
   // built from: it is the cheap witness that the scene has not been re-built

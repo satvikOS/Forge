@@ -35,6 +35,21 @@ struct DocumentStats {
   std::size_t deletedCount = 0;
   bool wireframe = false;
   bool dirty = false;
+
+  // ── camera requests, on the SAME pull pattern fitCount established ────────
+  // These are MONOTONIC COUNTERS, not booleans and not "the camera". The frame
+  // builder compares each against its own watermark and applies the difference,
+  // which is the pattern that made `view.fit` work for every invoker at once --
+  // menu, keystroke, palette, ribbon, macro or an Archie tool call -- with no
+  // handler having to push anything at the camera.
+  //
+  // A boolean would be wrong here for a specific reason: two `view.front`
+  // invocations in a row are two requests, and a flag that is already true
+  // swallows the second, so re-pressing the key after orbiting away would do
+  // nothing. A counter cannot swallow a repeat.
+  std::size_t selectionFitCount = 0;  // view.selection -- frame the picked entities
+  std::size_t viewOrientCount = 0;    // view.front / .back / .left / .right / ...
+  NamedView requestedView = NamedView::Isometric;
 };
 
 // What an INTERACTIVE invocation did. `promptFor` is the explicit "this command

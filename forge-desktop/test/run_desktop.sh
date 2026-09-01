@@ -39,9 +39,9 @@
 #                         document gates both stayed green -- neither clicks.
 #                       * isolation   — the out-of-process kernel worker: the app
 #                         must survive an OCCT segfault instead of dying with it.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. THIRTY-NINE
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. FORTY
 #                       defects (8 document + 9 frame + 8 copilot + 7 update +
-#                       7 click) are
+#                       8 click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -49,7 +49,7 @@
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
 # status is whatever ran last and a run that fell out of its own middle would
-# exit 0. That wrapper also pins the mutation count at an EXACT 39, so adding or
+# exit 0. That wrapper also pins the mutation count at an EXACT 40, so adding or
 # removing a --mutate case below means changing EXPECTED_MUTATIONS in
 # ci_desktop_gate.sh in the SAME commit.
 #
@@ -175,7 +175,7 @@ run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
 # first. Mutation 3 is its positive control for the sanitizer itself -- if that
 # one STAYS GREEN, -fsanitize=address is not reaching the binary and this gate's
 # memory-safety half is silent.
-run_gate forge_desktop_click_gate 1 2 3 4 5 6 7
+run_gate forge_desktop_click_gate 1 2 3 4 5 6 7 8
 
 # The CRASH-ISOLATION gate, with NO mutation list here on purpose. Its proof
 # needs six mutations injected into a COPY of the production sources and two
