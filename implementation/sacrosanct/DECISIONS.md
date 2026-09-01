@@ -1909,3 +1909,41 @@ an even-stride census of 80 trees gives **mean 17 real ops, max 123**, dominated
 `newSketch 466 / extrude 411 / fillet 128 / revolve 55`. ★`hole` appears **once in 182
 features** — real modellers cut holes with sketch+extrude rather than a hole feature,
 which is a candidate explanation for CBORE never appearing and is testable.
+
+### D-045 addendum — an instrument failure is being labelled a model failure (and it is NOT what inflates the number)
+
+Re-measured at **n=318**: VERIFY-bearing 209, own-assertion-false 180 =
+**86.1%** self-inconsistency. The prefix reading is holding, not decaying.
+
+★**A defect in the taxonomy, found by reading a crash report rather than the log.**
+`forge_verify` aborted once today on an **uncaught C++ exception**
+(`__cxa_throw` -> `failed_throw` -> `std::terminate` -> `abort`; SIGABRT, not
+SIGSEGV). The harness respawned and the run continued, but **three rows are
+recorded as `the tree does not compile`** when the real cause was:
+
+```
+[verifier] timeout after 180s; respawn #1   -> ho998  "the tree does not compile: verifier timeout after 180s"
+[verifier] timeout after 180s; respawn #2   -> ho932  "the tree does not compile: verifier timeout after 180s"
+                                            -> ho962  "the tree does not compile: verifier produced no output"
+```
+
+"The tree does not compile" is a claim about the MODEL'S OUTPUT, and for these
+three it is false — the tree may compile perfectly; the INSTRUMENT died or hung.
+★This is the second instance today of the same failure class: an absent or
+failed instrument reported as a property of the specimen (the first was
+`quality_gate` labelling good STEP files `corrupt:parse_failed` because OCP was
+not importable). **A verifier that dies must be its own outcome, never a verdict
+on the input.**
+
+**Direction of the error, stated because it cuts AGAINST the headline, not for
+it.** Two of the three are VERIFY-bearing, so they sit in the DENOMINATOR
+without contributing to the numerator. Excluding them gives **180/207 = 87.0%**.
+The contamination therefore **understates** self-inconsistency slightly; D-045's
+conclusion is robust to it and conservative. It is recorded anyway, because a
+taxonomy that misattributes an instrument death will eventually mislead someone
+in the direction that flatters us.
+
+**Follow-up owed:** give the harness a distinct `instrument_failed` outcome so
+these rows are excluded from both numerator and denominator rather than silently
+scored, and capture the uncaught exception's `what()` — an abort with no message
+is a second missing measurement.
