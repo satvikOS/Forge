@@ -26,6 +26,7 @@
 #include "forge/ft/FeatureTree.hpp"
 #include "forge/Features.hpp"
 #include "forge/ShapeRegistry.hpp"
+#include "forge/MassProps.hpp"
 
 #include <BRepGProp.hxx>
 #include <Bnd_Box.hxx>
@@ -231,18 +232,40 @@ int main() {
            "got " + num(lin.Mass()));
 
         // OBSERVABLE 3 — the bounding box. 17.33 turns wraps the cylinder
-        // completely, so X and Y must reach +-R exactly and Z must span exactly
-        // the requested height. A helix whose LEFT flag had negated the RISE
-        // instead of the winding would come back with z in [-26, 0].
+        // completely, so X and Y must reach +-R and Z must span exactly the
+        // requested height. A helix whose LEFT flag had negated the RISE instead
+        // of the winding would come back with z in [-26, 0].
+        //
+        // ★ THE INSTRUMENT PADS, AND THAT COST A FALSE FAILURE. BRepBndLib::Add
+        // returns a CONSERVATIVE OUTER box: on this curve it reported
+        // +-5.255558 for a radius of exactly 5, i.e. 0.2556 mm of enlargement,
+        // and an assertion written against it would have been an assertion about
+        // OCCT's padding policy rather than about the helix. AddOptimal is the
+        // tight box. BOTH are printed, so the pad stays visible rather than
+        // being quietly tuned away by a wider tolerance.
+        Bnd_Box padded;
+        BRepBndLib::Add(s, padded);
+        double pxa, pya, pza, pxb, pyb, pzb;
+        padded.Get(pxa, pya, pza, pxb, pyb, pzb);
         Bnd_Box bb;
-        BRepBndLib::Add(s, bb);
+        BRepBndLib::AddOptimal(s, bb);
         double xa, ya, za, xb, yb, zb;
         bb.Get(xa, ya, za, xb, yb, zb);
-        std::printf("    bbox=[%.6f %.6f %.6f] .. [%.6f %.6f %.6f]  length=%.6f\n",
-                    xa, ya, za, xb, yb, zb, lin.Mass());
+        std::printf("    length=%.6f\n", lin.Mass());
+        std::printf("    bbox  (AddOptimal, tight) =[%.6f %.6f %.6f] .. [%.6f %.6f %.6f]\n",
+                    xa, ya, za, xb, yb, zb);
+        std::printf("    bbox  (Add, padded)       =[%.6f %.6f %.6f] .. [%.6f %.6f %.6f]"
+                    "   <- conservative, NOT the extent\n",
+                    pxa, pya, pza, pxb, pyb, pzb);
         ok(near(xa, -hr, 1e-3) && near(xb, hr, 1e-3) && near(ya, -hr, 1e-3) &&
                near(yb, hr, 1e-3) && near(za, 0.0, 1e-3) && near(zb, height, 1e-3),
-           "bbox == [-5,-5,0]..[5,5,26] — it CLIMBS, and it wraps the full cylinder");
+           "tight bbox == [-5,-5,0]..[5,5,26] — it CLIMBS, and it wraps the full cylinder",
+           "got [" + num(xa) + " " + num(ya) + " " + num(za) + "] .. [" + num(xb) +
+               " " + num(yb) + " " + num(zb) + "]");
+        // And the padded box must CONTAIN the tight one — a cheap check that the
+        // two calls were made on the same shape and not silently swapped.
+        ok(pxa <= xa + 1e-9 && pxb >= xb - 1e-9 && pza <= za + 1e-9 && pzb >= zb - 1e-9,
+           "the padded box CONTAINS the tight box (both were measured on this wire)");
 
         // OBSERVABLE 4 — LEFT is the winding, not the rise. Same length, same
         // bbox, opposite hand. If LEFT had negated the v component the z span
@@ -253,7 +276,7 @@ int main() {
         GProp_GProps linL;
         BRepGProp::LinearProperties(sl, linL);
         Bnd_Box bbL;
-        BRepBndLib::Add(sl, bbL);
+        BRepBndLib::AddOptimal(sl, bbL);
         double lxa, lya, lza, lxb, lyb, lzb;
         bbL.Get(lxa, lya, lza, lxb, lyb, lzb);
         ok(near(linL.Mass(), wantLen, 1e-4) && near(lza, 0.0, 1e-3) &&

@@ -23,6 +23,13 @@
 # JOBS defaults to 2, not to nproc: this machine is shared with a long-running
 # evaluation, and a build that starves its neighbours is not faster overall.
 #
+# THE OCCT TOOLKITS ON THE LINK LINE BELOW ARE THIS PROBE'S, NOT THE KERNEL'S.
+# The probe measures the helix wire directly -- BRepGProp::LinearProperties for
+# arc length, BRepBndLib for the box -- and those symbols are not re-exported by
+# libforge_kernel_core, so it names them itself. `forge-kernel/test/` is not in
+# FORGE_KERNEL_SOURCES and CMakeLists.txt is untouched, so nothing here moves
+# OCCT_DIRECT or OCCT_CLOSURE. Do not read this line as a ledger change.
+#
 # Exit 0 iff every closed-form observable matched and HELIX's value kind was
 # observed to be WIRE.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -65,6 +72,7 @@ echo "[arc-helix-probe] compiling + linking against $KERNEL_BUILD"
     -I"$KERNEL/include" -I"$OCCT_INC" \
     "$HERE/arc_helix_compile_probe.cpp" -o "$BIN" \
     -L"$KERNEL_BUILD" -lforge_kernel_core \
+    -L"$OCCT_LIB" -lTKernel -lTKMath -lTKBRep -lTKG3d -lTKTopAlgo -lTKGeomBase \
     -Wl,-rpath,"$KERNEL_BUILD" -Wl,-rpath,"$OCCT_LIB" || exit 2
 
 echo
