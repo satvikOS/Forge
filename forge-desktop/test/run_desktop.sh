@@ -173,7 +173,7 @@ run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
 # first. Mutation 3 is its positive control for the sanitizer itself -- if that
 # one STAYS GREEN, -fsanitize=address is not reaching the binary and this gate's
 # memory-safety half is silent.
-run_gate forge_desktop_click_gate 1 2 3 4 5 6 7
+run_gate forge_desktop_click_gate 1 2 3 4 5 6 7 8
 
 # The CRASH-ISOLATION gate, with NO mutation list here on purpose. Its proof
 # needs six mutations injected into a COPY of the production sources and two
