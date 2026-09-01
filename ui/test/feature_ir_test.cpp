@@ -234,9 +234,10 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 40 ops; anything else means the derivation
-  // itself broke, and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 40);
+  // forge::ft::opFromName registers 41 ops; anything else means the derivation
+  // itself broke, and a broken oracle must not pass quietly. It was 40 until ARC
+  // landed — the 41st — so this number moving without an op moving is the bug.
+  CHECK_EQ_INT(kernel.size(), 41);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -267,6 +268,12 @@ int main() {
   CHECK(kernel.at("LOFT").maxArgs == kIrArgsUnbounded);
   CHECK(kernel.at("VERIFY").maxArgs == kIrArgsUnbounded);
   CHECK_EQ_INT(kernel.at("POLY").maxArgs, 1);      // [x y; ...] is ONE argument
+  // ARC takes the same single point-ring literal as POLY. `[x y; x y mx my; ...]`
+  // must NOT be read as an optional group by the derivation — the `...` is inside
+  // a literal, and variadicToken() refuses a token that opens with '['.
+  CHECK_EQ_INT(kernel.at("ARC").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SWEEP").maxArgs, 2);
   CHECK_EQ_INT(kernel.at("INPUT").minArgs, 0);
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);
