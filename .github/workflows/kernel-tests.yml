@@ -150,6 +150,38 @@ jobs:
         # generated header to prove the drift check refuses, then runs all 8 --mutate
         # cases and requires every one to exit non-zero.
         run: bash ui/test/run_op_constraint_gate.sh
+      - name: forge-desktop still TYPE-CHECKS (the cheap half of "the app builds")
+        # THE GATE THAT WOULD HAVE CAUGHT 2026-08-31's UN-BUILDABLE APP, IN THIS
+        # JOB, IN SECONDS.
+        #
+        # forge::ui::DocumentHost grew a PURE virtual (documentReset) and
+        # ForgeFrame, the application's only DocumentHost, did not implement it.
+        # `class ForgeFrame final` therefore named an abstract class and
+        # forge-desktop did not compile. Every step ABOVE stayed green: they all
+        # build ui/src and ui/test and none of them touches forge-desktop/src.
+        # It is the same shape as #107 (a call to KernelScene::features(), which
+        # did not exist), and #107 is why the `desktop` job exists.
+        #
+        # The `desktop` job WOULD catch both -- it compiles and links the real
+        # application -- but it installs OCCT, builds forge_kernel_core, links
+        # ImGui and runs six gates under a sanitizer. That is minutes, on a
+        # runner with an SDK. This step is `-fsyntax-only`: full parse, template
+        # instantiation and type checking, NO codegen and NO link, over the 12
+        # forge-desktop translation units that need no external SDK. Dear ImGui
+        # is vendored in-tree and forge::ui is in-tree, so it needs clang and the
+        # checkout and nothing else -- which is exactly why it can ride THIS job.
+        #
+        # --mutations runs it clean and then proves all three injected defects
+        # turn it red (a removed override of a pure virtual, a call to a method
+        # that does not exist, and a plain -Wunused-variable that only fails
+        # because -Werror is kept). A gate nobody has seen fail is silence, and
+        # silence is the exact failure mode this step is here to end. The
+        # mutations are injected into a COPY of the tree, never the checkout.
+        #
+        # The gate also CENSUSES forge-desktop/{src,test}: every .cpp must be
+        # classified as checked or as skipped-with-the-SDK-it-needs, so a new
+        # translation unit cannot join the application unnoticed.
+        run: bash forge-desktop/test/run_syntax_gate.sh --mutations
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
