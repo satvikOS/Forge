@@ -234,11 +234,12 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 46 ops -- the original 40 plus the six that
-  // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
-  // THICKEN / CAP / SURFCHECK). Anything else means the derivation itself broke,
-  // and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 46);
+  // forge::ft::opFromName registers 47 ops -- MEASURED on the merged tree, and
+  // neither branch's number: 40 originally, +6 for the SURFACE value kind
+  // (SKIN / FACES / SEW / THICKEN / CAP / SURFCHECK) on archdisc, +1 for SECTION
+  // on claude/sacrosanct-execution-20260828. Anything else means the derivation
+  // itself broke, and a broken oracle must not pass quietly.
+  CHECK_EQ_INT(kernel.size(), 47);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {

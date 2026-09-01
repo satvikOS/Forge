@@ -389,6 +389,14 @@ std::vector<EntityRef> selectionFor(const CommandDescriptor& c) {
 std::string resolvePlaceholder(const std::string& token) {
   if (token == "%body") return "%4";
   if (token == "%tool") return "%5";
+  // SECTION's two operands. The generator deliberately does NOT call them
+  // target/tool: a section consumes neither body and the operation is symmetric,
+  // so borrowing the booleans' names would teach Archie that one of them gets
+  // eaten. They still resolve to the SAME two seeded bodies as %body / %tool,
+  // because the fixture has exactly two solids and the placeholders name roles,
+  // not extra geometry.
+  if (token == "%bodyA") return "%4";
+  if (token == "%bodyB") return "%5";
   if (token == "%profile") return "%1";
   if (token == "%profile1") return "%1";
   if (token == "%profile2") return "%2";
@@ -473,7 +481,11 @@ int main() {
   PartDocument partDoc;
   UndoStack partUndo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), partDoc, partUndo);
-  CHECK_EQ_INT(partAdded, 43);
+  // 44 -- MEASURED on the merged tree from partCommandIds()'s own SET, and neither
+  // branch's number (43 on archdisc, 32 on the base). The two lists overlapped on
+  // 28 ids, so a textual union of them was 72 entries with duplicates; the real
+  // union is 44.
+  CHECK_EQ_INT(partAdded, 44);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
   CHECK_EQ_INT(liveIds.size(), static_cast<long long>(j.num(counts, "registry_commands")));

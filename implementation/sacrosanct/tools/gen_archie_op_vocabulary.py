@@ -587,6 +587,11 @@ REF_ROLES = {
     "section": "wire_section",
     "ids[0]": "target_solid",
     "ids[1]": "tool_solid",
+    # part.section_curve's two operands. They are NOT target/tool: SECTION consumes
+    # neither body and the operation is symmetric, so naming them the way the
+    # booleans name theirs would teach Archie that one of them gets eaten.
+    "bodies[0]": "section_operand_a",
+    "bodies[1]": "section_operand_b",
 }
 
 
@@ -1101,7 +1106,12 @@ def ternary_domain(selects_on):
 # 8. emitted forms: expand one command's argument slots into concrete IR forms
 # ---------------------------------------------------------------------------
 REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%profile",
-                   "wire_section": "%wire"}
+                   "wire_section": "%wire",
+                   # SECTION is symmetric and consumes neither operand, so both slots
+                   # are bodies. They still need DISTINCT placeholders: one shared name
+                   # would render the worked example as SECTION(%body, %body), which
+                   # reads as a body sectioned against itself.
+                   "section_operand_a": "%bodyA", "section_operand_b": "%bodyB"}
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 

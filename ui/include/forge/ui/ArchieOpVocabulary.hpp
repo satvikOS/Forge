@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = bf1ecdc77a2bcbbe743cc5047c24f9e407e8b4118820cfb30dbb6009be8f819c
+// sha256(vocabulary) = 2258b24545e00927dfeba0821f3b68ed79cd87b911dc50a3f45616331d0fde94
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,21 +35,21 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "bf1ecdc77a2bcbbe743cc5047c24f9e407e8b4118820cfb30dbb6009be8f819c";
+inline constexpr std::string_view kVocabularySha256 = "2258b24545e00927dfeba0821f3b68ed79cd87b911dc50a3f45616331d0fde94";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
-inline constexpr std::size_t kKernelOpsCount = 46;
-inline constexpr std::size_t kRegistryCommandsCount = 53;
-inline constexpr std::size_t kCommandsEmittingIrCount = 42;
-inline constexpr std::size_t kUserInvocableOpsCount = 39;
+inline constexpr std::size_t kKernelOpsCount = 47;
+inline constexpr std::size_t kRegistryCommandsCount = 54;
+inline constexpr std::size_t kCommandsEmittingIrCount = 43;
+inline constexpr std::size_t kUserInvocableOpsCount = 40;
 inline constexpr std::size_t kForbiddenOpsCount = 7;
 
 // ---------------------------------------------------------------- side tables
 // Sliced by the (first, count) pairs in the rows below.
-inline constexpr std::array<std::string_view, 23> kConsumedValueKinds = {{
+inline constexpr std::array<std::string_view, 24> kConsumedValueKinds = {{
     "SOLID",
     "SOLID",
     "SOLID",
@@ -73,6 +73,7 @@ inline constexpr std::array<std::string_view, 23> kConsumedValueKinds = {{
     "SOLID",
     "SOLID",
     "SOLID",
+    "SOLID",
 }};
 
 // An argument COUNT a user command can actually emit.  Deliberately narrower
@@ -82,7 +83,7 @@ struct ArgCountRange {
   std::size_t min = 0;
   std::size_t max = 0;  // kUnboundedArgs when the op is variadic
 };
-inline constexpr std::array<ArgCountRange, 66> kEmittedArgCounts = {{
+inline constexpr std::array<ArgCountRange, 67> kEmittedArgCounts = {{
     ArgCountRange{3, 3},
     ArgCountRange{5, 5},
     ArgCountRange{3, 3},
@@ -135,6 +136,7 @@ inline constexpr std::array<ArgCountRange, 66> kEmittedArgCounts = {{
     ArgCountRange{3, 3},
     ArgCountRange{5, 5},
     ArgCountRange{2, 2},
+    ArgCountRange{2, 2},
     ArgCountRange{5, 5},
     ArgCountRange{1, 1},
     ArgCountRange{4, 4},
@@ -151,7 +153,7 @@ inline constexpr std::array<ArgCountRange, 66> kEmittedArgCounts = {{
     ArgCountRange{1, 1},
 }};
 
-inline constexpr std::array<std::string_view, 42> kOpCommandIds = {{
+inline constexpr std::array<std::string_view, 43> kOpCommandIds = {{
     "part.variable_fillet",
     "part.primitive_box",
     "part.counterbore",
@@ -184,6 +186,7 @@ inline constexpr std::array<std::string_view, 42> kOpCommandIds = {{
     "part.section_ring",
     "part.rotate",
     "part.sketch_rounded_rect",
+    "part.section_curve",
     "part.shell",
     "part.primitive_sphere",
     "part.sweep_pipe",
@@ -210,7 +213,7 @@ struct OpRow {
   std::size_t commandFirst = 0;        // slice of kOpCommandIds
   std::size_t commandCount = 0;
 };
-inline constexpr std::array<OpRow, 39> kAllowedOps = {{
+inline constexpr std::array<OpRow, 40> kAllowedOps = {{
     OpRow{"BLEND", "SOLID", 0, 1, 3, 5, true, 0, 2, 0, 1},
     OpRow{"BOX", "SOLID", 1, 0, 3, 6, false, 2, 2, 1, 1},
     OpRow{"CBORE", "SOLID", 1, 1, 7, 10, true, 4, 1, 2, 1},
@@ -241,15 +244,16 @@ inline constexpr std::array<OpRow, 39> kAllowedOps = {{
     OpRow{"RING", "WIRE", 18, 0, 3, 7, false, 45, 2, 29, 1},
     OpRow{"ROTATE", "SOLID", 18, 1, 5, 8, true, 47, 2, 30, 1},
     OpRow{"RRECT", "PROFILE", 19, 0, 3, 5, false, 49, 2, 31, 1},
-    OpRow{"SHELL", "SOLID", 19, 1, 2, 5, true, 51, 2, 32, 1},
-    OpRow{"SPHERE", "SOLID", 20, 0, 1, 4, false, 53, 2, 33, 1},
-    OpRow{"SWEEP", "SOLID", 20, 0, 2, 2, false, 55, 2, 34, 2},
-    OpRow{"TAG", "SOLID", 20, 1, 3, 3, true, 57, 1, 36, 1},
-    OpRow{"TORUS", "SOLID", 21, 0, 2, 8, false, 58, 2, 37, 1},
-    OpRow{"TRANSLATE", "SOLID", 21, 1, 4, 4, true, 60, 1, 38, 1},
-    OpRow{"TUBE", "SOLID", 22, 0, 3, 6, false, 61, 2, 39, 1},
-    OpRow{"VERIFY", "SOLID", 22, 1, 2, kUnboundedArgs, true, 63, 2, 40, 1},
-    OpRow{"WIRE", "WIRE", 23, 0, 1, 1, false, 65, 1, 41, 1},
+    OpRow{"SECTION", "WIRE", 19, 1, 2, 2, true, 51, 1, 32, 1},
+    OpRow{"SHELL", "SOLID", 20, 1, 2, 5, true, 52, 2, 33, 1},
+    OpRow{"SPHERE", "SOLID", 21, 0, 1, 4, false, 54, 2, 34, 1},
+    OpRow{"SWEEP", "SOLID", 21, 0, 2, 2, false, 56, 2, 35, 2},
+    OpRow{"TAG", "SOLID", 21, 1, 3, 3, true, 58, 1, 37, 1},
+    OpRow{"TORUS", "SOLID", 22, 0, 2, 8, false, 59, 2, 38, 1},
+    OpRow{"TRANSLATE", "SOLID", 22, 1, 4, 4, true, 61, 1, 39, 1},
+    OpRow{"TUBE", "SOLID", 23, 0, 3, 6, false, 62, 2, 40, 1},
+    OpRow{"VERIFY", "SOLID", 23, 1, 2, kUnboundedArgs, true, 64, 2, 41, 1},
+    OpRow{"WIRE", "WIRE", 24, 0, 1, 1, false, 66, 1, 42, 1},
 }};
 
 // ------------------------------------------------------------- forbidden ops
@@ -286,7 +290,7 @@ struct CommandRow {
   std::size_t selectionMax = 0;        // kUnboundedArgs when open-ended
   std::string_view producesValueKind;  // "Profile" | "Wire" | "Solid"
 };
-inline constexpr std::array<CommandRow, 42> kEmittingCommands = {{
+inline constexpr std::array<CommandRow, 43> kEmittingCommands = {{
     CommandRow{"part.boolean_intersect", "COMMON", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_subtract", "CUT", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_union", "FUSE", "Body", 2, 2, "Solid"},
@@ -316,6 +320,7 @@ inline constexpr std::array<CommandRow, 42> kEmittingCommands = {{
     CommandRow{"part.resize_bore", "RESIZEBORE", "Face", 1, kUnboundedArgs, "Solid"},
     CommandRow{"part.revolve", "REVOLVE", "Sketch", 1, 1, "Solid"},
     CommandRow{"part.rotate", "ROTATE", "Body", 1, 1, "Solid"},
+    CommandRow{"part.section_curve", "SECTION", "Body", 2, 2, "Wire"},
     CommandRow{"part.section_ring", "RING", "None", 0, kUnboundedArgs, "Wire"},
     CommandRow{"part.section_wire", "WIRE", "None", 0, kUnboundedArgs, "Wire"},
     CommandRow{"part.shell", "SHELL", "Face", 1, kUnboundedArgs, "Solid"},

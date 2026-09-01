@@ -18,9 +18,9 @@
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
-        "sha256": "4a298b7a92d95b42d67449e9271cf770ddc0db83f87dad9b1ff34b068c6f44e6",
-        "bytes": 22336,
-        "lines": 380
+        "sha256": "061bb2a10df8d211f514bb370e31d6eb601885d696e04b42665f10ad42c8aae4",
+        "bytes": 22940,
+        "lines": 384
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
@@ -30,27 +30,27 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "abac78cf62265f0e641a2b81673293b94e4609c8f7e03f0936a19c7fcc8a31cf",
-        "bytes": 154174,
-        "lines": 2928
+        "sha256": "50247fe32d190f2bf4c5329ebd1db7713edc29151aa738e9b9e3ec6f6bcb80e4",
+        "bytes": 155881,
+        "lines": 2955
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "a51b8ead634d96387786296d417ce564e04338f3074d9cf606f0d909176d1802",
-        "bytes": 23480,
-        "lines": 395
+        "sha256": "8b1021b64ef9b4555326adab35b54f6a7e9af3b499a425af86ea3542439589eb",
+        "bytes": 24631,
+        "lines": 410
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "9339b6cd324c72a0629e8937f8d07a1850becfee97828998e7c6f1c96a9224ce",
-        "bytes": 10425,
-        "lines": 288
+        "sha256": "96d3cd5b3c6261a3d9782a8a153ef4f560ed33ca0aa952df81727ee57ee574ee",
+        "bytes": 10541,
+        "lines": 290
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "5f3c6a77cf9fff6335765bb7e864b5c6ba695864081f29266b933cf02c1a1b77",
-        "bytes": 134774,
-        "lines": 2332
+        "sha256": "605e1fe22215a23c390a35d422e3a0aabc2001e5f9b6ae5e1b4ae15e5eee987c",
+        "bytes": 136888,
+        "lines": 2364
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -76,11 +76,11 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 46,
-    "ui_validator_ops": 46,
-    "registry_commands": 53,
-    "commands_emitting_ir": 42,
-    "user_invocable_ops": 39,
+    "kernel_ops": 47,
+    "ui_validator_ops": 47,
+    "registry_commands": 54,
+    "commands_emitting_ir": 43,
+    "user_invocable_ops": 40,
     "forbidden_ops": 7,
     "uncertain_entries": 1,
     "derived_defects": 3
@@ -117,6 +117,7 @@
       "RING",
       "ROTATE",
       "RRECT",
+      "SECTION",
       "SHELL",
       "SPHERE",
       "SWEEP",
@@ -4156,6 +4157,83 @@
       ]
     },
     {
+      "op": "SECTION",
+      "kernel_enum": "Section",
+      "produces": "WIRE",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SECTION(%a, %b)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "b",
+              "index": 1
+            }
+          ],
+          "prose": "where the two solids' FACES cross"
+        }
+      ],
+      "kernel_notes": [
+        "OCCT's BRepAlgoAPI has FOUR operators -- Fuse, Cut, Common and",
+        "Section -- and this IR had three. Nothing noticed because no",
+        "benchmark row demanded it.",
+        "It is in its own group because the other three return a SOLID and",
+        "this one CANNOT: a section is a CURVE -- a wire with no faces, no",
+        "shells and zero volume. Typing it SOLID would be worse than leaving",
+        "the op out (massProperties/faceCount/checkValidity would report a",
+        "perfectly good section as an empty invalid body).",
+        "The wire is consumed by LOFT, like RING and WIRE. forge::section",
+        "returns a real TopoDS_Wire when the section edges close into one",
+        "loop, and a compound of wires when they close into several (a plane",
+        "through a tube gives two circles; welding them would be a lie)."
+      ],
+      "user_commands": [
+        "part.section_curve"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%bodyA",
+            "%bodyB"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%bodyA",
+                "%bodyB"
+              ],
+              "ir_text": "%<id> = SECTION(%bodyA, %bodyB)"
+            }
+          ],
+          "command": "part.section_curve"
+        }
+      ]
+    },
+    {
       "op": "SHELL",
       "kernel_enum": "Shell",
       "produces": "SOLID",
@@ -5257,7 +5335,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 46 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 47 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [
@@ -7293,6 +7371,34 @@
         ]
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.section_curve",
+      "label": "Section Curve",
+      "category": "Part",
+      "feature_ir_op": "SECTION",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 2,
+        "max": 2
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() == 2",
+        "derived": [
+          {
+            "selection_values_of_kind": "Solid",
+            "comparison": "==",
+            "value": 2
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Wire"
     },
     {
       "id": "part.section_ring",
