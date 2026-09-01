@@ -42,6 +42,7 @@
 // — because a guard that is never shown to be load-bearing is decoration.
 #include <cstddef>
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -350,6 +351,43 @@ int main() {
     }
     // and the document is untouched by the failed edit
     CHECK_EQ_STR(model.irProgram(), programBefore);
+  }
+
+  // ── 7b. A THROW OUT OF A PANEL BODY ───────────────────────────────────────
+  // This is why the guard is RAII and not a matching endWalk() call. A panel
+  // that throws midway through drawing its rows must still close the walk, or
+  // the depth stays above zero for ever and EVERY later edit is deferred and
+  // never applied — a silent, permanent failure that looks like the app
+  // ignoring the user.
+  {
+    DocumentModel model;
+    CommandRegistry registry;
+    SelectionService sel;
+    author(model, registry, sel);
+
+    bool caught = false;
+    try {
+      DocumentWalk walk(model);
+      CHECK_EQ_INT(static_cast<int>(model.renameFeature(4, "Queued before the throw")),
+                   static_cast<int>(TreeEditStatus::Deferred));
+      throw std::runtime_error("a panel body failed mid-draw");
+    } catch (const std::runtime_error&) {
+      caught = true;
+    }
+    CHECK(caught);
+    // the guard ran during unwinding: the depth is back to zero...
+    CHECK_EQ_INT(model.walkDepth(), 0);
+    CHECK(!model.walking());
+    // ...and the edit queued before the throw was APPLIED, not lost
+    CHECK_EQ_INT(model.pendingEdits(), 0);
+    const FeatureRecord* renamed = model.tree().featureAt(4);
+    CHECK(renamed != nullptr);
+    if (renamed != nullptr) CHECK_EQ_STR(renamed->label, "Queued before the throw");
+
+    // and the document is still usable afterwards — a later edit applies
+    // immediately, which it would not if the depth had been left stuck
+    CHECK_EQ_INT(static_cast<int>(model.renameFeature(4, "After")),
+                 static_cast<int>(TreeEditStatus::Ok));
   }
 
   // ── 8. the status is a real enumerator, and toString covers it ────────────

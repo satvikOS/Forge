@@ -572,6 +572,82 @@ int main() {
     }
   }
 
+  // ── 7b. THE KIND MAPPINGS ARE TOTAL ───────────────────────────────────────
+  // A value kind the reader cannot name is a DOCUMENT THAT WILL NOT OPEN, not a
+  // cosmetic gap. `IrValueKind::Surface` was missing from DocumentModel.cpp's
+  // valueKindFromName: that table was written when the IR had three value kinds,
+  // and the six ops producing a SURFACE (SKIN / FACES / SEW / THICKEN / CAP /
+  // SURFCHECK) landed afterwards, so every part containing one was refused with
+  // "unknown KIND 'surface'". Nothing caught it because nothing read a file.
+  //
+  // Proved by ROUND TRIP through a real document rather than by counting the
+  // list, because a list can be counted correctly and still be wrong: this only
+  // passes if the writer emits the kind AND the reader accepts it back.
+  {
+    const IrValueKind kinds[] = {IrValueKind::None, IrValueKind::Profile, IrValueKind::Wire,
+                                 IrValueKind::Solid, IrValueKind::Surface};
+    // The enumerator count is pinned so ADDING a kind fails this gate loudly
+    // rather than silently going untested.
+    CHECK_EQ_INT(sizeof(kinds) / sizeof(kinds[0]), 5);
+    for (IrValueKind kind : kinds) {
+      DocumentFileData d;
+      DocumentFeature f;
+      f.record.irId = 1;
+      f.record.line.id = 1;
+      f.record.line.op = "BOX";
+      f.record.line.args = {IrArg::num(1), IrArg::num(2), IrArg::num(3)};
+      f.record.produces = kind;
+      f.node = "body_1";
+      d.features.push_back(f);
+
+      DocumentFileData back;
+      DocumentIoError e;
+      const bool ok = readDocumentFile(writeDocumentFile(d), back, e);
+      if (!ok) {
+        std::printf("  FAIL  value kind '%s' does not survive a round trip: %s\n", toString(kind),
+                    e.describe().c_str());
+      }
+      CHECK(ok);
+      CHECK_EQ_INT(back.features.size(), 1);
+      if (ok && back.features.size() == 1) {
+        CHECK_EQ_STR(toString(back.features[0].record.produces), toString(kind));
+      }
+    }
+  }
+  {
+    // The same for EntityKind, which names the topology a NAMED entity binds to.
+    // A kind the reader cannot name loses the user's name for that face.
+    const EntityKind kinds[] = {EntityKind::Vertex,  EntityKind::Edge,      EntityKind::Face,
+                                EntityKind::Body,    EntityKind::Sketch,    EntityKind::SketchCurve,
+                                EntityKind::Wire,    EntityKind::Feature,   EntityKind::Component,
+                                EntityKind::Datum,   EntityKind::Any};
+    CHECK_EQ_INT(sizeof(kinds) / sizeof(kinds[0]), 11);  // every kind but None
+    for (EntityKind kind : kinds) {
+      DocumentFileData d;
+      NamedEntity n;
+      n.name = "probe";
+      n.ref.bodyId = "body_1";
+      n.ref.kind = kind;
+      n.ref.persistentName = "p.1";
+      n.ref.generation = 7;
+      d.names.push_back(n);
+
+      DocumentFileData back;
+      DocumentIoError e;
+      const bool ok = readDocumentFile(writeDocumentFile(d), back, e);
+      if (!ok) {
+        std::printf("  FAIL  entity kind '%s' does not survive a round trip: %s\n", toString(kind),
+                    e.describe().c_str());
+      }
+      CHECK(ok);
+      CHECK_EQ_INT(back.names.size(), 1);
+      if (ok && back.names.size() == 1) {
+        CHECK_EQ_STR(toString(back.names[0].ref.kind), toString(kind));
+        CHECK_EQ_INT(back.names[0].ref.generation, 7);
+      }
+    }
+  }
+
   // ── 8. THE STORE: autosave, crash detection, recovery ─────────────────────
   // The kernel segfaults on some geometry (D-039), so this application WILL die
   // on a user's work. Recovery is not a nicety here; it is the consequence.

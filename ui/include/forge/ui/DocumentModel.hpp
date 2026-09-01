@@ -53,6 +53,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <map>
 #include <memory>
 #include <string>
@@ -329,6 +330,10 @@ class DocumentModel {
   // be refused for a real reason (it strands a consumer), and the caller is no
   // longer on the stack to be told, so it is recorded here instead of dropped.
   const std::vector<std::string>& pendingEditErrors() const noexcept { return pendingErrors_; }
+  // Records that closing a walk threw. Called only from ~DocumentWalk, which
+  // must not let an exception escape; noexcept, and it swallows a failure to
+  // record rather than throwing out of a destructor a second time.
+  void noteWalkFailure(const char* what) noexcept;
 
   bool suppressed(int irId) const noexcept;
   // Suppression is DEPENDENCY-CLOSED, because the alternative is a program that
@@ -467,7 +472,25 @@ class DocumentModel {
 class DocumentWalk {
  public:
   explicit DocumentWalk(DocumentModel& model) : model_(model) { model_.beginWalk(); }
-  ~DocumentWalk() { model_.endWalk(); }
+
+  // The destructor does REAL WORK — closing the outermost walk rebuilds the
+  // feature tree — and a destructor that throws while the stack is already
+  // unwinding calls std::terminate. That would be a hard crash inside the one
+  // mechanism whose entire purpose is to prevent a crash, on the path a throw
+  // out of a panel body takes. So the queue runs inside a catch-all: the
+  // failure is recorded through DocumentModel::noteWalkFailure (readable in
+  // pendingEditErrors()) and never propagated. The depth is decremented FIRST,
+  // by endWalk() itself, so even a failed apply cannot leave the document stuck
+  // in "walking" and defer every later edit for ever.
+  ~DocumentWalk() {
+    try {
+      model_.endWalk();
+    } catch (const std::exception& e) {
+      model_.noteWalkFailure(e.what());
+    } catch (...) {
+      model_.noteWalkFailure("unknown exception");
+    }
+  }
 
   DocumentWalk(const DocumentWalk&) = delete;
   DocumentWalk& operator=(const DocumentWalk&) = delete;

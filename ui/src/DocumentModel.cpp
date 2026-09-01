@@ -84,9 +84,16 @@ bool entityKindFromName(const std::string& name, EntityKind& out) noexcept {
   return false;
 }
 
+// TOTAL over IrValueKind, and it has to stay that way: a kind missing from this
+// list is not a cosmetic gap, it is a document that will not open. `Surface` was
+// missing -- this table was written when the IR had three value kinds, and the
+// six ops that produce a SURFACE (SKIN / FACES / SEW / THICKEN / CAP /
+// SURFCHECK) landed afterwards -- so every part containing one was refused on
+// load with "unknown KIND 'surface'". document_round_trip_test.cpp now proves
+// this mapping round-trips EVERY enumerator, so the next kind cannot repeat it.
 bool valueKindFromName(const std::string& name, IrValueKind& out) noexcept {
   static const IrValueKind kinds[] = {IrValueKind::None, IrValueKind::Profile, IrValueKind::Wire,
-                                      IrValueKind::Solid};
+                                      IrValueKind::Solid, IrValueKind::Surface};
   for (IrValueKind k : kinds) {
     if (name == toString(k)) {
       out = k;
@@ -589,7 +596,7 @@ bool readDocumentFile(const std::string& text, DocumentFileData& out, DocumentIo
           feature.record.irId = static_cast<int>(v);
         } else if (key == "KIND") {
           if (!valueKindFromName(rest, feature.record.produces)) {
-            return fail("unknown KIND '" + rest + "' (expected none|profile|wire|solid)");
+            return fail("unknown KIND '" + rest + "' (expected none|profile|wire|solid|surface)");
           }
         } else if (key == "NODE") {
           feature.node = rest;
@@ -1107,6 +1114,19 @@ std::size_t DocumentModel::endWalk() {
   --walkDepth_;
   if (walkDepth_ != 0) return 0;  // an INNER walk closing applies nothing
   return applyPendingEdits();
+}
+
+void DocumentModel::noteWalkFailure(const char* what) noexcept {
+  // Called from a destructor that is very possibly already unwinding. Recording
+  // the failure allocates, so it can itself throw; letting that escape would be
+  // the second throw and the terminate this whole path exists to avoid.
+  try {
+    pendingErrors_.push_back(std::string("closing the document walk failed: ") +
+                             (what == nullptr ? "unknown" : what));
+  } catch (...) {
+    // Nothing further is safe to do here, and losing one message is strictly
+    // better than losing the process.
+  }
 }
 
 TreeEditStatus DocumentModel::defer(const PendingTreeEdit& edit) {
