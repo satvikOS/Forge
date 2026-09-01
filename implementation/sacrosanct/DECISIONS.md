@@ -1950,3 +1950,62 @@ uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf
 OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
 change for every corpus already written against `LOFT`, and it belongs in its own commit with
 its own measurement.
+
+## D-041 (2026-09-01): a capability can land as a TYPE, a GRAMMAR and a PARSE GATE and move the product surface by ZERO — #146 did
+
+The third JS-deletion pass expected #146 (SURFACE as the fourth IR value kind) to retire three
+surfacing JS harnesses. It retires none, and the reason is worth more than the deletion.
+
+**Measured on `b793ebe1`** (merge of `origin/archdisc` into the execution branch):
+
+```
+kernel ops (opFromName)      46      <- #146 added SKIN FACES SEW THICKEN CAP SURFCHECK
+forge::ui registry commands  41      <- UNCHANGED across #144 and #146
+user-invocable IR ops        28      <- UNCHANGED across #144 and #146
+forbidden_ops                18      <- 12 + the six SURFACE ops, ALL SIX
+gate 3 coverage           15.9%      <- IDENTICAL before and after both PRs
+```
+
+Every one of the six new ops carries the generated reason *"no command in the forge::ui registry
+emits it, so no user can produce it."* And `forge-kernel/test/ft/surface_round_trip_test.cpp:12-16`
+declares its own scope: it *"leaves `compile()`'s kernel symbols unresolved … this is a PARSE-level
+gate: it proves the grammar, the op table, the arities and the tolerant repairs agree. **It does not
+build geometry and does not claim to.**"*
+
+So `knit_surface_smoke.js` still holds, alone, the only assertion in the tree that sewing two
+adjacent 100×60 patches gives **area 12000** and thickening the result gives **volume 48000** with
+**CoM x = 100** — a vector of observables on the knit→thicken pipeline. The nearest C++ harness,
+`native_vs_occt_sew.cpp`, asserts a *topology signature* (free edges, closed, F/E/V) on *box faces*.
+Same word, different subject.
+
+**THE DECISION: a capability is not landed, and nothing becomes retireable, until (a) a `forge::ui`
+command emits the op and (b) a gate BUILDS the geometry.** Three-quarters — value kind, op table
+entry, parse gate — buys zero product surface and zero deletions. Future PRs claiming a capability
+must state which of (a) and (b) they include; "the op exists" is not an answer. This is D-021's
+finding one layer up: there the vocabulary was open, here the vocabulary is closed and the *door* is
+missing.
+
+**Corollary, and the reason this is a decision rather than a note.** `forbidden_ops` grew 12 → 18
+and no gate went red, because "forbidden" is the *correct* generated state for an op no command
+emits. **The list growing is the signal.** A rising `forbidden_ops` count means kernel capability is
+outrunning app surface, and it is the cheapest available early warning that a PR shipped three
+quarters of a feature. Read it at every capability landing.
+
+### Two standing claims retracted in the same pass
+
+1. **`build-app.yml` is on the default branch and ships the JS app** — asserted in four places in
+   `FORGE_DELETION_PLAN.md` plus blocker B11. **False, and false when written.** It left at
+   `50c512e4` (2026-08-28), an ancestor of `origin/archdisc`; `git ls-tree origin/archdisc
+   --name-only .github/workflows/` returns `desktop-release.yml` and `kernel-tests.yml`. **Nothing
+   in CI builds the JS app on any branch**, so deleting `frontend/` and `electron/` breaks no
+   workflow. B11 cleared.
+
+   *How it survived:* the second pass ran that exact command to confirm `desktop-release.yml` had
+   **arrived** and did not notice, in the same output, that `build-app.yml` had **left**. **A
+   command run to confirm one expectation will not volunteer the other half of its own answer.**
+
+2. **`SECTION` is an op and user-invocable ops are 29** — carried in this pass's own briefing.
+   There is no `SECTION` op. The string occurs once in the tree, as the comment banner
+   `// ── SECTION RING ──` at `ui/src/PartCommands.cpp:669`, heading the **RING** command. Measured
+   user-invocable ops: **28**. Kernel ops: **46**, not the 41 also carried. **A banner is not a
+   capability, and a count in a briefing is not a measurement.**

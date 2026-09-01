@@ -494,3 +494,61 @@ Three structural reasons, in order of how much they cost:
 | `native_fuse_mesh_operand_test` | SIGABRT (rc 134). | `test/native_fuse_mesh_operand_test.cpp` |
 | `native_occt_import_test`, `native_occt_wire_activation_test` | rc 1. | `forge-kernel/test/` |
 | s0 conformance | 5 known gaps, unchanged and owed (s0.6 pattern-occurrence addressing among them). | `test/ft/s0_conformance_baseline.txt` |
+
+---
+
+## 8. THIRD DELETION PASS — 2026-09-01 (`forge-js/tranche-3`, merge `b793ebe1`)
+
+**Three files retired. Running total across all passes: seven.**
+
+§0 sets the bar at three clauses, and clause 2 ("a C++ test asserts the same value") is the one
+that kills the survivors. All three files below clear the bar **without needing clause 1 or 2**,
+because each is a file that *asserts nothing to begin with* — which §0 did not anticipate as a
+category and which is now recorded as one.
+
+| File | Lines | Class | Evidence |
+|---|---:|---|---|
+| `frontend/src/forge-v4/assemblyBuilder.js` | 480 | **cannot execute** | static `import … from './MassiveAssembly.js'`; the module is at `frontend/src/foundation/`, not `frontend/src/forge-v4/`. `node` raises `ERR_MODULE_NOT_FOUND` before line 1 runs, under a resolve hook that stubs only bare specifiers so `three` cannot mask it. Negative control in the same harness: the real `MassiveAssembly.js` imports cleanly. Self-declared `SCAFFOLD … wire + perf-verify before demo use`. Zero importers. |
+| `forge-kernel/test/ge9x_shell_section_verify.mjs` | 26 | **superseded shim** | body is `spawnSync(node, [leap1a_shell_section_verify.mjs])`; the named replacement is present (165 lines) and cited at `frontend/src/forge-v4/ge9xBuilder.js:48`. Node twin of `demo-ge9x-full-process.spec.js` (#158). |
+| `forge-kernel/test/camx_gcode_peek.cjs` | 22 | **asserts nothing, and duplicates** | byte-identical arguments to `camx_smoke.cjs` §5 on every call, recording strictly less. **0** hits for `assert\|expect(\|process.exit(1)\|throw` (positive control: `knit_surface_smoke.js` → 8). |
+
+### 8.1 A fourth clause, learned this pass
+
+§0's three clauses assume the file under test *asserts something*. Two of the three files above
+assert nothing at all, and for those the first two clauses are vacuous — there is no value for a
+C++ test to match. The bar that actually applied is:
+
+> **0.4 — A file that cannot execute, or that contains no assertion, has no behaviour to
+> replace.** It is retired on proof of that fact alone, with the proof produced by *running* it
+> (clause 3 still applies in full). This is the repository's own `CMakeLists` "2b" standard
+> — *"a test that cannot fail is worse than no test"* — read from the JS side.
+
+Clause 0.4 is **narrow on purpose**. It does not license deleting by reachability: `camx_smoke.cjs`
+is equally assertion-free and was **kept**, because it is the only written statement of the G-code
+dialect contract (twelve named markers) even though it checks none of them. *Recording an
+expectation is not the same as having none.*
+
+### 8.2 What this pass did NOT retire, and why
+
+* **Model C** — `frontend/src/kernel/features/*`, 8 files / 2,509 LOC, self-declared *"the DEAD
+  PRE-OCCT DEMO KERNEL"*, quarantined 2026-05-23. Pinned by **five** named importers
+  (`FastenerLibrary`, `BearingLibrary`, `HollowBlade`, `TurbomachineryBlade`, `AgentBridge`).
+  Its banner names a sixth, `ToolExecutionEngine.js`, which **no longer exists as a file**.
+  → `FORGE_DELETION_PLAN.md` §10.4, blocker **B13**.
+* **The three surfacing smokes** (`knit_`, `thicken_`, `trim_surface_smoke.js`). #146 added the
+  SURFACE value kind and six kernel ops, but all six are **forbidden** (no `forge::ui` command
+  emits them) and its C++ tests are **parse-level by their own declaration**. §7.6's entry for
+  `native_thicksolid_closedform.mjs` — *"the clearest case in the ledger of a JS file that CANNOT
+  go yet"* — now has three companions. → §10.2.
+* **`projects/ge9x/`** — no successor demo target exists. → blocker **B14**.
+* **The 199 remaining orphans** — §9.3's null result reproduced by an independent probe,
+  including both of its false positives.
+
+### 8.3 Gates run
+
+Green before and after the deletions: `brand-guard.test.mjs`, `deps-allowlist.test.mjs`,
+`bridge-prompt-contract.test.mjs` (the whole of the default branch's `npm test`).
+Green for the merge: `ui/test/run_ui.sh` **19/19**, `ui/test/run_op_constraint_gate.sh`
+**9/9 mutations caught**, `gen_archie_op_vocabulary.py --check`, `gen_op_constraint_table.py --check`.
+No workflow, `package.json` script, `CMakeLists.txt` or shell harness names any deleted file
+(grep positive-controlled on `native_binding_smoke`).
