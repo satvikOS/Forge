@@ -232,11 +232,46 @@ int main() {
         std::printf("    solved bbox = %s x %s x %s\n", num(sdx).c_str(), num(sdy).c_str(),
                     num(sdz).c_str());
 
-        // 1e-6 mm. The constraints are exact, so anything looser would also
-        // accept the 61 x 41 seed this case exists to reject.
-        check(std::abs(sdx - 60.0) < 1e-6, "CONSTRAINTS moved X to 60 (as-drawn was 61)",
+        // ★ 1e-3 mm, AND THE OLD 1e-6 WAS BELOW THE SOLVER'S OWN REPRODUCIBILITY.
+        //
+        // The bar this case has to clear is 1 mm: the seed is 61 x 41 and the
+        // constraints say 60 x 40, so ANY tolerance under 1 mm rejects a solver
+        // that did nothing, and an EXTRUDE that consumed the as-drawn seed still
+        // fails by a factor of a thousand. The old comment claimed 1e-6 was
+        // required to keep the positive control alive -- "anything looser would
+        // also accept the 61 x 41 seed" -- and that is simply not true of any
+        // number below 1.0. It bought no strictness against the defect; it bought
+        // strictness against ARITHMETIC.
+        //
+        // MEASURED, twice, on the same commit (CI run 33542797683, attempts 1 and
+        // 2 of the desktop job):
+        //
+        //     attempt 1   solved bbox = 60.00000125 x 39.99999999   -> X failed
+        //     attempt 2   solved bbox = 60          x 39.99999821   -> Y failed
+        //
+        // Same sha, same sources, DIFFERENT residuals, and a different axis red
+        // each time. planegcs solves by DogLeg iteration and converges on the
+        // constraint error function, not on a coordinate, so the last ulps of a
+        // bbox edge are not reproducible run to run. A gate pinned tighter than
+        // that is a coin toss wearing an assertion's clothes -- it cannot pass
+        // reliably even when the code is right, which is worse than no gate,
+        // because a red that means nothing teaches everyone to ignore it.
+        //
+        // 1e-3 mm is three orders of magnitude above the ~1.8e-6 mm spread those
+        // two runs show, and three orders BELOW the 1 mm the positive control
+        // needs. It is also exactly the tolerance the volume check below already
+        // uses, so the block now states one standard instead of two.
+        //
+        // NOT DONE HERE, and worth saying so: the other repair is to tighten the
+        // solver -- convergence, or a final Newton polish on the solved
+        // parameters -- so the coordinates ARE reproducible to 1e-6. That is a
+        // change to the sketcher's contract rather than to this gate, it needs
+        // its own measurement across many solves, and it belongs to whoever owns
+        // Sketcher::solve. This commit only stops a correct solve from failing at
+        // random.
+        check(std::abs(sdx - 60.0) < 1e-3, "CONSTRAINTS moved X to 60 (as-drawn was 61)",
               num(sdx));
-        check(std::abs(sdy - 40.0) < 1e-6, "CONSTRAINTS moved Y to 40 (as-drawn was 41)",
+        check(std::abs(sdy - 40.0) < 1e-3, "CONSTRAINTS moved Y to 40 (as-drawn was 41)",
               num(sdy));
         check(std::abs(sdz - 10.0) < 1e-6, "EXTRUDE applied the 10 mm distance", num(sdz));
         check(std::abs(s.volume - 60.0 * 40.0 * 10.0) < 1e-3,
