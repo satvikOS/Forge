@@ -289,6 +289,24 @@ std::size_t ForgeFrame::wirePartCommands() {
   // act on this document, and the status strip's counters are read from it.
   shell_.setDocumentHost(this);
   note("registered " + std::to_string(added) + " Part commands into the shell registry");
+
+  // ── EVERY COMMAND GETS A KEY, and this is the only moment that can do it ──
+  // defaultKeymaps() binds 13 commands. The registry now holds 45, so 32 of them
+  // -- every primitive, every pattern, the booleans, the parameter edit -- had
+  // no key sequence in ANY of the four input profiles: 128 of the 180
+  // command/profile slots were empty. forge::ui shipped bindUnboundCommands()
+  // to close exactly that gap and NOTHING CALLED IT.
+  //
+  // It has to be HERE rather than in ForgeShell's constructor because the
+  // registry is not complete until the line above ran: the shell owns 14
+  // commands and this function adds the other 31. Completing the map any earlier
+  // would bind the shell's and leave the Part workspace's unreachable, which is
+  // the state this call exists to end.
+  const std::size_t bound = shell_.completeKeymap();
+  note("keymap completed: " + std::to_string(bound) + " generated bindings, " +
+       std::to_string(shell_.keymap().bindingCount()) + " total over " +
+       std::to_string(shell_.registry().size()) + " commands");
+
   note("document seeded: " + std::to_string(partDoc_.records().size()) + " statements");
   rebuildTree();
   return added;
@@ -486,33 +504,67 @@ void ForgeFrame::note(const std::string& line) {
 }
 
 // ── command invocation ──────────────────────────────────────────────────────
+//
+// ONE PARAMETER POLICY, AND IT IS THE SHELL'S.
+//
+// This function used to fill every REQUIRED parameter itself, from
+// `ParamSpec::defaultNumber` and `defaultText`, IGNORING `hasDefault`. The
+// shell's own interactive path -- ForgeShell::invoke(), which is what a keystroke
+// goes through -- fills only the defaults a spec declares HONEST and reports the
+// rest for the caller to prompt for. Two policies over one registry, which is
+// precisely the "same command, two invokers, two outcomes" defect the single
+// registry exists to prevent, and it was observable: with `hasDefault` false on
+// twelve commands, a MENU CLICK on Rectangle worked (this function invented 40)
+// and the R key died on missing_required_parameter.
+//
+// It was also inventing values that are not defaults at all. A required TEXT
+// parameter with no declared default got the literal "untitled.fpart", so
+// File > Open did not prompt for a path -- it silently tried to open a file
+// named after a placeholder. `hasDefault` exists to say "" is not a path.
+//
+// Now: the shell decides, and this function contributes only the ONE thing it
+// legitimately owns -- the live value the Properties panel is editing, as an
+// OVERRIDE rather than as a default. Anything still required comes back in
+// `promptFor`, and the app opens its parameter prompt instead of failing mute.
 void ForgeFrame::invoke(const std::string& id) {
-  forge::ui::CommandParams params;
+  forge::ui::CommandParams overrides;
   const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
   if (d != nullptr) {
-    // Fill every REQUIRED parameter from its schema default, overridden by the
-    // live value the Properties panel is editing. A menu click that fails the
-    // parameter gate would otherwise be indistinguishable from a broken command.
     for (const forge::ui::ParamSpec& p : d->schema) {
-      if (!p.required) continue;
-      switch (p.type) {
-        case forge::ui::ParamType::Number:
-          params.setNumber(p.name, p.name == "radius" || p.name == "distance" ||
-                                           p.name == "thickness"
-                                       ? static_cast<double>(paramValue_)
-                                       : p.defaultNumber);
-          break;
-        case forge::ui::ParamType::Text:
-          params.setText(p.name, p.defaultText.empty() ? std::string("untitled.fpart")
-                                                       : p.defaultText);
-          break;
-        case forge::ui::ParamType::Flag:
-          params.setFlag(p.name, false);
-          break;
+      if (p.type != forge::ui::ParamType::Number) continue;
+      if (p.name == "radius" || p.name == "distance" || p.name == "thickness") {
+        overrides.setNumber(p.name, static_cast<double>(paramValue_));
       }
     }
   }
-  const forge::ui::DispatchResult r = shell_.run(id, params);
+  // Values the user typed into the prompt for THIS command, if it is the one the
+  // prompt is open on. Cleared by runPromptedCommand() once it has dispatched.
+  if (promptCommand_ == id) {
+    for (const PromptField& f : promptFields_) {
+      if (f.text) {
+        overrides.setText(f.name, std::string(f.value.data()));
+      } else {
+        overrides.setNumber(f.name, std::atof(f.value.data()));
+      }
+    }
+  }
+
+  const forge::ui::InvokeOutcome outcome = shell_.invoke(id, overrides);
+
+  // ── A COMMAND THAT NEEDS A VALUE OPENS A DIALOG; IT DOES NOT FAIL ────────
+  // needsParameters() is NOT a refusal. It is the schema saying "no honest
+  // default exists for this, ask" -- file.open's path, part.edit_feature's new
+  // value. Treating it as a failure is what turns a prompt into a dead end.
+  if (outcome.needsParameters()) {
+    lastInvokeOk_ = false;
+    openPrompt(id, outcome.promptFor);
+    return;
+  }
+
+  const forge::ui::DispatchResult r = outcome.dispatch;
+  // A file.* command reports refusal through the shell rather than through the
+  // dispatch status, so "it ran" is BOTH conditions, not just the status.
+  lastInvokeOk_ = r.ok() && shell_.lastDocumentError().empty();
   if (r.ok()) {
     // A file.* command reports refusal through the shell, not through the
     // dispatch status: `execute` returns void, so "ok" only means it ran.
@@ -522,14 +574,110 @@ void ForgeFrame::invoke(const std::string& id) {
       note(id + "  ->  REFUSED: " + shell_.lastDocumentError());
     }
   } else {
-    note(id + "  ->  " + forge::ui::toString(r.status) +
-         (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+    // THE SENTENCE, NOT THE ENUM. ForgeShell::run() has already written this
+    // dispatch into its activity log with the explanation forge::ui built --
+    // which names the kind the command wanted, what is actually picked, what to
+    // do about it and the feature-IR op. "selection_signature_mismatch" is a
+    // status code; "Edge Fillet needs 1..n edge; nothing selected is picked. Set
+    // the selection filter to edge and pick in the viewport [op FILLET]" is
+    // something a user can act on without a debugger. Falling back to the status
+    // only when there is somehow no entry, so this can never print nothing.
+    const forge::ui::LogEntry* explained = shell_.log().last();
+    if (explained != nullptr && explained->source == id && !explained->message.empty()) {
+      note(id + "  ->  " + explained->message);
+    } else {
+      note(id + "  ->  " + forge::ui::toString(r.status) +
+           (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+    }
   }
   // NO sync here. ForgeShell::run() has already called documentChanged() on this
   // object if the command declared sideEffect == Document, so the viewport is
   // already rebuilt by the time this line runs -- and it is rebuilt the same way
   // for a macro, an Archie tool call or a gate, none of which come through here.
   if (id == "app.command_palette") togglePalette();
+}
+
+// ── the parameter prompt ────────────────────────────────────────────────────
+void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string>& parameters) {
+  const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
+  promptCommand_ = id;
+  promptOpen_ = true;
+  promptFocus_ = false;
+  promptFields_.clear();
+  for (const std::string& name : parameters) {
+    PromptField field;
+    field.name = name;
+    field.text = true;
+    if (d != nullptr) {
+      for (const forge::ui::ParamSpec& p : d->schema) {
+        if (p.name != name) continue;
+        field.text = (p.type != forge::ui::ParamType::Number);
+        break;
+      }
+    }
+    // SEEDED, never blank where the app knows a sensible starting point. The
+    // schema declares no default for these -- that is why they are prompted --
+    // but the APPLICATION does know where the open document lives, and a path
+    // box that starts empty makes the user retype what the title bar is already
+    // showing. Seeding is not defaulting: nothing dispatches until Run.
+    if (name == "path" && !documentPath_.empty()) {
+      std::snprintf(field.value.data(), field.value.size(), "%s", documentPath_.c_str());
+    } else if (name == "value") {
+      std::snprintf(field.value.data(), field.value.size(), "%g", editParamValue());
+    }
+    promptFields_.push_back(std::move(field));
+  }
+  const std::string label = (d != nullptr && !d->label.empty()) ? d->label : id;
+  std::string names;
+  for (std::size_t i = 0; i < parameters.size(); ++i) {
+    if (i != 0) names += ", ";
+    names += parameters[i];
+  }
+  note(label + " needs " + names + " — enter " +
+       (parameters.size() == 1 ? std::string("it") : std::string("them")) + " and press Run");
+}
+
+std::vector<std::string> ForgeFrame::promptParameters() const {
+  std::vector<std::string> out;
+  out.reserve(promptFields_.size());
+  for (const PromptField& f : promptFields_) out.push_back(f.name);
+  return out;
+}
+
+bool ForgeFrame::setPromptValue(const std::string& name, const std::string& value) {
+  for (PromptField& f : promptFields_) {
+    if (f.name != name) continue;
+    std::snprintf(f.value.data(), f.value.size(), "%s", value.c_str());
+    return true;
+  }
+  return false;  // no such field: creating one would pass an argument nothing reads
+}
+
+bool ForgeFrame::submitPrompt() {
+  if (!promptOpen_ || promptCommand_.empty()) return false;
+  const std::string id = promptCommand_;
+  // invoke() reads promptFields_ while promptCommand_ still names this command,
+  // so the collected values reach the dispatch.
+  //
+  // `ran` is read from lastInvokeOk_, which invoke() sets, and NOT from
+  // journal().back() == id. The journal is a shared success log: another
+  // invoker -- a keystroke, the CoPilot, a macro -- can append to it, and a
+  // command that failed here while the previous entry happened to be the same id
+  // would read as success. A witness taken from the thing itself, not from a
+  // list that something else also writes to.
+  invoke(id);
+  const bool ran = lastInvokeOk_;
+  // A command that STILL needs a parameter has reopened the prompt from inside
+  // invoke(). Leave that one open: it is a correction, not a second prompt.
+  if (!(promptOpen_ && promptCommand_ == id && !ran)) cancelPrompt();
+  return ran;
+}
+
+void ForgeFrame::cancelPrompt() noexcept {
+  promptOpen_ = false;
+  promptFocus_ = false;
+  promptCommand_.clear();
+  promptFields_.clear();
 }
 
 // ── the feature PARAMETER editor ────────────────────────────────────────────
@@ -616,22 +764,53 @@ bool ForgeFrame::applyFeatureEdit(double value) {
   return true;
 }
 
+forge::ui::SurfaceContext ForgeFrame::surfaceContext() const {
+  forge::ui::SurfaceContext ctx;
+  ctx.registry = &shell_.registry();
+  ctx.selection = &shell_.selection();
+  ctx.keymap = &shell_.keymap();
+  ctx.input = shell_.inputProfile();
+  return ctx;
+}
+
+void ForgeFrame::rebuildCommandSurfaces() {
+  const forge::ui::SurfaceContext ctx = surfaceContext();
+  menuSurface_ = forge::ui::buildMenuSurface(ctx);
+  ribbonSurface_ = forge::ui::buildRibbonSurface(ctx, shell_.workspace());
+  contextSurface_ = forge::ui::buildContextSurface(ctx);
+}
+
+// ── IS THIS ITEM CLICKABLE? ─────────────────────────────────────────────────
+// Read off the menu surface, which holds EVERY registry command, so this is one
+// lookup rather than another walk.
+//
+// TWO ANSWERS ARE YES, and conflating them was a defect. `enabled()` means
+// dispatch would run it now. `opensDialog()` means a required parameter has no
+// honest default -- file.open's path, part.edit_feature's value -- so an
+// interactive invocation must ASK first. That is not a refusal, and greying the
+// item out instead of prompting turns "type a path" into a dead end: File > Open
+// would be permanently disabled in a CAD application.
+//
+// This function used to fabricate a value for every required parameter and ask
+// evaluate() -- which answered `ok` for file.open because it had just been
+// handed the literal "x" as a path. It got the right ANSWER for the wrong
+// REASON, and the fabrication is what hid the fact that clicking it did not
+// prompt.
 bool ForgeFrame::commandEnabled(const std::string& id) const {
-  forge::ui::CommandParams params;
-  const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
-  if (d != nullptr) {
-    for (const forge::ui::ParamSpec& p : d->schema) {
-      if (!p.required) continue;
-      switch (p.type) {
-        case forge::ui::ParamType::Number: params.setNumber(p.name, p.defaultNumber); break;
-        case forge::ui::ParamType::Text:   params.setText(p.name, "x"); break;
-        case forge::ui::ParamType::Flag:   params.setFlag(p.name, false); break;
-      }
-    }
+  const forge::ui::SurfaceItem* item = menuSurface_.find(id);
+  if (item == nullptr) {
+    // Before the first build(), or an id the registry does not hold. Fall back
+    // to the dispatcher rather than guessing, and use the SCHEMA'S OWN defaults
+    // -- applyDefaults is exactly what ForgeShell::invoke() applies, so this
+    // answers the question the click will actually ask.
+    const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
+    if (d == nullptr) return false;
+    const forge::ui::CommandParams filled =
+        forge::ui::applyDefaults(*d, forge::ui::CommandParams{});
+    if (!forge::ui::missingRequired(*d, filled).empty()) return true;  // it prompts
+    return shell_.registry().evaluate(id, shell_.selection(), filled).ok();
   }
-  // The SAME path dispatch takes. A greyed menu item can therefore never
-  // disagree with the dispatcher about availability.
-  return shell_.registry().evaluate(id, shell_.selection(), params).ok();
+  return item->enabled() || item->opensDialog();
 }
 
 std::string ForgeFrame::shortcutText(const std::string& id) const {
@@ -935,6 +1114,11 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   const float W = io.DisplaySize.x;
   const float H = io.DisplaySize.y;
 
+  // ONE evaluation of the registry per frame, feeding the menu bar, the ribbon
+  // and the context menu. They cannot disagree about what is available because
+  // they are three views of the same value.
+  rebuildCommandSurfaces();
+
   drawMenuBar();
   const float menuH = ImGui::GetFrameHeight();
   const float tabsH = kWorkspaceTabH * dpiScale_;
@@ -954,6 +1138,7 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
 
   drawStatusStrip(H - statH, W, statH);
   drawCommandPalette();
+  drawParameterPrompt();
 
   // ── the deferred mutations ───────────────────────────────────────────────
   // The walk is over and no DockNode reference is live, so it is now safe to
@@ -991,31 +1176,48 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingCopilotDiscard_ = false;
     runCopilotDiscard();
   }
+  // Run on the parameter prompt, deferred for the same reason: it dispatches a
+  // command that can replace the document (file.open, app.load_sample) and
+  // rebuild the feature tree the walk was indexing.
+  if (pendingPromptSubmit_) {
+    pendingPromptSubmit_ = false;
+    submitPrompt();
+  }
 }
 
 void ForgeFrame::drawMenuBar() {
   if (!ImGui::BeginMainMenuBar()) return;
 
-  // Menus are BUILT FROM THE REGISTRY. There is no hand-written menu table: a
-  // command that exists is offered, and the enabled state is the dispatcher's
-  // own answer. Categories are the registry's, in its deterministic order.
-  const std::vector<std::string> cats = shell_.registry().categories();
+  // ── THE MENU IS A VALUE, AND THIS LOOP JUST DRAWS IT ──────────────────────
+  // Every decision below -- which groups exist, in what order, which items are
+  // in them, whether each is greyed, which shortcut sits beside it and what its
+  // tooltip says -- was computed by forge::ui::buildMenuSurface() from the ONE
+  // registry, in the layer CI compiles and ui/test/command_surface_test.cpp
+  // gates. There is no menu table anywhere: a group is a registry CATEGORY, an
+  // item is a registry COMMAND, and its state is the dispatcher's own answer.
+  // Register a command and it appears here, with no edit to this file -- which
+  // is asserted, with its negative half, rather than claimed.
   const std::vector<std::string> wsCats = forge::ui::workspaceCategories(shell_.workspace());
-  for (const std::string& cat : cats) {
-    // The workspace's ribbon categories first-class; others still reachable.
-    if (!ImGui::BeginMenu(cat.c_str())) continue;
-    for (const std::string& id : shell_.registry().idsInCategory(cat)) {
-      const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
-      if (d == nullptr) continue;
-      const std::string sc = shortcutText(id);
-      if (ImGui::MenuItem(d->label.c_str(), sc.empty() ? nullptr : sc.c_str(), false,
-                          commandEnabled(id))) {
-        invoke(id);
+  for (const forge::ui::SurfaceGroup& group : menuSurface_.groups) {
+    if (!ImGui::BeginMenu(group.title.c_str())) continue;
+    for (const forge::ui::SurfaceItem& item : group.items) {
+      const bool clickable = item.enabled() || item.opensDialog();
+      // A command that must ask for a value is offered with an ellipsis, the way
+      // every menu since 1984 has said "this one opens a dialog".
+      const std::string label = item.opensDialog() ? (item.label + "...") : item.label;
+      if (ImGui::MenuItem(label.c_str(), item.shortcut.empty() ? nullptr : item.shortcut.c_str(),
+                          false, clickable)) {
+        invoke(item.commandId);
       }
-      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
-        ImGui::SetTooltip("%s\nid: %s\nneeds: %s\nIR: %s", d->label.c_str(), d->id.c_str(),
-                          d->signature.describe().c_str(),
-                          d->featureIrOp.empty() ? "(ui only)" : d->featureIrOp.c_str());
+      if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal |
+                               ImGuiHoveredFlags_AllowWhenDisabled)) {
+        // `hint` is the SAME sentence the activity log prints when this command
+        // refuses, from the same explainer, so a tooltip and a log line can
+        // never tell the user two different stories about one command.
+        ImGui::SetTooltip("%s\nid: %s\nneeds: %s\nIR: %s\nparameters: %s", item.hint.c_str(),
+                          item.commandId.c_str(),
+                          item.reason.empty() ? "nothing more" : item.reason.c_str(),
+                          item.featureIrOp.c_str(), item.parameters.c_str());
       }
     }
     ImGui::EndMenu();
@@ -1127,31 +1329,30 @@ void ForgeFrame::drawToolbar(float y, float width, float height) {
                        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
                        ImGuiWindowFlags_HorizontalScrollbar)) {
-    // The ribbon: the commands whose CATEGORY this workspace claims. Same
-    // registry, same enabled predicate as the menu — one command, one truth.
+    // The ribbon: the commands whose CATEGORY this workspace claims, as a value
+    // built by forge::ui::buildRibbonSurface() from the SAME registry and the
+    // SAME enabled predicate the menu bar and the dispatcher use.
     //
-    // ribbonCategories(), not workspaceCategories(): the hand-written claim list
-    // made TOTAL over the categories the registry actually holds. It claimed no
-    // "Part", so 21 of 34 commands — every geometry-building one — rendered on
-    // no ribbon in any workspace while the menu bar showed all 34.
-    const std::vector<std::string> cats =
-        forge::ui::ribbonCategories(shell_.workspace(), shell_.registry().categories());
+    // ribbonCategories(), not workspaceCategories(), and that is inside the
+    // model now: the hand-written claim list is made TOTAL over the categories
+    // the registry actually holds. It claimed no "Part", so 21 of 34 commands --
+    // every geometry-building one -- rendered on no ribbon in any workspace
+    // while the menu bar showed all 34. ui/test/command_surface_test.cpp asserts
+    // the union over all eight workspaces covers the registry, so that cannot
+    // silently come back.
     bool first = true;
-    for (const std::string& cat : cats) {
-      for (const std::string& id : shell_.registry().idsInCategory(cat)) {
-        const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
-        if (d == nullptr) continue;
+    for (const forge::ui::SurfaceGroup& group : ribbonSurface_.groups) {
+      for (const forge::ui::SurfaceItem& item : group.items) {
         if (!first) ImGui::SameLine();
         first = false;
-        const bool on = commandEnabled(id);
+        const bool on = item.enabled() || item.opensDialog();
         ImGui::BeginDisabled(!on);
-        if (ImGui::Button(d->label.c_str())) invoke(id);
+        const std::string label = item.opensDialog() ? (item.label + "...") : item.label;
+        if (ImGui::Button(label.c_str())) invoke(item.commandId);
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-          const std::string sc = shortcutText(id);
-          ImGui::SetTooltip("%s   %s\n%s\nrequires: %s", d->label.c_str(), sc.c_str(),
-                            on ? "available" : "unavailable with the current selection",
-                            d->signature.describe().c_str());
+          ImGui::SetTooltip("%s   %s\n%s", item.label.c_str(), item.shortcut.c_str(),
+                            item.hint.c_str());
         }
       }
     }
@@ -1733,20 +1934,33 @@ void ForgeFrame::drawViewportOverlays(float x, float y, float w, float h) {
 
 void ForgeFrame::drawContextMenu() {
   if (!ImGui::BeginPopupContextItem("##viewport_ctx", ImGuiPopupFlags_MouseButtonRight)) return;
-  // The context menu is the registry filtered by what the LIVE selection
-  // satisfies. Same source as the menu bar, the toolbar and the palette.
-  ImGui::TextDisabled("Selection: %zu", shell_.selection().count());
+  // ── BANDED, NOT FILTERED ──────────────────────────────────────────────────
+  // This menu used to HIDE every command the live selection did not satisfy. A
+  // command that vanishes teaches a user nothing: the question they actually
+  // have is "why can I not fillet this?", and the answer -- "needs 1..n edge;
+  // 2 face is picked" -- was exactly what was being suppressed.
+  //
+  // forge::ui::buildContextSurface() bands instead: available now, needs a
+  // selection or a value, unavailable. Same registry and same predicate as the
+  // menu bar and the ribbon, so the three cannot disagree.
+  ImGui::TextDisabled("Selection: %s",
+                      forge::ui::describeSelection(shell_.selection()).c_str());
   ImGui::Separator();
-  std::size_t offered = 0;
-  for (const std::string& id : shell_.registry().ids()) {
-    const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
-    if (d == nullptr) continue;
-    if (d->signature.kind == forge::ui::EntityKind::None) continue;  // needs no selection
-    if (!commandEnabled(id)) continue;
-    if (ImGui::MenuItem(d->label.c_str(), shortcutText(id).c_str())) invoke(id);
-    ++offered;
+  for (const forge::ui::SurfaceGroup& group : contextSurface_.groups) {
+    const bool live = (group.enabledCount() != 0);
+    ImGui::TextColored(live ? rgb(130, 137, 148) : rgb(105, 110, 120), "%s", group.title.c_str());
+    for (const forge::ui::SurfaceItem& item : group.items) {
+      const bool clickable = item.enabled() || item.opensDialog();
+      const std::string label = item.opensDialog() ? (item.label + "...") : item.label;
+      if (ImGui::MenuItem(label.c_str(), item.shortcut.c_str(), false, clickable)) {
+        invoke(item.commandId);
+      }
+      if (!clickable && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("%s", item.hint.c_str());
+      }
+    }
+    ImGui::Separator();
   }
-  if (offered == 0) ImGui::TextDisabled("(nothing applies to this selection)");
   ImGui::Separator();
   if (ImGui::MenuItem("Clear Selection")) {
     shell_.selection().clearSelection();
@@ -1965,14 +2179,82 @@ void ForgeFrame::drawPropertiesPanel() {
   ImGui::TextWrapped("%s", ir.empty() ? "(no statements yet)" : ir.c_str());
 }
 
+// ── THE ACTIVITY LOG: WHY A FEATURE FAILED, WITHOUT A DEBUGGER ──────────────
+//
+// This panel used to print two flat lists of strings: the frame's own `log_`
+// notes and the shell's success-only journal. Neither carried a SEVERITY, so a
+// refusal and a rebuild looked identical, and the journal cannot carry a failure
+// at all -- it only records what ran. A user whose fillet did nothing had one
+// line saying "part.fillet -> selection_signature_mismatch" and no way to learn
+// what that meant.
+//
+// ForgeShell::log() records EVERY dispatch, refusals included, each with the
+// sentence forge::ui built for it: the kind the command wanted, what is actually
+// picked, what to do about it, and the feature-IR op. That is what this draws,
+// severity-coloured and filterable, because "show me only the errors" is the
+// first thing anyone asks a log.
 void ForgeFrame::drawConsolePanel() {
-  ImGui::TextColored(rgb(130, 137, 148), "dispatch journal (%zu) + shell log",
-                     shell_.journal().size());
+  const forge::ui::ActivityLog& log = shell_.log();
+  ImGui::TextColored(rgb(130, 137, 148), "activity: %zu entries", log.size());
+  ImGui::SameLine();
+  ImGui::TextColored(log.count(forge::ui::Severity::Error) != 0 ? rgb(235, 105, 95)
+                                                                : rgb(120, 126, 137),
+                     "%zu errors", log.count(forge::ui::Severity::Error));
+  ImGui::SameLine();
+  ImGui::TextColored(log.count(forge::ui::Severity::Warning) != 0 ? rgb(242, 158, 38)
+                                                                 : rgb(120, 126, 137),
+                     "%zu warnings", log.count(forge::ui::Severity::Warning));
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(120.0f * dpiScale_);
+  const char* levels[] = {"all", "warnings+", "errors"};
+  ImGui::Combo("##loglevel", &logLevel_, levels, 3);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("What this panel shows. Every dispatch is recorded whatever this says.");
+  }
   ImGui::Separator();
+
+  const forge::ui::Severity floorSeverity =
+      logLevel_ >= 2 ? forge::ui::Severity::Error
+                     : (logLevel_ == 1 ? forge::ui::Severity::Warning : forge::ui::Severity::Info);
   if (ImGui::BeginChild("##log", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
-    for (const std::string& l : log_) ImGui::TextUnformatted(l.c_str());
-    for (const std::string& j : shell_.journal()) {
-      ImGui::TextColored(rgb(120, 200, 130), "dispatched  %s", j.c_str());
+    // The log admits what it threw away rather than quietly shortening history.
+    if (log.dropped() != 0) {
+      ImGui::TextDisabled("... %zu earlier entries dropped (the log holds %zu)", log.dropped(),
+                          log.capacity());
+    }
+    std::size_t shown = 0;
+    for (const forge::ui::LogEntry& e : log.entries()) {
+      if (static_cast<int>(e.severity) < static_cast<int>(floorSeverity)) continue;
+      ++shown;
+      ImVec4 colour = rgb(170, 176, 186);
+      const char* tag = "     ";
+      if (e.severity == forge::ui::Severity::Warning) {
+        colour = rgb(242, 158, 38);
+        tag = "WARN ";
+      } else if (e.severity == forge::ui::Severity::Error) {
+        colour = rgb(235, 105, 95);
+        tag = "ERROR";
+      }
+      ImGui::TextColored(colour, "%s", tag);
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(130, 137, 148), "%-22s", e.source.c_str());
+      ImGui::SameLine();
+      // WRAPPED, because these sentences are long on purpose -- they are the
+      // whole point -- and a message clipped at the panel edge is a message that
+      // stops exactly where the useful half begins.
+      ImGui::PushStyleColor(ImGuiCol_Text, colour);
+      ImGui::TextWrapped("%s", e.message.c_str());
+      ImGui::PopStyleColor();
+    }
+    if (shown == 0) {
+      ImGui::TextDisabled("(nothing at this level — %zu entries hidden)", log.size());
+    }
+    // The frame builder's own rebuild/geometry notes, which are about the SCENE
+    // rather than about a dispatch and so have no place in the command log.
+    if (logLevel_ == 0 && !log_.empty()) {
+      ImGui::Separator();
+      ImGui::TextDisabled("frame notes");
+      for (const std::string& l : log_) ImGui::TextUnformatted(l.c_str());
     }
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
   }
@@ -2414,6 +2696,74 @@ void ForgeFrame::drawGenericPanel(const std::string& panelId) {
 }
 
 // ── command palette ─────────────────────────────────────────────────────────
+// ── the parameter prompt ────────────────────────────────────────────────────
+// A PLAIN WINDOW, not an ImGui modal, and deliberately so. A modal grabs input
+// for as long as it is open, which would make every other surface in the app
+// unreachable while it stands -- including the Command Palette a user would
+// naturally reach for to do something else. It is drawn after the dock walk, in
+// the same place and for the same reason as the palette.
+//
+// Run is DEFERRED like every other mutation in this class: it dispatches a
+// command that can rebuild the document, the feature tree and the scene, and the
+// feature tree is the container the walk indexes.
+void ForgeFrame::drawParameterPrompt() {
+  if (!promptOpen_) return;
+  const forge::ui::CommandDescriptor* d = shell_.registry().find(promptCommand_);
+  const std::string label = (d != nullptr && !d->label.empty()) ? d->label : promptCommand_;
+  const ImGuiIO& io = ImGui::GetIO();
+  const float w = std::min(520.0f * dpiScale_, io.DisplaySize.x * 0.6f);
+  ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - w) * 0.5f, io.DisplaySize.y * 0.28f),
+                          ImGuiCond_Appearing);
+  ImGui::SetNextWindowSize(ImVec2(w, 0));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+  bool open = true;
+  if (ImGui::Begin("Command needs a value", &open,
+                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+                       ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextColored(rgb(242, 158, 38), "%s", label.c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", promptCommand_.c_str());
+    ImGui::Separator();
+    // WHY it is asking, in the schema's own terms. "There is no honest default
+    // for this" is the whole reason a prompt exists rather than a default, and a
+    // box with no explanation is a box a user guesses at.
+    ImGui::TextWrapped(
+        "This command declares no default for the value%s below, so a keystroke or a "
+        "menu click cannot supply %s. Type %s and press Run.",
+        promptFields_.size() == 1 ? "" : "s", promptFields_.size() == 1 ? "it" : "them",
+        promptFields_.size() == 1 ? "it" : "them");
+    ImGui::Spacing();
+
+    bool submitted = false;
+    for (std::size_t i = 0; i < promptFields_.size(); ++i) {
+      PromptField& f = promptFields_[i];
+      ImGui::PushID(static_cast<int>(i));
+      ImGui::TextUnformatted(f.name.c_str());
+      ImGui::SameLine(150.0f * dpiScale_);
+      ImGui::SetNextItemWidth(-1);
+      if (!promptFocus_ && i == 0) {
+        ImGui::SetKeyboardFocusHere();
+        promptFocus_ = true;
+      }
+      if (ImGui::InputText("##v", f.value.data(), f.value.size(),
+                           ImGuiInputTextFlags_EnterReturnsTrue)) {
+        submitted = true;
+      }
+      ImGui::PopID();
+    }
+
+    ImGui::Spacing();
+    if (ImGui::Button("Run")) submitted = true;
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) open = false;
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) open = false;
+    if (submitted) pendingPromptSubmit_ = true;
+  }
+  ImGui::End();
+  ImGui::PopStyleVar();
+  if (!open) cancelPrompt();
+}
+
 void ForgeFrame::drawCommandPalette() {
   if (!paletteOpen_) return;
   const ImGuiIO& io = ImGui::GetIO();
@@ -2431,36 +2781,51 @@ void ForgeFrame::drawCommandPalette() {
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##q", "search commands...", paletteQuery_, sizeof(paletteQuery_));
 
-    // The registry's OWN ranked search — not a second matcher. Whatever the
-    // palette can find, a macro and an Archie tool call can find by the same ID.
-    const std::vector<std::string> hits = shell_.registry().search(paletteQuery_, 14);
-    if (hits.empty()) {
+    // The registry's OWN ranked search, through the same surface builder as
+    // every other view — not a second matcher. Whatever the palette can find, a
+    // macro and an Archie tool call can find by the same ID, and it is ranked in
+    // exactly the order CommandRegistry::search() returns.
+    const forge::ui::CommandSurface hits =
+        forge::ui::buildPaletteSurface(surfaceContext(), paletteQuery_, 14);
+    // A query nothing matches produces a surface with NO groups, so the rows are
+    // read out of a function-local empty vector rather than groups[0]. Not a
+    // heap allocation: this runs once a frame while the palette is open, and a
+    // `new` here would leak a vector per frame for as long as it stayed open.
+    static const std::vector<forge::ui::SurfaceItem> kNoRows;
+    const std::vector<forge::ui::SurfaceItem>& rows =
+        hits.groups.empty() ? kNoRows : hits.groups[0].items;
+    if (rows.empty()) {
       ImGui::TextDisabled("no command matches");
     } else {
-      paletteIndex_ = std::clamp(paletteIndex_, 0, static_cast<int>(hits.size()) - 1);
+      paletteIndex_ = std::clamp(paletteIndex_, 0, static_cast<int>(rows.size()) - 1);
       if (ImGui::IsKeyPressed(ImGuiKey_DownArrow)) ++paletteIndex_;
       if (ImGui::IsKeyPressed(ImGuiKey_UpArrow)) --paletteIndex_;
-      paletteIndex_ = std::clamp(paletteIndex_, 0, static_cast<int>(hits.size()) - 1);
+      paletteIndex_ = std::clamp(paletteIndex_, 0, static_cast<int>(rows.size()) - 1);
     }
     ImGui::Separator();
-    for (std::size_t i = 0; i < hits.size(); ++i) {
-      const forge::ui::CommandDescriptor* d = shell_.registry().find(hits[i]);
-      if (d == nullptr) continue;
-      const bool on = commandEnabled(hits[i]);
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+      const forge::ui::SurfaceItem& item = rows[i];
+      const bool on = item.enabled() || item.opensDialog();
       const bool cursor = (static_cast<int>(i) == paletteIndex_);
       ImGui::PushID(static_cast<int>(i));
       ImGui::BeginDisabled(!on);
-      if (ImGui::Selectable(d->label.c_str(), cursor) ||
+      const std::string label = item.opensDialog() ? (item.label + "...") : item.label;
+      if (ImGui::Selectable(label.c_str(), cursor) ||
           (cursor && ImGui::IsKeyPressed(ImGuiKey_Enter))) {
-        invoke(hits[i]);
+        invoke(item.commandId);
         paletteOpen_ = false;
       }
       ImGui::EndDisabled();
+      // WHY a row is unavailable, in the row. A palette that lists a command and
+      // greys it with no reason is a list of things that do not work.
+      if (!on && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("%s", item.hint.c_str());
+      }
       ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.55f);
-      ImGui::TextDisabled("%s", d->id.c_str());
+      ImGui::TextDisabled("%s", item.commandId.c_str());
       ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.85f);
       ImGui::TextColored(on ? rgb(120, 200, 130) : rgb(140, 140, 150), "%s",
-                         on ? shortcutText(hits[i]).c_str() : "unavailable");
+                         on ? item.shortcut.c_str() : forge::ui::toString(item.availability));
       ImGui::PopID();
     }
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) paletteOpen_ = false;

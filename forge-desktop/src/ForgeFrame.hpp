@@ -26,6 +26,7 @@
 #ifndef FORGE_DESKTOP_FORGEFRAME_HPP
 #define FORGE_DESKTOP_FORGEFRAME_HPP
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -34,7 +35,9 @@
 
 #include "Camera.hpp"
 #include "KernelScene.hpp"
+#include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/ArchieCopilot.hpp"
+#include "forge/ui/CommandSurface.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
@@ -374,6 +377,34 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool paletteOpen() const noexcept { return paletteOpen_; }
   void togglePalette() noexcept { paletteOpen_ = !paletteOpen_; }
 
+  // ── the parameter prompt ────────────────────────────────────────────────
+  // What a command with a REQUIRED parameter and no honest default does instead
+  // of failing. `file.open` needs a path and "" is not one; `part.edit_feature`
+  // needs the new value of a parameter and inventing one would let a menu click
+  // silently resize the part. Those two are the whole list, and it is DERIVED --
+  // forge::ui::gestureBlockedCommands() computes it from the schemas, so a
+  // command that grows a defaultless required parameter starts prompting by
+  // itself rather than starting to fail.
+  //
+  // Before this, ForgeFrame::invoke() fabricated a value for every required
+  // parameter (a path became the literal "untitled.fpart") so the prompt could
+  // not arise -- and the keyboard, which goes through the shell's own
+  // ForgeShell::invoke(), died on missing_required_parameter instead. One
+  // registry with two parameter policies is the defect the registry exists to
+  // prevent.
+  bool promptOpen() const noexcept { return promptOpen_; }
+  const std::string& promptCommand() const noexcept { return promptCommand_; }
+  // The parameters still being collected, in schema order.
+  std::vector<std::string> promptParameters() const;
+  // Fill one prompted parameter by name. Returns false when this prompt has no
+  // such field, rather than silently creating one the command will not read.
+  bool setPromptValue(const std::string& name, const std::string& value);
+  // Dispatch the prompted command with what has been collected. Returns whether
+  // it ran. Public so a gate can drive the whole prompt path by name, the way it
+  // drives invoke().
+  bool submitPrompt();
+  void cancelPrompt() noexcept;
+
   // ── dock mutations ──────────────────────────────────────────────────────
   // Public because they are the layout's write API, not a splitter-drag detail:
   // a host uses them for "reset column widths", for restoring a workspace, and
@@ -420,6 +451,20 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Command helpers — every invocation goes through ForgeShell::run.
   bool commandEnabled(const std::string& id) const;
   std::string shortcutText(const std::string& id) const;
+
+  // ── the frame's command surfaces, rebuilt once at the top of build() ─────
+  // WHY ONCE. Each of these is a walk of the whole registry that runs every
+  // command's enabled predicate. Asking per menu item would make the menu bar
+  // O(n^2) in the command count, and the registry is a list that only grows.
+  //
+  // WHY AT ALL, WHICH IS THE MORE IMPORTANT HALF. What a menu contains, in what
+  // order, greyed out or not, with which shortcut beside it and which sentence
+  // in its tooltip used to be computed inline in this file — and CI did not
+  // compile this file. Now the DECISIONS are forge::ui::CommandSurface, which
+  // ui/test/command_surface_test.cpp holds in its hand and compares, and what is
+  // left here is walking a vector and calling ImGui::MenuItem.
+  void rebuildCommandSurfaces();
+  forge::ui::SurfaceContext surfaceContext() const;
 
   void syncSelectionToScene();
   // Re-expands and re-flattens the tree after the DOCUMENT's record set changed.
@@ -503,9 +548,45 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool paletteFocus_ = false;
   char paletteQuery_[128] = {0};
   int paletteIndex_ = 0;
+
+  // ── the parameter prompt's fields ───────────────────────────────────────
+  // A fixed char buffer per field rather than a std::string, because that is
+  // what ImGui::InputText writes into. `text` records which of setText/setNumber
+  // the value has to go back through: a number typed into a text box is still a
+  // number to the command, and passing "6" as text would fail the schema check
+  // with no visible reason.
+  struct PromptField {
+    std::string name;
+    bool text = true;
+    std::array<char, 256> value{};
+  };
+  // The three surfaces this frame draws from, all derived from the ONE registry.
+  forge::ui::CommandSurface menuSurface_;
+  forge::ui::CommandSurface ribbonSurface_;
+  forge::ui::CommandSurface contextSurface_;
+
+  bool promptOpen_ = false;
+  bool promptFocus_ = false;
+  // Whether the LAST invoke() actually did the thing. Read by submitPrompt(),
+  // which must not infer it from journal().back(): the journal is a shared
+  // success log that a keystroke, the CoPilot or a macro also append to.
+  bool lastInvokeOk_ = false;
+  std::string promptCommand_;
+  std::vector<PromptField> promptFields_;
+  // Deferred for the same reason as every other mutation in this class: Submit
+  // dispatches a command that can rebuild the document, the feature tree and the
+  // scene, and the tree is the container the walk is indexing.
+  bool pendingPromptSubmit_ = false;
+
+  void openPrompt(const std::string& id, const std::vector<std::string>& parameters);
+  void drawParameterPrompt();
   bool quit_ = false;
   std::string status_ = "Ready";
   std::vector<std::string> log_;
+  // Which severities the activity panel shows: 0 all, 1 warnings and above,
+  // 2 errors only. A view filter, never a recording filter — every dispatch is
+  // recorded whatever this says, or "show me everything" could not go back.
+  int logLevel_ = 0;
   std::size_t panelsDrawn_ = 0;
   std::vector<std::string> panelIdsDrawn_;
   std::vector<TabHit> tabHits_;
