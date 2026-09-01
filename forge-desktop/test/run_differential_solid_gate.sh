@@ -149,12 +149,24 @@ fi
 # mutation added later is swept by default and has to be argued out.
 APPLICABLE="$("$BIN" --applicable-mutations 2>/dev/null)"
 if [ -z "$APPLICABLE" ]; then
-  fail "the gate declares NO observable mutations -- an unfalsifiable tier is not a tier"
+  # RETURN HERE, do not fall through. Under `set -u` -- which this script sets --
+  # expanding "${EMPTY_ARRAY[@]}" is an UNBOUND VARIABLE error on bash 3.2, the
+  # macOS default. MEASURED with a stub binary while writing this: the script died
+  # with `APPLICABLE_LIST[@]: unbound variable` AFTER printing the diagnosis, so
+  # the clear message was buried under a shell error and the run fell out of its
+  # own middle. An unfalsifiable tier is not a tier; say so and stop.
+  echo "[differential-solid] the gate declares NO observable mutations."
+  echo "                     An unfalsifiable tier is not a tier. RED."
+  exit 1
 fi
 # zsh does not word-split, but this script runs under bash (the shebang, and CI's
 # own bash --noprofile --norc). Split explicitly anyway rather than relying on it.
 # shellcheck disable=SC2206
 APPLICABLE_LIST=($APPLICABLE)
+if [ "${#APPLICABLE_LIST[@]}" -eq 0 ]; then
+  echo "[differential-solid] --applicable-mutations returned only whitespace. RED."
+  exit 1
+fi
 echo "[differential-solid] sweeping ${#APPLICABLE_LIST[@]} of $MUTATIONS mutations:" \
      "$APPLICABLE (the rest perturb nothing this tier measures)"
 
