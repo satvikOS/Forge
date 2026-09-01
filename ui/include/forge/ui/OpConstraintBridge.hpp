@@ -68,6 +68,21 @@ enum class OpConstraint : std::uint8_t {
   ForwardValueRef,      // %N names a later or equal statement; it can never resolve
   UnresolvedValueRef,   // %N names no statement in this plan or its prior values
   WrongValueKind,       // EXTRUDE was handed a SOLID where it consumes a PROFILE
+
+  // ── the ARGUMENT'S VALUE, not its shape ─────────────────────────────────
+  // Everything above rules on the op name and the SHAPE of the argument list --
+  // how many arguments, of which kinds, in which order. None of it reads what an
+  // argument SAYS, and for a whole class of statement the argument is a WORD:
+  // FILLET(%1, 2, ALL) carries a bare keyword and FILLET(%1, 2, "bore:r=6")
+  // carries a quoted selector, both of which forge::ui commands build from a
+  // `selector` TEXT PARAMETER that the caller supplies verbatim.
+  //
+  // So a refused op could ride into an accepted statement inside an argument.
+  // The three verdicts below are that hole closed, and they are three DIFFERENT
+  // facts for the same reason the ForbiddenOp/UnknownOp split exists.
+  ForbiddenOpInArgument,   // an argument VALUE spells an op the app forbids
+  OpNameInArgument,        // a bare KEYWORD argument spells a feature-IR op at all
+  MalformedArgumentValue,  // the value cannot be written into IR as ONE token of ONE statement
 };
 
 const char* toString(OpConstraint check) noexcept;
@@ -209,9 +224,41 @@ class OpConstraintBridge {
   IrValueKind produces(const std::string& op) const noexcept;
   std::vector<EntityKind> acceptedSelections(const std::string& op) const;
 
-  // Context-free: membership, arity, leading value ref and the stated selection.
-  // Value flow needs the plan, so a %ref is only shape-checked here.
+  // Context-free: membership, arity, leading value ref, the stated selection AND
+  // every argument's VALUE. Value flow needs the plan, so a %ref is only
+  // shape-checked here.
   OpRuling check(const ProposedOp& proposal) const;
+
+  // ── one argument's VALUE, on its own ──────────────────────────────────────
+  // The rule `check()` applies to each argument, exposed because a caller often
+  // holds the value BEFORE it holds the statement: the CoPilot has a command's
+  // `selector` TEXT PARAMETER in hand, and the command will not turn it into an
+  // IrArg until it executes -- by which point the dispatch has been spent. This
+  // is that same check, one door earlier.
+  //
+  // Returns Ok, or the verdict that refuses it, with `reason` naming the value
+  // and the fact it broke. `reason` is cleared on Ok.
+  //
+  // TWO RULES, both stated in FeatureIr.hpp's grammar:
+  //
+  //   1. WRITABLE. `IrLine::text()` renders an argument by concatenation and
+  //      quotes a Text argument with a bare `"`. It escapes NOTHING. So a value
+  //      holding a quote, a newline or any other control character does not
+  //      render as one token of one statement -- it renders as a DIFFERENT
+  //      PROGRAM, and forge::ft reads statements line by line. A non-finite
+  //      number is the same defect by another route: it renders "nan", which
+  //      re-reads as a keyword.
+  //   2. NOT AN OP. An op name in an argument slot is a name no forge::ui
+  //      command puts there. Measured on this build, the complete set of bare
+  //      keywords the 20 emitting commands produce is
+  //      {ALL, VERTICAL, RIM, CONVEX, SMOOTH, RULED, OPEN, LINEAR, POLAR, GRID,
+  //      XY, XZ, YZ} and not one of them is an op name, so the rule refuses
+  //      nothing the app can emit.
+  //
+  // MATCHED AS A WHOLE TOKEN, NEVER AS A SUBSTRING. "bore:r=6" is a real
+  // selector this app emits and it contains no op; a substring rule would find
+  // BORE inside CBORE and refuse the app's own output.
+  OpConstraint checkValue(const IrArg& arg, std::string& reason) const;
 
   // The whole plan, in order, with value flow. `priorValues[i]` is the kind of
   // statement id i+1 that ALREADY exists (a seeded profile, an opened file), so
