@@ -197,9 +197,18 @@ void geometry() {
         eqInt(t.closedWires, 1, "B: the loop is CLOSED");
         eqInt(t.faces, 0, "B: no faces");
         near(t.volume, 0.0, 1e-9, "B: zero volume");
-        // The loop runs the rectangle 20 x 20 twice over: 2*(20+20)+2*(20+20)/... see
-        // the printed length; asserted exactly, from the measurement.
-        near(t.length, 100.0, 1e-6, "B: length is the measured closed-form perimeter");
+        eqInt(t.edges, 6, "B: six straight edges chain into that one loop");
+        // 100 mm exactly, and it is a closed form rather than a recorded number.
+        // The plate is x,y in [-20,20], z in [0,20]; the other box is x,y in
+        // [0,40], z in [10,30]; they overlap on x,y in [0,20], z in [10,20]. The
+        // section is where the two solids' FACES cross, which is four planar runs
+        //   on the plate's z=20 top:      x=0 (y 0..20) and y=0 (x 0..20)   40 mm
+        //   on the other box's z=10 base: x=20 (y 0..20) and y=20 (x 0..20) 40 mm
+        // joined by the two vertical crossings x=20,y=0 and x=0,y=20 over
+        // z in [10,20]                                                     20 mm
+        // = 100 mm in six edges. A wrong chaining would still total 100, which is
+        // why the edge and loop counts above are asserted too.
+        near(t.length, 100.0, 1e-6, "B: length == 40 + 40 + 20 (the closed form)");
     }
 
     // ---- C) a cylinder passing clean through -> TWO separate circles ---------
