@@ -47,13 +47,16 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **64 commands**; **49 of them emit
-feature-IR**, reaching **46 distinct op names**. The kernel defines **47** ops
-(`opFromName`), so **1 op plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **46 distinct op names**. The kernel defines **48** ops
+(`opFromName`), so **2 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-**The one is `SLOT`.** The six SURFACE ops that stood beside it -- `FACES`,
-`THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands, and the split
-between the two reasons is why they could go and `SLOT` could not.
+**The two are `SLOT` and `ARC`.** The six SURFACE ops that stood beside them --
+`FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands, and
+the split between the reasons is why they could go and these two could not. `ARC`
+arrived on the base after this branch was written and is the ordinary kind of gap
+-- a kernel op no command spells yet -- so it is the one a future command can
+close. `SLOT` is not, and that distinction is the next two paragraphs.
 
 The registry reads 64 rather than the 60 this branch measured alone: the base it
 merges has since added four commands that emit nothing (`app.toggle_theme`,
@@ -72,6 +75,14 @@ SOLID and `THICKEN` would have offered itself on a fillet's output. That is the
 same structural fix `WIRE` needed before `LOFT` became reachable, and it is the
 last one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
 `IrValueKind`, and each now has an entity kind and a node prefix.
+
+`ARC` is the 48th kernel op and the same ordinary kind of gap: it takes the
+`[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
+well as straight ones, the kernel builds it, and no forge::ui command emits one
+yet. It is here because the ground truth needs it -- 86 ARC statements across 48
+BenchCAD GT programs, which the reharvest could not parse at all without the op --
+and the count that did NOT move is the honest one: user-invocable ops stay at 40,
+because a kernel op is not a product surface until a command spells it.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
 pinned native verifier its extruded area is exactly

@@ -1888,7 +1888,7 @@ stands. This decision buys the app the right to stay alive and to say which stat
 not buy a correct offset.
 ## D-040 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
 
-*(Numbering collision, resolved at merge: this entry was allocated **D-038** on `archdisc` while the execution branch had already renumbered the TEN-primitives entry to D-038 above (and allocated D-039 to the out-of-process kernel). It is renumbered **D-040** here. Content is unchanged from `archdisc`.)*
+*(Numbering collision, resolved at merge: this entry was allocated **D-038** on `archdisc`, which `claude/sacrosanct-execution-20260828` had already spent on the ten-primitives entry above. It is renumbered **D-040** here.)*
 
 **The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
 (`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
@@ -1950,6 +1950,87 @@ uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf
 OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
 change for every corpus already written against `LOFT`, and it belongs in its own commit with
 its own measurement.
+
+## D-041 (2026-09-01): a capability can land as a TYPE, a GRAMMAR and a PARSE GATE and move the product surface by ZERO — #146 did, and #165 is the control that proves it
+
+The third JS-deletion pass expected #146 (SURFACE as the fourth IR value kind) to retire three
+surfacing JS harnesses. It retires none, and the reason is worth more than the deletion.
+
+**Measured on `b793ebe1`** (merge of `origin/archdisc` into the execution branch):
+
+```
+kernel ops (opFromName)      47      <- 40 + 6 SURFACE (#146) + 1 SECTION (#165)
+forge::ui registry commands  42      <- UNCHANGED by #144 and #146; +1 from #165
+user-invocable IR ops        29      <- UNCHANGED by #144 and #146; +1 from #165
+forbidden_ops                18      <- 12 + the six SURFACE ops, ALL SIX. NOT SECTION.
+gate 3 coverage           15.9%      <- IDENTICAL after ALL THREE PRs
+```
+
+**#165 IS THE CONTROL, AND IT ARRIVED MID-PASS.** It landed `SECTION` the other way round — an op
+**and** a `forge::ui` command (`part.section_curve`) — so `SECTION` is **not** forbidden while all
+six of #146's ops are. Two capability PRs, one week, one difference: **whether a command emits the
+op.** Without #165 this decision would rest on a single observation; with it, it rests on a
+contrast.
+
+Every one of the six new ops carries the generated reason *"no command in the forge::ui registry
+emits it, so no user can produce it."* And `forge-kernel/test/ft/surface_round_trip_test.cpp:12-16`
+declares its own scope: it *"leaves `compile()`'s kernel symbols unresolved … this is a PARSE-level
+gate: it proves the grammar, the op table, the arities and the tolerant repairs agree. **It does not
+build geometry and does not claim to.**"*
+
+So `knit_surface_smoke.js` still holds, alone, the only assertion in the tree that sewing two
+adjacent 100×60 patches gives **area 12000** and thickening the result gives **volume 48000** with
+**CoM x = 100** — a vector of observables on the knit→thicken pipeline. The nearest C++ harness,
+`native_vs_occt_sew.cpp`, asserts a *topology signature* (free edges, closed, F/E/V) on *box faces*.
+Same word, different subject.
+
+**THE DECISION: a capability is not landed, and nothing becomes retireable, until (a) a `forge::ui`
+command emits the op and (b) a gate BUILDS the geometry.** Three-quarters — value kind, op table
+entry, parse gate — buys zero product surface and zero deletions. Future PRs claiming a capability
+must state which of (a) and (b) they include; "the op exists" is not an answer. This is D-021's
+finding one layer up: there the vocabulary was open, here the vocabulary is closed and the *door* is
+missing.
+
+**Corollary, and the reason this is a decision rather than a note.** `forbidden_ops` grew 12 → 18
+and no gate went red, because "forbidden" is the *correct* generated state for an op no command
+emits. **The list growing is the signal.** A rising `forbidden_ops` count means kernel capability is
+outrunning app surface, and it is the cheapest available early warning that a PR shipped three
+quarters of a feature. Read it at every capability landing.
+
+### Two standing claims retracted in the same pass
+
+1. **`build-app.yml` is on the default branch and ships the JS app** — asserted in four places in
+   `FORGE_DELETION_PLAN.md` plus blocker B11. **False, and false when written.** It left at
+   `50c512e4` (2026-08-28), an ancestor of `origin/archdisc`; `git ls-tree origin/archdisc
+   --name-only .github/workflows/` returns `desktop-release.yml` and `kernel-tests.yml`. **Nothing
+   in CI builds the JS app on any branch**, so deleting `frontend/` and `electron/` breaks no
+   workflow. B11 cleared.
+
+   *How it survived:* the second pass ran that exact command to confirm `desktop-release.yml` had
+   **arrived** and did not notice, in the same output, that `build-app.yml` had **left**. **A
+   command run to confirm one expectation will not volunteer the other half of its own answer.**
+
+2. **`SECTION` is an op and user-invocable ops are 29** — carried in this pass's own briefing.
+   **RETRACTED, THEN UN-RETRACTED, AND THE ROUND TRIP IS THE POINT.** Measured on the first tree
+   (`origin/archdisc` merged into the execution branch) `SECTION` was genuinely absent from
+   `opFromName`, user-invocable ops were **28**, and the only occurrence of the string in the tree
+   was the comment banner `// ── SECTION RING ──` at `ui/src/PartCommands.cpp:669`, heading the
+   **RING** command. All of that was true of that ref. It was **already false of the execution
+   branch**, where #165 had landed `SECTION` as a real op with a real command. Final merged
+   figures: **47** kernel ops, **29** user-invocable.
+
+   **A CAPABILITY'S PRESENCE IS A PROPERTY OF A REF, NOT OF A REPOSITORY.** Two long-lived
+   branches can both be measured correctly and disagree, and "I checked the tree" is not an answer
+   unless it says *which* tree. A banner is still not a capability — but neither is an absence on
+   one ref evidence of absence on another.
+
+   **How the drift announced itself, which is the reusable part:** as `mergeable=CONFLICTING` on
+   the PR, whose *symptom* was that **CI never ran at all**. `pull_request` workflows check out
+   `refs/pull/<n>/merge`; when that ref cannot be computed there is no run — not a red run, **no
+   run** — and `gh pr checks` showed one green line, `CodeRabbit — pass`, whose description read
+   *"Review skipped: reviews are disabled for this base branch."* **A green bucket on a check that
+   did nothing, next to zero rows for the gate that matters.** Read the description, never the
+   bucket; and treat "all checks settled" as a claim to verify whenever the row count is small.
 
 
 
