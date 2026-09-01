@@ -1339,7 +1339,324 @@ parent-free node in the all-drops arm — but it has no option, no family, no co
 and 32 symbols across 14 files. It needs a native boolean/defeaturing engine. TKPrim's dead
 DIRECT record is free accounting (DIRECT 9 -> 8) and moves the ledger by nothing.
 
-## D-033 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
+## D-033 (2026-08-31): axis-naming is UNANSWERABLE on this holdout — and the prefix nearly gave the opposite answer
+
+The v7 arm (axis-named corpus) was emitted and scored to completion against v5cap, paired on
+ids, through the baseline pin, `--align centred-longest --grid 64`.
+
+**The full result:**
+
+```
+paired n=516      v5cap mean 0.3004      v7 mean 0.3083
+delta (v7 - v5cap) = +0.0080      95% CI [-0.0177, +0.0338]   (20k bootstrap)
+per-part: v7 better on 236, worse on 206, tied 74
+vs box floor 0.2367:  v5cap +0.0637   v7 +0.0716
+```
+
+**THE SIGN FLIPPED WHEN THE BIAS WAS REMOVED.** The first pairing available gave
+**-0.0203**, CI [-0.0528, +0.0123] — v7 apparently *worse*. That was measured on coverage
+`[100, 100, 100, 60, 0, 0]`: a PREFIX of a hardest-first holdout, with **zero coverage of the
+easiest 240 rows**. The cause was mundane — v5cap had ten emission shards and only six had
+ever been scored; shards 6-9 had never been run. Scoring them moved the delta from -0.0203 to
++0.0080.
+
+Neither number is significant. But a report of "-0.0203, axis-naming hurts" would have been
+published off a partial arm, and the check that caught it was one line: **count the paired ids
+per 100-row block before believing any paired delta.**
+
+**AND THE QUESTION IS UNANSWERABLE AT THIS n, which is the more useful finding:**
+
+```
+sd of the paired difference = 0.2977      SE = 0.0131
+smallest reliably detectable delta at n=516  ~  0.0367
+observed |delta| = 0.0080     ->  FAR below the resolution of the instrument
+n needed for 80% power:   +0.050 -> 278      +0.030 -> 773      +0.020 -> 1738
+```
+
+The holdout has **600 rows**. So any true axis-naming effect smaller than ~0.037 cannot be
+resolved here no matter how carefully the run is repeated. **Re-running this comparison on
+this holdout is wasted GPU time**, and that is the decision: do not schedule it again.
+
+Two ways forward, and only these: measure an effect that is expected to be *large* (>0.05,
+detectable at n=278), or reduce the variance rather than chase n — sd 0.2977 on a mean of
+0.30 is the real obstacle, and a stratified or lower-variance holdout buys more than a
+bigger one.
+
+**What IS established, at full n:** v7 beats the box floor (+0.0716) and so does v5cap
+(+0.0637). Both are real models. Neither is distinguishable from the other here.
+
+## D-034 (2026-08-31): D-031 completed at n=600 — 0/600 compile, and TWO concepts are 98.8% of it
+
+D-031 was recorded at n=12 and explicitly promised a denominator. The emission has now
+finished all 600 holdout rows against the pinned verifier, with the expert LoRA confirmed
+loaded (36 switch keys / 276 modules).
+
+```
+rows 600      compiled=True 0      compiled=False 600
+585 (97.5%)   fail on an OUT-OF-VOCABULARY op
+ 15 (2.5%)    fail as DEGENERATE emission (e.g. "348 statements but only 38 distinct shapes")
+```
+
+**The finding survives the full run, unchanged in direction and stronger in size.** A corpus
+of 38,000 training rows containing exactly the 18 legal ops and ZERO illegal ones produced a
+model that emits an illegal op in 97.5% of cases and compiles in none.
+
+**The concentration is the new information.** The illegal ops are not a long tail:
+
+| token | count |
+|---|---|
+| `bore` / `BORE` | 277 |
+| `CYLINDER` / `cylinder` | 301 |
+| `CUBOID` | 5 |
+| `CUBE` | 2 |
+
+**Two concepts are 578 of 585 — 98.8%.** And both have exact expressions in the allowed set:
+a bore is `CBORE` or `HOLE`; a cylinder is a `CIRCLE` profile with `EXTRUDE`. The model is not
+reaching for capability the vocabulary lacks. It is reaching for the NAME it learned before
+the fine-tune, for a shape the vocabulary can already build.
+
+**The case variants matter.** `CYLINDER` 257 vs `cylinder` 44, `bore` 274 vs `BORE` 3: the
+model is not consistently emitting a single wrong token, it is emitting a concept in whatever
+case the surrounding text suggests. That rules out one cheap fix — a literal string
+substitution on the output would have to cover case variants and would still be a patch over
+the wrong layer.
+
+**What this sharpens about the remedy.** A decode-time mask over the op position remains the
+right fix, and this makes it a *small* one: the mask has to suppress a handful of tokens, not
+police an open vocabulary. It also makes the experiment cheap to falsify — if masking two
+concepts does not move the compile rate off zero, the illegal op was a symptom and something
+else is wrong, which is exactly the outcome worth knowing.
+
+**Denominator honesty.** D-031 said 12 of 600 and "not yet a rate". It is now a rate: 600 of
+600, and it did not soften. The 15 degenerate-emission rows are reported separately rather
+than folded in, because they are a different defect (repetition, not vocabulary) and would
+not be fixed by a mask.
+
+## D-035 (2026-08-31): D-034 is RETRACTED — the "0/600 compile" was a UI-policy gate, not the kernel
+
+D-034 was merged this morning. Re-measuring its own inputs refutes its central table and its
+diagnosis. This entry supersedes it. The DIRECTION of D-031 survives; the CAUSE does not.
+
+### 1. The token table was a substring artifact
+
+D-034 reported `bore`/`BORE` 277 and `CYLINDER`/`cylinder` 301, and concluded "two concepts are
+578 of 585 (98.8%)". Both counts are wrong:
+
+* `bore` **never appears as an op**. It matched as a SUBSTRING of `CBORE`, which is a legal op.
+  This project already carries the rule *A SUBSTRING IS NOT AN OP*; D-034 broke it.
+* `runs/composite_anchor/axis_named_v7_e600/emissions.jsonl` contains **zero** occurrences of
+  the strings `bore` or `cylinder`, in any case, anywhere in the file.
+
+The real census, taken at the op position (`%\d+\s*=\s*NAME\s*\(`) over all 600 rows:
+
+```
+POLY 892 | VERIFY 533 | ROTATE 231 | CYL 225 | PLY 41
+RESULT 23 | FST 13 | CONE 9 | POISSON 8 | PUSH 3
+```
+
+### 2. The verifier accepts almost all of them
+
+Probing each op as `%1 = OP(1,2,3)` against the instrument itself — the method
+`scripts/oov_op_rate.py` already prescribes, "truth comes from the instrument" — both
+`tools/pinned/forge_verify` and `tools/baseline_pin_45e9ad9a/forge_verify` **accept 40 ops**,
+including `POLY`, `CYL`, `VERIFY`, `ROTATE` and `CONE`. They reject only five names:
+`FST`, `PLY`, `POISSON`, `PUSH`, `RESULT`.
+
+**95.6% of "illegal" op uses (1890 of 1978) are ops the kernel implements.** They are forbidden
+by `archie_op_vocabulary.json` for exactly one stated reason: *"no command in the forge::ui
+registry emits it, so no user can produce it."* That is a UI gap, not a model error.
+
+### 3. The emissions build
+
+All 600 v7 emissions were fed to `tools/pinned/forge_verify`. Against D-034's "0 compiled":
+
+```
+ok=true             249  (41.5%)
+valid=true          445  (74.2%)
+produced a solid    485  (80.8%)
+true unknown op       6  ( 1.0%)      <- D-034 said 585 (97.5%)
+```
+
+Failure taxonomy of the same 600:
+
+```
+248 (41.3%)  VERIFY assertion failed
+ 43 ( 7.2%)  empty feature tree
+ 32 ( 5.3%)  other
+ 23 ( 3.8%)  invalid / not-closed solid
+ 16 ( 2.7%)  parse error
+  6 ( 1.0%)  unknown op (true out-of-vocabulary)
+  6 ( 1.0%)  verifier crash or 300s timeout
+```
+
+### 4. What this changes
+
+**The decode-time op mask is deprioritised.** D-034 argued it was the right fix and cheap to
+falsify. It addresses **1.0%** of failures, not 97.5%. Spending GPU hours on it would have
+bought almost nothing — and the reason we would never have noticed is that it would have
+"worked": the masked rate would have moved, on six rows.
+
+*(Incidentally D-034's premise about how to build it was also wrong. `logits_processors` is not
+confined to `mlx_vlm/server/generation.py`: `mlx_vlm.generate` → `stream_generate` forwards
+`**kwargs` to `mlx_vlm/generate/ar.py::generate_step`, which accepts **both** `logit_bias` and
+`logits_processors`, and whose pop-list does not touch either. The hook was available on the
+path `archie_loop.py` already calls. Recorded so the next person does not re-derive it.)*
+
+**The real bottleneck is self-consistency, then fidelity.** The largest single failure is the
+model asserting a property its own output does not satisfy — `VERIFY failed: holes=36 (got 30)`
+— at 41.3%. That is a measurable training signal and it is not a vocabulary problem.
+
+**The app has the actual gap.** `POLY`, `CYL`, `CONE`, `ROTATE`, `SPHERE`, `TORUS`, `SLOT`,
+`TUBE`, `PRISM`, `REGPOLY`, `RRECT` and `SWEEP` are implemented in the kernel and reachable by
+no user. A CAD application at the grade this project targets cannot lack a cylinder primitive.
+Adding the commands closes the gap from the correct side and legalises ~95% of what Archie
+already emits, without touching the model.
+
+### 5. Why D-034 passed review
+
+It was internally consistent, and its number came from a real script over a real file. Nothing
+in it was invented. It was never checked against the instrument that judges emissions — the
+verifier binary — which is the one check that would have caught it, and which the repo already
+had a script for. **A gate's verdict is not the kernel's verdict.** The op-constraint bridge is
+correct and already distinguishes `ForbiddenOp` (the kernel has it, no UI command emits it) from
+`UnknownOp` (not a feature-IR op at all). D-034 collapsed that distinction into
+"out-of-vocabulary" and lost the entire finding.
+
+## D-036 (2026-08-31): D-033's per-arm means updated at n=576 — conclusion unchanged
+
+The v7 instrument-failure retry finished (72 rows attempted, 48 recovered, 24 still refused as
+`verifier timeout after 300s`). Merging them:
+
+| arm | n | mean | 95% CI | vs box floor 0.2367 |
+|---|---|---|---|---|
+| v5cap | 576 | 0.2767 | [0.2576, 0.2958] | +0.0400 |
+| v7 (as recorded in D-033) | 528 | 0.3076 | [0.2864, 0.3288] | +0.0709 |
+| **v7 (with retry)** | **576** | **0.2914** | **[0.2713, 0.3114]** | **+0.0547** |
+
+Paired comparison, before and after the recovered rows:
+
+```
+n=514   v5cap 0.2999   v7 0.3091   delta +0.0092   CI [-0.0165, +0.0349]
+n=555   v5cap 0.2819   v7 0.2947   delta +0.0128   CI [-0.0111, +0.0368]
+```
+
+**D-033's conclusion stands: axis-naming is unanswerable at this denominator.** The delta is not
+significant either way, and the smallest detectable effect at n=555 is 0.0343 — larger than any
+plausible effect here.
+
+**The exclusion rule is confirmed a third time.** Adding 41 excluded pairs moved both arms' means
+DOWN materially (v5cap 0.2999 → 0.2819, v7 0.3091 → 0.2947) and moved the paired delta by
++0.0036. Exclusions inflate the arms and cancel in the difference.
+
+**The sobering number.** Both arms sit barely above a box: +0.0400 and +0.0547 over the 0.2367
+floor. Read with D-035, the picture is consistent — the model builds a valid solid four times in
+five, and it is close to the wrong shape.
+
+## D-037 (2026-08-31): ZERO of the 14 OCCT toolkits are dropped, and the number that says so was never gated
+
+The owner asked directly whether all the kernel dependencies are dropped, and told us not to
+drop one and forget the others. **The answer is no — none of them are.** `OCCT_CLOSURE = 14`
+today, the same number as the day the ledger was created. Nothing was dropped and forgotten;
+nothing has been dropped at all.
+
+### The measurement
+
+Three arms built at one tree (`32ee7485`, a worktree pinned to `origin/archdisc`, 0 tracked
+edits), with every option read back out of `CMakeCache.txt` rather than trusted from the flag —
+**CMake accepts an unknown `-D` silently**:
+
+| arm | DIRECT | **CLOSURE** | PHANTOM | what leaves |
+|---|---:|---:|---:|---|
+| default — what ships | 9 | **14** | 2 | **nothing** |
+| only the options that PASS their flip gate (FILLING, MAKEOFFSET) | 9 | **14** | 2 | **nothing** |
+| all 12 drop options forced ON | 9 | **11** | 0 | TKOffset, TKFillet, TKBool |
+
+Positive control that the arms genuinely differ: `cmp` differs at char 66; 9,104,000 vs
+9,011,664 bytes; the configure log prints `TKOffset REMOVED FROM OCCT_LIBS`.
+
+### Two recorded claims are corrected
+
+* **"All nine families at parity moves closure 14 → 13" is wrong.** The two families that
+  actually pass their gate move it by **zero**, because `CMakeLists.txt:1080` removes TKOffset
+  only when all nine of A,C,D,E,F,G,H,I,J are compiled out — and **7 of the 9 fail their gate**.
+* **"The ceiling is 12" is wrong; it is 11** (three leave, because TKBool rides out free with
+  TKFillet). ★And **11 is the ceiling of a capability-DELETING configuration. With capability
+  preserved the closure is 14.** Never quote 11 as progress.
+
+### One thing gates all thirteen waves
+
+The graph is a chain — exactly one toolkit is parent-free at a time, so there is no parallel
+path and family work cannot compound. Wave 1 is TKOffset, and TKOffset needs family **J,
+DRAFT**, which is **0.0% native (0/565) against OCCT's 88.0% (497/565)**, McNemar
+p = 4.9e-150. Not a wiring defect: the control drafts a cube wall to 973.796 mm³, exactly
+`1000 − ½·10·10·10·tan 3°`. **No bounded fix exists and that is measured, not asserted** — all
+565 parts violate *both* whole-shape guards, and the number violating *exactly one* is 0 and 0,
+so no relaxation of either guard moves a single part. The only alternative construction ceilings
+at 424/565 = 75.0% against an 88.0% gate, a strict subset of OCCT's wins with 0 native-only wins.
+
+**501 exclusive symbols remain, and 404 of them are waves 6–13** — the opaque-handle rewrite
+(replacing `TopoDS_Shape`, `Handle(Geom_*)`, `Handle(Geom2d_Curve)`, `gp_*` and `Standard_*` as
+interchange types). No option, harness or corpus exists for any of them.
+
+**Four toolkits are free riders with nothing to build** — TKBool, TKPrim, TKGeomAlgo, TKGeomBase
+export zero needed symbols. Work scheduled against them is wasted.
+
+### ★D1 — the number the programme is scored by had no gate. FIXED IN THIS COMMIT.
+
+`grep -rn 'occt_closure_count\|tkoffset_ledger_gate' .github/ package.json` returned **zero
+hits**. `scripts/tkoffset_ledger_gate.sh` exists, is well-written, encodes the correct ceilings —
+and was invoked by no workflow, no npm script, no test runner.
+
+That is not hypothetical. The gate's own header records the regression it was built to catch: a
+family-E wiring change silently took `OCCT_PHANTOM` 2 → 3, invisible on macOS
+(`-undefined dynamic_lookup`) and a hard link error on Linux.
+
+`kernel-tests.yml` now runs `occt_closure_count.sh --assert-closure 14 --assert-direct 9` right
+after the kernel build. **Proved to fire in both directions** against the census build: rc=0 at
+ceiling 14, and rc=1 printing `FAIL: OCCT_CLOSURE=14 exceeds --assert-closure 13` at 13. The
+numbers are a ceiling, so a genuine drop is never blocked — lower them in the commit that
+retires the toolkit, and that edit *is* the ledger entry.
+
+`--assert-no-phantom` is deliberately not set: there are two phantoms today (TKBO 32 symbols,
+TKG2d 24), and naming them is accounting worth 0 closure, so demanding zero would fail the build
+for a defect this step exists to report rather than forbid.
+
+### Five more defects, recorded not fixed
+
+* **D2** — `FORGE_GEOM_DROP_NATIVE` has `option(` = 1 and source reads = **0**, so the standard
+  dead-flag check calls it dead. It is live: it guards an `if()` defining three *other* macros.
+  Falsified by configuring both ways — `flags.make` carries `FORGE_NATIVE_{LAW,NURBS_CONVERT,
+  PROJECTION}` by default and none of them with the option OFF. **A flag can act by proxy.**
+* **D3** — TKPrim's DIRECT link record is dead (raw symbol intersection = 0; the binary defines
+  `forge::occtPrism` itself). The comment at `CMakeLists.txt:~470` justifying it went stale when
+  PR #64 swapped `BRepPrimAPI_MakePrism` out. Removing it is DIRECT 9 → 8 at **0 closure** —
+  accounting, never to be scored as a drop.
+* **D4** — the two phantoms (TKBO, TKG2d) are called with no link record and survive only on
+  macOS; on a strict-link CI they are hard errors.
+* **D5** — `occt_drop_gate.sh` returns `DROP-SAFE` for three libraries that are not on the link
+  line at all. Scheduling from that output produces exactly the wasted work noted above.
+* **D6** — ★**the committed per-family corpus numbers are stale and two of them contradict.**
+  Two PIPESHELL numbers (82.3% and 99.8%) are both committed at this SHA, and a later commit
+  tightened the mitre transport with a `BRepCheck_Analyzer` gate because taking both merge sides
+  cleanly *ships a known-invalid solid and the volume oracle cannot see a fold*. **The current
+  PIPESHELL and THRUSECTIONS coverage rates are NOT MEASURED.**
+
+### The one instruction this supports
+
+The only work that moves this number is a **general native draft-angle engine**, and after it a
+**native boolean/defeaturing engine** (TKBO, wave 4 — the first *unowned* frontier: no option, no
+family, no harness). Everything else is already done, free, or unreachable until those two land.
+**There is no parallel front to open here** — which is worth stating plainly, because the
+instruction was to parallelise, and the lattice does not permit it.
+
+Related: `FeatureTreeCompiler.cpp` calls `setForgeNativeBrepEnabled(false)` for every build, so
+**100% of corpus booleans run on OCCT today**. And OCCT is not always a working incumbent — for
+THICKSOLID *all 133 of its successes are `BRepCheck`-INVALID*, and it segfaults on the gold
+reference parts (see the null-pcurve report).
+
+## D-038 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
+
+*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments that cite "D-033" in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) refer to THIS entry, not to the axis-naming one.)*
 
 `archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
 entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
