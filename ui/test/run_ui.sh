@@ -96,10 +96,16 @@ check_header() {
     echo "hdr:$h" >> "$FAILMARK"
   fi
 }
-for h in "${HDRS[@]}" ui/test/ui_test_util.hpp; do cap_launch check_header "$h"; done
+# The test-side headers are checked too. They are not decoration: differential_corpus.hpp
+# and verify_transcript.hpp are each included by TWO gates in different directories
+# (ui/test and forge-desktop/test), so one of them compiling only because the other
+# translation unit happened to include <string> first is a break waiting for whichever
+# consumer is compiled alone.
+TEST_HDRS=(ui/test/ui_test_util.hpp ui/test/differential_corpus.hpp ui/test/verify_transcript.hpp)
+for h in "${HDRS[@]}" "${TEST_HDRS[@]}"; do cap_launch check_header "$h"; done
 cap_drain
 if [ -s "$FAILMARK" ]; then echo "[ui] HEADER SELF-CONTAINMENT FAILURES — aborting"; exit 1; fi
-echo "[ui] ${#HDRS[@]} headers + 1 test header are self-contained"
+echo "[ui] ${#HDRS[@]} headers + ${#TEST_HDRS[@]} test headers are self-contained"
 
 # ── 1. compile every source once ─────────────────────────────────────────────
 compile_src() {

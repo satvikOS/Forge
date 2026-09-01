@@ -80,6 +80,8 @@
 #include <utility>
 #include <vector>
 
+#include <unistd.h>  // getpid -- one batch file per process in the mutation sweep
+
 #include "KernelScene.hpp"
 
 #include "forge/MassProps.hpp"
@@ -87,6 +89,7 @@
 #include "forge/ft/FeatureTree.hpp"
 
 #include "differential_corpus.hpp"
+#include "verify_transcript.hpp"
 
 using forge::difftest::Mutation;
 
@@ -404,82 +407,12 @@ void checkNearTranscript(const std::string& tree, const char* what, double got, 
               num(want).c_str(), num(got).c_str());
 }
 
-// A minimal reader for the one line shape forge_verify writes. Deliberately not a
-// JSON library: this tool must not acquire a dependency to read its own protocol,
-// and the fields it needs are flat scalars and two fixed-length arrays.
-//
-// `found` is reported separately from the value on purpose. A field this gate
-// cannot find must not read as 0.0 and silently agree with an arm that measured
-// zero -- that is a green produced by an absence, which is the shape of every
-// gate in this programme that turned out to be measuring nothing.
-bool jsonNumberField(const std::string& line, const std::string& key, double& out) {
-  const std::string needle = "\"" + key + "\":";
-  const std::size_t at = line.find(needle);
-  if (at == std::string::npos) return false;
-  const char* p = line.c_str() + at + needle.size();
-  if (std::strncmp(p, "null", 4) == 0) return false;
-  char* end = nullptr;
-  const double v = std::strtod(p, &end);
-  if (end == p) return false;
-  out = v;
-  return true;
-}
-
-bool jsonBoolField(const std::string& line, const std::string& key, bool& out) {
-  const std::string needle = "\"" + key + "\":";
-  const std::size_t at = line.find(needle);
-  if (at == std::string::npos) return false;
-  const char* p = line.c_str() + at + needle.size();
-  if (std::strncmp(p, "true", 4) == 0) { out = true; return true; }
-  if (std::strncmp(p, "false", 5) == 0) { out = false; return true; }
-  return false;
-}
-
-// The three numbers of "com":[x,y,z] or of a bbox corner.
-bool jsonTripleField(const std::string& line, const std::string& key, double out[3]) {
-  const std::string needle = "\"" + key + "\":[";
-  const std::size_t at = line.find(needle);
-  if (at == std::string::npos) return false;
-  const char* p = line.c_str() + at + needle.size();
-  for (int i = 0; i < 3; ++i) {
-    char* end = nullptr;
-    const double v = std::strtod(p, &end);
-    if (end == p) return false;
-    out[i] = v;
-    p = end;
-    while (*p == ',' || *p == ' ') ++p;
-  }
-  return true;
-}
-
-struct VerifierLine {
-  std::string id;
-  bool present = false;
-  bool ok = false;
-  bool valid = false;
-  double volume = 0.0;
-  double area = 0.0;
-  bool hasArea = false;
-  double com[3] = {0, 0, 0};
-  bool hasCom = false;
-  double bboxMin[3] = {0, 0, 0};
-  double bboxMax[3] = {0, 0, 0};
-  double faceCount = -1;
-  double edgeCount = -1;
-  double genus = -1;
-  double shellCount = -1;
-  bool hasTopo = false;
-};
-
-std::string jsonStringField(const std::string& line, const std::string& key) {
-  const std::string needle = "\"" + key + "\":\"";
-  const std::size_t at = line.find(needle);
-  if (at == std::string::npos) return std::string();
-  const std::size_t from = at + needle.size();
-  const std::size_t to = line.find('"', from);
-  if (to == std::string::npos) return std::string();
-  return line.substr(from, to - from);
-}
+// The transcript reader lives in ui/test/verify_transcript.hpp, kernel-free, so
+// that ui/test/differential_gate_test.cpp can GATE it on every PR against a REAL
+// captured forge_verify line. A parsing mistake discovered only here would be
+// discovered in the slowest job in CI, behind an OCCT build.
+using forge::difftest::parseVerifierLine;
+using forge::difftest::VerifierLine;
 
 // Run the tool ONCE over the whole corpus. `bin` is the verifier; `records` is one
 // {"id","ir"} object per tree. Returns false when the tool could not be run at
@@ -489,9 +422,17 @@ bool runVerifier(const std::string& bin, const std::vector<std::pair<std::string
                  std::vector<VerifierLine>& out, std::string& why) {
   out.clear();
   const char* tmpdir = std::getenv("TMPDIR");
-  const std::string dir = (tmpdir != nullptr && *tmpdir != '\0') ? std::string(tmpdir) : "/tmp/";
-  const std::string inPath = dir + "forge_diffgate_in.jsonl";
-  const std::string outPath = dir + "forge_diffgate_out.jsonl";
+  std::string dir = (tmpdir != nullptr && *tmpdir != '\0') ? std::string(tmpdir) : std::string("/tmp");
+  // TMPDIR ends with a slash on macOS and does NOT on most Linux setups, so
+  // concatenating blind writes `/var/foldersforge_diffgate_in.jsonl` on one of
+  // them. Normalise rather than assume; the two arms of this gate exist because
+  // assumptions about two environments agreeing are what it is testing.
+  if (dir.empty() || dir.back() != '/') dir += '/';
+  // The PID keeps two concurrent runs -- the mutation sweep is a loop of processes
+  // -- from reading each other's batch.
+  const std::string tag = std::to_string(static_cast<long long>(::getpid()));
+  const std::string inPath = dir + "forge_diffgate_in." + tag + ".jsonl";
+  const std::string outPath = dir + "forge_diffgate_out." + tag + ".jsonl";
   {
     std::ofstream in(inPath);
     if (!in) { why = "cannot write " + inPath; return false; }
@@ -521,26 +462,7 @@ bool runVerifier(const std::string& bin, const std::vector<std::pair<std::string
   std::string line;
   while (std::getline(res, line)) {
     if (line.empty()) continue;
-    VerifierLine v;
-    v.present = true;
-    v.id = jsonStringField(line, "id");
-    jsonBoolField(line, "ok", v.ok);
-    jsonBoolField(line, "valid", v.valid);
-    jsonNumberField(line, "volume", v.volume);
-    v.hasArea = jsonNumberField(line, "area", v.area);
-    v.hasCom = jsonTripleField(line, "com", v.com);
-    jsonNumberField(line, "faceCount", v.faceCount);
-    jsonNumberField(line, "edgeCount", v.edgeCount);
-    v.hasTopo = jsonNumberField(line, "genus", v.genus);
-    jsonNumberField(line, "shellCount", v.shellCount);
-    // bbox is nested one level; the corner arrays are what this needs.
-    const std::size_t bb = line.find("\"bbox\":");
-    if (bb != std::string::npos) {
-      const std::string tail = line.substr(bb);
-      jsonTripleField(tail, "min", v.bboxMin);
-      jsonTripleField(tail, "max", v.bboxMax);
-    }
-    out.push_back(v);
+    out.push_back(parseVerifierLine(line));
   }
   std::remove(inPath.c_str());
   std::remove(outPath.c_str());

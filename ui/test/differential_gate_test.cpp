@@ -22,7 +22,7 @@
 // assembled by 30 registered commands -- and whether the bridge will let the app
 // have the text at all. That is what this file measures.
 //
-// FOUR CHECKS:
+// SIX CHECKS:
 //   A. per tree, the app-authored IR is byte-identical to the planner's IR.
 //   B. per tree, the bridge ACCEPTS every statement the app itself emitted.
 //      A bridge that refuses its own application's output is not a safety
@@ -35,6 +35,16 @@
 //      SHRINKS without the pin moving (a ratchet that cannot notice progress is
 //      not a ratchet). Reported verbatim on every run so the defect is visible
 //      rather than remembered.
+//   E. THE COPILOT ARM -- the path the invariant actually NAMES. A-D drive
+//      CommandRegistry::dispatch with the selection nodes spelled out, which is a
+//      menu click. A CoPilot plan step cannot carry a %ref, so resolveSelection
+//      CHOOSES the operands at apply time, and an operand chosen differently is a
+//      different solid built from the same request. Ratcheted on the divergence
+//      SET, because WHICH tree diverges is the fact.
+//   F. THE forge_verify TRANSCRIPT READER, which tier 2's fourth arm depends on.
+//      It needs no kernel, so it is checked here rather than only in the macOS
+//      job behind an OCCT build -- against a line captured VERBATIM from the
+//      verifier, not written from its protocol comment.
 //
 // `--mutate N` injects one deliberate divergence and the gate must go RED. Run
 // by ui/test/run_differential_gate.sh; run_ui.sh runs the clean pass with no
@@ -51,6 +61,7 @@
 #include "forge/ui/OpConstraintBridge.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "ui_test_util.hpp"
+#include "verify_transcript.hpp"
 
 using forge::difftest::Mutation;
 using forge::ui::IrCheck;
@@ -359,6 +370,68 @@ int main(int argc, char** argv) {
                   "               COUNT, so an open-ended selection gets signature.minCount\n"
                   "               values and no more. lofted_nozzle loses its first section.\n");
     }
+  }
+
+  // ---- F. THE forge_verify TRANSCRIPT READER ------------------------------
+  // Tier 2's fourth arm runs the forge_verify BINARY and reads its JSON. That
+  // reader is the riskiest part of the arm and the LEAST convenient place to
+  // debug it: it would otherwise only ever execute in the macOS `kernel` job,
+  // behind an OCCT build. It needs no kernel, so it is checked here, on every PR,
+  // against a line captured VERBATIM from the pinned native verifier rather than
+  // written from the protocol comment -- which does not list `bodies`,
+  // `vertexCount`, or the `bores` array whose own `cx`/`at`/`axis` are exactly the
+  // kind of thing a careless field search collides with.
+  {
+    const forge::difftest::VerifierLine v =
+        forge::difftest::parseVerifierLine(forge::difftest::capturedVerifierLine());
+    CHECK(v.present);
+    CHECK_EQ_STR(v.id, std::string("t1"));
+    CHECK(v.ok);
+    CHECK(v.valid);
+    CHECK_NEAR(v.volume, 21738.053289, 1e-9);
+    CHECK_EQ_INT(static_cast<int>(v.faceCount), 7);
+    CHECK_EQ_INT(static_cast<int>(v.edgeCount), 15);
+    CHECK(v.hasTopo);
+    CHECK_EQ_INT(static_cast<int>(v.genus), 1);
+    CHECK_EQ_INT(static_cast<int>(v.shellCount), 1);
+    // The bbox, and NOT the `at`/`axis` triples of the bores array that follows it.
+    CHECK(v.hasBbox);
+    CHECK_NEAR(v.bboxMin[0], -20.0, 1e-12);
+    CHECK_NEAR(v.bboxMin[1], -15.0, 1e-12);
+    CHECK_NEAR(v.bboxMin[2], 0.0, 1e-12);
+    CHECK_NEAR(v.bboxMax[0], 20.0, 1e-12);
+    CHECK_NEAR(v.bboxMax[1], 15.0, 1e-12);
+    CHECK_NEAR(v.bboxMax[2], 20.0, 1e-12);
+    // THE NEGATIVE HALF, and the one that matters most. This line is from a
+    // verifier built BEFORE area and com were added, so both must report ABSENT.
+    // A reader that answered 0.0 here would agree with an arm that measured a
+    // centre of mass at the origin, which is where a great many parts have one.
+    CHECK(!v.hasArea);
+    CHECK(!v.hasCom);
+    CHECK_NEAR(v.area, 0.0, 1e-12);
+
+    const forge::difftest::VerifierLine w = forge::difftest::parseVerifierLine(
+        forge::difftest::capturedVerifierLineWithMassProps());
+    CHECK(w.hasArea);
+    CHECK_NEAR(w.area, 6209.734156, 1e-9);
+    CHECK(w.hasCom);
+    CHECK_NEAR(w.com[0], -0.5, 1e-12);
+    CHECK_NEAR(w.com[1], 0.25, 1e-12);
+    CHECK_NEAR(w.com[2], 9.875, 1e-12);
+    // com must not have been read out of the bores array's `at`/`axis`.
+    CHECK(w.hasBbox);
+    CHECK_NEAR(w.bboxMax[2], 20.0, 1e-12);
+
+    // A line with nothing in it must report ABSENT everywhere rather than zero.
+    const forge::difftest::VerifierLine e = forge::difftest::parseVerifierLine("{}");
+    CHECK(!e.hasArea);
+    CHECK(!e.hasCom);
+    CHECK(!e.hasBbox);
+    CHECK(!e.hasTopo);
+    CHECK(!e.ok);
+    CHECK_EQ_STR(e.id, std::string());
+    std::printf("[differential] forge_verify transcript reader: checked against a CAPTURED "
+                "line\n");
   }
 
   // A mutation must have MOVED something. A --mutate run that reports the same
