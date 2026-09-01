@@ -850,7 +850,8 @@ ShapeHandle profileWire(const std::vector<double>& pts, bool closed) {
 // handed to it comes back a chord chain. CMakeLists.txt already records
 // (FORGE_OFFSET_DROP_MAKEPIPE) that a bent POLYLINE spine makes the FT SWEEP op
 // "emit corrupt solids", measured at volume ratio 0.500 on one 90-degree bend.
-// A thread with 17 turns is 17 such bends per turn, and the failure is silent.
+// A 17-turn thread is that same failure at every station of the chain, and it
+// is silent: the polyline builds, validates, and measures short.
 //
 // The construction: a straight line in the (u,v) parameter space of a cylinder
 // IS a helix, because u is the angle in radians and v is the rise. One full turn
