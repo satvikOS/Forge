@@ -530,7 +530,33 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         } else if (!isEntity(refs[0]) && !isEntity(refs[1])) {
             // The angle of the DIRECTION p0->p1 from +x: how a drawing dimensions
             // a single sloped edge, which has no second line to measure against.
-            s.gcs.addConstraintP2PAngle(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]), a, tag);
+            //
+            // ★ THE FIVE-ARGUMENT OVERLOAD IS CALLED DELIBERATELY. The obvious
+            // four-argument one, addConstraintP2PAngle(p1, p2, angle, tagId),
+            // THROWS THE TAG AWAY — vendored GCS.cpp:655 reads
+            //
+            //     int System::addConstraintP2PAngle(Point& p1, Point& p2,
+            //                                       double* angle,
+            //                                       int /*tagId*/, bool driving)
+            //     { return addConstraintP2PAngle(p1, p2, angle, 0., 0, driving); }
+            //
+            // with the parameter commented out and 0 — planegcs's "no tag"
+            // sentinel — hard-coded in its place. It is the ONLY delegating
+            // overload in that file that does this; every other one forwards
+            // tagId (checked: 30 delegations, one offender).
+            //
+            // A constraint left on tag 0 is invisible to getConflicting(),
+            // clearByTag() and calculateConstraintErrorByTag(), so the geometry
+            // would still solve while the repair loop could never demote this
+            // constraint and its residual would read NaN. Passing incrAngle = 0.0
+            // explicitly reaches the implementation that honours the tag.
+            //
+            // MEASURED both ways: through the four-argument call the residual for
+            // the returned tag is NaN; through this one it is finite.
+            // 3rdParty is a verbatim vendor copy (see UPSTREAM.md), so the fix
+            // belongs here rather than in the vendored file.
+            s.gcs.addConstraintP2PAngle(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]),
+                                        a, /*incrAngle=*/0.0, tag);
         } else {
             throw std::runtime_error(
                 "forge::sketcher: Angle takes two lines or two points, not one of each");

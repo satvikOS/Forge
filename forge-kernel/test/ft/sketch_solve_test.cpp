@@ -600,6 +600,73 @@ int main() {
             }
         }
 
+        // ---- C2. ANGLE's POINT form, and the overload it must NOT bind to ---
+        // Case C covers two LINES (addConstraintL2LAngle). The two-POINT form
+        // goes to addConstraintP2PAngle, which planegcs DECLARES TWICE:
+        //
+        //   addConstraintP2PAngle(Point&, Point&, double* angle, double incrAngle,
+        //                         int tagId = 0, ...)          <- GCS.h:294
+        //   addConstraintP2PAngle(Point&, Point&, double* angle,
+        //                         int tagId = 0, ...)          <- GCS.h:302
+        //
+        // The facade passes an `int` tag as the fourth argument. int->int is an
+        // exact match and int->double is a conversion, so it binds to the second
+        // — but if it ever bound to the FIRST, the tag would silently become the
+        // default 0 (planegcs's "no tag" sentinel) and the angle value would be
+        // read as an increment. The geometry can still look plausible while the
+        // constraint has become invisible to diagnose(), clearByTag() and the
+        // whole repair loop.
+        //
+        // ★ THIS PROBES THE TAG DIRECTLY, and the first version of it did not.
+        // That version contradicted the angle against two FIXes and asserted the
+        // repair NAMED a demotion — which it did, by dropping a FIX, whether or
+        // not the ANGLE carried a tag at all. It passed against a mutant that
+        // explicitly selected the wrong overload. A downstream consequence that
+        // another constraint can satisfy is not a probe of the thing.
+        //
+        // GCS::calculateConstraintErrorByTag returns NaN when NO constraint
+        // carries the tag (GCS.h, above its declaration), and forge::addConstraint
+        // returns the tag it allocated. So: add the constraint through the facade,
+        // ask for that tag's residual, and require a FINITE number. An untagged
+        // constraint gives NaN. Nothing else in the sketch can mask it.
+        {
+            const forge::SketchHandle h = forge::createSketch();
+            const forge::SketchParamId a = forge::addPoint(h, 0, 0);
+            const forge::SketchParamId c = forge::addPoint(h, 10, 1);
+            const double kHalfPi = 3.14159265358979323846 / 2.0;
+            const std::uint32_t tag =
+                forge::addConstraint(h, forge::SketchConstraintKind::Angle, {a, c}, kHalfPi);
+            const double res = forge::constraintResidual(h, static_cast<int>(tag));
+            std::printf("  [ANGLE/pt] facade tag=%u residual=%.9f (NaN => the constraint "
+                        "carries no tag)\n", tag, res);
+            check(tag != 0, "the facade allocated a non-zero tag");
+            check(std::isfinite(res),
+                  "the point-form ANGLE is REGISTERED UNDER ITS TAG — it did not bind to "
+                  "the incrAngle overload, where tagId would have defaulted to 0");
+            forge::destroySketch(h);
+        }
+
+        // ---- C3. and the point form actually STEERS the direction -----------
+        // The contradiction above proves the tag; this proves the geometry. One
+        // point is pinned, the other is free, and 90 degrees must stand it up.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 10, 1)\n"
+                                  "%4 = CON(%2, FIX)\n"
+                                  "%5 = CON(%2, DIST, %3, 10)\n"
+                                  "%6 = CON(%2, ANGLE, %3, 90)\n"
+                                  "%7 = SOLVE(%1)\n", "ANGLE point form, geometry");
+            if (b.ok) {
+                double ux = 0, uy = 0;
+                dirOf(b.sk, 0, 1, ux, uy);
+                std::printf("  [ANGLE/pt] direction (%.9f, %.9f) — want vertical, |x| = 0\n",
+                            ux, uy);
+                check(std::fabs(ux) < 1e-6,
+                      "ANGLE 90 between two POINTS made the direction vertical");
+            }
+        }
+
         // ---- D. FIX anchors, and DISTX / DISTY are SIGNED -------------------
         // Three keywords in one measurement, because the measurement needs all
         // three: without FIX the solver is free to satisfy a relative offset by

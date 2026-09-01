@@ -2000,7 +2000,7 @@ previous build. That is "a gate that cannot build cannot fail" with an extra ste
 it just builds something else. Every number below is from a clean `.sketchbuild`, and the fix was
 verified by touching a header and watching all eight TUs recompile.
 
-**Measured, from a clean build** (`forge-kernel/test/ft/build_sketch_solve.sh`, 57 -> 100 checks,
+**Measured, from a clean build** (`forge-kernel/test/ft/build_sketch_solve.sh`, 57 -> 103 checks,
 0 failures). Every case asserts a NUMBER the constraint had to move, because "it did not throw" is
 also what a keyword mapped to the wrong primitive looks like:
 
@@ -2019,13 +2019,14 @@ also what a keyword mapped to the wrong primitive looks like:
 [keywords] 19 of 19 documented CON keywords dispatch
 ```
 
-**Falsifiability proved by mutation, not asserted.** Three mutants, each reverted:
+**Falsifiability proved by mutation, not asserted.** Four mutants, each reverted:
 
 | mutant | result |
 |---|---|
 | the degrees->radians conversion removed | `[ANGLE] \|cos\| = 0.448073616` — FAIL. The case comment PREDICTED 0.447 before the mutant ran. |
 | `DIAM` routed to `CircleRadius` | `[DIAM] radius 30.000000` — FAIL |
 | `COLL`'s two constraints split across two tags | `demotions = 2` — FAIL |
+| point-form `ANGLE` forced onto the tag-dropping overload | `residual = nan` — FAIL |
 
 **★ The third mutant is the one worth recording, because the FIRST version of that case did not
 catch it.** With line B pinned horizontal, `COLL`'s Parallel half was already satisfied, so
@@ -2033,6 +2034,34 @@ splitting the tag still needed only one demotion and the test passed against the
 unfalsifiable check dressed as a measurement of a claim written in a code comment. The geometry was
 changed so both halves independently conflict, and only then did the mutant turn it red. *Running
 the mutation is what found this; the check had already "passed".*
+
+**★ A REAL DEFECT IN THE VENDORED SOLVER, found by rewriting a test that had already passed.**
+`ANGLE`'s two-point form goes to `addConstraintP2PAngle`. planegcs declares that twice, and the
+convenient four-argument overload **discards the caller's tag** (`GCS.cpp:655`):
+
+```cpp
+int System::addConstraintP2PAngle(Point& p1, Point& p2, double* angle,
+                                  int /*tagId*/, bool driving)
+{ return addConstraintP2PAngle(p1, p2, angle, 0., 0, driving); }
+```
+
+The parameter is commented out and **0 — planegcs's "no tag" sentinel — is hard-coded in its
+place.** It is the ONLY delegating overload in that file that does this: 30 delegations were
+checked and 29 forward `tagId`. A constraint left on tag 0 is invisible to `getConflicting()`,
+`clearByTag()` and `calculateConstraintErrorByTag()`, so the geometry still solves while **the
+repair loop can never demote it and its residual reads NaN** — a silent hole in exactly the
+never-refuse contract this family exists to honour. Fixed in the FACADE, not in the vendored file
+(`3rdParty` is a verbatim vendor copy), by calling the five-argument overload with
+`incrAngle = 0.0` and the real tag. Measured both ways: NaN before, `-1.471127674` after.
+
+**★ How it was found is the point.** The first version of that test contradicted the angle against
+two `FIX`es and asserted the repair NAMED a demotion. It passed — and it passed against a mutant
+that deliberately selected the wrong overload, because the repair satisfied the assertion by
+dropping a `FIX` instead. A downstream consequence another constraint can satisfy is not a probe of
+the thing. Rewritten to ask `constraintResidual()` for the returned tag directly — which nothing
+else in the sketch can mask — it caught the mutant, and then caught the SAME defect in the
+unmutated code. **Two of this branch's tests were unfalsifiable when first written, and running
+mutations against them is the only reason either is worth anything.**
 
 **The unit seam, stated because a wrong answer here still builds.** The IR is degrees (`ROTATE`,
 `PATTERN POLAR`, `REVOLVE`); planegcs is radians. The conversion is at the IR boundary and both
