@@ -51,6 +51,14 @@
 //   3  the historical use-after-free, on purpose-> the sanitizer must catch it
 //   4  only the first workspace is exercised    -> the tab census goes unmet
 //   5  the splitter is pressed but not dragged  -> no ratio moves
+//   6  the command sweep stops after the first  -> the invocation census goes unmet
+//   7  no frame is drawn after a command runs   -> the redraw the historical
+//                                                 use-after-free broke goes unchecked
+//
+// 6 and 7 were IMPLEMENTED and NOT DOCUMENTED here (g_mutation is read at lines
+// 459 and 482). This list said "1..5" while run_desktop.sh ran 1..7, so a reader
+// checking whether the merged mutation count was right would have counted five
+// and concluded two of them were injected into a gate that ignores them.
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>
