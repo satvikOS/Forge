@@ -243,6 +243,11 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
          std::to_string(scene_.faceCount()) + " faces  [" + scene_.backend() + "]");
   } else {
     note("kernel body UNAVAILABLE: " + scene_.error());
+    // Same reason as the failed rebuild below: startup with no kernel body is an
+    // ERROR, and a user who opens the log looking for one must find it there
+    // rather than in the untyped frame notes that the error filter hides.
+    shell_.log().error("kernel.startup", "no kernel body at startup -- the viewport is empty",
+                       scene_.error());
   }
 }
 
@@ -372,11 +377,37 @@ bool ForgeFrame::syncSceneToDocument() {
     note("rebuilt: " + std::to_string(before) + " -> " + std::to_string(scene_.triangleCount()) +
          " triangles, " + std::to_string(r.faceCount) + " faces, V=" + std::to_string(r.volume) +
          (r.valid ? "  [valid]" : "  [INVALID SOLID]"));
+    // A body that BUILT but is not a valid solid is not a success, and it is the
+    // failure a user is least able to see: the geometry appears in the viewport.
+    // It is a warning rather than an error because there is something to look at.
+    if (!r.valid) {
+      shell_.log().warning("kernel.rebuild",
+                           "the rebuild produced a body that is NOT A VALID SOLID -- it is on "
+                           "screen, but it will not measure, mesh or export correctly",
+                           r.error);
+    }
   } else {
     rebuildError_ = r.error;
     // The previous body stays on screen -- what every history-based CAD system
     // does with a failed rebuild -- and the failure is stated, not swallowed.
     note("REBUILD FAILED: " + r.error + "  (showing the last good body)");
+    // ...and stated WHERE SOMEONE LOOKING FOR AN ERROR WILL FIND IT.
+    //
+    // note() writes to the frame's own `log_` and to status_. The console panel
+    // draws shell_.log() -- the severity-carrying, filterable, counted one --
+    // and appended the frame notes only under `logLevel_ == 0`. So a failed
+    // rebuild, which is THE most important failure this application can report,
+    // was: a transient status line that the next note overwrites, plus a grey
+    // undifferentiated string that DISAPPEARS the moment a user filters to
+    // "Errors" -- which is exactly what someone whose feature just failed does.
+    // They would have been shown "(nothing at this level)".
+    //
+    // r.error is the kernel verifier's own sentence, e.g. "first invalid solid
+    // is produced by op %2 EXTRUDE (line 2): not closed" -- it names the op, the
+    // statement index and the line. That is the message the brief means by
+    // learning why without a debugger, and it now reaches the error log, the
+    // error count badge and the status strip's severity colour.
+    shell_.log().error("kernel.rebuild", "REBUILD FAILED -- showing the last good body", r.error);
   }
   return true;
 }

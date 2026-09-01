@@ -103,12 +103,28 @@ std::string codeOnly(const std::string& s) {
 // brace in column 0. Empty when the function is not found, which the caller
 // checks: a rename must turn this gate RED, not silently skip its assertions.
 std::string functionBody(const std::string& src, const std::string& name) {
-  const std::string sig = "void ForgeFrame::" + name + "(";
-  const std::size_t begin = src.find(sig);
-  if (begin == std::string::npos) return {};
-  const std::size_t end = src.find("\n}\n", begin);
-  if (end == std::string::npos) return {};
-  return src.substr(begin, end - begin);
+  // ANY return type, not just `void`. This used to hard-code "void ForgeFrame::"
+  // and so could not see syncSceneToDocument(), which returns bool -- a gate
+  // silently unable to read the function it is asked about would have returned
+  // an empty body and vacuously passed. A DEFINITION starts in column 0; a call
+  // is indented or follows `.`/`->`, so anchoring on the line start is what
+  // separates them.
+  const std::string sig = "ForgeFrame::" + name + "(";
+  std::size_t at = 0;
+  while ((at = src.find(sig, at)) != std::string::npos) {
+    const std::size_t lineBegin = (at == 0) ? 0 : src.rfind('\n', at - 1);
+    const std::size_t begin = (lineBegin == std::string::npos) ? 0 : lineBegin + 1;
+    // Column 0 and not a member access: that is the definition.
+    const bool definition = (begin < at) && src[begin] != ' ' && src[begin] != '\t' &&
+                            src[at - 1] != '.' && src[at - 1] != '>' && src[at - 1] != ':';
+    if (definition) {
+      const std::size_t end = src.find("\n}\n", at);
+      if (end == std::string::npos) return {};
+      return src.substr(begin, end - begin);
+    }
+    at += sig.size();
+  }
+  return {};
 }
 
 // Every `void ForgeFrame::draw*(` in the file, by CENSUS.
@@ -347,6 +363,39 @@ int main() {
       }
       CHECK(!walks);
     }
+  }
+
+  // ── A KERNEL FAILURE REACHES THE SEVERITY LOG, NOT ONLY THE FRAME NOTES ──
+  // ForgeFrame::note() writes to the frame's own `log_` and to status_. The
+  // console panel draws shell_.log() -- the severity-carrying, filterable,
+  // COUNTED one -- and appends the frame notes only under `logLevel_ == 0`.
+  // So a failed rebuild reported with note() alone was a transient status line
+  // plus a grey string that VANISHES the moment a user filters to "Errors",
+  // which is precisely what someone whose feature just failed does. The
+  // verifier's own sentence ("first invalid solid is produced by op %2 EXTRUDE
+  // (line 2): not closed") names the op, the statement and the line, and it has
+  // to arrive where a person goes looking for it.
+  {
+    const std::string body = functionBody(frame, "syncSceneToDocument");
+    if (body.empty())
+      std::printf("  [reachability] ForgeFrame::syncSceneToDocument NOT FOUND -- this gate cannot "
+                  "read the function it is asserting about\n");
+    CHECK(!body.empty());
+
+    const bool notes = body.find("REBUILD FAILED") != std::string::npos;
+    const bool severity = body.find("shell_.log().error(") != std::string::npos;
+    if (notes && !severity)
+      std::printf("  [reachability] a failed rebuild is reported with note() but never reaches "
+                  "shell_.log().error() -- it is invisible under the console's error filter\n");
+    CHECK(severity);
+
+    // The verifier's message must be CARRIED, not replaced by a generic string.
+    // r.error is the only thing that names the op and the line.
+    const bool carries = body.find("r.error") != std::string::npos;
+    if (!carries)
+      std::printf("  [reachability] the failed-rebuild log entry does not carry r.error -- the "
+                  "verifier's sentence naming the op and line is being dropped\n");
+    CHECK(carries);
   }
 
   // No hand-written command list anywhere in the frame. `app.command_palette` is
