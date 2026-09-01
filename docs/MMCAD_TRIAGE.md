@@ -186,7 +186,22 @@ with `bsdtar` (no 7z binary on this Mac). MM-CAD:B's value-add over raw ABC is c
 
 Grounded in a census of **9,849 real human models** (every model carrying an `ofs` file
 in ABC chunk 0000), **154,637 user feature instances** — not from memory. Target is the
-40-op emission vocabulary in `implementation/sacrosanct/archie_op_vocabulary.json`.
+emission vocabulary in `implementation/sacrosanct/archie_op_vocabulary.json`, **as it
+stood at 9da55f51: 40 user-invocable ops**, with `CAP`, `FACES`, `SEW`, `SKIN`,
+`SURFCHECK`, `THICKEN` and `SLOT` forbidden.
+
+**That vocabulary has since moved, and the as-of is the point.** On this branch's base
+it reads **46 user-invocable ops**, and the forbidden list is a different nine: `SLOT`,
+`ARC`, and the seven of the 2D-sketch family (`SKETCH`, `SPT`, `SLINE`, `SCIRC`,
+`SARC`, `CON`, `SOLVE`). Only `SLOT` is on both lists. The six SURFACE ops that made up
+most of the old one are no longer forbidden — every one of them now has a command. The per-featureType rows below are annotated where that changes them. The
+**yield percentages are NOT restated**, because they cannot be: they are per-MODEL
+gates over ABC chunk 0000 and this branch does not carry the census that produced them.
+This document's own measurement is the reason — the three cheapest ops recover 745 of
+3,938 blocked models, **not** the 2,015 their instance counts suggest, so a per-model
+number cannot be derived from an instance count. Re-running the census is the only way
+to move those figures, and inventing them here would be exactly the error the 745
+finding exists to warn about.
 
 Median tree is **8 user features** (mean 15.7, max 484).
 
@@ -213,7 +228,7 @@ Median tree is **8 user features** (mean 15.7, max 484).
 
 | FeatureScript | n | what is missing |
 |---|---:|---|
-| `newSketch` | 49,903 | **Forge has no sketch entity.** Profiles are 5 canned producers (`CIRCLE`, `RECT`, `RRECT`, `REGPOLY`, `POLY`) plus `WIRE`/`RING`. An arbitrary profile must collapse into one of those or be tessellated by `POLY`. |
+| `newSketch` | 49,903 | **No sketch entity a USER can reach.** (As of the base: the *kernel* now has one — `SKETCH`/`SPT`/`SLINE`/`SCIRC`/`SARC`/`CON`/`SOLVE` compile and solve — but no `forge::ui` command emits any of them, so all seven are in `forbidden_ops` and none is available to an ingest that must stay inside the app's surface. The conclusion below is unchanged; the reason is now "not emitted" rather than "not built".) Profiles are 5 canned producers (`CIRCLE`, `RECT`, `RRECT`, `REGPOLY`, `POLY`) plus `WIRE`/`RING`. An arbitrary profile must collapse into one of those or be tessellated by `POLY`. |
 | `cPlane` / `cPoint` | 5,825 | no datum entity; must be constant-folded into op args |
 | `moveFace` | 1,807 | `PUSHFACE` is a normal offset; `moveFace` also translates/rotates |
 | `deleteBodies` | 1,609 | structural — drop the `%ref`, no op |
@@ -228,15 +243,15 @@ Median tree is **8 user features** (mean 15.7, max 484).
 |---|---:|---|
 | `importForeign` | 2,258 | an imported external body — **the construction history is absent by definition**; unfixable, not a vocabulary gap |
 | `mateConnector` | 2,196 | assembly reference frame; no IR concept |
-| `thicken` | 1,118 | `THICKEN` is in `forbidden_ops` — explicitly not user-invocable |
-| `draft` | 898 | no draft op in the 40 |
+| `thicken` | 1,118 | `THICKEN` was in `forbidden_ops` at the census as-of. **No longer**: as of the base it has a command (`part.thicken`) and is user-invocable, so this row is no longer a blocker. Its effect on the yield is not restated here — see the as-of note above |
+| `draft` | 898 | no draft op in the vocabulary — still true at 46 |
 | `splitPart` | 672 | `SECTION` yields a `WIRE`, not a split solid |
 | `helix` | 445 | no helical curve producer; `RING`/`WIRE` are planar/polyline |
 | `copyPart` / `importDerived` | 381 | cross-document derivation |
 | `replaceFace` | 170 | — |
 | `modifyFillet` | 96 | — |
 | `threadCreator` | 17 | — |
-| everything else | 55 over 25 distinct types | mostly **custom FeatureScript features** — `Beam` 9, `rib` 5, `SpurGear` 4, `dcSphere` 4, `brickFeature` 3, `lighten` 3, `beamProfile` 3, `HexInfill` 2, `overcut` 2, `cycloid`, `waveSpring`, `beltFeature`, `Elbow`, `portFeature`, `hexPocket`, … — **arbitrary user code from the Onshape app store, unmappable in principle** since each has whatever semantics its author wrote; plus 6 surface ops (`offsetSurface` 2, `fill`, `enclose`, `fitSpline`, `surfaceText`) against which `CAP`/`SEW`/`SKIN`/`THICKEN` are all forbidden |
+| everything else | 55 over 25 distinct types | mostly **custom FeatureScript features** — `Beam` 9, `rib` 5, `SpurGear` 4, `dcSphere` 4, `brickFeature` 3, `lighten` 3, `beamProfile` 3, `HexInfill` 2, `overcut` 2, `cycloid`, `waveSpring`, `beltFeature`, `Elbow`, `portFeature`, `hexPocket`, … — **arbitrary user code from the Onshape app store, unmappable in principle** since each has whatever semantics its author wrote; plus 6 surface ops (`offsetSurface` 2, `fill`, `enclose`, `fitSpline`, `surfaceText`); `CAP`/`SEW`/`SKIN`/`THICKEN` were all forbidden at the census as-of and are **user-invocable as of the base**, though none of them is an equivalent for these six in any case |
 
 ### Two facts that decide feasibility
 
