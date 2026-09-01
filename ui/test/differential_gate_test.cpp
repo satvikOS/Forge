@@ -415,22 +415,22 @@ int main(int argc, char** argv) {
     //   * PlanSelect had no WIRE value, so lofted_nozzle was UNREACHABLE and the
     //     LocalPlanner's own `loft` verb asked for a PROFILE it could not use.
     //
-    // What REMAINS, and is pinned here rather than hidden: `resolveSelection`
-    // takes exactly `signature.minCount` values, because a PlanStep names a value
-    // KIND and never a COUNT. So an open-ended selection always gets the minimum:
-    // the three-ring lofted_nozzle comes out as LOFT(%2, %3, RULED), a
-    // two-section loft. It is a DIFFERENT SOLID and it is reported on every run.
+    //   * and the third, closed here: `resolveSelection` took exactly
+    //     `signature.minCount` values because a PlanStep named a value KIND and
+    //     never a COUNT, so an open-ended selection always got the MINIMUM. The
+    //     three-ring lofted_nozzle was applied as LOFT(%2, %3, RULED) -- a
+    //     two-section loft, a DIFFERENT SOLID, from a plan that named three
+    //     rings, with no error raised anywhere. `PlanStep::selectCount` carries
+    //     the count now; 0 still means "the signature's minimum", so a step that
+    //     states nothing is unchanged.
+    //
+    // THE SET IS NOW EMPTY, and it is asserted empty rather than deleted: a
+    // ratchet that stops being checked when it reaches zero cannot notice the
+    // next divergence. `diverged` is printed in full on every run above, so a
+    // regression names the tree that broke.
     CHECK_EQ_INT(unreachable.size(), 0u);
-    CHECK_EQ_INT(diverged.size(), 1u);
-    CHECK_EQ_STR(diverged.empty() ? std::string() : diverged.front(),
-                 std::string("lofted_nozzle"));
-    if (mutation == Mutation::None && diverged.size() == 1) {
-      // One prefixed line each: the runner prints the clean run through
-      // `grep -E '^\[differential\]'`, which cut this report off after "never a".
-      std::printf("[differential] OPEN DEFECT -- a PlanStep names a value KIND and never a COUNT,\n");
-      std::printf("[differential]   so an open-ended selection gets signature.minCount values and\n");
-      std::printf("[differential]   no more. lofted_nozzle loses its first section.\n");
-    }
+    CHECK_EQ_INT(diverged.size(), 0u);
+    CHECK_EQ_INT(copilotAgreed, corpus.size());
   }
 
   // ---- F. THE forge_verify TRANSCRIPT READER ------------------------------

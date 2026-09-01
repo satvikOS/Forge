@@ -596,6 +596,11 @@ inline bool copilotPlanFor(const Tree& t, const forge::ui::CommandRegistry& regi
     ps.commandId = step.command;
     ps.irOp = cmd->featureIrOp;
     ps.select = select;
+    // HOW MANY, taken from the corpus's own selection list rather than left to
+    // the signature's minimum. This is the fact a PlanStep could not carry: the
+    // nozzle names wire_1, wire_2 AND wire_3, and without the count the CoPilot
+    // applied a TWO-section loft -- a different solid, from the same request.
+    ps.selectCount = step.selectionNodes.size();
     ps.note = t.id;
     for (const auto& kv : step.numbers) {
       ps.args.push_back(forge::ui::PlanArg::num(kv.first, kv.second));

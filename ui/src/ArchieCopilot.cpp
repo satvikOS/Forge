@@ -672,8 +672,33 @@ bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const 
   if (cmd.signature.kind == EntityKind::None) return true;  // needs nothing picked
 
   const IrValueKind want = valueKindWanted(step.select);
-  const std::size_t need = cmd.signature.minCount == 0 ? 1 : cmd.signature.minCount;
+  // ── HOW MANY, and the step gets a say ────────────────────────────────────
+  // This was `signature.minCount` unconditionally, and a PlanStep had no way to
+  // state a count -- so every open-ended selection took the MINIMUM and no more.
+  // `part.loft`'s signature is 2..n, so the three-ring nozzle was applied as
+  // `LOFT(%2, %3, RULED)`: a two-section loft, built from a plan that named three
+  // rings, with no error anywhere. A quietly different solid is worse than a
+  // refusal, and it is exactly what the two-path differential exists to find.
+  //
+  // `selectCount == 0` keeps the old answer, so a step that states nothing is
+  // byte-identical to before. A stated count is CLAMPED rather than refused --
+  // REPRESENT / REPAIR / TOLERATE: below the signature's minimum it is raised to
+  // the minimum, above its maximum it is capped there, and above what the
+  // document actually holds it takes what there is. A planner asking for more
+  // sections than exist gets every section, not a dead plan.
+  const std::size_t minNeed = cmd.signature.minCount == 0 ? 1 : cmd.signature.minCount;
   const std::vector<std::pair<int, std::string>> bound = boundValues(doc, want);
+  std::size_t need = minNeed;
+  if (step.selectCount != 0) {
+    need = step.selectCount < minNeed ? minNeed : step.selectCount;
+    // maxCount's unbounded marker is (size_t)-1, not 0, so this caps a bounded
+    // signature and is a no-op for `atLeast`. The `>= minNeed` guard keeps a
+    // degenerate max from driving `need` BELOW the minimum the command requires.
+    if (cmd.signature.maxCount >= minNeed && need > cmd.signature.maxCount) {
+      need = cmd.signature.maxCount;
+    }
+    if (need > bound.size() && bound.size() >= minNeed) need = bound.size();
+  }
   if (bound.size() < need) {
     why = "the document holds " + std::to_string(bound.size()) + " " +
           std::string(toString(want)) + " value(s); this step needs " + std::to_string(need);

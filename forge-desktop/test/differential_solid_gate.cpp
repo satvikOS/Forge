@@ -355,11 +355,22 @@ bool coherent(const std::string& tree, const char* arm, const Observed& o) {
 // solid would mean the text comparison was measuring something that does not
 // matter, which is worth knowing either way.
 //
-// A text divergence is SANCTIONED for exactly one tree and only on a clean run.
+// A text divergence may be SANCTIONED for a named tree, and only on a clean run.
 // Tier 1 ratchets that set; this arm must not turn every divergence into an
 // expected one, or `copilot-applies-one-step-short` would inject a defect and be
 // reported as the known gap. Anything else that diverges is a FAILURE here.
-constexpr const char* kSanctionedCopilotDivergence = "lofted_nozzle";
+//
+// THE SET IS NOW EMPTY. It held `lofted_nozzle`, whose CoPilot arm built a
+// TWO-section loft from a plan naming three rings, because `resolveSelection`
+// took `signature.minCount` and a PlanStep could not state a count.
+// `PlanStep::selectCount` closed that, tier 1 reports `8 agree, 0 diverge`, and
+// this arm now runs the FULL vector comparison on that tree like every other.
+//
+// The machinery stays. An empty sanction set is a fact about today, not a reason
+// to delete the only place a future known-and-costed divergence could be
+// declared -- and deleting it would mean the next one has nowhere to go but into
+// the gate's own definition of "agree".
+constexpr const char* kSanctionedCopilotDivergence = "";
 
 void compareCopilot(const std::string& tree, const Observed& a, const Observed& e,
                     bool textAgreed, Mutation mutation) {

@@ -126,6 +126,18 @@ struct PlanStep {
   std::string irOp;
   std::vector<PlanArg> args;
   PlanSelect select = PlanSelect::Keep;
+  // HOW MANY of that kind. `select` names a value KIND and, until this field, a
+  // step could not say a COUNT -- so `resolveSelection` took exactly
+  // `signature.minCount` and an open-ended selection always got the MINIMUM. The
+  // three-ring nozzle came out as `LOFT(%2, %3, RULED)`: a two-section loft, a
+  // DIFFERENT SOLID, silently, from a plan that named three sections. MEASURED by
+  // ui/test/differential_gate_test.cpp as the one corpus tree whose CoPilot arm
+  // diverged from the planner's own text.
+  //
+  // 0 means "the signature's own minimum" -- exactly today's behaviour, so a plan
+  // that does not care is unchanged and nothing silently widens. A step that means
+  // three sections now says three, and gets three.
+  std::size_t selectCount = 0;
   std::string note;  // why the planner chose these values — shown in the panel
 
   CommandParams params() const;
