@@ -528,9 +528,35 @@ int testRealSizedPart() {
 // The linear scanner is O(triangles) by construction, so its cost MUST rise
 // with the triangle count. If it does not, the timer in this file is not
 // measuring elapsed work and every microsecond printed above is void.
+//
+// ── why ONE timed pass per size is not a measurement ────────────────────────
+// This gate went red on ubuntu-latest at a commit that touched nothing it
+// reads, and green on the same code one run earlier (34.69 -> 77.75 -> 142.51
+// us). The red run read 922.92 -> 267.33 -> 184.89 us: MONOTONICALLY DOWN, with
+// the FIRST sample 27x the same sample in the green run and the LAST sample in
+// its normal band. A linear scan that got 27x slower for 3,200 triangles and
+// stayed normal for 12,800 is not a thing that can happen; what the first timed
+// region actually measured was PROCESS COLD START -- first-touch page faults on
+// a freshly built mesh, a cold instruction cache, and an unramped clock on a
+// cold, shared, throttled runner. A dev machine is warm and pays none of it,
+// which is precisely why this only ever failed in CI.
+//
+// The assertion is NOT the thing that was wrong and is UNCHANGED below. What
+// was wrong is that a single-shot sample measures work PLUS whatever else the
+// machine was doing, so two corrections make the sample mean what it says:
+//
+//   1. a WARM-UP pass per size, outside the clock, so the page faults and the
+//      cold caches are paid before the timer starts. The first size also gets
+//      the process-level warm-up for free by being warmed the same way.
+//   2. the MINIMUM of kReps timed repeats rather than one. Scheduler noise on a
+//      shared runner is ONE-SIDED -- preemption only ever ADDS time -- so the
+//      minimum is the robust estimator of the cost of the work itself. It
+//      relaxes nothing: it estimates the same quantity the assertion has always
+//      been about, with the interference removed.
 int testTimerIsOrientedForward() {
   forge::uitest::Harness H("pick:timer-positive-control");
   const std::size_t kRays = 400;
+  const int kReps = 5;
   const std::vector<Ray> rays = makeRays(kRays, 300.0, TorusSpec{}, 7u);
 
   double us[3] = {0.0, 0.0, 0.0};
@@ -542,16 +568,28 @@ int testTimerIsOrientedForward() {
     const MeasureMesh mesh = makeTorus(spec);
     tris[i] = mesh.triangleCount();
     std::uint32_t sink = 0;
-    const auto t0 = std::chrono::steady_clock::now();
+
+    // (1) warm up: touch every page of this mesh and this code path OUTSIDE the
+    // clock, so no timed region below pays for a first touch.
     for (const Ray& r : rays) sink += pickFaceLinear(mesh, r.o, r.d).faceId;
-    const auto t1 = std::chrono::steady_clock::now();
-    us[i] = microsPerCall(t1 - t0, kRays);
+
+    // (2) the minimum over kReps. Noise is one-sided, so the floor is the work.
+    double best = 0.0;
+    for (int rep = 0; rep < kReps; ++rep) {
+      const auto t0 = std::chrono::steady_clock::now();
+      for (const Ray& r : rays) sink += pickFaceLinear(mesh, r.o, r.d).faceId;
+      const auto t1 = std::chrono::steady_clock::now();
+      const double got = microsPerCall(t1 - t0, kRays);
+      if (rep == 0 || got < best) best = got;
+    }
+    us[i] = best;
     // Consume the result so the loop cannot be optimised away entirely.
     CHECK(sink > 0);
   }
-  std::printf("[pick:timer-positive-control] linear scan cost vs mesh size: "
+  std::printf("[pick:timer-positive-control] linear scan cost vs mesh size "
+              "(best of %d, after a warm-up pass): "
               "%zu tris %.2f us  ->  %zu tris %.2f us  ->  %zu tris %.2f us\n",
-              tris[0], us[0], tris[1], us[1], tris[2], us[2]);
+              kReps, tris[0], us[0], tris[1], us[1], tris[2], us[2]);
   CHECK(tris[0] < tris[1] && tris[1] < tris[2]);
   CHECK(us[0] < us[1]);
   CHECK(us[1] < us[2]);
