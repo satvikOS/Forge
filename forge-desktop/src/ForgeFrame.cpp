@@ -115,10 +115,26 @@ ImVec4 featureStateColor(forge::ui::FeatureState s) {
 }  // namespace
 
 // ── style ───────────────────────────────────────────────────────────────────
-void applyForgeStyle(float dpiScale) {
+ImVec4 toImVec4(const forge::ui::Rgba& c) {
+  return ImVec4(static_cast<float>(c.r), static_cast<float>(c.g), static_cast<float>(c.b),
+                static_cast<float>(c.a));
+}
+
+// ── THE PALETTE IS A VALUE, AND IT IS AUDITED ───────────────────────────────
+// Every colour below comes from forge::ui::Theme, whose contrast is CHECKED
+// rather than eyeballed: ui/test/shell_ux_test.cpp requires body text over the
+// window to clear WCAG AA in BOTH modes and asserts auditContrast() is empty.
+// Hard-coded literals cannot be audited, and "is this readable" is arithmetic,
+// not taste.
+//
+// The dpi-only overload below keeps every existing call site (main.cpp and four
+// gates) working unchanged and means Dark, which is what they got before.
+void applyForgeStyle(float dpiScale, forge::ui::ThemeMode mode) {
+  const forge::ui::Theme theme = forge::ui::Theme::forMode(mode);
+  using T = forge::ui::ColorToken;
   ImGuiStyle& s = ImGui::GetStyle();
   s = ImGuiStyle();
-  s.WindowRounding = 0.0f;   // a CAD shell is rectangular; rounded docks read as toys
+  s.WindowRounding = 0.0f;
   s.ChildRounding = 2.0f;
   s.FrameRounding = 3.0f;
   s.GrabRounding = 3.0f;
@@ -133,38 +149,48 @@ void applyForgeStyle(float dpiScale) {
   s.ScrollbarSize = kScrollbarSize;
 
   ImVec4* c = s.Colors;
-  c[ImGuiCol_Text] = rgb(226, 229, 234);
-  c[ImGuiCol_TextDisabled] = rgb(115, 121, 132);
-  c[ImGuiCol_WindowBg] = rgb(30, 33, 38);
-  c[ImGuiCol_ChildBg] = rgb(30, 33, 38);
-  c[ImGuiCol_PopupBg] = rgb(38, 42, 49);
-  c[ImGuiCol_Border] = rgb(56, 61, 70);
-  c[ImGuiCol_FrameBg] = rgb(44, 48, 56);
-  c[ImGuiCol_FrameBgHovered] = rgb(56, 62, 72);
-  c[ImGuiCol_FrameBgActive] = rgb(66, 73, 85);
-  c[ImGuiCol_TitleBg] = rgb(24, 27, 31);
-  c[ImGuiCol_TitleBgActive] = rgb(34, 38, 44);
-  c[ImGuiCol_MenuBarBg] = rgb(24, 27, 31);
-  c[ImGuiCol_ScrollbarBg] = rgb(26, 29, 34);
-  c[ImGuiCol_ScrollbarGrab] = rgb(62, 68, 78);
-  c[ImGuiCol_CheckMark] = rgb(242, 158, 38);
-  c[ImGuiCol_SliderGrab] = rgb(232, 150, 40);
-  c[ImGuiCol_SliderGrabActive] = rgb(255, 176, 60);
-  c[ImGuiCol_Button] = rgb(48, 53, 62);
-  c[ImGuiCol_ButtonHovered] = rgb(64, 71, 83);
-  c[ImGuiCol_ButtonActive] = rgb(242, 158, 38, 0.85f);
-  c[ImGuiCol_Header] = rgb(52, 58, 68);
-  c[ImGuiCol_HeaderHovered] = rgb(66, 74, 87);
-  c[ImGuiCol_HeaderActive] = rgb(242, 158, 38, 0.65f);
-  c[ImGuiCol_Separator] = rgb(56, 61, 70);
-  c[ImGuiCol_Tab] = rgb(34, 38, 44);
-  c[ImGuiCol_TabHovered] = rgb(66, 74, 87);
-  c[ImGuiCol_TabSelected] = rgb(52, 58, 68);
-  c[ImGuiCol_TabSelectedOverline] = rgb(242, 158, 38);
-  c[ImGuiCol_TableHeaderBg] = rgb(40, 44, 51);
-  c[ImGuiCol_TableBorderStrong] = rgb(56, 61, 70);
-  c[ImGuiCol_TableRowBgAlt] = rgb(34, 37, 43);
+  c[ImGuiCol_Text] = toImVec4(theme.color(T::Text));
+  c[ImGuiCol_TextDisabled] = toImVec4(theme.color(T::TextDisabled));
+  c[ImGuiCol_WindowBg] = toImVec4(theme.color(T::WindowBg));
+  c[ImGuiCol_ChildBg] = toImVec4(theme.color(T::PanelBg));
+  c[ImGuiCol_PopupBg] = toImVec4(theme.color(T::PanelHeaderBg));
+  c[ImGuiCol_Border] = toImVec4(theme.color(T::Border));
+  c[ImGuiCol_FrameBg] = toImVec4(theme.color(T::ButtonBg));
+  c[ImGuiCol_FrameBgHovered] = toImVec4(theme.color(T::ButtonHover));
+  c[ImGuiCol_FrameBgActive] = toImVec4(theme.color(T::ButtonActive));
+  c[ImGuiCol_TitleBg] = toImVec4(theme.color(T::MenuBarBg));
+  c[ImGuiCol_TitleBgActive] = toImVec4(theme.color(T::PanelHeaderBg));
+  c[ImGuiCol_MenuBarBg] = toImVec4(theme.color(T::MenuBarBg));
+  c[ImGuiCol_ScrollbarBg] = toImVec4(theme.color(T::ScrollbarBg));
+  c[ImGuiCol_ScrollbarGrab] = toImVec4(theme.color(T::ScrollbarGrab));
+  c[ImGuiCol_CheckMark] = toImVec4(theme.color(T::Accent));
+  c[ImGuiCol_SliderGrab] = toImVec4(theme.color(T::Accent));
+  c[ImGuiCol_SliderGrabActive] = toImVec4(theme.color(T::AccentHover));
+  c[ImGuiCol_Button] = toImVec4(theme.color(T::ButtonBg));
+  c[ImGuiCol_ButtonHovered] = toImVec4(theme.color(T::ButtonHover));
+  c[ImGuiCol_ButtonActive] = toImVec4(theme.color(T::AccentActive));
+  c[ImGuiCol_Header] = toImVec4(theme.color(T::PanelHeaderBg));
+  c[ImGuiCol_HeaderHovered] = toImVec4(theme.color(T::ButtonHover));
+  c[ImGuiCol_HeaderActive] = toImVec4(theme.color(T::Selection));
+  c[ImGuiCol_Separator] = toImVec4(theme.color(T::Separator));
+  c[ImGuiCol_Tab] = toImVec4(theme.color(T::TabInactive));
+  c[ImGuiCol_TabHovered] = toImVec4(theme.color(T::TabHover));
+  c[ImGuiCol_TabSelected] = toImVec4(theme.color(T::TabActive));
+  c[ImGuiCol_TabSelectedOverline] = toImVec4(theme.color(T::Accent));
+  c[ImGuiCol_TableHeaderBg] = toImVec4(theme.color(T::PanelHeaderBg));
+  c[ImGuiCol_TableBorderStrong] = toImVec4(theme.color(T::Border));
+  c[ImGuiCol_TableRowBgAlt] = toImVec4(theme.color(T::PanelHeaderBg));
+  c[ImGuiCol_NavCursor] = toImVec4(theme.color(T::FocusRing));
   s.ScaleAllSizes(dpiScale);
+}
+
+// The dpi-only spelling every existing caller uses (main.cpp and four gates).
+// It means DARK, which is exactly what they got before the palette became a
+// value -- so no call site changes and no gate sees a different frame. There is
+// only ONE palette now: this delegates rather than carrying a second copy of
+// thirty colours that would drift from the audited one.
+void applyForgeStyle(float dpiScale) {
+  applyForgeStyle(dpiScale, forge::ui::ThemeMode::Dark);
 }
 
 // ── key names ───────────────────────────────────────────────────────────────
@@ -317,8 +343,23 @@ bool ForgeFrame::syncSceneToDocument() {
   const std::string program = partDoc_.irProgram();
   if (program == builtProgram_) return false;
 
+  // ── THE ONE OPERATION LONG ENOUGH TO REPORT ─────────────────────────────
+  // Compiling the IR program through the kernel and tessellating the result is
+  // the only thing this application does that a user can outwait, and on a
+  // fourteen-statement part with a failing boolean it is seconds. TOTAL is the
+  // statement count, so the strip says "Rebuilding 14 / 14" rather than an
+  // indeterminate spinner: the count is genuinely known here.
+  //
+  // begin/end bracket the whole call because scene_.buildFromIr() is synchronous
+  // -- a frame is not drawn while it runs, so this is not yet visible DURING the
+  // rebuild. It is the seam, in the right place, reported by the same status
+  // model a future out-of-process rebuild would report through; the kernel
+  // worker that already exists is what makes that reachable.
+  progress_.begin("Rebuilding", partDoc_.records().size());
   const std::size_t before = scene_.triangleCount();
   const bool ok = scene_.buildFromIr(program);
+  progress_.step(partDoc_.records().size());
+  progress_.end();
   builtProgram_ = program;
   ++rebuilds_;
   documentDirty_ = true;
@@ -764,6 +805,36 @@ bool ForgeFrame::applyFeatureEdit(double value) {
   return true;
 }
 
+// ── WHAT IS PICKED, AND HOW BIG IT IS ───────────────────────────────────────
+// The measurement half of the status strip. Faces report area, edges report
+// length, and a pair of either reports the distance between them -- which is the
+// measure a machinist actually asks for. "-" when there is nothing measurable,
+// never a fabricated zero: 0.000 mm² is a claim, and "-" is the truth.
+std::string ForgeFrame::statusMeasurement() {
+  char buf[160];
+  const std::vector<std::size_t> edgeIds = selectedEdgeIndices();
+  if (!edgeIds.empty()) {
+    const forge::ui::EdgeMeasure m = edgeMeasure();
+    if (m.hasPair) {
+      std::snprintf(buf, sizeof(buf), "length %.3f mm   gap %.3f mm", m.length, m.centreDistance);
+    } else {
+      std::snprintf(buf, sizeof(buf), "length %.3f mm", m.length);
+    }
+    return buf;
+  }
+  if (!selectedFaceIds().empty()) {
+    const forge::ui::SelectionMeasure m = selectionMeasure();
+    if (m.hasPair) {
+      std::snprintf(buf, sizeof(buf), "area %.3f mm²   gap %.3f mm   angle %.1f°", m.area,
+                    m.centreDistance, m.angleDegrees);
+    } else {
+      std::snprintf(buf, sizeof(buf), "area %.3f mm²", m.area);
+    }
+    return buf;
+  }
+  return {};
+}
+
 forge::ui::SurfaceContext ForgeFrame::surfaceContext() const {
   forge::ui::SurfaceContext ctx;
   ctx.registry = &shell_.registry();
@@ -1114,6 +1185,24 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   const float W = io.DisplaySize.x;
   const float H = io.DisplaySize.y;
 
+  // ── THE THEME COMMAND CHANGES THE PICTURE ────────────────────────────────
+  // app.toggle_theme is a registered command that flips ForgeShell::themeMode(),
+  // and NOTHING WAS READING IT: the style was applied once at startup from
+  // hard-coded literals, so the command moved a field, journalled, reported ok
+  // and changed no pixel -- the same counter-nobody-reads shape as `view.fit`
+  // before applyPendingFit() existed, and as the retired model.* stubs.
+  //
+  // Re-styled here, at the top of the frame, BEFORE any widget is drawn: ImGui
+  // reads style.Colors as it goes, so changing them mid-frame would paint half
+  // the window in each theme. Guarded on the mode actually having changed, since
+  // applyForgeStyle rebuilds the whole ImGuiStyle.
+  if (!styleApplied_ || appliedTheme_ != shell_.themeMode() || appliedDpi_ != dpiScale) {
+    applyForgeStyle(dpiScale, shell_.themeMode());
+    appliedTheme_ = shell_.themeMode();
+    appliedDpi_ = dpiScale;
+    styleApplied_ = true;
+  }
+
   // ONE evaluation of the registry per frame, feeding the menu bar, the ribbon
   // and the context menu. They cannot disagree about what is available because
   // they are three views of the same value.
@@ -1182,6 +1271,14 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   if (pendingPromptSubmit_) {
     pendingPromptSubmit_ = false;
     submitPrompt();
+  }
+  // A command asked for from inside a docked panel — the empty state's buttons.
+  // Cleared BEFORE the dispatch, so a handler that somehow records another one
+  // is honoured on the next frame instead of being wiped by this line.
+  if (!pendingInvokeId_.empty()) {
+    const std::string id = pendingInvokeId_;
+    pendingInvokeId_.clear();
+    invoke(id);
   }
 }
 
@@ -1404,23 +1501,27 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
       ImGui::TextColored(rgb(90, 184, 242), "edge pick");
     }
 
+    // ── THE STRIP IS A VALUE ──────────────────────────────────────────────
+    // Selection, document counters, workspace, input profile, progress and the
+    // last thing worth saying are all forge::ui::buildStatusSummary(), read from
+    // the shell rather than accumulated here — so the strip cannot drift from
+    // the state it is reporting, and ui/test/shell_ux_test.cpp gates the
+    // derivation. What this function still owns is the pixels.
+    const forge::ui::StatusSummary summary =
+        forge::ui::buildStatusSummary(shell_, progress_, statusMeasurement());
+
     ImGui::SameLine();
     ImGui::TextColored(rgb(120, 126, 137), "|");
     ImGui::SameLine();
-    ImGui::Text("sel %zu", shell_.selection().count());
-    ImGui::SameLine();
-    if (shell_.selection().focus().has_value()) {
-      ImGui::TextColored(rgb(242, 158, 38), "focus %s",
-                         shell_.selection().focus()->persistentName.c_str());
-    } else {
-      ImGui::TextDisabled("focus  -");
-    }
-    ImGui::SameLine();
-    if (shell_.selection().preselection().has_value()) {
-      ImGui::TextColored(rgb(90, 184, 242), "hover %s",
-                         shell_.selection().preselection()->persistentName.c_str());
-    } else {
-      ImGui::TextDisabled("hover -");
+    ImGui::Text("%s", summary.selection.c_str());
+
+    // ── THE MEASUREMENT OF WHAT IS PICKED ─────────────────────────────────
+    // A CAD status bar that names a selection and not its size is half a
+    // readout. This is the SAME arithmetic the Measure panel prints, over the
+    // same triangles and the same face ids, so the two cannot disagree.
+    if (summary.measurement != "-") {
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(122, 196, 108), "%s", summary.measurement.c_str());
     }
 
     ImGui::SameLine();
@@ -1431,9 +1532,18 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
     ImGui::SameLine();
     ImGui::TextColored(rgb(120, 126, 137), "|");
     ImGui::SameLine();
-    ImGui::Text("features %zu  undo %zu  redo %zu%s", shell_.document().features,
-                shell_.document().undoDepth, shell_.document().redoDepth,
-                shell_.document().dirty ? "  *" : "");
+    ImGui::Text("%s", summary.document.c_str());
+
+    // ── OPERATION PROGRESS ────────────────────────────────────────────────
+    // Only while something is running. An indeterminate tracker prints
+    // "(working)" rather than a fabricated percentage: a bar that lies about how
+    // far along it is, is worse than no bar.
+    if (!summary.progress.empty()) {
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(120, 126, 137), "|");
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(242, 158, 38), "%s", summary.progress.c_str());
+    }
 
     // Right side: the last thing that happened. A status bar that never says
     // what failed is decoration.
@@ -1455,7 +1565,12 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
     const float pad = 14.0f * dpiScale_;
     const float used = ImGui::GetCursorPosX();
     const float avail = width - used - pad;
-    std::string shown = status_;
+    // summary.message, not status_. status_ is the last line ANY note() wrote,
+    // including "rebuilt: 1240 -> 1240 triangles"; summary.message is the last
+    // WARNING OR ERROR if there has been one, and only falls back to the last
+    // info line otherwise. A refusal that scrolls away behind six successful
+    // rebuilds before the user has read it is the failure this prefers against.
+    std::string shown = summary.message;
     if (avail > 0.0f && ImGui::CalcTextSize(shown.c_str()).x > avail) {
       // Binary search on the kept suffix: ~9 width queries for any status this
       // strip will ever hold, instead of one per dropped character.
@@ -1473,7 +1588,17 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
     }
     const float tw = ImGui::CalcTextSize(shown.c_str()).x;
     ImGui::SameLine(std::max(used, width - tw - pad));
-    ImGui::TextColored(rgb(170, 176, 186), "%s", shown.c_str());
+    // COLOURED BY SEVERITY, which the summary carries so this does not have to
+    // re-derive it. A refusal drawn in the same grey as "rebuilt 1240 triangles"
+    // is a refusal the eye slides off.
+    ImVec4 messageColour = rgb(170, 176, 186);
+    if (summary.severity == forge::ui::Severity::Warning) messageColour = rgb(242, 158, 38);
+    if (summary.severity == forge::ui::Severity::Error) messageColour = rgb(235, 105, 95);
+    ImGui::TextColored(messageColour, "%s", shown.c_str());
+    if (ImGui::IsItemHovered() && shown != summary.message) {
+      // The elide keeps the tail; the tooltip keeps everything.
+      ImGui::SetTooltip("%s", summary.message.c_str());
+    }
   }
   ImGui::End();
   ImGui::PopStyleColor();
@@ -1785,6 +1910,10 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
   viewportRequest_.hoverFace = hoverFace_;
 
   drawViewportOverlays(origin.x, origin.y, w, h);
+  // AFTER the overlays: the empty state is the only thing worth reading when
+  // there is no geometry, so it sits on top of the triad and the camera readout
+  // rather than under them.
+  drawEmptyState(origin.x, origin.y, w, h);
   drawContextMenu();
 }
 
@@ -1822,6 +1951,115 @@ void ForgeFrame::drawEdgePolyline(const forge::ui::MeshEdge& edge, float x, floa
 // The whole latency argument for ImGui, made concrete: these composite into the
 // SAME command buffer as the geometry, with no second context and no per-frame
 // FBO copy (DECISION D-001, ground 2).
+// ── ONBOARDING: THE EMPTY WINDOW A NEW USER MEETS ───────────────────────────
+//
+// A CAD application that opens on a dark rectangle and a menu bar tells a new
+// user nothing. This panel appears when the document holds no features and says
+// three things: what state the document is in, which commands are a legal FIRST
+// step, and where a complete part can be seen.
+//
+// NOTHING HERE IS A LIST SOMEONE MAINTAINS. forge::ui::buildEmptyState() asks
+// the registry for the commands that emit feature IR and need no selection --
+// which is exactly what "a legal first step in an empty document" means -- so
+// adding a primitive puts it on this screen with no edit to this file. The
+// samples are COMMAND SEQUENCES replayed through the same registry, so a sample
+// cannot drift from what the commands actually emit; ui/test/shell_ux_test.cpp
+// replays all four and compares the IR they produce against the recorded text.
+//
+// Every button DEFERS. It is drawn inside a docked panel, so it is inside the
+// dock walk, and dispatching here would rebuild the document, the feature tree
+// and the scene while the walk still holds references into them.
+void ForgeFrame::drawEmptyState(float x, float y, float w, float h) {
+  const forge::ui::EmptyState state =
+      forge::ui::buildEmptyState(shell_.registry(), partDoc_.records().size());
+  if (!state.documentEmpty || state.empty()) return;
+
+  const float cardW = std::min(560.0f * dpiScale_, w - 32.0f * dpiScale_);
+  const float cardH = std::min(400.0f * dpiScale_, h - 32.0f * dpiScale_);
+  if (cardW < 160.0f || cardH < 120.0f) return;  // too small to be readable; say nothing
+  ImGui::SetCursorScreenPos(ImVec2(x + (w - cardW) * 0.5f, y + (h - cardH) * 0.5f));
+  ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(18, 16));
+  ImGui::PushStyleColor(ImGuiCol_ChildBg, rgb(28, 32, 38, 0.96f));
+  ImGui::PushStyleColor(ImGuiCol_Border, rgb(64, 70, 80));
+  if (ImGui::BeginChild("##empty_state", ImVec2(cardW, cardH), ImGuiChildFlags_Borders)) {
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 6));
+    ImGui::TextColored(rgb(242, 158, 38), "%s", state.headline.c_str());
+    ImGui::Spacing();
+    ImGui::TextWrapped("%s", state.body.c_str());
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    ImGui::TextColored(rgb(130, 137, 148), "Start with a shape");
+    // Wrapped by measured width, not by a hard-coded column count: the card is
+    // sized from the viewport and a fixed grid overflows on a narrow one.
+    float used = 0.0f;
+    const float room = ImGui::GetContentRegionAvail().x;
+    for (std::size_t i = 0; i < state.creators.size(); ++i) {
+      const forge::ui::EmptyStateAction& action = state.creators[i];
+      const float bw = ImGui::CalcTextSize(action.label.c_str()).x +
+                       ImGui::GetStyle().FramePadding.x * 2.0f;
+      if (i != 0 && used + bw < room) {
+        ImGui::SameLine();
+      } else if (i != 0) {
+        used = 0.0f;
+      }
+      used += bw + ImGui::GetStyle().ItemSpacing.x;
+      ImGui::PushID(static_cast<int>(i));
+      if (ImGui::Button(action.label.c_str())) pendingInvokeId_ = action.commandId;
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s\n%s  %s", action.description.c_str(), action.commandId.c_str(),
+                          shortcutText(action.commandId).c_str());
+      }
+      ImGui::PopID();
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextColored(rgb(130, 137, 148), "Or open a sample part");
+    for (const std::string& id : state.sampleIds) {
+      const forge::ui::SampleDocument* sample = forge::ui::findSample(id);
+      if (sample == nullptr) continue;
+      ImGui::PushID(id.c_str());
+      if (ImGui::Button(sample->title.c_str())) {
+        // app.load_sample takes the sample id as a parameter, and it HAS an
+        // honest default ("bracket"), so a bare invoke would silently load the
+        // wrong one. The override is the whole point of the button.
+        promptCommand_ = "app.load_sample";
+        promptFields_.clear();
+        PromptField field;
+        field.name = "sample";
+        field.text = true;
+        std::snprintf(field.value.data(), field.value.size(), "%s", id.c_str());
+        promptFields_.push_back(std::move(field));
+        pendingInvokeId_ = "app.load_sample";
+      }
+      ImGui::PopID();
+      ImGui::SameLine();
+      ImGui::TextDisabled("%s", sample->summary.c_str());
+      if (ImGui::IsItemHovered() && !sample->teaches.empty()) {
+        std::string teaches;
+        for (std::size_t i = 0; i < sample->teaches.size(); ++i) {
+          if (i != 0) teaches += "\n";
+          teaches += "- " + sample->teaches[i];
+        }
+        ImGui::SetTooltip("%zu features\nshows:\n%s", sample->steps.size(), teaches.c_str());
+      }
+    }
+
+    if (!state.nextSteps.empty()) {
+      ImGui::Spacing();
+      ImGui::Separator();
+      ImGui::TextColored(rgb(130, 137, 148), "Then");
+      for (const std::string& step : state.nextSteps) ImGui::TextWrapped("%s", step.c_str());
+    }
+    ImGui::PopStyleVar();
+  }
+  ImGui::EndChild();
+  ImGui::PopStyleColor(2);
+  ImGui::PopStyleVar(2);
+}
+
 void ForgeFrame::drawViewportOverlays(float x, float y, float w, float h) {
   ImDrawList* dl = ImGui::GetWindowDrawList();
   const ImU32 ink = ImGui::GetColorU32(rgb(226, 229, 234));

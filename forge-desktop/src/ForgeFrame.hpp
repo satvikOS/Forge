@@ -43,7 +43,9 @@
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MeasureModel.hpp"
+#include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PartCommands.hpp"
+#include "forge/ui/StatusModel.hpp"
 #include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
 
@@ -447,10 +449,24 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawCommandPalette();
   void drawViewportOverlays(float x, float y, float w, float h);
   void drawContextMenu();
+  // ── ONBOARDING: what to do with an empty window ─────────────────────────
+  // Drawn over the viewport when the document holds no features. Every action
+  // on it is DERIVED — forge::ui::buildEmptyState() asks the registry which
+  // commands emit feature IR and need no selection, so a new primitive appears
+  // here without this file being edited — and every sample is a COMMAND
+  // SEQUENCE replayed through the one registry, never pasted IR.
+  void drawEmptyState(float x, float y, float w, float h);
 
   // Command helpers — every invocation goes through ForgeShell::run.
   bool commandEnabled(const std::string& id) const;
   std::string shortcutText(const std::string& id) const;
+
+  // What the status strip reports for the LIVE selection: the area of the picked
+  // faces, or the length of the picked edges, or "-" when nothing measurable is
+  // picked. The SAME arithmetic the Measure panel prints, over the same
+  // triangles and the same ids, because two readouts of one selection that can
+  // disagree will.
+  std::string statusMeasurement();
 
   // ── the frame's command surfaces, rebuilt once at the top of build() ─────
   // WHY ONCE. Each of these is a walk of the whole registry that runs every
@@ -560,6 +576,22 @@ class ForgeFrame final : public forge::ui::DocumentHost {
     bool text = true;
     std::array<char, 256> value{};
   };
+  // Which theme the ImGui style currently HOLDS, so the frame can notice that
+  // app.toggle_theme moved the shell's mode. `styleApplied_` distinguishes "the
+  // mode happens to equal the enum's zero value" from "nothing has been applied
+  // yet" — a bool that starts false is the witness; comparing an enum against
+  // its own default is not.
+  bool styleApplied_ = false;
+  forge::ui::ThemeMode appliedTheme_ = forge::ui::ThemeMode::Dark;
+  float appliedDpi_ = 0.0f;
+
+  // ── operation progress ──────────────────────────────────────────────────
+  // Driven by the one place that does work long enough to be worth reporting:
+  // syncSceneToDocument(), which compiles the IR program and tessellates it. The
+  // strip reads it through buildStatusSummary(), so a future long operation
+  // reports itself by begin()/end() and needs no new status plumbing.
+  forge::ui::ProgressTracker progress_;
+
   // The three surfaces this frame draws from, all derived from the ONE registry.
   forge::ui::CommandSurface menuSurface_;
   forge::ui::CommandSurface ribbonSurface_;
@@ -577,6 +609,20 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // dispatches a command that can rebuild the document, the feature tree and the
   // scene, and the tree is the container the walk is indexing.
   bool pendingPromptSubmit_ = false;
+
+  // ── a command asked for from INSIDE the dock walk ───────────────────────
+  // The empty state's buttons and the viewport context menu are drawn inside a
+  // docked panel, so they are inside drawNode()'s recursion. A command
+  // dispatched there rebuilds the document, the feature tree and the scene while
+  // the walk still holds references — the exact shape that has already shipped
+  // three crashes in this class. Recorded here and dispatched by build() once
+  // the walk has returned, like the tab click, the splitter drag, the tree
+  // expander and the CoPilot's buttons.
+  //
+  // ONE slot, not a queue: these are single-click gestures, and a user cannot
+  // press two menu items in one frame. The LAST one recorded wins, which is the
+  // one they clicked.
+  std::string pendingInvokeId_;
 
   void openPrompt(const std::string& id, const std::vector<std::string>& parameters);
   void drawParameterPrompt();
@@ -674,6 +720,11 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 // exactly as the app does — a style that only the app applies is a style nobody
 // tests.
 void applyForgeStyle(float dpiScale);
+// The same style in a named THEME. Every colour comes from forge::ui::Theme,
+// whose contrast is audited (ui/test/shell_ux_test.cpp requires body text over
+// the window to clear WCAG AA in both modes) rather than eyeballed. The overload
+// above means Dark, so no existing caller changes.
+void applyForgeStyle(float dpiScale, forge::ui::ThemeMode mode);
 
 // The canonical key name for an ImGui key code, matching forge::ui::Keymap's
 // vocabulary ("A", "F5", "Delete", "Tab", "Home"). Empty when unmapped.

@@ -202,15 +202,41 @@ int main() {
     CHECK(codeBody.find("ImGui::Button(") != std::string::npos);        // code survived
   }
 
-  // Each surface, the function that draws it, and the call it must still make.
+  // ── WHAT MOVED, AND WHY THIS GATE GOT STRONGER RATHER THAN WEAKER ─────────
+  // These four surfaces used to enumerate the registry INLINE, and this gate
+  // asserted they did by finding `registry().idsInCategory(` in their bodies.
+  // That was the best available check while the decisions lived in
+  // forge-desktop/, which CI did not compile — but text-matching a call is a
+  // long way from knowing the menu is right.
+  //
+  // The enumeration now lives in forge::ui::CommandSurface, in the layer CI
+  // compiles, where ui/test/command_surface_test.cpp asserts TOTALITY (every
+  // registry command offered, exactly once, nothing the registry does not hold)
+  // and drives a positive control WITH its negative half. So this gate no longer
+  // has to infer "it enumerates" from a substring: it checks that the frame
+  // DELEGATES to the model, and PART 2 below still independently proves the
+  // model's own calls reach every command.
+  //
+  // The rule is now the STRONGER one: a draw function must call the surface, and
+  // (asserted separately below) must NOT enumerate the registry itself. Two
+  // sources of menu content is the drift this file exists to catch, and "one of
+  // them is inline in the file CI does not compile" is precisely how it started.
   struct Surface { const char* fn; const char* mustCall; const char* why; };
   const Surface surfaces[] = {
-      {"drawMenuBar", "registry().idsInCategory(", "menu bar enumerates the registry by category"},
-      {"drawToolbar", "forge::ui::ribbonCategories(", "ribbon uses the TOTAL category list"},
-      {"drawToolbar", "registry().idsInCategory(", "ribbon enumerates the registry by category"},
-      {"drawContextMenu", "registry().ids()", "context menu enumerates every registry ID"},
-      {"drawCommandPalette", "registry().search(", "palette uses the registry's own matcher"},
+      {"rebuildCommandSurfaces", "buildMenuSurface(", "the menu bar is derived from the registry"},
+      {"rebuildCommandSurfaces", "buildRibbonSurface(", "the ribbon is derived from the registry"},
+      {"rebuildCommandSurfaces", "buildContextSurface(",
+       "the context menu is derived from the registry"},
+      {"drawMenuBar", "menuSurface_", "the menu bar draws the derived surface"},
+      {"drawToolbar", "ribbonSurface_", "the ribbon draws the derived surface"},
+      {"drawContextMenu", "contextSurface_", "the context menu draws the derived surface"},
+      {"drawCommandPalette", "buildPaletteSurface(",
+       "the palette uses the registry's own ranked matcher, through the model"},
       {"drawGenericPanel", "forge::ui::ribbonCategories(", "panel list uses the TOTAL list"},
+      {"drawEmptyState", "forge::ui::buildEmptyState(",
+       "the empty state's actions are derived from the registry, never a written list"},
+      {"drawStatusStrip", "forge::ui::buildStatusSummary(",
+       "the status strip is read from the shell, not accumulated in the frame"},
   };
   for (const Surface& s : surfaces) {
     const std::string body = functionBody(frame, s.fn);
@@ -238,6 +264,32 @@ int main() {
     CHECK(!direct);
   }
 
+  // ── NO SECOND ENUMERATION ────────────────────────────────────────────────
+  // The half that makes the delegation above mean something. A draw function
+  // that ALSO walked the registry itself would be a second source of menu
+  // content, drifting from the gated one, in the file CI does not compile --
+  // which is exactly the state this whole gate was written to end. Delegating
+  // and enumerating is worse than either alone, because the two agree right up
+  // until they do not.
+  //
+  // `find(` is deliberately NOT forbidden: looking ONE command up by id (the
+  // parameter panel's part.edit_feature, a label for a known button) is a
+  // dispatch, not an enumeration.
+  for (const char* fn : {"drawMenuBar", "drawToolbar", "drawContextMenu", "drawCommandPalette"}) {
+    const std::string body = functionBody(frame, fn);
+    CHECK(!body.empty());
+    for (const char* enumeration : {"registry().ids()", "registry().idsInCategory(",
+                                    "registry().categories()", "registry().search("}) {
+      const bool walks = body.find(enumeration) != std::string::npos;
+      if (walks) {
+        std::printf("  [reachability] ForgeFrame::%s calls %s DIRECTLY as well as using the "
+                    "derived surface -- that is a second, ungated copy of the menu\n",
+                    fn, enumeration);
+      }
+      CHECK(!walks);
+    }
+  }
+
   // No hand-written command list anywhere in the frame. `app.command_palette` is
   // the one legitimate literal (a named button that opens the palette). Any other
   // ID appearing as a literal is a second, drifting copy of the registry.
@@ -255,7 +307,13 @@ int main() {
   //
   // A hand-written LIST is still forbidden: the `direct` check above fails on any
   // enumeration, and any ID not named here fails below.
-  const std::set<std::string> allowedLiterals = {"app.command_palette", "part.edit_feature"};
+  //   app.load_sample     -- the empty state's sample buttons dispatch exactly this one
+  //                          command, with the sample id as its PARAMETER. The list of
+  //                          samples offered is derived (EmptyState::sampleIds), so this
+  //                          is a single dispatch through the registry, not an
+  //                          enumeration -- the same argument as part.edit_feature.
+  const std::set<std::string> allowedLiterals = {"app.command_palette", "app.load_sample",
+                                                 "part.edit_feature"};
   const std::set<std::string> literals = hardcodedCommandIds(frame, all);
   for (const std::string& id : literals)
     if (allowedLiterals.count(id) == 0)
@@ -267,7 +325,7 @@ int main() {
 
   // The palette's real cap, read from the app rather than restated here.
   bool haveLimit = false;
-  paletteLimit = intAfter(frame, "registry().search(paletteQuery_,", haveLimit);
+  paletteLimit = intAfter(frame, "buildPaletteSurface(surfaceContext(), paletteQuery_,", haveLimit);
   if (!haveLimit)
     std::printf("  [reachability] could not read the palette's result cap from ForgeFrame.cpp\n");
   CHECK(haveLimit);
