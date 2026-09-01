@@ -234,11 +234,17 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 46 ops -- the original 40 plus the six that
-  // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
-  // THICKEN / CAP / SURFCHECK). Anything else means the derivation itself broke,
-  // and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 46);
+  // forge::ft::opFromName registers 47 ops -- the original 40, plus the six that
+  // give the SURFACE value kind its producers and consumers (SKIN / FACES / SEW /
+  // THICKEN / CAP / SURFCHECK) from #146, plus SECTION from #165. NEITHER SIDE OF
+  // THE MERGE THAT PRODUCED THIS NUMBER WAS RIGHT: one branch said 46 counting
+  // only the surface six, the other said 41 counting only SECTION, and each was
+  // correct about its own tree and wrong about the union. Taking either verbatim
+  // would have turned this oracle red on a merge that is otherwise correct, so the
+  // number is DERIVED (40 + 6 + 1) and confirmed against the regenerated asset's
+  // counts.kernel_ops in the same commit. Anything else means the derivation
+  // itself broke, and a broken oracle must not pass quietly.
+  CHECK_EQ_INT(kernel.size(), 47);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {

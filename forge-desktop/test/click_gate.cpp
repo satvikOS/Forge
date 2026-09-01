@@ -510,7 +510,10 @@ int main(int argc, char** argv) {
     // registry grew would be worse than no sweep, because the number would still
     // look like coverage. This is an EQUALITY against the registry's own count.
     checkEq(invoked, ids.size(), "EVERY registered command was invoked", "");
-    checkGe(ids.size(), std::size_t{41}, "the registry did not shrink under the sweep", "");
+    // A RATCHET, raised in the commit that adds a command (42 since part.section_curve,
+    // the fourth boolean). A floor left behind cannot notice the registry shrinking
+    // back past it, which is the only thing this line is for.
+    checkGe(ids.size(), std::size_t{42}, "the registry did not shrink under the sweep", "");
   }
 
   // ── coverage: what was clicked is what the model said was there ──────────

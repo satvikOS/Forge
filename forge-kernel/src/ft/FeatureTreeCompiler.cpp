@@ -11,6 +11,7 @@
 //   EXTRUDE/REVOLVE/LOFT                 -> forge::part::extrudeProfile/
 //                                           revolveProfile/loft
 //   FUSE/CUT/COMMON                      -> forge::fuse/cut/common
+//   SECTION                              -> forge::section  (a WIRE, not a solid)
 //   TRANSLATE/ROTATE                     -> forge::translate/rotate
 //   HOLE/CBORE                           -> forge::makeCylinder cutter + forge::cut
 //   FILLET/CHAMFER                       -> forge::direct::edgeSegments (select) +
@@ -129,6 +130,7 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"EXTRUDE", OpCode::Extrude}, {"REVOLVE", OpCode::Revolve}, {"LOFT", OpCode::Loft},
         {"SWEEP", OpCode::Sweep},
         {"FUSE", OpCode::Fuse}, {"CUT", OpCode::Cut}, {"COMMON", OpCode::Common},
+        {"SECTION", OpCode::Section},
         {"TRANSLATE", OpCode::Translate}, {"ROTATE", OpCode::Rotate},
         {"MIRROR", OpCode::Mirror}, {"PATTERN", OpCode::Pattern},
         {"HOLE", OpCode::Hole}, {"CBORE", OpCode::Cbore}, {"FILLET", OpCode::Fillet},
@@ -485,6 +487,7 @@ FeatureTree parse(const std::string& text) {
             for (const char* k : {"RECT","RRECT","CIRCLE","SLOT","POLY","REGPOLY","RING",
                                   "WIRE","BOX","CYL","CONE","SPHERE","TORUS","PRISM","TUBE",
                                   "EXTRUDE","REVOLVE","LOFT","SWEEP","FUSE","CUT","COMMON",
+                                  "SECTION",
                                   "TRANSLATE","ROTATE","MIRROR","PATTERN","HOLE","CBORE",
                                   "FILLET","CHAMFER","BLEND","SHELL","FOLD","HEAL","TAG",
                                   "INPUT","PUSHFACE","RESIZEBORE","DEFEATURE","VERIFY"}) {
@@ -705,6 +708,8 @@ public:
             case OpCode::Fuse:    return opBool(op, env, 0);
             case OpCode::Cut:     return opBool(op, env, 1);
             case OpCode::Common:  return opBool(op, env, 2);
+            // ---- the fourth boolean, and the only one that yields a WIRE ----
+            case OpCode::Section: return opSection(op, env);
             // ---- transforms / replication ----
             case OpCode::Translate: return opTranslate(op, env);
             case OpCode::Rotate:    return opRotate(op, env);
@@ -748,12 +753,20 @@ public:
     }
 
     // Which value kind each op produces.
+    //
+    // The `default:` arm is why SECTION is named EXPLICITLY here rather than left to
+    // fall through. This switch does not enumerate OpCode, so a newly added op is
+    // silently typed SOLID — and for SECTION that default is precisely the wrong
+    // answer: its result has no faces, no shells and zero volume, so every consumer
+    // that took it for a body would measure an empty invalid solid instead of
+    // refusing a wire. Getting this wrong is worse than not having the op at all.
     static Val::Kind kindOf(OpCode c) {
         switch (c) {
             case OpCode::Rect: case OpCode::RRect: case OpCode::Circle:
             case OpCode::Slot: case OpCode::Poly:  case OpCode::RegPoly:
                 return Val::Profile;
             case OpCode::Ring: case OpCode::Wire:
+            case OpCode::Section:                  // intersection CURVES, never a body
                 return Val::Wire;
             // A sheet body. SEW stays a SURFACE even when the stitch closes it:
             // making the value kind depend on the measured geometry would mean the
@@ -1159,6 +1172,20 @@ private:
         if (which == 0) return forge::fuse(a, b);
         if (which == 1) return forge::cut(a, b);
         return forge::common(a, b);
+    }
+
+    // SECTION — the fourth OCCT boolean. Two SOLIDs in (refSolid twice, so a %ref to
+    // a PROFILE or a WIRE is refused by kind before any geometry runs), a WIRE out.
+    //
+    // It has its own handler rather than a fourth `which` value in opBool because the
+    // RESULT KIND differs, and because that is what the vocabulary generator reads:
+    // parse_compiler_ref_kinds() derives each op's consumed value kinds from the
+    // refSolid/refProfile/refWire calls in ITS OWN handler body. Folding SECTION into
+    // opBool would have made the vocabulary describe FUSE and SECTION as one thing.
+    Handle opSection(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle a = refSolid(op, 0, env);
+        Handle b = refSolid(op, 1, env);
+        return forge::section(a, b);
     }
 
     // ---- transforms ---------------------------------------------------------
