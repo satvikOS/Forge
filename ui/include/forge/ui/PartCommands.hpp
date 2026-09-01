@@ -422,8 +422,12 @@ class PartDocument {
     std::vector<int> emitted;  // ids that reach the kernel, in document order
   };
   GraphResolution resolveGraph() const;
+  // Which statements the RESULT depends on. Picking the result is the whole
+  // subtlety -- see the measured rollback defect in PartDocumentState.cpp.
   std::vector<bool> reachable(const std::vector<int>& emitted,
                               const std::vector<int>& resolved) const;
+  std::vector<bool> reachableFrom(int root, const std::vector<int>& emitted,
+                                  const std::vector<int>& resolved) const;
   std::vector<bool> reachableFull() const;
 
   // Rewrites the argument at `argIndex` of `irId` to `value` WITHOUT going

@@ -223,13 +223,13 @@ PartDocument::GraphResolution PartDocument::resolveGraph() const {
   return g;
 }
 
-// Backward reachability from the LAST surviving statement over the SUBSTITUTED
-// graph -- the edges a consumer will actually have once refs are healed.
-std::vector<bool> PartDocument::reachable(const std::vector<int>& emitted,
-                                          const std::vector<int>& resolved) const {
+// Backward reachability over the SUBSTITUTED graph -- the edges a consumer will
+// actually have once refs are healed -- from ONE root.
+std::vector<bool> PartDocument::reachableFrom(int root, const std::vector<int>& emitted,
+                                              const std::vector<int>& resolved) const {
   std::vector<bool> live(records_.size() + 1, false);
-  if (emitted.empty()) return live;
-  live[static_cast<std::size_t>(emitted.back())] = true;
+  if (root <= 0 || static_cast<std::size_t>(root) >= live.size()) return live;
+  live[static_cast<std::size_t>(root)] = true;
   for (std::size_t k = emitted.size(); k > 0; --k) {
     const int id = emitted[k - 1];
     if (!live[static_cast<std::size_t>(id)]) continue;
@@ -243,6 +243,83 @@ std::vector<bool> PartDocument::reachable(const std::vector<int>& emitted,
     }
   }
   return live;
+}
+
+// WHICH SURVIVING STATEMENT IS THE RESULT, and why it is not simply the last one.
+//
+// MEASURED DEFECT. This used to seed the backward walk from `emitted.back()`,
+// which is right exactly when the last surviving statement is the accumulated
+// body -- and catastrophically wrong when it is a TOOL. Put the rollback bar
+// after %68 in the 71-statement bracket fixture and %68 is the dimple's
+// TRANSLATE: a sphere on its way to a CUT that is now past the bar. The prune
+// then walked back from the sphere, declared all sixty-six statements of the
+// actual bracket "orphaned", and handed the kernel
+//
+//     %1 = SPHERE(9)
+//     %2 = TRANSLATE(%1, 30, 0, 20)
+//
+// A user who rolls the history back three steps got a floating sphere and a tree
+// in which every row of their part said "nothing consumes its value any more".
+// Rolling back is not an exotic gesture, and a tool authored before the boolean
+// that consumes it is the ordinary shape of every CUT in every feature tree.
+//
+// THE ROOT IS THE SINK WITH THE LARGEST BACKWARD CONE; ties go to the later id.
+// A sink is a surviving statement whose value no other surviving statement
+// consumes -- forge::ft's s0.4 gate is about to refuse all but one of them, so
+// this is choosing WHICH result to keep, not inventing a rule. "The largest
+// cone" is "the thing the most of this document went into", which is what a
+// history modeller means by the result. It degrades EXACTLY to the old
+// behaviour whenever there is one sink, which is every document nobody has
+// suppressed or rolled anything back in -- there, the single sink is the last
+// statement and its cone is the whole program.
+//
+// Cost is (number of sinks) x (statements). A sink is an unused result, so the
+// count is small in any document a user would recognise; the pathological case
+// is bounded by the same n the rest of resolveGraph already walks.
+std::vector<bool> PartDocument::reachable(const std::vector<int>& emitted,
+                                          const std::vector<int>& resolved) const {
+  if (emitted.empty()) return std::vector<bool>(records_.size() + 1, false);
+
+  // A statement is CONSUMED when some other surviving statement names the value
+  // it resolved to. Refs are compared through `resolved` because that is the
+  // graph the kernel will see once a suppressed row's pass-through is applied.
+  std::vector<bool> consumed(records_.size() + 1, false);
+  for (const int id : emitted) {
+    const FeatureRecord& r = records_[static_cast<std::size_t>(id) - 1];
+    for (const IrArg& a : r.line.args) {
+      if (a.kind != IrArgKind::Ref) continue;
+      const std::size_t ref = static_cast<std::size_t>(a.ref);
+      if (ref == 0 || ref >= resolved.size()) continue;
+      const int sub = resolved[ref];
+      if (sub > 0 && sub != id) consumed[static_cast<std::size_t>(sub)] = true;
+    }
+  }
+
+  int bestRoot = 0;
+  std::size_t bestCone = 0;
+  std::vector<bool> best;
+  for (const int id : emitted) {
+    if (consumed[static_cast<std::size_t>(id)]) continue;
+    const std::vector<bool> cone = reachableFrom(id, emitted, resolved);
+    std::size_t size = 0;
+    for (const bool live : cone) {
+      if (live) ++size;
+    }
+    // `>=` so a tie goes to the LATER id: `emitted` is in document order, and
+    // between two results of equal weight the more recent one is the one the
+    // user was working on.
+    if (bestRoot == 0 || size >= bestCone) {
+      bestRoot = id;
+      bestCone = size;
+      best = cone;
+    }
+  }
+  // Every surviving statement is consumed by another: a cycle is impossible in
+  // SSA, so this can only mean `emitted` is empty of sinks because it is a
+  // single self-referencing row. Fall back to the last one rather than return
+  // nothing live, which would blank the document.
+  if (bestRoot == 0) return reachableFrom(emitted.back(), emitted, resolved);
+  return best;
 }
 
 // The same walk over the document AS WRITTEN, so "was it already an orphan?" is
