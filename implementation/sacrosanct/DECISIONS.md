@@ -1656,7 +1656,7 @@ reference parts (see the null-pcurve report).
 
 ## D-038 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
 
-*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments that cite "D-033" in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) refer to THIS entry, not to the axis-naming one.)*
+*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) that once cited "D-033" refer to THIS entry, not to the axis-naming one, and now say D-038.)*
 
 `archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
 entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
@@ -1787,3 +1787,251 @@ Recorded so the next reader does not discover them as a surprise.
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
 
+
+## D-039 (2026-08-31): a SIGSEGV is not an exception — the kernel moves to a process the app can afford to lose, and the gates that would have caught it are built
+
+**The defect.** `forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md` measured a null `Geom2d_Curve`
+dereferenced *inside* OCCT on three paths, crashing on Archie's emitted geometry **and on the gold
+reference STEP files** — `TKG2d`, `TKGeomBase`, `TKBRep`, `TKOffset`, none of them ours. It is the
+only failure mode in the taxonomy that produces **no diagnostic at all**: no verdict, no error
+string, no partial measurement, indistinguishable from a broken harness.
+
+**Every cheaper remedy is closed off by measurement, not by opinion.** The report's own three
+self-corrections:
+
+1. **A pre-check on the input cannot work.** The crashing shape measured `nullPcurves=0`. The null
+   is *born inside* OCCT's merge, so there is nothing on the input to repair.
+2. **`KeepShapes` was implemented and measured**, and all six crashing cases still SIGSEGV'd.
+3. **The accessor a guard would call is itself a faulting frame** — `BRep_Tool::CurveOnSurface` is
+   the innermost frame of path B, so the guard would crash inside the guard.
+
+And `KernelScene::buildFromIr` already catches `std::exception` **and** `(...)`. Neither clause
+exists for a signal.
+
+**So the remedy is not a check.** It is somewhere to put the fault: `forge_kernel_worker` reads one
+IR program on stdin, compiles and tessellates it, and writes the vertex stream back. When OCCT
+faults, that process dies and the application keeps the document, the undo stack, the dock layout
+and the last good body on screen.
+
+★ **AND IT REFUSES NOTHING.** The owner's constraint is explicit — *"dont gate anything if you do
+that then how will Archie generate ultra long feature trees for Kernel to execute"* — and the report
+says the same thing in geometry: a construction-time reject *"would fire hardest on the longest,
+densest, most curved trees"*, which is what the ground truth is made of (`task_101` is 329 faces /
+753 edges; `archie_edit_214`'s input is 430 faces, 167 cylinders and 67 B-splines). So there is **no
+quarantine**. The incident ledger is advisory and `submit()` cannot consult it. Re-submitting a
+program that has just crashed **runs it again**, and the gate asserts that as forcefully as it
+asserts the isolation. A missing worker falls back to in-process rather than declining to model: an
+application shipped without its worker is still an application.
+
+**What the gate proves**, against the REAL worker and a REAL fatal signal — 70 checks, 0 failures:
+the parent survives SIGSEGV; the drawn mesh is byte-identical afterwards (FNV hash over the vertex
+stream, not merely its length); the diagnostic **names `%7 = SHELL`** from the worker's stderr op
+trail, where a segfault normally leaves nothing; a hang is bounded and cancellable; a non-zero exit
+is `Failed` and does **not** move the crash counter; a worker that exits 0 writing nonsense is
+diagnosed rather than rendered.
+
+**Seven mutations, five injected into a COPY of the production sources** — a mutation that only
+edits the test proves the test can print FAIL. All seven are red, including `S2`, which grows
+exactly the quarantine this decision forbids, and `G1`, which dereferences null *in the parent* and
+is the positive control without which every "the parent survived" check is unfalsifiable.
+
+**★ Three defects the gates found in their own authors, recorded because each is a general trap:**
+
+* **A gate that conflated two things and asserted both were unchanged.** After a crash the *mesh*
+  survives and the *build report* is reset — because the report describes the attempt that just
+  failed. Both are correct; the assertion that bundled them was not. Split into `sameDrawn()` (must
+  be identical) and a report that must **not** claim success.
+* **A mutation that STAYED GREEN.** Removing the further frame after each command changed nothing,
+  because none of the dock invariants is rebuilt by a draw — the sweep was asserting against state
+  the invocation left behind, a unit test wearing a click gate's clothes. Fixed by asserting on the
+  frame the redraw produces, not by dropping the mutation.
+* **A gate that FLAKED.** A cancel fired on a fixed pump count that can elapse before the child's
+  first write to stderr. It now waits for the fact it is demonstrating. *A gate that fails on timing
+  is worse than no gate: it teaches people to re-run it until green.*
+
+Plus two in the harness itself: a mutation matching **two** sites (the second a `const` method with
+no `program` in scope) did not compile, and the runner scored that as *caught*. **A non-compiling
+mutation proves nothing about the assertions** — it proves the compiler works — and is now counted
+RED against the suite. And `\&` in a `sed` replacement is a literal ampersand, not the match.
+
+**The honest coverage number, before and after.** The premise that *"CI never compiles
+forge-desktop"* was **already stale** when this work began: the `desktop` job compiles the whole
+CMake project and `run_click_gate.sh` compiles `forge-desktop/src` in the `kernel` job. Every one of
+the 14 shipped `forge-desktop/src` TUs was already compiled. What was *not*:
+
+| | before | after |
+|---|---|---|
+| shipped `forge-desktop/src` TUs compiled by CI | 13 / 13 | **14 / 14** |
+| `kernel_worker_main.cpp` | **compiled by nothing** | a CMake target the app depends on |
+| interactive widget families a gate exercises | **2 of 35** (tab, splitter grip) | 2 spatially + **all 41 commands by name** |
+| registered commands invoked against a real frame | 0 / 41 | **41 / 41** |
+| click-gate checks / mutations | 1144 / 5 | **1557 / 7** |
+
+The 33 widgets a headless test cannot address by rectangle are not 33 behaviours: every one ends in
+`ForgeFrame::invoke(id) -> ForgeShell::run()`. The surface unreachable by *position* is reachable by
+*name*, and `invoke()` was made public so the gate drives the app's own schema-default parameter
+filling rather than a copy of it.
+
+**And the bundle shipped without the worker.** `package_macos.sh` copied one executable. Because the
+app degrades *quietly* when the worker is absent — by design, since refusing to model would be worse
+— every bundle would have had no isolation with nothing going red. The worker is now staged, seeds
+the dylib walk, has its build-tree rpaths stripped (without which it would load from the build tree
+and **pass a relocation test it should fail**), and is verified from the RELOCATED copy. Measured on
+the packaged binary: `BOX(20, 10, 5)` -> 6 faces, 12 edges, V = 999.99999999999977; selftest crash ->
+exit 139 with `FORGE-OP 7 SHELL` still on stderr.
+
+**What this does NOT claim.** The OCCT defect is not fixed — it is survived. The null pcurve is still
+dereferenced inside OCCT on all three paths, and the crash still costs the rebuild it happens in.
+Whether the null on paths A and B is present on the input or generated inside the operation is
+**still not measured**, and the report's instruction to run that sweep before writing any guard
+stands. This decision buys the app the right to stay alive and to say which statement died; it does
+not buy a correct offset.
+## D-038 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
+
+**The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
+(`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
+`forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
+no surfacing: a NURBS patch, a lofted skin and an extracted face set are none of PROFILE
+(planar, at Z=0), WIRE (1-dimensional) or SOLID (must bound a volume), so **no op could produce
+or consume one**, and the surfacing machinery already sitting in the kernel had no route into
+the emission target. Counted by `grep -ril` over `forge-kernel/src`: NURBS 58 files, Sweep 68,
+G2 32, Loft 27, curvature 21, SubD 18, Subdiv 17, Blend 17, BSpline 24 — plus
+`ClassASurfacing.{hpp,cpp}` (760 lines), which a `grep -ril "class a"` misses because the file
+spells it `ClassA`.
+
+**Why it is not deferrable.** The canonical ground-truth edit fixture (`archie_edit_214`) opens
+on an INPUT inventory of **430 faces, 67 of them BSPLINE** — 15% of the part. The IR could not
+name one of them.
+
+**The decision.** `SURFACE` — a sheet body: an ordered set of faces that is NOT required to be
+closed, sewn, manifold, or non-empty. Six ops give it producers and consumers in both
+directions, each a thin wiring of a kernel entry point that already existed: `SKIN` (open
+`loftguide::loft`), `FACES` (new `forge::surf::facesOf`), `SEW` (`heal::sewShape` /
+`sewing::sew`), `THICKEN` (`part::thickenSurface`), `CAP` (`heal::autoFillMissingFaces`),
+`SURFCHECK` (`surf::statsOf` + `heal::checkValidity`).
+
+**Its invariant is deliberately the weakest of the four, and that is the decision.** The
+governing constraint is the owner's: *don't gate anything; a validator that refuses input is a
+capability gate wearing a safety hat, and it fires hardest on the longest, densest, most curved
+trees.* So an unsewn face set, edges without p-curves, a self-intersecting patch and an EMPTY
+sheet are all representable SURFACE values, answerable through `SURFCHECK`, and none of them
+aborts a walk. `THICKEN`/`CAP` sew an unsewn sheet as a REPAIR; `SKIN` records an unknown flag
+instead of throwing; a bare `SURFCHECK "expr"` is repaired to the explicit form exactly as
+`VERIFY` already is. Where a refusal is unavoidable the message names the op id, the face count
+and the free-edge count.
+
+**A wrong answer wearing the shape of a right one — found by RUNNING it.** The first
+`facesOf` read an EMPTY index list as "every face". That collides with the one case the kind
+exists to survive: a selector that matched nothing. Measured through
+`build_surface_compile_probe.sh`, `FACES(%body, "bore:r=99999")` on a 6-face box returned all
+SIX faces and `THICKEN` built a **5587 mm³ body** out of them, reported `ok=1 valid=1`. Every
+headless gate was green. "Give me the whole boundary" is now a different function
+(`boundaryOf`), so the two can never be spelled the same way again. **The lesson is the
+familiar one and it recurred here: a capability that is only compile-verified is not verified —
+the defect was invisible to three green gates and took one run to expose.**
+
+**What is measured, on real geometry** (`surface_compile_probe`, 15/15):
+`FACES("+z")` → 1 face / 4 free edges → `THICKEN(3)` → a valid solid, vol 14400.
+`SKIN` of two `RING` sections → **48 free-form faces, 96 free edges** → `CAP` → a valid solid,
+50 faces, vol 52961.5. A `FUSE` handed a sheet now says *"%2 is a SURFACE, expected a SOLID — a
+sheet is not a body: use THICKEN(%2, wall) or CAP(%2)"* instead of the old hard-coded, and by
+then false, *"is a PROFILE"*.
+
+**The one gate that remains, named honestly.** All six ops land in the vocabulary's FORBIDDEN
+list (kernel ops 40 → 46, forbidden 22 → 28) because no `forge::ui` command emits them. That is
+the PRE-EXISTING app-surface policy of D-021, not a new rule about surfaces, and it lifts the
+moment a command does. It is asserted rather than described in
+`ui/test/surface_value_kind_test.cpp` §7.
+
+**Known mistyping, recorded rather than silently changed.** `LOFT(..., OPEN)` produces the same
+uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf` keys on the
+OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
+change for every corpus already written against `LOFT`, and it belongs in its own commit with
+its own measurement.
+
+
+## D-042 (2026-08-31): the IR had three of OCCT's four Boolean operators, and the fourth is the only one that is not a body
+
+*(Numbering: D-040 and D-041 are allocated on `decisions/d040-arm-qualified` and
+`decisions/d041-selfconsistency-flat`, which are not merged here. This entry takes **D-042** so a
+fourth collision does not have to be untangled at merge — D-033 already cost one.)*
+
+**The hole, and how it was found.** `BRepAlgoAPI` ships four operators — `Fuse`, `Cut`, `Common`
+and `Section`. `forge::ft`'s op table had three. Probing the pinned verifier with a `SECTION`
+statement returned unknown-op. **No benchmark row demanded it**, so nothing was ever red: this is
+exactly the class of gap a systematic map over the source finds and a census over failing rows
+cannot, because a census can only see what something already asked for.
+
+**Why the value kind is the whole decision.** A section of two solids is not a smaller solid. It is
+the CURVE where their faces cross — a wire with no faces, no shells and zero volume. `Builder::
+kindOf()` ends in `default: return Val::Solid`, so an op added to `OpCode` without naming itself
+there is *silently typed a body*. Typed SOLID, `SECTION` would still "compile", and then
+`massProperties`, `faceCount` and `checkValidity` would each report a perfectly good section as an
+empty invalid body, while a downstream `FUSE` consumed nothing. **That is worse than not having the
+op at all**, which is why `Section` is named EXPLICITLY in `kindOf()` and given its own handler
+rather than a fourth `which` value in `opBool()` — the vocabulary generator derives each op's
+consumed kinds from ITS OWN handler body, so folding them together would have described `FUSE` and
+`SECTION` as one thing.
+
+**Every site that had to change, found by grepping the op NAMES and not a symbol.** The lesson from
+#140 holds: three files used a forbidden-op *exemplar* rather than a shared symbol, and a search
+filtered on `ForbiddenOp` missed the one spelled `opIsCommandReachable`.
+
+| site | file | change |
+|---|---|---|
+| the op table | `forge::ft::opFromName` | `{"SECTION", OpCode::Section}` |
+| the enum | `forge/ft/FeatureTree.hpp` | `Section`, in its own group |
+| the unknown-op repair hint list | `FeatureTreeCompiler.cpp` | so a near miss NAMES `SECTION` |
+| the dispatch switch | `Builder::build()` | `-> opSection`, its own handler |
+| **the value-kind switch** | `Builder::kindOf()` | `-> Val::Wire`, **explicitly, not by default** |
+| the UI op table | `forge::ui::irOpTable()` | `{"SECTION", 2, 2, true}` |
+| the UI command registry | `ui/src/PartCommands.cpp` | `part.section_curve`, + `partCommandIds()` |
+| `GraphAudit::isPredicate` | `src/ft/GraphAudit.cpp` | **UNCHANGED, and checked** — see below |
+| `toString(IrValueKind)` / the second kind enum | `ui/src/PartCommands.cpp` | **UNCHANGED** — `WIRE` already existed for `RING`/`WIRE` |
+
+`isPredicate` is the site that is easy to get wrong in the *quiet* direction. It names `VERIFY` and
+`TAG`: ops that produce no value and are therefore never orphans. `SECTION` produces one, so adding
+it there would have made an unconsumed section INVISIBLE instead of reported. It is left alone, and
+a test now pins that an unconsumed `SECTION` is an unexplained orphan.
+
+**Measured** (OCCT 7.9.3, `forge-kernel/test/build_section_op_gate.sh`, four TUs and no kernel
+build). Volume alone cannot validate this — a correct section and an empty solid both measure 0.0 —
+so the gate asserts a VECTOR of observables:
+
+| case | shape | wires | edges | faces / shells / solids | closed | length | volume |
+|---|---|---|---|---|---|---|---|
+| box(40,40,20) ∩ sphere(r=10) on the top face | `WIRE` | 1 | 1 | 0 / 0 / 0 | 1 | **62.831853** = 2·π·10 | 0 |
+| box ∩ box, corner overlap | `WIRE` | 1 | 6 | 0 / 0 / 0 | 1 | **100.000000** = 40 + 40 + 20 | 0 |
+| box ∩ cylinder(r=10) passing through | `COMPOUND` | **2** | 2 | 0 / 0 / 0 | 2 | **125.663706** = 4·π·10 | 0 |
+| box ∩ a disjoint box | — | — | — | — | — | **refused** | — |
+
+The first row is the sharp one: a section returned as unapproximated intersection edges would be a
+chord polygon and come in *below* 2·π·10 by ~1e-2, so a 1e-6 tolerance on that length is what proves
+`Approximation` was set before the build rather than after it. The third row is the one that proves
+the edge chaining does not WELD: two loops that never touch stay two loops, and a single welded wire
+would have measured the same total length. The fourth is a refusal on purpose — an empty section
+returned as a valid-looking empty compound pushes the failure into whatever tried to loft it.
+
+**User-invocable, not merely present.** `part.section_curve` takes two Bodies. Unlike the other three
+booleans it **consumes neither operand** — both bodies survive a section, which is the point of taking
+one — so its consumed-node list is empty and its produced node carries the `wire_` prefix, exactly as
+`part.section_ring`'s does. A `WIRE` has to be selectable as a wire because `LOFT` is what consumes it
+and `EXTRUDE` must not be offered for it; both directions are asserted.
+
+**Falsifiability.** Three mutations, run by the build script, each required to turn the gate red:
+read the section as a body, weld two distinct loops into one wire, accept an empty section. All three
+are RED as required. The gate runs in CI in the `s0_conformance` job, which already installs OCCT and
+already documents the `-undefined dynamic_lookup` link policy this gate shares.
+
+**Counts, both artefacts regenerated in the same commit and `--check` clean:** `kernel_ops` 40 → 41,
+`user_invocable_ops` 28 → 29, `registry_commands` 41 → 42, `commands_emitting_ir` 30 → 31.
+`APP_SURFACE_MANIFEST.tsv` is a THIRD generated artefact and it was stale by exactly the one new row;
+it is regenerated here too. The brief for this work said 46 → 47 — that count includes the six
+`SURFACE` ops from PR #146 (`ir/surface-value-kind`), which is **not merged into either
+`archdisc` or `claude/sacrosanct-execution-20260828`**. 40 → 41 is the measured state of this tree.
+
+**What this does NOT claim.** `SECTION` is not wired into the node binding, so no `.mjs` smoke drives
+it; the gate calls `forge::section` and `forge::ft::parse` directly and never `compile()`, so these
+numbers are the OPERATOR's and not a whole-pipeline result. Nothing here measures a benchmark: the
+interface term scores planes and cylinders only, and a section curve scores zero points on it. This
+closes a hole in the op table, and it is not claimed to move a score.

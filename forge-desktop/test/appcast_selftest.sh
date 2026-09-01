@@ -15,7 +15,12 @@
 #   * a hand-broken appcast is REFUSED by the app's parser;
 #   * an appcast whose payload URL floats (releases/latest/download) is REFUSED;
 #   * a prerelease version goes out on the prerelease channel and a stable client
-#     refuses it.
+#     refuses it;
+#   * the ALPHA CHAIN at the versions actually about to ship -- alpha.1 is offered
+#     alpha.2, alpha.1 is offered the first STABLE, and a stable build is still
+#     never offered an alpha. update_gate.cpp proves that rule over hand-built
+#     manifests; here the channels come from the REAL emitter's own derivation,
+#     which is the half a unit test cannot see.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,6 +82,33 @@ RC_CHANNEL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["c
 "$CHECK" "$WORK/rc.json" --running 0.2.0 --expect reject || bad "a stable client accepted an rc"
 "$CHECK" "$WORK/rc.json" --running 0.2.0 --expect update --allow-prerelease \
   || bad "opting in to prereleases did not offer the rc"
+
+echo
+note "── 2b. THE ALPHA CHAIN, end to end through the REAL emitter ──────────────"
+# The versions this project is actually about to ship. update_gate.cpp proves the
+# rule over hand-built manifests; this proves the EMITTER derives the channel that
+# makes the rule work, which is the half a unit test cannot see. emit_appcast.sh
+# keys the channel off the '-' in the version, so these three documents get their
+# channels from the version strings alone.
+bash "$DESKTOP/emit_appcast.sh" --version 0.1.0-alpha.1 --repo satvikOS/Forge \
+     --zip "$PAYLOAD" --min-macos 15.0 --out "$WORK/a1.json" >/dev/null || bad "emitter failed on alpha.1"
+bash "$DESKTOP/emit_appcast.sh" --version 0.1.0-alpha.2 --repo satvikOS/Forge \
+     --zip "$PAYLOAD" --min-macos 15.0 --out "$WORK/a2.json" >/dev/null || bad "emitter failed on alpha.2"
+bash "$DESKTOP/emit_appcast.sh" --version 0.1.0 --repo satvikOS/Forge \
+     --zip "$PAYLOAD" --min-macos 15.0 --out "$WORK/s1.json" >/dev/null || bad "emitter failed on stable"
+
+"$CHECK" "$WORK/a2.json" --running 0.1.0-alpha.1 --expect update \
+  || bad "an installed alpha was not offered the NEXT alpha"
+
+# ★ THE EXIT. Pinning a prerelease build to the prerelease channel strands every
+# early adopter on an alpha for ever, and unrepairably: the client doing the
+# refusing is the OLD BINARY, so no later release can reach it.
+"$CHECK" "$WORK/s1.json" --running 0.1.0-alpha.1 --expect update \
+  || bad "an installed ALPHA was not offered the first STABLE release"
+
+# And the direction that must stay shut.
+"$CHECK" "$WORK/a1.json" --running 0.0.9 --expect reject \
+  || bad "a stable build was offered an alpha"
 
 echo
 note "── 3. the failure paths ──────────────────────────────────────────────────"

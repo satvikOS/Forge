@@ -75,7 +75,23 @@ namespace forge::ui {
 //
 // That last line is the whole reason the kind is not decorative, and it is why
 // SOLVE must produce Profile here and not Sketch.
-enum class IrValueKind : std::uint8_t { None, Profile, Wire, Solid, Sketch, SketchRef };
+//
+//   * Surface   -- a SHEET BODY: a set of faces not required to be closed, sewn,
+//                  manifold or even non-empty. It is the kind free-form geometry
+//                  lives in, and its absence was structural rather than
+//                  incidental -- with only three kinds there was no value a NURBS
+//                  patch or an extracted face set could be held in, so no op
+//                  could produce or consume one and the whole surfacing half of
+//                  the kernel was unreachable from the IR.
+//
+// Kinds are APPENDED, never inserted. Every use in this codebase is an equality
+// test or a name lookup, never an ordering or a numeric cast to a fixed set, so
+// adding one at the end cannot change what an existing comparison means. The one
+// place that must be updated by hand is the enumeration in OpConstraintBridge's
+// mapValueKind, and ui/test/op_constraint_bridge_test.cpp proves that mapping is
+// TOTAL by round-tripping every kind through toString.
+enum class IrValueKind : std::uint8_t {
+    None, Profile, Wire, Solid, Sketch, SketchRef, Surface };
 
 const char* toString(IrValueKind kind) noexcept;
 
@@ -93,6 +109,7 @@ const char* toString(IrValueKind kind) noexcept;
 inline constexpr IrValueKind kAllIrValueKinds[] = {
     IrValueKind::None,   IrValueKind::Profile,   IrValueKind::Wire,
     IrValueKind::Solid,  IrValueKind::Sketch,    IrValueKind::SketchRef,
+    IrValueKind::Surface,
 };
 
 // Turn a kind's toString() spelling back into the kind. Case-sensitive: callers

@@ -47,6 +47,32 @@ bool kindFromName(const std::string& name, forge::ui::IrValueKind& out) {
   return forge::ui::irValueKindFromName(name, out);
 }
 
+// A POINT RING, written WITHOUT its brackets: `ARG pts2 -20 -10; 20 -10; 0 18`.
+//
+// IrArg::token() writes `[...]` for the IR statement; this file is a different
+// encoding (one ARG per line, kind then value), and re-using the bracketed spelling
+// would mean the reader had to strip them. The DIMENSION is in the kind name rather
+// than inferred from the coordinate count, because `x y z` and a 2D point followed by
+// junk are the same characters -- and a 3D ring silently re-read as 2D is a section
+// that moves to z=0, which is a wrong part rather than a failed load.
+//
+// Round-trips exactly: formatIrNumber is "%.10g" and parseIrPoints reads with strtod,
+// which is the pair the IR itself round-trips through.
+std::string pointsLine(const forge::ui::IrArg& a) {
+  std::string out = (a.dim == 3) ? "ARG pts3 " : "ARG pts2 ";
+  for (std::size_t i = 0; i < a.pts.size(); ++i) {
+    if (i != 0) out += "; ";
+    out += forge::ui::formatIrNumber(a.pts[i].x);
+    out += " ";
+    out += forge::ui::formatIrNumber(a.pts[i].y);
+    if (a.dim == 3) {
+      out += " ";
+      out += forge::ui::formatIrNumber(a.pts[i].z);
+    }
+  }
+  return out;
+}
+
 std::string argLine(const forge::ui::IrArg& a) {
   switch (a.kind) {
     case forge::ui::IrArgKind::Number:
@@ -57,6 +83,8 @@ std::string argLine(const forge::ui::IrArg& a) {
       return "ARG kw " + a.word;
     case forge::ui::IrArgKind::Text:
       return "ARG str " + a.word;
+    case forge::ui::IrArgKind::Points:
+      return pointsLine(a);
   }
   return "ARG kw INVALID";
 }
@@ -94,7 +122,23 @@ bool argFromLine(const std::string& rest, forge::ui::IrArg& out, std::string& er
     out = forge::ui::IrArg::text(value);
     return true;
   }
-  error = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str)";
+  if (kind == "pts2" || kind == "pts3") {
+    const int dim = (kind == "pts3") ? 3 : 2;
+    std::vector<forge::ui::IrPoint> ring = forge::ui::parseIrPoints(value, dim);
+    // parseIrPoints returns EMPTY for anything it cannot read completely -- a point
+    // with too few coordinates, trailing junk, a non-finite value -- and an empty ring
+    // renders as `[]`, which forge::ft's lexer refuses outright. So a truncated or
+    // hand-edited file must FAIL THE LOAD here rather than produce a document holding
+    // a statement that cannot compile.
+    if (ring.empty()) {
+      error = "ARG " + kind + " is not a `x y" + (dim == 3 ? " z" : "") +
+              "; ...` point ring: " + value;
+      return false;
+    }
+    out = forge::ui::IrArg::points(std::move(ring), dim);
+    return true;
+  }
+  error = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str|pts2|pts3)";
   return false;
 }
 

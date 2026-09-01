@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 31);
-  CHECK_EQ_INT(registry.size(), 31);
+  CHECK_EQ_INT(added, 44);
+  CHECK_EQ_INT(registry.size(), 44);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 31);
+  CHECK_EQ_INT(registry.size(), 44);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -102,7 +102,7 @@ int main() {
       CHECK(findIrOp(c->featureIrOp) != nullptr);
     }
   }
-  CHECK_EQ_INT(withIrOp, 30);  // every registered Part command emits an IR op
+  CHECK_EQ_INT(withIrOp, 43);  // every registered Part command emits an IR op
 
   // ── the document seed ─────────────────────────────────────────────────────
   // Three values that exist before any Part command ran: two sketches from the
@@ -372,7 +372,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 31);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 44);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -489,7 +489,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 31);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 44);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -521,7 +521,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 31);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 44);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -574,7 +574,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 31);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 44);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
@@ -764,7 +764,7 @@ int main() {
   //   SILENTLY. `REGPOLY(r, n)` takes the radius first and `PRISM(nSides, R, h)`
   //   takes the count first -- opposite orders for the same two numbers -- and both
   //   spellings compile either way. Every string below was measured against closed
-  //   form through the native kernel before the command was written (D-033).
+  //   form through the native kernel before the command was written (D-038).
   //
   //   THE REFUSAL of degenerate input, because Primitives.cpp THROWS on it
   //   (requirePositive, "tube.rInner must be < rOuter", "torus.minorR must be <
@@ -779,7 +779,7 @@ int main() {
     PartDocument docN;
     UndoStack stackN;
     SelectionService selN;
-    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 31);
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 44);
     CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
 
     // ── the minimal form of each: required parameters only ──────────────────
@@ -1013,7 +1013,7 @@ int main() {
     // through the native kernel, SLOT(len, wid) extruded 10 mm has area exactly
     // |(len - wid)*wid - pi*(wid/2)^2| at every size and a bbox spanning
     // +/-(len - wid)/2 rather than +/-len/2 -- both semicircular caps bow INWARD,
-    // -50.4% of the promised volume on SLOT(40, 12). See D-033. This asserts the
+    // -50.4% of the promised volume on SLOT(40, 12). See D-038. This asserts the
     // ABSENCE so that adding a command later cannot slip past the decision.
     CHECK(regN.find("part.sketch_slot") == nullptr);
     for (const std::string& id : partCommandIds()) {
@@ -1021,6 +1021,242 @@ int main() {
       CHECK(c != nullptr);
       if (c != nullptr) CHECK(c->featureIrOp != "SLOT");
     }
+  }
+
+  // ── (d2) THE EIGHT EDIT-OP COMMANDS, AND THEIR ARGUMENT ORDER ─────────────
+  // Every assertion here is the EMITTED TEXT, compared against the signature
+  // transcribed from forge-kernel/include/forge/ft/FeatureTree.hpp -- quoted above
+  // each dispatch. That is deliberate and it is the only check that can catch the
+  // failure this batch is exposed to: `PUSHFACE(%body, dist, "sel")` has the right
+  // op, the right arity and the right value kind, and builds the wrong solid in
+  // silence. archie_op_vocabulary_test also compares tokens, but it compares them
+  // against a JSON DERIVED FROM THIS SOURCE -- self-consistent, not independent.
+  // These lines are written from the kernel header instead.
+  {
+    CommandRegistry regE2;
+    PartDocument docE2;
+    UndoStack stackE2;
+    SelectionService noneE2;
+    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 44);
+    CHECK_EQ_INT(docE2.records().size(), 0);  // EMPTY: INPUT is a creator
+
+    // INPUT()  -- "bind the task's input STEP as a solid". No selection, no
+    // parameter, and it is the ONLY way a document can start from a part it was
+    // given rather than one it built.
+    CHECK(regE2.dispatch("part.input_solid", noneE2, CommandParams{}).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%1 = INPUT()");
+    CHECK_EQ_INT(static_cast<int>(docE2.kindOf(1)), static_cast<int>(IrValueKind::Solid));
+    CHECK_EQ_INT(docE2.valueFor("body_1"), 1);
+
+    SelectionService faceE2;
+    selectOnly(faceE2, {ref("body_1", EntityKind::Face, "f1")});
+    SelectionService bodyE2;
+    selectOnly(bodyE2, {ref("body_1", EntityKind::Body, "b1")});
+
+    // HEAL(%body)
+    CHECK(regE2.dispatch("part.heal", bodyE2, CommandParams{}).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%2 = HEAL(%1)");
+    // pass-through-shaped: the body keeps its node, so the next command sees %2
+    CHECK_EQ_INT(docE2.valueFor("body_1"), 2);
+
+    // TAG(%body, "@name", "declaring-sel")  -- NAME second, SELECTOR third.
+    CommandParams tag;
+    tag.setText("name", "@datum_a");
+    tag.setText("selector", "+Z");
+    CHECK(regE2.dispatch("part.tag_feature", faceE2, tag).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%3 = TAG(%2, \"@datum_a\", \"+Z\")");
+
+    // opTag throws unless the name starts with '@' and is [a-z0-9_] after it, so the
+    // command must be DISABLED there rather than emit a statement that cannot compile.
+    CommandParams badTag;
+    badTag.setText("name", "datum_a");  // no '@'
+    badTag.setText("selector", "+Z");
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.tag_feature", faceE2, badTag)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    badTag.setText("name", "@datum a");  // a space is not [a-z0-9_]
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.tag_feature", faceE2, badTag)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    badTag.setText("name", "@");  // '@' alone: opTag's "empty name"
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.tag_feature", faceE2, badTag)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_STR(lastLine(docE2), "%3 = TAG(%2, \"@datum_a\", \"+Z\")");  // nothing appended
+
+    // VERIFY(%body, "expr", ...)  -- the minimal form is ONE assertion ...
+    CommandParams ver;
+    ver.setText("assertion", "volume > 0");
+    CHECK(regE2.dispatch("part.verify", bodyE2, ver).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%4 = VERIFY(%3, \"volume > 0\")");
+    // ... and the SECOND is what reaches the variadic form. It carries no
+    // hasDefault, so applyDefaults cannot fill it and the one-assertion form above
+    // stays reachable.
+    CommandParams ver2;
+    ver2.setText("assertion", "faces = 6");
+    ver2.setText("assertion2", "genus = 0");
+    CHECK(regE2.dispatch("part.verify", bodyE2, ver2).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%5 = VERIFY(%4, \"faces = 6\", \"genus = 0\")");
+    // an empty assertion is a SUPPLIED one the command must refuse, not an absent one
+    CommandParams verEmpty;
+    verEmpty.setText("assertion", "");
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.verify", bodyE2, verEmpty)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // PUSHFACE(%body, "sel", dist)  -- SELECTOR second, DISTANCE third. The reverse
+    // order has the same arity and the same value kind and would never be caught by
+    // anything that counts arguments.
+    CommandParams push;
+    push.setText("selector", "+Z");
+    push.setNumber("distance", 4);
+    CHECK(regE2.dispatch("part.push_face", faceE2, push).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%6 = PUSHFACE(%5, \"+Z\", 4)");
+    push.setNumber("distance", 0);  // a zero push records a statement and moves nothing
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.push_face", faceE2, push)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // RESIZEBORE(%body, "sel", newRadius)  -- a RADIUS, where part.hole takes a
+    // diameter. Same shape as PUSHFACE: selector second, number third.
+    CommandParams bore;
+    bore.setText("selector", "hole:at=21.75,0");
+    bore.setNumber("radius", 3.5);
+    CHECK(regE2.dispatch("part.resize_bore", faceE2, bore).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%7 = RESIZEBORE(%6, \"hole:at=21.75,0\", 3.5)");
+    bore.setNumber("radius", -1);
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.resize_bore", faceE2, bore)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // DEFEATURE(%body, "sel")
+    CommandParams defeat;
+    defeat.setText("selector", "radial:all");
+    CHECK(regE2.dispatch("part.defeature", faceE2, defeat).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%8 = DEFEATURE(%7, \"radial:all\")");
+    defeat.setText("selector", "");
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.defeature", faceE2, defeat)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])
+    // Eight required arguments: the hinge point is NOT an optional group.
+    CommandParams fold;
+    fold.setNumber("hinge_x", 0);
+    fold.setNumber("hinge_y", 25);
+    fold.setNumber("hinge_z", 10);
+    fold.setNumber("length", 60);
+    fold.setNumber("flange_height", 15);
+    fold.setNumber("thickness", 2);
+    fold.setNumber("angle", 90);
+    CHECK(regE2.dispatch("part.fold_flange", bodyE2, fold).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%9 = FOLD(%8, 0, 25, 10, 60, 15, 2, 90)");
+    fold.setNumber("run_angle", 30);  // the ninth, emitted only when supplied
+    CHECK(regE2.dispatch("part.fold_flange", bodyE2, fold).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%10 = FOLD(%9, 0, 25, 10, 60, 15, 2, 90, 30)");
+    fold.setNumber("thickness", 0);  // opFold throws on thk <= 0
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.fold_flange", bodyE2, fold)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // Every statement this block produced is legal IR by forge::ui's own validator,
+    // which feature_ir_test proves is the kernel's table.
+    for (const FeatureRecord& r : docE2.records()) {
+      CHECK_EQ_INT(static_cast<int>(validateIr(r.line)), static_cast<int>(IrCheck::Ok));
+    }
+    CHECK_EQ_INT(docE2.records().size(), 10);
+    CHECK_EQ_INT(docE2.featureCount(), 10);
+  }
+
+  // ── (d2) SECTION — the fourth boolean, and the one that is NOT a body ─────
+  // Registration and a count prove nothing here: `withIrOp == 31` above stays
+  // green if part.section_curve emitted FUSE. What distinguishes SECTION from the
+  // other three booleans is not its arity — all four take two bodies — it is the
+  // two properties below, and BOTH are wrong by default:
+  //
+  //   THE PRODUCED KIND IS A WIRE. forge::ft::Builder::kindOf() ends in
+  //   `default: return Val::Solid`, so an op added without naming itself there is
+  //   silently typed a body. A section is the CURVE where two bodies' faces cross
+  //   — no faces, no shells, zero volume — so typing it SOLID would offer EXTRUDE
+  //   on it and refuse LOFT, which is exactly backwards. Both are asserted.
+  //
+  //   IT CONSUMES NEITHER OPERAND. FUSE/CUT/COMMON absorb the tool body and its
+  //   node stops resolving. Both bodies survive a section — taking one measures a
+  //   part, it does not modify it — so both must still resolve afterwards, and a
+  //   boolean over the SAME pair must still be dispatchable once it is taken.
+  {
+    CommandRegistry regS;
+    PartDocument docS;
+    UndoStack stackS;
+    SelectionService selS;
+    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 44);
+
+    const CommandDescriptor* sc = regS.find("part.section_curve");
+    CHECK(sc != nullptr);
+    if (sc != nullptr) CHECK_EQ_STR(sc->featureIrOp, "SECTION");
+    CHECK(findIrOp("SECTION") != nullptr);
+
+    CHECK_EQ_INT(docS.seed(IrValueKind::Solid, "plate", "BOX",
+                           {IrArg::num(40), IrArg::num(40), IrArg::num(20)}),
+                 1);
+    CHECK_EQ_INT(docS.seed(IrValueKind::Solid, "ball", "SPHERE",
+                           {IrArg::num(10), IrArg::num(0), IrArg::num(0), IrArg::num(20)}),
+                 2);
+    CHECK_EQ_INT(docS.seed(IrValueKind::Profile, "sk_s", "CIRCLE", {IrArg::num(5)}), 3);
+    CHECK_EQ_INT(docS.seed(IrValueKind::Wire, "ring_a", "RING",
+                           {IrArg::num(10), IrArg::num(10), IrArg::num(40)}),
+                 4);
+
+    // (b) the signature is two BODIES exactly. One body, and a body paired with a
+    // sketch, are both refused — and a refused command leaves the document alone.
+    selectOnly(selS, {ref("plate", EntityKind::Body, "")});
+    CHECK_EQ_INT(statusOf(regS.evaluate("part.section_curve", selS)),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+    selectOnly(selS, {ref("plate", EntityKind::Body, ""), ref("sk_s", EntityKind::Sketch, "")});
+    CHECK_EQ_INT(statusOf(regS.evaluate("part.section_curve", selS)),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+    CHECK_EQ_INT(docS.records().size(), 4);
+
+    // (c) the emitted statement, as text, legal against the kernel's own op table
+    selectOnly(selS, {ref("plate", EntityKind::Body, ""), ref("ball", EntityKind::Body, "")});
+    CHECK(regS.dispatch("part.section_curve", selS).ok());
+    CHECK_EQ_STR(lastLine(docS), "%5 = SECTION(%1, %2)");
+    CHECK_EQ_INT(static_cast<int>(validateIr(docS.records().back().line)),
+                 static_cast<int>(IrCheck::Ok));
+
+    // the produced value is a WIRE, and it is bound to a wire_ node
+    CHECK_EQ_INT(static_cast<int>(docS.kindOf(5)), static_cast<int>(IrValueKind::Wire));
+    CHECK_EQ_STR(toString(docS.kindOf(5)), "wire");
+    CHECK_EQ_STR(docS.nodeFor(5), "wire_5");
+
+    // neither operand was consumed — the whole difference from the other three
+    CHECK_EQ_INT(docS.valueFor("plate"), 1);
+    CHECK_EQ_INT(docS.valueFor("ball"), 2);
+
+    // a WIRE feeds LOFT ...
+    selectOnly(selS, {ref("wire_5", EntityKind::Wire, ""), ref("ring_a", EntityKind::Wire, "")});
+    CHECK(regS.dispatch("part.loft", selS).ok());
+    CHECK_EQ_STR(lastLine(docS), "%6 = LOFT(%5, %4)");
+
+    // ... and EXTRUDE is not even offered for it: EXTRUDE's signature is one
+    // SKETCH, so a section wire cannot reach the profile path at all.
+    selectOnly(selS, {ref("wire_5", EntityKind::Wire, "")});
+    CHECK_EQ_INT(statusOf(regS.evaluate("part.extrude", selS, params1("distance", 5))),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+
+    // and the two bodies are still there to be fused, AFTER the section — which a
+    // consuming SECTION would have made impossible. FUSE, unlike SECTION, absorbs
+    // its tool: `ball` stops resolving, `plate` is rebound to the new body.
+    selectOnly(selS, {ref("plate", EntityKind::Body, ""), ref("ball", EntityKind::Body, "")});
+    CHECK(regS.dispatch("part.boolean_union", selS).ok());
+    CHECK_EQ_STR(lastLine(docS), "%7 = FUSE(%1, %2)");
+    CHECK_EQ_INT(docS.valueFor("ball"), 0);
+    CHECK_EQ_INT(docS.valueFor("plate"), 7);
+
+    // (d) undo restores the program exactly; redo replays the SAME statement ids
+    const std::string program = docS.irProgram();
+    CHECK_EQ_INT(docS.featureCount(), 3);
+    CHECK(stackS.undo(docS));
+    CHECK(stackS.undo(docS));
+    CHECK(stackS.undo(docS));
+    CHECK_EQ_INT(docS.records().size(), 4);
+    CHECK_EQ_INT(docS.valueFor("ball"), 2);   // the section's operands come back
+    CHECK(stackS.redo(docS));
+    CHECK(stackS.redo(docS));
+    CHECK(stackS.redo(docS));
+    CHECK_EQ_STR(docS.irProgram(), program);
   }
 
   // ── (e) THE PARAMETER EDIT ────────────────────────────────────────────────
@@ -1034,7 +1270,7 @@ int main() {
     PartDocument docF;
     UndoStack stackF;
     SelectionService selF;
-    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 31);
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 44);
 
     // The five statements of the application's own starting part, seeded exactly
     // as the app seeds them: NONE of them is command-authored, so undo cannot
@@ -1239,7 +1475,9 @@ int main() {
     }
     // Not "at least four": the count is the enumerator count, so a kind added to
     // the enum and NOT to kAllIrValueKinds fails here instead of at a user's save.
-    CHECK_EQ_INT(seen, 6);
+    // 6 -> 7 when SURFACE joined Sketch/SketchRef in the enum. This assertion is
+    // what caught that merge: kAllIrValueKinds had been written from one side.
+    CHECK_EQ_INT(seen, 7);
 
     // Distinct spellings — two kinds sharing a name would round-trip one of them
     // to the other and silently retype a value on load.

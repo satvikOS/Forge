@@ -150,6 +150,38 @@ jobs:
         # generated header to prove the drift check refuses, then runs all 8 --mutate
         # cases and requires every one to exit non-zero.
         run: bash ui/test/run_op_constraint_gate.sh
+      - name: forge-desktop still TYPE-CHECKS (the cheap half of "the app builds")
+        # THE GATE THAT WOULD HAVE CAUGHT 2026-08-31's UN-BUILDABLE APP, IN THIS
+        # JOB, IN SECONDS.
+        #
+        # forge::ui::DocumentHost grew a PURE virtual (documentReset) and
+        # ForgeFrame, the application's only DocumentHost, did not implement it.
+        # `class ForgeFrame final` therefore named an abstract class and
+        # forge-desktop did not compile. Every step ABOVE stayed green: they all
+        # build ui/src and ui/test and none of them touches forge-desktop/src.
+        # It is the same shape as #107 (a call to KernelScene::features(), which
+        # did not exist), and #107 is why the `desktop` job exists.
+        #
+        # The `desktop` job WOULD catch both -- it compiles and links the real
+        # application -- but it installs OCCT, builds forge_kernel_core, links
+        # ImGui and runs six gates under a sanitizer. That is minutes, on a
+        # runner with an SDK. This step is `-fsyntax-only`: full parse, template
+        # instantiation and type checking, NO codegen and NO link, over the 12
+        # forge-desktop translation units that need no external SDK. Dear ImGui
+        # is vendored in-tree and forge::ui is in-tree, so it needs clang and the
+        # checkout and nothing else -- which is exactly why it can ride THIS job.
+        #
+        # --mutations runs it clean and then proves all three injected defects
+        # turn it red (a removed override of a pure virtual, a call to a method
+        # that does not exist, and a plain -Wunused-variable that only fails
+        # because -Werror is kept). A gate nobody has seen fail is silence, and
+        # silence is the exact failure mode this step is here to end. The
+        # mutations are injected into a COPY of the tree, never the checkout.
+        #
+        # The gate also CENSUSES forge-desktop/{src,test}: every .cpp must be
+        # classified as checked or as skipped-with-the-SDK-it-needs, so a new
+        # translation unit cannot join the application unnoticed.
+        run: bash forge-desktop/test/run_syntax_gate.sh --mutations
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
@@ -169,7 +201,7 @@ jobs:
         run: bash retrieval/run_retrieval_tests.sh
 
   s0_conformance:
-    name: s0 Appendix B conformance ratchet
+    name: s0 Appendix B conformance ratchet + the SECTION op gate
     # The acceptance suite deliberately asserts laws the implementation does not yet satisfy, so its
     # RAW exit is 1 by design and its failures are the deliverable. A permanently-red gate teaches
     # people to ignore it, so CI applies a ratchet: red if the failure count RISES (a regression)
@@ -190,10 +222,27 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Install OCCT (headers only are needed)
+      # The s0 suite needs only the HEADERS; the SECTION gate below links the
+      # toolkits too, and one brew formula carries both.
+      - name: Install OCCT
         run: brew install opencascade
       - name: s0 ratchet
         run: bash forge-kernel/test/ft/s0_ratchet.sh
+      # SECTION is the fourth OCCT boolean and the only one of the four whose
+      # result is not a body: FUSE/CUT/COMMON return a solid, SECTION returns the
+      # curve where two bodies' faces cross. forge::ft's kindOf() ends in
+      # `default: return Val::Solid`, so an op that does not name itself there is
+      # silently typed a body — and every downstream measurement would then report
+      # a perfectly good section as an empty invalid solid.
+      #
+      # This gate lives in the same job because it needs the same thing this job
+      # already installs and the same linker semantics this job already documents:
+      # it calls forge::section() and forge::ft::parse(), and parse() shares a
+      # translation unit with compile(), whose ~20 further kernel symbols are
+      # referenced but never executed. Six TUs, no kernel build, well under a
+      # minute. It runs its own three mutations and requires each to turn it red.
+      - name: SECTION op gate (geometry + IR round trip + 3 mutations)
+        run: bash forge-kernel/test/build_section_op_gate.sh
 
   nafems_ratchet_selftest:
     name: NAFEMS ratchet — prove the gate can fail
@@ -418,6 +467,29 @@ jobs:
         # installed for it: imgui_impl_vulkan.cpp is the only vendored file that needs a
         # Vulkan header and it is the one file this gate does not compile.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_click_gate.sh
+      - name: Desktop CRASH-ISOLATION gate (a REAL SIGSEGV in a REAL worker)
+        # THE GATE FOR THE ONE FAILURE MODE THAT PRODUCES NO DIAGNOSTIC AT ALL.
+        #
+        # forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null
+        # Geom2d_Curve dereferenced INSIDE OCCT on three paths, crashing on
+        # Archie's emitted geometry AND on the gold reference STEP files, and its
+        # own self-corrections rule out every cheaper remedy: the crashing shape
+        # had nullPcurves=0 so there is nothing on the input to repair, KeepShapes
+        # was implemented and still SIGSEGV'd all six cases, and the accessor a
+        # guard would call is itself a faulting frame. A SIGSEGV is not an
+        # exception either -- KernelScene's catch(...) cannot see a signal.
+        #
+        # So the kernel runs in forge_kernel_worker and this gate proves the app
+        # survives losing it, against a REAL child and a REAL fatal signal. It
+        # also proves the mechanism did NOT become a capability gate: re-
+        # submitting a program that just crashed must RUN IT AGAIN. Mutation S2
+        # grows exactly that quarantine and must turn this red.
+        #
+        # Rides this job for one more clang++ pass: OCCT and
+        # forge-kernel/build-verify are already here, and the gate needs no SDL2,
+        # no Vulkan and no ImGui. Seven mutations, five of them injected into a
+        # COPY of the production sources rather than into the test.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_isolation_gate.sh
       - name: live-OCCT A/B harnesses (ratcheted; a link failure is RED, not silence)
         # THE GATE THAT WOULD HAVE CAUGHT PR #64. Two harnesses -- thicken and loftpipe --
         # stopped LINKING the moment that PR merged, because it made their engines call
@@ -684,7 +756,8 @@ jobs:
           fi
           missing=0
           for b in forge_desktop forge_desktop_frame_gate \
-                   forge_desktop_document_gate forge_desktop_ir_pipeline_gate; do
+                   forge_desktop_document_gate forge_desktop_ir_pipeline_gate \
+                   forge_kernel_worker forge_desktop_isolation_gate; do
             if [ -x "forge-desktop/build/$b" ]; then printf 'ok       %s\n' "$b"
             else printf 'MISSING  %s\n' "$b"; missing=1; fi
           done
@@ -696,12 +769,12 @@ jobs:
       - name: forge-desktop gates + mutation proofs (headless -- no window, no GPU)
         # ci_desktop_gate.sh runs run_desktop.sh -- the missing-include
         # preflight, then the three headless gates (ir_pipeline, document,
-        # frame), then 17 injected defects each of which MUST turn its gate red
+        # frame, isolation), then 31 injected defects each of which MUST turn its gate red
         # -- and then JUDGES ITS OUTPUT rather than trusting its exit status.
         # run_desktop.sh has no `set -e`, so its status is the status of
         # whatever ran last and a run that fell out of its own middle would exit
         # 0; the gate script requires a zero status AND no mutation reported as
-        # having STAYED GREEN AND the exact verdict line naming exactly 17
+        # having STAYED GREEN AND the exact verdict line naming exactly 31
         # mutations. Its own red paths are proved by the self-test that runs as
         # the first step of this job.
         #

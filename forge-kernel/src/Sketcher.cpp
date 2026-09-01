@@ -531,8 +531,41 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
         // instead of the convex rounded corner. Bring the sweep into (-pi, pi] so the
         // SHORTER arc is always taken (the trim spans [min(sa,ea), max(sa,ea)], which
         // is the short arc only while |ea - sa| <= pi). Corner/fillet arcs
-        // are <= 90deg, so this is unambiguous; a true semicircle (sweep == pi)
-        // is preserved unchanged.
+        // are <= 90deg, so this is unambiguous.
+        //
+        // ★ THE SEMICIRCLE IS NOT UNAMBIGUOUS, AND THIS COMMENT USED TO SAY IT WAS.
+        // It read "a true semicircle (sweep == pi) is preserved unchanged". That is
+        // true of +pi and FALSE of -pi: the first loop's boundary is `<=`, so a sweep
+        // of exactly -pi becomes +pi -- which does not shorten the arc (both halves
+        // are pi) but REVERSES WHICH HALF OF THE CIRCLE IT IS.
+        //
+        // The deeper fact is that (center, start, end) cannot express a semicircle at
+        // all. For |sweep| < pi the two orderings name the same point set, which is
+        // why the trim below may discard the sign; at exactly pi they name OPPOSITE
+        // halves, and the trim `[min(sa,ea), max(sa,ea)]` always takes the CCW one
+        // from the smaller angle. So every semicircle built through here bulges to
+        // whichever side that rule picks, and a caller who wanted the other side has
+        // no way to say so through this representation.
+        //
+        // MEASURED CONSEQUENCE, and there is exactly one: `addArc` has two callers
+        // (FeatureTreeCompiler.cpp) and only one of them makes semicircles. profSlot's
+        // two end caps are `addArc(cR, tr, br)` and `addArc(cL, bl, tl)`, and BOTH land
+        // on the inward half -- the right cap via the -pi flip above, the left cap via
+        // the min/max trim directly. SLOT therefore builds the straight section with a
+        // full circle's area REMOVED: area exactly |(len-wid)*wid - pi*(wid/2)^2| and
+        // bbox +/-(len-wid)/2, i.e. -50.4% of the volume its signature promises on
+        // SLOT(40,12) (forge-kernel/reports/MODELLING_OP_FAMILIES.md 6.1, three sizes).
+        // profRRect is the control and is exact: its arcs are 90deg, so it never
+        // reaches the ambiguous case. SLOT is the only defective profile builder, and
+        // it is the only op still in the vocabulary's `forbidden_ops` for it.
+        //
+        // Not fixed here: a fix must be MEASURED through the pinned verifier before it
+        // is believed, and this comment is the diagnosis rather than the repair. Two
+        // repairs are available and they are not equivalent -- swapping both callers'
+        // endpoint order (minimal, keeps 4 edges / 6 faces, but leaves correctness
+        // resting on the `<=` boundary two lines below) or splitting each cap into two
+        // 90deg arcs through an explicit outer apex (removes the ambiguity by
+        // construction, the way profRRect already avoids it, at 6 edges / 8 faces).
         {
             constexpr double kPi = 3.14159265358979323846;
             double sweep = ea - sa;

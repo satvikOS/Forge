@@ -122,10 +122,11 @@ Plan decide(const std::string& current_version_text, const Manifest& m, const Po
 
 // The channel a build follows, decided by WHAT IT IS rather than by a setting.
 //
-// A build whose own version carries a prerelease identifier (0.1.0-alpha.6) follows
-// the `prerelease` channel; a release build follows `stable`. Without this rule the
-// default Policy makes every shipped alpha a DEAD END: the appcast for the next
-// alpha is published, fetched and parsed successfully, and then rejected with
+// A release build follows `stable`. A build whose own version carries a prerelease
+// identifier (0.1.0-alpha.6) accepts prereleases and pins to NO channel. Without
+// this rule the default Policy makes every shipped alpha a DEAD END: the appcast
+// for the next alpha is published, fetched and parsed successfully, and then
+// rejected with
 //
 //     manifest is on channel 'prerelease', this build follows 'stable'
 //
@@ -135,7 +136,16 @@ Plan decide(const std::string& current_version_text, const Manifest& m, const Po
 // running version keeps the field honest AND keeps alphas updatable: an alpha user
 // is, demonstrably, someone who installed an alpha.
 //
-// A stable build is NEVER offered a prerelease by this rule.
+// ★ AND THE EXIT MATTERS AS MUCH AS THE CHAIN. Pinning a prerelease build to the
+// `prerelease` channel -- the obvious spelling of the rule above -- makes the first
+// STABLE release unreachable instead, rejected with the same sentence inverted, so
+// every early adopter is stranded on an alpha for ever. That direction cannot be
+// repaired by a later release, because the client doing the refusing IS the old
+// binary. So a prerelease build follows any channel, and only the running version's
+// own identifier decides that it may.
+//
+// A stable build is NEVER offered a prerelease by this rule: it keeps channel
+// `stable` AND allow_prerelease false, and decide() refuses on either one alone.
 Policy policyFor(const std::string& running_version);
 
 // ──────────────────────────────────────────────────────────────────── fetching

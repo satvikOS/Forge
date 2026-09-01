@@ -536,6 +536,96 @@ int main(int argc, char** argv) {
     }
   }
 
+  // ── 5b. A POINT RING SURVIVES THE FILE ───────────────────────────────────
+  // POLY / WIRE / SWEEP carry an IrArgKind::Points argument, and this file format
+  // encodes arguments BY KIND -- so a kind the writer does not know is not a
+  // formatting nit, it is silent geometry loss: the switch in argLine() falls
+  // through to "ARG kw INVALID", the ring never reaches the disk, and the user
+  // gets it back as a keyword. That is a part the app drew, saved, and cannot
+  // reopen. The round trip above cannot see it, because the seeded document holds
+  // no ring, so the ring is put through explicitly here.
+  //
+  // BOTH DIMENSIONS, because they are different tokens: `[x y; ...]` is lifted to
+  // z=0 and `[x y z; ...]` is placed where it says, and a 3D section silently
+  // re-read as 2D is a loft section that has moved to the base plane. A SWEEP
+  // profile statement carries one of each, which is exactly the case that would
+  // hide a dimension confusion.
+  {
+    forge::desktop::PartFileDoc ringDoc;
+    ringDoc.name = "rings";
+    forge::desktop::PartFileFeature poly;
+    poly.node = "sketch_1";
+    poly.record.irId = 1;
+    poly.record.commandId = "part.sketch_poly";
+    poly.record.label = "Polyline Profile";
+    poly.record.produces = forge::ui::IrValueKind::Profile;
+    poly.record.line = forge::ui::IrLine{
+        1, "POLY",
+        {forge::ui::IrArg::points({forge::ui::IrPoint{-20, -10, 0},
+                                   forge::ui::IrPoint{20, -10, 0},
+                                   forge::ui::IrPoint{24, 8, 0},
+                                   forge::ui::IrPoint{0, 18, 0},
+                                   forge::ui::IrPoint{-24, 8, 0}},
+                                  2)}};
+    ringDoc.features.push_back(poly);
+
+    forge::desktop::PartFileFeature sweep;
+    sweep.node = "body_2";
+    sweep.record.irId = 2;
+    sweep.record.commandId = "part.sweep_profile";
+    sweep.record.label = "Swept Profile";
+    sweep.record.produces = forge::ui::IrValueKind::Solid;
+    sweep.record.line = forge::ui::IrLine{
+        2, "SWEEP",
+        {forge::ui::IrArg::points({forge::ui::IrPoint{-5, -5, 0}, forge::ui::IrPoint{5, -5, 0},
+                                   forge::ui::IrPoint{5, 5, 0}, forge::ui::IrPoint{-5, 5, 0}},
+                                  2),
+         forge::ui::IrArg::points({forge::ui::IrPoint{0, 0, 0}, forge::ui::IrPoint{0, 0, 40}},
+                                  3)}};
+    ringDoc.features.push_back(sweep);
+
+    const std::string ringText = forge::desktop::writePartFile(ringDoc);
+    // The rings are ON THE DISK, not a keyword standing in for one.
+    check(ringText.find("ARG pts2 ") != std::string::npos,
+          "a 2D ring is written as a points argument", ringText);
+    check(ringText.find("ARG pts3 ") != std::string::npos,
+          "a 3D ring is written as a points argument", ringText);
+    check(ringText.find("INVALID") == std::string::npos,
+          "no argument fell through the writer's kind switch", ringText);
+
+    forge::desktop::PartFileDoc ringBack;
+    std::string ringWhy;
+    const bool ringOk = forge::desktop::readPartFile(ringText, ringBack, ringWhy);
+    check(ringOk, "the ring file parses", ringWhy);
+    if (ringOk) {
+      checkStrEq(forge::desktop::writePartFile(ringBack), ringText, "write(read(rings)) == rings, byte for byte");
+      // The IR program is the real assertion: it is what the kernel would compile,
+      // and it carries the brackets, the coordinate count and the order.
+      checkStrEq(ringBack.irProgram(), ringDoc.irProgram(),
+                 "the reread rings emit the identical IR program");
+      checkStrEq(ringBack.irProgram(),
+                 "%1 = POLY([-20 -10; 20 -10; 24 8; 0 18; -24 8])\n"
+                 "%2 = SWEEP([-5 -5; 5 -5; 5 5; -5 5], [0 0 0; 0 0 40])\n",
+                 "and it is the statement the kernel's grammar defines");
+    }
+
+    // A ring the reader cannot read COMPLETELY must fail the load, not load short:
+    // an empty ring renders as `[]`, which forge::ft's lexer refuses outright, so a
+    // document holding one is a document that cannot compile.
+    forge::desktop::PartFileDoc truncated;
+    std::string truncWhy;
+    std::string bad = ringText;
+    const std::size_t at = bad.find("ARG pts3 ");
+    if (at != std::string::npos) {
+      const std::size_t eol = bad.find('\n', at);
+      bad.replace(at, eol - at, "ARG pts3 0 0 0; 0 0");  // a 2-coordinate 3D point
+      check(!forge::desktop::readPartFile(bad, truncated, truncWhy),
+            "a short point in a 3D ring is REFUSED, not silently flattened", truncWhy);
+      check(truncWhy.find("pts3") != std::string::npos, "the refusal names the argument",
+            truncWhy);
+    }
+  }
+
   // A rejected file must NOT half-replace the open document.
   {
     forge::desktop::PartFileDoc junk;

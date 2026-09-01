@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 54 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 69 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,16 +46,52 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **41 commands**; **30 of them emit
-feature-IR**, reaching **28 distinct op names**. The kernel defines **47** ops
-(`opFromName`), so **19 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **58 commands**; **43 of them emit
+feature-IR**, reaching **40 distinct op names**. The kernel defines **54** ops
+(`opFromName`), so **14 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The jump from 40 kernel ops to 47 is the 2D sketch + constraint family
-(`SKETCH` `SPT` `SLINE` `SCIRC` `SARC` `CON` `SOLVE`), which makes the vendored
-planegcs solver addressable from a feature tree. All seven are `forbidden_ops`
-today for the ordinary reason: no `forge::ui` registry command emits one yet.
-That is a UI gap, not a kernel gap — the ops compile and solve.
+The fourteen are `SLOT`, the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
+`SKIN`, `SEW`, `SURFCHECK` -- and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
+`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. They are out for three DIFFERENT
+reasons, which is the distinction a single "no command emits it" line would hide.
+
+The six SURFACE ops arrived with the SURFACE value kind (D-038) and are simply
+NEW: the kind exists, the kernel builds them, and no command emits one yet. That
+is the ordinary kind of gap, and one command apiece closes it.
+
+The seven 2D-sketch ops are the same ordinary kind of gap one layer earlier, and
+they are what took the kernel from 47 ops to 54. They make the vendored planegcs
+solver addressable from a feature tree for the first time: `SKETCH` opens one,
+`SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it, `CON` constrains a
+pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE` already accepts.
+The kernel compiles and solves all seven. No `forge::ui` registry command emits
+one yet, which is why every one of them is forbidden here and why the count of
+distinct op names a user can reach is UNCHANGED by this branch: the solver became
+reachable from the IR, not yet from the app.
+
+`SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
+pinned native verifier its extruded area is exactly
+`|(len - wid)*wid - pi*(wid/2)^2|` at every size and its bbox spans
+`+/-(len - wid)/2` rather than `+/-len/2` -- both semicircular caps bow INWARD,
+-50.4% of the volume the signature promises on `SLOT(40, 12)`.
+`forge-kernel/reports/MODELLING_OP_FAMILIES.md` 6.1 has the three-size table and
+the `RRECT` control that rules the arc convention out everywhere else, and
+`Sketcher.cpp`'s minor-arc normalisation carries the located mechanism: `addArc`
+records only (centre, start, end), which cannot express a semicircle. Adding the
+command would put `SLOT` into Archie's training vocabulary as a shape it is not.
+It stays out until the arc is fixed and RE-MEASURED, which no new command can do.
+That is why the negative controls in `ui/test/op_constraint_bridge_test.cpp` name
+`SLOT` specifically: an exemplar that a future command could legalise stops
+testing anything, and this one cannot be legalised that way.
+
+`POLY`, `WIRE` and `SWEEP` used to sit in this list for a third reason again, now
+gone. Each takes a `[x y; x y; ...]` POINTS token, and `forge::ui::IrArgKind`
+modelled `Number`/`Ref`/`Keyword`/`Text` and no points kind -- so no forge::ui
+command could spell those statements at all, however many were written. That kind
+now exists (`IrArgKind::Points`, `IrArg::pointsFromText`), added together with the
+four commands that produce it, so the rule it was withheld under -- "a token kind
+nothing produces is a liability, not coverage" -- still holds.
 
 Every number in that paragraph, and every op row in the table below, is now
 checked by `--check` against the JSON it describes. None of it was, and all of
@@ -101,6 +137,18 @@ check that silently stops checking is the failure it was written to prevent.
 | `PATTERN` | part.pattern_linear / _circular / _grid | `PATTERN(%body, LINEAR, count, dx[, dy, dz])`<br>`PATTERN(%body, POLAR, count, total_angle)`<br>`PATTERN(%body, GRID, nx, ny, dx, dy)` |
 | `MIRROR` | part.mirror | `MIRROR(%body, XY\|XZ\|YZ)` |
 | `FUSE` / `CUT` / `COMMON` | part.boolean_union / _subtract / _intersect | `FUSE(%body, %tool)` etc. |
+| `SECTION` | part.section_curve | `SECTION(%body, %tool)` |
+| `INPUT` | part.input_solid | `INPUT()` |
+| `HEAL` | part.heal | `HEAL(%body)` |
+| `DEFEATURE` | part.defeature | `DEFEATURE(%body, "<selector>")` |
+| `PUSHFACE` | part.push_face | `PUSHFACE(%body, "<selector>", distance)` |
+| `RESIZEBORE` | part.resize_bore | `RESIZEBORE(%body, "<selector>", radius)` |
+| `TAG` | part.tag_feature | `TAG(%body, "<name>", "<selector>")` |
+| `VERIFY` | part.verify | `VERIFY(%body, "<assertion>")`<br>`VERIFY(%body, "<assertion>", "<assertion2>")` |
+| `POLY` | part.sketch_poly | `POLY([x y; ...])` |
+| `WIRE` | part.section_wire | `WIRE([x y z; ...])` |
+| `SWEEP` | part.sweep_pipe / _profile | `SWEEP(radius, [x y z; ...])`<br>`SWEEP([x y; ...], [x y z; ...])` |
+| `FOLD` | part.fold_flange | `FOLD(%body, hinge_x, hinge_y, hinge_z, length, flange_height, thickness, angle)`<br>`FOLD(..., angle, run_angle)` |
 
 Details that a wrong signature would teach wrongly, all derived from the kernel
 header rather than assumed:
@@ -120,6 +168,24 @@ header rather than assumed:
 * Optional argument groups are **all-or-nothing**: supplying `depth` to
   `part.hole` also emits the axis triple `0, 0, 1` before it, which is why the
   9-argument form exists and an 6-argument one does not.
+* **`TAG` and `VERIFY` are PASS-THROUGH**: `opTag` and `opVerify` both `return
+  body` unchanged, so a name or an assertion never alters the solid. That is what
+  makes them safe to interleave anywhere in a tree, and why the app records them
+  as ordinary numbered statements rather than as document metadata -- the
+  assertion is visible in the feature tree, next to the geometry it constrains,
+  and editable by `part.edit_feature` like any other statement.
+* **`VERIFY`'s assertion is the kernel's own string**, so what a user types is
+  what a training target contains. `opVerify` parses `<quantity> <cmp> <value>`
+  with `cmp` one of `=` `<=` `>=` `<` `>` and `quantity` one of `volume`/`vol`,
+  `faces`/`faceCount`/`nfaces`, `edges`/`edgeCount`, `holes`/`bores`, `genus`,
+  `shells`/`shellCount`, `blades`/`lugs`/`spokes`/`radial`, `bbox.x|y|z` (an
+  EXTENT), `bbox.xmin|xmax|...` and `+x`/`-x`/`+y`/`-y`/`+z`/`-z` (a POSITION).
+  Anything else is refused by name, with the vocabulary quoted back.
+* **`RESIZEBORE` takes a RADIUS** (`newRadius`), where `part.hole` takes a
+  diameter. The two are one letter apart in a prompt and a factor of two in the
+  part, so the JSON carries `"semantic": "radius"` on it explicitly.
+* **`FOLD`'s hinge point is not optional.** Its kernel arity is 8..9, so
+  `hx, hy, hz` are emitted always and only `runDeg` is the optional tail.
 
 ## How a training run consumes it
 
@@ -139,11 +205,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 54 on every CI run), not a hand-written illustration.
+dispatches all 69 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 28 names are legal; after the name, the argument count is bounded
+head, only the 40 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).

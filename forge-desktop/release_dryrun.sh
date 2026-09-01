@@ -135,6 +135,34 @@ ZIP="$DIST/Forge-macos-arm64-${VERSION}.zip"
 [ -f "$ZIP" ] || die "no zip at $ZIP"
 [ -x "$APP/Contents/MacOS/forge_desktop" ] || die "no executable inside the bundle"
 
+# ── 3a. the crash-isolation worker must be INSIDE the bundle ─────────────────
+# forge_kernel_worker is the process the application is allowed to lose: the app
+# looks for it BESIDE ITSELF, and a bundle without it degrades SILENTLY -- the
+# app prints "kernel isolation: UNAVAILABLE" and models in process, because
+# refusing to model would be worse than modelling unprotected. So a missing
+# worker produces a product that is merely less safe, with nothing going red.
+#
+# package_macos.sh already dies if the worker was never BUILT. This is the
+# separate question -- did it reach the ARTIFACT -- asked where the report can
+# record the answer, so "the shipped app has crash isolation" is a measured
+# field of every dry run rather than an inference from the packager's exit code.
+#
+# Capability-detected exactly like --macos-min and the appcast below: on a ref
+# whose packager predates the worker there is nothing to look for, and the
+# report says so rather than failing a build that was never wrong. The signal is
+# the PACKAGER's own staging line, anchored to the assignment so the explanatory
+# comments that mention the worker cannot make an absent capability look present.
+WORKER_BUNDLED="not-applicable"
+if grep -qE '^[[:space:]]*WORKER_SRC=' "$PKG"; then
+  WORKER="$APP/Contents/MacOS/forge_kernel_worker"
+  [ -x "$WORKER" ] || die "this ref STAGES a crash-isolation worker but $WORKER is \
+not in the bundle -- the app would ship with NO crash isolation and say nothing"
+  WORKER_BUNDLED="yes"
+  say "crash-isolation worker is in the bundle: Contents/MacOS/forge_kernel_worker"
+else
+  say "note: this ref's packager stages no kernel worker; nothing to check"
+fi
+
 # ── 3b. the appcast must describe THIS zip ───────────────────────────────────
 # appcast.json is what every already-installed copy of Forge reads to find and
 # verify this release. A release whose appcast names a different build is a
@@ -227,6 +255,7 @@ REPORT="$DIST/Forge-macos-arm64-${VERSION}.dryrun.json"
   printf '  "zip": "%s",\n' "$(basename "$ZIP")"
   printf '  "zip_sha256": "%s",\n' "$SHA"
   printf '  "appcast_describes_this_zip": "%s",\n' "$APPCAST_OK"
+  printf '  "crash_isolation_worker_bundled": "%s",\n' "$WORKER_BUNDLED"
   printf '  "host_macos": "%s",\n' "$(sw_vers -productVersion)"
   printf '  "deployment_target_requested": "%s",\n' "$MACOS_MIN"
   printf '  "measured_floor": "%s",\n' "$FLOOR"
@@ -252,6 +281,7 @@ cat <<SUMMARY
   sha256          $SHA
   report          $REPORT
   appcast         $APPCAST  (describes this zip: $APPCAST_OK)
+  crash isolation forge_kernel_worker in the bundle: $WORKER_BUNDLED
   version         $VERSION
   host macOS      $(sw_vers -productVersion)
   Mach-O files    $NMACH
