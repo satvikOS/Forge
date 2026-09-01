@@ -30,27 +30,27 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "0beea6206ac3e0b51d7a7c00ac65dd2335401e3ddd11add9190d2343c6928582",
-        "bytes": 163519,
-        "lines": 3088
+        "sha256": "4f5464254814d60b43650d1e97959cbad55bfbcf486c5e7ffb34500015265d7f",
+        "bytes": 177881,
+        "lines": 3343
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "8b39c03076707d0bb2df88efd766195279c830e19f68f69e66c9cbe07e41fc46",
-        "bytes": 26672,
-        "lines": 436
+        "sha256": "83d3928d879aaed39ad5335e7e806d924bedc58808d633316a288e4b59a47035",
+        "bytes": 29882,
+        "lines": 481
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "e270b519b53679c3fdd429261032ceb69fd5ba1756c6a7d79c4a215dfc1e9d65",
-        "bytes": 10569,
-        "lines": 291
+        "sha256": "a489a6d8c9b9d1f860043157b648f65253eb7024b2376c759991d641474411c8",
+        "bytes": 10802,
+        "lines": 299
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "bb8ff3fe8acbeff3cd18f03559697e83053faa9ca03ffc894192b8e898868eec",
-        "bytes": 158552,
-        "lines": 2708
+        "sha256": "bdaee1cad4f4a833fb272925163353991921df6defc6e995b86611a2077250ce",
+        "bytes": 159147,
+        "lines": 2724
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 48,
-    "ui_validator_ops": 48,
+    "kernel_ops": 55,
+    "ui_validator_ops": 55,
     "registry_commands": 64,
     "commands_emitting_ir": 49,
     "user_invocable_ops": 46,
-    "forbidden_ops": 2,
+    "forbidden_ops": 9,
     "uncertain_entries": 3,
     "derived_defects": 3
   },
@@ -5877,11 +5877,74 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
+      "op": "CON",
+      "kernel_enum": "Con",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "CON(%a, KIND [, %b, value])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SARC",
+      "kernel_enum": "SArc",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SARC(%centre, %p0, %p1)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SCIRC",
+      "kernel_enum": "SCirc",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SCIRC(%centre, r)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SKETCH",
+      "kernel_enum": "Sketch",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SKETCH(PLANE)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SLINE",
+      "kernel_enum": "SLine",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SLINE(%p0, %p1)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SOLVE",
+      "kernel_enum": "Solve",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SOLVE(%sketch)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SPT",
+      "kernel_enum": "SPt",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SPT(%sketch, x, y)"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     }
@@ -5890,7 +5953,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 48 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 55 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [

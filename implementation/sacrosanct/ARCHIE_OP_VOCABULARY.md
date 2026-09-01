@@ -47,16 +47,17 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **64 commands**; **49 of them emit
-feature-IR**, reaching **46 distinct op names**. The kernel defines **48** ops
-(`opFromName`), so **2 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **46 distinct op names**. The kernel defines **55** ops
+(`opFromName`), so **9 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-**The two are `SLOT` and `ARC`.** The six SURFACE ops that stood beside them --
-`FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands, and
-the split between the reasons is why they could go and these two could not. `ARC`
-arrived on the base after this branch was written and is the ordinary kind of gap
--- a kernel op no command spells yet -- so it is the one a future command can
-close. `SLOT` is not, and that distinction is the next two paragraphs.
+The nine are `SLOT`, `ARC`, and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
+`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. The six SURFACE ops that used to stand
+here -- `FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands
+and are gone from the list, which is what the list is for. The rest are out for
+three DIFFERENT reasons, and the distinction is what a single "no command emits
+it" line would hide: `ARC` and the sketch family are ordinary gaps a command can
+close, and `SLOT` is not.
 
 The registry reads 64 rather than the 60 this branch measured alone: the base it
 merges has since added four commands that emit nothing (`app.toggle_theme`,
@@ -68,20 +69,30 @@ and nothing removed.
 
 The six were out for the ordinary reason: they arrived with the SURFACE value
 kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
-built them, and no command emitted one yet. One command apiece closed it. What actually unblocked them was not six commands but ONE
-SELECTION KIND -- four of the six CONSUME a sheet, and until `EntityKind::Surface`
+built them, and no command emitted one yet. One command apiece closed it. What
+actually unblocked them was not six commands but ONE SELECTION KIND -- four of the six CONSUME a sheet, and until `EntityKind::Surface`
 and a `surface_N` node prefix existed, a sheet parked in `body_N` read back as a
 SOLID and `THICKEN` would have offered itself on a fillet's output. That is the
 same structural fix `WIRE` needed before `LOFT` became reachable, and it is the
 last one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
 `IrValueKind`, and each now has an entity kind and a node prefix.
 
-`ARC` is the 48th kernel op and the same ordinary kind of gap: it takes the
+The seven 2D-sketch ops are the same ordinary kind of gap one layer earlier, and
+they are the larger half of what took the kernel from 47 ops to 55. They make
+the vendored planegcs solver addressable from a feature tree for the first time:
+`SKETCH` opens one, `SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it,
+`CON` constrains a pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE`
+already accepts. The kernel compiles and solves all seven. No `forge::ui` registry
+command emits one yet, which is why every one of them is forbidden here and why
+the count of distinct op names a user can reach is UNCHANGED at 46 by this branch:
+the solver became reachable from the IR, not yet from the app.
+
+`ARC` is the other half, and the same kind of gap again: it takes the
 `[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
 well as straight ones, the kernel builds it, and no forge::ui command emits one
 yet. It is here because the ground truth needs it -- 86 ARC statements across 48
 BenchCAD GT programs, which the reharvest could not parse at all without the op --
-and the count that did NOT move is the honest one: user-invocable ops stay at 40,
+and the count that did NOT move is the honest one: user-invocable ops stay at 46,
 because a kernel op is not a product surface until a command spells it.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the

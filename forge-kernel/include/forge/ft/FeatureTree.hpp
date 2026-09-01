@@ -111,6 +111,51 @@ enum class OpCode {
                  //   its OWN circle — same centre, same radius, same endpoints, extra
                  //   vertices lying ON the arc. Exact, not a tessellation.
 
+    // --- 2D SKETCH + CONSTRAINTS (produce a SKETCH / SKETCHREF) ---------------
+    // The six profile ops above bake COORDINATES. These six plus SOLVE let a
+    // tree state RELATIONS instead and have the kernel compute the coordinates,
+    // through the planegcs solver that is already vendored, compiled and linked
+    // (3rdParty/planegcs, CMakeLists.txt ~1264-1271) and that nothing in the IR
+    // has ever called.
+    //
+    // The family bolts on IN FRONT of the existing IR: it terminates in a
+    // solved PROFILE, and a PROFILE is what EXTRUDE / REVOLVE / LOFT already
+    // consume. Not one existing op changes.
+    //
+    // (Prose here deliberately avoids writing an op name immediately followed
+    // by "(" — ui/test/feature_ir_test.cpp derives this table by READING this
+    // comment block, and would take such a line for an alternate form.)
+    Sketch,      // SKETCH(PLANE)                         PLANE = XY|YZ|XZ
+    SPt,         // SPT(%sketch, x, y)                    a point; produces a SKETCHREF
+    SLine,       // SLINE(%p0, %p1)                       line through two sketch points
+    SCirc,       // SCIRC(%centre, r)                     circle: centre point + radius
+    SArc,        // SARC(%centre, %p0, %p1)               arc: centre + start + end
+    Con,         // CON(%a, KIND [, %b, value])           constrain; PASS-THROUGH like TAG
+                 //   KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON
+                 //   KIND dimensional: DIST
+                 //   That is EXACTLY the set forge::Sketcher dispatches today —
+                 //   9 of the 67 primitives planegcs actually has. RADIUS,
+                 //   DIAM, ANGLE, CONC, COLL, SYMM, MIDPT and FIX all exist in
+                 //   the ENGINE and are one switch arm each in the facade, but
+                 //   none is wired at this SHA, so none is listed here: a
+                 //   vocabulary that advertises a keyword the compiler skips is
+                 //   a worse defect than a short vocabulary. An unlisted
+                 //   keyword is skipped and NAMED, never fatal. A TRAILING
+                 //   operand that does not resolve, or that belongs to a
+                 //   different sketch, is skipped and NAMED the same way: this
+                 //   op is pass-through, so the answer is the sketch unchanged,
+                 //   and a mis-typed %ref must not cost the other 199
+                 //   statements of a long tree. Its FIRST operand and its kind
+                 //   still REFUSE — with neither an owning sketch nor a
+                 //   constraint kind resolved there is nothing to pass through.
+                 //   The kind is ALWAYS arg 1; the operands follow and are read
+                 //   by token type, so one op covers unary/binary/dimensional
+                 //   without four op names. CON returns the SKETCH it was handed
+                 //   — a constraint statement that could itself move geometry
+                 //   before the solve is a defect generator (same reasoning as
+                 //   TAG and VERIFY).
+    Solve,       // SOLVE(%sketch)                        -> PROFILE. NEVER refuses.
+
     // --- 3D section rings (produce a WIRE — a loft cross-section placed in 3D) ---
     Ring,        // RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48]) superellipse ring @ height z
                  //   p=2 circle/ellipse, p=4..6 rounded-rect (impeller/nozzle/duct sections)

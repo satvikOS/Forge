@@ -29,6 +29,7 @@
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <mutex>
@@ -900,6 +901,96 @@ SketchAuditResult auditSketch(SketchHandle h) {
     r.hasRedundant = diag.hasRedundant;
     r.hasPartiallyRedundant = diag.hasPartiallyRedundant;
     return r;
+}
+
+// ============================================================================
+// DIAGNOSE, NEVER REFUSE  (see the contract in Sketcher.hpp)
+// ============================================================================
+
+void removeConstraintsByTag(SketchHandle h, int tag) {
+    Sketch& s = SketchRegistry::instance().get(h);
+    s.gcs.clearByTag(tag);
+    // The cached rank analysis describes a system that no longer exists. Not
+    // invalidating it is how a repair loop "converges" against a stale verdict.
+    s.gcs.invalidatedDiagnosis();
+}
+
+SketchSolveReport solveOrRepair(SketchHandle h, int maxDemotions) {
+    // Every exit from this function is a REPORT. There is no throw path for a
+    // geometry outcome: the only errors left are grammar errors (a bad handle),
+    // which SketchRegistry::get already raises before we get here.
+    Sketch& s = SketchRegistry::instance().get(h);
+
+    SketchSolveReport rep{};
+    rep.passes = 0;
+    rep.geometryApplied = false;
+    rep.worstResidual = 0.0;
+
+    // Tags still live in the system. A demoted tag is erased from here so it can
+    // never be chosen twice.
+    std::vector<int> live;
+    for (int t = 1; t <= s.nextConstraintTag; ++t) live.push_back(t);
+
+    auto worstLiveResidual = [&](int& tagOut) {
+        tagOut = 0;
+        double worst = 0.0;
+        for (int t : live) {
+            const double e = s.gcs.calculateConstraintErrorByTag(t);
+            if (!std::isfinite(e)) continue;
+            if (std::fabs(e) > std::fabs(worst)) { worst = e; tagOut = t; }
+        }
+        return worst;
+    };
+
+    for (int attempt = 0; attempt <= maxDemotions; ++attempt) {
+        const SketchSolveResult r = solve(h);
+        ++rep.passes;
+        rep.status = r.status;
+        rep.dof = r.dof;
+        if (r.status == SketchSolveStatus::Success) rep.geometryApplied = true;
+
+        const SketchDiagnostics d = diagnoseSketch(h);
+        rep.classification = d.classification;
+
+        // (1) converged and structurally clean — done.
+        if (r.status == SketchSolveStatus::Success && !d.hasConflicting) break;
+        if (attempt == maxDemotions) break;   // work bound reached; report as-is
+
+        // (2) RANK-VISIBLE conflict: drop the LAST-DECLARED conflicting tag.
+        //     Deterministic beats clever — a repair loop needs to predict which
+        //     constraint it lost far more than it needs the "best" choice.
+        int victim = 0;
+        SketchDemotionReason why = SketchDemotionReason::Conflicting;
+        for (int t : d.conflicting) {
+            const bool isLive = std::find(live.begin(), live.end(), t) != live.end();
+            if (isLive && t > victim) victim = t;
+        }
+
+        // (3) RANK-BLIND infeasibility: the solve failed but no tag is flagged
+        //     conflicting (MEASURED: the 10/10/100 triangle). Fall back to the
+        //     residual vector, which DOES name the offender.
+        if (victim == 0) {
+            if (r.status == SketchSolveStatus::Success) break;  // nothing to repair
+            why = SketchDemotionReason::Residual;
+            worstLiveResidual(victim);
+            if (victim == 0) break;   // no live tag carries a finite error
+        }
+
+        const double res = s.gcs.calculateConstraintErrorByTag(victim);
+        removeConstraintsByTag(h, victim);
+        live.erase(std::remove(live.begin(), live.end(), victim), live.end());
+        rep.demoted.push_back(SketchDemotion{victim, why, res});
+    }
+
+    // Worst error over the constraints that SURVIVED — the honest "how well is
+    // this sketch actually satisfied" number for the caller's verify channel.
+    int ignored = 0;
+    rep.worstResidual = std::fabs(worstLiveResidual(ignored));
+
+    // (4) Nothing converged? The as-drawn coordinates are still in the parameter
+    //     pool — solve() only calls applySolution() on success — so the caller
+    //     gets exactly the geometry today's unsolved IR would have produced.
+    return rep;
 }
 
 }  // namespace forge
