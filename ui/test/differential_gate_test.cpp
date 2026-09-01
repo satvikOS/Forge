@@ -221,7 +221,11 @@ int main(int argc, char** argv) {
               "(a gap in the COMMAND SET, not a refusal -- see the live sweep below):\n");
   for (const ArityGap& g : gaps) {
     refusedTotal += g.refused.size();
-    std::printf("    %-10s kernel accepts %zu..%zu, bridge refuses {%s}\n", g.op.c_str(),
+    // "no command emits", NOT "the bridge refuses" -- since the kernel's range
+    // became the refusal boundary the bridge refuses none of these, and a line
+    // that still called them refusals would be the stalest kind of comment: one
+    // the gate itself prints.
+    std::printf("    %-10s kernel accepts %zu..%zu, no command emits {%s}\n", g.op.c_str(),
                 g.kernelMin, g.kernelMax, countList(g.refused).c_str());
   }
   std::printf("[differential] %zu unauthorable counts across %zu of %zu user-invocable ops\n",
