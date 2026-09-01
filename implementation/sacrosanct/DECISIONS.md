@@ -1850,3 +1850,62 @@ uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf
 OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
 change for every corpus already written against `LOFT`, and it belongs in its own commit with
 its own measurement.
+
+## D-045 — self-consistency is NOT learnable from synthesised assertion supervision (the pre-registered prediction is refuted, and the direction is WORSE than baseline)
+
+**Status: recorded mid-run at n=183 of 600. The primary prediction is refuted beyond
+recovery; the "worse than baseline" reading is DIRECTIONAL and not yet established.**
+
+A prediction was pre-registered *before* the run precisely so that it could fail. It
+failed. Recording it because it failed, not in spite of that.
+
+### What was predicted, and what was measured
+
+| | baseline `v6r8` | predicted | measured @ n=183 |
+|---|---|---|---|
+| rows emitting VERIFY | 131 of 238 | — | **112 of 183** |
+| of those, own assertion false | 76 | — | **95** |
+| **self-inconsistency** | **58.0%** | **< 25%** | **84.8%** |
+| CBORE | 0 / 238 | >= 5 (Fisher p<0.05) | **0** |
+
+Both numbers use the SAME denominator rule — failures over VERIFY-BEARING rows, not over
+all rows. Quoting `95/183 = 51.9%` would be wrong and would understate the effect; the
+denominator is the rows that actually make an assertion.
+
+### Why this is not recoverable
+
+Reaching 25% needs <= 28 failures of 112 and there are 95. The remaining 417 rows cannot
+reverse it.
+
+### The finding
+
+The corpus was built **measure-then-assert**: build first, read every assertion off the
+kernel's own assertion path, rebuild under VERIFY, keep the row only if all pass —
+**10,190 assertions, ZERO unchecked, every one true by construction.** Trained 2,400
+iters, 6.89M tokens, loss 0.591 -> 0.0345. The model still asserts properties its own
+output does not satisfy.
+
+Combined with **D-041** — build rate spans 57.6–80.8% across four arms while
+self-inconsistency stays FLAT at 55.1 / 56.3 / 58.0 / 58.4 — neither incidental nor
+targeted supervision moves it. **A 23-point spread in whether the tree BUILDS moves
+self-consistency by nothing.**
+
+### Three caveats that bound this, stated because they cut against the strongest reading
+
+1. ★**THE HOLDOUT IS SORTED HARDEST-FIRST, so a 183-row PREFIX IS A HARD SAMPLE.** This
+   has bitten before: a partial read of 0.2423 became 0.3617 on the full set. 84.8% is
+   therefore an over-estimate of the final rate by an unknown margin.
+2. **The baseline comparison is UNPAIRED** — `v6r8` at n=238 against `v10` on a different
+   prefix. "Worse than baseline" needs the same ids on both arms; until then the honest
+   claim is only that the prediction is refuted.
+3. The composite is secondary and underpowered (sd 0.2977; min detectable 0.034 at
+   n=600). It is not the result.
+
+### What follows
+
+Synthetic assertion supervision is exhausted as a lever. The untried thing is **REAL human
+construction sequences** — see the ABC `ofs` finding: chunk 0000 is already on disk, and
+an even-stride census of 80 trees gives **mean 17 real ops, max 123**, dominated by
+`newSketch 466 / extrude 411 / fillet 128 / revolve 55`. ★`hole` appears **once in 182
+features** — real modellers cut holes with sketch+extrude rather than a hole feature,
+which is a candidate explanation for CBORE never appearing and is testable.
