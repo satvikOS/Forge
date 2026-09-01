@@ -1656,7 +1656,7 @@ reference parts (see the null-pcurve report).
 
 ## D-038 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
 
-*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` that cite "D-033" (the SLOT volume defect) refer to THIS entry, not to the axis-naming one, and have been updated to say D-038.)*
+*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` (the SLOT volume defect, at lines 786 and 1035 after the #177 merge -- re-measured here, because a line number cited in a second place goes stale by standing still) that once cited "D-033" refer to THIS entry, not to the axis-naming one, and now say D-038.)*
 
 `archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
 entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
@@ -1886,10 +1886,9 @@ Whether the null on paths A and B is present on the input or generated inside th
 **still not measured**, and the report's instruction to run that sweep before writing any guard
 stands. This decision buys the app the right to stay alive and to say which statement died; it does
 not buy a correct offset.
+## D-040 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
 
-## D-043 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
-
-*(Numbering collision — the THIRD one this entry has been through, recorded rather than quietly re-lettered. Allocated **D-038** on `archdisc`; D-038 was already taken by the primitives entry above, which had itself been renumbered out of a D-033 collision; it was moved to **D-040**; and `claude/sacrosanct-execution-20260828` then documented that D-040 and D-041 are allocated on two unmerged decision branches and took D-042 for SECTION below. This entry is therefore **D-043**, the first number no branch claims. Nothing outside this file cites it — checked with a repo-wide grep, not assumed.)*
+*(Numbering collision, resolved at merge: this entry was allocated **D-038** on `archdisc`, which `claude/sacrosanct-execution-20260828` had already spent on the ten-primitives entry above. It is renumbered **D-040** here.)*
 
 **The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
 (`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
@@ -1951,6 +1950,88 @@ uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf
 OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
 change for every corpus already written against `LOFT`, and it belongs in its own commit with
 its own measurement.
+
+## D-041 (2026-09-01): a capability can land as a TYPE, a GRAMMAR and a PARSE GATE and move the product surface by ZERO — #146 did, and #165 is the control that proves it
+
+The third JS-deletion pass expected #146 (SURFACE as the fourth IR value kind) to retire three
+surfacing JS harnesses. It retires none, and the reason is worth more than the deletion.
+
+**Measured on `b793ebe1`** (merge of `origin/archdisc` into the execution branch):
+
+```
+kernel ops (opFromName)      47      <- 40 + 6 SURFACE (#146) + 1 SECTION (#165)
+forge::ui registry commands  42      <- UNCHANGED by #144 and #146; +1 from #165
+user-invocable IR ops        29      <- UNCHANGED by #144 and #146; +1 from #165
+forbidden_ops                18      <- 12 + the six SURFACE ops, ALL SIX. NOT SECTION.
+gate 3 coverage           15.9%      <- IDENTICAL after ALL THREE PRs
+```
+
+**#165 IS THE CONTROL, AND IT ARRIVED MID-PASS.** It landed `SECTION` the other way round — an op
+**and** a `forge::ui` command (`part.section_curve`) — so `SECTION` is **not** forbidden while all
+six of #146's ops are. Two capability PRs, one week, one difference: **whether a command emits the
+op.** Without #165 this decision would rest on a single observation; with it, it rests on a
+contrast.
+
+Every one of the six new ops carries the generated reason *"no command in the forge::ui registry
+emits it, so no user can produce it."* And `forge-kernel/test/ft/surface_round_trip_test.cpp:12-16`
+declares its own scope: it *"leaves `compile()`'s kernel symbols unresolved … this is a PARSE-level
+gate: it proves the grammar, the op table, the arities and the tolerant repairs agree. **It does not
+build geometry and does not claim to.**"*
+
+So `knit_surface_smoke.js` still holds, alone, the only assertion in the tree that sewing two
+adjacent 100×60 patches gives **area 12000** and thickening the result gives **volume 48000** with
+**CoM x = 100** — a vector of observables on the knit→thicken pipeline. The nearest C++ harness,
+`native_vs_occt_sew.cpp`, asserts a *topology signature* (free edges, closed, F/E/V) on *box faces*.
+Same word, different subject.
+
+**THE DECISION: a capability is not landed, and nothing becomes retireable, until (a) a `forge::ui`
+command emits the op and (b) a gate BUILDS the geometry.** Three-quarters — value kind, op table
+entry, parse gate — buys zero product surface and zero deletions. Future PRs claiming a capability
+must state which of (a) and (b) they include; "the op exists" is not an answer. This is D-021's
+finding one layer up: there the vocabulary was open, here the vocabulary is closed and the *door* is
+missing.
+
+**Corollary, and the reason this is a decision rather than a note.** `forbidden_ops` grew 12 → 18
+and no gate went red, because "forbidden" is the *correct* generated state for an op no command
+emits. **The list growing is the signal.** A rising `forbidden_ops` count means kernel capability is
+outrunning app surface, and it is the cheapest available early warning that a PR shipped three
+quarters of a feature. Read it at every capability landing.
+
+### Two standing claims retracted in the same pass
+
+1. **`build-app.yml` is on the default branch and ships the JS app** — asserted in four places in
+   `FORGE_DELETION_PLAN.md` plus blocker B11. **False, and false when written.** It left at
+   `50c512e4` (2026-08-28), an ancestor of `origin/archdisc`; `git ls-tree origin/archdisc
+   --name-only .github/workflows/` returns `desktop-release.yml` and `kernel-tests.yml`. **Nothing
+   in CI builds the JS app on any branch**, so deleting `frontend/` and `electron/` breaks no
+   workflow. B11 cleared.
+
+   *How it survived:* the second pass ran that exact command to confirm `desktop-release.yml` had
+   **arrived** and did not notice, in the same output, that `build-app.yml` had **left**. **A
+   command run to confirm one expectation will not volunteer the other half of its own answer.**
+
+2. **`SECTION` is an op and user-invocable ops are 29** — carried in this pass's own briefing.
+   **RETRACTED, THEN UN-RETRACTED, AND THE ROUND TRIP IS THE POINT.** Measured on the first tree
+   (`origin/archdisc` merged into the execution branch) `SECTION` was genuinely absent from
+   `opFromName`, user-invocable ops were **28**, and the only occurrence of the string in the tree
+   was the comment banner `// ── SECTION RING ──` at `ui/src/PartCommands.cpp:669`, heading the
+   **RING** command. All of that was true of that ref. It was **already false of the execution
+   branch**, where #165 had landed `SECTION` as a real op with a real command. Final merged
+   figures: **47** kernel ops, **29** user-invocable.
+
+   **A CAPABILITY'S PRESENCE IS A PROPERTY OF A REF, NOT OF A REPOSITORY.** Two long-lived
+   branches can both be measured correctly and disagree, and "I checked the tree" is not an answer
+   unless it says *which* tree. A banner is still not a capability — but neither is an absence on
+   one ref evidence of absence on another.
+
+   **How the drift announced itself, which is the reusable part:** as `mergeable=CONFLICTING` on
+   the PR, whose *symptom* was that **CI never ran at all**. `pull_request` workflows check out
+   `refs/pull/<n>/merge`; when that ref cannot be computed there is no run — not a red run, **no
+   run** — and `gh pr checks` showed one green line, `CodeRabbit — pass`, whose description read
+   *"Review skipped: reviews are disabled for this base branch."* **A green bucket on a check that
+   did nothing, next to zero rows for the gate that matters.** Read the description, never the
+   bucket; and treat "all checks settled" as a claim to verify whenever the row count is small.
+
 
 
 ## D-042 (2026-08-31): the IR had three of OCCT's four Boolean operators, and the fourth is the only one that is not a body
@@ -2038,3 +2119,94 @@ it; the gate calls `forge::section` and `forge::ft::parse` directly and never `c
 numbers are the OPERATOR's and not a whole-pipeline result. Nothing here measures a benchmark: the
 interface term scores planes and cylinders only, and a section curve scores zero points on it. This
 closes a hole in the op table, and it is not claimed to move a score.
+## D-043 (2026-09-01): the forbidden set was 18, not 12 — and the last SIX needed one SELECTION KIND, not six commands
+
+*(Numbering collision, resolved at merge — the THIRD in this file. `D-042` was surveyed as free across every `decisions/*` branch at `origin` before it was taken, and #165 allocated it on the execution branch in the same window. The SECTION entry keeps `D-042` because it is the one already merged; this entry is renumbered **D-043**. Content unchanged. The lesson is that surveying the `decisions/*` branches is not enough — a feature PR can allocate a number too.)*
+
+**Number chosen by survey, not by increment.** `D-040` and `D-041` are both
+already allocated on unmerged branches (`decisions/d040-arm-qualified` and
+`decisions/d041-selfconsistency-flat`), and this file has just spent a merge
+untangling a DOUBLE collision where two branches each allocated D-033 and D-038.
+`D-042` was free on every decision branch at `origin` when this was written. The
+survey is recorded so the next writer can do it in one command instead of one
+merge.
+
+### What was actually forbidden
+
+The standing brief said twelve ops were forbidden "ONLY because no forge::ui
+command emits them". Regenerating the asset on the merged tree says **eighteen**,
+and the extra six are the SURFACE ops #146 landed while that list was being
+written. `kernel_ops` is **46**, not the 41 the brief carried — re-measured, as
+the brief itself instructed.
+
+Of the eighteen, **seventeen are now closed**: eleven by #164, six here. The
+count moved **28 -> 39 -> 45**, and `forbidden_ops` **18 -> 7 -> 1**.
+
+### The six were not six problems
+
+Four of the six CONSUME a sheet, and nothing in the app could hold one. A click
+yields an `EntityRef`; `resolveValues()` maps it `bodyId -> valueFor() ->
+kindOf()`; and every node any command produced was `body_N`, `sketch_N` or
+`wire_N`. A sheet parked in `body_N` reads back as a SOLID — so `THICKEN` would
+have offered itself on a fillet's output and `SHELL` on a skin, and the kernel
+throws on both.
+
+`EntityKind::Surface` + `surfaceNodeFor()` is the whole unlock, and it is the
+LAST one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
+`IrValueKind`, and each now has an entity kind and a node prefix. **This is the
+same shape as #164's finding** — POLY/WIRE/SWEEP were blocked by a missing
+`IrArgKind::Points`, not by three missing commands. Twice now, a batch of
+"missing commands" has turned out to be one missing TYPE.
+
+### A COUNT IS NOT A CAPABILITY, and this one was not
+
+`user_invocable_ops` means "some forge::ui command emits this op". It does NOT
+mean a user can run that command, and for these it did not:
+
+* **`resolveSelection()` knew two of the four kinds.** It chose
+  `want = (select == LatestProfile) ? Profile : Solid`, so a Wire- or
+  Surface-signature command got a ref naming a SOLID, `resolveValues()` returned
+  `{}`, and the command greyed out — reported as `SelectionSignatureMismatch` on
+  a document that HELD the value. **`part.loft` has been shipped and undrivable
+  by the CoPilot this entire time.**
+
+  This is D-023's defect ("part.loft was resolving PROFILE values") standing in a
+  SECOND place. It survived the fix because that search went looking for the
+  command and this is the concept — the third time this file records that shape.
+  Measured red-then-green: 7 of 7 cases failed before, 7 of 7 apply after.
+
+* **The viewport still cannot pick a wire or a sheet, and that is NOT fixed.**
+  `ForgeFrame`'s only two selection entry points build `Face` and `Edge` refs;
+  clicking a feature-tree row calls `setEditTarget()`, which aims the parameter
+  editor and writes nothing to the selection. So Archie can now drive these
+  through the CoPilot and a HUMAN still cannot click them. Named rather than
+  half-done: the fix is a forge-desktop change inside the tree walk that has
+  already shipped three container-mutation crashes, so it needs the click gate,
+  and this machine is sharing itself with a 600-row evaluation.
+
+### SLOT is the one left, and it is not a missing command
+
+`SLOT`'s extruded area is `|(len-wid)*wid - pi*(wid/2)^2|` at every measured size
+and its bbox spans `+/-(len-wid)/2` — both semicircular caps bow INWARD, -50.4%
+of the promised volume at `SLOT(40, 12)`. The mechanism is located (`addArc`
+records only centre/start/end, which cannot express a semicircle), but the two
+candidate repairs differ in FACE COUNT, so which one is right is itself a
+question only a measurement answers, through a kernel build. No command in the
+app layer can close it, and adding one would put `SLOT` into Archie's training
+vocabulary as a shape it is not.
+
+That makes `SLOT` the right negative control, and `surface_value_kind_test`
+section 7 now uses it as one. That test was written by #146 to assert the six
+SURFACE ops were forbidden and it predicted its own end — "it lifts the moment a
+command emits these ops". It was INVERTED rather than deleted, and the
+Ok / ForbiddenOp / UnknownOp three-way distinction it existed to protect is kept
+in full. `Ok` is asserted for the first time: while all six were forbidden,
+nothing tested the allowed verdict at all.
+
+### One correction to the merge recipe
+
+There are three generated artifacts, and they do not have three generators.
+`APP_SURFACE_MANIFEST.tsv`'s ONLY writer is the `capability_manifest_test` binary
+under `FORGE_WRITE_APP_SURFACE=1`. `forge_deletion_inventory.py` READS it and
+never writes it — running that script to "regenerate" the manifest regenerates
+nothing and leaves the gate red with no indication why.
