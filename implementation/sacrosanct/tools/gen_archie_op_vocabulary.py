@@ -62,7 +62,11 @@ MD_COUNT_PATTERNS = [
     (r"reaching \*\*(\d+) distinct op names\*\*", "user_invocable_ops"),
     (r"only the (\d+) names are legal", "user_invocable_ops"),
     (r"The kernel defines \*\*(\d+)\*\* ops", "kernel_ops"),
-    (r"so \*\*(\d+) ops plus", "forbidden_ops"),
+    # `ops?` because the count reached ONE. The pattern used to demand the plural,
+    # which is a check that forces the prose to be ungrammatical to stay green --
+    # and an author who fixes the grammar instead silently turns the check off.
+    # "plus" is kept, so a sentence REWORDED past this pattern still fails loudly.
+    (r"so \*\*(\d+) ops? plus", "forbidden_ops"),
     # Not a "counts" entry: the worked examples the runtime gate dispatches.
     # Resolved below, because it is derived from the ops rather than stored.
     (r"dispatches all (\d+) recorded examples", "@examples"),
@@ -531,7 +535,7 @@ def parse_param_specs(block):
     return out
 
 
-IRARG_RE = re.compile(r"IrArg::(num|valueRef|keyword|text)\s*\(")
+IRARG_RE = re.compile(r"IrArg::(num|valueRef|keyword|text|pointsFromText)\s*\(")
 
 
 def split_statements(text):
@@ -583,6 +587,11 @@ REF_ROLES = {
     "section": "wire_section",
     "ids[0]": "target_solid",
     "ids[1]": "tool_solid",
+    # part.section_curve's two operands. They are NOT target/tool: SECTION consumes
+    # neither body and the operation is symmetric, so naming them the way the
+    # booleans name theirs would teach Archie that one of them gets eaten.
+    "bodies[0]": "section_operand_a",
+    "bodies[1]": "section_operand_b",
 }
 
 
@@ -661,9 +670,30 @@ def slot_of(call):
             return {"token": "keyword", "from_local": expr}
         raise DeriveError("unparsed keyword argument %r" % expr)
     if kind == "text":
+        # `IrArg::text(txt(ctx, "name", "fallback"))` -- the same INLINE spelling
+        # IrArg::keyword already required, and for the same reason: the slot has to
+        # name the PARAMETER it reads or the recorded example cannot be rendered.
+        # The five edit ops (TAG / VERIFY / PUSHFACE / RESIZEBORE / DEFEATURE) carry
+        # a quoted face selector that is never a bare keyword, so they have no
+        # keyword/text ternary to hide behind the way FILLET's ALL|"sel" slot does.
+        m = re.match(r'^txt\(ctx, "(\w+)", "([^"]*)"\)$', expr)
+        if m:
+            return {"token": "text", "from_parameter": m.group(1), "fallback": m.group(2)}
         if re.match(r"^\w+$", expr):
             return {"token": "text", "from_local": expr}
         raise DeriveError("unparsed text argument %r" % expr)
+    if kind == "pointsFromText":
+        # `IrArg::pointsFromText(txt(ctx, "ring", "x y; x y; x y"), 2)` -- a POINT RING.
+        # The DIMENSION is captured, not assumed: `[x y; ...]` and `[x y z; ...]` are
+        # different tokens to forge::ft (a 2D ring is lifted to z=0, a 3D one is placed
+        # where it says), and SWEEP's profile form carries one of each in ONE statement.
+        # Recording the wrong dim would publish an example that reads as a different
+        # shape than the command emits.
+        m = re.match(r'^txt\(ctx, "(\w+)", "([^"]*)"\), ([23])$', expr)
+        if m:
+            return {"token": "points", "from_parameter": m.group(1),
+                    "fallback": m.group(2), "dim": int(m.group(3))}
+        raise DeriveError("unparsed point-ring argument %r" % expr)
     raise DeriveError("unknown IrArg factory %r" % kind)
 
 
@@ -899,6 +929,29 @@ OP_ARG_OVERRIDES = {
     ("PRISM", "nSides"): ("count", "side_count",
                           "makePrism(n, R, h) builds one n-gon profile and extrudes it; "
                           "n is the side count of a single solid, not a number of copies"),
+    # FOLD's hx/hy/hz are the HINGE POINT, a world-space position: opFold translates
+    # the flange box's corner to (hx, hy, hz) and then rotates about the line through
+    # it. No generic rule matched them, so both were landing in `uncertain` -- and an
+    # unclassified argument is a hole in the training signal, not a cosmetic gap.
+    ("FOLD", "hx"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    ("FOLD", "hy"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    ("FOLD", "hz"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    # RESIZEBORE sets a bore's radius EXACTLY. The generic radius rule lists whole
+    # names and `newRadius` is not one of them; classifying it as anything but a
+    # radius would teach the model to pass a diameter here.
+    ("RESIZEBORE", "newRadius"): ("mm", "radius",
+                                  "RESIZEBORE(%body, \"sel\", newRadius) -- the kernel sets "
+                                  "the selected cylindrical bore to this RADIUS, not to this "
+                                  "diameter"),
 }
 
 
@@ -918,7 +971,15 @@ def classify(op_name, param):
 # ---------------------------------------------------------------------------
 # 6. what each op CONSUMES, read out of the compiler's own type checks
 # ---------------------------------------------------------------------------
-REF_ACCESSOR_KIND = {"refSolid": "SOLID", "refProfile": "PROFILE", "refWire": "WIRE"}
+# refSurface is the fourth entry because SURFACE is the fourth IR value kind.
+# It contributes nothing to the JSON TODAY -- every surface op is forbidden, and
+# a forbidden op records only its name and the reason -- but omitting it would be
+# a latent WRONG answer rather than a missing one: the moment a forge::ui command
+# emits THICKEN or CAP, its `consumes_value_kinds` would come back EMPTY, which
+# this file spells "a CREATOR", and the value-kind closure would report the
+# allowed set as closed when it is not.
+REF_ACCESSOR_KIND = {"refSolid": "SOLID", "refProfile": "PROFILE", "refWire": "WIRE",
+                     "refSurface": "SURFACE"}
 
 
 def parse_compiler_ref_kinds(cpp):
@@ -1045,7 +1106,12 @@ def ternary_domain(selects_on):
 # 8. emitted forms: expand one command's argument slots into concrete IR forms
 # ---------------------------------------------------------------------------
 REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%profile",
-                   "wire_section": "%wire"}
+                   "wire_section": "%wire",
+                   # SECTION is symmetric and consumes neither operand, so both slots
+                   # are bodies. They still need DISTINCT placeholders: one shared name
+                   # would render the worked example as SECTION(%body, %body), which
+                   # reads as a body sectioned against itself.
+                   "section_operand_a": "%bodyA", "section_operand_b": "%bodyB"}
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 
@@ -1068,6 +1134,18 @@ def slot_token(slot, cmd):
             return slot["literal"]
         dom = keyword_domain(cmd["enabled_predicate_source"], slot["from_parameter"])
         return "|".join(dom) if dom else slot["from_parameter"]
+    if slot["token"] == "text":
+        # A QUOTED argument: the quotes are part of the token forge::ft parses, so
+        # they are part of the documented form too.
+        name = slot["from_parameter"] if "from_parameter" in slot else slot["from_local"]
+        return '"<%s>"' % name
+    if slot["token"] == "points":
+        # The DOCUMENTED form of a ring, and the dimension is in it: `[x y; ...]` and
+        # `[x y z; ...]` are the two spellings forge::ft's lexer distinguishes, and
+        # SWEEP's profile form carries one of each, so a form that said only "[...]"
+        # would document the two arguments as interchangeable when they are not.
+        coords = "x y z" if slot["dim"] == 3 else "x y"
+        return "[%s; ...]" % coords
     raise DeriveError("cannot render slot %r" % slot)
 
 
@@ -1127,6 +1205,30 @@ def render_example(cmd, slots, active, params, selector_choice=None):
             continue
         if s["token"] == "keyword":
             args.append(s["literal"] if "literal" in s else params[s["from_parameter"]])
+            continue
+        if s["token"] == "text":
+            # IrArg::text(...).token() wraps the value in double quotes, and the
+            # gate compares this string with what the live document RECORDED, so
+            # the quotes have to be HERE and not merely implied.
+            args.append('"%s"' % params[s["from_parameter"]])
+            continue
+        if s["token"] == "points":
+            # IrArg::token() writes the brackets and normalises the separator to "; ",
+            # so the example has to be built the same way rather than by echoing the
+            # parameter text back: the gate compares this string against what the live
+            # document RECORDED, and "0 0 0;0 0 30" and "0 0 0; 0 0 30" are the same
+            # ring written two ways.
+            pts = []
+            for chunk in params[s["from_parameter"]].split(";"):
+                coords = chunk.split()
+                if not coords:
+                    continue
+                if len(coords) != s["dim"]:
+                    raise DeriveError("point %r is not %d coordinates" % (chunk, s["dim"]))
+                pts.append(" ".join(fmt_num(float(v)) for v in coords))
+            if not pts:
+                raise DeriveError("empty point ring for parameter %r" % s["from_parameter"])
+            args.append("[%s]" % "; ".join(pts))
             continue
         raise DeriveError("cannot render slot %r" % s)
     return args

@@ -54,6 +54,7 @@
 //      allowed                                  reading the vocabulary; a
 //                                               transcribed list would not notice
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -132,19 +133,28 @@ OpVocabulary perturbed(OpVocabulary v) {
       break;
     }
     case 2: {  // the allowed set is quietly widened to an op no command emits
-      // POLY, not BOX: BOX became user-invocable when part.primitive_box was added, and
-      // an op the registry really does emit cannot demonstrate "widened to an op nothing
-      // emits". POLY stays forbidden because forge::ui::IrArgKind models no points token,
-      // so no command can spell POLY([x y; ...]) at all.
-      OpVocabulary::Op poly;
-      poly.op = "POLY";
-      poly.produces = IrValueKind::Profile;
-      poly.kernelMinArgs = 1;
-      poly.kernelMaxArgs = 1;
-      poly.firstArgIsValueRef = false;
-      poly.emittedForms.push_back(OpVocabulary::ArgCounts{1, 1});
-      poly.commands.push_back("part.make_poly");
-      v.ops.push_back(std::move(poly));
+      // SLOT, not POLY, and not BOX before it. This exemplar has now moved TWICE for the
+      // same reason -- BOX became user-invocable with part.primitive_box, POLY with
+      // part.sketch_poly -- and an op the registry really does emit cannot demonstrate
+      // "widened to an op nothing emits": the mutation would be a no-op and the gate
+      // would pass while proving nothing.
+      //
+      // SLOT is the durable one, and for a reason no future command can quietly undo:
+      // it is not waiting on a spelling, it is out on a MEASUREMENT. profSlot builds
+      // both semicircular caps INWARD (-50.4% of the volume its own signature promises
+      // on SLOT(40,12); forge-kernel/reports/MODELLING_OP_FAMILIES.md 6.1), so it stays
+      // forbidden until the kernel arc is fixed AND re-measured. It is also the LAST
+      // member of forbidden_ops -- if a future change empties that set, this mutation
+      // has no subject left and the assertion below is what will say so.
+      OpVocabulary::Op slot;
+      slot.op = "SLOT";
+      slot.produces = IrValueKind::Profile;
+      slot.kernelMinArgs = 2;
+      slot.kernelMaxArgs = 5;
+      slot.firstArgIsValueRef = false;
+      slot.emittedForms.push_back(OpVocabulary::ArgCounts{2, 2});
+      slot.commands.push_back("part.make_slot");
+      v.ops.push_back(std::move(slot));
       break;
     }
     case 3: {  // the KERNEL's arity is enforced instead of the app's
@@ -399,22 +409,43 @@ int main(int argc, char** argv) {
     // FORBIDDEN: a real kernel op no command emits. The refusal must quote the
     // vocabulary's own reason, not say "not allowed".
     //
-    // This case named BOX until part.primitive_box was added; BOX is now allowed, and a
-    // named example has to be an op that is STILL out of reach or the assertion tests
-    // nothing. POLY is the durable one: it takes a `[x y; x y; ...]` points token, and
-    // forge::ui::IrArgKind deliberately models Number/Ref/Keyword/Text and no points
-    // kind, so no forge::ui command can spell the statement at all -- the reason is
-    // structural rather than "nobody has written the command yet".
-    const OpRuling poly = bridge.check(step(1, "POLY", {IrArg::num(10)}));
-    CHECK_EQ_INT(static_cast<int>(poly.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
-    CHECK(poly.reason.find("POLY") != std::string::npos);
-    CHECK(poly.reason.find("no user can produce it") != std::string::npos);
-    // And BOX, which used to stand here, is now ACCEPTED in the form the new command
-    // emits -- the other half of the same claim, and the reason this line moved.
-    const OpRuling boxNow = bridge.check(step(1, "BOX",
-                                              {IrArg::num(40), IrArg::num(30), IrArg::num(20)},
-                                              EntityKind::None, 0));
-    CHECK_EQ_INT(static_cast<int>(boxNow.verdict), static_cast<int>(OpConstraint::Ok));
+    // This case named BOX until part.primitive_box was added, then POLY until
+    // part.sketch_poly was. Both are now allowed, and a named example has to be an op
+    // that is STILL out of reach or the assertion tests nothing. SLOT is the durable
+    // one, and unlike its two predecessors it is not one command away: it is spellable
+    // today and withheld on a MEASUREMENT (profSlot inverts both end caps, -50.4% of the
+    // volume on SLOT(40,12)), so no new command legalises it -- only a kernel fix plus a
+    // re-measurement does.
+    const OpRuling slot = bridge.check(step(1, "SLOT", {IrArg::num(40), IrArg::num(12)}));
+    CHECK_EQ_INT(static_cast<int>(slot.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
+    CHECK(slot.reason.find("SLOT") != std::string::npos);
+    // NOT "no user can produce it": SLOT's recorded reason is the measurement, and
+    // asserting the old blanket wording here would let the two be confused again.
+    CHECK(!slot.reason.empty());
+    // And POLY, which used to stand here, is now ACCEPTED in the form the new command
+    // emits -- the other half of the same claim, and the reason this line moved. It is
+    // also the FIRST points-token statement the bridge has ever had to rule on.
+    const OpRuling polyNow = bridge.check(
+        step(1, "POLY",
+             {IrArg::points({IrPoint{-20, -10, 0}, IrPoint{20, -10, 0}, IrPoint{0, 18, 0}}, 2)},
+             EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(polyNow.verdict), static_cast<int>(OpConstraint::Ok));
+    // A ring carrying a non-finite coordinate is REFUSED, and by the argument-VALUE rule
+    // rather than the op-name one. Without the Points arm in checkValue this statement
+    // sails through: arg.word is empty, so every existing test in that function passes
+    // it, and `[10 nan; ...]` reaches forge::ft as a ring it reads back differently.
+    const OpRuling polyNaN = bridge.check(
+        step(1, "POLY",
+             {IrArg::points({IrPoint{-20, -10, 0}, IrPoint{20, std::nan(""), 0},
+                             IrPoint{0, 18, 0}}, 2)},
+             EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(polyNaN.verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
+    // An EMPTY ring renders as `[]`, which forge::ft's lexer refuses outright.
+    const OpRuling polyEmpty =
+        bridge.check(step(1, "POLY", {IrArg::points({}, 2)}, EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(polyEmpty.verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
 
     // Every forbidden op is refused, every one names itself, and none is allowed.
     for (const std::string& op : bridge.forbiddenOps()) {
@@ -732,9 +763,25 @@ int main(int argc, char** argv) {
   CHECK_EQ_INT(closure.unreachableOps.size(), 0);
   // The creators, pinned. D-015 measured ZERO; if that is ever true again the
   // language is empty and this line says so by name. Three of these (CIRCLE, RECT, RING)
-  // closed the PROFILE and WIRE kinds; the other nine are the kernel's own primitives,
-  // which the kernel has always built and no command could ask for until now.
-  CHECK_EQ_INT(closure.creatorOps.size(), 12);
+  // closed the PROFILE and WIRE kinds; nine are the kernel's own primitives, which the
+  // kernel has always built and no command could ask for until now; the thirteenth
+  // is INPUT, which creates a SOLID from the task's imported STEP rather than from
+  // numbers -- the creator every EDIT task starts from, without which the only solids
+  // reachable were ones the app had just built from scratch, so "change the part you
+  // were given" was not a program this language could write.
+  //
+  // The last three are the POINT-RING creators, and each closes a shape the other
+  // twelve cannot express however they are composed: POLY is the only ARBITRARY 2D
+  // silhouette (every other profile creator is a parameterised family -- rectangle,
+  // circle, n-gon), WIRE is the only NON-superelliptical loft section (RING is rx/ry/p,
+  // so an airfoil is not statable as one), and SWEEP is the only op that makes a solid
+  // by following a 3D PATH. They needed no new value kind -- they needed a new ARGUMENT
+  // kind, IrArgKind::Points, which is why they outlasted the other nine.
+  CHECK_EQ_INT(closure.creatorOps.size(), 16);
+  CHECK(contains(closure.creatorOps, "POLY"));
+  CHECK(contains(closure.creatorOps, "WIRE"));
+  CHECK(contains(closure.creatorOps, "SWEEP"));
+  CHECK(contains(closure.creatorOps, "INPUT"));
   CHECK(contains(closure.creatorOps, "CIRCLE"));
   CHECK(contains(closure.creatorOps, "RECT"));
   CHECK(contains(closure.creatorOps, "RING"));
