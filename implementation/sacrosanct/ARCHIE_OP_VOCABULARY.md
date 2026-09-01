@@ -47,17 +47,28 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **53 commands**; **42 of them emit
-feature-IR**, reaching **39 distinct op names**. The kernel defines **46** ops
-(`opFromName`), so **7 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **39 distinct op names**. The kernel defines **53** ops
+(`opFromName`), so **14 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The seven are `SLOT` and the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
-`SKIN`, `SEW`, `SURFCHECK` -- and they are out for two DIFFERENT reasons, which
-is the distinction a single "no command emits it" line would hide.
+The fourteen are `SLOT`, the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
+`SKIN`, `SEW`, `SURFCHECK` -- and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
+`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. They are out for three DIFFERENT
+reasons, which is the distinction a single "no command emits it" line would hide.
 
 The six SURFACE ops arrived with the SURFACE value kind (D-038) and are simply
 NEW: the kind exists, the kernel builds them, and no command emits one yet. That
 is the ordinary kind of gap, and one command apiece closes it.
+
+The seven 2D-sketch ops are the same ordinary kind of gap one layer earlier, and
+they are what took the kernel from 46 ops to 53. They make the vendored planegcs
+solver addressable from a feature tree for the first time: `SKETCH` opens one,
+`SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it, `CON` constrains a
+pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE` already accepts.
+The kernel compiles and solves all seven. No `forge::ui` registry command emits
+one yet, which is why every one of them is forbidden here and why the count of
+distinct op names a user can reach is **unchanged at 39** by this branch: the
+solver became reachable from the IR, not yet from the app.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
 pinned native verifier its extruded area is exactly
