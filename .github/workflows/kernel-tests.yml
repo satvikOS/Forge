@@ -442,6 +442,29 @@ jobs:
         # defect the crash was hiding -- base-16 stoi stops at the first non-hex character, so
         # "\u00ZZ" partially parsed to 0 and silently injected a NUL byte.
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh
+      - name: .fpart round trip preserves the SOLID (13 observables, not a volume)
+        # THE OTHER HALF OF THE SAVE GATE. The `ui` job proves a save/load preserves
+        # every FIELD of the document; this proves it preserves the PART, by building
+        # the 71-statement fixture before and after a real file on disk and comparing
+        # what the kernel measured.
+        #
+        # It runs HERE and not in the `ui` job because it is the one forge::ui gate that
+        # needs a kernel binary, and this job already built one. It compiles ui/src plus
+        # one translation unit with clang++ directly -- no CMake, no SDL2, no Vulkan, no
+        # ImGui -- so it costs seconds on top of a forge_verify that already exists.
+        #
+        # Volume cannot validate geometry: the divergence theorem gives a
+        # self-intersecting shell the right volume, and this programme has four measured
+        # cases where a single observable was clean on a wrong part. So the comparison is
+        # over volume, six bbox coordinates, face/edge/vertex/body/shell counts, genus,
+        # BRepCheck validity, surface area, the area-weighted surface centroid and the
+        # face-kind histogram -- and it is proved falsifiable: a positive control (the
+        # document AS WRITTEN vs AS BUILT must measure differently, or "before == after"
+        # is green for nothing) plus four corruptions of the saved file, each of which
+        # must move the vector. MEASURED on this fixture: no single observable catches
+        # all four. Widening the plate moves volume and bbox and NOTHING topological;
+        # dropping the SUPPRESSED flag moves volume and every count and NOT the bbox.
+        run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash ui/test/run_document_roundtrip_gate.sh
 
   desktop:
     # The count is deliberately NOT in this name. It said "17 mutation proofs" while
