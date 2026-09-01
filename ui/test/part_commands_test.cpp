@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 31);
-  CHECK_EQ_INT(registry.size(), 31);
+  CHECK_EQ_INT(added, 39);
+  CHECK_EQ_INT(registry.size(), 39);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 31);
+  CHECK_EQ_INT(registry.size(), 39);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -102,7 +102,7 @@ int main() {
       CHECK(findIrOp(c->featureIrOp) != nullptr);
     }
   }
-  CHECK_EQ_INT(withIrOp, 30);  // every registered Part command emits an IR op
+  CHECK_EQ_INT(withIrOp, 38);  // every registered Part command emits an IR op
 
   // ── the document seed ─────────────────────────────────────────────────────
   // Three values that exist before any Part command ran: two sketches from the
@@ -372,7 +372,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 31);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 39);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -489,7 +489,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 31);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 39);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -521,7 +521,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 31);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 39);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -574,7 +574,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 31);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 39);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
@@ -764,7 +764,7 @@ int main() {
   //   SILENTLY. `REGPOLY(r, n)` takes the radius first and `PRISM(nSides, R, h)`
   //   takes the count first -- opposite orders for the same two numbers -- and both
   //   spellings compile either way. Every string below was measured against closed
-  //   form through the native kernel before the command was written (D-033).
+  //   form through the native kernel before the command was written (D-038).
   //
   //   THE REFUSAL of degenerate input, because Primitives.cpp THROWS on it
   //   (requirePositive, "tube.rInner must be < rOuter", "torus.minorR must be <
@@ -779,7 +779,7 @@ int main() {
     PartDocument docN;
     UndoStack stackN;
     SelectionService selN;
-    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 31);
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 39);
     CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
 
     // ── the minimal form of each: required parameters only ──────────────────
@@ -1013,7 +1013,7 @@ int main() {
     // through the native kernel, SLOT(len, wid) extruded 10 mm has area exactly
     // |(len - wid)*wid - pi*(wid/2)^2| at every size and a bbox spanning
     // +/-(len - wid)/2 rather than +/-len/2 -- both semicircular caps bow INWARD,
-    // -50.4% of the promised volume on SLOT(40, 12). See D-033. This asserts the
+    // -50.4% of the promised volume on SLOT(40, 12). See D-038. This asserts the
     // ABSENCE so that adding a command later cannot slip past the decision.
     CHECK(regN.find("part.sketch_slot") == nullptr);
     for (const std::string& id : partCommandIds()) {
@@ -1021,6 +1021,143 @@ int main() {
       CHECK(c != nullptr);
       if (c != nullptr) CHECK(c->featureIrOp != "SLOT");
     }
+  }
+
+  // ── (d2) THE EIGHT EDIT-OP COMMANDS, AND THEIR ARGUMENT ORDER ─────────────
+  // Every assertion here is the EMITTED TEXT, compared against the signature
+  // transcribed from forge-kernel/include/forge/ft/FeatureTree.hpp -- quoted above
+  // each dispatch. That is deliberate and it is the only check that can catch the
+  // failure this batch is exposed to: `PUSHFACE(%body, dist, "sel")` has the right
+  // op, the right arity and the right value kind, and builds the wrong solid in
+  // silence. archie_op_vocabulary_test also compares tokens, but it compares them
+  // against a JSON DERIVED FROM THIS SOURCE -- self-consistent, not independent.
+  // These lines are written from the kernel header instead.
+  {
+    CommandRegistry regE2;
+    PartDocument docE2;
+    UndoStack stackE2;
+    SelectionService noneE2;
+    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 39);
+    CHECK_EQ_INT(docE2.records().size(), 0);  // EMPTY: INPUT is a creator
+
+    // INPUT()  -- "bind the task's input STEP as a solid". No selection, no
+    // parameter, and it is the ONLY way a document can start from a part it was
+    // given rather than one it built.
+    CHECK(regE2.dispatch("part.input_solid", noneE2, CommandParams{}).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%1 = INPUT()");
+    CHECK_EQ_INT(static_cast<int>(docE2.kindOf(1)), static_cast<int>(IrValueKind::Solid));
+    CHECK_EQ_INT(docE2.valueFor("body_1"), 1);
+
+    SelectionService faceE2;
+    selectOnly(faceE2, {ref("body_1", EntityKind::Face, "f1")});
+    SelectionService bodyE2;
+    selectOnly(bodyE2, {ref("body_1", EntityKind::Body, "b1")});
+
+    // HEAL(%body)
+    CHECK(regE2.dispatch("part.heal", bodyE2, CommandParams{}).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%2 = HEAL(%1)");
+    // pass-through-shaped: the body keeps its node, so the next command sees %2
+    CHECK_EQ_INT(docE2.valueFor("body_1"), 2);
+
+    // TAG(%body, "@name", "declaring-sel")  -- NAME second, SELECTOR third.
+    CommandParams tag;
+    tag.setText("name", "@datum_a");
+    tag.setText("selector", "+Z");
+    CHECK(regE2.dispatch("part.tag_feature", faceE2, tag).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%3 = TAG(%2, \"@datum_a\", \"+Z\")");
+
+    // opTag throws unless the name starts with '@' and is [a-z0-9_] after it, so the
+    // command must be DISABLED there rather than emit a statement that cannot compile.
+    CommandParams badTag;
+    badTag.setText("name", "datum_a");  // no '@'
+    badTag.setText("selector", "+Z");
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.tag_feature", faceE2, badTag)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    badTag.setText("name", "@datum a");  // a space is not [a-z0-9_]
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.tag_feature", faceE2, badTag)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    badTag.setText("name", "@");  // '@' alone: opTag's "empty name"
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.tag_feature", faceE2, badTag)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_STR(lastLine(docE2), "%3 = TAG(%2, \"@datum_a\", \"+Z\")");  // nothing appended
+
+    // VERIFY(%body, "expr", ...)  -- the minimal form is ONE assertion ...
+    CommandParams ver;
+    ver.setText("assertion", "volume > 0");
+    CHECK(regE2.dispatch("part.verify", bodyE2, ver).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%4 = VERIFY(%3, \"volume > 0\")");
+    // ... and the SECOND is what reaches the variadic form. It carries no
+    // hasDefault, so applyDefaults cannot fill it and the one-assertion form above
+    // stays reachable.
+    CommandParams ver2;
+    ver2.setText("assertion", "faces = 6");
+    ver2.setText("assertion2", "genus = 0");
+    CHECK(regE2.dispatch("part.verify", bodyE2, ver2).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%5 = VERIFY(%4, \"faces = 6\", \"genus = 0\")");
+    // an empty assertion is a SUPPLIED one the command must refuse, not an absent one
+    CommandParams verEmpty;
+    verEmpty.setText("assertion", "");
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.verify", bodyE2, verEmpty)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // PUSHFACE(%body, "sel", dist)  -- SELECTOR second, DISTANCE third. The reverse
+    // order has the same arity and the same value kind and would never be caught by
+    // anything that counts arguments.
+    CommandParams push;
+    push.setText("selector", "+Z");
+    push.setNumber("distance", 4);
+    CHECK(regE2.dispatch("part.push_face", faceE2, push).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%6 = PUSHFACE(%5, \"+Z\", 4)");
+    push.setNumber("distance", 0);  // a zero push records a statement and moves nothing
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.push_face", faceE2, push)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // RESIZEBORE(%body, "sel", newRadius)  -- a RADIUS, where part.hole takes a
+    // diameter. Same shape as PUSHFACE: selector second, number third.
+    CommandParams bore;
+    bore.setText("selector", "hole:at=21.75,0");
+    bore.setNumber("radius", 3.5);
+    CHECK(regE2.dispatch("part.resize_bore", faceE2, bore).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%7 = RESIZEBORE(%6, \"hole:at=21.75,0\", 3.5)");
+    bore.setNumber("radius", -1);
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.resize_bore", faceE2, bore)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // DEFEATURE(%body, "sel")
+    CommandParams defeat;
+    defeat.setText("selector", "radial:all");
+    CHECK(regE2.dispatch("part.defeature", faceE2, defeat).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%8 = DEFEATURE(%7, \"radial:all\")");
+    defeat.setText("selector", "");
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.defeature", faceE2, defeat)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])
+    // Eight required arguments: the hinge point is NOT an optional group.
+    CommandParams fold;
+    fold.setNumber("hinge_x", 0);
+    fold.setNumber("hinge_y", 25);
+    fold.setNumber("hinge_z", 10);
+    fold.setNumber("length", 60);
+    fold.setNumber("flange_height", 15);
+    fold.setNumber("thickness", 2);
+    fold.setNumber("angle", 90);
+    CHECK(regE2.dispatch("part.fold_flange", bodyE2, fold).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%9 = FOLD(%8, 0, 25, 10, 60, 15, 2, 90)");
+    fold.setNumber("run_angle", 30);  // the ninth, emitted only when supplied
+    CHECK(regE2.dispatch("part.fold_flange", bodyE2, fold).ok());
+    CHECK_EQ_STR(lastLine(docE2), "%10 = FOLD(%9, 0, 25, 10, 60, 15, 2, 90, 30)");
+    fold.setNumber("thickness", 0);  // opFold throws on thk <= 0
+    CHECK_EQ_INT(statusOf(regE2.dispatch("part.fold_flange", bodyE2, fold)),
+                 static_cast<int>(DispatchStatus::Disabled));
+
+    // Every statement this block produced is legal IR by forge::ui's own validator,
+    // which feature_ir_test proves is the kernel's table.
+    for (const FeatureRecord& r : docE2.records()) {
+      CHECK_EQ_INT(static_cast<int>(validateIr(r.line)), static_cast<int>(IrCheck::Ok));
+    }
+    CHECK_EQ_INT(docE2.records().size(), 10);
+    CHECK_EQ_INT(docE2.featureCount(), 10);
   }
 
   // ── (e) THE PARAMETER EDIT ────────────────────────────────────────────────
@@ -1034,7 +1171,7 @@ int main() {
     PartDocument docF;
     UndoStack stackF;
     SelectionService selF;
-    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 31);
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 39);
 
     // The five statements of the application's own starting part, seeded exactly
     // as the app seeds them: NONE of them is command-authored, so undo cannot

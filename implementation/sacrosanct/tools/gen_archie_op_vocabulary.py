@@ -661,6 +661,15 @@ def slot_of(call):
             return {"token": "keyword", "from_local": expr}
         raise DeriveError("unparsed keyword argument %r" % expr)
     if kind == "text":
+        # `IrArg::text(txt(ctx, "name", "fallback"))` -- the same INLINE spelling
+        # IrArg::keyword already required, and for the same reason: the slot has to
+        # name the PARAMETER it reads or the recorded example cannot be rendered.
+        # The five edit ops (TAG / VERIFY / PUSHFACE / RESIZEBORE / DEFEATURE) carry
+        # a quoted face selector that is never a bare keyword, so they have no
+        # keyword/text ternary to hide behind the way FILLET's ALL|"sel" slot does.
+        m = re.match(r'^txt\(ctx, "(\w+)", "([^"]*)"\)$', expr)
+        if m:
+            return {"token": "text", "from_parameter": m.group(1), "fallback": m.group(2)}
         if re.match(r"^\w+$", expr):
             return {"token": "text", "from_local": expr}
         raise DeriveError("unparsed text argument %r" % expr)
@@ -899,6 +908,29 @@ OP_ARG_OVERRIDES = {
     ("PRISM", "nSides"): ("count", "side_count",
                           "makePrism(n, R, h) builds one n-gon profile and extrudes it; "
                           "n is the side count of a single solid, not a number of copies"),
+    # FOLD's hx/hy/hz are the HINGE POINT, a world-space position: opFold translates
+    # the flange box's corner to (hx, hy, hz) and then rotates about the line through
+    # it. No generic rule matched them, so both were landing in `uncertain` -- and an
+    # unclassified argument is a hole in the training signal, not a cosmetic gap.
+    ("FOLD", "hx"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    ("FOLD", "hy"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    ("FOLD", "hz"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    # RESIZEBORE sets a bore's radius EXACTLY. The generic radius rule lists whole
+    # names and `newRadius` is not one of them; classifying it as anything but a
+    # radius would teach the model to pass a diameter here.
+    ("RESIZEBORE", "newRadius"): ("mm", "radius",
+                                  "RESIZEBORE(%body, \"sel\", newRadius) -- the kernel sets "
+                                  "the selected cylindrical bore to this RADIUS, not to this "
+                                  "diameter"),
 }
 
 
@@ -1068,6 +1100,11 @@ def slot_token(slot, cmd):
             return slot["literal"]
         dom = keyword_domain(cmd["enabled_predicate_source"], slot["from_parameter"])
         return "|".join(dom) if dom else slot["from_parameter"]
+    if slot["token"] == "text":
+        # A QUOTED argument: the quotes are part of the token forge::ft parses, so
+        # they are part of the documented form too.
+        name = slot["from_parameter"] if "from_parameter" in slot else slot["from_local"]
+        return '"<%s>"' % name
     raise DeriveError("cannot render slot %r" % slot)
 
 
@@ -1127,6 +1164,12 @@ def render_example(cmd, slots, active, params, selector_choice=None):
             continue
         if s["token"] == "keyword":
             args.append(s["literal"] if "literal" in s else params[s["from_parameter"]])
+            continue
+        if s["token"] == "text":
+            # IrArg::text(...).token() wraps the value in double quotes, and the
+            # gate compares this string with what the live document RECORDED, so
+            # the quotes have to be HERE and not merely implied.
+            args.append('"%s"' % params[s["from_parameter"]])
             continue
         raise DeriveError("cannot render slot %r" % s)
     return args

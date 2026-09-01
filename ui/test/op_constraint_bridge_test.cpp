@@ -515,9 +515,14 @@ int main(int argc, char** argv) {
   CHECK_EQ_INT(closure.unreachableOps.size(), 0);
   // The creators, pinned. D-015 measured ZERO; if that is ever true again the
   // language is empty and this line says so by name. Three of these (CIRCLE, RECT, RING)
-  // closed the PROFILE and WIRE kinds; the other nine are the kernel's own primitives,
-  // which the kernel has always built and no command could ask for until now.
-  CHECK_EQ_INT(closure.creatorOps.size(), 12);
+  // closed the PROFILE and WIRE kinds; nine are the kernel's own primitives, which the
+  // kernel has always built and no command could ask for until now; and the thirteenth
+  // is INPUT, which creates a SOLID from the task's imported STEP rather than from
+  // numbers. INPUT is the creator every EDIT task starts from -- without it the only
+  // solids reachable were ones the app had just built from scratch, so "change the part
+  // you were given" was not a program this language could write.
+  CHECK_EQ_INT(closure.creatorOps.size(), 13);
+  CHECK(contains(closure.creatorOps, "INPUT"));
   CHECK(contains(closure.creatorOps, "CIRCLE"));
   CHECK(contains(closure.creatorOps, "RECT"));
   CHECK(contains(closure.creatorOps, "RING"));
