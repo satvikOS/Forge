@@ -77,7 +77,7 @@ const char* prettyPanelName(const std::string& id) {
       {"loads", "Loads"},                 {"restraints", "Restraints"},
       {"contacts", "Contacts"},           {"convergence", "Convergence"},
       {"solver_log", "Solver Log"},       {"archie_chat", "Archie"},
-      {"archie_plan", "Plan"},            {"archie_tools", "Tools"},
+      {"archie_copilot", "CoPilot"},      {"archie_tools", "Tools"},
       {"archie_trace", "Trace"},          {"verify_report", "Verify"},
   };
   for (const Row& r : kRows) {
@@ -942,6 +942,20 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     tree_.setExpanded(pendingExpandId_, pendingExpandState_);
     tree_.rebuild();
   }
+  // The CoPilot's buttons, in the order a user can only press them: an offer
+  // must exist before it can be accepted or rejected, and Send is what makes one.
+  if (pendingCopilotSubmit_) {
+    pendingCopilotSubmit_ = false;
+    runCopilotSubmit();
+  }
+  if (pendingCopilotApply_) {
+    pendingCopilotApply_ = false;
+    runCopilotApply();
+  }
+  if (pendingCopilotDiscard_) {
+    pendingCopilotDiscard_ = false;
+    runCopilotDiscard();
+  }
 }
 
 void ForgeFrame::drawMenuBar() {
@@ -1424,6 +1438,12 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawMeasurePanel();
   } else if (panelId == "archie_tools") {
     drawToolsPanel();
+  } else if (panelId == "archie_copilot" || panelId == "archie_chat") {
+    // ONE panel behind both tabs. The CoPilot IS the chat surface and the plan
+    // surface: splitting them would put the transcript on one tab and the offer
+    // it refers to on another, and a user would have to switch tabs to find out
+    // what they were being asked to accept.
+    drawCopilotPanel();
   } else {
     drawGenericPanel(panelId);
   }
@@ -2129,6 +2149,211 @@ void ForgeFrame::drawToolsPanel() {
     }
   }
   ImGui::EndChild();
+}
+
+// ── the Archie CoPilot ──────────────────────────────────────────────────────
+//
+// THE SEAM. forge::ui is headless and this frame builder opens no socket, so a
+// request is RAISED and a response is DELIVERED; the transport between them is
+// the host's. copilotAutoPlan_ answers in process with forge::ui::LocalPlanner
+// so the panel is a working surface with no model configured.
+const forge::ui::PlanRequest* ForgeFrame::copilotRequest() const noexcept {
+  return copilot_.requestPending() ? &copilot_.request() : nullptr;
+}
+
+forge::ui::PlanCheck ForgeFrame::deliverCopilotPlan(const forge::ui::PlanResponse& response) {
+  // The LIVE registry, not a copy: a plan is validated against the commands that
+  // exist at the moment it is offered, and the CoPilot's own op-constraint
+  // bridge rules on every value it states.
+  return copilot_.deliver(response, shell_.registry());
+}
+
+void ForgeFrame::failCopilotRequest(const std::string& why) { copilot_.failRequest(why); }
+
+void ForgeFrame::copilotType(const std::string& text) { copilotInput_ = text; }
+
+// The three presses RECORD; build() runs them once the walk is over.
+void ForgeFrame::copilotSubmit() {
+  if (copilotInput_.empty() || copilot_.requestPending()) return;
+  pendingCopilotSubmit_ = true;
+}
+
+void ForgeFrame::copilotApplyPlan() {
+  if (!copilot_.hasPlan()) return;
+  pendingCopilotApply_ = true;
+}
+
+void ForgeFrame::copilotDiscardPlan() {
+  if (!copilot_.hasPlan()) return;
+  pendingCopilotDiscard_ = true;
+}
+
+void ForgeFrame::runCopilotSubmit() {
+  if (copilotInput_.empty()) return;
+
+  // WHAT THE PLANNER IS TOLD ABOUT THE WORLD, read from the live objects each
+  // time rather than cached: a summary that can go stale is a summary that can
+  // describe a document the plan will not meet.
+  std::string picked = std::to_string(shell_.selection().count()) + " picked";
+  if (shell_.selection().count() > 0) {
+    picked += " (";
+    for (std::size_t i = 0; i < shell_.selection().selection().size(); ++i) {
+      if (i != 0) picked += ", ";
+      picked += forge::ui::toString(shell_.selection().selection()[i].kind);
+    }
+    picked += ")";
+  }
+  const std::string doc = documentName_ + ": " +
+                          std::to_string(partDoc_.records().size()) + " statement(s), " +
+                          std::to_string(partDoc_.featureCount()) + " command-authored";
+
+  const std::uint64_t id =
+      copilot_.submit(copilotInput_,
+                      forge::ui::planTools(shell_.registry(), shell_.selection()), picked, doc);
+  if (id == 0) return;  // blank, or a request already in flight
+  copilotInput_.clear();
+  // ANSWERED IN PROCESS, or left pending for the host to answer. Either way the
+  // reply comes back through deliverCopilotPlan(), so there is one validation
+  // path and not two.
+  if (copilotAutoPlan_) deliverCopilotPlan(copilotPlanner_.plan(copilot_.request()));
+}
+
+void ForgeFrame::runCopilotApply() {
+  if (!copilot_.hasPlan()) return;
+  copilot_.apply(shell_, partDoc_);
+  // A dispatch that changed the document already re-derived the geometry through
+  // documentChanged(); a plan that was refused at the door changed nothing, and
+  // rebuilding for it would report progress that did not happen.
+}
+
+void ForgeFrame::runCopilotDiscard() { copilot_.discardPlan(); }
+
+void ForgeFrame::drawCopilotPanel() {
+  copilotRowsDrawn_ = 0;
+  copilotTranscriptRowsDrawn_ = 0;
+
+  ImGui::TextColored(rgb(242, 158, 38), "Archie CoPilot");
+  ImGui::TextColored(rgb(130, 137, 148),
+                     "%zu accepted | %zu refused by the gate | %zu rejected by you | %zu steps "
+                     "applied",
+                     copilot_.plansAccepted(), copilot_.plansRefused(),
+                     copilot_.plansRejectedByUser(), copilot_.stepsApplied());
+  ImGui::TextColored(rgb(130, 137, 148), "planner: %s   |   %zu tools from the live registry",
+                     copilotAutoPlan_ ? "LocalPlanner (offline, deterministic)"
+                                      : "host transport",
+                     shell_.registry().size());
+  ImGui::Separator();
+
+  // ── the ask ───────────────────────────────────────────────────────────────
+  char buf[256];
+  const std::size_t copied = copilotInput_.copy(buf, sizeof(buf) - 1);
+  buf[copied] = '\0';
+  ImGui::SetNextItemWidth(-90.0f * dpiScale_);
+  const bool entered = ImGui::InputTextWithHint("##copilot_in", "ask Archie for an edit...", buf,
+                                                sizeof(buf),
+                                                ImGuiInputTextFlags_EnterReturnsTrue);
+  copilotInput_.assign(buf);
+  ImGui::SameLine();
+  ImGui::BeginDisabled(copilotInput_.empty() || copilot_.requestPending());
+  const bool sent = ImGui::Button("Send");
+  ImGui::EndDisabled();
+  // RECORDED, not run: submit dispatches nothing itself, but the Apply below it
+  // does, and one rule for all three is one rule to keep.
+  // The widget goes through the SAME public control a host or a gate presses.
+  // Two ways to press one button is two behaviours to keep in step.
+  if (entered || sent) copilotSubmit();
+  if (copilot_.requestPending()) {
+    ImGui::TextColored(rgb(230, 190, 90), "waiting for a plan (request %llu)",
+                       static_cast<unsigned long long>(copilot_.request().id));
+  }
+
+  // ── the verdict, LINE BY LINE ─────────────────────────────────────────────
+  // Shown whether the plan was accepted or refused. A user deciding whether to
+  // accept is entitled to see what was checked, and a user whose plan was
+  // refused is entitled to see WHICH line and by WHICH constraint -- an empty
+  // panel is not a refusal, it is a silence.
+  const forge::ui::PlanVerdict& verdict = copilot_.verdict();
+  if (!verdict.steps.empty()) {
+    ImGui::Separator();
+    if (copilot_.hasPlan()) {
+      const forge::ui::Plan& plan = copilot_.plan();
+      ImGui::TextColored(rgb(120, 200, 130), "PLAN  %s",
+                         plan.summary.empty() ? plan.intent.c_str() : plan.summary.c_str());
+    } else {
+      ImGui::TextColored(rgb(230, 120, 110), "PLAN REFUSED  (%s)",
+                         forge::ui::toString(verdict.check));
+      if (!verdict.detail.empty()) ImGui::TextWrapped("%s", verdict.detail.c_str());
+    }
+  }
+
+  if (ImGui::BeginChild("##copilot_rows", ImVec2(0.0f, -34.0f * dpiScale_),
+                        ImGuiChildFlags_None)) {
+    const forge::ui::Plan& plan = copilot_.plan();
+    for (std::size_t i = 0; i < verdict.steps.size(); ++i) {
+      const forge::ui::StepVerdict& sv = verdict.steps[i];
+      ImGui::PushID(static_cast<int>(i));
+      ImGui::TextColored(sv.accepted() ? rgb(120, 200, 130) : rgb(230, 120, 110), "%zu  %s  %s",
+                         sv.index, sv.irOp.empty() ? "-" : sv.irOp.c_str(),
+                         sv.accepted() ? "ACCEPT" : "REFUSE");
+      ImGui::TextDisabled("  %s", sv.commandId.c_str());
+      // The step as it would run, when the plan is still on offer.
+      if (i < plan.steps.size()) {
+        ImGui::TextDisabled("  %s", plan.steps[i].display().c_str());
+        if (!plan.steps[i].note.empty()) {
+          ImGui::TextDisabled("  %s", plan.steps[i].note.c_str());
+        }
+        ImGui::TextDisabled("  selection: %s", forge::ui::toString(plan.steps[i].select));
+      }
+      if (!sv.accepted()) {
+        // WHICH CONSTRAINT, and WHY. Both, always: the constraint's name is what
+        // a planner can act on, and the reason is what a person can act on.
+        if (sv.constraint != forge::ui::OpConstraint::Ok) {
+          ImGui::TextColored(rgb(230, 120, 110), "  constraint: %s",
+                             forge::ui::toString(sv.constraint));
+        }
+        if (!sv.parameter.empty()) {
+          ImGui::TextColored(rgb(230, 190, 90), "  parameter: %s", sv.parameter.c_str());
+        }
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(rgb(230, 190, 90), "  %s", sv.reason.c_str());
+        ImGui::PopTextWrapPos();
+      }
+      ImGui::PopID();
+      ++copilotRowsDrawn_;
+    }
+
+    // ── the transcript ──────────────────────────────────────────────────────
+    if (!copilot_.transcript().empty()) {
+      ImGui::Separator();
+      for (const forge::ui::TranscriptLine& line : copilot_.transcript()) {
+        const ImVec4 colour = line.role == forge::ui::TranscriptRole::User    ? rgb(200, 208, 220)
+                              : line.role == forge::ui::TranscriptRole::Copilot ? rgb(242, 158, 38)
+                                                                              : rgb(150, 157, 168);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(colour, "%s: %s", forge::ui::toString(line.role), line.text.c_str());
+        ImGui::PopTextWrapPos();
+        ++copilotTranscriptRowsDrawn_;
+      }
+    }
+    if (verdict.steps.empty() && copilot_.transcript().empty()) {
+      ImGui::TextDisabled("Ask for an edit. Archie may only use commands you could use --");
+      ImGui::TextDisabled("every plan is checked against the op-constraint gate before it is");
+      ImGui::TextDisabled("offered, and again before any step runs.");
+    }
+  }
+  ImGui::EndChild();
+
+  // ── ACCEPT / REJECT ───────────────────────────────────────────────────────
+  ImGui::Separator();
+  ImGui::BeginDisabled(!copilot_.hasPlan());
+  if (ImGui::Button("Accept & Apply")) copilotApplyPlan();
+  ImGui::SameLine();
+  if (ImGui::Button("Reject")) copilotDiscardPlan();
+  ImGui::EndDisabled();
+  if (!copilot_.hasPlan()) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("nothing on offer");
+  }
 }
 
 void ForgeFrame::drawGenericPanel(const std::string& panelId) {

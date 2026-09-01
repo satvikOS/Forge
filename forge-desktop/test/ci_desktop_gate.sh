@@ -39,7 +39,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-EXPECTED_MUTATIONS=31
+# 39 = the UNION of the two sides this merge joined, COUNTED from run_desktop.sh
+# rather than picked: sacrosanct had 31 (document 8 + frame 9 + update 7 + click 7)
+# and archdisc had 37 (document 8 + frame 9 + copilot 8 + update 7 + click 5).
+# The merged script runs document 8 + frame 9 + copilot 8 + update 7 + click 7.
+# Neither incoming number describes the merged script, and taking either one
+# would have made this ratchet describe a gate run that does not exist.
+EXPECTED_MUTATIONS=39
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"
