@@ -112,6 +112,32 @@ std::string argLine(const IrArg& a) {
     case IrArgKind::Ref:    return "ARG ref " + std::to_string(a.ref);
     case IrArgKind::Keyword: return "ARG kw " + sanitise(a.word);
     case IrArgKind::Text:   return "ARG str " + sanitise(a.word);
+    // A POINT RING, here for the same reason `Surface` is in valueKindFromName
+    // above: an argument kind this writer can PRODUCE and this reader cannot READ
+    // is a part that saves and will not open. This switch has no default on
+    // purpose, so `Points` arriving in IrArgKind was a COMPILE ERROR rather than a
+    // silent "ARG kw INVALID" three layers from the cause.
+    //
+    // `dim` is WRITTEN, never inferred. `[x y; ...]` and `[x y z; ...]` are
+    // different tokens to forge::ft -- a 2D ring is lifted to z=0, a 3D one is
+    // placed -- so a reader that guessed from the coordinate count would change
+    // what the statement MEANS whenever a z rounded away.
+    case IrArgKind::Points: {
+      // THE SAME KIND TOKEN THE SHIPPED v1 WRITER USES (PartFile.cpp's
+      // pointsLine): `pts2` / `pts3`, dimension IN THE NAME. A second spelling
+      // here would read back as an unknown ARG kind on every v1 file that
+      // contains a ring, which is this layer's whole failure mode. Only the
+      // NUMBER FORMAT differs, and deliberately: v2 writes round-trip precision
+      // where v1 wrote "%.10g", and parseIrPoints reads both with strtod.
+      std::string line = (a.dim == 3) ? "ARG pts3 " : "ARG pts2 ";
+      for (std::size_t i = 0; i < a.pts.size(); ++i) {
+        if (i != 0) line += "; ";
+        line += formatRoundTripNumber(a.pts[i].x);
+        line += " " + formatRoundTripNumber(a.pts[i].y);
+        if (a.dim == 3) line += " " + formatRoundTripNumber(a.pts[i].z);
+      }
+      return line;
+    }
   }
   return "ARG kw INVALID";
 }
@@ -150,7 +176,23 @@ bool argFromLine(const std::string& rest, IrArg& out, std::string& why) {
     out = IrArg::text(value);
     return true;
   }
-  why = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str)";
+  if (kind == "pts2" || kind == "pts3") {
+    const int dim = (kind == "pts3") ? 3 : 2;
+    const std::string& ring = value;
+    // parseIrPoints returns EMPTY on anything it cannot read COMPLETELY -- a
+    // short point, a non-finite coordinate -- so empty is the only failure signal
+    // it has, and refusing here is what keeps a half-read ring out of the
+    // document. An empty ring is also unwritable: forge::ft's lexer refuses the
+    // literal `[]`, and the op-constraint bridge refuses it before that.
+    std::vector<IrPoint> pts = parseIrPoints(ring, dim);
+    if (pts.empty()) {
+      why = "ARG " + kind + " ring is empty or unreadable: '" + ring + "'";
+      return false;
+    }
+    out = IrArg::points(std::move(pts), dim);
+    return true;
+  }
+  why = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str|pts2|pts3)";
   return false;
 }
 

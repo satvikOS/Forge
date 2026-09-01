@@ -647,6 +647,63 @@ int main() {
       }
     }
   }
+  {
+    // ── and the same for IrArgKind, TOTAL over the enum ──────────────────────
+    // An argument kind the writer can emit and the reader cannot read is a part
+    // that SAVES and will not OPEN -- this file's whole subject. `Points` is why
+    // the block exists: it arrived after this format was written, argLine() is a
+    // switch with no default so the WRITER was a compile error, but nothing would
+    // have caught a reader that had no `pts2` / `pts3` branch.
+    //
+    // The ring is deliberately not axis-aligned and not integral: a coordinate
+    // that survives only because it is 0 or 1 proves nothing about the number
+    // format, and dim 2 versus dim 3 must not be inferred from the data.
+    const std::vector<IrArg> probes = {
+        IrArg::num(12.5),
+        IrArg::valueRef(1),
+        IrArg::keyword("ALL"),
+        IrArg::text("hole:at=21.75,0"),
+        IrArg::points({IrPoint{-20.25, -10.5, 0.0}, IrPoint{20.75, -10.5, 0.0},
+                       IrPoint{0.125, 18.375, 0.0}}, 2),
+        IrArg::points({IrPoint{0.0, 0.0, 3.5}, IrPoint{10.25, 0.0, 3.5},
+                       IrPoint{10.25, 7.125, -2.75}}, 3),
+    };
+    // Five enumerators, and every one of them is represented above. Pinned so a
+    // SIXTH kind fails here rather than silently going untested.
+    CHECK_EQ_INT(static_cast<int>(IrArgKind::Points), 4);
+    for (const IrArg& probe : probes) {
+      DocumentFileData d;
+      DocumentFeature f;
+      f.record.irId = 1;
+      f.record.line.id = 1;
+      f.record.line.op = "POLY";
+      f.record.line.args = {probe};
+      f.record.produces = IrValueKind::Profile;
+      f.node = "sketch_1";
+      d.features.push_back(f);
+
+      DocumentFileData back;
+      DocumentIoError e;
+      const bool ok = readDocumentFile(writeDocumentFile(d), back, e);
+      if (!ok) {
+        std::printf("  FAIL  an IrArg of kind %d does not survive a round trip: %s\n",
+                    static_cast<int>(probe.kind), e.describe().c_str());
+      }
+      CHECK(ok);
+      CHECK_EQ_INT(back.features.size(), 1);
+      if (ok && back.features.size() == 1) {
+        CHECK_EQ_INT(back.features[0].record.line.args.size(), 1);
+        if (back.features[0].record.line.args.size() == 1) {
+          const IrArg& got = back.features[0].record.line.args[0];
+          CHECK_EQ_INT(static_cast<int>(got.kind), static_cast<int>(probe.kind));
+          // The TOKEN, not the fields: it is what forge::ft reads, so two args
+          // that render identically ARE the same argument to the kernel, and two
+          // that do not are a different statement however similar the structs.
+          CHECK_EQ_STR(got.token(), probe.token());
+        }
+      }
+    }
+  }
 
   // ── 8. THE STORE: autosave, crash detection, recovery ─────────────────────
   // The kernel segfaults on some geometry (D-039), so this application WILL die

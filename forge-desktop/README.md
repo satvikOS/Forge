@@ -196,7 +196,7 @@ src/update/Updater.{hpp,cpp}    decide() and the install path: download, verify 
 src/update/main_update_cli.cpp  `forge_update check|apply` — the same library from a shell
 emit_appcast.sh                 writes appcast.json from the MEASURED zip; the producer half of the
                                 contract src/update/Manifest.cpp consumes
-test/update_gate.cpp            130 headless checks + 7 injectable mutations, offline
+test/update_gate.cpp            132 headless checks + 7 injectable mutations, offline
 test/appcast_check.cpp          runs the app's real parser over a generated appcast
 test/run_update_gate.sh         compile + run the update gate with ONE c++ call (no kernel, no OCCT)
 test/appcast_selftest.sh        proves the bash producer and the C++ consumer agree

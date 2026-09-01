@@ -234,10 +234,11 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 47 ops: the original 40, plus the six that
-  // give the SURFACE value kind its producers and consumers (SKIN / FACES / SEW
-  // / THICKEN / CAP / SURFCHECK), plus SECTION. MEASURED on the merged tree --
-  // the two sides of this merge said 46 and 41, and the answer is neither.
+  // forge::ft::opFromName registers 47 ops -- the original 40, plus the six that
+  // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
+  // THICKEN / CAP / SURFCHECK), plus SECTION, the fourth OCCT boolean. MEASURED
+  // on the merged tree, not carried over: the two sides of this merge pinned 46
+  // and 41 and BOTH were wrong, because each had only its own half.
   // Anything else means the derivation itself broke, and a broken oracle must
   // not pass quietly.
   CHECK_EQ_INT(kernel.size(), 47);

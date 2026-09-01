@@ -96,6 +96,27 @@ std::string constantOf(const std::string& source, const std::string& name) {
 // Every KEY the writer in PartFile.cpp emits: the literals in `out += "KEY ...`
 // and `out += "KEY\n"`. This is the v1 vocabulary, taken from the code that
 // produces it.
+//
+// NOT EVERY `out += "` STARTS A LINE, and assuming so turned this gate red on a
+// writer that was correct: the point-ring writer appends `out += "; "` BETWEEN
+// points, the extractor read that separator as a key named `;`, and the probe
+// below was then required to contain a `;` line. A key in this format is a
+// leading word the reader compares with `key == "X"`, and every one of those is
+// spelled in capitals (NAME UNITS FEATURE ID KIND NODE COMMAND LABEL OP ARG END).
+// So the SHAPE is asserted here rather than the one literal being special-cased:
+// a token that is not [A-Z][A-Z0-9_]* is a value fragment, not a key. A key added
+// in that shape is still picked up; a separator never is.
+bool looksLikeKey(const std::string& token) {
+  if (token.empty()) return false;
+  if (token[0] < 'A' || token[0] > 'Z') return false;
+  for (const char c : token) {
+    const bool upper = c >= 'A' && c <= 'Z';
+    const bool digit = c >= '0' && c <= '9';
+    if (!upper && !digit && c != '_') return false;
+  }
+  return true;
+}
+
 std::set<std::string> writerKeys(const std::string& source) {
   std::set<std::string> keys;
   const std::string needle = "out += \"";
@@ -108,7 +129,7 @@ std::set<std::string> writerKeys(const std::string& source) {
       if (c == ' ' || c == '"' || c == '\\') break;
       token += c;
     }
-    if (!token.empty()) keys.insert(token);
+    if (looksLikeKey(token)) keys.insert(token);
   }
   return keys;
 }
