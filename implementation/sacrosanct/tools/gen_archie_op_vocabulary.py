@@ -587,6 +587,14 @@ REF_ROLES = {
     "section": "wire_section",
     "ids[0]": "target_solid",
     "ids[1]": "tool_solid",
+    # The SURFACE commands. Two distinct roles, and they are NOT interchangeable:
+    # `sheet` is part.sew's loop variable over a VARIADIC list of sheets, while
+    # `sheets.front()` is the SINGLE sheet THICKEN / CAP / SURFCHECK each take as
+    # their first argument. Mapping both to one role would emit `SEW(%surface)`
+    # for the variadic form and lose the repeat, which is the same class of defect
+    # the `section` entry above records for LOFT.
+    "sheet": "surface_sheet",
+    "sheets.front()": "target_surface",
 }
 
 
@@ -1101,7 +1109,8 @@ def ternary_domain(selects_on):
 # 8. emitted forms: expand one command's argument slots into concrete IR forms
 # ---------------------------------------------------------------------------
 REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%profile",
-                   "wire_section": "%wire"}
+                   "wire_section": "%wire", "surface_sheet": "%sheet",
+                   "target_surface": "%surface"}
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 
