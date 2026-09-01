@@ -2038,3 +2038,50 @@ failure mode the corpus was built to prevent.
 exhausted, it is counter-productive. The untried lever remains REAL human
 construction sequences: ABC `ofs` chunk 0000 is on disk, 9,852 FeatureScript trees,
 mean 17 real ops and max 123.
+
+### D-045 FINAL, corrected — v10 is BETTER at compiling and WORSE at self-consistency; the run's scoring half never executed
+
+Two corrections to the record, both of which I would rather state than have
+someone find later.
+
+**1. "The evaluation completed" was too broad.** The run's own last lines are
+`EMIT_DONE rc=0` then **`EVAL_FAILED rc=0 rows=0`**. `emissions.jsonl` is 0 bytes.
+The TRACE completed with 600 rows; the SELF-DISTILL / COMPOSITE stage produced
+nothing, so **no composite exists for v10**. Cause, confirmed rather than guessed:
+self-distill keeps only rows that PASS the gate, and **0 of 600 passed**. The
+harness reported this correctly — `EVAL_FAILED rows=0` is the gate working, not a
+silent truncation.
+
+**2. v10 is not uniformly worse, and the record must say so.** Measured the same
+way on both arms, PAIRED on the 238 shared ids:
+
+| | v10 | v6r8 |
+|---|---|---|
+| compiled | **83 = 34.9%** | 61 = 25.6% |
+| emits a VERIFY | 58.4% | 55.0% |
+| self-inconsistency (both-bearing, n=97) | **92.8%** | 59.8% |
+| **passed the full gate** | **0 / 600** | **0 / 238** |
+
+★**Zero passes is the BASELINE condition, not a regression** — the gate requires
+volume, genus and bore count all correct, and neither arm ever clears it. Quoting
+"0/600 passed" as a v10 failure would be dishonest.
+
+★**The real shape of the effect: targeted training made the model BUILD MORE
+(+9.3 points compiled) and ASSERT MORE (+3.4 points VERIFY-bearing) while making
+its assertions MUCH LESS TRUE (92.8% vs 59.8%, McNemar p = 6.68e-08, 35 worse vs
+3 better).** It learned the FORM of a VERIFY statement without the CONTENT. That
+is a more precise and more useful finding than "assertion supervision does not
+work", and it is consistent with D-041: the thing that moves is never the thing
+being supervised.
+
+**Final n=600 figures:** VERIFY-bearing 455, assertion-false 389 = **85.5%**
+(stable across 84.8 / 86.1 / 85.7 / 85.6 at n=183/318/350/422). **CBORE = 0 across
+all 600 emissions** — the second pre-registered prediction (>=5 of 238) is refuted
+outright.
+
+**Instrument reconciliation, as owed:** 13 `forge_verify` crash reports today
+against **9** rows recorded as an instrument failure (2 timeouts, 7 "verifier
+produced no output"). ★The earlier addendum said "half never surface"; measured at
+the end, the shortfall is a CONSTANT **4**, not a proportion — it was 8-vs-4 then
+and 13-vs-9 now. The constant-offset reading is better supported, and it is the
+more useful one for finding the leak.
