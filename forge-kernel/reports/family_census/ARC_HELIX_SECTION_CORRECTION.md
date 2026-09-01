@@ -1,5 +1,40 @@
 # ARC and HELIX are not missing. SECTION is. — measured 2026-08-31
 
+> ## ★★ THIS DOCUMENT IS RETRACTED ON ITS CENTRAL CLAIM (2026-09-01)
+> **ARC and HELIX ARE missing.** The benchmark census (PR #150) was right and I overturned it with
+> a bad instrument. Only the `SECTION` half survives — and `SECTION` has since shipped as **#165**.
+>
+> **What went wrong.** I probed `archdisc-Models/tools/pinned/libforge_kernel_core.dylib`, got
+> `ARC expects [x y; x y mx my; ...]`, and concluded the op exists. That binary was built
+> **2026-08-07 with `-DFORGE_FT_ARCHELIX=ON`, and NO COMMIT IN THIS REPOSITORY PRODUCES IT**:
+>
+> ```
+> git log --all -S"ARC expects"       -- forge-kernel/src/ft/FeatureTreeCompiler.cpp  -> nothing
+> git log --all -S"FORGE_FT_ARCHELIX" -- forge-kernel/src/ft/FeatureTreeCompiler.cpp  -> nothing
+> git log --all                       -- forge-kernel/src/ArcHelix.cpp                -> nothing
+> ```
+>
+> The source exists only as uncommitted working-tree state in the shared checkout, already recorded
+> in `implementation/sacrosanct/RECONCILIATION_OWED.md` as "+1451 lines, pre-session".
+> `opFromName` has 40 entries on every pushed branch and neither name is among them.
+>
+> **The form argument was backwards too.** I claimed the 48 GT programs "fail on FORM, not on
+> absence". Measured over `benchcad_ir_reharvest.jsonl` (1317 rows): **0 form violations in 1635
+> rows**, all 86 `ARC` statements matching the accepted grammar, every row 2 numbers (`x y`) or 4
+> (`x y mx my`), row 0 always 2 so the closing segment is straight. **The GT form IS the accepted
+> form.** Those programs fail on ABSENCE. See PR #166, which raises GT parse coverage 1268 -> 1316
+> of 1317.
+>
+> ★**THE RULE THIS AMENDS IS ONE OF THIS PROJECT'S OWN.** *Probe the instrument* is right and
+> INCOMPLETE: **VERIFY THAT THE INSTRUMENT IS BUILT FROM COMMITTED SOURCE.** A pinned binary
+> carrying uncommitted local work answers confidently about capability the repository does not
+> have — and it sounds exactly like ground truth, because it IS a real measurement, of the wrong
+> artifact. The check is one command:
+> `git log --all -S"<a string only that build contains>"`.
+>
+> Everything below is left unedited as the record of the error.
+
+
 Correcting the benchmark-requirements census (PR #150) on one point. The correction **strengthens
 its own headline** rather than weakening it, which is why it is worth recording carefully.
 
