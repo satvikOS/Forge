@@ -45,12 +45,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <string>
 #include <vector>
 
 #include <IFSelect_ReturnStatus.hxx>
 #include <STEPControl_Reader.hxx>
 
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
@@ -65,7 +67,9 @@
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Iterator.hxx>
@@ -138,6 +142,48 @@ bool betterFace(const TopoDS_Face& cand, double candArea,
     return a.Z() < b.Z();
 }
 // ── end verbatim copy ───────────────────────────────────────────────────────
+
+// The KINDS of surface the drafted wall actually meets along an edge. The
+// dominant defer is "a drafted wall meets a non-planar face", and what has to be
+// built next depends entirely on WHICH kind: a plane section of a cylinder is an
+// ellipse, of a cone a general conic, of a spline neither. A count of
+// "non-planar" cannot tell those apart, so it cannot size the next commit.
+std::string wallNeighbourKinds(const TopoDS_Shape& shape, const TopoDS_Face& wall) {
+    TopTools_IndexedDataMapOfShapeListOfShape ef;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, ef);
+    std::map<std::string, int> tally;
+    TopTools_MapOfShape seen;
+    for (TopExp_Explorer ex(wall, TopAbs_EDGE); ex.More(); ex.Next()) {
+        const int i = ef.FindIndex(ex.Current());
+        if (i == 0) continue;
+        for (TopTools_ListIteratorOfListOfShape it(ef.FindFromIndex(i)); it.More(); it.Next()) {
+            if (it.Value().IsSame(wall)) continue;
+            if (!seen.Add(it.Value())) continue;
+            const char* k = "other";
+            try {
+                switch (BRepAdaptor_Surface(TopoDS::Face(it.Value())).GetType()) {
+                    case GeomAbs_Plane:            k = "plane";     break;
+                    case GeomAbs_Cylinder:         k = "cylinder";  break;
+                    case GeomAbs_Cone:             k = "cone";      break;
+                    case GeomAbs_Sphere:           k = "sphere";    break;
+                    case GeomAbs_Torus:            k = "torus";     break;
+                    case GeomAbs_BezierSurface:    k = "bezier";    break;
+                    case GeomAbs_BSplineSurface:   k = "bspline";   break;
+                    case GeomAbs_SurfaceOfRevolution: k = "revol";  break;
+                    case GeomAbs_SurfaceOfExtrusion:  k = "extru";  break;
+                    default:                       k = "other";     break;
+                }
+            } catch (...) {}
+            tally[k] += 1;
+        }
+    }
+    std::string out;
+    for (const auto& kv : tally) {
+        if (!out.empty()) out += ",";
+        out += kv.first + ":" + std::to_string(kv.second);
+    }
+    return out;
+}
 
 int wireCount(const TopoDS_Face& f) {
     int n = 0;
@@ -407,6 +453,7 @@ int main(int argc, char** argv) {
     } catch (...) { threw = true; why = "unknown throw"; }
     const forge::occtdraftlocal::DraftLocalStats st =
         forge::occtdraftlocal::draftLocalLastStats();
+    const std::string nbKinds = wallNeighbourKinds(shape, sideWall);
 
     // THE INPUT'S OWN VALIDITY. A defer on "the rebuilt solid is not
     // BRepCheck-valid" means one of two very different things depending on this
@@ -431,7 +478,7 @@ int main(int argc, char** argv) {
     std::printf("{\"part\":\"%s\",\"applicable\":true,\"status\":\"%s\",\"reason\":\"%s\","
                 "\"occt_ok\":%s,\"agrees\":%s,\"diff\":\"%s\","
                 "\"nat_vol\":%.10g,\"occt_vol\":%.10g,\"nat_valid\":%s,\"occt_valid\":%s,"
-                "\"in_valid\":%s,"
+                "\"in_valid\":%s,\"wall_neighbours\":\"%s\","
                 "\"nfaces\":%d,\"nplanar\":%d,\"nmultiwire\":%d,\"scale\":%.6g,"
                 "\"moved_verts\":%d,\"solve_plane\":%d,\"solve_anchor\":%d,\"solve_quadric\":%d,"
                 "\"faces_verbatim\":%d,\"faces_rebuilt\":%d,\"wires_verbatim\":%d,"
@@ -444,7 +491,7 @@ int main(int argc, char** argv) {
                 jesc(diff.c_str()).c_str(),
                 a.vol, b.vol,
                 a.valid ? "true" : "false", b.valid ? "true" : "false",
-                inValid ? "true" : "false",
+                inValid ? "true" : "false", jesc(nbKinds.c_str()).c_str(),
                 nFaces, nPlanar, nMultiWire, scale,
                 st.movedVertices, st.solvedByPlaneMeet, st.solvedByAnchor, st.solvedByQuadric,
                 st.facesVerbatim, st.facesRebuilt, st.wiresVerbatim,
