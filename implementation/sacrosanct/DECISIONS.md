@@ -1989,3 +1989,52 @@ stayed flat and no jetsam fired. Only one `forge_verify` was live, parented to
 the eval's own Python, and no agent worktree held one. The aborts are
 INPUT-DEPENDENT — an uncaught C++ exception on particular geometry — not an OOM,
 and not caused by the concurrent agents.
+
+### D-045 FINAL — the run completed at 600/600, and PAIRED the result is a SIGNIFICANT REGRESSION, not merely a refuted prediction
+
+The last caveat D-045 carried was that the baseline comparison was UNPAIRED, so
+only "prediction refuted" was established and "worse than baseline" was NOT.
+**The run finished; the pairing is done; the stronger claim now holds.**
+
+**Paired on the 97 shared ids where BOTH arms emit a VERIFY:**
+
+| arm | self-inconsistency |
+|---|---|
+| `v10` (targeted, measure-then-assert) | **90/97 = 92.8%** |
+| `v6r8` (baseline) | **58/97 = 59.8%** |
+
+Discordant pairs: **35 got WORSE, 3 got BETTER.** Exact McNemar two-sided
+**p = 6.68e-08**. Targeted assertion training did not fail to help — it actively
+**degraded** self-consistency, and by a margin no reasonable sampling story explains.
+
+**The conditioning was checked before the claim was made, not after.** Restricting
+to rows where BOTH arms emit a VERIFY is only safe if training did not change how
+often VERIFY is emitted. It did not: on the same 238 ids, `v10` emits VERIFY on
+**58.4%** and `v6r8` on **55.0%**. And the comparison run a second, independent way
+— unconditionally, over each arm's OWN bearers on those same ids — agrees:
+**83.5% (116/139) vs 57.3% (75/131)**. Two methods, same direction, same magnitude.
+The paired figure is the higher of the two because the both-bearing subset is
+harder; that is a property of the subset, not of the effect.
+
+**What this settles.** D-045 recorded that self-consistency is not learnable from
+synthesised assertion supervision. The final data says something sharper: a corpus
+of 10,190 assertions with ZERO unchecked, every one true by construction, trained
+2,400 iters to loss 0.0345, made the model **measurably worse** at satisfying its
+own assertions. Training a model to emit assertions taught it to emit MORE
+assertions (58.4% vs 55.0%) without teaching it to satisfy them — which is the
+failure mode the corpus was built to prevent.
+
+**Caveats that survive, stated because they still bound the claim.**
+* The 97-id conditioning set is small; the 3-vs-35 split is what carries the
+  significance, not n.
+* CBORE remains **0** across the full 600 — the second pre-registered prediction
+  (>=5 of 238) is refuted outright, with nothing to pair.
+* The composite remains underpowered (sd 0.2977) and is still not the result.
+* The instrument defect stands: ~11 `forge_verify` aborts today against ~4 recorded
+  instrument-failure rows. Those rows are VERIFY-bearing and land in the DENOMINATOR
+  only, so they UNDERSTATE both arms — the correction would widen the gap, not close it.
+
+**Consequence for the programme.** Synthetic assertion supervision is not merely
+exhausted, it is counter-productive. The untried lever remains REAL human
+construction sequences: ABC `ofs` chunk 0000 is on disk, 9,852 FeatureScript trees,
+mean 17 real ops and max 123.
