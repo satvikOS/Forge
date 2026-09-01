@@ -1653,3 +1653,201 @@ Related: `FeatureTreeCompiler.cpp` calls `setForgeNativeBrepEnabled(false)` for 
 **100% of corpus booleans run on OCCT today**. And OCCT is not always a working incumbent — for
 THICKSOLID *all 133 of its successes are `BRepCheck`-INVALID*, and it segfaults on the gold
 reference parts (see the null-pcurve report).
+
+## D-038 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
+
+*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments that cite "D-033" in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) refer to THIS entry, not to the axis-naming one.)*
+
+`archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
+entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
+produce it."* That is not a kernel gap. It is a **missing app surface**, and the ops it hid are
+not exotic: `BOX`, `CYL`, `CONE`, `SPHERE`, `TORUS`, `PRISM`, `TUBE`, `RRECT`, `REGPOLY` and
+`ROTATE` — a CAD application with no cylinder primitive. The app even **seeded a `BOX` into
+every new document** (`ForgeFrame`'s default part) while giving the user no way to author one.
+
+**What was added.** Ten `forge::ui` commands, so `registerPartCommands` goes 21 -> 31 and the
+registry 31 -> 41:
+
+| command | op | kind |
+|---|---|---|
+| `part.primitive_box` | `BOX` | Solid |
+| `part.primitive_cylinder` | `CYL` | Solid |
+| `part.primitive_cone` | `CONE` | Solid |
+| `part.primitive_sphere` | `SPHERE` | Solid |
+| `part.primitive_torus` | `TORUS` | Solid |
+| `part.primitive_prism` | `PRISM` | Solid |
+| `part.primitive_tube` | `TUBE` | Solid |
+| `part.sketch_rounded_rect` | `RRECT` | Profile |
+| `part.sketch_polygon` | `REGPOLY` | Profile |
+| `part.rotate` | `ROTATE` | Solid (consumes one) |
+
+Nothing was hand-edited into the asset. `gen_archie_op_vocabulary.py --write` DERIVES the
+user-invocable set from the registry, so the ten moved out of `forbidden_ops` on their own:
+**18 -> 28 user-invocable ops, 22 -> 12 forbidden, 20 -> 30 commands emitting IR, 34 -> 54
+worked examples**, and `ui/include/forge/ui/ArchieOpVocabulary.hpp` was regenerated from the
+JSON in the same commit.
+
+**What it is worth, MEASURED on the repo's own IR corpus** (the four kernel smoke suites,
+`measure_vocabulary_coverage.py`, same four files each time):
+
+| revision | statements inside the vocabulary | programs fully inside |
+|---|---|---|
+| before any creator existed | 45.4% | 0.0% |
+| after D-023's five creators | 48.6% (89/183) | 3.8% (2/53) |
+| after this change | **74.9% (137/183)** | **54.7% (29/53)** |
+
+The program figure is the one that matters: a program counts only if EVERY statement is inside,
+so `BOX` (30 statements) and `CYL` (17) alone were disqualifying whole programs. What is left
+outside is the direct-edit family (`TAG`, `DEFEATURE`, `PUSHFACE`, `RESIZEBORE`), `INPUT`,
+`VERIFY`, and the three ops needing a points token `forge::ui::IrArgKind` does not model
+(`POLY`, `WIRE`, `SWEEP`).
+
+**Argument order was measured, not assumed.** Getting an optional-group order wrong produces
+geometry silently, so every emitted form was compiled through the pinned native verifier
+(`forge_verify` -> `forge::ft::compileText`) against closed form BEFORE the command was
+written, in both the minimal and the full form. All 54 recorded examples were then re-compiled
+after generation: **all 20 belonging to the new ops build a valid solid**. A VECTOR of
+observables, never volume alone — the divergence theorem gives a self-intersecting shell the
+right volume:
+
+```
+BOX(40,30,20)     24000.0000  = 40*30*20            6 faces genus 0  bbox [-20,-15,0]..[20,15,20]
+CYL(10,25)         7853.9816  = pi*100*25           3 faces genus 0
+CONE(10,4,25)      4084.0705  = pi*h/3*(r1^2+r1r2+r2^2)
+SPHERE(10)         4188.7902  = 4/3*pi*1000         1 face
+TORUS(30,8)       37899.2809  = 2*pi^2*30*64        GENUS 1
+PRISM(6,15,20)    11691.3430  = 0.5*6*15^2*sin60*20 8 faces = 6 sides + 2 caps
+TUBE(12,8,30)      7539.8224  = pi*(144-64)*30      GENUS 1, 4 faces
+RRECT(40,30,5)+E  11785.3982  = (40*30-(4-pi)*25)*10
+REGPOLY(20,6)+E   10392.3048  = 0.5*6*400*sin60*10  bbox 40.000 x 34.641 (corners vs flats)
+ROTATE(%1,90,0,1,0) on BOX(20,10,4): vol UNCHANGED at 800, bbox [0,-5,-10]..[4,5,10]
+```
+
+The two genus-1 rows and the ROTATE row are the point. A tube whose bore failed to cut keeps a
+plausible volume and reports genus 0; a rotation that did not happen keeps its volume exactly,
+because a rigid motion must. Only the bbox and the genus can tell.
+
+**SLOT IS BROKEN AND HAS NO COMMAND. This is the finding, not an omission.** `SLOT(len, wid)`
+extruded 10 mm, area read back as volume/10 through the same verifier:
+
+| statement | area | an obround is | bbox x |
+|---|---|---|---|
+| `SLOT(40, 12)` | 222.9027 | 449.0973 | −14.000 .. 14.000 |
+| `SLOT(60, 10)` | 421.4602 | 578.5398 | −25.000 .. 25.000 |
+| `SLOT(30, 20)` | 114.1593 | 514.1593 | −5.000 .. 5.000 |
+| `SLOT(100, 4)` | 371.4336 | 396.5664 | −48.000 .. 48.000 |
+
+Every row is EXACTLY `|(len - wid)*wid - pi*(wid/2)^2|` and every bbox spans `+/-(len - wid)/2`
+rather than `+/-len/2`. Both semicircular end caps bow **inward**: the shape is the straight
+section with a full circle's area REMOVED, not an obround with it added — **−50.4%** of the
+promised volume on the nominal case, and a part 28 mm long where the statement says 40.
+`profSlot`'s own source is correct (`addArc(s, cR, tr, br)` from `(l/2, r)` to `(l/2, -r)` about
+`(l/2, 0)` IS the outward cap), so the defect is in how a 180-degree arc's direction is resolved
+downstream. The control agrees: `RRECT`'s arcs are 90 degrees and its area is exact to ten
+significant figures through the same path. Adding the command would have put a broken solid one
+click away and taught Archie a shape `SLOT` is not. It stays forbidden until the arc is fixed
+and re-measured. **NOT fixed here** — a kernel arc change is a different blast radius and cannot
+be verified from this tree.
+
+**POLY, WIRE and SWEEP are also NOT added, structurally.** They take a `[x y; x y; ...]` points
+token, and `forge::ui::IrArgKind` models `Number/Ref/Keyword/Text` and deliberately no points
+kind ("a token kind nothing produces is a liability, not coverage"). Emitting `POLY(5)` would
+pass `validateIr` — arity 1..1 — and reach `profPoly`, which reads `op.poly`, finds it empty and
+builds an EMPTY SKETCH. That is the silent-geometry failure mode again, so the honest gap is
+recorded rather than papered over. POLY is 892 of the refused uses in the held-out sample and is
+the largest remaining item.
+
+**Two gate pins were RE-AIMED, and neither was weakened.** `op_constraint_bridge_test.cpp` named
+`BOX` as its example of a forbidden op; `BOX` is now allowed, so a named example had to be an op
+still out of reach — `POLY`, whose reason is structural rather than "nobody wrote the command".
+The same test's mutation 1 erased `RECT` to prove the closure check has teeth; with four PROFILE
+producers, erasing one of four leaves the language closed and the mutation would have been caught
+by a row count instead of by the check it exists to prove. It now erases the KIND, and the run
+confirms the intended path: *"NOT CLOSED — OWED, a forge::ui command that CREATES: profile;
+OWED, unreachable until then: EXTRUDE, REVOLVE."*
+
+**Every generated artifact was regenerated in this commit** — the repeated defect this project
+has hit five times. `archie_op_vocabulary.json`, `ArchieOpVocabulary.hpp`,
+`APP_SURFACE_MANIFEST.tsv` and the machine-checked numbers in `ARCHIE_OP_VOCABULARY.md`.
+Verified: both `--check` commands exit 0, `run_op_constraint_gate.sh` reports 8/8 mutations
+caught, and `run_ui.sh` reports ALL 15 UI GATES PASS.
+
+**Two curated entries were added to `OP_ARG_OVERRIDES`, the generator's only judgement layer.**
+`BOX`'s `dx/dy/dz` were classified `step_offset` by the generic `/^(dx|dy|dz)$/` rule written for
+`PATTERN` and `TRANSLATE` — they are SIDE LENGTHS, and Archie trains from this file. `REGPOLY.n`
+and `PRISM.nSides` were classified `instance_count`; they count SIDES of one solid, not copies.
+
+**Observed and NOT fixed here** (pre-existing, independent of this change): of the 34 examples
+that predate it, 5 do not build a solid in the pinned kernel — `LOFT(..., OPEN)` x2 ("not
+closed", which is what OPEN means), `REVOLVE(%rect, 360)` x2 where the fixture profile straddles
+the axis ("Pappus self-check"), and `SHELL(%body, 2, 3, 4, 4)` ("no face faces the open axis").
+Recorded so the next reader does not discover them as a surprise.
+
+**Reversible.** Each command is one self-contained block plus one id in `partCommandIds()`;
+deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
+above are what would have to be refuted first.
+
+
+## D-038 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
+
+**The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
+(`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
+`forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
+no surfacing: a NURBS patch, a lofted skin and an extracted face set are none of PROFILE
+(planar, at Z=0), WIRE (1-dimensional) or SOLID (must bound a volume), so **no op could produce
+or consume one**, and the surfacing machinery already sitting in the kernel had no route into
+the emission target. Counted by `grep -ril` over `forge-kernel/src`: NURBS 58 files, Sweep 68,
+G2 32, Loft 27, curvature 21, SubD 18, Subdiv 17, Blend 17, BSpline 24 — plus
+`ClassASurfacing.{hpp,cpp}` (760 lines), which a `grep -ril "class a"` misses because the file
+spells it `ClassA`.
+
+**Why it is not deferrable.** The canonical ground-truth edit fixture (`archie_edit_214`) opens
+on an INPUT inventory of **430 faces, 67 of them BSPLINE** — 15% of the part. The IR could not
+name one of them.
+
+**The decision.** `SURFACE` — a sheet body: an ordered set of faces that is NOT required to be
+closed, sewn, manifold, or non-empty. Six ops give it producers and consumers in both
+directions, each a thin wiring of a kernel entry point that already existed: `SKIN` (open
+`loftguide::loft`), `FACES` (new `forge::surf::facesOf`), `SEW` (`heal::sewShape` /
+`sewing::sew`), `THICKEN` (`part::thickenSurface`), `CAP` (`heal::autoFillMissingFaces`),
+`SURFCHECK` (`surf::statsOf` + `heal::checkValidity`).
+
+**Its invariant is deliberately the weakest of the four, and that is the decision.** The
+governing constraint is the owner's: *don't gate anything; a validator that refuses input is a
+capability gate wearing a safety hat, and it fires hardest on the longest, densest, most curved
+trees.* So an unsewn face set, edges without p-curves, a self-intersecting patch and an EMPTY
+sheet are all representable SURFACE values, answerable through `SURFCHECK`, and none of them
+aborts a walk. `THICKEN`/`CAP` sew an unsewn sheet as a REPAIR; `SKIN` records an unknown flag
+instead of throwing; a bare `SURFCHECK "expr"` is repaired to the explicit form exactly as
+`VERIFY` already is. Where a refusal is unavoidable the message names the op id, the face count
+and the free-edge count.
+
+**A wrong answer wearing the shape of a right one — found by RUNNING it.** The first
+`facesOf` read an EMPTY index list as "every face". That collides with the one case the kind
+exists to survive: a selector that matched nothing. Measured through
+`build_surface_compile_probe.sh`, `FACES(%body, "bore:r=99999")` on a 6-face box returned all
+SIX faces and `THICKEN` built a **5587 mm³ body** out of them, reported `ok=1 valid=1`. Every
+headless gate was green. "Give me the whole boundary" is now a different function
+(`boundaryOf`), so the two can never be spelled the same way again. **The lesson is the
+familiar one and it recurred here: a capability that is only compile-verified is not verified —
+the defect was invisible to three green gates and took one run to expose.**
+
+**What is measured, on real geometry** (`surface_compile_probe`, 15/15):
+`FACES("+z")` → 1 face / 4 free edges → `THICKEN(3)` → a valid solid, vol 14400.
+`SKIN` of two `RING` sections → **48 free-form faces, 96 free edges** → `CAP` → a valid solid,
+50 faces, vol 52961.5. A `FUSE` handed a sheet now says *"%2 is a SURFACE, expected a SOLID — a
+sheet is not a body: use THICKEN(%2, wall) or CAP(%2)"* instead of the old hard-coded, and by
+then false, *"is a PROFILE"*.
+
+**The one gate that remains, named honestly.** All six ops land in the vocabulary's FORBIDDEN
+list (kernel ops 40 → 46, forbidden 22 → 28) because no `forge::ui` command emits them. That is
+the PRE-EXISTING app-surface policy of D-021, not a new rule about surfaces, and it lifts the
+moment a command does. It is asserted rather than described in
+`ui/test/surface_value_kind_test.cpp` §7.
+
+**Known mistyping, recorded rather than silently changed.** `LOFT(..., OPEN)` produces the same
+uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf` keys on the
+OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
+change for every corpus already written against `LOFT`, and it belongs in its own commit with
+its own measurement.
+

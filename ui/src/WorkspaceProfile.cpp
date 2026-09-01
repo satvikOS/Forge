@@ -105,8 +105,14 @@ DockLayout defaultLayout(WorkspaceProfile profile) {
                                   {"convergence", "solver_log"}));
       break;
     case WorkspaceProfile::Archie:
+      // "archie_copilot" replaces the placeholder "archie_plan" tab: the CoPilot
+      // IS the plan surface -- it shows the op plan, the op-constraint verdict
+      // for each line, and the Accept/Reject controls -- so a second tab named
+      // Plan would be a tab with nothing left to hold. The count stays at 8
+      // (dock_layout_test pins it for every profile) and archie_chat stays where
+      // forge_shell_test expects to find it.
       layout.addWindow(mainWindow({"feature_tree", "model_browser"}, {"viewport_3d"},
-                                  {"archie_chat", "archie_plan", "archie_tools"},
+                                  {"archie_chat", "archie_copilot", "archie_tools"},
                                   {"archie_trace", "verify_report"}));
       break;
   }
@@ -120,8 +126,9 @@ std::vector<std::string> workspaceCategories(WorkspaceProfile profile) {
     // commands on no ribbon in any of the eight workspaces before this; the
     // earlier reading here was that the Part ribbon should be "Part, not Model",
     // which was written before that measurement and would narrow the set again.
-    // "Part" as well as "Model": registerPartCommands() files its 21 commands
-    // under "Part", and the Part workspace is where part modelling happens. It
+    // "Part" as well as "Model": registerPartCommands() files all 31 of its
+    // commands (21 when this was measured) under "Part", and the Part workspace is
+    // where part modelling happens. It
     // was claimed by no workspace at all, which put every one of those commands
     // on no ribbon in any of the eight workspaces.
     case WorkspaceProfile::Part:          cats.push_back("Model");

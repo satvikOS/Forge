@@ -13,7 +13,7 @@
 //       it is not re-proved here, because a second JSON reader in C++ would be a
 //       third transcription of the same list.
 //   (b) forge::ui::irOpTable(), which ui/test/feature_ir_test.cpp separately
-//       proves is the KERNEL's own op table. The 18 allowed and the 22 forbidden
+//       proves is the KERNEL's own op table. The 28 allowed and the 12 forbidden
 //       ops must PARTITION it exactly -- an op classified as neither is drift,
 //       and drift is what silently widens a constraint.
 //   (c) the LIVE REGISTRY the app builds (ForgeShell + registerPartCommands).
@@ -32,10 +32,11 @@
 // PROVING THE GATE CAN FAIL: `--mutate <n>` perturbs the vocabulary the bridge
 // is built from, or the path the gate takes to it. Each is a regression that has
 // a name:
-//   1  RECT is dropped from the allowed set  -> the only PROFILE creator is gone;
-//                                               the language closes empty again
-//   2  BOX is added to the allowed set       -> the constraint silently widened to
-//                                               an op no command emits
+//   1  every PROFILE creator is dropped     -> no user-invocable op produces a
+//      from the allowed set                    PROFILE; the language closes empty
+//                                              again and EXTRUDE/REVOLVE are OWED
+//   2  POLY is added to the allowed set      -> the constraint silently widened to
+//                                              an op no command emits
 //   3  EXTRUDE's emitted arity is widened     -> the KERNEL's arity is enforced
 //      to the kernel's                          instead of the app's, and a form
 //                                               no user can produce is accepted
@@ -49,11 +50,16 @@
 //      dropped from the table                   disagree about what is reachable
 //   8  part.sketch_circle is made to require -> a creator that is no longer
 //      a selection                              reachable from an empty document
+//   9  SLOT is promoted from forbidden to  -> the ARGUMENT-VALUE rules stop
+//      allowed                                  reading the vocabulary; a
+//                                               transcribed list would not notice
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -106,27 +112,49 @@ OpVocabulary perturbed(OpVocabulary v) {
     return nullptr;
   };
   switch (g_mutation) {
-    case 1: {  // the only PROFILE creator disappears
+    case 1: {  // the PROFILE creators disappear
+      // Every one of them, not just RECT. When this mutation was written RECT was the
+      // only PROFILE producer, so erasing it emptied the kind and the closure check
+      // caught it. There are now four (RECT, CIRCLE, RRECT, REGPOLY), and erasing one of
+      // four would leave the language closed -- the mutation would still be caught, but
+      // by the row-count checks rather than by the check it exists to prove. Erasing the
+      // KIND keeps the teeth where they were put: EXTRUDE and REVOLVE consume a PROFILE
+      // and nothing would produce one.
       v.ops.erase(std::remove_if(v.ops.begin(), v.ops.end(),
-                                 [](const OpVocabulary::Op& o) { return o.op == "RECT"; }),
+                                 [](const OpVocabulary::Op& o) {
+                                   return o.produces == IrValueKind::Profile;
+                                 }),
                   v.ops.end());
       v.commands.erase(std::remove_if(v.commands.begin(), v.commands.end(),
                                       [](const OpVocabulary::Command& c) {
-                                        return c.op == "RECT";
+                                        return c.produces == IrValueKind::Profile;
                                       }),
                        v.commands.end());
       break;
     }
     case 2: {  // the allowed set is quietly widened to an op no command emits
-      OpVocabulary::Op box;
-      box.op = "BOX";
-      box.produces = IrValueKind::Solid;
-      box.kernelMinArgs = 3;
-      box.kernelMaxArgs = 6;
-      box.firstArgIsValueRef = false;
-      box.emittedForms.push_back(OpVocabulary::ArgCounts{3, 3});
-      box.commands.push_back("part.make_box");
-      v.ops.push_back(std::move(box));
+      // SLOT, not POLY, and not BOX before it. This exemplar has now moved TWICE for the
+      // same reason -- BOX became user-invocable with part.primitive_box, POLY with
+      // part.sketch_poly -- and an op the registry really does emit cannot demonstrate
+      // "widened to an op nothing emits": the mutation would be a no-op and the gate
+      // would pass while proving nothing.
+      //
+      // SLOT is the durable one, and for a reason no future command can quietly undo:
+      // it is not waiting on a spelling, it is out on a MEASUREMENT. profSlot builds
+      // both semicircular caps INWARD (-50.4% of the volume its own signature promises
+      // on SLOT(40,12); forge-kernel/reports/MODELLING_OP_FAMILIES.md 6.1), so it stays
+      // forbidden until the kernel arc is fixed AND re-measured. It is also the LAST
+      // member of forbidden_ops -- if a future change empties that set, this mutation
+      // has no subject left and the assertion below is what will say so.
+      OpVocabulary::Op slot;
+      slot.op = "SLOT";
+      slot.produces = IrValueKind::Profile;
+      slot.kernelMinArgs = 2;
+      slot.kernelMaxArgs = 5;
+      slot.firstArgIsValueRef = false;
+      slot.emittedForms.push_back(OpVocabulary::ArgCounts{2, 2});
+      slot.commands.push_back("part.make_slot");
+      v.ops.push_back(std::move(slot));
       break;
     }
     case 3: {  // the KERNEL's arity is enforced instead of the app's
@@ -177,6 +205,27 @@ OpVocabulary perturbed(OpVocabulary v) {
       for (OpVocabulary::Command& c : v.commands) {
         if (c.id == "part.sketch_circle") c.selectionMin = 1;
       }
+      break;
+    }
+    case 9: {  // SLOT is promoted out of the forbidden set into the allowed one
+      // The argument-value rules in section 4c must be READING THE VOCABULARY,
+      // not a list transcribed into OpConstraintBridge.cpp. Move SLOT across
+      // and a selector spelling it stops being ForbiddenOpInArgument -- which is
+      // exactly what a hardcoded list would fail to notice.
+      v.forbidden.erase(std::remove_if(v.forbidden.begin(), v.forbidden.end(),
+                                       [](const OpVocabulary::Forbidden& f) {
+                                         return f.op == "SLOT";
+                                       }),
+                        v.forbidden.end());
+      OpVocabulary::Op slot;
+      slot.op = "SLOT";
+      slot.produces = IrValueKind::Solid;
+      slot.kernelMinArgs = 2;
+      slot.kernelMaxArgs = 5;
+      slot.firstArgIsValueRef = false;
+      slot.emittedForms.push_back(OpVocabulary::ArgCounts{2, 2});
+      slot.commands.push_back("part.make_slot");
+      v.ops.push_back(std::move(slot));
       break;
     }
     default:
@@ -359,11 +408,44 @@ int main(int argc, char** argv) {
 
     // FORBIDDEN: a real kernel op no command emits. The refusal must quote the
     // vocabulary's own reason, not say "not allowed".
-    const OpRuling box = bridge.check(step(1, "BOX",
-                                           {IrArg::num(10), IrArg::num(10), IrArg::num(10)}));
-    CHECK_EQ_INT(static_cast<int>(box.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
-    CHECK(box.reason.find("BOX") != std::string::npos);
-    CHECK(box.reason.find("no user can produce it") != std::string::npos);
+    //
+    // This case named BOX until part.primitive_box was added, then POLY until
+    // part.sketch_poly was. Both are now allowed, and a named example has to be an op
+    // that is STILL out of reach or the assertion tests nothing. SLOT is the durable
+    // one, and unlike its two predecessors it is not one command away: it is spellable
+    // today and withheld on a MEASUREMENT (profSlot inverts both end caps, -50.4% of the
+    // volume on SLOT(40,12)), so no new command legalises it -- only a kernel fix plus a
+    // re-measurement does.
+    const OpRuling slot = bridge.check(step(1, "SLOT", {IrArg::num(40), IrArg::num(12)}));
+    CHECK_EQ_INT(static_cast<int>(slot.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
+    CHECK(slot.reason.find("SLOT") != std::string::npos);
+    // NOT "no user can produce it": SLOT's recorded reason is the measurement, and
+    // asserting the old blanket wording here would let the two be confused again.
+    CHECK(!slot.reason.empty());
+    // And POLY, which used to stand here, is now ACCEPTED in the form the new command
+    // emits -- the other half of the same claim, and the reason this line moved. It is
+    // also the FIRST points-token statement the bridge has ever had to rule on.
+    const OpRuling polyNow = bridge.check(
+        step(1, "POLY",
+             {IrArg::points({IrPoint{-20, -10, 0}, IrPoint{20, -10, 0}, IrPoint{0, 18, 0}}, 2)},
+             EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(polyNow.verdict), static_cast<int>(OpConstraint::Ok));
+    // A ring carrying a non-finite coordinate is REFUSED, and by the argument-VALUE rule
+    // rather than the op-name one. Without the Points arm in checkValue this statement
+    // sails through: arg.word is empty, so every existing test in that function passes
+    // it, and `[10 nan; ...]` reaches forge::ft as a ring it reads back differently.
+    const OpRuling polyNaN = bridge.check(
+        step(1, "POLY",
+             {IrArg::points({IrPoint{-20, -10, 0}, IrPoint{20, std::nan(""), 0},
+                             IrPoint{0, 18, 0}}, 2)},
+             EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(polyNaN.verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
+    // An EMPTY ring renders as `[]`, which forge::ft's lexer refuses outright.
+    const OpRuling polyEmpty =
+        bridge.check(step(1, "POLY", {IrArg::points({}, 2)}, EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(polyEmpty.verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
 
     // Every forbidden op is refused, every one names itself, and none is allowed.
     for (const std::string& op : bridge.forbiddenOps()) {
@@ -481,6 +563,198 @@ int main(int argc, char** argv) {
     CHECK(lw.allAccepted());
   }
 
+  // ── 4c. THE ARGUMENT IS ALSO A VALUE ─────────────────────────────────────
+  // Sections 4 and 4b rule on the op name and on the SHAPE of the argument list.
+  // Neither reads what an argument SAYS, and that was a hole with a name: three
+  // of the app's own commands build a feature-IR argument out of a TEXT
+  // PARAMETER the caller supplies verbatim (part.fillet and part.chamfer from
+  // `selector`, part.mirror from `plane`). The op name of the statement is
+  // therefore NOT the only op a statement can carry.
+  //
+  // Everything below was ACCEPTED by this bridge before checkValue() existed.
+  {
+    const auto render = [](const std::vector<ProposedOp>& plan) {
+      std::string out;
+      for (const ProposedOp& p : plan) {
+        out += p.line.text();
+        out += "\n";
+      }
+      return out;
+    };
+
+    // ── the bypass, at its full size ────────────────────────────────────────
+    // A three-statement plan. Every `line.op` is user-invocable: RECT, EXTRUDE,
+    // FILLET. The FILLET carries a selector whose VALUE closes the quote, opens
+    // a NEW LINE, and writes a SLOT -- an op the vocabulary forbids outright.
+    // forge::ft::parse reads statements line by line, so the text this plan
+    // renders to is a program of THREE statements, the last of which no command
+    // in this app can emit.
+    std::vector<ProposedOp> smuggler;
+    smuggler.push_back(step(1, "RECT", {IrArg::num(40), IrArg::num(30)}));
+    smuggler.push_back(step(2, "EXTRUDE", {IrArg::valueRef(1), IrArg::num(20)}));
+    smuggler.push_back(step(3, "FILLET",
+                            {IrArg::valueRef(2), IrArg::num(2),
+                             IrArg::text("ALL\")\n%4 = SLOT(50, 20)\n#")}));
+
+    // FIRST, the escalation MEASURED rather than asserted: the rendered text
+    // really does gain a statement, and it really is a statement this same
+    // bridge refuses when it is written where a gate can see it.
+    const std::string text = render(smuggler);
+    CHECK(text.find("\n%4 = SLOT(50, 20)\n") != std::string::npos);
+    const OpRuling passenger = bridge.check(step(4, "SLOT", {IrArg::num(50), IrArg::num(20)}));
+    CHECK_EQ_INT(static_cast<int>(passenger.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
+
+    // SECOND, the refusal. The carrier is refused for the value it carries, and
+    // the reason names the argument's POSITION -- a planner told only "the plan
+    // is bad" learns nothing it can act on.
+    const PlanRuling sr = bridge.check(smuggler);
+    if (sr.allAccepted()) std::printf("  [BYPASS] the gate accepted:\n%s", text.c_str());
+    CHECK(!sr.allAccepted());
+    CHECK_EQ_INT(sr.rejected, 1);
+    CHECK(sr.firstRejection() != nullptr);
+    if (sr.firstRejection() != nullptr) {
+      CHECK_EQ_INT(static_cast<int>(sr.firstRejection()->verdict),
+                   static_cast<int>(OpConstraint::MalformedArgumentValue));
+      CHECK_EQ_STR(sr.firstRejection()->op, "FILLET");
+      CHECK_EQ_INT(sr.firstRejection()->statementId, 3);
+      CHECK(sr.firstRejection()->reason.find("argument 3 of 3") != std::string::npos);
+      // The FIRST unwritable character is the one named, and here that is the
+      // quote the value uses to close the string -- not the newline that follows
+      // it. Naming the first one is what makes the reason actionable: fixing a
+      // later character would leave the value just as unwritable.
+      CHECK(sr.firstRejection()->reason.find("double quote") != std::string::npos);
+    }
+    // A value whose only defect IS the newline names the newline.
+    const OpRuling nl = bridge.check(step(3, "FILLET",
+                                          {IrArg::valueRef(2), IrArg::num(2),
+                                           IrArg::text("ALL\n%4 = SLOT(50, 20)")}));
+    CHECK_EQ_INT(static_cast<int>(nl.verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
+    CHECK(nl.reason.find("newline") != std::string::npos);
+    // The two statements BEFORE it are still accepted: the refusal is about one
+    // argument of one line, not a whole-plan panic.
+    CHECK_EQ_INT(sr.accepted, 2);
+
+    // ── the same hole without any injection: a bare forbidden op ────────────
+    // No quote, no newline, nothing malformed -- the word SLOT simply sitting
+    // in the argument slot. This is the plainest reading of "an op name hides in
+    // an argument", and it is a DIFFERENT fact from the one above, so it gets a
+    // different verdict.
+    const OpRuling quoted = bridge.check(step(3, "FILLET",
+                                              {IrArg::valueRef(2), IrArg::num(2),
+                                               IrArg::text("SLOT")}));
+    CHECK_EQ_INT(static_cast<int>(quoted.verdict),
+                 static_cast<int>(OpConstraint::ForbiddenOpInArgument));
+    CHECK(quoted.reason.find("SLOT") != std::string::npos);
+    // ForbiddenOp's own words are quoted through, so the refusal cites the
+    // vocabulary rather than paraphrasing it.
+    CHECK(quoted.reason.find("no command in the forge::ui registry emits it") !=
+          std::string::npos);
+
+    // A BARE keyword spelling it, which forge::ft upper-cases as it reads --
+    // so the lower-case spelling must be refused by the same fact.
+    const OpRuling kw = bridge.check(step(3, "FILLET",
+                                          {IrArg::valueRef(2), IrArg::num(2),
+                                           IrArg::keyword("slot")}));
+    CHECK_EQ_INT(static_cast<int>(kw.verdict),
+                 static_cast<int>(OpConstraint::ForbiddenOpInArgument));
+    CHECK(kw.reason.find("SLOT") != std::string::npos);
+
+    // An ALLOWED op as a bare keyword is a different fact again: not an
+    // escalation, but no command emits an op name in a keyword slot.
+    const OpRuling allowedKw = bridge.check(step(3, "FILLET",
+                                                 {IrArg::valueRef(2), IrArg::num(2),
+                                                  IrArg::keyword("EXTRUDE")}));
+    CHECK_EQ_INT(static_cast<int>(allowedKw.verdict),
+                 static_cast<int>(OpConstraint::OpNameInArgument));
+
+    // ── the OTHER unwritable values ────────────────────────────────────────
+    // A quote alone is enough: forge::ft opens a string on either quote
+    // character, so the argument list re-reads with a different length.
+    const OpRuling quoteBreak = bridge.check(step(3, "FILLET",
+                                                  {IrArg::valueRef(2), IrArg::num(2),
+                                                   IrArg::text("A\", 99, \"B")}));
+    CHECK_EQ_INT(static_cast<int>(quoteBreak.verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
+    // Rendered, that is FIVE comma-separated arguments where the gate checked
+    // THREE -- the arity check in section 4 ruled on a list the kernel will not
+    // receive.
+    CHECK(step(3, "FILLET", {IrArg::valueRef(2), IrArg::num(2), IrArg::text("A\", 99, \"B")})
+              .line.text() == "%3 = FILLET(%2, 2, \"A\", 99, \"B\")");
+
+    // A single quote inside a double-quoted selector: the same delimiter defect
+    // by the other character.
+    CHECK_EQ_INT(static_cast<int>(bridge.check(step(3, "FILLET",
+                                                    {IrArg::valueRef(2), IrArg::num(2),
+                                                     IrArg::text("it's")}))
+                     .verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
+
+    // A non-finite NUMBER is the same defect through the numeric slot: "%.10g"
+    // writes it as a bare word, and a bare word re-reads as a KEYWORD.
+    const double inf = std::numeric_limits<double>::infinity();
+    CHECK_EQ_INT(static_cast<int>(bridge.check(step(2, "EXTRUDE",
+                                                    {IrArg::valueRef(1), IrArg::num(inf)}))
+                     .verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
+    CHECK_EQ_INT(static_cast<int>(
+                     bridge
+                         .check(step(2, "EXTRUDE",
+                                     {IrArg::valueRef(1),
+                                      IrArg::num(std::numeric_limits<double>::quiet_NaN())}))
+                         .verdict),
+                 static_cast<int>(OpConstraint::MalformedArgumentValue));
+
+    // ── AND THE APP'S OWN VALUES STILL PASS ────────────────────────────────
+    // A rule that refuses the product's own output is not a rule, it is a bug.
+    // These are the exact values ui/src/PartCommands.cpp emits, measured from it:
+    // the four FILLET keywords, MIRROR's three planes, and a real quoted face
+    // selector -- which contains a colon, an equals sign and a digit, and whose
+    // "bore" is a SUBSTRING of the op CBORE. Nothing here may be refused.
+    const char* const kEmittedKeywords[] = {"ALL",  "VERTICAL", "RIM",  "CONVEX", "SMOOTH",
+                                            "RULED", "OPEN",    "LINEAR", "POLAR", "GRID"};
+    for (const char* word : kEmittedKeywords) {
+      std::string why;
+      const OpConstraint v = bridge.checkValue(IrArg::keyword(word), why);
+      if (v != OpConstraint::Ok) std::printf("  [regression] keyword %s refused: %s\n", word,
+                                             why.c_str());
+      CHECK_EQ_INT(static_cast<int>(v), static_cast<int>(OpConstraint::Ok));
+      CHECK(why.empty());
+    }
+    for (const char* plane : {"XY", "XZ", "YZ"}) {
+      std::string why;
+      CHECK_EQ_INT(static_cast<int>(bridge.checkValue(IrArg::keyword(plane), why)),
+                   static_cast<int>(OpConstraint::Ok));
+    }
+    for (const char* sel : {"bore:r=6", "hole:at=21.75,0", "face@3", "TOP"}) {
+      std::string why;
+      const OpConstraint v = bridge.checkValue(IrArg::text(sel), why);
+      if (v != OpConstraint::Ok) std::printf("  [regression] selector %s refused: %s\n", sel,
+                                             why.c_str());
+      CHECK_EQ_INT(static_cast<int>(v), static_cast<int>(OpConstraint::Ok));
+    }
+    // The whole statement, as part.fillet builds it.
+    CHECK(bridge.check(step(3, "FILLET",
+                            {IrArg::valueRef(2), IrArg::num(2), IrArg::keyword("ALL")}))
+              .accepted());
+    CHECK(bridge.check(step(3, "FILLET",
+                            {IrArg::valueRef(2), IrArg::num(2), IrArg::text("bore:r=6")}))
+              .accepted());
+
+    // ── the ForbiddenOp / UnknownOp split is UNTOUCHED ─────────────────────
+    // The argument rules are additive. A forbidden op as a STATEMENT op is still
+    // ForbiddenOp, and a word that is no feature-IR op at all is still
+    // UnknownOp -- two different facts, and neither has become the other.
+    CHECK_EQ_INT(static_cast<int>(bridge.check(step(1, "SLOT", {IrArg::num(50), IrArg::num(20)})).verdict),
+                 static_cast<int>(OpConstraint::ForbiddenOp));
+    CHECK_EQ_INT(static_cast<int>(bridge.check(step(1, "NOTANOP", {IrArg::num(1)})).verdict),
+                 static_cast<int>(OpConstraint::UnknownOp));
+    // ...and a word that is no op at all is not an op in an ARGUMENT either.
+    std::string why;
+    CHECK_EQ_INT(static_cast<int>(bridge.checkValue(IrArg::keyword("NOTANOP"), why)),
+                 static_cast<int>(OpConstraint::Ok));
+  }
+
   // ── 5. IS THE ALLOWED SET A LANGUAGE? -- D-015, measured ─────────────────
   const VocabularyClosure& closure = bridge.closure();
   std::printf("%s", closure.report().c_str());
@@ -488,11 +762,38 @@ int main(int argc, char** argv) {
   CHECK_EQ_INT(closure.owedCreatorKinds.size(), 0);
   CHECK_EQ_INT(closure.unreachableOps.size(), 0);
   // The creators, pinned. D-015 measured ZERO; if that is ever true again the
-  // language is empty and this line says so by name.
-  CHECK_EQ_INT(closure.creatorOps.size(), 3);
+  // language is empty and this line says so by name. Three of these (CIRCLE, RECT, RING)
+  // closed the PROFILE and WIRE kinds; nine are the kernel's own primitives, which the
+  // kernel has always built and no command could ask for until now; the thirteenth
+  // is INPUT, which creates a SOLID from the task's imported STEP rather than from
+  // numbers -- the creator every EDIT task starts from, without which the only solids
+  // reachable were ones the app had just built from scratch, so "change the part you
+  // were given" was not a program this language could write.
+  //
+  // The last three are the POINT-RING creators, and each closes a shape the other
+  // twelve cannot express however they are composed: POLY is the only ARBITRARY 2D
+  // silhouette (every other profile creator is a parameterised family -- rectangle,
+  // circle, n-gon), WIRE is the only NON-superelliptical loft section (RING is rx/ry/p,
+  // so an airfoil is not statable as one), and SWEEP is the only op that makes a solid
+  // by following a 3D PATH. They needed no new value kind -- they needed a new ARGUMENT
+  // kind, IrArgKind::Points, which is why they outlasted the other nine.
+  CHECK_EQ_INT(closure.creatorOps.size(), 16);
+  CHECK(contains(closure.creatorOps, "POLY"));
+  CHECK(contains(closure.creatorOps, "WIRE"));
+  CHECK(contains(closure.creatorOps, "SWEEP"));
+  CHECK(contains(closure.creatorOps, "INPUT"));
   CHECK(contains(closure.creatorOps, "CIRCLE"));
   CHECK(contains(closure.creatorOps, "RECT"));
   CHECK(contains(closure.creatorOps, "RING"));
+  CHECK(contains(closure.creatorOps, "RRECT"));
+  CHECK(contains(closure.creatorOps, "REGPOLY"));
+  CHECK(contains(closure.creatorOps, "BOX"));
+  CHECK(contains(closure.creatorOps, "CYL"));
+  CHECK(contains(closure.creatorOps, "CONE"));
+  CHECK(contains(closure.creatorOps, "SPHERE"));
+  CHECK(contains(closure.creatorOps, "TORUS"));
+  CHECK(contains(closure.creatorOps, "PRISM"));
+  CHECK(contains(closure.creatorOps, "TUBE"));
   for (const IrValueKind kind : closure.owedCreatorKinds) {
     std::printf("  OWED: no forge::ui command creates a %s\n", toString(kind));
   }
@@ -577,11 +878,52 @@ int main(int argc, char** argv) {
                                        ref("wire_11", EntityKind::Wire, "w2")}, loft)),
                  static_cast<int>(DispatchStatus::Ok));
 
+    // ── and the KERNEL'S OWN PRIMITIVES, unreachable until this change ──────
+    // BOX and CYL are the two most-used ops in the repo's feature-tree corpus and were
+    // both in forbidden_ops; the app even SEEDED a BOX into every document while giving
+    // the user no way to author one. These five statements are the proof that the
+    // primitives are not merely listed but INVOCABLE, and that they compose with the
+    // commands that were already here: %14 rotates the cylinder %13 made, and %17
+    // extrudes the polygon profile %16 made.
+    CommandParams cyl;
+    cyl.setNumber("radius", 10);
+    cyl.setNumber("height", 25);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.primitive_cylinder", {}, cyl)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams rot;
+    rot.setNumber("angle", 90);
+    rot.setNumber("axx", 0);
+    rot.setNumber("axy", 1);
+    rot.setNumber("axz", 0);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.rotate",
+                                      {ref("body_13", EntityKind::Body, "b3")}, rot)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams tube;
+    tube.setNumber("outer_radius", 12);
+    tube.setNumber("inner_radius", 8);
+    tube.setNumber("height", 30);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.primitive_tube", {}, tube)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams ngon;
+    ngon.setNumber("radius", 20);
+    ngon.setNumber("sides", 6);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_polygon", {}, ngon)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams ext3;
+    ext3.setNumber("distance", 12);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.extrude",
+                                      {ref("sketch_16", EntityKind::Sketch, "s16")}, ext3)),
+                 static_cast<int>(DispatchStatus::Ok));
+
     std::printf("  [measured] a program a USER could have authored, from an empty document:\n%s\n",
                 doc.irProgram().c_str());
 
     // NON-TRIVIAL, stated as numbers rather than as an adjective.
-    CHECK_EQ_INT(doc.records().size(), 12);
+    CHECK_EQ_INT(doc.records().size(), 17);
     std::vector<IrLine> program;
     std::vector<std::string> distinctOps;
     for (const FeatureRecord& rec : doc.records()) {
@@ -589,7 +931,7 @@ int main(int argc, char** argv) {
       CHECK(!rec.commandId.empty());  // every statement is command-authored
       if (!contains(distinctOps, rec.line.op)) distinctOps.push_back(rec.line.op);
     }
-    CHECK(distinctOps.size() >= 10);
+    CHECK(distinctOps.size() >= 14);
 
     // THE CLOSING OF THE LOOP: the bridge accepts, statement for statement, what
     // the app itself produced. A constraint that refuses the product's own output
@@ -597,7 +939,7 @@ int main(int argc, char** argv) {
     const PlanRuling ruling = bridge.check(program);
     if (!ruling.allAccepted()) std::printf("%s", ruling.report().c_str());
     CHECK(ruling.allAccepted());
-    CHECK_EQ_INT(ruling.accepted, 12);
+    CHECK_EQ_INT(ruling.accepted, 17);
     CHECK_EQ_INT(ruling.rejected, 0);
 
     // And the ops it used are a subset of the allowed set, by name.
