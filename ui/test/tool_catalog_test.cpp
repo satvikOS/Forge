@@ -183,13 +183,23 @@ int main() {
     CHECK(availabilityOf(c, "edit.delete") == ToolAvailability::Available);
     // thickness carries a declared default, so a face is all it was waiting for
     CHECK(availabilityOf(c, "part.shell") == ToolAvailability::Available);
-    // diameter has NO honest default: selectable now, still not callable
-    CHECK(availabilityOf(c, "part.hole") == ToolAvailability::NeedsParameters);
-    const ToolEntry* hole = c.find("part.hole");
-    CHECK(hole != nullptr);
-    if (hole != nullptr) {
-      CHECK_EQ_INT(hole->missing.size(), 1);
-      CHECK_EQ_STR(forge::uitest::at(hole->missing, 0), "diameter");
+    // diameter carries an honest default (6 mm) now, so a picked face is all the
+    // hole was waiting for. It used to stand here as the NeedsParameters
+    // exemplar because its ParamSpec was written in the braced-positional form
+    // that stops before `hasDefault` -- the value was sitting in defaultNumber
+    // and applyDefaults() was forbidden to read it.
+    CHECK(availabilityOf(c, "part.hole") == ToolAvailability::Available);
+    // The exemplar moves to a command whose required parameter has no honest
+    // value at all: there is no default NEW VALUE for a feature parameter, and
+    // inventing one would let a menu click silently resize the part. Its
+    // signature is none(), so this is a PARAMETER refusal at every selection --
+    // which is the property the next block leans on.
+    CHECK(availabilityOf(c, "part.edit_feature") == ToolAvailability::NeedsParameters);
+    const ToolEntry* edit = c.find("part.edit_feature");
+    CHECK(edit != nullptr);
+    if (edit != nullptr) {
+      CHECK_EQ_INT(edit->missing.size(), 1);
+      CHECK_EQ_STR(forge::uitest::at(edit->missing, 0), "value");
     }
     // a face is not an edge, so the fillet is still waiting for a selection
     CHECK(availabilityOf(c, "part.fillet") == ToolAvailability::NeedsSelection);
@@ -199,9 +209,12 @@ int main() {
     // distance carries a declared default too, so a picked sketch is enough
     CHECK(availabilityOf(s, "part.extrude") == ToolAvailability::Available);
     CHECK(availabilityOf(s, "part.shell") == ToolAvailability::NeedsSelection);
-    // part.hole still has no honest default for its diameter, so the two
-    // refusals stay distinguishable rather than collapsing into one
+    // and the two refusals stay distinguishable rather than collapsing into one:
+    // a sketch is not a face, so the hole is waiting for a SELECTION, while
+    // part.edit_feature -- which needs no selection at all -- is waiting for a
+    // PARAMETER. Same instant, same catalog, two different answers.
     CHECK(availabilityOf(s, "part.hole") == ToolAvailability::NeedsSelection);
+    CHECK(availabilityOf(s, "part.edit_feature") == ToolAvailability::NeedsParameters);
     shell.selection().clearSelection();
   }
 
@@ -215,10 +228,18 @@ int main() {
     CHECK(fil != nullptr && hole != nullptr && loft != nullptr && fit != nullptr);
     // * AND a default: required, but a gesture can still run it
     if (fil != nullptr) CHECK_EQ_STR(fil->parameters, "radius:number*=1, selector:text");
-    // * and NO default: required, and an interactive caller must prompt
+    // * AND a default here too, now that the hole's diameter declares one
     if (hole != nullptr) {
       CHECK_EQ_STR(hole->parameters,
-                   "diameter:number*, x:number, y:number, z:number, depth:number");
+                   "diameter:number*=6, x:number, y:number, z:number, depth:number");
+    }
+    // * and NO default: required, and an interactive caller must prompt. Together
+    // with file.open that is the whole remaining population of this shape --
+    // ui/test/keymap_audit_test.cpp pins the list.
+    const ToolEntry* editEntry = c.find("part.edit_feature");
+    CHECK(editEntry != nullptr);
+    if (editEntry != nullptr) {
+      CHECK_EQ_STR(editEntry->parameters, "feature:number=0, index:number=0, value:number*");
     }
     if (loft != nullptr) CHECK_EQ_STR(loft->parameters, "ruled:flag, open:flag");
     if (fit != nullptr) CHECK_EQ_STR(fit->parameters, "-");
@@ -228,7 +249,7 @@ int main() {
     CHECK(cbore != nullptr);
     if (cbore != nullptr) {
       CHECK_EQ_STR(describeParameters(*cbore),
-                   "diameter:number*, cbore_diameter:number*, cbore_depth:number*, "
+                   "diameter:number*=6, cbore_diameter:number*=11, cbore_depth:number*=6, "
                    "x:number, y:number, z:number");
     }
   }

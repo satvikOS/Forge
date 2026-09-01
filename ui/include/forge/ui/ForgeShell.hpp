@@ -17,10 +17,13 @@
 #include <string>
 #include <vector>
 
+#include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/PanelFocus.hpp"
 #include "forge/ui/SelectionService.hpp"
+#include "forge/ui/Theme.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
@@ -77,6 +80,19 @@ class DocumentHost {
   // that cannot save must say so; silently succeeding is the failure mode this
   // interface was written to remove.
   virtual bool documentNew(std::string& error) = 0;
+
+  // EMPTY, not "new". `documentNew` means File > New, and in the shipped app
+  // that seeds a starter part -- which is right for File > New and wrong for
+  // anything that is about to write its own statements into the document. Load
+  // Sample would otherwise stack a sample's fourteen features on top of the
+  // starter part's five and produce a program that is neither.
+  //
+  // PURE, like the rest of this interface, and for the same reason: a defaulted
+  // no-op would let a host silently ignore the request and leave the caller
+  // appending onto whatever was already there. A host that cannot empty its
+  // document has to say so.
+  virtual bool documentReset(std::string& error) = 0;
+
   virtual bool documentOpen(const std::string& path, std::string& error) = 0;
   virtual bool documentSave(const std::string& path, std::string& error) = 0;
   virtual bool documentUndo() = 0;
@@ -147,6 +163,30 @@ class ForgeShell {
   // `execute` returns void, so this is how a refused open reaches the UI.
   const std::string& lastDocumentError() const noexcept { return documentError_; }
 
+  // ── what happened, and why ──────────────────────────────────────────────
+  // EVERY dispatch is recorded here, refusals included, each with the sentence
+  // that names the missing selection or parameter. `journal()` below is still
+  // the success-only list it always was -- a macro recorder reads that, and
+  // adding failures to it would change what a recorded macro replays.
+  const ActivityLog& log() const noexcept { return log_; }
+  ActivityLog& log() noexcept { return log_; }
+
+  // ── theme ───────────────────────────────────────────────────────────────
+  // The MODE is shell state (it persists in saveState); the palette is derived
+  // from it on demand, so a session file can never pin an old set of colours.
+  ThemeMode themeMode() const noexcept { return themeMode_; }
+  void setThemeMode(ThemeMode mode) noexcept { themeMode_ = mode; }
+  Theme theme() const { return Theme::forMode(themeMode_); }
+
+  // ── keyboard panel focus ────────────────────────────────────────────────
+  // Derived from the dock layout. layout() hands out a mutable reference, so a
+  // caller that reshapes the tree must call refreshPanelFocus() -- the ring
+  // cannot observe a write it was not told about, and pretending otherwise
+  // would make "focus is on a panel that no longer exists" reachable.
+  const FocusRing& panelFocus() const noexcept { return panelFocus_; }
+  FocusRing& panelFocus() noexcept { return panelFocus_; }
+  void refreshPanelFocus() { panelFocus_.rebuild(layout_); }
+
   // ── workspaces ──────────────────────────────────────────────────────────
   WorkspaceProfile workspace() const noexcept { return workspace_; }
   // Switches workspace, saving the outgoing layout first. Returns false when
@@ -184,11 +224,31 @@ class ForgeShell {
   std::string saveState() const;
   bool loadState(const std::string& text);
 
+  // What loadState() actually found. A session file is written by ONE build and
+  // read by another, and refusing the whole file because it carries a record
+  // this build does not know about throws away the user's layouts, keymap and
+  // workspace to protect them from one unread line. Unknown RECORD NAMES are
+  // skipped and counted here; a MALFORMED KNOWN record is still refused
+  // outright, because that one really is corruption.
+  struct StateLoadReport {
+    bool ok = false;
+    std::size_t unknownRecords = 0;
+    std::vector<std::string> unknownNames;  // sorted, unique
+    std::string error;                      // "" when ok
+  };
+  StateLoadReport loadStateReport(const std::string& text);
+
  private:
   void registerCommands();
   // Pulls the counters out of the installed host. A no-op with no host, which is
   // what keeps the host-free behaviour bit-identical.
   void syncDocumentStats();
+  // Writes one line into the activity log for a dispatch that has just finished.
+  // Called from run() for EVERY outcome, so there is no path that mutates the
+  // application and leaves no record of having done so.
+  void recordDispatch(const std::string& id, const CommandDescriptor* command,
+                      const DispatchResult& result, const CommandParams& params,
+                      std::size_t documentErrorSeqBefore);
 
   CommandRegistry registry_;
   SelectionService selection_;
@@ -203,7 +263,15 @@ class ForgeShell {
   DocumentStats doc_;
   DocumentHost* documentHost_ = nullptr;
   std::string documentError_;
+  // Bumped every time a handler RAISES a document error. Comparing the counter
+  // across a dispatch is what tells the log "this command refused" apart from
+  // "an earlier command refused and its message is still sitting there" -- the
+  // string alone cannot, because two failed opens leave the same text.
+  std::size_t documentErrorSeq_ = 0;
   std::vector<std::string> journal_;
+  ActivityLog log_;
+  ThemeMode themeMode_ = ThemeMode::Dark;
+  FocusRing panelFocus_;
 };
 
 }  // namespace forge::ui
