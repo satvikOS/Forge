@@ -18,39 +18,39 @@
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
-        "sha256": "cdd571b76056b8fdcc6164691f73f05ac8b737329c36f5011c7cee87f85056f0",
-        "bytes": 15201,
-        "lines": 260
+        "sha256": "4a298b7a92d95b42d67449e9271cf770ddc0db83f87dad9b1ff34b068c6f44e6",
+        "bytes": 22336,
+        "lines": 380
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "d62237f4f5f3b395b8c04a1c92b24d96bc482bc1f049790655e782277ea91d7f",
-        "bytes": 159868,
-        "lines": 2584
+        "sha256": "04fb0ba5ac6c26e49a4a4b5bb0ddc40fe90106028153a05c9b72fd8ef28306e7",
+        "bytes": 159963,
+        "lines": 2585
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "9db3a31f52a312b5f68c50fc2a90e6e54bcd6e2db0e56ef04b8c019f004e1e26",
-        "bytes": 125321,
-        "lines": 2403
+        "sha256": "732b02033c74597e68af3ce215476d7dbd6779f759ce9b2d0a9ed41e124cbe17",
+        "bytes": 153340,
+        "lines": 2909
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "db86c9dd16e7098b9d9ccaa36bad9ec7852ba3b1866c86634f2188ed37656dbd",
-        "bytes": 17351,
-        "lines": 308
+        "sha256": "a446947838afae0dda4069d092102420b1527ddbe42acedacd3cb20c2eccbf90",
+        "bytes": 21880,
+        "lines": 368
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "897dd4bbd10f46e898676609c41168f3b00e04d30b81314acf5f58a35711c361",
-        "bytes": 10161,
-        "lines": 281
+        "sha256": "9339b6cd324c72a0629e8937f8d07a1850becfee97828998e7c6f1c96a9224ce",
+        "bytes": 10425,
+        "lines": 288
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "867b909092b9e68e6923626670f1082d9961f5ab67018d895bda75a5b2500919",
-        "bytes": 134725,
-        "lines": 2331
+        "sha256": "5f3c6a77cf9fff6335765bb7e864b5c6ba695864081f29266b933cf02c1a1b77",
+        "bytes": 134774,
+        "lines": 2332
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 40,
-    "ui_validator_ops": 40,
+    "kernel_ops": 46,
+    "ui_validator_ops": 46,
     "registry_commands": 53,
     "commands_emitting_ir": 42,
     "user_invocable_ops": 39,
-    "forbidden_ops": 1,
+    "forbidden_ops": 7,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
@@ -1881,10 +1881,17 @@
         }
       ],
       "kernel_notes": [
-        "These make the feature-tree IR the single emission format for BOTH",
-        "generation and editing. Face SELECTORs are quoted predicate strings",
-        "resolved against the live faceInventory at compile time (see",
-        "resolveSelector in FeatureTreeCompiler.cpp)."
+        "The free-form half of the vocabulary. Every op here is a THIN wiring of a",
+        "kernel entry point that already exists (loftguide::loft with solid=false,",
+        "forge::surf::facesOf, forge::heal::sewShape / autoFillMissingFaces,",
+        "forge::part::thickenSurface, forge::heal::checkValidity): the SURFACE kind",
+        "is what was missing, not the geometry.",
+        "",
+        "NOTHING HERE REFUSES A DEGENERATE SHEET. A selector that matches no face",
+        "yields an EMPTY surface, not an abort; SEW of two sheets that do not touch",
+        "yields an unsewn surface, not an abort; THICKEN/CAP of a sheet the kernel",
+        "declines fails with the op id, the face count and the free-edge count in",
+        "the message so a repair loop can act on it. See SURFCHECK."
       ],
       "user_commands": [
         "part.heal"
@@ -5183,11 +5190,65 @@
   ],
   "forbidden_ops": [
     {
+      "op": "CAP",
+      "kernel_enum": "Cap",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "CAP(%surface [, tol=0.001])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "FACES",
+      "kernel_enum": "Faces",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "FACES(%body, \"sel\")"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SEW",
+      "kernel_enum": "Sew",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SEW(%s0 [, %s1 ...] [, tol=0.001])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SKIN",
+      "kernel_enum": "Skin",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SKIN(%w0, %w1 [, %w2 ...] [, RULED])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SURFCHECK",
+      "kernel_enum": "SurfCheck",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SURFCHECK(%surface, \"expr\", ...)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "THICKEN",
+      "kernel_enum": "Thicken",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "THICKEN(%surface, wall [, side=MID])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     }
@@ -5196,7 +5257,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 40 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 46 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [

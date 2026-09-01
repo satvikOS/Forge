@@ -43,6 +43,10 @@ bool kindFromName(const std::string& name, forge::ui::IrValueKind& out) {
   if (name == "profile") { out = forge::ui::IrValueKind::Profile; return true; }
   if (name == "wire") { out = forge::ui::IrValueKind::Wire; return true; }
   if (name == "solid") { out = forge::ui::IrValueKind::Solid; return true; }
+  // A saved document that names a kind this build does not know must not silently
+  // become `None` and then fail an unrelated check three layers away; every kind
+  // toString can WRITE, this must be able to READ back.
+  if (name == "surface") { out = forge::ui::IrValueKind::Surface; return true; }
   return false;
 }
 
