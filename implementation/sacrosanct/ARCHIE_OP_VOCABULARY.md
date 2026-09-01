@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 64 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 68 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,23 +46,32 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **49 commands**; **38 of them emit
-feature-IR**, reaching **36 distinct op names**. The kernel defines **40** ops
-(`opFromName`), so **4 ops plus the `RESULT` terminal are unreachable by any
-user** and are listed under `forbidden_ops`.
+Measured at this revision: the registry holds **53 commands**; **42 of them emit
+feature-IR**, reaching **39 distinct op names**. The kernel defines **40** ops
+(`opFromName`), so **1 op plus the `RESULT` terminal are unreachable by any
+user** and is listed under `forbidden_ops`.
 
-The four are `POLY`, `WIRE`, `SWEEP` and `SLOT`, and they are unreachable for two
-DIFFERENT reasons, which is the distinction the earlier "no command emits it"
-blanket hid. `POLY`, `WIRE` and `SWEEP` each take a `[x y; x y; ...]` POINTS
-token, and `forge::ui::IrArgKind` models `Number`/`Ref`/`Keyword`/`Text` and no
-points kind -- no forge::ui command can spell those statements at all. `SLOT` is
-the odd one: it is spellable, and it is left out on a MEASUREMENT. Through the
-pinned native verifier its extruded area is exactly
-`|(len - wid)*wid - pi*(wid/2)^2|` at every size and its bbox spans
-`+/-(len - wid)/2` rather than `+/-len/2` -- both semicircular caps bow INWARD,
--50.4% of the volume the signature promises on `SLOT(40, 12)`. Adding the command
-would put `SLOT` into Archie's training vocabulary as a shape it is not. It stays
-out until the arc is fixed and re-measured.
+The one is `SLOT`, and the reason is now a MEASUREMENT rather than a missing
+spelling -- which is the whole difference between this revision and the last.
+`POLY`, `WIRE` and `SWEEP` used to sit beside it for an unrelated reason: each
+takes a `[x y; x y; ...]` POINTS token and `forge::ui::IrArgKind` modelled
+`Number`/`Ref`/`Keyword`/`Text` and no points kind, so no forge::ui command could
+spell those statements at all. That kind now exists (`IrArgKind::Points`,
+`IrArg::pointsFromText`), added together with the four commands that produce it,
+so the rule it was withheld under -- "a token kind nothing produces is a
+liability, not coverage" -- still holds.
+
+`SLOT` is spellable and is left out on evidence. Through the pinned native
+verifier its extruded area is exactly `|(len - wid)*wid - pi*(wid/2)^2|` at every
+size and its bbox spans `+/-(len - wid)/2` rather than `+/-len/2` -- both
+semicircular caps bow INWARD, -50.4% of the volume the signature promises on
+`SLOT(40, 12)`. `forge-kernel/reports/MODELLING_OP_FAMILIES.md` §6.1 has the
+three-size table and the `RRECT` control that rules the arc convention out
+everywhere else. Adding the command would put `SLOT` into Archie's training
+vocabulary as a shape it is not. It stays out until the arc is fixed and
+re-measured -- and it is the LAST op that is out, so `forbidden_ops` has exactly
+one member and the negative controls in `ui/test/op_constraint_bridge_test.cpp`
+name it rather than an op that has since been legalised.
 
 Every number in that paragraph, and every op row in the table below, is now
 checked by `--check` against the JSON it describes. None of it was, and all of
@@ -115,6 +124,9 @@ check that silently stops checking is the failure it was written to prevent.
 | `RESIZEBORE` | part.resize_bore | `RESIZEBORE(%body, "<selector>", radius)` |
 | `TAG` | part.tag_feature | `TAG(%body, "<name>", "<selector>")` |
 | `VERIFY` | part.verify | `VERIFY(%body, "<assertion>")`<br>`VERIFY(%body, "<assertion>", "<assertion2>")` |
+| `POLY` | part.sketch_poly | `POLY([x y; ...])` |
+| `WIRE` | part.section_wire | `WIRE([x y z; ...])` |
+| `SWEEP` | part.sweep_pipe / _profile | `SWEEP(radius, [x y z; ...])`<br>`SWEEP([x y; ...], [x y z; ...])` |
 | `FOLD` | part.fold_flange | `FOLD(%body, hinge_x, hinge_y, hinge_z, length, flange_height, thickness, angle)`<br>`FOLD(..., angle, run_angle)` |
 
 Details that a wrong signature would teach wrongly, all derived from the kernel
@@ -172,11 +184,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 64 on every CI run), not a hand-written illustration.
+dispatches all 68 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 36 names are legal; after the name, the argument count is bounded
+head, only the 39 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).

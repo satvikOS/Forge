@@ -62,7 +62,11 @@ MD_COUNT_PATTERNS = [
     (r"reaching \*\*(\d+) distinct op names\*\*", "user_invocable_ops"),
     (r"only the (\d+) names are legal", "user_invocable_ops"),
     (r"The kernel defines \*\*(\d+)\*\* ops", "kernel_ops"),
-    (r"so \*\*(\d+) ops plus", "forbidden_ops"),
+    # `ops?` because the count reached ONE. The pattern used to demand the plural,
+    # which is a check that forces the prose to be ungrammatical to stay green --
+    # and an author who fixes the grammar instead silently turns the check off.
+    # "plus" is kept, so a sentence REWORDED past this pattern still fails loudly.
+    (r"so \*\*(\d+) ops? plus", "forbidden_ops"),
     # Not a "counts" entry: the worked examples the runtime gate dispatches.
     # Resolved below, because it is derived from the ops rather than stored.
     (r"dispatches all (\d+) recorded examples", "@examples"),
@@ -531,7 +535,7 @@ def parse_param_specs(block):
     return out
 
 
-IRARG_RE = re.compile(r"IrArg::(num|valueRef|keyword|text)\s*\(")
+IRARG_RE = re.compile(r"IrArg::(num|valueRef|keyword|text|pointsFromText)\s*\(")
 
 
 def split_statements(text):
@@ -673,6 +677,18 @@ def slot_of(call):
         if re.match(r"^\w+$", expr):
             return {"token": "text", "from_local": expr}
         raise DeriveError("unparsed text argument %r" % expr)
+    if kind == "pointsFromText":
+        # `IrArg::pointsFromText(txt(ctx, "ring", "x y; x y; x y"), 2)` -- a POINT RING.
+        # The DIMENSION is captured, not assumed: `[x y; ...]` and `[x y z; ...]` are
+        # different tokens to forge::ft (a 2D ring is lifted to z=0, a 3D one is placed
+        # where it says), and SWEEP's profile form carries one of each in ONE statement.
+        # Recording the wrong dim would publish an example that reads as a different
+        # shape than the command emits.
+        m = re.match(r'^txt\(ctx, "(\w+)", "([^"]*)"\), ([23])$', expr)
+        if m:
+            return {"token": "points", "from_parameter": m.group(1),
+                    "fallback": m.group(2), "dim": int(m.group(3))}
+        raise DeriveError("unparsed point-ring argument %r" % expr)
     raise DeriveError("unknown IrArg factory %r" % kind)
 
 
@@ -1105,6 +1121,13 @@ def slot_token(slot, cmd):
         # they are part of the documented form too.
         name = slot["from_parameter"] if "from_parameter" in slot else slot["from_local"]
         return '"<%s>"' % name
+    if slot["token"] == "points":
+        # The DOCUMENTED form of a ring, and the dimension is in it: `[x y; ...]` and
+        # `[x y z; ...]` are the two spellings forge::ft's lexer distinguishes, and
+        # SWEEP's profile form carries one of each, so a form that said only "[...]"
+        # would document the two arguments as interchangeable when they are not.
+        coords = "x y z" if slot["dim"] == 3 else "x y"
+        return "[%s; ...]" % coords
     raise DeriveError("cannot render slot %r" % slot)
 
 
@@ -1170,6 +1193,24 @@ def render_example(cmd, slots, active, params, selector_choice=None):
             # gate compares this string with what the live document RECORDED, so
             # the quotes have to be HERE and not merely implied.
             args.append('"%s"' % params[s["from_parameter"]])
+            continue
+        if s["token"] == "points":
+            # IrArg::token() writes the brackets and normalises the separator to "; ",
+            # so the example has to be built the same way rather than by echoing the
+            # parameter text back: the gate compares this string against what the live
+            # document RECORDED, and "0 0 0;0 0 30" and "0 0 0; 0 0 30" are the same
+            # ring written two ways.
+            pts = []
+            for chunk in params[s["from_parameter"]].split(";"):
+                coords = chunk.split()
+                if not coords:
+                    continue
+                if len(coords) != s["dim"]:
+                    raise DeriveError("point %r is not %d coordinates" % (chunk, s["dim"]))
+                pts.append(" ".join(fmt_num(float(v)) for v in coords))
+            if not pts:
+                raise DeriveError("empty point ring for parameter %r" % s["from_parameter"])
+            args.append("[%s]" % "; ".join(pts))
             continue
         raise DeriveError("cannot render slot %r" % s)
     return args

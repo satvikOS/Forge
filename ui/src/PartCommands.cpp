@@ -53,6 +53,13 @@ int PartDocument::valueFor(const std::string& nodeId) const noexcept {
   return it == bindings_.end() ? 0 : it->second;
 }
 
+std::string PartDocument::nodeFor(int irId) const {
+  for (const auto& entry : bindings_) {
+    if (entry.second == irId) return entry.first;
+  }
+  return std::string();
+}
+
 IrValueKind PartDocument::kindOf(int irId) const noexcept {
   if (irId <= 0 || static_cast<std::size_t>(irId) > records_.size()) return IrValueKind::None;
   return records_[static_cast<std::size_t>(irId) - 1].produces;
@@ -1990,6 +1997,215 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+
+  // ── THE POINT-RING OPS: POLY / WIRE / SWEEP ───────────────────────────────
+  // Four commands, three ops, and one new argument kind. These are the LAST three
+  // kernel ops the registry could not spell, and the reason they held out longer
+  // than the other nine is structural rather than clerical: each takes a
+  // `[x y; x y; ...]` ring, and forge::ui::IrArgKind modelled Number/Ref/Keyword/
+  // Text and no points token at all. The rule that kept it out was a good one --
+  // "a token kind nothing produces is a liability, not coverage" -- and it is
+  // satisfied the only way it can be: the kind arrives WITH its producers.
+  //
+  // WHAT THEY UNLOCK, and it is not a rounding error on the op count:
+  //   * POLY is the ONLY op in the whole IR that accepts an ARBITRARY silhouette.
+  //     Every other profile is a parameterised family (rectangle, circle, obround,
+  //     n-gon), so before this the app could not author a single outline that was
+  //     not one of four shapes. forge-kernel/reports/MODELLING_OP_FAMILIES.md
+  //     records this exactly: "POLY is the *only* IR op that accepts an arbitrary
+  //     silhouette ... the only available spelling is a dense POLY".
+  //   * WIRE is the only NON-superelliptical loft section. RING (added with the
+  //     primitives) closed the WIRE value-kind gap, but a RING is rx/ry/p -- an
+  //     airfoil, a scroll volute and a sharp-cornered section are not superellipses
+  //     and could not be stated.
+  //   * SWEEP is a THIRD sketch-to-solid verb beside EXTRUDE and REVOLVE, and the
+  //     only one that follows a 3D path. Every pipe, duct, handle and cable run in
+  //     the corpus is a swept section, and none of them was reachable.
+  //
+  // MEASURED -- and NOT re-measured here, which is the honest statement of it. All
+  // three were driven through forge::ft on the PINNED native verifier and recorded
+  // in forge-kernel/reports/MODELLING_OP_FAMILIES.md ("15 / 15 built valid
+  // watertight solids, and every closed form checks"):
+  //     POLY            pentagon -> EXTRUDE(...,12)      9600, shoelace exact
+  //     WIRE + LOFT     40x20 -> 16x16 over h=40         20480 = h/6(A1+4Am+A2) exact
+  //     SWEEP (pipe)    SWEEP(4, [0 0 0; 0 0 30; 20 0 50])  2513.274123
+  //     SWEEP (profile) 10x10 square along 40             4000 exact
+  // This batch adds no kernel geometry, so those rows still describe the code that
+  // runs; what is new is the SPELLING, and the spelling is checked by the headless
+  // gates plus feature_ir_test's re-derivation of the arity table from the kernel
+  // header. The DEFAULT ring each command carries is stated below in closed form
+  // (shoelace is exact arithmetic, not a measurement), so the example the
+  // vocabulary publishes is one whose area can be checked without a build.
+  //
+  // ALL FOUR TAKE NO SELECTION. A ring is authored, not picked: SelectionSignature
+  // carries the entity a user clicked and none of these consumes a prior value, so
+  // like RECT and the primitives they are CREATORS and reachable from an empty
+  // document.
+  //
+  // THE RING IS ONE TEXT PARAMETER, not N numbered ones. A schema cannot have a
+  // variable number of parameters, and POLY's whole point is that the vertex count
+  // is not fixed -- `x y; x y; ...` in the kernel's own spelling is what the user
+  // types, so what a user writes is byte-for-byte what the training corpus contains.
+  // parseIrPoints() refuses anything it cannot read COMPLETELY (a short point,
+  // trailing junk, a non-finite coordinate) and returns an empty ring, so every
+  // predicate below is the same expression its handler is, and a half-typed ring
+  // greys the command out instead of reaching the document.
+
+  // ── POLY ──────────────────────────────────────────────────────────────────
+  // POLY([x y; x y; ...]) -- an arbitrary closed 2D silhouette, >= 3 points.
+  //
+  // The kernel needs three points ("POLY needs >= 3 points" in the parser, before
+  // any geometry is attempted), and profPoly closes the ring itself -- it lines
+  // ids[i] to ids[(i+1) % n] -- so the last point must NOT repeat the first. The
+  // default is a five-point silhouette whose shoelace area is exactly 1032 over
+  // x in [-24, 24] and y in [-10, 18]: asymmetric on purpose, because a default
+  // that happened to be a rectangle would make POLY look like RECT in every
+  // example the vocabulary publishes.
+  {
+    CommandDescriptor c = base("part.sketch_poly", "Polyline Profile", "POLY",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "ring",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "-20 -10; 20 -10; 24 8; 0 18; -24 8",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // The kernel's own minimum, checked here so the command greys out rather than
+      // emitting a statement forge::ft refuses to parse.
+      return parseIrPoints(txt(ctx, "ring", ""), 2).size() >= 3;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{
+          IrArg::pointsFromText(txt(ctx, "ring", "-20 -10; 20 -10; 24 8; 0 18; -24 8"), 2)};
+      emit(ctx, *d, *s, "part.sketch_poly", "Polyline Profile", "POLY", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── WIRE ──────────────────────────────────────────────────────────────────
+  // WIRE([x y z; x y z; ...]) -- an explicit closed 3D ring, the second WIRE
+  // producer beside RING and the only one that is not a superellipse.
+  //
+  // THREE coordinates per point, and that is the whole reason the op exists: the
+  // Z=0 sketcher cannot express a section at another height or on another plane,
+  // so a loft between two WIREs is what makes a loft a loft. The default is the
+  // 40 x 20 rectangular section at z = 0 -- area exactly 800 by shoelace -- which
+  // is the lower section of the WIRE+LOFT row measured in the report above; pairing
+  // it with a second WIRE at a different z is the two-statement program that row is.
+  //
+  // profileWire (Features.cpp, BRepBuilderAPI_MakePolygon) closes the ring itself,
+  // so as with POLY the final point must not repeat the first.
+  {
+    CommandDescriptor c = base("part.section_wire", "Section Polyline", "WIRE",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "ring",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "-20 -10 0; 20 -10 0; 20 10 0; -20 10 0",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // A closed ring needs three points however it is built; two make a degenerate
+      // wire that MakePolygon closes onto itself.
+      return parseIrPoints(txt(ctx, "ring", ""), 3).size() >= 3;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{
+          IrArg::pointsFromText(txt(ctx, "ring", "-20 -10 0; 20 -10 0; 20 10 0; -20 10 0"), 3)};
+      emit(ctx, *d, *s, "part.section_wire", "Section Polyline", "WIRE", std::move(args),
+           IrValueKind::Wire, {}, wireNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SWEEP: TWO COMMANDS, ONE OP ───────────────────────────────────────────
+  // SWEEP has two forms that differ in the KIND of their first argument, not in an
+  // argument count or a keyword:
+  //     SWEEP(r, [x y z; ...])            a circular pipe of radius r along the path
+  //     SWEEP([x y; ...], [x y z; ...])   a 2D profile ring swept along the path
+  // opSweep dispatches on exactly that -- `op.args[0].kind == TokKind::Number` routes
+  // to pipeFromPolyline, `== TokKind::Points` to sweepPolyline -- and a schema cannot
+  // express "this parameter is a number OR a ring". Two commands over one op, exactly
+  // as PATTERN is three (LINEAR / POLAR / GRID) over one, so BOTH kernel forms are
+  // reachable rather than whichever one a single command happened to pick.
+  //
+  // Both produce a SOLID from nothing, so both are CREATORS -- SWEEP is the only op
+  // in the IR that makes a solid out of a path without a prior value.
+
+  // ── SWEPT PIPE ────────────────────────────────────────────────────────────
+  // The path needs >= 2 points ("SWEEP: path needs >= 2 points") and the radius must
+  // be > 0 ("SWEEP: pipe radius must be > 0") -- both are OpErrors thrown after the
+  // statement parses, so both are predicate terms here. The default is the exact IR
+  // of the measured row: SWEEP(4, [0 0 0; 0 0 30; 20 0 50]) -> 2513.274123.
+  {
+    CommandDescriptor c = base("part.sweep_pipe", "Swept Pipe", "SWEEP",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "radius", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 4.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "path",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "0 0 0; 0 0 30; 20 0 50",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      return num(ctx, "radius", 0.0) > 0.0 &&
+             parseIrPoints(txt(ctx, "path", ""), 3).size() >= 2;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      // ORDER IS THE KERNEL'S: radius FIRST, path SECOND. pointsArg(op, 1) reads the
+      // path from slot 1 unconditionally, so a swapped pair does not fail -- it reads
+      // the ring as the radius and throws on a token kind, or worse reads a one-number
+      // path. The signature is transcribed from FeatureTree.hpp, not inferred.
+      std::vector<IrArg> args{
+          IrArg::num(num(ctx, "radius", 4.0)),
+          IrArg::pointsFromText(txt(ctx, "path", "0 0 0; 0 0 30; 20 0 50"), 3)};
+      emit(ctx, *d, *s, "part.sweep_pipe", "Swept Pipe", "SWEEP", std::move(args),
+           IrValueKind::Solid, {}, {});
+    };
+    add(std::move(c));
+  }
+
+  // ── SWEPT PROFILE ─────────────────────────────────────────────────────────
+  // The other form. The profile ring is 2D (`SWEEP([x y; ...], ...)`) and needs >= 3
+  // points ("SWEEP: profile ring needs >= 3 points"); the path is 3D and needs >= 2.
+  // The default is the second measured row -- a 10 x 10 square (shoelace area exactly
+  // 100) swept along a straight 40, which the report records as 4000 exact.
+  {
+    CommandDescriptor c = base("part.sweep_profile", "Swept Profile", "SWEEP",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "ring",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "-5 -5; 5 -5; 5 5; -5 5",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "path",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "0 0 0; 0 0 40",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      return parseIrPoints(txt(ctx, "ring", ""), 2).size() >= 3 &&
+             parseIrPoints(txt(ctx, "path", ""), 3).size() >= 2;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      // The two rings differ in DIMENSION and the difference is load-bearing: the
+      // profile is written `[x y; ...]` and the path `[x y z; ...]`. Writing the
+      // profile with three coordinates would still parse -- the lexer reads dim 3 --
+      // and sweepPolyline would then be handed a flattened ring, so the dim is stated
+      // per argument rather than inferred from whichever ring is longer.
+      std::vector<IrArg> args{
+          IrArg::pointsFromText(txt(ctx, "ring", "-5 -5; 5 -5; 5 5; -5 5"), 2),
+          IrArg::pointsFromText(txt(ctx, "path", "0 0 0; 0 0 40"), 3)};
+      emit(ctx, *d, *s, "part.sweep_profile", "Swept Profile", "SWEEP", std::move(args),
+           IrValueKind::Solid, {}, {});
+    };
+    add(std::move(c));
+  }
+
   // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
   // There used to be `part.undo` and `part.redo` in this list, driving the very
   // stack `s` points at. They were registered here when ForgeShell's own
@@ -2083,9 +2299,11 @@ const std::vector<std::string>& partCommandIds() {
         "part.primitive_cylinder", "part.primitive_prism",    "part.primitive_sphere",
         "part.primitive_torus",    "part.primitive_tube",     "part.push_face",
         "part.resize_bore",        "part.revolve",            "part.rotate",
-        "part.section_ring",       "part.shell",              "part.sketch_circle",
-        "part.sketch_polygon",     "part.sketch_rect",        "part.sketch_rounded_rect",
-        "part.tag_feature",        "part.variable_fillet",    "part.verify",
+        "part.section_ring",       "part.section_wire",       "part.shell",
+        "part.sketch_circle",      "part.sketch_poly",        "part.sketch_polygon",
+        "part.sketch_rect",        "part.sketch_rounded_rect", "part.sweep_pipe",
+        "part.sweep_profile",      "part.tag_feature",        "part.variable_fillet",
+        "part.verify",
     };
     std::sort(v.begin(), v.end());
     return v;
