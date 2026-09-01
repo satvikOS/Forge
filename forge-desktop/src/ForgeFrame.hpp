@@ -175,6 +175,11 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 
   // ── forge::ui::DocumentHost ─────────────────────────────────────────────
   bool documentNew(std::string& error) override;
+  // EMPTY, not "new": no starter part is seeded. app.load_sample is about to
+  // write a sample's own statements into the document, and stacking fourteen of
+  // them on top of the starter part's five would produce a program that is
+  // neither. documentNew() is File > New and keeps its seed.
+  bool documentReset(std::string& error) override;
   bool documentOpen(const std::string& path, std::string& error) override;
   bool documentSave(const std::string& path, std::string& error) override;
   bool documentUndo() override;

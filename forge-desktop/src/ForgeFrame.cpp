@@ -336,6 +336,41 @@ bool ForgeFrame::documentNew(std::string& error) {
   return true;
 }
 
+// THE OVERRIDE THAT WAS NOT THERE, and what its absence did.
+//
+// `documentReset` was added to DocumentHost as a PURE virtual in the same change
+// that introduced app.load_sample. ForgeFrame is the application's only
+// DocumentHost and it did not implement it, so ForgeFrame became an abstract
+// class marked `final` and forge-desktop DID NOT COMPILE AT ALL. Every headless
+// forge::ui gate stayed green throughout — they build ui/src and ui/test and
+// never touch this file. That is "a file nothing compiles cannot break",
+// measured a second time in the same programme, and it is why the change that
+// found it added a one-TU `-fsyntax-only` pass over ForgeFrame.cpp: 0.5 s and
+// 151 MB, against the gigabytes a full desktop build costs.
+//
+// The BEHAVIOUR is the half a compiler could not have told us. Emptying the
+// document is not documentNew(): New seeds the starter part, and a caller that
+// is about to write its own statements — Load Sample — would then stack a
+// sample's fourteen features on top of that seed and build a program that is
+// neither part. So this clears and stops, and it deliberately leaves
+// `documentPath_` alone: the sample is loaded INTO the open document, and
+// forgetting where that document came from would turn the next Save into a
+// silent Save As.
+bool ForgeFrame::documentReset(std::string& error) {
+  error.clear();
+  partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
+  partUndo_.clear();
+  // The scene is rebuilt from an EMPTY program, so the viewport shows an empty
+  // document rather than the last body it happened to be holding. Without this
+  // the window would keep drawing geometry the document no longer contains.
+  builtProgram_.clear();
+  syncSceneToDocument();
+  rebuildTree();
+  documentDirty_ = true;
+  note("document emptied");
+  return true;
+}
+
 namespace {
 
 // The document's NAME is the basename of the file it lives in, minus the
