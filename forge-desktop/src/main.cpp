@@ -354,8 +354,46 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  // ── the kernel body, before any window exists ─────────────────────────────
+  // ── ★ crash isolation, before the first build ────────────────────────────
+  // The kernel runs in forge_kernel_worker, which lives BESIDE this binary. If
+  // OCCT dereferences a null Geom2d_Curve mid-build -- measured on three paths,
+  // on the model's output AND on the gold reference parts -- that process dies
+  // and this one keeps the document, the undo stack and the last good body.
+  //
+  // ★ A MISSING OR BROKEN WORKER IS NOT FATAL, and must never be. An application
+  // shipped without its worker is still an application; refusing to model
+  // because the safety net is absent would be a capability gate wearing a safety
+  // hat, and it would fire hardest on exactly the long, curved, dense trees this
+  // system exists to produce. The probe runs ONCE, here, so the fact is known at
+  // startup and printed -- rather than discovered on the first rebuild, which is
+  // too late to tell anyone.
   forge::desktop::KernelScene scene;
+  {
+    const std::string self = argv[0] != nullptr ? std::string(argv[0]) : std::string();
+    const std::size_t slash = self.find_last_of('/');
+    const std::string dir = slash == std::string::npos ? std::string(".") : self.substr(0, slash);
+    const std::string worker = dir + "/forge_kernel_worker";
+
+    forge::ui::GuardLimits limits;
+    // Non-zero, always: an operation with no deadline is indistinguishable from
+    // a hang. 300 s because 6 of 600 corpus parts exceed 300 s in the verifier,
+    // and a part that is merely SLOW must not be reported as a failure.
+    limits.deadlineMs = 300000;
+    scene.useIsolatedWorker({worker}, limits);
+
+    std::string probeError;
+    if (scene.probeWorker(probeError)) {
+      std::printf("[forge] kernel isolation: ACTIVE (%s)\n", worker.c_str());
+    } else {
+      // Turn it back off rather than leaving every later build to rediscover the
+      // same launch failure and fall back one at a time.
+      scene.useIsolatedWorker({}, limits);
+      std::fprintf(stderr,
+                   "[forge] kernel isolation: UNAVAILABLE (%s) -- modelling runs IN PROCESS, "
+                   "so an OCCT fault will take the app down. The app still starts.\n",
+                   probeError.c_str());
+    }
+  }
   if (!scene.build()) {
     std::fprintf(stderr, "[forge] kernel scene: %s (the app still starts)\n",
                  scene.error().c_str());

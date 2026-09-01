@@ -233,6 +233,39 @@ target_link_libraries(forge_desktop PRIVATE forge_desktop_core forge_updater
 set_target_properties(forge_desktop PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------------------- the isolated worker
+# ★ THE PROCESS THE APPLICATION IS ALLOWED TO LOSE.
+#
+# forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null Geom2d_Curve
+# dereferenced INSIDE OCCT on three paths -- on Archie's emitted geometry AND on
+# the gold reference STEP files -- and every cheaper remedy is ruled out there by
+# measurement: the crashing shape had nullPcurves=0 (the null is born inside
+# OCCT's own merge, so there is nothing on the input to repair), KeepShapes was
+# implemented and still SIGSEGV'd all six cases, and the accessor a guard would
+# call is itself a faulting frame. A SIGSEGV is also not an exception, so
+# KernelScene's catch(...) cannot see one.
+#
+# This binary is therefore not a check. It is somewhere to put the fault. It
+# reads one IR program on stdin, compiles and tessellates it, and writes the
+# vertex stream back; when OCCT faults, THIS process dies and the application
+# keeps the user's document, undo stack, dock layout and last good body.
+#
+# NOT sanitized, deliberately, and it is the one first-party binary here that is
+# not. AddressSanitizer converts a fatal signal into its own report and a normal
+# EXIT, which is exactly the observable the isolation gate needs to survive
+# intact: a worker that exits 3 instead of dying on SIGSEGV would make the gate
+# assert on a signal it can no longer see. The parent in that gate IS sanitized.
+add_executable(forge_kernel_worker
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/kernel_worker_main.cpp")
+target_compile_options(forge_kernel_worker PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_kernel_worker PRIVATE forge_desktop_core)
+set_target_properties(forge_kernel_worker PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+# The app looks for the worker BESIDE ITSELF. Making the dependency explicit is
+# what stops `cmake --build --target forge_desktop` producing an application whose
+# isolation silently does not exist.
+add_dependencies(forge_desktop forge_kernel_worker)
+
 # ---------------------------------------------------------------- the gate
 # No SDL, no Vulkan, no window: a real ImGui context with a NULL renderer backend
 # is all a frame needs, which is the whole reason ForgeFrame never touches the GPU.
@@ -324,6 +357,25 @@ target_link_options(forge_desktop_click_gate PRIVATE -fsanitize=address)
 target_link_libraries(forge_desktop_click_gate PRIVATE forge_desktop_core_asan)
 set_target_properties(forge_desktop_click_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+# ------------------------------------------------- the CRASH-ISOLATION gate
+# Proves the application survives a kernel SIGSEGV, against the REAL worker
+# binary and a REAL fatal signal. Sanitized on the PARENT side only: the child is
+# forge_kernel_worker, deliberately unsanitized, because ASan turns a fatal
+# signal into a normal exit and the observable this gate asserts on is the
+# signal. It also asserts the ABSENCE of a quarantine -- re-submitting a program
+# that just crashed must run it again -- because a safety net that starts
+# refusing work is the capability gate the OCCT report warns about.
+add_executable(forge_desktop_isolation_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/isolation_gate.cpp")
+target_compile_options(forge_desktop_isolation_gate PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
+target_link_options(forge_desktop_isolation_gate PRIVATE -fsanitize=address)
+target_link_libraries(forge_desktop_isolation_gate PRIVATE forge_desktop_core_asan)
+set_target_properties(forge_desktop_isolation_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+# The gate looks for the worker beside itself, so the worker must exist before it
+# runs. A gate that cannot run is not a gate that passed.
+add_dependencies(forge_desktop_isolation_gate forge_kernel_worker)
+
 # ------------------------------------------------------------------ updating
 # THE AUTO-UPDATER. Deliberately its own library with NO project dependencies --
 # not the kernel, not OCCT, not ImGui, not SDL, not Vulkan, and no third-party

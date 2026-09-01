@@ -169,6 +169,18 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void requestQuit() noexcept { quit_ = true; }
 
   // Instrumentation the frame gate asserts on.
+  // ── what a menu item, a toolbar button or a palette row actually does ────
+  // PUBLIC so the click gate can drive it. ForgeFrame.cpp has 35 interactive
+  // widget call sites and only TWO families -- the tab button and the splitter
+  // grip -- are spatially addressable from a headless test. The other 33 (10
+  // MenuItems, 9 Buttons, 4 Selectables, a SmallButton, a SliderFloat, a
+  // RadioButton, 2 InputTexts and a context menu) all end HERE, and this is the
+  // function that fills each required parameter from its schema before
+  // dispatching. A gate that re-implemented that filling would be asserting
+  // against its own copy of the app's behaviour rather than the app's, so it
+  // calls this instead. It has no side effect a menu click does not have.
+  void invoke(const std::string& id);
+
   std::size_t panelsDrawn() const noexcept { return panelsDrawn_; }
   // WHICH panels were drawn, in draw order. panelsDrawn() counts; a click gate
   // has to know that the panel behind the tab it clicked is the one that came
@@ -349,7 +361,6 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawContextMenu();
 
   // Command helpers — every invocation goes through ForgeShell::run.
-  void invoke(const std::string& id);
   bool commandEnabled(const std::string& id) const;
   std::string shortcutText(const std::string& id) const;
 

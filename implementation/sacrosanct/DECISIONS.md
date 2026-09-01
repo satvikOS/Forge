@@ -1656,7 +1656,7 @@ reference parts (see the null-pcurve report).
 
 ## D-038 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
 
-*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments that cite "D-033" in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) refer to THIS entry, not to the axis-naming one.)*
+*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` that cited "D-033" (the SLOT volume defect) refer to THIS entry, not to the axis-naming one, and have been updated to say D-038.)*
 
 `archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
 entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
@@ -1787,3 +1787,102 @@ Recorded so the next reader does not discover them as a surprise.
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
 
+
+## D-039 (2026-08-31): a SIGSEGV is not an exception — the kernel moves to a process the app can afford to lose, and the gates that would have caught it are built
+
+**The defect.** `forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md` measured a null `Geom2d_Curve`
+dereferenced *inside* OCCT on three paths, crashing on Archie's emitted geometry **and on the gold
+reference STEP files** — `TKG2d`, `TKGeomBase`, `TKBRep`, `TKOffset`, none of them ours. It is the
+only failure mode in the taxonomy that produces **no diagnostic at all**: no verdict, no error
+string, no partial measurement, indistinguishable from a broken harness.
+
+**Every cheaper remedy is closed off by measurement, not by opinion.** The report's own three
+self-corrections:
+
+1. **A pre-check on the input cannot work.** The crashing shape measured `nullPcurves=0`. The null
+   is *born inside* OCCT's merge, so there is nothing on the input to repair.
+2. **`KeepShapes` was implemented and measured**, and all six crashing cases still SIGSEGV'd.
+3. **The accessor a guard would call is itself a faulting frame** — `BRep_Tool::CurveOnSurface` is
+   the innermost frame of path B, so the guard would crash inside the guard.
+
+And `KernelScene::buildFromIr` already catches `std::exception` **and** `(...)`. Neither clause
+exists for a signal.
+
+**So the remedy is not a check.** It is somewhere to put the fault: `forge_kernel_worker` reads one
+IR program on stdin, compiles and tessellates it, and writes the vertex stream back. When OCCT
+faults, that process dies and the application keeps the document, the undo stack, the dock layout
+and the last good body on screen.
+
+★ **AND IT REFUSES NOTHING.** The owner's constraint is explicit — *"dont gate anything if you do
+that then how will Archie generate ultra long feature trees for Kernel to execute"* — and the report
+says the same thing in geometry: a construction-time reject *"would fire hardest on the longest,
+densest, most curved trees"*, which is what the ground truth is made of (`task_101` is 329 faces /
+753 edges; `archie_edit_214`'s input is 430 faces, 167 cylinders and 67 B-splines). So there is **no
+quarantine**. The incident ledger is advisory and `submit()` cannot consult it. Re-submitting a
+program that has just crashed **runs it again**, and the gate asserts that as forcefully as it
+asserts the isolation. A missing worker falls back to in-process rather than declining to model: an
+application shipped without its worker is still an application.
+
+**What the gate proves**, against the REAL worker and a REAL fatal signal — 70 checks, 0 failures:
+the parent survives SIGSEGV; the drawn mesh is byte-identical afterwards (FNV hash over the vertex
+stream, not merely its length); the diagnostic **names `%7 = SHELL`** from the worker's stderr op
+trail, where a segfault normally leaves nothing; a hang is bounded and cancellable; a non-zero exit
+is `Failed` and does **not** move the crash counter; a worker that exits 0 writing nonsense is
+diagnosed rather than rendered.
+
+**Seven mutations, five injected into a COPY of the production sources** — a mutation that only
+edits the test proves the test can print FAIL. All seven are red, including `S2`, which grows
+exactly the quarantine this decision forbids, and `G1`, which dereferences null *in the parent* and
+is the positive control without which every "the parent survived" check is unfalsifiable.
+
+**★ Three defects the gates found in their own authors, recorded because each is a general trap:**
+
+* **A gate that conflated two things and asserted both were unchanged.** After a crash the *mesh*
+  survives and the *build report* is reset — because the report describes the attempt that just
+  failed. Both are correct; the assertion that bundled them was not. Split into `sameDrawn()` (must
+  be identical) and a report that must **not** claim success.
+* **A mutation that STAYED GREEN.** Removing the further frame after each command changed nothing,
+  because none of the dock invariants is rebuilt by a draw — the sweep was asserting against state
+  the invocation left behind, a unit test wearing a click gate's clothes. Fixed by asserting on the
+  frame the redraw produces, not by dropping the mutation.
+* **A gate that FLAKED.** A cancel fired on a fixed pump count that can elapse before the child's
+  first write to stderr. It now waits for the fact it is demonstrating. *A gate that fails on timing
+  is worse than no gate: it teaches people to re-run it until green.*
+
+Plus two in the harness itself: a mutation matching **two** sites (the second a `const` method with
+no `program` in scope) did not compile, and the runner scored that as *caught*. **A non-compiling
+mutation proves nothing about the assertions** — it proves the compiler works — and is now counted
+RED against the suite. And `\&` in a `sed` replacement is a literal ampersand, not the match.
+
+**The honest coverage number, before and after.** The premise that *"CI never compiles
+forge-desktop"* was **already stale** when this work began: the `desktop` job compiles the whole
+CMake project and `run_click_gate.sh` compiles `forge-desktop/src` in the `kernel` job. Every one of
+the 14 shipped `forge-desktop/src` TUs was already compiled. What was *not*:
+
+| | before | after |
+|---|---|---|
+| shipped `forge-desktop/src` TUs compiled by CI | 13 / 13 | **14 / 14** |
+| `kernel_worker_main.cpp` | **compiled by nothing** | a CMake target the app depends on |
+| interactive widget families a gate exercises | **2 of 35** (tab, splitter grip) | 2 spatially + **all 41 commands by name** |
+| registered commands invoked against a real frame | 0 / 41 | **41 / 41** |
+| click-gate checks / mutations | 1144 / 5 | **1557 / 7** |
+
+The 33 widgets a headless test cannot address by rectangle are not 33 behaviours: every one ends in
+`ForgeFrame::invoke(id) -> ForgeShell::run()`. The surface unreachable by *position* is reachable by
+*name*, and `invoke()` was made public so the gate drives the app's own schema-default parameter
+filling rather than a copy of it.
+
+**And the bundle shipped without the worker.** `package_macos.sh` copied one executable. Because the
+app degrades *quietly* when the worker is absent — by design, since refusing to model would be worse
+— every bundle would have had no isolation with nothing going red. The worker is now staged, seeds
+the dylib walk, has its build-tree rpaths stripped (without which it would load from the build tree
+and **pass a relocation test it should fail**), and is verified from the RELOCATED copy. Measured on
+the packaged binary: `BOX(20, 10, 5)` -> 6 faces, 12 edges, V = 999.99999999999977; selftest crash ->
+exit 139 with `FORGE-OP 7 SHELL` still on stderr.
+
+**What this does NOT claim.** The OCCT defect is not fixed — it is survived. The null pcurve is still
+dereferenced inside OCCT on all three paths, and the crash still costs the rebuild it happens in.
+Whether the null on paths A and B is present on the input or generated inside the operation is
+**still not measured**, and the report's instruction to run that sweep before writing any guard
+stands. This decision buys the app the right to stay alive and to say which statement died; it does
+not buy a correct offset.

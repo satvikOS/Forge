@@ -764,7 +764,7 @@ int main() {
   //   SILENTLY. `REGPOLY(r, n)` takes the radius first and `PRISM(nSides, R, h)`
   //   takes the count first -- opposite orders for the same two numbers -- and both
   //   spellings compile either way. Every string below was measured against closed
-  //   form through the native kernel before the command was written (D-033).
+  //   form through the native kernel before the command was written (D-038).
   //
   //   THE REFUSAL of degenerate input, because Primitives.cpp THROWS on it
   //   (requirePositive, "tube.rInner must be < rOuter", "torus.minorR must be <
@@ -1013,7 +1013,7 @@ int main() {
     // through the native kernel, SLOT(len, wid) extruded 10 mm has area exactly
     // |(len - wid)*wid - pi*(wid/2)^2| at every size and a bbox spanning
     // +/-(len - wid)/2 rather than +/-len/2 -- both semicircular caps bow INWARD,
-    // -50.4% of the promised volume on SLOT(40, 12). See D-033. This asserts the
+    // -50.4% of the promised volume on SLOT(40, 12). See D-038. This asserts the
     // ABSENCE so that adding a command later cannot slip past the decision.
     CHECK(regN.find("part.sketch_slot") == nullptr);
     for (const std::string& id : partCommandIds()) {
