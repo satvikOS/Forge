@@ -29,7 +29,7 @@
 # in-tree, forge::ui is header-plus-source in-tree, and KernelScene.hpp includes
 # nothing but the standard library and forge/ui.
 #
-# WHAT IT DELIBERATELY DOES NOT COVER. Four TUs need a header this gate cannot
+# WHAT IT DELIBERATELY DOES NOT COVER. Five TUs need a header this gate cannot
 # supply and are SKIPPED BY NAME, never by a silent glob:
 #   KernelScene.cpp     OCCT   (TopoDS_Shape.hxx)
 #   main.cpp            SDL2 + Vulkan
@@ -40,6 +40,35 @@
 # silence it was written to remove, so the skip list is printed on every run and
 # the file count is asserted: a TU added to forge-desktop/src joins the checked
 # set or the gate goes red asking why.
+#
+# ── THE THIRD CLASS: NEEDS NO SDK, NEEDS A PLATFORM ─────────────────────────
+# The first draft of this gate had exactly two classes -- "compiles here" and
+# "needs an SDK" -- and that is not a partition of the truth. A TU can need no
+# SDK at all and still not type-check, because it is written against ONE
+# platform's libc. update_gate.cpp is that file: it drives the macOS .app update
+# path and calls Apple's SIX-argument
+#
+#     getxattr(path, name, value, size, position, options)   <sys/xattr.h>
+#
+# with XATTR_NOFOLLOW. Linux glibc declares a FOUR-argument getxattr and defines
+# no XATTR_NOFOLLOW at all, so on a Linux runner the TU fails to compile -- and
+# it fails CORRECTLY. MEASURED, not assumed: GitHub run 33462602122 on
+# ubuntu-latest printed
+#
+#     update_gate.cpp:215:85: error: use of undeclared identifier 'XATTR_NOFOLLOW'
+#
+# while the same commit's macos-15 desktop job compiled and RAN that same gate
+# green. The file is not broken; the classification was.
+#
+# Recording it as an SDK skip would have been a lie, and dropping it from the
+# gate would have been the silence this script exists to remove. So there is a
+# third list. On Darwin its members are CHECKED like any other TU -- the
+# platform that ships the app is the platform that type-checks its updater, and
+# desktop-release.yml builds Forge.app on macos-15 and nowhere else. On every
+# other host they are skipped BY NAME with the platform requirement printed,
+# exactly like an SDK skip. The census counts all three lists, so the routing
+# can never become a way to hide a file: a TU dropped from CHECKED and not added
+# to another list still turns the gate red.
 #
 # Exit 0 iff every checked TU type-checks warning-clean under -Wall -Wextra
 # -Werror. --mutate <n> injects a defect to prove the gate can fail.
@@ -112,7 +141,6 @@ CHECKED=(
   forge-desktop/test/frame_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
-  forge-desktop/test/update_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
@@ -122,6 +150,44 @@ SKIPPED=(
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"
   "forge-desktop/test/click_gate.cpp     (Vulkan, through its ImGui backend)"
 )
+# Needs NO SDK, but is written against ONE platform's libc. Checked on that
+# platform, skipped by name everywhere else. See the header for the measurement.
+# Two parallel arrays rather than one "path (reason)" string, because these
+# paths are handed to the compiler on Darwin and a reason glued to a path is not
+# a path. bash 3.2 has no associative arrays; index i pairs them.
+DARWIN_ONLY=(
+  forge-desktop/test/update_gate.cpp
+)
+DARWIN_ONLY_WHY=(
+  "macOS libc: getxattr(..., XATTR_NOFOLLOW), Apple's 6-argument form"
+)
+if [ "${#DARWIN_ONLY[@]}" -ne "${#DARWIN_ONLY_WHY[@]}" ]; then
+  echo "[syntax] RED: DARWIN_ONLY has ${#DARWIN_ONLY[@]} paths but ${#DARWIN_ONLY_WHY[@]} reasons"
+  exit 1
+fi
+
+# uname is the HOST. It is the right question here: this gate type-checks with
+# the host's own headers and does not cross-compile, so what the host's libc
+# declares is exactly what determines whether the TU can be checked.
+HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
+PLATFORM_SKIPPED=()
+_i=0
+while [ "$_i" -lt "${#DARWIN_ONLY[@]}" ]; do
+  # A path that does not exist would be skipped BY NAME on Linux for a name
+  # nothing has, while the real TU stayed unclassified -- and the census would
+  # still balance, because one phantom entry offsets one missing one. That is a
+  # gate that passes while a file goes unchecked. Assert the file is real.
+  if [ ! -f "${DARWIN_ONLY[$_i]}" ]; then
+    echo "[syntax] RED: DARWIN_ONLY names ${DARWIN_ONLY[$_i]}, which does not exist"
+    exit 1
+  fi
+  if [ "$HOST_OS" = "Darwin" ]; then
+    CHECKED+=("${DARWIN_ONLY[$_i]}")
+  else
+    PLATFORM_SKIPPED+=("${DARWIN_ONLY[$_i]}  (needs Darwin -- ${DARWIN_ONLY_WHY[$_i]})")
+  fi
+  _i=$(( _i + 1 ))
+done
 
 # ── the census, so a new TU cannot join forge-desktop unnoticed ──────────────
 # `find | wc -l` on a path that does not exist prints 0 and the comparison would
@@ -130,18 +196,28 @@ SKIPPED=(
 [ -d forge-desktop/src ] || { echo "[syntax] forge-desktop/src is missing"; exit 1; }
 PRESENT="$(find forge-desktop/src forge-desktop/test -maxdepth 1 -name '*.cpp' | sort)"
 PRESENT_N="$(printf '%s\n' "$PRESENT" | grep -c '\.cpp$')"
-CLASSIFIED_N=$(( ${#CHECKED[@]} + ${#SKIPPED[@]} ))
+# All THREE lists, so the platform routing cannot become a way to hide a file.
+# CHECKED has already absorbed DARWIN_ONLY on Darwin, so counting both there
+# would double-count; PLATFORM_SKIPPED is non-empty exactly when it did not.
+CLASSIFIED_N=$(( ${#CHECKED[@]} + ${#SKIPPED[@]} + ${#PLATFORM_SKIPPED[@]} ))
 if [ "$PRESENT_N" -ne "$CLASSIFIED_N" ]; then
   echo "[syntax] RED: forge-desktop/{src,test} holds $PRESENT_N .cpp files but this gate"
   echo "[syntax]      classifies $CLASSIFIED_N. A new translation unit must be added to"
-  echo "[syntax]      CHECKED (it compiles here) or to SKIPPED (with the SDK it needs)."
+  echo "[syntax]      CHECKED (it compiles here), to SKIPPED (with the SDK it needs), or"
+  echo "[syntax]      to DARWIN_ONLY (needs no SDK, needs one platform's libc)."
   echo "[syntax]      present:"
   printf '%s\n' "$PRESENT" | sed 's/^/[syntax]        /'
   exit 1
 fi
 
-echo "[syntax] CXX=$CXX  ${#CHECKED[@]} translation units, ${#SKIPPED[@]} skipped for a missing SDK"
+echo "[syntax] CXX=$CXX  host=$HOST_OS  ${#CHECKED[@]} translation units, ${#SKIPPED[@]} skipped for a missing SDK, ${#PLATFORM_SKIPPED[@]} skipped for the platform"
 for s in "${SKIPPED[@]}"; do echo "[syntax]   skipped: $s"; done
+for s in "${PLATFORM_SKIPPED[@]:-}"; do
+  [ -n "$s" ] && echo "[syntax]   skipped: $s"
+done
+if [ "$HOST_OS" = "Darwin" ] && [ "${#DARWIN_ONLY[@]}" -gt 0 ]; then
+  echo "[syntax]   host is Darwin: ${#DARWIN_ONLY[@]} platform-gated TU(s) are CHECKED, not skipped"
+fi
 
 # ── the mutation ────────────────────────────────────────────────────────────
 # Injected into a COPY of the tree, never into the working tree: a gate that
