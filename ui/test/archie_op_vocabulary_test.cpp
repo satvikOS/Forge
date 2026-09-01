@@ -389,6 +389,14 @@ std::vector<EntityRef> selectionFor(const CommandDescriptor& c) {
 std::string resolvePlaceholder(const std::string& token) {
   if (token == "%body") return "%4";
   if (token == "%tool") return "%5";
+  // SECTION's two operands. The generator deliberately does NOT call them
+  // target/tool: a section consumes neither body and the operation is symmetric,
+  // so borrowing the booleans' names would teach Archie that one of them gets
+  // eaten. They still resolve to the SAME two seeded bodies as %body / %tool,
+  // because the fixture has exactly two solids and the placeholders name roles,
+  // not extra geometry.
+  if (token == "%bodyA") return "%4";
+  if (token == "%bodyB") return "%5";
   if (token == "%profile") return "%1";
   if (token == "%profile1") return "%1";
   if (token == "%profile2") return "%2";
