@@ -234,17 +234,14 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 54 ops on the MERGED tree. NEITHER side of
-  // this merge was right and that is the point: base pinned 53 (40 + the six
-  // SURFACE producers/consumers + the seven 2D sketch/constraint ops) and this
-  // branch pinned 47 (40 + the six + SECTION). Each had only its own half.
-  // 53 + SECTION = 54, confirmed two ways: the set difference is exactly
-  // {CON SARC SCIRC SKETCH SLINE SOLVE SPT} one way and {SECTION} the other,
-  // and the literal-count method reads +1 against BOTH sides' asserted values,
-  // so its offset is calibrated rather than assumed.
-  // Anything else means the derivation itself broke, and a broken oracle must
-  // not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 54);
+  // forge::ft::opFromName registers 55 ops on the MERGED tree, and no side of
+  // this history ever had that number: 40 base + the six SURFACE producers and
+  // consumers + the seven 2D sketch/constraint ops + SECTION (this branch) +
+  // ARC (the base branch) = 55. Each merge parent carried only its own half,
+  // which is why this constant is MEASURED after every merge rather than
+  // carried over. Anything else means the derivation itself broke, and a broken
+  // oracle must not pass quietly.
+  CHECK_EQ_INT(kernel.size(), 55);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -275,6 +272,12 @@ int main() {
   CHECK(kernel.at("LOFT").maxArgs == kIrArgsUnbounded);
   CHECK(kernel.at("VERIFY").maxArgs == kIrArgsUnbounded);
   CHECK_EQ_INT(kernel.at("POLY").maxArgs, 1);      // [x y; ...] is ONE argument
+  // ARC takes the same single point-ring literal as POLY. `[x y; x y mx my; ...]`
+  // must NOT be read as an optional group by the derivation — the `...` is inside
+  // a literal, and variadicToken() refuses a token that opens with '['.
+  CHECK_EQ_INT(kernel.at("ARC").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SWEEP").maxArgs, 2);
   CHECK_EQ_INT(kernel.at("INPUT").minArgs, 0);
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);

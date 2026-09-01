@@ -47,8 +47,8 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **66 commands**; **43 of them emit
-feature-IR**, reaching **40 distinct op names**. The kernel defines **54** ops
-(`opFromName`), so **14 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **40 distinct op names**. The kernel defines **55** ops
+(`opFromName`), so **15 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
 The registry grew 58 -> 66 without the emitting half moving at all, and that gap
@@ -59,7 +59,8 @@ menu, the palette, the keymap and Archie's tool list all learn about them at
 once; they carry no `featureIrOp`, so the emission vocabulary is untouched and
 `commands_emitting_ir` stays at 43.
 
-The fourteen are `SLOT`, the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
+The fifteen are `SLOT`, `ARC` -- the profile arc the base branch added, which
+the kernel compiles but no registry command emits yet -- the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
 `SKIN`, `SEW`, `SURFCHECK` -- and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
 `SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. They are out for three DIFFERENT
 reasons, which is the distinction a single "no command emits it" line would hide.

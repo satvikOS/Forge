@@ -187,6 +187,7 @@ const std::vector<IrOpSpec>& irOpTable() {
       {"SARC", 3, 3, true},
       {"CON", 2, 4, true},
       {"SOLVE", 1, 1, true},
+      {"ARC", 1, 1, false},
       // 3D section rings
       {"RING", 3, 7, false},
       {"WIRE", 1, 1, false},
