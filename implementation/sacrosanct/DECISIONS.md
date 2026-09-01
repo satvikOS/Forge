@@ -2038,3 +2038,64 @@ uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf
 OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
 change for every corpus already written against `LOFT`, and it belongs in its own commit with
 its own measurement.
+
+## D-044 (2026-09-01): the app could SAVE and could never OPEN — three reader defects, none of which any gate could see
+
+**The measurement.** `ui/src/DocumentModel.cpp` and `ui/src/DocumentStore.cpp` (1,918 lines)
+were recovered from `origin/rescue/wf_a23474ae-034-5`, whose own commit message says "NOT
+reviewed, NOT built, and NOT claimed to compile". They had never been through a compiler. They
+needed one fix to build — and then three separate defects turned up the moment anything actually
+read a file back.
+
+**1. `END` was absent from the reader's key table, for every scope.** `readDocumentFile` refuses
+any key `findKey(key, scope)` has no spec for, so the END handler at the bottom of the reader —
+the code that closes a `FEATURE`, `PARAMETER` or `NAMED` block and pushes it into the document —
+was **dead code**. Its own comment ("It is scope-checked above") described a check that did not
+exist. The writer emits a FEATURE block per statement, so **every file this application can
+produce died on its first END**. Save worked; open could never work.
+
+**2. `valueKindFromName` listed four of `IrValueKind`'s five values.** It was written when the IR
+had three value kinds; `SURFACE` arrived with D-043's six producing ops. Any document holding a
+single SURFACE-typed statement was refused with `unknown KIND 'surface'` — the whole surfacing
+half of the kernel, unsaveable. This is the second-order cost of a merge: the two branches were
+each internally consistent, and nothing compared them because nothing read a file.
+
+**3. `~DocumentWalk` could call `std::terminate`.** The walk guard added here rebuilds the feature
+tree when the outermost walk closes, and a destructor that throws while the stack is already
+unwinding terminates the process. Exceptions are live in this build. That would have been a hard
+crash inside the one mechanism whose purpose is to prevent a crash, on exactly the path a throw
+out of a panel body takes. Reasoned about, not measured: bad_alloc cannot be forced here, and no
+observation of the terminate is claimed.
+
+**Why nothing caught any of it.** `DocumentModel` and `DocumentStore` had **no gate at all**.
+They compiled, and compiling is not working. A GATE THAT DOES NOT EXIST CANNOT FAIL, and neither
+can one that never exercises the round trip: a writer and a reader written together are each
+other's only witness, and they agree on their shared mistakes.
+
+**The instrument.** `serialise(load(text)) == text` is ONE observable and the one most likely to
+pass while the document is wrong — a field the writer never emits round-trips perfectly as its
+default, and a field both halves get wrong identically is invisible. So the round trip is asserted
+on a VECTOR of **144 observables** (every statement's id / op / produces-kind / label / command /
+node binding / suppression; every IR argument's kind and BIT PATTERN; the units quadruple; the
+material's density and all six appearance channels; fourteen view fields; every parameter's exact
+value and the expression the user typed; every named entity's five fields; the derived IR and
+BUILD programs; the content digest), with **eighteen negative controls** that mutate each field in
+turn — a dropped density, a storage unit changed by 25.4x, a parameter off by ONE ULP — and
+require the vector to notice. An observable that cannot report a difference is decoration.
+
+**A SECOND WRITER EXISTS, and this does not resolve it.** `.fpart` is written by
+`forge-desktop/src/PartFile.cpp` (magic `FORGE-PART`, version 1, what the shipped app calls) and by
+`ui/src/DocumentModel.cpp` (same magic, version 2). Same format name, two implementations. What is
+gated is the property migration depends on — v1 means the same thing to both, with v1's key
+vocabulary derived FROM PartFile.cpp'S OWN SOURCE so a transcription cannot drift. Two
+disagreements are measured rather than assumed: compatibility is ONE-WAY (`readPartFile` pins
+`version != kPartFileVersion`, so the shipped build cannot open v2 — a refusal, not a corruption),
+and **the shipped writer is LOSSY**, which was stated nowhere. It formats numbers with
+`formatIrNumber` ("%.10g"), so the app writes `0.1+0.2` as `0.3` and cannot read it back as the
+same double. Migrating fixes that going forward; it cannot repair a file already on disk.
+
+**What this does NOT claim.** `ForgeFrame` still holds a `PartDocument` and saves through
+`PartFile`; nothing here wires the application onto the document layer, so the click gate is NOT
+extended — there is no walk over this container in the app to click on yet. The two writers are
+not unified. Measured on `app/viewport-document-v2` (PR #175, stacked on #167): 27 UI gates pass,
+446 checks across the four new document gates.
