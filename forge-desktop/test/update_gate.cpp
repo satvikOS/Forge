@@ -598,7 +598,7 @@ void checkChannelPolicy() {
 
   // 1. the rule itself
   const Policy alpha = policyFor("0.1.0-alpha.6");
-  check(alpha.channel == "prerelease", "an alpha build follows the prerelease channel",
+  check(alpha.channel.empty(), "an alpha build pins to NO channel (so stable stays reachable)",
         alpha.channel);
   check(alpha.allow_prerelease, "an alpha build accepts prerelease versions", "");
 
@@ -615,6 +615,21 @@ void checkChannelPolicy() {
     const Plan p = decide("0.1.0-alpha.5", m, policyFor("0.1.0-alpha.5"));
     check(p.decision == Decision::UpdateAvailable,
           "an installed alpha IS offered the next alpha", p.reason);
+  }
+
+  // 2b. THE EXIT, which the rule above used to close. An installed alpha must be
+  //     offered the first STABLE release. Pinning an alpha to the `prerelease`
+  //     channel rejects v0.1.0 with "manifest is on channel 'stable', this build
+  //     follows 'prerelease'" and strands every early adopter permanently -- and
+  //     unrepairably, because the client doing the refusing is the OLD BINARY, so
+  //     no later release can reach it. Whatever policy ships in the first build is
+  //     the policy that decides this for ever.
+  {
+    const Manifest m = parseManifest(manifestOn("stable", "0.1.0"), err);
+    check(m.valid, "the stable manifest parses", err);
+    const Plan p = decide("0.1.0-alpha.1", m, policyFor("0.1.0-alpha.1"));
+    check(p.decision == Decision::UpdateAvailable,
+          "an installed ALPHA is offered the first STABLE release", p.reason);
   }
 
   // 3. and the case that must STAY closed: a stable build is never handed an alpha.

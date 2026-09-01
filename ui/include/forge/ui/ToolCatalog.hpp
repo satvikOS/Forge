@@ -52,6 +52,14 @@ struct ToolEntry {
   std::uint32_t version = 1;
 
   ToolAvailability availability = ToolAvailability::Unavailable;
+  // The dispatcher's OWN verdict, kept alongside the availability it maps to.
+  // ToolAvailability is the panel's five-way vocabulary and it is lossy on
+  // purpose (Unavailable folds UnknownCommand, NoHandler and EditRefused into
+  // one bucket); a caller that has to EXPLAIN the refusal — the menu's tooltip,
+  // the status strip, the activity log — needs the status that was actually
+  // returned, and re-deriving it would mean a second evaluate() call that could
+  // disagree with this one.
+  DispatchStatus status = DispatchStatus::Ok;
   std::string reason;                    // "" exactly when Available
   std::vector<std::string> missing;      // required parameters with no default
 

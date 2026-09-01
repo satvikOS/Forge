@@ -65,6 +65,13 @@ class TestDocumentHost final : public DocumentHost {
     path_.clear();
     return true;
   }
+  // This stub has no starter part, so New and Reset happen to do the same thing.
+  // They are still SEPARATE overrides: a host where they coincide must say so by
+  // implementing both, not by inheriting one.
+  bool documentReset(std::string& error) override {
+    ++resets_;
+    return documentNew(error);
+  }
   bool documentOpen(const std::string& path, std::string& error) override {
     if (path.empty()) {
       error = "Open needs a path";
@@ -104,8 +111,10 @@ class TestDocumentHost final : public DocumentHost {
   void markClean() noexcept { savedRecords_ = doc_.records().size(); }
   std::size_t saves() const noexcept { return saves_; }
   std::size_t opens() const noexcept { return opens_; }
+  std::size_t resets() const noexcept { return resets_; }
 
  private:
+  std::size_t resets_ = 0;
   PartDocument& doc_;
   UndoStack& stack_;
   std::size_t savedRecords_ = 0;
@@ -160,11 +169,16 @@ int main() {
   // chord to them, so those keys reported Ok and changed nothing -- and with a
   // DocumentHost installed even the counters were overwritten on the way out of
   // run(). They are retired; the real commands come from the workspace.
-  // 10 + `view.selection` + the seven standard views = 18. The view commands are
-  // View-category and carry no featureIrOp, so this count rising does NOT mean a
-  // modelling command crept back in -- the four checks below are what assert
-  // that, and they are the ones that matter.
-  CHECK_EQ_INT(app.shellCommands, 18);
+  // 22, not 10: the shell also registers app.toggle_theme, app.load_sample and
+  // the two view.focus_*_panel commands, and now the seven standard views plus
+  // view.selection. Each is a REGISTRY command on purpose -- that is what puts it
+  // in the menu, the palette, the keymap and Archie's tool list at once, and a
+  // preference, a sample or a camera angle reachable only from a bespoke widget
+  // is reachable by exactly one invoker. MEASURED on the merged tree: the two
+  // sides of this merge pinned 14 and 18, each having counted only its own half.
+  // This count rising does NOT mean a modelling command crept back in -- the
+  // four checks below are what assert that, and they are the ones that matter.
+  CHECK_EQ_INT(app.shellCommands, 22);
   CHECK(!shell.registry().contains("model.extrude"));
   CHECK(!shell.registry().contains("model.fillet"));
   CHECK(!shell.registry().contains("model.shell"));
@@ -199,13 +213,20 @@ int main() {
     for (const std::string& id : shell.registry().ids()) {
       if (id.rfind("view.", 0) != 0) continue;
       ++viewCommands;
-      if (id == "view.fit" || id == "view.selection" || id == "view.wireframe") continue;
+      // The `view.*` ids that are NOT camera ORIENTATIONS, and so have no
+      // NamedView to round-trip through: three framing/display verbs, plus the
+      // two panel-focus commands the shell registers. Named individually rather
+      // than skipped by a prefix -- an exemption that matched a pattern would
+      // also swallow a genuinely orphaned orientation, which is the one thing
+      // this loop exists to catch.
+      if (id == "view.fit" || id == "view.selection" || id == "view.wireframe" ||
+          id == "view.focus_next_panel" || id == "view.focus_previous_panel") continue;
       forge::ui::NamedView v = forge::ui::NamedView::Front;
       // The reverse direction: no orphan `view.*` orientation command.
       CHECK(forge::ui::namedViewFromSuffix(id.substr(5), v));
       CHECK_EQ_STR(std::string("view.") + forge::ui::commandSuffix(v), id);
     }
-    CHECK_EQ_INT(viewCommands, forge::ui::kNamedViewCount + 3);
+    CHECK_EQ_INT(viewCommands, forge::ui::kNamedViewCount + 5);
   }
 
   // Zoom-to-selection is offered only when something is selected -- it declares

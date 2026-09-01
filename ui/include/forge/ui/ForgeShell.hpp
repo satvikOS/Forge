@@ -17,10 +17,14 @@
 #include <string>
 #include <vector>
 
+#include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/KeymapAudit.hpp"
+#include "forge/ui/PanelFocus.hpp"
 #include "forge/ui/SelectionService.hpp"
+#include "forge/ui/Theme.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
@@ -92,6 +96,19 @@ class DocumentHost {
   // that cannot save must say so; silently succeeding is the failure mode this
   // interface was written to remove.
   virtual bool documentNew(std::string& error) = 0;
+
+  // EMPTY, not "new". `documentNew` means File > New, and in the shipped app
+  // that seeds a starter part -- which is right for File > New and wrong for
+  // anything that is about to write its own statements into the document. Load
+  // Sample would otherwise stack a sample's fourteen features on top of the
+  // starter part's five and produce a program that is neither.
+  //
+  // PURE, like the rest of this interface, and for the same reason: a defaulted
+  // no-op would let a host silently ignore the request and leave the caller
+  // appending onto whatever was already there. A host that cannot empty its
+  // document has to say so.
+  virtual bool documentReset(std::string& error) = 0;
+
   virtual bool documentOpen(const std::string& path, std::string& error) = 0;
   virtual bool documentSave(const std::string& path, std::string& error) = 0;
   virtual bool documentUndo() = 0;
@@ -151,6 +168,40 @@ class ForgeShell {
   SelectionService& selection() noexcept { return selection_; }
   const SelectionService& selection() const noexcept { return selection_; }
   const Keymap& keymap() const noexcept { return keymap_; }
+
+  // ── every command reachable from the keyboard ───────────────────────────
+  //
+  // THE GAP THIS CLOSES, MEASURED. `defaultKeymaps()` binds 13 commands. The
+  // application registry holds 45. So 32 commands — every primitive, every
+  // pattern, the booleans, the parameter edit — had no key sequence in ANY of
+  // the four profiles: 128 of the 180 command/profile slots were empty.
+  // KeymapAudit.hpp shipped `bindUnboundCommands()` to fill exactly that, and
+  // NOTHING CALLED IT. A capability with no invoker is not a capability, and a
+  // symbol reference is not a call path — there was not even a reference.
+  //
+  // This is the invoker. It is EXPLICIT rather than automatic because the
+  // registry is not complete when ForgeShell is constructed: the host adds its
+  // workspace's product commands afterwards (registerPartCommands), so the only
+  // moment that can know the map is finishable is the host's.
+  //
+  // THE INVARIANT, not a call count: call it after BOTH the registry is complete
+  // AND any session keymap has been installed — whichever of the two happens
+  // last. loadState() REPLACES the map with whatever the file held, and a file
+  // written by an older build predates half the registry, so completing before
+  // a load is undone by the load. The shipped app satisfies this with one call:
+  // main.cpp loads the session file first and ForgeFrame::wirePartCommands()
+  // calls this afterwards. A host that loads state later must call it again —
+  // which is free, because it is idempotent.
+  //
+  // Idempotent, never destructive: it only fills gaps, and it skips any
+  // candidate Keymap refuses, so it cannot create the prefix conflicts Keymap
+  // exists to prevent. Returns how many bindings it added.
+  std::size_t completeKeymap();
+
+  // The audit as a value: dead bindings, unbound commands, per-profile gaps and
+  // the commands a bare gesture cannot run. Reported, not enforced — a
+  // GestureBlocked command is a fact about its schema, not a defect in the map.
+  KeymapReport keymapReport() const { return auditKeymap(keymap_, registry_); }
   const DocumentStats& document() const noexcept { return doc_; }
 
   // ── the document seam ───────────────────────────────────────────────────
@@ -161,6 +212,30 @@ class ForgeShell {
   // Why the last file.* command did not do what it says. Empty when it did.
   // `execute` returns void, so this is how a refused open reaches the UI.
   const std::string& lastDocumentError() const noexcept { return documentError_; }
+
+  // ── what happened, and why ──────────────────────────────────────────────
+  // EVERY dispatch is recorded here, refusals included, each with the sentence
+  // that names the missing selection or parameter. `journal()` below is still
+  // the success-only list it always was -- a macro recorder reads that, and
+  // adding failures to it would change what a recorded macro replays.
+  const ActivityLog& log() const noexcept { return log_; }
+  ActivityLog& log() noexcept { return log_; }
+
+  // ── theme ───────────────────────────────────────────────────────────────
+  // The MODE is shell state (it persists in saveState); the palette is derived
+  // from it on demand, so a session file can never pin an old set of colours.
+  ThemeMode themeMode() const noexcept { return themeMode_; }
+  void setThemeMode(ThemeMode mode) noexcept { themeMode_ = mode; }
+  Theme theme() const { return Theme::forMode(themeMode_); }
+
+  // ── keyboard panel focus ────────────────────────────────────────────────
+  // Derived from the dock layout. layout() hands out a mutable reference, so a
+  // caller that reshapes the tree must call refreshPanelFocus() -- the ring
+  // cannot observe a write it was not told about, and pretending otherwise
+  // would make "focus is on a panel that no longer exists" reachable.
+  const FocusRing& panelFocus() const noexcept { return panelFocus_; }
+  FocusRing& panelFocus() noexcept { return panelFocus_; }
+  void refreshPanelFocus() { panelFocus_.rebuild(layout_); }
 
   // ── workspaces ──────────────────────────────────────────────────────────
   WorkspaceProfile workspace() const noexcept { return workspace_; }
@@ -199,11 +274,31 @@ class ForgeShell {
   std::string saveState() const;
   bool loadState(const std::string& text);
 
+  // What loadState() actually found. A session file is written by ONE build and
+  // read by another, and refusing the whole file because it carries a record
+  // this build does not know about throws away the user's layouts, keymap and
+  // workspace to protect them from one unread line. Unknown RECORD NAMES are
+  // skipped and counted here; a MALFORMED KNOWN record is still refused
+  // outright, because that one really is corruption.
+  struct StateLoadReport {
+    bool ok = false;
+    std::size_t unknownRecords = 0;
+    std::vector<std::string> unknownNames;  // sorted, unique
+    std::string error;                      // "" when ok
+  };
+  StateLoadReport loadStateReport(const std::string& text);
+
  private:
   void registerCommands();
   // Pulls the counters out of the installed host. A no-op with no host, which is
   // what keeps the host-free behaviour bit-identical.
   void syncDocumentStats();
+  // Writes one line into the activity log for a dispatch that has just finished.
+  // Called from run() for EVERY outcome, so there is no path that mutates the
+  // application and leaves no record of having done so.
+  void recordDispatch(const std::string& id, const CommandDescriptor* command,
+                      const DispatchResult& result, const CommandParams& params,
+                      std::size_t documentErrorSeqBefore);
 
   CommandRegistry registry_;
   SelectionService selection_;
@@ -218,7 +313,15 @@ class ForgeShell {
   DocumentStats doc_;
   DocumentHost* documentHost_ = nullptr;
   std::string documentError_;
+  // Bumped every time a handler RAISES a document error. Comparing the counter
+  // across a dispatch is what tells the log "this command refused" apart from
+  // "an earlier command refused and its message is still sitting there" -- the
+  // string alone cannot, because two failed opens leave the same text.
+  std::size_t documentErrorSeq_ = 0;
   std::vector<std::string> journal_;
+  ActivityLog log_;
+  ThemeMode themeMode_ = ThemeMode::Dark;
+  FocusRing panelFocus_;
 };
 
 }  // namespace forge::ui

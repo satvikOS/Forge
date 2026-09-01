@@ -1656,7 +1656,7 @@ reference parts (see the null-pcurve report).
 
 ## D-038 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
 
-*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` that cited "D-033" (the SLOT volume defect) refer to THIS entry, not to the axis-naming one, and have been updated to say D-038.)*
+*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) that once cited "D-033" refer to THIS entry, not to the axis-naming one, and now say D-038.)*
 
 `archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
 entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
@@ -1886,3 +1886,152 @@ Whether the null on paths A and B is present on the input or generated inside th
 **still not measured**, and the report's instruction to run that sweep before writing any guard
 stands. This decision buys the app the right to stay alive and to say which statement died; it does
 not buy a correct offset.
+## D-038 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
+
+**The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
+(`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
+`forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
+no surfacing: a NURBS patch, a lofted skin and an extracted face set are none of PROFILE
+(planar, at Z=0), WIRE (1-dimensional) or SOLID (must bound a volume), so **no op could produce
+or consume one**, and the surfacing machinery already sitting in the kernel had no route into
+the emission target. Counted by `grep -ril` over `forge-kernel/src`: NURBS 58 files, Sweep 68,
+G2 32, Loft 27, curvature 21, SubD 18, Subdiv 17, Blend 17, BSpline 24 — plus
+`ClassASurfacing.{hpp,cpp}` (760 lines), which a `grep -ril "class a"` misses because the file
+spells it `ClassA`.
+
+**Why it is not deferrable.** The canonical ground-truth edit fixture (`archie_edit_214`) opens
+on an INPUT inventory of **430 faces, 67 of them BSPLINE** — 15% of the part. The IR could not
+name one of them.
+
+**The decision.** `SURFACE` — a sheet body: an ordered set of faces that is NOT required to be
+closed, sewn, manifold, or non-empty. Six ops give it producers and consumers in both
+directions, each a thin wiring of a kernel entry point that already existed: `SKIN` (open
+`loftguide::loft`), `FACES` (new `forge::surf::facesOf`), `SEW` (`heal::sewShape` /
+`sewing::sew`), `THICKEN` (`part::thickenSurface`), `CAP` (`heal::autoFillMissingFaces`),
+`SURFCHECK` (`surf::statsOf` + `heal::checkValidity`).
+
+**Its invariant is deliberately the weakest of the four, and that is the decision.** The
+governing constraint is the owner's: *don't gate anything; a validator that refuses input is a
+capability gate wearing a safety hat, and it fires hardest on the longest, densest, most curved
+trees.* So an unsewn face set, edges without p-curves, a self-intersecting patch and an EMPTY
+sheet are all representable SURFACE values, answerable through `SURFCHECK`, and none of them
+aborts a walk. `THICKEN`/`CAP` sew an unsewn sheet as a REPAIR; `SKIN` records an unknown flag
+instead of throwing; a bare `SURFCHECK "expr"` is repaired to the explicit form exactly as
+`VERIFY` already is. Where a refusal is unavoidable the message names the op id, the face count
+and the free-edge count.
+
+**A wrong answer wearing the shape of a right one — found by RUNNING it.** The first
+`facesOf` read an EMPTY index list as "every face". That collides with the one case the kind
+exists to survive: a selector that matched nothing. Measured through
+`build_surface_compile_probe.sh`, `FACES(%body, "bore:r=99999")` on a 6-face box returned all
+SIX faces and `THICKEN` built a **5587 mm³ body** out of them, reported `ok=1 valid=1`. Every
+headless gate was green. "Give me the whole boundary" is now a different function
+(`boundaryOf`), so the two can never be spelled the same way again. **The lesson is the
+familiar one and it recurred here: a capability that is only compile-verified is not verified —
+the defect was invisible to three green gates and took one run to expose.**
+
+**What is measured, on real geometry** (`surface_compile_probe`, 15/15):
+`FACES("+z")` → 1 face / 4 free edges → `THICKEN(3)` → a valid solid, vol 14400.
+`SKIN` of two `RING` sections → **48 free-form faces, 96 free edges** → `CAP` → a valid solid,
+50 faces, vol 52961.5. A `FUSE` handed a sheet now says *"%2 is a SURFACE, expected a SOLID — a
+sheet is not a body: use THICKEN(%2, wall) or CAP(%2)"* instead of the old hard-coded, and by
+then false, *"is a PROFILE"*.
+
+**The one gate that remains, named honestly.** All six ops land in the vocabulary's FORBIDDEN
+list (kernel ops 40 → 46, forbidden 22 → 28) because no `forge::ui` command emits them. That is
+the PRE-EXISTING app-surface policy of D-021, not a new rule about surfaces, and it lifts the
+moment a command does. It is asserted rather than described in
+`ui/test/surface_value_kind_test.cpp` §7.
+
+**Known mistyping, recorded rather than silently changed.** `LOFT(..., OPEN)` produces the same
+uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf` keys on the
+OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
+change for every corpus already written against `LOFT`, and it belongs in its own commit with
+its own measurement.
+
+
+## D-042 (2026-08-31): the IR had three of OCCT's four Boolean operators, and the fourth is the only one that is not a body
+
+*(Numbering: D-040 and D-041 are allocated on `decisions/d040-arm-qualified` and
+`decisions/d041-selfconsistency-flat`, which are not merged here. This entry takes **D-042** so a
+fourth collision does not have to be untangled at merge — D-033 already cost one.)*
+
+**The hole, and how it was found.** `BRepAlgoAPI` ships four operators — `Fuse`, `Cut`, `Common`
+and `Section`. `forge::ft`'s op table had three. Probing the pinned verifier with a `SECTION`
+statement returned unknown-op. **No benchmark row demanded it**, so nothing was ever red: this is
+exactly the class of gap a systematic map over the source finds and a census over failing rows
+cannot, because a census can only see what something already asked for.
+
+**Why the value kind is the whole decision.** A section of two solids is not a smaller solid. It is
+the CURVE where their faces cross — a wire with no faces, no shells and zero volume. `Builder::
+kindOf()` ends in `default: return Val::Solid`, so an op added to `OpCode` without naming itself
+there is *silently typed a body*. Typed SOLID, `SECTION` would still "compile", and then
+`massProperties`, `faceCount` and `checkValidity` would each report a perfectly good section as an
+empty invalid body, while a downstream `FUSE` consumed nothing. **That is worse than not having the
+op at all**, which is why `Section` is named EXPLICITLY in `kindOf()` and given its own handler
+rather than a fourth `which` value in `opBool()` — the vocabulary generator derives each op's
+consumed kinds from ITS OWN handler body, so folding them together would have described `FUSE` and
+`SECTION` as one thing.
+
+**Every site that had to change, found by grepping the op NAMES and not a symbol.** The lesson from
+#140 holds: three files used a forbidden-op *exemplar* rather than a shared symbol, and a search
+filtered on `ForbiddenOp` missed the one spelled `opIsCommandReachable`.
+
+| site | file | change |
+|---|---|---|
+| the op table | `forge::ft::opFromName` | `{"SECTION", OpCode::Section}` |
+| the enum | `forge/ft/FeatureTree.hpp` | `Section`, in its own group |
+| the unknown-op repair hint list | `FeatureTreeCompiler.cpp` | so a near miss NAMES `SECTION` |
+| the dispatch switch | `Builder::build()` | `-> opSection`, its own handler |
+| **the value-kind switch** | `Builder::kindOf()` | `-> Val::Wire`, **explicitly, not by default** |
+| the UI op table | `forge::ui::irOpTable()` | `{"SECTION", 2, 2, true}` |
+| the UI command registry | `ui/src/PartCommands.cpp` | `part.section_curve`, + `partCommandIds()` |
+| `GraphAudit::isPredicate` | `src/ft/GraphAudit.cpp` | **UNCHANGED, and checked** — see below |
+| `toString(IrValueKind)` / the second kind enum | `ui/src/PartCommands.cpp` | **UNCHANGED** — `WIRE` already existed for `RING`/`WIRE` |
+
+`isPredicate` is the site that is easy to get wrong in the *quiet* direction. It names `VERIFY` and
+`TAG`: ops that produce no value and are therefore never orphans. `SECTION` produces one, so adding
+it there would have made an unconsumed section INVISIBLE instead of reported. It is left alone, and
+a test now pins that an unconsumed `SECTION` is an unexplained orphan.
+
+**Measured** (OCCT 7.9.3, `forge-kernel/test/build_section_op_gate.sh`, four TUs and no kernel
+build). Volume alone cannot validate this — a correct section and an empty solid both measure 0.0 —
+so the gate asserts a VECTOR of observables:
+
+| case | shape | wires | edges | faces / shells / solids | closed | length | volume |
+|---|---|---|---|---|---|---|---|
+| box(40,40,20) ∩ sphere(r=10) on the top face | `WIRE` | 1 | 1 | 0 / 0 / 0 | 1 | **62.831853** = 2·π·10 | 0 |
+| box ∩ box, corner overlap | `WIRE` | 1 | 6 | 0 / 0 / 0 | 1 | **100.000000** = 40 + 40 + 20 | 0 |
+| box ∩ cylinder(r=10) passing through | `COMPOUND` | **2** | 2 | 0 / 0 / 0 | 2 | **125.663706** = 4·π·10 | 0 |
+| box ∩ a disjoint box | — | — | — | — | — | **refused** | — |
+
+The first row is the sharp one: a section returned as unapproximated intersection edges would be a
+chord polygon and come in *below* 2·π·10 by ~1e-2, so a 1e-6 tolerance on that length is what proves
+`Approximation` was set before the build rather than after it. The third row is the one that proves
+the edge chaining does not WELD: two loops that never touch stay two loops, and a single welded wire
+would have measured the same total length. The fourth is a refusal on purpose — an empty section
+returned as a valid-looking empty compound pushes the failure into whatever tried to loft it.
+
+**User-invocable, not merely present.** `part.section_curve` takes two Bodies. Unlike the other three
+booleans it **consumes neither operand** — both bodies survive a section, which is the point of taking
+one — so its consumed-node list is empty and its produced node carries the `wire_` prefix, exactly as
+`part.section_ring`'s does. A `WIRE` has to be selectable as a wire because `LOFT` is what consumes it
+and `EXTRUDE` must not be offered for it; both directions are asserted.
+
+**Falsifiability.** Three mutations, run by the build script, each required to turn the gate red:
+read the section as a body, weld two distinct loops into one wire, accept an empty section. All three
+are RED as required. The gate runs in CI in the `s0_conformance` job, which already installs OCCT and
+already documents the `-undefined dynamic_lookup` link policy this gate shares.
+
+**Counts, both artefacts regenerated in the same commit and `--check` clean:** `kernel_ops` 40 → 41,
+`user_invocable_ops` 28 → 29, `registry_commands` 41 → 42, `commands_emitting_ir` 30 → 31.
+`APP_SURFACE_MANIFEST.tsv` is a THIRD generated artefact and it was stale by exactly the one new row;
+it is regenerated here too. The brief for this work said 46 → 47 — that count includes the six
+`SURFACE` ops from PR #146 (`ir/surface-value-kind`), which is **not merged into either
+`archdisc` or `claude/sacrosanct-execution-20260828`**. 40 → 41 is the measured state of this tree.
+
+**What this does NOT claim.** `SECTION` is not wired into the node binding, so no `.mjs` smoke drives
+it; the gate calls `forge::section` and `forge::ft::parse` directly and never `compile()`, so these
+numbers are the OPERATOR's and not a whole-pipeline result. Nothing here measures a benchmark: the
+interface term scores planes and cylinders only, and a section curve scores zero points on it. This
+closes a hole in the op table, and it is not claimed to move a score.
