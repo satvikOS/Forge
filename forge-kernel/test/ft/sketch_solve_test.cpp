@@ -22,6 +22,7 @@
 
 #include "forge/Sketcher.hpp"
 #include "forge/ft/FeatureTree.hpp"
+#include "forge/ft/GraphAudit.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -411,6 +412,64 @@ int main() {
         std::printf("  [SPT on a PROFILE] error=\"%s\"\n", r.error.c_str());
         check(!r.error.empty(), "a sketch op on a non-SKETCH value is REFUSED");
         check(r.error.find("not a SKETCH") != std::string::npos, "the refusal names the kind mismatch");
+    }
+
+    // ── 6. ★ THE s0.4 GRAPH AUDIT MUST SEE SIDE-EFFECT DATAFLOW ─────────────
+    // Every other op in the IR delivers its value THROUGH its id. The sketch
+    // family does not: SPT/SLINE/SCIRC/SARC/CON mutate the SketchHandle their
+    // operand belongs to, and nothing outside the family ever names them. So
+    // the audit's reverse sweep reached the SKETCH (SOLVE references it) and
+    // stopped, and all fourteen entities and constraints of a solved rectangle
+    // were reported as `unexplained_orphans`.
+    //
+    // It was invisible until something EXTRUDED a solved sketch. Every tree in
+    // this file ends at SOLVE, which yields a PROFILE and no SOLID, so compile()
+    // returned before the graph gate ever ran. The first case to take that step
+    // -- ir_pipeline_gate.cpp phase 2 -- failed on it immediately.
+    //
+    // These cases are auditGraph() directly rather than compile(): parse() and
+    // the audit are both pure std C++, so the harness needs no kernel symbol,
+    // and case B below deliberately names a BOX whose makeBox is unresolved here.
+    {
+        auto orphanCount = [](const char* src, const char* what) -> std::size_t {
+            const FeatureTree ft = parseOrFail(src, what);
+            const GraphAudit a = auditGraph(ft);
+            std::printf("  [graph audit] %-28s orphans=%zu %s\n", what,
+                        a.unexplainedOrphans.size(),
+                        a.unexplainedOrphans.empty() ? "" : a.report().c_str());
+            return a.unexplainedOrphans.size();
+        };
+
+        // A. the payoff shape: solved, then extruded. Nothing is dead.
+        check(orphanCount(
+                  "%1  = SKETCH(XY)\n%2  = SPT(%1, 0, 0)\n%3  = SPT(%1, 60, 0)\n"
+                  "%4  = SPT(%1, 60, 40)\n%5  = SPT(%1, 0, 40)\n"
+                  "%6  = SLINE(%2, %3)\n%7  = SLINE(%3, %4)\n"
+                  "%8  = SLINE(%4, %5)\n%9  = SLINE(%5, %2)\n"
+                  "%10 = CON(%6, HORIZ)\n%11 = CON(%7, VERT)\n"
+                  "%12 = CON(%2, DIST, %3, 60)\n"
+                  "%13 = SOLVE(%1)\n%14 = EXTRUDE(%13, 10)\nRESULT(%14)\n",
+                  "solved and extruded") == 0,
+              "a solved+extruded sketch has ZERO orphans");
+
+        // B. ★ THE TEETH. Built, never solved, and the part is a BOX. Every
+        // sketch op is genuinely dead and must STILL be named -- otherwise the
+        // fix above is just an exemption wearing a dataflow hat.
+        check(orphanCount("%1 = SKETCH(XY)\n%2 = SPT(%1, 0, 0)\n%3 = SPT(%1, 10, 0)\n"
+                          "%4 = SLINE(%2, %3)\n%5 = CON(%4, HORIZ)\n"
+                          "%6 = BOX(10, 10, 10)\nRESULT(%6)\n",
+                          "built, never solved") == 5,
+              "a sketch that is never solved is STILL five orphans");
+
+        // C. liveness must be PER SKETCH, not global: one sketch is solved and
+        // extruded, the other is abandoned, and only the abandoned one's ops
+        // may be named.
+        check(orphanCount("%1 = SKETCH(XY)\n%2 = SKETCH(XY)\n"
+                          "%3 = SPT(%1, 0, 0)\n%4 = SPT(%2, 0, 0)\n"
+                          "%5 = CON(%3, HORIZ)\n%6 = CON(%4, HORIZ)\n"
+                          "%7 = SOLVE(%1)\n%8 = EXTRUDE(%7, 10)\nRESULT(%8)\n",
+                          "one of two sketches used") == 3,
+              "the ABANDONED sketch's three ops are still orphans");
     }
 
     std::printf("\n[sketch_solve] %d checks, %d failures — %s\n",
