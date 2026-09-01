@@ -377,6 +377,27 @@ jobs:
           cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
                 -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
           cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: ARC + HELIX compile probe (closed-form geometry, and HELIX's value kind)
+        # PARSING IS NOT BUILDING, and the gap between them is where an arc op
+        # fails silently: a profile that builds every arc as its CHORD parses
+        # perfectly and returns a wrong solid with no error. s0_acceptance_test
+        # covers the FORM of ARC and HELIX at parse level and cannot see any of
+        # that, so this links the kernel just built above and checks a VECTOR of
+        # observables against CLOSED FORMS -- volume, bbox, centre of mass and
+        # surface area of an ARC D-shape; the arc length and tight bbox of the
+        # helix; and the DIFFERENTIAL against POLY over the same three vertices,
+        # which is 36.34% of the part and compiles green without this op.
+        #
+        # It also asserts the one thing no parse-level test can reach: HELIX's
+        # VALUE KIND. Builder::kindOf is a private static in an anonymous
+        # namespace, but refProfile prints kindName(kindOf(...)) into its
+        # refusal, so `EXTRUDE(%helix, 10)` must fail with "is a WIRE, expected a
+        # PROFILE" -- a kindOf returning Val::Solid would instead succeed and
+        # export an EMPTY STEP as ok=true.
+        #
+        # It rides THIS step's build: forge_kernel_core is already compiled
+        # above, so the marginal cost is one translation unit.
+        run: KERNEL_BUILD=forge-kernel/build-verify bash forge-kernel/test/ft/build_arc_helix_compile_probe.sh
       - name: IR pipeline gate (a forge::ui program -> forge::ft -> an asserted SOLID)
         # THE GATE THAT AUTHORISES DELETING THE JAVASCRIPT. forge::ui emits an SSA feature-IR
         # program and forge::ft can compile one, but nothing ever fed one into the other --
