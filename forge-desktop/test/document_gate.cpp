@@ -584,7 +584,7 @@ int main(int argc, char** argv) {
                                   3)}};
     ringDoc.features.push_back(sweep);
 
-    const std::string ringText = writePartFile(ringDoc);
+    const std::string ringText = forge::desktop::writePartFile(ringDoc);
     // The rings are ON THE DISK, not a keyword standing in for one.
     check(ringText.find("ARG pts2 ") != std::string::npos,
           "a 2D ring is written as a points argument", ringText);
@@ -598,7 +598,7 @@ int main(int argc, char** argv) {
     const bool ringOk = forge::desktop::readPartFile(ringText, ringBack, ringWhy);
     check(ringOk, "the ring file parses", ringWhy);
     if (ringOk) {
-      checkStrEq(writePartFile(ringBack), ringText, "write(read(rings)) == rings, byte for byte");
+      checkStrEq(forge::desktop::writePartFile(ringBack), ringText, "write(read(rings)) == rings, byte for byte");
       // The IR program is the real assertion: it is what the kernel would compile,
       // and it carries the brackets, the coordinate count and the order.
       checkStrEq(ringBack.irProgram(), ringDoc.irProgram(),
