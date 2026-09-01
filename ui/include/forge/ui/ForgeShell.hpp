@@ -167,10 +167,16 @@ class ForgeShell {
   // This is the invoker. It is EXPLICIT rather than automatic because the
   // registry is not complete when ForgeShell is constructed: the host adds its
   // workspace's product commands afterwards (registerPartCommands), so the only
-  // moment that can know the map is finishable is the host's. Call it TWICE in
-  // a normal startup — once after registering commands, once after loadState(),
-  // which installs whatever map the session file held and may predate half the
-  // registry.
+  // moment that can know the map is finishable is the host's.
+  //
+  // THE INVARIANT, not a call count: call it after BOTH the registry is complete
+  // AND any session keymap has been installed — whichever of the two happens
+  // last. loadState() REPLACES the map with whatever the file held, and a file
+  // written by an older build predates half the registry, so completing before
+  // a load is undone by the load. The shipped app satisfies this with one call:
+  // main.cpp loads the session file first and ForgeFrame::wirePartCommands()
+  // calls this afterwards. A host that loads state later must call it again —
+  // which is free, because it is idempotent.
   //
   // Idempotent, never destructive: it only fills gaps, and it skips any
   // candidate Keymap refuses, so it cannot create the prefix conflicts Keymap

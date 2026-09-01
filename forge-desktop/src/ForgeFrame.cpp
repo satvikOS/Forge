@@ -1140,6 +1140,12 @@ void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_
       return;
     }
     shell_.layout() = std::move(rebuilt);
+    // WHICH PANELS THE KEYBOARD CAN REACH JUST CHANGED. A tab click hides one
+    // panel and shows another, and FocusRing keeps only the VISIBLE stops --
+    // it cannot observe a write through the mutable layout() accessor, which is
+    // why refreshPanelFocus() exists and why leaving it uncalled would let
+    // view.focus_next_panel walk to a panel that is now behind a tab.
+    shell_.refreshPanelFocus();
   }
 }
 
@@ -1773,6 +1779,24 @@ void ForgeFrame::drawTabGroup(const forge::ui::DockNode& node, const forge::ui::
     }
     ImGui::EndChild();
     ImGui::PopStyleVar();
+
+    // ── THE KEYBOARD FOCUS, MADE VISIBLE ────────────────────────────────────
+    // view.focus_next_panel and view.focus_previous_panel move
+    // ForgeShell::panelFocus() and NOTHING DREW IT, so the two commands
+    // journalled, reported ok and changed nothing a user could see — the same
+    // shape as app.toggle_theme and as `view.fit` before applyPendingFit().
+    //
+    // Drawn as a border on the panel that holds the focus, from the theme's own
+    // FocusRing token, which is contrast-audited like every other colour. A
+    // focus indicator nobody can see is not a focus indicator.
+    if (shell_.panelFocus().focused() == node.panels[active]) {
+      ImGui::GetWindowDrawList()->AddRect(
+          ImVec2(static_cast<float>(r.x) + 1.0f, static_cast<float>(r.y) + 1.0f),
+          ImVec2(static_cast<float>(r.x + r.w) - 1.0f, static_cast<float>(r.y + r.h) - 1.0f),
+          ImGui::GetColorU32(toImVec4(
+              forge::ui::Theme::forMode(shell_.themeMode()).color(forge::ui::ColorToken::FocusRing))),
+          0.0f, 0, 2.0f * dpiScale_);
+    }
   }
   ImGui::End();
   ImGui::PopStyleVar();
