@@ -1656,6 +1656,8 @@ reference parts (see the null-pcurve report).
 
 ## D-038 (2026-08-31): the app was missing TEN primitives the kernel already built — adding them moves corpus coverage 48.6% -> 74.9%, and SLOT is measurably broken so it stays out
 
+*(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments that cite "D-033" in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) refer to THIS entry, not to the axis-naming one.)*
+
 *(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` (lines 767 and 1016, the SLOT volume defect) that once cited "D-033" refer to THIS entry, not to the axis-naming one, and now say D-038.)*
 
 `archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
@@ -1786,6 +1788,7 @@ Recorded so the next reader does not discover them as a surprise.
 **Reversible.** Each command is one self-contained block plus one id in `partCommandIds()`;
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
+
 
 
 ## D-039 (2026-08-31): a SIGSEGV is not an exception — the kernel moves to a process the app can afford to lose, and the gates that would have caught it are built

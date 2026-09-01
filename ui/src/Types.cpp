@@ -1,6 +1,7 @@
 #include "forge/ui/Types.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -23,6 +24,43 @@ const char* toString(EntityKind kind) noexcept {
     case EntityKind::Any:         return "any";
   }
   return "none";
+}
+
+const char* toString(NamedView view) noexcept {
+  switch (view) {
+    case NamedView::Front:     return "Front";
+    case NamedView::Back:      return "Back";
+    case NamedView::Left:      return "Left";
+    case NamedView::Right:     return "Right";
+    case NamedView::Top:       return "Top";
+    case NamedView::Bottom:    return "Bottom";
+    case NamedView::Isometric: return "Isometric";
+  }
+  return "Front";
+}
+
+const char* commandSuffix(NamedView view) noexcept {
+  switch (view) {
+    case NamedView::Front:     return "front";
+    case NamedView::Back:      return "back";
+    case NamedView::Left:      return "left";
+    case NamedView::Right:     return "right";
+    case NamedView::Top:       return "top";
+    case NamedView::Bottom:    return "bottom";
+    case NamedView::Isometric: return "iso";
+  }
+  return "front";
+}
+
+bool namedViewFromSuffix(const std::string& suffix, NamedView& out) noexcept {
+  for (std::size_t i = 0; i < kNamedViewCount; ++i) {
+    const auto v = static_cast<NamedView>(i);
+    if (suffix == commandSuffix(v)) {
+      out = v;
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string EntityRef::key() const {

@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "b1723f6be99d15310444e9aa5134f6340a083ecdc1b5a5fd505f4cb628a6e82e",
-        "bytes": 150566,
-        "lines": 3152
+        "sha256": "755c72396873e1bbc0637989e2c665b03a696e820b0eaa14bd5297693dd71014",
+        "bytes": 154750,
+        "lines": 3232
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -54,9 +54,9 @@
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "bf3d77c72a40cbde7fba916fec804b58490ce14e3db7ec8020a77cb77f887025",
-        "bytes": 28676,
-        "lines": 701
+        "sha256": "e46ab684bc5a6b1b7c6d7c1ec38cd1ad06546d5573b72da761e4bc5b19a25aac",
+        "bytes": 33628,
+        "lines": 836
       }
     ],
     "build_configuration": {
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 55,
     "ui_validator_ops": 55,
-    "registry_commands": 64,
+    "registry_commands": 72,
     "commands_emitting_ir": 49,
     "user_invocable_ops": 46,
     "forbidden_ops": 9,
@@ -9046,6 +9046,38 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "view.back",
+      "label": "Back View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.bottom",
+      "label": "Bottom View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
       "id": "view.fit",
       "label": "Fit View",
       "category": "View",
@@ -9080,6 +9112,103 @@
     {
       "id": "view.focus_previous_panel",
       "label": "Focus Previous Panel",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.front",
+      "label": "Front View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.iso",
+      "label": "Isometric View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.left",
+      "label": "Left View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.right",
+      "label": "Right View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.selection",
+      "label": "Zoom to Selection",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "Any",
+        "min": 1,
+        "max": null,
+        "require_homogeneous": false
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.top",
+      "label": "Top View",
       "category": "View",
       "feature_ir_op": null,
       "emits_feature_ir": false,

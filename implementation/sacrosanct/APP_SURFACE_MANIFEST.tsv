@@ -61,8 +61,16 @@ part.tag_feature	Part	TAG	document	transaction	none	1	name:text:required:hasdefa
 part.thicken	Part	THICKEN	document	transaction	ondemand	1	wall:number:required:hasdefault,side:text:optional
 part.variable_fillet	Part	BLEND	document	transaction	ondemand	1	radius_start:number:required:hasdefault,radius_end:number:required:hasdefault,smooth:flag:optional
 part.verify	Part	VERIFY	document	transaction	none	1	assertion:text:required:hasdefault,assertion2:text:optional
+view.back	View	-	view	none	none	1	-
+view.bottom	View	-	view	none	none	1	-
 view.fit	View	-	view	none	none	1	-
 view.focus_next_panel	View	-	view	none	none	1	-
 view.focus_previous_panel	View	-	view	none	none	1	-
+view.front	View	-	view	none	none	1	-
+view.iso	View	-	view	none	none	1	-
+view.left	View	-	view	none	none	1	-
+view.right	View	-	view	none	none	1	-
+view.selection	View	-	view	none	none	1	-
+view.top	View	-	view	none	none	1	-
 view.wireframe	View	-	view	none	none	1	-
 workspace.next	Application	-	application	none	none	1	-

@@ -46,7 +46,7 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **64 commands**; **49 of them emit
+Measured at this revision: the registry holds **72 commands**; **49 of them emit
 feature-IR**, reaching **46 distinct op names**. The kernel defines **55** ops
 (`opFromName`), so **9 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
@@ -59,13 +59,22 @@ three DIFFERENT reasons, and the distinction is what a single "no command emits
 it" line would hide: `ARC` and the sketch family are ordinary gaps a command can
 close, and `SLOT` is not.
 
-The registry reads 64 rather than the 60 this branch measured alone: the base it
-merges has since added four commands that emit nothing (`app.toggle_theme`,
-`app.load_sample` and the two `view.focus_*_panel`), so `registry_commands` moved
-and `commands_emitting_ir` did not. Diffing the regenerated manifest against the
-base's shows this branch's own delta is exactly six rows -- `part.skin`,
-`part.extract_faces`, `part.sew`, `part.thicken`, `part.cap`, `part.surfcheck` --
-and nothing removed.
+The registry reads 72 where the base this branch merges reads 64, and the
+emitting half did not move at all -- that gap is this branch's whole shape.
+NEITHER parent's number was right on its own: this branch measured 66 alone and
+the base 64, because each carried only its own half -- the base's six SURFACE
+commands, this branch's eight views -- and 72 is what the MERGED registry
+actually holds. It is measured, not picked: diffing the REGENERATED manifest
+against the base's gives a delta of exactly eight rows added and nothing
+removed -- `view.front`, `view.back`, `view.left`, `view.right`, `view.top`,
+`view.bottom`, `view.iso` and `view.selection`.
+
+A view command changes the CAMERA, never the document, so it carries no
+`featureIrOp`: `commands_emitting_ir` stays at 49 and `user_invocable_ops` at
+46, and the emission vocabulary Archie is trained on is untouched by the whole
+of this branch. They are registry commands rather than bespoke widgets so that
+the menu, the palette, the keymap and Archie's tool list all learn about them at
+once.
 
 The six were out for the ordinary reason: they arrived with the SURFACE value
 kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel

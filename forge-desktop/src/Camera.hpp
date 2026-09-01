@@ -20,6 +20,7 @@
 
 #include <cstdint>
 
+#include "forge/ui/CameraModel.hpp"
 #include "forge/ui/Keymap.hpp"
 
 namespace forge::desktop {
@@ -76,6 +77,14 @@ class Camera {
 
   // Standard named views. The axis convention is Z-up, the mechanical-CAD
   // default that forge-kernel's primitives are authored in (makeBox extrudes +Z).
+  // THE view setter. The angles come from forge::ui::namedViewAngles, which is
+  // the single table the headless camera gate asserts — so a button labelled
+  // "Top" here cannot disagree with what `view.top` does, and BACK / BOTTOM /
+  // LEFT exist rather than being three of seven that were never written.
+  void setNamedView(forge::ui::NamedView view) noexcept;
+
+  // The original four, kept as named shorthands over setNamedView so existing
+  // call sites (and the frame gate) keep compiling. They are NOT a second table.
   void setFront() noexcept;
   void setTop() noexcept;
   void setRight() noexcept;
