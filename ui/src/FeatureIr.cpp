@@ -116,6 +116,8 @@ const std::vector<IrOpSpec>& irOpTable() {
       {"FUSE", 2, 2, true},
       {"CUT", 2, 2, true},
       {"COMMON", 2, 2, true},
+      // the fourth boolean; same arity, different RESULT KIND (a WIRE, not a solid)
+      {"SECTION", 2, 2, true},
       // transforms / replication
       {"TRANSLATE", 4, 4, true},
       {"ROTATE", 5, 8, true},

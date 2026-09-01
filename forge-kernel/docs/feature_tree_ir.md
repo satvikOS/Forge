@@ -32,7 +32,10 @@ like the v18 builders' `body = nk.op(body, ...)` chain). A value is either:
 - **WIRE** — a closed 3D section ring placed anywhere in space (a `TopoDS_Wire`
   `ShapeHandle` via `part::profileWire`), consumed by `LOFT`. This is what a
   real vertical/organic loft needs — the always-Z=0 sketcher can't put a section
-  at a different height/plane. Produced by `RING` / `WIRE`.
+  at a different height/plane. Produced by `RING` / `WIRE` / `SECTION`.
+  `SECTION`'s wire is the intersection curve of two solids, so a section is
+  something you **loft from**, never something you fuse — and the compiler enforces
+  that by kind, not by convention.
 - **SOLID** — a 3D body (a kernel `ShapeHandle`), consumed by booleans /
   transforms / features and exported.
 - **SURFACE** — a **sheet body**: an ordered set of faces (a `ShapeHandle` onto a
@@ -197,6 +200,7 @@ extending along `+axis`.
 | `FUSE`   | `%a, %b` | `fuse` |
 | `CUT`    | `%a, %b` | `cut` |
 | `COMMON` | `%a, %b` | `common` |
+| `SECTION` | `%a, %b` | `section` — the **fourth** OCCT boolean (`BRepAlgoAPI_Section`). **Produces a WIRE, not a SOLID**: the curve where the two bodies' faces cross, with no faces, no shells and zero volume. One closed loop comes back as a `TopoDS_Wire` (so `LOFT` consumes it); several loops come back as a compound of wires. An empty section (the operands do not intersect) fails loud. |
 | `TRANSLATE` | `%a, dx, dy, dz` | `translate` |
 | `ROTATE` | `%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0]` | `translate`∘`rotate`∘`translate` (arbitrary pivot) |
 | `MIRROR` | `%a, PLANE`  **or**  `%a, px,py,pz, nx,ny,nz` | `part::mirrorPattern` — reflect across the plane and **FUSE with the original** (symmetrize). `PLANE` = `XY`/`YZ`/`XZ` (through origin), else explicit point+normal. |

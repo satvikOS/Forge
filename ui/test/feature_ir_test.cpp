@@ -234,11 +234,11 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 48 ops -- the original 40, plus the six that
+  // forge::ft::opFromName registers 49 ops -- the original 40, plus the six that
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
-  // THICKEN / CAP / SURFCHECK), plus ARC and HELIX. Anything else means the
-  // derivation itself broke, and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 48);
+  // THICKEN / CAP / SURFCHECK), plus ARC, HELIX and SECTION. Anything else means
+  // the derivation itself broke, and a broken oracle must not pass quietly.
+  CHECK_EQ_INT(kernel.size(), 49);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -289,7 +289,7 @@ int main() {
   CHECK_EQ_INT(kernel.at("SHELL").firstArgIsValueRef ? 1 : 0, 1);
 
   // The SURFACE ops, read by eye out of the kernel header the same way. A count
-  // that moved from 40 to 48 proves eight enumerators appeared; only these prove
+  // that moved from 40 to 49 proves nine enumerators appeared; only these prove
   // their documented ARGUMENT LISTS were derived rather than defaulted.
   CHECK_EQ_INT(kernel.at("SKIN").minArgs, 2);        // SKIN(%w0, %w1 [, %w2 ...])
   CHECK(kernel.at("SKIN").maxArgs == kIrArgsUnbounded);
