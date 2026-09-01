@@ -25,6 +25,7 @@
 // to ten significant figures has been measured repeatedly in this programme, so the
 // assertions below span validity, face and edge counts, volume AND the bounding box,
 // plus the s0.4 declared/parsed/compiled reconciliation.
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -155,6 +156,98 @@ int main() {
         "declared == parsed == compiled (s0.4 reconciles)",
         std::to_string(res.nDeclared) + "/" + std::to_string(res.nParsed) + "/" +
             std::to_string(res.nCompiled));
+
+  // =========================================================================
+  // PHASE 2 -- ★ SKETCH -> SOLVE -> PROFILE -> EXTRUDE -> a SOLID.
+  //
+  // The SKETCH value kind rests on one sentence: "a solved sketch IS a profile,
+  // so EXTRUDE consumes it unmodified." Until this phase nothing measured it.
+  // The family's own gate (forge-kernel/test/ft/sketch_solve_test.cpp) says so
+  // in its header -- it stops at forge::extractProfileRings because linking
+  // EXTRUDE would drag in the whole OCCT-backed kernel. This gate ALREADY links
+  // that kernel, so the missing half belongs here and costs nothing extra.
+  // Without it the fourth value kind is decorative: it can be produced and
+  // solved, and nothing shows a SOLID ever comes out of one.
+  //
+  // Hand-written IR rather than dispatched commands, and the reason is worth
+  // stating plainly: the seven sketch ops are still FORBIDDEN in
+  // implementation/sacrosanct/archie_op_vocabulary.json because no forge::ui
+  // command emits them, so no UI-authored program CAN contain one. This phase
+  // therefore proves the KERNEL half only. Phase 1 above remains the UI half.
+  //
+  // ★ THE RECTANGLE IS DRAWN WRONG ON PURPOSE -- 61 x 41 and skewed. Only the
+  // constraints say 60 x 40. That makes the assertions a POSITIVE CONTROL as
+  // well as a measurement: a solver that silently did nothing, or an EXTRUDE
+  // that quietly consumed the as-drawn seed instead of the solved geometry,
+  // yields 61 x 41 and FAILS here. A gate built on an already-correct sketch
+  // would pass in both worlds and prove nothing.
+  {
+    std::printf("\n  --- phase 2: a CONSTRAINED sketch, solved, then extruded ---\n");
+    const char* sketchIr =
+        "%1  = SKETCH(XY)\n"
+        "%2  = SPT(%1, 0, 0)\n"
+        "%3  = SPT(%1, 61, 2)\n"      // as-drawn: wrong length, and skewed
+        "%4  = SPT(%1, 59, 41)\n"
+        "%5  = SPT(%1, 1, 39)\n"
+        "%6  = SLINE(%2, %3)\n"
+        "%7  = SLINE(%3, %4)\n"
+        "%8  = SLINE(%4, %5)\n"
+        "%9  = SLINE(%5, %2)\n"
+        "%10 = CON(%6, HORIZ)\n"
+        "%11 = CON(%8, HORIZ)\n"
+        "%12 = CON(%7, VERT)\n"
+        "%13 = CON(%9, VERT)\n"
+        "%14 = CON(%2, DIST, %3, 60)\n"
+        "%15 = CON(%2, DIST, %5, 40)\n"
+        "%16 = SOLVE(%1)\n"
+        "%17 = EXTRUDE(%16, 10)\n"
+        "RESULT(%17)\n";
+
+    forge::ft::FeatureTree stree;
+    bool sparsed = true;
+    try {
+      stree = forge::ft::parse(sketchIr);
+    } catch (const std::exception& e) {
+      sparsed = false;
+      check(false, "the sketch program PARSED", std::string("threw: ") + e.what());
+    }
+    if (sparsed) {
+      check(true, "the sketch program PARSED", "17 statements");
+      const forge::ft::CompileResult s = forge::ft::compile(stree);
+      for (const std::string& line : s.verify) std::printf("    verify| %s\n", line.c_str());
+      check(s.ok, "SOLVE -> EXTRUDE COMPILED to a solid", s.ok ? "ok" : ("error: " + s.error));
+
+      if (s.ok) {
+        // The vector of observables again -- volume alone cannot separate a
+        // correct 60 x 40 ring from a self-intersecting one of equal measure.
+        check(s.valid, "the solid is valid (watertight/manifold/oriented)",
+              s.valid ? "true" : "false");
+        check(s.faceCount == 6, "a solved 4-line sketch extrudes to 6 faces",
+              std::to_string(s.faceCount));
+        check(s.edgeCount == 12, "and to 12 edges", std::to_string(s.edgeCount));
+
+        const double sdx = s.bboxMax[0] - s.bboxMin[0];
+        const double sdy = s.bboxMax[1] - s.bboxMin[1];
+        const double sdz = s.bboxMax[2] - s.bboxMin[2];
+        std::printf("    solved bbox = %s x %s x %s\n", num(sdx).c_str(), num(sdy).c_str(),
+                    num(sdz).c_str());
+
+        // 1e-6 mm. The constraints are exact, so anything looser would also
+        // accept the 61 x 41 seed this case exists to reject.
+        check(std::abs(sdx - 60.0) < 1e-6, "CONSTRAINTS moved X to 60 (as-drawn was 61)",
+              num(sdx));
+        check(std::abs(sdy - 40.0) < 1e-6, "CONSTRAINTS moved Y to 40 (as-drawn was 41)",
+              num(sdy));
+        check(std::abs(sdz - 10.0) < 1e-6, "EXTRUDE applied the 10 mm distance", num(sdz));
+        check(std::abs(s.volume - 60.0 * 40.0 * 10.0) < 1e-3,
+              "volume is the solved prism, not the as-drawn one", num(s.volume));
+        check(s.nDeclared == s.nParsed && s.nParsed == s.nCompiled,
+              "declared == parsed == compiled (s0.4 reconciles)",
+              std::to_string(s.nDeclared) + "/" + std::to_string(s.nParsed) + "/" +
+                  std::to_string(s.nCompiled));
+      }
+    }
+  }
 
   std::printf("\n[ir-pipeline] %d checks, %d failures -- %s\n", checks, failures,
               failures == 0 ? "PASS" : "FAIL");

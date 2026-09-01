@@ -923,12 +923,42 @@ private:
 
         std::vector<std::uint32_t> refs{a};
         double value = 0.0;
+        // ── a bad TRAILING operand is TOLERATED, not fatal ───────────────────
+        // CON is PASS-THROUGH: it hands back the SKETCH it was given, unchanged.
+        // That is precisely what makes a bad trailing operand recoverable where
+        // the same mistake on SLINE is not — SLINE must PRODUCE an entity and
+        // has no defensible answer, while a skipped CON has exactly one: the
+        // sketch as it already stood. So these two arms join the unknown-keyword
+        // and wrong-operand-type arms below, for the reason all four exist: one
+        // statement's mistake must not cost the other 199 of a long tree, and a
+        // mis-typed %ref is the single likeliest mistake a generating model
+        // makes. This was the LAST hole of that shape in the family — the arms
+        // below were written to honour never-refuse while the operand
+        // resolution feeding them could still kill the tree outright.
+        //
+        // The FIRST operand and the keyword keep REFUSING (case 5's negative
+        // controls): with neither an owning sketch nor a constraint kind
+        // resolved there is nothing to pass through, and inventing one would
+        // fabricate geometry rather than tolerate a mistake.
         for (std::size_t i = 2; i < op.args.size(); ++i) {
             if (op.args[i].kind == TokKind::Ref) {
                 Handle o2 = 0;
-                refs.push_back(refEntity(op, i, env, o2));
-                if (o2 != owner)
-                    throw OpError(op.id, "CON: operands must belong to the same SKETCH");
+                std::uint32_t e2 = 0;
+                try {
+                    e2 = refEntity(op, i, env, o2);
+                } catch (const OpError& e) {
+                    if (res)
+                        res->verify.push_back("CON %" + std::to_string(op.id) +
+                                              " SKIPPED — " + e.what());
+                    return owner;
+                }
+                if (o2 != owner) {
+                    if (res)
+                        res->verify.push_back("CON %" + std::to_string(op.id) +
+                                              " SKIPPED — operands belong to different SKETCHes");
+                    return owner;
+                }
+                refs.push_back(e2);
             } else if (op.args[i].kind == TokKind::Number) {
                 value = op.args[i].num;
             }

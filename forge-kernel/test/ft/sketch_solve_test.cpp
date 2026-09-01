@@ -333,6 +333,48 @@ int main() {
         }
     }
 
+    // ── 4c. a CROSS-SKETCH trailing operand on CON is skipped, not fatal ────
+    // The last hole of the shape 4 and 4b close. Those two arms tolerate a bad
+    // constraint once its operands have RESOLVED; until this case the operand
+    // resolution feeding them still threw, so `CON(%a, COINC, %b)` naming an
+    // entity of another sketch killed the whole tree — through the OpError arm
+    // of the compile loop, which returns on the first failure and discards
+    // every statement after it.
+    //
+    // CON is the one op in the family where skipping has a DEFINED answer: it
+    // is pass-through, so the answer is the sketch as it already stood. Case 5
+    // holds the other side of that line — SLINE across two sketches must still
+    // refuse, because it has to PRODUCE an entity and has no such answer. The
+    // two cases together are what make the line a decision rather than an
+    // accident.
+    {
+        const forge::SketchHandle sk5 = nextSketchHandle();
+        const char* src =
+            "%1 = SKETCH(XY)\n"
+            "%2 = SKETCH(XY)\n"
+            "%3 = SPT(%1, 0, 0)\n"
+            "%4 = SPT(%1, 10, 0)\n"
+            "%5 = SPT(%2, 99, 99)\n"
+            "%6 = CON(%3, DIST, %5, 40)\n"   // operand from the OTHER sketch
+            "%7 = CON(%3, DIST, %4, 25)\n"   // and a good one after it
+            "%8 = SOLVE(%1)\n";
+        const FeatureTree ft = parseOrFail(src, "CON across two sketches");
+        const CompileResult r = compile(ft);
+        std::printf("  [CON across two sketches] nCompiled=%zu\n", r.nCompiled);
+        dumpVerify(r);
+        check(r.nCompiled == 8, "a cross-sketch operand did not cost the tree");
+        check(verifyMentions(r, "different SKETCHes"), "the skipped constraint is NAMED");
+        check(forge::SketchRegistry::instance().exists(sk5), "the sketch is addressable");
+        if (forge::SketchRegistry::instance().exists(sk5)) {
+            const forge::SketchPoint a = forge::readPoint(sk5, 0);
+            const forge::SketchPoint b = forge::readPoint(sk5, 1);
+            const double d = std::hypot(b.x - a.x, b.y - a.y);
+            std::printf("    |p1-p0| = %.10f (the DIST 25 after it still applied)\n", d);
+            check(std::fabs(d - 25.0) < 1e-6,
+                  "the statement AFTER the cross-sketch one still took effect");
+        }
+    }
+
     // ── 5. ★ NEGATIVE CONTROLS — TYPE errors must STILL refuse ──────────────
     // Cases 2 and 4 prove the compiler is TOLERANT. On their own they would be
     // equally consistent with a compiler that is merely PERMISSIVE, which is a
