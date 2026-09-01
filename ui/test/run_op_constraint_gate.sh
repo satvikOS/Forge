@@ -29,7 +29,7 @@ cd "$ROOT" || { echo "[op-constraint] cannot enter repo root $ROOT"; exit 1; }
 CXX="${CXX:-clang++}"
 # EXACT pin. A --mutate case added to op_constraint_bridge_test.cpp must move this
 # number in the SAME change, or the sweep below silently stops covering it.
-MUTATIONS="${MUTATIONS:-8}"
+MUTATIONS="${MUTATIONS:-9}"
 GEN="implementation/sacrosanct/tools/gen_op_constraint_table.py"
 HDR="ui/include/forge/ui/ArchieOpVocabulary.hpp"
 FLAGS="-std=c++20 -O2 -Wall -Wextra -Werror"
