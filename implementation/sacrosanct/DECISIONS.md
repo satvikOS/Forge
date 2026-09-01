@@ -1787,3 +1787,88 @@ Recorded so the next reader does not discover them as a surprise.
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
 
+
+## D-041 (2026-08-31): every arm improved BUILDING and none improved SELF-CONSISTENCY
+
+The full arm characterisation, all measured on the 600-row holdout by rebuilding each arm's emitted
+IR through the kernel. `built` is read from the presence of a **measured volume**, not from `ok` —
+a row whose VERIFY failed still built a solid.
+
+| arm | n | built % | rows with VERIFY | VERIFY failed | **self-inconsistency** | bore recall | parts with CBORE |
+|---|---|---|---|---|---|---|---|
+| axis_named_v7_e600 | 600 | **80.8** | 416 | 243 | **58.4%** | 48.7% | **0** |
+| expert3d_v5cap_e600 | 600 | 73.5 | 442 | 249 | **56.3%** | 44.0% | **0** |
+| expert3d_v1_e600 | 600 | 60.8 | 443 | 244 | **55.1%** | 26.2% | **0** |
+| v6r8 (part 1) | 238 | 57.6 | 131 | 76 | **58.0%** | 38.3% | **0** |
+| box600 (floor) | 600 | 100.0 | 0 | 0 | — | 0.0% | 0 |
+
+### The finding
+
+★**A 23-POINT SPREAD IN BUILD RATE MOVES SELF-INCONSISTENCY BY NOTHING.** 55.1 / 56.3 / 58.0 /
+58.4 — the best arm ever trained on this project is no more self-consistent than the worst. Every
+improvement to date taught the model to *build*; none taught it to stop asserting properties its
+own construction does not have.
+
+That is the justification for `selfconsist_v10`: it is the first run aimed at the axis that has
+never moved. On v5cap the status histogram is `verify_failed 249, op_error 99, ok 192, harness 39,
+unknown_op 18` — **a failing VERIFY is the single largest category at 41.5% of all rows, while the
+entire vocabulary story is 3.0%.**
+
+★**Zero CBOREs across 1,438 parts**, beside 12,857 `HOLE` ops in v5cap alone. The op is available,
+declared, and never used.
+
+### The 80.8% is found, and D-040 is confirmed
+
+**80.8% is the axis-named v7 arm, reproduced to the decimal.** It was irreproducible only because
+it was never arm-qualified. Both figures in the earlier dispute were correct measurements of
+different arms.
+
+★**An instrument caveat was resolved by measuring rather than assuming.**
+`BASELINE_PROVENANCE.txt` warns that no scored artifact was ever produced with `tools/pinned`.
+v6r8 was re-measured through the baseline pin: **bit-identical in every metric and every status
+bucket.** The warning is real for the composite (an IoU over a grid) and does not reach these
+structural counts.
+
+### Corpus construction, and two defects it avoided
+
+`tools/selfconsist/gen_selfconsistent_corpus.py` works by **measure-then-assert**: synthesise a
+tree over the 28-op surface, **build it** (non-builders discarded, never repaired into a claim),
+read every assertion value back out of **the kernel's own assertion path**, then rebuild with the
+VERIFY included and keep the row only if every assertion passes.
+
+Two corrections that mattered:
+* ★The census `bores` array and the VERIFY `holes` key are **different implementations** and
+  disagreed on **15 of 57** smoke rows. Reading each value from the path that will *check* it
+  removes that class of error entirely.
+* It asserts **only what the prompt tells the model** (faces, holes, bbox x/y/z). `edges` and
+  `volume` are not in the census, and ★asserting an unknowable number converts a fidelity miss
+  into a compile failure.
+
+The system prompt was aligned to the holdout's exact string, because `archie_loop` does
+`system = t.get("system") or PLANNER_SYSTEM` — training on a different prompt was a **silent
+train/test mismatch**.
+
+Result: 1,935 train / 103 valid, **10,190 assertions with 0 unchecked**, 21,258 bores, 17 families,
+all 28 of 28 ops. Four negative controls prove the gate can fail, the sharpest being **CYL
+arguments transposed: 42 of 60 still compiled while 65 assertions failed** — a control that
+separates "compiles" from "is correct" exactly where this project keeps confusing them.
+
+### Two limits stated rather than hidden
+
+* **No validation split selects a checkpoint.** `mlx_vlm/lora.py` passes `val_dataset=None` in both
+  branches and loads only `split="train"`, so the iter-2400 adapter is what ships. The valid file
+  exists and is scanned for contamination; it does not gate anything.
+* ★**The composite is a SECONDARY, UNDERPOWERED endpoint.** sd 0.2977 gives a smallest detectable
+  delta of 0.0340 at n=600, and +0.03 would need n=773. The primary endpoints are therefore
+  binomials this holdout resolves easily: build rate 57.6 -> 70% needs n=236; self-inconsistency
+  58 -> 25% needs 35 VERIFY-bearing rows against 442 available; CBORE at 5/238 versus 0/238 is
+  Fisher p=0.031.
+
+### A note against myself
+
+The training agent observed a runaway `forge_verify` pair driving swap from 0.4 GB to 32 GB and
+correctly determined it was not its own (its processes were 23–34 MB). ★**It was mine** — the
+arm-qualification sweep, whose child process was `ppid 1863`. It chose to make its guard **wait**
+rather than pattern-kill by name, which is the only reason the training run survived: a
+name-based kill would have taken the peer's work with it. Recorded because the restraint was
+correct and the runaway was not.
