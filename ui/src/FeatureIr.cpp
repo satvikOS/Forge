@@ -128,6 +128,13 @@ const std::vector<IrOpSpec>& irOpTable() {
       {"SHELL", 2, 5, true},
       {"FOLD", 8, 9, true},
       {"HEAL", 1, 1, true},
+      // surface sheets (produce a SURFACE)
+      {"SKIN", 2, kIrArgsUnbounded, true},
+      {"FACES", 2, 2, true},
+      {"SEW", 1, kIrArgsUnbounded, true},
+      {"THICKEN", 2, 3, true},
+      {"CAP", 1, 2, true},
+      {"SURFCHECK", 2, kIrArgsUnbounded, true},
       // edit ops
       {"TAG", 3, 3, true},
       {"INPUT", 0, 0, false},
