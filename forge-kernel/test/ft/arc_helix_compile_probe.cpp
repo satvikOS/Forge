@@ -341,6 +341,36 @@ int main() {
            "error: " + k.error);
     }
 
+    // ── 2c-bis. HELIX IS A CREATOR, NOT A PREDICATE ────────────────────────
+    // GraphAudit::isPredicate names the three ops that return their input
+    // unchanged (VERIFY / TAG / SURFCHECK) and are therefore legitimate LEAVES.
+    // HELIX was deliberately NOT added to it, and this is the assertion that
+    // makes that decision falsifiable instead of merely argued: a helix nothing
+    // consumes MUST be reported as an unexplained orphan, naming its own id. If
+    // it had been listed as a predicate the tree below would compile silently
+    // and the audit would have stopped seeing exactly what it exists to see.
+    {
+        const auto orph = run("%1 = BOX(20, 20, 20)\n"
+                              "%2 = HELIX(1.5, 26, 5)\n"
+                              "RESULT(%1)\n");
+        ok(!orph.ok && has(orph.error, "unexplained_orphans") &&
+               has(orph.error, "%2") && orph.failedOpId == 2,
+           "a HELIX nothing consumes is reported as an UNEXPLAINED ORPHAN naming %2 "
+           "— it is a CREATOR, not a predicate",
+           "ok=" + std::to_string(orph.ok ? 1 : 0) + " failedOp=" +
+               std::to_string(orph.failedOpId) + " error: " + orph.error);
+    }
+    {
+        // The control: the same tree with the helix CONSUMED is clean. This is
+        // the shape the one GT program has -- SWEEP(%profile, %helix, ...) -- so
+        // the orphan report above is about the graph, not about the op.
+        const auto used = run("%1 = RING(20, 20, 0)\n"
+                              "%2 = RING(12, 12, 30)\n"
+                              "%3 = LOFT(%1, %2)\n"
+                              "RESULT(%3)\n");
+        ok(used.ok, "control: a WIRE that IS consumed leaves no orphan", used.error);
+    }
+
     // ── 2d. POSITIVE CONTROL THE OTHER WAY ─────────────────────────────────
     // The other two WIRE producers still build and still loft. If adding a third
     // Val::Wire case had disturbed the kind, this is where it would show.
