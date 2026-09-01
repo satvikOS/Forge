@@ -370,6 +370,15 @@ std::string sketchNodeFor(int irId) { return "sketch_" + std::to_string(irId); }
 // consumes the one and EXTRUDE the other and the kernel throws on the swap.
 std::string wireNodeFor(int irId) { return "wire_" + std::to_string(irId); }
 
+// And a FOURTH prefix, for SURFACE sheets, for exactly the reason WIRE got a third.
+// A sheet and a solid are both "a body" to a click, and they are NOT interchangeable
+// to the kernel: opThicken/opCap throw on a SOLID and opShell/opFillet throw on a
+// sheet. Without its own prefix doc.kindOf() would answer Solid for a sheet, THICKEN
+// would offer itself on a fillet's output, and SHELL would offer itself on a skin --
+// the mis-selection a typed signature exists to refuse. PROFILE, WIRE, SOLID and
+// SURFACE are the whole of IrValueKind, so this is the last prefix the scheme needs.
+std::string surfaceNodeFor(int irId) { return "surface_" + std::to_string(irId); }
+
 // One emission == one undoable transaction.
 void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
           const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
@@ -2327,6 +2336,280 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── THE SURFACE OPS: SKIN / FACES / SEW / THICKEN / CAP / SURFCHECK ───────
+  // The six ops #146 landed with the SURFACE value kind, and the last six members
+  // of `forbidden_ops` whose recorded reason is the plain one -- "no command in the
+  // forge::ui registry emits it, so no user can produce it". Nothing about them was
+  // in question: FeatureIr.cpp has carried their arity since #146
+  // (SKIN 2..n, FACES 2, SEW 1..n, THICKEN 2..3, CAP 1..2, SURFCHECK 2..n, every
+  // one first_arg_is_value_ref), the kernel compiles them in a default build, and
+  // the header calls each "a THIN wiring of a kernel entry point that already
+  // exists". The value kind was what was missing, and it is no longer missing --
+  // so what was left was the app surface, which is this.
+  //
+  // ★ THE ENABLING CHANGE IS A SELECTION KIND, NOT A COMMAND. Four of the six
+  // CONSUME a SURFACE, and until now nothing could hold one: a click yields an
+  // EntityRef, resolveValues() maps it bodyId -> valueFor() -> kindOf(), and every
+  // node a command produced was `body_N`, `sketch_N` or `wire_N`. A sheet parked in
+  // `body_N` reads back as a SOLID, which would have made THICKEN offer itself on a
+  // fillet's output and SHELL offer itself on a skin -- both of which the kernel
+  // throws on. `EntityKind::Surface` plus `surfaceNodeFor()` is that fourth lane,
+  // added for exactly the reason WIRE got the third one, and it is the last: the
+  // four IrValueKind members now each have an entity kind and a node prefix.
+  //
+  // ★ THE SET IS CLOSED, which is the property that makes these reachable rather
+  // than merely registered. SKIN turns >=2 WIREs into a sheet and FACES turns a
+  // SOLID into one, and both of those inputs are already user-producible
+  // (part.section_ring / part.wire_section, and every solid creator). So a user
+  // starting from an EMPTY document can reach every one of the six, and
+  // value_kind_closure stays CLOSED with SURFACE in it -- the generator derives
+  // that, it is not asserted here.
+  //
+  // ★ NOTHING HERE REFUSES A DEGENERATE SHEET, which is the header's own standing
+  // instruction ("NOTHING HERE REFUSES A DEGENERATE SHEET") and the owner's: a
+  // selector matching no face yields an EMPTY surface, a SEW of sheets that do not
+  // touch yields an unsewn one, and THICKEN/CAP of a sheet the kernel declines fail
+  // with the op id, the face count and the free-edge count in the message. The
+  // `enabled` predicates below refuse only what is UNSPELLABLE (a wall of zero, an
+  // empty assertion, a `side` that is not IN|OUT|MID) -- never a shape that is
+  // merely bad. A bad shape is SURFCHECK's business, and SURFCHECK is here too.
+
+  // ── SKIN ──────────────────────────────────────────────────────────────────
+  // LOFT's lateral skin, typed as the sheet it actually is. LOFT(..., OPEN) builds
+  // the SAME geometry and calls it a SOLID, which is the pre-existing mistyping the
+  // header says SKIN exists to let a tree avoid "without changing LOFT's meaning" --
+  // so this command is part.loft's twin with one keyword dropped and one kind
+  // changed, deliberately, rather than a new spelling of it.
+  //
+  // OPEN is NOT offered. The header records it as "implied by SKIN; accepted, not an
+  // error", so emitting it would put a no-op keyword into every skin statement
+  // Archie ever trains on. RULED is offered because it changes the surface.
+  {
+    CommandDescriptor c = base("part.skin", "Skin Sections", "SKIN",
+                               SelectionSignature::atLeast(EntityKind::Wire, 2));
+    c.schema.push_back(ParamSpec{"ruled", ParamType::Flag, false, 0.0, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Wire).size() >= 2;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args;
+      for (int section : resolveValues(*d, ctx.selection(), IrValueKind::Wire)) {
+        args.push_back(IrArg::valueRef(section));
+      }
+      if (flagOn(ctx, "ruled")) args.push_back(IrArg::keyword("RULED"));
+      emit(ctx, *d, *s, "part.skin", "Skin Sections", "SKIN", std::move(args),
+           IrValueKind::Surface, {}, surfaceNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── FACES ─────────────────────────────────────────────────────────────────
+  // The SOLID -> SURFACE direction, "without which the kind is a dead end". The
+  // selector is the SAME face-selector grammar DEFEATURE/PUSHFACE/RESIZEBORE use,
+  // and it is a required parameter with an honest default rather than something
+  // inferred from the click -- the identical rule part.push_face states: the
+  // signature carries the ENTITY the user picked, forge::ft resolves a PREDICATE,
+  // and inventing the predicate from the click would be the UI guessing at the
+  // kernel's answer.
+  //
+  // The default is "all", which is the spelling the compiler itself uses when it
+  // promotes a SOLID by hand, and it is the useful one: the whole closed sheet of a
+  // body is what a THICKEN or a CAP downstream wants. A selector matching NOTHING
+  // returns an empty SURFACE and records the miss; it does not abort the tree, and
+  // this command does not pre-empt that by greying out.
+  {
+    CommandDescriptor c = base("part.extract_faces", "Extract Faces", "FACES",
+                               SelectionSignature::atLeast(EntityKind::Face, 1));
+    c.schema.push_back(ParamSpec{.name = "selector",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "all",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok && !txt(ctx, "selector", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::text(txt(ctx, "selector", "all"))};
+      // NOT t.node: FACES does not give the body history, it produces a NEW value of a
+      // DIFFERENT kind. Reusing the solid's node would overwrite the solid's identity
+      // with a sheet and make the source body unselectable for anything afterwards.
+      emit(ctx, *d, *s, "part.extract_faces", "Extract Faces", "FACES", std::move(args),
+           IrValueKind::Surface, {}, surfaceNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SEW ───────────────────────────────────────────────────────────────────
+  // Stitch sheets into one sheet. Arity is 1..n, and ONE argument is a real form,
+  // not a degenerate one: SEW(%s) re-stitches a single unsewn face set, which is
+  // what FACES("all") hands you.
+  //
+  // The result stays a SURFACE even when the stitch closes it. That is the header's
+  // decision, not this command's: "promotion to a SOLID is CAP's job, and a sew that
+  // silently changed value kind would make the kind depend on geometry the emitter
+  // cannot see." Emitting IrValueKind::Solid here when the sheet happened to close
+  // would be exactly that defect, so it emits Surface unconditionally.
+  //
+  // `tol` is the trailing optional argument and is emitted only when supplied.
+  {
+    CommandDescriptor c = base("part.sew", "Sew Sheets", "SEW",
+                               SelectionSignature::atLeast(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{"tol", ParamType::Number, false, 0.001, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty()) return false;
+      // A tolerance is a LENGTH. Zero or negative is unspellable, not merely bad.
+      return !hasNumber(ctx, "tol") || num(ctx, "tol", 0.001) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args;
+      for (int sheet : resolveValues(*d, ctx.selection(), IrValueKind::Surface)) {
+        args.push_back(IrArg::valueRef(sheet));
+      }
+      if (hasNumber(ctx, "tol")) args.push_back(IrArg::num(num(ctx, "tol", 0.001)));
+      emit(ctx, *d, *s, "part.sew", "Sew Sheets", "SEW", std::move(args),
+           IrValueKind::Surface, {}, surfaceNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── THICKEN ───────────────────────────────────────────────────────────────
+  // SURFACE -> SOLID by offsetting the sheet to a wall. This is the op D-030's
+  // whole 193-part deletion bucket turned on, from the app side.
+  //
+  // `side` is a KEYWORD argument (IN | OUT | MID), not a number, and it is emitted
+  // only when the user asked for something other than the kernel's own default --
+  // so the statement the app emits for a plain thicken is the two-argument form the
+  // corpus is written in. The spelling is validated HERE, because opThicken throws
+  // "side `X` is not IN | OUT | MID" and a command must not offer a statement the
+  // kernel is going to refuse for a reason the UI could see.
+  {
+    CommandDescriptor c = base("part.thicken", "Thicken Sheet", "THICKEN",
+                               SelectionSignature::exactly(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{.name = "wall",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"side", ParamType::Text, false, 0.0, "OUT"});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) return false;
+      // opThicken: "THICKEN: wall must be > 0".
+      if (num(ctx, "wall", 2.0) <= 0.0) return false;
+      if (!hasText(ctx, "side")) return true;
+      // Exact spellings, compared the way part.mirror compares its plane: the
+      // kernel matches the keyword literally, so accepting "in" here and emitting
+      // it would hand opThicken a token it throws on.
+      const std::string side = txt(ctx, "side", "");
+      return side == "IN" || side == "OUT" || side == "MID";
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sheets.front()),
+                              IrArg::num(num(ctx, "wall", 2.0))};
+      if (hasText(ctx, "side")) args.push_back(IrArg::keyword(txt(ctx, "side", "MID")));
+      emit(ctx, *d, *s, "part.thicken", "Thicken Sheet", "THICKEN", std::move(args),
+           IrValueKind::Solid, {}, {});
+    };
+    add(std::move(c));
+  }
+
+  // ── CAP ───────────────────────────────────────────────────────────────────
+  // SURFACE -> SOLID by sewing the sheet and filling every free boundary. The other
+  // half of the sheet-to-solid pair: THICKEN gives a wall, CAP gives a volume.
+  {
+    CommandDescriptor c = base("part.cap", "Cap Sheet", "CAP",
+                               SelectionSignature::exactly(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{"tol", ParamType::Number, false, 0.001, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) return false;
+      return !hasNumber(ctx, "tol") || num(ctx, "tol", 0.001) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sheets.front())};
+      if (hasNumber(ctx, "tol")) args.push_back(IrArg::num(num(ctx, "tol", 0.001)));
+      emit(ctx, *d, *s, "part.cap", "Cap Sheet", "CAP", std::move(args), IrValueKind::Solid,
+           {}, {});
+    };
+    add(std::move(c));
+  }
+
+  // ── SURFCHECK ─────────────────────────────────────────────────────────────
+  // VERIFY for sheets, and it earns the same care for the same reason: it is the
+  // DIAGNOSTIC HALF OF THE TOLERANCE CONTRACT. The five commands above refuse no
+  // degenerate sheet -- an empty FACES, an unsewn SEW and a self-intersecting skin
+  // are all representable -- and that is only defensible because the tree can then
+  // SAY SO. "Degenerate sheets are representable BECAUSE they are answerable" is the
+  // header's phrasing, and this command is the second half of that sentence.
+  //
+  // AUTHORABLE: the parameter is the assertion the kernel itself parses, in the
+  // kernel's own spelling. opSurfCheck's vocabulary is
+  //     faces, freeedges, closed, pcurves, selfintersect, area, shells
+  // compared with one of = <= >= < >. `freeedges = 0` is the one that matters most,
+  // because it is exactly the question "did my SEW actually close this sheet?" --
+  // the question SEW deliberately refuses to answer by changing value kind.
+  //
+  // INSPECTABLE: SURFCHECK is pass-through, so the assertion lives in the tree as
+  // its own numbered statement next to the sheet it constrains, editable by
+  // part.edit_feature and visible in irProgram(). A failed assertion is RECORDED and
+  // fails the compile at the end -- it never aborts the walk, so the geometry after
+  // it is still built and still measurable.
+  //
+  // The optional second assertion is what makes the variadic form reachable, exactly
+  // as in part.verify, and it carries NO hasDefault for exactly the same reason: if
+  // applyDefaults could fill it, the ONE-assertion form would stop being reachable
+  // at all and the corpus would never contain it.
+  {
+    CommandDescriptor c = base("part.surfcheck", "Assert Sheet Property", "SURFCHECK",
+                               SelectionSignature::exactly(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{.name = "assertion",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "freeedges = 0",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"assertion2", ParamType::Text, false, 0.0, "faces >= 1"});
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() == 1 &&
+             !txt(ctx, "assertion", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sheets.front()),
+                              IrArg::text(txt(ctx, "assertion", "freeedges = 0"))};
+      if (hasText(ctx, "assertion2")) {
+        args.push_back(IrArg::text(txt(ctx, "assertion2", "faces >= 1")));
+      }
+      // Pass-through: it returns %surface unchanged, so it keeps the sheet's OWN node
+      // and its OWN kind. Emitting a new node would fork the sheet's identity and
+      // leave the assertion constraining a value nothing downstream refers to.
+      emit(ctx, *d, *s, "part.surfcheck", "Assert Sheet Property", "SURFCHECK", std::move(args),
+           IrValueKind::Surface, {}, singleNode(ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
   // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
   // There used to be `part.undo` and `part.redo` in this list, driving the very
   // stack `s` points at. They were registered here when ForgeShell's own
@@ -2411,20 +2694,26 @@ const std::vector<std::string>& partCommandIds() {
   static const std::vector<std::string> ids = [] {
     std::vector<std::string> v{
         "part.boolean_intersect",  "part.boolean_subtract",   "part.boolean_union",
-        "part.chamfer", "part.counterbore", "part.defeature",
-        "part.edit_feature", "part.extrude", "part.fillet",
-        "part.fold_flange", "part.heal", "part.hole",
-        "part.input_solid", "part.loft", "part.mirror",
-        "part.move", "part.pattern_circular", "part.pattern_grid",
-        "part.pattern_linear", "part.primitive_box", "part.primitive_cone",
-        "part.primitive_cylinder", "part.primitive_prism", "part.primitive_sphere",
-        "part.primitive_torus", "part.primitive_tube", "part.push_face",
-        "part.resize_bore", "part.revolve", "part.rotate",
-        "part.section_curve", "part.section_ring", "part.section_wire",
-        "part.shell", "part.sketch_circle", "part.sketch_poly",
-        "part.sketch_polygon", "part.sketch_rect", "part.sketch_rounded_rect",
-        "part.sweep_pipe", "part.sweep_profile", "part.tag_feature",
-        "part.variable_fillet", "part.verify",
+        "part.cap",                "part.chamfer",            "part.counterbore",
+        "part.defeature",
+        "part.edit_feature",       "part.extract_faces",      "part.extrude",
+        "part.fillet",
+        "part.fold_flange",        "part.heal",               "part.hole",
+        "part.input_solid",        "part.loft",               "part.mirror",
+        "part.move",               "part.pattern_circular",   "part.pattern_grid",
+        "part.pattern_linear",     "part.primitive_box",      "part.primitive_cone",
+        "part.primitive_cylinder", "part.primitive_prism",    "part.primitive_sphere",
+        "part.primitive_torus",    "part.primitive_tube",     "part.push_face",
+        "part.resize_bore",        "part.revolve",            "part.rotate",
+        "part.section_ring",       "part.section_wire",       "part.sew",
+        "part.shell",              "part.skin",
+        "part.sketch_circle",      "part.sketch_poly",        "part.sketch_polygon",
+        "part.sketch_rect",        "part.sketch_rounded_rect",
+        "part.surfcheck",          "part.sweep_pipe",
+        "part.sweep_profile",      "part.tag_feature",        "part.thicken",
+        "part.section_curve",
+        "part.variable_fillet",
+        "part.verify",
     };
     std::sort(v.begin(), v.end());
     return v;

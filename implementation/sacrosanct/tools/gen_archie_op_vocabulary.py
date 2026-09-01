@@ -587,6 +587,14 @@ REF_ROLES = {
     "section": "wire_section",
     "ids[0]": "target_solid",
     "ids[1]": "tool_solid",
+    # The SURFACE commands. Two distinct roles, and they are NOT interchangeable:
+    # `sheet` is part.sew's loop variable over a VARIADIC list of sheets, while
+    # `sheets.front()` is the SINGLE sheet THICKEN / CAP / SURFCHECK each take as
+    # their first argument. Mapping both to one role would emit `SEW(%surface)`
+    # for the variadic form and lose the repeat, which is the same class of defect
+    # the `section` entry above records for LOFT.
+    "sheet": "surface_sheet",
+    "sheets.front()": "target_surface",
     # part.section_curve's two operands. They are NOT target/tool: SECTION consumes
     # neither body and the operation is symmetric, so naming them the way the
     # booleans name theirs would teach Archie that one of them gets eaten.
@@ -1206,6 +1214,10 @@ def ternary_domain(selects_on):
 # ---------------------------------------------------------------------------
 REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%profile",
                    "wire_section": "%wire",
+                   # The two SURFACE roles. `%sheet` is SEW's variadic list and
+                   # `%surface` the single sheet THICKEN / CAP / SURFCHECK take;
+                   # one shared name would lose SEW's repeat.
+                   "surface_sheet": "%sheet", "target_surface": "%surface",
                    # SECTION is symmetric and consumes neither operand, so both slots
                    # are bodies. They still need DISTINCT placeholders: one shared name
                    # would render the worked example as SECTION(%body, %body), which

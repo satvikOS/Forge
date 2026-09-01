@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 44);
-  CHECK_EQ_INT(registry.size(), 44);
+  CHECK_EQ_INT(added, 50);
+  CHECK_EQ_INT(registry.size(), 50);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 44);
+  CHECK_EQ_INT(registry.size(), 50);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -102,7 +102,7 @@ int main() {
       CHECK(findIrOp(c->featureIrOp) != nullptr);
     }
   }
-  CHECK_EQ_INT(withIrOp, 43);  // every registered Part command emits an IR op
+  CHECK_EQ_INT(withIrOp, 49);  // every registered Part command emits an IR op
 
   // ── the document seed ─────────────────────────────────────────────────────
   // Three values that exist before any Part command ran: two sketches from the
@@ -372,7 +372,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 44);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 50);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -489,7 +489,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 44);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 50);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -521,7 +521,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 44);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 50);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -574,13 +574,32 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 44);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 50);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
-    const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
-                                               "part.boolean_union", "part.boolean_subtract",
-                                               "part.boolean_intersect"};
-    for (const std::string& id : indexing) {
+    // EVERY handler that reads a selection-derived vector belongs here, whether it
+    // indexes one or iterates one. The distinction looked like it mattered and
+    // MEASURING IT SAID OTHERWISE:
+    //
+    //   * the indexers crash without a guard -- part.thicken / part.cap /
+    //     part.surfcheck take a single sheet and call .front() exactly as
+    //     part.extrude calls it on its profile, and part.section_curve indexes two
+    //     bodies. Removing part.thicken's requireValues() and re-running this gate
+    //     gives exit 139, the same SIGSEGV recorded above for the original three.
+    //   * the iterators do NOT crash -- iterating an empty vector is well-defined --
+    //     but the question this block asks is not "does it crash", it is "does it
+    //     FAIL CLOSED". Measured: part.sew, part.skin and part.loft all refuse in
+    //     words and leave the document at its seed, because an argument list with no
+    //     %ref cannot satisfy the op's arity and appendFeature() rejects it.
+    //
+    // So they are all asserted together. Splitting them by mechanism would have
+    // published a rule ("iterators owe nothing here") that the measurement does not
+    // support, and would have left three handlers with no assertion at all.
+    const std::vector<std::string> readsSelection = {
+        "part.extrude", "part.revolve", "part.boolean_union", "part.boolean_subtract",
+        "part.boolean_intersect", "part.section_curve", "part.thicken", "part.cap",
+        "part.surfcheck", "part.sew", "part.skin", "part.loft"};
+    for (const std::string& id : readsSelection) {
       const CommandDescriptor* c = regX.find(id);
       CHECK(c != nullptr);
       if (c == nullptr) continue;
@@ -779,7 +798,7 @@ int main() {
     PartDocument docN;
     UndoStack stackN;
     SelectionService selN;
-    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 44);
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 50);
     CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
 
     // ── the minimal form of each: required parameters only ──────────────────
@@ -1037,7 +1056,7 @@ int main() {
     PartDocument docE2;
     UndoStack stackE2;
     SelectionService noneE2;
-    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 44);
+    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 50);
     CHECK_EQ_INT(docE2.records().size(), 0);  // EMPTY: INPUT is a creator
 
     // INPUT()  -- "bind the task's input STEP as a solid". No selection, no
@@ -1181,7 +1200,7 @@ int main() {
     PartDocument docS;
     UndoStack stackS;
     SelectionService selS;
-    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 44);
+    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 50);
 
     const CommandDescriptor* sc = regS.find("part.section_curve");
     CHECK(sc != nullptr);
@@ -1270,7 +1289,7 @@ int main() {
     PartDocument docF;
     UndoStack stackF;
     SelectionService selF;
-    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 44);
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 50);
 
     // The five statements of the application's own starting part, seeded exactly
     // as the app seeds them: NONE of them is command-authored, so undo cannot

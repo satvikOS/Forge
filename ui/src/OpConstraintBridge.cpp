@@ -47,7 +47,8 @@ bool mapValueKind(std::string_view spelling, IrValueKind& out) {
 bool mapEntityKind(std::string_view spelling, EntityKind& out) {
   const EntityKind kinds[] = {EntityKind::None,      EntityKind::Vertex,    EntityKind::Edge,
                               EntityKind::Face,      EntityKind::Body,      EntityKind::Sketch,
-                              EntityKind::SketchCurve, EntityKind::Wire,    EntityKind::Feature,
+                              EntityKind::SketchCurve, EntityKind::Wire,    EntityKind::Surface,
+                              EntityKind::Feature,
                               EntityKind::Component, EntityKind::Datum,     EntityKind::Any};
   const std::string want = lower(spelling);
   for (const EntityKind kind : kinds) {

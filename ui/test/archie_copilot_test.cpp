@@ -54,6 +54,18 @@ struct Fixture {
     partCommands = registerPartCommands(shell.registry(), doc, undo);
   }
 
+  // The same document PLUS the two value kinds a profile and a solid cannot stand
+  // in for. Seeded on demand rather than always, so the existing refusal cases
+  // keep refusing for the reason they were written to test.
+  void seedWiresAndSheets() {
+    doc.seed(IrValueKind::Wire, "wire.a", "RING",
+             {IrArg::num(20.0), IrArg::num(20.0), IrArg::num(0.0)});
+    doc.seed(IrValueKind::Wire, "wire.b", "RING",
+             {IrArg::num(12.0), IrArg::num(12.0), IrArg::num(30.0)});
+    doc.seed(IrValueKind::Surface, "surface.a", "FACES",
+             {IrArg::valueRef(2), IrArg::text("all")});
+  }
+
   std::vector<PlanTool> tools() { return planTools(shell.registry(), shell.selection()); }
 };
 
@@ -299,12 +311,68 @@ int testApply() {
   return H.finish();
 }
 
+// ── the CoPilot must bind the kind the COMMAND consumes ─────────────────────
+// A command that consumes a WIRE or a SURFACE was undrivable by the CoPilot, and
+// the cause was one line: resolveSelection() chose between exactly two kinds,
+//     want = (select == LatestProfile) ? Profile : Solid
+// so a Wire- or Surface-signature command got a ref whose bodyId names a SOLID.
+// resolveValues() then reads kindOf() through that node, gets Solid, returns {},
+// and the command greys out -- a plan that reports a selection mismatch on a
+// document that HOLDS exactly the value the step needed.
+//
+// This is the same defect D-023 records for part.loft itself ("part.loft was
+// resolving PROFILE values"), left standing in the CoPilot's copy of the
+// decision. The phrase table still said `{"loft", part.loft, LatestProfile}` and
+// the old test above still called two wires "two profiles".
+//
+// The document below HOLDS two wires and a sheet, so a refusal here cannot be
+// blamed on a missing value -- which is what makes this a measurement of the
+// binder and not of the fixture.
+int testValueKindBinding() {
+  Harness H("archie_copilot:value-kind binding");
+
+  struct Case {
+    const char* intent;
+    const char* commandId;
+  };
+  const Case cases[] = {
+      {"loft", "part.loft"},         {"skin", "part.skin"},
+      {"thicken", "part.thicken"},   {"cap", "part.cap"},
+      {"sew", "part.sew"},           {"surfcheck", "part.surfcheck"},
+      {"faces", "part.extract_faces"},
+  };
+
+  for (const Case& c : cases) {
+    Fixture fx;
+    fx.seedWiresAndSheets();
+    ArchieCopilot cp;
+    const PlanResponse r = ask(fx, cp, c.intent);
+    CHECK(r.ok);
+    if (!r.ok) continue;
+    CHECK_EQ_INT(static_cast<int>(cp.deliver(r, fx.shell.registry())),
+                 static_cast<int>(PlanCheck::Ok));
+    const ApplyOutcome out = cp.apply(fx.shell, fx.doc);
+    // The step must APPLY. Before the binder consulted the signature every one of
+    // these came back SelectionSignatureMismatch on a document that held the value.
+    CHECK_EQ_INT(out.applied, 1);
+    CHECK(out.allOk());
+    if (out.steps.size() == 1) {
+      CHECK_EQ_STR(out.steps[0].commandId, c.commandId);
+    }
+  }
+
+  return H.finish();
+}
+
 // ── 4. a refusal stops the plan and says which step and why ─────────────────
 int testRefusal() {
   Harness H("archie_copilot:refusal");
 
-  // A LOFT needs two profiles; the seeded document has one. The step must refuse
-  // BEFORE dispatch, naming the shortfall, and nothing may be written.
+  // A LOFT needs two WIRES -- not two profiles, which is what this comment said
+  // while the binder could only ever ask for a profile or a solid. The seeded
+  // document has NEITHER (one profile, one solid, no wire), so the step still
+  // refuses; what changed is that it now refuses for the reason stated. The step
+  // must refuse BEFORE dispatch, naming the shortfall, and nothing may be written.
   {
     Fixture fx;
     ArchieCopilot cp;
@@ -653,6 +721,7 @@ int main() {
   rc |= testPlanner();
   rc |= testValidation();
   rc |= testApply();
+  rc |= testValueKindBinding();
   rc |= testRefusal();
   rc |= testOpConstraintGate();
   rc |= testTools();
