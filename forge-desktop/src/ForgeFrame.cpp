@@ -2947,12 +2947,33 @@ void ForgeFrame::drawGenericPanel(const std::string& panelId) {
       panelId.c_str());
   ImGui::Spacing();
   ImGui::TextColored(rgb(130, 137, 148), "Commands this workspace owns:");
-  for (const std::string& cat :
-       forge::ui::ribbonCategories(shell_.workspace(), shell_.registry().categories())) {
-    for (const std::string& id : shell_.registry().idsInCategory(cat)) {
-      const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
-      if (d == nullptr) continue;
-      ImGui::BulletText("%s  (%s)", d->label.c_str(), d->id.c_str());
+  // ribbonSurface_, NOT a second walk of the registry. This function used to
+  // call ribbonCategories(shell_.workspace(), registry().categories()) and then
+  // registry().idsInCategory(cat) itself -- the same enumeration the ribbon
+  // does, written a second time, in the file CI did not compile. It was a
+  // SEPARATE COPY of the menu in every way that matters: it listed commands the
+  // selection cannot run with no indication that it cannot, because it never
+  // consulted the enabled predicate, and it would have kept listing a command
+  // the ribbon had stopped showing.
+  //
+  // The no-second-enumeration gate did not catch it, and that is the more
+  // interesting half: the gate checked four function names it held in a
+  // hand-written list, and this is a fifth. Delegating in the four functions
+  // someone remembered to list, while a fifth walks the registry, is exactly the
+  // drift the gate exists to prevent. That list is now a CENSUS -- see
+  // ui/test/app_surface_reachability_test.cpp.
+  //
+  // The panel is a docked surface with no content, so it shows availability
+  // rather than acting: a button here would be a fourth invocation path into a
+  // panel that explicitly says it is not implemented.
+  for (const forge::ui::SurfaceGroup& group : ribbonSurface_.groups) {
+    for (const forge::ui::SurfaceItem& item : group.items) {
+      const bool on = item.enabled() || item.opensDialog();
+      ImGui::BulletText("%s  (%s)", item.label.c_str(), item.commandId.c_str());
+      if (!on && !item.hint.empty()) {
+        ImGui::SameLine();
+        ImGui::TextColored(rgb(130, 137, 148), "-- %s", item.reason.c_str());
+      }
     }
   }
 }

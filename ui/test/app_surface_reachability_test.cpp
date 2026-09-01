@@ -35,6 +35,7 @@
 // in ForgeFrame by making the ribbon horizontally scrollable; that part is
 // unverified here and is stated as unverified rather than implied.
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -108,6 +109,36 @@ std::string functionBody(const std::string& src, const std::string& name) {
   const std::size_t end = src.find("\n}\n", begin);
   if (end == std::string::npos) return {};
   return src.substr(begin, end - begin);
+}
+
+// Every `void ForgeFrame::draw*(` in the file, by CENSUS.
+//
+// This exists because the no-second-enumeration check below used to run over a
+// hand-written list of four function names, and ForgeFrame::drawGenericPanel --
+// a fifth draw function, which walked registry().categories() and
+// registry().idsInCategory() itself to list "commands this workspace owns" --
+// was not on it. A gate whose scope is a list someone maintains fails exactly
+// when someone forgets to maintain it, which is the same failure it is meant to
+// catch one layer up. Search by the CONCEPT ("a function that draws"), not by
+// the four names that were known when it was written.
+std::vector<std::string> drawFunctionNames(const std::string& src) {
+  std::vector<std::string> names;
+  const std::string sig = "void ForgeFrame::draw";
+  std::size_t at = 0;
+  while ((at = src.find(sig, at)) != std::string::npos) {
+    const std::size_t nameBegin = at + std::string("void ForgeFrame::").size();
+    const std::size_t paren = src.find('(', nameBegin);
+    if (paren == std::string::npos) break;
+    const std::string name = src.substr(nameBegin, paren - nameBegin);
+    // A definition, not a stray mention: the identifier must be plain.
+    bool plain = !name.empty();
+    for (char c : name)
+      if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_')) plain = false;
+    if (plain && std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+    at = paren;
+  }
+  std::sort(names.begin(), names.end());
+  return names;
 }
 
 // The integer literal after `needle` — how the gate learns the palette's real
@@ -232,7 +263,13 @@ int main() {
       {"drawContextMenu", "contextSurface_", "the context menu draws the derived surface"},
       {"drawCommandPalette", "buildPaletteSurface(",
        "the palette uses the registry's own ranked matcher, through the model"},
-      {"drawGenericPanel", "forge::ui::ribbonCategories(", "panel list uses the TOTAL list"},
+      // Was "forge::ui::ribbonCategories(" -- which REQUIRED the direct walk the
+      // no-second-enumeration census below now forbids. The two halves of this
+      // gate contradicted each other, and the contradiction was invisible
+      // because the census half only ran over four hand-listed function names
+      // and this was a fifth. The panel draws the SAME derived surface the
+      // ribbon does.
+      {"drawGenericPanel", "ribbonSurface_", "the panel draws the derived surface, not a second walk"},
       {"drawEmptyState", "forge::ui::buildEmptyState(",
        "the empty state's actions are derived from the registry, never a written list"},
       {"drawStatusStrip", "forge::ui::buildStatusSummary(",
@@ -275,7 +312,29 @@ int main() {
   // `find(` is deliberately NOT forbidden: looking ONE command up by id (the
   // parameter panel's part.edit_feature, a label for a known button) is a
   // dispatch, not an enumeration.
-  for (const char* fn : {"drawMenuBar", "drawToolbar", "drawContextMenu", "drawCommandPalette"}) {
+  // EVERY draw function, discovered by census -- not the four this check was
+  // born with. drawGenericPanel was the fifth, and it walked the registry.
+  const std::vector<std::string> drawFns = drawFunctionNames(frame);
+  std::printf("  [reachability] no-second-enumeration: %zu ForgeFrame::draw* functions by census\n",
+              drawFns.size());
+
+  // The census must not be able to SHRINK silently. If drawFunctionNames stops
+  // matching -- a signature style change, a rename -- it would return few or no
+  // names and every assertion below would vacuously pass, which is the
+  // "a gate that cannot fail" shape. Require the four the check was written for
+  // to still be among them, and require the count not to fall below what is
+  // present today.
+  for (const char* known : {"drawMenuBar", "drawToolbar", "drawContextMenu", "drawCommandPalette",
+                            "drawGenericPanel"}) {
+    const bool found = std::find(drawFns.begin(), drawFns.end(), known) != drawFns.end();
+    if (!found)
+      std::printf("  [reachability] the draw-function census no longer finds ForgeFrame::%s -- "
+                  "it has been renamed, or drawFunctionNames() has stopped matching\n", known);
+    CHECK(found);
+  }
+  CHECK(drawFns.size() >= 5);
+
+  for (const std::string& fn : drawFns) {
     const std::string body = functionBody(frame, fn);
     CHECK(!body.empty());
     for (const char* enumeration : {"registry().ids()", "registry().idsInCategory(",
@@ -284,7 +343,7 @@ int main() {
       if (walks) {
         std::printf("  [reachability] ForgeFrame::%s calls %s DIRECTLY as well as using the "
                     "derived surface -- that is a second, ungated copy of the menu\n",
-                    fn, enumeration);
+                    fn.c_str(), enumeration);
       }
       CHECK(!walks);
     }
