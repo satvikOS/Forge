@@ -174,6 +174,14 @@ const std::vector<KeySpec>& keyTable() {
       {"LABEL", KeyScope::Feature, 1, 0},
       {"OP", KeyScope::Feature, 1, 0},
       {"ARG", KeyScope::Feature, 1, 0},
+      // END closes a block, and it is IN THIS TABLE for exactly the scopes a
+      // block can be open in. It was missing entirely, which made findKey()
+      // below refuse it in EVERY scope and turned the END handler at the bottom
+      // of the reader into dead code: no file containing a single FEATURE block
+      // -- that is, no file this writer has ever produced -- could be read back.
+      // Absent from KeyScope::Top on purpose: an END at the top level closes
+      // nothing, and that refusal is what the missing entry is supposed to mean.
+      {"END", KeyScope::Feature, 1, 0},
       // v2
       {"STORAGE-LENGTH", KeyScope::Top, 2, 0},
       {"DISPLAY-LENGTH", KeyScope::Top, 2, 0},
@@ -203,6 +211,11 @@ const std::vector<KeySpec>& keyTable() {
       {"NKIND", KeyScope::Named, 2, 0},
       {"NPERSIST", KeyScope::Named, 2, 0},
       {"NGEN", KeyScope::Named, 2, 0},
+      // The PARAMETER and NAMED blocks arrived in v2, so their END arrived with
+      // them: an END inside a PARAMETER block in a file that declares v1 is a
+      // v2 key in a v1 file, and rule 5 refuses it like any other.
+      {"END", KeyScope::Parameter, 2, 0},
+      {"END", KeyScope::Named, 2, 0},
   };
   return table;
 }
