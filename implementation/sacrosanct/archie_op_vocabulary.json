@@ -30,21 +30,21 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "ece15faff6f5e8f7822329b28c7923df767dbdadd5320681ee8d6b1b7ed50ce0",
-        "bytes": 170243,
-        "lines": 3210
+        "sha256": "4f5464254814d60b43650d1e97959cbad55bfbcf486c5e7ffb34500015265d7f",
+        "bytes": 177881,
+        "lines": 3343
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "7c52bca72966c28f11ae73e49a97adb28bf9e476c8e4317042a02dc073d52b6a",
-        "bytes": 27841,
-        "lines": 455
+        "sha256": "83d3928d879aaed39ad5335e7e806d924bedc58808d633316a288e4b59a47035",
+        "bytes": 29882,
+        "lines": 481
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "270513417b7ad60ea83e8ce0db55f363e82cd84e4b9d25d0e9ff860ec10e210e",
-        "bytes": 10774,
-        "lines": 298
+        "sha256": "a489a6d8c9b9d1f860043157b648f65253eb7024b2376c759991d641474411c8",
+        "bytes": 10802,
+        "lines": 299
       },
       {
         "path": "ui/src/PartCommands.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 54,
-    "ui_validator_ops": 54,
+    "kernel_ops": 55,
+    "ui_validator_ops": 55,
     "registry_commands": 58,
     "commands_emitting_ir": 43,
     "user_invocable_ops": 40,
-    "forbidden_ops": 14,
+    "forbidden_ops": 15,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
@@ -3336,21 +3336,7 @@
           "prose": "n-gon (vertex radius)"
         }
       ],
-      "kernel_notes": [
-        "The six profile ops above bake COORDINATES. These six plus SOLVE let a",
-        "tree state RELATIONS instead and have the kernel compute the coordinates,",
-        "through the planegcs solver that is already vendored, compiled and linked",
-        "(3rdParty/planegcs, CMakeLists.txt ~1264-1271) and that nothing in the IR",
-        "has ever called.",
-        "",
-        "The family bolts on IN FRONT of the existing IR: it terminates in a",
-        "solved PROFILE, and a PROFILE is what EXTRUDE / REVOLVE / LOFT already",
-        "consume. Not one existing op changes.",
-        "",
-        "(Prose here deliberately avoids writing an op name immediately followed",
-        "by \"(\" -- ui/test/feature_ir_test.cpp derives this table by READING this",
-        "comment block, and would take such a line for an alternate form.)"
-      ],
+      "kernel_notes": [],
       "user_commands": [
         "part.sketch_polygon"
       ],
@@ -5282,6 +5268,15 @@
   ],
   "forbidden_ops": [
     {
+      "op": "ARC",
+      "kernel_enum": "Arc",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "ARC([x y; x y mx my; ...])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "CAP",
       "kernel_enum": "Cap",
       "compiled_into_a_default_build": true,
@@ -5412,7 +5407,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 54 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 55 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [

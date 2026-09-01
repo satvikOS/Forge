@@ -234,17 +234,16 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 54 ops -- the original 40, plus the six that
+  // forge::ft::opFromName registers 55 ops -- the original 40, plus the six that
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
   // THICKEN / CAP / SURFCHECK), plus SECTION (the fourth OCCT boolean), plus the
   // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
-  // SOLVE) that make the vendored planegcs solver addressable from a feature
-  // tree for the first time. MEASURED on the merged tree, not carried over: both
-  // sides of this merge pinned 47 and BOTH were wrong, because each had counted
-  // only its own half.
+  // SOLVE), plus ARC. MEASURED on the merged tree, not carried over: the two
+  // sides of this merge pinned 54 and 48 and BOTH were wrong, because each had
+  // counted only its own half.
   // Anything else means the derivation itself broke, and a broken oracle must
   // not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 54);
+  CHECK_EQ_INT(kernel.size(), 55);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -275,6 +274,12 @@ int main() {
   CHECK(kernel.at("LOFT").maxArgs == kIrArgsUnbounded);
   CHECK(kernel.at("VERIFY").maxArgs == kIrArgsUnbounded);
   CHECK_EQ_INT(kernel.at("POLY").maxArgs, 1);      // [x y; ...] is ONE argument
+  // ARC takes the same single point-ring literal as POLY. `[x y; x y mx my; ...]`
+  // must NOT be read as an optional group by the derivation — the `...` is inside
+  // a literal, and variadicToken() refuses a token that opens with '['.
+  CHECK_EQ_INT(kernel.at("ARC").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SWEEP").maxArgs, 2);
   CHECK_EQ_INT(kernel.at("INPUT").minArgs, 0);
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);

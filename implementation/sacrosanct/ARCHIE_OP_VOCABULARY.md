@@ -47,13 +47,13 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **58 commands**; **43 of them emit
-feature-IR**, reaching **40 distinct op names**. The kernel defines **54** ops
-(`opFromName`), so **14 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **40 distinct op names**. The kernel defines **55** ops
+(`opFromName`), so **15 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The fourteen are `SLOT`, the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
-`SKIN`, `SEW`, `SURFCHECK` -- and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
-`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. They are out for three DIFFERENT
+The fifteen are `SLOT`, the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`, `SKIN`,
+`SEW`, `SURFCHECK` -- the seven 2D-sketch ops -- `SKETCH`, `SPT`, `SLINE`,
+`SCIRC`, `SARC`, `CON`, `SOLVE` -- and `ARC`. They are out for three DIFFERENT
 reasons, which is the distinction a single "no command emits it" line would hide.
 
 The six SURFACE ops arrived with the SURFACE value kind (D-038) and are simply
@@ -61,14 +61,22 @@ NEW: the kind exists, the kernel builds them, and no command emits one yet. That
 is the ordinary kind of gap, and one command apiece closes it.
 
 The seven 2D-sketch ops are the same ordinary kind of gap one layer earlier, and
-they are what took the kernel from 47 ops to 54. They make the vendored planegcs
-solver addressable from a feature tree for the first time: `SKETCH` opens one,
-`SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it, `CON` constrains a
-pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE` already accepts.
-The kernel compiles and solves all seven. No `forge::ui` registry command emits
-one yet, which is why every one of them is forbidden here and why the count of
-distinct op names a user can reach is UNCHANGED by this branch: the solver became
-reachable from the IR, not yet from the app.
+they are the larger half of what took the kernel from 47 ops to 55. They make
+the vendored planegcs solver addressable from a feature tree for the first time:
+`SKETCH` opens one, `SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it,
+`CON` constrains a pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE`
+already accepts. The kernel compiles and solves all seven. No `forge::ui` registry
+command emits one yet, which is why every one of them is forbidden here and why
+the count of distinct op names a user can reach is UNCHANGED by this branch: the
+solver became reachable from the IR, not yet from the app.
+
+`ARC` is the other half, and the same kind of gap again: it takes the
+`[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
+well as straight ones, the kernel builds it, and no forge::ui command emits one
+yet. It is here because the ground truth needs it -- 86 ARC statements across 48
+BenchCAD GT programs, which the reharvest could not parse at all without the op --
+and the count that did NOT move is the honest one: user-invocable ops stay at 40,
+because a kernel op is not a product surface until a command spells it.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
 pinned native verifier its extruded area is exactly
