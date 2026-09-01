@@ -397,7 +397,12 @@ jobs:
         #
         # It rides THIS step's build: forge_kernel_core is already compiled
         # above, so the marginal cost is one translation unit.
-        run: KERNEL_BUILD=forge-kernel/build-verify bash forge-kernel/test/ft/build_arc_helix_compile_probe.sh
+        # KERNEL_BUILD_REQUIRED=1: the step above built it. If it is not there the
+        # step FAILS rather than silently starting a second 40-minute OCCT build
+        # and then going green having proved nothing about the build in use.
+        run: |
+          KERNEL_BUILD=forge-kernel/build-verify KERNEL_BUILD_REQUIRED=1 \
+            bash forge-kernel/test/ft/build_arc_helix_compile_probe.sh
       - name: IR pipeline gate (a forge::ui program -> forge::ft -> an asserted SOLID)
         # THE GATE THAT AUTHORISES DELETING THE JAVASCRIPT. forge::ui emits an SSA feature-IR
         # program and forge::ft can compile one, but nothing ever fed one into the other --

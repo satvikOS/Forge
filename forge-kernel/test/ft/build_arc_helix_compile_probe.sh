@@ -20,6 +20,9 @@
 #
 #   KERNEL_BUILD=<dir> bash forge-kernel/test/ft/build_arc_helix_compile_probe.sh
 #
+# Set KERNEL_BUILD_REQUIRED=1 when the caller has already built it: a missing
+# library is then a HARD ERROR instead of a silent 40-minute rebuild. CI does.
+#
 # JOBS defaults to 2, not to nproc: this machine is shared with a long-running
 # evaluation, and a build that starves its neighbours is not faster overall.
 #
@@ -41,6 +44,20 @@ KERNEL_BUILD="${KERNEL_BUILD:-$KERNEL/build-app}"
 
 if [ ! -f "$KERNEL_BUILD/libforge_kernel_core.dylib" ] && \
    [ ! -f "$KERNEL_BUILD/libforge_kernel_core.so" ]; then
+  # KERNEL_BUILD_REQUIRED=1 means "the caller has ALREADY built it; if it is not
+  # there, that is the bug -- say so." CI sets it, because the workflow step
+  # immediately before this one builds forge_kernel_core into the very directory
+  # it then passes in. Without this, a wrong path would not fail: it would
+  # SILENTLY start a 40-minute OCCT build inside a job that already has one, and
+  # the step would eventually go green having proved nothing about the build the
+  # rest of the job used. A cheap step that quietly becomes an expensive one is
+  # the same class of defect as a gate that cannot fail.
+  if [ "${KERNEL_BUILD_REQUIRED:-0}" = "1" ]; then
+    echo "[arc-helix-probe] FATAL: KERNEL_BUILD_REQUIRED=1 but no forge_kernel_core in $KERNEL_BUILD" >&2
+    echo "[arc-helix-probe] contents:" >&2
+    ls -la "$KERNEL_BUILD" 2>&1 | head -20 >&2
+    exit 2
+  fi
   echo "[arc-helix-probe] no forge_kernel_core in $KERNEL_BUILD"
   echo "[arc-helix-probe] configuring + building it (this is the slow first run)"
   cmake -S "$KERNEL" -B "$KERNEL_BUILD" -DCMAKE_BUILD_TYPE=Release \
