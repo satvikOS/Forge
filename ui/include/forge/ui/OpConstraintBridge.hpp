@@ -19,8 +19,10 @@
 //   the vocabulary asset exists to prevent.
 //
 // WHY IT IS NOT THE KERNEL'S OP TABLE
-//   forge::ui::irOpTable() has 40 ops and forge::ft::compile() will happily
-//   build 40. Only 18 are reachable through a command a user can invoke. A
+//   forge::ui::irOpTable() mirrors the kernel's 41 ops and forge::ft::compile()
+//   will happily build every one of them. Fewer are reachable through a command a
+//   user can invoke -- the exact figure is `vocab::kUserInvocableOpsCount`, which
+//   is generated, rather than a number written here that stops being true. A
 //   planner validated against the kernel table looks correct and emits programs
 //   no user of the app could ever have produced -- exactly the gap the
 //   constraint exists to close. `ForbiddenOp` is a SEPARATE verdict from

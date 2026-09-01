@@ -234,9 +234,9 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 40 ops; anything else means the derivation
+  // forge::ft::opFromName registers 41 ops; anything else means the derivation
   // itself broke, and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 40);
+  CHECK_EQ_INT(kernel.size(), 41);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
