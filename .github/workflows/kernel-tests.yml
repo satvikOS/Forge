@@ -142,13 +142,21 @@ jobs:
         # is the half that catches a kernel-header signature change nothing in ui/
         # would notice. Stdlib-only Python, no install step.
         run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
-      - name: op-constraint bridge (drift check + 8 mutations)
+      - name: op-constraint bridge (drift check + every mutation)
         # The bridge is the vocabulary made ENFORCEABLE: it accepts or refuses a
-        # proposed op plan against the 28 user-invocable ops. run_ui.sh above already
-        # runs its clean pass (it globs ui/test/*_test.cpp); this step is the half a
-        # clean pass cannot give -- the PROOF that the gate can fail. It mutates the
-        # generated header to prove the drift check refuses, then runs all 8 --mutate
-        # cases and requires every one to exit non-zero.
+        # proposed op plan against the user-invocable set. That set is NOT restated
+        # here -- it said "the 28 user-invocable ops" while the asset had moved to 46,
+        # which is D-027's failure mode ("a count copied into a second place goes
+        # stale") in the one file nothing regenerates. The count lives in
+        # archie_op_vocabulary.json, the step above checks it, and this comment names
+        # the concept instead. The mutation count is likewise not repeated: the script
+        # prints "N/N gate mutations caught" and fails if any survives.
+        #
+        # run_ui.sh above already runs the bridge's clean pass (it globs
+        # ui/test/*_test.cpp); this step is the half a clean pass cannot give -- the
+        # PROOF that the gate can fail. It mutates the generated header to prove the
+        # drift check refuses, then runs every --mutate case and requires each to
+        # exit non-zero.
         run: bash ui/test/run_op_constraint_gate.sh
 
   retrieval:
