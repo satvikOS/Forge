@@ -170,14 +170,14 @@ int main() {
   // DocumentHost installed even the counters were overwritten on the way out of
   // run(). They are retired; the real commands come from the workspace.
   // 22, not 10: the shell also registers app.toggle_theme, app.load_sample and
-  // the two view.focus_*_panel commands, and the seven standard views plus
+  // the two view.focus_*_panel commands, and now the seven standard views plus
   // view.selection. Each is a REGISTRY command on purpose -- that is what puts it
   // in the menu, the palette, the keymap and Archie's tool list at once, and a
   // preference, a sample or a camera angle reachable only from a bespoke widget
   // is reachable by exactly one invoker. MEASURED on the merged tree: the two
   // sides of this merge pinned 14 and 18, each having counted only its own half.
-  // This count rising does NOT mean a modelling command crept back in -- the four
-  // checks below are what assert that, and they are the ones that matter.
+  // This count rising does NOT mean a modelling command crept back in -- the
+  // four checks below are what assert that, and they are the ones that matter.
   CHECK_EQ_INT(app.shellCommands, 22);
   CHECK(!shell.registry().contains("model.extrude"));
   CHECK(!shell.registry().contains("model.fillet"));
@@ -215,10 +215,10 @@ int main() {
       ++viewCommands;
       // The `view.*` ids that are NOT camera ORIENTATIONS, and so have no
       // NamedView to round-trip through: three framing/display verbs, plus the
-      // two panel-focus commands the base branch registers. Named individually
-      // rather than skipped by a prefix -- an exemption that matched a pattern
-      // would also swallow a genuinely orphaned orientation, which is the one
-      // thing this loop exists to catch.
+      // two panel-focus commands the shell registers. Named individually rather
+      // than skipped by a prefix -- an exemption that matched a pattern would
+      // also swallow a genuinely orphaned orientation, which is the one thing
+      // this loop exists to catch.
       if (id == "view.fit" || id == "view.selection" || id == "view.wireframe" ||
           id == "view.focus_next_panel" || id == "view.focus_previous_panel") continue;
       forge::ui::NamedView v = forge::ui::NamedView::Front;

@@ -201,34 +201,57 @@ int main() {
     CHECK_EQ_INT(v.kernelOpCount, irOpTable().size());
   }
 
-  // ── 7. the six ops are KNOWN to the kernel and FORBIDDEN to the user ──────
-  // This is the honest state of the seam and it is asserted rather than described.
-  // `UnknownOp` and `ForbiddenOp` are different facts: "no such op anywhere" and
-  // "the kernel has it and no forge::ui command emits it yet" need different
-  // fixes, and the second one is a UI gap, not an IR gap.
+  // ── 7. the six ops are KNOWN to the kernel and now REACHABLE by a user ────
+  // THIS ASSERTION IS INVERTED FROM THE ONE #146 SHIPPED, and inverting it is the
+  // event the original predicted in its own words: "it lifts the moment a command
+  // emits these ops." Six commands now do -- part.skin, part.extract_faces,
+  // part.sew, part.thicken, part.cap, part.surfcheck -- so the honest state of the
+  // seam is the opposite fact, and it is still ASSERTED rather than described.
   //
-  // NOTE FOR THE READER: this is the one place the SURFACE work still meets a
-  // gate, and it is the pre-existing app-surface policy (D-021), not a new rule
-  // about surfaces. It lifts the moment a command emits these ops.
+  // The check was not deleted when it stopped holding. It was turned around, and
+  // the three-way distinction it existed to protect is kept BELOW in full: Ok,
+  // ForbiddenOp and UnknownOp are three different facts, and a gate that tested
+  // only the first would have stopped being able to tell the other two apart.
   {
     const OpConstraintBridge bridge;
     for (const std::string& op : surfaceOps()) {
-      CHECK(findIrOp(op) != nullptr);              // the kernel table HAS it
-      CHECK(!bridge.allows(op));                   // no user command emits it yet
-      CHECK(contains(bridge.forbiddenOps(), op));  // and it says so by name
+      CHECK(findIrOp(op) != nullptr);               // the kernel table HAS it
+      CHECK(bridge.allows(op));                     // and a user command emits it
+      CHECK(!contains(bridge.forbiddenOps(), op));  // so it is no longer named there
+    }
 
+    // ── the distinction ForbiddenOp exists for, still under test ─────────────
+    // A forbidden op must still be DISTINGUISHABLE from an unknown one, or the
+    // verdict is dead code. SLOT is the one remaining member of forbidden_ops --
+    // out on MEASURED EVIDENCE (its extruded area is off by -50.4% at the nominal
+    // size), not on a missing command -- which makes it the negative control that
+    // a future command cannot accidentally legalise, exactly as
+    // ARCHIE_OP_VOCABULARY.md says.
+    CHECK(findIrOp("SLOT") != nullptr);              // the kernel table HAS it
+    CHECK(!bridge.allows("SLOT"));                   // no user command emits it
+    CHECK(contains(bridge.forbiddenOps(), "SLOT"));  // and it says so by name
+    {
       ProposedOp p;
-      p.line = IrLine{2, op, {IrArg::valueRef(1), IrArg::num(1)}};
+      p.line = IrLine{1, "SLOT", {IrArg::num(40), IrArg::num(12)}};
       const OpRuling r = bridge.check(p);
       CHECK_EQ_INT(static_cast<int>(r.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
-      CHECK(r.reason.find(op) != std::string::npos);  // the refusal names the op
+      CHECK(r.reason.find("SLOT") != std::string::npos);  // the refusal names the op
     }
+
     // A name that is in NO table is a different verdict, and the distinction is
     // the whole reason ForbiddenOp exists as its own value.
     ProposedOp bogus;
     bogus.line = IrLine{1, "SURFACIFY", {}};
     CHECK_EQ_INT(static_cast<int>(bridge.check(bogus).verdict),
                  static_cast<int>(OpConstraint::UnknownOp));
+
+    // And an ALLOWED surface op reaches a verdict that is neither of those two --
+    // the third fact, which nothing asserted while all six were forbidden.
+    ProposedOp good;
+    good.line = IrLine{2, "THICKEN", {IrArg::valueRef(1), IrArg::num(2)}};
+    const OpRuling gr = bridge.check(good);
+    CHECK(gr.verdict != OpConstraint::ForbiddenOp);
+    CHECK(gr.verdict != OpConstraint::UnknownOp);
   }
 
   return H.finish();

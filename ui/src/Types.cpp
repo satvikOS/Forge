@@ -17,6 +17,7 @@ const char* toString(EntityKind kind) noexcept {
     case EntityKind::Sketch:      return "sketch";
     case EntityKind::SketchCurve: return "sketch_curve";
     case EntityKind::Wire:        return "wire";
+    case EntityKind::Surface:     return "surface";
     case EntityKind::Feature:     return "feature";
     case EntityKind::Component:   return "component";
     case EntityKind::Datum:       return "datum";

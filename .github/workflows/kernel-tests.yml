@@ -410,6 +410,24 @@ jobs:
         # platforms. Proven by cases 11a/11b of fea_nafems_ratchet_selftest.sh, which drive the
         # two shapes against the same baseline file.
         run: bash forge-kernel/test/fea_nafems_ratchet.sh
+      - name: 2D sketch + constraint gate (planegcs, reachable from the IR)
+        # THE FIRST GATE THE CONSTRAINT SOLVER HAS EVER HAD. planegcs has been
+        # vendored, compiled and linked into both forge_kernel.node and
+        # forge_kernel_core for two months -- ~370 KB of solver source, 67
+        # addConstraint* primitives, a full rank/QR diagnosis pipeline -- and
+        # NOTHING exercised it: no CI job, no npm gate entry, no native test.
+        # A solver this good being ungated is how it silently rots.
+        #
+        # This gate is weighted toward the REFUSAL paths, not the happy path,
+        # because the binding constraint on this programme is that nothing may
+        # refuse a tree: one contradictory dimension in a 200-statement tree
+        # must not cost the other 199. It asserts a contradictory sketch still
+        # compiles every statement AND names what it demoted; that a rank-BLIND
+        # infeasibility (a 10/10/100 triangle, which planegcs's Jacobian-rank
+        # analysis reports as perfectly fine) is still repaired via residuals;
+        # and -- the negative half -- that a TYPE error is still refused, so
+        # "tolerant" cannot quietly become "permissive".
+        run: bash forge-kernel/test/ft/build_sketch_solve.sh
       - name: Build forge_kernel_core (node-free, for the C++ gates)
         # Same build dir and flags PR #62's forge_verify step uses, so when that merges the
         # second configure is a no-op rather than a second full build.
