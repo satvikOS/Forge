@@ -2097,3 +2097,121 @@ carries its own `cx`, `at` and `axis`, the last two being exactly the shape a ca
 collides with. The negative half is the half that matters: the captured line predates `area` and
 `com`, so the reader must report them **absent**, never 0.0, which is where a great many parts
 genuinely have a centre of mass.
+
+## D-041 (2026-09-01): the app's buttons were the refusal boundary, a plan's third loft section was dropped in silence, and one `<cstdio>` call took seven forge-desktop gates dark
+
+Follow-on to D-040, which built the two-path differential. Four defects, one correction
+to D-040's own reading of its results, and one finding that is larger than any of them.
+
+**1. A gate that could not build could not fail — and it took six others with it.** The
+`forge-desktop` CI job died in its missing-include preflight, before the compiler ran:
+`MISSING <algorithm>: forge-desktop/test/differential_solid_gate.cpp`. The two lines that
+tripped it are `std::remove(inPath.c_str())` — `<cstdio>`'s ONE-argument file-removal
+`std::remove`, correctly included. `<algorithm>`'s is the THREE-argument range form. The
+preflight matched the field, not the meaning.
+
+That job never compiles `differential_solid_gate.cpp`; it only SCANS it, because the
+preflight globs `forge-desktop/test/*.cpp`. What it does build is forge-desktop, and it
+runs SEVEN gates — ir_pipeline, document, frame, copilot, update, click, isolation — and
+39 mutation proofs. All of it was dark, over a file the job does not compile.
+
+`<algorithm>`'s form always carries a comma in its argument list and the stdio form never
+does, so `remove` becomes `remove\([^;]*,`. And because this checker is a regex over text
+that is only ever OBSERVED saying OK — where a false positive is indistinguishable from a
+real finding and a false negative from a clean tree — it now has to prove it can fail:
+`check_includes.sh --self-test` runs 11 controls, and `run_native.sh` runs them BEFORE the
+scan. **Measured: the forge-desktop job went FAILURE -> SUCCESS.**
+
+**2. The bridge refused 61 argument forms the kernel builds.** `OpConstraintBridge`
+narrowed each op's arity to the discrete counts its emitting commands happen to produce:
+**61 kernel-legal argument counts across 23 of the user-invocable ops**. The old refusal
+said so itself — *"the kernel would accept 2-3, which is wider than the app"*.
+`FILLET(%body, r)` and `CHAMFER(%body, d)` are the forms `FeatureTree.hpp` DOCUMENTS.
+
+The owner's constraint is REPRESENT / REPAIR / TOLERATE, never refuse. A planner is not a
+transcript of the app's buttons, and refusing a form the kernel builds removes capability
+to prevent nothing. **The kernel's range is now the refusal boundary**; what was refused
+for the app's sake is accepted and RECORDED on `OpRuling::tolerated`, so the capability
+gap stays visible without being a refusal. All 61 are swept through the LIVE bridge every
+run — `0 refused for arity, 61 accepted AND recorded` — because one positive control is
+one row of a table of 61, and it was the row someone happened to pick.
+
+**The 61 UNDERCOUNTS**, and the pin cannot express by how much: the sweep skips ops whose
+kernel arity is unbounded, and `LOFT` and `VERIFY` both are. VERIFY's emitted forms stop
+at 3 arguments against a `2..n` kernel range, so every VERIFY with four or more arguments
+is kernel-legal, unauthorable, and part of an INFINITE set. All of them were refused.
+
+**3. A plan that named three sections built a two-section loft.** `resolveSelection` took
+exactly `signature.minCount` values, because a `PlanStep` named a value KIND and never a
+COUNT. `part.loft` is `2..n`, so the three-ring nozzle was applied as `LOFT(%2, %3,
+RULED)` — a different solid, from a plan naming three rings, with no error on any path. A
+quietly different solid is worse than a refusal, because a refusal is visible.
+`PlanStep::selectCount` carries the count; 0 still means the signature's minimum, so a
+step that states nothing is unchanged, and a stated count is CLAMPED rather than refused.
+
+**4. D-040 read its own tier-2 failure wrong, and so did I once.** D-040 reported the 2e33
+centre of mass as tier 2's open defect. Its incoherent-set ratchet pins `{boss_on_plate}`
+and the measured set IS that, so the ratchet PASSES and adds no failure. Tier 2's single
+failure was a different tree entirely:
+
+    [revolve_and_shell] both arms report NOT BUILT: "s0.4 graph-quality gate:
+      unexplained_orphans=2 [%1, %2] — these ops contribute nothing to the result."
+
+`%4 = SHELL(%3, 2)` was the result and `%3` a fresh BOX, so the REVOLVE above it fed
+nothing: the tree was TWO INDEPENDENT PROGRAMS sharing a name. D-040 had hit this tree
+failing on `SHELL: no face faces the open axis` and repaired it by moving SHELL onto a
+box — and that repair is what orphaned the revolve. Split into `revolved_ring` and
+`shelled_box`, which adds no operation the corpus did not already require. (My own first
+commit on this branch claimed tier 2 "has never once run in CI"; it runs in the macOS
+`kernel` job and always has. Corrected in a follow-up commit, not rewritten.)
+
+**5. THE ONE THAT MATTERS, reported and NOT fixed: every extruded wall is face-kind
+`"other"`, and the interface metric matches only `"cylinder"` and `"plane"`.**
+
+Traced entirely through committed source:
+
+* `Features.cpp::extrudeProfile` calls `occtPrism(f, dir)` with **no third argument**.
+* `occtPrism`'s `canonize` parameter **defaults to `false`** (`OcctPrimBuilder.hpp:89`).
+* So `canonicalExtrusion` — which exists precisely to return a `Geom_Plane` for a swept
+  line and a `Geom_CylindricalSurface` for a swept circle — never runs, and every lateral
+  face is a `Geom_SurfaceOfLinearExtrusion`, `P(u,v) = C(u) + v·dir`, unbounded in v.
+* `faceInventory` (`DirectEdit.cpp:264`) switches on `BRepAdaptor_Surface::GetType()`. It
+  names Plane, Cylinder, Cone, Sphere, Torus, BSpline, Bezier and SurfaceOfRevolution —
+  and NOT SurfaceOfExtrusion, which falls to `default: fi.kind = "other"`.
+
+The `occtPrism` header states the consequence in its own words: *"Since the TKPrim drop
+every prism in the kernel has carried extrusion-typed laterals where OCCT emitted Planes,
+and faceInventory reports those as kind 'other'."*
+
+And `family_census/BENCHMARK_OP_REQUIREMENTS.md:455`, under **"verified by reading an
+implementation this session"**, records what consumes that field: *"`interface_metrics.py`
+reads exactly `kind == "cylinder"` (l.465) and `kind == "plane"` (l.587, l.704) **and no
+other kind**"*, with `W_SHAPE, W_INTERFACE, W_TOPOLOGY = 0.4, 0.4, 0.2` two lines below.
+
+A face of kind `"other"` matches neither predicate, so it cannot contribute to the
+interface term — **40% of the composite**. `DirectEdit.cpp:102` names the two
+representations side by side: *"one an analytic `Geom_CylindricalSurface` (what HOLE
+builds) and one a `Geom_SurfaceOfLinearExtrusion` of a circle (what CIRCLE+EXTRUDE+CUT
+leaves behind)"*. The same bore, two representations, and only one is a `"cylinder"` to
+the scorer.
+
+**NOT MEASURED, and stated as such:** `interface_metrics.py` was not run (it is in the
+Models repo), and the share of the emitted corpus that reaches a bore by CIRCLE+EXTRUDE+CUT
+rather than by HOLE is unknown. The SIZE of the effect is unmeasured; the MECHANISM is four
+committed files. The default is deliberately not flipped here — the header says flipping it
+changes the face-type census of every extrude, push/pull, rib, parting slab and base flange
+in the product at once, and that needs the full Models-OS gate as its own measurement.
+
+**Also recorded: `prism_meets_tube` does not test TUBE.** It measures
+`V = 2094.39510239`; the upper hemisphere of `SPHERE(10)` is `(2/3)·π·10³ =
+2094.3951023932`, agreeing to 3.2e-9. The hexagon's inradius is `15·cos30° = 12.99 > 10`,
+so `COMMON` returns the plain hemisphere and the TUBE contributes nothing. A mutation
+perturbing any tube parameter is invisible on that tree. It passes the s0.4 graph gate —
+every op feeds the result IN THE GRAPH — while contributing nothing IN THE GEOMETRY.
+Graph reachability is not geometric dependence, and the corpus is checked only for the
+first. Reported, not fixed: changing corpus geometry without being able to run tier 2 is
+how `revolve_and_shell` acquired its second failure.
+
+**Ledger note.** There are TWO entries numbered D-038 (#140's ten primitives and #146's
+SURFACE value kind). Both are merged and this file is append-only, so neither is
+renumbered; the collision is recorded here rather than silently corrected.
