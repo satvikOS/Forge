@@ -2003,8 +2003,9 @@ never executed anywhere before CI run 33453484236, and it went red on all three.
    **It is a mass-property defect and not a geometry defect, and that is measured, not inferred.**
    Driven through the pinned native verifier the solid is faultless:
    `ok=true valid=true genus=0 shellCount=1 faceCount=9 edgeCount=16`,
-   `bbox min=[-25,-25,0] max=[25,25,20]`, `volume=25428.671731` — and
-   50·50·8 + π·144·20 − π·144·8 = 25428.672. By symmetry the centre of mass is x=0, y=0,
+   `bbox min=[-25,-25,0] max=[25,25,20]`, `volume=25428.671731` against a closed form of
+   50·50·8 + π·144·20 − π·144·8 = 25428.672105 — agreeing to **1.5×10⁻⁸ relative**, which is the
+   sketcher's circle approximation and not a modelling error. By symmetry the centre of mass is x=0, y=0,
    z=(20000·4 + 5428.67·14)/25428.67 = 6.135. All three reported components are wrong and **all
    three lie outside the bounding box**.
 

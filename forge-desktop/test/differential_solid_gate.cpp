@@ -46,9 +46,9 @@
 // NONSENSE. So every arm is also checked against invariants true of ANY solid --
 // positive volume and area, a bbox whose min does not exceed its max, and a centre
 // of mass INSIDE that bbox. That last one is what caught `boss_on_plate` reporting
-// com=(2.0e+33, -2.0e+33, 23.4) on a body 50 mm across whose volume is exact to
-// every digit (CI run 33453484236). Two arms running the same broken measurement
-// agree perfectly.
+// com=(2.0e+33, -2.0e+33, 23.4) on a body 50 mm across whose volume matches its
+// closed form to 1.5e-8 relative (CI run 33453484236). Two arms running the same
+// broken measurement agree perfectly.
 //
 // ── THE OBSERVABLE VECTOR ───────────────────────────────────────────────────
 // VOLUME CANNOT VALIDATE GEOMETRY. A wrong solid reproducing a right volume to
@@ -289,11 +289,12 @@ void compareScene(const std::string& tree, const Observed& b,
 // an r=12 h=20 boss:
 //     V=25428.6717306   faces=9   edges=16
 //     com=(2.02759422756e+33, -2.02759422756e+33, 23.4083321608)
-// The volume is EXACT to every digit -- 50*50*8 + pi*144*20 - pi*144*8 = 25428.67
-// -- and the centre of mass is 2e33 mm on a body 50 mm across, with x and y exact
-// negatives of each other. Both arms reported it identically, so the differential
-// alone called it agreement. VOLUME CANNOT VALIDATE GEOMETRY, and neither can two
-// arms that run the same broken measurement.
+// The volume matches its closed form to 1.5e-8 relative --
+// 50*50*8 + pi*144*20 - pi*144*8 = 25428.672105, the residue being the sketcher's
+// circle approximation -- and the centre of mass is 2e33 mm on a body 50 mm
+// across, with x and y exact negatives of each other. Both arms reported it
+// identically, so the differential alone called it agreement. VOLUME CANNOT
+// VALIDATE GEOMETRY, and neither can two arms running the same broken measurement.
 // The trees found incoherent on ANY arm, deduplicated. RATCHETED rather than
 // counted as an immediate failure, for the reason every ratchet in this tree
 // exists: `boss_on_plate` is a REAL open defect in a mass property, not something
@@ -595,7 +596,13 @@ int main(int argc, char** argv) {
     // ARM E -- the CoPilot, whose plan steps choose their own operands.
     const forge::difftest::CopilotRun cop = forge::difftest::runViaCopilot(t, mutation);
     ++checks;
-    if (cop.reach != forge::difftest::CopilotReach::Reachable || !cop.ran) {
+    // `failure` is checked as well as `ran`, exactly as tier 1 does. applyPlan
+    // sets `ran` before it judges the outcome, so a plan that dispatched its first
+    // step and then stopped comes back ran==true with a half-built document -- and
+    // comparing THAT against the planner reports a text divergence, which points
+    // at the wrong thing. A plan that did not fully apply has no solid to compare.
+    if (cop.reach != forge::difftest::CopilotReach::Reachable || !cop.ran ||
+        !cop.failure.empty()) {
       ++failures;
       std::printf("  [FAIL] %-22s the CoPilot arm did not run: %s\n", t.id.c_str(),
                   cop.failure.empty() ? "no PlanSelect names its selection"
@@ -648,8 +655,25 @@ int main(int argc, char** argv) {
                     why.c_str());
       } else {
         std::printf("[differential-solid] arm D: the forge_verify ARTIFACT at %s\n", bin);
-        for (std::size_t i = 0; i < lines.size() && i < headless.size(); ++i) {
-          compareVerifier(batch[i].first, headless[i], lines[i]);
+        // MATCHED ON `id`, NEVER ON POSITION. The tool answers one line per input
+        // line today, but "the two orderings agree" is precisely the kind of
+        // unstated assumption between two artifacts that this gate exists to
+        // refuse to make -- and pairing by index would silently compare tree N's
+        // solid against tree N+1's measurement, which reads as a divergence in
+        // both and points at neither.
+        for (std::size_t i = 0; i < batch.size() && i < headless.size(); ++i) {
+          const VerifierLine* match = nullptr;
+          for (const VerifierLine& v : lines) {
+            if (v.id == batch[i].first) { match = &v; break; }
+          }
+          ++checks;
+          if (match == nullptr) {
+            ++failures;
+            std::printf("  [FAIL] forge_verify returned no record with id \"%s\"\n",
+                        batch[i].first.c_str());
+            continue;
+          }
+          compareVerifier(batch[i].first, headless[i], *match);
         }
       }
     }
@@ -677,7 +701,9 @@ int main(int argc, char** argv) {
   // the pinned native verifier, `boss_on_plate` is a perfectly good solid:
   //     ok=true valid=true genus=0 shellCount=1 faceCount=9 edgeCount=16
   //     bbox min=[-25,-25,0] max=[25,25,20]   volume=25428.671731
-  // and 25428.6721 is what 50*50*8 + pi*144*20 - pi*144*8 comes to. Its reported
+  // against a closed form of 50*50*8 + pi*144*20 - pi*144*8 = 25428.672105: they
+  // agree to 1.5e-8 relative, which is the sketcher's circle approximation and not
+  // a modelling error. Its reported
   // centre of mass is com=(2.03e+33, -2.03e+33, 23.41): x and y are exact
   // negatives of each other and 10^32 times the part, and even z is outside the
   // box, which spans 0..20. By symmetry x and y are 0 and z is
