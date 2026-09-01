@@ -190,7 +190,16 @@ DEFER 193:
 
 `test/run_draft_local_probe.sh`, artefact
 `reports/corpus_ab/draft_local_probe.jsonl.gz`, manifest stamped
-`git_head 187f6f22`, `dirty_files_in_src_include_test 0`.
+`git_head 627ec888`, `dirty_files_in_src_include_test 0`.
+
+**Measured TWICE, and reproduced exactly.** The first run was at `187f6f22`; the
+branch then merged `archdisc` (#164) and the base (#165, SECTION), and the run
+was repeated from a binary rebuilt at the merged tip `627ec888`. Every one of the
+600 rows is identical on `applicable`, `status`, `reason`, `occt_ok`, `agrees`,
+both volumes, the face count and the path counters — 0 rows differ. That is
+worth stating because the engine source is byte-identical across those two
+commits (`git diff 187f6f22 HEAD -- NativeDraftLocal.{cpp,hpp}` is empty) and a
+reproduction is how that becomes evidence rather than an inference.
 
 **Every one of the 372 carries BOTH a non-planar face AND a multi-wire face** —
 the two whole-shape preconditions the prior engine declines all 565 on. And not
@@ -368,7 +377,8 @@ available and was not used, because no commit in the repo produces it:
 ```
 
 **AFTER** — same command, same worktree, `.node` rebuilt from the committed
-branch tip `803ff52b`, `git status --porcelain` over `src` / `include` /
+branch tip. Measured at `803ff52b` and again at the merged tip `627ec888` after
+both merges landed; byte-identical to BEFORE both times, `git status --porcelain` over `src` / `include` /
 `CMakeLists.txt` EMPTY, with the engine compiled in and wired at the call site
 (`nm | c++filt | grep -c occtdraftlocal` = 42, so it is really in the binary):
 
@@ -412,6 +422,8 @@ PRIMARY checkout's `forge-kernel.node`, so run from a worktree they printed ALL
 PASS about a binary four days old that contained none of the change under test.
 That is fixed in this branch and proved with a control that hides this tree's
 kernel and requires each of them to fail loud.
+
+All of the above were re-run at the merged tip `627ec888` and are unchanged.
 
 `bash forge-kernel/test/run_ab_all.sh` — **GREEN, all 9 harnesses BUILT** and
 each matched its baseline (`draft_local` added; the verdict line used to
