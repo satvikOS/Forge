@@ -108,6 +108,15 @@ forge-kernel/.build-cam-offset-ab/
 # Same deal for test/build_draft_defer_probe.sh's object cache and binary; its
 # committed results live in reports/corpus_ab/draft_defer_probe.jsonl.gz.
 forge-kernel/.build-draft-probe/
+# Same deal for test/build_draft_local_probe.sh's object cache, binary and run
+# outputs; its committed results live in
+# reports/corpus_ab/draft_local_probe.jsonl.gz.
+forge-kernel/.build-draft-local/
+# test/ft/ft_smoke.mjs and ft_organic_smoke.mjs write their exported STEP files
+# here. That path used to be the PRIMARY checkout's, which made two agents in
+# two worktrees write the SAME file; it is now tree-local, so every tree grows
+# one of these and none of them is an artefact.
+forge-kernel/scratchpad/
 # Same deal for test/build_offsetshape_defer_census.sh (family H attribution).
 forge-kernel/.build-offsetshape-census/
 # test/run_tkoffset_gh_defer_census.sh's binary; its committed rows live in
