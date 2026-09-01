@@ -42,15 +42,15 @@
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "127467939bdabccfc79571683ab0a07ae9791480a2b53b39df36eb242444e3d6",
-        "bytes": 9976,
-        "lines": 279
+        "sha256": "897dd4bbd10f46e898676609c41168f3b00e04d30b81314acf5f58a35711c361",
+        "bytes": 10161,
+        "lines": 281
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "357841c1909b9cb6ab1439f5a45c37dfa90062d0308a7598ec46d4f4975fed08",
-        "bytes": 133330,
-        "lines": 2314
+        "sha256": "867b909092b9e68e6923626670f1082d9961f5ab67018d895bda75a5b2500919",
+        "bytes": 134725,
+        "lines": 2331
       },
       {
         "path": "ui/src/ForgeShell.cpp",

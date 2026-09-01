@@ -685,9 +685,26 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // the same: RRECT's arcs are 90 degrees and its area is exact to ten significant
   // figures through the same code path.
   //
-  // Adding the command would have made a broken solid one click away and, worse, put
-  // SLOT into Archie's training vocabulary as a shape it is not. It stays in
-  // `forbidden_ops` until the arc is fixed and re-measured.
+  // ★ THE MECHANISM, located since. It is in Sketcher.cpp's minor-arc normalisation
+  // (extractWires), and the full note is there. In short: `addArc` records only
+  // (centre, start, end), which CANNOT express a semicircle -- at |sweep| == pi the
+  // two orderings name OPPOSITE halves rather than the same points, and the trim
+  // `[min(sa,ea), max(sa,ea)]` always takes the CCW half from the smaller angle. Both
+  // of profSlot's caps land inward, by two different routes: the right cap because the
+  // normalisation's `while (sweep <= -kPi)` boundary flips a sweep of exactly -pi to
+  // +pi, the left cap because the min/max trim discards the sign directly. The comment
+  // beside that loop asserted a semicircle "is preserved unchanged", which is true of
+  // +pi and false of -pi; it has been corrected. RRECT never reaches the ambiguous case
+  // because 90 degrees has a genuinely shorter arc, which is why the control is clean.
+  //
+  // That diagnosis does NOT unblock the command. A fix has to be MEASURED through the
+  // pinned verifier before it is believed -- and the two candidate repairs differ in
+  // face count (endpoint swap keeps 6, apex-split gives 8), so "which fix" is itself a
+  // question a measurement has to answer. Adding the command now would have made a
+  // broken solid one click away and, worse, put SLOT into Archie's training vocabulary
+  // as a shape it is not. It stays in `forbidden_ops` until the arc is fixed and
+  // re-measured -- and it is now the LAST member of that set, so it is also the
+  // negative control every forbidden-op assertion in the gates names.
 
   // ── SECTION RING ──────────────────────────────────────────────────────────
   // The WIRE producer, and the second half of a two-part fix. WIRE was the last open
