@@ -37,8 +37,8 @@
 #                         exists for was a use-after-free that made the SHIPPED
 #                         app SIGSEGV on the first tab click while the frame and
 #                         document gates both stayed green -- neither clicks.
-#                       * isolation   — the out-of-process kernel worker: the app
-#                         must survive an OCCT segfault instead of dying with it.
+#                       * isolation   — the out-of-process kernel worker: an OCCT
+#                         segfault must kill the WORKER and leave the app alive.
 #   3. mutation proof — SR-3 requires showing each gate CAN fail. FORTY
 #                       defects (8 document + 9 frame + 8 copilot + 7 update +
 #                       8 click) are
