@@ -37,11 +37,14 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/OpConstraintBridge.hpp"
 #include "forge/ui/PartCommands.hpp"
@@ -105,6 +108,11 @@ enum class Mutation : int {
   HeadlessPerturbsNumber,  // the planner's text moves one number
   HeadlessReordersOps,     // the last two statements swap
   AppSkipsBridgeCheck,     // the bridge is asked about an op no command emits
+  // The COPILOT arm's own two. Every mutation above perturbs a path that states
+  // its operands; these perturb the one that CHOOSES them, which is the half the
+  // other arm cannot reach.
+  CopilotDropsAStep,       // the plan is applied one step short
+  CopilotKeepsSelection,   // every step says "keep whatever is picked" -- nothing is
   Count_
 };
 
@@ -118,6 +126,8 @@ inline const char* mutationName(Mutation m) {
     case Mutation::HeadlessPerturbsNumber:  return "headless-perturbs-one-number";
     case Mutation::HeadlessReordersOps:     return "headless-reorders-two-ops";
     case Mutation::AppSkipsBridgeCheck:     return "app-hands-the-bridge-an-op-no-command-emits";
+    case Mutation::CopilotDropsAStep:       return "copilot-applies-one-step-short";
+    case Mutation::CopilotKeepsSelection:   return "copilot-picks-nothing-and-keeps-the-selection";
     case Mutation::Count_:                  return "count";
   }
   return "unknown";
@@ -430,6 +440,185 @@ inline std::vector<forge::ui::ProposedOp> proposalOf(const AppRun& run,
     plan.front().line.op = "SWEEP";
   }
   return plan;
+}
+
+
+// ============================================================================
+// THE THIRD ARM: THE COPILOT DOOR
+//
+// `runInApp` above drives `CommandRegistry::dispatch` with the selection nodes
+// SPELLED OUT -- which is what a menu click does, and what the app's own
+// document gate already covers. It is NOT the path the integration invariant
+// names. That one is:
+//
+//     CoPilot proposes -> OpConstraintBridge validates -> ForgeShell::run
+//                      -> CommandRegistry::dispatch -> PartDocument::appendFeature
+//
+// and it differs in the one place that decides what a statement OPERATES ON: a
+// plan step cannot carry a `%ref`, because step 2 usually consumes the body step
+// 1 has not created yet. It carries a SYMBOLIC target (`PlanSelect`) that
+// `resolveSelection` turns into document nodes at apply time. So the operands are
+// CHOSEN BY THE COPILOT, not stated by the tree -- and an operand chosen
+// differently is a DIFFERENT SOLID built from the same request.
+//
+// That is the divergence this arm exists to measure, and it is measured rather
+// than assumed: `copilotPlanFor` maps each corpus step onto the PlanSelect a
+// CoPilot would have to use, `runViaCopilot` drives the real
+// ArchieCopilot::submit/deliver/apply, and the gate compares the program that
+// comes out against the SAME planner text tier 1 already compares `runInApp`
+// against.
+//
+// PlanSelect has four values -- Keep, None, LatestProfile, LatestSolid -- and a
+// step whose selection kind maps onto none of them is UNREACHABLE from a CoPilot
+// however the plan is written. That is a fact about the app surface, not about
+// this gate, so it is reported as a reachability gap and not as a failure to
+// drive the arm.
+enum class CopilotReach : int {
+  Reachable = 0,
+  NoPlanSelectForKind,   // the step needs a value kind PlanSelect cannot name
+};
+
+struct CopilotRun {
+  bool ran = false;                  // the plan was delivered and applied
+  CopilotReach reach = CopilotReach::Reachable;
+  std::string unreachableStep;       // the first step PlanSelect cannot express
+  forge::ui::PlanCheck check = forge::ui::PlanCheck::Ok;
+  std::string verdict;               // validatePlan's report, when it refused
+  std::string ir;                    // PartDocument::irProgram()
+  std::vector<forge::ui::IrLine> commandLines;      // command-authored only
+  std::vector<forge::ui::IrValueKind> priorValues;  // the seeds, in order
+  std::size_t applied = 0;
+  std::size_t requested = 0;
+  std::size_t blocked = 0;
+  std::string failure;               // the first step that did not land, and why
+};
+
+// The PlanSelect a CoPilot must use to give a step the selection the corpus
+// spells out. Returns false when PlanSelect cannot name that value kind at all.
+inline bool planSelectFor(forge::ui::EntityKind kind, forge::ui::PlanSelect& out) {
+  using forge::ui::EntityKind;
+  using forge::ui::PlanSelect;
+  switch (kind) {
+    case EntityKind::None:
+      out = PlanSelect::None;
+      return true;
+    case EntityKind::Sketch:
+      out = PlanSelect::LatestProfile;
+      return true;
+    case EntityKind::Body:
+    case EntityKind::Edge:
+    case EntityKind::Face:
+      out = PlanSelect::LatestSolid;
+      return true;
+    case EntityKind::Wire:
+      out = PlanSelect::LatestWire;
+      return true;
+    default:
+      // Vertex, SketchCurve, Feature, Component, Datum. No IR-emitting command
+      // takes one today, so nothing in the corpus reaches this -- but a `default`
+      // that guessed SOLID is exactly the silent widening that hid the missing
+      // WIRE target, so it refuses instead.
+      return false;
+  }
+}
+
+// Build the plan a CoPilot would have to emit for this tree, against the LIVE
+// registry (so `irOp` is the op the COMMAND declares, never a second copy of it).
+inline bool copilotPlanFor(const Tree& t, const forge::ui::CommandRegistry& registry,
+                           forge::ui::Plan& plan, std::string& unreachable) {
+  plan = forge::ui::Plan{};
+  plan.intent = t.what;
+  plan.summary = t.id;
+  for (const Step& step : t.steps) {
+    forge::ui::PlanSelect select = forge::ui::PlanSelect::Keep;
+    if (!planSelectFor(step.selectionKind, select)) {
+      unreachable = step.command;
+      return false;
+    }
+    const forge::ui::CommandDescriptor* cmd = registry.find(step.command);
+    if (cmd == nullptr) {
+      unreachable = step.command + " (not in the registry)";
+      return false;
+    }
+    forge::ui::PlanStep ps;
+    ps.commandId = step.command;
+    ps.irOp = cmd->featureIrOp;
+    ps.select = select;
+    ps.note = t.id;
+    for (const auto& kv : step.numbers) {
+      ps.args.push_back(forge::ui::PlanArg::num(kv.first, kv.second));
+    }
+    for (const auto& kv : step.texts) {
+      ps.args.push_back(forge::ui::PlanArg::str(kv.first, kv.second));
+    }
+    for (const std::string& f : step.flags) {
+      ps.args.push_back(forge::ui::PlanArg::on(f, true));
+    }
+    plan.steps.push_back(std::move(ps));
+  }
+  return true;
+}
+
+// Drive the REAL CoPilot: submit -> deliver (which validates against the live
+// registry AND the op-constraint bridge) -> apply (which re-runs the gate at the
+// door and dispatches through ForgeShell::run).
+inline CopilotRun runViaCopilot(const Tree& t, Mutation m = Mutation::None) {
+  CopilotRun run;
+  forge::ui::PartDocument doc;
+  forge::ui::UndoStack undo;
+  forge::ui::ForgeShell shell;
+  if (registerPartCommands(shell.registry(), doc, undo) == 0) {
+    run.failure = "registerPartCommands added nothing";
+    return run;
+  }
+  for (const Seed& s : t.seeds) {
+    if (doc.seed(s.kind, s.node, s.op, s.args) == 0) {
+      run.failure = "seed refused: " + s.op;
+      return run;
+    }
+    run.priorValues.push_back(s.kind);
+  }
+
+  forge::ui::Plan plan;
+  if (!copilotPlanFor(t, shell.registry(), plan, run.unreachableStep)) {
+    run.reach = CopilotReach::NoPlanSelectForKind;
+    return run;
+  }
+
+  if (m == Mutation::CopilotDropsAStep && !plan.steps.empty()) plan.steps.pop_back();
+  if (m == Mutation::CopilotKeepsSelection) {
+    for (forge::ui::PlanStep& ps : plan.steps) ps.select = forge::ui::PlanSelect::Keep;
+  }
+
+  forge::ui::ArchieCopilot copilot;
+  const std::uint64_t id = copilot.submit(
+      t.what, forge::ui::planTools(shell.registry(), shell.selection()), "none", t.id);
+  if (id == 0) {
+    run.failure = "the CoPilot refused to open a request";
+    return run;
+  }
+  forge::ui::PlanResponse response;
+  response.id = id;
+  response.ok = true;
+  response.plan = plan;
+  run.check = copilot.deliver(response, shell.registry());
+  run.verdict = copilot.verdict().report();
+  if (run.check != forge::ui::PlanCheck::Ok) return run;
+
+  const forge::ui::ApplyOutcome out = copilot.apply(shell, doc);
+  run.ran = true;
+  run.requested = out.requested;
+  run.applied = out.applied;
+  run.blocked = out.blocked;
+  run.ir = doc.irProgram();
+  // The command-authored statements only: the seeds were already in the document
+  // before the plan was delivered, so they are not what the CoPilot emitted.
+  for (const forge::ui::FeatureRecord& rec : doc.records()) {
+    if (rec.commandId.empty()) continue;
+    run.commandLines.push_back(rec.line);
+  }
+  if (!out.allOk()) run.failure = out.summary();
+  return run;
 }
 
 }  // namespace difftest

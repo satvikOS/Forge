@@ -87,6 +87,16 @@ enum class PlanSelect : std::uint8_t {
   None,           // clear the selection first (a command that must run on nothing)
   LatestProfile,  // the newest still-bound PROFILE value in the document
   LatestSolid,    // the newest still-bound SOLID value in the document
+  // APPENDED, never inserted. The IR value model has THREE kinds -- PROFILE,
+  // WIRE and SOLID -- and this enum named two of them, so the only op that
+  // consumes a WIRE (LOFT) was unreachable from any plan however it was written:
+  // resolveSelection read the target as "LatestProfile ? Profile : Solid" and
+  // there was no third answer, while the LocalPlanner's own `loft` verb asked for
+  // the newest PROFILE and handed it to a command whose signature is Wire. That
+  // is a refusal by omission, and the constraint on this surface is REPRESENT /
+  // REPAIR / TOLERATE, never refuse. MEASURED as unreachable by
+  // ui/test/differential_gate_test.cpp before this value existed.
+  LatestWire,     // the newest still-bound WIRE value (a RING / WIRE section)
 };
 
 const char* toString(PlanSelect select) noexcept;

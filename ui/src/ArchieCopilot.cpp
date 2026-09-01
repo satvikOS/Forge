@@ -25,6 +25,7 @@ const char* toString(PlanSelect select) noexcept {
     case PlanSelect::None:          return "clear the selection";
     case PlanSelect::LatestProfile: return "the newest profile in the document";
     case PlanSelect::LatestSolid:   return "the newest solid in the document";
+    case PlanSelect::LatestWire:    return "the newest section wire in the document";
   }
   return "keep the live selection";
 }
@@ -229,7 +230,10 @@ const Verb kVerbs[] = {
     {"extrude",     "part.extrude",          PlanSelect::LatestProfile, {"distance"},                         nullptr},
     {"pad",         "part.extrude",          PlanSelect::LatestProfile, {"distance"},                         nullptr},
     {"revolve",     "part.revolve",          PlanSelect::LatestProfile, {"angle"},                            nullptr},
-    {"loft",        "part.loft",             PlanSelect::LatestProfile, {},                                   nullptr},
+    // LOFT consumes WIRE, never PROFILE. This row asked for the newest profile
+    // and handed it to a command whose selection signature is Wire, so the verb
+    // could not resolve on any document -- see PlanSelect::LatestWire.
+    {"loft",        "part.loft",             PlanSelect::LatestWire,    {},                                   nullptr},
     {"fillet",      "part.fillet",           PlanSelect::LatestSolid,   {"radius"},                           nullptr},
     {"round",       "part.fillet",           PlanSelect::LatestSolid,   {"radius"},                           nullptr},
     {"chamfer",     "part.chamfer",          PlanSelect::LatestSolid,   {"distance"},                         nullptr},
@@ -645,6 +649,21 @@ std::string setName(EntityKind kind) {
   return std::string("all-") + toString(kind);
 }
 
+// The IR value kind a symbolic target names. Written as a switch, not as a
+// ternary: the ternary this replaces read "LatestProfile ? Profile : Solid",
+// which silently answered SOLID for every value the enum could not name, and
+// that is how PlanSelect::LatestWire's absence stayed invisible.
+IrValueKind valueKindWanted(PlanSelect select) noexcept {
+  switch (select) {
+    case PlanSelect::LatestProfile: return IrValueKind::Profile;
+    case PlanSelect::LatestWire:    return IrValueKind::Wire;
+    case PlanSelect::LatestSolid:
+    case PlanSelect::Keep:
+    case PlanSelect::None:          break;
+  }
+  return IrValueKind::Solid;
+}
+
 bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const PartDocument& doc,
                       std::vector<EntityRef>& refs, std::string& why) {
   refs.clear();
@@ -652,8 +671,7 @@ bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const 
   if (step.select == PlanSelect::None) return true;  // an empty selection IS the answer
   if (cmd.signature.kind == EntityKind::None) return true;  // needs nothing picked
 
-  const IrValueKind want =
-      step.select == PlanSelect::LatestProfile ? IrValueKind::Profile : IrValueKind::Solid;
+  const IrValueKind want = valueKindWanted(step.select);
   const std::size_t need = cmd.signature.minCount == 0 ? 1 : cmd.signature.minCount;
   const std::vector<std::pair<int, std::string>> bound = boundValues(doc, want);
   if (bound.size() < need) {
@@ -663,9 +681,24 @@ bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const 
   }
   const EntityKind kind =
       cmd.signature.kind == EntityKind::Any ? EntityKind::Body : cmd.signature.kind;
-  for (std::size_t i = 0; i < need; ++i) {
+  // ── OLDEST FIRST, and the order is LOAD-BEARING ──────────────────────────
+  // boundValues() walks the document BACKWARDS, so bound[0] is the NEWEST value
+  // and bound[need-1] the oldest of the ones this step will take. Handing those
+  // to the selection in that order made every two-body boolean operate the wrong
+  // way round: PartCommands.cpp registers the booleans with "selection ORDER is
+  // load-bearing for CUT: the first pick is the target, the second is the tool",
+  // so a plan that said "subtract" produced `CUT(%tool, %target)` -- the pin
+  // minus the block instead of the block minus the pin. MEASURED by
+  // ui/test/differential_gate_test.cpp against the planner's own text on three
+  // corpus trees before this loop was reversed; CUT changed the SOLID, FUSE and
+  // COMMON changed which document node survived.
+  //
+  // Reversing it is not a preference, it is what the two-argument form means in a
+  // history modeller: the TOOL is the body you just made, so the TARGET is the
+  // one that already existed. `need == 1` is unaffected -- bound[0] either way.
+  for (std::size_t i = need; i > 0; --i) {
     EntityRef ref;
-    ref.bodyId = bound[i].second;
+    ref.bodyId = bound[i - 1].second;
     ref.kind = kind;
     ref.persistentName = setName(kind);
     refs.push_back(ref);

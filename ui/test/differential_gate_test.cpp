@@ -249,6 +249,118 @@ int main(int argc, char** argv) {
                 defaulted.text().c_str(), r.reason.c_str());
   }
 
+  // ---- E. THE COPILOT ARM -------------------------------------------------
+  // Checks A-C drove `CommandRegistry::dispatch` with the selection nodes SPELLED
+  // OUT, which is a menu click. The path the integration invariant actually names
+  // is the CoPilot's, and it differs where it matters: a plan step cannot carry a
+  // `%ref`, so `resolveSelection` CHOOSES the operands at apply time. An operand
+  // chosen differently is a different solid built from the same request, and that
+  // is invisible to every arm that states its operands.
+  //
+  // Reported per tree and RATCHETED on the divergence SET, not on a count: which
+  // tree diverges is the fact, and a set that changes in either direction must be
+  // read by a human before this pin moves.
+  {
+    std::vector<std::string> diverged;
+    std::vector<std::string> unreachable;
+    std::size_t copilotAgreed = 0;
+    std::printf("[differential] the COPILOT arm (symbolic selection, resolved at apply time):\n");
+    for (const forge::difftest::Tree& t : corpus) {
+      const forge::difftest::CopilotRun c = forge::difftest::runViaCopilot(t, mutation);
+      const std::string planner = forge::difftest::headlessProgram(t, mutation);
+
+      if (c.reach != forge::difftest::CopilotReach::Reachable) {
+        unreachable.push_back(t.id);
+        std::printf("    %-22s UNREACHABLE -- no PlanSelect names the selection '%s' needs\n",
+                    t.id.c_str(), c.unreachableStep.c_str());
+        continue;
+      }
+      ++H.checks;
+      if (c.check != forge::ui::PlanCheck::Ok) {
+        ++H.failures;
+        std::printf("  FAIL [%s] the CoPilot REFUSED a plan built entirely from registered\n"
+                    "        commands: %s\n%s",
+                    t.id.c_str(), forge::ui::toString(c.check), c.verdict.c_str());
+        continue;
+      }
+      ++H.checks;
+      if (!c.ran || !c.failure.empty()) {
+        ++H.failures;
+        std::printf("  FAIL [%s] the CoPilot did not apply its own plan: %s\n", t.id.c_str(),
+                    c.failure.empty() ? "it never ran" : c.failure.c_str());
+        continue;
+      }
+
+      // The bridge must accept what the CoPilot itself put in the document, and
+      // the kernel grammar must too. A refusal here is a BRIDGE DEFECT for the
+      // same reason it is in check B.
+      std::vector<forge::ui::ProposedOp> plan;
+      for (const forge::ui::IrLine& line : c.commandLines) {
+        forge::ui::ProposedOp p;
+        p.line = line;
+        plan.push_back(p);
+      }
+      const PlanRuling ruling = bridge.check(plan, c.priorValues);
+      ++H.checks;
+      if (!ruling.allAccepted()) {
+        ++H.failures;
+        std::printf("  FAIL [%s] BRIDGE DEFECT -- the bridge refused %zu of %zu statements the\n"
+                    "        CoPilot itself authored through the registry.\n%s",
+                    t.id.c_str(), ruling.rejected, ruling.rulings.size(),
+                    ruling.report().c_str());
+      }
+      for (const forge::ui::IrLine& line : c.commandLines) {
+        const IrCheck v = forge::ui::validateIr(line);
+        ++H.checks;
+        if (v != IrCheck::Ok) {
+          ++H.failures;
+          std::printf("  FAIL [%s] validateIr refused a CoPilot-authored statement: %s -- %s\n",
+                      t.id.c_str(), line.text().c_str(), forge::ui::toString(v));
+        }
+      }
+
+      if (c.ir == planner) {
+        ++copilotAgreed;
+        std::printf("    %-22s agrees (%zu/%zu steps applied)\n", t.id.c_str(), c.applied,
+                    c.requested);
+      } else {
+        diverged.push_back(t.id);
+        std::printf("    %-22s DIVERGES -- the CoPilot chose different operands\n"
+                    "        planner:\n%s        copilot:\n%s",
+                    t.id.c_str(), planner.c_str(), c.ir.c_str());
+      }
+    }
+    std::printf("[differential] copilot arm: %zu agree, %zu diverge, %zu unreachable, of %zu\n",
+                copilotAgreed, diverged.size(), unreachable.size(), corpus.size());
+
+    // THE RATCHET, on the SET. Measured 2026-08-31 after two repairs landed in
+    // this same change:
+    //
+    //   * resolveSelection handed the `need` newest values NEWEST FIRST, and
+    //     PartCommands.cpp registers the booleans with "the first pick is the
+    //     target, the second is the tool". So every two-body boolean ran the
+    //     wrong way round: block_bore_chamfer built CUT(%2, %1) -- the pin minus
+    //     the block -- and boss_on_plate / prism_meets_tube reversed FUSE and
+    //     COMMON, which is the same solid but the other surviving node.
+    //   * PlanSelect had no WIRE value, so lofted_nozzle was UNREACHABLE and the
+    //     LocalPlanner's own `loft` verb asked for a PROFILE it could not use.
+    //
+    // What REMAINS, and is pinned here rather than hidden: `resolveSelection`
+    // takes exactly `signature.minCount` values, because a PlanStep names a value
+    // KIND and never a COUNT. So an open-ended selection always gets the minimum:
+    // the three-ring lofted_nozzle comes out as LOFT(%2, %3, RULED), a
+    // two-section loft. It is a DIFFERENT SOLID and it is reported on every run.
+    CHECK_EQ_INT(unreachable.size(), 0u);
+    CHECK_EQ_INT(diverged.size(), 1u);
+    CHECK_EQ_STR(diverged.empty() ? std::string() : diverged.front(),
+                 std::string("lofted_nozzle"));
+    if (mutation == Mutation::None && diverged.size() == 1) {
+      std::printf("[differential] OPEN DEFECT -- a PlanStep names a value KIND and never a\n"
+                  "               COUNT, so an open-ended selection gets signature.minCount\n"
+                  "               values and no more. lofted_nozzle loses its first section.\n");
+    }
+  }
+
   // A mutation must have MOVED something. A --mutate run that reports the same
   // failure count as the clean run has not been proved to inject anything, and
   // that is exactly how a decorative gate looks from the outside.

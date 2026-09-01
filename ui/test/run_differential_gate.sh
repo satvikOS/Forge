@@ -26,7 +26,7 @@ CXX="${CXX:-clang++}"
 # ui/test/differential_corpus.hpp. A Mutation added there without moving this
 # number would be a case the sweep silently stops covering — which is how a
 # mutation suite quietly becomes decoration.
-MUTATIONS="${MUTATIONS:-7}"
+MUTATIONS="${MUTATIONS:-9}"
 FLAGS="-std=c++20 -O1 -Wall -Wextra -Werror"
 INC="-I ui/include -I ui/test"
 
