@@ -216,6 +216,38 @@ struct Sketch {
             throw std::runtime_error("forge::sketcher: entity is not an Arc");
         return *arcs[entityIndex[idx].typedIndex];
     }
+
+    // What KIND an entity id names, without throwing. The constraint arms below
+    // dispatch on this instead of try/catch-ing the typed accessors: a caller
+    // that hands RADIUS an arc is not making a mistake, and "try circle, catch,
+    // try arc" makes a legal call look like a recovered error in every log.
+    SketchEntityKind kindOfEntity(std::uint32_t eid) {
+        if (!isEntity(eid)) throw std::runtime_error("forge::sketcher: expected entity id");
+        std::uint32_t idx = indexOf(eid);
+        if (idx >= entityIndex.size())
+            throw std::runtime_error("forge::sketcher: invalid entity id");
+        return entityIndex[idx].kind;
+    }
+
+    // A CIRCLE OR AN ARC, as one reference.
+    //
+    // This is not a shortcut: GCS::Arc DERIVES from GCS::Circle (Geo.h:228), so
+    // `center` and `rad` are literally the same members on both, and planegcs's
+    // own Circle/Arc overloads have byte-identical bodies —
+    //   addConstraintCircleRadius   -> addConstraintEqual(c.rad, radius)
+    //   addConstraintArcRadius      -> addConstraintEqual(a.rad, radius)
+    //   addConstraintCircleDiameter -> addConstraintProportional(c.rad, d, 0.5)
+    //   addConstraintArcDiameter    -> addConstraintProportional(a.rad, d, 0.5)
+    // (GCS.cpp:1188-1206). Writing a dispatch whose two arms cannot differ would
+    // be a branch that can never be covered by a test, so there is one arm.
+    GCS::Circle& conicByEntityId(std::uint32_t eid) {
+        switch (kindOfEntity(eid)) {
+            case SketchEntityKind::Circle: return circleByEntityId(eid);
+            case SketchEntityKind::Arc:    return arcByEntityId(eid);
+            case SketchEntityKind::Line:   break;
+        }
+        throw std::runtime_error("forge::sketcher: entity is a Line, expected a Circle or an Arc");
+    }
 };
 
 // ============================================================ SketchRegistry
@@ -329,6 +361,16 @@ SketchEntityId addArc(SketchHandle h, SketchParamId center, SketchParamId p0, Sk
 std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
                             const std::vector<std::uint32_t>& refs, double value) {
     Sketch& s = SketchRegistry::instance().get(h);
+    // A value CAST into this enum from outside the enumerator set would fall
+    // straight through the (default-less) switch below and return a tag for a
+    // constraint that was never registered. The JS binding forwards an integer
+    // from script, so this is reachable input, not a hypothetical.
+    const auto rawKind = static_cast<std::uint32_t>(kind);
+    if (rawKind < static_cast<std::uint32_t>(SketchConstraintKind::Coincident) ||
+        rawKind > static_cast<std::uint32_t>(SketchConstraintKind::DistanceY)) {
+        throw std::runtime_error("forge::sketcher: unknown constraint kind " +
+                                 std::to_string(rawKind));
+    }
     int tag = nextTag(s.nextConstraintTag);
     auto need = [&](std::size_t n) {
         if (refs.size() < n) {
@@ -377,7 +419,24 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
     }
     case SketchConstraintKind::PointOnLine: {
         need(2);
-        s.gcs.addConstraintPointOnLine(s.pointByParamId(refs[0]), s.lineByEntityId(refs[1]), tag);
+        // POINT-ON-OBJECT, not point-on-line. The IR spells this one keyword
+        // (PTON) and a drawing puts a point on a circle or an arc as readily as
+        // on a line; refusing the other two would make the caller pick the right
+        // one of three keywords for a distinction planegcs does not make either
+        // — it has all three primitives and the target's kind already says which.
+        // Before this, PTON onto a circle or an arc THREW.
+        GCS::Point& p = s.pointByParamId(refs[0]);
+        switch (s.kindOfEntity(refs[1])) {
+            case SketchEntityKind::Line:
+                s.gcs.addConstraintPointOnLine(p, s.lineByEntityId(refs[1]), tag);
+                break;
+            case SketchEntityKind::Circle:
+                s.gcs.addConstraintPointOnCircle(p, s.circleByEntityId(refs[1]), tag);
+                break;
+            case SketchEntityKind::Arc:
+                s.gcs.addConstraintPointOnArc(p, s.arcByEntityId(refs[1]), tag);
+                break;
+        }
         break;
     }
     case SketchConstraintKind::PointOnCircle: {
@@ -397,24 +456,169 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         SketchEntityKind k0 = s.entityIndex[idx0].kind;
         if (k0 == SketchEntityKind::Line) {
             s.gcs.addConstraintEqualLength(s.lineByEntityId(refs[0]), s.lineByEntityId(refs[1]), tag);
-        } else if (k0 == SketchEntityKind::Circle) {
-            s.gcs.addConstraintEqualRadius(s.circleByEntityId(refs[0]), s.circleByEntityId(refs[1]), tag);
         } else {
-            throw std::runtime_error("forge::sketcher: Equal not supported for arcs (use circles)");
+            // "Equal not supported for arcs (use circles)" was a REFUSAL with a
+            // primitive sitting right there: GCS.h declares EqualRadius for
+            // (Circle,Circle), (Circle,Arc) and (Arc,Arc). An arc's radius is a
+            // radius. Equal fillets on a bracket are among the commonest sketch
+            // constraints there are, and this said no to all of them.
+            s.gcs.addConstraintEqualRadius(s.conicByEntityId(refs[0]),
+                                           s.conicByEntityId(refs[1]), tag);
         }
         break;
     }
     case SketchConstraintKind::Tangent: {
         need(2);
-        // We support line↔circle (the most common sketcher use). The `ccw`
-        // direction flag is set to true by default — planegcs uses it to
-        // select which side of the line is "inside".
-        s.gcs.addConstraintTangent(s.lineByEntityId(refs[0]), s.circleByEntityId(refs[1]),
-                                   /*ccw=*/true, tag);
+        // line-circle was "the most common sketcher use", and it was the ONLY
+        // one wired — so a fillet arc tangent to the wall it fillets, which is
+        // what tangency is FOR, threw. GCS.h has (Line,Circle), (Line,Arc),
+        // (Circle,Circle), (Arc,Arc) and (Circle,Arc); dispatch on the pair.
+        //
+        // The operands may arrive either way round (a drawing says "this arc is
+        // tangent to that line" as readily as the reverse), so the line is found
+        // rather than assumed to be first. `ccw=true` is planegcs's side-of-the-
+        // line selector and keeps its previous default.
+        const SketchEntityKind k0 = s.kindOfEntity(refs[0]);
+        const SketchEntityKind k1 = s.kindOfEntity(refs[1]);
+        if (k0 == SketchEntityKind::Line && k1 == SketchEntityKind::Line) {
+            throw std::runtime_error(
+                "forge::sketcher: Tangent needs at least one circle or arc "
+                "(two lines are tangent only where they are collinear — use COLL)");
+        }
+        if (k0 == SketchEntityKind::Line || k1 == SketchEntityKind::Line) {
+            const std::uint32_t lineRef  = (k0 == SketchEntityKind::Line) ? refs[0] : refs[1];
+            const std::uint32_t conicRef = (k0 == SketchEntityKind::Line) ? refs[1] : refs[0];
+            GCS::Line& l = s.lineByEntityId(lineRef);
+            if (s.kindOfEntity(conicRef) == SketchEntityKind::Arc) {
+                s.gcs.addConstraintTangent(l, s.arcByEntityId(conicRef), /*ccw=*/true, tag);
+            } else {
+                s.gcs.addConstraintTangent(l, s.circleByEntityId(conicRef), /*ccw=*/true, tag);
+            }
+        } else if (k0 == SketchEntityKind::Arc && k1 == SketchEntityKind::Arc) {
+            s.gcs.addConstraintTangent(s.arcByEntityId(refs[0]), s.arcByEntityId(refs[1]), tag);
+        } else if (k0 == SketchEntityKind::Circle && k1 == SketchEntityKind::Circle) {
+            s.gcs.addConstraintTangent(s.circleByEntityId(refs[0]), s.circleByEntityId(refs[1]), tag);
+        } else {
+            const std::uint32_t circRef = (k0 == SketchEntityKind::Circle) ? refs[0] : refs[1];
+            const std::uint32_t arcRef  = (k0 == SketchEntityKind::Circle) ? refs[1] : refs[0];
+            s.gcs.addConstraintTangent(s.circleByEntityId(circRef), s.arcByEntityId(arcRef), tag);
+        }
         break;
     }
-    default:
-        throw std::runtime_error("forge::sketcher: unknown constraint kind");
+
+    // =========================================================================
+    // THE TEN THE CENSUS DESIGNED AND THE FACADE NEVER WIRED. Every arm is a
+    // call into the vendored engine; nothing below computes geometry.
+    // =========================================================================
+    case SketchConstraintKind::Radius: {
+        need(1);
+        s.gcs.addConstraintCircleRadius(s.conicByEntityId(refs[0]), s.allocValue(value), tag);
+        break;
+    }
+    case SketchConstraintKind::Diameter: {
+        need(1);
+        s.gcs.addConstraintCircleDiameter(s.conicByEntityId(refs[0]), s.allocValue(value), tag);
+        break;
+    }
+    case SketchConstraintKind::Angle: {
+        need(2);
+        // RADIANS. The IR converts from degrees at its own boundary; see the
+        // enumerator comment in Sketcher.hpp, which names the same seam.
+        double* a = s.allocValue(value);
+        if (isEntity(refs[0]) && isEntity(refs[1])) {
+            s.gcs.addConstraintL2LAngle(s.lineByEntityId(refs[0]), s.lineByEntityId(refs[1]), a, tag);
+        } else if (!isEntity(refs[0]) && !isEntity(refs[1])) {
+            // The angle of the DIRECTION p0->p1 from +x: how a drawing dimensions
+            // a single sloped edge, which has no second line to measure against.
+            s.gcs.addConstraintP2PAngle(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]), a, tag);
+        } else {
+            throw std::runtime_error(
+                "forge::sketcher: Angle takes two lines or two points, not one of each");
+        }
+        break;
+    }
+    case SketchConstraintKind::Concentric: {
+        need(2);
+        // Concentric IS coincident centres. planegcs has no separate primitive
+        // because there is no separate constraint — FreeCAD spells it the same
+        // way. `.center` is a member of Circle, and Arc derives from Circle.
+        s.gcs.addConstraintP2PCoincident(s.conicByEntityId(refs[0]).center,
+                                         s.conicByEntityId(refs[1]).center, tag);
+        break;
+    }
+    case SketchConstraintKind::Collinear: {
+        need(2);
+        // Two solver constraints, ONE tag: parallel, plus an endpoint of B on A.
+        // Parallel alone permits any offset; PointOnLine alone permits any angle
+        // about that point. Sharing the tag means a repair demotes collinearity
+        // as the single statement the author wrote, never half of it — a line
+        // left parallel-but-offset would be a geometry error the verify channel
+        // would report as a satisfied constraint.
+        GCS::Line& a = s.lineByEntityId(refs[0]);
+        GCS::Line& b = s.lineByEntityId(refs[1]);
+        s.gcs.addConstraintParallel(a, b, tag);
+        s.gcs.addConstraintPointOnLine(b.p1, a, tag);
+        break;
+    }
+    case SketchConstraintKind::Symmetric: {
+        need(3);
+        GCS::Point& a = s.pointByParamId(refs[0]);
+        GCS::Point& b = s.pointByParamId(refs[1]);
+        if (isEntity(refs[2])) {
+            s.gcs.addConstraintP2PSymmetric(a, b, s.lineByEntityId(refs[2]), tag);
+        } else {
+            s.gcs.addConstraintP2PSymmetric(a, b, s.pointByParamId(refs[2]), tag);
+        }
+        break;
+    }
+    case SketchConstraintKind::Midpoint: {
+        need(3);
+        // The point form of Symmetric, and deliberately a SEPARATE kind: see the
+        // enumerator comment. Handing MIDPT a line is refused HERE so the caller
+        // is told, rather than silently receiving a mirror about that line.
+        if (isEntity(refs[2])) {
+            throw std::runtime_error(
+                "forge::sketcher: Midpoint's third operand is the MIDPOINT (a point), "
+                "not a line — mirroring about a line is SYMM");
+        }
+        s.gcs.addConstraintP2PSymmetric(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]),
+                                        s.pointByParamId(refs[2]), tag);
+        break;
+    }
+    case SketchConstraintKind::Fix: {
+        need(1);
+        // Pin the point WHERE IT IS. The value argument is ignored — a FIX that
+        // took coordinates would be a move disguised as a constraint, and CON is
+        // pass-through precisely so that no constraint statement moves geometry
+        // before the solve.
+        GCS::Point& p = s.pointByParamId(refs[0]);
+        s.gcs.addConstraintCoordinateX(p, s.allocValue(*p.x), tag);
+        s.gcs.addConstraintCoordinateY(p, s.allocValue(*p.y), tag);
+        break;
+    }
+    case SketchConstraintKind::DistanceX: {
+        need(2);
+        // SIGNED: ConstraintDifference::value() is *param2 - *param1
+        // (Constraints.cpp:645), so this enforces bx - ax == value. A DISTX
+        // dimension on a drawing is signed, and an unsigned one would make
+        // "B is 25 to the LEFT of A" unstateable.
+        s.gcs.addConstraintDifference(s.pointByParamId(refs[0]).x, s.pointByParamId(refs[1]).x,
+                                      s.allocValue(value), tag);
+        break;
+    }
+    case SketchConstraintKind::DistanceY: {
+        need(2);
+        s.gcs.addConstraintDifference(s.pointByParamId(refs[0]).y, s.pointByParamId(refs[1]).y,
+                                      s.allocValue(value), tag);
+        break;
+    }
+    // NO `default:` ARM, DELIBERATELY. With one, -Wswitch goes quiet, and the
+    // 11th kind added to SketchConstraintKind would compile into a silent
+    // "registered nothing, returned a tag" — a constraint the caller believes it
+    // applied, that the solver has never heard of, and that a residual query
+    // reports as NaN rather than as missing. The two hazards are different and
+    // each is caught by the mechanism that can actually see it: a NEW ENUMERATOR
+    // by -Wswitch here, and an OUT-OF-RANGE CAST by the range check above.
     }
     return static_cast<std::uint32_t>(tag);
 }

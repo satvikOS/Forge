@@ -92,6 +92,59 @@ forge::SketchHandle nextSketchHandle() {
     return probe + 1;
 }
 
+// Compile a source and hand back BOTH the result and the sketch it built, so a
+// case can measure the geometry the solver actually produced rather than only
+// the verify text. Every caller checks `ok` before reading the sketch.
+struct Built {
+    forge::ft::CompileResult r;
+    forge::SketchHandle      sk = 0;
+    bool                     ok = false;
+};
+
+Built buildSketch(const char* src, const std::string& what) {
+    Built b;
+    b.sk = nextSketchHandle();
+    const forge::ft::FeatureTree ft = parseOrFail(src, what);
+    b.r = forge::ft::compile(ft);
+    b.ok = forge::SketchRegistry::instance().exists(b.sk);
+    if (!b.ok) {
+        ++g_checks; ++g_fails;
+        std::printf("  FAIL: %s did not leave an addressable sketch\n", what.c_str());
+    }
+    return b;
+}
+
+bool near(double a, double b, double eps) { return std::fabs(a - b) < eps; }
+
+// The radius of a sampled ring, measured from its own centroid. The facade has
+// no "read a circle's radius" entry, and inventing one for a test would be
+// testing an accessor rather than the constraint; extractProfileRings is the
+// bridge the native feature ops consume, so measuring THERE measures what a
+// downstream op would actually receive.
+bool ringRadius(forge::SketchHandle h, double& out) {
+    const std::vector<std::vector<forge::native::geom::Point2>> rings =
+        forge::extractProfileRings(h, 96);
+    if (rings.empty() || rings[0].size() < 8) return false;
+    double cx = 0, cy = 0;
+    for (const auto& q : rings[0]) { cx += q.x; cy += q.y; }
+    cx /= static_cast<double>(rings[0].size());
+    cy /= static_cast<double>(rings[0].size());
+    double sum = 0;
+    for (const auto& q : rings[0]) sum += std::hypot(q.x - cx, q.y - cy);
+    out = sum / static_cast<double>(rings[0].size());
+    return true;
+}
+
+// The unit direction of the segment p(a) -> p(b), for the angle cases.
+void dirOf(forge::SketchHandle h, std::uint32_t a, std::uint32_t b, double& ux, double& uy) {
+    const forge::SketchPoint p0 = forge::readPoint(h, a);
+    const forge::SketchPoint p1 = forge::readPoint(h, b);
+    const double dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const double n = std::hypot(dx, dy);
+    ux = (n > 1e-12) ? dx / n : 0.0;
+    uy = (n > 1e-12) ? dy / n : 0.0;
+}
+
 }  // namespace
 
 int main() {
@@ -470,6 +523,326 @@ int main() {
                           "%7 = SOLVE(%1)\n%8 = EXTRUDE(%7, 10)\nRESULT(%8)\n",
                           "one of two sketches used") == 3,
               "the ABANDONED sketch's three ops are still orphans");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 6. THE TEN KEYWORDS THE CENSUS DESIGNED AND THE FACADE NEVER WIRED.
+    //
+    // Nine keywords shipped first. The census's table (SKETCH_AND_CONSTRAINTS.md
+    // §4) specifies nineteen, and closes: "Every one of those routes to a
+    // primitive that ALREADY EXISTS in GCS.h. This is facade exposure, not
+    // numerics."
+    //
+    // WHY THESE ARE MEASURED AND NOT MERELY CALLED. "It did not throw" is what
+    // a keyword mapped to the WRONG primitive also looks like, and three of the
+    // arms below (RADIUS/DIAM, DISTX/DISTY, ANGLE) have a wrong version that
+    // compiles, solves, converges and reports a clean DOF while producing the
+    // wrong part. So every case asserts a NUMBER the constraint had to move.
+    // ═══════════════════════════════════════════════════════════════════════
+    {
+        // ---- A. RADIUS applies its value -----------------------------------
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SCIRC(%2, 5)\n"
+                                  "%4 = CON(%3, RADIUS, 12)\n"
+                                  "%5 = SOLVE(%1)\n", "RADIUS");
+            double r = 0;
+            if (b.ok && ringRadius(b.sk, r)) {
+                std::printf("  [RADIUS]  seeded 5 -> solved %.6f (want 12)\n", r);
+                check(near(r, 12.0, 1e-6), "RADIUS 12 moved the circle from 5 to 12");
+            } else { check(false, "RADIUS: no ring to measure"); }
+        }
+
+        // ---- B. DIAM is a DIAMETER, not a second spelling of radius --------
+        // The whole content of this case: 30 must give radius 15, not 30. The
+        // wrong wiring (routing DIAM to CircleRadius) converges just as cleanly.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SCIRC(%2, 5)\n"
+                                  "%4 = CON(%3, DIAM, 30)\n"
+                                  "%5 = SOLVE(%1)\n", "DIAM");
+            double r = 0;
+            if (b.ok && ringRadius(b.sk, r)) {
+                std::printf("  [DIAM]    DIAM 30 -> radius %.6f (want 15, NOT 30)\n", r);
+                check(near(r, 15.0, 1e-6), "DIAM 30 gives radius 15");
+            } else { check(false, "DIAM: no ring to measure"); }
+        }
+
+        // ---- C. ★ ANGLE — THE POSITIVE CONTROL FOR THE UNIT SEAM -----------
+        // The IR says degrees; planegcs wants radians. A missing conversion
+        // BUILDS, SOLVES and CONVERGES — it just aims at 90 radians, which is
+        // 2.035 rad after wrapping, or 116.6°. So this case does not ask "did
+        // it solve", it asks whether the second line came out PERPENDICULAR.
+        // The unconverted answer gives |cos| = 0.447 and fails loudly.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 10, 0)\n"
+                                  "%4 = SPT(%1, 0, 2)\n"
+                                  "%5 = SPT(%1, 8, 5)\n"
+                                  "%6 = SLINE(%2, %3)\n"
+                                  "%7 = SLINE(%4, %5)\n"
+                                  "%8 = CON(%6, HORIZ)\n"
+                                  "%9 = CON(%2, FIX)\n"
+                                  "%10 = CON(%6, ANGLE, %7, 90)\n"
+                                  "%11 = SOLVE(%1)\n", "ANGLE 90");
+            if (b.ok) {
+                double ax, ay, bx, by;
+                dirOf(b.sk, 0, 1, ax, ay);   // line %6
+                dirOf(b.sk, 2, 3, bx, by);   // line %7
+                const double dot = std::fabs(ax * bx + ay * by);
+                std::printf("  [ANGLE]   |cos| between the two lines = %.9f "
+                            "(want 0; 90 RADIANS would give 0.447)\n", dot);
+                check(dot < 1e-6, "ANGLE 90 made the lines perpendicular — degrees "
+                                  "were converted to radians at the IR boundary");
+            }
+        }
+
+        // ---- D. FIX anchors, and DISTX / DISTY are SIGNED -------------------
+        // Three keywords in one measurement, because the measurement needs all
+        // three: without FIX the solver is free to satisfy a relative offset by
+        // moving EITHER point, so an absolute assertion would be measuring the
+        // solver's step preference rather than the constraints.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 3, 3)\n"
+                                  "%4 = CON(%2, FIX)\n"
+                                  "%5 = CON(%2, DISTX, %3, 25)\n"
+                                  "%6 = CON(%2, DISTY, %3, -7)\n"
+                                  "%7 = SOLVE(%1)\n", "FIX + DISTX + DISTY");
+            if (b.ok) {
+                const forge::SketchPoint a = forge::readPoint(b.sk, 0);
+                const forge::SketchPoint c = forge::readPoint(b.sk, 1);
+                std::printf("  [FIX]     anchor stayed at (%.9f, %.9f) (want 0, 0)\n", a.x, a.y);
+                std::printf("  [DISTXY]  partner at (%.9f, %.9f) (want 25, -7)\n", c.x, c.y);
+                check(near(a.x, 0.0, 1e-9) && near(a.y, 0.0, 1e-9),
+                      "FIX pinned the anchor where it was drawn");
+                check(near(c.x, 25.0, 1e-6), "DISTX 25 is SIGNED and put the partner at +25");
+                check(near(c.y, -7.0, 1e-6), "DISTY -7 is SIGNED and put the partner at -7");
+            }
+        }
+
+        // ---- E. CONC brings two centres together ---------------------------
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 20, 14)\n"
+                                  "%4 = SCIRC(%2, 10)\n"
+                                  "%5 = SCIRC(%3, 4)\n"
+                                  "%6 = CON(%2, FIX)\n"
+                                  "%7 = CON(%4, CONC, %5)\n"
+                                  "%8 = SOLVE(%1)\n", "CONC");
+            if (b.ok) {
+                const forge::SketchPoint a = forge::readPoint(b.sk, 0);
+                const forge::SketchPoint c = forge::readPoint(b.sk, 1);
+                const double d = std::hypot(c.x - a.x, c.y - a.y);
+                std::printf("  [CONC]    centre separation %.9f (was 24.41, want 0)\n", d);
+                check(d < 1e-6, "CONC collapsed a 24.41 mm centre offset to zero");
+            }
+        }
+
+        // ---- F. COLL is parallel AND on the same line ----------------------
+        // Parallel alone would pass a "same direction" check while leaving the
+        // second line offset, so the assertion is the OFFSET, not the angle.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 10, 0)\n"
+                                  "%4 = SPT(%1, 20, 6)\n"
+                                  "%5 = SPT(%1, 30, 9)\n"
+                                  "%6 = SLINE(%2, %3)\n"
+                                  "%7 = SLINE(%4, %5)\n"
+                                  "%8 = CON(%2, FIX)\n"
+                                  "%9 = CON(%3, FIX)\n"
+                                  "%10 = CON(%6, COLL, %7)\n"
+                                  "%11 = SOLVE(%1)\n", "COLL");
+            if (b.ok) {
+                // %6 is pinned along y = 0, so collinearity means both of %7's
+                // endpoints are on y = 0 too.
+                const forge::SketchPoint c = forge::readPoint(b.sk, 2);
+                const forge::SketchPoint d = forge::readPoint(b.sk, 3);
+                std::printf("  [COLL]    the other line's endpoints y = %.9f, %.9f (want 0, 0)\n",
+                            c.y, d.y);
+                check(std::fabs(c.y) < 1e-6 && std::fabs(d.y) < 1e-6,
+                      "COLL put the second line ON the first, not merely parallel to it");
+            }
+        }
+
+        // ---- G. MIDPT bisects -----------------------------------------------
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 40, 20)\n"
+                                  "%4 = SPT(%1, 3, 31)\n"
+                                  "%5 = CON(%2, FIX)\n"
+                                  "%6 = CON(%3, FIX)\n"
+                                  "%7 = CON(%2, MIDPT, %3, %4)\n"
+                                  "%8 = SOLVE(%1)\n", "MIDPT");
+            if (b.ok) {
+                const forge::SketchPoint m = forge::readPoint(b.sk, 2);
+                std::printf("  [MIDPT]   midpoint at (%.9f, %.9f) (want 20, 10)\n", m.x, m.y);
+                check(near(m.x, 20.0, 1e-6) && near(m.y, 10.0, 1e-6),
+                      "MIDPT put the third point at the midpoint of the other two");
+            }
+        }
+
+        // ---- H. SYMM mirrors about a LINE -----------------------------------
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 0, 50)\n"
+                                  "%4 = SPT(%1, -12, 20)\n"
+                                  "%5 = SPT(%1, 5, 33)\n"
+                                  "%6 = SLINE(%2, %3)\n"
+                                  "%7 = CON(%2, FIX)\n"
+                                  "%8 = CON(%3, FIX)\n"
+                                  "%9 = CON(%4, FIX)\n"
+                                  "%10 = CON(%4, SYMM, %5, %6)\n"
+                                  "%11 = SOLVE(%1)\n", "SYMM about a line");
+            if (b.ok) {
+                // The mirror is the y axis, so the partner of (-12, 20) is (12, 20).
+                const forge::SketchPoint q = forge::readPoint(b.sk, 3);
+                std::printf("  [SYMM]    mirrored point at (%.9f, %.9f) (want 12, 20)\n", q.x, q.y);
+                check(near(q.x, 12.0, 1e-6) && near(q.y, 20.0, 1e-6),
+                      "SYMM mirrored the point about the line");
+            }
+        }
+
+        // ---- I. PTON onto a CIRCLE — this THREW before -----------------------
+        // PTON was wired to PointOnLine alone, so a point on a circle raised and
+        // the statement was skipped. planegcs has PointOnCircle and PointOnArc;
+        // the target's kind says which, and the caller does not pick.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SCIRC(%2, 10)\n"
+                                  "%4 = SPT(%1, 30, 1)\n"
+                                  "%5 = CON(%2, FIX)\n"
+                                  "%6 = CON(%3, RADIUS, 10)\n"
+                                  "%7 = CON(%4, PTON, %3)\n"
+                                  "%8 = SOLVE(%1)\n", "PTON onto a circle");
+            if (b.ok) {
+                check(!verifyMentions(b.r, "PTON rejected"),
+                      "PTON onto a circle is no longer rejected");
+                const forge::SketchPoint q = forge::readPoint(b.sk, 1);
+                const double d = std::hypot(q.x, q.y);
+                std::printf("  [PTON]    point distance from centre %.9f (want 10)\n", d);
+                check(near(d, 10.0, 1e-6), "PTON put the point ON the circle");
+            }
+        }
+
+        // ---- J. EQUAL on two ARCS — this THREW before ------------------------
+        // The old arm ended "Equal not supported for arcs (use circles)" with
+        // EqualRadius(Arc,Arc) declared in the header it was calling into.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 10, 0)\n"
+                                  "%4 = SPT(%1, 0, 10)\n"
+                                  "%5 = SARC(%2, %3, %4)\n"
+                                  "%6 = SPT(%1, 60, 0)\n"
+                                  "%7 = SPT(%1, 64, 0)\n"
+                                  "%8 = SPT(%1, 60, 4)\n"
+                                  "%9 = SARC(%6, %7, %8)\n"
+                                  "%10 = CON(%5, EQUAL, %9)\n"
+                                  "%11 = SOLVE(%1)\n", "EQUAL on two arcs");
+            if (b.ok) {
+                check(!verifyMentions(b.r, "EQUAL rejected"),
+                      "EQUAL on two arcs is no longer rejected");
+                check(!verifyMentions(b.r, "not supported for arcs"),
+                      "the 'not supported for arcs' refusal is gone");
+            }
+        }
+
+        // ---- K. TANG line-to-ARC — this THREW before -------------------------
+        // A fillet arc tangent to the wall it fillets is what tangency is FOR,
+        // and it was the one pairing the facade did not have.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 40, 0)\n"
+                                  "%4 = SLINE(%2, %3)\n"
+                                  "%5 = SPT(%1, 20, 9)\n"
+                                  "%6 = SPT(%1, 28, 9)\n"
+                                  "%7 = SPT(%1, 20, 17)\n"
+                                  "%8 = SARC(%5, %6, %7)\n"
+                                  "%9 = CON(%4, TANG, %8)\n"
+                                  "%10 = SOLVE(%1)\n", "TANG line to arc");
+            check(!verifyMentions(b.r, "TANG rejected"),
+                  "TANG line-to-arc is no longer rejected");
+        }
+
+        // ---- L. NEVER REFUSE still holds for the new kinds -------------------
+        // MIDPT handed a LINE as its third operand is a real mistake with a
+        // confusable neighbour (SYMM). It must be NAMED, and it must not kill
+        // the tree — the statement after it still has to apply.
+        {
+            Built b = buildSketch("%1 = SKETCH(XY)\n"
+                                  "%2 = SPT(%1, 0, 0)\n"
+                                  "%3 = SPT(%1, 10, 0)\n"
+                                  "%4 = SPT(%1, 0, 10)\n"
+                                  "%5 = SLINE(%3, %4)\n"
+                                  "%6 = CON(%2, MIDPT, %3, %5)\n"
+                                  "%7 = CON(%2, FIX)\n"
+                                  "%8 = CON(%2, DISTX, %3, 33)\n"
+                                  "%9 = SOLVE(%1)\n", "MIDPT with a line");
+            std::printf("  [MIDPT/bad] nCompiled=%zu\n", b.r.nCompiled);
+            dumpVerify(b.r);
+            check(b.r.nCompiled == 9, "the whole tree still compiled");
+            check(verifyMentions(b.r, "MIDPT rejected"), "the bad MIDPT is NAMED, not swallowed");
+            check(verifyMentions(b.r, "not a line"), "the diagnostic says WHICH operand was wrong");
+            if (b.ok) {
+                const forge::SketchPoint q = forge::readPoint(b.sk, 1);
+                std::printf("  [MIDPT/bad] the statement AFTER it still applied: x = %.9f "
+                            "(want 33)\n", q.x);
+                check(near(q.x, 33.0, 1e-6),
+                      "one bad statement did not cost the statements after it");
+            }
+        }
+
+        // ---- M. EVERY DOCUMENTED KEYWORD IS DISPATCHED -----------------------
+        // The defect this closes by construction: "a vocabulary that names a
+        // keyword the compiler skips is a worse defect than a short vocabulary"
+        // (FeatureTree.hpp, the CON contract). The list below is that contract's
+        // list. Each is PROBED through the compiler rather than read out of a
+        // table, so it measures dispatch and not documentation.
+        //
+        // NOTACONSTRAINT is the probe's own positive control: if the probe could
+        // not detect an absent keyword, every row above it would pass vacuously.
+        {
+            const char* kKeywords[] = {
+                "COINC", "PARA", "PERP", "TANG", "EQUAL", "CONC", "COLL", "SYMM",
+                "MIDPT", "HORIZ", "VERT", "PTON", "FIX",
+                "DIST", "DISTX", "DISTY", "ANGLE", "RADIUS", "DIAM",
+            };
+            const std::size_t n = sizeof(kKeywords) / sizeof(kKeywords[0]);
+            check(n == 19, "the CON contract lists 19 keywords");
+            std::size_t dispatched = 0;
+            for (const char* kw : kKeywords) {
+                const std::string src =
+                    std::string("%1 = SKETCH(XY)\n"
+                                "%2 = SPT(%1, 0, 0)\n"
+                                "%3 = SPT(%1, 10, 4)\n"
+                                "%4 = SLINE(%2, %3)\n"
+                                "%5 = CON(%2, ") + kw + ", %3, 5)\n%6 = SOLVE(%1)\n";
+                const CompileResult r = compile(parseOrFail(src.c_str(), kw));
+                const bool unknown = verifyMentions(r, std::string("unknown kind '") + kw + "'");
+                if (!unknown) ++dispatched;
+                check(!unknown, std::string("CON keyword ") + kw + " is DISPATCHED, not unknown");
+            }
+            std::printf("  [keywords] %zu of %zu documented CON keywords dispatch\n",
+                        dispatched, n);
+
+            // The probe's falsifiability control.
+            const CompileResult bad = compile(parseOrFail(
+                "%1 = SKETCH(XY)\n%2 = SPT(%1, 0, 0)\n%3 = SPT(%1, 10, 4)\n"
+                "%4 = CON(%2, NOTACONSTRAINT, %3)\n%5 = SOLVE(%1)\n", "the probe control"));
+            check(verifyMentions(bad, "unknown kind 'NOTACONSTRAINT'"),
+                  "the probe CAN see an absent keyword — the 19 rows above are not vacuous");
+        }
     }
 
     std::printf("\n[sketch_solve] %d checks, %d failures — %s\n",
