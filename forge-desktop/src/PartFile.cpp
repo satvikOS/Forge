@@ -38,16 +38,19 @@ void splitKey(const std::string& line, std::string& key, std::string& rest) {
 
 const char* kindName(forge::ui::IrValueKind k) { return forge::ui::toString(k); }
 
+// The inverse of kindName(), and it must stay the exact inverse. This was an
+// if-chain over four literals while the writer emitted toString() for ANY kind,
+// so a kind the chain did not list wrote a .fpart that would not load -- and
+// neither half is a compile error. It now walks forge::ui::kAllIrValueKinds,
+// comparing against the same toString() the writer uses.
 bool kindFromName(const std::string& name, forge::ui::IrValueKind& out) {
-  if (name == "none") { out = forge::ui::IrValueKind::None; return true; }
-  if (name == "profile") { out = forge::ui::IrValueKind::Profile; return true; }
-  if (name == "wire") { out = forge::ui::IrValueKind::Wire; return true; }
-  if (name == "solid") { out = forge::ui::IrValueKind::Solid; return true; }
-  // A saved document that names a kind this build does not know must not silently
-  // become `None` and then fail an unrelated check three layers away; every kind
-  // toString can WRITE, this must be able to READ back.
-  if (name == "surface") { out = forge::ui::IrValueKind::Surface; return true; }
-  return false;
+  // The if-chain this replaced listed the kinds it knew, one literal per line,
+  // where nothing could tell it a kind was missing. A saved document naming a
+  // kind this build does not know must not silently become `None` and then fail
+  // an unrelated check three layers away; every kind toString can WRITE, this
+  // must be able to READ back. forge::ui::kAllIrValueKinds is now the single
+  // list both halves walk, and a static_assert there requires it to be complete.
+  return forge::ui::irValueKindFromName(name, out);
 }
 
 std::string argLine(const forge::ui::IrArg& a) {

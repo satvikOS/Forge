@@ -93,6 +93,14 @@ const std::vector<IrOpSpec>& irOpTable() {
       {"SLOT", 2, 5, false},
       {"POLY", 1, 1, false},
       {"REGPOLY", 2, 5, false},
+      // 2D sketch + constraints
+      {"SKETCH", 1, 1, false},
+      {"SPT", 3, 3, true},
+      {"SLINE", 2, 2, true},
+      {"SCIRC", 2, 2, true},
+      {"SARC", 3, 3, true},
+      {"CON", 2, 4, true},
+      {"SOLVE", 1, 1, true},
       // 3D section rings
       {"RING", 3, 7, false},
       {"WIRE", 1, 1, false},

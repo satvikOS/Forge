@@ -278,4 +278,77 @@ struct SketchAuditResult {
 };
 SketchAuditResult auditSketch(SketchHandle h);
 
+// ===================================================================
+// DIAGNOSE, NEVER REFUSE — the solve contract the feature-IR uses.
+//
+// THE OWNER'S BINDING CONSTRAINT: "dont gate anything if you do that then how
+// will Archie generate ultra long feature trees for Kernel to execute". A
+// SOLVE that throws on a contradictory dimension is a capability gate wearing
+// a safety hat, and it fires hardest on the LONGEST trees: one bad constraint
+// in a 200-statement tree would cost all 200 statements. So the contract is
+// REPRESENT / REPAIR / TOLERATE, and it never refuses.
+//
+// ── why plain `diagnoseSketch` is NOT sufficient, MEASURED ──────────────────
+// planegcs's conflict analysis is a JACOBIAN-RANK analysis, so it sees
+// STRUCTURAL over-determination and is BLIND to numeric infeasibility. Both
+// failure modes were driven through the built facade on 2026-08-31:
+//
+//   over-constrained  p0,p1 COINCIDENT and DISTANCE 10
+//     solve status=2  diagnose class="over"   conflicting=[1,2]   <- rank sees it
+//
+//   infeasible        p0p1=10, p1p2=10, p0p2=100 (violates the triangle ineq.)
+//     solve status=1  diagnose class="under"  conflicting=[]      <- rank is BLIND
+//                     residuals tag1=-5.0  tag2=-2.93  tag3=-95.0 <- but these name it
+//
+// A repair keyed only on `conflicting` demotes NOTHING in the second case and
+// hands back a silently broken sketch. So the repair below is RESIDUAL-RANKED
+// as well as conflict-ranked, and the residual pass is what covers the half
+// the rank analysis cannot see.
+enum class SketchDemotionReason : std::uint8_t {
+    Conflicting = 0,   // named by GCS::getConflicting() — a rank conflict
+    Residual    = 1,   // no rank conflict, but this tag carried the worst error
+};
+
+struct SketchDemotion {
+    int                  tag;       // the tag addConstraint() returned
+    SketchDemotionReason reason;
+    double               residual;  // its error at the moment it was dropped
+};
+
+// The outcome of solveOrRepair(). `status` is the status of the FINAL solve.
+// It is a REPORT, never an exception: every field is filled on every path.
+struct SketchSolveReport {
+    SketchSolveStatus           status;
+    int                         dof;
+    std::string                 classification;  // of the final state
+    std::vector<SketchDemotion> demoted;         // in the order they were dropped
+    double                      worstResidual;   // over the constraints that REMAIN
+    bool                        geometryApplied; // false => the as-drawn seed was kept
+    int                         passes;          // solves performed (>=1)
+};
+
+// Remove every constraint carrying `tag` (GCS::clearByTag) and invalidate the
+// cached diagnosis. Adds no numerics — it exposes an engine entry the facade
+// was missing, and without it the repair contract above is impossible.
+void removeConstraintsByTag(SketchHandle h, int tag);
+
+// Solve, and if that fails, REPAIR — never throw, never leave the caller
+// without geometry.
+//
+//   1. solve(). If it converges clean, return.
+//   2. While the solver reports CONFLICTING tags: drop the LAST-DECLARED
+//      member (deterministic beats clever — a repair loop needs to be able to
+//      predict what was dropped) and re-solve.
+//   3. While the solve still FAILS numerically: drop the remaining constraint
+//      with the LARGEST |residual| and re-solve. This is the pass that catches
+//      the infeasible-triangle case above.
+//   4. If nothing worked, keep the AS-DRAWN coordinates. That is byte-for-byte
+//      what the IR produces today (every profile is currently baked, never
+//      solved), so the FLOOR of this whole feature is the status quo: SOLVE
+//      can never be worse than not having SOLVE.
+//
+// `maxDemotions` bounds the repair so a pathological sketch cannot spin; it is
+// a work bound, not a capability gate — the sketch is still returned.
+SketchSolveReport solveOrRepair(SketchHandle h, int maxDemotions = 16);
+
 }  // namespace forge

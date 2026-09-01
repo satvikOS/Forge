@@ -18,13 +18,28 @@ namespace forge::ui {
 
 const char* toString(IrValueKind kind) noexcept {
   switch (kind) {
-    case IrValueKind::None:    return "none";
-    case IrValueKind::Profile: return "profile";
-    case IrValueKind::Wire:    return "wire";
-    case IrValueKind::Solid:   return "solid";
-    case IrValueKind::Surface: return "surface";
+    case IrValueKind::None:      return "none";
+    case IrValueKind::Profile:   return "profile";
+    case IrValueKind::Wire:      return "wire";
+    case IrValueKind::Solid:     return "solid";
+    case IrValueKind::Surface:   return "surface";
+    // The vocabulary spells these SKETCH / SKETCHREF and mapValueKind() matches
+    // case-insensitively against exactly these strings, so the two spellings are
+    // one string, lowered -- not a second transcription that can drift.
+    case IrValueKind::Sketch:    return "sketch";
+    case IrValueKind::SketchRef: return "sketchref";
   }
   return "none";
+}
+
+bool irValueKindFromName(std::string_view name, IrValueKind& out) noexcept {
+  for (const IrValueKind kind : kAllIrValueKinds) {
+    if (name == toString(kind)) {
+      out = kind;
+      return true;
+    }
+  }
+  return false;
 }
 
 const char* toString(EditCheck check) noexcept {

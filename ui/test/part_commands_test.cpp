@@ -1220,5 +1220,57 @@ int main() {
     CHECK_EQ_STR(toString(EditCheck::InvalidStatement), "invalid_statement");
   }
 
+  // ── the value-kind string layer round-trips, for EVERY kind ───────────────
+  // The .fpart writer emits toString(kind) for whatever kind a record holds; the
+  // reader turns that string back into a kind. Those were two separate lists --
+  // a switch (which -Wswitch guards) and an if-chain over four literals (which
+  // nothing guards) -- so a kind added to the enum produced a document that SAVED
+  // and would not LOAD, with no diagnostic in either half. This is the invariant
+  // that was missing, asserted over the enum rather than over a list of names.
+  {
+    std::size_t seen = 0;
+    for (const IrValueKind kind : kAllIrValueKinds) {
+      const char* name = toString(kind);
+      CHECK(name != nullptr && *name != '\0');
+      IrValueKind back = IrValueKind::None;
+      CHECK(irValueKindFromName(name, back));
+      CHECK_EQ_INT(static_cast<int>(back), static_cast<int>(kind));
+      ++seen;
+    }
+    // Not "at least four": the count is the enumerator count, so a kind added to
+    // the enum and NOT to kAllIrValueKinds fails here instead of at a user's save.
+    // 7 = none, profile, wire, solid, surface, sketch, sketchref. It read 6 when
+    // Surface (#146) and Sketch/SketchRef merged, because each branch had written
+    // the list without the other's kind; this check is what said so.
+    CHECK_EQ_INT(seen, 7);
+
+    // Distinct spellings — two kinds sharing a name would round-trip one of them
+    // to the other and silently retype a value on load.
+    for (const IrValueKind a : kAllIrValueKinds) {
+      for (const IrValueKind b : kAllIrValueKinds) {
+        if (a == b) continue;
+        CHECK(std::string(toString(a)) != std::string(toString(b)));
+      }
+    }
+
+    // The kinds the SKETCH family needs, by name, and NOT collapsed onto profile:
+    // SOLVE produces a profile and SPT/SLINE/SCIRC/SARC produce a sketchref, so
+    // the three must stay distinguishable.
+    CHECK_EQ_STR(toString(IrValueKind::Sketch), "sketch");
+    CHECK_EQ_STR(toString(IrValueKind::SketchRef), "sketchref");
+    CHECK_EQ_STR(toString(IrValueKind::Profile), "profile");
+    // And the kind the OTHER branch of this merge added, for the same reason: a
+    // sheet body must not round-trip onto solid.
+    CHECK_EQ_STR(toString(IrValueKind::Surface), "surface");
+
+    IrValueKind unknown = IrValueKind::Solid;
+    CHECK(!irValueKindFromName("", unknown));
+    CHECK(!irValueKindFromName("sketchref ", unknown));
+    CHECK(!irValueKindFromName("SKETCH", unknown));  // case-sensitive by contract
+    CHECK(!irValueKindFromName("not_a_kind", unknown));
+    // a refused name leaves the out-parameter alone
+    CHECK_EQ_INT(static_cast<int>(unknown), static_cast<int>(IrValueKind::Solid));
+  }
+
   return H.finish();
 }

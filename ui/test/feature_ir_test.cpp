@@ -234,11 +234,16 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 46 ops -- the original 40 plus the six that
-  // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
-  // THICKEN / CAP / SURFCHECK). Anything else means the derivation itself broke,
-  // and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 46);
+  // forge::ft::opFromName registers 53 ops; anything else means the derivation
+  // itself broke, and a broken oracle must not pass quietly.
+  //   40  the base IR
+  //   +6  the SURFACE value kind (#146): SKIN FACES SEW THICKEN CAP SURFCHECK
+  //   +7  the 2D sketch + constraint family: SKETCH SPT SLINE SCIRC SARC CON
+  //       SOLVE, which made the vendored planegcs solver addressable from a
+  //       feature tree for the first time.
+  // Neither branch's number described the merge of the two (46 and 47); this one
+  // is COUNTED from opFromName rather than carried over from either side.
+  CHECK_EQ_INT(kernel.size(), 53);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -274,6 +279,18 @@ int main() {
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);
   CHECK_EQ_INT(kernel.at("BOX").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SHELL").firstArgIsValueRef ? 1 : 0, 1);
+  // the sketch family, read by eye out of the kernel header
+  CHECK_EQ_INT(kernel.at("SKETCH").minArgs, 1);                     // SKETCH(PLANE)
+  CHECK_EQ_INT(kernel.at("SKETCH").firstArgIsValueRef ? 1 : 0, 0);  // a keyword, not a %ref
+  CHECK_EQ_INT(kernel.at("SPT").minArgs, 3);                        // %sketch, x, y
+  CHECK_EQ_INT(kernel.at("SPT").maxArgs, 3);
+  CHECK_EQ_INT(kernel.at("SLINE").minArgs, 2);
+  CHECK_EQ_INT(kernel.at("SARC").minArgs, 3);
+  CHECK_EQ_INT(kernel.at("CON").minArgs, 2);                        // %a, KIND
+  CHECK_EQ_INT(kernel.at("CON").maxArgs, 4);                        // + %b, value
+  CHECK_EQ_INT(kernel.at("SOLVE").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("SOLVE").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("SOLVE").firstArgIsValueRef ? 1 : 0, 1);
 
   // The SURFACE ops, read by eye out of the kernel header the same way. A count
   // that moved from 40 to 46 proves six enumerators appeared; only these prove

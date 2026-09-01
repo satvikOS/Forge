@@ -918,15 +918,114 @@ def classify(op_name, param):
 # ---------------------------------------------------------------------------
 # 6. what each op CONSUMES, read out of the compiler's own type checks
 # ---------------------------------------------------------------------------
-# refSurface is the fourth entry because SURFACE is the fourth IR value kind.
-# It contributes nothing to the JSON TODAY -- every surface op is forbidden, and
-# a forbidden op records only its name and the reason -- but omitting it would be
-# a latent WRONG answer rather than a missing one: the moment a forge::ui command
-# emits THICKEN or CAP, its `consumes_value_kinds` would come back EMPTY, which
-# this file spells "a CREATOR", and the value-kind closure would report the
-# allowed set as closed when it is not.
-REF_ACCESSOR_KIND = {"refSolid": "SOLID", "refProfile": "PROFILE", "refWire": "WIRE",
-                     "refSurface": "SURFACE"}
+# A MISS HERE IS SILENT, which is why the table is asserted complete below.
+# `parse_compiler_ref_kinds` decides what an op consumes by searching each
+# handler body for these accessor names. An accessor the dict does not list is
+# simply never searched for, so the op's `consumes_value_kinds` comes out `[]` --
+# indistinguishable from a genuine creator that consumes nothing. That is exactly
+# what happened to the sketch family: `refSketch` and `refEntity` shipped in
+# FeatureTreeCompiler.cpp with no entry here, and all seven ops derived as
+# creators. `assert_ref_accessors_mapped()` closes the hole by requiring every
+# `ref*` accessor the compiler DEFINES to appear in this table.
+REF_ACCESSOR_KIND = {
+    "refSolid": "SOLID",
+    "refProfile": "PROFILE",
+    "refWire": "WIRE",
+    # A %ref that must be a SHEET BODY. It contributes nothing to the JSON while
+    # every surface op is forbidden -- a forbidden op records only its name and
+    # the reason -- but omitting it would be a WRONG answer rather than a missing
+    # one: the moment a forge::ui command emits THICKEN or CAP, its
+    # `consumes_value_kinds` would come back EMPTY, which this file spells "a
+    # CREATOR", and the value-kind closure would report the allowed set as closed
+    # when it is not. `assert_ref_accessors_mapped` now makes that unmissable.
+    "refSurface": "SURFACE",
+    # A %ref that must be a SKETCH -- or a SKETCHREF, from which refSketch
+    # recovers the owning sketch. The consumed KIND is the sketch either way.
+    "refSketch": "SKETCH",
+    # A %ref that must be a SKETCHREF: an entity (point / line / circle / arc)
+    # inside a sketch. CON names two of them.
+    "refEntity": "SKETCHREF",
+}
+
+# Every accessor the compiler defines must be classified above. Anything else is
+# a kind the vocabulary would report as "consumes nothing".
+REF_ACCESSOR_DEF_RE = re.compile(
+    r"\b\w[\w:<>,&* ]*?\b(ref[A-Z]\w*)\s*\(\s*const Op& op")
+
+
+def assert_ref_accessors_mapped(cpp):
+    """Every ref* accessor the compiler defines must have a REF_ACCESSOR_KIND row."""
+    defined = set(REF_ACCESSOR_DEF_RE.findall(strip_comments(cpp)))
+    if not defined:
+        raise DeriveError("no ref* accessors found in the compiler: the derivation "
+                          "that reads what each op consumes cannot be trusted")
+    unmapped = sorted(defined - set(REF_ACCESSOR_KIND))
+    if unmapped:
+        raise DeriveError(
+            "compiler accessor(s) %s have no REF_ACCESSOR_KIND entry. Ops using them "
+            "would derive consumes_value_kinds=[] and be published as CREATORS "
+            "reachable from an empty document." % ", ".join(unmapped))
+    return sorted(defined)
+
+
+# ---------------------------------------------------------------------------
+# 6b. what each op PRODUCES, read out of the compiler's kindOf() switch
+# ---------------------------------------------------------------------------
+# The op's produced kind used to be scraped from the PROSE section header above
+# each OpCode block (`--- 2D profiles (produce a PROFILE) ---`). That worked only
+# while every section was homogeneous. The sketch family's header reads
+# "(produce a SKETCH / SKETCHREF)" and the regex takes the first word, so all
+# seven ops derived as SKETCH -- including SOLVE, whose whole purpose is to
+# produce a PROFILE, and the four entity ops, which produce a SKETCHREF.
+#
+# `Builder::kindOf()` is the function the kernel actually calls to label a value.
+# Deriving from it makes the vocabulary agree with the compiler by construction
+# instead of by a comment nobody re-reads.
+VAL_KIND_SPELLING = {
+    "Profile": "PROFILE",
+    "Wire": "WIRE",
+    "Solid": "SOLID",
+    "Surface": "SURFACE",
+    "Sketch": "SKETCH",
+    "SketchRef": "SKETCHREF",
+}
+
+
+def parse_compiler_produced_kinds(cpp):
+    """{OpCode enum: KIND} read from Builder::kindOf(), plus the switch default."""
+    src = strip_comments(cpp)
+    body, _, _ = block_after(src, r"static Val::Kind kindOf\s*\(\s*OpCode\s+\w+\s*\)\s*")
+    out = {}
+    default = None
+    pending = []
+    # One ordered pass: `case OpCode::X:` accumulates, `return Val::Y;` flushes.
+    for m in re.finditer(r"case OpCode::(\w+)\s*:|default\s*:|return Val::(\w+)\s*;", body):
+        if m.group(1):
+            pending.append(m.group(1))
+            continue
+        if m.group(0).startswith("default"):
+            pending.append(None)  # the default arm
+            continue
+        spelling = VAL_KIND_SPELLING.get(m.group(2))
+        if spelling is None:
+            raise DeriveError("kindOf() returns Val::%s, which VAL_KIND_SPELLING does "
+                              "not name" % m.group(2))
+        if not pending:
+            raise DeriveError("kindOf() has a `return Val::%s` with no case label"
+                              % m.group(2))
+        for enum in pending:
+            if enum is None:
+                default = spelling
+            else:
+                out[enum] = spelling
+        pending = []
+    if default is None:
+        raise DeriveError("kindOf() has no default arm: ops absent from the switch "
+                          "would have no derivable produced kind")
+    if not out:
+        raise DeriveError("kindOf() yielded no explicit case: the produced-kind "
+                          "derivation is reading the wrong function")
+    return out, default
 
 
 def parse_compiler_ref_kinds(cpp):
@@ -1284,7 +1383,13 @@ def build():
     kops = parse_kernel_opcodes(src["kernel_header"])
     spellings = parse_op_from_name(src["kernel_compiler"])
     ui_table = parse_ui_op_table(src["ui_ir_table"])
+    assert_ref_accessors_mapped(src["kernel_compiler"])
     ref_kinds = parse_compiler_ref_kinds(src["kernel_compiler"])
+    produced_kinds, produced_default = parse_compiler_produced_kinds(src["kernel_compiler"])
+    # The kind an op produces is now the COMPILER's answer, not the prose section
+    # header's. Kept on the same key so every downstream reader is unchanged.
+    for op in kops:
+        op["produces_kind"] = produced_kinds.get(op["enum"], produced_default)
     part = parse_part_commands(src["ui_part_commands"])
     shell = parse_shell_commands(src["ui_shell_commands"])
     seeds = parse_desktop_seeds(src["desktop_frame"])
@@ -1371,6 +1476,23 @@ def build():
         cmds = [c for c in emitting if c["feature_ir_op"] == name]
         produces = sorted({c["produces_value_kind"].upper() for c in cmds
                            if c["produces_value_kind"]})
+        # THE TWO VALUE-KIND ENUMS MUST AGREE. `forge::ui::IrValueKind` (what the
+        # command declares at its emit() call) and the kernel's `Val::Kind` (what
+        # Builder::kindOf returns) are separate enums in separate layers with no
+        # compiler relating them, so a command may label its statement PROFILE
+        # while the kernel labels the same statement SKETCH -- and every check
+        # downstream of the vocabulary would then be enforcing the wrong type.
+        # Nothing detected that before this check: the vocabulary simply
+        # published whatever the command said.
+        kernel_produces = op["produces_kind"]
+        for stated in produces:
+            if stated != kernel_produces:
+                raise DeriveError(
+                    "value-kind disagreement for %s: the forge::ui command(s) %s emit it as "
+                    "IrValueKind::%s, but the kernel's Builder::kindOf() labels %s as %s. "
+                    "One of the two enums is wrong; the vocabulary will not publish either."
+                    % (name, ", ".join(c["id"] for c in cmds), stated.title(),
+                       op["enum"], kernel_produces))
         consumes = ref_kinds[op["enum"]]["consumes"]
         entry = {
             "op": name,

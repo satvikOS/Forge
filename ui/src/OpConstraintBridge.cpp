@@ -39,16 +39,11 @@ std::string lower(std::string_view text) {
 // the enum's OWN names is a derivation from the enum, not a second transcription
 // of it -- add a kind to IrValueKind and this keeps working.
 bool mapValueKind(std::string_view spelling, IrValueKind& out) {
-  const IrValueKind kinds[] = {IrValueKind::None, IrValueKind::Profile, IrValueKind::Wire,
-                               IrValueKind::Solid, IrValueKind::Surface};
-  const std::string want = lower(spelling);
-  for (const IrValueKind kind : kinds) {
-    if (want == toString(kind)) {
-      out = kind;
-      return true;
-    }
-  }
-  return false;
+  // kAllIrValueKinds is THE list (PartCommands.hpp); the .fpart reader walks the
+  // same one, so a kind cannot be known to one string layer and not the other.
+  // This replaced a local array of literals that, at the merge which brought
+  // Surface and Sketch together, was ALREADY missing a kind on both sides.
+  return irValueKindFromName(lower(spelling), out);
 }
 
 bool mapEntityKind(std::string_view spelling, EntityKind& out) {

@@ -123,6 +123,10 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"RECT", OpCode::Rect}, {"RRECT", OpCode::RRect}, {"CIRCLE", OpCode::Circle},
         {"SLOT", OpCode::Slot}, {"POLY", OpCode::Poly}, {"REGPOLY", OpCode::RegPoly},
         {"RING", OpCode::Ring}, {"WIRE", OpCode::Wire},
+        // 2D sketch + constraints — the planegcs solver, reachable from a tree
+        {"SKETCH", OpCode::Sketch}, {"SPT", OpCode::SPt}, {"SLINE", OpCode::SLine},
+        {"SCIRC", OpCode::SCirc}, {"SARC", OpCode::SArc},
+        {"CON", OpCode::Con}, {"SOLVE", OpCode::Solve},
         {"BOX", OpCode::Box}, {"CYL", OpCode::Cyl}, {"CONE", OpCode::Cone},
         {"SPHERE", OpCode::Sphere}, {"TORUS", OpCode::Torus}, {"PRISM", OpCode::Prism},
         {"TUBE", OpCode::Tube},
@@ -622,11 +626,28 @@ FeatureTree parse(const std::string& text) {
 namespace {
 
 struct Val {
-    // Surface is the FOURTH kind and it is deliberately last: every existing
-    // comparison in this file is `kind != Val::Solid` / `== Val::Profile`, never
-    // an ordering or a cast, so appending cannot change what any of them mean.
-    enum Kind { Profile, Wire, Solid, Surface } kind = Solid;
+    // APPENDED, never inserted, in the order the kinds landed: Surface (#146),
+    // then Sketch / SketchRef. Every existing comparison in this file is
+    // `kind != Val::Solid` / `== Val::Profile`, never an ordering or a cast, so
+    // appending cannot change what any of them mean. `kindName` below is the one
+    // place that must grow with the enum, and -Wswitch is what says so.
+    //
+    // Surface    — a SHEET BODY: an ordered set of faces, NOT required to be
+    //              closed, sewn, manifold or non-empty. `h` is the shape.
+    // Sketch     — a SketchHandle still under construction: mutable,
+    //              constrainable, NOT yet solved. `h` is the SketchHandle.
+    // SketchRef  — a point or curve INSIDE a sketch. A constraint has to name
+    //              two entities, and the IR addresses every value by its %N
+    //              creation id, so an entity needs to BE a value. `h` is the
+    //              OWNING SketchHandle (so CON can recover the sketch from
+    //              either operand) and `entity` is the point/entity id within
+    //              it. Two fields, zero grammar change.
+    // Profile    — the SAME SketchHandle after a solve: immutable, Z=0, ready
+    //              for EXTRUDE. refProfile() already returns a SketchHandle,
+    //              which is why the exit from this family costs nothing.
+    enum Kind { Profile, Wire, Solid, Surface, Sketch, SketchRef } kind = Solid;
     Handle h = 0;
+    std::uint32_t entity = 0;   // kind == SketchRef only
 
     // A SURFACE carries its own DIAGNOSIS alongside the handle, because the whole
     // point of the kind is that a degenerate sheet is a legal value. These are
@@ -648,6 +669,11 @@ const char* kindName(Val::Kind k) {
         case Val::Wire:    return "WIRE";
         case Val::Solid:   return "SOLID";
         case Val::Surface: return "SURFACE";
+        case Val::Sketch:  return "SKETCH";
+        // The name a DIAGNOSTIC has to print when a user hands EXTRUDE the point
+        // instead of the sketch. Spelling it "SKETCH" would make the two most
+        // confusable mistakes in this family produce the same message.
+        case Val::SketchRef: return "SKETCHREF";
     }
     return "?";
 }
@@ -685,6 +711,14 @@ public:
             case OpCode::Slot:    return profSlot(op);
             case OpCode::Poly:    return profPoly(op);
             case OpCode::RegPoly: return profRegPoly(op);
+            // ---- 2D sketch + constraints ----
+            case OpCode::Sketch:  return skNew(op);
+            case OpCode::SPt:     return skPoint(op, env);
+            case OpCode::SLine:   return skLine(op, env);
+            case OpCode::SCirc:   return skCircle(op, env);
+            case OpCode::SArc:    return skArc(op, env);
+            case OpCode::Con:     return skConstrain(op, env);
+            case OpCode::Solve:   return skSolve(op, env);
             // ---- 3D section rings (WIRE) ----
             case OpCode::Ring:    return wireRing(op);
             case OpCode::Wire:    return wireExplicit(op);
@@ -763,10 +797,25 @@ public:
             case OpCode::Skin: case OpCode::Faces: case OpCode::Sew:
             case OpCode::SurfCheck:
                 return Val::Surface;
+            // A sketch under construction. CON is PASS-THROUGH: it hands back
+            // the same SKETCH it was given, so it lands here too.
+            case OpCode::Sketch: case OpCode::Con:
+                return Val::Sketch;
+            case OpCode::SPt: case OpCode::SLine: case OpCode::SCirc: case OpCode::SArc:
+                return Val::SketchRef;
+            // THE EXIT. A solved sketch IS a profile — refProfile() already
+            // returns a SketchHandle, so nothing downstream changes.
+            case OpCode::Solve:
+                return Val::Profile;
             default:
                 return Val::Solid;
         }
     }
+
+    // Set by the SKETCHREF producers (SPT/SLINE/SCIRC/SARC) and consumed by the
+    // compile loop on the very next line. build() is called once per op, in
+    // order, so a single slot is sufficient; it is reset on every build.
+    std::uint32_t lastEntity = 0;
 
 private:
     // ---- typed arg access ----------------------------------------------------
@@ -915,6 +964,217 @@ private:
     }
 
     // ---- profile builders (return a SketchHandle) ---------------------------
+    // ======================================================================
+    // 2D SKETCH + CONSTRAINTS — the planegcs solver, reachable from a tree.
+    //
+    // Everything below is REACHABILITY, not numerics: the solver, the rank
+    // diagnosis, the residual vector and the repair contract already exist in
+    // forge::Sketcher. These arms only let a feature-tree statement address
+    // them.
+    // ======================================================================
+
+    // A %ref that must be a SKETCH (or a SKETCHREF, from which the owning
+    // sketch is recovered — that is the whole point of the second kind).
+    Handle refSketch(const Op& op, std::size_t i, std::unordered_map<int, Val>& env) {
+        if (i >= op.args.size() || op.args[i].kind != TokKind::Ref)
+            throw OpError(op.id, op.name + ": arg #" + std::to_string(i) + " must be a %ref");
+        auto it = env.find(op.args[i].ref);
+        if (it == env.end())
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is undefined");
+        if (it->second.kind == Val::Sketch || it->second.kind == Val::SketchRef)
+            return it->second.h;
+        throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) +
+                      " is not a SKETCH (use SKETCH(XY) and its entities)");
+    }
+    // A %ref that must be a SKETCHREF; yields the entity id AND its owner.
+    std::uint32_t refEntity(const Op& op, std::size_t i, std::unordered_map<int, Val>& env,
+                            Handle& ownerOut) {
+        if (i >= op.args.size() || op.args[i].kind != TokKind::Ref)
+            throw OpError(op.id, op.name + ": arg #" + std::to_string(i) + " must be a %ref");
+        auto it = env.find(op.args[i].ref);
+        if (it == env.end())
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is undefined");
+        if (it->second.kind != Val::SketchRef)
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) +
+                          " is not a sketch entity (use SPT/SLINE/SCIRC/SARC)");
+        ownerOut = it->second.h;
+        return it->second.entity;
+    }
+
+    Handle skNew(const Op& op) {
+        const std::string plane = kwOpt(op, 0, "XY");
+        const SketchHandle s = forge::createSketch();
+        // forge::Sketcher states the Z=0 plane as a CONTRACT every native
+        // consumer relies on (Sketcher.hpp), and re-planting a solved profile
+        // is a transform of the BUILT SOLID, not of the sketch. That transform
+        // is not implemented here. Rather than refuse a plane keyword — which
+        // would cost a whole tree over one token — YZ/XZ solve on XY and SAY SO
+        // on the verify channel. A reported approximation beats both a refusal
+        // and a silent lie.
+        if (plane != "XY" && res)
+            res->verify.push_back("SKETCH %" + std::to_string(op.id) + " plane=" + plane +
+                                  " NOT APPLIED — solved on XY (sketch planes are not implemented)");
+        return s;
+    }
+
+    Handle skPoint(const Op& op, std::unordered_map<int, Val>& env) {
+        const Handle s = refSketch(op, 0, env);
+        lastEntity = forge::addPoint(s, num(op, 1), num(op, 2));
+        return s;
+    }
+    Handle skLine(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle o0 = 0, o1 = 0;
+        const std::uint32_t a = refEntity(op, 0, env, o0);
+        const std::uint32_t b = refEntity(op, 1, env, o1);
+        if (o0 != o1) throw OpError(op.id, "SLINE: both points must belong to the same SKETCH");
+        lastEntity = forge::addLine(o0, a, b);
+        return o0;
+    }
+    Handle skCircle(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle o = 0;
+        const std::uint32_t c = refEntity(op, 0, env, o);
+        lastEntity = forge::addCircle(o, c, num(op, 1));
+        return o;
+    }
+    Handle skArc(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle o0 = 0, o1 = 0, o2 = 0;
+        const std::uint32_t c = refEntity(op, 0, env, o0);
+        const std::uint32_t a = refEntity(op, 1, env, o1);
+        const std::uint32_t b = refEntity(op, 2, env, o2);
+        if (o0 != o1 || o0 != o2)
+            throw OpError(op.id, "SARC: centre and endpoints must belong to the same SKETCH");
+        lastEntity = forge::addArc(o0, c, a, b);
+        return o0;
+    }
+
+    // CON(%a, KIND [, %b, value]) — the kind is ALWAYS arg 1; operands follow
+    // and are read BY TOKEN TYPE, so one op covers unary, binary and
+    // dimensional constraints without four op names (the same dispatch-on-a-
+    // keyword shape PATTERN already uses for LINEAR|POLAR|GRID).
+    Handle skConstrain(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle owner = 0;
+        const std::uint32_t a = refEntity(op, 0, env, owner);
+        const std::string kind = kwReq(op, 1);
+
+        std::vector<std::uint32_t> refs{a};
+        double value = 0.0;
+        // ── a bad TRAILING operand is TOLERATED, not fatal ───────────────────
+        // CON is PASS-THROUGH: it hands back the SKETCH it was given, unchanged.
+        // That is precisely what makes a bad trailing operand recoverable where
+        // the same mistake on SLINE is not — SLINE must PRODUCE an entity and
+        // has no defensible answer, while a skipped CON has exactly one: the
+        // sketch as it already stood. So these two arms join the unknown-keyword
+        // and wrong-operand-type arms below, for the reason all four exist: one
+        // statement's mistake must not cost the other 199 of a long tree, and a
+        // mis-typed %ref is the single likeliest mistake a generating model
+        // makes. This was the LAST hole of that shape in the family — the arms
+        // below were written to honour never-refuse while the operand
+        // resolution feeding them could still kill the tree outright.
+        //
+        // The FIRST operand and the keyword keep REFUSING (case 5's negative
+        // controls): with neither an owning sketch nor a constraint kind
+        // resolved there is nothing to pass through, and inventing one would
+        // fabricate geometry rather than tolerate a mistake.
+        for (std::size_t i = 2; i < op.args.size(); ++i) {
+            if (op.args[i].kind == TokKind::Ref) {
+                Handle o2 = 0;
+                std::uint32_t e2 = 0;
+                try {
+                    e2 = refEntity(op, i, env, o2);
+                } catch (const OpError& e) {
+                    if (res)
+                        res->verify.push_back("CON %" + std::to_string(op.id) +
+                                              " SKIPPED — " + e.what());
+                    return owner;
+                }
+                if (o2 != owner) {
+                    if (res)
+                        res->verify.push_back("CON %" + std::to_string(op.id) +
+                                              " SKIPPED — operands belong to different SKETCHes");
+                    return owner;
+                }
+                refs.push_back(e2);
+            } else if (op.args[i].kind == TokKind::Number) {
+                value = op.args[i].num;
+            }
+        }
+
+        static const std::unordered_map<std::string, forge::SketchConstraintKind> kKinds = {
+            {"COINC", forge::SketchConstraintKind::Coincident},
+            {"PARA",  forge::SketchConstraintKind::Parallel},
+            {"PERP",  forge::SketchConstraintKind::Perpendicular},
+            {"DIST",  forge::SketchConstraintKind::Distance},
+            {"HORIZ", forge::SketchConstraintKind::Horizontal},
+            {"VERT",  forge::SketchConstraintKind::Vertical},
+            {"PTON",  forge::SketchConstraintKind::PointOnLine},
+            {"EQUAL", forge::SketchConstraintKind::Equal},
+            {"TANG",  forge::SketchConstraintKind::Tangent},
+        };
+        auto it = kKinds.find(kind);
+        if (it == kKinds.end()) {
+            // NOT a throw. An unrecognised constraint keyword is one statement's
+            // worth of information, and refusing it would cost the whole tree —
+            // the exact failure mode the owner's constraint forbids. Skip it,
+            // NAME it on the verify channel, and keep building.
+            if (res)
+                res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — unknown kind '" +
+                                      kind + "' (known: COINC PARA PERP DIST HORIZ VERT PTON EQUAL TANG)");
+            return owner;
+        }
+        // The facade THROWS on a type-mismatched operand — TANG wants
+        // {line, circle}, PTON wants {point, line}, and handing it two points
+        // raises. A known keyword applied to the wrong entities is still ONE
+        // statement's mistake, and letting it escape would cost the whole tree
+        // for the same reason an unknown keyword would. Same treatment: skip it,
+        // NAME it, keep building. (The unknown-keyword arm above is the other
+        // half of this; both must behave identically or the contract has a hole
+        // exactly where a model is most likely to fall in.)
+        try {
+            forge::addConstraint(owner, it->second, refs, value);
+        } catch (const std::exception& e) {
+            if (res)
+                res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — " + kind +
+                                      " rejected these operands: " + e.what());
+        }
+        return owner;   // PASS-THROUGH: CON returns the SKETCH unchanged.
+    }
+
+    // SOLVE(%sketch) -> PROFILE. The one op in this family that must NEVER
+    // refuse: it always yields a profile, and it REPORTS what it had to demote.
+    Handle skSolve(const Op& op, std::unordered_map<int, Val>& env) {
+        const Handle s = refSketch(op, 0, env);
+        // "SOLVE always produces a PROFILE" is the guarantee this whole family
+        // rests on, so it is made TOTAL rather than nearly-total. solveOrRepair
+        // has no throw path of its own, but it drives ~370 KB of vendored
+        // numerics; if anything under there raises, the answer is still the
+        // as-drawn sketch -- which is the documented floor -- and NOT a dead
+        // tree. A guarantee with one uncovered path is not a guarantee, and the
+        // passing cases are exactly what would hide it.
+        forge::SketchSolveReport r{};
+        r.classification = "unsolved";
+        r.dof = -1;
+        try {
+            r = forge::solveOrRepair(s);
+        } catch (const std::exception& e) {
+            if (res)
+                res->verify.push_back("SOLVE %" + std::to_string(op.id) +
+                                      " SOLVER RAISED — kept the as-drawn coordinates: " + e.what());
+            return s;
+        }
+        if (res) {
+            std::string line = "SOLVE %" + std::to_string(op.id) + " " + r.classification +
+                               " dof=" + std::to_string(r.dof) +
+                               " passes=" + std::to_string(r.passes);
+            for (const auto& d : r.demoted)
+                line += " DEMOTED tag=" + std::to_string(d.tag) +
+                        (d.reason == forge::SketchDemotionReason::Conflicting ? "/CONFLICT" : "/RESIDUAL");
+            if (r.status != forge::SketchSolveStatus::Success)
+                line += " UNCONVERGED — kept the as-drawn coordinates";
+            res->verify.push_back(line);
+        }
+        return s;   // the same handle, now a PROFILE
+    }
+
     Handle profRect(const Op& op) {
         double w = num(op, 0), h = num(op, 1);
         double cx = numOpt(op, 2, 0), cy = numOpt(op, 3, 0);
@@ -2699,6 +2959,7 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         Handle h;
         builder.pendingNote.clear();
         builder.pendingFaces = -1;
+        builder.lastEntity = 0;   // reset before every build; see Builder::lastEntity
         try {
             h = builder.build(op, env);
         } catch (const OpError& e) {
@@ -2717,6 +2978,7 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         v.h = h;
         v.note = builder.pendingNote;
         v.faces = builder.pendingFaces;
+        v.entity = builder.lastEntity;   // meaningful only for kind == SketchRef
         env[op.id] = v;
         if (v.kind == Val::Solid) { lastSolid = h; lastSolidId = op.id; }
         ++out.nCompiled;
