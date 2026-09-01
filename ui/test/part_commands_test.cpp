@@ -577,18 +577,29 @@ int main() {
     CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 50);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
-    // Every handler that INDEXES a selection-derived vector belongs here. The three
-    // SURFACE ops that take a single sheet index it exactly as part.extrude indexes
-    // its profile, and part.section_curve indexes two bodies -- so they are covered
-    // by the same assertion rather than by a second one that could drift from it.
-    // part.skin / part.sew are NOT here: they ITERATE the vector, and iterating an
-    // empty vector is well-defined. Listing them would assert a refusal they do not
-    // owe and cannot give.
-    const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
-                                               "part.boolean_union", "part.boolean_subtract",
-                                               "part.boolean_intersect", "part.section_curve",
-                                               "part.thicken", "part.cap", "part.surfcheck"};
-    for (const std::string& id : indexing) {
+    // EVERY handler that reads a selection-derived vector belongs here, whether it
+    // indexes one or iterates one. The distinction looked like it mattered and
+    // MEASURING IT SAID OTHERWISE:
+    //
+    //   * the indexers crash without a guard -- part.thicken / part.cap /
+    //     part.surfcheck take a single sheet and call .front() exactly as
+    //     part.extrude calls it on its profile, and part.section_curve indexes two
+    //     bodies. Removing part.thicken's requireValues() and re-running this gate
+    //     gives exit 139, the same SIGSEGV recorded above for the original three.
+    //   * the iterators do NOT crash -- iterating an empty vector is well-defined --
+    //     but the question this block asks is not "does it crash", it is "does it
+    //     FAIL CLOSED". Measured: part.sew, part.skin and part.loft all refuse in
+    //     words and leave the document at its seed, because an argument list with no
+    //     %ref cannot satisfy the op's arity and appendFeature() rejects it.
+    //
+    // So they are all asserted together. Splitting them by mechanism would have
+    // published a rule ("iterators owe nothing here") that the measurement does not
+    // support, and would have left three handlers with no assertion at all.
+    const std::vector<std::string> readsSelection = {
+        "part.extrude", "part.revolve", "part.boolean_union", "part.boolean_subtract",
+        "part.boolean_intersect", "part.section_curve", "part.thicken", "part.cap",
+        "part.surfcheck", "part.sew", "part.skin", "part.loft"};
+    for (const std::string& id : readsSelection) {
       const CommandDescriptor* c = regX.find(id);
       CHECK(c != nullptr);
       if (c == nullptr) continue;
