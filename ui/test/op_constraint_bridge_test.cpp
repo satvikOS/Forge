@@ -37,9 +37,9 @@
 //                                              again and EXTRUDE/REVOLVE are OWED
 //   2  POLY is added to the allowed set      -> the constraint silently widened to
 //                                              an op no command emits
-//   3  EXTRUDE's emitted arity is widened     -> the KERNEL's arity is enforced
-//      to the kernel's                          instead of the app's, and a form
-//                                               no user can produce is accepted
+//   3  EXTRUDE's emitted arity is widened     -> the record of which forms the app
+//      to the kernel's                          can AUTHOR is lost, so the 61-count
+//                                               capability gap becomes invisible
 //   4  FILLET also accepts a Body selection  -> the selection half of the
 //                                               constraint stops discriminating
 //   5  EXTRUDE's consumed value kind is      -> value flow stops being checked and
@@ -157,7 +157,19 @@ OpVocabulary perturbed(OpVocabulary v) {
       v.ops.push_back(std::move(slot));
       break;
     }
-    case 3: {  // the KERNEL's arity is enforced instead of the app's
+    case 3: {  // the record of WHICH FORMS THE APP CAN AUTHOR is lost
+      // This mutation used to mean "the KERNEL's arity is enforced instead of the
+      // app's", back when the app's emitted forms were the REFUSAL boundary.
+      // They are not any more -- the kernel's range is, and a kernel-legal form no
+      // command emits is TOLERATED rather than refused, because the constraint on
+      // this programme is REPRESENT / REPAIR / TOLERATE, never refuse.
+      //
+      // Widening `emittedForms` to the kernel's range no longer changes a single
+      // verdict. What it destroys is the CAPABILITY GAP: every form suddenly looks
+      // authorable, `OpRuling::tolerated` comes back empty, and the 61 kernel-legal
+      // argument counts no forge::ui command can produce become invisible. That is
+      // still a real regression -- tolerating must not mean forgetting -- and it is
+      // what this mutation proves the gate still catches.
       if (OpVocabulary::Op* o = opAt("EXTRUDE")) {
         o->emittedForms.clear();
         o->emittedForms.push_back(OpVocabulary::ArgCounts{o->kernelMinArgs, o->kernelMaxArgs});
