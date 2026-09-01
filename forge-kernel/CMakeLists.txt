@@ -1368,6 +1368,7 @@ set(FORGE_KERNEL_SOURCES
     src/IoExchange.cpp
     src/DirectModeling.cpp
     src/Healing.cpp
+    src/SurfaceValue.cpp       # forge::surf — the SURFACE IR value kind (facesOf / statsOf)
     src/Features.cpp
     src/SheetMetal.cpp
     src/Weldments.cpp

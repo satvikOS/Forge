@@ -31,6 +31,25 @@
 //               Z=0 sketcher cannot express a section at a different height/plane.
 //   * SOLID   — a 3D body (a ShapeHandle), consumed by booleans / transforms /
 //               features and exported.
+//   * SURFACE — a SHEET BODY: an ordered set of faces (a ShapeHandle onto a
+//               FACE / SHELL / COMPOUND-of-faces) that is NOT required to be
+//               closed, sewn, manifold or even non-empty. Free-form geometry is
+//               not a future nicety — the ground-truth INPUT inventory of
+//               archie_edit_214 is 430 faces of which 67 are BSPLINE — and a
+//               surface is not expressible as any of the three kinds above: a
+//               PROFILE is planar and at Z=0, a WIRE is 1-dimensional, and a
+//               SOLID must bound a volume. Produced by SKIN / FACES / SEW,
+//               consumed by THICKEN / CAP / SEW / SURFCHECK.
+//
+//               ITS INVARIANT IS DELIBERATELY THE WEAKEST OF THE FOUR, and that
+//               is the whole design. A vocabulary that can only NAME a
+//               well-formed surface cannot name the one you have to repair, so
+//               the degenerate cases — an unsewn face set, edges with no
+//               p-curves, a self-intersecting patch, a selector that matched
+//               nothing — are all REPRESENTABLE as a SURFACE value and are
+//               reported by SURFCHECK, not refused at parse time. Refusing them
+//               would fire hardest on the longest, densest, most curved trees:
+//               exactly the ones worth having.
 // Ops reference prior ids by "%N". Creation order == evaluation order.
 //
 // ------------------------------------- GRAMMAR (one op per line) ------------
@@ -122,6 +141,47 @@ enum class OpCode {
     Fold,        // FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])
                  //   sheet-metal flange macro: BOX + ROTATE(about hinge) + FUSE
     Heal,        // HEAL(%body)
+
+    // --- surface sheets (produce a SURFACE) -----------------------------------
+    // The free-form half of the vocabulary. Every op here is a THIN wiring of a
+    // kernel entry point that already exists (loftguide::loft with solid=false,
+    // forge::surf::facesOf, forge::heal::sewShape / autoFillMissingFaces,
+    // forge::part::thickenSurface, forge::heal::checkValidity): the SURFACE kind
+    // is what was missing, not the geometry.
+    //
+    // NOTHING HERE REFUSES A DEGENERATE SHEET. A selector that matches no face
+    // yields an EMPTY surface, not an abort; SEW of two sheets that do not touch
+    // yields an unsewn surface, not an abort; THICKEN/CAP of a sheet the kernel
+    // declines fails with the op id, the face count and the free-edge count in
+    // the message so a repair loop can act on it. See SURFCHECK.
+    Skin,        // SKIN(%w0, %w1 [, %w2 ...] [, RULED])   skin >=2 WIRE sections as an
+                 //   OPEN SHEET (no end caps). This is LOFT's lateral skin typed as
+                 //   what it is. LOFT(..., OPEN) returns the same geometry but is
+                 //   typed SOLID, which is the pre-existing mistyping SKIN exists to
+                 //   let a tree avoid without changing LOFT's meaning.
+    Faces,       // FACES(%body, "sel")                    extract the selected faces of a
+                 //   SOLID as a sheet — the SOLID -> SURFACE direction, without which
+                 //   the kind is a dead end. "sel" is the SAME face-selector grammar
+                 //   DEFEATURE/PUSHFACE/RESIZEBORE use ("bore:r=47.5", "+z", "@name",
+                 //   "face:12", "plane:max-area", "radial:all"). A selector that
+                 //   matches NOTHING returns an empty SURFACE and records the miss;
+                 //   it does not abort the tree.
+    Sew,         // SEW(%s0 [, %s1 ...] [, tol=0.001])     stitch sheets into one sheet.
+                 //   Stays a SURFACE even when the stitch closes it — promotion to a
+                 //   SOLID is CAP's job, and a sew that silently changed value kind
+                 //   would make the kind depend on geometry the emitter cannot see.
+    Thicken,     // THICKEN(%surface, wall [, side=MID])   sheet -> SOLID by offsetting the
+                 //   sheet to a wall. side = IN | OUT | MID.
+    Cap,         // CAP(%surface [, tol=0.001])            sheet -> SOLID by sewing it and
+                 //   filling every free boundary (heal::autoFillMissingFaces).
+    SurfCheck,   // SURFCHECK(%surface, "expr", ...)       measure a sheet and record the
+                 //   answer. Pass-through like VERIFY/TAG: it returns %surface unchanged.
+                 //   Known quantities: faces, freeedges, closed, pcurves, selfintersect,
+                 //   area, shells. A FAILED assertion is recorded and fails the compile at
+                 //   the end — it never aborts the walk, so the geometry is still built
+                 //   and still measurable. THIS IS THE DIAGNOSTIC HALF OF THE TOLERANCE
+                 //   CONTRACT: degenerate sheets are representable BECAUSE they are
+                 //   answerable.
 
     // --- edit ops (transform an EXISTING solid; SACROSANCT "one structure") ----
     // These make the feature-tree IR the single emission format for BOTH

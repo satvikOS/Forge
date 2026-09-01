@@ -43,6 +43,8 @@
 #include "forge/Topology.hpp"   // VERIFY "genus=" / "shells=" — topology is 0.2 of the metric
 #include "forge/LoftGuide.hpp"   // loftguide::loft (real 3D loft over profileWire sections)
 #include "forge/VarFillet.hpp"   // varfillet::fillet (variable-radius BLEND)
+#include "forge/Sewing.hpp"      // sewing::sew (SEW over >1 sheet)
+#include "forge/SurfaceValue.hpp"  // surf::facesOf / statsOf — the SURFACE value kind
 
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"
@@ -132,6 +134,10 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"HOLE", OpCode::Hole}, {"CBORE", OpCode::Cbore}, {"FILLET", OpCode::Fillet},
         {"CHAMFER", OpCode::Chamfer}, {"BLEND", OpCode::Blend},
         {"SHELL", OpCode::Shell}, {"FOLD", OpCode::Fold}, {"HEAL", OpCode::Heal},
+        // surface sheets — the SURFACE value kind
+        {"SKIN", OpCode::Skin}, {"FACES", OpCode::Faces}, {"SEW", OpCode::Sew},
+        {"THICKEN", OpCode::Thicken}, {"CAP", OpCode::Cap},
+        {"SURFCHECK", OpCode::SurfCheck},
         // edit ops — the same grammar, dispatched to DirectEdit
         {"TAG", OpCode::Tag},
         {"INPUT", OpCode::Input}, {"PUSHFACE", OpCode::PushFace},
@@ -345,7 +351,16 @@ FeatureTree parse(const std::string& text) {
             const bool isAssign = (line[0] == '%');
             const bool isResult = (U.rfind("RESULT", 0) == 0);
             const bool isVerify = (U.rfind("VERIFY", 0) == 0);
-            if (!isAssign && !isResult && !isVerify) {
+            // SURFCHECK gets the same standing as VERIFY, for the same reason and
+            // by the same rule. s0.5 forbids an OPAQUE placeholder — a line that
+            // omits identity, parameters, reference selection or exact count. A
+            // bare `SURFCHECK "freeEdges=0"` omits none of those: it names a typed
+            // op, carries its assertion verbatim, and is rewritten below into the
+            // explicit `%id = SURFCHECK(%body, ...)` form against the newest value.
+            // Rejecting it would discard a whole tree over punctuation on the one
+            // op whose entire job is to let a degenerate surface be DESCRIBED.
+            const bool isSurfCheck = (U.rfind("SURFCHECK", 0) == 0);
+            if (!isAssign && !isResult && !isVerify && !isSurfCheck) {
                 throw ParseError(
                     ParseFailure::OpaquePlaceholder, lineNo, line,
                     "ft parse line " + std::to_string(lineNo) +
@@ -378,6 +393,22 @@ FeatureTree parse(const std::string& text) {
             if (rest.size() >= 2 && rest.front() == '(' && rest.back() == ')')
                 rest = trim(rest.substr(1, rest.size() - 2));
             line = "%" + std::to_string(syntheticId--) + " = VERIFY(%" +
+                   std::to_string(lastDefinedId) + (rest.empty() ? "" : ", " + rest) + ")";
+        }
+
+        // The same repair for SURFCHECK, for the same reason and by the same rule.
+        // SURFCHECK is a pass-through predicate exactly like VERIFY, so an emitter
+        // that writes the bare form is expressing the same intent; rejecting it
+        // would be a refusal over punctuation, on the ONE op whose whole job is to
+        // let a degenerate surface be described rather than thrown away.
+        if (line[0] != '%' && upper(line).rfind("SURFCHECK", 0) == 0) {
+            if (lastDefinedId < 0) {
+                fail("SURFCHECK before any value is defined");
+            }
+            std::string rest = trim(line.substr(9));
+            if (rest.size() >= 2 && rest.front() == '(' && rest.back() == ')')
+                rest = trim(rest.substr(1, rest.size() - 2));
+            line = "%" + std::to_string(syntheticId--) + " = SURFCHECK(%" +
                    std::to_string(lastDefinedId) + (rest.empty() ? "" : ", " + rest) + ")";
         }
 
@@ -550,7 +581,7 @@ FeatureTree parse(const std::string& text) {
         // `%8 = VERIFY("holes=4")` — assignment form, body left implicit. Same
         // intent as the bare form, so it gets the same binding rather than the
         // "arg #0 must be a %ref" rejection that failed 3 of 26 holdout rounds.
-        if (op.code == OpCode::Verify &&
+        if ((op.code == OpCode::Verify || op.code == OpCode::SurfCheck) &&
             (op.args.empty() || op.args[0].kind != TokKind::Ref) && lastDefinedId >= 0) {
             Token body;
             body.kind = TokKind::Ref;
@@ -591,9 +622,35 @@ FeatureTree parse(const std::string& text) {
 namespace {
 
 struct Val {
-    enum Kind { Profile, Wire, Solid } kind = Solid;
+    // Surface is the FOURTH kind and it is deliberately last: every existing
+    // comparison in this file is `kind != Val::Solid` / `== Val::Profile`, never
+    // an ordering or a cast, so appending cannot change what any of them mean.
+    enum Kind { Profile, Wire, Solid, Surface } kind = Solid;
     Handle h = 0;
+
+    // A SURFACE carries its own DIAGNOSIS alongside the handle, because the whole
+    // point of the kind is that a degenerate sheet is a legal value. These are
+    // filled by the op that produced it and read by SURFCHECK; nothing here can
+    // refuse a value, it only records what the value is.
+    //
+    // `faces == 0` is a real, representable surface: `FACES(%body, "sel")` whose
+    // selector matched nothing returns one rather than aborting a 200-op tree.
+    int         faces = -1;      // -1 = not measured
+    std::string note;            // provenance / what went wrong, empty when clean
 };
+
+// The kind's own name, for a diagnostic that has to say WHAT it got. The old
+// messages hard-coded "is a PROFILE, expected a SOLID" on every mismatch, which
+// became a lie the moment a fourth kind existed.
+const char* kindName(Val::Kind k) {
+    switch (k) {
+        case Val::Profile: return "PROFILE";
+        case Val::Wire:    return "WIRE";
+        case Val::Solid:   return "SOLID";
+        case Val::Surface: return "SURFACE";
+    }
+    return "?";
+}
 
 // A local exception carrying the offending op id for loud, precise failure.
 struct OpError : std::runtime_error {
@@ -662,6 +719,13 @@ public:
             case OpCode::Shell:   return opShell(op, env);
             case OpCode::Fold:    return opFold(op, env);
             case OpCode::Heal:    return opHeal(op, env);
+            // ---- surface sheets (the SURFACE value kind) ----
+            case OpCode::Skin:      return opSkin(op, env);
+            case OpCode::Faces:     return opFaces(op, env);
+            case OpCode::Sew:       return opSew(op, env);
+            case OpCode::Thicken:   return opThicken(op, env);
+            case OpCode::Cap:       return opCap(op, env);
+            case OpCode::SurfCheck: return opSurfCheck(op, env);
             // ---- edit ops (same walker, DirectEdit backend) ----
             case OpCode::Tag:        return opTag(op, env);
             case OpCode::Input:      return opInput(op);
@@ -691,6 +755,14 @@ public:
                 return Val::Profile;
             case OpCode::Ring: case OpCode::Wire:
                 return Val::Wire;
+            // A sheet body. SEW stays a SURFACE even when the stitch closes it:
+            // making the value kind depend on the measured geometry would mean the
+            // emitter cannot tell what `%N` IS without building it first, and every
+            // downstream arity/kind check would become unpredictable. CAP is the
+            // explicit promotion verb.
+            case OpCode::Skin: case OpCode::Faces: case OpCode::Sew:
+            case OpCode::SurfCheck:
+                return Val::Surface;
             default:
                 return Val::Solid;
         }
@@ -717,8 +789,20 @@ private:
         auto it = env.find(op.args[i].ref);
         if (it == env.end())
             throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is undefined");
-        if (it->second.kind != Val::Solid)
-            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is a PROFILE, expected a SOLID");
+        if (it->second.kind != Val::Solid) {
+            // The message used to say "is a PROFILE" for every mismatch, which was
+            // already only accidentally true and became false the moment a fourth
+            // kind existed. It NAMES the kind it got and, for a SURFACE, names the
+            // op that converts one — a repair loop cannot act on "wrong kind".
+            std::string fix;
+            if (it->second.kind == Val::Surface)
+                fix = " — a sheet is not a body: use THICKEN(%" +
+                      std::to_string(op.args[i].ref) + ", wall) or CAP(%" +
+                      std::to_string(op.args[i].ref) + ") to close it into a SOLID";
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) +
+                                     " is a " + kindName(it->second.kind) +
+                                     ", expected a SOLID" + fix);
+        }
         return it->second.h;
     }
     Handle refProfile(const Op& op, std::size_t i, std::unordered_map<int, Val>& env) {
@@ -728,7 +812,9 @@ private:
         if (it == env.end())
             throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is undefined");
         if (it->second.kind != Val::Profile)
-            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is a SOLID, expected a PROFILE");
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) +
+                                     " is a " + kindName(it->second.kind) +
+                                     ", expected a PROFILE");
         return it->second.h;  // a SketchHandle
     }
     Handle refWire(const Op& op, std::size_t i, std::unordered_map<int, Val>& env) {
@@ -739,8 +825,47 @@ private:
             throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is undefined");
         if (it->second.kind != Val::Wire)
             throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) +
-                          " is not a WIRE section (use RING(...) or WIRE([...]))");
+                          " is a " + kindName(it->second.kind) +
+                          ", not a WIRE section (use RING(...) or WIRE([...]))");
         return it->second.h;  // a TopoDS_Wire ShapeHandle
+    }
+
+    // ---- SURFACE ------------------------------------------------------------
+    // The one ref accessor that COERCES rather than refusing, because one of the
+    // two coercions is total and lossless: a SOLID's boundary IS a sheet, so
+    // SURFCHECK(%solid, ...) / SEW(%solid) / THICKEN(%solid, w) all have exactly
+    // one meaning and refusing them would only force the emitter to write
+    // FACES(%solid, "all") by hand. The promotion is RECORDED in the returned
+    // value's note, so nothing about it is silent.
+    //
+    // A PROFILE and a WIRE are NOT coerced: turning a Z=0 sketch or a 3D ring into
+    // a sheet requires FILLING it, which invents geometry the emitter did not ask
+    // for. Those two refuse — and the refusal names the op that does the job, which
+    // is the only form of refusal this design permits.
+    Val refSurface(const Op& op, std::size_t i, std::unordered_map<int, Val>& env) {
+        if (i >= op.args.size() || op.args[i].kind != TokKind::Ref)
+            throw OpError(op.id, op.name + ": arg #" + std::to_string(i) + " must be a %ref");
+        auto it = env.find(op.args[i].ref);
+        if (it == env.end())
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is undefined");
+        const Val& v = it->second;
+        if (v.kind == Val::Surface) return v;
+        if (v.kind == Val::Solid) {
+            Val promoted;
+            promoted.kind = Val::Surface;
+            promoted.h = forge::surf::boundaryOf(v.h);
+            promoted.faces = static_cast<int>(forge::surf::faceCountOf(v.h));
+            promoted.note = "promoted SOLID %" + std::to_string(op.args[i].ref) +
+                            " to its boundary sheet (" + std::to_string(promoted.faces) +
+                            " faces)";
+            return promoted;
+        }
+        throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is a " +
+                                 kindName(v.kind) +
+                                 ", expected a SURFACE — a PROFILE becomes a solid via "
+                                 "EXTRUDE/REVOLVE and a WIRE becomes a sheet via "
+                                 "SKIN(%w0, %w1); neither is filled implicitly, because "
+                                 "that would invent a face the tree never asked for");
     }
     // A mandatory bracketed point list at arg i.
     const std::vector<Point3>& pointsArg(const Op& op, std::size_t i) {
@@ -1326,6 +1451,348 @@ private:
     }
 
     // ======================================================================
+    // SURFACE SHEETS — the fourth value kind.
+    //
+    // Every builder below is TOLERANT BY CONSTRUCTION, and the constraint that
+    // made it so is worth stating once: a validator that refuses input is a
+    // capability gate wearing a safety hat, and it fires hardest on the longest,
+    // densest, most curved trees — exactly the valuable ones. So:
+    //
+    //   * a selector that matches NOTHING yields an EMPTY sheet, not an abort;
+    //   * an unsewn face set is a legal value, and THICKEN/CAP SEW IT FOR YOU
+    //     rather than declining it;
+    //   * an unknown trailing flag is recorded in the sheet's note, not thrown;
+    //   * the only refusals left are the ones with no alternative (the kernel
+    //     itself declined the offset), and each names the op id, the face count
+    //     and the free-edge count so a repair loop has something to act on.
+    //
+    // `pendingNote` / `pendingFaces` are how a builder hands its DIAGNOSIS back to
+    // the walker, which stores it on the Val. A degenerate surface is only
+    // representable if it is also answerable.
+    // ======================================================================
+
+    // The sheet a surface op is about to work on, sewn if it needs sewing.
+    //
+    // Sewing here is a REPAIR, not a precondition: FACES() deliberately returns an
+    // unsewn compound (so the caller can see whether the faces it asked for
+    // actually meet), and THICKEN/CAP need a shell. Doing it silently would hide
+    // the repair, so it is recorded in `pendingNote` instead of being refused.
+    Handle sewIfLoose(const Val& sheet, double tol, std::string& note) {
+        forge::surf::SheetStats st;
+        try { st = forge::surf::statsOf(sheet.h); } catch (...) { return sheet.h; }
+        if (st.faces <= 1) return sheet.h;
+        try {
+            auto r = forge::heal::sewShape(sheet.h, tol);
+            if (r.handle == forge::kInvalidHandle) return sheet.h;
+            note += (note.empty() ? "" : "; ") + std::string("auto-sewed ") +
+                    std::to_string(st.faces) + " faces (open edges " +
+                    std::to_string(r.report.openEdgesBefore) + " -> " +
+                    std::to_string(r.report.openEdgesAfter) + ")";
+            return r.handle;
+        } catch (const std::exception& e) {
+            // The sew declined. That is a fact about the sheet, not a reason to
+            // end the tree: the unsewn sheet is still a legal SURFACE and the
+            // caller may still be able to use it.
+            note += (note.empty() ? "" : "; ") + std::string("sew declined: ") + e.what();
+            return sheet.h;
+        }
+    }
+
+    // A one-line description of a sheet, for a message a repair loop reads.
+    static std::string describe(const forge::surf::SheetStats& st) {
+        return std::to_string(st.faces) + " faces, " + std::to_string(st.freeEdges) +
+               " free edges, " + std::to_string(st.nonManifoldEdges) +
+               " non-manifold edges, " + std::to_string(st.edgesWithoutPCurve) +
+               " edges without p-curves, " + std::to_string(st.freeformFaces) +
+               " free-form faces";
+    }
+
+    // SKIN — the lateral skin of a loft, typed as the sheet it actually is.
+    // Same kernel call as LOFT with the OPEN flag (loftguide::loft(..., false,
+    // ruled)); the difference is the VALUE KIND, which is the whole point.
+    Handle opSkin(const Op& op, std::unordered_map<int, Val>& env) {
+        std::vector<Handle> wires;
+        bool ruled = false;
+        std::string note;
+        for (std::size_t i = 0; i < op.args.size(); ++i) {
+            if (op.args[i].kind == TokKind::Ref) {
+                wires.push_back(refWire(op, i, env));
+            } else if (op.args[i].kind == TokKind::Keyword) {
+                const std::string& kw = op.args[i].kw;
+                if (kw == "RULED") ruled = true;
+                else if (kw == "OPEN") { /* implied by SKIN; accepted, not an error */ }
+                else {
+                    // NOT a throw. Losing a whole tree over one mistyped flag is
+                    // the failure mode this design exists to avoid; the token is
+                    // named in the sheet's diagnosis instead, where SURFCHECK and
+                    // the repair loop can see it.
+                    note += (note.empty() ? "" : "; ") + std::string("ignored unknown flag `") +
+                            kw + "` (want RULED)";
+                }
+            } else {
+                throw OpError(op.id, "SKIN: arg #" + std::to_string(i) +
+                              " must be a %wire ref or a flag (RULED)");
+            }
+        }
+        if (wires.size() < 2)
+            throw OpError(op.id, "SKIN needs >= 2 WIRE sections (RING/WIRE); got " +
+                                 std::to_string(wires.size()));
+        const Handle h = forge::loftguide::loft(wires, {}, /*solid=*/false, ruled);
+        pendingNote = note;
+        try { pendingFaces = static_cast<int>(forge::surf::statsOf(h).faces); } catch (...) {}
+        return h;
+    }
+
+    // FACES — SOLID -> SURFACE. The direction without which the kind is a dead
+    // end: an edit task hands you a 430-face body and asks about 67 of its faces.
+    //
+    // The selector is resolved TOLERANTLY. resolveSelector() throws when a
+    // predicate matches nothing, which is right for DEFEATURE (deleting nothing is
+    // a wrong edit reported as success) and wrong here: an empty sheet is a
+    // perfectly good answer to "which faces match this", and it is the answer that
+    // lets the rest of the tree run and be measured.
+    Handle opFaces(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        const std::string sel = strArg(op, 1);
+        std::vector<int> idx;
+        std::string note;
+        try {
+            idx = resolveSelector(op.id, body, sel);
+        } catch (const OpError& e) {
+            note = std::string("selector `") + sel + "` matched nothing: " + e.what();
+        } catch (const std::exception& e) {
+            note = std::string("selector `") + sel + "` failed: " + e.what();
+        }
+        std::vector<int> skipped;
+        const Handle h = forge::surf::facesOf(body, idx, &skipped);
+        if (!skipped.empty()) {
+            note += (note.empty() ? "" : "; ") + std::string("skipped ") +
+                    std::to_string(skipped.size()) + " unusable face index/indices";
+        }
+        forge::surf::SheetStats st;
+        try { st = forge::surf::statsOf(h); } catch (...) {}
+        pendingFaces = static_cast<int>(st.faces);
+        pendingNote = note.empty() ? ("FACES `" + sel + "` -> " + describe(st)) : note;
+        return h;
+    }
+
+    // SEW — stitch sheets into one sheet. Stays a SURFACE even when the stitch
+    // closes it: making the value kind depend on measured geometry would mean the
+    // emitter cannot know what `%N` is without building it. CAP promotes.
+    Handle opSew(const Op& op, std::unordered_map<int, Val>& env) {
+        std::vector<Handle> sheets;
+        double tol = 1e-3;
+        std::string note;
+        for (std::size_t i = 0; i < op.args.size(); ++i) {
+            if (op.args[i].kind == TokKind::Ref) {
+                const Val v = refSurface(op, i, env);
+                sheets.push_back(v.h);
+                if (!v.note.empty()) note += (note.empty() ? "" : "; ") + v.note;
+            } else if (op.args[i].kind == TokKind::Number) {
+                tol = op.args[i].num;
+            } else if (op.args[i].kind == TokKind::Keyword) {
+                note += (note.empty() ? "" : "; ") + std::string("ignored unknown flag `") +
+                        op.args[i].kw + "`";
+            } else {
+                throw OpError(op.id, "SEW: arg #" + std::to_string(i) +
+                              " must be a %surface ref or a tolerance");
+            }
+        }
+        if (sheets.empty())
+            throw OpError(op.id, "SEW needs at least one %surface reference");
+        if (tol <= 0.0) {
+            note += (note.empty() ? "" : "; ") +
+                    std::string("tolerance <= 0 replaced by the 0.001 mm default");
+            tol = 1e-3;
+        }
+        Handle h = forge::kInvalidHandle;
+        if (sheets.size() == 1) {
+            auto r = forge::heal::sewShape(sheets.front(), tol);
+            h = (r.handle != forge::kInvalidHandle) ? r.handle : sheets.front();
+        } else {
+            auto r = forge::sewing::sew(sheets, tol);
+            if (r.handle == forge::kInvalidHandle)
+                throw OpError(op.id, "SEW: the kernel returned no shape for " +
+                                     std::to_string(sheets.size()) + " sheets at tol " +
+                                     std::to_string(tol));
+            h = r.handle;
+            note += (note.empty() ? "" : "; ") + std::string("free edges after sew: ") +
+                    std::to_string(r.report.freeEdges);
+        }
+        forge::surf::SheetStats st;
+        try { st = forge::surf::statsOf(h); } catch (...) {}
+        pendingFaces = static_cast<int>(st.faces);
+        pendingNote = note.empty() ? describe(st) : note;
+        return h;
+    }
+
+    // THICKEN — SURFACE -> SOLID. side = IN | OUT | MID (default MID).
+    Handle opThicken(const Op& op, std::unordered_map<int, Val>& env) {
+        const Val sheet = refSurface(op, 0, env);
+        const double wall = num(op, 1);
+        if (wall <= 0.0) throw OpError(op.id, "THICKEN: wall must be > 0");
+        const std::string sideKw = kwOpt(op, 2, "MID");
+        int side = 0;
+        if (sideKw == "IN" || sideKw == "INWARD") side = -1;
+        else if (sideKw == "OUT" || sideKw == "OUTWARD") side = 1;
+        else if (sideKw == "MID" || sideKw == "SYMMETRIC") side = 0;
+        else throw OpError(op.id, "THICKEN: side `" + sideKw + "` is not IN | OUT | MID");
+
+        std::string note = sheet.note;
+        const Handle sewn = sewIfLoose(sheet, 1e-3, note);
+        forge::surf::SheetStats st;
+        try { st = forge::surf::statsOf(sewn); } catch (...) {}
+        if (st.faces == 0)
+            throw OpError(op.id, "THICKEN: %" + std::to_string(op.args[0].ref) +
+                                 " is an EMPTY sheet (0 faces) — nothing to offset" +
+                                 (note.empty() ? "" : "; " + note));
+        try {
+            const Handle h = forge::part::thickenSurface(sewn, wall, side);
+            pendingNote = note;
+            return h;
+        } catch (const std::exception& e) {
+            // The kernel declined. This is the one place a refusal is unavoidable,
+            // so it carries everything a repair loop needs: the op, the sheet's
+            // measured state and the kernel's own words.
+            throw OpError(op.id, std::string("THICKEN declined by the kernel (") + e.what() +
+                                 ") on a sheet of " + describe(st) +
+                                 (note.empty() ? "" : "; " + note));
+        }
+    }
+
+    // CAP — SURFACE -> SOLID by sewing the sheet and filling every free boundary.
+    //
+    // A cap that does not fully close is NOT an error here: the result is still
+    // returned, compile()'s own validity pass names it as the first invalid solid,
+    // and the note says how many boundaries were left. Refusing would throw away a
+    // body that is one HEAL away from correct.
+    Handle opCap(const Op& op, std::unordered_map<int, Val>& env) {
+        const Val sheet = refSurface(op, 0, env);
+        double tol = numOpt(op, 1, 1e-3);
+        std::string note = sheet.note;
+        if (tol <= 0.0) {
+            note += (note.empty() ? "" : "; ") +
+                    std::string("tolerance <= 0 replaced by the 0.001 mm default");
+            tol = 1e-3;
+        }
+        const Handle sewn = sewIfLoose(sheet, tol, note);
+        forge::surf::SheetStats st;
+        try { st = forge::surf::statsOf(sewn); } catch (...) {}
+        if (st.faces == 0)
+            throw OpError(op.id, "CAP: %" + std::to_string(op.args[0].ref) +
+                                 " is an EMPTY sheet (0 faces) — nothing to close" +
+                                 (note.empty() ? "" : "; " + note));
+        auto r = forge::heal::autoFillMissingFaces(sewn, tol);
+        if (r.handle == forge::kInvalidHandle)
+            throw OpError(op.id, "CAP: the kernel returned no shape for a sheet of " +
+                                 describe(st) + (note.empty() ? "" : "; " + note));
+        note += (note.empty() ? "" : "; ") + std::string("capped ") +
+                std::to_string(r.report.facesAdded) + " boundaries, open edges " +
+                std::to_string(r.report.openEdgesBefore) + " -> " +
+                std::to_string(r.report.openEdgesAfter);
+        pendingNote = note;
+        return r.handle;
+    }
+
+    // SURFCHECK — measure a sheet and record the answer. Pass-through, exactly
+    // like VERIFY and TAG: it returns %surface unchanged.
+    //
+    // THIS IS THE HALF OF THE TOLERANCE CONTRACT THAT MAKES THE OTHER HALF HONEST.
+    // Representing an unsewn / p-curve-less / self-intersecting sheet is only
+    // useful if the tree can ASK about it, and a check that aborted the walk would
+    // be a refusal by another name. So a failed assertion is recorded, fails the
+    // compile at the end (via firstVerifyFail, the same mechanism VERIFY uses) and
+    // never stops the geometry from being built and measured.
+    Handle opSurfCheck(const Op& op, std::unordered_map<int, Val>& env) {
+        const Val sheet = refSurface(op, 0, env);
+        forge::surf::SheetStats st;
+        std::string statsErr;
+        try { st = forge::surf::statsOf(sheet.h); }
+        catch (const std::exception& e) { statsErr = e.what(); }
+
+        bool selfIntersect = false;
+        bool validityKnown = false;
+        try {
+            const auto rep = forge::heal::checkValidity(sheet.h);
+            selfIntersect = rep.hasSelfIntersect;
+            validityKnown = true;
+        } catch (...) { /* an unmeasurable sheet is still a legal sheet */ }
+
+        if (res != nullptr) {
+            std::ostringstream head;
+            head << "SURFCHECK %" << op.args[0].ref << " " << describe(st);
+            if (!sheet.note.empty()) head << " [" << sheet.note << "]";
+            if (!statsErr.empty()) head << " [stats unavailable: " << statsErr << "]";
+            res->verify.push_back(head.str());
+        }
+
+        for (std::size_t i = 1; i < op.args.size(); ++i) {
+            if (op.args[i].kind != TokKind::Str) continue;
+            const std::string expr = op.args[i].str;
+            std::string key, cmp, valStr;
+            for (const char* c : {"<=", ">=", "=", "<", ">"}) {
+                const std::size_t p = expr.find(c);
+                if (p != std::string::npos) {
+                    key = lower(trim(expr.substr(0, p)));
+                    cmp = c;
+                    valStr = trim(expr.substr(p + std::string(c).size()));
+                    break;
+                }
+            }
+            double want = 0;
+            if (key.empty() || !parseDouble(valStr, want))
+                throw OpError(op.id, "SURFCHECK: cannot parse assertion `" + expr + "`");
+
+            double got = 0;
+            if (key == "faces" || key == "facecount")        got = static_cast<double>(st.faces);
+            else if (key == "edges" || key == "edgecount")   got = static_cast<double>(st.edges);
+            else if (key == "freeedges" || key == "free_edges" || key == "openedges")
+                got = static_cast<double>(st.freeEdges);
+            else if (key == "nonmanifold" || key == "nonmanifoldedges")
+                got = static_cast<double>(st.nonManifoldEdges);
+            else if (key == "pcurves" || key == "missingpcurves" || key == "nopcurves")
+                got = static_cast<double>(st.edgesWithoutPCurve);
+            else if (key == "freeform" || key == "freeformfaces" || key == "bspline")
+                got = static_cast<double>(st.freeformFaces);
+            else if (key == "shells")                        got = static_cast<double>(st.shells);
+            else if (key == "closed")                        got = st.closed ? 1.0 : 0.0;
+            else if (key == "area")                          got = st.area;
+            else if (key == "selfintersect" || key == "self_intersect") {
+                if (!validityKnown)
+                    throw OpError(op.id, "SURFCHECK: `" + expr +
+                                         "` cannot be answered — the validity check "
+                                         "declined this sheet (" + describe(st) + ")");
+                got = selfIntersect ? 1.0 : 0.0;
+            } else {
+                // Name the vocabulary: this string is the repair instruction.
+                throw OpError(op.id, "SURFCHECK: unknown quantity `" + key + "` in `" + expr +
+                                     "` — known: faces, edges, freeEdges, nonManifold, "
+                                     "pcurves, freeform, shells, closed, area, selfIntersect");
+            }
+
+            const double tol = std::max(1e-6, 1e-3 * std::fabs(want));
+            bool pass = false;
+            if (cmp == "=")       pass = std::fabs(got - want) <= tol;
+            else if (cmp == "<=") pass = got <= want + tol;
+            else if (cmp == ">=") pass = got >= want - tol;
+            else if (cmp == "<")  pass = got < want;
+            else if (cmp == ">")  pass = got > want;
+
+            std::ostringstream note;
+            note << (pass ? "PASS " : "FAIL ") << expr << " (got " << got << ")";
+            if (res != nullptr) res->verify.push_back(note.str());
+            if (!pass && firstVerifyFail.empty())
+                firstVerifyFail = "op %" + std::to_string(op.id) + " (line " +
+                                  std::to_string(op.srcLine) + "): SURFCHECK failed: " +
+                                  expr + " (got " + std::to_string(got) + ")";
+        }
+        pendingFaces = static_cast<int>(st.faces);
+        pendingNote = sheet.note;
+        return sheet.h;   // pass-through: SURFCHECK measures, it does not modify
+    }
+
+    // ======================================================================
+
     // EDIT OPS — the second half of the Unified IR, executed by the SAME
     // walker. Selectors are resolved against the live faceInventory, so an
     // edit tree never carries a face index the model had to guess.
@@ -2152,6 +2619,12 @@ private:
 public:
     std::string    inputStep;        // backs INPUT()
     CompileResult* res = nullptr;    // VERIFY writes its per-assertion log here
+    // How a surface builder hands its DIAGNOSIS back to the walker, which stores
+    // it on the Val. A degenerate sheet is only representable if it is also
+    // answerable; these two fields are that answer travelling one step.
+    // Reset by compile() before every build() call.
+    std::string    pendingNote;
+    int            pendingFaces = -1;
     // The FIRST failed assertion, kept so compilation can finish and still fail
     // loudly at the end. Empty means every assertion the tree made was true.
     std::string firstVerifyFail;
@@ -2224,6 +2697,8 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
             return out;
         }
         Handle h;
+        builder.pendingNote.clear();
+        builder.pendingFaces = -1;
         try {
             h = builder.build(op, env);
         } catch (const OpError& e) {
@@ -2240,6 +2715,8 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         Val v;
         v.kind = Builder::kindOf(op.code);
         v.h = h;
+        v.note = builder.pendingNote;
+        v.faces = builder.pendingFaces;
         env[op.id] = v;
         if (v.kind == Val::Solid) { lastSolid = h; lastSolidId = op.id; }
         ++out.nCompiled;
@@ -2266,14 +2743,43 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
     if (ft.resultId >= 0) {
         auto it = env.find(ft.resultId);
         if (it == env.end() || it->second.kind != Val::Solid) {
+            // Name what it IS and, for a sheet, name the op that closes it. The
+            // old message said only "is not a defined SOLID", which is the same
+            // string for an undefined id and for a surface that needs one more op.
             out.error = "RESULT %" + std::to_string(ft.resultId) + " is not a defined SOLID";
+            if (it != env.end()) {
+                out.error += " (it is a " + std::string(kindName(it->second.kind)) + ")";
+                if (it->second.kind == Val::Surface)
+                    out.error += " — close it with THICKEN(%" + std::to_string(ft.resultId) +
+                                 ", wall) or CAP(%" + std::to_string(ft.resultId) + ")";
+            }
+            out.failedOpId = ft.resultId;
             return out;
         }
         result = it->second.h;
     } else {
         result = lastSolid;
     }
-    if (result == 0) { out.error = "no SOLID produced (tree yields only profiles?)"; return out; }
+    if (result == 0) {
+        // Say which kinds the tree DID produce. "yields only profiles?" was a guess
+        // and it is now wrong more often than right: a surfacing tree that forgot
+        // its THICKEN/CAP produces SURFACEs, and being told about profiles sends a
+        // repair loop after the wrong thing.
+        bool anyProfile = false, anyWire = false, anySurface = false;
+        for (const auto& kv : env) {
+            if (kv.second.kind == Val::Profile) anyProfile = true;
+            else if (kv.second.kind == Val::Wire) anyWire = true;
+            else if (kv.second.kind == Val::Surface) anySurface = true;
+        }
+        out.error = "no SOLID produced";
+        if (anySurface)
+            out.error += " — the tree ends in a SURFACE; close it with THICKEN(%N, wall) or CAP(%N)";
+        else if (anyWire)
+            out.error += " — the tree produced only WIRE sections; skin them with LOFT/SKIN";
+        else if (anyProfile)
+            out.error += " — the tree produced only PROFILEs; build them with EXTRUDE/REVOLVE";
+        return out;
+    }
 
     // -------------------------------------------- s0.4 GRAPH-QUALITY GATE
     // "The required values for unresolved references, unexplained orphans,
