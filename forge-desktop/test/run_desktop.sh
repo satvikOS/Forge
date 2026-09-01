@@ -9,7 +9,7 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — five headless gates, none of which needs a GPU:
+#   2. gates          — seven headless gates, none of which needs a GPU:
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
 #                       * document    — the user-launchable slice: the ONE
@@ -22,6 +22,12 @@
 #                         SemVer ordering, sha256 verification, ditto staging,
 #                         the ad-hoc signature check and the atomic bundle swap,
 #                         against real files and WITHOUT opening a socket.
+#                       * copilot     — the Archie CoPilot panel: an intent typed
+#                         into a real ImGui frame becomes a plan, the plan goes
+#                         through the op-constraint gate, and what survives is
+#                         followed through the ONE registry into a compiled
+#                         solid. A plan hiding a forbidden op inside an argument
+#                         VALUE must never reach a dispatch.
 #                       * click       — the same nothing, but it INTERACTS: it
 #                         drives io.AddMousePosEvent / io.AddMouseButtonEvent to
 #                         click every dock tab and drag every splitter in every
@@ -31,8 +37,11 @@
 #                         exists for was a use-after-free that made the SHIPPED
 #                         app SIGSEGV on the first tab click while the frame and
 #                         document gates both stayed green -- neither clicks.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. TWENTY-NINE
-#                       defects (8 document + 9 frame + 7 update + 5 click) are
+#                       * isolation   — the out-of-process kernel worker: the app
+#                         must survive an OCCT segfault instead of dying with it.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. THIRTY-NINE
+#                       defects (8 document + 9 frame + 8 copilot + 7 update +
+#                       7 click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -40,7 +49,7 @@
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
 # status is whatever ran last and a run that fell out of its own middle would
-# exit 0. That wrapper also pins the mutation count at an EXACT 29, so adding or
+# exit 0. That wrapper also pins the mutation count at an EXACT 39, so adding or
 # removing a --mutate case below means changing EXPECTED_MUTATIONS in
 # ci_desktop_gate.sh in the SAME commit.
 #
@@ -100,7 +109,7 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + forge_kernel_worker + 6 headless gates (-Wall -Wextra -Werror clean)"
+echo "[desktop] built forge_desktop + forge_kernel_worker + 7 headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0
@@ -147,6 +156,12 @@ run_gate() {
 run_gate forge_desktop_ir_pipeline_gate
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9
+# The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
+# what it dispatched followed all the way into forge::ft::compile. Mutations 7
+# and 8 are the op-constraint bypass -- a plan whose every op name is allowed and
+# whose every parameter is declared and correctly typed, carrying a REFUSED op
+# inside a `selector` VALUE. They must be refused before any dispatch is spent.
+run_gate forge_desktop_copilot_gate 1 2 3 4 5 6 7 8
 # The AUTO-UPDATE gate. It needs none of the build above -- libforge_updater
 # links nothing but libc++ -- so it can also be run on its own in seconds with
 # test/run_update_gate.sh --mutations, which is the form CI uses. It runs here
