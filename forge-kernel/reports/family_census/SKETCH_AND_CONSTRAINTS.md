@@ -55,6 +55,7 @@ calls it.
 > "measure only from a tree pinned to origin" trap, and it caught me — I am reporting both numbers
 > rather than the convenient one.
 
+<<<<<<< HEAD
 > **RESOLVED 2026-09-01 — the caveat above is now closed, in the repository.**
 > The four kinds that existed only as uncommitted work in a shared checkout
 > (`PointOnObject`, `Radius`, `Diameter`, `Angle`) are committed, and so are six
@@ -71,6 +72,8 @@ calls it.
 > not to trust the binary but to WRITE THE SOURCE. Everything the binary could
 > do, the repository can now do, and 100 checks in the gate say which.
 
+=======
+>>>>>>> origin/archdisc
 ---
 
 ## 1. Census
@@ -267,6 +270,7 @@ Nine new ops. Names are three-to-six characters because a long tree pays for eve
 Every one of those routes to a primitive that **already exists** in `GCS.h`. This is facade
 exposure, not numerics.
 
+<<<<<<< HEAD
 > **SHIPPED 2026-09-01.** All nineteen dispatch. Nine landed with the family; the other ten
 > (`CONC COLL SYMM MIDPT FIX DISTX DISTY ANGLE RADIUS DIAM`) are one `forge::Sketcher` switch
 > arm each, as this section predicted. `ANGLE` is degrees here and radians in the solver, and
@@ -274,6 +278,8 @@ exposure, not numerics.
 > converges, so it is covered by a positive control that asserts perpendicularity rather than
 > convergence.
 
+=======
+>>>>>>> origin/archdisc
 **Constraint ops are pass-through.** `CON` returns the same `SKETCH` value it was handed —
 the pattern `TAG` and `VERIFY` already use (`FeatureTree.hpp:131-141`, *"Pass-through like
 VERIFY: it returns %body unchanged. A naming mechanism that can alter the solid is a defect
