@@ -587,7 +587,7 @@ int main(int argc, char** argv) {
     std::string& why = why0;
     if (forge::desktop::readPartFile(diskText, onDisk, why)) {
       if (g_mutation == 2) {
-        for (forge::desktop::PartFileFeature& f : onDisk.features) f.node.clear();
+        for (forge::desktop::PartFileFeature& f : onDisk.features) f.nodes.clear();
       }
       forge::ui::PartDocument restored;
       const bool ok = forge::desktop::restorePartDocument(onDisk, restored, why);
@@ -639,8 +639,11 @@ int main(int argc, char** argv) {
     const std::string foreign = tempPath("foreign.fpart");
     forge::desktop::PartFileDoc renamed;
     if (forge::desktop::readPartFile(diskText, renamed, why0)) {
+      // `nodes` is a VECTOR since the format became forge::ui's: bindings are
+      // many-to-one, and a value two selections name is a value two selections
+      // name. Renaming the body means replacing every name it had.
       for (forge::desktop::PartFileFeature& f : renamed.features) {
-        if (!f.node.empty()) f.node = "imported.body";
+        if (!f.nodes.empty()) f.nodes = {"imported.body"};
       }
       std::string saveWhy;
       check(forge::desktop::savePartFile(foreign, renamed, saveWhy),
@@ -675,7 +678,7 @@ int main(int argc, char** argv) {
     const std::string bare = tempPath("nonode.fpart");
     forge::desktop::PartFileDoc noNode;
     if (forge::desktop::readPartFile(diskText, noNode, why0)) {
-      for (forge::desktop::PartFileFeature& f : noNode.features) f.node.clear();
+      for (forge::desktop::PartFileFeature& f : noNode.features) f.nodes.clear();
       std::string saveWhy;
       check(forge::desktop::savePartFile(bare, noNode, saveWhy), "wrote a NODE-less .fpart",
             saveWhy);

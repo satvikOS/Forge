@@ -374,6 +374,18 @@ void PartDocument::setVerifierDiagnostic(int irId, const std::string& message) {
   recompute();
 }
 
+void PartDocument::clearVerifierDiagnosticsFor(const std::vector<int>& irIds) {
+  bool touched = false;
+  for (const int id : irIds) {
+    if (id <= 0 || static_cast<std::size_t>(id) > records_.size()) continue;
+    FeatureRecord& r = records_[static_cast<std::size_t>(id) - 1];
+    if (r.verifierMessage.empty()) continue;
+    r.verifierMessage.clear();
+    touched = true;
+  }
+  if (touched) recompute();
+}
+
 void PartDocument::clearVerifierDiagnostics() {
   for (FeatureRecord& r : records_) r.verifierMessage.clear();
   recompute();
@@ -402,6 +414,8 @@ std::vector<FeatureDiagnostic> PartDocument::blockedFeatures() const {
   }
   return out;
 }
+
+std::vector<int> PartDocument::emittedFeatures() const { return resolveGraph().emitted; }
 
 // ── the program the kernel is asked to build ────────────────────────────────
 std::string PartDocument::activeIrProgram() const {

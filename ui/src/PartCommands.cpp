@@ -160,6 +160,13 @@ bool PartDocument::editFeatureArgs(int irId, const std::vector<IrArg>& args) {
   }
 
   rec.line = candidate;  // no binding, no id and no produces-kind moved
+  // THE KERNEL'S WORD DIES WITH THE STATEMENT IT WAS ABOUT. verifierMessage is
+  // "FILLET: kernel declined at every distance" for a FILLET that no longer
+  // exists at these arguments; leaving it would keep the row red after the user
+  // fixed it, and no edit they could make would ever clear it -- a modeller in
+  // which a repaired feature stays broken is one you cannot repair anything in.
+  // Only THIS row: a message about %14 is not retracted by editing %9.
+  rec.verifierMessage.clear();
   recompute();
   return true;
 }

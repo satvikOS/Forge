@@ -279,7 +279,10 @@ std::size_t ForgeFrame::wirePartCommands() {
   // Part workspace was permanently unreachable, silently.
   std::string why;
   if (!seedDefaultPart(why)) note("document seed FAILED: " + why);
-  builtProgram_ = partDoc_.irProgram();
+  // The SAME expression syncSceneToDocument() compares against. On a fresh seed
+  // the two agree, but a marker that is computed one way and compared another is
+  // a marker that is right by coincidence.
+  builtProgram_ = partDoc_.activeIrProgram();
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
 
   const std::size_t added =
@@ -295,8 +298,19 @@ std::size_t ForgeFrame::wirePartCommands() {
 }
 
 // ── the document -> geometry edge ───────────────────────────────────────────
+//
+// THE PROGRAM SENT HERE IS activeIrProgram(), NOT irProgram().
+//
+// irProgram() is the document AS WRITTEN -- every statement, always. This used
+// to send that, which meant the whole of the document's history state was
+// decorative: suppressing a feature did not change the body, dragging the
+// rollback bar did not change the body, and ONE statement the kernel refused
+// failed the ENTIRE rebuild rather than the part of the tree that depends on it.
+// activeIrProgram() is the document AS BUILT -- suppressed, rolled-back and
+// un-buildable statements removed, remaining references healed, the survivors
+// renumbered into a legal standalone program. See PartCommands.hpp.
 bool ForgeFrame::syncSceneToDocument() {
-  const std::string program = partDoc_.irProgram();
+  const std::string program = partDoc_.activeIrProgram();
   if (program == builtProgram_) return false;
 
   const std::size_t before = scene_.triangleCount();
@@ -305,20 +319,39 @@ bool ForgeFrame::syncSceneToDocument() {
   ++rebuilds_;
   documentDirty_ = true;
   geometryDirty_ = true;
-  rebuildTree();
 
   const IrBuildReport& r = scene_.lastBuild();
   if (ok) {
     rebuildError_.clear();
+    // A build vindicates the statements it CONTAINED and says nothing about the
+    // ones it left out -- clearing every message here instead would make the app
+    // oscillate once per user action. See clearVerifierDiagnosticsFor.
+    partDoc_.clearVerifierDiagnosticsFor(partDoc_.emittedFeatures());
     note("rebuilt: " + std::to_string(before) + " -> " + std::to_string(scene_.triangleCount()) +
          " triangles, " + std::to_string(r.faceCount) + " faces, V=" + std::to_string(r.volume) +
          (r.valid ? "  [valid]" : "  [INVALID SOLID]"));
   } else {
     rebuildError_ = r.error;
+    // PUT THE KERNEL'S OWN WORD ON THE ROW IT IS ABOUT, and translate the id
+    // first. forge::ft reports a failure as an id in the program it was GIVEN,
+    // and that program is renumbered 1..m, so `failedOpId` is an index into
+    // emittedFeatures() and NOT a document statement id. Marking `failedOpId`
+    // directly would silently blame the wrong feature, and the more the user has
+    // suppressed the further off it would be.
+    const std::vector<int> emitted = partDoc_.emittedFeatures();
+    if (r.failedOpId >= 1 && static_cast<std::size_t>(r.failedOpId) <= emitted.size()) {
+      // Verbatim: this layer never paraphrases a kernel message, because a
+      // paraphrase of a compiler error is a second error message that drifts.
+      partDoc_.setVerifierDiagnostic(emitted[static_cast<std::size_t>(r.failedOpId) - 1],
+                                     r.error);
+    }
     // The previous body stays on screen -- what every history-based CAD system
     // does with a failed rebuild -- and the failure is stated, not swallowed.
     note("REBUILD FAILED: " + r.error + "  (showing the last good body)");
   }
+  // AFTER the diagnostics, so the tree the user reads is the one that includes
+  // what the kernel just said.
+  rebuildTree();
   return true;
 }
 

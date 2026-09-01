@@ -345,6 +345,16 @@ class PartDocument {
   // drifts from the first.
   void setVerifierDiagnostic(int irId, const std::string& message);
   void clearVerifierDiagnostics();
+  // Clear the kernel's message on JUST these statements.
+  //
+  // The host calls this with emittedFeatures() after a SUCCESSFUL build, and the
+  // narrowness is the whole point: a build that succeeded vindicates the
+  // statements it CONTAINED and says nothing about the ones it left out. Using
+  // the blunt clearVerifierDiagnostics() there makes the app oscillate --
+  // program P fails at row r, r is marked, the next build is P-without-r and
+  // succeeds, clearing r's message puts r back, the build after that is P again
+  // and fails -- forever, once per user action.
+  void clearVerifierDiagnosticsFor(const std::vector<int>& irIds);
   std::size_t errorCount() const noexcept;
   std::size_t builtCount() const noexcept;
 
@@ -360,6 +370,16 @@ class PartDocument {
   // reason each was dropped. A UI that shows the program must be able to say
   // what is missing from it.
   std::vector<FeatureDiagnostic> blockedFeatures() const;
+  // The statements activeIrProgram() PUT IN, in the order it emitted them, so
+  // `emittedFeatures()[k]` is the document id of the program's `%(k+1)`.
+  //
+  // This is the map a host needs to put the kernel's word where it belongs.
+  // forge::ft reports a failure as an id in the program it was GIVEN, and that
+  // program is renumbered 1..m -- so a host that hands the kernel
+  // activeIrProgram() and then calls setVerifierDiagnostic(failedOpId, ...)
+  // marks the wrong row, silently, and the more the user has suppressed the
+  // further off it is.
+  std::vector<int> emittedFeatures() const;
 
   // ── the TOLERANT append, for loading a file ───────────────────────────────
   // appendFeature() REFUSES an invalid statement, which is right for a live

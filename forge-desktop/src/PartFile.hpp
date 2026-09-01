@@ -1,91 +1,76 @@
 // forge-desktop/src/PartFile.hpp
 //
-// THE .fpart DOCUMENT — the format the application reads and writes.
+// THE .fpart DOCUMENT — re-exported, plus the part a new document starts on.
 //
-// Before this file the app had no document persistence of ANY kind: grepping
-// ofstream/ifstream/fopen across ui/src and forge-desktop/src found only the PNG
-// screenshot writer and ~/.forge/shell_state.txt (workspace, dock layout,
-// keymap). `file.open`'s whole execute body was `doc_.dirty = false;` — it never
-// read the path argument. "Bracket.fpart" existed as a string literal used as a
-// tree label and nothing else.
+// ═══ THIS FILE USED TO BE A SECOND IMPLEMENTATION ═══════════════════════════
 //
-// ── what is stored, and why it is NOT the IR text ───────────────────────────
-// A PartDocument is a list of FeatureRecords: an SSA feature-IR statement PLUS
-// the UI metadata that makes it a document rather than a program — the tree
-// label, the command that authored it, the IR value kind it produces, and the
-// node id the typed selection binds it by.
+// It was 121 header lines and 357 source lines of writer, reader, capture and
+// restore for the .fpart format, alongside a SECOND writer, reader, capture and
+// restore for the same format in forge::ui. Its own header argued, correctly,
+// that two parsers for one grammar is the "same thing, two code paths" failure
+// the single-registry rule exists to prevent -- and it WAS the second one.
 //
-// The obvious format is "write irProgram(), re-parse it on load". That is
-// rejected for two measured reasons:
+// The two had drifted exactly as that argument predicts, and always in the
+// direction of the copy with fewer users:
 //
-//   1. It is LOSSY. irProgram() carries none of the metadata above, so a
-//      round-trip silently discards every label and every selection binding —
-//      the document comes back as a program that happens to build.
-//   2. It would need a SECOND IR parser, in the UI's vocabulary, alongside
-//      forge::ft::parse. Two parsers for one grammar is the "same thing, two
-//      code paths" failure the single-registry rule exists to prevent; the one
-//      that drifts is always the one with fewer users.
+//   * `kPartFileVersion` was 1 here and 2 there. The version policy in
+//     PartDocumentFile.hpp -- write the current version, read
+//     kPartFileMinReadVersion..kPartFileVersion, upgrade older files, refuse a
+//     newer one by name -- existed in one copy and not the other, so THE
+//     APPLICATION had no version policy.
+//   * `PartFileFeature` stored ONE node here and a vector there, so the app's
+//     Save dropped every second selection name bound to one value.
+//   * And the whole of what makes a .fpart a DOCUMENT rather than a program --
+//     named parameters and their argument bindings, materials and their per-body
+//     assignments, L4 persistent @names, the suppression flags, the rollback
+//     bar, the kernel's own per-row diagnostics, and the `X-` lines that let a
+//     future version's field survive a round trip -- existed only in forge::ui.
+//     forge::desktop::capturePartDocument copied name, units and the statements.
 //
-// So the file stores the record STRUCTURALLY — one `ARG <kind> <value>` line per
-// argument — and the IR program text is DERIVED from it by the same
-// IrLine::text() the live document uses. There is exactly one representation of
-// a statement in this system, and the file is not a copy of it.
+//     SO THE SHIPPED APPLICATION'S SAVE SILENTLY DELETED ALL OF IT. Set a
+//     parameter, assign a material, name a face, suppress a feature, drag the
+//     rollback bar, then Save: none of it was in the file, and none of it came
+//     back. An app that cannot save is a demo, and an app that saves half the
+//     document without saying so is worse than one that cannot.
 //
-// The format is line-oriented, versioned by its first line, and its writer and
-// reader are proved to round-trip byte-for-byte by
-// forge-desktop/test/document_gate.cpp.
+// There is now ONE writer and ONE reader, in forge::ui, gated by
+// `bash ui/test/run_ui.sh` (part_document_file_test.cpp, 1,830 checks) and by
+// `bash ui/test/run_document_roundtrip_gate.sh`, which asks the KERNEL whether a
+// save and a load change the solid. This file re-exports them under the names
+// this layer already used, so every existing call site keeps working.
 #ifndef FORGE_DESKTOP_PARTFILE_HPP
 #define FORGE_DESKTOP_PARTFILE_HPP
 
-#include <cstddef>
 #include <string>
 #include <vector>
 
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/PartCommands.hpp"
+#include "forge/ui/PartDocumentFile.hpp"
 
 namespace forge::desktop {
 
-// The magic + version the writer emits and the reader requires.
-inline constexpr const char* kPartFileMagic = "FORGE-PART";
-inline constexpr int kPartFileVersion = 1;
-inline constexpr const char* kPartFileExtension = ".fpart";
+// ── the format, from forge::ui ──────────────────────────────────────────────
+// Deliberately `using` and not wrappers: a wrapper is a place for the two to
+// disagree again, and there is nothing for a desktop-specific layer to add to a
+// line reader.
+using forge::ui::kPartFileExtension;
+using forge::ui::kPartFileMagic;
+using forge::ui::kPartFileMinReadVersion;
+using forge::ui::kPartFileVersion;
 
-// One stored feature: the document record, plus the selection node its value is
-// bound to at save time ("" when nothing names it — because a later op consumed
-// it, or because it was never nameable).
-struct PartFileFeature {
-  forge::ui::FeatureRecord record;
-  std::string node;
-};
+using forge::ui::PartFileDoc;
+using forge::ui::PartFileFeature;
 
-struct PartFileDoc {
-  std::string name = "untitled";
-  std::string units = "mm";
-  std::vector<PartFileFeature> features;
+using forge::ui::partFileVersion;
+using forge::ui::readPartFile;
+using forge::ui::writePartFile;
 
-  // The feature-IR program these records spell, newline-joined — derived, never
-  // stored, so it cannot disagree with the records.
-  std::string irProgram() const;
-};
+using forge::ui::capturePartDocument;
+using forge::ui::restorePartDocument;
 
-// ── the format ──────────────────────────────────────────────────────────────
-std::string writePartFile(const PartFileDoc& doc);
-// Returns false and fills `error` with a line-numbered reason. `out` is only
-// written on success: a rejected file never half-replaces a document.
-bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error);
-
-// ── document <-> file ───────────────────────────────────────────────────────
-PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name);
-// Appends every stored record into `doc` through its ONE mutation entry point
-// (PartDocument::appendFeature), so a file that would build an illegal document
-// is refused by the same validator a live command is refused by.
-bool restorePartDocument(const PartFileDoc& file, forge::ui::PartDocument& doc,
-                         std::string& error);
-
-// ── disk ────────────────────────────────────────────────────────────────────
-bool savePartFile(const std::string& path, const PartFileDoc& doc, std::string& error);
-bool loadPartFile(const std::string& path, PartFileDoc& out, std::string& error);
+using forge::ui::loadPartFile;
+using forge::ui::savePartFile;
 
 // ── the part a fresh document starts on ─────────────────────────────────────
 //
