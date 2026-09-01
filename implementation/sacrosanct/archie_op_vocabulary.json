@@ -12,45 +12,45 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "06f05ffae429083fd23670cc1c1ad5a0072276108aa362c225cb3120946f690e",
-        "bytes": 101751,
-        "lines": 2240
+        "sha256": "26af818dc80bb95e78b63bfdfe91698ce304a6f5be3f66395ebe9b07aa846c70",
+        "bytes": 112630,
+        "lines": 2465
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
-        "sha256": "cdd571b76056b8fdcc6164691f73f05ac8b737329c36f5011c7cee87f85056f0",
-        "bytes": 15201,
-        "lines": 260
+        "sha256": "4a298b7a92d95b42d67449e9271cf770ddc0db83f87dad9b1ff34b068c6f44e6",
+        "bytes": 22336,
+        "lines": 380
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "5e2624e5e55837549f0518fa6996f1737ae34572f897f14e66d1a62f89ef21bc",
-        "bytes": 155802,
-        "lines": 2530
+        "sha256": "04fb0ba5ac6c26e49a4a4b5bb0ddc40fe90106028153a05c9b72fd8ef28306e7",
+        "bytes": 159963,
+        "lines": 2585
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "9db3a31f52a312b5f68c50fc2a90e6e54bcd6e2db0e56ef04b8c019f004e1e26",
-        "bytes": 125321,
-        "lines": 2403
+        "sha256": "732b02033c74597e68af3ce215476d7dbd6779f759ce9b2d0a9ed41e124cbe17",
+        "bytes": 153340,
+        "lines": 2909
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "db86c9dd16e7098b9d9ccaa36bad9ec7852ba3b1866c86634f2188ed37656dbd",
-        "bytes": 17351,
-        "lines": 308
+        "sha256": "a446947838afae0dda4069d092102420b1527ddbe42acedacd3cb20c2eccbf90",
+        "bytes": 21880,
+        "lines": 368
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "31e77881321a3585a2880d41203bb2ef11bedb9f9bd44a6195852c37036c16c1",
-        "bytes": 9325,
-        "lines": 277
+        "sha256": "9339b6cd324c72a0629e8937f8d07a1850becfee97828998e7c6f1c96a9224ce",
+        "bytes": 10425,
+        "lines": 288
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "318a5e70fc06a37594a936831095bb2ef4252b5d82d4e17b9d4cfd5881246279",
-        "bytes": 165251,
-        "lines": 2962
+        "sha256": "5f3c6a77cf9fff6335765bb7e864b5c6ba695864081f29266b933cf02c1a1b77",
+        "bytes": 134774,
+        "lines": 2332
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 40,
-    "ui_validator_ops": 40,
-    "registry_commands": 59,
-    "commands_emitting_ir": 41,
+    "kernel_ops": 46,
+    "ui_validator_ops": 46,
+    "registry_commands": 53,
+    "commands_emitting_ir": 42,
     "user_invocable_ops": 39,
-    "forbidden_ops": 1,
+    "forbidden_ops": 7,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
@@ -167,7 +167,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -177,7 +177,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -322,7 +322,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -333,7 +333,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -344,7 +344,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": "centred in XY, base at cz"
@@ -485,7 +485,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": false,
@@ -495,7 +495,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": false,
@@ -505,7 +505,7 @@
               "index": 6,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -702,7 +702,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -713,7 +713,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -724,7 +724,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": null
@@ -875,7 +875,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -885,7 +885,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -905,7 +905,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -915,7 +915,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -925,7 +925,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -1130,7 +1130,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -1151,7 +1151,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -1162,7 +1162,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -1173,7 +1173,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -1342,13 +1342,13 @@
           "examples": [
             {
               "parameters": {
-                "selector": "hole:smallest"
+                "selector": "hole"
               },
               "ir_arguments": [
                 "%body",
-                "\"hole:smallest\""
+                "\"hole\""
               ],
-              "ir_text": "%<id> = DEFEATURE(%body, \"hole:smallest\")"
+              "ir_text": "%<id> = DEFEATURE(%body, \"hole\")"
             }
           ],
           "command": "part.defeature"
@@ -1522,7 +1522,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -1614,7 +1614,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "override: FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) puts the hinge CORNER at the hinge point, then folds about the line through it"
             },
             {
               "optional": false,
@@ -1624,7 +1624,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "override: FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) puts the hinge CORNER at the hinge point, then folds about the line through it"
             },
             {
               "optional": false,
@@ -1634,7 +1634,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "override: FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) puts the hinge CORNER at the hinge point, then folds about the line through it"
             },
             {
               "optional": false,
@@ -1695,7 +1695,7 @@
         "sheet-metal flange macro: BOX + ROTATE(about hinge) + FUSE"
       ],
       "user_commands": [
-        "part.fold"
+        "part.fold_flange"
       ],
       "emitted_forms": [
         {
@@ -1718,9 +1718,9 @@
           "examples": [
             {
               "parameters": {
-                "hinge_x": 2.0,
-                "hinge_y": 3.0,
-                "hinge_z": 4.0,
+                "hinge_x": 0.0,
+                "hinge_y": 0.0,
+                "hinge_z": 0.0,
                 "length": 40.0,
                 "flange_height": 20.0,
                 "thickness": 2.0,
@@ -1728,18 +1728,18 @@
               },
               "ir_arguments": [
                 "%body",
-                "2",
-                "3",
-                "4",
+                "0",
+                "0",
+                "0",
                 "40",
                 "20",
                 "2",
                 "90"
               ],
-              "ir_text": "%<id> = FOLD(%body, 2, 3, 4, 40, 20, 2, 90)"
+              "ir_text": "%<id> = FOLD(%body, 0, 0, 0, 40, 20, 2, 90)"
             }
           ],
-          "command": "part.fold"
+          "command": "part.fold_flange"
         },
         {
           "when": "hasNumber(ctx, \"run_angle\")",
@@ -1762,9 +1762,9 @@
           "examples": [
             {
               "parameters": {
-                "hinge_x": 2.0,
-                "hinge_y": 3.0,
-                "hinge_z": 4.0,
+                "hinge_x": 0.0,
+                "hinge_y": 0.0,
+                "hinge_z": 0.0,
                 "length": 40.0,
                 "flange_height": 20.0,
                 "thickness": 2.0,
@@ -1773,19 +1773,19 @@
               },
               "ir_arguments": [
                 "%body",
-                "2",
-                "3",
-                "4",
+                "0",
+                "0",
+                "0",
                 "40",
                 "20",
                 "2",
                 "90",
                 "9"
               ],
-              "ir_text": "%<id> = FOLD(%body, 2, 3, 4, 40, 20, 2, 90, 9)"
+              "ir_text": "%<id> = FOLD(%body, 0, 0, 0, 40, 20, 2, 90, 9)"
             }
           ],
-          "command": "part.fold"
+          "command": "part.fold_flange"
         }
       ]
     },
@@ -1881,10 +1881,17 @@
         }
       ],
       "kernel_notes": [
-        "These make the feature-tree IR the single emission format for BOTH",
-        "generation and editing. Face SELECTORs are quoted predicate strings",
-        "resolved against the live faceInventory at compile time (see",
-        "resolveSelector in FeatureTreeCompiler.cpp)."
+        "The free-form half of the vocabulary. Every op here is a THIN wiring of a",
+        "kernel entry point that already exists (loftguide::loft with solid=false,",
+        "forge::surf::facesOf, forge::heal::sewShape / autoFillMissingFaces,",
+        "forge::part::thickenSurface, forge::heal::checkValidity): the SURFACE kind",
+        "is what was missing, not the geometry.",
+        "",
+        "NOTHING HERE REFUSES A DEGENERATE SHEET. A selector that matches no face",
+        "yields an EMPTY surface, not an abort; SEW of two sheets that do not touch",
+        "yields an unsewn surface, not an abort; THICKEN/CAP of a sheet the kernel",
+        "declines fails with the op id, the face count and the free-edge count in",
+        "the message so a repair loop can act on it. See SURFCHECK."
       ],
       "user_commands": [
         "part.heal"
@@ -1954,7 +1961,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": false,
@@ -1964,7 +1971,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": false,
@@ -1974,7 +1981,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -2127,7 +2134,7 @@
       ],
       "kernel_notes": [],
       "user_commands": [
-        "part.input"
+        "part.input_solid"
       ],
       "emitted_forms": [
         {
@@ -2145,7 +2152,7 @@
               "ir_text": "%<id> = INPUT()"
             }
           ],
-          "command": "part.input"
+          "command": "part.input_solid"
         }
       ]
     },
@@ -2374,7 +2381,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": false,
@@ -2384,7 +2391,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": false,
@@ -2394,7 +2401,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": false,
@@ -2584,7 +2591,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -2594,7 +2601,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -2604,7 +2611,7 @@
               "index": 6,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -2889,12 +2896,12 @@
           "examples": [
             {
               "parameters": {
-                "points": "-20 -20; 20 -20; 20 20; -20 20"
+                "ring": "-20 -10; 20 -10; 24 8; 0 18; -24 8"
               },
               "ir_arguments": [
-                "[-20 -20; 20 -20; 20 20; -20 20]"
+                "[-20 -10; 20 -10; 24 8; 0 18; -24 8]"
               ],
-              "ir_text": "%<id> = POLY([-20 -20; 20 -20; 20 20; -20 20])"
+              "ir_text": "%<id> = POLY([-20 -10; 20 -10; 24 8; 0 18; -24 8])"
             }
           ],
           "command": "part.sketch_poly"
@@ -2933,7 +2940,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -2953,7 +2960,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -2963,7 +2970,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -2973,7 +2980,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": null
@@ -3175,7 +3182,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3186,7 +3193,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": null
@@ -3279,7 +3286,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -3300,7 +3307,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3311,7 +3318,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3434,7 +3441,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "override: RESIZEBORE(%body, \"sel\", newRadius) -- the kernel sets the selected cylindrical bore to this RADIUS, not to this diameter"
             }
           ],
           "prose": "set a cylindrical bore's radius exactly"
@@ -3460,15 +3467,15 @@
           "examples": [
             {
               "parameters": {
-                "selector": "bore:largest",
+                "selector": "hole",
                 "radius": 5.0
               },
               "ir_arguments": [
                 "%body",
-                "\"bore:largest\"",
+                "\"hole\"",
                 "5"
               ],
-              "ir_text": "%<id> = RESIZEBORE(%body, \"bore:largest\", 5)"
+              "ir_text": "%<id> = RESIZEBORE(%body, \"hole\", 5)"
             }
           ],
           "command": "part.resize_bore"
@@ -3517,7 +3524,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3528,7 +3535,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3539,7 +3546,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3674,7 +3681,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -3684,7 +3691,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -3694,7 +3701,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3705,7 +3712,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3716,7 +3723,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3895,7 +3902,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3906,7 +3913,7 @@
               "index": 6,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -3917,7 +3924,7 @@
               "index": 7,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": null
@@ -4049,7 +4056,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -4060,7 +4067,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4071,7 +4078,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": "rounded rectangle / stadium"
@@ -4306,7 +4313,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -4317,7 +4324,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4328,7 +4335,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4339,7 +4346,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": null
@@ -4429,7 +4436,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -4467,7 +4474,8 @@
       ],
       "kernel_notes": [],
       "user_commands": [
-        "part.sweep_pipe"
+        "part.sweep_pipe",
+        "part.sweep_profile"
       ],
       "emitted_forms": [
         {
@@ -4484,17 +4492,43 @@
           "examples": [
             {
               "parameters": {
-                "radius": 5.0,
-                "path": "0 0 0; 0 0 100"
+                "radius": 4.0,
+                "path": "0 0 0; 0 0 30; 20 0 50"
               },
               "ir_arguments": [
-                "5",
-                "[0 0 0; 0 0 100]"
+                "4",
+                "[0 0 0; 0 0 30; 20 0 50]"
               ],
-              "ir_text": "%<id> = SWEEP(5, [0 0 0; 0 0 100])"
+              "ir_text": "%<id> = SWEEP(4, [0 0 0; 0 0 30; 20 0 50])"
             }
           ],
           "command": "part.sweep_pipe"
+        },
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "[x y; ...]",
+            "[x y z; ...]"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "ring": "-5 -5; 5 -5; 5 5; -5 5",
+                "path": "0 0 0; 0 0 40"
+              },
+              "ir_arguments": [
+                "[-5 -5; 5 -5; 5 5; -5 5]",
+                "[0 0 0; 0 0 40]"
+              ],
+              "ir_text": "%<id> = SWEEP([-5 -5; 5 -5; 5 5; -5 5], [0 0 0; 0 0 40])"
+            }
+          ],
+          "command": "part.sweep_profile"
         }
       ]
     },
@@ -4564,15 +4598,15 @@
           "examples": [
             {
               "parameters": {
-                "name": "@feature",
-                "selector": "bore:max"
+                "name": "@datum_a",
+                "selector": "+Z"
               },
               "ir_arguments": [
                 "%body",
-                "\"@feature\"",
-                "\"bore:max\""
+                "\"@datum_a\"",
+                "\"+Z\""
               ],
-              "ir_text": "%<id> = TAG(%body, \"@feature\", \"bore:max\")"
+              "ir_text": "%<id> = TAG(%body, \"@datum_a\", \"+Z\")"
             }
           ],
           "command": "part.tag_feature"
@@ -4601,7 +4635,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -4611,7 +4645,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -4621,7 +4655,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4631,7 +4665,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4641,7 +4675,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4871,7 +4905,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -4881,7 +4915,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -4901,7 +4935,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4911,7 +4945,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             },
             {
               "optional": true,
@@ -4921,7 +4955,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
             }
           ],
           "prose": null
@@ -5054,20 +5088,20 @@
           "examples": [
             {
               "parameters": {
-                "assertion": "volume>0"
+                "assertion": "volume > 0"
               },
               "ir_arguments": [
                 "%body",
-                "\"volume>0\""
+                "\"volume > 0\""
               ],
-              "ir_text": "%<id> = VERIFY(%body, \"volume>0\")"
+              "ir_text": "%<id> = VERIFY(%body, \"volume > 0\")"
             }
           ],
           "command": "part.verify"
         },
         {
           "when": "hasText(ctx, \"assertion2\")",
-          "when_human": "any of assertion2 is supplied",
+          "when_human": "hasText(ctx, \"assertion2\")",
           "arguments": [
             "%body",
             "\"<assertion>\"",
@@ -5080,15 +5114,15 @@
           "examples": [
             {
               "parameters": {
-                "assertion": "volume>0",
-                "assertion2": "shells=1"
+                "assertion": "volume > 0",
+                "assertion2": "faces >= 1"
               },
               "ir_arguments": [
                 "%body",
-                "\"volume>0\"",
-                "\"shells=1\""
+                "\"volume > 0\"",
+                "\"faces >= 1\""
               ],
-              "ir_text": "%<id> = VERIFY(%body, \"volume>0\", \"shells=1\")"
+              "ir_text": "%<id> = VERIFY(%body, \"volume > 0\", \"faces >= 1\")"
             }
           ],
           "command": "part.verify"
@@ -5125,7 +5159,7 @@
         "(airfoil / organic / sharp-cornered loft section)"
       ],
       "user_commands": [
-        "part.wire_section"
+        "part.section_wire"
       ],
       "emitted_forms": [
         {
@@ -5141,20 +5175,56 @@
           "examples": [
             {
               "parameters": {
-                "points": "20 0 0; 0 20 0; -20 0 0; 0 -20 0"
+                "ring": "-20 -10 0; 20 -10 0; 20 10 0; -20 10 0"
               },
               "ir_arguments": [
-                "[20 0 0; 0 20 0; -20 0 0; 0 -20 0]"
+                "[-20 -10 0; 20 -10 0; 20 10 0; -20 10 0]"
               ],
-              "ir_text": "%<id> = WIRE([20 0 0; 0 20 0; -20 0 0; 0 -20 0])"
+              "ir_text": "%<id> = WIRE([-20 -10 0; 20 -10 0; 20 10 0; -20 10 0])"
             }
           ],
-          "command": "part.wire_section"
+          "command": "part.section_wire"
         }
       ]
     }
   ],
   "forbidden_ops": [
+    {
+      "op": "CAP",
+      "kernel_enum": "Cap",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "CAP(%surface [, tol=0.001])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "FACES",
+      "kernel_enum": "Faces",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "FACES(%body, \"sel\")"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SEW",
+      "kernel_enum": "Sew",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SEW(%s0 [, %s1 ...] [, tol=0.001])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SKIN",
+      "kernel_enum": "Skin",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SKIN(%w0, %w1 [, %w2 ...] [, RULED])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
     {
       "op": "SLOT",
       "kernel_enum": "Slot",
@@ -5163,13 +5233,31 @@
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "SURFCHECK",
+      "kernel_enum": "SurfCheck",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "SURFCHECK(%surface, \"expr\", ...)"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
+      "op": "THICKEN",
+      "kernel_enum": "Thicken",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "THICKEN(%surface, wall [, side=MID])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     }
   ],
   "forbidden_statement_forms": [
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 40 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 46 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [
@@ -5543,7 +5631,7 @@
           "type": "Text",
           "required": true,
           "default_number": 0.0,
-          "default_text": "hole:smallest",
+          "default_text": "hole",
           "has_default": true
         }
       ],
@@ -5555,40 +5643,13 @@
         "derived": [
           {
             "selection": "must resolve to exactly one SOLID value on one body"
-          },
-          {
-            "parameter": "selector",
-            "comparison": "is_non_empty"
           }
         ],
-        "unparsed_terms": []
+        "unparsed_terms": [
+          "!txt(ctx, \"selector\", \"\").empty()"
+        ]
       },
       "produces_value_kind": "Solid"
-    },
-    {
-      "id": "part.delete_feature",
-      "label": "Delete Feature",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "feature",
-          "type": "Number",
-          "required": false,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": true
-        }
-      ],
-      "preview": "OnDemand",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.edit_feature",
@@ -5746,8 +5807,8 @@
       "produces_value_kind": "Solid"
     },
     {
-      "id": "part.fold",
-      "label": "Sheet-metal Fold",
+      "id": "part.fold_flange",
+      "label": "Sheet-Metal Flange",
       "category": "Part",
       "feature_ir_op": "FOLD",
       "emits_feature_ir": true,
@@ -5760,26 +5821,26 @@
         {
           "name": "hinge_x",
           "type": "Number",
-          "required": false,
+          "required": true,
           "default_number": 0.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "hinge_y",
           "type": "Number",
-          "required": false,
+          "required": true,
           "default_number": 0.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "hinge_z",
           "type": "Number",
-          "required": false,
+          "required": true,
           "default_number": 0.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "length",
@@ -5950,8 +6011,8 @@
       "produces_value_kind": "Solid"
     },
     {
-      "id": "part.input",
-      "label": "Load Input Solid",
+      "id": "part.input_solid",
+      "label": "Imported Solid",
       "category": "Part",
       "feature_ir_op": "INPUT",
       "emits_feature_ir": true,
@@ -5961,17 +6022,15 @@
         "max": null
       },
       "parameters": [],
-      "preview": "OnDemand",
+      "preview": "None",
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
         "source": "true",
-        "derived": [
-          {
-            "always_enabled": true
-          }
-        ],
-        "unparsed_terms": []
+        "derived": [],
+        "unparsed_terms": [
+          "true"
+        ]
       },
       "produces_value_kind": "Solid"
     },
@@ -7013,84 +7072,16 @@
             "selection": "must resolve to exactly one SOLID value on one body"
           },
           {
-            "parameter": "selector",
-            "comparison": "is_non_empty"
-          },
-          {
             "parameter": "distance",
             "comparison": "!=",
             "value": 0.0
           }
         ],
-        "unparsed_terms": []
+        "unparsed_terms": [
+          "!txt(ctx, \"selector\", \"\").empty()"
+        ]
       },
       "produces_value_kind": "Solid"
-    },
-    {
-      "id": "part.rename_feature",
-      "label": "Rename Feature",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "feature",
-          "type": "Number",
-          "required": false,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": true
-        },
-        {
-          "name": "name",
-          "type": "Text",
-          "required": true,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": false
-        }
-      ],
-      "preview": "None",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp"
-    },
-    {
-      "id": "part.reorder_feature",
-      "label": "Reorder Feature",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "feature",
-          "type": "Number",
-          "required": false,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": true
-        },
-        {
-          "name": "position",
-          "type": "Number",
-          "required": true,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": false
-        }
-      ],
-      "preview": "OnDemand",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.resize_bore",
@@ -7109,7 +7100,7 @@
           "type": "Text",
           "required": true,
           "default_number": 0.0,
-          "default_text": "bore:largest",
+          "default_text": "hole",
           "has_default": true
         },
         {
@@ -7121,7 +7112,7 @@
           "has_default": true
         }
       ],
-      "preview": "Live",
+      "preview": "OnDemand",
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
@@ -7131,16 +7122,14 @@
             "selection": "must resolve to exactly one SOLID value on one body"
           },
           {
-            "parameter": "selector",
-            "comparison": "is_non_empty"
-          },
-          {
             "parameter": "radius",
             "comparison": ">",
             "value": 0.0
           }
         ],
-        "unparsed_terms": []
+        "unparsed_terms": [
+          "!txt(ctx, \"selector\", \"\").empty()"
+        ]
       },
       "produces_value_kind": "Solid"
     },
@@ -7214,47 +7203,6 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
-    },
-    {
-      "id": "part.rollback_end",
-      "label": "Roll Forward To End",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [],
-      "preview": "None",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp"
-    },
-    {
-      "id": "part.rollback_to",
-      "label": "Roll Back To Feature",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "feature",
-          "type": "Number",
-          "required": true,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": false
-        }
-      ],
-      "preview": "OnDemand",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.rotate",
@@ -7447,6 +7395,39 @@
       "produces_value_kind": "Wire"
     },
     {
+      "id": "part.section_wire",
+      "label": "Section Polyline",
+      "category": "Part",
+      "feature_ir_op": "WIRE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "ring",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "-20 -10 0; 20 -10 0; 20 10 0; -20 10 0",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "parseIrPoints(txt(ctx, \"ring\", \"\"), 3).size() >= 3",
+        "derived": [],
+        "unparsed_terms": [
+          "parseIrPoints(txt(ctx, \"ring\", \"\"), 3).size() >= 3"
+        ]
+      },
+      "produces_value_kind": "Wire"
+    },
+    {
       "id": "part.shell",
       "label": "Shell Body",
       "category": "Part",
@@ -7565,7 +7546,7 @@
     },
     {
       "id": "part.sketch_poly",
-      "label": "Polygon Outline",
+      "label": "Polyline Profile",
       "category": "Part",
       "feature_ir_op": "POLY",
       "emits_feature_ir": true,
@@ -7576,11 +7557,11 @@
       },
       "parameters": [
         {
-          "name": "points",
+          "name": "ring",
           "type": "Text",
           "required": true,
           "default_number": 0.0,
-          "default_text": "-20 -20; 20 -20; 20 20; -20 20",
+          "default_text": "-20 -10; 20 -10; 24 8; 0 18; -24 8",
           "has_default": true
         }
       ],
@@ -7588,16 +7569,11 @@
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
-        "source": "irPointsWellFormed(txt(ctx, \"points\", \"\"), 2, 3)",
-        "derived": [
-          {
-            "parameter": "points",
-            "comparison": "is_point_list",
-            "dimension": 2,
-            "min_points": 3
-          }
-        ],
-        "unparsed_terms": []
+        "source": "parseIrPoints(txt(ctx, \"ring\", \"\"), 2).size() >= 3",
+        "derived": [],
+        "unparsed_terms": [
+          "parseIrPoints(txt(ctx, \"ring\", \"\"), 2).size() >= 3"
+        ]
       },
       "produces_value_kind": "Profile"
     },
@@ -7828,33 +7804,8 @@
       "produces_value_kind": "Profile"
     },
     {
-      "id": "part.suppress_feature",
-      "label": "Suppress Feature",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "feature",
-          "type": "Number",
-          "required": false,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": true
-        }
-      ],
-      "preview": "OnDemand",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp"
-    },
-    {
       "id": "part.sweep_pipe",
-      "label": "Sweep Pipe",
+      "label": "Swept Pipe",
       "category": "Part",
       "feature_ir_op": "SWEEP",
       "emits_feature_ir": true,
@@ -7868,7 +7819,7 @@
           "name": "radius",
           "type": "Number",
           "required": true,
-          "default_number": 5.0,
+          "default_number": 4.0,
           "default_text": "",
           "has_default": true
         },
@@ -7877,35 +7828,73 @@
           "type": "Text",
           "required": true,
           "default_number": 0.0,
-          "default_text": "0 0 0; 0 0 100",
+          "default_text": "0 0 0; 0 0 30; 20 0 50",
           "has_default": true
         }
       ],
-      "preview": "OnDemand",
+      "preview": "Live",
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
-        "source": "num(ctx, \"radius\", 0.0) > 0.0 && irPointsWellFormed(txt(ctx, \"path\", \"\"), 3, 2)",
+        "source": "num(ctx, \"radius\", 0.0) > 0.0 && parseIrPoints(txt(ctx, \"path\", \"\"), 3).size() >= 2",
         "derived": [
           {
             "parameter": "radius",
             "comparison": ">",
             "value": 0.0
-          },
-          {
-            "parameter": "path",
-            "comparison": "is_point_list",
-            "dimension": 3,
-            "min_points": 2
           }
         ],
-        "unparsed_terms": []
+        "unparsed_terms": [
+          "parseIrPoints(txt(ctx, \"path\", \"\"), 3).size() >= 2"
+        ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.sweep_profile",
+      "label": "Swept Profile",
+      "category": "Part",
+      "feature_ir_op": "SWEEP",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "ring",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "-5 -5; 5 -5; 5 5; -5 5",
+          "has_default": true
+        },
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "0 0 0; 0 0 40",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "parseIrPoints(txt(ctx, \"ring\", \"\"), 2).size() >= 3 && parseIrPoints(txt(ctx, \"path\", \"\"), 3).size() >= 2",
+        "derived": [],
+        "unparsed_terms": [
+          "parseIrPoints(txt(ctx, \"ring\", \"\"), 2).size() >= 3",
+          "parseIrPoints(txt(ctx, \"path\", \"\"), 3).size() >= 2"
+        ]
       },
       "produces_value_kind": "Solid"
     },
     {
       "id": "part.tag_feature",
-      "label": "Name Feature (Persistent)",
+      "label": "Name Feature",
       "category": "Part",
       "feature_ir_op": "TAG",
       "emits_feature_ir": true,
@@ -7920,59 +7909,34 @@
           "type": "Text",
           "required": true,
           "default_number": 0.0,
-          "default_text": "@feature",
-          "has_default": false
+          "default_text": "@datum_a",
+          "has_default": true
         },
         {
           "name": "selector",
           "type": "Text",
-          "required": false,
+          "required": true,
           "default_number": 0.0,
-          "default_text": "bore:max",
-          "has_default": false
+          "default_text": "+Z",
+          "has_default": true
         }
       ],
       "preview": "None",
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
-        "source": "solidTarget(*d, ctx.selection()).ok && persistentNameProblem(txt(ctx, \"name\", \"\")) == nullptr && !txt(ctx, \"selector\", \"bore:max\").empty()",
+        "source": "solidTarget(*d, ctx.selection()).ok && legalTagName(txt(ctx, \"name\", \"\")) && !txt(ctx, \"selector\", \"\").empty()",
         "derived": [
           {
             "selection": "must resolve to exactly one SOLID value on one body"
           }
         ],
         "unparsed_terms": [
-          "persistentNameProblem(txt(ctx, \"name\", \"\")) == nullptr",
-          "!txt(ctx, \"selector\", \"bore:max\").empty()"
+          "legalTagName(txt(ctx, \"name\", \"\"))",
+          "!txt(ctx, \"selector\", \"\").empty()"
         ]
       },
       "produces_value_kind": "Solid"
-    },
-    {
-      "id": "part.unsuppress_feature",
-      "label": "Unsuppress Feature",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "feature",
-          "type": "Number",
-          "required": false,
-          "default_number": 0.0,
-          "default_text": "",
-          "has_default": true
-        }
-      ],
-      "preview": "OnDemand",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.variable_fillet",
@@ -8052,7 +8016,7 @@
           "type": "Text",
           "required": true,
           "default_number": 0.0,
-          "default_text": "volume>0",
+          "default_text": "volume > 0",
           "has_default": true
         },
         {
@@ -8060,7 +8024,7 @@
           "type": "Text",
           "required": false,
           "default_number": 0.0,
-          "default_text": "shells=1",
+          "default_text": "faces >= 1",
           "has_default": false
         }
       ],
@@ -8072,53 +8036,13 @@
         "derived": [
           {
             "selection": "must resolve to exactly one SOLID value on one body"
-          },
-          {
-            "parameter": "assertion",
-            "comparison": "is_non_empty"
           }
         ],
-        "unparsed_terms": []
+        "unparsed_terms": [
+          "!txt(ctx, \"assertion\", \"\").empty()"
+        ]
       },
       "produces_value_kind": "Solid"
-    },
-    {
-      "id": "part.wire_section",
-      "label": "Wire Section",
-      "category": "Part",
-      "feature_ir_op": "WIRE",
-      "emits_feature_ir": true,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "points",
-          "type": "Text",
-          "required": true,
-          "default_number": 0.0,
-          "default_text": "20 0 0; 0 20 0; -20 0 0; 0 -20 0",
-          "has_default": true
-        }
-      ],
-      "preview": "Live",
-      "undo": "SingleStep",
-      "source": "ui/src/PartCommands.cpp",
-      "constraints": {
-        "source": "irPointsWellFormed(txt(ctx, \"points\", \"\"), 3, 3)",
-        "derived": [
-          {
-            "parameter": "points",
-            "comparison": "is_point_list",
-            "dimension": 3,
-            "min_points": 3
-          }
-        ],
-        "unparsed_terms": []
-      },
-      "produces_value_kind": "Wire"
     },
     {
       "id": "view.fit",
@@ -8201,7 +8125,7 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 27,
+      "count": 23,
       "parameters": [
         "width (part.sketch_rect)",
         "height (part.sketch_rect)",
@@ -8225,11 +8149,7 @@
         "dx (part.pattern_grid)",
         "dy (part.pattern_grid)",
         "plane (part.mirror)",
-        "value (part.edit_feature)",
-        "name (part.rename_feature)",
-        "feature (part.rollback_to)",
-        "position (part.reorder_feature)",
-        "name (part.tag_feature)"
+        "value (part.edit_feature)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"

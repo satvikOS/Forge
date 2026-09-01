@@ -125,6 +125,40 @@ SYNONYM = {
     "part.grid-holes":       "part.pattern_grid",
     "part.translate":        "part.move",
     "sketch.add-circle":     "part.sketch_circle",
+    # -- added 2026-08-31, after #140 made ten kernel primitives user-invocable.
+    # WITHOUT these rows this script reported 11.0% BOTH BEFORE AND AFTER #140:
+    # the registry grew 30 -> 41 and the measured coverage did not move, because
+    # the JS names are part.make-* and the new C++ ids are part.primitive_*. A
+    # stale synonym table is an instrument that cannot see the thing it measures.
+    # Each pair below was checked on BOTH sides before it was added -- same
+    # primitive, same parameters, same units -- not matched on the name:
+    #   part.make-box       ForgeToolBridge.js:1009  (dx,dy,dz mm -> forge.makeBox)
+    #                       PartCommands.cpp:775     (dx,dy,dz -> BOX, requirePositive x3)
+    #   part.make-cylinder  ForgeToolBridge.js:1016  (radius,height -> makeCylinder)
+    #                       PartCommands.cpp:811     (-> CYL)
+    #   part.make-sphere    ForgeToolBridge.js:1022  PartCommands.cpp:901  (-> SPHERE)
+    #   part.make-cone      ForgeToolBridge.js:1027  (r1,r2,h)  PartCommands.cpp:853 (-> CONE)
+    #   part.make-torus     ForgeToolBridge.js:1034  (major,minor) PartCommands.cpp:928 (-> TORUS)
+    #   part.make-prism     ForgeToolBridge.js:1040  (nSides,circumRadius,height)
+    #                       PartCommands.cpp:970     (-> PRISM)
+    #   part.make-tube      ForgeToolBridge.js:1069  (rOuter,rInner,height; rInner<rOuter)
+    #                       PartCommands.cpp:1011    (-> TUBE, same rInner<rOuter guard)
+    #   part.rotate         ForgeToolBridge.js:1102  (axis + angle in RADIANS)
+    #                       PartCommands.cpp:1108    (-> ROTATE)
+    "part.make-box":         "part.primitive_box",
+    "part.make-cylinder":    "part.primitive_cylinder",
+    "part.make-sphere":      "part.primitive_sphere",
+    "part.make-cone":        "part.primitive_cone",
+    "part.make-torus":       "part.primitive_torus",
+    "part.make-prism":       "part.primitive_prism",
+    "part.make-tube":        "part.primitive_tube",
+    "part.rotate":           "part.rotate",
+    # NOT added, and each absence is a fact rather than an oversight:
+    #   part.make-ellipsoid / part.make-pyramid / part.make-wedge / part.pipe /
+    #   part.sweep  -- no C++ command emits an op for any of these.
+    #   part.sketch_rect / part.sketch_rounded_rect / part.sketch_polygon -- the
+    #   C++ side has them and the JS side does NOT, so they cannot raise
+    #   coverage; they are counted in "C++ commands with NO JS counterpart".
 }
 
 BRIDGE = "frontend/src/ai/ForgeToolBridge.js"
@@ -213,6 +247,238 @@ def js_reachability() -> None:
         print(f"    {n}")
 
 
+# ------------------------------------------------------- 4. what still runs node
+
+NODE_SOURCES = (".github/workflows/kernel-tests.yml",
+                ".github/workflows/desktop-release.yml",
+                "package.json",
+                "forge-kernel/CMakeLists.txt",
+                "forge-desktop/CMakeLists.txt")
+
+
+def node_consumers() -> None:
+    """Every place in the tree that EXECUTES node, by name.
+
+    "A gate you delete along with a file is a gate that stops protecting you
+    silently" -- so the deletion order needs this list, not an impression of it.
+    """
+    print()
+    print("=" * 78)
+    print("4. WHAT EXECUTES NODE -- the gates a JS deletion would silently retire")
+    print("=" * 78)
+    pat = re.compile(r"^\s*(?:run:|\"[\w:.-]+\"\s*:)?.*?\b(node|npm|npx|cmake-js)\b.*$",
+                     re.M)
+    total = 0
+    for src in NODE_SOURCES:
+        if not os.path.exists(src):
+            print(f"  {src}: ABSENT from this tree")
+            continue
+        hits = []
+        for i, ln in enumerate(open(src, errors="ignore").read().splitlines(), 1):
+            body = ln.split("#")[0]
+            if re.search(r"\b(node|npm|npx|cmake-js)\b", body) and \
+               not re.search(r"node_modules/\.bin/#", body):
+                hits.append((i, ln.strip()))
+        print(f"\n  {src}  -- {len(hits)} line(s) naming a node runtime")
+        for i, ln in hits:
+            print(f"     {i:>5}: {ln[:150]}")
+        total += len(hits)
+    print(f"\n  TOTAL: {total} lines across {len(NODE_SOURCES)} files")
+    print("  NOTE: `git grep -n 'playwright\\|e2e' .github/workflows/` finds NOTHING on")
+    print("  either branch -- no CI job runs any of the 404 Playwright specs. That is")
+    print("  the argument for replacing them before deleting them, not for deleting them.")
+
+
+# ---------------------------------------- 5. C++ harnesses that are not gates yet
+
+def unregistered_cpp() -> None:
+    """Which top-level forge-kernel/test/*.cpp are outside FORGE_AB_GATES -- and,
+    separately, WHY.
+
+    ★ READ THIS BEFORE QUOTING THE COUNT. The first version of this section
+    printed the raw "27 outside FORGE_AB_GATES" and called them files no gate
+    runs. That was WRONG on two counts, both caught by reading the CMakeLists
+    rather than grepping it:
+
+      1. CTEST IS NOT THE ONLY RUNNER. forge-kernel/test/run_ab_all.sh drives 8
+         A/B harnesses through `run_ab_native_$t.sh`, a name it BUILDS BY
+         VARIABLE EXPANSION, so no grep for a script basename can see the edge.
+         CI invokes run_ab_all.sh, not ctest, for those.
+      2. EIGHT ARE DELIBERATE, DOCUMENTED EXCLUSIONS with the measurement that
+         excluded them recorded in the CMakeLists "2b" comment block -- e.g.
+         native_hlr_perf and native_hlr_import_perf end in an unconditional
+         `return 0;` (registering them would add a test THAT CANNOT FAIL),
+         golden_corpus_measure is a CLI tool that exits 2 with no argv, and
+         native_vs_occt_fillet_var is RED on a REAL measured disagreement --
+         native matches the closed form to 4.6e-15 rel while OCCT differs by
+         4.444e-05, over a 1e-6 threshold. That is an open engineering gap, NOT
+         a wiring omission, and registering it is not a one-line fix.
+
+    So this section reports THREE buckets, not one number, and it names the
+    exclusion note it read.
+    """
+    print()
+    print("=" * 78)
+    print("5. C++ A/B HARNESSES PRESENT AS SOURCE BUT NOT REGISTERED WITH CTEST")
+    print("=" * 78)
+    cml_path = "forge-kernel/CMakeLists.txt"
+    if not os.path.exists(cml_path):
+        print("  no forge-kernel/CMakeLists.txt on this tree")
+        return
+    cml = open(cml_path, errors="ignore").read()
+    m = re.search(r"set\(FORGE_AB_GATES(.*?)\n\s*\)", cml, re.S)
+    listed = set()
+    if m:
+        for ln in m.group(1).splitlines():
+            ln = ln.split("#")[0].strip()
+            if ln:
+                listed.add(ln)
+    # git pathspec '*' crosses '/', so restrict to the TOP level of test/
+    srcs = [f for f in git_files("forge-kernel/test/*.cpp") if f.count("/") == 2]
+    stems = {os.path.splitext(os.path.basename(f))[0]: f for f in srcs}
+    named = set()
+    for _tgt, path in re.findall(r"add_executable\(\s*(\w+)\s+([^\s)]+)", cml):
+        named.add(os.path.splitext(os.path.basename(path.strip('"')))[0])
+    missing_src = sorted(g for g in listed if g not in stems)
+    print(f"  FORGE_AB_GATES entries              : {len(listed)}")
+    print(f"  top-level forge-kernel/test/*.cpp   : {len(stems)}")
+    print(f"  listed but source ABSENT            : {len(missing_src)} {missing_src}"
+          "   <- negative control: a typo in the list would show up here")
+    unreg = sorted(k for k in stems if k not in listed and k not in named)
+    print(f"  source present, NOT in FORGE_AB_GATES: {len(unreg)}")
+
+    # bucket (b): the CMakeLists "2b" comment block records the measurement that
+    # excluded each of these. An exclusion with a number attached is a decision,
+    # not an oversight.
+    try:
+        note = cml[cml.index("2b. standalone A/B oracles"):cml.index("set(FORGE_TEST_OCCT_LIBS")]
+    except ValueError:
+        note = ""
+    # bucket (a): named by ANY shell harness in the tree. Deliberately a broad
+    # net -- run_ab_all.sh builds its script names by expansion, so a narrow
+    # "is this script itself reachable" test produces FALSE DARKNESS.
+    shell = {}
+    for f in git_files("forge-kernel/test/*.sh", "forge-kernel/tools/*.sh",
+                       "scripts/*.sh", ".github/workflows/*.yml"):
+        try:
+            shell[f] = open(f, errors="ignore").read()
+        except OSError:
+            pass
+    a, b, c = [], [], []
+    for k in unreg:
+        hits = sorted(f for f, t in shell.items() if k in t)
+        if hits:
+            a.append((k, hits))
+        elif k in note:
+            b.append(k)
+        else:
+            c.append(k)
+    print(f"     (a) named by a shell harness or workflow : {len(a)}")
+    for k, h in a:
+        print(f"         {k:<40} {h[0]}" + (f"  (+{len(h)-1} more)" if len(h) > 1 else ""))
+    print(f"     (b) DELIBERATE exclusion, measurement in the CMakeLists 2b note : {len(b)}")
+    for k in b:
+        print(f"         {k}")
+    print(f"     (c) neither -- genuinely unaccounted for : {len(c)}")
+    for k in c:
+        print(f"         {k:<40} {loc([stems[k]]):>6} lines")
+    print("     NOTE: (a) means SOMETHING NAMES IT, not that CI runs it. Proving the"
+          "\n     latter needs the runner graph, and run_ab_all.sh's `run_ab_native_$t.sh`"
+          "\n     expansion is invisible to a basename grep -- so do not upgrade (a) to"
+          "\n     'covered' without following that edge by hand.")
+
+
+# ------------------------------------- 6. what the frontend bundle can contain
+
+def frontend_reachability() -> None:
+    """Which frontend modules can the SHIPPED bundle possibly contain?
+
+    Vite has exactly one entry (frontend/index.html -> src/main.jsx;
+    vite.config.js declares no extra rollupOptions.input, verified). A module no
+    walk from there reaches cannot be in frontend/dist, so deleting it cannot
+    change the shipped app.
+
+    NOT REACHED IS NOT UNUSED. `npm run forge:unit` runs
+    frontend/src/kernel/forge/__tests__/*.test.mjs and `npm test` runs
+    frontend/src/__tests__/*.mjs -- both are outside the bundle graph and both
+    are live gates. This section measures BUNDLE membership only.
+    """
+    import glob as _glob
+    print()
+    print("=" * 78)
+    print("6. FRONTEND -- what the shipped Vite bundle can reach")
+    print("=" * 78)
+    root = os.path.abspath(".")
+    static = re.compile(r"""(?:^|[\s;{(=])import\s+(?:[^'"]*?\sfrom\s+)?['"]([^'"]+)['"]""", re.M)
+    dyn = re.compile(r"""import\s*\(\s*['"]([^'"]+)['"]\s*\)""")
+    req = re.compile(r"""require\s*\(\s*['"]([^'"]+)['"]\s*\)""")
+    glb = re.compile(r"""import\.meta\.glob(?:Eager)?\s*\(\s*\[?\s*['"]([^'"]+)['"]""")
+    expf = re.compile(r"""export\s+(?:\*|\{[^}]*\})\s+from\s+['"]([^'"]+)['"]""")
+    exts = ["", ".js", ".jsx", ".mjs", ".cjs", ".json", ".css",
+            "/index.js", "/index.jsx", "/index.mjs"]
+
+    def resolve(frm, spec):
+        if not spec.startswith("."):
+            return None            # bare specifier -> node_modules, not a tree file
+        p = os.path.normpath(os.path.join(os.path.dirname(frm), spec))
+        for e in exts:
+            if os.path.isfile(p + e):
+                return p + e
+        return None
+
+    tracked = {os.path.join(root, f) for f in git_files("frontend")}
+    code = {f for f in tracked
+            if os.path.splitext(f)[1] in (".js", ".jsx", ".mjs", ".cjs")}
+    if not code:
+        print("  no frontend/ on this tree")
+        return
+    roots = [os.path.join(root, r) for r in
+             ("frontend/src/main.jsx", "frontend/src/App.jsx", "frontend/vite.config.js")]
+    roots = [r for r in roots if os.path.isfile(r)]
+    seen, globs = set(), []
+    stack = list(roots)
+    while stack:
+        f = stack.pop()
+        if f in seen or not os.path.isfile(f):
+            continue
+        seen.add(f)
+        if os.path.splitext(f)[1] not in (".js", ".jsx", ".mjs", ".cjs"):
+            continue
+        txt = open(f, errors="ignore").read()
+        for sp in (set(static.findall(txt)) | set(dyn.findall(txt))
+                   | set(req.findall(txt)) | set(expf.findall(txt))):
+            t = resolve(f, sp)
+            if t:
+                stack.append(t)
+        for g in glb.findall(txt):
+            hits = _glob.glob(os.path.normpath(os.path.join(os.path.dirname(f), g)),
+                              recursive=True)
+            globs.append((os.path.relpath(f, root), g, len(hits)))
+            stack.extend(hits)
+    reached = {f for f in seen if f in code}
+    orphan = sorted(code - reached)
+    print(f"  tracked frontend code files        : {len(code)}")
+    print(f"  reachable from the ONE Vite entry  : {len(reached)}")
+    print(f"  NOT reachable (cannot be bundled)  : {len(orphan)}")
+    print(f"  import.meta.glob roots expanded    : {len(globs)}")
+    # POSITIVE CONTROL: the CommandBar -> ForgeShellV4 -> ForgeRunner ->
+    # ForgeToolBridge chain is proved live by e2e/forge/cadgenbench-cua-helper.js.
+    # If the walk misses any of them it is broken and the count above is fiction.
+    ctrl = ["frontend/src/forge-v4/ForgeShellV4.jsx", "frontend/src/ai/ForgeToolBridge.js",
+            "frontend/src/forge-v4/CommandBar.jsx", "frontend/src/ai/ForgeRunner.js",
+            "frontend/src/forge-v4/kernelDispatch.js"]
+    bad = [c for c in ctrl if os.path.join(root, c) not in reached]
+    print("  POSITIVE CONTROL (known-live chain) :",
+          "all 5 reached" if not bad else f"BROKEN -- missed {bad}")
+    by = {}
+    for f in orphan:
+        d = os.path.dirname(os.path.relpath(f, root))
+        by[d] = by.get(d, 0) + 1
+    print("  unreachable, by directory (top 12):")
+    for d, n in sorted(by.items(), key=lambda kv: -kv[1])[:12]:
+        print(f"     {n:>5}  {d}")
+
+
 def main() -> int:
     if not os.path.isdir(".git") and not os.path.exists(".git"):
         print("run me from the repo root", file=sys.stderr)
@@ -223,6 +489,9 @@ def main() -> int:
     inventory()
     gate3()
     js_reachability()
+    node_consumers()
+    unregistered_cpp()
+    frontend_reachability()
     print("\n(measurement only -- this script deletes nothing)")
     return 0
 

@@ -1,11 +1,11 @@
 #include "forge/ui/FeatureIr.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,80 +41,20 @@ IrArg IrArg::text(std::string s) {
   return a;
 }
 
-bool parseIrPoints(const std::string& spec, std::size_t dim, std::vector<double>& out) {
-  out.clear();
-  if (dim < 2 || dim > 3) return false;
-  std::size_t start = 0;
-  while (true) {
-    const std::size_t semi = spec.find(';', start);
-    const std::string group =
-        spec.substr(start, semi == std::string::npos ? std::string::npos : semi - start);
-    // A trailing or repeated ';' contributes no point rather than a bad one --
-    // the same tolerance forge::ft's tokenizer shows ("if (ps.empty()) continue").
-    std::istringstream in(group);
-    std::string word;
-    std::size_t got = 0;
-    while (in >> word) {
-      const char* begin = word.c_str();
-      char* end = nullptr;
-      const double v = std::strtod(begin, &end);
-      if (end == begin || *end != '\0' || !std::isfinite(v)) {
-        out.clear();
-        return false;
-      }
-      out.push_back(v);
-      ++got;
-    }
-    if (got != 0 && got != dim) {   // "20 0" in a 3D ring is a MISSING coordinate
-      out.clear();
-      return false;
-    }
-    if (semi == std::string::npos) break;
-    start = semi + 1;
-  }
-  if (out.empty()) return false;    // "empty point list", exactly as the kernel says
-  return true;
-}
-
-bool irPointsWellFormed(const std::string& spec, std::size_t dim, std::size_t minPoints) {
-  std::vector<double> coords;
-  if (!parseIrPoints(spec, dim, coords)) return false;
-  return coords.size() / dim >= minPoints;
-}
-
-namespace {
-IrArg makePoints(const std::string& spec, std::size_t dim) {
+IrArg IrArg::points(std::vector<IrPoint> ring, int dim) {
   IrArg a;
   a.kind = IrArgKind::Points;
-  a.dim = dim;
-  // Discarding the answer is deliberate: parseIrPoints leaves `coords` EMPTY on
-  // failure, and an empty POINTS argument is exactly what validateIr refuses by
-  // name. Reporting the failure twice, once here and once there, would give two
-  // places to change the rule.
-  (void)parseIrPoints(spec, dim, a.coords);
+  a.pts = std::move(ring);
+  // 2 or 3 and nothing else. A dim of 0 or 4 would render a token forge::ft's lexer
+  // reads as a DIFFERENT ring -- it takes the first two coordinates of each point and
+  // treats the rest as absent -- so a wrong dim is a silently wrong shape rather than a
+  // refusal. Clamp to the only two spellings the grammar has.
+  a.dim = (dim == 3) ? 3 : 2;
   return a;
 }
-}  // namespace
 
-IrArg IrArg::points2(const std::string& spec) { return makePoints(spec, 2); }
-IrArg IrArg::points3(const std::string& spec) { return makePoints(spec, 3); }
-
-std::size_t IrArg::pointCount() const noexcept {
-  if (kind != IrArgKind::Points || dim == 0) return 0;
-  return coords.size() / dim;
-}
-
-std::string IrArg::pointSpec() const {
-  if (kind != IrArgKind::Points || dim == 0) return {};
-  std::string out;
-  for (std::size_t i = 0; i + dim <= coords.size(); i += dim) {
-    if (i != 0) out += "; ";
-    for (std::size_t k = 0; k < dim; ++k) {
-      if (k != 0) out += " ";
-      out += formatIrNumber(coords[i + k]);
-    }
-  }
-  return out;
+IrArg IrArg::pointsFromText(const std::string& text, int dim) {
+  return points(parseIrPoints(text, dim), dim);
 }
 
 // forge::ft's parseDouble is std::strtod, so "%.10g" round-trips every value a
@@ -135,9 +75,75 @@ std::string IrArg::token() const {
     case IrArgKind::Ref:     return "%" + std::to_string(ref);
     case IrArgKind::Keyword: return word;
     case IrArgKind::Text:    return "\"" + word + "\"";
-    case IrArgKind::Points:  return "[" + pointSpec() + "]";
+    case IrArgKind::Points: {
+      // `[x y; x y; ...]` / `[x y z; ...]` -- the spelling forge::ft's lexer reads: one
+      // '[' ... ']' pair, points separated by ';', coordinates by whitespace. NO commas
+      // anywhere inside, which is why an argument list carrying a ring (SWEEP's two) still
+      // splits correctly at its top-level commas.
+      std::string out = "[";
+      for (std::size_t i = 0; i < pts.size(); ++i) {
+        if (i != 0) out += "; ";
+        out += formatIrNumber(pts[i].x);
+        out += " ";
+        out += formatIrNumber(pts[i].y);
+        if (dim == 3) {
+          out += " ";
+          out += formatIrNumber(pts[i].z);
+        }
+      }
+      out += "]";
+      return out;
+    }
   }
   return formatIrNumber(number);
+}
+
+// Hand-rolled over strtod rather than routed through a string stream, on purpose:
+// forge::ft's parseDouble IS std::strtod, and strtod is what round-trips
+// formatIrNumber's "%.10g" output exactly. Reading with a different converter here
+// would let the value the app displays differ from the value the kernel builds in the
+// last digit. (The symbol for that other converter is deliberately not written above:
+// check_includes_ui.sh reads this file as TEXT and would demand the header for it.)
+std::vector<IrPoint> parseIrPoints(const std::string& text, int dim) {
+  const int want = (dim == 3) ? 3 : 2;
+  std::vector<IrPoint> out;
+  std::size_t i = 0;
+  const std::size_t n = text.size();
+  while (i <= n) {
+    const std::size_t semi = text.find(';', i);
+    const std::size_t end = (semi == std::string::npos) ? n : semi;
+    const std::string chunk = text.substr(i, end - i);
+    i = end + 1;
+    // A trailing or doubled ';' contributes no point rather than a point at the origin.
+    bool blank = true;
+    for (const char ch : chunk) {
+      if (!std::isspace(static_cast<unsigned char>(ch))) { blank = false; break; }
+    }
+    if (blank) {
+      if (semi == std::string::npos) break;
+      continue;
+    }
+    double coord[3] = {0.0, 0.0, 0.0};
+    const char* cur = chunk.c_str();
+    for (int k = 0; k < want; ++k) {
+      char* next = nullptr;
+      coord[k] = std::strtod(cur, &next);
+      // strtod returns 0 with next == cur when it consumed nothing: too few coordinates.
+      // A ring the user has not finished typing is not a SHORT ring, it is no ring --
+      // report nothing rather than invent a point at the origin.
+      if (next == cur) return {};
+      if (!std::isfinite(coord[k])) return {};
+      cur = next;
+    }
+    while (*cur != '\0' && std::isspace(static_cast<unsigned char>(*cur))) ++cur;
+    // Trailing junk: `10 20 30` read as a 2D point, or `10 20 abc`. Both mean the text
+    // says something this dim cannot express, and silently dropping the tail is exactly
+    // how a 3D ring would become a flat one.
+    if (*cur != '\0') return {};
+    out.push_back(IrPoint{coord[0], coord[1], want == 3 ? coord[2] : 0.0});
+    if (semi == std::string::npos) break;
+  }
+  return out;
 }
 
 std::string IrLine::text() const {
@@ -207,6 +213,13 @@ const std::vector<IrOpSpec>& irOpTable() {
       {"SHELL", 2, 5, true},
       {"FOLD", 8, 9, true},
       {"HEAL", 1, 1, true},
+      // surface sheets (produce a SURFACE)
+      {"SKIN", 2, kIrArgsUnbounded, true},
+      {"FACES", 2, 2, true},
+      {"SEW", 1, kIrArgsUnbounded, true},
+      {"THICKEN", 2, 3, true},
+      {"CAP", 1, 2, true},
+      {"SURFCHECK", 2, kIrArgsUnbounded, true},
       // edit ops
       {"TAG", 3, 3, true},
       {"INPUT", 0, 0, false},
@@ -235,7 +248,7 @@ const char* toString(IrCheck check) noexcept {
     case IrCheck::TooManyArgs:         return "too_many_args";
     case IrCheck::FirstArgNotValueRef: return "first_arg_not_value_ref";
     case IrCheck::ForwardValueRef:     return "forward_value_ref";
-    case IrCheck::MalformedPointList:  return "malformed_point_list";
+    case IrCheck::EmptyPointList:      return "empty_point_list";
   }
   return "unknown_op";
 }
@@ -262,14 +275,12 @@ IrCheck validateIr(const IrLine& line) {
     if (a.ref <= 0 || a.ref >= line.id) return IrCheck::ForwardValueRef;
   }
 
-  // A POINTS argument the tokenizer would refuse. Both halves are the kernel's
-  // rules: "empty point list" and "point needs `x y` or `x y z`". Without this an
-  // unparsable spec would reach forge::ft as `WIRE([])`, which is a parse error
-  // several layers away from the field the user typed into.
+  // An empty ring renders as the literal `[]`, and forge::ft's lexer fails that
+  // outright ("empty point list"). Checked AFTER the arity rules on purpose: a
+  // statement with the wrong number of arguments is wrong whatever is in them, and
+  // naming the smaller problem first would send the author to fix the ring.
   for (const IrArg& a : line.args) {
-    if (a.kind != IrArgKind::Points) continue;
-    if (a.dim < 2 || a.dim > 3) return IrCheck::MalformedPointList;
-    if (a.coords.empty() || a.coords.size() % a.dim != 0) return IrCheck::MalformedPointList;
+    if (a.kind == IrArgKind::Points && a.pts.empty()) return IrCheck::EmptyPointList;
   }
   return IrCheck::Ok;
 }

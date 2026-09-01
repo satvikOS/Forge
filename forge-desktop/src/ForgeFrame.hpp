@@ -34,6 +34,7 @@
 
 #include "Camera.hpp"
 #include "KernelScene.hpp"
+#include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
@@ -101,6 +102,51 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // compiled, and installs this object as the shell's document host. Returns how
   // many commands were added.
   std::size_t wirePartCommands();
+
+  // ── the Archie CoPilot panel ────────────────────────────────────────────
+  //
+  // THE FRAME BUILDER OPENS NO SOCKET. The panel RAISES A REQUEST and RENDERS A
+  // RESULT; whatever fills the gap is the app layer's business, exactly as the
+  // 3D viewport works -- build() fills a plain ViewportRequest and the renderer
+  // reads it afterwards.
+  //
+  // A host that wants a real model behind Archie:
+  //     frame.setCopilotAutoPlan(false);            // stop answering locally
+  //     ... build the frame ...
+  //     if (const auto* req = frame.copilotRequest()) {
+  //         PlanResponse reply = myTransport.ask(*req);   // I/O lives HERE
+  //         frame.deliverCopilotPlan(reply);
+  //     }
+  // With auto-plan left on (the default), forge::ui::LocalPlanner answers in
+  // process: deterministic, offline, and honest about the vocabulary it knows,
+  // so the panel is usable and truthful before any model exists.
+  //
+  // EVERY plan, whoever produced it, goes through the op-constraint gate in
+  // forge::ui::validatePlan() before it is offered, and again in applyPlan()
+  // before any step is dispatched. This class adds no path around it.
+  forge::ui::ArchieCopilot& copilot() noexcept { return copilot_; }
+  const forge::ui::ArchieCopilot& copilot() const noexcept { return copilot_; }
+  void setCopilotAutoPlan(bool on) noexcept { copilotAutoPlan_ = on; }
+  bool copilotAutoPlan() const noexcept { return copilotAutoPlan_; }
+  const forge::ui::PlanRequest* copilotRequest() const noexcept;
+  forge::ui::PlanCheck deliverCopilotPlan(const forge::ui::PlanResponse& response);
+  void failCopilotRequest(const std::string& why);
+
+  // The panel's controls, reachable without a mouse -- for a host, a macro and
+  // the gate. They RECORD INTENT exactly as the widgets do, and build() applies
+  // it after the dock walk finishes. So they exercise the SHIPPING path rather
+  // than a private one beside it, and a caller that presses Apply from outside a
+  // frame cannot re-seat a container the next walk is about to index. A frame
+  // must be built for a recorded press to take effect.
+  void copilotType(const std::string& text);
+  void copilotSubmit();
+  void copilotApplyPlan();
+  void copilotDiscardPlan();
+  const std::string& copilotInput() const noexcept { return copilotInput_; }
+  std::size_t copilotRowsDrawn() const noexcept { return copilotRowsDrawn_; }
+  std::size_t copilotTranscriptRowsDrawn() const noexcept {
+    return copilotTranscriptRowsDrawn_;
+  }
 
   // ── the document ────────────────────────────────────────────────────────
   const forge::ui::PartDocument& document() const noexcept { return partDoc_; }
@@ -361,6 +407,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawTimelinePanel();
   void drawMeasurePanel();
   void drawToolsPanel();
+  void drawCopilotPanel();
+  // The work the three recorded presses stand for. Private: the ONLY caller is
+  // build(), after the walk.
+  void runCopilotSubmit();
+  void runCopilotApply();
+  void runCopilotDiscard();
   void drawGenericPanel(const std::string& panelId);
   void drawCommandPalette();
   void drawViewportOverlays(float x, float y, float w, float h);
@@ -488,6 +540,13 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool pendingExpandValid_ = false;
   forge::ui::NodeId pendingExpandId_{};
   bool pendingExpandState_ = false;
+  // The CoPilot's three buttons, deferred for the SAME reason as the three
+  // above: Send re-seats nothing itself, but Apply dispatches commands that
+  // rebuild the document, the feature tree and the scene -- and the feature tree
+  // is the container the walk is indexing.
+  bool pendingCopilotSubmit_ = false;
+  bool pendingCopilotApply_ = false;
+  bool pendingCopilotDiscard_ = false;
   // Non-zero while drawNode()/drawTabGroup() are walking the dock tree. The
   // write API reads it to count violations of the invariant above.
   std::size_t walkDepth_ = 0;
@@ -500,6 +559,22 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
+
+  // ── the CoPilot ─────────────────────────────────────────────────────────
+  // Owned here because it is panel state, not document state: the transcript,
+  // the request in flight and the plan on offer belong to the surface the user
+  // is looking at. It writes nothing itself -- every edit it causes goes through
+  // shell_.run(), the same door a menu click uses.
+  forge::ui::ArchieCopilot copilot_;
+  forge::ui::LocalPlanner copilotPlanner_;
+  bool copilotAutoPlan_ = true;
+  std::string copilotInput_;
+  // PLAN rows only -- one per step of the verdict on offer. The transcript is
+  // counted separately: a caller asking "did the panel draw a row per planned
+  // step" is asking about the plan, and folding a growing chat log into that
+  // number would make the answer depend on how much had been said.
+  std::size_t copilotRowsDrawn_ = 0;
+  std::size_t copilotTranscriptRowsDrawn_ = 0;
   char toolQuery_[96] = {0};
   std::uint32_t hoverFace_ = 0;
   float dpiScale_ = 1.0f;
