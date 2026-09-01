@@ -5,6 +5,14 @@
 # Usage: bash check_includes.sh <file.cpp> [file2 ...]   (no args = scan all native src+test)
 # bash-3.2 compatible (macOS default) — no associative arrays.
 set -uo pipefail
+# Resolve THIS script to an absolute path BEFORE the cd. --self-test re-invokes it
+# per fixture, and ${BASH_SOURCE[0]} is whatever the caller typed: invoked as
+# `bash check_includes.sh --self-test` from this directory it is a bare filename,
+# which no longer resolves once we have cd'd to the repo root. The re-invocation
+# then fails to START, and a control expecting a FLAG reads that non-zero exit as
+# the flag it was looking for -- a control passing for the wrong reason, which is
+# worse than one that fails. MEASURED: 3 of the 11 gave the wrong verdict that way.
+SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 # header|regex pairs — symbol present without its header => CI (libstdc++) build fail
@@ -33,7 +41,13 @@ if [ "${1:-}" = "--self-test" ]; then
   chk() {
     name="$1"; want="$2"
     ncase=$((ncase+1))
-    out="$(bash "${BASH_SOURCE[0]}" "$T/$name.cpp" 2>&1)"; rc=$?
+    # $SELF, not ${BASH_SOURCE[0]}: absolute, resolved before the cd above.
+    out="$(bash "$SELF" "$T/$name.cpp" 2>&1)"; rc=$?
+    # A control must not pass because the re-invocation could not START. rc 126/127
+    # (not executable / not found) is not a verdict, it is a broken harness.
+    if [ "$rc" -ge 126 ]; then
+      echo "[self-test] HARNESS BROKEN on $name (rc=$rc): $out"; fails=$((fails+1)); return
+    fi
     if [ "$want" = flag ] && [ "$rc" -eq 0 ]; then
       echo "[self-test] MISS: $name should have been flagged, was not"; fails=$((fails+1))
     elif [ "$want" = ok ] && [ "$rc" -ne 0 ]; then
