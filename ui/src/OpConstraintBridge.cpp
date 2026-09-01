@@ -353,12 +353,19 @@ const OpRuling* PlanRuling::firstRejection() const noexcept {
 std::string PlanRuling::report() const {
   std::string out;
   for (const OpRuling& r : rulings) {
-    out += r.accepted() ? "  ACCEPT " : "  REFUSE ";
+    // TOLERATE is spelled differently from a plain ACCEPT so the fact is visible
+    // in a log, and identically to it in the counts -- it IS an accept.
+    out += !r.accepted() ? "  REFUSE " : (r.tolerated.empty() ? "  ACCEPT " : "  TOLERATE ");
     out += "%" + std::to_string(r.statementId) + " " + r.op;
     if (!r.accepted()) out += " -- " + std::string(toString(r.verdict)) + ": " + r.reason;
+    else if (!r.tolerated.empty()) out += " -- " + r.tolerated;
     out += "\n";
   }
-  out += "  " + std::to_string(accepted) + " accepted, " + std::to_string(rejected) + " refused\n";
+  out += "  " + std::to_string(accepted) + " accepted, " + std::to_string(rejected) + " refused";
+  if (tolerated != 0) {
+    out += " (" + std::to_string(tolerated) + " of the accepted TOLERATED: kernel-legal, no command emits the form)";
+  }
+  out += "\n";
   return out;
 }
 
@@ -548,25 +555,47 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
                       " is not positive; ids are 1-based and define what later %N mean");
   }
 
-  // ── 3. arity a USER command can emit ──────────────────────────────────────
-  // Deliberately the emitted forms, not the kernel arity: forge::ft would accept
-  // more, and a form no command produces is a form no user could have made.
+  // ── 3. arity ──────────────────────────────────────────────────────────────
+  // THE KERNEL'S RANGE IS THE REFUSAL BOUNDARY. The app's emitted forms are a
+  // NOTE, and this is the one rule in the file that changed shape.
+  //
+  // It used to refuse anything outside the discrete counts the emitting commands
+  // happen to produce. That is a narrower set than the kernel's range on 23 of
+  // the 28 user-invocable ops -- 61 kernel-legal argument counts in total -- and
+  // the old refusal message said so itself: "the kernel would accept 2-3, which
+  // is wider than the app". `FILLET(%body, r)` and `CHAMFER(%body, d)` are the
+  // forms FeatureTree.hpp DOCUMENTS; a CYL with a z offset, a BOX with a partial
+  // centre and a MIRROR about an arbitrary plane are all things forge::ft builds.
+  // Every one of them was refused because part.fillet always writes a selector.
+  //
+  // Refusing them removed capability and prevented nothing: the statement builds.
+  // The owner's constraint is REPRESENT / REPAIR / TOLERATE, never refuse -- an
+  // ultra-long feature tree from a planner is not a transcript of app commands,
+  // and validating it against what the app's buttons emit is the wrong question.
+  //
+  // What stays refused is what the KERNEL cannot build, which is a real fact
+  // about the statement rather than a fact about the app's command set. What was
+  // refused for the app's sake is now recorded on the ruling and accepted.
   const std::size_t argc = line.args.size();
-  bool arityOk = false;
-  for (const OpVocabulary::ArgCounts& form : op->emittedForms) {
-    if (argc < form.min) continue;
-    if (form.max != kIrArgsUnbounded && argc > form.max) continue;
-    arityOk = true;
-  }
-  if (!arityOk) {
+  const bool kernelOk =
+      argc >= op->kernelMinArgs &&
+      (op->kernelMaxArgs == kIrArgsUnbounded || argc <= op->kernelMaxArgs);
+  if (!kernelOk) {
     return reject(proposal, OpConstraint::WrongArity,
                   line.op + ": wrong arity -- " + std::to_string(argc) +
-                      " argument(s); the only forms a forge::ui command emits take " +
-                      countList(op->emittedForms) + " (the kernel would accept " +
+                      " argument(s); forge::ft::compile accepts " +
                       std::to_string(op->kernelMinArgs) + "-" +
                       (op->kernelMaxArgs == kIrArgsUnbounded ? std::string("n")
                                                              : std::to_string(op->kernelMaxArgs)) +
-                      ", which is wider than the app)");
+                      ", so the KERNEL cannot build this statement (the forms a forge::ui "
+                      "command emits are narrower still: " +
+                      countList(op->emittedForms) + ")");
+  }
+  bool appEmitsThisForm = false;
+  for (const OpVocabulary::ArgCounts& form : op->emittedForms) {
+    if (argc < form.min) continue;
+    if (form.max != kIrArgsUnbounded && argc > form.max) continue;
+    appEmitsThisForm = true;
   }
 
   // ── 4. the leading value reference ────────────────────────────────────────
@@ -643,7 +672,21 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
                         toString(proposal.selection) + "(s); the command needs " + bounds);
     }
   }
-  return accept(proposal);
+  OpRuling ok = accept(proposal);
+  if (!appEmitsThisForm) {
+    // Accepted, and the one thing that makes it interesting is recorded rather
+    // than thrown away. This is the fact the old refusal was carrying: the
+    // KERNEL builds this statement and the app cannot yet author it.
+    ok.tolerated = line.op + ": " + std::to_string(argc) +
+                   " argument(s) -- kernel-legal (forge::ft::compile accepts " +
+                   std::to_string(op->kernelMinArgs) + "-" +
+                   (op->kernelMaxArgs == kIrArgsUnbounded ? std::string("n")
+                                                          : std::to_string(op->kernelMaxArgs)) +
+                   ") but NO forge::ui command emits this form; the app emits " +
+                   countList(op->emittedForms) +
+                   ". TOLERATED, not refused -- a planner is not the command set.";
+  }
+  return ok;
 }
 
 PlanRuling OpConstraintBridge::check(const std::vector<ProposedOp>& plan,
@@ -703,6 +746,8 @@ PlanRuling OpConstraintBridge::check(const std::vector<ProposedOp>& plan,
 
     if (ruling.accepted()) {
       ++out.accepted;
+      // A SUBSET of accepted, never a third bucket -- see PlanRuling::tolerated.
+      if (!ruling.tolerated.empty()) ++out.tolerated;
       const OpVocabulary::Op* op = vocabulary_.find(proposal.line.op);
       values.push_back(op ? op->produces : IrValueKind::None);
     } else {

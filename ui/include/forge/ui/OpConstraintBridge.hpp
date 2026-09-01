@@ -105,6 +105,22 @@ struct OpRuling {
   std::string reason;   // names the op AND why; empty only when accepted
   int statementId = 0;
 
+  // TOLERATED, not refused. Non-empty when the statement is KERNEL-LEGAL but no
+  // forge::ui command emits this exact form -- `FILLET(%1, 3)`, the two-argument
+  // form FeatureTree.hpp documents, which the app only ever writes with three.
+  //
+  // It is a NOTE and never a verdict, because the owner's constraint on this
+  // programme is REPRESENT / REPAIR / TOLERATE, never refuse: "dont gate anything
+  // if you do that then how will Archie generate ultra long feature trees for
+  // Kernel to execute". A planner is not the app's command set. Refusing a form
+  // the kernel builds removes capability to prevent nothing, and it removed it
+  // across 61 argument counts on 23 of the 28 user-invocable ops.
+  //
+  // `accepted()` stays TRUE here on purpose. The fact is worth reporting -- it
+  // says the app cannot yet author what a planner can -- but a caller that
+  // treats it as a refusal is back to the behaviour this replaces.
+  std::string tolerated;
+
   bool accepted() const noexcept { return verdict == OpConstraint::Ok; }
 };
 
@@ -113,6 +129,10 @@ struct PlanRuling {
   std::vector<OpRuling> rulings;
   std::size_t accepted = 0;
   std::size_t rejected = 0;
+  // A SUBSET of `accepted`, never a third bucket: statements the kernel builds
+  // and no forge::ui command emits in that form. Counted so a gate can watch the
+  // number without any of them becoming a refusal.
+  std::size_t tolerated = 0;
 
   // FALSE for an EMPTY plan, deliberately: "nothing was refused" is not the same
   // claim as "a program was accepted", and a caller that treats an empty plan as

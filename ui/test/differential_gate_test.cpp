@@ -217,31 +217,90 @@ int main(int argc, char** argv) {
   // ---- D. THE ARITY DIFFERENTIAL, ratcheted -------------------------------
   const std::vector<ArityGap> gaps = arityDifferential(bridge);
   std::size_t refusedTotal = 0;
-  std::printf("[differential] kernel-legal argument counts the OpConstraintBridge REFUSES:\n");
+  std::printf("[differential] kernel-legal argument counts NO forge::ui command can author "
+              "(a gap in the COMMAND SET, not a refusal -- see the live sweep below):\n");
   for (const ArityGap& g : gaps) {
     refusedTotal += g.refused.size();
     std::printf("    %-10s kernel accepts %zu..%zu, bridge refuses {%s}\n", g.op.c_str(),
                 g.kernelMin, g.kernelMax, countList(g.refused).c_str());
   }
-  std::printf("[differential] %zu refused counts across %zu of %zu user-invocable ops\n",
+  std::printf("[differential] %zu unauthorable counts across %zu of %zu user-invocable ops\n",
               refusedTotal, gaps.size(), bridge.allowedOps().size());
 
-  // THE RATCHET. Both directions are checked on purpose:
-  //   * a GROWTH is a new way for an Archie-emitted tree the kernel builds to be
-  //     refused by the app, and the owner's constraint is REPRESENT / REPAIR /
-  //     TOLERATE, never refuse.
+  // THE RATCHET, on the CAPABILITY GAP. `arityDifferential` reads the vocabulary
+  // TABLE: these 61 counts are the forms the kernel builds and no forge::ui
+  // command can author. That gap is a fact about the COMMAND SET and closing it
+  // means writing commands, so the pin stays where it was and stays two-directional:
+  //   * a GROWTH is a new kernel-legal form the app cannot reach.
   //   * a SHRINK without moving this pin is progress the ledger cannot see, and a
   //     ratchet that cannot notice progress stops being evidence.
-  // Measured 2026-08-31 against the 28 user-invocable ops of vocabulary
-  // sha 7e6f9c903385. Recorded in implementation/sacrosanct/findings/.
+  // Measured 2026-08-31 against the 28 user-invocable ops. UNCHANGED by this
+  // commit -- what changed is what the BRIDGE DOES about it, swept below.
   CHECK_EQ_INT(refusedTotal, 61u);
   CHECK_EQ_INT(gaps.size(), 23u);
 
-  // The gap is REAL only if the bridge really refuses one. Prove it on a live
-  // statement rather than on a table read: FILLET(%1, 3) is the two-argument form
-  // FeatureTree.hpp documents (`FILLET(%body, radius [, sel=ALL])`), it is what a
-  // planner writes when it wants the default selector, and forge::ui's own
-  // validateIr -- the kernel's rule -- accepts it.
+  // ---- D2. AND THE BRIDGE MUST REFUSE NONE OF THEM ------------------------
+  // The gap above is a table read. THIS is the live behaviour, and it is the
+  // owner's constraint made executable: REPRESENT / REPAIR / TOLERATE, never
+  // refuse. "dont gate anything if you do that then how will Archie generate
+  // ultra long feature trees for Kernel to execute".
+  //
+  // Every one of the 61 kernel-legal forms is driven through the REAL bridge.
+  // None may come back WrongArity -- that verdict now belongs to forms the
+  // KERNEL cannot build, which is a fact about the statement rather than a fact
+  // about which buttons the app happens to have. A statement may still be
+  // refused for a different reason (a leading %ref it should not have, a value
+  // kind it cannot consume); those are separate rules with their own tests, and
+  // this sweep rules only on the one it is about.
+  //
+  // Swept, not sampled: a single positive control is one row of a table of 61,
+  // and it was the row someone happened to pick.
+  {
+    std::size_t swept = 0;
+    std::size_t refusedForArity = 0;
+    std::size_t toleratedAndRecorded = 0;
+    std::string firstRefusal;
+    for (const ArityGap& g : gaps) {
+      const OpVocabulary::Op* op = bridge.vocabulary().find(g.op);
+      if (op == nullptr) continue;
+      for (const std::size_t n : g.refused) {
+        forge::ui::IrLine line;
+        line.id = 2;
+        line.op = g.op;
+        for (std::size_t i = 0; i < n; ++i) {
+          line.args.push_back(i == 0 && op->firstArgIsValueRef ? forge::ui::IrArg::valueRef(1)
+                                                               : forge::ui::IrArg::num(1));
+        }
+        forge::ui::ProposedOp p;
+        p.line = line;
+        const forge::ui::OpRuling r = bridge.check(p);
+        ++swept;
+        if (r.verdict == forge::ui::OpConstraint::WrongArity) {
+          ++refusedForArity;
+          if (firstRefusal.empty()) firstRefusal = r.reason;
+        }
+        if (r.accepted() && !r.tolerated.empty()) ++toleratedAndRecorded;
+      }
+    }
+    // Every line self-standing and prefixed: run_differential_gate.sh prints the
+    // clean run with `grep -E '^\[differential\]'`, so an indented continuation
+    // line is dropped from the CI log and the measurement stops being visible.
+    std::printf("[differential] the %zu kernel-legal forms no command emits, driven through "
+                "the LIVE bridge: %zu refused for arity, %zu accepted AND recorded\n",
+                swept, refusedForArity, toleratedAndRecorded);
+    if (!firstRefusal.empty()) {
+      std::printf("[differential] first refusal: %s\n", firstRefusal.c_str());
+    }
+    CHECK_EQ_INT(swept, 61u);
+    CHECK_EQ_INT(refusedForArity, 0u);
+    // Tolerating must not mean forgetting: every one carries the note that says
+    // the app cannot author it, or the capability gap becomes invisible.
+    CHECK_EQ_INT(toleratedAndRecorded, 61u);
+  }
+
+  // The two documented forms, named rather than counted, because they are the
+  // ones FeatureTree.hpp itself writes down and they were both refused:
+  //   FILLET(%body, radius [, sel=ALL])   CHAMFER(%body, distance [, sel=ALL])
   {
     forge::ui::IrLine defaulted;
     defaulted.id = 2;
@@ -254,10 +313,10 @@ int main(int argc, char** argv) {
     p.selection = forge::ui::EntityKind::Edge;
     p.selectionCount = 1;
     const forge::ui::OpRuling r = bridge.check(p);
-    CHECK_EQ_INT(static_cast<int>(r.verdict),
-                 static_cast<int>(forge::ui::OpConstraint::WrongArity));
-    std::printf("[differential] live positive control -- kernel-legal `%s` is refused: %s\n",
-                defaulted.text().c_str(), r.reason.c_str());
+    CHECK(r.accepted());
+    CHECK(!r.tolerated.empty());
+    std::printf("[differential] `%s` -- the form FeatureTree.hpp documents -- is now ACCEPTED: %s\n",
+                defaulted.text().c_str(), r.tolerated.c_str());
   }
 
   // ---- E. THE COPILOT ARM -------------------------------------------------
@@ -366,9 +425,11 @@ int main(int argc, char** argv) {
     CHECK_EQ_STR(diverged.empty() ? std::string() : diverged.front(),
                  std::string("lofted_nozzle"));
     if (mutation == Mutation::None && diverged.size() == 1) {
-      std::printf("[differential] OPEN DEFECT -- a PlanStep names a value KIND and never a\n"
-                  "               COUNT, so an open-ended selection gets signature.minCount\n"
-                  "               values and no more. lofted_nozzle loses its first section.\n");
+      // One prefixed line each: the runner prints the clean run through
+      // `grep -E '^\[differential\]'`, which cut this report off after "never a".
+      std::printf("[differential] OPEN DEFECT -- a PlanStep names a value KIND and never a COUNT,\n");
+      std::printf("[differential]   so an open-ended selection gets signature.minCount values and\n");
+      std::printf("[differential]   no more. lofted_nozzle loses its first section.\n");
     }
   }
 

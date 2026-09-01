@@ -428,16 +428,58 @@ int main(int argc, char** argv) {
     CHECK_EQ_INT(static_cast<int>(nope.verdict), static_cast<int>(OpConstraint::UnknownOp));
     CHECK(nope.reason.find("FROBNICATE") != std::string::npos);
 
-    // ARITY: 4 arguments is legal to the KERNEL (EXTRUDE is 2..5) and no
-    // forge::ui command emits it. This is the check that the app's narrower
-    // vocabulary is the one being enforced.
+    // ARITY: the KERNEL's range is the refusal boundary, and the app's emitted
+    // forms are a NOTE. This block asserts BOTH halves, because a rule that only
+    // ever accepts is not a rule and a rule that only ever refuses was the bug.
     CHECK(findIrOp("EXTRUDE") != nullptr);
     CHECK_EQ_INT(findIrOp("EXTRUDE")->maxArgs, 5);
+
+    // (a) 4 arguments: legal to the kernel (EXTRUDE is 2..5), emitted by no
+    // forge::ui command. ACCEPTED -- refusing it removed capability and
+    // prevented nothing -- and the fact is RECORDED rather than discarded.
     const OpRuling wide = bridge.check(step(2, "EXTRUDE", {IrArg::valueRef(1), IrArg::num(10),
                                                            IrArg::num(0), IrArg::num(0)}));
-    CHECK_EQ_INT(static_cast<int>(wide.verdict), static_cast<int>(OpConstraint::WrongArity));
-    CHECK(wide.reason.find("EXTRUDE") != std::string::npos);
-    CHECK(wide.reason.find("4 argument") != std::string::npos);
+    CHECK(wide.accepted());
+    CHECK_EQ_INT(static_cast<int>(wide.verdict), static_cast<int>(OpConstraint::Ok));
+    CHECK(!wide.tolerated.empty());
+    CHECK(wide.tolerated.find("EXTRUDE") != std::string::npos);
+    CHECK(wide.tolerated.find("4 argument") != std::string::npos);
+    CHECK(wide.tolerated.find("kernel-legal") != std::string::npos);
+
+    // (b) the forms FeatureTree.hpp DOCUMENTS and part.fillet never writes.
+    // Both were refused before; both build.
+    const OpRuling bareFillet =
+        bridge.check(step(2, "FILLET", {IrArg::valueRef(1), IrArg::num(3)}));
+    CHECK(bareFillet.accepted());
+    CHECK(!bareFillet.tolerated.empty());
+    const OpRuling bareChamfer =
+        bridge.check(step(2, "CHAMFER", {IrArg::valueRef(1), IrArg::num(1)}));
+    CHECK(bareChamfer.accepted());
+    CHECK(!bareChamfer.tolerated.empty());
+
+    // (c) OUTSIDE the kernel's range is still REFUSED, in both directions. This
+    // is the half that had no test at all while the app's forms were the
+    // boundary: every over-long form was refused for the app's reason, so the
+    // kernel's own limit was never the thing being asserted.
+    const OpRuling tooMany = bridge.check(step(2, "EXTRUDE",
+                                               {IrArg::valueRef(1), IrArg::num(10), IrArg::num(0),
+                                                IrArg::num(0), IrArg::num(0), IrArg::num(0)}));
+    CHECK_EQ_INT(static_cast<int>(tooMany.verdict), static_cast<int>(OpConstraint::WrongArity));
+    CHECK(tooMany.reason.find("EXTRUDE") != std::string::npos);
+    CHECK(tooMany.reason.find("6 argument") != std::string::npos);
+    CHECK(tooMany.reason.find("KERNEL cannot build") != std::string::npos);
+    CHECK(tooMany.tolerated.empty());
+
+    const OpRuling tooFew = bridge.check(step(2, "EXTRUDE", {IrArg::valueRef(1)}));
+    CHECK_EQ_INT(static_cast<int>(tooFew.verdict), static_cast<int>(OpConstraint::WrongArity));
+    CHECK(tooFew.reason.find("1 argument") != std::string::npos);
+
+    // (d) a form the app DOES emit is accepted with NO note -- otherwise
+    // "tolerated" would just be a second name for "accepted".
+    const OpRuling plain =
+        bridge.check(step(2, "EXTRUDE", {IrArg::valueRef(1), IrArg::num(10)}));
+    CHECK(plain.accepted());
+    CHECK(plain.tolerated.empty());
 
     // SELECTION KIND: FILLET is reachable only from an Edge selection.
     const OpRuling wrongSel = bridge.check(step(2, "FILLET",
