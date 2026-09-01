@@ -94,6 +94,12 @@ class PartDocument {
 
   int nextIrId() const noexcept { return static_cast<int>(records_.size()) + 1; }
   int valueFor(const std::string& nodeId) const noexcept;  // 0 == not bound
+  // The inverse: the document node currently bound to `irId`, "" when none is.
+  // A caller that must SELECT a value needs this, because a selection names
+  // NODES and never IR ids. "" also means CONSUMED — a boolean absorbs its tool
+  // body, and the node stops resolving — which is exactly what a caller must not
+  // then go and select.
+  std::string nodeFor(int irId) const;
   IrValueKind kindOf(int irId) const noexcept;
 
   const std::vector<FeatureRecord>& records() const noexcept { return records_; }
