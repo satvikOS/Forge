@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = 6589a8336fff7f5104e1372698ec0bc6a63bb55bb2d731e44d700a0bc880c5b6
+// sha256(vocabulary) = 606634a6f08587f147d7f9a2a666596f301bf64781f533668a3e3c01faccdb7e
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,21 +35,21 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "6589a8336fff7f5104e1372698ec0bc6a63bb55bb2d731e44d700a0bc880c5b6";
+inline constexpr std::string_view kVocabularySha256 = "606634a6f08587f147d7f9a2a666596f301bf64781f533668a3e3c01faccdb7e";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
-inline constexpr std::size_t kKernelOpsCount = 40;
-inline constexpr std::size_t kRegistryCommandsCount = 41;
-inline constexpr std::size_t kCommandsEmittingIrCount = 30;
-inline constexpr std::size_t kUserInvocableOpsCount = 28;
+inline constexpr std::size_t kKernelOpsCount = 41;
+inline constexpr std::size_t kRegistryCommandsCount = 42;
+inline constexpr std::size_t kCommandsEmittingIrCount = 31;
+inline constexpr std::size_t kUserInvocableOpsCount = 29;
 inline constexpr std::size_t kForbiddenOpsCount = 12;
 
 // ---------------------------------------------------------------- side tables
 // Sliced by the (first, count) pairs in the rows below.
-inline constexpr std::array<std::string_view, 16> kConsumedValueKinds = {{
+inline constexpr std::array<std::string_view, 17> kConsumedValueKinds = {{
     "SOLID",
     "SOLID",
     "SOLID",
@@ -66,6 +66,7 @@ inline constexpr std::array<std::string_view, 16> kConsumedValueKinds = {{
     "SOLID",
     "SOLID",
     "SOLID",
+    "SOLID",
 }};
 
 // An argument COUNT a user command can actually emit.  Deliberately narrower
@@ -75,7 +76,7 @@ struct ArgCountRange {
   std::size_t min = 0;
   std::size_t max = 0;  // kUnboundedArgs when the op is variadic
 };
-inline constexpr std::array<ArgCountRange, 52> kEmittedArgCounts = {{
+inline constexpr std::array<ArgCountRange, 53> kEmittedArgCounts = {{
     ArgCountRange{3, 3},
     ArgCountRange{5, 5},
     ArgCountRange{3, 3},
@@ -120,6 +121,7 @@ inline constexpr std::array<ArgCountRange, 52> kEmittedArgCounts = {{
     ArgCountRange{3, 3},
     ArgCountRange{5, 5},
     ArgCountRange{2, 2},
+    ArgCountRange{2, 2},
     ArgCountRange{5, 5},
     ArgCountRange{1, 1},
     ArgCountRange{4, 4},
@@ -130,7 +132,7 @@ inline constexpr std::array<ArgCountRange, 52> kEmittedArgCounts = {{
     ArgCountRange{6, 6},
 }};
 
-inline constexpr std::array<std::string_view, 30> kOpCommandIds = {{
+inline constexpr std::array<std::string_view, 31> kOpCommandIds = {{
     "part.variable_fillet",
     "part.primitive_box",
     "part.counterbore",
@@ -156,6 +158,7 @@ inline constexpr std::array<std::string_view, 30> kOpCommandIds = {{
     "part.section_ring",
     "part.rotate",
     "part.sketch_rounded_rect",
+    "part.section_curve",
     "part.shell",
     "part.primitive_sphere",
     "part.primitive_torus",
@@ -177,7 +180,7 @@ struct OpRow {
   std::size_t commandFirst = 0;        // slice of kOpCommandIds
   std::size_t commandCount = 0;
 };
-inline constexpr std::array<OpRow, 28> kAllowedOps = {{
+inline constexpr std::array<OpRow, 29> kAllowedOps = {{
     OpRow{"BLEND", "SOLID", 0, 1, 3, 5, true, 0, 2, 0, 1},
     OpRow{"BOX", "SOLID", 1, 0, 3, 6, false, 2, 2, 1, 1},
     OpRow{"CBORE", "SOLID", 1, 1, 7, 10, true, 4, 1, 2, 1},
@@ -201,11 +204,12 @@ inline constexpr std::array<OpRow, 28> kAllowedOps = {{
     OpRow{"RING", "WIRE", 13, 0, 3, 7, false, 37, 2, 22, 1},
     OpRow{"ROTATE", "SOLID", 13, 1, 5, 8, true, 39, 2, 23, 1},
     OpRow{"RRECT", "PROFILE", 14, 0, 3, 5, false, 41, 2, 24, 1},
-    OpRow{"SHELL", "SOLID", 14, 1, 2, 5, true, 43, 2, 25, 1},
-    OpRow{"SPHERE", "SOLID", 15, 0, 1, 4, false, 45, 2, 26, 1},
-    OpRow{"TORUS", "SOLID", 15, 0, 2, 8, false, 47, 2, 27, 1},
-    OpRow{"TRANSLATE", "SOLID", 15, 1, 4, 4, true, 49, 1, 28, 1},
-    OpRow{"TUBE", "SOLID", 16, 0, 3, 6, false, 50, 2, 29, 1},
+    OpRow{"SECTION", "WIRE", 14, 1, 2, 2, true, 43, 1, 25, 1},
+    OpRow{"SHELL", "SOLID", 15, 1, 2, 5, true, 44, 2, 26, 1},
+    OpRow{"SPHERE", "SOLID", 16, 0, 1, 4, false, 46, 2, 27, 1},
+    OpRow{"TORUS", "SOLID", 16, 0, 2, 8, false, 48, 2, 28, 1},
+    OpRow{"TRANSLATE", "SOLID", 16, 1, 4, 4, true, 50, 1, 29, 1},
+    OpRow{"TUBE", "SOLID", 17, 0, 3, 6, false, 51, 2, 30, 1},
 }};
 
 // ------------------------------------------------------------- forbidden ops
@@ -252,7 +256,7 @@ struct CommandRow {
   std::size_t selectionMax = 0;        // kUnboundedArgs when open-ended
   std::string_view producesValueKind;  // "Profile" | "Wire" | "Solid"
 };
-inline constexpr std::array<CommandRow, 30> kEmittingCommands = {{
+inline constexpr std::array<CommandRow, 31> kEmittingCommands = {{
     CommandRow{"part.boolean_intersect", "COMMON", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_subtract", "CUT", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_union", "FUSE", "Body", 2, 2, "Solid"},
@@ -276,6 +280,7 @@ inline constexpr std::array<CommandRow, 30> kEmittingCommands = {{
     CommandRow{"part.primitive_tube", "TUBE", "None", 0, kUnboundedArgs, "Solid"},
     CommandRow{"part.revolve", "REVOLVE", "Sketch", 1, 1, "Solid"},
     CommandRow{"part.rotate", "ROTATE", "Body", 1, 1, "Solid"},
+    CommandRow{"part.section_curve", "SECTION", "Body", 2, 2, "Wire"},
     CommandRow{"part.section_ring", "RING", "None", 0, kUnboundedArgs, "Wire"},
     CommandRow{"part.shell", "SHELL", "Face", 1, kUnboundedArgs, "Solid"},
     CommandRow{"part.sketch_circle", "CIRCLE", "None", 0, kUnboundedArgs, "Profile"},

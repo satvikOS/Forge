@@ -102,6 +102,21 @@ enum class OpCode {
     Cut,         // CUT(%a, %b)
     Common,      // COMMON(%a, %b)
 
+    // --- the fourth boolean: intersection CURVES, so these produce a WIRE ---
+    Section,     // SECTION(%a, %b)     where the two solids' FACES cross
+                 //   OCCT's BRepAlgoAPI has FOUR operators — Fuse, Cut, Common and
+                 //   Section — and this IR had three. Nothing noticed because no
+                 //   benchmark row demanded it.
+                 //   It is in its own group because the other three return a SOLID and
+                 //   this one CANNOT: a section is a CURVE — a wire with no faces, no
+                 //   shells and zero volume. Typing it SOLID would be worse than leaving
+                 //   the op out (massProperties/faceCount/checkValidity would report a
+                 //   perfectly good section as an empty invalid body).
+                 //   The wire is consumed by LOFT, like RING and WIRE. forge::section
+                 //   returns a real TopoDS_Wire when the section edges close into one
+                 //   loop, and a compound of wires when they close into several (a plane
+                 //   through a tube gives two circles; welding them would be a lie).
+
     // --- transforms / replication ---
     Translate,   // TRANSLATE(%a, dx, dy, dz)
     Rotate,      // ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])
