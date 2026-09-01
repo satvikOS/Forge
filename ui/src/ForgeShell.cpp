@@ -12,6 +12,7 @@
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/KeymapAudit.hpp"
 #include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PanelFocus.hpp"
 #include "forge/ui/SelectionService.hpp"
@@ -474,6 +475,8 @@ void ForgeShell::setInputProfile(InputProfile profile) noexcept {
   input_ = profile;
   pending_.clear();  // a half-typed sequence means nothing in the new profile
 }
+
+std::size_t ForgeShell::completeKeymap() { return bindUnboundCommands(keymap_, registry_); }
 
 KeyOutcome ForgeShell::key(const KeyStroke& stroke) {
   pending_.push_back(stroke);

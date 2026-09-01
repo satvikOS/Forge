@@ -21,6 +21,7 @@
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/KeymapAudit.hpp"
 #include "forge/ui/PanelFocus.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Theme.hpp"
@@ -152,6 +153,34 @@ class ForgeShell {
   SelectionService& selection() noexcept { return selection_; }
   const SelectionService& selection() const noexcept { return selection_; }
   const Keymap& keymap() const noexcept { return keymap_; }
+
+  // ── every command reachable from the keyboard ───────────────────────────
+  //
+  // THE GAP THIS CLOSES, MEASURED. `defaultKeymaps()` binds 13 commands. The
+  // application registry holds 45. So 32 commands — every primitive, every
+  // pattern, the booleans, the parameter edit — had no key sequence in ANY of
+  // the four profiles: 128 of the 180 command/profile slots were empty.
+  // KeymapAudit.hpp shipped `bindUnboundCommands()` to fill exactly that, and
+  // NOTHING CALLED IT. A capability with no invoker is not a capability, and a
+  // symbol reference is not a call path — there was not even a reference.
+  //
+  // This is the invoker. It is EXPLICIT rather than automatic because the
+  // registry is not complete when ForgeShell is constructed: the host adds its
+  // workspace's product commands afterwards (registerPartCommands), so the only
+  // moment that can know the map is finishable is the host's. Call it TWICE in
+  // a normal startup — once after registering commands, once after loadState(),
+  // which installs whatever map the session file held and may predate half the
+  // registry.
+  //
+  // Idempotent, never destructive: it only fills gaps, and it skips any
+  // candidate Keymap refuses, so it cannot create the prefix conflicts Keymap
+  // exists to prevent. Returns how many bindings it added.
+  std::size_t completeKeymap();
+
+  // The audit as a value: dead bindings, unbound commands, per-profile gaps and
+  // the commands a bare gesture cannot run. Reported, not enforced — a
+  // GestureBlocked command is a fact about its schema, not a defect in the map.
+  KeymapReport keymapReport() const { return auditKeymap(keymap_, registry_); }
   const DocumentStats& document() const noexcept { return doc_; }
 
   // ── the document seam ───────────────────────────────────────────────────
