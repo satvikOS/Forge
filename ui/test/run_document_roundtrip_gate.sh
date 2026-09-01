@@ -103,9 +103,16 @@ fi
 echo "[roundtrip] built the emitter against $(ls ui/src/*.cpp | wc -l | tr -d ' ') forge::ui sources"
 
 # ── 2. save and load, for real, through a file on disk ──────────────────────
-if ! "$EMIT" "$WORK"; then
-  rc=$?
-  echo "[roundtrip] the emitter failed (exit $rc):"
+#
+# `rc=$?` INSIDE an `if ! cmd; then` block reads the status of the NEGATION, not
+# of cmd -- it is 0 exactly when cmd failed. This script shipped that for one
+# commit and its own negative control caught it: the check printed
+# "VERDICT: FAIL" and the script exited 0. Run the command, capture the status on
+# the very next line, and branch on the variable.
+"$EMIT" "$WORK"
+emit_rc=$?
+if [ "$emit_rc" -ne 0 ]; then
+  echo "[roundtrip] the emitter failed (exit $emit_rc):"
   [ -f "$WORK/status.txt" ] && cat "$WORK/status.txt"
   echo "[roundtrip] VERDICT: FAIL"
   KEEP=1; exit 1
@@ -119,9 +126,10 @@ if ! tail -1 "$WORK/status.txt" | grep -qx "ok"; then
 fi
 
 # ── 3. ask the kernel ───────────────────────────────────────────────────────
-if ! "$PYTHON" ui/test/document_roundtrip_check.py "$VERIFY" "$EMIT" "$WORK"; then
-  rc=$?
-  echo "[roundtrip] VERDICT: FAIL (check exited $rc)"
-  KEEP=1; exit "$rc"
+"$PYTHON" ui/test/document_roundtrip_check.py "$VERIFY" "$EMIT" "$WORK"
+check_rc=$?
+if [ "$check_rc" -ne 0 ]; then
+  echo "[roundtrip] VERDICT: FAIL (check exited $check_rc)"
+  KEEP=1; exit "$check_rc"
 fi
 exit 0
