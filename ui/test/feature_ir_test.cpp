@@ -234,12 +234,13 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 47 ops; anything else means the derivation
+  // forge::ft::opFromName registers 53 ops; anything else means the derivation
   // itself broke, and a broken oracle must not pass quietly.
-  // 40 -> 47 when the 2D sketch + constraint family landed (SKETCH SPT SLINE
-  // SCIRC SARC CON SOLVE), making the vendored planegcs solver addressable
-  // from a feature tree for the first time.
-  CHECK_EQ_INT(kernel.size(), 47);
+  // 40 -> 46 was the SURFACE value kind's producers and consumers (SKIN / FACES
+  // / SEW / THICKEN / CAP / SURFCHECK); 46 -> 53 is the 2D sketch + constraint
+  // family (SKETCH SPT SLINE SCIRC SARC CON SOLVE), which makes the vendored
+  // planegcs solver addressable from a feature tree for the first time.
+  CHECK_EQ_INT(kernel.size(), 53);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -287,6 +288,26 @@ int main() {
   CHECK_EQ_INT(kernel.at("SOLVE").minArgs, 1);
   CHECK_EQ_INT(kernel.at("SOLVE").maxArgs, 1);
   CHECK_EQ_INT(kernel.at("SOLVE").firstArgIsValueRef ? 1 : 0, 1);
+
+  // The SURFACE ops, read by eye out of the kernel header the same way. A count
+  // that moved from 40 to 46 proves six enumerators appeared; only these prove
+  // their documented ARGUMENT LISTS were derived rather than defaulted.
+  CHECK_EQ_INT(kernel.at("SKIN").minArgs, 2);        // SKIN(%w0, %w1 [, %w2 ...])
+  CHECK(kernel.at("SKIN").maxArgs == kIrArgsUnbounded);
+  CHECK_EQ_INT(kernel.at("FACES").minArgs, 2);       // FACES(%body, "sel")
+  CHECK_EQ_INT(kernel.at("FACES").maxArgs, 2);
+  CHECK_EQ_INT(kernel.at("SEW").minArgs, 1);         // SEW(%s0 [, %s1 ...] [, tol])
+  CHECK(kernel.at("SEW").maxArgs == kIrArgsUnbounded);
+  CHECK_EQ_INT(kernel.at("THICKEN").minArgs, 2);     // THICKEN(%surface, wall [, side])
+  CHECK_EQ_INT(kernel.at("THICKEN").maxArgs, 3);
+  CHECK_EQ_INT(kernel.at("CAP").minArgs, 1);         // CAP(%surface [, tol])
+  CHECK_EQ_INT(kernel.at("CAP").maxArgs, 2);
+  CHECK_EQ_INT(kernel.at("SURFCHECK").minArgs, 2);   // SURFCHECK(%surface, "expr", ...)
+  CHECK(kernel.at("SURFCHECK").maxArgs == kIrArgsUnbounded);
+  // Every surface op transforms an existing value, so every one leads with a %ref.
+  for (const char* op : {"SKIN", "FACES", "SEW", "THICKEN", "CAP", "SURFCHECK"}) {
+    CHECK_EQ_INT(kernel.at(op).firstArgIsValueRef ? 1 : 0, 1);
+  }
 
   // ── 2. emission is textually exact ────────────────────────────────────────
   CHECK_EQ_STR(formatIrNumber(12.0), "12");

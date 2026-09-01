@@ -294,6 +294,33 @@ jobs:
         run: npm install --no-audit --no-fund --ignore-scripts
       - name: Configure + build native kernel (.node)
         run: npm run forge:kernel
+      # THE LEDGER RATCHET. OCCT_CLOSURE is the single number the whole
+      # dependency-drop programme is scored by, and until now NOTHING gated it:
+      # `grep -rn 'occt_closure_count\|tkoffset_ledger_gate' .github/ package.json`
+      # returned zero hits, so scripts/tkoffset_ledger_gate.sh -- which is
+      # well-written and encodes exactly these ceilings -- was invoked by no
+      # workflow, no npm script and no test runner.
+      #
+      # That is not hypothetical. The gate's own header records the regression it
+      # was built to catch: a family-E wiring change silently took OCCT_PHANTOM
+      # 2 -> 3, invisible on macOS (-undefined dynamic_lookup) and a hard link
+      # error on Linux. Nothing today would catch that again.
+      #
+      # The numbers are the MEASURED state at 32ee7485, not aspirations:
+      # OCCT_DIRECT = 9, OCCT_CLOSURE = 14, OCCT_PHANTOM = 2. They are a CEILING
+      # -- the script fails when a number EXCEEDS them -- so this cannot pass by
+      # accident and cannot block a genuine drop. When a toolkit is really
+      # retired, lower the number in the same commit that retires it; that edit
+      # is the ledger entry.
+      #
+      # --assert-no-phantom is deliberately NOT set. There are two phantoms today
+      # (TKBO 32 symbols, TKG2d 24) and naming them is accounting worth 0
+      # closure, so demanding zero here would fail the build for a defect this
+      # step exists to REPORT rather than to forbid.
+      - name: OCCT ledger ratchet (CLOSURE is the number; DIRECT is gameable)
+        run: |
+          bash forge-kernel/scripts/occt_closure_count.sh \
+            --assert-closure 14 --assert-direct 9
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Coherence + logic scorer (random scenes each run)

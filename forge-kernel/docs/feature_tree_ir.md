@@ -35,10 +35,88 @@ like the v18 builders' `body = nk.op(body, ...)` chain). A value is either:
   at a different height/plane. Produced by `RING` / `WIRE`.
 - **SOLID** — a 3D body (a kernel `ShapeHandle`), consumed by booleans /
   transforms / features and exported.
+- **SURFACE** — a **sheet body**: an ordered set of faces (a `ShapeHandle` onto a
+  `FACE` / `SHELL` / `COMPOUND`-of-faces) that is **not** required to be closed,
+  sewn, manifold or even non-empty. Produced by `SKIN` / `FACES` / `SEW`,
+  consumed by `THICKEN` / `CAP` / `SEW` / `SURFCHECK`.
 
 The compiler type-checks every reference and **fails loudly** with the offending
 `%id` if an op gets the wrong value kind or an undefined ref (it never silently
 degrades).
+
+### Why SURFACE exists, and why its invariant is the weakest
+
+With three kinds there was no value a surface could be held in. That was not a
+missing op — it was a missing **type**, and it is the structural reason the
+product has no surfacing: a `NURBS` patch, a lofted skin and an extracted face
+set are none of PROFILE (planar, at Z=0), WIRE (1-dimensional) or SOLID (must
+bound a volume), so no op could produce or consume one, and ~200 files of NURBS /
+sweep / G2 / loft / subdivision machinery already in `forge-kernel` had no route
+into the emission target at all.
+
+It is not a future nicety. The canonical ground-truth edit fixture
+(`archie_edit_214`) opens on an INPUT inventory of **430 faces, 67 of them
+BSPLINE** — 15% of the part — and the IR could not name a single one of them.
+
+**SURFACE's invariant is deliberately the weakest of the four, and that is the
+design.** A vocabulary that can only name a *well-formed* surface cannot name the
+one you were asked to repair. So every degenerate state is a legal SURFACE value:
+
+| state | representable? | how you find out |
+|-------|----------------|------------------|
+| unsewn face set (free boundary) | yes | `SURFCHECK(%s, "freeEdges>=1")` |
+| edges with no p-curves (a STEP/IGES import) | yes | `SURFCHECK(%s, "pcurves>=1")` |
+| self-intersecting | yes | `SURFCHECK(%s, "selfIntersect=1")` |
+| non-manifold (an edge on >2 faces) | yes | `SURFCHECK(%s, "nonManifold>=1")` |
+| **empty** — a selector that matched nothing | yes | `SURFCHECK(%s, "faces=0")` |
+
+None of these is refused at parse time, and none of them ends the tree. The
+reason is a constraint on the whole IR, not a preference: **a validator that
+refuses input is a capability gate wearing a safety hat, and it fires hardest on
+the longest, densest, most curved trees** — exactly the ones worth generating.
+The rule the surface ops follow is *represent it, repair it, or tolerate it*, and
+refuse only where there is no alternative — in which case the message names the
+op id, the face count and the free-edge count so a repair loop can act.
+
+Concretely, the tolerances that are implemented rather than described:
+
+- `FACES(%body, "sel")` with a selector that matches nothing returns an **empty
+  SURFACE** and records the miss. (`DEFEATURE` still throws on the same input,
+  and should: deleting nothing is a wrong edit reported as success. Extracting
+  nothing is a correct answer to a question.)
+- `facesOf` **skips** an out-of-range or duplicated face index rather than
+  refusing the list.
+- `THICKEN` / `CAP` **sew the sheet for you** when it arrives unsewn, and say so.
+- `SKIN` records an unknown trailing flag in the sheet's diagnosis instead of
+  throwing — one mistyped token must not cost a 200-op tree.
+- A bare `SURFCHECK "freeEdges=0"` (no `%id =`, no body ref) is **repaired** to
+  the explicit form against the newest value, exactly as `VERIFY` already is.
+- A failed `SURFCHECK` assertion is recorded and fails the compile at the END —
+  it never aborts the walk, so the geometry is still built and still measurable.
+
+### The two directions, and why both are required
+
+A value kind with only one direction is a dead end. Both exist:
+
+```
+SOLID  --FACES(%body,"sel")-->  SURFACE          (extract)
+SURFACE --THICKEN(%s, wall)-->  SOLID            (offset to a wall)
+SURFACE --CAP(%s)          -->  SOLID            (sew + fill every free boundary)
+WIRE    --SKIN(%w0,%w1,..) -->  SURFACE          (skin, uncapped)
+SURFACE --SEW(%s0,%s1,..)  -->  SURFACE          (stitch)
+SURFACE --SURFCHECK(%s,..) -->  SURFACE          (measure; pass-through)
+```
+
+`SEW` stays a SURFACE **even when the stitch closes it**. Making the value kind
+depend on measured geometry would mean the emitter cannot know what `%N` *is*
+without building it first, and every downstream kind check would become
+unpredictable. `CAP` is the explicit promotion verb.
+
+`refSurface` **coerces a SOLID** to its boundary sheet — that conversion is total
+and lossless, so refusing it would only force the emitter to write
+`FACES(%solid, "…")` by hand — and the promotion is recorded in the value's note.
+It does **not** coerce a PROFILE or a WIRE: filling either one invents a face the
+tree never asked for, so those refuse, and the refusal names `EXTRUDE`/`SKIN`.
 
 ## Grammar
 
@@ -129,6 +207,48 @@ extending along `+axis`.
 | `SHELL`   | `%body, wall [, openAxx=0, openAxy=0, openAxz=-1]` | hollow inward, opening the largest face facing the open axis (`part::shell`). |
 | `FOLD`    | `%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0]` | sheet-metal flange **macro** — `makeBox` + `rotate`-about-hinge + `fuse`. Hinge starts at `(hx,hy,hz)`, runs `len` along XY dir `runDeg`; a `len×flangeH×thk` wall folds up `angleDeg` about the hinge (90 ⇒ vertical). Place the hinge on a plate edge with `w = ẑ×û` pointing off the plate. |
 | `HEAL`    | `%body` | `heal::simplifyShape` (unify faces/edges). |
+
+### Surface sheets (produce a SURFACE)
+
+Every one of these is a thin wiring of a kernel entry point that already existed;
+the SURFACE value kind is what was missing, not the geometry.
+
+| op | args | native call |
+|----|------|-------------|
+| `SKIN` | `%w0, %w1 [, %w2 ...] [, RULED]` | `loftguide::loft(wires, {}, solid=false, ruled)` — the lateral skin of a loft, **uncapped**, typed as the sheet it is. |
+| `FACES` | `%body, "sel"` | `surf::facesOf` over the indices `resolveSelector` returns. Same face-selector grammar as `DEFEATURE`/`PUSHFACE`/`RESIZEBORE` (`bore:r=47.5`, `+z`, `@name`, `face:12`, `plane:max-area`, `radial:all`). A miss yields an **empty** SURFACE. |
+| `SEW` | `%s0 [, %s1 ...] [, tol=0.001]` | `heal::sewShape` (one sheet) / `sewing::sew` (many). Result is still a SURFACE. |
+| `THICKEN` | `%surface, wall [, side=MID]` | `part::thickenSurface(h, wall, side)`; `side` = `IN` \| `OUT` \| `MID`. Auto-sews an unsewn sheet first. |
+| `CAP` | `%surface [, tol=0.001]` | `heal::autoFillMissingFaces` — fit a cap across every free-boundary wire, then sew. |
+| `SURFCHECK` | `%surface, "expr", ...` | `surf::statsOf` + `heal::checkValidity`. Pass-through. Known quantities: `faces`, `edges`, `freeEdges`, `nonManifold`, `pcurves`, `freeform`, `shells`, `closed`, `area`, `selfIntersect`. |
+
+**Worked example — skin a duct, measure it, then make it a 2 mm wall:**
+
+```
+%1 = RING(20, 20, 0)              # circular inlet
+%2 = RING(15, 15, 50, 0, 0, 5)    # rounded-square outlet
+%3 = SKIN(%1, %2)                 # an OPEN sheet — a SURFACE, not a solid
+%4 = SURFCHECK(%3, "faces>=1", "freeEdges>=1")   # it is open, and says so
+%5 = THICKEN(%4, 2)               # -> SOLID
+RESULT(%5)
+```
+
+**Worked example — take the faces of a part you were handed:**
+
+```
+%1 = INPUT()                      # the task's input STEP
+%2 = FACES(%1, "bore:r=47.5")     # SOLID -> SURFACE
+%3 = SURFCHECK(%2, "faces>=1")    # did the selector actually find it?
+%4 = CAP(%3)                      # -> SOLID (sew + fill)
+```
+
+**KNOWN MISTYPING, recorded rather than silently changed:** `LOFT(..., OPEN)`
+produces the same uncapped geometry as `SKIN` but is still typed `SOLID`, because
+`Builder::kindOf` keys on the OpCode alone. `SKIN` exists so a tree can express
+the sheet correctly *without* changing what `LOFT` means for every corpus and
+holdout already written against it. Fixing `LOFT` properly means making `kindOf`
+depend on the statement's keywords, which is a behaviour change and belongs in
+its own commit with its own measurement.
 
 **Pattern / mirror note:** `PATTERN` and `MIRROR` operate on a whole SOLID and
 fuse the copies. To replicate just a *feature* (a boss, a blade), build the
