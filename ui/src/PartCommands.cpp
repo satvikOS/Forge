@@ -22,6 +22,7 @@ const char* toString(IrValueKind kind) noexcept {
     case IrValueKind::Profile: return "profile";
     case IrValueKind::Wire:    return "wire";
     case IrValueKind::Solid:   return "solid";
+    case IrValueKind::Surface: return "surface";
   }
   return "none";
 }
@@ -51,6 +52,13 @@ int PartDocument::seed(IrValueKind kind, const std::string& nodeId, const std::s
 int PartDocument::valueFor(const std::string& nodeId) const noexcept {
   auto it = bindings_.find(nodeId);
   return it == bindings_.end() ? 0 : it->second;
+}
+
+std::string PartDocument::nodeFor(int irId) const {
+  for (const auto& entry : bindings_) {
+    if (entry.second == irId) return entry.first;
+  }
+  return std::string();
 }
 
 IrValueKind PartDocument::kindOf(int irId) const noexcept {

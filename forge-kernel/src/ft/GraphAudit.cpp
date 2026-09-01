@@ -16,7 +16,12 @@ namespace forge {
 namespace ft {
 namespace {
 
-bool isPredicate(OpCode c) { return c == OpCode::Verify || c == OpCode::Tag; }
+// SURFCHECK joins VERIFY and TAG: all three return their input unchanged, so all
+// three are legitimate LEAVES. Omitting it here would make every diagnosed
+// surface an "unexplained orphan" and reject the tree for measuring itself.
+bool isPredicate(OpCode c) {
+    return c == OpCode::Verify || c == OpCode::Tag || c == OpCode::SurfCheck;
+}
 
 std::string idList(const std::vector<int>& v) {
     std::string s;
