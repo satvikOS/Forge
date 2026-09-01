@@ -1,5 +1,6 @@
 #include "forge/ui/ForgeShell.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <map>
 #include <sstream>
@@ -7,16 +8,24 @@
 #include <utility>
 #include <vector>
 
+#include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/KeymapAudit.hpp"
+#include "forge/ui/Onboarding.hpp"
+#include "forge/ui/PanelFocus.hpp"
 #include "forge/ui/SelectionService.hpp"
+#include "forge/ui/Theme.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
 namespace forge::ui {
 
-ForgeShell::ForgeShell() { registerCommands(); }
+ForgeShell::ForgeShell() {
+  registerCommands();
+  panelFocus_.rebuild(layout_);
+}
 
 // ── the command set ─────────────────────────────────────────────────────────
 // Every one of these carries the full s19.2 contract: stable ID, label,
@@ -35,7 +44,10 @@ void ForgeShell::registerCommands() {
     c.enabled = always;
     c.execute = [this](CommandContext&) {
       documentError_.clear();
-      if (documentHost_ != nullptr && !documentHost_->documentNew(documentError_)) return;
+      if (documentHost_ != nullptr && !documentHost_->documentNew(documentError_)) {
+        ++documentErrorSeq_;
+        return;
+      }
       doc_ = DocumentStats{};
       syncDocumentStats();
     };
@@ -57,7 +69,10 @@ void ForgeShell::registerCommands() {
       documentError_.clear();
       const std::string path = ctx.params().text("path").value_or(std::string());
       if (documentHost_ != nullptr) {
-        if (!documentHost_->documentOpen(path, documentError_)) return;
+        if (!documentHost_->documentOpen(path, documentError_)) {
+          ++documentErrorSeq_;
+          return;
+        }
         syncDocumentStats();
         doc_.dirty = false;
         return;
@@ -83,7 +98,10 @@ void ForgeShell::registerCommands() {
       documentError_.clear();
       const std::string path = ctx.params().text("path").value_or(std::string());
       if (documentHost_ != nullptr) {
-        if (!documentHost_->documentSave(path, documentError_)) return;
+        if (!documentHost_->documentSave(path, documentError_)) {
+          ++documentErrorSeq_;
+          return;
+        }
         syncDocumentStats();
         doc_.dirty = false;
         return;
@@ -112,10 +130,12 @@ void ForgeShell::registerCommands() {
       documentError_.clear();
       if (documentHost_ == nullptr) {
         documentError_ = "no document is open";
+        ++documentErrorSeq_;
         return;
       }
       if (!documentHost_->documentUndo()) {
         documentError_ = "nothing to undo";
+        ++documentErrorSeq_;
         return;
       }
       syncDocumentStats();
@@ -136,10 +156,12 @@ void ForgeShell::registerCommands() {
       documentError_.clear();
       if (documentHost_ == nullptr) {
         documentError_ = "no document is open";
+        ++documentErrorSeq_;
         return;
       }
       if (!documentHost_->documentRedo()) {
         documentError_ = "nothing to redo";
+        ++documentErrorSeq_;
         return;
       }
       syncDocumentStats();
@@ -228,6 +250,109 @@ void ForgeShell::registerCommands() {
     registry_.add(std::move(c));
   }
   {
+    // ── THE THEME, AS A COMMAND ───────────────────────────────────────────
+    // A preference reachable only from a settings dialog is a preference behind
+    // a door. This is in the ONE registry, so it is in the menu, the palette,
+    // the keymap and Archie's tool list for free -- which is the whole argument
+    // for the registry, applied to the thing a user changes on their first day.
+    CommandDescriptor c;
+    c.id = "app.toggle_theme";
+    c.label = "Toggle Light / Dark Theme";
+    c.category = "Application";
+    c.sideEffect = SideEffectClass::Application;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = always;
+    c.execute = [this](CommandContext&) {
+      themeMode_ = themeMode_ == ThemeMode::Dark ? ThemeMode::Light : ThemeMode::Dark;
+    };
+    registry_.add(std::move(c));
+  }
+  {
+    // ── KEYBOARD PANEL NAVIGATION ─────────────────────────────────────────
+    // The dock tree already knows which panels exist and in what order they are
+    // drawn; nothing turned that into a place the keyboard could go. Without
+    // these two, every panel in the application is reachable by pointer only.
+    CommandDescriptor c;
+    c.id = "view.focus_next_panel";
+    c.label = "Focus Next Panel";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return panelFocus_.size() > 1; };
+    c.execute = [this](CommandContext&) { panelFocus_.next(); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "view.focus_previous_panel";
+    c.label = "Focus Previous Panel";
+    c.category = "View";
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return panelFocus_.size() > 1; };
+    c.execute = [this](CommandContext&) { panelFocus_.previous(); };
+    registry_.add(std::move(c));
+  }
+  {
+    // ── THE SAMPLE PARTS ──────────────────────────────────────────────────
+    // Onboarding.hpp holds the samples as COMMAND SEQUENCES, not as pasted IR,
+    // so loading one is the user's own workflow performed quickly: each step
+    // goes through this same registry, with this same selection, and a step the
+    // registry can no longer satisfy makes the load FAIL AND SAY WHICH ONE.
+    //
+    // documentReset(), not documentNew(): File > New seeds a starter part, and
+    // stacking a sample on top of it would produce a program that is neither.
+    CommandDescriptor c;
+    c.id = "app.load_sample";
+    c.label = "Load Sample Part";
+    c.category = "File";
+    c.schema.push_back(ParamSpec{.name = "sample",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "bracket",
+                                 .hasDefault = true});
+    c.sideEffect = SideEffectClass::Document;  // so the host re-derives geometry
+    c.undo = UndoContract::NotUndoable;        // it replaces the document, like Open
+    c.enabled = [this](const CommandContext& ctx) {
+      if (documentHost_ == nullptr) return false;
+      const SampleDocument* sample = findSample(ctx.params().text("sample").value_or(""));
+      if (sample == nullptr) return false;
+      // Offering a sample this build cannot actually author is worse than not
+      // offering it: the user gets a half-built part and a refusal in the log.
+      for (const SampleStep& step : sample->steps) {
+        if (!registry_.contains(step.commandId)) return false;
+      }
+      return true;
+    };
+    c.execute = [this](CommandContext& ctx) {
+      documentError_.clear();
+      const std::string id = ctx.params().text("sample").value_or(std::string());
+      const SampleDocument* sample = findSample(id);
+      if (sample == nullptr) {
+        ctx.fail("no sample part is named \"" + id + "\"");
+        return;
+      }
+      if (documentHost_ == nullptr) {
+        ctx.fail("no document is open, so there is nowhere to load " + id);
+        return;
+      }
+      if (!documentHost_->documentReset(documentError_)) {
+        ++documentErrorSeq_;
+        ctx.fail("could not empty the document: " + documentError_);
+        return;
+      }
+      const SampleOutcome outcome = replaySample(*sample, registry_, selection_, nullptr);
+      if (!outcome.ok) {
+        ctx.fail(sample->title + " stopped at step " + std::to_string(outcome.stepsRun + 1) +
+                 " (" + outcome.failedCommand + "): " + toString(outcome.status) +
+                 (outcome.detail.empty() ? std::string() : (" -- " + outcome.detail)));
+        return;
+      }
+      syncDocumentStats();
+    };
+    registry_.add(std::move(c));
+  }
+  {
     CommandDescriptor c;
     c.id = "workspace.next";
     c.label = "Next Workspace";
@@ -267,7 +392,33 @@ void ForgeShell::syncDocumentStats() {
   doc_.dirty = documentHost_->documentDirty();
 }
 
+void ForgeShell::recordDispatch(const std::string& id, const CommandDescriptor* command,
+                                const DispatchResult& result, const CommandParams& params,
+                                std::size_t documentErrorSeqBefore) {
+  const std::string label = command != nullptr && !command->label.empty() ? command->label : id;
+  if (!result.ok()) {
+    const std::vector<std::string> missing =
+        command != nullptr ? missingRequired(*command, params) : std::vector<std::string>{};
+    log_.add(severityOf(result.status), id,
+             explainDispatch(id, command, result, missing, &selection_), toString(result.status));
+    return;
+  }
+  // Ok means "the handler ran", not "the thing happened": a file command reports
+  // its refusal through documentError_, and the COUNTER is what distinguishes a
+  // refusal raised by THIS dispatch from one still sitting there from an earlier
+  // command. Comparing the string alone cannot: two failed opens of the same
+  // path leave identical text.
+  if (documentErrorSeq_ != documentErrorSeqBefore && !documentError_.empty()) {
+    log_.warning(id, label + " ran and the document refused it", documentError_);
+    return;
+  }
+  log_.info(id, label + " ran",
+            command != nullptr && !command->featureIrOp.empty() ? command->featureIrOp
+                                                                : std::string());
+}
+
 DispatchResult ForgeShell::run(const std::string& id, const CommandParams& params) {
+  const std::size_t errorSeqBefore = documentErrorSeq_;
   DispatchResult result = registry_.dispatch(id, selection_, params);
   if (result.ok()) {
     journal_.push_back(id);
@@ -286,6 +437,7 @@ DispatchResult ForgeShell::run(const std::string& id, const CommandParams& param
   // through its own receiver, and the shell's view of it must follow the same
   // dispatch rather than a separate notification nobody remembers to send.
   syncDocumentStats();
+  recordDispatch(id, registry_.find(id), result, params, errorSeqBefore);
   return result;
 }
 
@@ -294,6 +446,8 @@ InvokeOutcome ForgeShell::invoke(const std::string& id, const CommandParams& ove
   const CommandDescriptor* cmd = registry_.find(id);
   if (cmd == nullptr) {
     outcome.dispatch = DispatchResult{DispatchStatus::UnknownCommand, id};
+    log_.error(id, explainDispatch(id, nullptr, outcome.dispatch, {}, &selection_),
+               toString(DispatchStatus::UnknownCommand));
     return outcome;
   }
   // A gesture carries no arguments, so fill in every default the schema declares
@@ -305,6 +459,12 @@ InvokeOutcome ForgeShell::invoke(const std::string& id, const CommandParams& ove
   if (!outcome.promptFor.empty()) {
     outcome.dispatch =
         DispatchResult{DispatchStatus::MissingRequiredParameter, outcome.promptFor.front()};
+    // This path returns WITHOUT calling run(), so it is the one dispatch outcome
+    // the log would otherwise never see -- and it is the most common one a user
+    // hits, because it is what every gesture on a command with an unfillable
+    // parameter does.
+    log_.warning(id, explainDispatch(id, cmd, outcome.dispatch, outcome.promptFor, &selection_),
+                 toString(DispatchStatus::MissingRequiredParameter));
     return outcome;
   }
   outcome.dispatch = run(id, params);
@@ -315,6 +475,8 @@ void ForgeShell::setInputProfile(InputProfile profile) noexcept {
   input_ = profile;
   pending_.clear();  // a half-typed sequence means nothing in the new profile
 }
+
+std::size_t ForgeShell::completeKeymap() { return bindUnboundCommands(keymap_, registry_); }
 
 KeyOutcome ForgeShell::key(const KeyStroke& stroke) {
   pending_.push_back(stroke);
@@ -362,10 +524,17 @@ bool ForgeShell::setWorkspace(WorkspaceProfile profile) {
   } else {
     layout_ = defaultLayout(profile);
   }
+  // The layout the keyboard can walk IS this layout. Rebuilding here rather than
+  // leaving it to the caller is what stops "focus is on a panel the new
+  // workspace does not have" from being reachable at all.
+  panelFocus_.rebuild(layout_);
   return faithful;
 }
 
-void ForgeShell::resetWorkspaceLayout() { layout_ = defaultLayout(workspace_); }
+void ForgeShell::resetWorkspaceLayout() {
+  layout_ = defaultLayout(workspace_);
+  panelFocus_.rebuild(layout_);
+}
 
 RecoveryReport ForgeShell::monitorsChanged(const std::vector<MonitorInfo>& available) {
   return layout_.reconcileMonitors(available);
@@ -377,6 +546,10 @@ std::string ForgeShell::saveState() const {
   os << "forge-shell 1\n";
   os << "workspace " << toString(workspace_) << '\n';
   os << "input " << toString(input_) << '\n';
+  // The MODE, not the palette. Writing the resolved colours would pin a session
+  // to the palette of the build that saved it, so a corrected contrast ratio
+  // would never reach a user who had ever saved state.
+  os << "theme " << toString(themeMode_) << '\n';
 
   std::map<std::string, std::string> layouts = savedLayouts_;
   {
@@ -397,13 +570,20 @@ std::string ForgeShell::saveState() const {
   return os.str();
 }
 
-bool ForgeShell::loadState(const std::string& text) {
+bool ForgeShell::loadState(const std::string& text) { return loadStateReport(text).ok; }
+
+ForgeShell::StateLoadReport ForgeShell::loadStateReport(const std::string& text) {
+  StateLoadReport report;
   std::istringstream is(text);
   std::string line;
-  if (!std::getline(is, line) || line != "forge-shell 1") return false;
+  if (!std::getline(is, line) || line != "forge-shell 1") {
+    report.error = "not a forge-shell 1 session file";
+    return report;
+  }
 
   WorkspaceProfile workspace = WorkspaceProfile::Part;
   InputProfile input = InputProfile::ForgeNative;
+  ThemeMode theme = ThemeMode::Dark;
   bool haveWorkspace = false;
   bool haveInput = false;
   std::map<std::string, std::string> layouts;
@@ -413,8 +593,18 @@ bool ForgeShell::loadState(const std::string& text) {
   while (std::getline(is, line)) {
     if (line.empty()) continue;
     if (line.rfind("workspace ", 0) == 0) {
-      if (!workspaceFromString(line.substr(10), workspace)) return false;
+      if (!workspaceFromString(line.substr(10), workspace)) {
+        report.error = "unknown workspace name: " + line.substr(10);
+        return report;
+      }
       haveWorkspace = true;
+    } else if (line.rfind("theme ", 0) == 0) {
+      // OPTIONAL by design: a session file written before themes existed is a
+      // valid session file, and refusing it would cost the user their layouts.
+      if (!themeModeFromString(line.substr(6), theme)) {
+        report.error = "unknown theme name: " + line.substr(6);
+        return report;
+      }
     } else if (line.rfind("input ", 0) == 0) {
       const std::string name = line.substr(6);
       bool found = false;
@@ -425,7 +615,10 @@ bool ForgeShell::loadState(const std::string& text) {
           break;
         }
       }
-      if (!found) return false;
+      if (!found) {
+        report.error = "unknown input profile name: " + name;
+        return report;
+      }
       haveInput = true;
     } else if (line.rfind("layout ", 0) == 0 || line == "keymap") {
       const bool isKeymap = (line == "keymap");
@@ -440,23 +633,55 @@ bool ForgeShell::loadState(const std::string& text) {
         body += line;
         body += '\n';
       }
-      if (!terminated) return false;
+      if (!terminated) {
+        report.error = "unterminated " + (isKeymap ? std::string("keymap") : ("layout " + name)) +
+                       " record: no '.' line";
+        return report;
+      }
       if (isKeymap) {
-        if (!Keymap::parse(body, keymap)) return false;
+        if (!Keymap::parse(body, keymap)) {
+          report.error = "the keymap record does not parse";
+          return report;
+        }
         haveKeymap = true;
       } else {
         DockLayout probe;
-        if (!DockLayout::parse(body, probe)) return false;  // reject corrupt state
+        if (!DockLayout::parse(body, probe)) {  // a MALFORMED KNOWN record is corruption
+          report.error = "the layout record for " + name + " does not parse";
+          return report;
+        }
         layouts[name] = body;
       }
     } else {
-      return false;  // unknown record: refuse rather than silently drop state
+      // ── TOLERATE, DO NOT REFUSE ─────────────────────────────────────────
+      // This used to `return false`, discarding the user's workspace, every
+      // saved layout and their whole keymap because the file carried ONE record
+      // this build does not know -- which is exactly what happens when a newer
+      // build writes the file and an older one reads it. The record is skipped
+      // and COUNTED instead, so the caller can say what it ignored.
+      //
+      // The residual, stated rather than hidden: an unknown BLOCK record's body
+      // lines are skipped one by one as further unknown records, which is right
+      // unless a body line happens to begin with a known record name. Nothing
+      // this build writes can produce that.
+      const std::size_t space = line.find(' ');
+      const std::string name = space == std::string::npos ? line : line.substr(0, space);
+      ++report.unknownRecords;
+      if (std::find(report.unknownNames.begin(), report.unknownNames.end(), name) ==
+          report.unknownNames.end()) {
+        report.unknownNames.push_back(name);
+      }
     }
   }
-  if (!haveWorkspace || !haveInput || !haveKeymap) return false;
+  if (!haveWorkspace || !haveInput || !haveKeymap) {
+    report.error = "the session file is missing its workspace, input or keymap record";
+    return report;
+  }
 
+  std::sort(report.unknownNames.begin(), report.unknownNames.end());
   workspace_ = workspace;
   input_ = input;
+  themeMode_ = theme;
   savedLayouts_ = std::move(layouts);
   keymap_ = std::move(keymap);
   pending_.clear();
@@ -468,7 +693,9 @@ bool ForgeShell::loadState(const std::string& text) {
   } else {
     layout_ = defaultLayout(workspace_);
   }
-  return true;
+  panelFocus_.rebuild(layout_);
+  report.ok = true;
+  return report;
 }
 
 }  // namespace forge::ui

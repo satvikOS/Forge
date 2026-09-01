@@ -46,7 +46,7 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **60 commands**; **49 of them emit
+Measured at this revision: the registry holds **64 commands**; **49 of them emit
 feature-IR**, reaching **46 distinct op names**. The kernel defines **47** ops
 (`opFromName`), so **1 op plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
@@ -55,9 +55,17 @@ user** and are listed under `forbidden_ops`.
 `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands, and the split
 between the two reasons is why they could go and `SLOT` could not.
 
+The registry reads 64 rather than the 60 this branch measured alone: the base it
+merges has since added four commands that emit nothing (`app.toggle_theme`,
+`app.load_sample` and the two `view.focus_*_panel`), so `registry_commands` moved
+and `commands_emitting_ir` did not. Diffing the regenerated manifest against the
+base's shows this branch's own delta is exactly six rows -- `part.skin`,
+`part.extract_faces`, `part.sew`, `part.thicken`, `part.cap`, `part.surfcheck` --
+and nothing removed.
+
 The six were out for the ordinary reason: they arrived with the SURFACE value
-kind (D-038), the kernel built them, and no command emitted one yet. One command
-apiece closed it. What actually unblocked them was not six commands but ONE
+kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
+built them, and no command emitted one yet. One command apiece closed it. What actually unblocked them was not six commands but ONE
 SELECTION KIND -- four of the six CONSUME a sheet, and until `EntityKind::Surface`
 and a `surface_N` node prefix existed, a sheet parked in `body_N` read back as a
 SOLID and `THICKEN` would have offered itself on a fillet's output. That is the

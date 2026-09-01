@@ -1179,6 +1179,105 @@ int main() {
     CHECK_EQ_INT(docE2.featureCount(), 10);
   }
 
+  // ── (d2) SECTION — the fourth boolean, and the one that is NOT a body ─────
+  // Registration and a count prove nothing here: `withIrOp == 31` above stays
+  // green if part.section_curve emitted FUSE. What distinguishes SECTION from the
+  // other three booleans is not its arity — all four take two bodies — it is the
+  // two properties below, and BOTH are wrong by default:
+  //
+  //   THE PRODUCED KIND IS A WIRE. forge::ft::Builder::kindOf() ends in
+  //   `default: return Val::Solid`, so an op added without naming itself there is
+  //   silently typed a body. A section is the CURVE where two bodies' faces cross
+  //   — no faces, no shells, zero volume — so typing it SOLID would offer EXTRUDE
+  //   on it and refuse LOFT, which is exactly backwards. Both are asserted.
+  //
+  //   IT CONSUMES NEITHER OPERAND. FUSE/CUT/COMMON absorb the tool body and its
+  //   node stops resolving. Both bodies survive a section — taking one measures a
+  //   part, it does not modify it — so both must still resolve afterwards, and a
+  //   boolean over the SAME pair must still be dispatchable once it is taken.
+  {
+    CommandRegistry regS;
+    PartDocument docS;
+    UndoStack stackS;
+    SelectionService selS;
+    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 50);
+
+    const CommandDescriptor* sc = regS.find("part.section_curve");
+    CHECK(sc != nullptr);
+    if (sc != nullptr) CHECK_EQ_STR(sc->featureIrOp, "SECTION");
+    CHECK(findIrOp("SECTION") != nullptr);
+
+    CHECK_EQ_INT(docS.seed(IrValueKind::Solid, "plate", "BOX",
+                           {IrArg::num(40), IrArg::num(40), IrArg::num(20)}),
+                 1);
+    CHECK_EQ_INT(docS.seed(IrValueKind::Solid, "ball", "SPHERE",
+                           {IrArg::num(10), IrArg::num(0), IrArg::num(0), IrArg::num(20)}),
+                 2);
+    CHECK_EQ_INT(docS.seed(IrValueKind::Profile, "sk_s", "CIRCLE", {IrArg::num(5)}), 3);
+    CHECK_EQ_INT(docS.seed(IrValueKind::Wire, "ring_a", "RING",
+                           {IrArg::num(10), IrArg::num(10), IrArg::num(40)}),
+                 4);
+
+    // (b) the signature is two BODIES exactly. One body, and a body paired with a
+    // sketch, are both refused — and a refused command leaves the document alone.
+    selectOnly(selS, {ref("plate", EntityKind::Body, "")});
+    CHECK_EQ_INT(statusOf(regS.evaluate("part.section_curve", selS)),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+    selectOnly(selS, {ref("plate", EntityKind::Body, ""), ref("sk_s", EntityKind::Sketch, "")});
+    CHECK_EQ_INT(statusOf(regS.evaluate("part.section_curve", selS)),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+    CHECK_EQ_INT(docS.records().size(), 4);
+
+    // (c) the emitted statement, as text, legal against the kernel's own op table
+    selectOnly(selS, {ref("plate", EntityKind::Body, ""), ref("ball", EntityKind::Body, "")});
+    CHECK(regS.dispatch("part.section_curve", selS).ok());
+    CHECK_EQ_STR(lastLine(docS), "%5 = SECTION(%1, %2)");
+    CHECK_EQ_INT(static_cast<int>(validateIr(docS.records().back().line)),
+                 static_cast<int>(IrCheck::Ok));
+
+    // the produced value is a WIRE, and it is bound to a wire_ node
+    CHECK_EQ_INT(static_cast<int>(docS.kindOf(5)), static_cast<int>(IrValueKind::Wire));
+    CHECK_EQ_STR(toString(docS.kindOf(5)), "wire");
+    CHECK_EQ_STR(docS.nodeFor(5), "wire_5");
+
+    // neither operand was consumed — the whole difference from the other three
+    CHECK_EQ_INT(docS.valueFor("plate"), 1);
+    CHECK_EQ_INT(docS.valueFor("ball"), 2);
+
+    // a WIRE feeds LOFT ...
+    selectOnly(selS, {ref("wire_5", EntityKind::Wire, ""), ref("ring_a", EntityKind::Wire, "")});
+    CHECK(regS.dispatch("part.loft", selS).ok());
+    CHECK_EQ_STR(lastLine(docS), "%6 = LOFT(%5, %4)");
+
+    // ... and EXTRUDE is not even offered for it: EXTRUDE's signature is one
+    // SKETCH, so a section wire cannot reach the profile path at all.
+    selectOnly(selS, {ref("wire_5", EntityKind::Wire, "")});
+    CHECK_EQ_INT(statusOf(regS.evaluate("part.extrude", selS, params1("distance", 5))),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+
+    // and the two bodies are still there to be fused, AFTER the section — which a
+    // consuming SECTION would have made impossible. FUSE, unlike SECTION, absorbs
+    // its tool: `ball` stops resolving, `plate` is rebound to the new body.
+    selectOnly(selS, {ref("plate", EntityKind::Body, ""), ref("ball", EntityKind::Body, "")});
+    CHECK(regS.dispatch("part.boolean_union", selS).ok());
+    CHECK_EQ_STR(lastLine(docS), "%7 = FUSE(%1, %2)");
+    CHECK_EQ_INT(docS.valueFor("ball"), 0);
+    CHECK_EQ_INT(docS.valueFor("plate"), 7);
+
+    // (d) undo restores the program exactly; redo replays the SAME statement ids
+    const std::string program = docS.irProgram();
+    CHECK_EQ_INT(docS.featureCount(), 3);
+    CHECK(stackS.undo(docS));
+    CHECK(stackS.undo(docS));
+    CHECK(stackS.undo(docS));
+    CHECK_EQ_INT(docS.records().size(), 4);
+    CHECK_EQ_INT(docS.valueFor("ball"), 2);   // the section's operands come back
+    CHECK(stackS.redo(docS));
+    CHECK(stackS.redo(docS));
+    CHECK(stackS.redo(docS));
+    CHECK_EQ_STR(docS.irProgram(), program);
+  }
+
   // ── (e) THE PARAMETER EDIT ────────────────────────────────────────────────
   // The document was APPEND-ONLY: appendFeature() refuses any statement not
   // numbered nextIrId(), so nothing could change a number already in the

@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = bb5c92efeaaa0a19486ea4803f9a8d3d856fd3a41e5ef31b7ef8a946f7b8f844
+// sha256(vocabulary) = 6f3d3ef5341d451fbb3f3bc0a3d5bf1ecd296bcec92911d6868dceaa86dff365
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,14 +35,14 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "bb5c92efeaaa0a19486ea4803f9a8d3d856fd3a41e5ef31b7ef8a946f7b8f844";
+inline constexpr std::string_view kVocabularySha256 = "6f3d3ef5341d451fbb3f3bc0a3d5bf1ecd296bcec92911d6868dceaa86dff365";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
 inline constexpr std::size_t kKernelOpsCount = 47;
-inline constexpr std::size_t kRegistryCommandsCount = 60;
+inline constexpr std::size_t kRegistryCommandsCount = 64;
 inline constexpr std::size_t kCommandsEmittingIrCount = 49;
 inline constexpr std::size_t kUserInvocableOpsCount = 46;
 inline constexpr std::size_t kForbiddenOpsCount = 1;

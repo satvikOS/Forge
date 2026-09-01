@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "42a0352abe26c88296f8c3eb10aa8a74b824337f4971e84d0cda91cd590af60c",
-        "bytes": 111303,
-        "lines": 2438
+        "sha256": "b1723f6be99d15310444e9aa5134f6340a083ecdc1b5a5fd505f4cb628a6e82e",
+        "bytes": 150566,
+        "lines": 3152
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,15 +48,15 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "1c33e7e7085bcabfdc55edc187d1aec31f60000f504613c129b3ba5bbbd664aa",
-        "bytes": 155045,
-        "lines": 2653
+        "sha256": "bb8ff3fe8acbeff3cd18f03559697e83053faa9ca03ffc894192b8e898868eec",
+        "bytes": 158552,
+        "lines": 2708
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "6fcc1fc9d6a53889ec711c0c8f64849b5d7222ed634ab4f9dcce1f9ea888ab13",
-        "bytes": 17932,
-        "lines": 474
+        "sha256": "bf3d77c72a40cbde7fba916fec804b58490ce14e3db7ec8020a77cb77f887025",
+        "bytes": 28676,
+        "lines": 701
       }
     ],
     "build_configuration": {
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 47,
     "ui_validator_ops": 47,
-    "registry_commands": 60,
+    "registry_commands": 64,
     "commands_emitting_ir": 49,
     "user_invocable_ops": 46,
     "forbidden_ops": 1,
@@ -5902,6 +5902,47 @@
       "source": "ui/src/ForgeShell.cpp"
     },
     {
+      "id": "app.load_sample",
+      "label": "Load Sample Part",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "sample",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "bracket",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "app.toggle_theme",
+      "label": "Toggle Light / Dark Theme",
+      "category": "Application",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
       "id": "edit.delete",
       "label": "Delete Selection",
       "category": "Edit",
@@ -6151,7 +6192,7 @@
           "required": true,
           "default_number": 1.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "selector",
@@ -6199,7 +6240,7 @@
           "required": true,
           "default_number": 6.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cbore_diameter",
@@ -6207,7 +6248,7 @@
           "required": true,
           "default_number": 11.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cbore_depth",
@@ -6215,7 +6256,7 @@
           "required": true,
           "default_number": 6.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "x",
@@ -6650,7 +6691,7 @@
           "required": true,
           "default_number": 6.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "x",
@@ -6791,7 +6832,7 @@
           "required": true,
           "default_number": 0.0,
           "default_text": "XY",
-          "has_default": false
+          "has_default": true
         }
       ],
       "preview": "OnDemand",
@@ -6888,7 +6929,7 @@
           "required": true,
           "default_number": 4.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "total_angle",
@@ -6950,7 +6991,7 @@
           "required": true,
           "default_number": 2.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "ny",
@@ -6958,7 +6999,7 @@
           "required": true,
           "default_number": 2.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dx",
@@ -6966,7 +7007,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dy",
@@ -6974,7 +7015,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         }
       ],
       "preview": "OnDemand",
@@ -7032,7 +7073,7 @@
           "required": true,
           "default_number": 2.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dx",
@@ -7040,7 +7081,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dy",
@@ -7845,7 +7886,7 @@
           "required": true,
           "default_number": 360.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "axx",
@@ -8034,7 +8075,7 @@
           "required": true,
           "default_number": 20.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "ry",
@@ -8042,7 +8083,7 @@
           "required": true,
           "default_number": 20.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "z",
@@ -8050,7 +8091,7 @@
           "required": true,
           "default_number": 0.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cx",
@@ -8264,7 +8305,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cx",
@@ -8428,7 +8469,7 @@
           "required": true,
           "default_number": 40.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "height",
@@ -8436,7 +8477,7 @@
           "required": true,
           "default_number": 30.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cx",
@@ -8844,7 +8885,7 @@
           "required": true,
           "default_number": 1.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "radius_end",
@@ -8852,7 +8893,7 @@
           "required": true,
           "default_number": 3.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "smooth",
@@ -8949,6 +8990,38 @@
       "source": "ui/src/ForgeShell.cpp"
     },
     {
+      "id": "view.focus_next_panel",
+      "label": "Focus Next Panel",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.focus_previous_panel",
+      "label": "Focus Previous Panel",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
       "id": "view.wireframe",
       "label": "Wireframe Display",
       "category": "View",
@@ -9024,30 +9097,8 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 23,
+      "count": 1,
       "parameters": [
-        "width (part.sketch_rect)",
-        "height (part.sketch_rect)",
-        "radius (part.sketch_circle)",
-        "rx (part.section_ring)",
-        "ry (part.section_ring)",
-        "z (part.section_ring)",
-        "angle (part.revolve)",
-        "diameter (part.hole)",
-        "diameter (part.counterbore)",
-        "cbore_diameter (part.counterbore)",
-        "cbore_depth (part.counterbore)",
-        "distance (part.chamfer)",
-        "radius_start (part.variable_fillet)",
-        "radius_end (part.variable_fillet)",
-        "count (part.pattern_linear)",
-        "dx (part.pattern_linear)",
-        "count (part.pattern_circular)",
-        "nx (part.pattern_grid)",
-        "ny (part.pattern_grid)",
-        "dx (part.pattern_grid)",
-        "dy (part.pattern_grid)",
-        "plane (part.mirror)",
         "value (part.edit_feature)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",

@@ -35,6 +35,7 @@
 // in ForgeFrame by making the ribbon horizontally scrollable; that part is
 // unverified here and is stated as unverified rather than implied.
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -102,12 +103,58 @@ std::string codeOnly(const std::string& s) {
 // brace in column 0. Empty when the function is not found, which the caller
 // checks: a rename must turn this gate RED, not silently skip its assertions.
 std::string functionBody(const std::string& src, const std::string& name) {
-  const std::string sig = "void ForgeFrame::" + name + "(";
-  const std::size_t begin = src.find(sig);
-  if (begin == std::string::npos) return {};
-  const std::size_t end = src.find("\n}\n", begin);
-  if (end == std::string::npos) return {};
-  return src.substr(begin, end - begin);
+  // ANY return type, not just `void`. This used to hard-code "void ForgeFrame::"
+  // and so could not see syncSceneToDocument(), which returns bool -- a gate
+  // silently unable to read the function it is asked about would have returned
+  // an empty body and vacuously passed. A DEFINITION starts in column 0; a call
+  // is indented or follows `.`/`->`, so anchoring on the line start is what
+  // separates them.
+  const std::string sig = "ForgeFrame::" + name + "(";
+  std::size_t at = 0;
+  while ((at = src.find(sig, at)) != std::string::npos) {
+    const std::size_t lineBegin = (at == 0) ? 0 : src.rfind('\n', at - 1);
+    const std::size_t begin = (lineBegin == std::string::npos) ? 0 : lineBegin + 1;
+    // Column 0 and not a member access: that is the definition.
+    const bool definition = (begin < at) && src[begin] != ' ' && src[begin] != '\t' &&
+                            src[at - 1] != '.' && src[at - 1] != '>' && src[at - 1] != ':';
+    if (definition) {
+      const std::size_t end = src.find("\n}\n", at);
+      if (end == std::string::npos) return {};
+      return src.substr(begin, end - begin);
+    }
+    at += sig.size();
+  }
+  return {};
+}
+
+// Every `void ForgeFrame::draw*(` in the file, by CENSUS.
+//
+// This exists because the no-second-enumeration check below used to run over a
+// hand-written list of four function names, and ForgeFrame::drawGenericPanel --
+// a fifth draw function, which walked registry().categories() and
+// registry().idsInCategory() itself to list "commands this workspace owns" --
+// was not on it. A gate whose scope is a list someone maintains fails exactly
+// when someone forgets to maintain it, which is the same failure it is meant to
+// catch one layer up. Search by the CONCEPT ("a function that draws"), not by
+// the four names that were known when it was written.
+std::vector<std::string> drawFunctionNames(const std::string& src) {
+  std::vector<std::string> names;
+  const std::string sig = "void ForgeFrame::draw";
+  std::size_t at = 0;
+  while ((at = src.find(sig, at)) != std::string::npos) {
+    const std::size_t nameBegin = at + std::string("void ForgeFrame::").size();
+    const std::size_t paren = src.find('(', nameBegin);
+    if (paren == std::string::npos) break;
+    const std::string name = src.substr(nameBegin, paren - nameBegin);
+    // A definition, not a stray mention: the identifier must be plain.
+    bool plain = !name.empty();
+    for (char c : name)
+      if (!(std::isalnum(static_cast<unsigned char>(c)) != 0 || c == '_')) plain = false;
+    if (plain && std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+    at = paren;
+  }
+  std::sort(names.begin(), names.end());
+  return names;
 }
 
 // The integer literal after `needle` — how the gate learns the palette's real
@@ -202,15 +249,47 @@ int main() {
     CHECK(codeBody.find("ImGui::Button(") != std::string::npos);        // code survived
   }
 
-  // Each surface, the function that draws it, and the call it must still make.
+  // ── WHAT MOVED, AND WHY THIS GATE GOT STRONGER RATHER THAN WEAKER ─────────
+  // These four surfaces used to enumerate the registry INLINE, and this gate
+  // asserted they did by finding `registry().idsInCategory(` in their bodies.
+  // That was the best available check while the decisions lived in
+  // forge-desktop/, which CI did not compile — but text-matching a call is a
+  // long way from knowing the menu is right.
+  //
+  // The enumeration now lives in forge::ui::CommandSurface, in the layer CI
+  // compiles, where ui/test/command_surface_test.cpp asserts TOTALITY (every
+  // registry command offered, exactly once, nothing the registry does not hold)
+  // and drives a positive control WITH its negative half. So this gate no longer
+  // has to infer "it enumerates" from a substring: it checks that the frame
+  // DELEGATES to the model, and PART 2 below still independently proves the
+  // model's own calls reach every command.
+  //
+  // The rule is now the STRONGER one: a draw function must call the surface, and
+  // (asserted separately below) must NOT enumerate the registry itself. Two
+  // sources of menu content is the drift this file exists to catch, and "one of
+  // them is inline in the file CI does not compile" is precisely how it started.
   struct Surface { const char* fn; const char* mustCall; const char* why; };
   const Surface surfaces[] = {
-      {"drawMenuBar", "registry().idsInCategory(", "menu bar enumerates the registry by category"},
-      {"drawToolbar", "forge::ui::ribbonCategories(", "ribbon uses the TOTAL category list"},
-      {"drawToolbar", "registry().idsInCategory(", "ribbon enumerates the registry by category"},
-      {"drawContextMenu", "registry().ids()", "context menu enumerates every registry ID"},
-      {"drawCommandPalette", "registry().search(", "palette uses the registry's own matcher"},
-      {"drawGenericPanel", "forge::ui::ribbonCategories(", "panel list uses the TOTAL list"},
+      {"rebuildCommandSurfaces", "buildMenuSurface(", "the menu bar is derived from the registry"},
+      {"rebuildCommandSurfaces", "buildRibbonSurface(", "the ribbon is derived from the registry"},
+      {"rebuildCommandSurfaces", "buildContextSurface(",
+       "the context menu is derived from the registry"},
+      {"drawMenuBar", "menuSurface_", "the menu bar draws the derived surface"},
+      {"drawToolbar", "ribbonSurface_", "the ribbon draws the derived surface"},
+      {"drawContextMenu", "contextSurface_", "the context menu draws the derived surface"},
+      {"drawCommandPalette", "buildPaletteSurface(",
+       "the palette uses the registry's own ranked matcher, through the model"},
+      // Was "forge::ui::ribbonCategories(" -- which REQUIRED the direct walk the
+      // no-second-enumeration census below now forbids. The two halves of this
+      // gate contradicted each other, and the contradiction was invisible
+      // because the census half only ran over four hand-listed function names
+      // and this was a fifth. The panel draws the SAME derived surface the
+      // ribbon does.
+      {"drawGenericPanel", "ribbonSurface_", "the panel draws the derived surface, not a second walk"},
+      {"drawEmptyState", "forge::ui::buildEmptyState(",
+       "the empty state's actions are derived from the registry, never a written list"},
+      {"drawStatusStrip", "forge::ui::buildStatusSummary(",
+       "the status strip is read from the shell, not accumulated in the frame"},
   };
   for (const Surface& s : surfaces) {
     const std::string body = functionBody(frame, s.fn);
@@ -238,6 +317,87 @@ int main() {
     CHECK(!direct);
   }
 
+  // ── NO SECOND ENUMERATION ────────────────────────────────────────────────
+  // The half that makes the delegation above mean something. A draw function
+  // that ALSO walked the registry itself would be a second source of menu
+  // content, drifting from the gated one, in the file CI does not compile --
+  // which is exactly the state this whole gate was written to end. Delegating
+  // and enumerating is worse than either alone, because the two agree right up
+  // until they do not.
+  //
+  // `find(` is deliberately NOT forbidden: looking ONE command up by id (the
+  // parameter panel's part.edit_feature, a label for a known button) is a
+  // dispatch, not an enumeration.
+  // EVERY draw function, discovered by census -- not the four this check was
+  // born with. drawGenericPanel was the fifth, and it walked the registry.
+  const std::vector<std::string> drawFns = drawFunctionNames(frame);
+  std::printf("  [reachability] no-second-enumeration: %zu ForgeFrame::draw* functions by census\n",
+              drawFns.size());
+
+  // The census must not be able to SHRINK silently. If drawFunctionNames stops
+  // matching -- a signature style change, a rename -- it would return few or no
+  // names and every assertion below would vacuously pass, which is the
+  // "a gate that cannot fail" shape. Require the four the check was written for
+  // to still be among them, and require the count not to fall below what is
+  // present today.
+  for (const char* known : {"drawMenuBar", "drawToolbar", "drawContextMenu", "drawCommandPalette",
+                            "drawGenericPanel"}) {
+    const bool found = std::find(drawFns.begin(), drawFns.end(), known) != drawFns.end();
+    if (!found)
+      std::printf("  [reachability] the draw-function census no longer finds ForgeFrame::%s -- "
+                  "it has been renamed, or drawFunctionNames() has stopped matching\n", known);
+    CHECK(found);
+  }
+  CHECK(drawFns.size() >= 5);
+
+  for (const std::string& fn : drawFns) {
+    const std::string body = functionBody(frame, fn);
+    CHECK(!body.empty());
+    for (const char* enumeration : {"registry().ids()", "registry().idsInCategory(",
+                                    "registry().categories()", "registry().search("}) {
+      const bool walks = body.find(enumeration) != std::string::npos;
+      if (walks) {
+        std::printf("  [reachability] ForgeFrame::%s calls %s DIRECTLY as well as using the "
+                    "derived surface -- that is a second, ungated copy of the menu\n",
+                    fn.c_str(), enumeration);
+      }
+      CHECK(!walks);
+    }
+  }
+
+  // ── A KERNEL FAILURE REACHES THE SEVERITY LOG, NOT ONLY THE FRAME NOTES ──
+  // ForgeFrame::note() writes to the frame's own `log_` and to status_. The
+  // console panel draws shell_.log() -- the severity-carrying, filterable,
+  // COUNTED one -- and appends the frame notes only under `logLevel_ == 0`.
+  // So a failed rebuild reported with note() alone was a transient status line
+  // plus a grey string that VANISHES the moment a user filters to "Errors",
+  // which is precisely what someone whose feature just failed does. The
+  // verifier's own sentence ("first invalid solid is produced by op %2 EXTRUDE
+  // (line 2): not closed") names the op, the statement and the line, and it has
+  // to arrive where a person goes looking for it.
+  {
+    const std::string body = functionBody(frame, "syncSceneToDocument");
+    if (body.empty())
+      std::printf("  [reachability] ForgeFrame::syncSceneToDocument NOT FOUND -- this gate cannot "
+                  "read the function it is asserting about\n");
+    CHECK(!body.empty());
+
+    const bool notes = body.find("REBUILD FAILED") != std::string::npos;
+    const bool severity = body.find("shell_.log().error(") != std::string::npos;
+    if (notes && !severity)
+      std::printf("  [reachability] a failed rebuild is reported with note() but never reaches "
+                  "shell_.log().error() -- it is invisible under the console's error filter\n");
+    CHECK(severity);
+
+    // The verifier's message must be CARRIED, not replaced by a generic string.
+    // r.error is the only thing that names the op and the line.
+    const bool carries = body.find("r.error") != std::string::npos;
+    if (!carries)
+      std::printf("  [reachability] the failed-rebuild log entry does not carry r.error -- the "
+                  "verifier's sentence naming the op and line is being dropped\n");
+    CHECK(carries);
+  }
+
   // No hand-written command list anywhere in the frame. `app.command_palette` is
   // the one legitimate literal (a named button that opens the palette). Any other
   // ID appearing as a literal is a second, drifting copy of the registry.
@@ -255,7 +415,13 @@ int main() {
   //
   // A hand-written LIST is still forbidden: the `direct` check above fails on any
   // enumeration, and any ID not named here fails below.
-  const std::set<std::string> allowedLiterals = {"app.command_palette", "part.edit_feature"};
+  //   app.load_sample     -- the empty state's sample buttons dispatch exactly this one
+  //                          command, with the sample id as its PARAMETER. The list of
+  //                          samples offered is derived (EmptyState::sampleIds), so this
+  //                          is a single dispatch through the registry, not an
+  //                          enumeration -- the same argument as part.edit_feature.
+  const std::set<std::string> allowedLiterals = {"app.command_palette", "app.load_sample",
+                                                 "part.edit_feature"};
   const std::set<std::string> literals = hardcodedCommandIds(frame, all);
   for (const std::string& id : literals)
     if (allowedLiterals.count(id) == 0)
@@ -267,7 +433,7 @@ int main() {
 
   // The palette's real cap, read from the app rather than restated here.
   bool haveLimit = false;
-  paletteLimit = intAfter(frame, "registry().search(paletteQuery_,", haveLimit);
+  paletteLimit = intAfter(frame, "buildPaletteSurface(surfaceContext(), paletteQuery_,", haveLimit);
   if (!haveLimit)
     std::printf("  [reachability] could not read the palette's result cap from ForgeFrame.cpp\n");
   CHECK(haveLimit);
