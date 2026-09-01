@@ -99,6 +99,7 @@
 #include <BRepBuilderAPI_MakeSolid.hxx>         // wrap the OCCT offset shell into a solid
 #include <TopoDS_Shell.hxx>
 #include <GeomAbs_JoinType.hxx>
+#include <GeomAbs_Shape.hxx>                 // helixWire: GeomAbs_C1 for BuildCurves3d
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -120,6 +121,9 @@
 #include <BRepLib.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_Plane.hxx>
+#include <Geom_CylindricalSurface.hxx>   // helixWire: the surface the helix lives on
+#include <Geom2d_Line.hxx>               // helixWire: the straight pcurve in (u,v)
+#include <Geom2d_TrimmedCurve.hxx>       // helixWire: trim it to `height` of rise
 #include <Law_Linear.hxx>
 #include <Precision.hxx>
 #include <TopAbs_ShapeEnum.hxx>
@@ -138,6 +142,7 @@
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Dir2d.hxx>
 #include <gp_GTrsf.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
@@ -835,6 +840,71 @@ ShapeHandle profileWire(const std::vector<double>& pts, bool closed) {
         throw std::runtime_error("forge.part.profileWire: wire build failed");
     }
     return ShapeRegistry::instance().add(poly.Wire());
+}
+
+// ============================================================ helixWire
+//
+// A constant-pitch helix as a real WIRE, exactly -- not a tessellation.
+//
+// WHY NOT profileWire. That verb is BRepBuilderAPI_MakePolygon, so a helix
+// handed to it comes back a chord chain. CMakeLists.txt already records
+// (FORGE_OFFSET_DROP_MAKEPIPE) that a bent POLYLINE spine makes the FT SWEEP op
+// "emit corrupt solids", measured at volume ratio 0.500 on one 90-degree bend.
+// A thread with 17 turns is 17 such bends per turn, and the failure is silent.
+//
+// The construction: a straight line in the (u,v) parameter space of a cylinder
+// IS a helix, because u is the angle in radians and v is the rise. One full turn
+// is du = 2*pi and dv = pitch, so the direction (2*pi, pitch) is the whole of it.
+// gp_Dir2d NORMALISES that direction, which is what makes the trim below a
+// LENGTH in the (u,v) plane rather than an angle.
+ShapeHandle helixWire(double pitch, double height, double radius,
+                      double cx, double cy, double cz,
+                      double ax, double ay, double az,
+                      bool leftHanded) {
+    if (!(pitch > 0.0))
+        throw std::invalid_argument("forge.part.helixWire: pitch must be > 0");
+    if (!(height > 0.0))
+        throw std::invalid_argument("forge.part.helixWire: height must be > 0");
+    if (!(radius > 0.0))
+        throw std::invalid_argument("forge.part.helixWire: radius must be > 0");
+    const double alen = std::sqrt(ax * ax + ay * ay + az * az);
+    if (alen < 1e-12)
+        throw std::invalid_argument("forge.part.helixWire: axis direction is zero");
+
+    const double kPi = 3.14159265358979323846;
+
+    // 1. the cylinder the helix lives on
+    const gp_Ax3 frame(gp_Pnt(cx, cy, cz), gp_Dir(ax / alen, ay / alen, az / alen));
+    Handle(Geom_CylindricalSurface) surf = new Geom_CylindricalSurface(frame, radius);
+
+    // 2. the straight pcurve. LEFT reverses the ANGLE, never the rise: a
+    //    left-hand thread still climbs, it just winds the other way. Negating
+    //    the v component instead would drive the helix DOWNWARDS out of the
+    //    part, which builds and measures as a different solid with no error.
+    Handle(Geom2d_Line) line = new Geom2d_Line(
+        gp_Pnt2d(0.0, 0.0),
+        leftHanded ? gp_Dir2d(-2.0 * kPi, pitch) : gp_Dir2d(2.0 * kPi, pitch));
+
+    // 3. trim to exactly `height` of rise. The parameter is arc length in (u,v)
+    //    (step 2 normalised the direction), so n turns measure
+    //    n * |(2*pi, pitch)| and the rise back out is n * pitch == height.
+    const double nTurns = height / pitch;
+    const double uvLen  = nTurns * std::sqrt((2.0 * kPi) * (2.0 * kPi) + pitch * pitch);
+    Handle(Geom2d_TrimmedCurve) seg = new Geom2d_TrimmedCurve(line, 0.0, uvLen);
+
+    BRepBuilderAPI_MakeEdge mkEdge(seg, surf);
+    if (!mkEdge.IsDone())
+        throw std::runtime_error("forge.part.helixWire: helical edge build failed");
+    BRepBuilderAPI_MakeWire mkWire(mkEdge.Edge());
+    if (!mkWire.IsDone())
+        throw std::runtime_error("forge.part.helixWire: helical wire build failed");
+    TopoDS_Wire w = mkWire.Wire();
+
+    // 4. AN EDGE DEFINED ONLY BY A PCURVE HAS NO 3D CURVE YET. Without this the
+    //    wire measures as EMPTY downstream -- a silent nothing, not an error.
+    BRepLib::BuildCurves3d(w, 1.0e-6, GeomAbs_C1, 14, 2000);
+
+    return ShapeRegistry::instance().add(w);
 }
 
 // ============================================================ sweepPolyline

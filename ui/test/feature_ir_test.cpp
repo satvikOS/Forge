@@ -234,11 +234,11 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 47 ops -- the original 40, plus the six that
+  // forge::ft::opFromName registers 48 ops -- the original 40, plus the six that
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
-  // THICKEN / CAP / SURFCHECK), plus ARC. Anything else means the derivation
-  // itself broke, and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 47);
+  // THICKEN / CAP / SURFCHECK), plus ARC and HELIX. Anything else means the
+  // derivation itself broke, and a broken oracle must not pass quietly.
+  CHECK_EQ_INT(kernel.size(), 48);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -275,6 +275,13 @@ int main() {
   CHECK_EQ_INT(kernel.at("ARC").minArgs, 1);
   CHECK_EQ_INT(kernel.at("ARC").maxArgs, 1);
   CHECK_EQ_INT(kernel.at("ARC").firstArgIsValueRef ? 1 : 0, 0);
+  // HELIX is the other new enumerator, and its arity is derived from TWO optional
+  // groups on one line -- `[, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1]` and
+  // `[, LEFT]`. 3 + 6 + 1 = 10. A derivation that stopped at the first group
+  // would say 9 and the UI would then refuse a legal LEFT-handed thread.
+  CHECK_EQ_INT(kernel.at("HELIX").minArgs, 3);     // pitch, height, radius
+  CHECK_EQ_INT(kernel.at("HELIX").maxArgs, 10);    // + placement (6) + LEFT (1)
+  CHECK_EQ_INT(kernel.at("HELIX").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SWEEP").maxArgs, 2);
   CHECK_EQ_INT(kernel.at("INPUT").minArgs, 0);
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);
@@ -282,7 +289,7 @@ int main() {
   CHECK_EQ_INT(kernel.at("SHELL").firstArgIsValueRef ? 1 : 0, 1);
 
   // The SURFACE ops, read by eye out of the kernel header the same way. A count
-  // that moved from 40 to 46 proves six enumerators appeared; only these prove
+  // that moved from 40 to 48 proves eight enumerators appeared; only these prove
   // their documented ARGUMENT LISTS were derived rather than defaulted.
   CHECK_EQ_INT(kernel.at("SKIN").minArgs, 2);        // SKIN(%w0, %w1 [, %w2 ...])
   CHECK(kernel.at("SKIN").maxArgs == kIrArgsUnbounded);
