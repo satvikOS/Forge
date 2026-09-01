@@ -266,6 +266,7 @@ const char* toString(TreeEditStatus status) noexcept {
     case TreeEditStatus::StillReferenced:     return "still_referenced";
     case TreeEditStatus::NoChange:            return "no_change";
     case TreeEditStatus::Refused:             return "refused";
+    case TreeEditStatus::Deferred:            return "deferred to the end of the walk";
   }
   return "refused";
 }
@@ -1098,7 +1099,101 @@ std::string describeStatement(const PartDocument& doc, int irId) {
 
 }  // namespace
 
+// ── the walk, and the deferred structural edits ─────────────────────────────
+void DocumentModel::beginWalk() noexcept { ++walkDepth_; }
+
+std::size_t DocumentModel::endWalk() {
+  if (walkDepth_ == 0) return 0;  // unbalanced close: never wrap below zero
+  --walkDepth_;
+  if (walkDepth_ != 0) return 0;  // an INNER walk closing applies nothing
+  return applyPendingEdits();
+}
+
+TreeEditStatus DocumentModel::defer(const PendingTreeEdit& edit) {
+  pending_.push_back(edit);
+  ++deferredTotal_;
+  return TreeEditStatus::Deferred;
+}
+
+std::size_t DocumentModel::applyPendingEdits() {
+  if (walkDepth_ != 0) return 0;  // never rebuild the tree while it is walked
+  if (pending_.empty()) return 0;
+  // SWAP FIRST. An edit that runs here can queue another (a cascade delete that
+  // a listener responds to), and iterating the member vector while it grows is
+  // the very defect this mechanism exists to prevent -- one level up.
+  std::vector<PendingTreeEdit> queue;
+  queue.swap(pending_);
+  pendingErrors_.clear();
+  std::size_t applied = 0;
+  for (const PendingTreeEdit& e : queue) {
+    TreeEditStatus status = TreeEditStatus::Ok;
+    switch (e.kind) {
+      case PendingTreeEdit::Kind::Suppress: status = setSuppressedNow(e.irId, e.flag); break;
+      case PendingTreeEdit::Kind::Rename:   status = renameFeatureNow(e.irId, e.label); break;
+      case PendingTreeEdit::Kind::Reorder:  status = reorderFeatureNow(e.irId, e.position); break;
+      case PendingTreeEdit::Kind::Delete:   status = deleteFeatureNow(e.irId, e.policy); break;
+    }
+    if (status == TreeEditStatus::Ok) {
+      ++applied;
+      continue;
+    }
+    // The caller is no longer on the stack to be handed this, and a deferred
+    // edit can still fail for a REAL reason -- a delete that strands a consumer,
+    // a reorder that would put a statement before its operand. Dropping that
+    // silently would make the deferral a lie, so it is recorded with the same
+    // message the immediate call would have returned.
+    pendingErrors_.push_back(describeStatement(tree_, e.irId) + ": " +
+                             std::string(toString(status)) +
+                             (treeError_.empty() ? std::string() : " -- " + treeError_));
+  }
+  return applied;
+}
+
 TreeEditStatus DocumentModel::setSuppressed(int irId, bool value) {
+  if (walking()) {
+    PendingTreeEdit e;
+    e.kind = PendingTreeEdit::Kind::Suppress;
+    e.irId = irId;
+    e.flag = value;
+    return defer(e);
+  }
+  return setSuppressedNow(irId, value);
+}
+
+TreeEditStatus DocumentModel::renameFeature(int irId, const std::string& label) {
+  if (walking()) {
+    PendingTreeEdit e;
+    e.kind = PendingTreeEdit::Kind::Rename;
+    e.irId = irId;
+    e.label = label;
+    return defer(e);
+  }
+  return renameFeatureNow(irId, label);
+}
+
+TreeEditStatus DocumentModel::reorderFeature(int irId, std::size_t toPosition) {
+  if (walking()) {
+    PendingTreeEdit e;
+    e.kind = PendingTreeEdit::Kind::Reorder;
+    e.irId = irId;
+    e.position = toPosition;
+    return defer(e);
+  }
+  return reorderFeatureNow(irId, toPosition);
+}
+
+TreeEditStatus DocumentModel::deleteFeature(int irId, DeletePolicy policy) {
+  if (walking()) {
+    PendingTreeEdit e;
+    e.kind = PendingTreeEdit::Kind::Delete;
+    e.irId = irId;
+    e.policy = policy;
+    return defer(e);
+  }
+  return deleteFeatureNow(irId, policy);
+}
+
+TreeEditStatus DocumentModel::setSuppressedNow(int irId, bool value) {
   treeError_.clear();
   cascade_.clear();
   if (tree_.featureAt(irId) == nullptr) {
@@ -1139,7 +1234,7 @@ TreeEditStatus DocumentModel::setSuppressed(int irId, bool value) {
   return TreeEditStatus::Ok;
 }
 
-TreeEditStatus DocumentModel::renameFeature(int irId, const std::string& label) {
+TreeEditStatus DocumentModel::renameFeatureNow(int irId, const std::string& label) {
   treeError_.clear();
   cascade_.clear();
   if (tree_.featureAt(irId) == nullptr) {
@@ -1208,7 +1303,7 @@ bool DocumentModel::renumber(const std::vector<FeatureRecord>& ordered,
   return true;
 }
 
-TreeEditStatus DocumentModel::reorderFeature(int irId, std::size_t toPosition) {
+TreeEditStatus DocumentModel::reorderFeatureNow(int irId, std::size_t toPosition) {
   treeError_.clear();
   cascade_.clear();
   const std::vector<FeatureRecord>& records = tree_.records();
@@ -1246,7 +1341,7 @@ TreeEditStatus DocumentModel::reorderFeature(int irId, std::size_t toPosition) {
   return TreeEditStatus::Ok;
 }
 
-TreeEditStatus DocumentModel::deleteFeature(int irId, DeletePolicy policy) {
+TreeEditStatus DocumentModel::deleteFeatureNow(int irId, DeletePolicy policy) {
   treeError_.clear();
   cascade_.clear();
   if (tree_.featureAt(irId) == nullptr) {

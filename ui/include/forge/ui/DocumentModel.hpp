@@ -220,6 +220,11 @@ enum class TreeEditStatus : std::uint8_t {
   StillReferenced,      // the delete would strand a consumer (use Cascade)
   NoChange,             // the request is already true; nothing is pushed on undo
   Refused,              // the rebuilt program failed the document's own validator
+  // The edit was requested DURING A WALK over the document (a feature-tree
+  // panel iterating records() while drawing its rows) and has been RECORDED to
+  // run the moment the walk closes. It is not a refusal and not an error: the
+  // edit WILL happen, in the order it was asked for. See DocumentWalk below.
+  Deferred,
 };
 const char* toString(TreeEditStatus status) noexcept;
 
@@ -284,6 +289,47 @@ class DocumentModel {
   bool removeName(const std::string& name);                        // undoable
 
   // ── feature-tree structure ──────────────────────────────────────────────
+  // ── THE WALK, and why a structural edit may not run inside one ──────────
+  //
+  // MID-WALK CONTAINER MUTATION HAS SHIPPED THREE CRASHES IN THIS APPLICATION
+  // (D-026). The dock tree grew a walk guard for exactly that, but the document
+  // is the OTHER container a frame walks, and it had none: a feature-tree panel
+  // draws its rows by iterating `tree().records()`, and every structural edit
+  // below REBUILDS that vector -- deleteFeature and reorderFeature RENUMBER the
+  // whole program through installTree(), so every reference, iterator and index
+  // the panel is holding is dangling the instant a row's delete button is
+  // clicked. That is the same defect, one container over, and it is reachable
+  // from a button a user will press.
+  //
+  // The fix is the one the dock tree uses, and it is NOT a refusal: while a walk
+  // is open, a structural edit is RECORDED and returns TreeEditStatus::Deferred,
+  // and the queue is applied the moment the walk closes. The edit still happens,
+  // in the order it was asked for, and the caller is told which of the two
+  // occurred. Refusing would be the wrong answer -- an app that drops a user's
+  // click because it was drawing at the time is broken in a quieter way.
+  //
+  // Nesting is a DEPTH: an inner walk closing does not apply the queue, only the
+  // outermost one does. Prefer the DocumentWalk RAII guard below to these two,
+  // so an early return or a throw out of a panel body cannot leave the depth
+  // stuck above zero -- which would silently defer every later edit for ever.
+  void beginWalk() noexcept;
+  // Applies the queue when this closes the outermost walk. Returns how many
+  // deferred edits ran.
+  std::size_t endWalk();
+  bool walking() const noexcept { return walkDepth_ > 0; }
+  std::size_t walkDepth() const noexcept { return walkDepth_; }
+  std::size_t pendingEdits() const noexcept { return pending_.size(); }
+  // LIFETIME total, never reset: a gate asserts on it, and a counter that a
+  // frame boundary clears cannot tell you a walk was violated three frames ago.
+  std::size_t deferredEditCount() const noexcept { return deferredTotal_; }
+  // Runs the queue now. Does nothing while a walk is open. Returns how many ran.
+  std::size_t applyPendingEdits();
+  // What the deferred edits did when they ran: one entry per edit that did NOT
+  // return Ok, naming the statement and the reason. A deferred delete can still
+  // be refused for a real reason (it strands a consumer), and the caller is no
+  // longer on the stack to be told, so it is recorded here instead of dropped.
+  const std::vector<std::string>& pendingEditErrors() const noexcept { return pendingErrors_; }
+
   bool suppressed(int irId) const noexcept;
   // Suppression is DEPENDENCY-CLOSED, because the alternative is a program that
   // references a statement that is not there. Suppressing cascades DOWN to every
@@ -330,6 +376,28 @@ class DocumentModel {
  private:
   friend class DocumentMetadataEdit;
   friend class DocumentTreeEdit;
+
+  // One recorded structural intent. Deliberately a VALUE, holding no reference
+  // and no iterator into the document: the whole point is that it stays valid
+  // across the rebuild that invalidates everything else.
+  struct PendingTreeEdit {
+    enum class Kind : std::uint8_t { Suppress, Rename, Reorder, Delete };
+    Kind kind = Kind::Suppress;
+    int irId = 0;
+    bool flag = false;                                       // Suppress
+    std::string label;                                       // Rename
+    std::size_t position = 0;                                // Reorder
+    DeletePolicy policy = DeletePolicy::RefuseIfReferenced;  // Delete
+  };
+
+  // The bodies that actually mutate. The public methods above are the walk-aware
+  // wrappers; these are what runs once it is safe to rebuild the tree.
+  TreeEditStatus setSuppressedNow(int irId, bool value);
+  TreeEditStatus renameFeatureNow(int irId, const std::string& label);
+  TreeEditStatus reorderFeatureNow(int irId, std::size_t toPosition);
+  TreeEditStatus deleteFeatureNow(int irId, DeletePolicy policy);
+  // Records an intent and returns Deferred. Never mutates the document.
+  TreeEditStatus defer(const PendingTreeEdit& edit);
 
   // Everything an undoable metadata edit has to put back. Small: no geometry.
   struct MetaState {
@@ -379,6 +447,35 @@ class DocumentModel {
   std::string savedDigest_;
   std::string treeError_;
   std::vector<int> cascade_;
+  std::size_t walkDepth_ = 0;
+  std::size_t deferredTotal_ = 0;
+  std::vector<PendingTreeEdit> pending_;
+  std::vector<std::string> pendingErrors_;
+};
+
+// ── the walk guard ──────────────────────────────────────────────────────────
+// RAII, and balanced by a scope guard rather than by a matching call for the
+// same reason ForgeFrame's dock walk is: an early return or a throw out of a
+// panel body would otherwise leave the depth above zero for ever, and every
+// later edit would be deferred and never applied. That is a silent failure,
+// which is the worst kind.
+//
+//     {
+//       DocumentWalk walk(model);          // rows may now be drawn safely
+//       for (const FeatureRecord& r : model.tree().records()) { ... }
+//     }                                    // queued edits run HERE
+class DocumentWalk {
+ public:
+  explicit DocumentWalk(DocumentModel& model) : model_(model) { model_.beginWalk(); }
+  ~DocumentWalk() { model_.endWalk(); }
+
+  DocumentWalk(const DocumentWalk&) = delete;
+  DocumentWalk& operator=(const DocumentWalk&) = delete;
+  DocumentWalk(DocumentWalk&&) = delete;
+  DocumentWalk& operator=(DocumentWalk&&) = delete;
+
+ private:
+  DocumentModel& model_;
 };
 
 // ── document <-> file ───────────────────────────────────────────────────────
