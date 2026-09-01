@@ -1947,3 +1947,45 @@ in the direction that flatters us.
 these rows are excluded from both numerator and denominator rather than silently
 scored, and capture the uncaught exception's `what()` — an abort with no message
 is a second missing measurement.
+
+### D-045 second addendum — the hardest-first caveat is EMPIRICALLY SMALL for this metric, and half the crashes never reach the report
+
+Two measurements at **n=350** (198/231 = **85.7%**; the reading is stable across
+183 -> 318 -> 350 at 84.8 / 86.1 / 85.7).
+
+**1. The prefix caveat was right to state and is smaller than feared — measured,
+not assumed.** D-045 warns that the holdout is sorted hardest-first, so a prefix
+OVERSTATES. Splitting this run in half:
+
+```
+first  half   94/109 = 86.2%
+second half  104/122 = 85.2%
+```
+
+**A 1.0-point gradient.** Hardest-first is a real property of the holdout — it
+once turned a partial composite of 0.2423 into 0.3617 on the full set — but that
+was the COMPOSITE. **Self-inconsistency is nearly order-insensitive**, which is
+itself consistent with D-041: the defect does not track difficulty any more than
+it tracked build rate (57.6-80.8% spread, self-inconsistency flat at
+55.1/56.3/58.0/58.4). ★So the caveat stays in the record, but it is now bounded
+by measurement rather than left open — and it does not rescue the prediction:
+even the easier half is 85.2% against a predicted <25%.
+
+**2. A gap between the crash reports and the run's own record.** macOS has
+written **8** `forge_verify` crash reports today; the run's report contains only
+**4** instrument-failure rows (3 VERIFY-bearing). So roughly half the aborts
+never surface as a recorded outcome at all — they are retried, or absorbed, or
+scored as something else. ★"Half the failures are invisible to the artifact that
+is supposed to record them" is a measurement defect in its own right, separate
+from mislabelling three rows as `the tree does not compile`. The
+`instrument_failed` outcome must therefore be written where the process EXITS,
+not where the harness happens to notice, and its count must reconcile against
+the crash reports.
+
+**Cause of the rising rate, and it is NOT resource pressure — a hypothesis
+tested and killed.** While the aborts accelerated (3 by 16:54 -> 8 by 17:03),
+free memory IMPROVED 892 MB -> 3,491 MB, compressed fell 1,526 -> 967 MB, swap
+stayed flat and no jetsam fired. Only one `forge_verify` was live, parented to
+the eval's own Python, and no agent worktree held one. The aborts are
+INPUT-DEPENDENT — an uncaught C++ exception on particular geometry — not an OOM,
+and not caused by the concurrent agents.
