@@ -1759,6 +1759,17 @@ set(FORGE_KERNEL_SOURCES
     # about its neutral-plane intersection line and re-meets every vertex, reusing
     # NativeThickSolid's corner solve. Honest defer outside planar-faced solids.
     src/native/brep/NativeDraft.cpp
+    # TKOffset family J, SECOND engine — the GENERAL native DRAFT. The
+    # plane-arrangement engine above needs every face of the SOLID to be a
+    # single-wire plane, and the 600-part corpus measured that as violated by
+    # 565 of 565 applicable parts, BOTH guards, with ZERO parts violating
+    # exactly one (reports/corpus_ab/draft_defer_probe.jsonl.gz). So there is no
+    # guard to relax. This engine rebuilds only the topology that MOVES and
+    # carries every untouched face, wire and edge VERBATIM, which makes both
+    # whole-shape preconditions stop applying rather than be relaxed. Chained
+    # AFTER the exact engine in src/Features.cpp; honest defer keeps the OCCT
+    # fallback live by default.
+    src/native/brep/NativeDraftLocal.cpp
     src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)

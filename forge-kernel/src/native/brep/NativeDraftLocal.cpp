@@ -121,6 +121,14 @@ TopoDS_Shape defer(const std::string& why) {
     return kNull;
 }
 
+// The per-call path census. Same thread_local discipline as deferSlot(): the
+// answer belongs to the ENGINE, so a measurement of it cannot drift from a
+// replica of its own logic.
+DraftLocalStats& statsSlot() {
+    static thread_local DraftLocalStats s;
+    return s;
+}
+
 constexpr double kPi = 3.14159265358979323846;
 
 bool envOn(const char* name) {
@@ -562,6 +570,10 @@ const char* draftLocalLastDeferReason() {
     return deferSlot().c_str();
 }
 
+const DraftLocalStats& draftLocalLastStats() {
+    return statsSlot();
+}
+
 TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                              const TopTools_ListOfShape& faces,
                              const gp_Dir& pull,
@@ -569,6 +581,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                              const gp_Pln& neutral,
                              double tol) {
     deferSlot().clear();
+    statsSlot() = DraftLocalStats();
     if (shape.IsNull()) return defer("input shape is null");
     if (faces.IsEmpty()) return defer("no faces selected");
     if (!(std::fabs(angleRad) > 1.0e-12))
@@ -748,7 +761,11 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
         int rank = 0;
         gp_Pnt cand;
         bool have = false;
-        if (planes.size() >= 3 && intersectPlanes(planes, cand, rank)) have = true;
+        ++statsSlot().movedVertices;
+        if (planes.size() >= 3 && intersectPlanes(planes, cand, rank)) {
+            have = true;
+            ++statsSlot().solvedByPlaneMeet;
+        }
 
         // ── solve 2: slide along an anchor curve onto ONE rotated plane. ────
         if (!have && !anchors.empty() && !planes.empty()) {
@@ -764,6 +781,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                 rec.anchorParam = t;
                 rec.haveAnchor = true;
                 have = true;
+                ++statsSlot().solvedByAnchor;
                 break;
             }
         }
@@ -772,8 +790,10 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
         //    incident quadric, taking the root nearest the original vertex. ──
         if (!have && planes.size() >= 2 && quadrics.size() == 1) {
             gp_Lin L;
-            if (planeSystemLine(planes, L) && lineMeetQuadric(L, quadrics[0], oldP, cand))
+            if (planeSystemLine(planes, L) && lineMeetQuadric(L, quadrics[0], oldP, cand)) {
                 have = true;
+                ++statsSlot().solvedByQuadric;
+            }
         }
 
         if (!have)
@@ -835,7 +855,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
 
     for (int ei = 1; ei <= edgeMap.Extent(); ++ei) {
         const TopoDS_Edge oldE = TopoDS::Edge(edgeMap(ei).Oriented(TopAbs_FORWARD));
-        if (!edgeMoved(oldE)) continue;              // verbatim
+        if (!edgeMoved(oldE)) { ++statsSlot().edgesVerbatim; continue; }   // verbatim
 
         if (BRep_Tool::Degenerated(oldE))
             return defer("a degenerate edge would have to move");
@@ -862,6 +882,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
             // and every pcurve on it are untouched too. EmptyCopied keeps all of
             // them; only the range and the vertices change. Exact for ANY curve.
             ne = TopoDS::Edge(oldE.EmptyCopied());
+            ++statsSlot().edgesRetrimmed;
             double d0 = 0.0, d1 = 0.0;
             // A vertex that did not move keeps its own parameter exactly; only a
             // moved one is re-solved, and if the SOLVE used this very edge the
@@ -936,6 +957,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
             bb.MakeEdge(ne, nl, std::max(tol, BRep_Tool::Tolerance(oldE)));
             t0 = 0.0;
             t1 = seg.Magnitude();
+            ++statsSlot().edgesRebuilt;
             rebuiltNotRetrim.Add(edgeMap(ei));
         }
 
@@ -958,7 +980,8 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
         bool touched = false;
         for (TopExp_Explorer vx(oldF, TopAbs_VERTEX); vx.More(); vx.Next())
             if (vertexMoved(vx.Current())) { touched = true; break; }
-        if (!touched) continue;                      // verbatim, any surface, any wires
+        if (!touched) { ++statsSlot().facesVerbatim; continue; }   // any surface, any wires
+        ++statsSlot().facesRebuilt;
 
         const bool wall = isWall[static_cast<std::size_t>(fi) - 1] != 0;
         const bool planar = (classifySurface(BRep_Tool::Surface(oldF)) == SurfKind::Plane);
@@ -1000,6 +1023,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                 if (vertexMoved(vx.Current())) { wireTouched = true; break; }
             if (!wireTouched && !wall) {
                 bb.Add(nf, w);                       // THE hole-carrying case: verbatim
+                ++statsSlot().wiresVerbatim;
                 continue;
             }
             TopoDS_Wire nw = TopoDS::Wire(w.EmptyCopied());

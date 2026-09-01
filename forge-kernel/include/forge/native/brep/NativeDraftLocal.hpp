@@ -139,6 +139,25 @@ bool draftLocalEnabled();
 // took a dedicated probe to explain.
 const char* draftLocalLastDeferReason();
 
+// WHAT THE LAST CALL DID, per path. Not diagnostics for their own sake: the
+// three vertex solves and the three edge classes have very different exactness
+// arguments, and a coverage number that cannot say WHICH of them carried a part
+// cannot be read. It is also how a path that never fires gets found — the
+// anchor solve fires on no case in the A/B, and only a counter says so.
+struct DraftLocalStats {
+    int movedVertices = 0;      // vertices on a drafted wall
+    int solvedByPlaneMeet = 0;  // rank-3 linear, closed form
+    int solvedByAnchor = 0;     // 1-D slide along an untouched incident curve
+    int solvedByQuadric = 0;    // line-of-two-planes against one analytic quadric
+    int facesVerbatim = 0;      // carried whole, any surface, any wire count
+    int facesRebuilt = 0;
+    int wiresVerbatim = 0;      // carried inside a REBUILT face (the hole case)
+    int edgesVerbatim = 0;
+    int edgesRetrimmed = 0;     // same curve, new range
+    int edgesRebuilt = 0;       // new line from the rotated plane meet
+};
+const DraftLocalStats& draftLocalLastStats();
+
 // Tilt every face in `faces` by `angleRad` about its intersection line with the
 // `neutral` plane, in the mould-release sense for `pull`, and rebuild ONLY the
 // topology that moves. Same contract as occtdraft::draftFaces: a face this
