@@ -150,6 +150,16 @@ jobs:
         # generated header to prove the drift check refuses, then runs all 8 --mutate
         # cases and requires every one to exit non-zero.
         run: bash ui/test/run_op_constraint_gate.sh
+      - name: two-path differential, tier 1 (kernel-free, + 7 mutations)
+        # ONE feature tree can reach the kernel two ways -- forge_verify's
+        # compileText, and commands -> OpConstraintBridge -> PartDocument ->
+        # KernelScene -- and NOTHING compared them. This tier needs no kernel: it
+        # requires the app-authored IR to be byte-identical to the planner's IR,
+        # requires the bridge to accept what the app itself emitted, and measures
+        # the ARITY DIFFERENTIAL (kernel-legal argument counts the bridge refuses)
+        # against a two-directional ratchet. run_ui.sh above runs its clean pass;
+        # this step is the PROOF that it can fail.
+        run: bash ui/test/run_differential_gate.sh
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
@@ -372,6 +382,25 @@ jobs:
         # a wrong solid matching a right volume to ten significant figures is a measured
         # failure mode in this programme, not a hypothetical one.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: two-path differential, tier 2 (THE SOLIDS, + 7 mutations)
+        # The IR-pipeline step above proves a UI-authored program compiles to A solid. It
+        # never compared that solid against anything, so a tree that builds headless and
+        # builds DIFFERENTLY in the app was invisible -- the same "two artifacts from one
+        # source, no gate tying them together" that produced the vocabulary/header desync
+        # nine times.
+        #
+        # This runs THREE arms over the shared corpus and requires all three to describe
+        # the same solid: forge::ft::compileText (forge_verify's entry, where every
+        # benchmark number comes from), forge::ft::parse + compile (KernelScene's entry)
+        # over the IR the REAL registered commands assembled, and
+        # forge::desktop::KernelScene itself -- the application object, tessellation and
+        # viewport de-index included.
+        #
+        # The comparison is a VECTOR, never volume alone: valid, faces, edges, volume,
+        # area, bbox, genus, shell count, welded V/E/F, Euler characteristic, centre of
+        # mass and the s0.4 census. It reuses build-verify, so it adds no build.
+        # Seven deliberate divergences are injected and every one must be caught.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_differential_solid_gate.sh
       - name: Desktop CLICK gate (the first CI step that compiles forge-desktop/src)
         # THE GATE THAT WOULD HAVE CAUGHT BOTH OF 2026-08-30's SHIPPED DEFECTS, and the
         # first thing in CI that compiles forge-desktop/src at all.
