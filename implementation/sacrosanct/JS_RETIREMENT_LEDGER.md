@@ -497,7 +497,7 @@ Three structural reasons, in order of how much they cost:
 
 ---
 
-## 8. THIRD DELETION PASS — 2026-09-01 (`forge-js/tranche-3`, merge `b793ebe1`)
+## 8. THIRD DELETION PASS — 2026-09-01 (`forge-js/tranche-3`)
 
 **Three files retired. Running total across all passes: seven.**
 
@@ -537,7 +537,8 @@ expectation is not the same as having none.*
   → `FORGE_DELETION_PLAN.md` §10.4, blocker **B13**.
 * **The three surfacing smokes** (`knit_`, `thicken_`, `trim_surface_smoke.js`). #146 added the
   SURFACE value kind and six kernel ops, but all six are **forbidden** (no `forge::ui` command
-  emits them) and its C++ tests are **parse-level by their own declaration**. §7.6's entry for
+  emits them) and its C++ tests are **parse-level by their own declaration**. #165 landed
+  `SECTION` the other way — op *and* command — and is not forbidden, which is the control. §7.6's entry for
   `native_thicksolid_closedform.mjs` — *"the clearest case in the ledger of a JS file that CANNOT
   go yet"* — now has three companions. → §10.2.
 * **`projects/ge9x/`** — no successor demo target exists. → blocker **B14**.
@@ -548,7 +549,10 @@ expectation is not the same as having none.*
 
 Green before and after the deletions: `brand-guard.test.mjs`, `deps-allowlist.test.mjs`,
 `bridge-prompt-contract.test.mjs` (the whole of the default branch's `npm test`).
-Green for the merge: `ui/test/run_ui.sh` **19/19**, `ui/test/run_op_constraint_gate.sh`
-**9/9 mutations caught**, `gen_archie_op_vocabulary.py --check`, `gen_op_constraint_table.py --check`.
+Green for the merge (re-run after #165 moved the base mid-pass): `ui/test/run_ui.sh` **19/19**,
+`ui/test/run_op_constraint_gate.sh` **9/9 mutations caught**, `gen_archie_op_vocabulary.py
+--check` (29 ops, 42 commands), `gen_op_constraint_table.py --check`, `capability_manifest` in
+sync. Merged op count is **47** = 40 + 6 (#146) + 1 (#165); `ui/test/feature_ir_test.cpp` was
+resolved to that measurement, not to either branch's figure.
 No workflow, `package.json` script, `CMakeLists.txt` or shell harness names any deleted file
 (grep positive-controlled on `native_binding_smoke`).

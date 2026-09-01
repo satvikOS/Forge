@@ -234,11 +234,13 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 46 ops -- the original 40 plus the six that
+  // forge::ft::opFromName registers 47 ops -- the original 40, plus the six that
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
-  // THICKEN / CAP / SURFCHECK). Anything else means the derivation itself broke,
+  // THICKEN / CAP / SURFCHECK, #146), plus SECTION (#165). Both landed on
+  // branches that each moved this number from 40, so the merge is 40+6+1 and
+  // NOT either side's figure. Anything else means the derivation itself broke,
   // and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 46);
+  CHECK_EQ_INT(kernel.size(), 47);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {

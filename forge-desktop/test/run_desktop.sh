@@ -37,11 +37,11 @@
 #                         exists for was a use-after-free that made the SHIPPED
 #                         app SIGSEGV on the first tab click while the frame and
 #                         document gates both stayed green -- neither clicks.
-#                       * isolation   — the app survives an OCCT segfault: the
-#                         kernel runs OUT OF PROCESS in forge_kernel_worker, and
-#                         a worker that dies mid-op must surface as a failed op
-#                         and not as a dead application. Its mutation proof is
-#                         NOT driven from here (see run_isolation_gate.sh below).
+#                       * isolation   — the out-of-process kernel worker: an OCCT
+#                         segfault must kill the WORKER and leave the app alive,
+#                         surfacing as a failed op and not a dead application.
+#                         Its mutation proof is NOT driven from here — see
+#                         run_isolation_gate.sh below.
 #   3. mutation proof — SR-3 requires showing each gate CAN fail. THIRTY-NINE
 #                       defects (8 document + 9 frame + 8 copilot + 7 update +
 #                       7 click) are

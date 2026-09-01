@@ -1951,7 +1951,7 @@ OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords �
 change for every corpus already written against `LOFT`, and it belongs in its own commit with
 its own measurement.
 
-## D-041 (2026-09-01): a capability can land as a TYPE, a GRAMMAR and a PARSE GATE and move the product surface by ZERO — #146 did
+## D-041 (2026-09-01): a capability can land as a TYPE, a GRAMMAR and a PARSE GATE and move the product surface by ZERO — #146 did, and #165 is the control that proves it
 
 The third JS-deletion pass expected #146 (SURFACE as the fourth IR value kind) to retire three
 surfacing JS harnesses. It retires none, and the reason is worth more than the deletion.
@@ -1959,12 +1959,18 @@ surfacing JS harnesses. It retires none, and the reason is worth more than the d
 **Measured on `b793ebe1`** (merge of `origin/archdisc` into the execution branch):
 
 ```
-kernel ops (opFromName)      46      <- #146 added SKIN FACES SEW THICKEN CAP SURFCHECK
-forge::ui registry commands  41      <- UNCHANGED across #144 and #146
-user-invocable IR ops        28      <- UNCHANGED across #144 and #146
-forbidden_ops                18      <- 12 + the six SURFACE ops, ALL SIX
-gate 3 coverage           15.9%      <- IDENTICAL before and after both PRs
+kernel ops (opFromName)      47      <- 40 + 6 SURFACE (#146) + 1 SECTION (#165)
+forge::ui registry commands  42      <- UNCHANGED by #144 and #146; +1 from #165
+user-invocable IR ops        29      <- UNCHANGED by #144 and #146; +1 from #165
+forbidden_ops                18      <- 12 + the six SURFACE ops, ALL SIX. NOT SECTION.
+gate 3 coverage           15.9%      <- IDENTICAL after ALL THREE PRs
 ```
+
+**#165 IS THE CONTROL, AND IT ARRIVED MID-PASS.** It landed `SECTION` the other way round — an op
+**and** a `forge::ui` command (`part.section_curve`) — so `SECTION` is **not** forbidden while all
+six of #146's ops are. Two capability PRs, one week, one difference: **whether a command emits the
+op.** Without #165 this decision would rest on a single observation; with it, it rests on a
+contrast.
 
 Every one of the six new ops carries the generated reason *"no command in the forge::ui registry
 emits it, so no user can produce it."* And `forge-kernel/test/ft/surface_round_trip_test.cpp:12-16`
@@ -2005,7 +2011,110 @@ quarters of a feature. Read it at every capability landing.
    command run to confirm one expectation will not volunteer the other half of its own answer.**
 
 2. **`SECTION` is an op and user-invocable ops are 29** — carried in this pass's own briefing.
-   There is no `SECTION` op. The string occurs once in the tree, as the comment banner
-   `// ── SECTION RING ──` at `ui/src/PartCommands.cpp:669`, heading the **RING** command. Measured
-   user-invocable ops: **28**. Kernel ops: **46**, not the 41 also carried. **A banner is not a
-   capability, and a count in a briefing is not a measurement.**
+   **RETRACTED, THEN UN-RETRACTED, AND THE ROUND TRIP IS THE POINT.** Measured on the first tree
+   (`origin/archdisc` merged into the execution branch) `SECTION` was genuinely absent from
+   `opFromName`, user-invocable ops were **28**, and the only occurrence of the string in the tree
+   was the comment banner `// ── SECTION RING ──` at `ui/src/PartCommands.cpp:669`, heading the
+   **RING** command. All of that was true of that ref. It was **already false of the execution
+   branch**, where #165 had landed `SECTION` as a real op with a real command. Final merged
+   figures: **47** kernel ops, **29** user-invocable.
+
+   **A CAPABILITY'S PRESENCE IS A PROPERTY OF A REF, NOT OF A REPOSITORY.** Two long-lived
+   branches can both be measured correctly and disagree, and "I checked the tree" is not an answer
+   unless it says *which* tree. A banner is still not a capability — but neither is an absence on
+   one ref evidence of absence on another.
+
+   **How the drift announced itself, which is the reusable part:** as `mergeable=CONFLICTING` on
+   the PR, whose *symptom* was that **CI never ran at all**. `pull_request` workflows check out
+   `refs/pull/<n>/merge`; when that ref cannot be computed there is no run — not a red run, **no
+   run** — and `gh pr checks` showed one green line, `CodeRabbit — pass`, whose description read
+   *"Review skipped: reviews are disabled for this base branch."* **A green bucket on a check that
+   did nothing, next to zero rows for the gate that matters.** Read the description, never the
+   bucket; and treat "all checks settled" as a claim to verify whenever the row count is small.
+
+
+## D-042 (2026-08-31): the IR had three of OCCT's four Boolean operators, and the fourth is the only one that is not a body
+
+*(Numbering: D-040 and D-041 are allocated on `decisions/d040-arm-qualified` and
+`decisions/d041-selfconsistency-flat`, which are not merged here. This entry takes **D-042** so a
+fourth collision does not have to be untangled at merge — D-033 already cost one.)*
+
+**The hole, and how it was found.** `BRepAlgoAPI` ships four operators — `Fuse`, `Cut`, `Common`
+and `Section`. `forge::ft`'s op table had three. Probing the pinned verifier with a `SECTION`
+statement returned unknown-op. **No benchmark row demanded it**, so nothing was ever red: this is
+exactly the class of gap a systematic map over the source finds and a census over failing rows
+cannot, because a census can only see what something already asked for.
+
+**Why the value kind is the whole decision.** A section of two solids is not a smaller solid. It is
+the CURVE where their faces cross — a wire with no faces, no shells and zero volume. `Builder::
+kindOf()` ends in `default: return Val::Solid`, so an op added to `OpCode` without naming itself
+there is *silently typed a body*. Typed SOLID, `SECTION` would still "compile", and then
+`massProperties`, `faceCount` and `checkValidity` would each report a perfectly good section as an
+empty invalid body, while a downstream `FUSE` consumed nothing. **That is worse than not having the
+op at all**, which is why `Section` is named EXPLICITLY in `kindOf()` and given its own handler
+rather than a fourth `which` value in `opBool()` — the vocabulary generator derives each op's
+consumed kinds from ITS OWN handler body, so folding them together would have described `FUSE` and
+`SECTION` as one thing.
+
+**Every site that had to change, found by grepping the op NAMES and not a symbol.** The lesson from
+#140 holds: three files used a forbidden-op *exemplar* rather than a shared symbol, and a search
+filtered on `ForbiddenOp` missed the one spelled `opIsCommandReachable`.
+
+| site | file | change |
+|---|---|---|
+| the op table | `forge::ft::opFromName` | `{"SECTION", OpCode::Section}` |
+| the enum | `forge/ft/FeatureTree.hpp` | `Section`, in its own group |
+| the unknown-op repair hint list | `FeatureTreeCompiler.cpp` | so a near miss NAMES `SECTION` |
+| the dispatch switch | `Builder::build()` | `-> opSection`, its own handler |
+| **the value-kind switch** | `Builder::kindOf()` | `-> Val::Wire`, **explicitly, not by default** |
+| the UI op table | `forge::ui::irOpTable()` | `{"SECTION", 2, 2, true}` |
+| the UI command registry | `ui/src/PartCommands.cpp` | `part.section_curve`, + `partCommandIds()` |
+| `GraphAudit::isPredicate` | `src/ft/GraphAudit.cpp` | **UNCHANGED, and checked** — see below |
+| `toString(IrValueKind)` / the second kind enum | `ui/src/PartCommands.cpp` | **UNCHANGED** — `WIRE` already existed for `RING`/`WIRE` |
+
+`isPredicate` is the site that is easy to get wrong in the *quiet* direction. It names `VERIFY` and
+`TAG`: ops that produce no value and are therefore never orphans. `SECTION` produces one, so adding
+it there would have made an unconsumed section INVISIBLE instead of reported. It is left alone, and
+a test now pins that an unconsumed `SECTION` is an unexplained orphan.
+
+**Measured** (OCCT 7.9.3, `forge-kernel/test/build_section_op_gate.sh`, four TUs and no kernel
+build). Volume alone cannot validate this — a correct section and an empty solid both measure 0.0 —
+so the gate asserts a VECTOR of observables:
+
+| case | shape | wires | edges | faces / shells / solids | closed | length | volume |
+|---|---|---|---|---|---|---|---|
+| box(40,40,20) ∩ sphere(r=10) on the top face | `WIRE` | 1 | 1 | 0 / 0 / 0 | 1 | **62.831853** = 2·π·10 | 0 |
+| box ∩ box, corner overlap | `WIRE` | 1 | 6 | 0 / 0 / 0 | 1 | **100.000000** = 40 + 40 + 20 | 0 |
+| box ∩ cylinder(r=10) passing through | `COMPOUND` | **2** | 2 | 0 / 0 / 0 | 2 | **125.663706** = 4·π·10 | 0 |
+| box ∩ a disjoint box | — | — | — | — | — | **refused** | — |
+
+The first row is the sharp one: a section returned as unapproximated intersection edges would be a
+chord polygon and come in *below* 2·π·10 by ~1e-2, so a 1e-6 tolerance on that length is what proves
+`Approximation` was set before the build rather than after it. The third row is the one that proves
+the edge chaining does not WELD: two loops that never touch stay two loops, and a single welded wire
+would have measured the same total length. The fourth is a refusal on purpose — an empty section
+returned as a valid-looking empty compound pushes the failure into whatever tried to loft it.
+
+**User-invocable, not merely present.** `part.section_curve` takes two Bodies. Unlike the other three
+booleans it **consumes neither operand** — both bodies survive a section, which is the point of taking
+one — so its consumed-node list is empty and its produced node carries the `wire_` prefix, exactly as
+`part.section_ring`'s does. A `WIRE` has to be selectable as a wire because `LOFT` is what consumes it
+and `EXTRUDE` must not be offered for it; both directions are asserted.
+
+**Falsifiability.** Three mutations, run by the build script, each required to turn the gate red:
+read the section as a body, weld two distinct loops into one wire, accept an empty section. All three
+are RED as required. The gate runs in CI in the `s0_conformance` job, which already installs OCCT and
+already documents the `-undefined dynamic_lookup` link policy this gate shares.
+
+**Counts, both artefacts regenerated in the same commit and `--check` clean:** `kernel_ops` 40 → 41,
+`user_invocable_ops` 28 → 29, `registry_commands` 41 → 42, `commands_emitting_ir` 30 → 31.
+`APP_SURFACE_MANIFEST.tsv` is a THIRD generated artefact and it was stale by exactly the one new row;
+it is regenerated here too. The brief for this work said 46 → 47 — that count includes the six
+`SURFACE` ops from PR #146 (`ir/surface-value-kind`), which is **not merged into either
+`archdisc` or `claude/sacrosanct-execution-20260828`**. 40 → 41 is the measured state of this tree.
+
+**What this does NOT claim.** `SECTION` is not wired into the node binding, so no `.mjs` smoke drives
+it; the gate calls `forge::section` and `forge::ft::parse` directly and never `compile()`, so these
+numbers are the OPERATOR's and not a whole-pipeline result. Nothing here measures a benchmark: the
+interface term scores planes and cylinders only, and a section curve scores zero points on it. This
+closes a hole in the op table, and it is not claimed to move a score.

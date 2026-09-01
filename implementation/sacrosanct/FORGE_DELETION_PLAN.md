@@ -163,24 +163,24 @@ Two surfaces, both counted from source on this tree:
 
 | Surface | Count | Was | Source |
 |---|---:|---:|---|
-| C++ `forge::ui` registry commands | **41** | ~~30~~ | `implementation/sacrosanct/APP_SURFACE_MANIFEST.tsv` (generated from the live registry) |
-| C++ commands that emit IR | **30** | — | `archie_op_vocabulary.json` `counts.commands_emitting_ir` — the other 11 are `file.*`, `view.*`, `edit.undo/redo`, `workspace.next`, `app.command_palette` |
-| C++ user-invocable IR ops | **28** | ~~18~~ | `archie_op_vocabulary.json` `emission_policy.allowed_ops` |
-| C++ kernel ops (`opFromName`) | **46** | — | `forge-kernel/src/ft/FeatureTreeCompiler.cpp:121-166` |
+| C++ `forge::ui` registry commands | **42** | ~~30~~ | `implementation/sacrosanct/APP_SURFACE_MANIFEST.tsv` (generated from the live registry) |
+| C++ commands that emit IR | **31** | — | `archie_op_vocabulary.json` `counts.commands_emitting_ir` — the other 11 are `file.*`, `view.*`, `edit.undo/redo`, `workspace.next`, `app.command_palette` |
+| C++ user-invocable IR ops | **29** | ~~18~~ | `archie_op_vocabulary.json` `emission_policy.allowed_ops` |
+| C++ kernel ops (`opFromName`) | **47** | — | `forge-kernel/src/ft/FeatureTreeCompiler.cpp:121-167` |
 | C++ ops FORBIDDEN (no command emits them) | **18** | — | `archie_op_vocabulary.json` `forbidden_ops` |
 | JS app declared tool surface | **164** | 164 | `FORGE_TOOLS` in `frontend/src/ai/ForgeToolBridge.js` |
 | JS kernel surface exposed to the renderer | **445** | 445 | `contextBridge` bindings in `electron/preload.js` — reproduced exactly on this tree as *function-valued* keys, which is the definition to use; counting every nested key at depth ≥ 2 gives 751 and is the wrong field |
 | forge-v4 workbench components | **163** | 163 | `frontend/src/forge-v4/*Workbench.jsx` |
 | forge-v4 panel components | **117** | 117 | `frontend/src/forge-v4/*Panel.jsx` |
 
-Mapping the 164 JS tools onto the 41 C++ commands with a hand-written synonym table (the table
+Mapping the 164 JS tools onto the 42 C++ commands with a hand-written synonym table (the table
 is in the plan's companion script and every pair is listed so any one can be rejected
 individually — e.g. `part.fuse`→`part.boolean_union`, `part.translate`→`part.move`,
 `sketch.add-circle`→`part.sketch_circle`):
 
 ```
 JS FORGE_TOOLS total              : 164
-C++ registry commands (manifest)  : 41        (was 30)
+C++ registry commands (manifest)  : 42        (was 30)
 JS tools with a C++ counterpart   : 26        (was 18)
 JS tools with NO C++ counterpart  : 138       (was 146)
 COVERAGE                          : 15.9%     (was 11.0%)
@@ -210,18 +210,18 @@ vendored at `forge-kernel/3rdParty/planegcs`, is in `forge-kernel/CMakeLists.txt
 by `forge-kernel/src/Sketcher.cpp`. `sketch.*` sits at 1/6 because nothing in `forge::ui`
 reaches a solver that is already built and linked — an exposure job, not a solver job (#147).
 
-The relationship is not containment in either direction: **17** C++ commands have no JS tool
+The relationship is not containment in either direction: **18** C++ commands have no JS tool
 counterpart either — `app.command_palette`, `edit.delete`, `edit.redo`, `edit.undo`,
 `file.new`, `file.open`, `file.save`, `part.counterbore`, `part.edit_feature`, `part.mirror`,
-`part.section_ring`, `part.sketch_polygon`, `part.sketch_rect`, `part.sketch_rounded_rect`,
-`view.fit`, `view.wireframe`, `workspace.next`. So the C++ app is not a subset being grown
+`part.section_curve`, `part.section_ring`, `part.sketch_polygon`, `part.sketch_rect`,
+`part.sketch_rounded_rect`, `view.fit`, `view.wireframe`, `workspace.next`. So the C++ app is not a subset being grown
 toward the JS app; it is a different, much smaller surface that overlaps it.
 
 ### 2.4 Verdict
 
 **Gate 3 is NOT met, and the closure result does not move it.** **15.9%** of the JS tool
 surface has a C++ counterpart (corrected 2026-09-01 from 11.0%, §2.3). On the wider surface the
-renderer actually has — 445 bridged kernel functions — the ratio is **41/445**.
+renderer actually has — 445 bridged kernel functions — the ratio is **42/445**.
 
 What *has* changed since D-018 is worth stating precisely, because it is real progress and it
 changes the deletion **order** even though it does not clear the gate:
@@ -236,8 +236,11 @@ today; the gate clears when the C++ registry covers the operations `e2e/forge` a
 exercises.** §5 gives that as tier T5's entry condition.
 
 **The ratchet did not move between #140 and this pass, and that is the finding, not an
-omission.** #144 (the Archie CoPilot panel) and #146 (SURFACE as the fourth IR value kind) both
-landed in between and both added **zero** registry commands. #146 in particular added six
+omission.** #144 (the Archie CoPilot panel), #146 (SURFACE as the fourth IR value kind) and
+#165 (SECTION, the fourth OCCT Boolean) all landed in between. The first two added **zero**
+registry commands; #165 added **one** (41 → 42 commands, 28 → 29 ops) and coverage **still did
+not move**, because gate 3 measures OVERLAP WITH THE JS TOOL SURFACE, not absolute capability —
+`part.section_curve` has no JS counterpart to overlap with. #146 in particular added six
 kernel ops — `SKIN`, `FACES`, `SEW`, `THICKEN`, `CAP`, `SURFCHECK` — and **all six are in
 `forbidden_ops`**, each with the same generated reason: *"no command in the forge::ui registry
 emits it, so no user can produce it."* Surfacing is now a TYPE and a GRAMMAR with no door in the
@@ -893,7 +896,7 @@ which makes T1 a question about building one A/B oracle rather than about unpick
 
 ---
 
-# 10. THIRD PASS — 2026-09-01, after #144 / #146 / #154 / #157 / #160
+# 10. THIRD PASS — 2026-09-01, after #144 / #146 / #154 / #157 / #160 / #165
 
 Three more files retired, four false claims about the shipped CI struck, **B11 cleared**, and
 one blocker (B8) shown to have **not moved** across two capability landings — which is the most
@@ -901,24 +904,56 @@ useful thing this pass measured.
 
 ## 10.0 Provenance
 
-Measured on `forge-js/tranche-3` at the merge of `origin/archdisc` into
-`origin/claude/sacrosanct-execution-20260828` (merge commit `b793ebe1`, parents `e363a905` and
-`9c2aee77`). Every number below is from `forge_deletion_inventory.py`,
-`gen_archie_op_vocabulary.py --check`, or a command quoted at its use site on that tree. The
-tree is pinned to origin: nothing here was measured on a dirty or drifted checkout.
+Measured on `forge-js/tranche-3`. This pass was measured **twice**, and the second time is the
+one that counts — see the box below. Every number is from `forge_deletion_inventory.py`,
+`gen_archie_op_vocabulary.py --check`, or a command quoted at its use site. The tree is pinned to
+origin: nothing here was measured on a dirty or drifted checkout.
 
-**The vocabulary numbers this pass had to fix first.** The briefing for this pass carried
-`kernel_ops = 41` and `user_invocable = 29 after SECTION landed`. **Both are wrong and were
-re-measured rather than trusted**, which is what the briefing itself asked for:
+> ### THE BASE MOVED UNDER THIS PASS, AND THE FIRST MEASUREMENT SAID SO WRONGLY
+>
+> The pass first measured `b793ebe1` (`origin/archdisc` merged into the execution branch) and
+> recorded, correctly for that tree, **46 kernel ops / 41 commands / 28 user-invocable ops**, and
+> **"there is no `SECTION` op"**. Between that measurement and the PR, **#165 landed `SECTION` on
+> the execution branch** — so the claim became false while the document was being written. It is
+> corrected here rather than quietly overwritten, because the mechanism is reusable:
+>
+> **GitHub reported the drift as `mergeable=CONFLICTING`, and the symptom was that CI NEVER RAN.**
+> `pull_request` workflows check out `refs/pull/<n>/merge`; when that ref cannot be computed there
+> is no run at all — not a red run, *no run*. `gh pr checks` then showed exactly one green line,
+> `CodeRabbit — pass`, whose *description* read **"Review skipped: reviews are disabled for this
+> base branch."** A green bucket on a check that did nothing, and zero rows for the gate that
+> matters. **READ THE DESCRIPTION, NEVER THE BUCKET — and treat "all checks settled" as a claim to
+> verify, not a result, whenever the row count is suspiciously small.**
+>
+> Re-measured after merging the moved base. All figures in §10 below are the SECOND measurement.
 
-| claim | measured on `b793ebe1` | how |
+**The vocabulary numbers, measured on the merged tree:**
+
+```
+kernel ops (opFromName)      47   = 40 original + 6 SURFACE (#146) + 1 SECTION (#165)
+registry commands            42
+commands emitting IR         31
+user-invocable IR ops        29
+forbidden_ops                18
+gate 3 coverage           15.9%   <- UNMOVED by #144, #146 AND #165
+```
+
+Both #146 and #165 moved the op count from 40 on branches that never saw each other, so the merge
+is **40+6+1 = 47** and not either side's figure. `ui/test/feature_ir_test.cpp` asserts that exact
+number and was resolved to it by measurement, not by taking a side.
+
+**How the briefing's figures resolved.** It carried `kernel_ops = 41`, `user_invocable = 29
+after SECTION landed`, and a 12-name forbidden list. Each was re-measured rather than trusted:
+
+| claim | first measurement (`b793ebe1`) | final (merged base) |
 |---|---|---|
-| `kernel_ops = 41` | **46** | the `opFromName` table, `FeatureTreeCompiler.cpp:121-166`, counted by parsing the table body — not by grepping `OpCode::`, which also matches the enum declaration |
-| `user_invocable = 29` | **28** | `archie_op_vocabulary.json` `counts.user_invocable_ops`, generator green under `--check` |
-| *"after SECTION landed"* | **there is no `SECTION` op** | `SECTION` appears in the tree exactly once, as the comment banner `// ── SECTION RING ──` at `ui/src/PartCommands.cpp:669`. It heads the **RING** command. `"SECTION"` is in no op table on either side of the seam. A banner is not a capability. |
-| `forbidden = 12` (the named list) | **18** | the 12 named plus the six #146 SURFACE ops — see §10.2 |
+| `kernel_ops = 41` | **46** — 41 was this figure *minus* the six SURFACE ops | **47** — 41 was the execution branch's own count before #146 merged into it |
+| `user_invocable = 29 "after SECTION landed"` | **28**, and `SECTION` was genuinely absent | **29**, and `SECTION` is genuinely present. **The briefing was right and the first measurement was right — about different trees.** #165 had landed on the execution branch but not on `archdisc`, and the first merge took `archdisc`'s side of the history |
+| `forbidden = 12` | **18** | **18** — the 12 named plus #146's six SURFACE ops. `SECTION` is **not** among them: #165 made it user-invocable, which is the whole difference between #165 and #146 (§10.2) |
 
-`ARC` is confirmed **genuinely absent** from `opFromName` on this tree, as the briefing states.
+**The lesson is not "the briefing was stale".** It is that *a capability's presence is a property
+of a REF, not of a repository*, and two long-lived branches can each be correct and disagree. Say
+which ref, always. `ARC` is confirmed **genuinely absent** from `opFromName` on every ref checked.
 
 ## 10.1 What was retired this pass, and the citation for each
 
@@ -983,8 +1018,19 @@ smokes. It retires none of them, and the reason is worth more than the deletion 
 **All six of #146's new kernel ops are FORBIDDEN.** `archie_op_vocabulary.json` `forbidden_ops`
 went 12 → 18, and the six added are exactly `CAP`, `FACES`, `SEW`, `SKIN`, `SURFCHECK`,
 `THICKEN` — each carrying the generated reason *"no command in the forge::ui registry emits it,
-so no user can produce it."* The registry stayed at **41** commands and **28** user-invocable
-ops across both #144 and #146. Gate 3 is **15.9% before and after**.
+so no user can produce it."* The registry did not move at all across #144 and #146.
+
+**#165 is the control that proves the point.** It landed `SECTION` the *other* way — an op **and**
+a `forge::ui` command (`part.section_curve`), taking the registry 41 → 42 and user-invocable ops
+28 → 29. `SECTION` is therefore **not** in `forbidden_ops`, while all six of #146's ops are. Two
+capability PRs, one week, one difference: **whether a command emits the op.** That is the whole
+of §10.2 in one comparison.
+
+**And gate 3 is 15.9% after all three PRs**, including #165's — because coverage measures
+*overlap with the JS tool surface*, and `part.section_curve` has no JS tool to overlap. A door
+that opens onto ground the JS app never covered raises capability without raising coverage. Both
+readings are correct and they answer different questions; do not use one as evidence for the
+other.
 
 **And the C++ tests #146 added are PARSE-level, by their own declaration.**
 `forge-kernel/test/ft/surface_round_trip_test.cpp:12-16` says so in its header: it *"links
@@ -1081,7 +1127,7 @@ Re-measured on `b793ebe1`. **Changed rows are marked.** Ordered by cost, cheapes
 | B5 | `forge_capi.h` does not reach the 445-binding surface | T3 | **QUANTIFIED.** `forge-kernel/include/forge/capi/forge_capi.h` exports **27** `FG_API` functions; `forge-kernel/test/capi/forge_capi_smoke.cpp` exercises **20** of them — the seven untouched are `FgCopyBody`, `FgCreateCone`, `FgCreatePrism`, `FgCreateTorus`, `FgLastError`, `FgShell`, `FgVersion`. Against the renderer's 445 function-valued `contextBridge` keys that is **27/445 = 6.1%** | no |
 | B6 | `kernel-tests.yml` runs node in 18 places | T3 | **RE-MEASURED, UNCHANGED: 18** in `kernel-tests.yml`, 22 in `package.json`, 15 in `forge-kernel/CMakeLists.txt` = **55** lines across 5 files. `desktop-release.yml` and `forge-desktop/CMakeLists.txt` still name node **zero** times | no |
 | B7 | No C++ owner for `frontend/src/foundation` (171 files) or the AI bridge | T4 | **UNCHANGED.** `bridge-prompt-contract.test.mjs` must move first — it is one of the three files that are the whole of the default branch's `npm test` | no |
-| B8 | Gate 3 at **15.9%** | T5 | **UNCHANGED, AND THAT IS THE FINDING (§10.2).** Two capability landings (#144, #146) moved it by **zero**. Needs ~24 more `part` commands; **all** of `simulate` (29), `drawing` (12), `assembly` (8), `manufacture` (5); and the sketcher — where the solver is **already vendored, built and linked** (`3rdParty/planegcs`, `src/Sketcher.cpp`) and only the `forge::ui` door is missing | no |
+| B8 | Gate 3 at **15.9%** | T5 | **UNCHANGED, AND THAT IS THE FINDING (§10.2).** Three capability landings (#144, #146, #165) moved it by **zero** — even #165, which *did* add a registry command. Needs ~24 more `part` commands; **all** of `simulate` (29), `drawing` (12), `assembly` (8), `manufacture` (5); and the sketcher — where the solver is **already vendored, built and linked** (`3rdParty/planegcs`, `src/Sketcher.cpp`) and only the `forge::ui` door is missing | no |
 | B9 | `data-testid` assertions have no native harness | T5 | **RE-MEASURED: 9,769** `data-testid` occurrences across `e2e/` + `frontend/src`, of which **5,279** are `getByTestId`/`data-testid=` in `e2e/`. The 1,170 figure was a narrower count. `forge_desktop_click_gate` remains the first instalment; #157 adds `forge_desktop_isolation_gate` (crash survival), which is a different axis, not progress on this one | no |
 | B10 | No Gatekeeper-acceptable bundle | T5, T6 | **UNCHANGED. Still the only blocker needing the credential.** | **YES** |
 | **B12** | **NEW.** `camx_smoke.cjs` is the only written statement of the G-code dialect contract | T2 (1 file) | Transcribe its twelve named markers (`fanucHasPercent/O0001/M30`, `heidHasBeginPgm/EndPgm/ToolCall`, `siemHasG54/T1M6/Header`, plus the three line counts) into a C++ gate over `GcodePost.cpp`. `test/native/cam/cam_test.cpp` covers material removal, collision and probing — **not** toolpath generation or post-processing | no |
@@ -1095,8 +1141,9 @@ the second pass and survives re-measurement with three blockers added and one cl
 
 | § | Said at `12a09d37` | Measured at `b793ebe1` |
 |---|---|---|
-| §2.3 | registry **30**, user-invocable ops **18**, under the heading *"counted from source on this tree"* | **41** and **28**. Stale by 12 and 11 since #140, and the two figures feed the coverage percentage. **Corrected in place** |
-| §2.3 / §2.4 | coverage **11.0%**, ratio **30/445** | **15.9%**, **41/445**. §9.2 had already found this; §2.3/§2.4 still stated the old numbers, which is D-027 for the third time in one document |
+| §2.3 | registry **30**, user-invocable ops **18**, under the heading *"counted from source on this tree"* | **42** and **29** (and **41**/**28** before #165 merged in mid-pass). Stale by 12 and 11 since #140, and the two figures feed the coverage percentage. **Corrected in place** |
+| §2.3 / §2.4 | coverage **11.0%**, ratio **30/445** | **15.9%**, **42/445**. §9.2 had already found the coverage figure; §2.3/§2.4 still stated the old one, which is D-027 for the third time in one document |
+| §2.3 | C++ kernel ops — *(not stated)* | **47** = 40 + 6 (#146) + 1 (#165). Two branches each moved it from 40 without seeing each other; `ui/test/feature_ir_test.cpp` was resolved to the measured merge, not to either side |
 | §2.3 | *"the gap … includes every primitive creator"* | **false since #140** — 8 of 13 creators are matched with file:line on both sides. Five remain |
 | §2.3 | **14** C++ commands have no JS counterpart | **17**, listed in full |
 | §2.4 | forge-kernel registers **44** A/B gates | **45** (§9.7 found this; §2.4 still said 44) |
