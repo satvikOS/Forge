@@ -140,7 +140,14 @@ enum class OpCode {
                  //   none is wired at this SHA, so none is listed here: a
                  //   vocabulary that advertises a keyword the compiler skips is
                  //   a worse defect than a short vocabulary. An unlisted
-                 //   keyword is skipped and NAMED, never fatal.
+                 //   keyword is skipped and NAMED, never fatal. A TRAILING
+                 //   operand that does not resolve, or that belongs to a
+                 //   different sketch, is skipped and NAMED the same way: this
+                 //   op is pass-through, so the answer is the sketch unchanged,
+                 //   and a mis-typed %ref must not cost the other 199
+                 //   statements of a long tree. Its FIRST operand and its kind
+                 //   still REFUSE — with neither an owning sketch nor a
+                 //   constraint kind resolved there is nothing to pass through.
                  //   The kind is ALWAYS arg 1; the operands follow and are read
                  //   by token type, so one op covers unary/binary/dimensional
                  //   without four op names. CON returns the SKETCH it was handed

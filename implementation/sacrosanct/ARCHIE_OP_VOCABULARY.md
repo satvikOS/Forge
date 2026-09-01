@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 69 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 80 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,40 +46,63 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **66 commands**; **43 of them emit
-feature-IR**, reaching **40 distinct op names**. The kernel defines **55** ops
-(`opFromName`), so **15 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **72 commands**; **49 of them emit
+feature-IR**, reaching **46 distinct op names**. The kernel defines **55** ops
+(`opFromName`), so **9 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The registry grew 58 -> 66 without the emitting half moving at all, and that gap
-is the point: the eight new commands are the VIEWPORT -- the seven standard views
-plus `view.selection` -- and a view command changes the camera, never the
-document. They are registry commands rather than bespoke widgets so that the
-menu, the palette, the keymap and Archie's tool list all learn about them at
-once; they carry no `featureIrOp`, so the emission vocabulary is untouched and
-`commands_emitting_ir` stays at 43.
+The nine are `SLOT`, `ARC`, and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
+`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. The six SURFACE ops that used to stand
+here -- `FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands
+and are gone from the list, which is what the list is for. The rest are out for
+three DIFFERENT reasons, and the distinction is what a single "no command emits
+it" line would hide: `ARC` and the sketch family are ordinary gaps a command can
+close, and `SLOT` is not.
 
-The fifteen are `SLOT`, `ARC` -- the profile arc the base branch added, which
-the kernel compiles but no registry command emits yet -- the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
-`SKIN`, `SEW`, `SURFCHECK` -- and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
-`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. They are out for three DIFFERENT
-reasons, which is the distinction a single "no command emits it" line would hide.
+The registry reads 72 where the base this branch merges reads 64, and the
+emitting half did not move at all -- that gap is this branch's whole shape.
+NEITHER parent's number was right on its own: this branch measured 66 alone and
+the base 64, because each carried only its own half -- the base's six SURFACE
+commands, this branch's eight views -- and 72 is what the MERGED registry
+actually holds. It is measured, not picked: diffing the REGENERATED manifest
+against the base's gives a delta of exactly eight rows added and nothing
+removed -- `view.front`, `view.back`, `view.left`, `view.right`, `view.top`,
+`view.bottom`, `view.iso` and `view.selection`.
 
-The six SURFACE ops arrived with the SURFACE value kind (D-038) and are simply
-NEW: the kind exists, the kernel builds them, and no command emits one yet. That
-is the ordinary kind of gap, and one command apiece closes it.
+A view command changes the CAMERA, never the document, so it carries no
+`featureIrOp`: `commands_emitting_ir` stays at 49 and `user_invocable_ops` at
+46, and the emission vocabulary Archie is trained on is untouched by the whole
+of this branch. They are registry commands rather than bespoke widgets so that
+the menu, the palette, the keymap and Archie's tool list all learn about them at
+once.
+
+The six were out for the ordinary reason: they arrived with the SURFACE value
+kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
+built them, and no command emitted one yet. One command apiece closed it. What
+actually unblocked them was not six commands but ONE SELECTION KIND -- four of the six CONSUME a sheet, and until `EntityKind::Surface`
+and a `surface_N` node prefix existed, a sheet parked in `body_N` read back as a
+SOLID and `THICKEN` would have offered itself on a fillet's output. That is the
+same structural fix `WIRE` needed before `LOFT` became reachable, and it is the
+last one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
+`IrValueKind`, and each now has an entity kind and a node prefix.
 
 The seven 2D-sketch ops are the same ordinary kind of gap one layer earlier, and
-they are what took the kernel from 46 ops to 53; `SECTION`, the fourth OCCT
-boolean added on this branch, is the 54th and is NOT forbidden because
-`part.section_curve` emits it. They make the vendored planegcs
-solver addressable from a feature tree for the first time: `SKETCH` opens one,
-`SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it, `CON` constrains a
-pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE` already accepts.
-The kernel compiles and solves all seven. No `forge::ui` registry command emits
-one yet, which is why every one of them is forbidden here and why the count of
-distinct op names a user can reach is **unchanged at 39** by this branch: the
-solver became reachable from the IR, not yet from the app.
+they are the larger half of what took the kernel from 47 ops to 55. They make
+the vendored planegcs solver addressable from a feature tree for the first time:
+`SKETCH` opens one, `SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it,
+`CON` constrains a pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE`
+already accepts. The kernel compiles and solves all seven. No `forge::ui` registry
+command emits one yet, which is why every one of them is forbidden here and why
+the count of distinct op names a user can reach is UNCHANGED at 46 by this branch:
+the solver became reachable from the IR, not yet from the app.
+
+`ARC` is the other half, and the same kind of gap again: it takes the
+`[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
+well as straight ones, the kernel builds it, and no forge::ui command emits one
+yet. It is here because the ground truth needs it -- 86 ARC statements across 48
+BenchCAD GT programs, which the reharvest could not parse at all without the op --
+and the count that did NOT move is the honest one: user-invocable ops stay at 46,
+because a kernel op is not a product surface until a command spells it.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
 pinned native verifier its extruded area is exactly
@@ -148,7 +171,6 @@ check that silently stops checking is the failure it was written to prevent.
 | `PATTERN` | part.pattern_linear / _circular / _grid | `PATTERN(%body, LINEAR, count, dx[, dy, dz])`<br>`PATTERN(%body, POLAR, count, total_angle)`<br>`PATTERN(%body, GRID, nx, ny, dx, dy)` |
 | `MIRROR` | part.mirror | `MIRROR(%body, XY\|XZ\|YZ)` |
 | `FUSE` / `CUT` / `COMMON` | part.boolean_union / _subtract / _intersect | `FUSE(%body, %tool)` etc. |
-| `SECTION` | part.section_curve | `SECTION(%body, %tool)` |
 | `INPUT` | part.input_solid | `INPUT()` |
 | `HEAL` | part.heal | `HEAL(%body)` |
 | `DEFEATURE` | part.defeature | `DEFEATURE(%body, "<selector>")` |
@@ -160,6 +182,13 @@ check that silently stops checking is the failure it was written to prevent.
 | `WIRE` | part.section_wire | `WIRE([x y z; ...])` |
 | `SWEEP` | part.sweep_pipe / _profile | `SWEEP(radius, [x y z; ...])`<br>`SWEEP([x y; ...], [x y z; ...])` |
 | `FOLD` | part.fold_flange | `FOLD(%body, hinge_x, hinge_y, hinge_z, length, flange_height, thickness, angle)`<br>`FOLD(..., angle, run_angle)` |
+| `SKIN` | part.skin | `SKIN(%wire...)`<br>`SKIN(%wire..., RULED)` |
+| `FACES` | part.extract_faces | `FACES(%body, "<selector>")` |
+| `SEW` | part.sew | `SEW(%sheet...)`<br>`SEW(%sheet..., tol)` |
+| `THICKEN` | part.thicken | `THICKEN(%surface, wall)`<br>`THICKEN(%surface, wall, IN\|MID\|OUT)` |
+| `CAP` | part.cap | `CAP(%surface)`<br>`CAP(%surface, tol)` |
+| `SURFCHECK` | part.surfcheck | `SURFCHECK(%surface, "<assertion>")`<br>`SURFCHECK(%surface, "<assertion>", "<assertion2>")` |
+| `SECTION` | part.section_curve | `SECTION(%bodyA, %bodyB)` — the **fourth** boolean. It produces a **WIRE**, not a solid: the curve where the two bodies' faces cross. It consumes neither operand, so both survive; the wire is consumed by `LOFT`, like `RING`'s. |
 
 Details that a wrong signature would teach wrongly, all derived from the kernel
 header rather than assumed:
@@ -216,11 +245,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 69 on every CI run), not a hand-written illustration.
+dispatches all 80 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 40 names are legal; after the name, the argument count is bounded
+head, only the 46 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).
