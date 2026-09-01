@@ -40,6 +40,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
@@ -47,13 +48,56 @@
 
 namespace forge::ui {
 
-// The three value kinds forge::ft's IR model defines (FeatureTree.hpp, "IR VALUE
+// The value kinds forge::ft's IR model defines (FeatureTree.hpp, "IR VALUE
 // MODEL"). A command's selection must resolve to the right one: EXTRUDE consumes
 // a PROFILE, FILLET consumes a SOLID, and offering either on the other is the
 // mis-selection a signature exists to refuse.
-enum class IrValueKind : std::uint8_t { None, Profile, Wire, Solid };
+//
+// THIS ENUM AND THE KERNEL'S ARE SEPARATE, AND NOTHING IN THE COMPILER RELATES
+// THEM. `forge::ft`'s Val::Kind (FeatureTreeCompiler.cpp) is the kernel's answer;
+// this is the app's. They are joined only by the vocabulary derivation, which
+// since the SKETCH family REFUSES TO PUBLISH when the two disagree
+// (gen_archie_op_vocabulary.py, "value-kind disagreement"). Adding a kind here
+// without adding it there -- or naming it differently -- is caught there, not
+// silently averaged into `None`.
+//
+// Sketch / SketchRef arrived with the constraint-solver family and are NOT a
+// second spelling of Profile:
+//
+//   * Sketch    -- a sketch still under construction: mutable, constrainable,
+//                  NOT yet solved. SKETCH and CON carry it (CON is pass-through).
+//   * SketchRef -- a point or curve INSIDE a sketch. A constraint has to name two
+//                  entities and the IR addresses every value by its %N creation
+//                  id, so an entity has to BE a value. SPT/SLINE/SCIRC/SARC.
+//   * Profile   -- what a SOLVEd sketch becomes. The exit is free: the kernel's
+//                  refProfile() already returns a SketchHandle, so a solved
+//                  sketch IS a profile and EXTRUDE consumes it unchanged.
+//
+// That last line is the whole reason the kind is not decorative, and it is why
+// SOLVE must produce Profile here and not Sketch.
+enum class IrValueKind : std::uint8_t { None, Profile, Wire, Solid, Sketch, SketchRef };
 
 const char* toString(IrValueKind kind) noexcept;
+
+// EVERY IrValueKind, once. Two call sites turn a STRING back into a kind -- the
+// vocabulary reader (OpConstraintBridge's mapValueKind) and the .fpart document
+// reader (forge-desktop's kindFromName) -- and each used to carry its own list of
+// the kinds it knew. The desktop one was an if-chain over four literals, so
+// -Wswitch could not see it: the writer emits toString(kind) for ANY kind, and a
+// kind missing from that chain writes a file that cannot be read back. An
+// asymmetric round-trip is not a compile error in either half.
+//
+// One list, both consumers, and the spelling still comes from toString() rather
+// than a literal, so a kind added to the enum is a compile error here (the array
+// size) instead of a file that saves and will not open.
+inline constexpr IrValueKind kAllIrValueKinds[] = {
+    IrValueKind::None,   IrValueKind::Profile,   IrValueKind::Wire,
+    IrValueKind::Solid,  IrValueKind::Sketch,    IrValueKind::SketchRef,
+};
+
+// Turn a kind's toString() spelling back into the kind. Case-sensitive: callers
+// that accept the vocabulary's upper-case spellings lower them first.
+bool irValueKindFromName(std::string_view name, IrValueKind& out) noexcept;
 
 struct FeatureRecord {
   int irId = 0;                 // == line.id; also the 1-based document position

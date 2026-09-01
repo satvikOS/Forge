@@ -38,12 +38,13 @@ void splitKey(const std::string& line, std::string& key, std::string& rest) {
 
 const char* kindName(forge::ui::IrValueKind k) { return forge::ui::toString(k); }
 
+// The inverse of kindName(), and it must stay the exact inverse. This was an
+// if-chain over four literals while the writer emitted toString() for ANY kind,
+// so a kind the chain did not list wrote a .fpart that would not load -- and
+// neither half is a compile error. It now walks forge::ui::kAllIrValueKinds,
+// comparing against the same toString() the writer uses.
 bool kindFromName(const std::string& name, forge::ui::IrValueKind& out) {
-  if (name == "none") { out = forge::ui::IrValueKind::None; return true; }
-  if (name == "profile") { out = forge::ui::IrValueKind::Profile; return true; }
-  if (name == "wire") { out = forge::ui::IrValueKind::Wire; return true; }
-  if (name == "solid") { out = forge::ui::IrValueKind::Solid; return true; }
-  return false;
+  return forge::ui::irValueKindFromName(name, out);
 }
 
 std::string argLine(const forge::ui::IrArg& a) {
