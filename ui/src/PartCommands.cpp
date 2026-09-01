@@ -2438,6 +2438,11 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     };
     c.execute = [d, s](CommandContext& ctx) {
       const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
       std::vector<IrArg> args{IrArg::valueRef(sheets.front()),
                               IrArg::num(num(ctx, "wall", 2.0))};
       if (hasText(ctx, "side")) args.push_back(IrArg::keyword(txt(ctx, "side", "MID")));
@@ -2461,6 +2466,11 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     };
     c.execute = [d, s](CommandContext& ctx) {
       const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
       std::vector<IrArg> args{IrArg::valueRef(sheets.front())};
       if (hasNumber(ctx, "tol")) args.push_back(IrArg::num(num(ctx, "tol", 0.001)));
       emit(ctx, *d, *s, "part.cap", "Cap Sheet", "CAP", std::move(args), IrValueKind::Solid,
@@ -2510,6 +2520,11 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     };
     c.execute = [d, s](CommandContext& ctx) {
       const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
       std::vector<IrArg> args{IrArg::valueRef(sheets.front()),
                               IrArg::text(txt(ctx, "assertion", "freeedges = 0"))};
       if (hasText(ctx, "assertion2")) {

@@ -577,9 +577,17 @@ int main() {
     CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 50);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
+    // Every handler that INDEXES a selection-derived vector belongs here. The three
+    // SURFACE ops that take a single sheet index it exactly as part.extrude indexes
+    // its profile, and part.section_curve indexes two bodies -- so they are covered
+    // by the same assertion rather than by a second one that could drift from it.
+    // part.skin / part.sew are NOT here: they ITERATE the vector, and iterating an
+    // empty vector is well-defined. Listing them would assert a refusal they do not
+    // owe and cannot give.
     const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
                                                "part.boolean_union", "part.boolean_subtract",
-                                               "part.boolean_intersect"};
+                                               "part.boolean_intersect", "part.section_curve",
+                                               "part.thicken", "part.cap", "part.surfcheck"};
     for (const std::string& id : indexing) {
       const CommandDescriptor* c = regX.find(id);
       CHECK(c != nullptr);

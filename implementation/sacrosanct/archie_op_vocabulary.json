@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "da1e419e858037af3d4c5ce99529da3047b24534a43d0e8387a133203890f3e5",
-        "bytes": 153905,
-        "lines": 2638
+        "sha256": "1c33e7e7085bcabfdc55edc187d1aec31f60000f504613c129b3ba5bbbd664aa",
+        "bytes": 155045,
+        "lines": 2653
       },
       {
         "path": "ui/src/ForgeShell.cpp",
