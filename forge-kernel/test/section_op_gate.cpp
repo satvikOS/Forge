@@ -23,8 +23,9 @@
 // WHAT IT DELIBERATELY DOES NOT DO
 //   It never calls forge::ft::compile(). The geometry half calls forge::section
 //   directly and the IR half calls forge::ft::parse() only, so the numbers below
-//   are the OPERATOR's, not a whole pipeline's. See build_section_op_gate.sh for
-//   the link policy that makes that honest.
+//   are the OPERATOR's, not a whole pipeline's — a claim about the pipeline needs
+//   the whole kernel and this gate does not link it. See build_section_op_gate.sh
+//   for the link policy that makes that honest.
 //
 // FALSIFIABILITY (SR-3: a gate whose failure path cannot produce a non-zero exit
 // is not a gate). `--mutate N` injects one defect per N and the build script

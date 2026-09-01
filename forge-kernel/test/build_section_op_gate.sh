@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # build_section_op_gate.sh — build + run the SECTION op gate, then PROVE it can fail.
 #
-# Four translation units, deliberately: the probe itself plus the three kernel
-# sources forge::section actually needs (Booleans.cpp, ShapeRegistry.cpp,
-# LineageRegistry.cpp) and the forge::ft parser TU. It does NOT build the kernel.
-# A gate that needed a 40-minute OCCT build is a gate nobody runs.
+# SIX translation units, deliberately: the probe itself, the three kernel sources
+# forge::section actually needs (Booleans.cpp, ShapeRegistry.cpp,
+# LineageRegistry.cpp), the forge::ft parser TU and the graph audit. It does NOT
+# build the kernel. A gate that needed a 40-minute OCCT build is a gate nobody
+# runs, and this one is well under a minute.
 #
 # ── LINK POLICY, stated because it is the one thing here that is not obvious ──
 # The gate calls forge::section() and forge::ft::parse(). parse() lives in the

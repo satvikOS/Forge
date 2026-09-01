@@ -196,18 +196,18 @@ jobs:
         run: brew install opencascade
       - name: s0 ratchet
         run: bash forge-kernel/test/ft/s0_ratchet.sh
-      # SECTION is the fourth OCCT boolean and the ONLY IR op whose result is not
-      # the kind its neighbours produce: FUSE/CUT/COMMON return a solid, SECTION
-      # returns the curve where two bodies' faces cross. forge::ft's kindOf() ends
-      # in `default: return Val::Solid`, so an op that does not name itself there
-      # is silently typed a body — and every downstream measurement would then
-      # report a perfectly good section as an empty invalid solid.
+      # SECTION is the fourth OCCT boolean and the only one of the four whose
+      # result is not a body: FUSE/CUT/COMMON return a solid, SECTION returns the
+      # curve where two bodies' faces cross. forge::ft's kindOf() ends in
+      # `default: return Val::Solid`, so an op that does not name itself there is
+      # silently typed a body — and every downstream measurement would then report
+      # a perfectly good section as an empty invalid solid.
       #
       # This gate lives in the same job because it needs the same thing this job
       # already installs and the same linker semantics this job already documents:
       # it calls forge::section() and forge::ft::parse(), and parse() shares a
       # translation unit with compile(), whose ~20 further kernel symbols are
-      # referenced but never executed. Four TUs, no kernel build, well under a
+      # referenced but never executed. Six TUs, no kernel build, well under a
       # minute. It runs its own three mutations and requires each to turn it red.
       - name: SECTION op gate (geometry + IR round trip + 3 mutations)
         run: bash forge-kernel/test/build_section_op_gate.sh
