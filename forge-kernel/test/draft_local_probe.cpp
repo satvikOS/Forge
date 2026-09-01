@@ -55,6 +55,9 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_ListIteratorOfListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
+#include <BRepCheck_Status.hxx>
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -200,6 +203,36 @@ std::string jesc(const char* s) {
         else o += *p;
     }
     return o;
+}
+
+// WHAT does BRepCheck object to? "Invalid" is a verdict, not a diagnosis, and the
+// two are not interchangeable: a self-intersecting wire and a missing pcurve are
+// the same boolean and completely different defects. This walks the analyzer's
+// per-sub-shape results and reports the distinct STATUS CODES, so a decision
+// about the validity gate can be made from what it actually found.
+std::string brepCheckStatuses(const TopoDS_Shape& s) {
+    if (s.IsNull()) return "";
+    std::map<int, int> tally;
+    try {
+        BRepCheck_Analyzer an(s);
+        if (an.IsValid()) return "VALID";
+        static const TopAbs_ShapeEnum kinds[] = {
+            TopAbs_VERTEX, TopAbs_EDGE, TopAbs_WIRE, TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID};
+        for (TopAbs_ShapeEnum k : kinds) {
+            for (TopExp_Explorer ex(s, k); ex.More(); ex.Next()) {
+                const Handle(BRepCheck_Result) r = an.Result(ex.Current());
+                if (r.IsNull()) continue;
+                for (BRepCheck_ListIteratorOfListOfStatus it(r->Status()); it.More(); it.Next())
+                    if (it.Value() != BRepCheck_NoError) tally[static_cast<int>(it.Value())] += 1;
+            }
+        }
+    } catch (...) { return "threw"; }
+    std::string out;
+    for (const auto& kv : tally) {
+        if (!out.empty()) out += ",";
+        out += std::to_string(kv.first) + ":" + std::to_string(kv.second);
+    }
+    return out.empty() ? "invalid-but-no-status" : out;
 }
 
 // ── the observable vector ───────────────────────────────────────────────────
@@ -479,6 +512,7 @@ int main(int argc, char** argv) {
                 "\"occt_ok\":%s,\"agrees\":%s,\"diff\":\"%s\","
                 "\"nat_vol\":%.10g,\"occt_vol\":%.10g,\"nat_valid\":%s,\"occt_valid\":%s,"
                 "\"in_valid\":%s,\"wall_neighbours\":\"%s\","
+                "\"nat_bc\":\"%s\",\"occt_bc\":\"%s\","
                 "\"nfaces\":%d,\"nplanar\":%d,\"nmultiwire\":%d,\"scale\":%.6g,"
                 "\"moved_verts\":%d,\"solve_plane\":%d,\"solve_anchor\":%d,\"solve_quadric\":%d,"
                 "\"faces_verbatim\":%d,\"faces_rebuilt\":%d,\"wires_verbatim\":%d,"
@@ -492,6 +526,7 @@ int main(int argc, char** argv) {
                 a.vol, b.vol,
                 a.valid ? "true" : "false", b.valid ? "true" : "false",
                 inValid ? "true" : "false", jesc(nbKinds.c_str()).c_str(),
+                brepCheckStatuses(nat).c_str(), brepCheckStatuses(occt).c_str(),
                 nFaces, nPlanar, nMultiWire, scale,
                 st.movedVertices, st.solvedByPlaneMeet, st.solvedByAnchor, st.solvedByQuadric,
                 st.facesVerbatim, st.facesRebuilt, st.wiresVerbatim,
