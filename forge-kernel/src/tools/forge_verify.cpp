@@ -8,9 +8,14 @@
 //
 // Protocol — one JSON object per line on stdin, one per line on stdout:
 //   in : {"id":"..","ir":"%1 = BOX(...)\n...","inputStep":"..","outStep":".."}
-//   out: {"id","ok","error","failedOpId","valid","volume","faceCount","edgeCount",
-//         "bbox":{"min":[..],"max":[..]},"genus","shellCount",
-//         "bores":[{r,cx,cy,span,at,axis,faces}],"verify":[..]}
+//   out: {"id","ok","error","failedOpId","valid","volume","area","com":[x,y,z],
+//         "faceCount","edgeCount","bbox":{"min":[..],"max":[..]},"genus",
+//         "shellCount","bores":[{r,cx,cy,span,at,axis,faces}],"verify":[..]}
+//
+// Every number in that line is written by num() below, which is FIXED at six
+// decimal places. A caller diffing this transcript against another measurement of
+// the same solid can therefore be sharp to 5e-7 ABSOLUTE and no sharper; a
+// relative tolerance tighter than that compares the formatter, not the geometry.
 //
 // One `bores` entry is one HOLE, keyed on its AXIS LINE: a wall split at a seam,
 // across the gap of a clevis, or into pilot + counterbore is still one hole. `r`
@@ -436,6 +441,26 @@ int main(int argc, char** argv) {
               << ",\"bbox\":{\"min\":[" << num(r.bboxMin[0]) << "," << num(r.bboxMin[1])
               << "," << num(r.bboxMin[2]) << "],\"max\":[" << num(r.bboxMax[0]) << ","
               << num(r.bboxMax[1]) << "," << num(r.bboxMax[2]) << "]}";
+
+            // ── AREA AND CENTRE OF MASS — additive, and NOT decoration ────────
+            // VOLUME CANNOT VALIDATE GEOMETRY. This programme has four measured
+            // cases of a wrong solid reproducing a right volume, and in the worst
+            // of them NO SINGLE observable caught it: the centre of mass was
+            // clean on the sphere and the bounding box was clean on the cylinder.
+            // A caller comparing this transcript against another measurement of
+            // the same tree — which is exactly what
+            // forge-desktop/test/differential_solid_gate.cpp does — could not
+            // compare centre of mass at all, because this tool never reported it.
+            // Both come from ONE GProp evaluation, so the cost is one call.
+            //
+            // Guarded like every other measurement below it: never fail a real
+            // build because a mass property was unavailable.
+            try {
+                const forge::MassProperties mp =
+                    forge::massProperties(static_cast<forge::ShapeHandle>(r.handle));
+                o << ",\"area\":" << num(mp.area)
+                  << ",\"com\":[" << num(mp.cx) << "," << num(mp.cy) << "," << num(mp.cz) << "]";
+            } catch (...) { /* additive */ }
 
             // Tessellated ONCE and shared: the weld-betti genus below reads it, and
             // so does the bore measurement, which uses a triangle as the one point

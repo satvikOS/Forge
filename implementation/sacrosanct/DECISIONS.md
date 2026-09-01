@@ -1886,3 +1886,92 @@ Whether the null on paths A and B is present on the input or generated inside th
 **still not measured**, and the report's instruction to run that sweep before writing any guard
 stands. This decision buys the app the right to stay alive and to say which statement died; it does
 not buy a correct offset.
+
+
+## D-040 (2026-08-31): one feature tree, four ways to a solid, and nothing compared them — the differential gate, and the two defects it found on its first run
+
+**The gap.** A feature tree could reach the kernel by two routes and no gate tied them
+together:
+
+* **headless** — `forge_verify` consumes the IR text and reports the census every benchmark
+  number in this programme comes from.
+* **in-app** — the CoPilot proposes, `OpConstraintBridge` rules, `PartDocument::appendFeature`
+  applies, the kernel builds, the viewport draws.
+
+`ir_pipeline_gate.cpp` proved a UI-authored program compiles to *a* solid. It never compared
+that solid against anything. So a tree that builds headless and fails in the app — or worse,
+**builds differently** — was found by a user, not by CI. That is the same shape as the
+vocabulary/header desync that has bitten this repo nine times: two artifacts from one source
+with no gate between them.
+
+**The gate, in two tiers, over ONE shared corpus** (`ui/test/differential_corpus.hpp` — eight
+trees spanning PROFILE / WIRE / SOLID, every command family that emits IR, and both the
+seeded-sketch and pure-primitive ways of starting a document):
+
+* **tier 1, kernel-free** (`ui/test/differential_gate_test.cpp`, ubuntu `ui` job, ~1 s). The
+  app-authored IR must be **byte-identical** to the planner's; the bridge must accept what the
+  app itself emitted; `validateIr` must too; and the **arity differential** — every
+  kernel-legal argument count the bridge refuses — is measured and ratcheted in both
+  directions.
+* **tier 2, the solids** (`forge-desktop/test/differential_solid_gate.cpp`, macOS `kernel`
+  job, reusing `build-verify`). Four arms: `compileText`, `parse`+`compile`,
+  `KernelScene::buildFromIr`, and **the `forge_verify` binary over its stdin protocol**. The
+  first three are entry points inside one process; only the fourth tests two ARTIFACTS, which
+  is what the defect class is actually about.
+
+**The observable VECTOR, never volume alone.** `ok error failedOpId valid volume area
+bbox·min[3]/max[3] faceCount edgeCount genus shellCount welded V/E/F Euler-chi centre-of-mass[3]
+nDeclared nParsed nCompiled`. This programme has four measured cases of a wrong solid
+reproducing a right volume, and in the worst of them no single observable caught it — centre of
+mass was clean on the sphere and the bounding box was clean on the cylinder. `forge_verify` did
+not report **area or centre of mass at all**, so the vector could not be compared against the
+artifact; both are added here from one `GProp` evaluation, guarded and additive.
+
+**Tolerance, stated rather than tuned.** The in-process arms compare at 1e-9 *relative* — same
+code, same text, so anything above that is a divergence and not noise. Arm D compares at 5e-7
+**absolute**, because `forge_verify`'s own `num()` is `precision(6) << fixed`: the transcript is
+quantised to 1e-6, and a tighter tolerance would be comparing the formatter, not the geometry.
+
+**TWO DEFECTS, MEASURED BY THE COPILOT ARM ON ITS FIRST RUN.** Tier 1's original arms drove
+`CommandRegistry::dispatch` with the selection nodes spelled out — a menu click, not the path
+the invariant names. The named path differs where it matters: a plan step cannot carry a `%ref`,
+so `resolveSelection` **chooses** the operands at apply time.
+
+1. **Every two-body boolean ran the wrong way round.** `boundValues` walks the document
+   backwards, so `bound[0]` is the newest value, and the resolver handed them over in that
+   order. `PartCommands.cpp` registers the booleans with *"selection ORDER is load-bearing for
+   CUT: the first pick is the target, the second is the tool."* So a plan that said "subtract"
+   produced `CUT(%tool, %target)` — the pin minus the block. Three of eight trees. CUT changed
+   the **solid**; FUSE and COMMON are commutative in geometry but reversed **which document node
+   survived**, and the surviving node is the one every later command selects. Fixed by handing
+   the chosen values over oldest-first; `need == 1` is unaffected.
+2. **`PlanSelect` could not name the WIRE kind, so LOFT was unreachable.** The IR value model
+   has three kinds and the enum named two; the resolver read the target as
+   `LatestProfile ? Profile : Solid`, with no third answer. The only op that consumes a WIRE was
+   reachable from **no plan however written**, and the `LocalPlanner`'s own `loft` verb asked for
+   the newest PROFILE and handed it to a command whose signature is Wire. A refusal by omission
+   on a surface whose constraint is *represent, repair, tolerate — never refuse*. Added
+   `PlanSelect::LatestWire` (appended, never inserted) and replaced the ternary with a switch: a
+   ternary that answers SOLID for everything it cannot name is exactly how the missing third
+   kind stayed invisible.
+
+**WHAT REMAINS, PINNED RATHER THAN HIDDEN.** `resolveSelection` takes exactly
+`signature.minCount` values, because a `PlanStep` names a value **kind** and never a **count**.
+So an open-ended selection always gets the minimum: the three-ring `lofted_nozzle` comes out as
+`LOFT(%2, %3, RULED)`, a two-section loft and a different solid. The gate ratchets the divergence
+**set** — not a count — and prints the defect on every run.
+
+**The arity differential is a standing, measured refusal.** 61 kernel-legal argument counts
+across 23 of the 28 user-invocable ops are refused by the bridge, with a live positive control
+rather than a table read: `FILLET(%1, 3)` is the two-argument form `FeatureTree.hpp` documents,
+`validateIr` accepts it, and the bridge refuses it because no command emits that form. Under the
+owner's constraint that is a defect to shrink, not a safety feature — so it is ratcheted in both
+directions: red if it grows, and red if it shrinks without the pin moving.
+
+**Mutation-proved, nine cases, every one required to exit non-zero.** The app drops a step,
+swaps a boolean's operands, perturbs a number; the planner's text drops a statement, perturbs a
+number, reorders two ops; the bridge is handed an op no command emits; and — the two the other
+arms cannot reach — the CoPilot applies one step short, and the CoPilot picks nothing. Both
+runners ask the **binary** for the mutation count rather than carrying a second copy of it, and
+both exit 3 (never 0) when they cannot build or an input artifact is missing: a check that could
+not run is not a check that passed.

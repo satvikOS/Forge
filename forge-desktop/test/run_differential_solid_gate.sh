@@ -9,13 +9,18 @@
 # job installs OCCT but not the windowing stack. A gate that cannot run in CI is a gate
 # that rots.
 #
-# It runs THREE arms per tree and requires all three to describe the same solid:
+# It runs FOUR arms per tree and requires all four to describe the same solid:
 #   A  forge::ft::compileText          -- forge_verify's entry, where the benchmark
 #                                         numbers come from
 #   B  forge::ft::parse + compile      -- KernelScene's entry, over the IR the REAL
 #                                         registered commands assembled
 #   C  forge::desktop::KernelScene     -- the application object itself, tessellation
 #                                         and viewport de-index included
+#   D  the forge_verify BINARY         -- a SEPARATE ARTIFACT, over its stdin protocol.
+#                                         A/B/C are three entry points in ONE process;
+#                                         the invariant is about two ARTIFACTS, and a
+#                                         stale or differently-linked verifier is
+#                                         invisible to a comparison that never runs it.
 #
 # Requires a prebuilt libforge_kernel_core. Point at it with FORGE_KERNEL_BUILD_DIR, or
 # build one with:
@@ -47,13 +52,33 @@ if [ -z "$LIB" ]; then
 fi
 echo "[differential-solid] kernel core: $LIB"
 
+# ── the forge_verify ARTIFACT ────────────────────────────────────────────────
+# Arms A/B/C are three entry points inside one process. Arm D is the SEPARATE
+# BINARY, and it is the only one that tests the thing the integration invariant is
+# about: two artifacts built from one source. Its absence is RED (exit 3), never a
+# skip -- a gate that silently drops its only cross-artifact arm still prints a
+# green verdict, which is exactly the decoration this file argues against.
+#
+# Build it with the same one-liner the `kernel` job already uses for the batch
+# gate; it reuses build-verify, so the configure is a no-op and only forge_verify
+# itself links:
+#   cmake --build forge-kernel/build-verify -j3 --target forge_verify
+FORGE_VERIFY_BIN="${FORGE_VERIFY_BIN:-$KDIR/forge_verify}"
+if [ ! -x "$FORGE_VERIFY_BIN" ]; then
+  echo "[differential-solid] the forge_verify ARTIFACT is not at $FORGE_VERIFY_BIN."
+  echo "                     Build it (see the header) or set FORGE_VERIFY_BIN. RED."
+  exit 3
+fi
+export FORGE_VERIFY_BIN
+echo "[differential-solid] forge_verify artifact: $FORGE_VERIFY_BIN"
+
 CXX="${CXX:-clang++}"
 OCCT_PREFIX="${OCCT_PREFIX:-$( (brew --prefix opencascade 2>/dev/null) || echo /usr/local )}"
 EIGEN_PREFIX="${EIGEN_PREFIX:-$( (brew --prefix eigen 2>/dev/null) || echo /usr/local )}"
 # EXACT pin, asked of the BINARY below rather than duplicated: one definition of "how
 # many mutations exist" (differential_corpus.hpp), which is the discipline this whole
 # gate exists to enforce.
-MUTATIONS="${MUTATIONS:-7}"
+MUTATIONS="${MUTATIONS:-9}"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/differential_solid.XXXXXX")"
 cleanup() {
