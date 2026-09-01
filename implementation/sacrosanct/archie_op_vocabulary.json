@@ -30,21 +30,21 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "50247fe32d190f2bf4c5329ebd1db7713edc29151aa738e9b9e3ec6f6bcb80e4",
-        "bytes": 155881,
-        "lines": 2955
+        "sha256": "0beea6206ac3e0b51d7a7c00ac65dd2335401e3ddd11add9190d2343c6928582",
+        "bytes": 163519,
+        "lines": 3088
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "8b1021b64ef9b4555326adab35b54f6a7e9af3b499a425af86ea3542439589eb",
-        "bytes": 24631,
-        "lines": 410
+        "sha256": "8b39c03076707d0bb2df88efd766195279c830e19f68f69e66c9cbe07e41fc46",
+        "bytes": 26672,
+        "lines": 436
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "96d3cd5b3c6261a3d9782a8a153ef4f560ed33ca0aa952df81727ee57ee574ee",
-        "bytes": 10541,
-        "lines": 290
+        "sha256": "e270b519b53679c3fdd429261032ceb69fd5ba1756c6a7d79c4a215dfc1e9d65",
+        "bytes": 10569,
+        "lines": 291
       },
       {
         "path": "ui/src/PartCommands.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 47,
-    "ui_validator_ops": 47,
+    "kernel_ops": 48,
+    "ui_validator_ops": 48,
     "registry_commands": 66,
     "commands_emitting_ir": 43,
     "user_invocable_ops": 40,
-    "forbidden_ops": 7,
+    "forbidden_ops": 8,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
@@ -5268,6 +5268,15 @@
   ],
   "forbidden_ops": [
     {
+      "op": "ARC",
+      "kernel_enum": "Arc",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "ARC([x y; x y mx my; ...])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "CAP",
       "kernel_enum": "Cap",
       "compiled_into_a_default_build": true,
@@ -5335,7 +5344,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 47 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 48 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [

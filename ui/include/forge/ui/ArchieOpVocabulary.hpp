@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = af3a3abf4c00b2ae73a6b2fb5eee71f5d6da2254e06561a8a19ce38bd302a3d1
+// sha256(vocabulary) = c3aeaa0e21df6b70ef58f06a2ca5b09e80823d818cd5127aaad7fffd7aa65e20
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,17 +35,17 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "af3a3abf4c00b2ae73a6b2fb5eee71f5d6da2254e06561a8a19ce38bd302a3d1";
+inline constexpr std::string_view kVocabularySha256 = "c3aeaa0e21df6b70ef58f06a2ca5b09e80823d818cd5127aaad7fffd7aa65e20";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
-inline constexpr std::size_t kKernelOpsCount = 47;
+inline constexpr std::size_t kKernelOpsCount = 48;
 inline constexpr std::size_t kRegistryCommandsCount = 66;
 inline constexpr std::size_t kCommandsEmittingIrCount = 43;
 inline constexpr std::size_t kUserInvocableOpsCount = 40;
-inline constexpr std::size_t kForbiddenOpsCount = 7;
+inline constexpr std::size_t kForbiddenOpsCount = 8;
 
 // ---------------------------------------------------------------- side tables
 // Sliced by the (first, count) pairs in the rows below.
@@ -263,7 +263,9 @@ struct ForbiddenRow {
   std::string_view op;
   std::string_view reason;
 };
-inline constexpr std::array<ForbiddenRow, 7> kForbiddenOps = {{
+inline constexpr std::array<ForbiddenRow, 8> kForbiddenOps = {{
+    ForbiddenRow{"ARC",
+                 "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"CAP",
                  "no command in the forge::ui registry emits it, so no user can produce it"},
     ForbiddenRow{"FACES",
