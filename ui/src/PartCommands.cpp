@@ -54,6 +54,13 @@ int PartDocument::valueFor(const std::string& nodeId) const noexcept {
   return it == bindings_.end() ? 0 : it->second;
 }
 
+std::string PartDocument::nodeFor(int irId) const {
+  for (const auto& entry : bindings_) {
+    if (entry.second == irId) return entry.first;
+  }
+  return std::string();
+}
+
 IrValueKind PartDocument::kindOf(int irId) const noexcept {
   if (irId <= 0 || static_cast<std::size_t>(irId) > records_.size()) return IrValueKind::None;
   return records_[static_cast<std::size_t>(irId) - 1].produces;
