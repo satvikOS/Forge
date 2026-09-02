@@ -52,7 +52,7 @@ not on an exit status.
 | `forge-kernel/test/run_pcurve_fit_gate.sh` — driver, guard proof, differential, mutations | **NOW EXISTS**, 5/5 mutations caught |
 | CI compiles `NativePCurveFit.cpp` | **the gate does it** (syntax-only, guard ON) — but see below |
 | a `CMakeLists.txt` reference / the kernel actually LINKING this code | **DONE — wired, built and the symbols are exported; see below** |
-| `cylinderPCurve` / `planeCylinderSection` exercised on real geometry | **still nothing** |
+| `cylinderPCurve` / `planeCylinderSection` exercised on real geometry | **DONE — 62 checks, 0 failed; see below** |
 | a re-measured paired DRAFT pass rate on the 565-part corpus | **still nothing** |
 | `DRAFT_NATIVE_ENGINE.md`, cited for the 73-part figure | **EXISTS — I was wrong; see below** |
 
@@ -93,6 +93,34 @@ which is safe ONLY because nothing calls into it yet; the moment a caller exists
 build needs an `#else` path or the option becomes a link landmine.
 
 ★**This still does not move `OCCT_CLOSURE`, and must not be reported as if it did.**
+
+★**ITEM 2 OF 3 IS DONE: `cylinderPCurve` MEASURED ON THE ACTUAL BLOCKER GEOMETRY.**
+`forge-kernel/test/pcurve_geometry_gate.cpp`, linked against the real
+`libforge_kernel_core`: **62 checks, 0 failed.** It drives the drafted plane meeting a
+cylinder across draft angles **1, 3, 5, 7, 10, 15 and 30 degrees** and asserts, for each:
+the section is an ELLIPSE; `sectionResidual < 1e-9` (the curve lies on BOTH surfaces —
+checked before the fit, because a wrong 3-D curve with a perfect pcurve is still a wrong
+edge); the pcurve's **out-of-sample** `maxDev3d <= 1e-7`; and `maxDevU < 1e-9`, because
+only `v` is approximated and a drifting `u` would be a wrong edge rather than a coarse one.
+
+The deviation is genuinely out of sample: `cylinderPCurve` grades itself on an audit set
+"deliberately OFFSET from every sample the fit sees", since a fit graded on its own sample
+points is graded where a least-squares solution is guaranteed to look good.
+
+The perpendicular case is included because the header claims the two exact arrangements
+"fall out of the SAME code path with no special case to get wrong": a plane normal to the
+axis sections in a circle, `exact == true`, deviation < 1e-9.
+
+Five negative controls, all refusing BY NAME — a plane parallel to the axis, a parallel
+plane that misses the cylinder, a null 3-D curve, a non-positive radius, an empty parameter
+range. A function that never defers is one whose defer path is untested.
+
+★★**AND THE BOUND THAT MATTERS: NOTHING CALLS IT.** `grep` for `cylinderPCurve` /
+`pcurvefit::` across `src` and `include`, excluding its own translation unit, returns
+**ZERO** callers; `src/native/brep/Draft.cpp` and `DraftAnalytic.cpp` do not reference it.
+So this measures a CAPABILITY, not a part count: **the 73 parts are unaffected**, and item 3
+— a paired DRAFT pass rate on the 565-part corpus — cannot move until the DRAFT engine is
+wired to this. Reporting the 62 passing checks as progress on the 73 parts would be false.
 
 ★**What the gate covers and what it does NOT.** It covers the numerics UNDERNEATH the
 pcurve fit — partition of unity, support and non-negativity, `findSpan` bracketing and
