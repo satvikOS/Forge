@@ -51,20 +51,20 @@ feature-IR**, reaching **53 distinct op names**. The kernel defines **56** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The three are `SLOT`, `ARC` and `HELIX`. The seven 2D-sketch ops that stood here
-one revision ago -- `SKETCH`, `SPT`, `SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE` --
-now have commands and are gone from the list, exactly as the six SURFACE ops
+The three are `SLOT`, `ARC` and `HELIX`. The seven 2D-sketch ops that stood here one
+revision ago -- `SKETCH`, `SPT`, `SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE` -- now
+have commands and are gone from the list, exactly as the six SURFACE ops
 (`FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK`) went before them. That is
 what the list is for. The three that remain are out for THREE DIFFERENT reasons,
 and the distinction is what a single "no command emits it" line would hide:
 `ARC` is an ordinary gap a command can close; `SLOT` is not, because it is
-measurably broken; and `HELIX` is a third case again -- it lands here as a KERNEL
-op only. It arrives with this merge (the 56th name, and the one that takes
+measurably broken; and `HELIX` is a third case again -- it lands as a KERNEL op
+only. It arrives with this branch (the 56th name, and the one that takes
 `kernel_ops` from 55 to 56), it produces a **WIRE** rather than a solid, and the
 one thing that would consume it, `SWEEP` with a `%ref` spine, does not yet accept
-one. A command emitting `HELIX` today could only produce a value nothing can
-use, which is why no command emits it and why it is forbidden rather than
-merely absent. The op exists so the corpus PARSES -- it is the last of the 1,317
+one. A command emitting `HELIX` today could only produce a value nothing can use,
+which is why no command emits it and why it is forbidden rather than merely
+absent. The op exists so the corpus PARSES -- it is the last of the 1,317
 harvested BenchCAD programs that `parse()` could not read -- and parse coverage
 is a claim about the reader, not about the command surface.
 
@@ -103,19 +103,10 @@ lossless and the figure was exactly zero rather than nearly zero. **93.63%** of
 the corpus's 49,903 sketches are pure line / circle / arc, which is what
 `SLINE` / `SCIRC` / `SARC` reproduce exactly.
 
-Arm 3 is not an alias for arm 2. Arm 2 is the kernel's op set as it stood when
-the census RAN -- 55 ops; arm 3 is the 53 a user can now reach, because `ARC` and
-`SLOT` stay forbidden. The two come out equal because neither of those reaches a
-`newSketch` -- a PREDICTION the census measures rather than asserts, which is why
-arm 3 is a row of its own.
-
-**The 55 in that table is not re-stated to 56, and the arms are not re-run.**
-`HELIX` arrived after this census and is FORBIDDEN, so it is in neither arm 2 nor
-arm 3 -- arm 3's 53 is unchanged by construction, and arm 2 would move only if
-`HELIX` reached a `newSketch`, which a thread spine does not. Editing a measured
-row to match a later revision's op count would be reporting a number nothing
-measured; the row is left at the value the census produced and the reason it
-still holds is stated instead.
+Arm 3 is not an alias for arm 2. Arm 2 is the kernel's 55 ops; arm 3 is the 53 a
+user can now reach, because `ARC` and `SLOT` stay forbidden. The two come out
+equal because neither of those reaches a `newSketch` -- a PREDICTION the census
+measures rather than asserts, which is why arm 3 is a row of its own.
 
 **What it does not close, and the number says so.** `clear_both_gates` is 5,629
 on arms 1 and 3 alike. This family converts PARTIAL into DIRECT and turns no
