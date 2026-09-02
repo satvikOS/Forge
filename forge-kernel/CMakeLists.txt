@@ -2030,6 +2030,27 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
         )
     endif()
 
+    # -------- forge_instrument_gate : does the verifier answer for itself? ------
+    # THE GATE FOR THE DEFECT THAT WENT UNNOTICED FOR A WHOLE 600-ROW RUN.
+    # forge_verify aborted seven times on 2026-09-01 (uncaught
+    # Standard_ConstructionError out of forge::rotate) and wrote nothing on the way
+    # out, so every one of those rows was recorded downstream as "the tree does not
+    # compile" -- a verdict on the MODEL that nothing had established. It went
+    # unnoticed because nothing ever exercised the path it died on.
+    #
+    # This drives every death path in src/tools/InstrumentRecord.hpp -- the header
+    # forge_verify.cpp itself ships, not a replica -- in forked children, and checks
+    # that a record comes out of each. It links NO kernel and NO OCCT, so it costs
+    # about a second and can run in any configuration.
+    add_executable(forge_instrument_gate
+        "${CMAKE_SOURCE_DIR}/test/instrument_record_gate.cpp")
+    target_include_directories(forge_instrument_gate PRIVATE
+        "${CMAKE_SOURCE_DIR}/include")
+    if(FORGE_BUILD_TESTS)
+        add_test(NAME kernel.instrument_record COMMAND forge_instrument_gate)
+        set_tests_properties(kernel.instrument_record PROPERTIES TIMEOUT 120)
+    endif()
+
     # -------- standalone headless C++ MESH-FEED probe --------
     # Same node-free linkage as forge_foundation_probe; drives the renderer's data
     # feed — tessellateLOD(High) -> Mesh -> exportStl — and asserts the mesh/STL

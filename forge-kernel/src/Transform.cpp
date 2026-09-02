@@ -13,6 +13,7 @@
 #include "forge/native/brep/NativeRoute.hpp"
 #include <cmath>
 #include <memory>
+#include <stdexcept>   // std::invalid_argument — the zero-axis guard on BOTH paths
 #endif
 
 namespace forge {
@@ -90,6 +91,28 @@ ShapeHandle rotate(ShapeHandle h, double ax, double ay, double az, double angleR
         return applyNativeRT(h, R, t);
     }
 #endif
+    // THE SAME INVARIANT THE NATIVE PATH ABOVE ALREADY CHECKS, on the OCCT path
+    // that until now did not. gp_Dir's constructor RAISES on a null vector, and
+    // Standard_ConstructionError does not derive from std::exception, so nothing
+    // in the callers caught it: the throw unwound past every handler and
+    // std::terminate aborted the process.
+    //
+    // MEASURED 2026-09-01 (600-row self-consistency run, verifier pid-parent
+    // 68311): exactly 7 emissions carried a zero-axis ROTATE -- `ROTATE(%2, 0,
+    // 0, 0, 0, 0, 30)` and kin -- and each one killed forge_verify with SIGABRT.
+    // All 7 were then recorded by the harness as "the tree does not compile:
+    // verifier produced no output", which is a claim about the MODEL'S OUTPUT
+    // that nothing had established. Every one of the 19 forge_verify crash
+    // reports on the machine that day has forge::rotate in its faulting frame.
+    //
+    // A std::invalid_argument here is caught by the compiler's per-op handler
+    // and becomes an ordinary, attributable op error, so the row gets a VERDICT
+    // instead of destroying the run that was measuring it.
+    {
+        const double n = std::sqrt(ax * ax + ay * ay + az * az);
+        if (!(n > 0.0) || !std::isfinite(n))
+            throw std::invalid_argument("forge rotate: zero axis");
+    }
     gp_Trsf tr;
     const gp_Pnt origin(0, 0, 0);
     const gp_Dir axis(ax, ay, az);

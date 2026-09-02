@@ -50,6 +50,9 @@
 #include "forge/native/brep/NativeRoute.hpp"
 #endif
 
+#include <Standard_Failure.hxx>   // OCCT's raise root. It is NOT a std::exception:
+                                  // catching it is the difference between an op
+                                  // error and a process abort (see compile()).
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -1394,6 +1397,16 @@ private:
         double angDeg = num(op, 1);
         double ax = num(op, 2), ay = num(op, 3), az = num(op, 4);
         double ox = numOpt(op, 5, 0), oy = numOpt(op, 6, 0), oz = numOpt(op, 7, 0);
+        // A ZERO AXIS IS A PROPERTY OF THE INPUT, AND MUST BE REPORTED AS ONE.
+        // MIRROR has always rejected a zero normal here; ROTATE did not, so its
+        // (0,0,0) reached gp_Dir, which RAISES Standard_ConstructionError -- not
+        // a std::exception, so no handler matched and the process aborted.
+        // Measured 2026-09-01: 7 of 600 emissions carried one, and all 7 were
+        // written down as "the tree does not compile: verifier produced no
+        // output" -- a verdict on the tree that nothing had established.
+        if (ax * ax + ay * ay + az * az < 1e-18)
+            throw OpError(op.id, "ROTATE: axis is zero (args 2-4 are the axis "
+                                 "vector; use e.g. 0,0,1 for Z)");
         double ang = angDeg * kPi / 180.0;
         Handle cur = a;
         if (ox || oy || oz) cur = forge::translate(cur, -ox, -oy, -oz);
@@ -2911,6 +2924,28 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
                         " (line " + std::to_string(op.srcLine) + "): " + e.what();
             out.failedOpId = e.opId;
             return out;
+        } catch (const Standard_Failure& f) {
+            // AN OCCT RAISE IS NOT A std::exception. Standard_Failure derives
+            // from Standard_Transient, so the handler below NEVER matched it:
+            // the throw unwound past main, __cxa_throw called failed_throw,
+            // std::terminate ran and the process died with SIGABRT. The .ips
+            // keeps only "abort() called", so the exception's own words were
+            // destroyed along with the run they were diagnosing.
+            //
+            // Catching it HERE -- at the op, where the id and the source line
+            // are still in hand -- is what turns a lost run into a measurement:
+            // every OCCT raise from every op now becomes an attributable per-op
+            // error carrying the type AND the message. Named as a kernel raise,
+            // never as a validated diagnosis, so a reader can tell "the op
+            // checked its input and refused" from "the kernel fell over".
+            const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
+            const char* ms = f.GetMessageString();
+            out.error = std::string("op %") + std::to_string(op.id) + " " + op.name +
+                        " (line " + std::to_string(op.srcLine) + "): kernel raised " +
+                        (ty ? ty : "Standard_Failure") +
+                        ((ms && *ms) ? (std::string(": ") + ms) : std::string());
+            out.failedOpId = op.id;
+            return out;
         } catch (const std::exception& e) {
             out.error = std::string("op %") + std::to_string(op.id) + " " + op.name +
                         " (line " + std::to_string(op.srcLine) + "): " + e.what();
@@ -3101,11 +3136,35 @@ CompileResult compileText(const std::string& text, const std::string& exportStep
         out.nParsed = e.checkpoint.ops.size();
         out.nDeclared = e.checkpoint.counts.declared;
         return out;
+    } catch (const Standard_Failure& f) {
+        const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
+        const char* ms = f.GetMessageString();
+        out.error = std::string("PARSE: kernel raised ") + (ty ? ty : "Standard_Failure") +
+                    ((ms && *ms) ? (std::string(": ") + ms) : std::string());
+        return out;
     } catch (const std::exception& e) {
         out.error = e.what();
         return out;
     }
-    out = compile(ft, inputStepPath);
+    // THE ONE ENTRY POINT ANSWERS FOR ITSELF. compile() catches per op, but the
+    // work outside that loop (the cardinality reconcile, VERIFY evaluation, the
+    // measurement) had no net at all: a raise there escaped compileText, and the
+    // caller -- forge_verify, which is what MEASURES this programme -- died
+    // mid-batch with nothing written down. A CompileResult carrying the reason
+    // is always a better answer than a corpse.
+    try {
+        out = compile(ft, inputStepPath);
+    } catch (const Standard_Failure& f) {
+        const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
+        const char* ms = f.GetMessageString();
+        out.error = std::string("kernel raised ") + (ty ? ty : "Standard_Failure") +
+                    ((ms && *ms) ? (std::string(": ") + ms) : std::string()) +
+                    " outside any op handler";
+        return out;
+    } catch (const std::exception& e) {
+        out.error = std::string("kernel threw outside any op handler: ") + e.what();
+        return out;
+    }
     if (out.ok && !exportStepPath.empty()) {
         // A REQUESTED EXPORT THAT FAILS FAILS THE COMPILE. This used to leave
         // ok == true with a non-empty error and exported == false: a green
@@ -3121,6 +3180,12 @@ CompileResult compileText(const std::string& text, const std::string& exportStep
                 out.error = "STEP export failed: forge::io::exportStep declined to write " +
                             exportStepPath;
             }
+        } catch (const Standard_Failure& f) {
+            const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
+            const char* ms = f.GetMessageString();
+            out.error = std::string("STEP export failed: kernel raised ") +
+                        (ty ? ty : "Standard_Failure") +
+                        ((ms && *ms) ? (std::string(": ") + ms) : std::string());
         } catch (const std::exception& e) {
             out.error = std::string("STEP export failed: ") + e.what();
         }
