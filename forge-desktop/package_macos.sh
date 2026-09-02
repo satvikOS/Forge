@@ -307,6 +307,81 @@ cp -L "$MVK_LIB" "$FW/libMoltenVK.dylib" || die "cannot stage MoltenVK"
 chmod u+w "$FW/libMoltenVK.dylib"
 grep -qxF "libMoltenVK.dylib" "$SEEN" 2>/dev/null || echo "libMoltenVK.dylib" >> "$SEEN"
 
+# ── 4b RE-LANDED 2026-09-02 ─────────────────────────────────────
+# This block existed on fix/release-publish-visible, was PROVEN there (run
+# 33445851975: relocation smoke test 80 ms), and was then LOST when this file was
+# rewritten on this branch. Its absence is the whole of the release blocker: run
+# 33644564583 on 2026-09-02 hung 120 s and the watchdog's sample(1) stack ends in
+# exactly the frames this comment predicted three days earlier — dllinit →
+# error_dialog → -[NSAlert runModal]. Restored VERBATIM; nothing below is new.
+#
+# A regression test lives beside it: forge-desktop/test/sdl3_staging_gate.sh.
+# ── 4b. SDL3 — THE SECOND dlopen TRAP, AND IT SHIPPED ────────────────────────
+# `brew install sdl2` does NOT install SDL2. The formula is an alias, and on a
+# current Homebrew it resolves to sdl2-compat, which is a SHIM whose
+# libSDL2-2.0.0.dylib loads SDL3 at runtime. MEASURED on the macos-15 runner in
+# Actions run 33439207741:
+#     sdl2   ->  sdl2-compat 2.32.70  ->  depends on  sdl3 3.4.12
+#
+# SDL3 IS NOT IN THE LINK CLOSURE. `otool -L` on sdl2-compat's dylib names
+# AppKit, Foundation, libSystem — and no SDL3 — because the shim dlopen()s it.
+# The transitive walk above therefore cannot see it, exactly as it cannot see
+# MoltenVK, and the bundle shipped without it.
+#
+# WHAT THAT COST, and why it was invisible for so long: sdl2-compat's dylib
+# CONSTRUCTOR loads SDL3 before main() runs, and on failure it calls
+# error_dialog(), which on macOS is a MODAL NSAlert. A modal alert on a machine
+# with nobody to click OK never returns. Run 33392163311 sat in it for 176.5
+# minutes and was killed by the job timeout; the sample(1) stack is
+# unambiguous:
+#     dyld4::APIs::runAllInitializersForMain()
+#       -> dllinit (in libSDL2-2.0.0.dylib)
+#         -> error_dialog (in libSDL2-2.0.0.dylib)
+#           -> -[NSAlert runModal] (in AppKit)
+#             -> -[NSApplication _doModalLoop:peek:] -> CFRunLoopRun
+#
+# THIS IS A SHIPPED-ARTIFACT DEFECT, NOT A CI DEFECT. Every downloader without
+# SDL3 already installed would have got that dialog instead of Forge. The
+# relocation smoke test is what caught it, which is the entire reason it exists.
+#
+# It hid because the two build hosts disagree under one formula name: a machine
+# that installed `sdl2` before Homebrew switched the alias still has REAL SDL2
+# (verified locally: `brew list --versions sdl2` -> `sdl2 2.32.10`, and its
+# dylib contains no SDL3 reference at all), so packaging there produced a
+# genuinely self-contained bundle and passed. Only the runner got the shim.
+#
+# THE NAME MATTERS. sdl2-compat dlopen()s a fixed candidate list, and the one
+# that can resolve inside a bundle is `@loader_path/libSDL3.dylib` — read out of
+# the shim's own binary, not guessed. libSDL2 lives in Contents/Frameworks, so
+# @loader_path IS Contents/Frameworks, and the file must be named
+# `libSDL3.dylib` even though Homebrew's real file is `libSDL3.0.dylib`
+# (`libSDL3.dylib` is a symlink to it, which is why this is `cp -L`).
+#
+# CAPABILITY-DETECTED, never assumed: the trigger is whether the SDL2 actually
+# being bundled references SDL3. A real SDL2 does not, and must not have a
+# stray SDL3 added next to it.
+# `grep -a` rather than `strings | grep`, so the probe depends on nothing but
+# grep itself; a detector that silently fails would put the modal-alert bundle
+# straight back.
+if [ -f "$FW/libSDL2-2.0.0.dylib" ] && \
+   LC_ALL=C grep -aq 'libSDL3\.dylib' "$FW/libSDL2-2.0.0.dylib" 2>/dev/null; then
+  say "SDL2 here is the sdl2-compat shim; staging SDL3 (dlopen'd, invisible to otool)"
+  SDL3_LIB=""
+  for c in "$BREW/opt/sdl3/lib/libSDL3.dylib" "$BREW/lib/libSDL3.dylib" \
+           "$BREW/opt/sdl3/lib/libSDL3.0.dylib" "$BREW/lib/libSDL3.0.dylib"; do
+    if [ -f "$c" ]; then SDL3_LIB="$c"; break; fi
+  done
+  [ -n "$SDL3_LIB" ] || die "this SDL2 is the sdl2-compat shim, which loads SDL3 at
+       runtime, but no libSDL3 was found under $BREW. Without it the packaged app
+       shows a modal 'Failed loading SDL3 library.' alert on launch and never
+       starts. Fix: brew install sdl3"
+  cp -L "$SDL3_LIB" "$FW/libSDL3.dylib" || die "cannot stage SDL3"
+  chmod u+w "$FW/libSDL3.dylib"
+  grep -qxF "libSDL3.dylib" "$SEEN" 2>/dev/null || echo "libSDL3.dylib" >> "$SEEN"
+else
+  say "SDL2 here is a real SDL2 (no SDL3 reference); nothing extra to stage"
+fi
+
 # Bundle-relative ICD manifest. From Contents/Resources/vulkan/icd.d, three
 # levels up is Contents/, so ../../../Frameworks is Contents/Frameworks.
 cat > "$APP/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json" <<'ICD'
