@@ -238,24 +238,34 @@ int main() {
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
   // THICKEN / CAP / SURFCHECK), plus SECTION (the fourth OCCT boolean), plus the
   // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
-  // SOLVE), plus ARC. Anything else means the derivation itself broke, and a
-  // broken oracle must not pass quietly.
+  // SOLVE), plus ARC.
   //
   // RE-MEASURED AT EVERY MERGE, because this is the assertion a merge keeps
-  // getting wrong: its two sides have pinned 46/41, then 54/48, then 47/55, and
-  // at THIS merge (the execution branch into archdisc) 55 here against 53 on the
-  // base. Picking a side has been wrong in BOTH directions, so the number is
-  // COUNTED on the tree being committed, with the method CALIBRATED before it is
-  // trusted: re-derive this same enum out of
-  // forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents -- where it
-  // reproduces their committed 55 and 53 exactly -- and then run it on the
-  // MERGED tree, which gives 55. It is 55 rather than a third number because the
-  // base's 53 are a strict SUBSET: the base adds ZERO ops this branch lacks and
-  // this branch adds exactly two the base lacks (ARC and SECTION), so the merged
-  // set is the union and the union is this side's set unchanged. Confirmed
-  // independently by gen_archie_op_vocabulary.py, which reads opFromName in
-  // FeatureTreeCompiler.cpp rather than this header and also says
+  // getting wrong: across earlier merges its two sides have pinned 46/41, then
+  // 54/48, then 47/55, then 55/53. Picking a side has been wrong in BOTH
+  // directions, so the number is COUNTED on the tree being committed, with the
+  // method CALIBRATED before it is trusted.
+  //
+  // AT THIS MERGE (the execution branch into app/sketch-value-kind-v2) BOTH
+  // SIDES ALREADY PIN 55, and that agreement is checked rather than assumed --
+  // an agreeing pair is the easiest place to carry a stale figure across, since
+  // no conflict is raised to prompt a re-count. Method: re-derive this same enum
+  // out of forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents, where
+  // it reproduces their committed 55 and 55 exactly, then run it on the MERGED
+  // tree, which also gives 55. It stays 55 because the two op sets are IDENTICAL
+  // here -- checked as a set difference, not inferred from the equal totals:
+  // neither side adds an OpCode the other lacks. What this branch adds is
+  // CONSTRAINT KINDS inside the existing CON op (nine to nineteen), which is a
+  // widening of one op's keyword argument and not a new entry in opFromName, so
+  // the op count is expected to be unmoved and an unmoved count is the correct
+  // result rather than a missed update.
+  //
+  // Confirmed independently by gen_archie_op_vocabulary.py, which reads
+  // opFromName in FeatureTreeCompiler.cpp rather than this header and also says
   // counts.kernel_ops = 55.
+  //
+  // Anything else means the derivation itself broke, and a broken oracle must
+  // not pass quietly.
   CHECK_EQ_INT(kernel.size(), 55);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 

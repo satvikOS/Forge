@@ -708,9 +708,12 @@ const char* kindName(Val::Kind k) {
         case Val::Profile: return "PROFILE";
         case Val::Wire:    return "WIRE";
         case Val::Solid:   return "SOLID";
-        case Val::Sketch:  return "SKETCH";
-        case Val::SketchRef: return "SKETCH ENTITY";
         case Val::Surface: return "SURFACE";
+        case Val::Sketch:  return "SKETCH";
+        // The name a DIAGNOSTIC has to print when a user hands EXTRUDE the point
+        // instead of the sketch. Spelling it "SKETCH" would make the two most
+        // confusable mistakes in this family produce the same message.
+        case Val::SketchRef: return "SKETCHREF";
     }
     return "?";
 }
@@ -1148,16 +1151,36 @@ private:
             }
         }
 
+        // THE FULL KEYWORD SET the family census specified
+        // (reports/family_census/SKETCH_AND_CONSTRAINTS.md §4). Nine of these
+        // shipped first because they were the nine forge::Sketcher dispatched;
+        // the other ten are now wired in the facade, each to a planegcs
+        // primitive that was already there.
+        //
+        // The order below is the census's own table, geometric then dimensional,
+        // so the two can be read against each other.
         static const std::unordered_map<std::string, forge::SketchConstraintKind> kKinds = {
+            // geometric
             {"COINC", forge::SketchConstraintKind::Coincident},
             {"PARA",  forge::SketchConstraintKind::Parallel},
             {"PERP",  forge::SketchConstraintKind::Perpendicular},
-            {"DIST",  forge::SketchConstraintKind::Distance},
+            {"TANG",  forge::SketchConstraintKind::Tangent},
+            {"EQUAL", forge::SketchConstraintKind::Equal},
+            {"CONC",  forge::SketchConstraintKind::Concentric},
+            {"COLL",  forge::SketchConstraintKind::Collinear},
+            {"SYMM",  forge::SketchConstraintKind::Symmetric},
+            {"MIDPT", forge::SketchConstraintKind::Midpoint},
             {"HORIZ", forge::SketchConstraintKind::Horizontal},
             {"VERT",  forge::SketchConstraintKind::Vertical},
             {"PTON",  forge::SketchConstraintKind::PointOnLine},
-            {"EQUAL", forge::SketchConstraintKind::Equal},
-            {"TANG",  forge::SketchConstraintKind::Tangent},
+            {"FIX",   forge::SketchConstraintKind::Fix},
+            // dimensional
+            {"DIST",  forge::SketchConstraintKind::Distance},
+            {"DISTX", forge::SketchConstraintKind::DistanceX},
+            {"DISTY", forge::SketchConstraintKind::DistanceY},
+            {"ANGLE", forge::SketchConstraintKind::Angle},
+            {"RADIUS", forge::SketchConstraintKind::Radius},
+            {"DIAM",  forge::SketchConstraintKind::Diameter},
         };
         auto it = kKinds.find(kind);
         if (it == kKinds.end()) {
@@ -1167,7 +1190,8 @@ private:
             // NAME it on the verify channel, and keep building.
             if (res)
                 res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — unknown kind '" +
-                                      kind + "' (known: COINC PARA PERP DIST HORIZ VERT PTON EQUAL TANG)");
+                                      kind + "' (known: COINC PARA PERP TANG EQUAL CONC COLL SYMM "
+                                      "MIDPT HORIZ VERT PTON FIX DIST DISTX DISTY ANGLE RADIUS DIAM)");
             return owner;
         }
         // The facade THROWS on a type-mismatched operand — TANG wants
@@ -1178,8 +1202,19 @@ private:
         // NAME it, keep building. (The unknown-keyword arm above is the other
         // half of this; both must behave identically or the contract has a hole
         // exactly where a model is most likely to fall in.)
+        // ANGLE IS THE ONE UNIT SEAM IN THIS FAMILY, and it is converted HERE.
+        // Every other angle in the IR is degrees (ROTATE, PATTERN POLAR, REVOLVE)
+        // and a sketch dimension on a drawing is degrees; planegcs is radians
+        // throughout. Converting at the IR boundary keeps the IR internally
+        // consistent and the facade faithful to the engine it wraps, and both
+        // sides say so — see the Angle enumerator in Sketcher.hpp. A silent
+        // 57.3x error is exactly the kind of defect that still BUILDS, so it
+        // would be found by nobody until a part came out the wrong shape.
+        const double sent = (it->second == forge::SketchConstraintKind::Angle)
+                                ? value * 3.14159265358979323846 / 180.0
+                                : value;
         try {
-            forge::addConstraint(owner, it->second, refs, value);
+            forge::addConstraint(owner, it->second, refs, sent);
         } catch (const std::exception& e) {
             if (res)
                 res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — " + kind +

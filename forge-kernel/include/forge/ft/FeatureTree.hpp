@@ -131,15 +131,17 @@ enum class OpCode {
     SCirc,       // SCIRC(%centre, r)                     circle: centre point + radius
     SArc,        // SARC(%centre, %p0, %p1)               arc: centre + start + end
     Con,         // CON(%a, KIND [, %b, value])           constrain; PASS-THROUGH like TAG
-                 //   KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON
-                 //   KIND dimensional: DIST
-                 //   That is EXACTLY the set forge::Sketcher dispatches today —
-                 //   9 of the 67 primitives planegcs actually has. RADIUS,
-                 //   DIAM, ANGLE, CONC, COLL, SYMM, MIDPT and FIX all exist in
-                 //   the ENGINE and are one switch arm each in the facade, but
-                 //   none is wired at this SHA, so none is listed here: a
-                 //   vocabulary that advertises a keyword the compiler skips is
-                 //   a worse defect than a short vocabulary. An unlisted
+                 //   KIND geometric:   COINC PARA PERP TANG EQUAL CONC COLL
+                 //                     SYMM MIDPT HORIZ VERT PTON FIX
+                 //   KIND dimensional: DIST DISTX DISTY ANGLE RADIUS DIAM
+                 //   That is EXACTLY the set forge::Sketcher dispatches, and it
+                 //   is now the WHOLE set the family census designed. The
+                 //   previous nine were the nine the facade had wired; the other
+                 //   ten existed in the ENGINE and were one switch arm each, so
+                 //   they were listed as absent rather than advertised — a
+                 //   vocabulary that names a keyword the compiler skips is a
+                 //   worse defect than a short vocabulary. They are wired now,
+                 //   and this list is what the compiler dispatches. An unlisted
                  //   keyword is skipped and NAMED, never fatal. A TRAILING
                  //   operand that does not resolve, or that belongs to a
                  //   different sketch, is skipped and NAMED the same way: this
@@ -149,8 +151,14 @@ enum class OpCode {
                  //   still REFUSE — with neither an owning sketch nor a
                  //   constraint kind resolved there is nothing to pass through.
                  //   The kind is ALWAYS arg 1; the operands follow and are read
-                 //   by token type, so one op covers unary/binary/dimensional
-                 //   without four op names. CON returns the SKETCH it was handed
+                 //   by token type, so one op covers unary/binary/ternary and
+                 //   dimensional without four op names. Arity by kind: FIX
+                 //   RADIUS DIAM take ONE ref; SYMM and MIDPT take THREE (the
+                 //   mirror line or point is last); everything else takes two.
+                 //   ANGLE is in DEGREES here and converted to the solver's
+                 //   radians at this boundary, matching ROTATE and every other
+                 //   angle in this IR. DISTX / DISTY are SIGNED (b minus a).
+                 //   CON returns the SKETCH it was handed
                  //   — a constraint statement that could itself move geometry
                  //   before the solve is a defect generator (same reasoning as
                  //   TAG and VERIFY).

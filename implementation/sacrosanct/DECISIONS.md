@@ -1891,6 +1891,8 @@ not buy a correct offset.
 
 *(Numbering collision, resolved at merge: this entry was allocated **D-038** on `archdisc`, which `claude/sacrosanct-execution-20260828` had already spent on the ten-primitives entry above. It is renumbered **D-040** here.)*
 
+
+
 **The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
 (`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
 `forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
@@ -2848,3 +2850,173 @@ construction) are deliberately not touched: neither is a switch, so neither woul
 omission, and extending the filter combo is a UI decision this branch did not measure. The 40.78% is a TRANSLATION-YIELD figure over a corpus whose
 provenance is UNVERIFIED (`MODEL_DATA.md`); it is a capability measurement, not a training licence,
 and it is not a benchmark score.
+
+
+---
+
+## D-050 (2026-09-01): the sketch family's binding limit was its CONSTRAINT VOCABULARY, not its value kind — CON 9 -> 19, and a merge proved a fourth value kind can be added twice without a compile error
+
+*(Numbering collision, resolved at merge — and the THIRD number this one entry has held.
+It was allocated **D-042**, having deliberately skipped D-041 for concurrent self-consistency
+work; both reservations were overtaken, so at the previous merge it moved to **D-046**. That has
+now been overtaken too: **#184 landed D-046 on the base** for the sketch family leaving
+`forbidden_ops`. Per this file's own precedent (see the D-043 note), the entry already merged
+keeps the number and the incoming one moves, so this entry is renumbered **D-050**. Content
+unchanged.
+
+**D-050 rather than D-047, and the survey is the reason.** The numbers were surveyed across every
+ref at `origin`, INCLUDING THE PULL REQUESTS STILL OPEN, because a number held only on an unmerged
+branch is exactly what has now overtaken this entry twice. That survey found D-047 and D-048 held
+by #169 and D-049 held by #161 — all three unmerged, and all three invisible to a survey of merged
+refs alone. Taking the next free number after the merged maximum would therefore have collided a
+FOURTH time, with a branch already written. D-050 is the first number free on every ref, merged or
+not. The lesson, three times over: a reserved number is not a held number, and a survey is only as
+good as the set of refs it covers — which must include the ones not yet landed.)*
+
+**What was already true, and is not claimed here as new.** The `SKETCH` / `SKETCHREF` value kinds,
+the `SOLVE -> PROFILE -> EXTRUDE` exit, `solveOrRepair`'s never-refuse contract and the
+conflict/residual demotion loop all landed with the family (PRs #159 and #163). This branch merges
+them with the `SURFACE` kind (#146) and closes what was left.
+
+**The finding.** The census
+(`forge-kernel/reports/family_census/SKETCH_AND_CONSTRAINTS.md` §4) specified `CON`'s keyword set
+as **nineteen** and closed: *"Every one of those routes to a primitive that ALREADY EXISTS in
+GCS.h. This is facade exposure, not numerics."* **Nine** shipped. `FeatureTree.hpp` listed the
+other ten as absent on a correct principle — a vocabulary naming a keyword the compiler skips is
+worse than a short one — but the consequence was that the value kind was reachable and the
+DRAWING was not.
+
+A ground-truth sketch is **dimensioned**: a bolt circle is a `RADIUS`, a counterbore is a `DIAM`,
+a bracket arm is an `ANGLE`. With `COINC / PARA / PERP / DIST` alone a tree can state a sketch's
+TOPOLOGY and must then bake every coordinate — which is the baked form the whole family exists to
+replace. So `SKETCH` was decorative in the way that matters even with the extrude path proven.
+
+Ten switch arms in `forge::Sketcher`, each one line of planegcs, plus three refusals removed where
+the primitive was declared in the very header the facade was calling into: `EQUAL` on arcs
+(`EqualRadius(Arc,Arc)` exists), `TANG` on anything but line-circle (five pairings exist), and
+`PTON` onto a circle or an arc (`PointOnCircle` / `PointOnArc` exist).
+
+**★ The merge is the load-bearing evidence for the value-kind rule.** `SURFACE` and
+`SKETCH`/`SKETCHREF` were each added as "the fourth kind" on branches that never saw each other.
+They merged into a tree where `kAllIrValueKinds` — the ONE list the `.fpart` reader, the
+vocabulary bridge and the round-trip gate all walk — was **missing a kind, and nothing failed to
+compile.** The comment above it promised "a kind added to the enum is a compile error here"; that
+was not true of an unsized array. It is now, via a `static_assert` on
+`std::size(kAllIrValueKinds) == SketchRef + 1`. Two more sites were silently wrong the same way:
+`kindName()` had no arm for `Sketch` or `SketchRef` (every sketch diagnostic would have printed
+`"?"`), and `gen_archie_op_vocabulary.py`'s `REF_ACCESSOR_KIND` had no row for `refSurface`, which
+would have published `THICKEN`/`CAP` as CREATORS reachable from an empty document.
+
+**★ And the gate was measuring a stale build.** `build_sketch_solve.sh` cached an object whenever
+it was newer than its `.cpp`, comparing against **no headers**. Editing `Sketcher.hpp` — where this
+family's constraint enum lives — left the old object in place and the gate reported PASS for the
+previous build. That is "a gate that cannot build cannot fail" with an extra step: it *does* build,
+it just builds something else. Every number below is from a clean `.sketchbuild`, and the fix was
+verified by touching a header and watching all eight TUs recompile.
+
+**Measured, from a clean build** (`forge-kernel/test/ft/build_sketch_solve.sh`, 57 -> 103 checks,
+0 failures). Every case asserts a NUMBER the constraint had to move, because "it did not throw" is
+also what a keyword mapped to the wrong primitive looks like:
+
+```
+[RADIUS]  seeded 5 -> solved 12.000000 (want 12)
+[DIAM]    DIAM 30 -> radius 15.000000 (want 15, NOT 30)
+[ANGLE]   |cos| between the two lines = 0.000000000 (want 0)
+[FIX]     anchor stayed at (0.000000000, 0.000000000)
+[DISTXY]  partner at (25.000000000, -7.000000000) (want 25, -7)
+[CONC]    centre separation 0.000000000 (was 24.41)
+[COLL]    the other line's endpoints y = -0.000000000, -0.000000000
+[MIDPT]   midpoint at (20.000000000, 10.000000000)
+[SYMM]    mirrored point at (12.000000000, 20.000000000)
+[PTON]    point distance from centre 10.000000000 (want 10)
+[COLL/repair] demotions = 1 (want 1); every FIXed point still where it was drawn
+[keywords] 19 of 19 documented CON keywords dispatch
+```
+
+**Falsifiability proved by mutation, not asserted.** Four mutants, each reverted:
+
+| mutant | result |
+|---|---|
+| the degrees->radians conversion removed | `[ANGLE] \|cos\| = 0.448073616` — FAIL. The case comment PREDICTED 0.447 before the mutant ran. |
+| `DIAM` routed to `CircleRadius` | `[DIAM] radius 30.000000` — FAIL |
+| `COLL`'s two constraints split across two tags | `demotions = 2` — FAIL |
+| point-form `ANGLE` forced onto the tag-dropping overload | `residual = nan` — FAIL |
+
+**★ The third mutant is the one worth recording, because the FIRST version of that case did not
+catch it.** With line B pinned horizontal, `COLL`'s Parallel half was already satisfied, so
+splitting the tag still needed only one demotion and the test passed against the mutant — an
+unfalsifiable check dressed as a measurement of a claim written in a code comment. The geometry was
+changed so both halves independently conflict, and only then did the mutant turn it red. *Running
+the mutation is what found this; the check had already "passed".*
+
+**★ A REAL DEFECT IN THE VENDORED SOLVER, found by rewriting a test that had already passed.**
+`ANGLE`'s two-point form goes to `addConstraintP2PAngle`. planegcs declares that twice, and the
+convenient four-argument overload **discards the caller's tag** (`GCS.cpp:655`):
+
+```cpp
+int System::addConstraintP2PAngle(Point& p1, Point& p2, double* angle,
+                                  int /*tagId*/, bool driving)
+{ return addConstraintP2PAngle(p1, p2, angle, 0., 0, driving); }
+```
+
+The parameter is commented out and **0 — planegcs's "no tag" sentinel — is hard-coded in its
+place.** It is the ONLY delegating overload in that file that does this: **34** delegating definitions were
+counted and **33** forward `tagId`. (A first pass said 30/29 — the three multi-line
+`addConstraintTangentCircumf` calls forward the tag on a continuation line, which a one-line grep
+cannot see. Recorded because it is the same shape as the rest of this entry: a count is only worth
+what the instrument that produced it can see.) A constraint left on tag 0 is invisible to `getConflicting()`,
+`clearByTag()` and `calculateConstraintErrorByTag()`, so the geometry still solves while **the
+repair loop can never demote it and its residual reads NaN** — a silent hole in exactly the
+never-refuse contract this family exists to honour. Fixed in the FACADE, not in the vendored file
+(`3rdParty` is a verbatim vendor copy), by calling the five-argument overload with
+`incrAngle = 0.0` and the real tag. Measured both ways: NaN before, `-1.471127674` after.
+
+**★ How it was found is the point.** The first version of that test contradicted the angle against
+two `FIX`es and asserted the repair NAMED a demotion. It passed — and it passed against a mutant
+that deliberately selected the wrong overload, because the repair satisfied the assertion by
+dropping a `FIX` instead. A downstream consequence another constraint can satisfy is not a probe of
+the thing. Rewritten to ask `constraintResidual()` for the returned tag directly — which nothing
+else in the sketch can mask — it caught the mutant, and then caught the SAME defect in the
+unmutated code. **Two of this branch's tests were unfalsifiable when first written, and running
+mutations against them is the only reason either is worth anything.**
+
+**The unit seam, stated because a wrong answer here still builds.** The IR is degrees (`ROTATE`,
+`PATTERN POLAR`, `REVOLVE`); planegcs is radians. The conversion is at the IR boundary and both
+sides name it. Unconverted, `ANGLE 90` aims at 90 rad = 116.6 deg after wrapping: it compiles,
+solves, converges and reports a clean DOF while making the wrong part.
+
+**What this does NOT claim.** The seven sketch ops are still **forbidden in the app vocabulary** —
+no `forge::ui` command emits `SKETCH`/`SPT`/`SLINE`/`SCIRC`/`SARC`/`CON`/`SOLVE`, and an Archie
+plan naming `SOLVE` is refused by the op-constraint bridge before dispatch. That is the
+emission-surface work, not this branch, and it is the next thing standing between this family and
+a benchmark score.
+
+*(Figure re-measured at every merge, because it goes stale by standing still — which is
+the defect class this whole entry is about. It has now gone stale FOUR times. When this entry was
+written the count was **25 of 53** forbidden; after #164 it read **14 of 53**; at the merge before
+this one it was **9 of 55**. MEASURED on the tree this merge commits, from the regenerated
+`archie_op_vocabulary.json`, it is **2 of 55** — only `ARC` and `SLOT`. The seven sketch ops left
+`forbidden_ops` entirely, because D-045 (#184) gave the family eight commands while this branch
+was in review.
+
+★ THAT CHANGES WHAT THIS ENTRY CLAIMS, so the claim is restated rather than left standing. The
+previous wording said the nineteen keywords were "invisible to the emission surface" because `CON`
+was forbidden. `CON` is no longer forbidden, and the invisibility did not disappear — it MOVED
+DOWN ONE LAYER, and it is now measurable rather than structural. MEASURED on this tree:
+
+  the compiler dispatches            19 CON keywords (`kKinds`, FeatureTreeCompiler.cpp)
+  the two CON commands offer          9 (`part.sketch_constrain{,_single}`, PartCommands.cpp)
+  reachable by a user                 9
+  dispatchable but UNREACHABLE       10 — ANGLE COLL CONC DIAM DISTX DISTY FIX
+                                          MIDPT RADIUS SYMM
+  offered but NOT dispatched          0
+
+The last row is the one that would be a DEFECT rather than a gap, and it is empty: no command
+promises a keyword the compiler would skip. The ten in the fourth row are the same shape of gap
+this entry was written about, one layer up — the facade has them, the compiler routes them, and no
+command emits them. That is app-surface work, it is not done here, and it is now a number someone
+can close rather than a sentence.)*
+
+No benchmark number is claimed here: nothing in this branch was scored against BenchCAD,
+CADGenBench or MUSE.
+

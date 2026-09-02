@@ -51,7 +51,20 @@
 //   3  the historical use-after-free, on purpose-> the sanitizer must catch it
 //   4  only the first workspace is exercised    -> the tab census goes unmet
 //   5  the splitter is pressed but not dragged  -> no ratio moves
+//   6  the command sweep stops after the first  -> the invocation census goes unmet
+//   7  no frame is drawn after a command runs   -> the redraw the historical
+//                                                 use-after-free broke goes unchecked
 //   8  the camera pull path never runs          -> view.* is a counter nobody reads
+//
+// The list above is the UNION of the two sides this merge joined, and neither
+// side was complete. This branch documented 6 and 7 and predated 8; the base
+// documented 8 and skipped 6 and 7, which it nonetheless RAN. All three are
+// implemented: g_mutation is read for 6 at line 473 and for 7 at line 496,
+// re-measured on the merged tree rather than carried over (the figures inherited
+// here said 459 and 482, and had gone stale by standing still). Taking either
+// side whole would have left a reader counting this list and concluding that
+// mutations run_desktop.sh really injects go into a gate that ignores them.
+// It is 1..8 now, with no gap.
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>

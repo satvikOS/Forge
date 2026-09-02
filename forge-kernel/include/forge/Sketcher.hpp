@@ -65,8 +65,69 @@ enum class SketchConstraintKind : std::uint32_t {
     Vertical       = 6,   // addConstraintVertical(line)
     PointOnLine    = 7,   // addConstraintPointOnLine
     PointOnCircle  = 8,   // addConstraintPointOnCircle
-    Equal          = 9,   // addConstraintEqualLength (lines) / EqualRadius (circles)
-    Tangent        = 10,  // addConstraintTangent (line↔circle is the supported pair)
+    Equal          = 9,   // addConstraintEqualLength (lines) / EqualRadius (circles/arcs)
+    Tangent        = 10,  // addConstraintTangent (line↔circle/arc, circle/arc↔circle/arc)
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // THE TEN THE CENSUS DESIGNED AND THE FACADE NEVER WIRED.
+    //
+    // forge-kernel/reports/family_census/SKETCH_AND_CONSTRAINTS.md §4 specifies
+    // the CON keyword set as
+    //     geometric   COINC PARA PERP TANG EQUAL CONC COLL SYMM MIDPT
+    //                 HORIZ VERT PTON FIX
+    //     dimensional DIST DISTX DISTY ANGLE RADIUS DIAM
+    // and closes with "Every one of those routes to a primitive that ALREADY
+    // EXISTS in GCS.h. This is facade exposure, not numerics." Nine shipped.
+    // These are the other ten, and that sentence is still true of every one:
+    // each arm below is a call into the vendored engine, and no numerics are
+    // added anywhere in this file.
+    //
+    // WHY IT IS NOT COSMETIC. interface is 40% of the benchmark composite and a
+    // GT sketch is DIMENSIONED: a bolt circle is a RADIUS, a counterbore is a
+    // DIAM, a bracket arm is an ANGLE. Without them a tree can only state a
+    // sketch's TOPOLOGY and must bake every coordinate — which is the baked
+    // form the whole family exists to replace, so a solver reachable only
+    // through COINC/PARA/PERP is a solver that cannot express the drawing.
+    //
+    // The provenance trap this closes, recorded because it cost a wrong
+    // conclusion once already: the census measured a built .node whose
+    // `sketcher.kinds` reported 14 kinds, four of them (PointOnObject, Radius,
+    // Diameter, Angle) present ONLY as uncommitted work in a shared checkout
+    // and on no origin branch. The census flagged it itself. These are those
+    // four and six more, written from the GCS.h signatures, IN THE REPOSITORY.
+    Radius         = 11,  // addConstraintCircleRadius / ArcRadius     (value)
+    Diameter       = 12,  // addConstraintCircleDiameter / ArcDiameter (value)
+    Angle          = 13,  // addConstraintL2LAngle (lines) / P2PAngle (points)
+                          //   ★ RADIANS here. The IR spells CON(..., ANGLE, 30)
+                          //   in DEGREES and converts at the boundary, matching
+                          //   ROTATE and every other angle in the IR. This
+                          //   header is the planegcs-facing side of that seam,
+                          //   so it takes what planegcs takes, and the seam is
+                          //   named in both places rather than in neither.
+    Concentric     = 14,  // addConstraintP2PCoincident on the two CENTRES
+    Collinear      = 15,  // addConstraintParallel + PointOnLine, one tag
+    Symmetric      = 16,  // addConstraintP2PSymmetric — refs {a, b, mirror}
+                          //   where `mirror` is a LINE (mirror about the line)
+                          //   or a POINT (mirror through the point).
+    Midpoint       = 17,  // refs {a, b, mid}: `mid` bisects the segment a..b.
+                          //   The SAME planegcs primitive as the point form of
+                          //   Symmetric — P2PSymmetric(p1,p2,p) expands to
+                          //   PointOnPerpBisector + PointOnLine, which IS "p is
+                          //   the midpoint" (GCS.cpp:1265). It is a separate
+                          //   kind rather than an alias so that MIDPT handed a
+                          //   LINE is DIAGNOSED as the wrong operand instead of
+                          //   silently becoming a mirror — the two mistakes are
+                          //   confusable and must not share an outcome.
+    Fix            = 18,  // addConstraintCoordinateX + CoordinateY at the
+                          //   point's CURRENT position. Two solver constraints
+                          //   under one tag, so one demotion frees both — a
+                          //   half-fixed point is not a state a repair loop
+                          //   should be able to reach.
+    DistanceX      = 19,  // addConstraintDifference on the two x params.
+                          //   SIGNED: enforces bx - ax == value (Constraints.cpp
+                          //   ConstraintDifference::value() is *p2 - *p1), which
+                          //   is what a DISTX dimension means on a drawing.
+    DistanceY      = 20,  // the same on y.
 };
 
 enum class SketchSolveStatus : std::uint32_t {
@@ -133,8 +194,20 @@ SketchEntityId addArc(SketchHandle h, SketchParamId center, SketchParamId p0, Sk
 //   Vertical:      refs = {lineA}                (or {ptA, ptB})
 //   PointOnLine:   refs = {pt, line}
 //   PointOnCircle: refs = {pt, circle}
-//   Equal:         refs = {lineA, lineB}         (or {circleA, circleB})
-//   Tangent:       refs = {line, circle}
+//   Equal:         refs = {lineA, lineB}         (or two of circle/arc)
+//   Tangent:       refs = {line, circle|arc}    (or two of circle/arc)
+//   Radius:        refs = {circle|arc}          value = radius
+//   Diameter:      refs = {circle|arc}          value = diameter
+//   Angle:         refs = {lineA, lineB}        value = RADIANS
+//                  refs = {ptA, ptB}            value = RADIANS
+//   Concentric:    refs = {circle|arc, circle|arc}
+//   Collinear:     refs = {lineA, lineB}
+//   Symmetric:     refs = {ptA, ptB, line}      mirror about the line
+//                  refs = {ptA, ptB, ptMirror}  mirror through the point
+//   Midpoint:      refs = {ptA, ptB, ptMid}     ptMid bisects ptA..ptB
+//   Fix:           refs = {pt}                  pins it where it currently is
+//   DistanceX:     refs = {ptA, ptB}            value = signed bx - ax
+//   DistanceY:     refs = {ptA, ptB}            value = signed by - ay
 // `value` is consulted only when the constraint has a scalar — pass 0.0 to
 // skip. IDs are tagged in the low bit (lsb=1 means SketchEntityId, lsb=0
 // means SketchParamId) so we can disambiguate without a separate type tag.
