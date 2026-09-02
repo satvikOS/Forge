@@ -1,0 +1,72 @@
+# abc_ofs_canonicalize.patch — registers the `abc_ofs` source in the mandatory door.
+#
+# Apply inside archdisc-Models:   git apply scripts/abc_ofs_canonicalize.patch
+# (that checkout has no remote; it is a local repo, so this is a local commit)
+#
+# NOT INSTALLED BY THIS BRANCH, and the reason is mechanical rather than a
+# judgement call: this work ran inside an isolated Forge worktree whose
+# harness REFUSES writes into the archdisc-Models checkout. scripts/
+# abc_ofs_corpus.py therefore imports the real canonicalize_dataset and
+# registers the same adapter IN MEMORY, so the door that produced the
+# measured corpus is byte-for-byte the door this patch modifies -- there is
+# no second pipeline, and installing this patch changes nothing about the
+# rows, only who drives it.
+#
+# scripts/abc_ofs_adapter.py must be importable (add the Forge scripts/ dir
+# to PYTHONPATH, or copy that one file next to canonicalize_dataset.py).
+
+--- a/scripts/canonicalize_dataset.py
++++ b/scripts/canonicalize_dataset.py
+@@ -136,14 +136,23 @@
+             )
+             n += 1
+             if limit and n >= limit:
+                 return
+ 
+ 
++# The abc_ofs adapter lives beside the translator that produced its input
++# (Forge repo, scripts/abc_ofs_adapter.py) and is imported rather than inlined
++# so this file keeps exactly one job. R2 still holds: it reasons about nothing,
++# it walks a directory of ALREADY-VERIFIED (step, ir, census) triples that
++# scripts/abc_ofs_verify.py proved against an independent OCCT build.
++from abc_ofs_adapter import (adapter_abc_ofs, abc_ofs_assistant,  # noqa: E402
++                            abc_ofs_census)
++
+ ADAPTERS = {
+     "local_step_dir": adapter_local_step_dir,
++    "abc_ofs": adapter_abc_ofs,
+     "mmcad_a": _unimplemented(
+         "mmcad_a",
+         "33,816 models unified from 11 benchmarks (CC BY-NC 4.0). Blocked on the triage "
+         "answering (a) the real Hugging Face repo id, (b) measured size vs free disk, "
+         "(c) the contamination overlap with our 600-row holdout — it unifies "
+         "DeepCAD/Fusion360/ABC, the very sources the holdout draws from.",
+@@ -280,12 +289,28 @@
+             payload, rej = stage_measure(rec, seen)
+         except Exception as e:
+             rejected.append(Rejection(rec.uid, "measure", f"exception: {type(e).__name__}: {e}"))
+             continue
+         if rej is not None:
+             rejected.append(rej); continue
++        if rec.provenance.get("adapter") == "abc_ofs":
++            # The assistant side is NOT recovered here: it was translated from
++            # the source's own FeatureScript tree and then PROVED against an
++            # independent OCCT build of the same tree (scripts/abc_ofs_verify.py)
++            # before this adapter would offer the row at all. The user side is
++            # the kernel face census of the solid THAT IR builds, framed by the
++            # same gt_framing.user_decomp every other source is framed by.
++            import gt_framing
++            try:
++                asst = abc_ofs_assistant(rec)
++                census = abc_ofs_census(rec)
++            except Exception as e:
++                rejected.append(Rejection(rec.uid, "emit", f"{type(e).__name__}: {e}"))
++                continue
++            accepted.append(build_row(system, gt_framing.user_decomp(census), asst, None))
++            continue
+         rejected.append(Rejection(rec.uid, "emit",
+                                   "measured OK but IR recovery is not wired for this source; "
+                                   "refusing to emit a row whose assistant side would be invented"))
+ 
+     # R1: the counts must reconcile, or we do not know what we built.
+     assert n_in == len(accepted) + len(rejected), \

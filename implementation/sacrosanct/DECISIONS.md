@@ -1788,6 +1788,7 @@ deleting a block and re-running `--write` puts its op back in `forbidden_ops`. T
 above are what would have to be refuted first.
 
 
+
 ## D-039 (2026-08-31): a SIGSEGV is not an exception — the kernel moves to a process the app can afford to lose, and the gates that would have caught it are built
 
 **The defect.** `forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md` measured a null `Geom2d_Curve`
@@ -2210,3 +2211,130 @@ There are three generated artifacts, and they do not have three generators.
 under `FORGE_WRITE_APP_SURFACE=1`. `forge_deletion_inventory.py` READS it and
 never writes it — running that script to "regenerate" the manifest regenerates
 nothing and leaves the gate red with no indication why.
+
+
+## D-043 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
+
+*(Numbering collision, resolved across THREE merges: this entry was allocated **D-038** on `archdisc`, but that number was already taken by the ten-primitives entry above — itself renumbered out of a D-033 collision. It was then briefly **D-040**, which collides with the reservation recorded in D-042 below (`decisions/d040-arm-qualified` and `decisions/d041-selfconsistency-flat` hold D-040 and D-041). It is **D-043** here. Any comment in the tree citing "D-038" for the SURFACE value kind refers to THIS entry.)*
+
+**The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
+(`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
+`forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
+no surfacing: a NURBS patch, a lofted skin and an extracted face set are none of PROFILE
+(planar, at Z=0), WIRE (1-dimensional) or SOLID (must bound a volume), so **no op could produce
+or consume one**, and the surfacing machinery already sitting in the kernel had no route into
+the emission target. Counted by `grep -ril` over `forge-kernel/src`: NURBS 58 files, Sweep 68,
+G2 32, Loft 27, curvature 21, SubD 18, Subdiv 17, Blend 17, BSpline 24 — plus
+`ClassASurfacing.{hpp,cpp}` (760 lines), which a `grep -ril "class a"` misses because the file
+spells it `ClassA`.
+
+**Why it is not deferrable.** The canonical ground-truth edit fixture (`archie_edit_214`) opens
+on an INPUT inventory of **430 faces, 67 of them BSPLINE** — 15% of the part. The IR could not
+name one of them.
+
+**The decision.** `SURFACE` — a sheet body: an ordered set of faces that is NOT required to be
+closed, sewn, manifold, or non-empty. Six ops give it producers and consumers in both
+directions, each a thin wiring of a kernel entry point that already existed: `SKIN` (open
+`loftguide::loft`), `FACES` (new `forge::surf::facesOf`), `SEW` (`heal::sewShape` /
+`sewing::sew`), `THICKEN` (`part::thickenSurface`), `CAP` (`heal::autoFillMissingFaces`),
+`SURFCHECK` (`surf::statsOf` + `heal::checkValidity`).
+
+**Its invariant is deliberately the weakest of the four, and that is the decision.** The
+governing constraint is the owner's: *don't gate anything; a validator that refuses input is a
+capability gate wearing a safety hat, and it fires hardest on the longest, densest, most curved
+trees.* So an unsewn face set, edges without p-curves, a self-intersecting patch and an EMPTY
+sheet are all representable SURFACE values, answerable through `SURFCHECK`, and none of them
+aborts a walk. `THICKEN`/`CAP` sew an unsewn sheet as a REPAIR; `SKIN` records an unknown flag
+instead of throwing; a bare `SURFCHECK "expr"` is repaired to the explicit form exactly as
+`VERIFY` already is. Where a refusal is unavoidable the message names the op id, the face count
+and the free-edge count.
+
+**A wrong answer wearing the shape of a right one — found by RUNNING it.** The first
+`facesOf` read an EMPTY index list as "every face". That collides with the one case the kind
+exists to survive: a selector that matched nothing. Measured through
+`build_surface_compile_probe.sh`, `FACES(%body, "bore:r=99999")` on a 6-face box returned all
+SIX faces and `THICKEN` built a **5587 mm³ body** out of them, reported `ok=1 valid=1`. Every
+headless gate was green. "Give me the whole boundary" is now a different function
+(`boundaryOf`), so the two can never be spelled the same way again. **The lesson is the
+familiar one and it recurred here: a capability that is only compile-verified is not verified —
+the defect was invisible to three green gates and took one run to expose.**
+
+**What is measured, on real geometry** (`surface_compile_probe`, 15/15):
+`FACES("+z")` → 1 face / 4 free edges → `THICKEN(3)` → a valid solid, vol 14400.
+`SKIN` of two `RING` sections → **48 free-form faces, 96 free edges** → `CAP` → a valid solid,
+50 faces, vol 52961.5. A `FUSE` handed a sheet now says *"%2 is a SURFACE, expected a SOLID — a
+sheet is not a body: use THICKEN(%2, wall) or CAP(%2)"* instead of the old hard-coded, and by
+then false, *"is a PROFILE"*.
+
+**The one gate that remains, named honestly.** All six ops land in the vocabulary's FORBIDDEN
+list (kernel ops 40 → 46, forbidden 22 → 28) because no `forge::ui` command emits them. That is
+the PRE-EXISTING app-surface policy of D-021, not a new rule about surfaces, and it lifts the
+moment a command does. It is asserted rather than described in
+`ui/test/surface_value_kind_test.cpp` §7.
+
+**Known mistyping, recorded rather than silently changed.** `LOFT(..., OPEN)` produces the same
+uncapped geometry as `SKIN` but is still typed `SOLID`, because `Builder::kindOf` keys on the
+OpCode alone. Fixing it means making `kindOf` depend on a statement's keywords — a behaviour
+change for every corpus already written against `LOFT`, and it belongs in its own commit with
+its own measurement.
+
+## D-044 (2026-09-01): the app could SAVE and could never OPEN — three reader defects, none of which any gate could see
+
+**The measurement.** `ui/src/DocumentModel.cpp` and `ui/src/DocumentStore.cpp` (1,918 lines)
+were recovered from `origin/rescue/wf_a23474ae-034-5`, whose own commit message says "NOT
+reviewed, NOT built, and NOT claimed to compile". They had never been through a compiler. They
+needed one fix to build — and then three separate defects turned up the moment anything actually
+read a file back.
+
+**1. `END` was absent from the reader's key table, for every scope.** `readDocumentFile` refuses
+any key `findKey(key, scope)` has no spec for, so the END handler at the bottom of the reader —
+the code that closes a `FEATURE`, `PARAMETER` or `NAMED` block and pushes it into the document —
+was **dead code**. Its own comment ("It is scope-checked above") described a check that did not
+exist. The writer emits a FEATURE block per statement, so **every file this application can
+produce died on its first END**. Save worked; open could never work.
+
+**2. `valueKindFromName` listed four of `IrValueKind`'s five values.** It was written when the IR
+had three value kinds; `SURFACE` arrived with D-043's six producing ops. Any document holding a
+single SURFACE-typed statement was refused with `unknown KIND 'surface'` — the whole surfacing
+half of the kernel, unsaveable. This is the second-order cost of a merge: the two branches were
+each internally consistent, and nothing compared them because nothing read a file.
+
+**3. `~DocumentWalk` could call `std::terminate`.** The walk guard added here rebuilds the feature
+tree when the outermost walk closes, and a destructor that throws while the stack is already
+unwinding terminates the process. Exceptions are live in this build. That would have been a hard
+crash inside the one mechanism whose purpose is to prevent a crash, on exactly the path a throw
+out of a panel body takes. Reasoned about, not measured: bad_alloc cannot be forced here, and no
+observation of the terminate is claimed.
+
+**Why nothing caught any of it.** `DocumentModel` and `DocumentStore` had **no gate at all**.
+They compiled, and compiling is not working. A GATE THAT DOES NOT EXIST CANNOT FAIL, and neither
+can one that never exercises the round trip: a writer and a reader written together are each
+other's only witness, and they agree on their shared mistakes.
+
+**The instrument.** `serialise(load(text)) == text` is ONE observable and the one most likely to
+pass while the document is wrong — a field the writer never emits round-trips perfectly as its
+default, and a field both halves get wrong identically is invisible. So the round trip is asserted
+on a VECTOR of **144 observables** (every statement's id / op / produces-kind / label / command /
+node binding / suppression; every IR argument's kind and BIT PATTERN; the units quadruple; the
+material's density and all six appearance channels; fourteen view fields; every parameter's exact
+value and the expression the user typed; every named entity's five fields; the derived IR and
+BUILD programs; the content digest), with **eighteen negative controls** that mutate each field in
+turn — a dropped density, a storage unit changed by 25.4x, a parameter off by ONE ULP — and
+require the vector to notice. An observable that cannot report a difference is decoration.
+
+**A SECOND WRITER EXISTS, and this does not resolve it.** `.fpart` is written by
+`forge-desktop/src/PartFile.cpp` (magic `FORGE-PART`, version 1, what the shipped app calls) and by
+`ui/src/DocumentModel.cpp` (same magic, version 2). Same format name, two implementations. What is
+gated is the property migration depends on — v1 means the same thing to both, with v1's key
+vocabulary derived FROM PartFile.cpp'S OWN SOURCE so a transcription cannot drift. Two
+disagreements are measured rather than assumed: compatibility is ONE-WAY (`readPartFile` pins
+`version != kPartFileVersion`, so the shipped build cannot open v2 — a refusal, not a corruption),
+and **the shipped writer is LOSSY**, which was stated nowhere. It formats numbers with
+`formatIrNumber` ("%.10g"), so the app writes `0.1+0.2` as `0.3` and cannot read it back as the
+same double. Migrating fixes that going forward; it cannot repair a file already on disk.
+
+**What this does NOT claim.** `ForgeFrame` still holds a `PartDocument` and saves through
+`PartFile`; nothing here wires the application onto the document layer, so the click gate is NOT
+extended — there is no walk over this container in the app to click on yet. The two writers are
+not unified. Measured on `app/viewport-document-v2` (PR #175, stacked on #167): 27 UI gates pass,
+446 checks across the four new document gates.

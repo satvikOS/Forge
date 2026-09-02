@@ -50,6 +50,37 @@ enum class EntityKind : std::uint8_t {
 
 const char* toString(EntityKind kind) noexcept;
 
+// ── the standard views ──────────────────────────────────────────────────────
+// The six orthographic directions plus true isometric. The ANGLES live in
+// forge::ui::CameraModel; only the vocabulary is here, beside EntityKind, so
+// that the shell and the command layer can name a view without depending on the
+// camera's geometry headers.
+//
+// Z-up, matching the convention forge-kernel's primitives are authored in
+// (makeBox extrudes +Z): FRONT puts the eye on -Y and RIGHT puts it on +X.
+//
+// Only views whose angles are DEFINED are here. Dimetric and trimetric are real
+// CAD menu entries, but their angles are a house convention rather than a
+// derivation, and inventing one would be inventing a number.
+enum class NamedView : std::uint8_t {
+  Front = 0,
+  Back,
+  Left,
+  Right,
+  Top,
+  Bottom,
+  Isometric,
+};
+
+inline constexpr std::size_t kNamedViewCount = 7;
+
+const char* toString(NamedView view) noexcept;
+// The command suffix: "front", "back", ... as `view.front` spells it.
+const char* commandSuffix(NamedView view) noexcept;
+// Parse a suffix back. Returns false and leaves `out` untouched on an unknown
+// name — a viewport must never silently pick an arbitrary view.
+bool namedViewFromSuffix(const std::string& suffix, NamedView& out) noexcept;
+
 // A stable, rebuild-surviving reference to one topological entity.
 //   bodyId          — persistent body/document-node identity
 //   kind            — what sort of entity this names

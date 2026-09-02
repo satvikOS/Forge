@@ -39,13 +39,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-# 39 = document 8 + frame 9 + copilot 8 + update 7 + click 7. NEITHER side of the
-# merge that produced this number was right: the execution branch said 31 (it had
-# no copilot gate) and archdisc said 37 (its click gate carried 5 mutations, not
-# the 7 the out-of-process-kernel work added). Taking either verbatim would have
-# under-counted live mutations and gone red. This is D-028's failure mode, caught
-# by deriving the count from the run_gate lines instead of picking a side.
-EXPECTED_MUTATIONS=39
+# 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
+# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
+# from either parent: this branch said 40 and the base said 39, and each was
+# right only about its own half. The base's 39 predates click mutation 8 -- the
+# camera pull path, `g_mutation != 8` in click_gate.cpp -- which this branch
+# adds; every other gate's list is identical on both sides. Picking a side
+# would have been red either way, in one direction or the other. This is
+# D-028's failure mode, and the method that catches it is to COUNT on the tree
+# being committed rather than to inherit a number.
+EXPECTED_MUTATIONS=40
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

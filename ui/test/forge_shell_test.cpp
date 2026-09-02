@@ -169,17 +169,109 @@ int main() {
   // chord to them, so those keys reported Ok and changed nothing -- and with a
   // DocumentHost installed even the counters were overwritten on the way out of
   // run(). They are retired; the real commands come from the workspace.
-  // 14, not 10: the shell also registers app.toggle_theme, app.load_sample and
-  // the two view.focus_*_panel commands. Each is a REGISTRY command on purpose --
-  // that is what puts it in the menu, the palette, the keymap and Archie's tool
-  // list at once, and a preference or a sample reachable only from a bespoke
-  // widget is reachable by exactly one invoker.
-  CHECK_EQ_INT(app.shellCommands, 14);
+  // 22, not 10: the shell also registers app.toggle_theme, app.load_sample and
+  // the two view.focus_*_panel commands, and now the seven standard views plus
+  // view.selection. Each is a REGISTRY command on purpose -- that is what puts it
+  // in the menu, the palette, the keymap and Archie's tool list at once, and a
+  // preference, a sample or a camera angle reachable only from a bespoke widget
+  // is reachable by exactly one invoker. MEASURED on the merged tree: the two
+  // sides of this merge pinned 14 and 18, each having counted only its own half.
+  // This count rising does NOT mean a modelling command crept back in -- the
+  // four checks below are what assert that, and they are the ones that matter.
+  CHECK_EQ_INT(app.shellCommands, 22);
   CHECK(!shell.registry().contains("model.extrude"));
   CHECK(!shell.registry().contains("model.fillet"));
   CHECK(!shell.registry().contains("model.shell"));
   for (const std::string& id : shell.registry().ids()) {
     CHECK(id.rfind("model.", 0) != 0);
+  }
+
+  // ── the standard views cannot drift from the enum ────────────────────────
+  // ForgeShell registers seven view descriptors with LITERAL ids, because the
+  // op-vocabulary generator reads that file as data and refuses an id it cannot
+  // read. A hand-written list is only safe if something checks it BOTH WAYS, so:
+  // every NamedView has a command, and every `view.<x>` command that is not one
+  // of the two framing verbs names a real NamedView.
+  for (std::size_t i = 0; i < forge::ui::kNamedViewCount; ++i) {
+    const auto v = static_cast<forge::ui::NamedView>(i);
+    const std::string id = std::string("view.") + forge::ui::commandSuffix(v);
+    CHECK(shell.registry().contains(id));
+    const forge::ui::CommandDescriptor* d = shell.registry().find(id);
+    CHECK(d != nullptr);
+    if (d != nullptr) {
+      CHECK_EQ_STR(d->category, "View");
+      // A view command must not claim to emit feature-IR: orienting a camera
+      // changes no geometry, and a featureIrOp here would make the op
+      // vocabulary offer Archie a modelling op that builds nothing.
+      CHECK(d->featureIrOp.empty());
+      CHECK(d->undo == forge::ui::UndoContract::NotUndoable);
+      CHECK(d->sideEffect == forge::ui::SideEffectClass::ViewOnly);
+    }
+  }
+  {
+    std::size_t viewCommands = 0;
+    for (const std::string& id : shell.registry().ids()) {
+      if (id.rfind("view.", 0) != 0) continue;
+      ++viewCommands;
+      // The `view.*` ids that are NOT camera ORIENTATIONS, and so have no
+      // NamedView to round-trip through: three framing/display verbs, plus the
+      // two panel-focus commands the shell registers. Named individually rather
+      // than skipped by a prefix -- an exemption that matched a pattern would
+      // also swallow a genuinely orphaned orientation, which is the one thing
+      // this loop exists to catch.
+      if (id == "view.fit" || id == "view.selection" || id == "view.wireframe" ||
+          id == "view.focus_next_panel" || id == "view.focus_previous_panel") continue;
+      forge::ui::NamedView v = forge::ui::NamedView::Front;
+      // The reverse direction: no orphan `view.*` orientation command.
+      CHECK(forge::ui::namedViewFromSuffix(id.substr(5), v));
+      CHECK_EQ_STR(std::string("view.") + forge::ui::commandSuffix(v), id);
+    }
+    CHECK_EQ_INT(viewCommands, forge::ui::kNamedViewCount + 5);
+  }
+
+  // Zoom-to-selection is offered only when something is selected -- it declares
+  // a selection signature rather than running and quietly framing nothing.
+  {
+    const forge::ui::CommandDescriptor* d = shell.registry().find("view.selection");
+    CHECK(d != nullptr);
+    if (d != nullptr) {
+      CHECK(d->signature.kind != forge::ui::EntityKind::None);
+      CHECK(d->sideEffect == forge::ui::SideEffectClass::ViewOnly);
+    }
+  }
+
+  // Each view command bumps the orient counter AND records which view was asked
+  // for -- the pull pattern the frame builder reads. A repeat must not be
+  // swallowed: pressing Top twice is two requests.
+  //
+  // Run on a SEPARATE shell. The journal is asserted verbatim further down, and
+  // a check that dispatches commands into the shared one would be writing the
+  // input to a later assertion -- which is how a test starts passing because of
+  // what an earlier test did rather than because of what it claims.
+  {
+    App viewApp;
+    ForgeShell& vs = viewApp.shell;
+    CHECK_EQ_INT(vs.document().viewOrientCount, 0);
+    CHECK(vs.run("view.top").ok());
+    CHECK_EQ_INT(vs.document().viewOrientCount, 1);
+    CHECK_EQ_INT(static_cast<int>(vs.document().requestedView),
+                 static_cast<int>(forge::ui::NamedView::Top));
+    // A REPEAT is a second request, not a swallowed no-op -- the reason this is
+    // a counter and not a boolean.
+    CHECK(vs.run("view.top").ok());
+    CHECK_EQ_INT(vs.document().viewOrientCount, 2);
+    CHECK(vs.run("view.back").ok());
+    CHECK_EQ_INT(vs.document().viewOrientCount, 3);
+    CHECK_EQ_INT(static_cast<int>(vs.document().requestedView),
+                 static_cast<int>(forge::ui::NamedView::Back));
+    // view.selection rides its OWN counter, so orienting never consumes a
+    // pending frame-the-selection request.
+    CHECK_EQ_INT(vs.document().selectionFitCount, 0);
+    vs.selection().add(sketchRef("Sketch1"));
+    CHECK(vs.run("view.selection").ok());
+    CHECK_EQ_INT(vs.document().selectionFitCount, 1);
+    CHECK_EQ_INT(vs.document().viewOrientCount, 3);
+    CHECK_EQ_INT(vs.document().fitCount, 0);
   }
   // and the Part workspace's ribbon category is the one they are filed under
   const std::vector<std::string> partCats = workspaceCategories(WorkspaceProfile::Part);

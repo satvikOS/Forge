@@ -46,7 +46,7 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **64 commands**; **49 of them emit
+Measured at this revision: the registry holds **72 commands**; **49 of them emit
 feature-IR**, reaching **46 distinct op names**. The kernel defines **55** ops
 (`opFromName`), so **9 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
@@ -59,13 +59,29 @@ three DIFFERENT reasons, and the distinction is what a single "no command emits
 it" line would hide: `ARC` and the sketch family are ordinary gaps a command can
 close, and `SLOT` is not.
 
-The registry reads 64 rather than the 60 this branch measured alone: the base it
-merges has since added four commands that emit nothing (`app.toggle_theme`,
-`app.load_sample` and the two `view.focus_*_panel`), so `registry_commands` moved
-and `commands_emitting_ir` did not. Diffing the regenerated manifest against the
-base's shows this branch's own delta is exactly six rows -- `part.skin`,
-`part.extract_faces`, `part.sew`, `part.thicken`, `part.cap`, `part.surfcheck` --
-and nothing removed.
+72 is the base's figure, and this branch does not move it. This branch alone
+read 64, because it predates the eight viewport commands (`view.front`,
+`view.back`, `view.left`, `view.right`, `view.top`, `view.bottom`, `view.iso`,
+`view.selection`) that reached the base with the viewport work; those eight are
+the WHOLE of the difference, obtained by diffing the two manifests rather than
+by subtracting their totals -- no row is unique to this branch. Diffing the
+REGENERATED manifest against the base's, rather than asserting it, gives a delta
+for THIS branch of exactly ZERO rows: the merged manifest is byte-identical to
+the base's, nothing added and nothing removed. **This branch adds no
+user-facing command at all**, and no feature-IR op either -- there is no `DRAFT`
+among the 55 the kernel defines.
+
+That zero is the honest headline here, and it is why every count on this page
+is the base's and not a new measurement of this branch's doing:
+`registry_commands` 72, `commands_emitting_ir` 49, `user_invocable_ops` 46,
+`kernel_ops` 55 -- all unmoved. What this branch adds sits one layer BELOW the
+vocabulary: a second native engine chained behind the existing
+`forge.part.draftFaces` kernel entry point, which no command emits and no op
+names. A kernel engine that changed Archie's emission vocabulary would be a
+defect, not a feature, and the regenerated asset is what proves it did not. The
+engine's own result -- family J 0.0 % -> 65.8 % (372/565) against OCCT's 88.0 %,
+with OCCT_CLOSURE unmoved at 14 -- is measured in
+`forge-kernel/reports/DRAFT_NATIVE_ENGINE.md`, not here.
 
 The six were out for the ordinary reason: they arrived with the SURFACE value
 kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
