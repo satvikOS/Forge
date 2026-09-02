@@ -63,6 +63,86 @@ set -uo pipefail
 say()  { echo "[package] $*"; }
 die()  { echo "[package] FATAL: $*" >&2; exit 1; }
 
+# ── ★ NO LAUNCH IN THIS SCRIPT MAY BE UNBOUNDED ──────────────────────────────
+# MEASURED, run 33530159153 (claude/sacrosanct-execution-20260828 @ e363a905,
+# macos-15). The last line the job ever printed was
+#
+#   16:15:19  [package] relocation smoke test: launching the COPY at ...
+#   16:47:01  ##[error]The operation was canceled.
+#             Terminate orphan process: pid (11807) (forge_desktop)
+#
+# 31m42s inside ONE command substitution, and the runner had to reap the
+# process at cleanup. The identical signature was recorded twice more against
+# `timeout-minutes: 180` (runs 33392163311 and 33377699374, 180.3 min each).
+#
+# The same smoke test on fix/release-publish-visible returned in **80 ms**:
+#
+#   22:37:22.27  relocation smoke test: launching the COPY
+#   22:37:22.35    relocated bundle launched and exited 0: [forge] --headless ...
+#
+# So this is not a slow build, it is a launch that never returns, and a job
+# timeout reports as `cancelled` — which reads as an infrastructure blip and
+# hid the defect three times. `$(...)` makes it worse than a plain hang: the
+# substitution waits for the PIPE to close, so any surviving child holding
+# stdout keeps the shell blocked even after the parent exits.
+#
+# macos-15 runners carry neither `timeout` nor `gtimeout`, so this is the
+# watchdog. On expiry it takes a sample(1) stack BEFORE killing, because
+# "it hung" is not a diagnosis and the stack is the only thing that names the
+# frame it hung in.
+#
+# Usage: run_bounded <seconds> <label> <outfile> <cmd> [args...]
+# Returns the command's exit status, or 124 if the watchdog fired.
+run_bounded() {
+  local limit="$1" label="$2" outf="$3"; shift 3
+  local flag="$WORK/.watchdog_fired"
+  local samp="$WORK/hang.sample.txt"
+  rm -f "$flag" "$samp"
+  : > "$outf"
+
+  "$@" > "$outf" 2>&1 &
+  local pid=$!
+
+  # The watchdog is a child of THIS shell, but $pid is its sibling, so `kill -0`
+  # here is a plain process-existence probe. It can still see a zombie, which is
+  # why the caller treats the flag as authoritative only alongside a non-zero
+  # exit status.
+  (
+    n=0
+    while [ "$n" -lt "$limit" ]; do
+      sleep 1
+      n=$((n + 1))
+      kill -0 "$pid" 2>/dev/null || exit 0
+    done
+    : > "$flag"
+    sample "$pid" 5 -f "$samp" >/dev/null 2>&1
+    kill -9 "$pid" 2>/dev/null
+  ) &
+  local wdog=$!
+
+  wait "$pid"; local rc=$?
+  kill "$wdog" 2>/dev/null
+  wait "$wdog" 2>/dev/null
+
+  # A clean exit 0 is a pass even if the watchdog tripped in the microseconds
+  # between `wait` returning and the kill above — otherwise that race would
+  # report a phantom timeout on a build that was fine.
+  if [ -f "$flag" ] && [ "$rc" -ne 0 ]; then
+    echo "[package] $label: STILL RUNNING after ${limit}s — killed." >&2
+    echo "[package] ---- what it printed before it stopped ----" >&2
+    cat "$outf" >&2 2>/dev/null
+    if [ -s "$samp" ]; then
+      echo "[package] ---- sample(1) stack of the stuck process ----" >&2
+      cat "$samp" >&2
+    else
+      echo "[package] (sample(1) produced nothing)" >&2
+    fi
+    echo "[package] ---- end diagnosis ----" >&2
+    return 124
+  fi
+  return "$rc"
+}
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || die "cannot cd to $ROOT"
 
@@ -361,11 +441,16 @@ RELOC="$WORK/relocated"
 mkdir -p "$RELOC"
 ditto "$APP" "$RELOC/Forge.app" || die "ditto to the relocation dir failed"
 say "relocation smoke test: launching the COPY at $RELOC/Forge.app"
-if OUT="$("$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless 2>&1)"; then
-  say "  relocated bundle launched and exited 0: ${OUT}"
+RELOC_OUT="$WORK/reloc.launch.txt"
+if run_bounded 120 "relocation smoke test" "$RELOC_OUT" \
+     "$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless; then
+  say "  relocated bundle launched and exited 0: $(cat "$RELOC_OUT")"
 else
-  echo "$OUT" >&2
-  die "the relocated bundle FAILED to launch — it is not self-contained"
+  rc=$?
+  cat "$RELOC_OUT" >&2 2>/dev/null
+  [ "$rc" -eq 124 ] \
+    && die "the relocated bundle HUNG on launch (see the sample(1) stack above)" \
+    || die "the relocated bundle FAILED to launch — it is not self-contained"
 fi
 
 # ★ AND THE WORKER, from the RELOCATED copy. The app degrades quietly without it
@@ -376,14 +461,20 @@ fi
 # is answered before any geometry is touched, so this tests exactly one thing:
 # can this binary be launched from a relocated bundle and does it speak the
 # protocol the app expects.
-if WOUT="$("$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" --version 2>&1)"; then
+WORKER_OUT="$WORK/worker.version.txt"
+if run_bounded 60 "bundled worker --version" "$WORKER_OUT" \
+     "$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" --version; then
+  WOUT="$(cat "$WORKER_OUT")"
   case "$WOUT" in
     FORGE-WORKER-RESULT*) say "  bundled kernel worker answered --version: ${WOUT}" ;;
     *) die "the bundled kernel worker answered --version with '${WOUT}', not its protocol magic" ;;
   esac
 else
-  echo "$WOUT" >&2
-  die "the bundled kernel worker FAILED to launch — the app would ship with NO crash isolation"
+  rc=$?
+  cat "$WORKER_OUT" >&2 2>/dev/null
+  [ "$rc" -eq 124 ] \
+    && die "the bundled kernel worker HUNG on --version (see the sample(1) stack above)" \
+    || die "the bundled kernel worker FAILED to launch — the app would ship with NO crash isolation"
 fi
 
 # MEASURED, and NOT a packaging defect: VK_LOADER_DEBUG=all shows the loader
