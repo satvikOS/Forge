@@ -25,6 +25,7 @@ const char* toString(PlanSelect select) noexcept {
     case PlanSelect::None:          return "clear the selection";
     case PlanSelect::LatestProfile: return "the newest profile in the document";
     case PlanSelect::LatestSolid:   return "the newest solid in the document";
+    case PlanSelect::LatestWire:    return "the newest section wire in the document";
   }
   return "keep the live selection";
 }
@@ -689,7 +690,21 @@ IrValueKind wantedKind(const CommandDescriptor& cmd, PlanSelect select) {
     case EntityKind::SketchRef:  return IrValueKind::SketchRef;
     default: break;
   }
-  return select == PlanSelect::LatestProfile ? IrValueKind::Profile : IrValueKind::Solid;
+  // THE FALLBACK, and it is a switch rather than the ternary it replaces.
+  // `select == LatestProfile ? Profile : Solid` answers SOLID for every value the
+  // enum can name but the ternary cannot -- which is precisely how LatestWire's
+  // absence stayed invisible before app/differential-gate-v2 measured it. The
+  // signature above answers first and answers better; this is only reached when
+  // the command's signature kind is generic (EntityKind::Any / Body / Face), and
+  // there a plan step that SAYS wire must still get one.
+  switch (select) {
+    case PlanSelect::LatestProfile: return IrValueKind::Profile;
+    case PlanSelect::LatestWire:    return IrValueKind::Wire;
+    case PlanSelect::LatestSolid:
+    case PlanSelect::Keep:
+    case PlanSelect::None:          break;
+  }
+  return IrValueKind::Solid;
 }
 
 bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const PartDocument& doc,
@@ -700,8 +715,33 @@ bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const 
   if (cmd.signature.kind == EntityKind::None) return true;  // needs nothing picked
 
   const IrValueKind want = wantedKind(cmd, step.select);
-  const std::size_t need = cmd.signature.minCount == 0 ? 1 : cmd.signature.minCount;
+  // ── HOW MANY, and the step gets a say ────────────────────────────────────
+  // This was `signature.minCount` unconditionally, and a PlanStep had no way to
+  // state a count -- so every open-ended selection took the MINIMUM and no more.
+  // `part.loft`'s signature is 2..n, so the three-ring nozzle was applied as
+  // `LOFT(%2, %3, RULED)`: a two-section loft, built from a plan that named three
+  // rings, with no error anywhere. A quietly different solid is worse than a
+  // refusal, and it is exactly what the two-path differential exists to find.
+  //
+  // `selectCount == 0` keeps the old answer, so a step that states nothing is
+  // byte-identical to before. A stated count is CLAMPED rather than refused --
+  // REPRESENT / REPAIR / TOLERATE: below the signature's minimum it is raised to
+  // the minimum, above its maximum it is capped there, and above what the
+  // document actually holds it takes what there is. A planner asking for more
+  // sections than exist gets every section, not a dead plan.
+  const std::size_t minNeed = cmd.signature.minCount == 0 ? 1 : cmd.signature.minCount;
   const std::vector<std::pair<int, std::string>> bound = boundValues(doc, want);
+  std::size_t need = minNeed;
+  if (step.selectCount != 0) {
+    need = step.selectCount < minNeed ? minNeed : step.selectCount;
+    // maxCount's unbounded marker is (size_t)-1, not 0, so this caps a bounded
+    // signature and is a no-op for `atLeast`. The `>= minNeed` guard keeps a
+    // degenerate max from driving `need` BELOW the minimum the command requires.
+    if (cmd.signature.maxCount >= minNeed && need > cmd.signature.maxCount) {
+      need = cmd.signature.maxCount;
+    }
+    if (need > bound.size() && bound.size() >= minNeed) need = bound.size();
+  }
   if (bound.size() < need) {
     why = "the document holds " + std::to_string(bound.size()) + " " +
           std::string(toString(want)) + " value(s); this step needs " + std::to_string(need);
@@ -709,9 +749,24 @@ bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const 
   }
   const EntityKind kind =
       cmd.signature.kind == EntityKind::Any ? EntityKind::Body : cmd.signature.kind;
-  for (std::size_t i = 0; i < need; ++i) {
+  // ── OLDEST FIRST, and the order is LOAD-BEARING ──────────────────────────
+  // boundValues() walks the document BACKWARDS, so bound[0] is the NEWEST value
+  // and bound[need-1] the oldest of the ones this step will take. Handing those
+  // to the selection in that order made every two-body boolean operate the wrong
+  // way round: PartCommands.cpp registers the booleans with "selection ORDER is
+  // load-bearing for CUT: the first pick is the target, the second is the tool",
+  // so a plan that said "subtract" produced `CUT(%tool, %target)` -- the pin
+  // minus the block instead of the block minus the pin. MEASURED by
+  // ui/test/differential_gate_test.cpp against the planner's own text on three
+  // corpus trees before this loop was reversed; CUT changed the SOLID, FUSE and
+  // COMMON changed which document node survived.
+  //
+  // Reversing it is not a preference, it is what the two-argument form means in a
+  // history modeller: the TOOL is the body you just made, so the TARGET is the
+  // one that already existed. `need == 1` is unaffected -- bound[0] either way.
+  for (std::size_t i = need; i > 0; --i) {
     EntityRef ref;
-    ref.bodyId = bound[i].second;
+    ref.bodyId = bound[i - 1].second;
     ref.kind = kind;
     ref.persistentName = setName(kind);
     refs.push_back(ref);

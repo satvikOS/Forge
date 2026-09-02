@@ -149,6 +149,7 @@ SKIPPED=(
   "forge-desktop/src/PlatformSDL2.cpp    (SDL2)"
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"
   "forge-desktop/test/click_gate.cpp     (Vulkan, through its ImGui backend)"
+  "forge-desktop/test/differential_solid_gate.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/Topology.hpp -> forge/ShapeRegistry.hpp)"
 )
 # Needs NO SDK, but is written against ONE platform's libc. Checked on that
 # platform, skipped by name everywhere else. See the header for the measurement.
