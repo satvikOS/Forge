@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/FeatureHistory.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -3562,38 +3563,258 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // only Part commands with no feature-IR op, which is why removing them makes
   // "every registered Part command emits an IR op" literally true.
 
+
+  // ── THE FEATURE-HISTORY COMMANDS ──────────────────────────────────────────
+  // Seven commands that existed only as tests. forge_shell_test names EIGHT
+  // op-less document commands and exactly one of them -- part.edit_feature --
+  // had an implementation; the other seven are written here.
+  //
+  // Every one is `featureIrOp` EMPTY on purpose, and the reason is structural
+  // rather than an oversight: they change WHICH statements the document emits
+  // (and, for the reorder, in what order), never appending a statement of their
+  // own. The statements they act on already carry their own ops. That is exactly
+  // the exemption forge_shell_test lists by name, so an op-less document command
+  // outside that list still fails there and so does a listed one that vanishes.
+  //
+  // The undo edits and the document mutators ALREADY EXISTED
+  // (SuppressFeatureEdit / DeleteFeatureEdit / RenameFeatureEdit / RollbackEdit /
+  // MoveFeatureEdit over setSuppressed / setDeleted / setLabel / setRollback /
+  // moveFeature). Nothing new is invented below; the seven are wired to what was
+  // already there and already unit-tested.
+
+  // `feature` addresses a STATEMENT, 1-based, 0 meaning "the last one" -- the
+  // same convention paramTarget() uses, so a user who has learned it for
+  // part.edit_feature has learned it for all eight.
+  const auto historyTarget = [](const PartDocument& doc,
+                                const CommandContext& ctx) -> const FeatureRecord* {
+    const std::vector<FeatureRecord>& recs = doc.records();
+    if (recs.empty()) return nullptr;
+    const double feature = num(ctx, "feature", 0.0);
+    if (!wholeCount(feature)) return nullptr;
+    int irId = static_cast<int>(feature);
+    if (irId == 0) irId = static_cast<int>(recs.size());
+    if (irId < 1 || static_cast<std::size_t>(irId) > recs.size()) return nullptr;
+    return doc.featureAt(irId);
+  };
+  // The tree row's name, which is what the undo label must say: a user reading
+  // "Undo Suppress b2" is looking at the row labelled b2.
+  const auto rowName = [](const FeatureRecord* rec) -> std::string {
+    if (rec == nullptr) return std::string();
+    return rec->label.empty() ? rec->line.op : rec->label;
+  };
+  const auto featureId = [](const PartDocument& doc, const CommandContext& ctx) -> int {
+    const std::vector<FeatureRecord>& recs = doc.records();
+    const double feature = num(ctx, "feature", 0.0);
+    int irId = static_cast<int>(feature);
+    if (irId == 0) irId = static_cast<int>(recs.size());
+    return irId;
+  };
+  // The first LATER statement that reads %irId. moveFeature() clamps rather than
+  // refusing and reports the blocker through an out-parameter, but a fully-blocked
+  // move makes MoveFeatureEdit::mutate() return false, and UndoStack::perform takes
+  // the unique_ptr BY VALUE -- so the edit is destroyed at its `return false` and a
+  // raw pointer captured beforehand DANGLES exactly when there is something to
+  // report. This recomputes the blocker from the DOCUMENT instead, which cannot
+  // dangle. It duplicates one rule ("the first statement that reads it"), and the
+  // reorder test is what keeps the two in agreement.
+  const auto firstReaderOf = [](const PartDocument& doc, int irId) -> int {
+    const std::vector<FeatureRecord>& recs = doc.records();
+    for (std::size_t i = static_cast<std::size_t>(irId); i < recs.size(); ++i) {
+      for (const IrArg& a : recs[i].line.args) {
+        if (a.kind == IrArgKind::Ref && a.ref == irId) return static_cast<int>(i) + 1;
+      }
+    }
+    return 0;
+  };
+  const auto featureParam = [] {
+    return ParamSpec{.name = "feature", .type = ParamType::Number, .required = false,
+                     .defaultNumber = 0.0, .hasDefault = true};
+  };
+
+  // ── SUPPRESS / UNSUPPRESS ────────────────────────────────────────────────
+  // The enabled predicate answers "would this change anything?", so a second
+  // suppress of an already-suppressed row is Disabled rather than a dispatch that
+  // succeeds and pushes an undo step that undoes nothing. HistoryEdit::mutate also
+  // returns false for a no-op, so the stack is protected even if execute() is
+  // called directly -- two independent guards, because the predicate is a
+  // convention and CommandRegistry::find() hands out the public execute.
+  for (const bool on : {true, false}) {
+    CommandDescriptor c =
+        base(on ? "part.suppress_feature" : "part.unsuppress_feature",
+             on ? "Suppress Feature" : "Unsuppress Feature", "", SelectionSignature::none());
+    c.schema.push_back(featureParam());
+    c.enabled = [d, historyTarget, on](const CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      return rec != nullptr && rec->suppressed != on;
+    };
+    c.execute = [d, s, historyTarget, rowName, featureId, on](CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      if (rec == nullptr) {
+        ctx.fail("no such feature");
+        return;
+      }
+      std::string label = (on ? "Suppress " : "Unsuppress ") + rowName(rec);
+      if (!s->perform(*d, std::make_unique<SuppressFeatureEdit>(featureId(*d, ctx), on,
+                                                                std::move(label)))) {
+        ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── DELETE ───────────────────────────────────────────────────────────────
+  // Deleting is not erasing: the record stays, marked, so undo restores the
+  // statement AND its identity. What changes is the emission.
+  {
+    CommandDescriptor c = base("part.delete_feature", "Delete Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(featureParam());
+    c.enabled = [d, historyTarget](const CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      return rec != nullptr && !rec->deleted;
+    };
+    c.execute = [d, s, historyTarget, rowName, featureId](CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      if (rec == nullptr) {
+        ctx.fail("no such feature");
+        return;
+      }
+      std::string label = "Delete " + rowName(rec);
+      if (!s->perform(*d, std::make_unique<DeleteFeatureEdit>(featureId(*d, ctx),
+                                                              std::move(label)))) {
+        ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── RENAME ───────────────────────────────────────────────────────────────
+  // `name` is REQUIRED with no default. There is no honest default new name, and
+  // inventing one would let a menu click silently rename a row; the registry
+  // reports MissingRequiredParameter instead.
+  {
+    CommandDescriptor c = base("part.rename_feature", "Rename Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(featureParam());
+    c.schema.push_back(ParamSpec{.name = "name", .type = ParamType::Text, .required = true});
+    c.enabled = [d, historyTarget](const CommandContext& ctx) {
+      return historyTarget(*d, ctx) != nullptr;
+    };
+    c.execute = [d, s, historyTarget, rowName, featureId](CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      if (rec == nullptr) {
+        ctx.fail("no such feature");
+        return;
+      }
+      const std::string name = ctx.params().text("name").value_or(std::string());
+      std::string label = "Rename " + rowName(rec);
+      if (!s->perform(*d, std::make_unique<RenameFeatureEdit>(featureId(*d, ctx), name,
+                                                              std::move(label)))) {
+        ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── REORDER ──────────────────────────────────────────────────────────────
+  // A drag the dependency graph will not allow is REPORTED with the statement
+  // that stopped it named, never a silent success.
+  {
+    CommandDescriptor c = base("part.reorder_feature", "Reorder Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(featureParam());
+    c.schema.push_back(ParamSpec{.name = "position", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = false});
+    c.enabled = [d, historyTarget](const CommandContext& ctx) {
+      return historyTarget(*d, ctx) != nullptr;
+    };
+    c.execute = [d, s, historyTarget, rowName, featureId, firstReaderOf](CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      if (rec == nullptr) {
+        ctx.fail("no such feature");
+        return;
+      }
+      const int irId = featureId(*d, ctx);
+      const int want = static_cast<int>(num(ctx, "position", 0.0));
+      std::string label = "Move " + rowName(rec);
+      if (s->perform(*d, std::make_unique<MoveFeatureEdit>(irId, want, std::move(label)))) {
+        return;
+      }
+      const int pin = firstReaderOf(*d, irId);
+      if (pin != 0) {
+        ctx.fail("the statement cannot move there: %" + std::to_string(pin) + " pins it");
+      } else {
+        ctx.fail("the statement did not move");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── ROLLBACK ─────────────────────────────────────────────────────────────
+  // The bar is a position, not a mode: rollback_to sets it, rollback_end clears
+  // it, and each is Disabled when the bar is already where it would put it.
+  {
+    CommandDescriptor c = base("part.rollback_to", "Roll Back To Feature", "",
+                               SelectionSignature::none());
+    c.schema.push_back(featureParam());
+    c.enabled = [d, historyTarget, featureId](const CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      return rec != nullptr && d->rollback() != featureId(*d, ctx);
+    };
+    c.execute = [d, s, historyTarget, rowName, featureId](CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      if (rec == nullptr) {
+        ctx.fail("no such feature");
+        return;
+      }
+      std::string label = "Roll back to " + rowName(rec);
+      if (!s->perform(*d, std::make_unique<RollbackEdit>(featureId(*d, ctx),
+                                                         std::move(label)))) {
+        ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
+      }
+    };
+    add(std::move(c));
+  }
+  {
+    CommandDescriptor c = base("part.rollback_end", "Roll Forward To End", "",
+                               SelectionSignature::none());
+    c.enabled = [d](const CommandContext&) { return d->rollback() != 0; };
+    c.execute = [d, s](CommandContext& ctx) {
+      if (!s->perform(*d, std::make_unique<RollbackEdit>(0, "Roll forward to end"))) {
+        ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
+      }
+    };
+    add(std::move(c));
+  }
+
   return added;
 }
 
 const std::vector<std::string>& partCommandIds() {
   static const std::vector<std::string> ids = [] {
     std::vector<std::string> v{
-        "part.boolean_intersect",  "part.boolean_subtract",   "part.boolean_union",
-        "part.cap",                "part.chamfer",            "part.counterbore",
-        "part.defeature",
-        "part.edit_feature",       "part.extract_faces",      "part.extrude",
-        "part.fillet",
-        "part.fold_flange",        "part.heal",               "part.hole",
-        "part.input_solid",        "part.loft",               "part.mirror",
-        "part.move",               "part.pattern_circular",   "part.pattern_grid",
-        "part.pattern_linear",     "part.primitive_box",      "part.primitive_cone",
-        "part.primitive_cylinder", "part.primitive_prism",    "part.primitive_sphere",
-        "part.primitive_torus",    "part.primitive_tube",     "part.push_face",
-        "part.resize_bore",        "part.revolve",            "part.rotate",
-        "part.section_ring",       "part.section_wire",       "part.sew",
-        "part.shell",              "part.skin",
-        "part.sketch_circle",      "part.sketch_poly",        "part.sketch_polygon",
-        "part.sketch_rect",        "part.sketch_rounded_rect",
-        // The 2D sketch + constraint family: eight commands, seven ops.
-        "part.sketch_constrain",   "part.sketch_constrain_single",
-        "part.sketch_entity_arc",  "part.sketch_entity_circle",
-        "part.sketch_entity_line", "part.sketch_entity_point",
-        "part.sketch_new",         "part.sketch_solve",
-        "part.surfcheck",          "part.sweep_pipe",
-        "part.sweep_profile",      "part.tag_feature",        "part.thicken",
-        "part.section_curve",
-        "part.variable_fillet",
-        "part.verify",
+        "part.boolean_intersect",    "part.boolean_subtract",     "part.boolean_union",
+        "part.cap",                  "part.chamfer",              "part.counterbore",
+        "part.defeature",            "part.delete_feature",       "part.edit_feature",
+        "part.extract_faces",        "part.extrude",              "part.fillet",
+        "part.fold_flange",          "part.heal",                 "part.hole",
+        "part.input_solid",          "part.loft",                 "part.mirror",
+        "part.move",                 "part.pattern_circular",     "part.pattern_grid",
+        "part.pattern_linear",       "part.primitive_box",        "part.primitive_cone",
+        "part.primitive_cylinder",   "part.primitive_prism",      "part.primitive_sphere",
+        "part.primitive_torus",      "part.primitive_tube",       "part.push_face",
+        "part.rename_feature",       "part.reorder_feature",      "part.resize_bore",
+        "part.revolve",              "part.rollback_end",         "part.rollback_to",
+        "part.rotate",               "part.section_curve",        "part.section_ring",
+        "part.section_wire",         "part.sew",                  "part.shell",
+        "part.sketch_circle",        "part.sketch_constrain",     "part.sketch_constrain_single",
+        "part.sketch_entity_arc",    "part.sketch_entity_circle", "part.sketch_entity_line",
+        "part.sketch_entity_point",  "part.sketch_new",           "part.sketch_poly",
+        "part.sketch_polygon",       "part.sketch_rect",          "part.sketch_rounded_rect",
+        "part.sketch_solve",         "part.skin",                 "part.suppress_feature",
+        "part.surfcheck",            "part.sweep_pipe",           "part.sweep_profile",
+        "part.tag_feature",          "part.thicken",              "part.unsuppress_feature",
+        "part.variable_fillet",      "part.verify",
     };
     std::sort(v.begin(), v.end());
     return v;

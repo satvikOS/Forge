@@ -484,7 +484,7 @@ int main() {
     PartDocument doc = chain();
     UndoStack stack;
     SelectionService sel;
-    CHECK_EQ_INT(registerPartCommands(reg, doc, stack), 49);
+    CHECK_EQ_INT(registerPartCommands(reg, doc, stack), 65);
 
     CommandParams p;
     p.setNumber("feature", 3);
