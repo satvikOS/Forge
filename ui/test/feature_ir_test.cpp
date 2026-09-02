@@ -234,39 +234,40 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 55 ops -- the original 40, plus the six that
+  // forge::ft::opFromName registers 56 ops -- the original 40, plus the six that
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
   // THICKEN / CAP / SURFCHECK), plus SECTION (the fourth OCCT boolean), plus the
   // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
-  // SOLVE), plus ARC.
+  // SOLVE), plus ARC, plus HELIX.
   //
   // RE-MEASURED AT EVERY MERGE, because this is the assertion a merge keeps
   // getting wrong: across earlier merges its two sides have pinned 46/41, then
-  // 54/48, then 47/55, then 55/53. Picking a side has been wrong in BOTH
-  // directions, so the number is COUNTED on the tree being committed, with the
-  // method CALIBRATED before it is trusted.
+  // 54/48, then 47/55, then 55/53, then 55/55. Picking a side has been wrong in
+  // BOTH directions, so the number is COUNTED on the tree being committed, with
+  // the method CALIBRATED before it is trusted.
   //
-  // AT THIS MERGE (the execution branch into app/sketch-value-kind-v2) BOTH
-  // SIDES ALREADY PIN 55, and that agreement is checked rather than assumed --
-  // an agreeing pair is the easiest place to carry a stale figure across, since
-  // no conflict is raised to prompt a re-count. Method: re-derive this same enum
-  // out of forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents, where
-  // it reproduces their committed 55 and 55 exactly, then run it on the MERGED
-  // tree, which also gives 55. It stays 55 because the two op sets are IDENTICAL
-  // here -- checked as a set difference, not inferred from the equal totals:
-  // neither side adds an OpCode the other lacks. What this branch adds is
-  // CONSTRAINT KINDS inside the existing CON op (nine to nineteen), which is a
-  // widening of one op's keyword argument and not a new entry in opFromName, so
-  // the op count is expected to be unmoved and an unmoved count is the correct
-  // result rather than a missed update.
+  // AT THIS MERGE (the execution branch, now carrying #176, into
+  // ft/arc-helix-ops) the two sides pin 55 on the base and 56 here. Method:
+  // re-derive this same enum out of
+  // forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents, where it
+  // reproduces their committed 55 and 56 exactly, then run it on the MERGED
+  // tree, which gives 56.
+  //
+  // 56 is the UNION, and which side is the superset was CHECKED as a set
+  // difference rather than inferred from the totals: the base adds ZERO
+  // OpCodes this branch lacks, and this branch adds exactly ONE the base lacks
+  // -- Helix, which exists nowhere else. So the merged set is this side's set
+  // unchanged. Note what the base contributed instead: #176 widened CON's
+  // keyword set from nine to nineteen, which adds no opFromName entry, so the
+  // base's op count was correctly unmoved by it and the +1 here is HELIX alone.
   //
   // Confirmed independently by gen_archie_op_vocabulary.py, which reads
   // opFromName in FeatureTreeCompiler.cpp rather than this header and also says
-  // counts.kernel_ops = 55.
+  // counts.kernel_ops = 56.
   //
   // Anything else means the derivation itself broke, and a broken oracle must
   // not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 55);
+  CHECK_EQ_INT(kernel.size(), 56);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -303,6 +304,13 @@ int main() {
   CHECK_EQ_INT(kernel.at("ARC").minArgs, 1);
   CHECK_EQ_INT(kernel.at("ARC").maxArgs, 1);
   CHECK_EQ_INT(kernel.at("ARC").firstArgIsValueRef ? 1 : 0, 0);
+  // HELIX is the other new enumerator, and its arity is derived from TWO optional
+  // groups on one line -- `[, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1]` and
+  // `[, LEFT]`. 3 + 6 + 1 = 10. A derivation that stopped at the first group
+  // would say 9 and the UI would then refuse a legal LEFT-handed thread.
+  CHECK_EQ_INT(kernel.at("HELIX").minArgs, 3);     // pitch, height, radius
+  CHECK_EQ_INT(kernel.at("HELIX").maxArgs, 10);    // + placement (6) + LEFT (1)
+  CHECK_EQ_INT(kernel.at("HELIX").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SWEEP").maxArgs, 2);
   CHECK_EQ_INT(kernel.at("INPUT").minArgs, 0);
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);

@@ -141,6 +141,24 @@ ShapeHandle pipeFromPolyline(const std::vector<double>& pts, double radius);
 // 3D, which the always-Z=0 sketcher cannot express. Throws on <2 points.
 ShapeHandle profileWire(const std::vector<double>& pts, bool closed);
 
+// Build a HELICAL WIRE ShapeHandle: `height` of rise at a constant `pitch`
+// (rise per full turn) on a cylinder of `radius`, based at (cx,cy,cz) and
+// running along the (ax,ay,az) axis. `leftHanded` flips the winding sense.
+//
+// This is a REAL helix, not a polyline approximation: the edge is a straight
+// Geom2d_Line in the (u,v) parameter space of a Geom_CylindricalSurface, which
+// is the exact curve. `part::profileWire` cannot express it -- that verb builds
+// a BRepBuilderAPI_MakePolygon, so every "helix" it returned would be a chord
+// chain, and the volume of anything swept along it would be wrong with no
+// error. Returned as a WIRE because that is what it is; a helix bounds no
+// volume and promoting it to a SOLID would be a lie about the value's type.
+//
+// Throws std::invalid_argument on pitch/height/radius <= 0 or a zero axis.
+ShapeHandle helixWire(double pitch, double height, double radius,
+                      double cx, double cy, double cz,
+                      double ax, double ay, double az,
+                      bool leftHanded);
+
 // Sweep an arbitrary closed 2D profile (XY [x,y,…] pairs) along a 3D path
 // polyline (flat [x,y,z,…] triples). The profile is placed perpendicular
 // to the path's first segment (mirrors pipeFromPolyline's framing) so the

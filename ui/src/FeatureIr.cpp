@@ -191,6 +191,8 @@ const std::vector<IrOpSpec>& irOpTable() {
       // 3D section rings
       {"RING", 3, 7, false},
       {"WIRE", 1, 1, false},
+      // 3D spine curves (also a WIRE -- a path, not a section)
+      {"HELIX", 3, 10, false},
       // 3D primitives
       {"BOX", 3, 6, false},
       {"CYL", 2, 8, false},

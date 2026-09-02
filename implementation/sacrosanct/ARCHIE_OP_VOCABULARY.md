@@ -47,17 +47,26 @@ bash ui/test/run_ui.sh                                                        # 
 ## What the asset says
 
 Measured at this revision: the registry holds **80 commands**; **57 of them emit
-feature-IR**, reaching **53 distinct op names**. The kernel defines **55** ops
-(`opFromName`), so **2 ops plus the `RESULT` terminal are unreachable by any
+feature-IR**, reaching **53 distinct op names**. The kernel defines **56** ops
+(`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The two are `SLOT` and `ARC`. The seven 2D-sketch ops that stood here one
+The three are `SLOT`, `ARC` and `HELIX`. The seven 2D-sketch ops that stood here one
 revision ago -- `SKETCH`, `SPT`, `SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE` -- now
 have commands and are gone from the list, exactly as the six SURFACE ops
 (`FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK`) went before them. That is
-what the list is for. The two that remain are out for two DIFFERENT reasons, and
-the distinction is what a single "no command emits it" line would hide: `ARC` is
-an ordinary gap a command can close, and `SLOT` is not.
+what the list is for. The three that remain are out for THREE DIFFERENT reasons,
+and the distinction is what a single "no command emits it" line would hide:
+`ARC` is an ordinary gap a command can close; `SLOT` is not, because it is
+measurably broken; and `HELIX` is a third case again -- it lands as a KERNEL op
+only. It arrives with this branch (the 56th name, and the one that takes
+`kernel_ops` from 55 to 56), it produces a **WIRE** rather than a solid, and the
+one thing that would consume it, `SWEEP` with a `%ref` spine, does not yet accept
+one. A command emitting `HELIX` today could only produce a value nothing can use,
+which is why no command emits it and why it is forbidden rather than merely
+absent. The op exists so the corpus PARSES -- it is the last of the 1,317
+harvested BenchCAD programs that `parse()` could not read -- and parse coverage
+is a claim about the reader, not about the command surface.
 
 **This branch moves every one of those counts, and moving them is the whole
 point.** `registry_commands` 72 -> 80, `commands_emitting_ir` 49 -> 57,

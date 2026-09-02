@@ -25,10 +25,15 @@
 // (like the v18 builders' `body = nk.op(body, ...)` chain). A value is one of:
 //   * PROFILE — a 2D sketch/face on the Z=0 plane (a SketchHandle), consumed by
 //               EXTRUDE / REVOLVE, or
-//   * WIRE    — a 3D closed section ring placed anywhere in space (a TopoDS_Wire
-//               ShapeHandle via forge::part::profileWire), consumed by LOFT. This
-//               is what makes a real vertical/organic loft possible — the always
-//               Z=0 sketcher cannot express a section at a different height/plane.
+//   * WIRE    — a 1-dimensional curve placed anywhere in space (a TopoDS_Wire
+//               ShapeHandle). Two things wear this kind, and they are not the
+//               same thing: a closed SECTION ring (RING / WIRE, via
+//               forge::part::profileWire) consumed by LOFT — which is what makes
+//               a real vertical/organic loft possible, the always-Z=0 sketcher
+//               cannot express a section at a different height/plane — and an
+//               open SPINE curve (HELIX, via forge::part::helixWire), a path to
+//               sweep along. Nothing in this kernel consumes a spine yet; the
+//               kind is honest about what the value IS, not about who wants it.
 //   * SOLID   — a 3D body (a ShapeHandle), consumed by booleans / transforms /
 //               features and exported.
 //   * SURFACE — a SHEET BODY: an ordered set of faces (a ShapeHandle onto a
@@ -169,6 +174,35 @@ enum class OpCode {
                  //   p=2 circle/ellipse, p=4..6 rounded-rect (impeller/nozzle/duct sections)
     Wire,        // WIRE([x y z; x y z; ...])                    explicit closed 3D ring
                  //   (airfoil / organic / sharp-cornered loft section)
+
+    // --- 3D spine curves (produce a WIRE — a PATH, not a cross-section) ---
+    Helix,       // HELIX(pitch, height, radius [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1] [, LEFT])
+                 //   `pitch` is the rise per full turn and `height` the total
+                 //   rise, so the curve makes height/pitch turns — a fraction of
+                 //   a turn is legal. LEFT reverses the winding; it never
+                 //   reverses the rise. Defaults: based at the origin, climbing
+                 //   +Z, right-handed.
+                 //
+                 //   ★ THIS PRODUCES A WIRE, NOT A SOLID. A helix bounds no
+                 //   volume. Typing it SOLID would let it reach every boolean
+                 //   and every feature op, each of which would then fail deep
+                 //   inside OCCT instead of at the statement that is wrong — and
+                 //   `%N = HELIX(...)` followed by `RESULT(%N)` would export an
+                 //   empty STEP rather than being refused. The value kind IS the
+                 //   diagnostic. What consumes it is a SWEEP along a path, which
+                 //   this kernel cannot yet express — `opSweep` takes its path as
+                 //   a literal `[x y z; ...]` ring, not a `%ref` — so a HELIX
+                 //   today PARSES, TYPES and BUILDS while nothing downstream
+                 //   accepts it. That is deliberate: representing the curve is
+                 //   what the emitter needs, and refusing to represent it is the
+                 //   one option the owner's constraint forbids.
+                 //
+                 //   Not `part::profileWire`: that verb is MakePolygon, so it
+                 //   would return the CHORD CHAIN of the helix. CMakeLists.txt
+                 //   (FORGE_OFFSET_DROP_MAKEPIPE) already records a measured
+                 //   volume ratio of 0.500 for a polyline spine on ONE 90-degree
+                 //   bend. This is a straight Geom2d_Line in the (u,v) space of a
+                 //   Geom_CylindricalSurface — the exact curve, no tessellation.
 
     // --- 3D primitives (produce a SOLID) ---
     Box,         // BOX(dx, dy, dz [, cx=0, cy=0, cz=0])        centred in XY, base at cz

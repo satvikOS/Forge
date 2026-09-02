@@ -18,9 +18,9 @@
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
-        "sha256": "061bb2a10df8d211f514bb370e31d6eb601885d696e04b42665f10ad42c8aae4",
-        "bytes": 22940,
-        "lines": 384
+        "sha256": "43c294673e176d52e9606ff2d9c589053368df75a19a953bd4370ffe9a057208",
+        "bytes": 24101,
+        "lines": 391
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
@@ -30,21 +30,21 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "9012d180c34b220b07ecbe073d80f2be28a1944d512125f993f88703e0be3420",
-        "bytes": 185922,
-        "lines": 3468
+        "sha256": "67c5f5509a2ff8018c146c7036b2faade532ed2a0ab5f29e602e4344bb75b327",
+        "bytes": 189574,
+        "lines": 3524
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "c0b44bfbc7db7c9a045a50b90cec31a74a0384159cc49f13b2afb3833b2d2ad3",
-        "bytes": 30511,
-        "lines": 489
+        "sha256": "2e13278a6fced2471855424f0a35ba13937f3e965ddc6c499b8570c3bb70640b",
+        "bytes": 32994,
+        "lines": 523
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "a489a6d8c9b9d1f860043157b648f65253eb7024b2376c759991d641474411c8",
-        "bytes": 10802,
-        "lines": 299
+        "sha256": "c206b3210ef62503f8670519b8b3264d5a7d4a5d9dc06caee06231e7eab33fb7",
+        "bytes": 10897,
+        "lines": 301
       },
       {
         "path": "ui/src/PartCommands.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 55,
-    "ui_validator_ops": 55,
+    "kernel_ops": 56,
+    "ui_validator_ops": 56,
     "registry_commands": 80,
     "commands_emitting_ir": 57,
     "user_invocable_ops": 53,
-    "forbidden_ops": 2,
+    "forbidden_ops": 3,
     "uncertain_entries": 3,
     "derived_defects": 3
   },
@@ -6455,6 +6455,15 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
+      "op": "HELIX",
+      "kernel_enum": "Helix",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "HELIX(pitch, height, radius [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1] [, LEFT])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
@@ -6468,7 +6477,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 55 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 56 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [

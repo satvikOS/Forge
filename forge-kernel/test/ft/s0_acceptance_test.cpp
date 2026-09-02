@@ -1058,6 +1058,135 @@ void testArcForm() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 8. HELIX FORM — the ONE remaining unparseable GT program, and its flags
+// ---------------------------------------------------------------------------
+// HELIX(pitch, height, radius [, cx, cy, cz, axx, axy, axz] [, LEFT]) produces a
+// WIRE: an open SPINE curve, not a section and not a solid. Exactly one program
+// in the 1317-row harvested BenchCAD corpus uses it (bolt_000012_s20260505), and
+// before this op existed it was the last program `parse()` could not read.
+//
+// Parse level only — compile() is never called here, so nothing below builds
+// geometry. The VALUE KIND cannot be asserted at this level at all (kindOf is a
+// private static inside the builder), so it is asserted where it IS observable:
+// forge-kernel/test/ft/arc_helix_compile_probe.cpp runs EXTRUDE(%helix, ...)
+// against the real kernel and requires the refusal to say "is a WIRE". Both
+// halves are needed; neither alone proves the kind.
+void testHelixForm() {
+    group("HELIX FORM — the last unparseable GT program, and its flags");
+
+    // ---- 8a: the verbatim GT statement --------------------------------------
+    // From bolt_000012_s20260505: an M10 thread spine — 1.5 mm coarse pitch,
+    // 26 mm of rise, 5 mm radius. Read verbatim out of the corpus.
+    {
+        ParseOutcome o = tryParse("%10 = HELIX(1.5,26,5)");
+        bool ok = !o.threw && o.tree.ops.size() == 1 &&
+                  o.tree.ops[0].code == OpCode::Helix &&
+                  o.tree.ops[0].args.size() == 3;
+        if (ok) {
+            const Op& h = o.tree.ops[0];
+            ok = ok && h.args[0].kind == TokKind::Number && h.args[0].num == 1.5 &&
+                       h.args[1].kind == TokKind::Number && h.args[1].num == 26 &&
+                       h.args[2].kind == TokKind::Number && h.args[2].num == 5;
+        }
+        check(ok, "verbatim GT HELIX (bolt_000012) parses: pitch 1.5, height 26, radius 5",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+
+    // ---- 8b: the fully placed form, LEFT-handed -----------------------------
+    // 9 numbers + one flag = the documented maximum of 10 arguments. If the UI's
+    // mirror table had derived 9 (stopping at the first optional group), a legal
+    // left-handed thread would be refused before it ever reached the kernel.
+    {
+        ParseOutcome o = tryParse("%1 = HELIX(2, 20, 5, 1, 2, 3, 1, 0, 0, LEFT)");
+        bool ok = !o.threw && o.tree.ops.size() == 1 &&
+                  o.tree.ops[0].code == OpCode::Helix &&
+                  o.tree.ops[0].args.size() == 10;
+        if (ok) {
+            const Op& h = o.tree.ops[0];
+            ok = ok && h.args[9].kind == TokKind::Keyword && h.args[9].kw == "LEFT";
+        }
+        check(ok, "fully placed LEFT-handed HELIX parses: 9 numbers + the flag",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+
+    // ---- 8c: the flag is POSITION-FREE --------------------------------------
+    // `HELIX(2, 20, 5, LEFT)` is the natural short form. It must not be read as a
+    // cx of "LEFT" and it must not be silently dropped, because a dropped flag
+    // builds the OPPOSITE-handed thread — a mirror-image part that does not
+    // assemble, with no diagnostic anywhere.
+    {
+        ParseOutcome o = tryParse("%1 = HELIX(2, 20, 5, LEFT)");
+        bool ok = !o.threw && o.tree.ops.size() == 1 &&
+                  o.tree.ops[0].args.size() == 4 &&
+                  o.tree.ops[0].args[3].kind == TokKind::Keyword &&
+                  o.tree.ops[0].args[3].kw == "LEFT";
+        check(ok, "short-form HELIX(2, 20, 5, LEFT) keeps the flag as a KEYWORD token",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+
+    // ---- 8d: the whole GT program, verbatim ---------------------------------
+    // The claim this op exists to make is "the corpus parses". Asserting it on
+    // the actual program rather than a fragment is what makes the claim
+    // falsifiable: this is the 1317th row, and it was the only one left.
+    {
+        const std::string ir =
+            "%1 = CIRCLE(5,0,0)\n"
+            "%2 = EXTRUDE(%1,80)\n"
+            "%3 = ROTATE(%2,90,1,0,0)\n"
+            "%4 = POLY([9.815 0; 4.9075 8.500039; -4.9075 8.500039; -9.815 0; "
+            "-4.9075 -8.500039; 4.9075 -8.500039])\n"
+            "%5 = EXTRUDE(%4,6.4)\n"
+            "%6 = ROTATE(%5,180,0,0.707107,0.707107)\n"
+            "%7 = FUSE(%3,%6)\n"
+            "%8 = CHAMFER(%7,1,MAX_Y)\n"
+            "%9 = POLY([0 0.3464; -0.6 0; 0 -0.3464])\n"
+            "%10 = HELIX(1.5,26,5)\n"
+            "%11 = SWEEP(%9,%10,PLACE,180,1,0,0,5,0,0)\n"
+            "%12 = CUT(%8,%11)\n"
+            "VERIFY(volume=7855.483484, genus=11, "
+            "bbox=-9.815,-80,-8.500039,9.815,6.4,8.500039)\n"
+            "RESULT(%12)\n";
+        ParseOutcome o = tryParse(ir);
+        check(!o.threw && o.tree.ops.size() == 13,
+              "the whole verbatim GT program bolt_000012_s20260505 PARSES (13 ops)",
+              o.threw ? "threw: " + o.message
+                      : "ops=" + std::to_string(o.tree.ops.size()));
+    }
+
+    // ---- 8e: an unknown op that CONTAINS "HELIX" is still rejected ----------
+    // The closed vocabulary is unchanged by the addition.
+    {
+        ParseOutcome o = tryParse("%1 = HELIXCUT(1.5, 26, 5)");
+        const bool named = o.message.find("HELIX") != std::string::npos &&
+                           o.message.find("CUT") != std::string::npos;
+        check(o.threw && named,
+              "unknown op `HELIXCUT` is REJECTED and the hint names HELIX and CUT",
+              o.threw ? "message: " + o.message : "parse() ACCEPTED HELIXCUT");
+    }
+
+    // ---- 8f: POSITIVE CONTROL IN THE OTHER DIRECTION -----------------------
+    // Adding a second WIRE producer must not have moved the two that were already
+    // there. Same literals, same op codes, same point ring.
+    {
+        ParseOutcome o =
+            tryParse("%1 = RING(20, 20, 0)\n%2 = WIRE([0 0 0; 10 0 0; 10 10 5])\n");
+        bool ok = !o.threw && o.tree.ops.size() == 2 &&
+                  o.tree.ops[0].code == OpCode::Ring &&
+                  o.tree.ops[1].code == OpCode::Wire &&
+                  o.tree.ops[1].args.size() == 1 &&
+                  o.tree.ops[1].args[0].pts.size() == 3;
+        check(ok, "RING and WIRE are UNCHANGED by HELIX: same codes, same ring",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+    {
+        ParseOutcome o = tryParse("%1 = SWEEP(3, [0 0 0; 0 0 10])");
+        check(!o.threw && o.tree.ops.size() == 1 && o.tree.ops[0].code == OpCode::Sweep,
+              "SWEEP's literal-path form is UNCHANGED by HELIX",
+              o.threw ? "threw: " + o.message : "shape mismatch");
+    }
+}
+
 int main() {
     std::printf("SACROSANCT 3.1 Appendix B — feature-DAG acceptance tests (s0)\n");
     std::printf("target: forge::ft IR (parse-level; compile() is not invoked)\n");
@@ -1069,6 +1198,7 @@ int main() {
     testGraphQualityGate();
     testClosedVocabulary();
     testArcForm();
+    testHelixForm();
 
     std::printf("\n---------------------------------------------------------------\n");
     std::printf("TOTAL  pass=%d  fail=%d\n", g_pass, g_fail);
