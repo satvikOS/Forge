@@ -2203,6 +2203,8 @@ Every one is now an attributed verdict about the TREE. Seven of the nine turn ou
 to be the same one-line defect in the emission, which the run could not say because
 the tool measuring it died first.
 
+**The correction does not re-verify, and that is deliberate.** The nine rows are excluded from D-045's rates; they are NOT replaced by the verdicts above. Re-measuring nine rows with a fixed binary and leaving the other 591 on the pinned one would swap the instrument in the middle of the comparison — the same class of error as the one being corrected, wearing the clothes of a fix. The replay establishes that the rows are measurable, nothing more.
+
 **★ And the two "timeouts" were not a property of their rows either.** ho932 and
 ho998 were recorded as `verifier timeout after 180s`. Run ALONE against the
 **emission-time binary** — the same sha256 `45e9ad9a…`, not the fixed one — they
