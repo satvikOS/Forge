@@ -54,7 +54,18 @@ not on an exit status.
 | a `CMakeLists.txt` reference / the kernel actually LINKING this code | **still none** |
 | `cylinderPCurve` / `planeCylinderSection` exercised on real geometry | **still nothing** |
 | a re-measured paired DRAFT pass rate on the 565-part corpus | **still nothing** |
-| `reports/DRAFT_NATIVE_ENGINE.md`, cited for the 73-part figure | **still absent** |
+| `DRAFT_NATIVE_ENGINE.md`, cited for the 73-part figure | **EXISTS — I was wrong; see below** |
+
+★**CORRECTION, 2026-09-02: the report I twice said was missing is NOT missing.** I looked
+for `reports/DRAFT_NATIVE_ENGINE.md` and it lives at **`forge-kernel/reports/DRAFT_NATIVE_ENGINE.md`**
+— tracked, 450 lines, landed with #177 in `4080c2d8`. I searched the repo-root `reports/`
+and reported an absence that was my own wrong path. The citation in
+`NativePCurveFit.hpp` is accurate: line 298 of that report reads, verbatim, *"The entire
+remaining gap to OCCT is 73 parts, and every one is a drafted plane"*, its section 5 is
+*"What remains, and why it is not one more predicate"*, and its census line reads
+`The 73 OCCT DOES draft, by kind set:   73  cylinder    (nothing else)`. **That owed item
+is discharged, and it was never owed.** Three remain: CMake wiring, `cylinderPCurve`
+exercised on real geometry, and a re-measured paired DRAFT pass rate.
 
 ★**What the gate covers and what it does NOT.** It covers the numerics UNDERNEATH the
 pcurve fit — partition of unity, support and non-negativity, `findSpan` bracketing and
