@@ -3159,3 +3159,192 @@ contradiction, and quoting one alone is how that becomes one.
    id is instrument-failed on v10 does not describe this file. The paired 97-id set
    contains no instrument-failed row on either arm under it either way.
 
+
+## D-052 (2026-09-02): real human construction sequences moved EMISSION and BUILD and moved TRUTH BY NOTHING — the second pre-registered prediction fails, and the improvement that appeared under the pinned binary is the INSTRUMENT ARTEFACT the pre-registration named in advance
+
+`archie-30b-abcreal-v11` was trained on the v10 self-consistent corpus **plus real
+ABC/Onshape FeatureScript trees**, each carrying a VERIFY measured off the kernel's own
+census and re-verified before the row could enter. The hypothesis, registered in
+`PREREG_abcreal_v11.md` before the corpus was assembled: v10's assertions were true by
+construction but attached to **synthetic** trees, so attaching true assertions to **real**
+construction sequences is the change most likely to reconnect form to content.
+
+**It did not. Under the only binary that can read both arms, self-consistency did not move
+at all.**
+
+### The result, all three arms through ONE instrument
+
+`build-sarc` is the authority on capability (PREREG §6/§9); the pinned binary is reported
+for continuity only. Every figure below is `measure_failure_v2` — `instrument_failed`
+excluded from both halves — through
+`forge-kernel/build-sarc/forge_verify`, sha256 `87250291a8170c3c…`.
+
+| arm | (a) self-inconsistency | (b) VERIFY-emission | built | rows scored `ok` |
+|---|---|---|---|---|
+| `v6r8` baseline | **64/131 = 48.9%** | 131/238 = 55.0% | 82/238 = 34.5% | 18 |
+| `v10` synthetic assertions | **402/448 = 89.7%** | 448/593 = 75.5% | 402/593 = 67.8% | **0** |
+| `v11` real ABC trees | **495/552 = 89.7%** | **552/600 = 92.0%** | **495/600 = 82.5%** | **0** |
+
+**(a) is identical between v10 and v11 to the decimal place.** Paired, which is the test
+the pre-registration named:
+
+| paired, both-bearing | v11 | comparator | discordant | exact McNemar |
+|---|---|---|---|---|
+| **vs `v10`**, n = 419 | 370/419 = **88.3%** | 375/419 = **89.5%** | 35 worse / 40 better | **p = 0.644** |
+| **vs `v6r8`**, n = 117 | 111/117 = **94.9%** | 58/117 = **49.6%** | **55 worse / 2 better** | **p = 2.30e-14** |
+
+Emission moved, hard and significantly: v11 started asserting on **126** ids v10 did not
+and stopped on 29 (p = 1.29e-15); against v6r8, started on **96** and stopped on 14
+(p = 3.30e-16).
+
+★**Read the two rows of that table together. The corpus moved the thing that is easy to
+supervise — how often the model asserts, and whether the tree builds — by 16.5 and 14.7
+points, significantly. It moved whether the assertions are TRUE by 1.2 points, p = 0.64,
+which is nothing.**
+
+### The pre-registered predictions
+
+* **P1 — REFUTED.** P1 predicted (a) falls below v10's level, landing between the baseline
+  and v10 — "the regression is partly undone but the baseline is not beaten." Under the
+  authority instrument (a) **did not fall**: 88.3% vs 89.5%, p = 0.644. The regression is
+  not partly undone; it is entirely intact.
+* **P2 — CONFIRMED, and it matters.** (b) ≥ 45% was the denominator-collapse guard. (b) is
+  **92.0%**, the highest of any arm ever measured, and the paired emission change is
+  significantly **upward**. ★**This is emphatically NOT denominator collapse.** The arm did
+  not buy its number by falling silent; it asserted more than anything before it and the
+  assertions were no truer. That is a cleaner negative result than a collapse would have
+  been, and it is why the guard was written.
+* **P4 — CONFIRMED.** CBORE appears in **1 row of 600**. It is the first non-zero CBORE ever
+  recorded, and it is one row; P4 predicted ~0 because ABC trees contain no CBORE and cannot
+  teach one. One row is not a capability.
+
+### The INSTRUMENT ARTEFACT, named in the words the pre-registration chose
+
+PREREG §6 says: *"An improvement in (a) that appears under the pinned binary but NOT under
+`build-sarc` is an INSTRUMENT ARTEFACT, and I will say so in those words."* That is exactly
+what happened, so: **the improvement is an instrument artefact.**
+
+| v11, n=600 | `baseline_pin` | `build-sarc` |
+|---|---|---|
+| (a) | **72.3%** (399/552) | **89.7%** (495/552) |
+| (b) | 92.0% (552/600) | 92.0% (552/600) |
+| built | 69.0% | 82.5% |
+| `ok` | 15 | 0 |
+
+The 17.4-point gap is fully accounted for by the status transitions, row by row:
+
+```
+unknown_op    -> verify_failed   97      <- the artefact, exactly
+unknown_op    -> parse_error     32
+unknown_op    -> op_error        29
+ok            -> parse_error     15      <- every one of the pin's "successes"
+verify_failed -> verify_failed  397
+op_error      -> op_error        23
+unknown_op    -> unknown_op       4
+verify_failed -> op_error         2
+op_error      -> verify_failed    1
+```
+
+**Mechanism.** The ABC corpus taught the model the SKETCH family, and the pinned binary
+cannot parse it. `SKETCH_FAMILY_ROWS = 158/600 = 26.3%` (SKETCH 158, SPT 158, SLINE 152,
+SOLVE 145, SCIRC 98, SARC 26), and the cross-tab is total: **every one of those 158 rows is
+`unknown_op` under the pin, and not one `verify_failed` or `ok` row carries a SKETCH op.**
+A VERIFY-bearing row scored `unknown_op` sits in the self-inconsistency DENOMINATOR and can
+never reach its NUMERATOR, because a false assertion has to be *measured* to be counted. So
+the pin's 72.3% is `399 measured-false / (399 measured-false + 153 never-measured)`, and
+★**every assertion the pin could actually measure was false: 399/399 = 100%.**
+
+★**The op surface the model learned and the op surface the instrument reads are different
+sets.** That is a finding about the programme's measurement chain, not about this arm.
+
+### (b) is instrument-independent, and that is now MEASURED rather than asserted
+
+`selfconsist_endpoint.py` claims (b) is safe under instrument change because
+`rows_emitting_VERIFY` is read from the model's TEXT by regex, not from the kernel. Checked
+across the two binaries on all 600 rows: **VERIFY-bearing agrees on 600/600**, and (b) reads
+92.0% under both. The claim holds.
+
+### A THIRD-ORDER correction to D-045, which D-051 half-found
+
+D-051 established that D-045's "compiled" row counts `status == "ok"`, not builds. This run
+establishes what those `ok` rows *were*. Of the **123** rows the pin scored `ok` for v10,
+under `build-sarc` **122 are `parse_error` and 1 is `verify_failed` — zero remain `ok`**.
+Every `parse_error` on both arms is the same shape:
+
+```
+PAUSED_INCOMPLETE: ft parse line N: PAUSED_INCOMPLETE — the emission stopped mid-statement
+```
+
+★**The pinned binary silently scores a TRUNCATED emission as a clean success.** It builds
+whatever prefix parsed; the VERIFY that would have come at the end was cut off, so the row
+asserts nothing and lands in `ok`. So D-045's "compiled 83 = 34.9%" was not merely
+mislabelled (D-051) — the quantity it names is **almost entirely truncated output**. v10's
+real build rate under a parser that refuses a truncated tree is **402/593 = 67.8%**.
+
+**Truncation itself moved, and in v11's favour:** `PAUSED_INCOMPLETE` is **145/593 = 24.5%**
+on v10 against **47/600 = 7.8%** on v11 — while v11 emits *longer* trees (median 28 lines
+vs 16, p90 125 vs 94). This is consistent with PREREG §10, which filtered the v11 corpus to
+rows whose entire sequence fits the 3072-token window so that every surviving row masks
+correctly and carries its assertion. Consistent with, not proof of.
+
+### What the three arms say together
+
+| | v6r8 | v10 | v11 |
+|---|---|---|---|
+| built | 34.5% | 67.8% | **82.5%** |
+| asserts | 55.0% | 75.5% | **92.0%** |
+| **assertions true** | **51.1%** | 10.3% | 10.3% |
+
+★Build rate has more than doubled and emission has nearly doubled across three arms of
+increasingly careful supervision, and the fraction of assertions that are true fell by a
+factor of five and then stayed exactly flat. **This is D-041's pattern at a third data
+point and under a better instrument: the thing that moves is never the thing being
+supervised.** Two corpora built specifically to teach self-consistency — 10,190 synthesised
+assertions true by construction, then real human construction sequences with measured
+assertions — moved it by nothing and by nothing.
+
+### Caveats, including the ones that cut against this reading
+
+1. **The baseline is better than the record says, which makes the gap WIDER, not narrower.**
+   `v6r8` measures **48.9%** under `build-sarc` against **58.0%** under the pin. The
+   stricter kernel finds the baseline *more* self-consistent. Nothing in D-045 is retracted
+   by this — both its arms were scored by one binary — but the honest baseline for a
+   `build-sarc`-scored arm is 48.9%.
+2. **The both-bearing conditioning is asymmetric.** v11 asserts on 92% of rows and v6r8 on
+   55%, so the 117-id set is selected by v6r8's emission. The unconditional reading agrees
+   in direction and magnitude (93.0% vs 48.9%), so the conclusion does not rest on the
+   conditioning.
+3. **`unrecorded_deaths` is non-zero and is reported as a finding, not smoothed.** The
+   BUILDSARC runs report `crash_reports 1, unrecorded_deaths 1` (v11) and `2, 2` (v10)
+   attributed by parent pid. Row accounting is nonetheless complete (495+47+54+4 = 600), so
+   those deaths were absorbed by a retry rather than lost. Twelve `forge_verify` crash
+   reports were written on this machine today; the aborts are input-dependent, and
+   `measure_failure_v2` re-runs a missing row alone before any verdict.
+4. **The mid-run prefix readings are NOT comparable to this result and must not be quoted
+   beside it.** A prefix reading of 97.9% at n=358 was carried through several ticks; the
+   final measured value is 72.3% under the same binary. Those prefix figures were not
+   produced by `measure_failure_v2` on the final emissions, so the ~25-point gap is a method
+   difference of unknown size, **not** a measurement of the hardest-first ordering effect.
+   THE PREFIX WAS NOT THE RESULT.
+5. **`verify_malformed`** — a VERIFY the scorer cannot parse — occurs once on v6r8 and once
+   on v10 and never on v11. It is in neither numerator: such a row made no checkable claim.
+
+### What follows
+
+The untried lever is no longer "real sequences" — that is now tried and measured. What this
+run newly exposes is that **the corpus taught 26.3% of emissions in an op family the scoring
+kernel cannot read**, so the programme has been optimising a model and measuring it with
+instruments that disagree about what the model is even allowed to say. Before another corpus
+is built, the eval must score with a binary that can parse the ops the training data
+contains, and the arms already in the record should be re-read under it — which is what this
+entry does for v6r8 and v10.
+
+### Reproduction
+
+Every number above comes from files on disk and one script that does arithmetic only:
+
+    scripts/crossinstrument_v11.sh          # put every arm through ONE instrument, sequentially
+    tools/selfconsist/pair_arms.py          # refuses to pair arms measured with different binaries
+    reports/abcreal/{abcreal_v11_BASELINEPIN,abcreal_v11_BUILDSARC,v10_BUILDSARC,
+                     v10_recovered_BASELINEPIN,v6r8_BUILDSARC}.json
+
