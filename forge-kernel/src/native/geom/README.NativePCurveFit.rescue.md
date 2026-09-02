@@ -51,7 +51,7 @@ not on an exit status.
 | `forge-kernel/test/pcurve_fit_gate.cpp` — the differential check the header promises | **NOW EXISTS**, 89 checks, kernel-free |
 | `forge-kernel/test/run_pcurve_fit_gate.sh` — driver, guard proof, differential, mutations | **NOW EXISTS**, 5/5 mutations caught |
 | CI compiles `NativePCurveFit.cpp` | **the gate does it** (syntax-only, guard ON) — but see below |
-| a `CMakeLists.txt` reference / the kernel actually LINKING this code | **still none** |
+| a `CMakeLists.txt` reference / the kernel actually LINKING this code | **DONE — wired, built and the symbols are exported; see below** |
 | `cylinderPCurve` / `planeCylinderSection` exercised on real geometry | **still nothing** |
 | a re-measured paired DRAFT pass rate on the 565-part corpus | **still nothing** |
 | `DRAFT_NATIVE_ENGINE.md`, cited for the 73-part figure | **EXISTS — I was wrong; see below** |
@@ -66,6 +66,33 @@ remaining gap to OCCT is 73 parts, and every one is a drafted plane"*, its secti
 `The 73 OCCT DOES draft, by kind set:   73  cylinder    (nothing else)`. **That owed item
 is discharged, and it was never owed.** Three remain: CMake wiring, `cylinderPCurve`
 exercised on real geometry, and a re-measured paired DRAFT pass rate.
+
+★**WIRED INTO THE KERNEL BUILD, 2026-09-02 — and verified at three levels, not one.**
+`src/native/geom/NativePCurveFit.cpp` is now listed in `forge-kernel/CMakeLists.txt` beside
+`NativeNurbsConvert.cpp`, the file it was transcribed from. `_core_sources` is FILTERED from
+`FORGE_KERNEL_SOURCES`, so the one entry covers both `forge_kernel` and `forge_kernel_core`.
+`FORGE_NATIVE_BREP` is a CMake option defaulting **ON** and reaches the compiler as
+`target_compile_definitions(... FORGE_NATIVE_BREP=1)` on `forge_kernel`, `forge_kernel_core`,
+`forge_verify` and the probes — so the guard is genuinely on in a normal build.
+
+Because "it built" is not "the symbols are there" — the same trap as the empty-TU compile —
+all three levels were checked:
+
+```
+1. CMake lists it   [ 72%] Building CXX object .../src/native/geom/NativePCurveFit.cpp.o
+2. it compiles      CONFIGURE_RC=0   BUILD_RC=0   0 errors   [100%] Built target forge_kernel_core
+3. it is EXPORTED   nm -gU libforge_kernel_core.dylib | c++filt | grep pcurvefit::  ->  6 symbols, all T
+     T forge::pcurvefit::pointsToBSpline2d(...)      T forge::pcurvefit::fitBSpline2dAt(...)
+     T forge::pcurvefit::planeCylinderSection(...)   T forge::pcurvefit::sectionResidual(...)
+     T forge::pcurvefit::cylinderPCurve(...)         T forge::pcurvefit::planePCurve(...)
+   object file 49,600 bytes / 12 symbols — not an empty translation unit
+```
+
+★**It is no longer a file nothing compiles.** With `FORGE_NATIVE_BREP=OFF` the TU is empty,
+which is safe ONLY because nothing calls into it yet; the moment a caller exists, an OFF
+build needs an `#else` path or the option becomes a link landmine.
+
+★**This still does not move `OCCT_CLOSURE`, and must not be reported as if it did.**
 
 ★**What the gate covers and what it does NOT.** It covers the numerics UNDERNEATH the
 pcurve fit — partition of unity, support and non-negativity, `findSpan` bracketing and

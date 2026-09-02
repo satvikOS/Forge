@@ -1678,6 +1678,12 @@ set(FORGE_KERNEL_SOURCES
     src/native/geom/Geom.cpp
     src/native/geom/NativeProjection.cpp   # R1 — native point->surface + point->curve-2d projection (Gauss-Newton; drops TKGeomAlgo GeomAPI_Project* + TKGeomBase Extrema)
     src/native/geom/NativeNurbsConvert.cpp # R2 — native analytic->NURBS + points->NURBS lsq fit (drops TKGeomBase GeomConvert + TKGeomAlgo PointsToBSpline)
+    src/native/geom/NativePCurveFit.cpp    # R2b — native 2-D lsq B-spline PCURVE fit + exact plane/cylinder section (TKOffset family J, the DRAFT blocker).
+                                           #       Guarded by FORGE_NATIVE_BREP like its siblings; with the guard OFF the TU is EMPTY, which is safe only
+                                           #       because nothing calls it yet. Its numerics are gated by test/run_pcurve_fit_gate.sh, which asserts on a
+                                           #       PREPROCESSED SYMBOL COUNT rather than an exit status — a bare compile of this file builds NOTHING and
+                                           #       returns 0. ★ It does NOT move OCCT_CLOSURE: it replaces a Geom2dAPI_PointsToBSpline call in TKGeomAlgo,
+                                           #       which is already a FREE RIDER exporting zero symbols the kernel still needs.
     src/native/geom/NativeLaw.cpp          # R3 — native 1-D evolution laws (Law_Linear/Law_S) for VarFillet — pure std, unguarded (drops TKGeomAlgo Law_*)
     src/native/geom/Delaunay.cpp
     src/native/gdt/Gdt.cpp
