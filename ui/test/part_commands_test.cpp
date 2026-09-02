@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 50);
-  CHECK_EQ_INT(registry.size(), 50);
+  CHECK_EQ_INT(added, 58);
+  CHECK_EQ_INT(registry.size(), 58);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 50);
+  CHECK_EQ_INT(registry.size(), 58);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -102,7 +102,7 @@ int main() {
       CHECK(findIrOp(c->featureIrOp) != nullptr);
     }
   }
-  CHECK_EQ_INT(withIrOp, 49);  // every registered Part command emits an IR op
+  CHECK_EQ_INT(withIrOp, 57);  // every registered Part command emits an IR op
 
   // ── the document seed ─────────────────────────────────────────────────────
   // Three values that exist before any Part command ran: two sketches from the
@@ -372,7 +372,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 50);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 58);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -489,7 +489,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 50);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 58);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -521,7 +521,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 50);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 58);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -574,7 +574,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 50);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 58);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     // EVERY handler that reads a selection-derived vector belongs here, whether it
@@ -798,7 +798,7 @@ int main() {
     PartDocument docN;
     UndoStack stackN;
     SelectionService selN;
-    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 50);
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 58);
     CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
 
     // ── the minimal form of each: required parameters only ──────────────────
@@ -1056,7 +1056,7 @@ int main() {
     PartDocument docE2;
     UndoStack stackE2;
     SelectionService noneE2;
-    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 50);
+    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 58);
     CHECK_EQ_INT(docE2.records().size(), 0);  // EMPTY: INPUT is a creator
 
     // INPUT()  -- "bind the task's input STEP as a solid". No selection, no
@@ -1180,7 +1180,7 @@ int main() {
   }
 
   // ── (d2) SECTION — the fourth boolean, and the one that is NOT a body ─────
-  // Registration and a count prove nothing here: `withIrOp == 31` above stays
+  // Registration and a count prove nothing here: `withIrOp == 57` above stays
   // green if part.section_curve emitted FUSE. What distinguishes SECTION from the
   // other three booleans is not its arity — all four take two bodies — it is the
   // two properties below, and BOTH are wrong by default:
@@ -1200,7 +1200,7 @@ int main() {
     PartDocument docS;
     UndoStack stackS;
     SelectionService selS;
-    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 50);
+    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 58);
 
     const CommandDescriptor* sc = regS.find("part.section_curve");
     CHECK(sc != nullptr);
@@ -1289,7 +1289,7 @@ int main() {
     PartDocument docF;
     UndoStack stackF;
     SelectionService selF;
-    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 50);
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 58);
 
     // The five statements of the application's own starting part, seeded exactly
     // as the app seeds them: NONE of them is command-authored, so undo cannot
@@ -1473,6 +1473,165 @@ int main() {
     CHECK_EQ_STR(toString(EditCheck::NoSuchFeature), "no_such_feature");
     CHECK_EQ_STR(toString(EditCheck::NoChange), "no_change");
     CHECK_EQ_STR(toString(EditCheck::InvalidStatement), "invalid_statement");
+  }
+
+
+  // ── (g) THE 2D SKETCH + CONSTRAINT FAMILY ────────────────────────────────
+  // Eight commands, seven ops, and every assertion below is about a REFUSAL
+  // except the ones that build the chain. The refusals are the point: the kernel
+  // THROWS on a cross-sketch operand and SWALLOWS a mis-typed constraint keyword
+  // as a verify note, so a command that emitted either would cost the whole tree
+  // or silently constrain nothing, and neither failure is visible in the
+  // document that gets trained on.
+  {
+    CommandRegistry regK;
+    PartDocument docK;
+    UndoStack stackK;
+    SelectionService selK;
+    CHECK_EQ_INT(registerPartCommands(regK, docK, stackK), 58);
+
+    // A CREATOR: no selection, no parameter, and reachable from an empty document
+    // exactly as RECT is. The plane is the LITERAL XY -- see part.sketch_new for
+    // why YZ/XZ are not offered while the kernel solves them on XY anyway.
+    CHECK(regK.evaluate("part.sketch_new", selK).ok());
+    CHECK(regK.dispatch("part.sketch_new", selK, CommandParams()).ok());
+    CHECK_EQ_STR(lastLine(docK), "%1 = SKETCH(XY)");
+    CHECK_EQ_INT(docK.valueFor("opensketch_1"), 1);
+    CHECK_EQ_INT(static_cast<int>(docK.kindOf(1)), static_cast<int>(IrValueKind::Sketch));
+
+    // SPT is the only entity op that names the sketch: it needs the SKETCH value,
+    // and a PROFILE of the same shape does not stand in. Seeding one and pointing
+    // the command at it is the mis-selection the two kinds exist to refuse.
+    docK.seed(IrValueKind::Profile, "sketch_p", "RECT", {IrArg::num(10), IrArg::num(10)});
+    selectOnly(selK, {ref("sketch_p", EntityKind::OpenSketch, "notasketch")});
+    CHECK(!regK.evaluate("part.sketch_entity_point", selK, params2("x", 0, "y", 0)).ok());
+    CHECK(!regK.evaluate("part.sketch_solve", selK).ok());
+
+    selectOnly(selK, {ref("opensketch_1", EntityKind::OpenSketch, "sk")});
+    CHECK(regK.dispatch("part.sketch_entity_point", selK, params2("x", 0, "y", 0)).ok());
+    CHECK_EQ_STR(lastLine(docK), "%3 = SPT(%1, 0, 0)");
+    CHECK(regK.dispatch("part.sketch_entity_point", selK, params2("x", 40, "y", 0)).ok());
+    CHECK_EQ_STR(lastLine(docK), "%4 = SPT(%1, 40, 0)");
+    CHECK(regK.dispatch("part.sketch_entity_point", selK, params2("x", 40, "y", 30)).ok());
+    CHECK_EQ_STR(lastLine(docK), "%5 = SPT(%1, 40, 30)");
+    CHECK_EQ_INT(static_cast<int>(docK.kindOf(3)), static_cast<int>(IrValueKind::SketchRef));
+
+    // SLINE takes TWO entities in selection order.
+    selectOnly(selK, {ref("sketchref_3", EntityKind::SketchRef, "e1"),
+                      ref("sketchref_4", EntityKind::SketchRef, "e2")});
+    CHECK(regK.dispatch("part.sketch_entity_line", selK, CommandParams()).ok());
+    CHECK_EQ_STR(lastLine(docK), "%6 = SLINE(%3, %4)");
+
+    // ONE entity is not a line, and THREE is not a line either: the signature
+    // refuses both before the handler runs.
+    selectOnly(selK, {ref("sketchref_3", EntityKind::SketchRef, "e1")});
+    CHECK(!regK.evaluate("part.sketch_entity_line", selK).ok());
+
+    // SCIRC's radius is the circle's own, and a non-positive one is refused
+    // rather than handed to the solver.
+    CHECK(!regK.evaluate("part.sketch_entity_circle", selK, params1("radius", 0)).ok());
+    CHECK(!regK.evaluate("part.sketch_entity_circle", selK, params1("radius", -3)).ok());
+    CHECK(regK.dispatch("part.sketch_entity_circle", selK, params1("radius", 6)).ok());
+    CHECK_EQ_STR(lastLine(docK), "%7 = SCIRC(%3, 6)");
+
+    // SARC: centre, start, end, IN SELECTION ORDER -- swapping start and end is a
+    // different arc, so the order is asserted rather than assumed.
+    selectOnly(selK, {ref("sketchref_3", EntityKind::SketchRef, "c"),
+                      ref("sketchref_5", EntityKind::SketchRef, "b"),
+                      ref("sketchref_4", EntityKind::SketchRef, "a")});
+    CHECK(regK.dispatch("part.sketch_entity_arc", selK, CommandParams()).ok());
+    CHECK_EQ_STR(lastLine(docK), "%8 = SARC(%3, %5, %4)");
+
+    // ── THE CROSS-SKETCH REFUSAL ────────────────────────────────────────────
+    // A second sketch with a point of its own. forge::ft THROWS on
+    // `SLINE(%a, %b)` when a and b live in different sketches, and a throw costs
+    // the WHOLE tree; the pair has to grey out at the menu instead.
+    CHECK(regK.dispatch("part.sketch_new", selK, CommandParams()).ok());
+    CHECK_EQ_STR(lastLine(docK), "%9 = SKETCH(XY)");
+    selectOnly(selK, {ref("opensketch_9", EntityKind::OpenSketch, "sk2")});
+    CHECK(regK.dispatch("part.sketch_entity_point", selK, params2("x", 5, "y", 5)).ok());
+    CHECK_EQ_STR(lastLine(docK), "%10 = SPT(%9, 5, 5)");
+
+    selectOnly(selK, {ref("sketchref_3", EntityKind::SketchRef, "e1"),
+                      ref("sketchref_10", EntityKind::SketchRef, "other")});
+    CHECK(!regK.evaluate("part.sketch_entity_line", selK).ok());
+    CHECK(!regK.evaluate("part.sketch_constrain", selK, CommandParams()).ok());
+    selectOnly(selK, {ref("sketchref_3", EntityKind::SketchRef, "e1"),
+                      ref("sketchref_4", EntityKind::SketchRef, "e2"),
+                      ref("sketchref_10", EntityKind::SketchRef, "other")});
+    CHECK(!regK.evaluate("part.sketch_entity_arc", selK).ok());
+
+    // ── CON, and the keyword domains ────────────────────────────────────────
+    // The nine forge::Sketcher dispatches, split by arity. Anything else is
+    // refused HERE, because the compiler skips an unknown keyword with a note
+    // and keeps building -- a constraint that silently did not apply.
+    CommandParams horiz;
+    horiz.setText("kind", "HORIZ");
+    selectOnly(selK, {ref("sketchref_6", EntityKind::SketchRef, "l1")});
+    CHECK(regK.dispatch("part.sketch_constrain_single", selK, horiz).ok());
+    CHECK_EQ_STR(lastLine(docK), "%11 = CON(%6, HORIZ)");
+    // PASS-THROUGH: it rebinds the SKETCH's own node rather than forking it.
+    CHECK_EQ_INT(docK.valueFor("opensketch_1"), 11);
+    CHECK_EQ_INT(static_cast<int>(docK.kindOf(11)), static_cast<int>(IrValueKind::Sketch));
+
+    CommandParams bogus;
+    bogus.setText("kind", "horizontal");
+    CHECK(!regK.evaluate("part.sketch_constrain_single", selK, bogus).ok());
+    CommandParams notWired;
+    notWired.setText("kind", "RADIUS");  // exists in planegcs, NOT wired in the facade
+    CHECK(!regK.evaluate("part.sketch_constrain_single", selK, notWired).ok());
+    CommandParams binaryOnSingle;
+    binaryOnSingle.setText("kind", "COINC");  // a two-entity kind on one entity
+    CHECK(!regK.evaluate("part.sketch_constrain_single", selK, binaryOnSingle).ok());
+
+    CommandParams dist;
+    dist.setText("kind", "DIST");
+    dist.setNumber("distance", 40);
+    selectOnly(selK, {ref("sketchref_3", EntityKind::SketchRef, "e1"),
+                      ref("sketchref_4", EntityKind::SketchRef, "e2")});
+    CHECK(regK.dispatch("part.sketch_constrain", selK, dist).ok());
+    // The SECOND constraint on this sketch, and the case that proves the node is
+    // resolved by walking the sketch's statements and not by nodeFor(root): after
+    // %11 the node no longer names %1.
+    CHECK_EQ_STR(lastLine(docK), "%12 = CON(%3, DIST, %4, 40)");
+    CHECK_EQ_INT(docK.valueFor("opensketch_1"), 12);
+    // and the minimal form omits the value entirely
+    CommandParams coinc;
+    coinc.setText("kind", "COINC");
+    CHECK(regK.dispatch("part.sketch_constrain", selK, coinc).ok());
+    CHECK_EQ_STR(lastLine(docK), "%13 = CON(%3, COINC, %4)");
+    CommandParams unaryOnPair;
+    unaryOnPair.setText("kind", "VERT");  // a one-entity kind on a pair
+    CHECK(!regK.evaluate("part.sketch_constrain", selK, unaryOnPair).ok());
+
+    // ── THE EXIT ────────────────────────────────────────────────────────────
+    // SOLVE names the sketch as it stands NOW (%13, both constraints applied),
+    // produces a PROFILE under a `sketch_N` node, and part.extrude -- untouched
+    // by this family -- consumes it. That is the whole reason the family is worth
+    // having, so it is asserted end to end rather than by type.
+    selectOnly(selK, {ref("opensketch_1", EntityKind::OpenSketch, "sk")});
+    CHECK(regK.dispatch("part.sketch_solve", selK, CommandParams()).ok());
+    CHECK_EQ_STR(lastLine(docK), "%14 = SOLVE(%13)");
+    CHECK_EQ_INT(static_cast<int>(docK.kindOf(14)), static_cast<int>(IrValueKind::Profile));
+    // SOLVE CONSUMES NOTHING: the sketch is still there and still solvable.
+    CHECK_EQ_INT(docK.valueFor("opensketch_1"), 13);
+    CHECK(regK.evaluate("part.sketch_solve", selK).ok());
+
+    selectOnly(selK, {ref("sketch_14", EntityKind::Sketch, "s14")});
+    CHECK(regK.dispatch("part.extrude", selK, params1("distance", 5)).ok());
+    CHECK_EQ_STR(lastLine(docK), "%15 = EXTRUDE(%14, 5)");
+
+    // Every statement of it is legal IR, checked as text rather than trusted.
+    for (const FeatureRecord& r : docK.records()) {
+      CHECK_EQ_INT(static_cast<int>(validateIr(r.line)), static_cast<int>(IrCheck::Ok));
+    }
+
+    // And UNDO reaches all of it, because every one was command-authored.
+    const std::size_t depth = stackK.undoDepth();
+    CHECK_EQ_INT(depth, 14);  // 15 statements minus the one seeded PROFILE
+    for (std::size_t i = 0; i < depth; ++i) CHECK(stackK.undo(docK));
+    CHECK_EQ_INT(docK.featureCount(), 0);
+    CHECK_EQ_INT(docK.valueFor("opensketch_1"), 0);
   }
 
   // ── the value-kind string layer round-trips, for EVERY kind ───────────────

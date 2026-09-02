@@ -24,9 +24,9 @@
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "2b75a32f22d4078d8ef108c3b945a400a6b0890947bd419c07b213f282efd116",
-        "bytes": 160059,
-        "lines": 2586
+        "sha256": "24d1ca4f7bc54737a950af371496d36752cdf3270cfecab6975f60d3c4554ca2",
+        "bytes": 163240,
+        "lines": 2633
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "bdaee1cad4f4a833fb272925163353991921df6defc6e995b86611a2077250ce",
-        "bytes": 159147,
-        "lines": 2724
+        "sha256": "221b7590e5dfc37b6527265cdbc7a30ff68d8fc3db228ad6749f3228857e4422",
+        "bytes": 182885,
+        "lines": 3112
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,10 +78,10 @@
   "counts": {
     "kernel_ops": 55,
     "ui_validator_ops": 55,
-    "registry_commands": 72,
-    "commands_emitting_ir": 49,
-    "user_invocable_ops": 46,
-    "forbidden_ops": 9,
+    "registry_commands": 80,
+    "commands_emitting_ir": 57,
+    "user_invocable_ops": 53,
+    "forbidden_ops": 2,
     "uncertain_entries": 3,
     "derived_defects": 3
   },
@@ -94,6 +94,7 @@
       "CHAMFER",
       "CIRCLE",
       "COMMON",
+      "CON",
       "CONE",
       "CUT",
       "CYL",
@@ -119,11 +120,17 @@
       "RING",
       "ROTATE",
       "RRECT",
+      "SARC",
+      "SCIRC",
       "SECTION",
       "SEW",
       "SHELL",
+      "SKETCH",
       "SKIN",
+      "SLINE",
+      "SOLVE",
       "SPHERE",
+      "SPT",
       "SURFCHECK",
       "SWEEP",
       "TAG",
@@ -950,6 +957,172 @@
             }
           ],
           "command": "part.boolean_intersect"
+        }
+      ]
+    },
+    {
+      "op": "CON",
+      "kernel_enum": "Con",
+      "produces": "SKETCH",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 4,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "CON(%a, KIND [, %b, value])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "keyword",
+              "name": "kind",
+              "keyword": "KIND",
+              "index": 1
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "ref",
+              "name": "b",
+              "index": 2
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "value",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "override: CON(%a, KIND [, %b, value]) -- addConstraint(owner, kind, refs, value); DIST is the only dimensional kind wired in skConstrain at this SHA, so the value is a DISTANCE in mm"
+            }
+          ],
+          "prose": "constrain; PASS-THROUGH like TAG"
+        }
+      ],
+      "kernel_notes": [
+        "KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON",
+        "KIND dimensional: DIST",
+        "That is EXACTLY the set forge::Sketcher dispatches today --",
+        "9 of the 67 primitives planegcs actually has. RADIUS,",
+        "DIAM, ANGLE, CONC, COLL, SYMM, MIDPT and FIX all exist in",
+        "the ENGINE and are one switch arm each in the facade, but",
+        "none is wired at this SHA, so none is listed here: a",
+        "vocabulary that advertises a keyword the compiler skips is",
+        "a worse defect than a short vocabulary. An unlisted",
+        "keyword is skipped and NAMED, never fatal. A TRAILING",
+        "operand that does not resolve, or that belongs to a",
+        "different sketch, is skipped and NAMED the same way: this",
+        "op is pass-through, so the answer is the sketch unchanged,",
+        "and a mis-typed %ref must not cost the other 199",
+        "statements of a long tree. Its FIRST operand and its kind",
+        "still REFUSE -- with neither an owning sketch nor a",
+        "constraint kind resolved there is nothing to pass through.",
+        "The kind is ALWAYS arg 1; the operands follow and are read",
+        "by token type, so one op covers unary/binary/dimensional",
+        "without four op names. CON returns the SKETCH it was handed",
+        "-- a constraint statement that could itself move geometry",
+        "before the solve is a defect generator (same reasoning as",
+        "TAG and VERIFY)."
+      ],
+      "user_commands": [
+        "part.sketch_constrain",
+        "part.sketch_constrain_single"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%entityA",
+            "COINC|DIST|EQUAL|PARA|PERP|PTON|TANG",
+            "%entityB"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "COINC"
+              },
+              "ir_arguments": [
+                "%entityA",
+                "COINC",
+                "%entityB"
+              ],
+              "ir_text": "%<id> = CON(%entityA, COINC, %entityB)"
+            }
+          ],
+          "command": "part.sketch_constrain"
+        },
+        {
+          "when": "hasNumber(ctx, \"distance\")",
+          "when_human": "any of distance is supplied",
+          "arguments": [
+            "%entityA",
+            "COINC|DIST|EQUAL|PARA|PERP|PTON|TANG",
+            "%entityB",
+            "distance"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "COINC",
+                "distance": 14.0
+              },
+              "ir_arguments": [
+                "%entityA",
+                "COINC",
+                "%entityB",
+                "14"
+              ],
+              "ir_text": "%<id> = CON(%entityA, COINC, %entityB, 14)"
+            }
+          ],
+          "command": "part.sketch_constrain"
+        },
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%entity",
+            "HORIZ|VERT"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "HORIZ"
+              },
+              "ir_arguments": [
+                "%entity",
+                "HORIZ"
+              ],
+              "ir_text": "%<id> = CON(%entity, HORIZ)"
+            }
+          ],
+          "command": "part.sketch_constrain_single"
         }
       ]
     },
@@ -4329,6 +4502,148 @@
       ]
     },
     {
+      "op": "SARC",
+      "kernel_enum": "SArc",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 3,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SARC(%centre, %p0, %p1)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "centre",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p0",
+              "index": 1
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p1",
+              "index": 2
+            }
+          ],
+          "prose": "arc: centre + start + end"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_arc"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%centre",
+            "%arcStart",
+            "%arcEnd"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%centre",
+                "%arcStart",
+                "%arcEnd"
+              ],
+              "ir_text": "%<id> = SARC(%centre, %arcStart, %arcEnd)"
+            }
+          ],
+          "command": "part.sketch_entity_arc"
+        }
+      ]
+    },
+    {
+      "op": "SCIRC",
+      "kernel_enum": "SCirc",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SCIRC(%centre, r)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "centre",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            }
+          ],
+          "prose": "circle: centre point + radius"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_circle"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%centre",
+            "radius"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0
+              },
+              "ir_arguments": [
+                "%centre",
+                "10"
+              ],
+              "ir_text": "%<id> = SCIRC(%centre, 10)"
+            }
+          ],
+          "command": "part.sketch_entity_circle"
+        }
+      ]
+    },
+    {
       "op": "SECTION",
       "kernel_enum": "Section",
       "produces": "WIRE",
@@ -4646,6 +4961,60 @@
       ]
     },
     {
+      "op": "SKETCH",
+      "kernel_enum": "Sketch",
+      "produces": "SKETCH",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 1,
+        "max_args": 1,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "SKETCH(PLANE)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "keyword",
+              "name": "plane",
+              "keyword": "PLANE",
+              "index": 0
+            }
+          ],
+          "prose": "PLANE = XY|YZ|XZ"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_new"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "XY"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "XY"
+              ],
+              "ir_text": "%<id> = SKETCH(XY)"
+            }
+          ],
+          "command": "part.sketch_new"
+        }
+      ]
+    },
+    {
       "op": "SKIN",
       "kernel_enum": "Skin",
       "produces": "SURFACE",
@@ -4753,6 +5122,125 @@
           ],
           "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
           "command": "part.skin"
+        }
+      ]
+    },
+    {
+      "op": "SLINE",
+      "kernel_enum": "SLine",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SLINE(%p0, %p1)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p0",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p1",
+              "index": 1
+            }
+          ],
+          "prose": "line through two sketch points"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_line"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%p0",
+            "%p1"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%p0",
+                "%p1"
+              ],
+              "ir_text": "%<id> = SLINE(%p0, %p1)"
+            }
+          ],
+          "command": "part.sketch_entity_line"
+        }
+      ]
+    },
+    {
+      "op": "SOLVE",
+      "kernel_enum": "Solve",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [
+        "SKETCH"
+      ],
+      "arity": {
+        "min_args": 1,
+        "max_args": 1,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SOLVE(%sketch)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "sketch",
+              "index": 0
+            }
+          ],
+          "prose": "-> PROFILE. NEVER refuses."
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_solve"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%sketch"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%sketch"
+              ],
+              "ir_text": "%<id> = SOLVE(%sketch)"
+            }
+          ],
+          "command": "part.sketch_solve"
         }
       ]
     },
@@ -4876,6 +5364,88 @@
             }
           ],
           "command": "part.primitive_sphere"
+        }
+      ]
+    },
+    {
+      "op": "SPT",
+      "kernel_enum": "SPt",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCH"
+      ],
+      "arity": {
+        "min_args": 3,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SPT(%sketch, x, y)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "sketch",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "x",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "override: SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this position in the sketch plane; the sketch plane is Z=0 in world mm"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "y",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "override: SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this position in the sketch plane; the sketch plane is Z=0 in world mm"
+            }
+          ],
+          "prose": "a point; produces a SKETCHREF"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_point"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%sketch",
+            "x",
+            "y"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "ir_arguments": [
+                "%sketch",
+                "0",
+                "0"
+              ],
+              "ir_text": "%<id> = SPT(%sketch, 0, 0)"
+            }
+          ],
+          "command": "part.sketch_entity_point"
         }
       ]
     },
@@ -5877,74 +6447,11 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
-      "op": "CON",
-      "kernel_enum": "Con",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "CON(%a, KIND [, %b, value])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SARC",
-      "kernel_enum": "SArc",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SARC(%centre, %p0, %p1)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SCIRC",
-      "kernel_enum": "SCirc",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SCIRC(%centre, r)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SKETCH",
-      "kernel_enum": "Sketch",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SKETCH(PLANE)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SLINE",
-      "kernel_enum": "SLine",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SLINE(%p0, %p1)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SOLVE",
-      "kernel_enum": "Solve",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SOLVE(%sketch)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SPT",
-      "kernel_enum": "SPt",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SPT(%sketch, x, y)"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     }
@@ -8413,6 +8920,284 @@
       "produces_value_kind": "Profile"
     },
     {
+      "id": "part.sketch_constrain",
+      "label": "Constrain Entity Pair",
+      "category": "Part",
+      "feature_ir_op": "CON",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 2,
+        "max": 2
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "COINC",
+          "has_default": true
+        },
+        {
+          "name": "distance",
+          "type": "Number",
+          "required": false,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"COINC\" || kind == \"PARA\" || kind == \"PERP\" || kind == \"TANG\" || kind == \"EQUAL\" || kind == \"PTON\" || kind == \"DIST\")",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 2
+          },
+          {
+            "parameter": "kind",
+            "comparison": "one_of",
+            "values": [
+              "COINC",
+              "DIST",
+              "EQUAL",
+              "PARA",
+              "PERP",
+              "PTON",
+              "TANG"
+            ]
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
+      "id": "part.sketch_constrain_single",
+      "label": "Constrain Entity",
+      "category": "Part",
+      "feature_ir_op": "CON",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "HORIZ",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"HORIZ\" || kind == \"VERT\")",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 1
+          },
+          {
+            "parameter": "kind",
+            "comparison": "one_of",
+            "values": [
+              "HORIZ",
+              "VERT"
+            ]
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
+      "id": "part.sketch_entity_arc",
+      "label": "Sketch Arc",
+      "category": "Part",
+      "feature_ir_op": "SARC",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 3,
+        "max": 3
+      },
+      "parameters": [],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 3 && !sharedSketchNode(*d, ctx.selection()).empty()",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 3
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_entity_circle",
+      "label": "Sketch Circle",
+      "category": "Part",
+      "feature_ir_op": "SCIRC",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 && num(ctx, \"radius\", 0.0) > 0.0",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 1
+          },
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_entity_line",
+      "label": "Sketch Line",
+      "category": "Part",
+      "feature_ir_op": "SLINE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 2,
+        "max": 2
+      },
+      "parameters": [],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 && !sharedSketchNode(*d, ctx.selection()).empty()",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 2
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_entity_point",
+      "label": "Sketch Point",
+      "category": "Part",
+      "feature_ir_op": "SPT",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "OpenSketch",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "x",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "y",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1",
+        "derived": [
+          {
+            "selection_values_of_kind": "Sketch",
+            "comparison": "==",
+            "value": 1
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_new",
+      "label": "New Sketch",
+      "category": "Part",
+      "feature_ir_op": "SKETCH",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "true",
+        "derived": [],
+        "unparsed_terms": [
+          "true"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
       "id": "part.sketch_poly",
       "label": "Polyline Profile",
       "category": "Part",
@@ -8668,6 +9453,34 @@
           "2.0 * r <= w - 0.2",
           "2.0 * r <= h - 0.2"
         ]
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
+      "id": "part.sketch_solve",
+      "label": "Solve Sketch",
+      "category": "Part",
+      "feature_ir_op": "SOLVE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "OpenSketch",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1",
+        "derived": [
+          {
+            "selection_values_of_kind": "Sketch",
+            "comparison": "==",
+            "value": 1
+          }
+        ],
+        "unparsed_terms": []
       },
       "produces_value_kind": "Profile"
     },
@@ -9258,6 +10071,8 @@
   "value_kind_closure": {
     "produced_by_allowed_ops": [
       "PROFILE",
+      "SKETCH",
+      "SKETCHREF",
       "SOLID",
       "SURFACE",
       "WIRE"
