@@ -354,7 +354,26 @@ jobs:
   kernel:
     name: OCCT kernel smoke (TRANSITIONAL — pending native C++ harness)
     runs-on: macos-latest
-    timeout-minutes: 40
+    # 75, raised from 40, and the reason is MEASURED rather than assumed -- this
+    # job hit exactly 40m21s on this branch and GitHub reported that as
+    # `cancelled`, which is the same word a concurrency cancel uses. Read as a
+    # blip it would have been retried for ever; it was a JOB TIMEOUT.
+    #
+    # It is not a hang. The step the clock ran out on had been running 94s (the
+    # same step takes 334s when it is allowed to finish), and every step before
+    # it had already passed. The job has simply GROWN, in measured increments:
+    #
+    #   22m26s  archdisc before this wave        (run 33594358596)
+    #   34m08s  + #176's sketch/constraint gate  (run 33644735933)
+    #   ~48m    + the two-path differential gate this branch adds -- its tier-2
+    #           step alone costs 850s (run 33652620543, step 18)
+    #
+    # 40 was set when the job took 23 minutes. The ceiling exists to catch a
+    # HANG, not to budget legitimate work, so it is raised to 75 -- still far
+    # below the 180 that made three earlier timeouts look like infrastructure
+    # noise, and still tight enough that a genuinely stuck launch is caught
+    # rather than burning a runner. Re-measure when a step is added.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
