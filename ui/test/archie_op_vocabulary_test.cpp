@@ -550,19 +550,22 @@ int main() {
   PartDocument partDoc;
   UndoStack partUndo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), partDoc, partUndo);
-  // 58 -- RE-MEASURED on the merged tree, not carried over from either side
-  // (#177's base pinned 50, this branch pinned 58). The method is #177's own,
-  // re-run: count `part.*` rows in the regenerated APP_SURFACE_MANIFEST.tsv,
-  // CALIBRATED first against BOTH parents' committed manifests, where it
-  // reproduced their own 50 and 58 exactly.
+  // 58 -- RE-MEASURED on the merged tree at every merge, never carried over from
+  // either side. At the #177 merge the two sides pinned 50 and 58; at THIS merge
+  // (the execution branch into archdisc) they pin 43 and 58. The method is the
+  // same one each time: regenerate APP_SURFACE_MANIFEST.tsv from the LIVE
+  // registry
+  //     FORGE_WRITE_APP_SURFACE=1 ONLY=capability_manifest_test bash ui/test/run_ui.sh
+  // and count its `part.*` rows -- CALIBRATED first against BOTH parents'
+  // COMMITTED manifests, where it reproduced their own 43 and 58 exactly before
+  // it was trusted on the merged tree, which gives 58 (80 commands in total).
   //
-  // It lands on this branch's number rather than a third one because the
-  // command sets are NESTED, and that was checked as a SET DIFFERENCE rather
-  // than assumed: the base adds ZERO `part.*` commands this branch lacks, and
-  // this branch adds exactly EIGHT the base lacks (the 2D sketch + constraint
-  // family), so 58 is |ours union theirs|. #177 changed no command at all --
-  // its only edits under ui/ are to tests -- which is why the union is this
-  // side's set unchanged.
+  // It lands on this branch's number rather than a third one because the command
+  // sets are NESTED, and that was checked as a SET DIFFERENCE rather than
+  // assumed: the base adds ZERO `part.*` commands this branch lacks, and this
+  // branch adds exactly FIFTEEN the base lacks -- the eight of the 2D sketch +
+  // constraint family, the six SURFACE commands, and part.section_curve -- so 58
+  // is |ours union theirs|.
   CHECK_EQ_INT(partAdded, 58);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
