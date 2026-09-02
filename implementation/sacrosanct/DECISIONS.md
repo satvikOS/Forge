@@ -2447,8 +2447,14 @@ hand from the JSON.
 
 **What this does NOT claim.** No sketch has been solved through the real solver by this branch —
 the 2D family's kernel behaviour is #163's measurement, unchanged here, and nothing in this branch
-re-measures it. `forge-desktop` is not built here and its ribbon is not clicked, so "reachable in
-the registry" is what is gated, not "clicked in the shipped app" — the standing gap that no CI job
-compiles `forge-desktop` is untouched by this branch. The 40.78% is a TRANSLATION-YIELD figure over a corpus whose
+re-measures it. `forge-desktop` is not built LOCALLY here and no ribbon was clicked. CI does
+compile it (`kernel-tests.yml`: "forge-desktop compiles + its headless gates (mutation-proved)"),
+and the ribbon renders Part commands straight out of the registry through `ribbonCategories()`, so
+the eight arrive there without a code change — but "reachable in the registry" is what is GATED,
+not "clicked in the shipped app", and this branch adds no click gate. Its two curated
+`EntityKind` lists (`ForgeFrame`'s selection-filter combo, which already omitted `Wire` and
+`Surface`, and `PartFile`'s reader, which delegates to `irValueKindFromName` and is total by
+construction) are deliberately not touched: neither is a switch, so neither would have caught the
+omission, and extending the filter combo is a UI decision this branch did not measure. The 40.78% is a TRANSLATION-YIELD figure over a corpus whose
 provenance is UNVERIFIED (`MODEL_DATA.md`); it is a capability measurement, not a training licence,
 and it is not a benchmark score.
