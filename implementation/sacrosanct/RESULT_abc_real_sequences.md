@@ -134,17 +134,45 @@ pre-registration this round resolved.
 
 ## WHAT WOULD ACTUALLY MOVE THIS
 
-In yield order, measured not guessed:
+### First, a recommendation this document made and then MEASURED AND WITHDREW
 
-1. **The triviality gate is worth more than every translator feature combined.** 349 of
-   487 proved solids die there. If <8-face parts are legitimate supervision for the
-   SKETCH family — and a 12-segment rounded-rectangle profile extruded once is a real
-   construction sequence — that is a ~3.7x corpus for a policy decision, not code. It is
-   a decision for the owner, because it changes a rule that applies to every source.
-2. **More ABC chunks.** This is chunk-0000 of many. The pipeline is stride-1 over 9,852
-   models and is now reproducible end to end; the same funnel over 10 chunks is ~1,310
-   rows without a line of new logic.
-3. **A document evaluator**, which is what fillet/chamfer/shell/revolve actually need.
+The obvious move is to relax the triviality gate, since it is the largest single loss
+(349 of 487). I wrote that recommendation before measuring what the gate rejects. It is
+wrong, and here is the measurement that killed it:
+
+    the 349 solids rejected by faces<8, by what their sketch contains
+        lines only   183      (prisms / boxes)
+        SCIRC        165      (cylinders and discs)
+        SARC           1
+
+    corpus size vs threshold          rows      arc-bearing (of 41)
+        faces >= 8  (today)            138              40
+        faces >= 6                     329              41
+        faces >= 4                     421              41
+
+**The gate keeps 40 of the 41 arc-bearing solids and throws away boxes and cylinders.**
+Relaxing it to 6 buys 191 extra rows of which 180 are six-face prisms. This repo already
+knows what training on boxes does — a box beats expert3d-v1 on both benchmarks — so
+those rows are not neutral filler, they are the known trap. The triviality gate is doing
+its job and should be left alone.
+
+### In yield order, what is actually left
+
+1. **More ABC chunks.** This is chunk-0000 alone: 9,852 models of ABC's ~1M. The
+   pipeline is stride-1 and reproducible end to end, so the same funnel over ten chunks
+   is ~1,310 rows with no new logic and no policy change. This is the only lever that
+   reaches the 1,800 floor without either new capability or a rule change.
+2. **A document evaluator**, which is what fillet / chamfer / shell / revolve actually
+   need — not more translator cases. Worth ~44 models per 984 on top of what exists.
+3. **Not `importForeign`**, ever: 137 of the 255 feature-blocked models name geometry
+   that is not in the corpus at all.
+
+### And a structural warning for whoever does clear the size problem
+
+Re-read P2 in the pre-registration first. This corpus contains **zero VERIFY ops**, so
+it cannot teach assertion truth directly, and every row ends `RESULT(%n)` with no
+assertion — which may teach the model to stop asserting and collapse the denominator the
+primary endpoint divides by. Report numerator and denominator, never the rate alone.
 
 ## LICENCE
 
