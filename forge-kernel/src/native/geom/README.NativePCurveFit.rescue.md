@@ -44,13 +44,27 @@ green forever while compiling nothing — the same shape as the defect that let 
 negative verdict. Whatever gate wires this in must assert on a preprocessed symbol count,
 not on an exit status.
 
-## What is missing, exactly
+## What is missing — UPDATED 2026-09-02 after the gate was written
 
 | | state |
 |---|---|
-| `forge-kernel/test/pcurve_fit_gate.cpp` — the differential check the header promises | **does not exist** |
-| a `CMakeLists.txt` reference to any of the three files | **none — nothing compiles them in the build** |
-| `reports/DRAFT_NATIVE_ENGINE.md`, cited for the 73-part figure | **not present in the worktree this came from** |
+| `forge-kernel/test/pcurve_fit_gate.cpp` — the differential check the header promises | **NOW EXISTS**, 89 checks, kernel-free |
+| `forge-kernel/test/run_pcurve_fit_gate.sh` — driver, guard proof, differential, mutations | **NOW EXISTS**, 5/5 mutations caught |
+| CI compiles `NativePCurveFit.cpp` | **the gate does it** (syntax-only, guard ON) — but see below |
+| a `CMakeLists.txt` reference / the kernel actually LINKING this code | **still none** |
+| `cylinderPCurve` / `planeCylinderSection` exercised on real geometry | **still nothing** |
+| a re-measured paired DRAFT pass rate on the 565-part corpus | **still nothing** |
+| `reports/DRAFT_NATIVE_ENGINE.md`, cited for the 73-part figure | **still absent** |
+
+★**What the gate covers and what it does NOT.** It covers the numerics UNDERNEATH the
+pcurve fit — partition of unity, support and non-negativity, `findSpan` bracketing and
+both clamped ends, exact reproduction of a straight line at degrees 1–6, a Cholesky
+round-trip, and Cholesky REFUSING both a negative pivot and a singular matrix (the
+rank-deficient path is what the fitter relies on to DEFER instead of emitting a wrong
+pcurve, so a factoriser that never returns false would itself be a gate that cannot fail).
+It does **not** touch `cylinderPCurve`, `planeCylinderSection` or `pointsToBSpline2d`;
+those need OCCT types and a built kernel. **A green run of this gate is not evidence that
+the pcurve fit works.**
 
 ## Provenance — verified, not trusted
 
