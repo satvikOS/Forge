@@ -6429,17 +6429,47 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     sketcher.Set("writePoint",    Napi::Function::New(env, SketcherWritePoint));
     sketcher.Set("liveCount",     Napi::Function::New(env, SketcherLiveCount));
 
+    // THE ENUM'S THIRD REPRESENTATION, and it had drifted. This table is what a
+    // JS caller uses to name a constraint, and it was ten hand-written literals
+    // against an enum that has twenty — so every kind the facade gained was
+    // unreachable from script, silently, with nothing to say so.
+    //
+    // Two changes. It is COMPLETE, and the numbers are no longer transcribed:
+    // each value is cast FROM the enumerator, so the two cannot disagree about
+    // what "Tangent" is even if someone renumbers SketchConstraintKind. What
+    // this still cannot catch by itself is a MISSING row, which is why the
+    // count is asserted immediately below rather than left to a reader.
     auto sketchKinds = Napi::Object::New(env);
-    sketchKinds.Set("Coincident",    Napi::Number::New(env, 1));
-    sketchKinds.Set("Parallel",      Napi::Number::New(env, 2));
-    sketchKinds.Set("Perpendicular", Napi::Number::New(env, 3));
-    sketchKinds.Set("Distance",      Napi::Number::New(env, 4));
-    sketchKinds.Set("Horizontal",    Napi::Number::New(env, 5));
-    sketchKinds.Set("Vertical",      Napi::Number::New(env, 6));
-    sketchKinds.Set("PointOnLine",   Napi::Number::New(env, 7));
-    sketchKinds.Set("PointOnCircle", Napi::Number::New(env, 8));
-    sketchKinds.Set("Equal",         Napi::Number::New(env, 9));
-    sketchKinds.Set("Tangent",       Napi::Number::New(env, 10));
+    auto setKind = [&](const char* name, forge::SketchConstraintKind k) {
+        sketchKinds.Set(name, Napi::Number::New(env, static_cast<int>(k)));
+    };
+    setKind("Coincident",    forge::SketchConstraintKind::Coincident);
+    setKind("Parallel",      forge::SketchConstraintKind::Parallel);
+    setKind("Perpendicular", forge::SketchConstraintKind::Perpendicular);
+    setKind("Distance",      forge::SketchConstraintKind::Distance);
+    setKind("Horizontal",    forge::SketchConstraintKind::Horizontal);
+    setKind("Vertical",      forge::SketchConstraintKind::Vertical);
+    setKind("PointOnLine",   forge::SketchConstraintKind::PointOnLine);
+    setKind("PointOnCircle", forge::SketchConstraintKind::PointOnCircle);
+    setKind("Equal",         forge::SketchConstraintKind::Equal);
+    setKind("Tangent",       forge::SketchConstraintKind::Tangent);
+    setKind("Radius",        forge::SketchConstraintKind::Radius);
+    setKind("Diameter",      forge::SketchConstraintKind::Diameter);
+    setKind("Angle",         forge::SketchConstraintKind::Angle);
+    setKind("Concentric",    forge::SketchConstraintKind::Concentric);
+    setKind("Collinear",     forge::SketchConstraintKind::Collinear);
+    setKind("Symmetric",     forge::SketchConstraintKind::Symmetric);
+    setKind("Midpoint",      forge::SketchConstraintKind::Midpoint);
+    setKind("Fix",           forge::SketchConstraintKind::Fix);
+    setKind("DistanceX",     forge::SketchConstraintKind::DistanceX);
+    setKind("DistanceY",     forge::SketchConstraintKind::DistanceY);
+    // DistanceY is the last enumerator and the values run 1..N with no gaps, so
+    // this is the membership check the loop above cannot make: a kind added to
+    // SketchConstraintKind without a row here fails to COMPILE, rather than
+    // becoming a solver capability no script can name.
+    static_assert(static_cast<int>(forge::SketchConstraintKind::DistanceY) == 20,
+                  "forge.sketcher.kinds must expose EVERY SketchConstraintKind: it is how a "
+                  "JS caller names a constraint. Add the row above, then update this count.");
     sketcher.Set("kinds", sketchKinds);
 
     auto statuses = Napi::Object::New(env);

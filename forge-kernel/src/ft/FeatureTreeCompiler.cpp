@@ -7,6 +7,10 @@
 //
 //   RECT/RRECT/CIRCLE/SLOT/POLY/REGPOLY  -> forge::createSketch + addPoint/
 //                                           addLine/addCircle/addArc
+//   RING/WIRE                            -> forge::part::profileWire (a closed
+//                                           3D SECTION ring, for LOFT)
+//   HELIX                                -> forge::part::helixWire (an open 3D
+//                                           SPINE curve -- a WIRE, not a solid)
 //   BOX/CYL/CONE/SPHERE/TORUS/PRISM/TUBE -> forge::makeBox/makeCylinder/...
 //   EXTRUDE/REVOLVE/LOFT                 -> forge::part::extrudeProfile/
 //                                           revolveProfile/loft
@@ -128,6 +132,7 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"SLOT", OpCode::Slot}, {"POLY", OpCode::Poly}, {"REGPOLY", OpCode::RegPoly},
         {"ARC", OpCode::Arc},
         {"RING", OpCode::Ring}, {"WIRE", OpCode::Wire},
+        {"HELIX", OpCode::Helix},
         // 2D sketch + constraints — the planegcs solver, reachable from a tree
         {"SKETCH", OpCode::Sketch}, {"SPT", OpCode::SPt}, {"SLINE", OpCode::SLine},
         {"SCIRC", OpCode::SCirc}, {"SARC", OpCode::SArc},
@@ -493,7 +498,7 @@ FeatureTree parse(const std::string& text) {
             const std::string U = upper(name);
             std::string hint;
             for (const char* k : {"RECT","RRECT","CIRCLE","SLOT","POLY","REGPOLY","ARC","RING",
-                                  "WIRE","BOX","CYL","CONE","SPHERE","TORUS","PRISM","TUBE",
+                                  "WIRE","HELIX","BOX","CYL","CONE","SPHERE","TORUS","PRISM","TUBE",
                                   "EXTRUDE","REVOLVE","LOFT","SWEEP","FUSE","CUT","COMMON",
                                   "SECTION",
                                   "TRANSLATE","ROTATE","MIRROR","PATTERN","HOLE","CBORE",
@@ -708,9 +713,12 @@ const char* kindName(Val::Kind k) {
         case Val::Profile: return "PROFILE";
         case Val::Wire:    return "WIRE";
         case Val::Solid:   return "SOLID";
-        case Val::Sketch:  return "SKETCH";
-        case Val::SketchRef: return "SKETCH ENTITY";
         case Val::Surface: return "SURFACE";
+        case Val::Sketch:  return "SKETCH";
+        // The name a DIAGNOSTIC has to print when a user hands EXTRUDE the point
+        // instead of the sketch. Spelling it "SKETCH" would make the two most
+        // confusable mistakes in this family produce the same message.
+        case Val::SketchRef: return "SKETCHREF";
     }
     return "?";
 }
@@ -760,6 +768,7 @@ public:
             // ---- 3D section rings (WIRE) ----
             case OpCode::Ring:    return wireRing(op);
             case OpCode::Wire:    return wireExplicit(op);
+            case OpCode::Helix:   return wireHelix(op);
             // ---- 3D primitives ----
             case OpCode::Box:     return primBox(op);
             case OpCode::Cyl:     return primCyl(op);
@@ -835,7 +844,17 @@ public:
             case OpCode::Slot: case OpCode::Poly:  case OpCode::RegPoly:
             case OpCode::Arc:
                 return Val::Profile;
-            case OpCode::Ring: case OpCode::Wire:
+            // Three kinds of 1-dimensional value share Val::Wire, and they are
+            // NOT the same thing: a closed SECTION ring (RING / WIRE) that LOFT
+            // consumes, an open SPINE curve (HELIX) that a sweep would consume,
+            // and the intersection CURVES that SECTION returns. What they share
+            // is the only thing the kind asserts -- none of them bounds a volume.
+            //
+            // HELIX is deliberately NOT Val::Solid. Typing it SOLID would hand
+            // it to every boolean and every feature op, each of which would fail
+            // deep inside OCCT instead of at the statement that is wrong, and
+            // `RESULT(%helix)` would export an EMPTY STEP reported as ok=true.
+            case OpCode::Ring: case OpCode::Wire: case OpCode::Helix:
             case OpCode::Section:                  // intersection CURVES, never a body
                 return Val::Wire;
             // A sketch under construction. CON is PASS-THROUGH: it hands back
@@ -1148,16 +1167,36 @@ private:
             }
         }
 
+        // THE FULL KEYWORD SET the family census specified
+        // (reports/family_census/SKETCH_AND_CONSTRAINTS.md §4). Nine of these
+        // shipped first because they were the nine forge::Sketcher dispatched;
+        // the other ten are now wired in the facade, each to a planegcs
+        // primitive that was already there.
+        //
+        // The order below is the census's own table, geometric then dimensional,
+        // so the two can be read against each other.
         static const std::unordered_map<std::string, forge::SketchConstraintKind> kKinds = {
+            // geometric
             {"COINC", forge::SketchConstraintKind::Coincident},
             {"PARA",  forge::SketchConstraintKind::Parallel},
             {"PERP",  forge::SketchConstraintKind::Perpendicular},
-            {"DIST",  forge::SketchConstraintKind::Distance},
+            {"TANG",  forge::SketchConstraintKind::Tangent},
+            {"EQUAL", forge::SketchConstraintKind::Equal},
+            {"CONC",  forge::SketchConstraintKind::Concentric},
+            {"COLL",  forge::SketchConstraintKind::Collinear},
+            {"SYMM",  forge::SketchConstraintKind::Symmetric},
+            {"MIDPT", forge::SketchConstraintKind::Midpoint},
             {"HORIZ", forge::SketchConstraintKind::Horizontal},
             {"VERT",  forge::SketchConstraintKind::Vertical},
             {"PTON",  forge::SketchConstraintKind::PointOnLine},
-            {"EQUAL", forge::SketchConstraintKind::Equal},
-            {"TANG",  forge::SketchConstraintKind::Tangent},
+            {"FIX",   forge::SketchConstraintKind::Fix},
+            // dimensional
+            {"DIST",  forge::SketchConstraintKind::Distance},
+            {"DISTX", forge::SketchConstraintKind::DistanceX},
+            {"DISTY", forge::SketchConstraintKind::DistanceY},
+            {"ANGLE", forge::SketchConstraintKind::Angle},
+            {"RADIUS", forge::SketchConstraintKind::Radius},
+            {"DIAM",  forge::SketchConstraintKind::Diameter},
         };
         auto it = kKinds.find(kind);
         if (it == kKinds.end()) {
@@ -1167,7 +1206,8 @@ private:
             // NAME it on the verify channel, and keep building.
             if (res)
                 res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — unknown kind '" +
-                                      kind + "' (known: COINC PARA PERP DIST HORIZ VERT PTON EQUAL TANG)");
+                                      kind + "' (known: COINC PARA PERP TANG EQUAL CONC COLL SYMM "
+                                      "MIDPT HORIZ VERT PTON FIX DIST DISTX DISTY ANGLE RADIUS DIAM)");
             return owner;
         }
         // The facade THROWS on a type-mismatched operand — TANG wants
@@ -1178,8 +1218,19 @@ private:
         // NAME it, keep building. (The unknown-keyword arm above is the other
         // half of this; both must behave identically or the contract has a hole
         // exactly where a model is most likely to fall in.)
+        // ANGLE IS THE ONE UNIT SEAM IN THIS FAMILY, and it is converted HERE.
+        // Every other angle in the IR is degrees (ROTATE, PATTERN POLAR, REVOLVE)
+        // and a sketch dimension on a drawing is degrees; planegcs is radians
+        // throughout. Converting at the IR boundary keeps the IR internally
+        // consistent and the facade faithful to the engine it wraps, and both
+        // sides say so — see the Angle enumerator in Sketcher.hpp. A silent
+        // 57.3x error is exactly the kind of defect that still BUILDS, so it
+        // would be found by nobody until a part came out the wrong shape.
+        const double sent = (it->second == forge::SketchConstraintKind::Angle)
+                                ? value * 3.14159265358979323846 / 180.0
+                                : value;
         try {
-            forge::addConstraint(owner, it->second, refs, value);
+            forge::addConstraint(owner, it->second, refs, sent);
         } catch (const std::exception& e) {
             if (res)
                 res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — " + kind +
@@ -1436,6 +1487,46 @@ private:
         pts.reserve(P.size() * 3);
         for (const auto& q : P) { pts.push_back(q.x); pts.push_back(q.y); pts.push_back(q.z); }
         return forge::part::profileWire(pts, /*closed*/ true);
+    }
+
+    // ---- 3D spine curves (return a TopoDS_Wire ShapeHandle) -----------------
+    // HELIX(pitch, height, radius [, cx, cy, cz, axx, axy, axz] [, LEFT]).
+    //
+    // A PATH, not a section: it is open, and LOFT would refuse it on its own
+    // terms. It is still Val::Wire because that is what a helix IS. The
+    // alternative -- typing it SOLID so that something downstream would accept
+    // it -- trades a loud "LOFT needs closed sections" for an empty STEP file.
+    Handle wireHelix(const Op& op) {
+        const double pitch = num(op, 0), height = num(op, 1), radius = num(op, 2);
+        const double cx = numOpt(op, 3, 0), cy = numOpt(op, 4, 0), cz = numOpt(op, 5, 0);
+        const double ax = numOpt(op, 6, 0), ay = numOpt(op, 7, 0), az = numOpt(op, 8, 1);
+        // Every bound is checked HERE, with the statement id, rather than being
+        // left to std::invalid_argument from the kernel verb: the repair loop is
+        // handed an op id, and "pitch must be > 0" with no id is not actionable.
+        if (!(pitch > 0))
+            throw OpError(op.id, "HELIX: pitch (rise per turn) must be > 0");
+        if (!(height > 0))
+            throw OpError(op.id, "HELIX: height (total rise) must be > 0");
+        if (!(radius > 0))
+            throw OpError(op.id, "HELIX: radius must be > 0");
+        if (std::sqrt(ax * ax + ay * ay + az * az) < 1e-12)
+            throw OpError(op.id, "HELIX: axis (axx, axy, axz) is the zero vector");
+
+        // The handedness flag is positional-free: it is whichever argument is a
+        // keyword, so `HELIX(2, 20, 5, LEFT)` and the fully-placed form both
+        // work. An UNKNOWN keyword is refused rather than ignored -- silently
+        // dropping it would build the opposite-handed thread with no diagnostic,
+        // and a mirror-image thread is a part that does not assemble.
+        bool leftHanded = false;
+        for (std::size_t i = 0; i < op.args.size(); ++i) {
+            if (op.args[i].kind != TokKind::Keyword) continue;
+            const std::string& kw = op.args[i].kw;
+            if (kw == "LEFT" || kw == "LH" || kw == "LEFTHAND") leftHanded = true;
+            else if (kw == "RIGHT" || kw == "RH" || kw == "RIGHTHAND") leftHanded = false;
+            else throw OpError(op.id, "HELIX: unknown flag `" + kw + "` (want LEFT|RIGHT)");
+        }
+        return forge::part::helixWire(pitch, height, radius, cx, cy, cz, ax, ay, az,
+                                      leftHanded);
     }
 
     // ---- primitive builders (return a ShapeHandle) --------------------------

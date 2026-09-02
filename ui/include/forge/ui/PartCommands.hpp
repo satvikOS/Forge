@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
@@ -111,6 +112,29 @@ inline constexpr IrValueKind kAllIrValueKinds[] = {
     IrValueKind::Solid,  IrValueKind::Sketch,    IrValueKind::SketchRef,
     IrValueKind::Surface,
 };
+
+// The claim above -- "a kind added to the enum is a compile error here" -- was
+// NOT TRUE of an unsized array, and a previous merge is the proof: `Surface`
+// landed in the enum on one branch while this list was written on another, and
+// the two merged CLEANLY into a file where `Surface` had a name, a switch arm
+// and no entry here. Nothing failed to compile. Now something does.
+//
+// This holds only while the LAST enumerator is the largest, which is exactly the
+// "APPENDED, never inserted" rule stated above the enum; an inserted kind breaks
+// the append rule first and this assert second.
+//
+// The enumerator named below is therefore whichever one is LAST, and THIS merge
+// moved it. The two sides ordered the tail differently -- `Solid, Surface,
+// Sketch, SketchRef` here against `Solid, Sketch, SketchRef, Surface` on the
+// base -- and the merged enum keeps the base's, which is already shipping. So
+// the bound is `Surface`, not `SketchRef`. Carrying the old enumerator across
+// would have left the assert comparing 7 against 6 and failing on a file that is
+// correct; it is re-derived from the enum at the merge, not inherited.
+static_assert(std::size(kAllIrValueKinds) ==
+                  static_cast<std::size_t>(IrValueKind::Surface) + 1,
+              "kAllIrValueKinds must list EVERY IrValueKind: it is what the .fpart "
+              "reader, the vocabulary bridge and the round-trip gate all walk. A "
+              "kind missing from it saves to a document that will not load.");
 
 // Turn a kind's toString() spelling back into the kind. Case-sensitive: callers
 // that accept the vocabulary's upper-case spellings lower them first.

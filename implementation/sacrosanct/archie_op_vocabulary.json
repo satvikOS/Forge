@@ -18,9 +18,9 @@
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
-        "sha256": "061bb2a10df8d211f514bb370e31d6eb601885d696e04b42665f10ad42c8aae4",
-        "bytes": 22940,
-        "lines": 384
+        "sha256": "43c294673e176d52e9606ff2d9c589053368df75a19a953bd4370ffe9a057208",
+        "bytes": 24101,
+        "lines": 391
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
@@ -30,21 +30,21 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "6c2c1220953dd3063170d07beb861a00c2d4e41974ecdbe04718836858dd1912",
-        "bytes": 183621,
-        "lines": 3433
+        "sha256": "67c5f5509a2ff8018c146c7036b2faade532ed2a0ab5f29e602e4344bb75b327",
+        "bytes": 189574,
+        "lines": 3524
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "83d3928d879aaed39ad5335e7e806d924bedc58808d633316a288e4b59a47035",
-        "bytes": 29882,
-        "lines": 481
+        "sha256": "2e13278a6fced2471855424f0a35ba13937f3e965ddc6c499b8570c3bb70640b",
+        "bytes": 32994,
+        "lines": 523
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "a489a6d8c9b9d1f860043157b648f65253eb7024b2376c759991d641474411c8",
-        "bytes": 10802,
-        "lines": 299
+        "sha256": "c206b3210ef62503f8670519b8b3264d5a7d4a5d9dc06caee06231e7eab33fb7",
+        "bytes": 10897,
+        "lines": 301
       },
       {
         "path": "ui/src/PartCommands.cpp",
@@ -76,12 +76,12 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 55,
-    "ui_validator_ops": 55,
+    "kernel_ops": 56,
+    "ui_validator_ops": 56,
     "registry_commands": 80,
     "commands_emitting_ir": 57,
     "user_invocable_ops": 53,
-    "forbidden_ops": 2,
+    "forbidden_ops": 3,
     "uncertain_entries": 3,
     "derived_defects": 3
   },
@@ -1013,15 +1013,17 @@
         }
       ],
       "kernel_notes": [
-        "KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON",
-        "KIND dimensional: DIST",
-        "That is EXACTLY the set forge::Sketcher dispatches today --",
-        "9 of the 67 primitives planegcs actually has. RADIUS,",
-        "DIAM, ANGLE, CONC, COLL, SYMM, MIDPT and FIX all exist in",
-        "the ENGINE and are one switch arm each in the facade, but",
-        "none is wired at this SHA, so none is listed here: a",
-        "vocabulary that advertises a keyword the compiler skips is",
-        "a worse defect than a short vocabulary. An unlisted",
+        "KIND geometric:   COINC PARA PERP TANG EQUAL CONC COLL",
+        "SYMM MIDPT HORIZ VERT PTON FIX",
+        "KIND dimensional: DIST DISTX DISTY ANGLE RADIUS DIAM",
+        "That is EXACTLY the set forge::Sketcher dispatches, and it",
+        "is now the WHOLE set the family census designed. The",
+        "previous nine were the nine the facade had wired; the other",
+        "ten existed in the ENGINE and were one switch arm each, so",
+        "they were listed as absent rather than advertised -- a",
+        "vocabulary that names a keyword the compiler skips is a",
+        "worse defect than a short vocabulary. They are wired now,",
+        "and this list is what the compiler dispatches. An unlisted",
         "keyword is skipped and NAMED, never fatal. A TRAILING",
         "operand that does not resolve, or that belongs to a",
         "different sketch, is skipped and NAMED the same way: this",
@@ -1031,8 +1033,14 @@
         "still REFUSE -- with neither an owning sketch nor a",
         "constraint kind resolved there is nothing to pass through.",
         "The kind is ALWAYS arg 1; the operands follow and are read",
-        "by token type, so one op covers unary/binary/dimensional",
-        "without four op names. CON returns the SKETCH it was handed",
+        "by token type, so one op covers unary/binary/ternary and",
+        "dimensional without four op names. Arity by kind: FIX",
+        "RADIUS DIAM take ONE ref; SYMM and MIDPT take THREE (the",
+        "mirror line or point is last); everything else takes two.",
+        "ANGLE is in DEGREES here and converted to the solver's",
+        "radians at this boundary, matching ROTATE and every other",
+        "angle in this IR. DISTX / DISTY are SIGNED (b minus a).",
+        "CON returns the SKETCH it was handed",
         "-- a constraint statement that could itself move geometry",
         "before the solve is a defect generator (same reasoning as",
         "TAG and VERIFY)."
@@ -6447,6 +6455,15 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
+      "op": "HELIX",
+      "kernel_enum": "Helix",
+      "compiled_into_a_default_build": true,
+      "signature": [
+        "HELIX(pitch, height, radius [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1] [, LEFT])"
+      ],
+      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+    },
+    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
@@ -6460,7 +6477,7 @@
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 55 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 56 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [
