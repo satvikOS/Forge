@@ -3,21 +3,46 @@
 This file exists only on `rescue/native-pcurve-fit-wip`. It records what was **measured**
 about the three rescued files, so whoever picks them up does not have to re-derive it.
 
-## It compiles
+## It compiles — but the FIRST TWO measurements of that were both invalid
+
+**The claim stands. The evidence I first published for it did not, and that is recorded
+here rather than quietly replaced.**
+
+The whole of `NativePCurveFit.hpp` (line 89) and the whole of `NativePCurveFit.cpp`
+(line 20) sit inside `#ifdef FORGE_NATIVE_BREP`. **Without `-DFORGE_NATIVE_BREP` the
+translation unit preprocesses to nothing**, and a compiler returns 0 on an empty file.
+
+Positive control — count a real symbol after preprocessing, with the guard off and on:
 
 ```
-clang++ -std=c++20 -fsyntax-only \
+occurrences of `cylinderPCurve` after -E :   guard OFF = 0    guard ON = 2
+```
+
+So two separate measurements of "it compiles" were worthless, for two different reasons:
+
+| attempt | what it actually measured | why it was wrong |
+|---|---|---|
+| 1st | the exit status of `head` | `rc=$?` after a pipe captures the LAST command in the pipeline |
+| 2nd | an EMPTY translation unit | no `-DFORGE_NATIVE_BREP`, so every line was `#ifdef`'d out |
+
+**The valid measurement**, guard on, clang's own exit status, output redirected to a file:
+
+```
+clang++ -std=c++20 -fsyntax-only -DFORGE_NATIVE_BREP \
   -Iinclude -Isrc -I$(brew --prefix opencascade)/include/opencascade \
   src/native/geom/NativePCurveFit.cpp
--> rc=0, 0 errors
+-> rc=0, 0 errors, 0 warnings
 ```
 
-(The first attempt at this reported `rc=0` for the wrong reason — the status captured
-belonged to a `head` in the pipeline, not to the compiler. The number above is clang's own
-exit status with output redirected to a file.)
+It is complete, syntactically valid C++20 against the real OCCT headers — which is what
+was claimed, reached by a route that can support it.
 
-So this is not half-written code. It is complete, syntactically valid C++20 against the
-real OCCT headers, which was never wired into anything.
+★**The lesson generalises past this file: a build gate for guarded code must PROVE THE
+GUARD IS ON.** A CI step that compiles this TU without `-DFORGE_NATIVE_BREP` would be
+green forever while compiling nothing — the same shape as the defect that let a dangling
+`std::string` size byte ship, and the same shape as an unknown-op probe that cannot emit a
+negative verdict. Whatever gate wires this in must assert on a preprocessed symbol count,
+not on an exit status.
 
 ## What is missing, exactly
 
