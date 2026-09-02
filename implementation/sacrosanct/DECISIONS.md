@@ -1894,6 +1894,8 @@ not buy a correct offset.
 
 *(Numbering collision, resolved at merge: this entry was allocated **D-038** on `archdisc`, which `claude/sacrosanct-execution-20260828` had already spent on the ten-primitives entry above. It is renumbered **D-040** here.)*
 
+
+
 **The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
 (`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
 `forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
@@ -2577,6 +2579,161 @@ the end, the shortfall is a CONSTANT **4**, not a proportion — it was 8-vs-4 t
 and 13-vs-9 now. The constant-offset reading is better supported, and it is the
 more useful one for finding the leak.
 
+### D-045 correction — the instrument failures are OUT of both halves, and the correction WIDENS the result
+
+The follow-up the first addendum owed itself is done: `instrument_failed` is a
+distinct outcome, emitted where the process EXITS, reconciled against the OS's own
+crash reports, and gated. This section restates every D-045 figure it touches, in
+both forms, so the direction of the correction is visible rather than asserted.
+
+**What the instrument actually lost, over the completed 600 rows.** Nine rows, all
+of them written down as `the tree does not compile`:
+
+| kind | n | rows |
+|---|---:|---|
+| `verifier timeout after 180s` (we SIGKILLed a wedged child) | 2 | ho932, ho998 |
+| `verifier produced no output` (the child ABORTED) | 7 | ho116, ho274, ho341, ho962, ho1180, ho1212, ho1229 |
+
+The first addendum caught **three** of these at n=318. Over the full run it is
+**nine**, and **eight of the nine are VERIFY-bearing**.
+
+**★ The direction, which cuts AGAINST the headline.** A VERIFY-bearing row the
+verifier never answered for can sit in the self-inconsistency DENOMINATOR but can
+never reach its NUMERATOR — a false assertion has to be *measured* to be counted.
+So the contamination could only ever push the rate DOWN. Excluding the nine from
+both halves:
+
+| | published | corrected | direction |
+|---|---|---|---|
+| self-inconsistency, n=600 | 389 / 455 = **85.5%** | 389 / **447** = **87.0%** | **+1.53 pt — WIDER** |
+| the same, counting a VERIFY failure that arrived as a compile error | 408 / 455 = 89.7% | 408 / 447 = **91.3%** | +1.60 pt — wider |
+
+Against a pre-registered prediction of **< 25%**, the correction moves the result
+*further* from the prediction, not nearer. It is recorded for that reason: a
+correction that flatters the headline and one that does not must be equally
+reportable, and this programme has already been bitten once by an instrument
+failure worn as a property of the specimen (`quality_gate` labelling good STEP
+files `corrupt:parse_failed` because OCP was not importable).
+
+**The paired result does not move at all, and that is measured, not assumed.**
+`v6r8`'s own 238-row trace contains **zero** instrument failures, and of the 238
+shared ids exactly **one** (ho998) is instrument-failed on `v10` — a row that is
+not VERIFY-bearing on either arm. The 97-id both-bearing set therefore contains
+none of them:
+
+| | published | corrected |
+|---|---|---|
+| paired self-inconsistency (both-bearing) | 92.8% vs 59.8%, n=97 | **unchanged**, n=97 |
+| discordant pairs | 35 worse / 3 better | **unchanged** |
+| McNemar (exact, two-sided) | p = 6.68e-08 | **unchanged** |
+| paired compiled | 34.9% vs 25.6%, n=238 | 35.0% vs 25.7%, n=237 |
+| VERIFY-emission rate | 58.4% vs 55.0% | 58.6% vs 55.3% |
+
+**★ The "constant shortfall of 4" was an artefact of the window, not a leak.** The
+previous section read 13 crash reports against 9 recorded instrument rows as four
+deaths that went unrecorded, and noted it had measured the same offset twice
+(8-vs-4, then 13-vs-9), which is exactly what a structural leak looks like. It is
+not one. Attributed by **parent pid** instead of by wall clock:
+
+```
+ppid 68311 (the run's own python)    7 reports  <->  7 "produced no output" rows   1:1
+five OTHER processes on the machine  6 reports  <->  nothing to do with this run
+the 2 timeouts                       0 reports  <->  correct: we SIGKILL a wedged
+                                                     child, and SIGKILL leaves none
+13 - 9 = 4  =  6 foreign  -  2 SIGKILLed
+```
+
+A wall-clock window on a machine shared with other agents is not an attribution.
+**Nothing had gone unrecorded.**
+
+That parent-pid split was measured on 2026-09-01 while the reports still existed
+and is preserved in `scripts/verifier_crash_census.py`; the `.ips` files have since
+aged off the machine, so its foreign-process half cannot be re-derived today. The
+half that *can* still be re-derived was, independently, and it holds exactly:
+**exactly 7 of the 600 emissions carry a zero-axis `ROTATE`, and they are exactly
+the 7 rows recorded "verifier produced no output"** — 7 aborts, 7 rows, 1:1.
+(`FeatureTreeCompiler::opRotate` reads `ROTATE(body, angleDeg, ax, ay, az[, ox, oy,
+oz])`; read as point-then-axis instead, 19 rows look zero-axis and six of the seven
+change classification. The argument order is load-bearing in this census.)
+
+**The cause, and the before/after, measured on one 3-row fixture.**
+`forge::rotate`'s OCCT path built `gp_Dir(ax, ay, az)` with no zero-axis guard,
+though the native path beside it always had one. `gp_Dir` raises
+`Standard_ConstructionError`, which derives from `Standard_Transient` and NOT from
+`std::exception`, so `main`'s `catch (const std::exception&)` never matched:
+`__cxa_throw -> failed_throw -> std::terminate -> abort`. Through the
+**emission-time pinned binary** (sha256 `45e9ad9a…`, the one the 600 rows were
+actually emitted and gated with):
+
+```
+before   rc=134,  1 of 3 records  — the zero-axis row AND its innocent neighbour lost
+         stderr: libc++abi: terminating due to uncaught exception of type
+                 Standard_ConstructionError          <- destroyed by the .ips, which
+                                                        carries only "abort() called"
+after    rc=0,    3 of 3 records
+         r2: op %2 (line 2): ROTATE: axis is zero (args 2-4 are the axis vector;
+             use e.g. 0,0,1 for Z)
+```
+
+The collateral is the reason this had to be fixed at the kernel rather than only in
+the harness: a mid-batch abort takes the rows behind it, so at `--batch 20` one
+zero-axis row could have written off up to nineteen innocent ones.
+
+**★ The nine lost rows, replayed.** A gate on a synthetic fixture proves the
+property; the real emissions prove the recovery. All nine rows the run lost were
+re-fed to the fixed binary **in one batch** — the case that used to cost the
+neighbours too:
+
+```
+exit rc=0,  9 of 9 records,  peak child RSS 0.05 GiB
+  ho116 ho274 ho341 ho962 ho1180 ho1212 ho1229
+        -> op %3 (line 3): ROTATE: axis is zero (args 2-4 are the axis vector...)
+  ho932 -> op %8 (line 8): VERIFY failed: faces=51 (got 0.000000)
+  ho998 -> PAUSED_INCOMPLETE: ft parse line 74 — the emission stopped mid-statement
+```
+
+Every one is now an attributed verdict about the TREE. Seven of the nine turn out
+to be the same one-line defect in the emission, which the run could not say because
+the tool measuring it died first.
+
+**The correction does not re-verify, and that is deliberate.** The nine rows are excluded from D-045's rates; they are NOT replaced by the verdicts above. Re-measuring nine rows with a fixed binary and leaving the other 591 on the pinned one would swap the instrument in the middle of the comparison — the same class of error as the one being corrected, wearing the clothes of a fix. The replay establishes that the rows are measurable, nothing more.
+
+**★ And the two "timeouts" were not a property of their rows either.** ho932 and
+ho998 were recorded as `verifier timeout after 180s`. Run ALONE against the
+**emission-time binary** — the same sha256 `45e9ad9a…`, not the fixed one — they
+answer in **0.1 s each**. So the 180-second wait belonged to the state the child
+was in, not to the input; the label was wrong on a second axis, not just the "does
+not compile" one. What put the child in that state is NOT established by this
+measurement and is not claimed here.
+
+(A caution that cuts the other way: the pinned binary and the current build are not
+otherwise identical — ho998 returns `ok:true` on the pin and `PAUSED_INCOMPLETE` on
+HEAD — so only the crash/no-crash property was compared across binaries, on one
+fixture, with everything else held constant.)
+
+**What now exists so this cannot recur silently.**
+
+* `instrument_failed` is a distinct outcome in `archie_loop.py`,
+  `measure_failure_v2.py`, `score_run.py` and `selfdistill_report.py`, excluded
+  from BOTH the numerator and the denominator; the uncorrected figures are printed
+  beside the corrected ones rather than replaced by them.
+* `forge_verify` answers for itself **from inside the crash**
+  (`src/tools/InstrumentRecord.hpp`): one record per row, emitted from
+  `std::terminate` and from the fatal signals, carrying the row in flight, the
+  exception's demangled type and its `what()`, allocation-free so a signal handler
+  can use it — and it still aborts afterwards, so the OS crash report survives to
+  be counted against.
+* The count reconciles by parent pid (`scripts/verifier_crash_census.py`), with
+  three outcomes rather than two: `unrecorded_deaths` is a finding, `pending` is
+  the oracle being slow (ReportCrash was measured 438 s late once here) and is
+  never reported as a leak.
+* Three gates, all in CI: the unit gate drives every death path in the shipped
+  header; the end-to-end gate drives the real binary; and
+  `instrument_record_mutations.sh` breaks the shipped header **eight** ways and
+  requires the gate to go red at the specific check each guarantee belongs to —
+  because the original defect survived a whole 600-row run for exactly one reason,
+  that nothing ever exercised the path it died on.
+
 ## D-046 (2026-09-01): the sketch family leaves `forbidden_ops` — 46 → 53 user-invocable ops, and the direct-ops-alone yield goes 0.00% → 40.78%
 
 *(Numbering collision, resolved at merge: this entry was allocated **D-045** on `claude/sacrosanct-execution-20260828` while `archdisc` independently allocated D-045 to the self-consistency refutation above. It is renumbered **D-046** here, because that entry's number is written into a commit subject already on the default branch (#180) and this one's is not. Nothing outside this file cited either number.)*
@@ -2696,6 +2853,175 @@ construction) are deliberately not touched: neither is a switch, so neither woul
 omission, and extending the filter combo is a UI decision this branch did not measure. The 40.78% is a TRANSLATION-YIELD figure over a corpus whose
 provenance is UNVERIFIED (`MODEL_DATA.md`); it is a capability measurement, not a training licence,
 and it is not a benchmark score.
+
+
+---
+
+## D-050 (2026-09-01): the sketch family's binding limit was its CONSTRAINT VOCABULARY, not its value kind — CON 9 -> 19, and a merge proved a fourth value kind can be added twice without a compile error
+
+*(Numbering collision, resolved at merge — and the THIRD number this one entry has held.
+It was allocated **D-042**, having deliberately skipped D-041 for concurrent self-consistency
+work; both reservations were overtaken, so at the previous merge it moved to **D-046**. That has
+now been overtaken too: **#184 landed D-046 on the base** for the sketch family leaving
+`forbidden_ops`. Per this file's own precedent (see the D-043 note), the entry already merged
+keeps the number and the incoming one moves, so this entry is renumbered **D-050**. Content
+unchanged.
+
+**D-050 rather than D-047, and the survey is the reason.** The numbers were surveyed across every
+ref at `origin`, INCLUDING THE PULL REQUESTS STILL OPEN, because a number held only on an unmerged
+branch is exactly what has now overtaken this entry twice. That survey found D-047 and D-048 held
+by #169 and D-049 held by #161 — all three unmerged, and all three invisible to a survey of merged
+refs alone. Taking the next free number after the merged maximum would therefore have collided a
+FOURTH time, with a branch already written. D-050 is the first number free on every ref, merged or
+not. The lesson, three times over: a reserved number is not a held number, and a survey is only as
+good as the set of refs it covers — which must include the ones not yet landed.)*
+
+**What was already true, and is not claimed here as new.** The `SKETCH` / `SKETCHREF` value kinds,
+the `SOLVE -> PROFILE -> EXTRUDE` exit, `solveOrRepair`'s never-refuse contract and the
+conflict/residual demotion loop all landed with the family (PRs #159 and #163). This branch merges
+them with the `SURFACE` kind (#146) and closes what was left.
+
+**The finding.** The census
+(`forge-kernel/reports/family_census/SKETCH_AND_CONSTRAINTS.md` §4) specified `CON`'s keyword set
+as **nineteen** and closed: *"Every one of those routes to a primitive that ALREADY EXISTS in
+GCS.h. This is facade exposure, not numerics."* **Nine** shipped. `FeatureTree.hpp` listed the
+other ten as absent on a correct principle — a vocabulary naming a keyword the compiler skips is
+worse than a short one — but the consequence was that the value kind was reachable and the
+DRAWING was not.
+
+A ground-truth sketch is **dimensioned**: a bolt circle is a `RADIUS`, a counterbore is a `DIAM`,
+a bracket arm is an `ANGLE`. With `COINC / PARA / PERP / DIST` alone a tree can state a sketch's
+TOPOLOGY and must then bake every coordinate — which is the baked form the whole family exists to
+replace. So `SKETCH` was decorative in the way that matters even with the extrude path proven.
+
+Ten switch arms in `forge::Sketcher`, each one line of planegcs, plus three refusals removed where
+the primitive was declared in the very header the facade was calling into: `EQUAL` on arcs
+(`EqualRadius(Arc,Arc)` exists), `TANG` on anything but line-circle (five pairings exist), and
+`PTON` onto a circle or an arc (`PointOnCircle` / `PointOnArc` exist).
+
+**★ The merge is the load-bearing evidence for the value-kind rule.** `SURFACE` and
+`SKETCH`/`SKETCHREF` were each added as "the fourth kind" on branches that never saw each other.
+They merged into a tree where `kAllIrValueKinds` — the ONE list the `.fpart` reader, the
+vocabulary bridge and the round-trip gate all walk — was **missing a kind, and nothing failed to
+compile.** The comment above it promised "a kind added to the enum is a compile error here"; that
+was not true of an unsized array. It is now, via a `static_assert` on
+`std::size(kAllIrValueKinds) == SketchRef + 1`. Two more sites were silently wrong the same way:
+`kindName()` had no arm for `Sketch` or `SketchRef` (every sketch diagnostic would have printed
+`"?"`), and `gen_archie_op_vocabulary.py`'s `REF_ACCESSOR_KIND` had no row for `refSurface`, which
+would have published `THICKEN`/`CAP` as CREATORS reachable from an empty document.
+
+**★ And the gate was measuring a stale build.** `build_sketch_solve.sh` cached an object whenever
+it was newer than its `.cpp`, comparing against **no headers**. Editing `Sketcher.hpp` — where this
+family's constraint enum lives — left the old object in place and the gate reported PASS for the
+previous build. That is "a gate that cannot build cannot fail" with an extra step: it *does* build,
+it just builds something else. Every number below is from a clean `.sketchbuild`, and the fix was
+verified by touching a header and watching all eight TUs recompile.
+
+**Measured, from a clean build** (`forge-kernel/test/ft/build_sketch_solve.sh`, 57 -> 103 checks,
+0 failures). Every case asserts a NUMBER the constraint had to move, because "it did not throw" is
+also what a keyword mapped to the wrong primitive looks like:
+
+```
+[RADIUS]  seeded 5 -> solved 12.000000 (want 12)
+[DIAM]    DIAM 30 -> radius 15.000000 (want 15, NOT 30)
+[ANGLE]   |cos| between the two lines = 0.000000000 (want 0)
+[FIX]     anchor stayed at (0.000000000, 0.000000000)
+[DISTXY]  partner at (25.000000000, -7.000000000) (want 25, -7)
+[CONC]    centre separation 0.000000000 (was 24.41)
+[COLL]    the other line's endpoints y = -0.000000000, -0.000000000
+[MIDPT]   midpoint at (20.000000000, 10.000000000)
+[SYMM]    mirrored point at (12.000000000, 20.000000000)
+[PTON]    point distance from centre 10.000000000 (want 10)
+[COLL/repair] demotions = 1 (want 1); every FIXed point still where it was drawn
+[keywords] 19 of 19 documented CON keywords dispatch
+```
+
+**Falsifiability proved by mutation, not asserted.** Four mutants, each reverted:
+
+| mutant | result |
+|---|---|
+| the degrees->radians conversion removed | `[ANGLE] \|cos\| = 0.448073616` — FAIL. The case comment PREDICTED 0.447 before the mutant ran. |
+| `DIAM` routed to `CircleRadius` | `[DIAM] radius 30.000000` — FAIL |
+| `COLL`'s two constraints split across two tags | `demotions = 2` — FAIL |
+| point-form `ANGLE` forced onto the tag-dropping overload | `residual = nan` — FAIL |
+
+**★ The third mutant is the one worth recording, because the FIRST version of that case did not
+catch it.** With line B pinned horizontal, `COLL`'s Parallel half was already satisfied, so
+splitting the tag still needed only one demotion and the test passed against the mutant — an
+unfalsifiable check dressed as a measurement of a claim written in a code comment. The geometry was
+changed so both halves independently conflict, and only then did the mutant turn it red. *Running
+the mutation is what found this; the check had already "passed".*
+
+**★ A REAL DEFECT IN THE VENDORED SOLVER, found by rewriting a test that had already passed.**
+`ANGLE`'s two-point form goes to `addConstraintP2PAngle`. planegcs declares that twice, and the
+convenient four-argument overload **discards the caller's tag** (`GCS.cpp:655`):
+
+```cpp
+int System::addConstraintP2PAngle(Point& p1, Point& p2, double* angle,
+                                  int /*tagId*/, bool driving)
+{ return addConstraintP2PAngle(p1, p2, angle, 0., 0, driving); }
+```
+
+The parameter is commented out and **0 — planegcs's "no tag" sentinel — is hard-coded in its
+place.** It is the ONLY delegating overload in that file that does this: **34** delegating definitions were
+counted and **33** forward `tagId`. (A first pass said 30/29 — the three multi-line
+`addConstraintTangentCircumf` calls forward the tag on a continuation line, which a one-line grep
+cannot see. Recorded because it is the same shape as the rest of this entry: a count is only worth
+what the instrument that produced it can see.) A constraint left on tag 0 is invisible to `getConflicting()`,
+`clearByTag()` and `calculateConstraintErrorByTag()`, so the geometry still solves while **the
+repair loop can never demote it and its residual reads NaN** — a silent hole in exactly the
+never-refuse contract this family exists to honour. Fixed in the FACADE, not in the vendored file
+(`3rdParty` is a verbatim vendor copy), by calling the five-argument overload with
+`incrAngle = 0.0` and the real tag. Measured both ways: NaN before, `-1.471127674` after.
+
+**★ How it was found is the point.** The first version of that test contradicted the angle against
+two `FIX`es and asserted the repair NAMED a demotion. It passed — and it passed against a mutant
+that deliberately selected the wrong overload, because the repair satisfied the assertion by
+dropping a `FIX` instead. A downstream consequence another constraint can satisfy is not a probe of
+the thing. Rewritten to ask `constraintResidual()` for the returned tag directly — which nothing
+else in the sketch can mask — it caught the mutant, and then caught the SAME defect in the
+unmutated code. **Two of this branch's tests were unfalsifiable when first written, and running
+mutations against them is the only reason either is worth anything.**
+
+**The unit seam, stated because a wrong answer here still builds.** The IR is degrees (`ROTATE`,
+`PATTERN POLAR`, `REVOLVE`); planegcs is radians. The conversion is at the IR boundary and both
+sides name it. Unconverted, `ANGLE 90` aims at 90 rad = 116.6 deg after wrapping: it compiles,
+solves, converges and reports a clean DOF while making the wrong part.
+
+**What this does NOT claim.** The seven sketch ops are still **forbidden in the app vocabulary** —
+no `forge::ui` command emits `SKETCH`/`SPT`/`SLINE`/`SCIRC`/`SARC`/`CON`/`SOLVE`, and an Archie
+plan naming `SOLVE` is refused by the op-constraint bridge before dispatch. That is the
+emission-surface work, not this branch, and it is the next thing standing between this family and
+a benchmark score.
+
+*(Figure re-measured at every merge, because it goes stale by standing still — which is
+the defect class this whole entry is about. It has now gone stale FOUR times. When this entry was
+written the count was **25 of 53** forbidden; after #164 it read **14 of 53**; at the merge before
+this one it was **9 of 55**. MEASURED on the tree this merge commits, from the regenerated
+`archie_op_vocabulary.json`, it is **2 of 55** — only `ARC` and `SLOT`. The seven sketch ops left
+`forbidden_ops` entirely, because D-045 (#184) gave the family eight commands while this branch
+was in review.
+
+★ THAT CHANGES WHAT THIS ENTRY CLAIMS, so the claim is restated rather than left standing. The
+previous wording said the nineteen keywords were "invisible to the emission surface" because `CON`
+was forbidden. `CON` is no longer forbidden, and the invisibility did not disappear — it MOVED
+DOWN ONE LAYER, and it is now measurable rather than structural. MEASURED on this tree:
+
+  the compiler dispatches            19 CON keywords (`kKinds`, FeatureTreeCompiler.cpp)
+  the two CON commands offer          9 (`part.sketch_constrain{,_single}`, PartCommands.cpp)
+  reachable by a user                 9
+  dispatchable but UNREACHABLE       10 — ANGLE COLL CONC DIAM DISTX DISTY FIX
+                                          MIDPT RADIUS SYMM
+  offered but NOT dispatched          0
+
+The last row is the one that would be a DEFECT rather than a gap, and it is empty: no command
+promises a keyword the compiler would skip. The ten in the fourth row are the same shape of gap
+this entry was written about, one layer up — the facade has them, the compiler routes them, and no
+command emits them. That is app-surface work, it is not done here, and it is now a number someone
+can close rather than a sentence.)*
+
+No benchmark number is claimed here: nothing in this branch was scored against BenchCAD,
+CADGenBench or MUSE.
 
 
 

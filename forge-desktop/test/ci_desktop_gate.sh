@@ -41,21 +41,23 @@ set -uo pipefail
 
 # 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
-# from either parent. This number has now been contested at two separate merges
-# and the SIDES SWAPPED between them, which is the whole argument for measuring
-# it: at the merge that first wrote this line the incoming branch said 40 and the
-# base said 39; at the app/differential-gate-v2 merge it is the other way round --
-# this branch says 39 and the base says 40. Both times the difference is the same
-# single mutation, click 8, the camera pull path (`g_mutation != 8` in
-# click_gate.cpp), and every other gate's list is identical on both sides.
+# from either parent. This number has been contested at two earlier merges and
+# the SIDES SWAPPED between them, which is the whole argument for measuring it
+# rather than inheriting it.
 #
-# Re-measured here rather than inherited: the method was calibrated by counting
-# run_gate's arguments on BOTH parents, where it reproduced 39 and 40 exactly, and
-# then run on the merged tree, which gives 40 -- because click_gate.cpp on the
-# merged tree HAS mutation 8 (grep says so; that is the confirmation, not the
-# count). Picking a side would have been red in one direction or the other. This
-# is D-028's failure mode, and the method that catches it is to COUNT on the tree
-# being committed rather than to inherit a number.
+# AT THIS MERGE (the execution branch, carrying #176 and #174, into
+# app/differential-gate-v2) BOTH SIDES ALREADY PIN 40 -- the disagreement the
+# two comments above describe has been resolved by the base pull this branch
+# already took. An agreeing pair is the easiest place to carry a stale figure
+# across, since no conflict is raised to prompt a re-count, so it was measured
+# anyway: counting run_desktop.sh's own run_gate arguments reproduces 40 on BOTH
+# parents and gives 40 on the merged tree.
+#
+# The confirmation, not the count: click mutation 8 -- the camera pull path,
+# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree, which is
+# what the earlier disagreement turned on. This is D-028's failure mode, and the
+# method that catches it is to COUNT on the tree being committed rather than to
+# inherit a number.
 EXPECTED_MUTATIONS=40
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"

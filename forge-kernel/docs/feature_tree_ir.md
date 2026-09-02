@@ -157,6 +157,7 @@ extending along `+axis`.
 | `SLOT`    | `len, wid [, cx=0, cy=0, angleDeg=0]` | sketch: 2 lines + 2 arc caps (obround) |
 | `POLY`    | `[x y; x y; ...]` | sketch: N lines (organic silhouette) |
 | `REGPOLY` | `r, n [, cx=0, cy=0, rotDeg=0]` | sketch: n-gon |
+| `ARC`     | `[x y; x y mx my; ...]` | sketch: N lines **and true circular arcs**. A 2-number row is a straight segment arriving at that vertex; a 4-number row is the circular arc from the previous vertex **through** `(mx,my)`. Row 0 describes the **closing** segment. Arcs wider than 120 deg are split into equal sub-arcs on their own circle (same centre, same radius, same endpoints) — exact, not a tessellation. |
 
 ### 3D section rings (produce a WIRE — a loft cross-section placed in 3D)
 
@@ -164,6 +165,12 @@ extending along `+axis`.
 |----|--------------------------|-------------|
 | `RING` | `rx, ry, z [, cx=0, cy=0, p=2, seg=48]` | `part::profileWire` — superellipse ring `\|x/rx\|^p+\|y/ry\|^p=1` sampled to `seg` pts at height `z`. `p=2` circle/ellipse; `p=4..6` rounded-rect (impeller/nozzle/duct sections). |
 | `WIRE` | `[x y z; x y z; ...]` | `part::profileWire` — explicit closed 3D ring (airfoil / organic / sharp-cornered section). |
+
+### 3D spine curves (produce a WIRE — a PATH, not a cross-section)
+
+| op | args (defaults in `[]`) | native call |
+|----|--------------------------|-------------|
+| `HELIX` | `pitch, height, radius [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1] [, LEFT]` | `part::helixWire` — a straight `Geom2d_Line` in the `(u,v)` space of a `Geom_CylindricalSurface`, i.e. the exact curve, not a polyline. `pitch` is the rise per full turn and `height` the total rise, so the curve makes `height/pitch` turns; a fraction of a turn is legal. `LEFT` reverses the winding, never the rise. **Produces a WIRE** — a helix bounds no volume. Nothing in this kernel consumes a spine yet: `SWEEP` takes its path as a literal `[x y z; ...]` ring, not a `%ref`. |
 
 ### 3D primitives (produce a SOLID)
 

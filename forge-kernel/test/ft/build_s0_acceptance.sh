@@ -46,6 +46,41 @@ FLAGS=(-std=c++20 -O0 -g -Wall
        -I"$KERNEL/include" -I"$OCCT_INC"
        -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
 
+# ---- ONE OCCT LIBRARY, AND ONLY BECAUSE IT IS A *DATA* SYMBOL ---------------
+# FeatureTreeCompiler.cpp now catches Standard_Failure (an OCCT raise is not a
+# std::exception, and letting one escape is what aborted forge_verify seven times
+# during a 600-row run on 2026-09-01). A catch clause references `typeinfo for
+# Standard_Failure`, and THAT is the difference that matters here: the ~20
+# forge::* symbols this harness leaves unresolved are FUNCTIONS, which
+# -undefined dynamic_lookup never has to resolve because they are never called.
+# A typeinfo is a data symbol bound EAGERLY at load, so the binary aborted before
+# main with `dyld: symbol not found in flat namespace '__ZTI16Standard_Failure'`
+# -- exit 134, no test output at all. The two kinds of undefined symbol are not
+# interchangeable, and the linker flag only covers one of them.
+#
+# So link the ONE OCCT library that defines it. TKernel is OCCT's foundation
+# (Standard_Failure, Standard_Transient) and pulls in no modelling code; the
+# gate's premise -- that the forge::* kernel half stays unlinked and uncalled --
+# is untouched.
+if [ -z "${OCCT_LIB:-}" ]; then
+  for _l in "$(dirname "$OCCT_INC")/../lib" \
+            /opt/homebrew/lib /opt/homebrew/opt/opencascade/lib \
+            /usr/local/opt/opencascade/lib /usr/lib/x86_64-linux-gnu \
+            /usr/local/lib /usr/lib ; do
+    for _e in dylib so ; do
+      [ -e "$_l/libTKernel.$_e" ] && { OCCT_LIB="$(cd "$_l" && pwd)"; break 2; }
+    done
+  done
+fi
+if [ -z "${OCCT_LIB:-}" ]; then
+  # Refuse rather than fall back to a link that dies at load with no output. A
+  # check that could not run is not a check that passed.
+  echo "libTKernel not found next to $OCCT_INC or in the standard prefixes." >&2
+  echo "It defines typeinfo for Standard_Failure, which this TU now needs at LOAD" >&2
+  echo "time. Set OCCT_LIB=/path/to/lib (the directory holding libTKernel)." >&2
+  exit 2
+fi
+
 echo "[1/5] compile forge::ft TU (parser + compiler)"
 "$CXX" "${FLAGS[@]}" -c "$KERNEL/src/ft/FeatureTreeCompiler.cpp" -o "$OUT/FeatureTreeCompiler.o" || exit 2
 
@@ -89,9 +124,11 @@ esac
 
 "$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" "$OUT/Sha256.o" \
     -o "$OUT/s0_acceptance" \
+    -L"$OCCT_LIB" -lTKernel \
     $UNDEF_FLAGS $UNDEF_EXTRA 2>/dev/null || \
 "$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" "$OUT/Sha256.o" \
     -o "$OUT/s0_acceptance" \
+    -L"$OCCT_LIB" -lTKernel \
     $UNDEF_FLAGS || exit 2
 
 echo

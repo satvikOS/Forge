@@ -17,6 +17,14 @@
 // the same solid can therefore be sharp to 5e-7 ABSOLUTE and no sharper; a
 // relative tolerance tighter than that compares the formatter, not the geometry.
 //
+//   or : {"id","ok":false,"instrument":"<kind>","rowIndex","pid","afterAnswer",
+//         "error":"INSTRUMENT: .."}
+//         An `instrument` record is a verdict on THIS TOOL, not on the tree it
+//         was handed. It carries no measurement because none was made. A caller
+//         MUST exclude such a row from the numerator AND the denominator of
+//         every rate: it is not a pass, not a failure, and not evidence. See
+//         THE INSTRUMENT IS NOT THE SPECIMEN, below main's helpers.
+//
 // One `bores` entry is one HOLE, keyed on its AXIS LINE: a wall split at a seam,
 // across the gap of a clevis, or into pilot + counterbore is still one hole. `r`
 // is the smallest radius on that axis (the pilot), `span` the total axial length
@@ -33,14 +41,21 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <cxxabi.h>      // __cxa_current_exception_type — name the exception that
+                         // is killing us WITHOUT taking an OCCT dependency here
+#include <exception>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <set>
 #include <sstream>
 #include <string>
+#include <typeinfo>
+#include <unistd.h>      // write() — the only output call that is signal-safe
 #include <vector>
 
 #include "forge/DirectEdit.hpp"
@@ -51,6 +66,11 @@
 #include "forge/IoExchange.hpp"
 #include "forge/ShapeRegistry.hpp"
 #include "forge/ft/FeatureTree.hpp"
+
+#include "InstrumentRecord.hpp"   // THE INSTRUMENT IS NOT THE SPECIMEN: the
+                                  // per-row instrument record, the terminate
+                                  // handler and the fatal-signal handlers.
+using namespace forge::instrument;
 
 namespace {
 
@@ -378,16 +398,29 @@ int surroundsAxis(const forge::PointInSolid& probe, const forge::FaceInfo& f,
 }  // namespace
 
 
+
 int main(int argc, char** argv) {
     (void)argc; (void)argv;
     std::ios::sync_with_stdio(false);
+    installInstrumentHandlers();
 
     std::string line;
+    long rowIndex = -1;
     while (std::getline(std::cin, line)) {
         if (line.find_first_not_of(" \t\r\n") == std::string::npos) continue;
+        beginRow(++rowIndex);
 
+        // THE WHOLE ROW UNDER ONE NET, so "this row produced no record" cannot
+        // happen quietly. The lambda is what makes that provable: `continue` is
+        // illegal inside it, so every early exit from the row body had to become
+        // a `return` that passes through this net -- the compiler enforces the
+        // property rather than a reviewer.
+        try {
+            [&] {
         std::string id, ir, inStep, outStep, censusFlag, refStep, gridStr;
         jsonString(line, "id", id);
+        setRowId(id);   // the crash handlers cannot chase a std::string
+        maybeInjectFault(id);   // inert unless FORGE_VERIFY_FAULT is set
         jsonString(line, "refStep", refStep);   // reference solid -> Voxel IoU
         jsonString(line, "iouGrid", gridStr);
         jsonString(line, "ir", ir);
@@ -402,8 +435,8 @@ int main(int argc, char** argv) {
 
         if (ir.empty()) {
             o << ",\"ok\":false,\"error\":\"no ir\"}";
-            std::cout << o.str() << "\n" << std::flush;
-            continue;
+            emitRow(o.str());
+            return;
         }
 
         forge::ft::CompileResult r;
@@ -411,8 +444,8 @@ int main(int argc, char** argv) {
             r = forge::ft::compileText(ir, outStep, inStep);
         } catch (const std::exception& e) {
             o << ",\"ok\":false,\"error\":\"" << jsonEscape(e.what()) << "\"}";
-            std::cout << o.str() << "\n" << std::flush;
-            continue;
+            emitRow(o.str());
+            return;
         }
 
         o << ",\"ok\":" << (r.ok ? "true" : "false")
@@ -740,7 +773,22 @@ int main(int argc, char** argv) {
         }
 
         o << "}";
-        std::cout << o.str() << "\n" << std::flush;
+        emitRow(o.str());
+            }();
+        } catch (const std::exception& e) {
+            // A throw that reached here is the TOOL failing, not the tree: the
+            // per-op handlers inside the kernel already turn a real modelling
+            // failure into a CompileResult. Recording it as an `instrument`
+            // outcome keeps it out of both halves of every rate downstream.
+            emitInstrument("verifier_exception", e.what(), false);
+        } catch (...) {
+            char ty[512];
+            emitInstrument("verifier_exception",
+                           currentExceptionTypeName(ty, sizeof ty), false);
+        }
+        if (!g_rowAnswered)
+            emitInstrument("verifier_no_record",
+                           "the row body returned without emitting a record", false);
     }
     return 0;
 }
