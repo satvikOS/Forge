@@ -489,6 +489,22 @@ jobs:
         # lost, stderr "terminating due to uncaught exception of type
         # Standard_ConstructionError"); after, exit 0 with 3 of 3.
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_instrument_gate.sh
+      - name: ... and the gate that proves it can fail (8 mutations, red-then-green)
+        # THE NEGATIVE CONTROL FOR THE TWO STEPS ABOVE. The defect they exist for
+        # survived a COMPLETE 600-row run because nothing exercised the path
+        # forge_verify died on; a gate written in response must not be allowed to
+        # acquire the same property. This breaks the SHIPPED header eight ways --
+        # handler not installed, exception type lost, what() discarded,
+        # afterAnswer always false, row id forgotten, record written to the wrong
+        # stream, no signal handlers, and a record emitted for HEALTHY rows -- and
+        # requires the gate to go red at the specific check each guarantee belongs
+        # to. Red for the wrong reason fails too: "it turned red" is not evidence
+        # that the check you care about is awake. The count is an equality, never
+        # a floor, so a mutation that stops applying fails the job instead of
+        # quietly shrinking the suite. --selftest additionally proves THIS
+        # harness's own refusals fire (a no-op edit, and a mutant that stays
+        # green). It compiles one translation unit with no kernel and no OCCT.
+        run: bash forge-kernel/test/instrument_record_mutations.sh --selftest
 
   desktop:
     # The count is deliberately NOT in this name. It said "17 mutation proofs" while

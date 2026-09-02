@@ -2085,3 +2085,126 @@ produced no output"). ★The earlier addendum said "half never surface"; measure
 the end, the shortfall is a CONSTANT **4**, not a proportion — it was 8-vs-4 then
 and 13-vs-9 now. The constant-offset reading is better supported, and it is the
 more useful one for finding the leak.
+
+### D-045 correction — the instrument failures are OUT of both halves, and the correction WIDENS the result
+
+The follow-up the first addendum owed itself is done: `instrument_failed` is a
+distinct outcome, emitted where the process EXITS, reconciled against the OS's own
+crash reports, and gated. This section restates every D-045 figure it touches, in
+both forms, so the direction of the correction is visible rather than asserted.
+
+**What the instrument actually lost, over the completed 600 rows.** Nine rows, all
+of them written down as `the tree does not compile`:
+
+| kind | n | rows |
+|---|---:|---|
+| `verifier timeout after 180s` (we SIGKILLed a wedged child) | 2 | ho932, ho998 |
+| `verifier produced no output` (the child ABORTED) | 7 | ho116, ho274, ho341, ho962, ho1180, ho1212, ho1229 |
+
+The first addendum caught **three** of these at n=318. Over the full run it is
+**nine**, and **eight of the nine are VERIFY-bearing**.
+
+**★ The direction, which cuts AGAINST the headline.** A VERIFY-bearing row the
+verifier never answered for can sit in the self-inconsistency DENOMINATOR but can
+never reach its NUMERATOR — a false assertion has to be *measured* to be counted.
+So the contamination could only ever push the rate DOWN. Excluding the nine from
+both halves:
+
+| | published | corrected | direction |
+|---|---|---|---|
+| self-inconsistency, n=600 | 389 / 455 = **85.5%** | 389 / **447** = **87.0%** | **+1.53 pt — WIDER** |
+| the same, counting a VERIFY failure that arrived as a compile error | 408 / 455 = 89.7% | 408 / 447 = **91.3%** | +1.60 pt — wider |
+
+Against a pre-registered prediction of **< 25%**, the correction moves the result
+*further* from the prediction, not nearer. It is recorded for that reason: a
+correction that flatters the headline and one that does not must be equally
+reportable, and this programme has already been bitten once by an instrument
+failure worn as a property of the specimen (`quality_gate` labelling good STEP
+files `corrupt:parse_failed` because OCP was not importable).
+
+**The paired result does not move at all, and that is measured, not assumed.**
+`v6r8`'s own 238-row trace contains **zero** instrument failures, and of the 238
+shared ids exactly **one** (ho998) is instrument-failed on `v10` — a row that is
+not VERIFY-bearing on either arm. The 97-id both-bearing set therefore contains
+none of them:
+
+| | published | corrected |
+|---|---|---|
+| paired self-inconsistency (both-bearing) | 92.8% vs 59.8%, n=97 | **unchanged**, n=97 |
+| discordant pairs | 35 worse / 3 better | **unchanged** |
+| McNemar (exact, two-sided) | p = 6.68e-08 | **unchanged** |
+| paired compiled | 34.9% vs 25.6%, n=238 | 35.0% vs 25.7%, n=237 |
+| VERIFY-emission rate | 58.4% vs 55.0% | 58.6% vs 55.3% |
+
+**★ The "constant shortfall of 4" was an artefact of the window, not a leak.** The
+previous section read 13 crash reports against 9 recorded instrument rows as four
+deaths that went unrecorded, and noted it had measured the same offset twice
+(8-vs-4, then 13-vs-9), which is exactly what a structural leak looks like. It is
+not one. Attributed by **parent pid** instead of by wall clock:
+
+```
+ppid 68311 (the run's own python)    7 reports  <->  7 "produced no output" rows   1:1
+five OTHER processes on the machine  6 reports  <->  nothing to do with this run
+the 2 timeouts                       0 reports  <->  correct: we SIGKILL a wedged
+                                                     child, and SIGKILL leaves none
+13 - 9 = 4  =  6 foreign  -  2 SIGKILLed
+```
+
+A wall-clock window on a machine shared with other agents is not an attribution.
+**Nothing had gone unrecorded.**
+
+That parent-pid split was measured on 2026-09-01 while the reports still existed
+and is preserved in `scripts/verifier_crash_census.py`; the `.ips` files have since
+aged off the machine, so its foreign-process half cannot be re-derived today. The
+half that *can* still be re-derived was, independently, and it holds exactly:
+**exactly 7 of the 600 emissions carry a zero-axis `ROTATE`, and they are exactly
+the 7 rows recorded "verifier produced no output"** — 7 aborts, 7 rows, 1:1.
+(`FeatureTreeCompiler::opRotate` reads `ROTATE(body, angleDeg, ax, ay, az[, ox, oy,
+oz])`; read as point-then-axis instead, 19 rows look zero-axis and six of the seven
+change classification. The argument order is load-bearing in this census.)
+
+**The cause, and the before/after, measured on one 3-row fixture.**
+`forge::rotate`'s OCCT path built `gp_Dir(ax, ay, az)` with no zero-axis guard,
+though the native path beside it always had one. `gp_Dir` raises
+`Standard_ConstructionError`, which derives from `Standard_Transient` and NOT from
+`std::exception`, so `main`'s `catch (const std::exception&)` never matched:
+`__cxa_throw -> failed_throw -> std::terminate -> abort`. Through the
+**emission-time pinned binary** (sha256 `45e9ad9a…`, the one the 600 rows were
+actually emitted and gated with):
+
+```
+before   rc=134,  1 of 3 records  — the zero-axis row AND its innocent neighbour lost
+         stderr: libc++abi: terminating due to uncaught exception of type
+                 Standard_ConstructionError          <- destroyed by the .ips, which
+                                                        carries only "abort() called"
+after    rc=0,    3 of 3 records
+         r2: op %2 (line 2): ROTATE: axis is zero (args 2-4 are the axis vector;
+             use e.g. 0,0,1 for Z)
+```
+
+The collateral is the reason this had to be fixed at the kernel rather than only in
+the harness: a mid-batch abort takes the rows behind it, so at `--batch 20` one
+zero-axis row could have written off up to nineteen innocent ones.
+
+**What now exists so this cannot recur silently.**
+
+* `instrument_failed` is a distinct outcome in `archie_loop.py`,
+  `measure_failure_v2.py`, `score_run.py` and `selfdistill_report.py`, excluded
+  from BOTH the numerator and the denominator; the uncorrected figures are printed
+  beside the corrected ones rather than replaced by them.
+* `forge_verify` answers for itself **from inside the crash**
+  (`src/tools/InstrumentRecord.hpp`): one record per row, emitted from
+  `std::terminate` and from the fatal signals, carrying the row in flight, the
+  exception's demangled type and its `what()`, allocation-free so a signal handler
+  can use it — and it still aborts afterwards, so the OS crash report survives to
+  be counted against.
+* The count reconciles by parent pid (`scripts/verifier_crash_census.py`), with
+  three outcomes rather than two: `unrecorded_deaths` is a finding, `pending` is
+  the oracle being slow (ReportCrash was measured 438 s late once here) and is
+  never reported as a leak.
+* Three gates, all in CI: the unit gate drives every death path in the shipped
+  header; the end-to-end gate drives the real binary; and
+  `instrument_record_mutations.sh` breaks the shipped header **eight** ways and
+  requires the gate to go red at the specific check each guarantee belongs to —
+  because the original defect survived a whole 600-row run for exactly one reason,
+  that nothing ever exercised the path it died on.
