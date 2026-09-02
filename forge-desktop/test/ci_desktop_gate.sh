@@ -48,7 +48,14 @@ set -uo pipefail
 # would have been red either way, in one direction or the other. This is
 # D-028's failure mode, and the method that catches it is to COUNT on the tree
 # being committed rather than to inherit a number.
-EXPECTED_MUTATIONS=40
+#
+# 40 -> 42: frame_gate gains mutations 10 (a session with a worker CONFIGURED is
+# not distinguished from one without, so the isolation report says "off"
+# whatever is true) and 11 (the frame never dispatches the deferred Open Recent
+# request, so a click records and opens nothing). RE-COUNTED from
+# run_desktop.sh's own run_gate arguments on this tree -- document 8 + frame 11 +
+# copilot 8 + update 7 + click 8 -- not incremented by two on faith.
+EXPECTED_MUTATIONS=42
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

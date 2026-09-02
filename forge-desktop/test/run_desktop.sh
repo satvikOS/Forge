@@ -158,7 +158,7 @@ run_gate() {
 # would not reject on its own.
 run_gate forge_desktop_ir_pipeline_gate
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

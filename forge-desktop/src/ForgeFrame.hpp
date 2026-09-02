@@ -415,11 +415,39 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Fill one prompted parameter by name. Returns false when this prompt has no
   // such field, rather than silently creating one the command will not read.
   bool setPromptValue(const std::string& name, const std::string& value);
+  // What that box currently HOLDS — the seed before the user types, and what
+  // they typed after. "" for a field this prompt does not have.
+  //
+  // It exists because the seeding is the whole reopen fix and there was no way
+  // to assert it: a gate could call pathPromptSeed() and be checking a helper
+  // the prompt is free to stop calling, which is the "delegating and not
+  // enumerating" mistake in miniature. This reads the FIELD.
+  std::string promptValue(const std::string& name) const;
   // Dispatch the prompted command with what has been collected. Returns whether
   // it ran. Public so a gate can drive the whole prompt path by name, the way it
   // drives invoke().
   bool submitPrompt();
   void cancelPrompt() noexcept;
+
+  // What a `path` box STARTS on: the open document, else the most recent one
+  // this installation opened or saved, else "". "" is the honest answer on a
+  // first-ever launch -- there is nothing to suggest, and inventing a path that
+  // does not exist would put a refusal one Enter away.
+  //
+  // Public so the gate can assert it without a window, and because it is the
+  // whole of the reopen fix: `documentPath_` is empty on every launch, so
+  // without the recent list Ctrl+O offers an empty box and the only way back to
+  // yesterday's part is to type its absolute path from memory.
+  std::string pathPromptSeed() const;
+
+  // Open one remembered document, through the SAME `file.open` the menu, the
+  // keyboard, the palette and `--open` dispatch -- registry, undo contract,
+  // activity log and all. Deferred to the end of the frame like every other
+  // command that can replace the document, so the dock walk is never holding a
+  // node into a tree this is about to rebuild.
+  void requestOpenDocument(const std::string& path);
+  // The path requested but not yet dispatched; "" when there is none.
+  const std::string& pendingOpenPath() const noexcept { return pendingOpenPath_; }
 
   // ── dock mutations ──────────────────────────────────────────────────────
   // Public because they are the layout's write API, not a splitter-drag detail:
@@ -643,6 +671,21 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // press two menu items in one frame. The LAST one recorded wins, which is the
   // one they clicked.
   std::string pendingInvokeId_;
+
+  // The Open Recent click, on the same one-slot deferral and for the same
+  // reason. It is a SEPARATE slot from pendingInvokeId_ because it carries an
+  // argument: the path decides which document, and pendingInvokeId_ has nowhere
+  // to put one.
+  std::string pendingOpenPath_;
+
+  // Dispatches pendingOpenPath_ and clears it. Called by build() after the dock
+  // walk, never from inside a draw function.
+  void runPendingOpen();
+
+  // Writes whether the kernel is running out of process into the ACTIVITY LOG,
+  // where a user can still find it. main.cpp prints the same fact to stderr,
+  // which a Finder launch does not have. Called once, from wirePartCommands().
+  void reportKernelIsolation();
 
   void openPrompt(const std::string& id, const std::vector<std::string>& parameters);
   void drawParameterPrompt();
