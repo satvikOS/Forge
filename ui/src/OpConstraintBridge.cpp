@@ -39,22 +39,21 @@ std::string lower(std::string_view text) {
 // the enum's OWN names is a derivation from the enum, not a second transcription
 // of it -- add a kind to IrValueKind and this keeps working.
 bool mapValueKind(std::string_view spelling, IrValueKind& out) {
-  const IrValueKind kinds[] = {IrValueKind::None, IrValueKind::Profile, IrValueKind::Wire,
-                               IrValueKind::Solid, IrValueKind::Surface};
-  const std::string want = lower(spelling);
-  for (const IrValueKind kind : kinds) {
-    if (want == toString(kind)) {
-      out = kind;
-      return true;
-    }
-  }
-  return false;
+  // kAllIrValueKinds is THE list (PartCommands.hpp); the .fpart reader walks the
+  // same one, so a kind cannot be known to one string layer and not the other.
+  return irValueKindFromName(lower(spelling), out);
 }
 
 bool mapEntityKind(std::string_view spelling, EntityKind& out) {
   const EntityKind kinds[] = {EntityKind::None,      EntityKind::Vertex,    EntityKind::Edge,
                               EntityKind::Face,      EntityKind::Body,      EntityKind::Sketch,
-                              EntityKind::SketchCurve, EntityKind::Wire,    EntityKind::Feature,
+                              EntityKind::SketchCurve, EntityKind::Wire,    EntityKind::Surface,
+                              // The two sketch-solver kinds. A kind missing here is
+                              // not a cosmetic gap: check() REFUSES the whole
+                              // vocabulary row whose selection names it, so every
+                              // command consuming that kind stops being checked.
+                              EntityKind::OpenSketch, EntityKind::SketchRef,
+                              EntityKind::Feature,
                               EntityKind::Component, EntityKind::Datum,     EntityKind::Any};
   const std::string want = lower(spelling);
   for (const EntityKind kind : kinds) {

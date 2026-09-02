@@ -39,7 +39,24 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-EXPECTED_MUTATIONS=39
+# 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
+# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
+# from either parent. This number has now been contested at two separate merges
+# and the SIDES SWAPPED between them, which is the whole argument for measuring
+# it: at the merge that first wrote this line the incoming branch said 40 and the
+# base said 39; at the app/differential-gate-v2 merge it is the other way round --
+# this branch says 39 and the base says 40. Both times the difference is the same
+# single mutation, click 8, the camera pull path (`g_mutation != 8` in
+# click_gate.cpp), and every other gate's list is identical on both sides.
+#
+# Re-measured here rather than inherited: the method was calibrated by counting
+# run_gate's arguments on BOTH parents, where it reproduced 39 and 40 exactly, and
+# then run on the merged tree, which gives 40 -- because click_gate.cpp on the
+# merged tree HAS mutation 8 (grep says so; that is the confirmation, not the
+# count). Picking a side would have been red in one direction or the other. This
+# is D-028's failure mode, and the method that catches it is to COUNT on the tree
+# being committed rather than to inherit a number.
+EXPECTED_MUTATIONS=40
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

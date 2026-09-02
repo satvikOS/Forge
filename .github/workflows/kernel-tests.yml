@@ -142,13 +142,21 @@ jobs:
         # is the half that catches a kernel-header signature change nothing in ui/
         # would notice. Stdlib-only Python, no install step.
         run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
-      - name: op-constraint bridge (drift check + 8 mutations)
+      - name: op-constraint bridge (drift check + 9 mutations)
         # The bridge is the vocabulary made ENFORCEABLE: it accepts or refuses a
-        # proposed op plan against the 28 user-invocable ops. run_ui.sh above already
+        # proposed op plan against the user-invocable ops. run_ui.sh above already
         # runs its clean pass (it globs ui/test/*_test.cpp); this step is the half a
         # clean pass cannot give -- the PROOF that the gate can fail. It mutates the
-        # generated header to prove the drift check refuses, then runs all 8 --mutate
-        # cases and requires every one to exit non-zero.
+        # generated header to prove the drift check refuses, then runs every --mutate
+        # case and requires every one to exit non-zero.
+        #
+        # The op COUNT is deliberately not written here any more. It was "28" while
+        # the gate proved 9 mutations under a name saying 8, and the true count went
+        # 28 -> 29 with #165 -- a number copied into a second place goes stale
+        # (D-027), and this file cannot be regenerated. The authority is
+        # archie_op_vocabulary.json counts.user_invocable_ops, which the step above
+        # gates. The mutation count stays written because ci_desktop_gate.sh's
+        # EXPECTED_MUTATIONS idiom requires an exact figure to be falsifiable.
         run: bash ui/test/run_op_constraint_gate.sh
       - name: two-path differential, tier 1 (kernel-free, + 9 mutations)
         # ONE feature tree can reach the kernel two ways -- forge_verify's
@@ -169,6 +177,38 @@ jobs:
         # SET, so the one that remains (an open-ended selection gets minCount
         # values and no more) is printed on every run rather than remembered.
         run: bash ui/test/run_differential_gate.sh
+      - name: forge-desktop still TYPE-CHECKS (the cheap half of "the app builds")
+        # THE GATE THAT WOULD HAVE CAUGHT 2026-08-31's UN-BUILDABLE APP, IN THIS
+        # JOB, IN SECONDS.
+        #
+        # forge::ui::DocumentHost grew a PURE virtual (documentReset) and
+        # ForgeFrame, the application's only DocumentHost, did not implement it.
+        # `class ForgeFrame final` therefore named an abstract class and
+        # forge-desktop did not compile. Every step ABOVE stayed green: they all
+        # build ui/src and ui/test and none of them touches forge-desktop/src.
+        # It is the same shape as #107 (a call to KernelScene::features(), which
+        # did not exist), and #107 is why the `desktop` job exists.
+        #
+        # The `desktop` job WOULD catch both -- it compiles and links the real
+        # application -- but it installs OCCT, builds forge_kernel_core, links
+        # ImGui and runs six gates under a sanitizer. That is minutes, on a
+        # runner with an SDK. This step is `-fsyntax-only`: full parse, template
+        # instantiation and type checking, NO codegen and NO link, over the 12
+        # forge-desktop translation units that need no external SDK. Dear ImGui
+        # is vendored in-tree and forge::ui is in-tree, so it needs clang and the
+        # checkout and nothing else -- which is exactly why it can ride THIS job.
+        #
+        # --mutations runs it clean and then proves all three injected defects
+        # turn it red (a removed override of a pure virtual, a call to a method
+        # that does not exist, and a plain -Wunused-variable that only fails
+        # because -Werror is kept). A gate nobody has seen fail is silence, and
+        # silence is the exact failure mode this step is here to end. The
+        # mutations are injected into a COPY of the tree, never the checkout.
+        #
+        # The gate also CENSUSES forge-desktop/{src,test}: every .cpp must be
+        # classified as checked or as skipped-with-the-SDK-it-needs, so a new
+        # translation unit cannot join the application unnoticed.
+        run: bash forge-desktop/test/run_syntax_gate.sh --mutations
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
@@ -188,7 +228,7 @@ jobs:
         run: bash retrieval/run_retrieval_tests.sh
 
   s0_conformance:
-    name: s0 Appendix B conformance ratchet
+    name: s0 Appendix B conformance ratchet + the SECTION op gate
     # The acceptance suite deliberately asserts laws the implementation does not yet satisfy, so its
     # RAW exit is 1 by design and its failures are the deliverable. A permanently-red gate teaches
     # people to ignore it, so CI applies a ratchet: red if the failure count RISES (a regression)
@@ -209,10 +249,27 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Install OCCT (headers only are needed)
+      # The s0 suite needs only the HEADERS; the SECTION gate below links the
+      # toolkits too, and one brew formula carries both.
+      - name: Install OCCT
         run: brew install opencascade
       - name: s0 ratchet
         run: bash forge-kernel/test/ft/s0_ratchet.sh
+      # SECTION is the fourth OCCT boolean and the only one of the four whose
+      # result is not a body: FUSE/CUT/COMMON return a solid, SECTION returns the
+      # curve where two bodies' faces cross. forge::ft's kindOf() ends in
+      # `default: return Val::Solid`, so an op that does not name itself there is
+      # silently typed a body — and every downstream measurement would then report
+      # a perfectly good section as an empty invalid solid.
+      #
+      # This gate lives in the same job because it needs the same thing this job
+      # already installs and the same linker semantics this job already documents:
+      # it calls forge::section() and forge::ft::parse(), and parse() shares a
+      # translation unit with compile(), whose ~20 further kernel symbols are
+      # referenced but never executed. Six TUs, no kernel build, well under a
+      # minute. It runs its own three mutations and requires each to turn it red.
+      - name: SECTION op gate (geometry + IR round trip + 3 mutations)
+        run: bash forge-kernel/test/build_section_op_gate.sh
 
   nafems_ratchet_selftest:
     name: NAFEMS ratchet — prove the gate can fail
@@ -372,6 +429,24 @@ jobs:
         # platforms. Proven by cases 11a/11b of fea_nafems_ratchet_selftest.sh, which drive the
         # two shapes against the same baseline file.
         run: bash forge-kernel/test/fea_nafems_ratchet.sh
+      - name: 2D sketch + constraint gate (planegcs, reachable from the IR)
+        # THE FIRST GATE THE CONSTRAINT SOLVER HAS EVER HAD. planegcs has been
+        # vendored, compiled and linked into both forge_kernel.node and
+        # forge_kernel_core for two months -- ~370 KB of solver source, 67
+        # addConstraint* primitives, a full rank/QR diagnosis pipeline -- and
+        # NOTHING exercised it: no CI job, no npm gate entry, no native test.
+        # A solver this good being ungated is how it silently rots.
+        #
+        # This gate is weighted toward the REFUSAL paths, not the happy path,
+        # because the binding constraint on this programme is that nothing may
+        # refuse a tree: one contradictory dimension in a 200-statement tree
+        # must not cost the other 199. It asserts a contradictory sketch still
+        # compiles every statement AND names what it demoted; that a rank-BLIND
+        # infeasibility (a 10/10/100 triangle, which planegcs's Jacobian-rank
+        # analysis reports as perfectly fine) is still repaired via residuals;
+        # and -- the negative half -- that a TYPE error is still refused, so
+        # "tolerant" cannot quietly become "permissive".
+        run: bash forge-kernel/test/ft/build_sketch_solve.sh
       - name: Build forge_kernel_core (node-free, for the C++ gates)
         # Same build dir and flags PR #62's forge_verify step uses, so when that merges the
         # second configure is a no-op rather than a second full build.

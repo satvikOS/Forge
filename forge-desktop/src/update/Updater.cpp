@@ -124,7 +124,25 @@ Policy policyFor(const std::string& running_version) {
   Policy p;
   const Version v = parseVersion(running_version);
   if (v.valid && v.isPrerelease()) {
-    p.channel = "prerelease";
+    // A prerelease build accepts prereleases, and pins to NO channel.
+    //
+    // Pinning it to "prerelease" is the obvious spelling and it is wrong in one
+    // direction that cannot be repaired later: it makes the FIRST STABLE RELEASE
+    // unreachable. An installed 0.1.0-alpha.N would fetch the v0.1.0 appcast,
+    // parse it, and reject it with "manifest is on channel 'stable', this build
+    // follows 'prerelease'" -- stranding every early adopter on an alpha for
+    // ever. And the stranded client is the OLD BINARY, so no later release can
+    // undo it; the policy compiled into the first shipped build is the policy
+    // that decides whether that build can ever leave the alpha channel.
+    //
+    // Leaving the channel empty (the field's documented "disables the check")
+    // is safe because the channel pin was never what protects a stable user.
+    // That is the allow_prerelease guard below in decide(), which is untouched:
+    // a stable build keeps channel "stable" AND allow_prerelease false, so it
+    // still refuses a prerelease manifest on two independent grounds. What is
+    // removed here is only the rule that a prerelease build must refuse a
+    // RELEASE -- the one direction nobody wanted.
+    p.channel.clear();
     p.allow_prerelease = true;
   }
   return p;

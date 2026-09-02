@@ -511,19 +511,38 @@ int main(int argc, char** argv) {
     // (b) WITHOUT the SIGPIPE guard, writing a request to a dead worker kills
     //     the WRITER. The child restores the default disposition — which is what
     //     GuardedProcess::start() replaces — closes the read end, and writes.
+    // SIGPIPE is raised only when NO reader remains. The child drops its own
+    // read end, but the PARENT still holds a copy, and closing it concurrently
+    // with the child's write is a RACE: if the parent loses, the byte lands in
+    // a pipe that still has a reader, the write SUCCEEDS, and the child exits 0
+    // -- WIFSIGNALED reads 0 and this gate fails for a reason that has nothing
+    // to do with the guard it is testing. macOS timing happened to favour the
+    // parent; ubuntu-latest did not, which is exactly how it failed in CI while
+    // passing locally. A second pipe makes the ordering explicit: the child
+    // blocks until the parent has closed the last read end.
     int fds[2] = {-1, -1};
+    int gate[2] = {-1, -1};
     CHECK_EQ_INT(::pipe(fds), 0);
+    CHECK_EQ_INT(::pipe(gate), 0);
     const pid_t c = ::fork();
     if (c == 0) {
       ::signal(SIGPIPE, SIG_DFL);
       ::close(fds[0]);
+      ::close(gate[1]);
+      char go = 0;
+      while (::read(gate[0], &go, 1) < 0 && errno == EINTR) {
+      }
       const char byte = 'x';
       (void)::write(fds[1], &byte, 1);
       ::_exit(0);
     }
-    ::close(fds[0]);
-    ::close(fds[1]);
     CHECK(c > 0);
+    ::close(fds[0]);      // the LAST reader is now gone...
+    ::close(gate[0]);
+    const char go = 'g';
+    (void)::write(gate[1], &go, 1);   // ...only THEN is the child released
+    ::close(gate[1]);
+    ::close(fds[1]);
     int status = 0;
     ::waitpid(c, &status, 0);
     CHECK_EQ_INT(static_cast<long long>(WIFSIGNALED(status)), 1);
