@@ -129,6 +129,24 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" \
 cp "$EXE" "$APP/Contents/MacOS/forge_desktop" || die "cannot stage the executable"
 chmod +x "$APP/Contents/MacOS/forge_desktop"
 
+# ── ★ THE KERNEL WORKER — the process the application is allowed to lose ─────
+# forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null Geom2d_Curve
+# dereferenced INSIDE OCCT, on Archie's output AND on the gold reference parts.
+# The app answers that by compiling geometry in forge_kernel_worker, which it
+# looks for BESIDE ITSELF -- so a bundle without it is a bundle with no crash
+# isolation at all. The app still starts (it prints "kernel isolation:
+# UNAVAILABLE" and models in process, because refusing to model would be worse),
+# which is exactly why this cannot be left to be noticed at runtime: the failure
+# is silent and the product is merely less safe.
+#
+# It is a plain second executable in MacOS/, not a helper .app: it takes stdin
+# and writes stdout, it has no bundle identity, and `codesign --deep` on the
+# bundle below signs it along with everything else.
+WORKER_SRC="$APP_BUILD/forge_kernel_worker"
+[ -f "$WORKER_SRC" ] || die "$WORKER_SRC not found -- the bundle would ship with NO crash isolation"
+cp "$WORKER_SRC" "$APP/Contents/MacOS/forge_kernel_worker" || die "cannot stage the worker"
+chmod +x "$APP/Contents/MacOS/forge_kernel_worker"
+
 FW="$APP/Contents/Frameworks"
 WORK="$(mktemp -d /tmp/forge_package.XXXXXX)" || die "mktemp failed"
 trap 'rm -rf "$WORK"' EXIT
@@ -154,7 +172,12 @@ resolve_rpath() {  # $1 = basename -> prints an existing path, or nothing
 
 # ── 3. transitive dylib closure ──────────────────────────────────────────────
 say "walking the transitive dylib closure"
-echo "$APP/Contents/MacOS/forge_desktop" > "$QUEUE"
+# BOTH executables seed the walk. The worker links the kernel core and OCCT, and
+# a dependency reached only through it would otherwise be missing from the
+# bundle -- the worker would fail to launch on a clean machine and isolation
+# would be silently off.
+{ echo "$APP/Contents/MacOS/forge_desktop"
+  echo "$APP/Contents/MacOS/forge_kernel_worker"; } > "$QUEUE"
 while [ -s "$QUEUE" ]; do
   f="$(head -1 "$QUEUE")"
   sed -i '' '1d' "$QUEUE"
@@ -220,7 +243,9 @@ ICD
 # ── 5. rewrite install names ─────────────────────────────────────────────────
 say "rewriting install names to @rpath"
 BUNDLED="$WORK/bundled"
-{ echo "$APP/Contents/MacOS/forge_desktop"; ls "$FW"/*.dylib 2>/dev/null; } > "$BUNDLED"
+{ echo "$APP/Contents/MacOS/forge_desktop"
+  echo "$APP/Contents/MacOS/forge_kernel_worker"
+  ls "$FW"/*.dylib 2>/dev/null; } > "$BUNDLED"
 
 while IFS= read -r f; do
   [ -f "$f" ] || continue
@@ -251,6 +276,8 @@ done < "$BUNDLED"
 # The two rpaths that make the bundle self-contained.
 install_name_tool -add_rpath "@executable_path/../Frameworks" \
   "$APP/Contents/MacOS/forge_desktop" 2>/dev/null
+install_name_tool -add_rpath "@executable_path/../Frameworks" \
+  "$APP/Contents/MacOS/forge_kernel_worker" 2>/dev/null
 for d in "$FW"/*.dylib; do
   [ -f "$d" ] || continue
   install_name_tool -add_rpath "@loader_path" "$d" 2>/dev/null
@@ -307,7 +334,9 @@ say "codesign --verify --deep --strict: OK (ad-hoc)"
 
 # ── 9. verification ──────────────────────────────────────────────────────────
 say "verifying the bundle is self-contained"
-{ echo "$APP/Contents/MacOS/forge_desktop"; ls "$FW"/*.dylib 2>/dev/null; } > "$BUNDLED"
+{ echo "$APP/Contents/MacOS/forge_desktop"
+  echo "$APP/Contents/MacOS/forge_kernel_worker"
+  ls "$FW"/*.dylib 2>/dev/null; } > "$BUNDLED"
 LEAKS=0
 while IFS= read -r f; do
   [ -f "$f" ] || continue
@@ -337,6 +366,24 @@ if OUT="$("$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless 2>&1)"; the
 else
   echo "$OUT" >&2
   die "the relocated bundle FAILED to launch — it is not self-contained"
+fi
+
+# ★ AND THE WORKER, from the RELOCATED copy. The app degrades quietly without it
+# — it prints "kernel isolation: UNAVAILABLE" and models in process, because
+# refusing to model would be worse than modelling unprotected — so a worker that
+# is missing, unsigned, or unable to resolve its dylibs from inside the bundle
+# produces a product that is merely less safe, with nothing going red. `--version`
+# is answered before any geometry is touched, so this tests exactly one thing:
+# can this binary be launched from a relocated bundle and does it speak the
+# protocol the app expects.
+if WOUT="$("$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" --version 2>&1)"; then
+  case "$WOUT" in
+    FORGE-WORKER-RESULT*) say "  bundled kernel worker answered --version: ${WOUT}" ;;
+    *) die "the bundled kernel worker answered --version with '${WOUT}', not its protocol magic" ;;
+  esac
+else
+  echo "$WOUT" >&2
+  die "the bundled kernel worker FAILED to launch — the app would ship with NO crash isolation"
 fi
 
 # MEASURED, and NOT a packaging defect: VK_LOADER_DEBUG=all shows the loader

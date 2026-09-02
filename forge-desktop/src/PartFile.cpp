@@ -38,16 +38,39 @@ void splitKey(const std::string& line, std::string& key, std::string& rest) {
 
 const char* kindName(forge::ui::IrValueKind k) { return forge::ui::toString(k); }
 
+// The inverse of kindName(), and it must stay the exact inverse. This was an
+// if-chain over four literals while the writer emitted toString() for ANY kind,
+// so a kind the chain did not list wrote a .fpart that would not load -- and
+// neither half is a compile error. It now walks forge::ui::kAllIrValueKinds,
+// comparing against the same toString() the writer uses.
 bool kindFromName(const std::string& name, forge::ui::IrValueKind& out) {
-  if (name == "none") { out = forge::ui::IrValueKind::None; return true; }
-  if (name == "profile") { out = forge::ui::IrValueKind::Profile; return true; }
-  if (name == "wire") { out = forge::ui::IrValueKind::Wire; return true; }
-  if (name == "solid") { out = forge::ui::IrValueKind::Solid; return true; }
-  // A saved document that names a kind this build does not know must not silently
-  // become `None` and then fail an unrelated check three layers away; every kind
-  // toString can WRITE, this must be able to READ back.
-  if (name == "surface") { out = forge::ui::IrValueKind::Surface; return true; }
-  return false;
+  return forge::ui::irValueKindFromName(name, out);
+}
+
+// A POINT RING, written WITHOUT its brackets: `ARG pts2 -20 -10; 20 -10; 0 18`.
+//
+// IrArg::token() writes `[...]` for the IR statement; this file is a different
+// encoding (one ARG per line, kind then value), and re-using the bracketed spelling
+// would mean the reader had to strip them. The DIMENSION is in the kind name rather
+// than inferred from the coordinate count, because `x y z` and a 2D point followed by
+// junk are the same characters -- and a 3D ring silently re-read as 2D is a section
+// that moves to z=0, which is a wrong part rather than a failed load.
+//
+// Round-trips exactly: formatIrNumber is "%.10g" and parseIrPoints reads with strtod,
+// which is the pair the IR itself round-trips through.
+std::string pointsLine(const forge::ui::IrArg& a) {
+  std::string out = (a.dim == 3) ? "ARG pts3 " : "ARG pts2 ";
+  for (std::size_t i = 0; i < a.pts.size(); ++i) {
+    if (i != 0) out += "; ";
+    out += forge::ui::formatIrNumber(a.pts[i].x);
+    out += " ";
+    out += forge::ui::formatIrNumber(a.pts[i].y);
+    if (a.dim == 3) {
+      out += " ";
+      out += forge::ui::formatIrNumber(a.pts[i].z);
+    }
+  }
+  return out;
 }
 
 // A POINT RING, written WITHOUT its brackets: `ARG pts2 -20 -10; 20 -10; 0 18`.

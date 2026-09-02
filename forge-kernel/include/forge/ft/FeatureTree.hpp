@@ -91,6 +91,70 @@ enum class OpCode {
     Slot,        // SLOT(len, wid [, cx=0, cy=0, angleDeg=0])  obround
     Poly,        // POLY([x y; x y; ...])                       organic closed silhouette
     RegPoly,     // REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])      n-gon (vertex radius)
+    Arc,         // ARC([x y; x y mx my; ...])                  closed loop of straight
+                 //   segments AND TRUE circular arcs. A 2-number row `x y` says the
+                 //   segment ARRIVING at this vertex from the previous one is a LINE;
+                 //   a 4-number row `x y mx my` says that segment is the circular arc
+                 //   from the previous vertex, THROUGH (mx,my), to (x,y). Row 0
+                 //   describes the CLOSING segment (last vertex -> row 0), which is how
+                 //   a loop closed by an arc (a lens, a D-shape) is stated.
+                 //
+                 //   WHY THIS IS NOT POLY. POLY builds chords: every one of its
+                 //   segments is straight, so an arc emitted as POLY loses real
+                 //   material with no error. MEASURED over the 1317 harvested BenchCAD
+                 //   GT programs: 48 programs / 86 statements / 1354 arc segments,
+                 //   and 18 of those segments sweep MORE THAN 180 degrees — a bulge
+                 //   column could not express them either (|bulge| <= 1 is <= 180 deg),
+                 //   because both sketch readers normalise a sweep into (-pi, pi] and
+                 //   return the MINOR arc (src/Sketcher.cpp, "MINOR-ARC NORMALISATION").
+                 //   ARC splits any arc wider than 120 degrees into equal sub-arcs on
+                 //   its OWN circle — same centre, same radius, same endpoints, extra
+                 //   vertices lying ON the arc. Exact, not a tessellation.
+
+    // --- 2D SKETCH + CONSTRAINTS (produce a SKETCH / SKETCHREF) ---------------
+    // The six profile ops above bake COORDINATES. These six plus SOLVE let a
+    // tree state RELATIONS instead and have the kernel compute the coordinates,
+    // through the planegcs solver that is already vendored, compiled and linked
+    // (3rdParty/planegcs, CMakeLists.txt ~1264-1271) and that nothing in the IR
+    // has ever called.
+    //
+    // The family bolts on IN FRONT of the existing IR: it terminates in a
+    // solved PROFILE, and a PROFILE is what EXTRUDE / REVOLVE / LOFT already
+    // consume. Not one existing op changes.
+    //
+    // (Prose here deliberately avoids writing an op name immediately followed
+    // by "(" — ui/test/feature_ir_test.cpp derives this table by READING this
+    // comment block, and would take such a line for an alternate form.)
+    Sketch,      // SKETCH(PLANE)                         PLANE = XY|YZ|XZ
+    SPt,         // SPT(%sketch, x, y)                    a point; produces a SKETCHREF
+    SLine,       // SLINE(%p0, %p1)                       line through two sketch points
+    SCirc,       // SCIRC(%centre, r)                     circle: centre point + radius
+    SArc,        // SARC(%centre, %p0, %p1)               arc: centre + start + end
+    Con,         // CON(%a, KIND [, %b, value])           constrain; PASS-THROUGH like TAG
+                 //   KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON
+                 //   KIND dimensional: DIST
+                 //   That is EXACTLY the set forge::Sketcher dispatches today —
+                 //   9 of the 67 primitives planegcs actually has. RADIUS,
+                 //   DIAM, ANGLE, CONC, COLL, SYMM, MIDPT and FIX all exist in
+                 //   the ENGINE and are one switch arm each in the facade, but
+                 //   none is wired at this SHA, so none is listed here: a
+                 //   vocabulary that advertises a keyword the compiler skips is
+                 //   a worse defect than a short vocabulary. An unlisted
+                 //   keyword is skipped and NAMED, never fatal. A TRAILING
+                 //   operand that does not resolve, or that belongs to a
+                 //   different sketch, is skipped and NAMED the same way: this
+                 //   op is pass-through, so the answer is the sketch unchanged,
+                 //   and a mis-typed %ref must not cost the other 199
+                 //   statements of a long tree. Its FIRST operand and its kind
+                 //   still REFUSE — with neither an owning sketch nor a
+                 //   constraint kind resolved there is nothing to pass through.
+                 //   The kind is ALWAYS arg 1; the operands follow and are read
+                 //   by token type, so one op covers unary/binary/dimensional
+                 //   without four op names. CON returns the SKETCH it was handed
+                 //   — a constraint statement that could itself move geometry
+                 //   before the solve is a defect generator (same reasoning as
+                 //   TAG and VERIFY).
+    Solve,       // SOLVE(%sketch)                        -> PROFILE. NEVER refuses.
 
     // --- 3D section rings (produce a WIRE — a loft cross-section placed in 3D) ---
     Ring,        // RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48]) superellipse ring @ height z
@@ -120,6 +184,21 @@ enum class OpCode {
     Fuse,        // FUSE(%a, %b)
     Cut,         // CUT(%a, %b)
     Common,      // COMMON(%a, %b)
+
+    // --- the fourth boolean: intersection CURVES, so these produce a WIRE ---
+    Section,     // SECTION(%a, %b)     where the two solids' FACES cross
+                 //   OCCT's BRepAlgoAPI has FOUR operators — Fuse, Cut, Common and
+                 //   Section — and this IR had three. Nothing noticed because no
+                 //   benchmark row demanded it.
+                 //   It is in its own group because the other three return a SOLID and
+                 //   this one CANNOT: a section is a CURVE — a wire with no faces, no
+                 //   shells and zero volume. Typing it SOLID would be worse than leaving
+                 //   the op out (massProperties/faceCount/checkValidity would report a
+                 //   perfectly good section as an empty invalid body).
+                 //   The wire is consumed by LOFT, like RING and WIRE. forge::section
+                 //   returns a real TopoDS_Wire when the section edges close into one
+                 //   loop, and a compound of wires when they close into several (a plane
+                 //   through a tube gives two circles; welding them would be a lie).
 
     // --- transforms / replication ---
     Translate,   // TRANSLATE(%a, dx, dy, dz)
@@ -243,7 +322,14 @@ struct Op {
     OpCode              code = OpCode::Unknown;
     std::string         name;          // raw op token, for diagnostics
     std::vector<Token>  args;
-    std::vector<Point2> poly;          // POLY only
+    std::vector<Point2> poly;          // POLY and ARC — the vertex ring
+    // ARC only — parallel to `poly`. arcThrough[i] is a point the segment ARRIVING
+    // at poly[i] passes through when arcIsArc[i] is 1; when it is 0 that segment is
+    // a straight line and arcThrough[i] is unread. Index 0 describes the CLOSING
+    // segment (last vertex -> poly[0]). Both vectors are always the same length as
+    // `poly` for an ARC op and empty for every other op.
+    std::vector<Point2> arcThrough;
+    std::vector<char>   arcIsArc;
     int                 srcLine = 0;   // 1-based source line, for diagnostics
 };
 
@@ -353,6 +439,33 @@ struct CompileResult {
 // to become the body an edit tree modifies. Empty for pure generation trees; an
 // IR that uses INPUT() without one fails loudly.
 CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath = std::string());
+
+// ------------------------------------------------ THE OP PROGRESS HOOK
+// Called immediately BEFORE each op is built, with that op's id, its raw name
+// and its 1-based source line. Default: nothing installed, and compile() is
+// byte-for-byte the function it was.
+//
+// WHY IT EXISTS. A SIGSEGV inside OCCT (see
+// forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md) is "the only failure mode that
+// produces no diagnostic at all": no verdict, no error string, no partial
+// measurement. Every OTHER failure here already names the op — `compile` returns
+// failedOpId for a throw and for an OpError. A signal returns nothing, because
+// there is no return.
+//
+// A supervisor running compile() in a child process can therefore learn WHAT
+// KILLED IT only if the child said so before it died. This hook is how: the
+// child announces each op on a stream the parent is reading, and when the child
+// dies the parent still holds the last announcement. That turns "the kernel
+// crashed" into "the kernel died on SIGSEGV while executing %7 = SHELL", which
+// is a fact a repair loop can act on. Anything the announcement costs is paid
+// only by a caller that installs a hook.
+//
+// The hook is a plain function pointer plus a user pointer (no <functional> in
+// this header) and is thread_local: a batch tool compiling on several threads
+// gets one hook per thread rather than a race. It must not throw and must not
+// re-enter compile().
+using CompileProgressHook = void (*)(int opId, const char* opName, int srcLine, void* user);
+void setCompileProgressHook(CompileProgressHook hook, void* user);
 
 // Convenience: parse + compile, and (if exportStepPath is non-empty) write the
 // result solid to STEP via forge::io::exportStep. A parse error is reported the

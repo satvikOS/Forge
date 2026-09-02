@@ -34,7 +34,7 @@ BASE="${AB_BASELINE_FILE:-$HERE/ab_native_baseline.txt}"
 # solid on 133 of its 133 successes for this operation, so it is not a valid
 # oracle here. It is ratcheted in this list because it is a live-OCCT gate with
 # the same build-and-link failure mode the rest of this file exists to catch.
-HARNESSES="draft filling loftpipe offsetshape sweep fillet_concave thicken thicksolid_mixed"
+HARNESSES="draft draft_local filling loftpipe offsetshape sweep fillet_concave thicken thicksolid_mixed"
 rc=0
 for t in $HARNESSES; do
   f="forge-kernel/test/run_ab_native_$t.sh"
@@ -64,5 +64,6 @@ for t in $HARNESSES; do
     echo "[ab-all] ok  $t: $got failure(s), baseline $want"
   fi
 done
-[ "$rc" -eq 0 ] && echo "[ab-all] GREEN — all 8 harnesses BUILT, and each matched its baseline."
+N_HARNESSES=$(printf '%s\n' $HARNESSES | grep -c .)
+[ "$rc" -eq 0 ] && echo "[ab-all] GREEN — all $N_HARNESSES harnesses BUILT, and each matched its baseline."
 exit "$rc"

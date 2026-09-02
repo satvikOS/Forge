@@ -39,7 +39,30 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-EXPECTED_MUTATIONS=37
+# 41 = document 8 + frame 9 + copilot 8 + update 7 + click 9. DERIVED on the
+# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken from
+# either parent -- and this is the merge where that discipline earned its keep,
+# because NEITHER PARENT'S NUMBER IS THE ANSWER.
+#
+# app/core-interaction-surface pinned 37, the base pinned 40. The method was
+# calibrated first: counting run_gate's arguments on each parent reproduced 37 and
+# 40 exactly. Run on the merged tree it gives 40 -- and 40 is WRONG, which the
+# count alone could not have told anyone.
+#
+# The merged click gate has NINE distinct injected defects, not eight. Each parent
+# added one the other lacked (the base's camera pull path, this branch's expander
+# further-frame), THEY HAD BOTH BEEN NUMBERED 6 ON THEIR OWN SIDE, and the two
+# edits are far enough apart in click_gate.cpp that git merged them with NO
+# CONFLICT. `--mutate 6` then fired both, one case vanished from the sweep, and
+# the arithmetic still came out to a plausible 40. The expander case is renumbered
+# 9, run_desktop.sh sweeps 1..9, and the count is 41.
+#
+# The lesson is narrower than "measure the count": counting the SWEEP is not
+# enough when the thing swept can silently lose a member. The confirmation is
+# COUNTING THE CASES IN click_gate.cpp ITSELF -- `grep -o 'g_mutation [!=]= [0-9]*'
+# | sort -u` gives 0..9, i.e. no-mutation plus nine -- and requiring that set and
+# the sweep to be the same size. This is D-028's failure mode with a new disguise.
+EXPECTED_MUTATIONS=41
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"
