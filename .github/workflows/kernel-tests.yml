@@ -304,6 +304,16 @@ jobs:
         # is C++ (src/update/Manifest.cpp) with a parser stricter than json.load.
         # Two halves of one contract that had never been run together.
         run: bash forge-desktop/test/appcast_selftest.sh
+      - name: the packager still stages the library nothing can SEE it needs
+        # `brew install sdl2` installs sdl2-compat, whose libSDL2 dlopen()s SDL3.
+        # A dlopen is not a link record, so a dependency walk seeded from
+        # `otool -L` stages nothing and the shipped bundle dies in a MODAL
+        # NSAlert inside a library constructor, before main(). That fix was
+        # written, proven at 80 ms (run 33445851975), and then LOST in a rewrite;
+        # run 33644564583 reproduced the hang on 2026-09-02. A comment did not
+        # survive the rewrite, so this does. --mutations is the negative control:
+        # three ways to break the staging, each of which must turn this red.
+        run: bash forge-desktop/test/sdl3_staging_gate.sh --mutations
 
   simulation:
     name: real-time simulation frame contract (SR-4)
