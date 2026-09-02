@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 80 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 89 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,35 +46,71 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **72 commands**; **49 of them emit
-feature-IR**, reaching **46 distinct op names**. The kernel defines **55** ops
-(`opFromName`), so **9 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **80 commands**; **57 of them emit
+feature-IR**, reaching **53 distinct op names**. The kernel defines **55** ops
+(`opFromName`), so **2 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The nine are `SLOT`, `ARC`, and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
-`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. The six SURFACE ops that used to stand
-here -- `FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands
-and are gone from the list, which is what the list is for. The rest are out for
-three DIFFERENT reasons, and the distinction is what a single "no command emits
-it" line would hide: `ARC` and the sketch family are ordinary gaps a command can
-close, and `SLOT` is not.
+The two are `SLOT` and `ARC`. The seven 2D-sketch ops that stood here one
+revision ago -- `SKETCH`, `SPT`, `SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE` -- now
+have commands and are gone from the list, exactly as the six SURFACE ops
+(`FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK`) went before them. That is
+what the list is for. The two that remain are out for two DIFFERENT reasons, and
+the distinction is what a single "no command emits it" line would hide: `ARC` is
+an ordinary gap a command can close, and `SLOT` is not.
 
-72 is the MERGED figure and neither parent could supply it. The base reads 72
-and this branch alone read 66, because this branch predates the eight viewport
-commands (`view.front`, `view.back`, `view.left`, `view.right`, `view.top`,
-`view.bottom`, `view.iso`, `view.selection`) that reached the base with the
-viewport work. Diffing the REGENERATED manifest against the base's -- rather
-than asserting it -- gives a delta for THIS branch of exactly ZERO rows: nothing
-added, nothing removed. **This branch adds no user-facing command at all.** It
-adds the DOCUMENT: what the app saves, loads and walks, behind commands the
-registry already had.
+**This branch moves every one of those counts, and moving them is the whole
+point.** `registry_commands` 72 -> 80, `commands_emitting_ir` 49 -> 57,
+`user_invocable_ops` 46 -> 53, `forbidden_ops` 9 -> 2, recorded examples 80 -> 89.
+Eight commands were added and no command was removed or renamed; the delta on the
+regenerated `APP_SURFACE_MANIFEST.tsv` is eight rows, all additions.
 
-That zero is the honest headline here, and it is why every count on this page
-is the base's and not a new measurement of this branch's doing:
-`registry_commands` 72, `commands_emitting_ir` 49, `user_invocable_ops` 46 --
-all unmoved. A save/load layer that changed Archie's emission vocabulary would
-be a defect, not a feature, and the regenerated asset is what proves it did
-not.
+The eight are `part.sketch_new`, `part.sketch_entity_point`,
+`part.sketch_entity_line`, `part.sketch_entity_circle`, `part.sketch_entity_arc`,
+`part.sketch_constrain_single`, `part.sketch_constrain` and `part.sketch_solve`.
+Eight commands for seven ops, because `CON` is one op with two signatures: one
+entity for `HORIZ`/`VERT`, two for `COINC`/`PARA`/`PERP`/`TANG`/`EQUAL`/`PTON`/
+`DIST`. A single descriptor cannot state that, and a signature accepting either
+count would offer each keyword on the other's selection -- a mistake that is not
+loud, because the facade throws on a type-mismatched operand and the compiler
+swallows the throw as a `SKIPPED` note, leaving a constraint that silently does
+not apply.
+
+**Why this family and not another, measured.** Paired over 9,846 real ABC /
+Onshape FeatureScript trees (154,637 features,
+`implementation/sacrosanct/tools/abc_yield_census.py`), scored against
+vocabularies that differ only in which ops exist:
+
+| arm | vocabulary | DIRECT | translatable with DIRECT OPS ALONE |
+|---|---|---|---|
+| 1 | 46 ops, before this change | 55.80% | **0.00%** |
+| 2 | 55 ops -- the KERNEL's set | 86.02% | 40.78% (4,015) |
+| 3 | **53 ops, after this change** | **86.02%** | **40.78% (4,015)** |
+
+`newSketch` appears in **100.00%** of the 5,629 trees that clear both census
+gates: every translatable human tree opens with a sketch, and a sketch was
+reachable only as a canned profile or a `POLY` tessellation, so no tree was
+lossless and the figure was exactly zero rather than nearly zero. **93.63%** of
+the corpus's 49,903 sketches are pure line / circle / arc, which is what
+`SLINE` / `SCIRC` / `SARC` reproduce exactly.
+
+Arm 3 is not an alias for arm 2. Arm 2 is the kernel's 55 ops; arm 3 is the 53 a
+user can now reach, because `ARC` and `SLOT` stay forbidden. The two come out
+equal because neither of those reaches a `newSketch` -- a PREDICTION the census
+measures rather than asserts, which is why arm 3 is a row of its own.
+
+**What it does not close, and the number says so.** `clear_both_gates` is 5,629
+on arms 1 and 3 alike. This family converts PARTIAL into DIRECT and turns no
+blocked tree into a clear one; what blocks the other 4,217 is `importForeign`
+(51.29% of the non-clearing tail), spline / ellipse / conic geometry (16.34%),
+`draft` (8.75%) and `mateConnector` (8.61%).
+
+**And 40.78% is an UPPER bound.** The census scores DIRECT at OP level, so a
+looseness in an emitted form does not reduce it. `SKETCH(XY)` is the concrete
+instance: a tree whose sketch is on YZ or XZ counts DIRECT and is not emittable
+by `part.sketch_new`, exactly as `REVOLVE`'s 8-argument emitted form pins the
+axis origin to a literal `0, 0, 0` and cannot state an off-origin revolve.
+Neither is corrected in the figure; both are named.
 
 The six were out for the ordinary reason: they arrived with the SURFACE value
 kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
@@ -86,23 +122,41 @@ same structural fix `WIRE` needed before `LOFT` became reachable, and it is the
 last one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
 `IrValueKind`, and each now has an entity kind and a node prefix.
 
-The seven 2D-sketch ops are the same ordinary kind of gap one layer earlier, and
-they are the larger half of what took the kernel from 47 ops to 55. They make
-the vendored planegcs solver addressable from a feature tree for the first time:
-`SKETCH` opens one, `SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it,
-`CON` constrains a pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE`
-already accepts. The kernel compiles and solves all seven. No `forge::ui` registry
-command emits one yet, which is why every one of them is forbidden here and why
-the count of distinct op names a user can reach is UNCHANGED at 46 by this branch:
-the solver became reachable from the IR, not yet from the app.
+The seven 2D-sketch ops were the same ordinary kind of gap one layer earlier, and
+they are the larger half of what took the kernel from 47 ops to 55. They make the
+vendored planegcs solver addressable from a feature tree: `SKETCH` opens one,
+`SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it, `CON` constrains
+them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE` already accepts. The kernel
+compiled and solved all seven for a whole revision while no `forge::ui` command
+emitted one, so the solver was reachable from the IR and not from the app -- and
+because Archie is trained from this file, an op no command emits is an op the
+model is forbidden to write, however well the kernel builds it. Eight commands
+close that, and the family's exit is asserted end to end rather than by type:
+`ui/test/op_constraint_bridge_test.cpp` drives the LIVE registry from an empty
+document and records `%27 = SOLVE(%26)` followed by `%28 = EXTRUDE(%27, 5)`,
+with `part.extrude` untouched by this change.
 
-`ARC` is the other half, and the same kind of gap again: it takes the
-`[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
-well as straight ones, the kernel builds it, and no forge::ui command emits one
-yet. It is here because the ground truth needs it -- 86 ARC statements across 48
-BenchCAD GT programs, which the reharvest could not parse at all without the op --
-and the count that did NOT move is the honest one: user-invocable ops stay at 46,
-because a kernel op is not a product surface until a command spells it.
+**Two selection kinds had to exist first**, for the same structural reason
+`EntityKind::Wire` had to exist before `LOFT` was reachable and
+`EntityKind::Surface` before `THICKEN` was. `EntityKind::Sketch` has always meant
+a SOLVED profile, so an unsolved sketch parked under it would have made `EXTRUDE`
+offer itself on a value the kernel refuses -- `refProfile()` and `refSketch()` are
+different accessors. `OpenSketch` and `SketchRef` carry the two kinds, with
+`opensketch_N` and `sketchref_N` node prefixes. Their `toString()` spelling is not
+free: this file records a command's selection kind by its ENUM SPELLING and two
+consumers compare that case-folded against `toString()`, so a kind naming a
+selection signature must spell itself as its enum name lowered with no separator.
+That agreement used to be a coincidence across four kinds; `Types.hpp` now states
+it as a rule.
+
+`ARC` is now the only ordinary gap left: it takes the `[x y; x y mx my; ...]`
+ring that lets a closed profile carry CURVED segments as well as straight ones,
+the kernel builds it, and no forge::ui command emits one. It is in the kernel
+because the ground truth needs it -- 86 ARC statements across 48 BenchCAD GT
+programs, which the reharvest could not parse at all without the op -- and it
+stays forbidden here for the rule this whole page rests on: a kernel op is not a
+product surface until a command spells it. Nothing in this branch re-measured
+`ARC`, so nothing in this branch may quietly legalise it.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
 pinned native verifier its extruded area is exactly
@@ -188,6 +242,13 @@ check that silently stops checking is the failure it was written to prevent.
 | `THICKEN` | part.thicken | `THICKEN(%surface, wall)`<br>`THICKEN(%surface, wall, IN\|MID\|OUT)` |
 | `CAP` | part.cap | `CAP(%surface)`<br>`CAP(%surface, tol)` |
 | `SURFCHECK` | part.surfcheck | `SURFCHECK(%surface, "<assertion>")`<br>`SURFCHECK(%surface, "<assertion>", "<assertion2>")` |
+| `SKETCH` | part.sketch_new | `SKETCH(XY)` — the plane is a **literal**. `skNew` accepts `YZ`/`XZ` and then reports `plane=YZ NOT APPLIED — solved on XY`, so offering the keyword would record a plane the built solid does not have. |
+| `SPT` | part.sketch_entity_point | `SPT(%sketch, x, y)` |
+| `SLINE` | part.sketch_entity_line | `SLINE(%p0, %p1)` — both points of the **same** sketch; the kernel throws on a cross-sketch pair, so the command greys out instead. |
+| `SCIRC` | part.sketch_entity_circle | `SCIRC(%centre, radius)` — a **radius**, where `part.hole` takes a diameter. |
+| `SARC` | part.sketch_entity_arc | `SARC(%centre, %arcStart, %arcEnd)` — centre, start, end, in **selection order**. |
+| `CON` | part.sketch_constrain_single / part.sketch_constrain | `CON(%entity, HORIZ\|VERT)`<br>`CON(%entityA, COINC\|PARA\|PERP\|TANG\|EQUAL\|PTON\|DIST, %entityB)`<br>`CON(%entityA, …, %entityB, distance)` — PASS-THROUGH: it returns the **same** sketch, so the statement rebinds the sketch's node rather than forking it. |
+| `SOLVE` | part.sketch_solve | `SOLVE(%sketch)` — **the exit**: it produces a `PROFILE`, so `part.extrude` / `part.revolve` / `part.loft` consume it unchanged. Consumes nothing: the sketch survives and can be solved again. |
 | `SECTION` | part.section_curve | `SECTION(%bodyA, %bodyB)` — the **fourth** boolean. It produces a **WIRE**, not a solid: the curve where the two bodies' faces cross. It consumes neither operand, so both survive; the wire is consumed by `LOFT`, like `RING`'s. |
 
 Details that a wrong signature would teach wrongly, all derived from the kernel
@@ -226,6 +287,19 @@ header rather than assumed:
   part, so the JSON carries `"semantic": "radius"` on it explicitly.
 * **`FOLD`'s hinge point is not optional.** Its kernel arity is 8..9, so
   `hx, hy, hz` are emitted always and only `runDeg` is the optional tail.
+* **`CON` is PASS-THROUGH and produces a `SKETCH`, not a `SKETCHREF`.** `opCon`
+  returns the sketch it was handed, so a constraint never moves geometry before
+  the solve — the same property that makes `TAG` and `VERIFY` safe to interleave.
+  Its keyword domain is the **nine** `forge::Sketcher` actually dispatches;
+  `RADIUS`, `DIAM`, `ANGLE`, `CONC`, `COLL`, `SYMM`, `MIDPT` and `FIX` exist in
+  planegcs and are one switch arm each in the facade, none wired at this SHA, and
+  an unwired keyword is SKIPPED with a note rather than refused — which is why the
+  commands refuse it first.
+* **`SPT` is the only op whose numeric arguments are spelled bare `x` / `y`.**
+  Everywhere else a coordinate is `cx/cy/cz`, `ox/oy/oz` or `px/py/pz`, and
+  `[x y; ...]` is a POINTS token rather than two numbers, so the two are
+  classified by an explicit `OP_ARG_OVERRIDES` row instead of a generic rule with
+  one call site and a wide blast radius.
 
 ## How a training run consumes it
 
@@ -245,14 +319,15 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 80 on every CI run), not a hand-written illustration.
+dispatches all 89 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 46 names are legal; after the name, the argument count is bounded
+head, only the 53 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
-`LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).
+`LINEAR|POLAR|GRID`, `IN|MID|OUT`, `HORIZ|VERT`,
+`COINC|DIST|EQUAL|PARA|PERP|PTON|TANG`, `RULED`, `OPEN`, `SMOOTH`).
 
 **4 — verify the emission (reward / repair).** Before compiling, check the
 emitted program against the same three rules the app enforces: op in vocabulary,
