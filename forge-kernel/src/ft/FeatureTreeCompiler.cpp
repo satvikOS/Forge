@@ -3285,6 +3285,31 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         return out;
     }
 
+    // ── A GATE THAT CANNOT FAIL IS NOT A GATE ────────────────────────────────
+    // The block above already MEASURED that the delivered body is not a closed,
+    // manifold, consistently-oriented solid, and already NAMED the op that first
+    // produced one — and then returned ok=true anyway, with that diagnosis in
+    // `error`. Every caller reads ok; none of them re-derives validity. So a
+    // build that had detected its own invalid result reported success, and
+    // `error` was non-empty on a success, which this header forbids ("error:
+    // empty when ok").
+    //
+    // MEASURED on model 00001907 before the SARC repair below it: the kernel
+    // returned ok=true, error="first invalid solid is produced by op %31 EXTRUDE
+    // (line 31): not closed", volume 4222.61 where the truth is 6240.66. That
+    // 32% volume error travelled downstream as a SUCCESS.
+    //
+    // `result` is guaranteed to be a Val::Solid here — a tree ending in a
+    // SURFACE/WIRE/PROFILE has already returned ok=false above, by name — so
+    // this cannot mis-fire on a legitimately open body.
+    if (!out.valid) {
+        out.ok = false;
+        if (out.error.empty())
+            out.error = "the delivered body is not a valid watertight solid "
+                        "(closed, manifold, consistently oriented, no self-intersection)";
+        return out;
+    }
+
     out.ok = true;
     return out;
 }
