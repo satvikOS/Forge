@@ -28,6 +28,7 @@
 #include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 
 #include <algorithm>
 #include <cmath>
@@ -66,9 +67,14 @@ inline int nextTag(int& counter) { return ++counter; }
 struct StitchEnd { double x, y; };
 struct ChainLink { std::size_t seg; bool reversed; };
 
+// The 10 µm coincidence tolerance, named once. It is the sketcher's answer to
+// "are these two points the same point", so it is also the bound on how far any
+// repair below is allowed to move sketch geometry.
+constexpr double kSketchStitchTol = 1.0e-5;
+
 inline std::vector<std::vector<ChainLink>>
 stitchSegments(const std::vector<std::pair<StitchEnd, StitchEnd>>& ends) {
-    constexpr double kStitchEps = 1.0e-5;
+    constexpr double kStitchEps = kSketchStitchTol;
     auto nearXY = [](const StitchEnd& p, const StitchEnd& q) {
         const double dx = p.x - q.x, dy = p.y - q.y;
         return std::sqrt(dx * dx + dy * dy) < kStitchEps;
@@ -585,18 +591,94 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
         // matching the stored atan2 angles), trim to that CCW span (which passes through
         // the mid-angle, i.e. IS the short arc), and pin the edge vertices to the stored
         // sp/ep so the stitcher's shared-vertex wire assembly stays exact.
-        gp_Ax2 arcFrame(center, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
-        Handle(Geom_Circle) arcCirc = new Geom_Circle(gp_Circ(arcFrame, r));
-        const double u1 = std::min(sa, ea);
-        const double u2 = std::max(sa, ea);
-        Handle(Geom_TrimmedCurve) arcCurve =
-            new Geom_TrimmedCurve(arcCirc, u1, u2, Standard_True);
-        // pa/pb are the stored endpoints at the (u1,u2) ends so the edge's parameter
-        // order increases (BRepBuilderAPI_MakeEdge requires param(pa) < param(pb)).
-        const gp_Pnt& pa = (sa <= ea) ? sp : ep;
-        const gp_Pnt& pb = (sa <= ea) ? ep : sp;
-        BRepBuilderAPI_MakeEdge mk(arcCurve, pa, pb);
-        if (!mk.IsDone()) continue;
+        auto makeArcEdge = [&](const gp_Pnt& c, double rr, double a0, double a1,
+                               BRepBuilderAPI_MakeEdge& out) {
+            gp_Ax2 frame(c, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+            Handle(Geom_Circle) circ = new Geom_Circle(gp_Circ(frame, rr));
+            Handle(Geom_TrimmedCurve) trimmed = new Geom_TrimmedCurve(
+                circ, std::min(a0, a1), std::max(a0, a1), Standard_True);
+            // pa/pb are the stored endpoints at the (u1,u2) ends so the edge's
+            // parameter order increases (MakeEdge requires param(pa) < param(pb)).
+            out.Init(trimmed, (a0 <= a1) ? sp : ep, (a0 <= a1) ? ep : sp);
+        };
+
+        BRepBuilderAPI_MakeEdge mk;
+        makeArcEdge(center, r, sa, ea, mk);
+
+        // ── SARC's SILENT DROP, AND THE CIRCLE THAT PASSES THROUGH NEITHER ──
+        //
+        // `r` above is |start - centre| ALONE. The end point is then required to
+        // lie on THAT circle, and BRepBuilderAPI_MakeEdge(curve, P1, P2) projects
+        // both points and REFUSES with PointProjectionFailed once one of them is
+        // further than Precision::Confusion() (1e-7 mm) off it. The old code read
+        // that refusal as `continue` — the arc vanished from `segs`, the ring it
+        // belonged to broke into two OPEN chains, and the caller extruded whichever
+        // fragment came back first. No error was raised anywhere.
+        //
+        // The trigger is NOT "an arc". It is
+        //
+        //      | |end - centre| - |start - centre| |  >  Precision::Confusion()
+        //
+        // — the two endpoints are not equidistant from the stated centre. Arcs
+        // built by our own profile builders (profRRect and friends) derive both
+        // endpoints from the centre by exact arithmetic, so that difference is
+        // BIT-ZERO and a rounded-rectangle repro can never fail. Arcs whose three
+        // points arrive as independently rounded data — a real CAD tree printed at
+        // six decimals, or solver output — miss by ~1e-7..1e-6, and whether a given
+        // arc trips depends on WHICH endpoint happens to define `r`, which is why
+        // two arcs of one 12-segment ring failed and the other two did not.
+        //
+        // THE REPAIR. The endpoints are shared topology: the neighbouring line
+        // segments end on those exact points and the wire is assembled by matching
+        // them, so they may not move. The centre is REDUNDANT — it is over-stated
+        // data that must not contradict the endpoints. So correct the centre, not
+        // the endpoints: project it onto the perpendicular bisector of (start,end),
+        // the unique nearest point from which the two endpoints ARE equidistant.
+        // The arc then passes exactly through both stated endpoints, with the same
+        // sense, and the projection is a no-op when the input was already
+        // consistent (every profile builder, and every arc that works today).
+        //
+        // BOUNDED, AND LOUD WHEN THE BOUND IS EXCEEDED. |C' - C| is exactly how far
+        // this moved geometry, so that is what is bounded — by the SAME 10 µm the
+        // stitcher already treats as "the same point". Past it, the three points do
+        // not describe an arc and the sketch is REFUSED by name. Nothing is dropped.
+        if (!mk.IsDone()) {
+            const gp_Vec d(sp, ep);
+            const double dlen = d.Magnitude();
+            if (dlen > Precision::Confusion()) {
+                const gp_Dir dhat(d);
+                const gp_Pnt mid(0.5 * (sp.X() + ep.X()), 0.5 * (sp.Y() + ep.Y()), 0.0);
+                const double t = gp_Vec(center, mid).Dot(gp_Vec(dhat));
+                const gp_Pnt c2(center.XYZ() + t * dhat.XYZ());
+                const double shift = center.Distance(c2);
+                if (shift > kSketchStitchTol)
+                    throw std::runtime_error(
+                        "forge::sketcher: arc endpoints are not equidistant from its centre — "
+                        "no circle through both lies within " + std::to_string(kSketchStitchTol) +
+                        " mm of the stated centre (nearest is " + std::to_string(shift) +
+                        " mm away). The three points do not describe an arc.");
+                const double r2 = 0.5 * (sp.Distance(c2) + ep.Distance(c2));
+                double a0 = std::atan2(sp.Y() - c2.Y(), sp.X() - c2.X());
+                double a1 = std::atan2(ep.Y() - c2.Y(), ep.X() - c2.X());
+                {
+                    constexpr double kPi = 3.14159265358979323846;
+                    double sweep2 = a1 - a0;
+                    while (sweep2 <= -kPi) sweep2 += 2.0 * kPi;
+                    while (sweep2 >   kPi) sweep2 -= 2.0 * kPi;
+                    a1 = a0 + sweep2;
+                }
+                if (r2 > Precision::Confusion() && std::abs(a1 - a0) >= 1e-9)
+                    makeArcEdge(c2, r2, a0, a1, mk);
+            }
+        }
+        // An arc that still cannot be built is an ERROR. It used to be a `continue`,
+        // and a `continue` here is indistinguishable — to every caller, and to every
+        // gate — from a sketch that never contained the arc at all.
+        if (!mk.IsDone())
+            throw std::runtime_error(
+                "forge::sketcher: could not build an edge for a sketch arc (OCCT "
+                "BRepBuilderAPI_MakeEdge error " + std::to_string(static_cast<int>(mk.Error())) +
+                "). The arc is NOT dropped: the sketch is refused.");
         TopoDS_Edge e = mk.Edge();
         segs.push_back({e, sp, ep});
     }
@@ -618,9 +700,17 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
         for (const auto& link : chain) {
             mkw.Add(segs[link.seg].edge);
         }
-        if (mkw.IsDone()) {
-            wires.push_back(mkw.Wire());
-        }
+        // A chain that will not assemble is an ERROR, for the same reason the arc
+        // above is: a dropped wire and a sketch that never drew it are the same
+        // thing to every caller downstream.
+        if (!mkw.IsDone())
+            throw std::runtime_error(
+                "forge::sketcher: could not assemble a wire from " +
+                std::to_string(chain.size()) + " stitched sketch segment(s) (OCCT "
+                "BRepBuilderAPI_MakeWire error " +
+                std::to_string(static_cast<int>(mkw.Error())) +
+                "). The wire is NOT dropped: the sketch is refused.");
+        wires.push_back(mkw.Wire());
     }
 
     return wires;
