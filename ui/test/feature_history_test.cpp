@@ -570,6 +570,12 @@ int main() {
 
     CommandParams p;
     p.setText("name", "@bore_main");
+    // `selector` is a REQUIRED parameter of part.tag_feature and nothing derives
+    // one: the registry applies no spec defaults (CommandContext is built from the
+    // raw params), so an unsupplied selector fails the required check before the
+    // handler runs. The fixture asserted the emitted statement carries "bore:max"
+    // without ever supplying it.
+    p.setText("selector", "bore:max");
     CHECK(reg.dispatch("part.tag_feature", sel, p).ok());
     CHECK_EQ_STR(doc.irProgram(),
                  "%1 = BOX(80, 50, 20)\n"
@@ -582,6 +588,7 @@ int main() {
     // fixed, rather than three layers down at compile time.
     CommandParams badName;
     badName.setText("name", "bore:max");
+    badName.setText("selector", "bore:max");
     CHECK_EQ_INT(static_cast<int>(reg.evaluate("part.tag_feature", sel, badName).status),
                  static_cast<int>(DispatchStatus::Disabled));
   }

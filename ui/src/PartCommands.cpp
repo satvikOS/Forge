@@ -3626,10 +3626,6 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     }
     return 0;
   };
-  const auto featureParam = [] {
-    return ParamSpec{.name = "feature", .type = ParamType::Number, .required = false,
-                     .defaultNumber = 0.0, .hasDefault = true};
-  };
 
   // ── SUPPRESS / UNSUPPRESS ────────────────────────────────────────────────
   // The enabled predicate answers "would this change anything?", so a second
@@ -3638,23 +3634,55 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // returns false for a no-op, so the stack is protected even if execute() is
   // called directly -- two independent guards, because the predicate is a
   // convention and CommandRegistry::find() hands out the public execute.
-  for (const bool on : {true, false}) {
-    CommandDescriptor c =
-        base(on ? "part.suppress_feature" : "part.unsuppress_feature",
-             on ? "Suppress Feature" : "Unsuppress Feature", "", SelectionSignature::none());
-    c.schema.push_back(featureParam());
-    c.enabled = [d, historyTarget, on](const CommandContext& ctx) {
+  // WRITTEN OUT TWICE ON PURPOSE. A loop over {true,false} with a ternary id --
+  // base(on ? "part.suppress_feature" : "part.unsuppress_feature", ...) -- compiles
+  // and registers both correctly and is INVISIBLE to the tooling, which derives the
+  // command surface by matching `CommandDescriptor c = base(` and reading argument
+  // one as a STRING LITERAL. gen_archie_op_vocabulary.py caught it and named exactly
+  // these two: "registerPartCommands and partCommandIds disagree". Passing the id
+  // through a helper lambda fails the same way. One literal id per registration is
+  // not a style preference here, it is what makes the surface derivable.
+  {
+    CommandDescriptor c = base("part.suppress_feature", "Suppress Feature", "", SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0,
+                                 .hasDefault = true});
+    c.enabled = [d, historyTarget](const CommandContext& ctx) {
       const FeatureRecord* rec = historyTarget(*d, ctx);
-      return rec != nullptr && rec->suppressed != on;
+      return rec != nullptr && rec->suppressed != true;
     };
-    c.execute = [d, s, historyTarget, rowName, featureId, on](CommandContext& ctx) {
+    c.execute = [d, s, historyTarget, rowName, featureId](CommandContext& ctx) {
       const FeatureRecord* rec = historyTarget(*d, ctx);
       if (rec == nullptr) {
         ctx.fail("no such feature");
         return;
       }
-      std::string label = (on ? "Suppress " : "Unsuppress ") + rowName(rec);
-      if (!s->perform(*d, std::make_unique<SuppressFeatureEdit>(featureId(*d, ctx), on,
+      std::string label = "Suppress " + rowName(rec);
+      if (!s->perform(*d, std::make_unique<SuppressFeatureEdit>(featureId(*d, ctx), true,
+                                                                std::move(label)))) {
+        ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
+      }
+    };
+    add(std::move(c));
+  }
+
+  {
+    CommandDescriptor c = base("part.unsuppress_feature", "Unsuppress Feature", "", SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0,
+                                 .hasDefault = true});
+    c.enabled = [d, historyTarget](const CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      return rec != nullptr && rec->suppressed != false;
+    };
+    c.execute = [d, s, historyTarget, rowName, featureId](CommandContext& ctx) {
+      const FeatureRecord* rec = historyTarget(*d, ctx);
+      if (rec == nullptr) {
+        ctx.fail("no such feature");
+        return;
+      }
+      std::string label = "Unsuppress " + rowName(rec);
+      if (!s->perform(*d, std::make_unique<SuppressFeatureEdit>(featureId(*d, ctx), false,
                                                                 std::move(label)))) {
         ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
       }
@@ -3668,7 +3696,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.delete_feature", "Delete Feature", "",
                                SelectionSignature::none());
-    c.schema.push_back(featureParam());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0,
+                                 .hasDefault = true});
     c.enabled = [d, historyTarget](const CommandContext& ctx) {
       const FeatureRecord* rec = historyTarget(*d, ctx);
       return rec != nullptr && !rec->deleted;
@@ -3695,7 +3725,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.rename_feature", "Rename Feature", "",
                                SelectionSignature::none());
-    c.schema.push_back(featureParam());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "name", .type = ParamType::Text, .required = true});
     c.enabled = [d, historyTarget](const CommandContext& ctx) {
       return historyTarget(*d, ctx) != nullptr;
@@ -3722,7 +3754,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.reorder_feature", "Reorder Feature", "",
                                SelectionSignature::none());
-    c.schema.push_back(featureParam());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "position", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 0.0, .hasDefault = false});
     c.enabled = [d, historyTarget](const CommandContext& ctx) {
@@ -3756,7 +3790,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.rollback_to", "Roll Back To Feature", "",
                                SelectionSignature::none());
-    c.schema.push_back(featureParam());
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0,
+                                 .hasDefault = true});
     c.enabled = [d, historyTarget, featureId](const CommandContext& ctx) {
       const FeatureRecord* rec = historyTarget(*d, ctx);
       return rec != nullptr && d->rollback() != featureId(*d, ctx);

@@ -46,8 +46,11 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **80 commands**; **57 of them emit
-feature-IR**, reaching **53 distinct op names**. The kernel defines **56** ops
+Measured at this revision: the registry holds **87 commands**; **57 of them emit
+feature-IR**, reaching **53 distinct op names**. The count moved 80 -> 87 when the
+seven feature-history commands were written; none of the seven emits feature IR,
+which is why `commands_emitting_ir` is unchanged at 57 -- they change WHICH
+statements the document emits, never appending one of their own. The kernel defines **56** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
