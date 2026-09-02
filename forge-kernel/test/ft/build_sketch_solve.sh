@@ -62,8 +62,28 @@ VENDOR_FLAGS=(-std=c++20 -O1 -g -w
        -I"$KERNEL/include" -I"$OCCT_INC" -I"$BOOST_INC"
        -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
 
+# The newest header these TUs consume. The cache below used to compare an object
+# against its .cpp ALONE, so editing Sketcher.hpp -- which is where this family's
+# constraint-kind enum lives -- left a STALE object in place and the gate went on
+# measuring the PREVIOUS build. That is "a gate that cannot build cannot fail"
+# with an extra step: it does build, it just builds something else, and it
+# reports PASS. Depfiles would be exact; this is the conservative version (any
+# header edit invalidates every object), which is the right trade for 8 TUs.
+NEWEST_HDR=""
+_newest=0
+while IFS= read -r _h; do
+  _m="$(stat -f '%m' "$_h" 2>/dev/null || stat -c '%Y' "$_h" 2>/dev/null || echo 0)"
+  if [ "${_m:-0}" -gt "$_newest" ]; then _newest="$_m"; NEWEST_HDR="$_h"; fi
+done <<EOF
+$(find "$KERNEL/include" "$KERNEL/3rdParty/planegcs" "$KERNEL/3rdParty/planegcs_eigen_shim" \
+       \( -name '*.h' -o -name '*.hpp' \) 2>/dev/null)
+EOF
+
 compile_one() {  # $1=src $2=obj $3=vendor?
-  if [ -f "$2" ] && [ "$2" -nt "$1" ]; then echo "  [cached] $(basename "$1")"; return 0; fi
+  if [ -f "$2" ] && [ "$2" -nt "$1" ] &&
+     { [ -z "$NEWEST_HDR" ] || [ "$2" -nt "$NEWEST_HDR" ]; }; then
+    echo "  [cached] $(basename "$1")"; return 0
+  fi
   echo "  [cc] $(basename "$1")"
   if [ "${3:-}" = vendor ]; then "$CXX" "${VENDOR_FLAGS[@]}" -c "$1" -o "$2"
   else                          "$CXX" "${FLAGS[@]}"        -c "$1" -o "$2"; fi

@@ -85,6 +85,15 @@ loud, because the facade throws on a type-mismatched operand and the compiler
 swallows the throw as a `SKIPPED` note, leaving a constraint that silently does
 not apply.
 
+**`CON`'s keyword set is WIDER in the compiler than in the app, and the numbers are
+here so nobody has to guess which.** MEASURED on this tree: `kKinds` in
+`FeatureTreeCompiler.cpp` dispatches **19** keywords; the two `CON` commands above
+offer **9**; so **10** are dispatchable and unreachable -- `ANGLE`, `COLL`, `CONC`,
+`DIAM`, `DISTX`, `DISTY`, `FIX`, `MIDPT`, `RADIUS`, `SYMM`. The reverse direction,
+which would be the DEFECT rather than the gap, is **0**: no command offers a keyword
+the compiler would skip. Archie may emit only the nine, because only the nine are
+reachable through a command; the other ten are app-surface work, not kernel work.
+
 **Why this family and not another, measured.** Paired over 9,846 real ABC /
 Onshape FeatureScript trees (154,637 features,
 `implementation/sacrosanct/tools/abc_yield_census.py`), scored against

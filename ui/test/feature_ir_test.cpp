@@ -238,26 +238,35 @@ int main() {
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
   // THICKEN / CAP / SURFCHECK), plus SECTION (the fourth OCCT boolean), plus the
   // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
-  // SOLVE), plus ARC, plus HELIX. Anything else means the derivation itself
-  // broke, and a broken oracle must not pass quietly.
+  // SOLVE), plus ARC, plus HELIX.
   //
   // RE-MEASURED AT EVERY MERGE, because this is the assertion a merge keeps
-  // getting wrong: its two sides have pinned 46/41, then 54/48, then 47/55, then
-  // 55/53, and at THIS merge (the second base pull onto ft/arc-helix-ops) 56 here
-  // against 55 on the base. Picking a side has been wrong in BOTH directions, so
-  // the number is COUNTED on the tree being committed, with the method CALIBRATED
-  // before it is trusted: re-derive this same enum out of
-  // forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents -- where it
-  // reproduces their committed 56 and 55 exactly -- and then run it on the MERGED
+  // getting wrong: across earlier merges its two sides have pinned 46/41, then
+  // 54/48, then 47/55, then 55/53, then 55/55. Picking a side has been wrong in
+  // BOTH directions, so the number is COUNTED on the tree being committed, with
+  // the method CALIBRATED before it is trusted.
+  //
+  // AT THIS MERGE (the execution branch, now carrying #176, into
+  // ft/arc-helix-ops) the two sides pin 55 on the base and 56 here. Method:
+  // re-derive this same enum out of
+  // forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents, where it
+  // reproduces their committed 55 and 56 exactly, then run it on the MERGED
   // tree, which gives 56.
   //
-  // 56 is the UNION, and which side is the superset was checked rather than
-  // assumed: the base adds ZERO ops this branch lacks, and this branch adds
-  // exactly ONE the base lacks -- HELIX, which exists nowhere else. So the merged
-  // set is this side's set unchanged. Confirmed independently by
-  // gen_archie_op_vocabulary.py, which reads opFromName in
-  // FeatureTreeCompiler.cpp rather than this header and also says
+  // 56 is the UNION, and which side is the superset was CHECKED as a set
+  // difference rather than inferred from the totals: the base adds ZERO
+  // OpCodes this branch lacks, and this branch adds exactly ONE the base lacks
+  // -- Helix, which exists nowhere else. So the merged set is this side's set
+  // unchanged. Note what the base contributed instead: #176 widened CON's
+  // keyword set from nine to nineteen, which adds no opFromName entry, so the
+  // base's op count was correctly unmoved by it and the +1 here is HELIX alone.
+  //
+  // Confirmed independently by gen_archie_op_vocabulary.py, which reads
+  // opFromName in FeatureTreeCompiler.cpp rather than this header and also says
   // counts.kernel_ops = 56.
+  //
+  // Anything else means the derivation itself broke, and a broken oracle must
+  // not pass quietly.
   CHECK_EQ_INT(kernel.size(), 56);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
