@@ -2186,6 +2186,36 @@ The collateral is the reason this had to be fixed at the kernel rather than only
 the harness: a mid-batch abort takes the rows behind it, so at `--batch 20` one
 zero-axis row could have written off up to nineteen innocent ones.
 
+**★ The nine lost rows, replayed.** A gate on a synthetic fixture proves the
+property; the real emissions prove the recovery. All nine rows the run lost were
+re-fed to the fixed binary **in one batch** — the case that used to cost the
+neighbours too:
+
+```
+exit rc=0,  9 of 9 records,  peak child RSS 0.05 GiB
+  ho116 ho274 ho341 ho962 ho1180 ho1212 ho1229
+        -> op %3 (line 3): ROTATE: axis is zero (args 2-4 are the axis vector...)
+  ho932 -> op %8 (line 8): VERIFY failed: faces=51 (got 0.000000)
+  ho998 -> PAUSED_INCOMPLETE: ft parse line 74 — the emission stopped mid-statement
+```
+
+Every one is now an attributed verdict about the TREE. Seven of the nine turn out
+to be the same one-line defect in the emission, which the run could not say because
+the tool measuring it died first.
+
+**★ And the two "timeouts" were not a property of their rows either.** ho932 and
+ho998 were recorded as `verifier timeout after 180s`. Run ALONE against the
+**emission-time binary** — the same sha256 `45e9ad9a…`, not the fixed one — they
+answer in **0.1 s each**. So the 180-second wait belonged to the state the child
+was in, not to the input; the label was wrong on a second axis, not just the "does
+not compile" one. What put the child in that state is NOT established by this
+measurement and is not claimed here.
+
+(A caution that cuts the other way: the pinned binary and the current build are not
+otherwise identical — ho998 returns `ok:true` on the pin and `PAUSED_INCOMPLETE` on
+HEAD — so only the crash/no-crash property was compared across binaries, on one
+fixture, with everything else held constant.)
+
 **What now exists so this cannot recur silently.**
 
 * `instrument_failed` is a distinct outcome in `archie_loop.py`,

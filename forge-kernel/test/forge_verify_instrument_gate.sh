@@ -13,8 +13,11 @@
 # nothing had established it. Worse, it is SILENT contamination: eight of the
 # nine rows lost to the instrument that day emitted a VERIFY op, so they sat in
 # the self-inconsistency DENOMINATOR while unable to reach its numerator, and the
-# published rate was too LOW by 1.6 points (89.7% over 455 rows -> 91.3% over the
-# 447 actually measured).
+# published rate was too LOW. D-045's headline reading moves 389/455 = 85.5% ->
+# 389/447 = 87.0%; the wider reading that also counts a VERIFY failure arriving
+# as a compile error moves 408/455 = 89.7% -> 408/447 = 91.3%. Both corrections
+# go the SAME way, and it is the way that does not flatter the result: against a
+# pre-registered prediction of <25%, correcting the taxonomy WIDENS the gap.
 #
 # WHAT THIS GATE CHECKS, against the real binary:
 #   1. A zero-axis ROTATE is now an ordinary per-op ERROR that names the op. It

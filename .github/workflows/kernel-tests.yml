@@ -468,8 +468,9 @@ jobs:
         # having said nothing. All seven rows were then written down as "the tree
         # does not compile: verifier produced no output" -- a verdict on the MODEL
         # that nothing had established, and one that sat in the denominator of a
-        # published self-inconsistency rate (89.7% over 455 rows where the honest
-        # figure is 91.3% over the 447 actually measured).
+        # published self-inconsistency rate: D-045 read 389/455 = 85.5% where the
+        # honest figure is 389/447 = 87.0% over the rows actually measured. The
+        # correction WIDENS the result against its pre-registered prediction.
         #
         # It went unnoticed for a whole run because nothing exercised the path it
         # died on. This drives every death path in src/tools/InstrumentRecord.hpp
