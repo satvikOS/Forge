@@ -229,7 +229,19 @@ const Verb kVerbs[] = {
     {"extrude",     "part.extrude",          PlanSelect::LatestProfile, {"distance"},                         nullptr},
     {"pad",         "part.extrude",          PlanSelect::LatestProfile, {"distance"},                         nullptr},
     {"revolve",     "part.revolve",          PlanSelect::LatestProfile, {"angle"},                            nullptr},
-    {"loft",        "part.loft",             PlanSelect::LatestProfile, {},                                   nullptr},
+    // LOFT and SKIN consume WIRE, not PROFILE. The PlanSelect here is now only a
+    // fallback -- wantedKind() reads the signature and answers Wire for both --
+    // but it is written as LatestSolid rather than LatestProfile so the table
+    // stops ASSERTING the very thing D-023 corrected.
+    {"loft",        "part.loft",             PlanSelect::LatestSolid,   {},                                   nullptr},
+    {"skin",        "part.skin",             PlanSelect::LatestSolid,   {},                                   nullptr},
+    // The SURFACE ops. `thicken` and `cap` take a sheet and give a solid; `sew`
+    // and `surfcheck` take a sheet and give one back.
+    {"thicken",     "part.thicken",          PlanSelect::LatestSolid,   {"wall"},                             nullptr},
+    {"cap",         "part.cap",              PlanSelect::LatestSolid,   {},                                   nullptr},
+    {"sew",         "part.sew",              PlanSelect::LatestSolid,   {},                                   nullptr},
+    {"surfcheck",   "part.surfcheck",        PlanSelect::LatestSolid,   {},                                   nullptr},
+    {"faces",       "part.extract_faces",    PlanSelect::LatestSolid,   {},                                   nullptr},
     {"fillet",      "part.fillet",           PlanSelect::LatestSolid,   {"radius"},                           nullptr},
     {"round",       "part.fillet",           PlanSelect::LatestSolid,   {"radius"},                           nullptr},
     {"chamfer",     "part.chamfer",          PlanSelect::LatestSolid,   {"distance"},                         nullptr},
@@ -645,6 +657,41 @@ std::string setName(EntityKind kind) {
   return std::string("all-") + toString(kind);
 }
 
+// The value kind a step must bind is stated by the COMMAND'S OWN SIGNATURE, not
+// guessed by the plan. This used to be
+//     want = (select == LatestProfile) ? Profile : Solid
+// which can name only two of the four kinds, so every command consuming a WIRE or
+// a SURFACE was undrivable by the CoPilot: it got a ref whose bodyId names a
+// SOLID, resolveValues() read kindOf() through that node, saw the wrong kind,
+// returned {} and the command greyed out -- reported as a selection mismatch on a
+// document that HELD the value the step asked for.
+//
+// That is the same defect D-023 records for part.loft itself ("part.loft was
+// resolving PROFILE values"), left standing in the CoPilot's copy of the same
+// decision, and it survived because the search that fixed the first one went
+// looking for the command rather than for the CONCEPT.
+//
+// PlanSelect stays what it is -- a plan-level INTENT, and the only thing that can
+// distinguish "the newest profile" from "the newest solid" for the two kinds an
+// EntityKind cannot tell apart (Body and Face both mean SOLID). Where the
+// signature names a kind outright, the signature wins, because it is what
+// dispatch is going to check.
+IrValueKind wantedKind(const CommandDescriptor& cmd, PlanSelect select) {
+  switch (cmd.signature.kind) {
+    case EntityKind::Sketch:  return IrValueKind::Profile;
+    case EntityKind::Wire:    return IrValueKind::Wire;
+    case EntityKind::Surface: return IrValueKind::Surface;
+    // The two sketch-solver kinds. Without these rows the CoPilot would bind a
+    // SOLID for every sketch-family step -- the D-023 defect this function was
+    // rewritten to remove, reintroduced by the next value kind rather than by
+    // the next command.
+    case EntityKind::OpenSketch: return IrValueKind::Sketch;
+    case EntityKind::SketchRef:  return IrValueKind::SketchRef;
+    default: break;
+  }
+  return select == PlanSelect::LatestProfile ? IrValueKind::Profile : IrValueKind::Solid;
+}
+
 bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const PartDocument& doc,
                       std::vector<EntityRef>& refs, std::string& why) {
   refs.clear();
@@ -652,8 +699,7 @@ bool resolveSelection(const PlanStep& step, const CommandDescriptor& cmd, const 
   if (step.select == PlanSelect::None) return true;  // an empty selection IS the answer
   if (cmd.signature.kind == EntityKind::None) return true;  // needs nothing picked
 
-  const IrValueKind want =
-      step.select == PlanSelect::LatestProfile ? IrValueKind::Profile : IrValueKind::Solid;
+  const IrValueKind want = wantedKind(cmd, step.select);
   const std::size_t need = cmd.signature.minCount == 0 ? 1 : cmd.signature.minCount;
   const std::vector<std::pair<int, std::string>> bound = boundValues(doc, want);
   if (bound.size() < need) {

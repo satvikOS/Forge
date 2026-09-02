@@ -12,51 +12,51 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "42a0352abe26c88296f8c3eb10aa8a74b824337f4971e84d0cda91cd590af60c",
-        "bytes": 111303,
-        "lines": 2438
+        "sha256": "755c72396873e1bbc0637989e2c665b03a696e820b0eaa14bd5297693dd71014",
+        "bytes": 154750,
+        "lines": 3232
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
-        "sha256": "4a298b7a92d95b42d67449e9271cf770ddc0db83f87dad9b1ff34b068c6f44e6",
-        "bytes": 22336,
-        "lines": 380
+        "sha256": "061bb2a10df8d211f514bb370e31d6eb601885d696e04b42665f10ad42c8aae4",
+        "bytes": 22940,
+        "lines": 384
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "b382eae21846b6646fb5fc8e6149253f2b4ffb64eab2304ddf101e2bb1a9ac83",
-        "bytes": 161210,
-        "lines": 2606
+        "sha256": "3701bba8f6fcbb19f8db7af5eefe2ee229862cf59915a8dd71bab32a9585f67f",
+        "bytes": 164487,
+        "lines": 2654
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "571b2dd90789f50850979df315f1d317ee0de71064d0130ec6905d8b6758068d",
-        "bytes": 170157,
-        "lines": 3199
+        "sha256": "6c2c1220953dd3063170d07beb861a00c2d4e41974ecdbe04718836858dd1912",
+        "bytes": 183621,
+        "lines": 3433
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
-        "sha256": "7cc209c147505928a96698bf886a89011f29898f14442c4ac385b0a88048464c",
-        "bytes": 24537,
-        "lines": 406
+        "sha256": "83d3928d879aaed39ad5335e7e806d924bedc58808d633316a288e4b59a47035",
+        "bytes": 29882,
+        "lines": 481
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "8759595eb7ace02744ad3d816e5f3923835de3b5d4690711dde3fa61b930ed78",
-        "bytes": 10658,
-        "lines": 296
+        "sha256": "a489a6d8c9b9d1f860043157b648f65253eb7024b2376c759991d641474411c8",
+        "bytes": 10802,
+        "lines": 299
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "5f3c6a77cf9fff6335765bb7e864b5c6ba695864081f29266b933cf02c1a1b77",
-        "bytes": 134774,
-        "lines": 2332
+        "sha256": "221b7590e5dfc37b6527265cdbc7a30ff68d8fc3db228ad6749f3228857e4422",
+        "bytes": 182885,
+        "lines": 3112
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "6fcc1fc9d6a53889ec711c0c8f64849b5d7222ed634ab4f9dcce1f9ea888ab13",
-        "bytes": 17932,
-        "lines": 474
+        "sha256": "e46ab684bc5a6b1b7c6d7c1ec38cd1ad06546d5573b72da761e4bc5b19a25aac",
+        "bytes": 33628,
+        "lines": 836
       }
     ],
     "build_configuration": {
@@ -76,28 +76,31 @@
     "value_model": "every op produces exactly one value: PROFILE, WIRE or SOLID"
   },
   "counts": {
-    "kernel_ops": 53,
-    "ui_validator_ops": 53,
-    "registry_commands": 53,
-    "commands_emitting_ir": 42,
-    "user_invocable_ops": 39,
-    "forbidden_ops": 14,
-    "uncertain_entries": 1,
+    "kernel_ops": 55,
+    "ui_validator_ops": 55,
+    "registry_commands": 80,
+    "commands_emitting_ir": 57,
+    "user_invocable_ops": 53,
+    "forbidden_ops": 2,
+    "uncertain_entries": 3,
     "derived_defects": 3
   },
   "emission_policy": {
     "allowed_ops": [
       "BLEND",
       "BOX",
+      "CAP",
       "CBORE",
       "CHAMFER",
       "CIRCLE",
       "COMMON",
+      "CON",
       "CONE",
       "CUT",
       "CYL",
       "DEFEATURE",
       "EXTRUDE",
+      "FACES",
       "FILLET",
       "FOLD",
       "FUSE",
@@ -117,10 +120,21 @@
       "RING",
       "ROTATE",
       "RRECT",
+      "SARC",
+      "SCIRC",
+      "SECTION",
+      "SEW",
       "SHELL",
+      "SKETCH",
+      "SKIN",
+      "SLINE",
+      "SOLVE",
       "SPHERE",
+      "SPT",
+      "SURFCHECK",
       "SWEEP",
       "TAG",
+      "THICKEN",
       "TORUS",
       "TRANSLATE",
       "TUBE",
@@ -421,6 +435,99 @@
             }
           ],
           "command": "part.primitive_box"
+        }
+      ]
+    },
+    {
+      "op": "CAP",
+      "kernel_enum": "Cap",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 1,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "CAP(%surface [, tol=0.001])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "surface",
+              "index": 0
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "tol",
+              "default": "0.001",
+              "index": 1,
+              "unit": null,
+              "uncertain": true,
+              "uncertain_reason": "no unit rule matched the argument name 'tol'"
+            }
+          ],
+          "prose": "sheet -> SOLID by sewing it and"
+        }
+      ],
+      "kernel_notes": [
+        "filling every free boundary (heal::autoFillMissingFaces)."
+      ],
+      "user_commands": [
+        "part.cap"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%surface"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%surface"
+              ],
+              "ir_text": "%<id> = CAP(%surface)"
+            }
+          ],
+          "command": "part.cap"
+        },
+        {
+          "when": "hasNumber(ctx, \"tol\")",
+          "when_human": "any of tol is supplied",
+          "arguments": [
+            "%surface",
+            "tol"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "tol": 2.001
+              },
+              "ir_arguments": [
+                "%surface",
+                "2.001"
+              ],
+              "ir_text": "%<id> = CAP(%surface, 2.001)"
+            }
+          ],
+          "command": "part.cap"
         }
       ]
     },
@@ -850,6 +957,172 @@
             }
           ],
           "command": "part.boolean_intersect"
+        }
+      ]
+    },
+    {
+      "op": "CON",
+      "kernel_enum": "Con",
+      "produces": "SKETCH",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 4,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "CON(%a, KIND [, %b, value])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "keyword",
+              "name": "kind",
+              "keyword": "KIND",
+              "index": 1
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "ref",
+              "name": "b",
+              "index": 2
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "value",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "override: CON(%a, KIND [, %b, value]) -- addConstraint(owner, kind, refs, value); DIST is the only dimensional kind wired in skConstrain at this SHA, so the value is a DISTANCE in mm"
+            }
+          ],
+          "prose": "constrain; PASS-THROUGH like TAG"
+        }
+      ],
+      "kernel_notes": [
+        "KIND geometric:   COINC PARA PERP TANG EQUAL HORIZ VERT PTON",
+        "KIND dimensional: DIST",
+        "That is EXACTLY the set forge::Sketcher dispatches today --",
+        "9 of the 67 primitives planegcs actually has. RADIUS,",
+        "DIAM, ANGLE, CONC, COLL, SYMM, MIDPT and FIX all exist in",
+        "the ENGINE and are one switch arm each in the facade, but",
+        "none is wired at this SHA, so none is listed here: a",
+        "vocabulary that advertises a keyword the compiler skips is",
+        "a worse defect than a short vocabulary. An unlisted",
+        "keyword is skipped and NAMED, never fatal. A TRAILING",
+        "operand that does not resolve, or that belongs to a",
+        "different sketch, is skipped and NAMED the same way: this",
+        "op is pass-through, so the answer is the sketch unchanged,",
+        "and a mis-typed %ref must not cost the other 199",
+        "statements of a long tree. Its FIRST operand and its kind",
+        "still REFUSE -- with neither an owning sketch nor a",
+        "constraint kind resolved there is nothing to pass through.",
+        "The kind is ALWAYS arg 1; the operands follow and are read",
+        "by token type, so one op covers unary/binary/dimensional",
+        "without four op names. CON returns the SKETCH it was handed",
+        "-- a constraint statement that could itself move geometry",
+        "before the solve is a defect generator (same reasoning as",
+        "TAG and VERIFY)."
+      ],
+      "user_commands": [
+        "part.sketch_constrain",
+        "part.sketch_constrain_single"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%entityA",
+            "COINC|DIST|EQUAL|PARA|PERP|PTON|TANG",
+            "%entityB"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "COINC"
+              },
+              "ir_arguments": [
+                "%entityA",
+                "COINC",
+                "%entityB"
+              ],
+              "ir_text": "%<id> = CON(%entityA, COINC, %entityB)"
+            }
+          ],
+          "command": "part.sketch_constrain"
+        },
+        {
+          "when": "hasNumber(ctx, \"distance\")",
+          "when_human": "any of distance is supplied",
+          "arguments": [
+            "%entityA",
+            "COINC|DIST|EQUAL|PARA|PERP|PTON|TANG",
+            "%entityB",
+            "distance"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "COINC",
+                "distance": 14.0
+              },
+              "ir_arguments": [
+                "%entityA",
+                "COINC",
+                "%entityB",
+                "14"
+              ],
+              "ir_text": "%<id> = CON(%entityA, COINC, %entityB, 14)"
+            }
+          ],
+          "command": "part.sketch_constrain"
+        },
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%entity",
+            "HORIZ|VERT"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "HORIZ"
+              },
+              "ir_arguments": [
+                "%entity",
+                "HORIZ"
+              ],
+              "ir_text": "%<id> = CON(%entity, HORIZ)"
+            }
+          ],
+          "command": "part.sketch_constrain_single"
         }
       ]
     },
@@ -1488,6 +1761,79 @@
             }
           ],
           "command": "part.extrude"
+        }
+      ]
+    },
+    {
+      "op": "FACES",
+      "kernel_enum": "Faces",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "FACES(%body, \"sel\")",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "text",
+              "name": "sel",
+              "index": 1
+            }
+          ],
+          "prose": "extract the selected faces of a"
+        }
+      ],
+      "kernel_notes": [
+        "SOLID as a sheet -- the SOLID -> SURFACE direction, without which",
+        "the kind is a dead end. \"sel\" is the SAME face-selector grammar",
+        "DEFEATURE/PUSHFACE/RESIZEBORE use (\"bore:r=47.5\", \"+z\", \"@name\",",
+        "\"face:12\", \"plane:max-area\", \"radial:all\"). A selector that",
+        "matches NOTHING returns an empty SURFACE and records the miss;",
+        "it does not abort the tree."
+      ],
+      "user_commands": [
+        "part.extract_faces"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "\"<selector>\""
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "selector": "all"
+              },
+              "ir_arguments": [
+                "%body",
+                "\"all\""
+              ],
+              "ir_text": "%<id> = FACES(%body, \"all\")"
+            }
+          ],
+          "command": "part.extract_faces"
         }
       ]
     },
@@ -3335,21 +3681,7 @@
           "prose": "n-gon (vertex radius)"
         }
       ],
-      "kernel_notes": [
-        "The six profile ops above bake COORDINATES. These six plus SOLVE let a",
-        "tree state RELATIONS instead and have the kernel compute the coordinates,",
-        "through the planegcs solver that is already vendored, compiled and linked",
-        "(3rdParty/planegcs, CMakeLists.txt ~1264-1271) and that nothing in the IR",
-        "has ever called.",
-        "",
-        "The family bolts on IN FRONT of the existing IR: it terminates in a",
-        "solved PROFILE, and a PROFILE is what EXTRUDE / REVOLVE / LOFT already",
-        "consume. Not one existing op changes.",
-        "",
-        "(Prose here deliberately avoids writing an op name immediately followed",
-        "by \"(\" -- ui/test/feature_ir_test.cpp derives this table by READING this",
-        "comment block, and would take such a line for an alternate form.)"
-      ],
+      "kernel_notes": [],
       "user_commands": [
         "part.sketch_polygon"
       ],
@@ -4170,6 +4502,329 @@
       ]
     },
     {
+      "op": "SARC",
+      "kernel_enum": "SArc",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 3,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SARC(%centre, %p0, %p1)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "centre",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p0",
+              "index": 1
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p1",
+              "index": 2
+            }
+          ],
+          "prose": "arc: centre + start + end"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_arc"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%centre",
+            "%arcStart",
+            "%arcEnd"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%centre",
+                "%arcStart",
+                "%arcEnd"
+              ],
+              "ir_text": "%<id> = SARC(%centre, %arcStart, %arcEnd)"
+            }
+          ],
+          "command": "part.sketch_entity_arc"
+        }
+      ]
+    },
+    {
+      "op": "SCIRC",
+      "kernel_enum": "SCirc",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SCIRC(%centre, r)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "centre",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            }
+          ],
+          "prose": "circle: centre point + radius"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_circle"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%centre",
+            "radius"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0
+              },
+              "ir_arguments": [
+                "%centre",
+                "10"
+              ],
+              "ir_text": "%<id> = SCIRC(%centre, 10)"
+            }
+          ],
+          "command": "part.sketch_entity_circle"
+        }
+      ]
+    },
+    {
+      "op": "SECTION",
+      "kernel_enum": "Section",
+      "produces": "WIRE",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SECTION(%a, %b)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "b",
+              "index": 1
+            }
+          ],
+          "prose": "where the two solids' FACES cross"
+        }
+      ],
+      "kernel_notes": [
+        "OCCT's BRepAlgoAPI has FOUR operators -- Fuse, Cut, Common and",
+        "Section -- and this IR had three. Nothing noticed because no",
+        "benchmark row demanded it.",
+        "It is in its own group because the other three return a SOLID and",
+        "this one CANNOT: a section is a CURVE -- a wire with no faces, no",
+        "shells and zero volume. Typing it SOLID would be worse than leaving",
+        "the op out (massProperties/faceCount/checkValidity would report a",
+        "perfectly good section as an empty invalid body).",
+        "The wire is consumed by LOFT, like RING and WIRE. forge::section",
+        "returns a real TopoDS_Wire when the section edges close into one",
+        "loop, and a compound of wires when they close into several (a plane",
+        "through a tube gives two circles; welding them would be a lie)."
+      ],
+      "user_commands": [
+        "part.section_curve"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%bodyA",
+            "%bodyB"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%bodyA",
+                "%bodyB"
+              ],
+              "ir_text": "%<id> = SECTION(%bodyA, %bodyB)"
+            }
+          ],
+          "command": "part.section_curve"
+        }
+      ]
+    },
+    {
+      "op": "SEW",
+      "kernel_enum": "Sew",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 1,
+        "max_args": null,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SEW(%s0 [, %s1 ...] [, tol=0.001])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "s0",
+              "index": 0
+            },
+            {
+              "optional": true,
+              "variadic": true,
+              "token": "ref",
+              "name": "s1",
+              "index": 1
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "tol",
+              "default": "0.001",
+              "index": 2,
+              "unit": null,
+              "uncertain": true,
+              "uncertain_reason": "no unit rule matched the argument name 'tol'"
+            }
+          ],
+          "prose": "stitch sheets into one sheet."
+        }
+      ],
+      "kernel_notes": [
+        "Stays a SURFACE even when the stitch closes it -- promotion to a",
+        "SOLID is CAP's job, and a sew that silently changed value kind",
+        "would make the kind depend on geometry the emitter cannot see."
+      ],
+      "user_commands": [
+        "part.sew"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%sheet..."
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%sheet1"
+              ],
+              "ir_text": "%<id> = SEW(%sheet1)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 1",
+          "command": "part.sew"
+        },
+        {
+          "when": "hasNumber(ctx, \"tol\")",
+          "when_human": "any of tol is supplied",
+          "arguments": [
+            "%sheet...",
+            "tol"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {
+                "tol": 2.001
+              },
+              "ir_arguments": [
+                "%sheet1",
+                "2.001"
+              ],
+              "ir_text": "%<id> = SEW(%sheet1, 2.001)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 1",
+          "command": "part.sew"
+        }
+      ]
+    },
+    {
       "op": "SHELL",
       "kernel_enum": "Shell",
       "produces": "SOLID",
@@ -4306,6 +4961,290 @@
       ]
     },
     {
+      "op": "SKETCH",
+      "kernel_enum": "Sketch",
+      "produces": "SKETCH",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 1,
+        "max_args": 1,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "SKETCH(PLANE)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "keyword",
+              "name": "plane",
+              "keyword": "PLANE",
+              "index": 0
+            }
+          ],
+          "prose": "PLANE = XY|YZ|XZ"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_new"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "XY"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "XY"
+              ],
+              "ir_text": "%<id> = SKETCH(XY)"
+            }
+          ],
+          "command": "part.sketch_new"
+        }
+      ]
+    },
+    {
+      "op": "SKIN",
+      "kernel_enum": "Skin",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "WIRE"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": null,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SKIN(%w0, %w1 [, %w2 ...] [, RULED])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "w0",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "w1",
+              "index": 1
+            },
+            {
+              "optional": true,
+              "variadic": true,
+              "token": "ref",
+              "name": "w2",
+              "index": 2
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "keyword",
+              "name": "ruled",
+              "keyword": "RULED",
+              "index": 3
+            }
+          ],
+          "prose": "skin >=2 WIRE sections as an"
+        }
+      ],
+      "kernel_notes": [
+        "OPEN SHEET (no end caps). This is LOFT's lateral skin typed as",
+        "what it is. LOFT(..., OPEN) returns the same geometry but is",
+        "typed SOLID, which is the pre-existing mistyping SKIN exists to",
+        "let a tree avoid without changing LOFT's meaning."
+      ],
+      "user_commands": [
+        "part.skin"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%wire..."
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%wire1",
+                "%wire2"
+              ],
+              "ir_text": "%<id> = SKIN(%wire1, %wire2)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
+          "command": "part.skin"
+        },
+        {
+          "when": "flagOn(ctx, \"ruled\")",
+          "when_human": "the ruled flag is set",
+          "arguments": [
+            "%wire...",
+            "RULED"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": null
+          },
+          "examples": [
+            {
+              "parameters": {
+                "ruled": true
+              },
+              "ir_arguments": [
+                "%wire1",
+                "%wire2",
+                "RULED"
+              ],
+              "ir_text": "%<id> = SKIN(%wire1, %wire2, RULED)"
+            }
+          ],
+          "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
+          "command": "part.skin"
+        }
+      ]
+    },
+    {
+      "op": "SLINE",
+      "kernel_enum": "SLine",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCHREF"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SLINE(%p0, %p1)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p0",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "p1",
+              "index": 1
+            }
+          ],
+          "prose": "line through two sketch points"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_line"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%p0",
+            "%p1"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%p0",
+                "%p1"
+              ],
+              "ir_text": "%<id> = SLINE(%p0, %p1)"
+            }
+          ],
+          "command": "part.sketch_entity_line"
+        }
+      ]
+    },
+    {
+      "op": "SOLVE",
+      "kernel_enum": "Solve",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [
+        "SKETCH"
+      ],
+      "arity": {
+        "min_args": 1,
+        "max_args": 1,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SOLVE(%sketch)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "sketch",
+              "index": 0
+            }
+          ],
+          "prose": "-> PROFILE. NEVER refuses."
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_solve"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%sketch"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%sketch"
+              ],
+              "ir_text": "%<id> = SOLVE(%sketch)"
+            }
+          ],
+          "command": "part.sketch_solve"
+        }
+      ]
+    },
+    {
       "op": "SPHERE",
       "kernel_enum": "Sphere",
       "produces": "SOLID",
@@ -4425,6 +5364,194 @@
             }
           ],
           "command": "part.primitive_sphere"
+        }
+      ]
+    },
+    {
+      "op": "SPT",
+      "kernel_enum": "SPt",
+      "produces": "SKETCHREF",
+      "consumes_value_kinds": [
+        "SKETCH"
+      ],
+      "arity": {
+        "min_args": 3,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SPT(%sketch, x, y)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "sketch",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "x",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "override: SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this position in the sketch plane; the sketch plane is Z=0 in world mm"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "y",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "override: SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this position in the sketch plane; the sketch plane is Z=0 in world mm"
+            }
+          ],
+          "prose": "a point; produces a SKETCHREF"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_entity_point"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%sketch",
+            "x",
+            "y"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "x": 0.0,
+                "y": 0.0
+              },
+              "ir_arguments": [
+                "%sketch",
+                "0",
+                "0"
+              ],
+              "ir_text": "%<id> = SPT(%sketch, 0, 0)"
+            }
+          ],
+          "command": "part.sketch_entity_point"
+        }
+      ]
+    },
+    {
+      "op": "SURFCHECK",
+      "kernel_enum": "SurfCheck",
+      "produces": "SURFACE",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": null,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "SURFCHECK(%surface, \"expr\", ...)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "surface",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": true,
+              "token": "text",
+              "name": "expr",
+              "index": 1
+            }
+          ],
+          "prose": "measure a sheet and record the"
+        }
+      ],
+      "kernel_notes": [
+        "answer. Pass-through like VERIFY/TAG: it returns %surface unchanged.",
+        "Known quantities: faces, freeedges, closed, pcurves, selfintersect,",
+        "area, shells. A FAILED assertion is recorded and fails the compile at",
+        "the end -- it never aborts the walk, so the geometry is still built",
+        "and still measurable. THIS IS THE DIAGNOSTIC HALF OF THE TOLERANCE",
+        "CONTRACT: degenerate sheets are representable BECAUSE they are",
+        "answerable.",
+        "These make the feature-tree IR the single emission format for BOTH",
+        "generation and editing. Face SELECTORs are quoted predicate strings",
+        "resolved against the live faceInventory at compile time (see",
+        "resolveSelector in FeatureTreeCompiler.cpp)."
+      ],
+      "user_commands": [
+        "part.surfcheck"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%surface",
+            "\"<assertion>\""
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "assertion": "freeedges = 0"
+              },
+              "ir_arguments": [
+                "%surface",
+                "\"freeedges = 0\""
+              ],
+              "ir_text": "%<id> = SURFCHECK(%surface, \"freeedges = 0\")"
+            }
+          ],
+          "command": "part.surfcheck"
+        },
+        {
+          "when": "hasText(ctx, \"assertion2\")",
+          "when_human": "hasText(ctx, \"assertion2\")",
+          "arguments": [
+            "%surface",
+            "\"<assertion>\"",
+            "\"<assertion2>\""
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "assertion": "freeedges = 0",
+                "assertion2": "faces >= 1"
+              },
+              "ir_arguments": [
+                "%surface",
+                "\"freeedges = 0\"",
+                "\"faces >= 1\""
+              ],
+              "ir_text": "%<id> = SURFCHECK(%surface, \"freeedges = 0\", \"faces >= 1\")"
+            }
+          ],
+          "command": "part.surfcheck"
         }
       ]
     },
@@ -4624,6 +5751,113 @@
             }
           ],
           "command": "part.tag_feature"
+        }
+      ]
+    },
+    {
+      "op": "THICKEN",
+      "kernel_enum": "Thicken",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SURFACE"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "THICKEN(%surface, wall [, side=MID])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "surface",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "wall",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "keyword",
+              "name": "side",
+              "keyword_default": "MID",
+              "index": 2
+            }
+          ],
+          "prose": "sheet -> SOLID by offsetting the"
+        }
+      ],
+      "kernel_notes": [
+        "sheet to a wall. side = IN | OUT | MID."
+      ],
+      "user_commands": [
+        "part.thicken"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%surface",
+            "wall"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "wall": 2.0
+              },
+              "ir_arguments": [
+                "%surface",
+                "2"
+              ],
+              "ir_text": "%<id> = THICKEN(%surface, 2)"
+            }
+          ],
+          "command": "part.thicken"
+        },
+        {
+          "when": "hasText(ctx, \"side\")",
+          "when_human": "hasText(ctx, \"side\")",
+          "arguments": [
+            "%surface",
+            "wall",
+            "IN|MID|OUT"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "wall": 2.0,
+                "side": "OUT"
+              },
+              "ir_arguments": [
+                "%surface",
+                "2",
+                "OUT"
+              ],
+              "ir_text": "%<id> = THICKEN(%surface, 2, OUT)"
+            }
+          ],
+          "command": "part.thicken"
         }
       ]
     },
@@ -5204,83 +6438,11 @@
   ],
   "forbidden_ops": [
     {
-      "op": "CAP",
-      "kernel_enum": "Cap",
+      "op": "ARC",
+      "kernel_enum": "Arc",
       "compiled_into_a_default_build": true,
       "signature": [
-        "CAP(%surface [, tol=0.001])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "CON",
-      "kernel_enum": "Con",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "CON(%a, KIND [, %b, value])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "FACES",
-      "kernel_enum": "Faces",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "FACES(%body, \"sel\")"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SARC",
-      "kernel_enum": "SArc",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SARC(%centre, %p0, %p1)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SCIRC",
-      "kernel_enum": "SCirc",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SCIRC(%centre, r)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SEW",
-      "kernel_enum": "Sew",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SEW(%s0 [, %s1 ...] [, tol=0.001])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SKETCH",
-      "kernel_enum": "Sketch",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SKETCH(PLANE)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SKIN",
-      "kernel_enum": "Skin",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SKIN(%w0, %w1 [, %w2 ...] [, RULED])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SLINE",
-      "kernel_enum": "SLine",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SLINE(%p0, %p1)"
+        "ARC([x y; x y mx my; ...])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -5292,55 +6454,60 @@
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SOLVE",
-      "kernel_enum": "Solve",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SOLVE(%sketch)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SPT",
-      "kernel_enum": "SPt",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SPT(%sketch, x, y)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SURFCHECK",
-      "kernel_enum": "SurfCheck",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SURFCHECK(%surface, \"expr\", ...)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "THICKEN",
-      "kernel_enum": "Thicken",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "THICKEN(%surface, wall [, side=MID])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     }
   ],
   "forbidden_statement_forms": [
     {
       "form": "RESULT(%<id>)",
       "reason": "forge::ui has no way to emit it: every UI emission goes through PartDocument::appendFeature -> validateIr, and validateIr answers unknown_op for any name absent from irOpTable(), where RESULT is absent. The kernel treats the LAST solid produced as the result instead.",
-      "evidence": "RESULT is not among the 53 names in forge::ui::irOpTable()"
+      "evidence": "RESULT is not among the 55 names in forge::ui::irOpTable()"
     }
   ],
   "commands": [
     {
       "id": "app.command_palette",
       "label": "Command Palette",
+      "category": "Application",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "app.load_sample",
+      "label": "Load Sample Part",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "sample",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "bracket",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "app.toggle_theme",
+      "label": "Toggle Light / Dark Theme",
       "category": "Application",
       "feature_ir_op": null,
       "emits_feature_ir": false,
@@ -5554,6 +6721,39 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.cap",
+      "label": "Cap Sheet",
+      "category": "Part",
+      "feature_ir_op": "CAP",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "tol",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.001,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0",
+        "derived": [],
+        "unparsed_terms": [
+          "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0"
+        ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.chamfer",
       "label": "Edge Chamfer",
       "category": "Part",
@@ -5571,7 +6771,7 @@
           "required": true,
           "default_number": 1.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "selector",
@@ -5619,7 +6819,7 @@
           "required": true,
           "default_number": 6.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cbore_diameter",
@@ -5627,7 +6827,7 @@
           "required": true,
           "default_number": 11.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cbore_depth",
@@ -5635,7 +6835,7 @@
           "required": true,
           "default_number": 6.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "x",
@@ -5768,6 +6968,43 @@
       "preview": "Live",
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp"
+    },
+    {
+      "id": "part.extract_faces",
+      "label": "Extract Faces",
+      "category": "Part",
+      "feature_ir_op": "FACES",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Face",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "selector",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "all",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && !txt(ctx, \"selector\", \"\").empty()",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          }
+        ],
+        "unparsed_terms": [
+          "!txt(ctx, \"selector\", \"\").empty()"
+        ]
+      },
+      "produces_value_kind": "Surface"
     },
     {
       "id": "part.extrude",
@@ -6033,7 +7270,7 @@
           "required": true,
           "default_number": 6.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "x",
@@ -6174,7 +7411,7 @@
           "required": true,
           "default_number": 0.0,
           "default_text": "XY",
-          "has_default": false
+          "has_default": true
         }
       ],
       "preview": "OnDemand",
@@ -6271,7 +7508,7 @@
           "required": true,
           "default_number": 4.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "total_angle",
@@ -6333,7 +7570,7 @@
           "required": true,
           "default_number": 2.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "ny",
@@ -6341,7 +7578,7 @@
           "required": true,
           "default_number": 2.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dx",
@@ -6349,7 +7586,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dy",
@@ -6357,7 +7594,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         }
       ],
       "preview": "OnDemand",
@@ -6415,7 +7652,7 @@
           "required": true,
           "default_number": 2.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dx",
@@ -6423,7 +7660,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dy",
@@ -7228,7 +8465,7 @@
           "required": true,
           "default_number": 360.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "axx",
@@ -7372,6 +8609,34 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.section_curve",
+      "label": "Section Curve",
+      "category": "Part",
+      "feature_ir_op": "SECTION",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 2,
+        "max": 2
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() == 2",
+        "derived": [
+          {
+            "selection_values_of_kind": "Solid",
+            "comparison": "==",
+            "value": 2
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Wire"
+    },
+    {
       "id": "part.section_ring",
       "label": "Section Ring",
       "category": "Part",
@@ -7389,7 +8654,7 @@
           "required": true,
           "default_number": 20.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "ry",
@@ -7397,7 +8662,7 @@
           "required": true,
           "default_number": 20.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "z",
@@ -7405,7 +8670,7 @@
           "required": true,
           "default_number": 0.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cx",
@@ -7505,6 +8770,39 @@
       "produces_value_kind": "Wire"
     },
     {
+      "id": "part.sew",
+      "label": "Sew Sheets",
+      "category": "Part",
+      "feature_ir_op": "SEW",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "tol",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.001,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty()) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0",
+        "derived": [],
+        "unparsed_terms": [
+          "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty()) false; !hasNumber(ctx, \"tol\") || num(ctx, \"tol\", 0.001) > 0.0"
+        ]
+      },
+      "produces_value_kind": "Surface"
+    },
+    {
       "id": "part.shell",
       "label": "Shell Body",
       "category": "Part",
@@ -7586,7 +8884,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cx",
@@ -7620,6 +8918,284 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Profile"
+    },
+    {
+      "id": "part.sketch_constrain",
+      "label": "Constrain Entity Pair",
+      "category": "Part",
+      "feature_ir_op": "CON",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 2,
+        "max": 2
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "COINC",
+          "has_default": true
+        },
+        {
+          "name": "distance",
+          "type": "Number",
+          "required": false,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"COINC\" || kind == \"PARA\" || kind == \"PERP\" || kind == \"TANG\" || kind == \"EQUAL\" || kind == \"PTON\" || kind == \"DIST\")",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 2
+          },
+          {
+            "parameter": "kind",
+            "comparison": "one_of",
+            "values": [
+              "COINC",
+              "DIST",
+              "EQUAL",
+              "PARA",
+              "PERP",
+              "PTON",
+              "TANG"
+            ]
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
+      "id": "part.sketch_constrain_single",
+      "label": "Constrain Entity",
+      "category": "Part",
+      "feature_ir_op": "CON",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "HORIZ",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"HORIZ\" || kind == \"VERT\")",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 1
+          },
+          {
+            "parameter": "kind",
+            "comparison": "one_of",
+            "values": [
+              "HORIZ",
+              "VERT"
+            ]
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
+      "id": "part.sketch_entity_arc",
+      "label": "Sketch Arc",
+      "category": "Part",
+      "feature_ir_op": "SARC",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 3,
+        "max": 3
+      },
+      "parameters": [],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 3 && !sharedSketchNode(*d, ctx.selection()).empty()",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 3
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_entity_circle",
+      "label": "Sketch Circle",
+      "category": "Part",
+      "feature_ir_op": "SCIRC",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 && num(ctx, \"radius\", 0.0) > 0.0",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 1
+          },
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_entity_line",
+      "label": "Sketch Line",
+      "category": "Part",
+      "feature_ir_op": "SLINE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 2,
+        "max": 2
+      },
+      "parameters": [],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 && !sharedSketchNode(*d, ctx.selection()).empty()",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 2
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_entity_point",
+      "label": "Sketch Point",
+      "category": "Part",
+      "feature_ir_op": "SPT",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "OpenSketch",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "x",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "y",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1",
+        "derived": [
+          {
+            "selection_values_of_kind": "Sketch",
+            "comparison": "==",
+            "value": 1
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "SketchRef"
+    },
+    {
+      "id": "part.sketch_new",
+      "label": "New Sketch",
+      "category": "Part",
+      "feature_ir_op": "SKETCH",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "true",
+        "derived": [],
+        "unparsed_terms": [
+          "true"
+        ]
+      },
+      "produces_value_kind": "Sketch"
     },
     {
       "id": "part.sketch_poly",
@@ -7750,7 +9326,7 @@
           "required": true,
           "default_number": 40.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "height",
@@ -7758,7 +9334,7 @@
           "required": true,
           "default_number": 30.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "cx",
@@ -7879,6 +9455,118 @@
         ]
       },
       "produces_value_kind": "Profile"
+    },
+    {
+      "id": "part.sketch_solve",
+      "label": "Solve Sketch",
+      "category": "Part",
+      "feature_ir_op": "SOLVE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "OpenSketch",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1",
+        "derived": [
+          {
+            "selection_values_of_kind": "Sketch",
+            "comparison": "==",
+            "value": 1
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
+      "id": "part.skin",
+      "label": "Skin Sections",
+      "category": "Part",
+      "feature_ir_op": "SKIN",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Wire",
+        "min": 2,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "ruled",
+          "type": "Flag",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Wire).size() >= 2",
+        "derived": [
+          {
+            "selection_values_of_kind": "Wire",
+            "comparison": ">=",
+            "value": 2
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Surface"
+    },
+    {
+      "id": "part.surfcheck",
+      "label": "Assert Sheet Property",
+      "category": "Part",
+      "feature_ir_op": "SURFCHECK",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "assertion",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "freeedges = 0",
+          "has_default": true
+        },
+        {
+          "name": "assertion2",
+          "type": "Text",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "faces >= 1",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() == 1 && !txt(ctx, \"assertion\", \"\").empty()",
+        "derived": [
+          {
+            "selection_values_of_kind": "Surface",
+            "comparison": "==",
+            "value": 1
+          }
+        ],
+        "unparsed_terms": [
+          "!txt(ctx, \"assertion\", \"\").empty()"
+        ]
+      },
+      "produces_value_kind": "Surface"
     },
     {
       "id": "part.sweep_pipe",
@@ -8016,6 +9704,55 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.thicken",
+      "label": "Thicken Sheet",
+      "category": "Part",
+      "feature_ir_op": "THICKEN",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Surface",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "wall",
+          "type": "Number",
+          "required": true,
+          "default_number": 2.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "side",
+          "type": "Text",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "OUT",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) false; if (num(ctx, \"wall\", 2.0) <= 0.0) false; if (!hasText(ctx, \"side\")) true; const std::string side = txt(ctx, \"side\", \"\"); side == \"IN\" || side == \"OUT\" || side == \"MID\"",
+        "derived": [
+          {
+            "parameter": "side",
+            "comparison": "one_of",
+            "values": [
+              "IN",
+              "MID",
+              "OUT"
+            ]
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.variable_fillet",
       "label": "Variable Fillet",
       "category": "Part",
@@ -8033,7 +9770,7 @@
           "required": true,
           "default_number": 1.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "radius_end",
@@ -8041,7 +9778,7 @@
           "required": true,
           "default_number": 3.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "smooth",
@@ -8122,8 +9859,169 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "view.back",
+      "label": "Back View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.bottom",
+      "label": "Bottom View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
       "id": "view.fit",
       "label": "Fit View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.focus_next_panel",
+      "label": "Focus Next Panel",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.focus_previous_panel",
+      "label": "Focus Previous Panel",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.front",
+      "label": "Front View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.iso",
+      "label": "Isometric View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.left",
+      "label": "Left View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.right",
+      "label": "Right View",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.selection",
+      "label": "Zoom to Selection",
+      "category": "View",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "Any",
+        "min": 1,
+        "max": null,
+        "require_homogeneous": false
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "view.top",
+      "label": "Top View",
       "category": "View",
       "feature_ir_op": null,
       "emits_feature_ir": false,
@@ -8173,16 +10071,29 @@
   "value_kind_closure": {
     "produced_by_allowed_ops": [
       "PROFILE",
+      "SKETCH",
+      "SKETCHREF",
       "SOLID",
+      "SURFACE",
       "WIRE"
     ],
     "gaps": []
   },
   "uncertain": [
     {
+      "op": "CAP",
+      "argument": "tol",
+      "reason": "no unit rule matched the argument name 'tol'"
+    },
+    {
       "op": "PATTERN",
       "argument": "axz",
       "reason": "the header writes this default as the compound axis '+Z', not as a per-argument number"
+    },
+    {
+      "op": "SEW",
+      "argument": "tol",
+      "reason": "no unit rule matched the argument name 'tol'"
     }
   ],
   "derived_defects": [
@@ -8202,30 +10113,8 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 23,
+      "count": 1,
       "parameters": [
-        "width (part.sketch_rect)",
-        "height (part.sketch_rect)",
-        "radius (part.sketch_circle)",
-        "rx (part.section_ring)",
-        "ry (part.section_ring)",
-        "z (part.section_ring)",
-        "angle (part.revolve)",
-        "diameter (part.hole)",
-        "diameter (part.counterbore)",
-        "cbore_diameter (part.counterbore)",
-        "cbore_depth (part.counterbore)",
-        "distance (part.chamfer)",
-        "radius_start (part.variable_fillet)",
-        "radius_end (part.variable_fillet)",
-        "count (part.pattern_linear)",
-        "dx (part.pattern_linear)",
-        "count (part.pattern_circular)",
-        "nx (part.pattern_grid)",
-        "ny (part.pattern_grid)",
-        "dx (part.pattern_grid)",
-        "dy (part.pattern_grid)",
-        "plane (part.mirror)",
         "value (part.edit_feature)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",

@@ -19,6 +19,19 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
+// The fourth operator. Its result is a compound of EDGES, so it needs the wire
+// builder and the vertex reader the other three do not.
+#include <BRepAlgoAPI_Section.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRep_Builder.hxx>
+#include <BRep_Tool.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS_Vertex.hxx>
+#include <TopoDS_Wire.hxx>
+#include <gp_Pnt.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
@@ -34,6 +47,7 @@
 #endif
 #include <algorithm>                        // OCCT-boolean watchdog: per-call deadline cap
 #include <chrono>                           // OCCT-boolean watchdog deadline
+#include <cstddef>                          // SECTION edge chaining indices
 #include <cstdio>                           // tangent-pinch diagnostic formatting
 #include <future>                           // OCCT-boolean watchdog (packaged_task)
 #include <memory>                           // shared op holder (watchdog + lineage)
@@ -42,6 +56,9 @@
 #include <string>
 #include <thread>                           // OCCT-boolean watchdog worker
 #include <unordered_set>
+#include <vector>                           // SECTION edge/wire chaining (unconditional:
+                                            // the FORGE_NATIVE_BREP block above also
+                                            // includes it, and section() is not gated)
 
 namespace forge {
 
@@ -465,6 +482,67 @@ void throwIfNativeOnlyDeferred(ShapeHandle a, ShapeHandle b, const char* opName)
 }
 #endif
 
+// ─────────────────────────── SECTION (the fourth operator) ───────────────────
+// Section edges come back as an UNORDERED compound. They are chained into wires
+// here rather than through ShapeAnalysis_FreeBounds::ConnectEdgesToWires because
+// that class lives in TKShHealing, the toolkit this repo is actively REMOVING
+// call sites from (FORGE_SHHEAL_DROP_NATIVE, CMakeLists "TKShHealing PARTIAL
+// DROP"). Adding a new dependency on a toolkit under deletion is new debt, and
+// endpoint chaining is twenty lines.
+bool sectionSamePoint(const gp_Pnt& a, const gp_Pnt& b, double tol) {
+    return a.SquareDistance(b) <= tol * tol;
+}
+
+// Greedy endpoint chaining: seed a chain with an unused edge, then repeatedly
+// absorb any unused edge touching either free end, until nothing more attaches.
+// Every edge lands in exactly one chain, so no section edge is dropped — a lost
+// edge is a silently shortened section, which is the failure this must not have.
+std::vector<TopoDS_Wire> chainSectionEdges(const std::vector<TopoDS_Edge>& edges, double tol) {
+    std::vector<bool> used(edges.size(), false);
+    std::vector<TopoDS_Wire> wires;
+    for (std::size_t seed = 0; seed < edges.size(); ++seed) {
+        if (used[seed]) continue;
+        used[seed] = true;
+        BRepBuilderAPI_MakeWire mk(edges[seed]);
+        TopoDS_Vertex v0, v1;
+        TopExp::Vertices(edges[seed], v0, v1);
+        gp_Pnt head = BRep_Tool::Pnt(v0);
+        gp_Pnt tail = BRep_Tool::Pnt(v1);
+        bool grew = true;
+        while (grew) {
+            grew = false;
+            for (std::size_t i = 0; i < edges.size(); ++i) {
+                if (used[i]) continue;
+                TopoDS_Vertex a, b;
+                TopExp::Vertices(edges[i], a, b);
+                const gp_Pnt pa = BRep_Tool::Pnt(a);
+                const gp_Pnt pb = BRep_Tool::Pnt(b);
+                if (sectionSamePoint(pa, tail, tol) || sectionSamePoint(pb, tail, tol)) {
+                    mk.Add(edges[i]);
+                    tail = sectionSamePoint(pa, tail, tol) ? pb : pa;
+                    used[i] = true;
+                    grew = true;
+                } else if (sectionSamePoint(pa, head, tol) || sectionSamePoint(pb, head, tol)) {
+                    mk.Add(edges[i]);
+                    head = sectionSamePoint(pa, head, tol) ? pb : pa;
+                    used[i] = true;
+                    grew = true;
+                }
+            }
+        }
+        // A chain BRepBuilderAPI_MakeWire refused (a self-touching section, a
+        // sub-tolerance sliver) is reported, not silently skipped: skipping it
+        // would return a shorter section that looks perfectly healthy.
+        if (!mk.IsDone())
+            throw std::runtime_error(
+                "forge: boolean section: the intersection edges do not form a wire "
+                "(BRepBuilderAPI_MakeWire refused a chain of the section curve) — the "
+                "operands touch along a degenerate / self-intersecting curve.");
+        wires.push_back(mk.Wire());
+    }
+    return wires;
+}
+
 }  // namespace
 
 void resetBooleanBudget() {
@@ -515,6 +593,115 @@ ShapeHandle common(ShapeHandle a, ShapeHandle b) {
     }
 #endif
     return runBoolean<BRepAlgoAPI_Common>(a, b, "common");
+}
+
+// ─────────────────────────────── SECTION ─────────────────────────────────────
+// The fourth OCCT boolean, and the only one whose result is NOT a solid.
+//
+// It does NOT go through runBoolean<>, for two reasons that are both correctness,
+// not style:
+//   1. runBoolean<> ends by calling buildLineage(), which walks Modified/Generated
+//      over the input FACES and matches them against the output's face map. A
+//      section HAS NO OUTPUT FACES, so every input face would be recorded as a
+//      DEATH — a lineage that says the operands were destroyed by an operation
+//      that does not touch them.
+//   2. its result kind differs, so the caller contract differs.
+// The hang guard is the same, and deliberately shares the same window: a storm of
+// degenerate sections is exactly the storm the cumulative budget exists to collapse.
+//
+// There is NO native analytic path here and none is faked. forge::native::brep has
+// a Section module, but it intersects a native Solid with a PLANE; this is
+// shape-against-shape. ShapeRegistry::get() lazily bridges a native operand to
+// OCCT, so a native-backed operand still works — as OCCT, honestly (Bible §0),
+// which is also why throwIfNativeOnlyDeferred is NOT called here: that guard
+// exists to stop a native ENGINE being masked by OCCT, and for section there is
+// no native engine to mask.
+ShapeHandle section(ShapeHandle a, ShapeHandle b) {
+    const auto& sa = ShapeRegistry::instance().get(a);
+    const auto& sb = ShapeRegistry::instance().get(b);
+
+    using BoolClock = std::chrono::steady_clock;
+    constexpr std::chrono::milliseconds kBudget{20000};
+    constexpr std::chrono::milliseconds kGap{3000};
+    constexpr std::chrono::milliseconds kPerCall{8000};
+
+    std::chrono::milliseconds remaining{};
+    {
+        BoolBudgetState& bs = boolBudget();
+        std::lock_guard<std::mutex> lk(bs.mx);
+        const BoolClock::time_point now = BoolClock::now();
+        if (!bs.active || (now - bs.lastEnd) > kGap) {
+            bs.winStart = now; bs.active = true; bs.spent = std::chrono::milliseconds{0};
+        }
+        if (bs.spent >= kBudget)
+            throw std::runtime_error(
+                "forge: boolean section: cumulative OCCT-boolean budget (20s) exhausted "
+                "for this body without converging — refusing further attempts rather than "
+                "hanging.");
+        remaining = std::min(kPerCall, kBudget - bs.spent);
+    }
+
+    TopoDS_Shape saCopy = sa, sbCopy = sb;
+    auto task = std::make_shared<std::packaged_task<TopoDS_Shape()>>(
+        [saCopy, sbCopy]() -> TopoDS_Shape {
+            // PerformNow=false so ComputePCurveOn1/Approximation are set BEFORE the
+            // build: with the default (immediate) constructor they would be applied
+            // to an operation that had already run, and the section would come back
+            // as unapproximated intersection edges.
+            BRepAlgoAPI_Section sec(saCopy, sbCopy, Standard_False);
+            sec.ComputePCurveOn1(Standard_True);
+            sec.Approximation(Standard_True);
+            sec.Build();
+            if (!sec.IsDone())
+                throw std::runtime_error("forge: boolean section failed");
+            return sec.Shape();
+        });
+    std::future<TopoDS_Shape> fut = task->get_future();
+    const BoolClock::time_point callStart = BoolClock::now();
+    std::thread worker([task]() { (*task)(); });
+    const std::future_status st = fut.wait_for(remaining);
+    {
+        BoolBudgetState& bs = boolBudget();
+        std::lock_guard<std::mutex> lk(bs.mx);
+        const BoolClock::time_point done = BoolClock::now();
+        bs.spent += std::chrono::duration_cast<std::chrono::milliseconds>(done - callStart);
+        bs.lastEnd = done;
+    }
+    if (st == std::future_status::timeout) {
+        worker.detach();   // abandon the non-cancellable OCCT build (no inner hook)
+        throw std::runtime_error(
+            "forge: boolean section did not converge within the per-call watchdog "
+            "deadline (" + std::to_string((long long)kPerCall.count()) +
+            " ms) — BRepAlgoAPI_Section spun on a degenerate / near-tangent operand pair.");
+    }
+    worker.join();
+    const TopoDS_Shape raw = fut.get();   // rethrows any worker error
+
+    std::vector<TopoDS_Edge> edges;
+    for (TopExp_Explorer ex(raw, TopAbs_EDGE); ex.More(); ex.Next())
+        edges.push_back(TopoDS::Edge(ex.Current()));
+    if (edges.empty())
+        throw std::runtime_error(
+            "forge: boolean section: the operands do not intersect — the section is EMPTY. "
+            "An empty section is not a wire any consumer can use, so it is refused here "
+            "rather than handed on as a valid-looking empty compound.");
+
+    // 1e-6 mm. Section vertices are the algorithm's OWN shared endpoints, so the
+    // chain tolerance only has to absorb double round-off, not modelling slop; a
+    // loose tolerance would weld two genuinely distinct loops that pass near each
+    // other into one wire, which is a wrong answer rather than a missing one.
+    const std::vector<TopoDS_Wire> wires = chainSectionEdges(edges, 1.0e-6);
+    if (wires.size() == 1) {
+        // The common case, and the one that matters: a single closed loop is a real
+        // TopoDS_Wire, so loftguide::loft (and anything else taking a WIRE handle)
+        // consumes it directly.
+        return ShapeRegistry::instance().add(wires.front());
+    }
+    TopoDS_Compound comp;
+    BRep_Builder bb;
+    bb.MakeCompound(comp);
+    for (const TopoDS_Wire& w : wires) bb.Add(comp, w);
+    return ShapeRegistry::instance().add(comp);
 }
 
 }  // namespace forge

@@ -1,6 +1,7 @@
 #include "forge/ui/Types.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -16,12 +17,54 @@ const char* toString(EntityKind kind) noexcept {
     case EntityKind::Sketch:      return "sketch";
     case EntityKind::SketchCurve: return "sketch_curve";
     case EntityKind::Wire:        return "wire";
+    case EntityKind::Surface:     return "surface";
+    // No underscore, and Types.hpp says why: a kind a SELECTION SIGNATURE names
+    // is matched against its own enum spelling, lowered.
+    case EntityKind::OpenSketch:  return "opensketch";
+    case EntityKind::SketchRef:   return "sketchref";
     case EntityKind::Feature:     return "feature";
     case EntityKind::Component:   return "component";
     case EntityKind::Datum:       return "datum";
     case EntityKind::Any:         return "any";
   }
   return "none";
+}
+
+const char* toString(NamedView view) noexcept {
+  switch (view) {
+    case NamedView::Front:     return "Front";
+    case NamedView::Back:      return "Back";
+    case NamedView::Left:      return "Left";
+    case NamedView::Right:     return "Right";
+    case NamedView::Top:       return "Top";
+    case NamedView::Bottom:    return "Bottom";
+    case NamedView::Isometric: return "Isometric";
+  }
+  return "Front";
+}
+
+const char* commandSuffix(NamedView view) noexcept {
+  switch (view) {
+    case NamedView::Front:     return "front";
+    case NamedView::Back:      return "back";
+    case NamedView::Left:      return "left";
+    case NamedView::Right:     return "right";
+    case NamedView::Top:       return "top";
+    case NamedView::Bottom:    return "bottom";
+    case NamedView::Isometric: return "iso";
+  }
+  return "front";
+}
+
+bool namedViewFromSuffix(const std::string& suffix, NamedView& out) noexcept {
+  for (std::size_t i = 0; i < kNamedViewCount; ++i) {
+    const auto v = static_cast<NamedView>(i);
+    if (suffix == commandSuffix(v)) {
+      out = v;
+      return true;
+    }
+  }
+  return false;
 }
 
 std::string EntityRef::key() const {

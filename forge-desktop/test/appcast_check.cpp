@@ -2,16 +2,32 @@
 //
 // Reads an appcast.json written by forge-desktop/emit_appcast.sh and runs the
 // REAL app-side pipeline over it: parseManifest -> validateManifest -> decide(),
-// with the shipping Policy. Prints what it found and exits non-zero if the
+// under the SHIPPING policy. Prints what it found and exits non-zero if the
 // document the packaging script produced is one the app would refuse.
 //
 // This is the half of the producer/consumer contract that lives in C++. Without
 // it, "the release pipeline emits an appcast" and "the app can read an appcast"
 // are two claims that have never met.
 //
+// ★ THE POLICY MUST COME FROM policyFor(), NOT BE BUILT HERE. This file used to
+// construct a Policy by hand -- default-constructed, so channel "stable" -- while
+// its own header claimed it ran "the shipping Policy". The running app does not
+// do that: UpdateService.cpp:86 calls
+//     decide(running, m, policyFor(running))
+// and policyFor decides the channel FROM THE RUNNING VERSION. So every verdict
+// this checker printed for a prerelease `--running` was a verdict about a policy
+// no shipped build has, and the selftest that drives it could not see a defect in
+// the real rule. It did not see one: an installed alpha was refused the first
+// stable release, and this instrument reported the case as fine.
+//
+// A gate whose subject is not the shipped code cannot fail for the shipped code.
+// --allow-prerelease stays, as the explicit opt-in override a user setting would
+// make, and it is now the ONLY way to depart from what the app would do.
+//
 // Usage:
 //   appcast_check <appcast.json> --running <version> --expect <verdict>
 //     verdict: update | uptodate | reject
+//     --allow-prerelease  override the shipping policy and opt in to prereleases
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -59,9 +75,12 @@ int main(int argc, char** argv) {
                 err.c_str());
     return 1;
   }
-  Policy p;
-  p.allow_prerelease = allow_prerelease;
-  if (allow_prerelease) p.channel = m.channel;  // opting in also follows that channel
+  // What the app itself would use for THIS running version.
+  Policy p = policyFor(running);
+  if (allow_prerelease) {
+    p.allow_prerelease = true;
+    p.channel.clear();  // opting in also stops pinning to a channel
+  }
   const Plan plan = decide(running, m, p);
 
   const char* got = plan.decision == Decision::UpdateAvailable ? "update"

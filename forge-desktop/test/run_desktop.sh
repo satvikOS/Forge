@@ -9,7 +9,7 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — six headless gates, none of which needs a GPU:
+#   2. gates          — seven headless gates, none of which needs a GPU:
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
 #                       * document    — the user-launchable slice: the ONE
@@ -37,9 +37,14 @@
 #                         exists for was a use-after-free that made the SHIPPED
 #                         app SIGSEGV on the first tab click while the frame and
 #                         document gates both stayed green -- neither clicks.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. THIRTY-SEVEN
+#                       * isolation   — the out-of-process kernel worker: an OCCT
+#                         segfault must kill the WORKER and leave the app alive,
+#                         surfacing as a failed op and not a dead application.
+#                         Its mutation proof is NOT driven from here — see
+#                         run_isolation_gate.sh below.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. FORTY
 #                       defects (8 document + 9 frame + 8 copilot + 7 update +
-#                       5 click) are
+#                       8 click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -47,7 +52,7 @@
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
 # status is whatever ran last and a run that fell out of its own middle would
-# exit 0. That wrapper also pins the mutation count at an EXACT 37, so adding or
+# exit 0. That wrapper also pins the mutation count at an EXACT 40, so adding or
 # removing a --mutate case below means changing EXPECTED_MUTATIONS in
 # ci_desktop_gate.sh in the SAME commit.
 #
@@ -107,7 +112,7 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + 6 headless gates (-Wall -Wextra -Werror clean)"
+echo "[desktop] built forge_desktop + forge_kernel_worker + 7 headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0
@@ -173,7 +178,16 @@ run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
 # first. Mutation 3 is its positive control for the sanitizer itself -- if that
 # one STAYS GREEN, -fsanitize=address is not reaching the binary and this gate's
 # memory-safety half is silent.
-run_gate forge_desktop_click_gate 1 2 3 4 5
+run_gate forge_desktop_click_gate 1 2 3 4 5 6 7 8
+
+# The CRASH-ISOLATION gate, with NO mutation list here on purpose. Its proof
+# needs six mutations injected into a COPY of the production sources and two
+# rebuilds of the worker, which is a job for a script and not for a --mutate
+# switch: forge-desktop/test/run_isolation_gate.sh owns that and runs in the
+# `kernel` CI job. What this line buys is that the CMake-BUILT, properly linked
+# binary is exercised too -- the one that ships beside the app -- rather than
+# only the one run_isolation_gate.sh compiles for itself.
+run_gate forge_desktop_isolation_gate
 
 # ── 3. mutation verdict ──────────────────────────────────────────────────────
 if [ "$BAD" -ne 0 ]; then
