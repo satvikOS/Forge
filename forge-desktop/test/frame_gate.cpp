@@ -35,6 +35,14 @@
 //  11  the frame never dispatches the deferred Open     -> File > Open Recent
 //      Recent request                                      records a click and
 //                                                          opens nothing
+// <algorithm> for the same reason document_gate.cpp includes it beside <cstdio>:
+// this file calls std::remove(const char*) to delete its temp .fpart, and
+// `std::remove` is declared by BOTH headers -- the iterator algorithm and the C
+// file-removal function. Including only one leaves which of them is meant
+// resolvable by overload rules but not by a reader, and the missing-include
+// preflight (forge-kernel/test/native/check_includes.sh) refuses that ambiguity
+// by name. It refused this file, which is how the ambiguity was found.
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
