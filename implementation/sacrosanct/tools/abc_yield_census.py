@@ -71,9 +71,17 @@ UNRECOVERABLE_IN_PRINCIPLE = {
 # change, so clearance figures are strictly comparable across arms.
 ARMS = {
     0: '40 ops (b003bb3a) -- the vocabulary the original census was taken against',
-    1: '46 ops (30a841cd HEAD) -- emission_policy.allowed_ops: what Archie MAY EMIT',
+    1: '46 ops (30a841cd) -- emission_policy.allowed_ops BEFORE the sketch commands',
     2: '55 ops -- arm 1 + the 9 forbidden_ops (sketch family): kernel-compilable, '
        'NOT user-invocable',
+    # Arm 3 is the point of the re-measurement, and it is NOT a copy of arm 2. It is
+    # what emission_policy.allowed_ops HOLDS once the eight forge::ui commands that
+    # emit SKETCH / SPT / SLINE / SCIRC / SARC / CON / SOLVE exist: 53 ops, because
+    # ARC and SLOT stay forbidden. Arm 2 remains the KERNEL arm and keeps those two,
+    # so the two arms are separate rows and the gap between them is the honest
+    # statement of what is still out of reach.
+    3: '53 ops -- emission_policy.allowed_ops AFTER the sketch commands: arm 1 + the '
+       'seven 2D-sketch ops, USER-INVOCABLE. ARC and SLOT remain forbidden',
 }
 
 
@@ -123,6 +131,15 @@ def sketch_is_exact(feat):
     return sum(v for k, v in geo.items() if k.split('|')[0] in CURVE) > 0
 
 
+# The arms in which the seven sketch ops are MAPPABLE. Arm 2 has them because the
+# kernel compiles them; arm 3 has them because a forge::ui command emits them. The
+# two arms differ ONLY in ARC and SLOT, and neither reaches a `newSketch`, so arm 3
+# is PREDICTED to reproduce arm 2's DIRECT figures exactly -- which is a prediction
+# this file must MEASURE rather than assert, and the reason arm 3 is a real row and
+# not an alias for arm 2.
+SKETCH_ARMS = frozenset({2, 3})
+
+
 def classify(feat, arm):
     t = feat['t']
     if t in DIRECT:
@@ -130,7 +147,7 @@ def classify(feat, arm):
     if arm >= 1 and t == 'thicken':      # THICKEN became user-invocable in the 46-op vocab
         return 'D'
     if t == 'newSketch':
-        return 'D' if (arm >= 2 and sketch_is_exact(feat)) else 'P'
+        return 'D' if (arm in SKETCH_ARMS and sketch_is_exact(feat)) else 'P'
     if t in PARTIAL:
         return 'P'
     return 'N'
@@ -236,8 +253,8 @@ def main():
         print(f'  arm {arm}: {ARMS[arm]}')
 
     # ---- first blocker, measured on the arm that describes today
-    print('\nFIRST BLOCKING FEATURE (arm 1, what Archie may emit today)')
-    fb = first_blocker(models, 1, unrep)
+    print('\nFIRST BLOCKING FEATURE (arm 3, what Archie may emit today)')
+    fb = first_blocker(models, 3, unrep)
     den = sum(fb.values())
     agg = collections.Counter()
     for t, c in fb.most_common():
@@ -252,8 +269,13 @@ def main():
     out['first_blocker_classes'] = dict(agg)
 
     # ---- MEASURED recovery, never inferred
-    _, base, _, _, _ = score(models, 1, unrep)
-    print(f'\nMEASURED RECOVERY per candidate op (arm 1 baseline clear = {base})')
+    # Measured against the arm that describes TODAY, which is now arm 3. The
+    # clear-both-gates figure is IDENTICAL on arms 1 and 3 -- the sketch family
+    # converts PARTIAL into DIRECT and unblocks nothing -- so every recovery
+    # number below is unchanged by this branch, which is exactly what makes
+    # re-pointing it safe and worth doing rather than cosmetic.
+    _, base, _, _, _ = score(models, 3, unrep)
+    print(f'\nMEASURED RECOVERY per candidate op (arm 3 baseline clear = {base})')
     none_inst = collections.Counter()
     with_model = collections.Counter()
     for r in models:
@@ -264,12 +286,12 @@ def main():
                 none_inst[f['t']] += 1
     rec = {}
     for t, ni in none_inst.most_common():
-        got = score(models, 1, unrep, exempt={t})[1] - base
+        got = score(models, 3, unrep, exempt={t})[1] - base
         rec[t] = {'instances': ni, 'models_containing': with_model[t],
                   'measured_recovery': got}
         print(f'  {t:30s} inst {ni:6d}  models {with_model[t]:5d}  '
               f'MEASURED +{got:<5d} (naive would say {with_model[t]})')
-    g = score(models, 1, unrep, fix_geom=True)[1] - base
+    g = score(models, 3, unrep, fix_geom=True)[1] - base
     rec['<curve entities: spline/ellipse/conic>'] = {
         'models_containing': sum(1 for v in unrep.values() if v), 'measured_recovery': g}
     print(f'  {"<curve entities>":30s} '
@@ -278,10 +300,10 @@ def main():
 
     every = set(none_inst) - UNRECOVERABLE_IN_PRINCIPLE
     combos = {
-        'draft+splitPart+helix': score(models, 1, unrep, exempt={'draft', 'splitPart', 'helix'})[1] - base,
-        'every_not_yet_implemented_op': score(models, 1, unrep, exempt=every)[1] - base,
+        'draft+splitPart+helix': score(models, 3, unrep, exempt={'draft', 'splitPart', 'helix'})[1] - base,
+        'every_not_yet_implemented_op': score(models, 3, unrep, exempt=every)[1] - base,
         'curve_entities_only': g,
-        'every_op_plus_curve_entities': score(models, 1, unrep, exempt=every, fix_geom=True)[1] - base,
+        'every_op_plus_curve_entities': score(models, 3, unrep, exempt=every, fix_geom=True)[1] - base,
     }
     print('\nCOMBINATIONS (measured, not summed):')
     for k, v in combos.items():

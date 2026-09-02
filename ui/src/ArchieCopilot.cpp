@@ -681,6 +681,12 @@ IrValueKind wantedKind(const CommandDescriptor& cmd, PlanSelect select) {
     case EntityKind::Sketch:  return IrValueKind::Profile;
     case EntityKind::Wire:    return IrValueKind::Wire;
     case EntityKind::Surface: return IrValueKind::Surface;
+    // The two sketch-solver kinds. Without these rows the CoPilot would bind a
+    // SOLID for every sketch-family step -- the D-023 defect this function was
+    // rewritten to remove, reintroduced by the next value kind rather than by
+    // the next command.
+    case EntityKind::OpenSketch: return IrValueKind::Sketch;
+    case EntityKind::SketchRef:  return IrValueKind::SketchRef;
     default: break;
   }
   return select == PlanSelect::LatestProfile ? IrValueKind::Profile : IrValueKind::Solid;

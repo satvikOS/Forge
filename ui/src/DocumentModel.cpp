@@ -74,6 +74,12 @@ bool entityKindFromName(const std::string& name, EntityKind& out) noexcept {
   static const EntityKind kinds[] = {
       EntityKind::None,   EntityKind::Vertex,    EntityKind::Edge,   EntityKind::Face,
       EntityKind::Body,   EntityKind::Sketch,    EntityKind::SketchCurve, EntityKind::Wire,
+      // Surface was MISSING, and the omission is the exact defect the comment
+      // above describes: writeDocumentFile emits toString(ref.kind) for ANY kind,
+      // so a named face of a SHEET saved a document this reader then refused with
+      // "unknown KIND 'surface'". The two sketch-solver kinds are here for the
+      // same reason, before a document can carry one.
+      EntityKind::Surface, EntityKind::OpenSketch, EntityKind::SketchRef,
       EntityKind::Feature, EntityKind::Component, EntityKind::Datum,  EntityKind::Any};
   for (EntityKind k : kinds) {
     if (name == toString(k)) {

@@ -18,6 +18,10 @@ const char* toString(EntityKind kind) noexcept {
     case EntityKind::SketchCurve: return "sketch_curve";
     case EntityKind::Wire:        return "wire";
     case EntityKind::Surface:     return "surface";
+    // No underscore, and Types.hpp says why: a kind a SELECTION SIGNATURE names
+    // is matched against its own enum spelling, lowered.
+    case EntityKind::OpenSketch:  return "opensketch";
+    case EntityKind::SketchRef:   return "sketchref";
     case EntityKind::Feature:     return "feature";
     case EntityKind::Component:   return "component";
     case EntityKind::Datum:       return "datum";

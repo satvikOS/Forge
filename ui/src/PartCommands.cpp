@@ -379,6 +379,84 @@ std::string wireNodeFor(int irId) { return "wire_" + std::to_string(irId); }
 // SURFACE are the whole of IrValueKind, so this is the last prefix the scheme needs.
 std::string surfaceNodeFor(int irId) { return "surface_" + std::to_string(irId); }
 
+// And a FIFTH and SIXTH, for the two kinds the constraint solver added. The
+// comment above claimed PROFILE / WIRE / SOLID / SURFACE were "the whole of
+// IrValueKind" and that the fourth prefix was the last one the scheme needed;
+// SKETCH and SKETCHREF arrived afterwards and made that sentence false. The
+// reasoning it gave is what forces these two rather than excusing them: a
+// selection resolves a NODE to a value and reads kindOf() through it, so a
+// sketch parked in `sketch_N` would read back as a solved PROFILE and EXTRUDE
+// would offer itself on a sketch that has not been solved -- which the kernel
+// refuses, because refProfile() and refSketch() are different accessors.
+//
+//   * `opensketch_N` -- the SKETCH value: still under construction, still
+//     constrainable, not yet solved. `sketch_N` stays what it has always been,
+//     the SOLVED profile, which is also where SOLVE's own output lands.
+//   * `sketchref_N`  -- one entity INSIDE a sketch (point / line / circle / arc).
+std::string openSketchNodeFor(int irId) { return "opensketch_" + std::to_string(irId); }
+std::string sketchRefNodeFor(int irId) { return "sketchref_" + std::to_string(irId); }
+
+// The SKETCH statement a sketch value ultimately belongs to, 0 when there is
+// none. Not a guess: every statement in this family names its sketch through its
+// FIRST operand -- SPT names the sketch directly, SLINE / SCIRC / SARC name
+// another entity of the same sketch (the compiler REFUSES operands from two
+// different sketches), and CON is pass-through over one of those -- so following
+// the first %ref terminates on the one statement of the family whose first
+// argument is NOT a %ref, which is SKETCH(PLANE) and only SKETCH(PLANE). The
+// test is structural rather than a comparison against the op name, so it does
+// not go quietly wrong if the family gains another root.
+//
+// validateIr() has already proved every %ref is STRICTLY EARLIER than the
+// statement holding it, so the chain cannot cycle; the record-count bound is
+// belt and braces against a future op whose first operand is not its parent.
+int sketchRootOf(const PartDocument& doc, int irId) {
+  for (std::size_t hop = 0; hop <= doc.records().size(); ++hop) {
+    const FeatureRecord* rec = doc.featureAt(irId);
+    if (rec == nullptr) return 0;
+    const bool sketch = rec->produces == IrValueKind::Sketch;
+    if (!sketch && rec->produces != IrValueKind::SketchRef) return 0;
+    if (rec->line.args.empty() || rec->line.args.front().kind != IrArgKind::Ref) {
+      return sketch ? irId : 0;
+    }
+    irId = rec->line.args.front().ref;
+  }
+  return 0;
+}
+
+// The document node of the ONE sketch every selected entity belongs to. "" means
+// either that the selection holds no sketch entity, or -- the case that matters
+// -- that it spans TWO sketches.
+//
+// One helper answers both questions because they have one answer. forge::ft
+// THROWS on a cross-sketch operand ("SLINE: both points must belong to the same
+// SKETCH", and the same for SARC), and a throw costs the whole tree over one
+// mis-click, so the pair is refused at the menu. CON needs the same value for a
+// different reason: it is PASS-THROUGH and must REBIND that sketch's node.
+// Splitting this in two would let the two answers disagree.
+//
+// THE SEARCH IS NEWEST-FIRST, and that is not a detail: CON rebinds the node, so
+// after `%25 = CON(%21, HORIZ)` the sketch's node names %25 and no longer names
+// the SKETCH statement %18. A `nodeFor(root)` here would answer "" for every
+// sketch that has already been constrained once -- so the SECOND constraint on
+// any sketch, and the SOLVE after it, would have greyed out.
+std::string sharedSketchNode(const PartDocument& doc, const SelectionService& sel) {
+  const std::vector<int> ids = resolveValues(doc, sel, IrValueKind::SketchRef);
+  if (ids.empty()) return std::string();
+  const int root = sketchRootOf(doc, ids.front());
+  if (root == 0) return std::string();
+  for (const int id : ids) {
+    if (sketchRootOf(doc, id) != root) return std::string();
+  }
+  for (std::size_t i = doc.records().size(); i > 0; --i) {
+    const int id = static_cast<int>(i);
+    if (doc.kindOf(id) != IrValueKind::Sketch) continue;
+    if (sketchRootOf(doc, id) != root) continue;
+    const std::string node = doc.nodeFor(id);
+    if (!node.empty()) return node;
+  }
+  return std::string();
+}
+
 // One emission == one undoable transaction.
 void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
           const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
@@ -2610,6 +2688,311 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+
+  // ── THE 2D SKETCH + CONSTRAINT FAMILY: SKETCH / SPT / SLINE / SCIRC / SARC /
+  //    CON / SOLVE ──────────────────────────────────────────────────────────
+  // Eight commands, seven ops, and every one of those ops was in `forbidden_ops`
+  // for the same one-line reason: "no command in the forge::ui registry emits
+  // it, so no user can produce it". The kernel COMPILES all seven -- they landed
+  // with the vendored planegcs solver behind them -- so what was missing was
+  // never geometry, it was a command a user can reach.
+  //
+  // WHY THIS FAMILY AND NOT ANOTHER, MEASURED. Paired over 9,846 real ABC /
+  // Onshape FeatureScript trees (154,637 features,
+  // implementation/sacrosanct/tools/abc_yield_census.py):
+  //
+  //   46 emittable ops   DIRECT 55.80%   translatable with DIRECT OPS ALONE  0.00%
+  //   55 kernel ops      DIRECT 86.02%   translatable with DIRECT OPS ALONE 40.78%
+  //
+  // The whole of that gap is this family. `newSketch` appears in 100.00% of the
+  // 5,629 trees that clear the census's two gates -- every translatable human
+  // tree opens with a sketch -- and with only canned profiles reachable
+  // (RECT / CIRCLE / RRECT / REGPOLY / POLY) a sketch could only be APPROXIMATED,
+  // so no tree was lossless and the direct-ops-alone figure was exactly zero.
+  // 93.63% of the corpus's 49,903 sketches are pure line/circle/arc, which is
+  // exactly what SLINE / SCIRC / SARC reproduce.
+  //
+  // It closes NONE of the other gap, and that is worth stating because it is the
+  // half a reader will assume. The number of trees clearing both census gates is
+  // 5,629 either way: this family converts PARTIAL into DIRECT and never turns a
+  // blocked tree into a clear one, because what blocks those is `importForeign`,
+  // `draft`, `helix` and spline geometry, none of which a sketch op reaches.
+  //
+  // THE SHAPE OF THE FAMILY. It bolts on IN FRONT of the existing IR and changes
+  // no existing op: SKETCH opens one, SPT / SLINE / SCIRC / SARC place entities
+  // inside it, CON constrains them, and SOLVE exits to a PROFILE that
+  // part.extrude / part.revolve / part.loft already consume. Two selection kinds
+  // had to exist first (Types.hpp: `OpenSketch`, `SketchRef`), for the same
+  // structural reason EntityKind::Wire had to exist before LOFT was reachable
+  // and EntityKind::Surface before THICKEN was.
+  //
+  // WHAT IS DELIBERATELY NOT HERE, so the vocabulary does not advertise it: the
+  // constraint kinds forge::Sketcher does not dispatch at this SHA (RADIUS,
+  // DIAM, ANGLE, CONC, COLL, SYMM, MIDPT, FIX). Each is one switch arm in the
+  // facade and none is wired, and the compiler SKIPS an unknown keyword with a
+  // verify note rather than throwing. A command offering one would put a keyword
+  // into Archie's training vocabulary that the kernel silently drops, which is
+  // worse than a short vocabulary.
+
+  // ── SKETCH ────────────────────────────────────────────────────────────────
+  // SKETCH(PLANE) -- opens an empty sketch. Takes NO selection and NO parameter,
+  // so like RECT and the primitives it is a CREATOR reachable from an empty
+  // document, and it is the root every other command in this family hangs off.
+  //
+  // THE PLANE KEYWORD IS EMITTED AS THE LITERAL `XY`, and that is a refusal
+  // rather than an omission. forge::Sketcher states the Z=0 plane as a CONTRACT
+  // every native consumer relies on, so `skNew` accepts YZ / XZ and then reports
+  // "plane=YZ NOT APPLIED -- solved on XY" on the verify channel. A command
+  // offering the keyword would record a plane in the history that the built
+  // solid does not have -- the same "the statement says one thing and the solid
+  // is another" defect part.sketch_rounded_rect's predicate exists to refuse on
+  // RRECT's silent corner clamp, and the reason SLOT is still not registered.
+  // The keyword comes back when sketch planes are implemented and RE-MEASURED,
+  // which no new command can do.
+  {
+    CommandDescriptor c = base("part.sketch_new", "New Sketch", "SKETCH",
+                               SelectionSignature::none());
+    c.preview = PreviewPolicy::Live;
+    // ALWAYS callable, and stated rather than left null: part_commands_test
+    // asserts every descriptor carries a predicate, and "there is nothing to
+    // check" is an answer, not an omission. SKETCH(XY) has no argument that
+    // could be wrong and no value it consumes.
+    c.enabled = [](const CommandContext&) { return true; };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::keyword("XY")};
+      emit(ctx, *d, *s, "part.sketch_new", "New Sketch", "SKETCH", std::move(args),
+           IrValueKind::Sketch, {}, openSketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SPT ───────────────────────────────────────────────────────────────────
+  // SPT(%sketch, x, y) -- a point in an open sketch, and the only entity op that
+  // names the SKETCH itself. Every other entity is built out of points, so this
+  // is the one statement that has to reach the sketch directly; the rest reach
+  // it through their operands.
+  //
+  // x / y are REQUIRED with an honest default of 0: the sketch origin is a real
+  // answer, and a required parameter with no fillable default is a command no
+  // keyboard gesture can run (KeymapAudit's standing measurement).
+  {
+    CommandDescriptor c = base("part.sketch_entity_point", "Sketch Point", "SPT",
+                               SelectionSignature::exactly(EntityKind::OpenSketch, 1));
+    c.schema.push_back(ParamSpec{.name = "x", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "y", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sketches = resolveValues(*d, ctx.selection(), IrValueKind::Sketch);
+      if (!requireValues(ctx, sketches, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sketches.front()),
+                              IrArg::num(num(ctx, "x", 0.0)),
+                              IrArg::num(num(ctx, "y", 0.0))};
+      emit(ctx, *d, *s, "part.sketch_entity_point", "Sketch Point", "SPT", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SLINE ─────────────────────────────────────────────────────────────────
+  // SLINE(%p0, %p1) -- a line through two points of the SAME sketch. The kernel
+  // THROWS on a cross-sketch pair ("SLINE: both points must belong to the same
+  // SKETCH"), and a throw costs the whole tree over one mis-click, so
+  // sharedSketchNode() refuses that pair at the menu instead.
+  {
+    CommandDescriptor c = base("part.sketch_entity_line", "Sketch Line", "SLINE",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 2));
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 &&
+             !sharedSketchNode(*d, ctx.selection()).empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> ends = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, ends, 2)) return;
+      std::vector<IrArg> args{IrArg::valueRef(ends[0]), IrArg::valueRef(ends[1])};
+      emit(ctx, *d, *s, "part.sketch_entity_line", "Sketch Line", "SLINE", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SCIRC ─────────────────────────────────────────────────────────────────
+  // SCIRC(%centre, r) -- a circle about one sketch point. The one entity op with
+  // a dimension of its own, and it is a RADIUS: part.hole's second argument is a
+  // DIAMETER, the two are one letter apart in a prompt and a factor of two in
+  // the part, so the vocabulary carries the semantic explicitly.
+  {
+    CommandDescriptor c = base("part.sketch_entity_circle", "Sketch Circle", "SCIRC",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 1));
+    c.schema.push_back(ParamSpec{.name = "radius", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0, .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      // A zero or negative radius is not a circle: refused rather than emitted
+      // and left for the solver to make sense of.
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 &&
+             num(ctx, "radius", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> centre = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, centre, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(centre.front()),
+                              IrArg::num(num(ctx, "radius", 10.0))};
+      emit(ctx, *d, *s, "part.sketch_entity_circle", "Sketch Circle", "SCIRC", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SARC ──────────────────────────────────────────────────────────────────
+  // SARC(%centre, %p0, %p1) -- centre, start, end, in SELECTION ORDER, and the
+  // order is load-bearing exactly as it is for CUT: swapping start and end names
+  // a different arc. Three entities of one sketch; the kernel throws on a mixed
+  // trio, so the same refusal SLINE carries applies here.
+  {
+    CommandDescriptor c = base("part.sketch_entity_arc", "Sketch Arc", "SARC",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 3));
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 3 &&
+             !sharedSketchNode(*d, ctx.selection()).empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> arc = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, arc, 3)) return;
+      std::vector<IrArg> args{IrArg::valueRef(arc[0]), IrArg::valueRef(arc[1]),
+                              IrArg::valueRef(arc[2])};
+      emit(ctx, *d, *s, "part.sketch_entity_arc", "Sketch Arc", "SARC", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CON, TWICE ────────────────────────────────────────────────────────────
+  // CON(%a, KIND [, %b, value]) is ONE op with two genuinely different
+  // signatures, so it gets two commands for the same reason PATTERN has three
+  // and SWEEP has two: a single descriptor cannot state "one entity for HORIZ,
+  // two for COINC", and a signature that accepted either would offer HORIZ on a
+  // pair and COINC on a single. That mistake is not loud -- the facade THROWS on
+  // a type-mismatched operand and the compiler SWALLOWS the throw as a SKIPPED
+  // verify note -- and a constraint that silently does not apply is worse than
+  // one the menu greys out.
+  //
+  // THE KEYWORD DOMAINS ARE THE NINE forge::Sketcher ACTUALLY DISPATCHES, split
+  // by arity, and nothing else:
+  //     unary         HORIZ VERT                        one entity
+  //     binary        COINC PARA PERP TANG EQUAL PTON   two entities
+  //     dimensional   DIST                              two entities + a value
+  //
+  // BOTH REBIND THE SKETCH'S OWN NODE. CON is PASS-THROUGH -- `return owner;`,
+  // the same sketch handle it was handed -- so its statement is that sketch with
+  // one more constraint on it, not a second sketch. TAG and VERIFY rebind the
+  // body's node for exactly this reason; a fresh node here would leave
+  // part.sketch_solve offered on the sketch as it stood BEFORE the constraint,
+  // and both would build the same solid, which is the confusing half of the bug.
+
+  // ── CON, unary ────────────────────────────────────────────────────────────
+  {
+    CommandDescriptor c = base("part.sketch_constrain_single", "Constrain Entity", "CON",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 1));
+    c.schema.push_back(ParamSpec{.name = "kind", .type = ParamType::Text,
+                                 .required = true, .defaultText = "HORIZ",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const std::string kind = txt(ctx, "kind", "");
+      // Exact spellings, compared the way part.mirror compares its plane: the
+      // kernel matches the keyword literally and SKIPS anything else, so
+      // accepting "horizontal" here would emit a statement that constrains
+      // nothing and says so only on the verify channel.
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 &&
+             !sharedSketchNode(*d, ctx.selection()).empty() &&
+             (kind == "HORIZ" || kind == "VERT");
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> one = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, one, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(one.front()),
+                              IrArg::keyword(txt(ctx, "kind", "HORIZ"))};
+      emit(ctx, *d, *s, "part.sketch_constrain_single", "Constrain Entity", "CON",
+           std::move(args), IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CON, binary + dimensional ─────────────────────────────────────────────
+  // `distance` is emitted only when supplied, exactly as RECT emits its centre
+  // only when supplied, so the minimal form the app emits is the minimal form
+  // the kernel documents. It is the value DIST takes, in mm; the six purely
+  // geometric kinds ignore it, which is why it is optional and not required.
+  {
+    CommandDescriptor c = base("part.sketch_constrain", "Constrain Entity Pair", "CON",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 2));
+    c.schema.push_back(ParamSpec{.name = "kind", .type = ParamType::Text,
+                                 .required = true, .defaultText = "COINC",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"distance", ParamType::Number, false, 10.0, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const std::string kind = txt(ctx, "kind", "");
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 &&
+             !sharedSketchNode(*d, ctx.selection()).empty() &&
+             (kind == "COINC" || kind == "PARA" || kind == "PERP" || kind == "TANG" ||
+              kind == "EQUAL" || kind == "PTON" || kind == "DIST");
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> pair = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, pair, 2)) return;
+      std::vector<IrArg> args{IrArg::valueRef(pair[0]),
+                              IrArg::keyword(txt(ctx, "kind", "COINC")),
+                              IrArg::valueRef(pair[1])};
+      if (hasNumber(ctx, "distance")) {
+        args.push_back(IrArg::num(num(ctx, "distance", 10.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_constrain", "Constrain Entity Pair", "CON", std::move(args),
+           IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SOLVE ─────────────────────────────────────────────────────────────────
+  // SOLVE(%sketch) -> PROFILE. THE EXIT, and the statement that makes the whole
+  // family worth having: a solved sketch IS a profile -- the kernel's
+  // refProfile() already returns a SketchHandle -- so part.extrude,
+  // part.revolve and part.loft consume it unchanged and not one existing command
+  // moves. Its produced node is therefore a `sketch_N` PROFILE node, the same
+  // one part.sketch_rect writes, which is what makes the downstream path real
+  // rather than merely type-correct.
+  //
+  // It CONSUMES NOTHING: the sketch keeps its node and stays selectable, because
+  // the kernel's solve does not destroy it and a user may add an entity and
+  // solve again. That is why `consumed` is empty here where a boolean's is not.
+  //
+  // The op NEVER refuses -- the kernel makes that total and reports on the
+  // verify channel whatever it had to demote -- so the predicate asks only
+  // whether there is a sketch to solve.
+  {
+    CommandDescriptor c = base("part.sketch_solve", "Solve Sketch", "SOLVE",
+                               SelectionSignature::exactly(EntityKind::OpenSketch, 1));
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sketches = resolveValues(*d, ctx.selection(), IrValueKind::Sketch);
+      if (!requireValues(ctx, sketches, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sketches.front())};
+      emit(ctx, *d, *s, "part.sketch_solve", "Solve Sketch", "SOLVE", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
   // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
   // There used to be `part.undo` and `part.redo` in this list, driving the very
   // stack `s` points at. They were registered here when ForgeShell's own
@@ -2709,6 +3092,11 @@ const std::vector<std::string>& partCommandIds() {
         "part.shell",              "part.skin",
         "part.sketch_circle",      "part.sketch_poly",        "part.sketch_polygon",
         "part.sketch_rect",        "part.sketch_rounded_rect",
+        // The 2D sketch + constraint family: eight commands, seven ops.
+        "part.sketch_constrain",   "part.sketch_constrain_single",
+        "part.sketch_entity_arc",  "part.sketch_entity_circle",
+        "part.sketch_entity_line", "part.sketch_entity_point",
+        "part.sketch_new",         "part.sketch_solve",
         "part.surfcheck",          "part.sweep_pipe",
         "part.sweep_profile",      "part.tag_feature",        "part.thicken",
         "part.section_curve",

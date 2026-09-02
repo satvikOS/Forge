@@ -617,11 +617,20 @@ int main() {
   {
     // The same for EntityKind, which names the topology a NAMED entity binds to.
     // A kind the reader cannot name loses the user's name for that face.
+    // EVERY kind but None, and the list had silently stopped being that: Surface
+    // was missing, so a named face of a SHEET round-tripped through a reader
+    // that could not name it -- writeDocumentFile emits toString(kind) for ANY
+    // kind, and entityKindFromName had no row, so the document saved and would
+    // not open. The count below is the guard, and it only guards while it is the
+    // real total: it is 14 because EntityKind has 15 enumerators and None is the
+    // one deliberately left out.
     const EntityKind kinds[] = {EntityKind::Vertex,  EntityKind::Edge,      EntityKind::Face,
                                 EntityKind::Body,    EntityKind::Sketch,    EntityKind::SketchCurve,
-                                EntityKind::Wire,    EntityKind::Feature,   EntityKind::Component,
+                                EntityKind::Wire,    EntityKind::Surface,   EntityKind::OpenSketch,
+                                EntityKind::SketchRef,
+                                EntityKind::Feature, EntityKind::Component,
                                 EntityKind::Datum,   EntityKind::Any};
-    CHECK_EQ_INT(sizeof(kinds) / sizeof(kinds[0]), 11);  // every kind but None
+    CHECK_EQ_INT(sizeof(kinds) / sizeof(kinds[0]), 14);  // every kind but None
     for (EntityKind kind : kinds) {
       DocumentFileData d;
       NamedEntity n;

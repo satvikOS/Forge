@@ -310,9 +310,10 @@ std::string locateVocabulary() {
 }
 
 // ── the fixture every example is dispatched against ─────────────────────────
-// NINE seeded values with KNOWN ids, so the %role placeholders in the file
+// THIRTEEN seeded values with KNOWN ids, so the %role placeholders in the file
 // resolve to exact tokens: %profile1..3 = %1..%3, %body = %4, %tool = %5,
-// %wire1..2 = %6..%7, %surface / %sheet1..2 = %8..%9. The two WIRE sections are
+// %wire1..2 = %6..%7, %surface / %sheet1..2 = %8..%9, %sketch = %10 and the
+// three sketch entities = %11..%13. The two WIRE sections are
 // here because LOFT consumes WIRE and not PROFILE -- the kernel's opLoft() reads
 // every %ref through refWire() -- so a fixture of profiles alone could not
 // dispatch a single LOFT example. The two SHEETS are here for the same reason
@@ -345,6 +346,21 @@ struct Fixture {
              {IrArg::valueRef(4), IrArg::text("all")});
     doc.seed(IrValueKind::Surface, "surface_2", "SKIN",
              {IrArg::valueRef(6), IrArg::valueRef(7)});
+    // ── the sketch family's fixture ──────────────────────────────────────────
+    // ONE open sketch and THREE entities inside it, and both numbers are forced
+    // rather than chosen: SPT and SOLVE consume the SKETCH itself, so a fixture
+    // of entities alone could dispatch neither, and SARC names THREE distinct
+    // entities, so a fixture with two would render `SARC(%11, %12, %12)` and the
+    // token comparison would pass on an arc through one point twice. The three
+    // are SPT statements because a point is the only entity that names the
+    // sketch directly -- every other entity is built out of points.
+    doc.seed(IrValueKind::Sketch, "opensketch_1", "SKETCH", {IrArg::keyword("XY")});
+    doc.seed(IrValueKind::SketchRef, "sketchref_1", "SPT",
+             {IrArg::valueRef(10), IrArg::num(0), IrArg::num(0)});
+    doc.seed(IrValueKind::SketchRef, "sketchref_2", "SPT",
+             {IrArg::valueRef(10), IrArg::num(40), IrArg::num(0)});
+    doc.seed(IrValueKind::SketchRef, "sketchref_3", "SPT",
+             {IrArg::valueRef(10), IrArg::num(40), IrArg::num(30)});
   }
 
   bool seeded() const {
@@ -352,7 +368,9 @@ struct Fixture {
            doc.valueFor("sketch_3") == 3 && doc.valueFor("body_x") == 4 &&
            doc.valueFor("body_y") == 5 && doc.valueFor("wire_1") == 6 &&
            doc.valueFor("wire_2") == 7 && doc.valueFor("surface_1") == 8 &&
-           doc.valueFor("surface_2") == 9;
+           doc.valueFor("surface_2") == 9 && doc.valueFor("opensketch_1") == 10 &&
+           doc.valueFor("sketchref_1") == 11 && doc.valueFor("sketchref_2") == 12 &&
+           doc.valueFor("sketchref_3") == 13;
   }
 };
 
@@ -393,6 +411,18 @@ std::vector<EntityRef> selectionFor(const CommandDescriptor& c) {
                            "sf" + std::to_string(i + 1)));
       }
       break;
+    case EntityKind::OpenSketch:
+      refs.push_back(ref("opensketch_1", EntityKind::OpenSketch, "sk1"));
+      break;
+    case EntityKind::SketchRef:
+      // Up to THREE, because SARC takes three. `want` is the signature's own
+      // minCount, so each command gets exactly the entities it asks for and no
+      // extras -- resolveValues() would refuse a fourth as a size mismatch.
+      for (std::size_t i = 0; i < want && i < 3; ++i) {
+        refs.push_back(ref("sketchref_" + std::to_string(i + 1), EntityKind::SketchRef,
+                           "e" + std::to_string(i + 1)));
+      }
+      break;
     case EntityKind::Any:
       // edit.delete takes a mixed bag; one ref of any kind satisfies it.
       refs.push_back(ref("body_x", EntityKind::Body, "b1"));
@@ -430,6 +460,19 @@ std::string resolvePlaceholder(const std::string& token) {
   if (token == "%surface") return "%8";
   if (token == "%sheet1") return "%8";
   if (token == "%sheet2") return "%9";
+  // The sketch family. `%sketch` is the SKETCH value; the rest are entities
+  // INSIDE it. SCIRC's centre and SARC's centre share the `%centre` spelling
+  // because they are the same role in the same position; SARC's three stay
+  // DISTINCT, or the comparison would pass on an arc drawn through one point.
+  if (token == "%sketch") return "%10";
+  if (token == "%p0") return "%11";
+  if (token == "%p1") return "%12";
+  if (token == "%centre") return "%11";
+  if (token == "%arcStart") return "%12";
+  if (token == "%arcEnd") return "%13";
+  if (token == "%entity") return "%11";
+  if (token == "%entityA") return "%11";
+  if (token == "%entityB") return "%12";
   return token;
 }
 
@@ -507,16 +550,20 @@ int main() {
   PartDocument partDoc;
   UndoStack partUndo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), partDoc, partUndo);
-  // 50 -- RE-MEASURED on the merged tree at #177, not carried over from either
-  // side (kernel/draft-native-engine pinned 44, the base pinned 50). The method:
-  // count `part.*` rows in the regenerated APP_SURFACE_MANIFEST.tsv, calibrated
-  // by running it against BOTH parents' committed manifests first, where it
-  // reproduced their own 44 and 50 exactly. It is the base's number rather than
-  // a third one because the command sets are NESTED, which was checked as a set
-  // difference and not assumed: this branch adds ZERO commands the base lacks,
-  // and the base adds ten (four that emit nothing plus the six SURFACE ops), so
-  // 64 total is |ours union theirs| and 50 of those 64 are `part.*`.
-  CHECK_EQ_INT(partAdded, 50);
+  // 58 -- RE-MEASURED on the merged tree, not carried over from either side
+  // (#177's base pinned 50, this branch pinned 58). The method is #177's own,
+  // re-run: count `part.*` rows in the regenerated APP_SURFACE_MANIFEST.tsv,
+  // CALIBRATED first against BOTH parents' committed manifests, where it
+  // reproduced their own 50 and 58 exactly.
+  //
+  // It lands on this branch's number rather than a third one because the
+  // command sets are NESTED, and that was checked as a SET DIFFERENCE rather
+  // than assumed: the base adds ZERO `part.*` commands this branch lacks, and
+  // this branch adds exactly EIGHT the base lacks (the 2D sketch + constraint
+  // family), so 58 is |ours union theirs|. #177 changed no command at all --
+  // its only edits under ui/ are to tests -- which is why the union is this
+  // side's set unchanged.
+  CHECK_EQ_INT(partAdded, 58);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
   CHECK_EQ_INT(liveIds.size(), static_cast<long long>(j.num(counts, "registry_commands")));

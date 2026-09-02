@@ -600,6 +600,27 @@ REF_ROLES = {
     # booleans name theirs would teach Archie that one of them gets eaten.
     "bodies[0]": "section_operand_a",
     "bodies[1]": "section_operand_b",
+    # ── the 2D sketch + constraint family ────────────────────────────────────
+    # Every role here is a DIFFERENT position in a signature, and the reason each
+    # needs its own name is the one the LOFT entry records: a shared role renders
+    # a shared placeholder, and `SARC(%centre, %centre, %centre)` reads as an arc
+    # whose three points are one point. The local variable names in
+    # PartCommands.cpp are what this table keys on, so two commands may not reuse
+    # a spelling for two different roles -- which is why the handlers spell their
+    # locals `ends` / `arc` / `pair` / `one` rather than all calling them `ids`.
+    #
+    # `sketches.front()` is shared by SPT and SOLVE ON PURPOSE: both consume the
+    # owning SKETCH in the same position, and that IS one role.
+    "sketches.front()": "owning_sketch",
+    "ends[0]": "line_start",
+    "ends[1]": "line_end",
+    "centre.front()": "circle_centre",
+    "arc[0]": "arc_centre",
+    "arc[1]": "arc_start",
+    "arc[2]": "arc_end",
+    "one.front()": "constrained_entity",
+    "pair[0]": "constrained_entity_a",
+    "pair[1]": "constrained_entity_b",
 }
 
 
@@ -956,6 +977,29 @@ OP_ARG_OVERRIDES = {
     # RESIZEBORE sets a bore's radius EXACTLY. The generic radius rule lists whole
     # names and `newRadius` is not one of them; classifying it as anything but a
     # radius would teach the model to pass a diameter here.
+    # SPT(%sketch, x, y) is the ONLY op in the table whose numeric arguments are
+    # spelled bare `x` / `y`; everywhere else a coordinate is cx/cy/cz, ox/oy/oz
+    # or px/py/pz, and `[x y; ...]` is a POINTS token rather than two numbers. A
+    # generic /^(x|y)$/ rule would therefore be a rule with one call site and a
+    # wide blast radius, so the two are named here instead. forge::addPoint takes
+    # them as the point's position in the sketch plane, in the same mm the rest
+    # of the IR is authored in.
+    ("SPT", "x"): ("mm", "position",
+                   "SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this "
+                   "position in the sketch plane; the sketch plane is Z=0 in world mm"),
+    ("SPT", "y"): ("mm", "position",
+                   "SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this "
+                   "position in the sketch plane; the sketch plane is Z=0 in world mm"),
+    # CON's trailing operand is the DIMENSIONAL constraint's value, and DIST is
+    # the only dimensional kind forge::Sketcher dispatches at this SHA (skConstrain's
+    # kKinds table), so the value is a distance in mm. Naming it is not cosmetic:
+    # RADIUS and ANGLE are both one switch arm away in the facade, and if either is
+    # ever wired this override becomes wrong and has to be re-decided rather than
+    # inherited from a generic rule.
+    ("CON", "value"): ("mm", "linear_size",
+                       "CON(%a, KIND [, %b, value]) -- addConstraint(owner, kind, refs, value); "
+                       "DIST is the only dimensional kind wired in skConstrain at this SHA, so "
+                       "the value is a DISTANCE in mm"),
     ("RESIZEBORE", "newRadius"): ("mm", "radius",
                                   "RESIZEBORE(%body, \"sel\", newRadius) -- the kernel sets "
                                   "the selected cylindrical bore to this RADIUS, not to this "
@@ -1222,7 +1266,21 @@ REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%
                    # are bodies. They still need DISTINCT placeholders: one shared name
                    # would render the worked example as SECTION(%body, %body), which
                    # reads as a body sectioned against itself.
-                   "section_operand_a": "%bodyA", "section_operand_b": "%bodyB"}
+                   "section_operand_a": "%bodyA", "section_operand_b": "%bodyB",
+                   # The sketch family. `%sketch` is the SKETCH value SPT and
+                   # SOLVE consume; the rest are SKETCHREF entities inside it.
+                   # SCIRC's centre and SARC's centre share the spelling because
+                   # they ARE the same thing in the same position -- unlike
+                   # SARC's three, which must stay distinct or the worked example
+                   # would read as an arc through one point.
+                   "owning_sketch": "%sketch",
+                   "line_start": "%p0", "line_end": "%p1",
+                   "circle_centre": "%centre",
+                   "arc_centre": "%centre", "arc_start": "%arcStart",
+                   "arc_end": "%arcEnd",
+                   "constrained_entity": "%entity",
+                   "constrained_entity_a": "%entityA",
+                   "constrained_entity_b": "%entityB"}
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 
