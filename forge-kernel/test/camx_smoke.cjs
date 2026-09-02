@@ -1,7 +1,15 @@
 // PUSH-10 camx smoke test. Run via:
 //   node forge-kernel/test/camx_smoke.cjs
-// Loads the freshly built forge-kernel.node from the main repo build dir.
-const k = require('/Users/account_clawteam1/archdisc-Mech/forge-kernel/build/Release/forge-kernel.node');
+// Loads the forge-kernel.node built in THIS tree.
+// ★ THE KERNEL PATH IS TREE-LOCAL, and it used to be the PRIMARY CHECKOUT's.
+// Hard-coding /Users/.../archdisc-Mech/forge-kernel/build/Release made this file
+// load SOMEONE ELSE'S BINARY whenever it was run from a git worktree: the suite
+// printed ALL PASS against a build that did not contain the change under test.
+// MEASURED in this session — three suites reported green against a kernel dated
+// four days earlier. Resolved from this file's own location instead, and a
+// MISSING binary is a loud failure, never a silent fall back to another tree's.
+const k = require(process.env.FORGE_KERNEL ||
+        require('node:path').resolve(__dirname, '../build/Release/forge-kernel.node'));
 const camx = k.camx;
 const out = {};
 

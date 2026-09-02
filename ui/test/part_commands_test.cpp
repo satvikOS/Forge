@@ -1180,7 +1180,7 @@ int main() {
   }
 
   // ── (d2) SECTION — the fourth boolean, and the one that is NOT a body ─────
-  // Registration and a count prove nothing here: `withIrOp == 31` above stays
+  // Registration and a count prove nothing here: `withIrOp == 49` above stays
   // green if part.section_curve emitted FUSE. What distinguishes SECTION from the
   // other three booleans is not its arity — all four take two bodies — it is the
   // two properties below, and BOTH are wrong by default:

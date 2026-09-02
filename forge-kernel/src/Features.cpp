@@ -35,6 +35,7 @@
 #include "forge/native/brep/NativeLoftPipe.hpp"     // TKOffset families D/F: ruled loft + pipe-shell on OCCT wires
 #include "forge/native/brep/NativeThickenShell.hpp" // TKOffset family I: TKOffset-free THICKEN of an open shell
 #include "forge/native/brep/NativeDraft.hpp"        // TKOffset family J: TKOffset-free DRAFT of selected faces
+#include "forge/native/brep/NativeDraftLocal.hpp"   // TKOffset family J, 2nd engine: the GENERAL draft (non-planar / multi-wire solids)
 #include "forge/native/brep/OffsetShape.hpp"  // native whole-solid grow/shrink offset (offsetSolidShape)
 #include "forge/native/brep/Surface.hpp"    // SurfaceKind (planar-eligibility gate for offsetSolid)
 #include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
@@ -2202,6 +2203,17 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
         const TopoDS_Shape nat =
             ::forge::occtdraft::draftFaces(src, natFaces, pull, angleRad, plane);
         if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+
+        // SECOND ENGINE, chained not substituted. The plane-arrangement engine
+        // above is EXACT on a polyhedron and answers first; NativeDraftLocal
+        // rebuilds only the topology that moves and covers the solids the first
+        // one cannot see — non-planar faces, faces with holes — which the 600-part
+        // corpus measured as 565 of 565 applicable parts. It defers honestly too,
+        // so a shape neither engine can draft still reaches OCCT below and NOTHING
+        // is refused that used to build.
+        const TopoDS_Shape natLocal = ::forge::occtdraftlocal::draftFacesLocal(
+            src, natFaces, pull, angleRad, plane);
+        if (!natLocal.IsNull()) return ShapeRegistry::instance().add(natLocal);
     }
 #endif
 #ifndef FORGE_DRAFT_DROP_NATIVE
@@ -2220,10 +2232,12 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
     return ShapeRegistry::instance().add(mk.Shape());
 #else
     throw std::runtime_error(
-        "forge.part.draftFaces: the native draft declined this input (it covers "
-        "planar-faced solids whose selected faces are not parallel to the neutral "
-        "plane) and the OCCT BRepOffsetAPI_DraftAngle fallback is compiled out "
-        "(FORGE_DRAFT_DROP_NATIVE=ON)");
+        std::string("forge.part.draftFaces: BOTH native draft engines declined this "
+                    "input and the OCCT BRepOffsetAPI_DraftAngle fallback is compiled "
+                    "out (FORGE_DRAFT_DROP_NATIVE=ON). The plane-arrangement engine "
+                    "covers polyhedra; the general engine covers any solid whose "
+                    "drafted walls meet only planes. Its reason: ") +
+        ::forge::occtdraftlocal::draftLocalLastDeferReason());
 #endif
 }
 
