@@ -234,11 +234,29 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 49 ops -- the original 40, plus the six that
+  // forge::ft::opFromName registers 56 ops -- the original 40, plus the six that
   // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
-  // THICKEN / CAP / SURFCHECK), plus ARC, HELIX and SECTION. Anything else means
-  // the derivation itself broke, and a broken oracle must not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 49);
+  // THICKEN / CAP / SURFCHECK), plus SECTION (the fourth OCCT boolean), plus the
+  // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
+  // SOLVE), plus ARC, plus HELIX. Anything else means the derivation itself
+  // broke, and a broken oracle must not pass quietly.
+  //
+  // RE-MEASURED at the ft/arc-helix-ops merge, because this is the assertion a
+  // merge keeps getting wrong -- it has now been wrong at three separate merges
+  // (54/48, then 47/55, now 49/55), every time because a side carried over a
+  // number it had counted on its own half alone. The two sides here pinned 49
+  // (ft/arc-helix-ops) and 55 (claude/sacrosanct-execution-20260828), and NEITHER
+  // is the answer. The method was calibrated first: re-deriving this same enum on
+  // BOTH parents reproduced 49 and 55 exactly, and only then was it run on the
+  // merged tree, which gives 56.
+  //
+  // 56 is not a third arbitrary number, it is the UNION. The 49 are NOT a subset
+  // of the 55: HELIX is on this branch and nowhere else, and it is the only such
+  // name (49 - 55 = {HELIX}), while the 2D sketch family and SARC/SCIRC/SLINE/SPT
+  // are the base's. So the merged set is 55 + HELIX = 56. Confirmed independently
+  // by the generator, which reads opFromName in FeatureTreeCompiler.cpp rather
+  // than this header and also says counts.kernel_ops = 56.
+  CHECK_EQ_INT(kernel.size(), 56);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -287,6 +305,58 @@ int main() {
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);
   CHECK_EQ_INT(kernel.at("BOX").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SHELL").firstArgIsValueRef ? 1 : 0, 1);
+  // the sketch family, read by eye out of the kernel header
+  CHECK_EQ_INT(kernel.at("SKETCH").minArgs, 1);                     // SKETCH(PLANE)
+  CHECK_EQ_INT(kernel.at("SKETCH").firstArgIsValueRef ? 1 : 0, 0);  // a keyword, not a %ref
+  CHECK_EQ_INT(kernel.at("SPT").minArgs, 3);                        // %sketch, x, y
+  CHECK_EQ_INT(kernel.at("SPT").maxArgs, 3);
+  CHECK_EQ_INT(kernel.at("SLINE").minArgs, 2);
+  CHECK_EQ_INT(kernel.at("SARC").minArgs, 3);
+  CHECK_EQ_INT(kernel.at("CON").minArgs, 2);                        // %a, KIND
+  CHECK_EQ_INT(kernel.at("CON").maxArgs, 4);                        // + %b, value
+  CHECK_EQ_INT(kernel.at("SOLVE").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("SOLVE").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("SOLVE").firstArgIsValueRef ? 1 : 0, 1);
+
+  // The SURFACE ops, read by eye out of the kernel header the same way. A count
+  // that moved from 40 to 46 proves six enumerators appeared; only these prove
+  // their documented ARGUMENT LISTS were derived rather than defaulted.
+  CHECK_EQ_INT(kernel.at("SKIN").minArgs, 2);        // SKIN(%w0, %w1 [, %w2 ...])
+  CHECK(kernel.at("SKIN").maxArgs == kIrArgsUnbounded);
+  CHECK_EQ_INT(kernel.at("FACES").minArgs, 2);       // FACES(%body, "sel")
+  CHECK_EQ_INT(kernel.at("FACES").maxArgs, 2);
+  CHECK_EQ_INT(kernel.at("SEW").minArgs, 1);         // SEW(%s0 [, %s1 ...] [, tol])
+  CHECK(kernel.at("SEW").maxArgs == kIrArgsUnbounded);
+  CHECK_EQ_INT(kernel.at("THICKEN").minArgs, 2);     // THICKEN(%surface, wall [, side])
+  CHECK_EQ_INT(kernel.at("THICKEN").maxArgs, 3);
+  CHECK_EQ_INT(kernel.at("CAP").minArgs, 1);         // CAP(%surface [, tol])
+  CHECK_EQ_INT(kernel.at("CAP").maxArgs, 2);
+  CHECK_EQ_INT(kernel.at("SURFCHECK").minArgs, 2);   // SURFCHECK(%surface, "expr", ...)
+  CHECK(kernel.at("SURFCHECK").maxArgs == kIrArgsUnbounded);
+  // Every surface op transforms an existing value, so every one leads with a %ref.
+  for (const char* op : {"SKIN", "FACES", "SEW", "THICKEN", "CAP", "SURFCHECK"}) {
+    CHECK_EQ_INT(kernel.at(op).firstArgIsValueRef ? 1 : 0, 1);
+  }
+
+  // The SURFACE ops, read by eye out of the kernel header the same way. A count
+  // that moved from 40 to 46 proves six enumerators appeared; only these prove
+  // their documented ARGUMENT LISTS were derived rather than defaulted.
+  CHECK_EQ_INT(kernel.at("SKIN").minArgs, 2);        // SKIN(%w0, %w1 [, %w2 ...])
+  CHECK(kernel.at("SKIN").maxArgs == kIrArgsUnbounded);
+  CHECK_EQ_INT(kernel.at("FACES").minArgs, 2);       // FACES(%body, "sel")
+  CHECK_EQ_INT(kernel.at("FACES").maxArgs, 2);
+  CHECK_EQ_INT(kernel.at("SEW").minArgs, 1);         // SEW(%s0 [, %s1 ...] [, tol])
+  CHECK(kernel.at("SEW").maxArgs == kIrArgsUnbounded);
+  CHECK_EQ_INT(kernel.at("THICKEN").minArgs, 2);     // THICKEN(%surface, wall [, side])
+  CHECK_EQ_INT(kernel.at("THICKEN").maxArgs, 3);
+  CHECK_EQ_INT(kernel.at("CAP").minArgs, 1);         // CAP(%surface [, tol])
+  CHECK_EQ_INT(kernel.at("CAP").maxArgs, 2);
+  CHECK_EQ_INT(kernel.at("SURFCHECK").minArgs, 2);   // SURFCHECK(%surface, "expr", ...)
+  CHECK(kernel.at("SURFCHECK").maxArgs == kIrArgsUnbounded);
+  // Every surface op transforms an existing value, so every one leads with a %ref.
+  for (const char* op : {"SKIN", "FACES", "SEW", "THICKEN", "CAP", "SURFCHECK"}) {
+    CHECK_EQ_INT(kernel.at(op).firstArgIsValueRef ? 1 : 0, 1);
+  }
 
   // The SURFACE ops, read by eye out of the kernel header the same way. A count
   // that moved from 40 to 49 proves nine enumerators appeared; only these prove

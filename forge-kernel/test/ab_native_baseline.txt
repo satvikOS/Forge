@@ -18,6 +18,12 @@
 # variable: 208 passed / 19 failed -> 227 passed / 0 failed, no assertion weakened.
 # See implementation/sacrosanct/findings/PR64_CHANGED_THE_FACE_TYPE_CENSUS.md.
 AB_BASELINE_draft=0
+# draft_local: the GENERAL native draft (NativeDraftLocal.cpp) against live
+# OCCT — 213 assertions over seven cases, five of which carry BOTH a
+# non-planar face and multi-wire faces, plus an equal-VOLUME negative control
+# and an equal-TOPOLOGY one. Ratcheted here because the harness that is not in
+# this list is the harness that stops linking and says nothing.
+AB_BASELINE_draft_local=0
 AB_BASELINE_filling=0
 AB_BASELINE_loftpipe=0
 AB_BASELINE_offsetshape=0

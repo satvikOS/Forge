@@ -39,22 +39,21 @@ std::string lower(std::string_view text) {
 // the enum's OWN names is a derivation from the enum, not a second transcription
 // of it -- add a kind to IrValueKind and this keeps working.
 bool mapValueKind(std::string_view spelling, IrValueKind& out) {
-  const IrValueKind kinds[] = {IrValueKind::None, IrValueKind::Profile, IrValueKind::Wire,
-                               IrValueKind::Solid, IrValueKind::Surface};
-  const std::string want = lower(spelling);
-  for (const IrValueKind kind : kinds) {
-    if (want == toString(kind)) {
-      out = kind;
-      return true;
-    }
-  }
-  return false;
+  // kAllIrValueKinds is THE list (PartCommands.hpp); the .fpart reader walks the
+  // same one, so a kind cannot be known to one string layer and not the other.
+  return irValueKindFromName(lower(spelling), out);
 }
 
 bool mapEntityKind(std::string_view spelling, EntityKind& out) {
   const EntityKind kinds[] = {EntityKind::None,      EntityKind::Vertex,    EntityKind::Edge,
                               EntityKind::Face,      EntityKind::Body,      EntityKind::Sketch,
-                              EntityKind::SketchCurve, EntityKind::Wire,    EntityKind::Feature,
+                              EntityKind::SketchCurve, EntityKind::Wire,    EntityKind::Surface,
+                              // The two sketch-solver kinds. A kind missing here is
+                              // not a cosmetic gap: check() REFUSES the whole
+                              // vocabulary row whose selection names it, so every
+                              // command consuming that kind stops being checked.
+                              EntityKind::OpenSketch, EntityKind::SketchRef,
+                              EntityKind::Feature,
                               EntityKind::Component, EntityKind::Datum,     EntityKind::Any};
   const std::string want = lower(spelling);
   for (const EntityKind kind : kinds) {
@@ -459,6 +458,31 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
     return OpConstraint::Ok;
   }
   if (arg.kind == IrArgKind::Ref) return OpConstraint::Ok;  // an int; shape-checked by the plan
+
+  if (arg.kind == IrArgKind::Points) {
+    // The SAME writability rule as a bare number, applied per coordinate, and it has to
+    // be stated here rather than left to the Number branch: a ring's coordinates never
+    // pass through that branch. Without this a POLY carrying one NaN vertex renders as
+    // `[10 nan; ...]`, forge::ft's lexer reads `nan` with strtod as a coordinate it
+    // consumed, and the statement builds a solid nobody asked for -- the argument-value
+    // bypass this whole function exists to close, one kind later.
+    for (const IrPoint& p : arg.pts) {
+      if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)) continue;
+      reason = "a point ring with a non-finite coordinate: formatIrNumber() renders it as a "
+               "bare word inside the `[x y; ...]` token, so the ring forge::ft reads back is "
+               "not the ring that was written";
+      return OpConstraint::MalformedArgumentValue;
+    }
+    if (arg.pts.empty()) {
+      reason = "an EMPTY point ring: it renders as the literal `[]`, which forge::ft's lexer "
+               "refuses outright (\"empty point list\") -- the statement cannot be parsed at all";
+      return OpConstraint::MalformedArgumentValue;
+    }
+    // Rule 2 (NOT AN OP) cannot apply: a ring carries no word, and IrArg::token()
+    // writes only digits, '-', '.', 'e', ' ', ';' and the one bracket pair -- there is
+    // no spelling of it that closes the token and opens another.
+    return OpConstraint::Ok;
+  }
 
   if (arg.kind == IrArgKind::Keyword && !bareKeyword(arg.word)) {
     reason = arg.word.empty()

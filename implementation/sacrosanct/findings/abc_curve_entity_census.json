@@ -1,0 +1,178 @@
+{
+ "baseline_clear": 5629,
+ "by_type": {
+  "BTCurveGeometryConic": {
+   "construction": 0,
+   "instances": 3,
+   "models_containing": 2
+  },
+  "BTCurveGeometryEllipse": {
+   "construction": 46,
+   "instances": 612,
+   "models_containing": 138
+  },
+  "BTCurveGeometryInterpolatedSpline": {
+   "construction": 21,
+   "instances": 2145,
+   "models_containing": 603
+  },
+  "BTCurveGeometrySpline": {
+   "construction": 253,
+   "instances": 6555,
+   "models_containing": 335
+  }
+ },
+ "circle_arc": 48111,
+ "circle_full": 61431,
+ "conic": {
+  "instances": 3,
+  "kinds": {
+   "parabola": 3
+  },
+  "npts": {
+   "3": 3
+  }
+ },
+ "construction_drop_unproven": 9,
+ "construction_reference_control": {
+  "con_ref": 0,
+  "con_tot": 57546,
+  "real_ref": 0,
+  "real_tot": 395415
+ },
+ "construction_reference_control_pass": false,
+ "ellipse": {
+  "arc": 349,
+  "degenerate_circle": 4,
+  "full": 263,
+  "instances": 612
+ },
+ "entities_total": 492223,
+ "entity_census": {
+  "BTCurveGeometryCircle": 101446,
+  "BTCurveGeometryCircle|c": 8096,
+  "BTCurveGeometryConic": 3,
+  "BTCurveGeometryEllipse": 566,
+  "BTCurveGeometryEllipse|c": 46,
+  "BTCurveGeometryInterpolatedSpline": 2124,
+  "BTCurveGeometryInterpolatedSpline|c": 21,
+  "BTCurveGeometryLine": 284974,
+  "BTCurveGeometryLine|c": 49130,
+  "BTCurveGeometrySpline": 6302,
+  "BTCurveGeometrySpline|c": 253,
+  "NONE": 39026,
+  "NONE|c": 236
+ },
+ "exact_only_recovery": 190,
+ "files": 9852,
+ "geometry_gated_models": 882,
+ "interp_2pt": 511,
+ "interp_by_npts": {
+  "10": 27,
+  "11": 17,
+  "12": 40,
+  "13": 32,
+  "14": 10,
+  "15": 14,
+  "16": 19,
+  "17": 17,
+  "18": 4,
+  "19": 7,
+  "2": 511,
+  "20": 5,
+  "21": 3,
+  "22": 1,
+  "23": 2,
+  "24": 4,
+  "26": 1,
+  "28": 1,
+  "3": 578,
+  "31": 1,
+  "33": 1,
+  "36": 1,
+  "4": 345,
+  "5": 200,
+  "6": 101,
+  "7": 113,
+  "8": 64,
+  "9": 26
+ },
+ "interp_periodic": 220,
+ "interp_with_derivs": 2145,
+ "interp_with_handles": 2145,
+ "licence": "corpus provenance UNVERIFIED (MODEL_DATA.md); not a training licence",
+ "models": 9846,
+ "parse_errors": 0,
+ "positive_control": "PASS: reproduces abc_yield_census arm 1 (9846 models, 5629 clear, 882 geometry-gated)",
+ "singles": {
+  "ALL FOUR + construction drop": 548,
+  "ALL FOUR, construction-drop OFF": 548,
+  "BTCurveGeometryConic": 2,
+  "BTCurveGeometryEllipse": 63,
+  "BTCurveGeometryInterpolatedSpline": 302,
+  "BTCurveGeometrySpline": 63,
+  "construction drop ALONE": 9
+ },
+ "spline_by_degree": {
+  "1": {
+   "ctrlpts_max": 2,
+   "ctrlpts_min": 2,
+   "instances": 121,
+   "periodic": 0,
+   "rational": 0,
+   "trimmed": 5
+  },
+  "2": {
+   "ctrlpts_max": 1537,
+   "ctrlpts_min": 3,
+   "instances": 12,
+   "periodic": 0,
+   "rational": 9,
+   "trimmed": 4
+  },
+  "3": {
+   "ctrlpts_max": 1132,
+   "ctrlpts_min": 4,
+   "instances": 6422,
+   "periodic": 294,
+   "rational": 143,
+   "trimmed": 783
+  }
+ },
+ "spline_knot_invariant_holds": 6555,
+ "spline_periodic": 294,
+ "spline_rational": 152,
+ "spline_stride": {
+  "polynomial": 2.0,
+  "rational": 3.0
+ },
+ "spline_trimmed": 792,
+ "stages": {
+  "S1  ELLIPSE / elliptical arc primitive      [EXACT]": {
+   "clear": 5692,
+   "cumulative_recovery": 63,
+   "marginal_recovery": 63
+  },
+  "S2  + CONIC (rational quadratic Bezier)     [EXACT]": {
+   "clear": 5694,
+   "cumulative_recovery": 65,
+   "marginal_recovery": 2
+  },
+  "S3  + NURBS spline entity                   [EXACT]": {
+   "clear": 5767,
+   "cumulative_recovery": 138,
+   "marginal_recovery": 73
+  },
+  "S4a + 2-point interpolated spline           [EXACT, cubic Bezier]": {
+   "clear": 5819,
+   "cumulative_recovery": 190,
+   "marginal_recovery": 52
+  },
+  "S4b + n>2 interpolated spline               [LOSSY, reconstructed]": {
+   "clear": 6177,
+   "cumulative_recovery": 548,
+   "marginal_recovery": 358
+  }
+ },
+ "unrepresentable_entities": 9315
+}

@@ -62,7 +62,11 @@ MD_COUNT_PATTERNS = [
     (r"reaching \*\*(\d+) distinct op names\*\*", "user_invocable_ops"),
     (r"only the (\d+) names are legal", "user_invocable_ops"),
     (r"The kernel defines \*\*(\d+)\*\* ops", "kernel_ops"),
-    (r"so \*\*(\d+) ops plus", "forbidden_ops"),
+    # `ops?` because the count reached ONE. The pattern used to demand the plural,
+    # which is a check that forces the prose to be ungrammatical to stay green --
+    # and an author who fixes the grammar instead silently turns the check off.
+    # "plus" is kept, so a sentence REWORDED past this pattern still fails loudly.
+    (r"so \*\*(\d+) ops? plus", "forbidden_ops"),
     # Not a "counts" entry: the worked examples the runtime gate dispatches.
     # Resolved below, because it is derived from the ops rather than stored.
     (r"dispatches all (\d+) recorded examples", "@examples"),
@@ -531,7 +535,7 @@ def parse_param_specs(block):
     return out
 
 
-IRARG_RE = re.compile(r"IrArg::(num|valueRef|keyword|text)\s*\(")
+IRARG_RE = re.compile(r"IrArg::(num|valueRef|keyword|text|pointsFromText)\s*\(")
 
 
 def split_statements(text):
@@ -583,11 +587,40 @@ REF_ROLES = {
     "section": "wire_section",
     "ids[0]": "target_solid",
     "ids[1]": "tool_solid",
+    # The SURFACE commands. Two distinct roles, and they are NOT interchangeable:
+    # `sheet` is part.sew's loop variable over a VARIADIC list of sheets, while
+    # `sheets.front()` is the SINGLE sheet THICKEN / CAP / SURFCHECK each take as
+    # their first argument. Mapping both to one role would emit `SEW(%surface)`
+    # for the variadic form and lose the repeat, which is the same class of defect
+    # the `section` entry above records for LOFT.
+    "sheet": "surface_sheet",
+    "sheets.front()": "target_surface",
     # part.section_curve's two operands. They are NOT target/tool: SECTION consumes
     # neither body and the operation is symmetric, so naming them the way the
     # booleans name theirs would teach Archie that one of them gets eaten.
     "bodies[0]": "section_operand_a",
     "bodies[1]": "section_operand_b",
+    # ── the 2D sketch + constraint family ────────────────────────────────────
+    # Every role here is a DIFFERENT position in a signature, and the reason each
+    # needs its own name is the one the LOFT entry records: a shared role renders
+    # a shared placeholder, and `SARC(%centre, %centre, %centre)` reads as an arc
+    # whose three points are one point. The local variable names in
+    # PartCommands.cpp are what this table keys on, so two commands may not reuse
+    # a spelling for two different roles -- which is why the handlers spell their
+    # locals `ends` / `arc` / `pair` / `one` rather than all calling them `ids`.
+    #
+    # `sketches.front()` is shared by SPT and SOLVE ON PURPOSE: both consume the
+    # owning SKETCH in the same position, and that IS one role.
+    "sketches.front()": "owning_sketch",
+    "ends[0]": "line_start",
+    "ends[1]": "line_end",
+    "centre.front()": "circle_centre",
+    "arc[0]": "arc_centre",
+    "arc[1]": "arc_start",
+    "arc[2]": "arc_end",
+    "one.front()": "constrained_entity",
+    "pair[0]": "constrained_entity_a",
+    "pair[1]": "constrained_entity_b",
 }
 
 
@@ -666,9 +699,30 @@ def slot_of(call):
             return {"token": "keyword", "from_local": expr}
         raise DeriveError("unparsed keyword argument %r" % expr)
     if kind == "text":
+        # `IrArg::text(txt(ctx, "name", "fallback"))` -- the same INLINE spelling
+        # IrArg::keyword already required, and for the same reason: the slot has to
+        # name the PARAMETER it reads or the recorded example cannot be rendered.
+        # The five edit ops (TAG / VERIFY / PUSHFACE / RESIZEBORE / DEFEATURE) carry
+        # a quoted face selector that is never a bare keyword, so they have no
+        # keyword/text ternary to hide behind the way FILLET's ALL|"sel" slot does.
+        m = re.match(r'^txt\(ctx, "(\w+)", "([^"]*)"\)$', expr)
+        if m:
+            return {"token": "text", "from_parameter": m.group(1), "fallback": m.group(2)}
         if re.match(r"^\w+$", expr):
             return {"token": "text", "from_local": expr}
         raise DeriveError("unparsed text argument %r" % expr)
+    if kind == "pointsFromText":
+        # `IrArg::pointsFromText(txt(ctx, "ring", "x y; x y; x y"), 2)` -- a POINT RING.
+        # The DIMENSION is captured, not assumed: `[x y; ...]` and `[x y z; ...]` are
+        # different tokens to forge::ft (a 2D ring is lifted to z=0, a 3D one is placed
+        # where it says), and SWEEP's profile form carries one of each in ONE statement.
+        # Recording the wrong dim would publish an example that reads as a different
+        # shape than the command emits.
+        m = re.match(r'^txt\(ctx, "(\w+)", "([^"]*)"\), ([23])$', expr)
+        if m:
+            return {"token": "points", "from_parameter": m.group(1),
+                    "fallback": m.group(2), "dim": int(m.group(3))}
+        raise DeriveError("unparsed point-ring argument %r" % expr)
     raise DeriveError("unknown IrArg factory %r" % kind)
 
 
@@ -904,6 +958,52 @@ OP_ARG_OVERRIDES = {
     ("PRISM", "nSides"): ("count", "side_count",
                           "makePrism(n, R, h) builds one n-gon profile and extrudes it; "
                           "n is the side count of a single solid, not a number of copies"),
+    # FOLD's hx/hy/hz are the HINGE POINT, a world-space position: opFold translates
+    # the flange box's corner to (hx, hy, hz) and then rotates about the line through
+    # it. No generic rule matched them, so both were landing in `uncertain` -- and an
+    # unclassified argument is a hole in the training signal, not a cosmetic gap.
+    ("FOLD", "hx"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    ("FOLD", "hy"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    ("FOLD", "hz"): ("mm", "position",
+                     "FOLD(%body, hx, hy, hz, ...) -- opFold: translate(flange, hx, hy, hz) "
+                     "puts the hinge CORNER at the hinge point, then folds about the line "
+                     "through it"),
+    # RESIZEBORE sets a bore's radius EXACTLY. The generic radius rule lists whole
+    # names and `newRadius` is not one of them; classifying it as anything but a
+    # radius would teach the model to pass a diameter here.
+    # SPT(%sketch, x, y) is the ONLY op in the table whose numeric arguments are
+    # spelled bare `x` / `y`; everywhere else a coordinate is cx/cy/cz, ox/oy/oz
+    # or px/py/pz, and `[x y; ...]` is a POINTS token rather than two numbers. A
+    # generic /^(x|y)$/ rule would therefore be a rule with one call site and a
+    # wide blast radius, so the two are named here instead. forge::addPoint takes
+    # them as the point's position in the sketch plane, in the same mm the rest
+    # of the IR is authored in.
+    ("SPT", "x"): ("mm", "position",
+                   "SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this "
+                   "position in the sketch plane; the sketch plane is Z=0 in world mm"),
+    ("SPT", "y"): ("mm", "position",
+                   "SPT(%sketch, x, y) -- forge::addPoint(s, x, y) places the point at this "
+                   "position in the sketch plane; the sketch plane is Z=0 in world mm"),
+    # CON's trailing operand is the DIMENSIONAL constraint's value, and DIST is
+    # the only dimensional kind forge::Sketcher dispatches at this SHA (skConstrain's
+    # kKinds table), so the value is a distance in mm. Naming it is not cosmetic:
+    # RADIUS and ANGLE are both one switch arm away in the facade, and if either is
+    # ever wired this override becomes wrong and has to be re-decided rather than
+    # inherited from a generic rule.
+    ("CON", "value"): ("mm", "linear_size",
+                       "CON(%a, KIND [, %b, value]) -- addConstraint(owner, kind, refs, value); "
+                       "DIST is the only dimensional kind wired in skConstrain at this SHA, so "
+                       "the value is a DISTANCE in mm"),
+    ("RESIZEBORE", "newRadius"): ("mm", "radius",
+                                  "RESIZEBORE(%body, \"sel\", newRadius) -- the kernel sets "
+                                  "the selected cylindrical bore to this RADIUS, not to this "
+                                  "diameter"),
 }
 
 
@@ -923,15 +1023,114 @@ def classify(op_name, param):
 # ---------------------------------------------------------------------------
 # 6. what each op CONSUMES, read out of the compiler's own type checks
 # ---------------------------------------------------------------------------
-# refSurface is the fourth entry because SURFACE is the fourth IR value kind.
-# It contributes nothing to the JSON TODAY -- every surface op is forbidden, and
-# a forbidden op records only its name and the reason -- but omitting it would be
-# a latent WRONG answer rather than a missing one: the moment a forge::ui command
-# emits THICKEN or CAP, its `consumes_value_kinds` would come back EMPTY, which
-# this file spells "a CREATOR", and the value-kind closure would report the
-# allowed set as closed when it is not.
-REF_ACCESSOR_KIND = {"refSolid": "SOLID", "refProfile": "PROFILE", "refWire": "WIRE",
-                     "refSurface": "SURFACE"}
+# A MISS HERE IS SILENT, which is why the table is asserted complete below.
+# `parse_compiler_ref_kinds` decides what an op consumes by searching each
+# handler body for these accessor names. An accessor the dict does not list is
+# simply never searched for, so the op's `consumes_value_kinds` comes out `[]` --
+# indistinguishable from a genuine creator that consumes nothing. That is exactly
+# what happened to the sketch family: `refSketch` and `refEntity` shipped in
+# FeatureTreeCompiler.cpp with no entry here, and all seven ops derived as
+# creators. `assert_ref_accessors_mapped()` closes the hole by requiring every
+# `ref*` accessor the compiler DEFINES to appear in this table.
+REF_ACCESSOR_KIND = {
+    "refSolid": "SOLID",
+    "refProfile": "PROFILE",
+    "refWire": "WIRE",
+    # A %ref that must be a SKETCH -- or a SKETCHREF, from which refSketch
+    # recovers the owning sketch. The consumed KIND is the sketch either way.
+    "refSketch": "SKETCH",
+    # A %ref that must be a SKETCHREF: an entity (point / line / circle / arc)
+    # inside a sketch. CON names two of them.
+    "refEntity": "SKETCHREF",
+    # A %ref that must be a SURFACE (sheet body). It contributes nothing to the
+    # JSON today -- every surface op is forbidden, and a forbidden op records only
+    # its name and the reason -- but omitting it would be a WRONG answer rather
+    # than a missing one: the moment a forge::ui command emits THICKEN or CAP its
+    # `consumes_value_kinds` would come back EMPTY, which this file spells "a
+    # CREATOR", and the value-kind closure would call the allowed set closed when
+    # it is not.
+    "refSurface": "SURFACE",
+}
+
+# Every accessor the compiler defines must be classified above. Anything else is
+# a kind the vocabulary would report as "consumes nothing".
+REF_ACCESSOR_DEF_RE = re.compile(
+    r"\b\w[\w:<>,&* ]*?\b(ref[A-Z]\w*)\s*\(\s*const Op& op")
+
+
+def assert_ref_accessors_mapped(cpp):
+    """Every ref* accessor the compiler defines must have a REF_ACCESSOR_KIND row."""
+    defined = set(REF_ACCESSOR_DEF_RE.findall(strip_comments(cpp)))
+    if not defined:
+        raise DeriveError("no ref* accessors found in the compiler: the derivation "
+                          "that reads what each op consumes cannot be trusted")
+    unmapped = sorted(defined - set(REF_ACCESSOR_KIND))
+    if unmapped:
+        raise DeriveError(
+            "compiler accessor(s) %s have no REF_ACCESSOR_KIND entry. Ops using them "
+            "would derive consumes_value_kinds=[] and be published as CREATORS "
+            "reachable from an empty document." % ", ".join(unmapped))
+    return sorted(defined)
+
+
+# ---------------------------------------------------------------------------
+# 6b. what each op PRODUCES, read out of the compiler's kindOf() switch
+# ---------------------------------------------------------------------------
+# The op's produced kind used to be scraped from the PROSE section header above
+# each OpCode block (`--- 2D profiles (produce a PROFILE) ---`). That worked only
+# while every section was homogeneous. The sketch family's header reads
+# "(produce a SKETCH / SKETCHREF)" and the regex takes the first word, so all
+# seven ops derived as SKETCH -- including SOLVE, whose whole purpose is to
+# produce a PROFILE, and the four entity ops, which produce a SKETCHREF.
+#
+# `Builder::kindOf()` is the function the kernel actually calls to label a value.
+# Deriving from it makes the vocabulary agree with the compiler by construction
+# instead of by a comment nobody re-reads.
+VAL_KIND_SPELLING = {
+    "Profile": "PROFILE",
+    "Wire": "WIRE",
+    "Solid": "SOLID",
+    "Sketch": "SKETCH",
+    "SketchRef": "SKETCHREF",
+    "Surface": "SURFACE",
+}
+
+
+def parse_compiler_produced_kinds(cpp):
+    """{OpCode enum: KIND} read from Builder::kindOf(), plus the switch default."""
+    src = strip_comments(cpp)
+    body, _, _ = block_after(src, r"static Val::Kind kindOf\s*\(\s*OpCode\s+\w+\s*\)\s*")
+    out = {}
+    default = None
+    pending = []
+    # One ordered pass: `case OpCode::X:` accumulates, `return Val::Y;` flushes.
+    for m in re.finditer(r"case OpCode::(\w+)\s*:|default\s*:|return Val::(\w+)\s*;", body):
+        if m.group(1):
+            pending.append(m.group(1))
+            continue
+        if m.group(0).startswith("default"):
+            pending.append(None)  # the default arm
+            continue
+        spelling = VAL_KIND_SPELLING.get(m.group(2))
+        if spelling is None:
+            raise DeriveError("kindOf() returns Val::%s, which VAL_KIND_SPELLING does "
+                              "not name" % m.group(2))
+        if not pending:
+            raise DeriveError("kindOf() has a `return Val::%s` with no case label"
+                              % m.group(2))
+        for enum in pending:
+            if enum is None:
+                default = spelling
+            else:
+                out[enum] = spelling
+        pending = []
+    if default is None:
+        raise DeriveError("kindOf() has no default arm: ops absent from the switch "
+                          "would have no derivable produced kind")
+    if not out:
+        raise DeriveError("kindOf() yielded no explicit case: the produced-kind "
+                          "derivation is reading the wrong function")
+    return out, default
 
 
 def parse_compiler_ref_kinds(cpp):
@@ -1059,11 +1258,29 @@ def ternary_domain(selects_on):
 # ---------------------------------------------------------------------------
 REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%profile",
                    "wire_section": "%wire",
+                   # The two SURFACE roles. `%sheet` is SEW's variadic list and
+                   # `%surface` the single sheet THICKEN / CAP / SURFCHECK take;
+                   # one shared name would lose SEW's repeat.
+                   "surface_sheet": "%sheet", "target_surface": "%surface",
                    # SECTION is symmetric and consumes neither operand, so both slots
                    # are bodies. They still need DISTINCT placeholders: one shared name
                    # would render the worked example as SECTION(%body, %body), which
                    # reads as a body sectioned against itself.
-                   "section_operand_a": "%bodyA", "section_operand_b": "%bodyB"}
+                   "section_operand_a": "%bodyA", "section_operand_b": "%bodyB",
+                   # The sketch family. `%sketch` is the SKETCH value SPT and
+                   # SOLVE consume; the rest are SKETCHREF entities inside it.
+                   # SCIRC's centre and SARC's centre share the spelling because
+                   # they ARE the same thing in the same position -- unlike
+                   # SARC's three, which must stay distinct or the worked example
+                   # would read as an arc through one point.
+                   "owning_sketch": "%sketch",
+                   "line_start": "%p0", "line_end": "%p1",
+                   "circle_centre": "%centre",
+                   "arc_centre": "%centre", "arc_start": "%arcStart",
+                   "arc_end": "%arcEnd",
+                   "constrained_entity": "%entity",
+                   "constrained_entity_a": "%entityA",
+                   "constrained_entity_b": "%entityB"}
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 
@@ -1086,6 +1303,18 @@ def slot_token(slot, cmd):
             return slot["literal"]
         dom = keyword_domain(cmd["enabled_predicate_source"], slot["from_parameter"])
         return "|".join(dom) if dom else slot["from_parameter"]
+    if slot["token"] == "text":
+        # A QUOTED argument: the quotes are part of the token forge::ft parses, so
+        # they are part of the documented form too.
+        name = slot["from_parameter"] if "from_parameter" in slot else slot["from_local"]
+        return '"<%s>"' % name
+    if slot["token"] == "points":
+        # The DOCUMENTED form of a ring, and the dimension is in it: `[x y; ...]` and
+        # `[x y z; ...]` are the two spellings forge::ft's lexer distinguishes, and
+        # SWEEP's profile form carries one of each, so a form that said only "[...]"
+        # would document the two arguments as interchangeable when they are not.
+        coords = "x y z" if slot["dim"] == 3 else "x y"
+        return "[%s; ...]" % coords
     raise DeriveError("cannot render slot %r" % slot)
 
 
@@ -1145,6 +1374,30 @@ def render_example(cmd, slots, active, params, selector_choice=None):
             continue
         if s["token"] == "keyword":
             args.append(s["literal"] if "literal" in s else params[s["from_parameter"]])
+            continue
+        if s["token"] == "text":
+            # IrArg::text(...).token() wraps the value in double quotes, and the
+            # gate compares this string with what the live document RECORDED, so
+            # the quotes have to be HERE and not merely implied.
+            args.append('"%s"' % params[s["from_parameter"]])
+            continue
+        if s["token"] == "points":
+            # IrArg::token() writes the brackets and normalises the separator to "; ",
+            # so the example has to be built the same way rather than by echoing the
+            # parameter text back: the gate compares this string against what the live
+            # document RECORDED, and "0 0 0;0 0 30" and "0 0 0; 0 0 30" are the same
+            # ring written two ways.
+            pts = []
+            for chunk in params[s["from_parameter"]].split(";"):
+                coords = chunk.split()
+                if not coords:
+                    continue
+                if len(coords) != s["dim"]:
+                    raise DeriveError("point %r is not %d coordinates" % (chunk, s["dim"]))
+                pts.append(" ".join(fmt_num(float(v)) for v in coords))
+            if not pts:
+                raise DeriveError("empty point ring for parameter %r" % s["from_parameter"])
+            args.append("[%s]" % "; ".join(pts))
             continue
         raise DeriveError("cannot render slot %r" % s)
     return args
@@ -1294,7 +1547,13 @@ def build():
     kops = parse_kernel_opcodes(src["kernel_header"])
     spellings = parse_op_from_name(src["kernel_compiler"])
     ui_table = parse_ui_op_table(src["ui_ir_table"])
+    assert_ref_accessors_mapped(src["kernel_compiler"])
     ref_kinds = parse_compiler_ref_kinds(src["kernel_compiler"])
+    produced_kinds, produced_default = parse_compiler_produced_kinds(src["kernel_compiler"])
+    # The kind an op produces is now the COMPILER's answer, not the prose section
+    # header's. Kept on the same key so every downstream reader is unchanged.
+    for op in kops:
+        op["produces_kind"] = produced_kinds.get(op["enum"], produced_default)
     part = parse_part_commands(src["ui_part_commands"])
     shell = parse_shell_commands(src["ui_shell_commands"])
     seeds = parse_desktop_seeds(src["desktop_frame"])
@@ -1381,6 +1640,23 @@ def build():
         cmds = [c for c in emitting if c["feature_ir_op"] == name]
         produces = sorted({c["produces_value_kind"].upper() for c in cmds
                            if c["produces_value_kind"]})
+        # THE TWO VALUE-KIND ENUMS MUST AGREE. `forge::ui::IrValueKind` (what the
+        # command declares at its emit() call) and the kernel's `Val::Kind` (what
+        # Builder::kindOf returns) are separate enums in separate layers with no
+        # compiler relating them, so a command may label its statement PROFILE
+        # while the kernel labels the same statement SKETCH -- and every check
+        # downstream of the vocabulary would then be enforcing the wrong type.
+        # Nothing detected that before this check: the vocabulary simply
+        # published whatever the command said.
+        kernel_produces = op["produces_kind"]
+        for stated in produces:
+            if stated != kernel_produces:
+                raise DeriveError(
+                    "value-kind disagreement for %s: the forge::ui command(s) %s emit it as "
+                    "IrValueKind::%s, but the kernel's Builder::kindOf() labels %s as %s. "
+                    "One of the two enums is wrong; the vocabulary will not publish either."
+                    % (name, ", ".join(c["id"] for c in cmds), stated.title(),
+                       op["enum"], kernel_produces))
         consumes = ref_kinds[op["enum"]]["consumes"]
         entry = {
             "op": name,
