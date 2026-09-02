@@ -1067,6 +1067,42 @@ option(FORGE_FILLING_DROP_NATIVE
 #     angle, and a non-axis-aligned pull direction; plus an equal-volume negative
 #     control and six defer controls.
 #
+#   ★ AND IT COVERS NOTHING ON THE CORPUS. The 600-part A/B measures that engine at
+#     0.0% against OCCT's 88.0%, because it needs every face of the SOLID to be a
+#     single-wire plane. Measured over reports/corpus_ab/draft_defer_probe.jsonl.gz:
+#     all 565 applicable parts violate BOTH guards, the number violating exactly
+#     one is 0 and 0, 37.0% of the corpus's 72,201 faces are non-planar, and ZERO
+#     parts are polyhedra. There is no guard to relax.
+#
+#   SECOND ENGINE: src/native/brep/NativeDraftLocal.cpp
+#     (forge::occtdraftlocal::draftFacesLocal), chained AFTER the exact one in
+#     src/Features.cpp — never substituted, so no input that used to build stops
+#     building. It rebuilds only the topology that MOVES: a face with no vertex on
+#     a drafted wall is carried VERBATIM whatever its surface and however many
+#     wires it has, a wire with no moved vertex is carried verbatim inside a
+#     rebuilt face (that is the hole), and an edge with a moved endpoint that is
+#     not on a wall is RE-TRIMMED — same curve, same pcurves, new range — which is
+#     exact for any curve type. So both whole-shape preconditions stop APPLYING
+#     rather than being relaxed. Built with BRep_Builder over EmptyCopied() shells,
+#     faces and edges: nothing is sewn, no tolerance is widened, and the
+#     face/edge/vertex/shell counts are preserved by construction and asserted.
+#
+#   PROOF: forge-kernel/test/run_ab_native_draft_local.sh --mutations,
+#     213/213 assertions and 8/8 mutations red, over seven cases of which five
+#     carry BOTH a non-planar face and multi-wire faces. Observables: volume,
+#     surface AREA, centre of mass, bounding box, four counts, Euler, GENUS and
+#     BRepCheck validity. TWO negative controls, because volume alone cannot
+#     validate geometry: an equal-VOLUME impostor (rejected on 7 observables) and
+#     an equal-TOPOLOGY impostor, the same part drafted one degree off (rejected
+#     on 3). Coverage on the same 600 parts is measured by
+#     test/run_draft_local_probe.sh and written up in
+#     reports/DRAFT_NATIVE_ENGINE.md; it scores AGREEMENT with OCCT, never
+#     "did not defer".
+#
+#   ★ NEITHER ENGINE MOVES OCCT_CLOSURE. TKOffset leaves at 42/42 symbols across
+#     NINE families or not at all; this is one family, 6 symbols. Closure was 14
+#     before and 14 after, and the two ledger outputs are byte-identical.
+#
 # ── the gates are PROVED ABLE TO FAIL ────────────────────────────────────────────
 #   forge-kernel/test/run_ab_tkoffset_mutations.sh, 12/12: eight mutations of the
 #   ENGINES (never the tests), each required to turn its A/B red, then restored and
@@ -1759,6 +1795,17 @@ set(FORGE_KERNEL_SOURCES
     # about its neutral-plane intersection line and re-meets every vertex, reusing
     # NativeThickSolid's corner solve. Honest defer outside planar-faced solids.
     src/native/brep/NativeDraft.cpp
+    # TKOffset family J, SECOND engine — the GENERAL native DRAFT. The
+    # plane-arrangement engine above needs every face of the SOLID to be a
+    # single-wire plane, and the 600-part corpus measured that as violated by
+    # 565 of 565 applicable parts, BOTH guards, with ZERO parts violating
+    # exactly one (reports/corpus_ab/draft_defer_probe.jsonl.gz). So there is no
+    # guard to relax. This engine rebuilds only the topology that MOVES and
+    # carries every untouched face, wire and edge VERBATIM, which makes both
+    # whole-shape preconditions stop applying rather than be relaxed. Chained
+    # AFTER the exact engine in src/Features.cpp; honest defer keeps the OCCT
+    # fallback live by default.
+    src/native/brep/NativeDraftLocal.cpp
     src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)

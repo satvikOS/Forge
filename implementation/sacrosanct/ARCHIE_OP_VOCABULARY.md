@@ -112,6 +112,17 @@ by `part.sketch_new`, exactly as `REVOLVE`'s 8-argument emitted form pins the
 axis origin to a literal `0, 0, 0` and cannot state an off-origin revolve.
 Neither is corrected in the figure; both are named.
 
+**#177 landed between these two revisions and moved none of it, which is the
+control that makes the numbers above this branch's own.** The native draft engine
+adds no user-facing command and no feature-IR op -- there is no `DRAFT` among the
+55 the kernel defines -- because it sits one layer BELOW the vocabulary: a second
+engine chained behind the existing `forge.part.draftFaces` kernel entry point,
+which no command emits and no op names. So `kernel_ops` is 55 on both sides of
+that merge, and every count that DID move above is attributable to the eight
+commands and to nothing else. #177's own result -- family J 0.0% -> 65.8%
+(372/565) against OCCT's 88.0%, with OCCT_CLOSURE unmoved at 14 -- is measured in
+`forge-kernel/reports/DRAFT_NATIVE_ENGINE.md`, not here.
+
 The six were out for the ordinary reason: they arrived with the SURFACE value
 kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
 built them, and no command emitted one yet. One command apiece closed it. What
