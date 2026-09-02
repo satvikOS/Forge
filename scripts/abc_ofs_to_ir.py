@@ -136,6 +136,47 @@ UNITS_M = {
 
 SUPPORTED_FEATURES = frozenset(("newSketch", "extrude"))
 
+# ---------------------------------------------------------------- geometry-free
+# Features that BUILD NOTHING, and may therefore be stepped over rather than
+# refused. This list is short on purpose and every entry is MEASURED, not
+# assumed, because the differential gate CANNOT catch a wrong entry here: both
+# arms consume the same plan, so a feature this file skips is skipped by the
+# reference arm too and the two agree with each other about a solid that is
+# missing a feature. Skipping is the one decision the gate does not check, so
+# the evidence has to be in this comment.
+#
+# MEASURED over a stride-5 sample of the corpus (1,970 models), for each
+# candidate: does any instance carry sketch entities, does any carry
+# subFeatures, and does any OTHER feature's serialised body mention its
+# featureId / nodeId (a datum something is built ON is not free to drop)?
+#
+#   mateConnector   447 instances    0 with entities   0 with subFeatures   0 referenced
+#   cPlane        1,061 instances    0 with entities   3 with subFeatures   0 referenced
+#
+# mateConnector is a coordinate frame -- an origin, two axis queries and a
+# transform -- and is clean on all three counts, so it is skipped outright.
+#
+# cPlane is a DATUM PLANE and is skipped ONLY when it carries no subFeatures;
+# the 3 that do could build anything and stay refused by name. Skipping the
+# rest cannot move a sketch onto the wrong plane, and the reason is a SEPARATE
+# gate rather than a property of cPlane: a sketch names its plane by
+# deterministic id, and `sketch_plane_not_a_default_plane` refuses every id
+# outside {JDC, JCC, JEC}. A sketch on a construction plane is therefore
+# already refused whether or not the cPlane that made it was stepped over.
+GEOMETRY_FREE_FEATURES = frozenset(("mateConnector", "cPlane"))
+
+
+def _is_geometry_free(m) -> bool:
+    """True if this feature builds nothing, so the plan may step over it."""
+    t = m.get("featureType")
+    if t not in GEOMETRY_FREE_FEATURES:
+        return False
+    # A subfeature is an arbitrary feature tree hanging off this one. Whatever
+    # the parent is, that is not geometry-free.
+    if m.get("subFeatures") or m.get("entities"):
+        return False
+    return True
+
 REFUSALS = (
     "unsupported_feature",               # an op outside {newSketch, extrude}
     "unrepresentable_curve",             # spline / ellipse / conic / text / image
@@ -587,7 +628,16 @@ def gate_violations(feats) -> list:
     planes = set()
     for m in feats:
         t = m.get("featureType")
-        if t not in SUPPORTED_FEATURES:
+        if t in SUPPORTED_FEATURES:
+            continue
+        if _is_geometry_free(m):
+            continue          # builds nothing -- see GEOMETRY_FREE_FEATURES
+        # A geometry-free TYPE carrying subfeatures is still refused, but under a
+        # name that says which of the two it was: "cPlane" alone would suggest the
+        # datum is the problem, when what blocks the model is the tree hanging off it.
+        if t in GEOMETRY_FREE_FEATURES:
+            out.append(("unsupported_feature", f"{t}<with-subfeatures>"))
+        else:
             out.append(("unsupported_feature", str(t)))
 
     n_new = 0
