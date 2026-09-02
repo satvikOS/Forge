@@ -100,12 +100,28 @@ const FeatureRecord* PartDocument::lastFeature() const noexcept {
 }
 
 std::string PartDocument::irProgram() const {
-  std::string out;
-  for (const FeatureRecord& r : records_) {
-    out += r.line.text();
-    out += "\n";
-  }
-  return out;
+  // DERIVED, not concatenated. The header states the contract -- "the emitted
+  // program is DERIVED from the records plus the history state, and it is
+  // renumbered" -- and emissionPlan() is where that derivation lives:
+  // suppression, deletion, the rollback bar, pass-through rebasing, orphan
+  // pruning, and the dense 1..N renumber with every %ref remapped.
+  //
+  // This function used to walk records_ and print every line, which made the
+  // whole history model INERT through the one accessor nearly everything reads:
+  // setSuppressed() set a flag, emissionPlan() honoured it, and irProgram()
+  // emitted the statement anyway. A user suppressing a feature saw it vanish
+  // from the tree and stay in the program.
+  //
+  // This is not a behaviour change for a document with no history state. With
+  // nothing suppressed, deleted or rolled back, every statement is kept and the
+  // renumber is the identity, so the plan reproduces the old concatenation
+  // exactly -- which is what makes this safe for the callers that predate the
+  // history model.
+  // HELD, not chained: program() is lvalue-ref-qualified with the rvalue
+  // overload deleted, so the dangling one-liner does not compile. That is the
+  // guard working, and this is the shape it requires.
+  const EmissionPlan plan = emissionPlan();
+  return plan.program();
 }
 
 bool PartDocument::appendFeature(const FeatureRecord& record,
@@ -121,7 +137,25 @@ bool PartDocument::appendFeature(const FeatureRecord& record,
   lastCheck_ = check;
   if (check != IrCheck::Ok) return false;  // no partial mutation
 
-  records_.push_back(record);
+  // MINT THE IDENTITY HERE, because this is the only door into records_.
+  // `uid` is what every reference survives a renumber THROUGH (reorderFeatures
+  // remaps old id -> uid -> new id), so a record that reaches the document
+  // without one is a record no reference can find again: idOfUid() returns 0
+  // for uid 0 by contract, which turns every uid-mediated lookup into a
+  // silent miss rather than an error. Assigning it at each of the three
+  // FeatureRecord construction sites would leave the next one free to forget;
+  // assigning it at the single choke point cannot be forgotten.
+  FeatureRecord stored = record;
+  if (stored.uid == 0) {
+    stored.uid = nextUid_++;
+  } else if (stored.uid >= nextUid_) {
+    // A record arriving WITH an identity keeps it -- installTree() rebuilds a
+    // document by re-appending existing records, and an identity that changed
+    // when the tree was reinstalled would not be an identity. Keep the
+    // counter ahead of it so a later mint cannot collide.
+    nextUid_ = stored.uid + 1;
+  }
+  records_.push_back(stored);
   for (const std::string& node : consumedNodes) bindings_.erase(node);
   if (!producedNode.empty()) bindings_[producedNode] = record.irId;
   return true;
@@ -648,7 +682,18 @@ bool AppendFeatureEdit::apply(PartDocument& doc) {
   before_ = doc.snapshot();
   // On redo the record keeps its ORIGINAL ir id. An id that drifted on redo
   // would silently rewrite every later `%N` in the program.
-  return doc.appendFeature(record_, consumed_, produced_);
+  if (!doc.appendFeature(record_, consumed_, produced_)) return false;
+  // ... and its ORIGINAL uid, for the same reason one step further out. The
+  // document mints the identity on first apply; capture it back here so REDO
+  // re-appends the same one instead of minting a second. Undo restores a
+  // snapshot taken before the append, so without this the feature would come
+  // back after redo wearing a different identity than the one anything that
+  // referenced it recorded.
+  if (record_.uid == 0) {
+    const FeatureRecord* stored = doc.featureAt(record_.irId);
+    if (stored != nullptr) record_.uid = stored->uid;
+  }
+  return true;
 }
 
 void AppendFeatureEdit::revert(PartDocument& doc) { doc.restore(before_); }
