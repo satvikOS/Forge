@@ -55,6 +55,24 @@ calls it.
 > "measure only from a tree pinned to origin" trap, and it caught me — I am reporting both numbers
 > rather than the convenient one.
 
+> **RESOLVED 2026-09-01 — the caveat above is now closed, in the repository.**
+> The four kinds that existed only as uncommitted work in a shared checkout
+> (`PointOnObject`, `Radius`, `Diameter`, `Angle`) are committed, and so are six
+> more: `Concentric`, `Collinear`, `Symmetric`, `Midpoint`, `Fix`, `DistanceX`
+> and `DistanceY`. `forge::SketchConstraintKind` declares **20** kinds and
+> `CON` dispatches all **19** keywords of the table in §4 below — measured by
+> PROBING the compiler with each keyword, not by reading a table
+> (`forge-kernel/test/ft/sketch_solve_test.cpp`, case M, with an absent keyword
+> as the probe's own control). Three refusals went with them: `EQUAL` on arcs,
+> `TANG` on anything but line-circle, and `PTON` onto a circle or an arc.
+>
+> The count discrepancy this caveat recorded (a built binary reporting 14 kinds
+> against a source declaring 10) is exactly the trap it named — and the fix was
+> not to trust the binary but to WRITE THE SOURCE. Everything the binary could
+> do, the repository can now do, and 103 checks in the gate say which
+> (MEASURED on the merged tree: `[sketch_solve] 103 checks, 0 failures — PASS`,
+> including `[keywords] 19 of 19 documented CON keywords dispatch`).
+
 ---
 
 ## 1. Census
@@ -250,6 +268,13 @@ Nine new ops. Names are three-to-six characters because a long tree pays for eve
 
 Every one of those routes to a primitive that **already exists** in `GCS.h`. This is facade
 exposure, not numerics.
+
+> **SHIPPED 2026-09-01.** All nineteen dispatch. Nine landed with the family; the other ten
+> (`CONC COLL SYMM MIDPT FIX DISTX DISTY ANGLE RADIUS DIAM`) are one `forge::Sketcher` switch
+> arm each, as this section predicted. `ANGLE` is degrees here and radians in the solver, and
+> the conversion sits at the IR boundary — a missing conversion still compiles, solves and
+> converges, so it is covered by a positive control that asserts perpendicularity rather than
+> convergence.
 
 **Constraint ops are pass-through.** `CON` returns the same `SKETCH` value it was handed —
 the pattern `TAG` and `VERIFY` already use (`FeatureTree.hpp:131-141`, *"Pass-through like

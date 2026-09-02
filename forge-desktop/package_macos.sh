@@ -63,6 +63,86 @@ set -uo pipefail
 say()  { echo "[package] $*"; }
 die()  { echo "[package] FATAL: $*" >&2; exit 1; }
 
+# ── ★ NO LAUNCH IN THIS SCRIPT MAY BE UNBOUNDED ──────────────────────────────
+# MEASURED, run 33530159153 (claude/sacrosanct-execution-20260828 @ e363a905,
+# macos-15). The last line the job ever printed was
+#
+#   16:15:19  [package] relocation smoke test: launching the COPY at ...
+#   16:47:01  ##[error]The operation was canceled.
+#             Terminate orphan process: pid (11807) (forge_desktop)
+#
+# 31m42s inside ONE command substitution, and the runner had to reap the
+# process at cleanup. The identical signature was recorded twice more against
+# `timeout-minutes: 180` (runs 33392163311 and 33377699374, 180.3 min each).
+#
+# The same smoke test on fix/release-publish-visible returned in **80 ms**:
+#
+#   22:37:22.27  relocation smoke test: launching the COPY
+#   22:37:22.35    relocated bundle launched and exited 0: [forge] --headless ...
+#
+# So this is not a slow build, it is a launch that never returns, and a job
+# timeout reports as `cancelled` — which reads as an infrastructure blip and
+# hid the defect three times. `$(...)` makes it worse than a plain hang: the
+# substitution waits for the PIPE to close, so any surviving child holding
+# stdout keeps the shell blocked even after the parent exits.
+#
+# macos-15 runners carry neither `timeout` nor `gtimeout`, so this is the
+# watchdog. On expiry it takes a sample(1) stack BEFORE killing, because
+# "it hung" is not a diagnosis and the stack is the only thing that names the
+# frame it hung in.
+#
+# Usage: run_bounded <seconds> <label> <outfile> <cmd> [args...]
+# Returns the command's exit status, or 124 if the watchdog fired.
+run_bounded() {
+  local limit="$1" label="$2" outf="$3"; shift 3
+  local flag="$WORK/.watchdog_fired"
+  local samp="$WORK/hang.sample.txt"
+  rm -f "$flag" "$samp"
+  : > "$outf"
+
+  "$@" > "$outf" 2>&1 &
+  local pid=$!
+
+  # The watchdog is a child of THIS shell, but $pid is its sibling, so `kill -0`
+  # here is a plain process-existence probe. It can still see a zombie, which is
+  # why the caller treats the flag as authoritative only alongside a non-zero
+  # exit status.
+  (
+    n=0
+    while [ "$n" -lt "$limit" ]; do
+      sleep 1
+      n=$((n + 1))
+      kill -0 "$pid" 2>/dev/null || exit 0
+    done
+    : > "$flag"
+    sample "$pid" 5 -f "$samp" >/dev/null 2>&1
+    kill -9 "$pid" 2>/dev/null
+  ) &
+  local wdog=$!
+
+  wait "$pid"; local rc=$?
+  kill "$wdog" 2>/dev/null
+  wait "$wdog" 2>/dev/null
+
+  # A clean exit 0 is a pass even if the watchdog tripped in the microseconds
+  # between `wait` returning and the kill above — otherwise that race would
+  # report a phantom timeout on a build that was fine.
+  if [ -f "$flag" ] && [ "$rc" -ne 0 ]; then
+    echo "[package] $label: STILL RUNNING after ${limit}s — killed." >&2
+    echo "[package] ---- what it printed before it stopped ----" >&2
+    cat "$outf" >&2 2>/dev/null
+    if [ -s "$samp" ]; then
+      echo "[package] ---- sample(1) stack of the stuck process ----" >&2
+      cat "$samp" >&2
+    else
+      echo "[package] (sample(1) produced nothing)" >&2
+    fi
+    echo "[package] ---- end diagnosis ----" >&2
+    return 124
+  fi
+  return "$rc"
+}
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || die "cannot cd to $ROOT"
 
@@ -227,6 +307,81 @@ cp -L "$MVK_LIB" "$FW/libMoltenVK.dylib" || die "cannot stage MoltenVK"
 chmod u+w "$FW/libMoltenVK.dylib"
 grep -qxF "libMoltenVK.dylib" "$SEEN" 2>/dev/null || echo "libMoltenVK.dylib" >> "$SEEN"
 
+# ── 4b RE-LANDED 2026-09-02 ─────────────────────────────────────
+# This block existed on fix/release-publish-visible, was PROVEN there (run
+# 33445851975: relocation smoke test 80 ms), and was then LOST when this file was
+# rewritten on this branch. Its absence is the whole of the release blocker: run
+# 33644564583 on 2026-09-02 hung 120 s and the watchdog's sample(1) stack ends in
+# exactly the frames this comment predicted three days earlier — dllinit →
+# error_dialog → -[NSAlert runModal]. Restored VERBATIM; nothing below is new.
+#
+# A regression test lives beside it: forge-desktop/test/sdl3_staging_gate.sh.
+# ── 4b. SDL3 — THE SECOND dlopen TRAP, AND IT SHIPPED ────────────────────────
+# `brew install sdl2` does NOT install SDL2. The formula is an alias, and on a
+# current Homebrew it resolves to sdl2-compat, which is a SHIM whose
+# libSDL2-2.0.0.dylib loads SDL3 at runtime. MEASURED on the macos-15 runner in
+# Actions run 33439207741:
+#     sdl2   ->  sdl2-compat 2.32.70  ->  depends on  sdl3 3.4.12
+#
+# SDL3 IS NOT IN THE LINK CLOSURE. `otool -L` on sdl2-compat's dylib names
+# AppKit, Foundation, libSystem — and no SDL3 — because the shim dlopen()s it.
+# The transitive walk above therefore cannot see it, exactly as it cannot see
+# MoltenVK, and the bundle shipped without it.
+#
+# WHAT THAT COST, and why it was invisible for so long: sdl2-compat's dylib
+# CONSTRUCTOR loads SDL3 before main() runs, and on failure it calls
+# error_dialog(), which on macOS is a MODAL NSAlert. A modal alert on a machine
+# with nobody to click OK never returns. Run 33392163311 sat in it for 176.5
+# minutes and was killed by the job timeout; the sample(1) stack is
+# unambiguous:
+#     dyld4::APIs::runAllInitializersForMain()
+#       -> dllinit (in libSDL2-2.0.0.dylib)
+#         -> error_dialog (in libSDL2-2.0.0.dylib)
+#           -> -[NSAlert runModal] (in AppKit)
+#             -> -[NSApplication _doModalLoop:peek:] -> CFRunLoopRun
+#
+# THIS IS A SHIPPED-ARTIFACT DEFECT, NOT A CI DEFECT. Every downloader without
+# SDL3 already installed would have got that dialog instead of Forge. The
+# relocation smoke test is what caught it, which is the entire reason it exists.
+#
+# It hid because the two build hosts disagree under one formula name: a machine
+# that installed `sdl2` before Homebrew switched the alias still has REAL SDL2
+# (verified locally: `brew list --versions sdl2` -> `sdl2 2.32.10`, and its
+# dylib contains no SDL3 reference at all), so packaging there produced a
+# genuinely self-contained bundle and passed. Only the runner got the shim.
+#
+# THE NAME MATTERS. sdl2-compat dlopen()s a fixed candidate list, and the one
+# that can resolve inside a bundle is `@loader_path/libSDL3.dylib` — read out of
+# the shim's own binary, not guessed. libSDL2 lives in Contents/Frameworks, so
+# @loader_path IS Contents/Frameworks, and the file must be named
+# `libSDL3.dylib` even though Homebrew's real file is `libSDL3.0.dylib`
+# (`libSDL3.dylib` is a symlink to it, which is why this is `cp -L`).
+#
+# CAPABILITY-DETECTED, never assumed: the trigger is whether the SDL2 actually
+# being bundled references SDL3. A real SDL2 does not, and must not have a
+# stray SDL3 added next to it.
+# `grep -a` rather than `strings | grep`, so the probe depends on nothing but
+# grep itself; a detector that silently fails would put the modal-alert bundle
+# straight back.
+if [ -f "$FW/libSDL2-2.0.0.dylib" ] && \
+   LC_ALL=C grep -aq 'libSDL3\.dylib' "$FW/libSDL2-2.0.0.dylib" 2>/dev/null; then
+  say "SDL2 here is the sdl2-compat shim; staging SDL3 (dlopen'd, invisible to otool)"
+  SDL3_LIB=""
+  for c in "$BREW/opt/sdl3/lib/libSDL3.dylib" "$BREW/lib/libSDL3.dylib" \
+           "$BREW/opt/sdl3/lib/libSDL3.0.dylib" "$BREW/lib/libSDL3.0.dylib"; do
+    if [ -f "$c" ]; then SDL3_LIB="$c"; break; fi
+  done
+  [ -n "$SDL3_LIB" ] || die "this SDL2 is the sdl2-compat shim, which loads SDL3 at
+       runtime, but no libSDL3 was found under $BREW. Without it the packaged app
+       shows a modal 'Failed loading SDL3 library.' alert on launch and never
+       starts. Fix: brew install sdl3"
+  cp -L "$SDL3_LIB" "$FW/libSDL3.dylib" || die "cannot stage SDL3"
+  chmod u+w "$FW/libSDL3.dylib"
+  grep -qxF "libSDL3.dylib" "$SEEN" 2>/dev/null || echo "libSDL3.dylib" >> "$SEEN"
+else
+  say "SDL2 here is a real SDL2 (no SDL3 reference); nothing extra to stage"
+fi
+
 # Bundle-relative ICD manifest. From Contents/Resources/vulkan/icd.d, three
 # levels up is Contents/, so ../../../Frameworks is Contents/Frameworks.
 cat > "$APP/Contents/Resources/vulkan/icd.d/MoltenVK_icd.json" <<'ICD'
@@ -361,11 +516,16 @@ RELOC="$WORK/relocated"
 mkdir -p "$RELOC"
 ditto "$APP" "$RELOC/Forge.app" || die "ditto to the relocation dir failed"
 say "relocation smoke test: launching the COPY at $RELOC/Forge.app"
-if OUT="$("$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless 2>&1)"; then
-  say "  relocated bundle launched and exited 0: ${OUT}"
+RELOC_OUT="$WORK/reloc.launch.txt"
+if run_bounded 120 "relocation smoke test" "$RELOC_OUT" \
+     "$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless; then
+  say "  relocated bundle launched and exited 0: $(cat "$RELOC_OUT")"
 else
-  echo "$OUT" >&2
-  die "the relocated bundle FAILED to launch — it is not self-contained"
+  rc=$?
+  cat "$RELOC_OUT" >&2 2>/dev/null
+  [ "$rc" -eq 124 ] \
+    && die "the relocated bundle HUNG on launch (see the sample(1) stack above)" \
+    || die "the relocated bundle FAILED to launch — it is not self-contained"
 fi
 
 # ★ AND THE WORKER, from the RELOCATED copy. The app degrades quietly without it
@@ -376,14 +536,20 @@ fi
 # is answered before any geometry is touched, so this tests exactly one thing:
 # can this binary be launched from a relocated bundle and does it speak the
 # protocol the app expects.
-if WOUT="$("$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" --version 2>&1)"; then
+WORKER_OUT="$WORK/worker.version.txt"
+if run_bounded 60 "bundled worker --version" "$WORKER_OUT" \
+     "$RELOC/Forge.app/Contents/MacOS/forge_kernel_worker" --version; then
+  WOUT="$(cat "$WORKER_OUT")"
   case "$WOUT" in
     FORGE-WORKER-RESULT*) say "  bundled kernel worker answered --version: ${WOUT}" ;;
     *) die "the bundled kernel worker answered --version with '${WOUT}', not its protocol magic" ;;
   esac
 else
-  echo "$WOUT" >&2
-  die "the bundled kernel worker FAILED to launch — the app would ship with NO crash isolation"
+  rc=$?
+  cat "$WORKER_OUT" >&2 2>/dev/null
+  [ "$rc" -eq 124 ] \
+    && die "the bundled kernel worker HUNG on --version (see the sample(1) stack above)" \
+    || die "the bundled kernel worker FAILED to launch — the app would ship with NO crash isolation"
 fi
 
 # MEASURED, and NOT a packaging defect: VK_LOADER_DEBUG=all shows the loader

@@ -1653,8 +1653,9 @@ int main() {
     }
     // Not "at least four": the count is the enumerator count, so a kind added to
     // the enum and NOT to kAllIrValueKinds fails here instead of at a user's save.
-    // 6 -> 7 when SURFACE joined Sketch/SketchRef in the enum. This assertion is
-    // what caught that merge: kAllIrValueKinds had been written from one side.
+    // 7 = none, profile, wire, solid, surface, sketch, sketchref. It read 6 when
+    // Surface (#146) and Sketch/SketchRef merged, because each branch had written
+    // the list without the other's kind; this check is what said so.
     CHECK_EQ_INT(seen, 7);
 
     // Distinct spellings — two kinds sharing a name would round-trip one of them
@@ -1672,6 +1673,9 @@ int main() {
     CHECK_EQ_STR(toString(IrValueKind::Sketch), "sketch");
     CHECK_EQ_STR(toString(IrValueKind::SketchRef), "sketchref");
     CHECK_EQ_STR(toString(IrValueKind::Profile), "profile");
+    // And the kind the OTHER branch of this merge added, for the same reason: a
+    // sheet body must not round-trip onto solid.
+    CHECK_EQ_STR(toString(IrValueKind::Surface), "surface");
 
     IrValueKind unknown = IrValueKind::Solid;
     CHECK(!irValueKindFromName("", unknown));

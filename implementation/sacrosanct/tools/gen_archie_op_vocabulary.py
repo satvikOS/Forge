@@ -1036,20 +1036,20 @@ REF_ACCESSOR_KIND = {
     "refSolid": "SOLID",
     "refProfile": "PROFILE",
     "refWire": "WIRE",
+    # A %ref that must be a SHEET BODY. It contributes nothing to the JSON while
+    # every surface op is forbidden -- a forbidden op records only its name and
+    # the reason -- but omitting it would be a WRONG answer rather than a missing
+    # one: the moment a forge::ui command emits THICKEN or CAP, its
+    # `consumes_value_kinds` would come back EMPTY, which this file spells "a
+    # CREATOR", and the value-kind closure would report the allowed set as closed
+    # when it is not. `assert_ref_accessors_mapped` now makes that unmissable.
+    "refSurface": "SURFACE",
     # A %ref that must be a SKETCH -- or a SKETCHREF, from which refSketch
     # recovers the owning sketch. The consumed KIND is the sketch either way.
     "refSketch": "SKETCH",
     # A %ref that must be a SKETCHREF: an entity (point / line / circle / arc)
     # inside a sketch. CON names two of them.
     "refEntity": "SKETCHREF",
-    # A %ref that must be a SURFACE (sheet body). It contributes nothing to the
-    # JSON today -- every surface op is forbidden, and a forbidden op records only
-    # its name and the reason -- but omitting it would be a WRONG answer rather
-    # than a missing one: the moment a forge::ui command emits THICKEN or CAP its
-    # `consumes_value_kinds` would come back EMPTY, which this file spells "a
-    # CREATOR", and the value-kind closure would call the allowed set closed when
-    # it is not.
-    "refSurface": "SURFACE",
 }
 
 # Every accessor the compiler defines must be classified above. Anything else is
