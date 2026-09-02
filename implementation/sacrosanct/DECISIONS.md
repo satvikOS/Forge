@@ -3348,3 +3348,41 @@ Every number above comes from files on disk and one script that does arithmetic 
     reports/abcreal/{abcreal_v11_BASELINEPIN,abcreal_v11_BUILDSARC,v10_BUILDSARC,
                      v10_recovered_BASELINEPIN,v6r8_BUILDSARC}.json
 
+
+### D-052 addendum — D-051's owed measurement is discharged, and it CONFIRMS the claim it was raised against
+
+D-051 reported v10's build rate as **206/238 = 86.6%** against v6r8's **137/238 = 57.6%**, a
+**+29.0 pt** gap, and then bounded its own result: the two arms had been scored by different
+scorers (v10 by `measure_failure_v2`, v6r8 by v1, per the files' own `scorer` field), and v1
+has a measured defect — *a mid-batch abort condemns its neighbours*, because it returns the
+lines printed before a crash and records every row after the crashing one as no-output. That
+defect can only **depress** v6r8, so D-051 called +29.0 an **upper bound** and owed a
+re-measurement.
+
+**Re-measured: v6r8's emissions, the SAME pinned binary, the v2 scorer.** The two scorers
+agree exactly — not approximately:
+
+| | v1 (as recorded) | v2 (re-measured) |
+|---|---|---|
+| built | 137/238 = **57.6%** | 137/238 = **57.6%** |
+| rows emitting VERIFY | 131 = **55.0%** | 131 = **55.0%** |
+| self-inconsistency | **58.0%** | **58.0%** |
+| `instrument_failed` | n/a | **0** |
+| status histogram | `verify_failed 76 / op_error 91 / ok 61 / verify_malformed 1 / unknown_op 9` | **identical, bucket for bucket** |
+
+**The confound is zero. The gap is exactly +29.0 pt, not an upper bound.** v1's defect never
+fired here because **v6r8's run contains no verifier deaths at all** — with nothing to
+condemn its neighbours, the two scorers are the same function on this input.
+
+★Recorded because the direction matters: this was a caveat raised **against** a claim I had
+made, and discharging it **strengthened** the claim. A caveat is only worth writing if it is
+allowed to come back either way, and this one came back the way that suited me. It is
+reported with the same energy the opposite result would have been. **Nothing in D-051 needs
+amending except the word "upper bound", which can now be struck.**
+
+**One thing this does NOT establish:** the v1/v2 agreement holds on a run with zero
+instrument deaths, which is exactly the case where the two are provably equivalent. It says
+nothing about v1's behaviour on a run that DOES crash — and the v10 arm, which had 7
+instrument failures, was never scored with v1. So the correct reading is not "v1 and v2 agree"
+but "**v1 and v2 agree when nothing dies**", which is the only claim the data supports and
+the only one D-051 needed.
