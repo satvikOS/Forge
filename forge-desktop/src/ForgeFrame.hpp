@@ -362,6 +362,20 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // part.chamfer, part.variable_fillet -- were unreachable from every gesture.
   void setPreselectedEdge(std::size_t index);
   void clickEdge(std::size_t index, bool additive);
+
+  // THE THIRD PRODUCER, and the one the other two could not stand in for.
+  // clickFace makes an EntityKind::Face and clickEdge an EntityKind::Edge, and
+  // SelectionSignature::satisfiedBy compares kinds EXACTLY -- so 28 of the 80
+  // commands in the registry named a kind the interface could never produce and
+  // were greyed out for ever: part.extrude and part.revolve, every boolean,
+  // every pattern, mirror/move/rotate, loft, skin, thicken and the whole sketch
+  // family. The CoPilot could drive all of them; a person could not.
+  //
+  // A feature-tree row IS a document statement, which is exactly what those
+  // signatures want. The kind comes from forge::ui::entityKindFor(), never from
+  // a mapping this class invents. `additive` is the shift-click, which is how
+  // two bodies are picked for a boolean and three points for a sketch arc.
+  void clickFeature(int irId, bool additive);
   // TRUE when the live selection filter means the viewport picks edges. The
   // filter is the status strip's existing control; before this it could only
   // REFUSE picks, because nothing ever offered it an Edge.

@@ -1155,6 +1155,96 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
        std::to_string(shell_.selection().count()) + " picked)");
 }
 
+// ── SELECTING A STATEMENT: the producer 28 commands were waiting for ────────
+//
+// THE DEFECT, MEASURED. Before this, ForgeFrame had exactly TWO producers of
+// selection refs — clickFace (EntityKind::Face) and clickEdge
+// (EntityKind::Edge). Nothing anywhere constructed a ref of any other kind, and
+// SelectionSignature::satisfiedBy compares kinds EXACTLY, with no subsumption.
+// So of the 80 commands in the registry, 28 named a kind the interface could
+// never produce — 13 body, 5 sketchref, 4 surface, 2 sketch, 2 opensketch, 2
+// wire — and every one of them was permanently greyed out. That set includes
+// part.extrude and part.revolve, every boolean, every pattern, mirror, move,
+// rotate, loft, skin, thicken and the whole sketch family: a user could not
+// extrude a sketch in a CAD application. The Archie CoPilot COULD drive all 28,
+// because ArchieCopilot::resolveSelection builds exactly these refs from the
+// document. The agent could do what the person could not.
+//
+// Every gate stayed green because none of them was asking this question.
+// app_surface_reachability_test proves each surface OFFERS every command and
+// says so precisely — "enumeration, not pixels". Offering is not invoking.
+//
+// The feature tree is the right surface: its rows ARE the document's statements,
+// and a statement is exactly what these signatures want. The kind comes from
+// forge::ui::entityKindFor(), so the tree cannot invent a mapping of its own —
+// ui/test/selection_reachability_test.cpp proves that function total, injective
+// and sufficient for all 28.
+void ForgeFrame::clickFeature(int irId, bool additive) {
+  if (irId == 0) return;
+  const forge::ui::EntityKind kind = forge::ui::entityKindFor(partDoc_.kindOf(irId));
+  if (kind == forge::ui::EntityKind::None) {
+    note("statement %" + std::to_string(irId) + " produces no value, so it cannot be selected");
+    return;
+  }
+  // The filter is the user's own instruction about what they are picking. A tree
+  // click that ignored it would make "set the filter to edge" mean nothing in
+  // half the window, and it would break the homogeneity every signature requires.
+  //
+  // Checked BEFORE the binding below, so a refused pick leaves the document
+  // exactly as it was: a click the app declines must not still write to the
+  // thing it declined to act on.
+  if (!shell_.selection().accepts(kind)) {
+    note(std::string("the selection filter is ") +
+         forge::ui::toString(shell_.selection().filter()) + ", so a " +
+         forge::ui::toString(kind) + " cannot be picked — set the filter to Any or " +
+         forge::ui::toString(kind));
+    return;
+  }
+
+  // resolveValues() reads EntityRef::bodyId -> valueFor() -> kindOf(), so a
+  // statement with no node binding cannot be resolved back to an IR value by ANY
+  // route — the CoPilot's boundValues() skips it for the same reason. The
+  // SEEDED statements of the starter part carry no node (only the last one
+  // does), so without this the four rows a new document opens on would be the
+  // ones that could not be picked. A statement whose node was CONSUMED by a
+  // command is in the same position, and is re-bound here for the same reason.
+  //
+  // Binding here is not a document EDIT: bindings are not statements, so
+  // irProgram() is unchanged, syncSceneToDocument() sees no difference and
+  // nothing rebuilds. restore() with an unchanged record count rewrites the
+  // binding table and nothing else — the document's own published way to set
+  // one, which is why this needs no new mutation entry point (ensureBodyBinding
+  // does the same thing for the body).
+  std::string node = partDoc_.nodeFor(irId);
+  if (node.empty()) {
+    forge::ui::PartDocument::Snapshot snap = partDoc_.snapshot();
+    // "pick_" and not one of PartCommands' own sketch_/wire_ prefixes: those
+    // name values a COMMAND produced and are private to it, and kindOf() reads
+    // the record's own `produces` field rather than the node's spelling, so the
+    // name only has to be unique. A statement index is unique by construction.
+    node = "pick_" + std::to_string(irId);
+    snap.bindings[node] = irId;
+    partDoc_.restore(snap);
+  }
+
+  forge::ui::EntityRef ref;
+  ref.bodyId = node;
+  ref.kind = kind;
+  ref.persistentName = "feature@" + std::to_string(irId);
+  if (additive) {
+    shell_.selection().toggle(ref);
+  } else {
+    shell_.selection().replaceWith({ref});
+  }
+  shell_.selection().setFocus(ref);
+  // The viewport highlights FACES; a statement is not a face, so the face
+  // highlight is cleared rather than left showing the previous pick as though it
+  // were still selected.
+  syncSelectionToScene();
+  note(std::string("selected ") + forge::ui::toString(kind) + " %" + std::to_string(irId) +
+       "  (" + std::to_string(shell_.selection().count()) + " picked)");
+}
+
 std::vector<std::uint32_t> ForgeFrame::selectedFaceIds() const {
   std::vector<std::uint32_t> ids;
   for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
@@ -2533,10 +2623,22 @@ void ForgeFrame::drawFeatureTreePanel() {
         }
         const int featureIrId = treeSource_.featureIrIdOf(d.id);
         if (faceId == 0 && featureIrId != 0 && featureIrId == editFeatureId_) selected = true;
+        // A feature row now carries a real SELECTION, so it has to draw as
+        // selected when it is one -- a row that is picked and looks unpicked is
+        // how a user comes to believe a command refused for no reason.
+        if (faceId == 0 && featureIrId != 0) {
+          for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+            if (r.persistentName == "feature@" + std::to_string(featureIrId)) selected = true;
+          }
+        }
         if (ImGui::Selectable(d.label.c_str(), selected, ImGuiSelectableFlags_AllowOverlap)) {
           if (faceId != 0) {
             clickFace(faceId, ImGui::GetIO().KeyShift);
           } else if (featureIrId != 0) {
+            // AND it becomes the typed SELECTION. This is the click that makes
+            // Extrude, the booleans, the patterns, loft, thicken and the sketch
+            // family reachable at all -- see clickFeature().
+            clickFeature(featureIrId, ImGui::GetIO().KeyShift);
             // Clicking a FEATURE row used to do nothing at all. It is the row a
             // user reaches for to change that feature's numbers, so it is what
             // aims the parameter editor.

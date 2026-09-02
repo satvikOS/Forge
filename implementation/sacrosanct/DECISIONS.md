@@ -2780,3 +2780,84 @@ prove `forge_kernel_worker` ships inside `Contents/MacOS/` (`package_macos.sh` d
 `release_dryrun.sh` re-checks the built bundle) still run ONLY on a tag or a dispatch of
 `desktop-release.yml` — they are correct and they have no PR-time gate. That is recorded as an open
 finding, not closed here: a 90-minute packaging job on every PR would be the wrong answer to it.
+
+## D-048 (2026-09-02): a user could not extrude a sketch — 28 of the 80 commands needed a selection kind the interface could not produce, and every gate was green because none of them was asking
+
+**The measurement.** ForgeFrame had exactly TWO producers of selection refs:
+`clickFace`, which makes an `EntityKind::Face`, and `clickEdge`, which makes an `EntityKind::Edge`.
+`grep -n "ref.kind = "` over `forge-desktop/src/ForgeFrame.cpp` returned those two lines and no
+others. `SelectionSignature::satisfiedBy` compares kinds EXACTLY —
+`sel.countOf(kind) == total`, with no subsumption — so a picked Face does not stand in for a Body
+and certainly not for a Profile. Classifying the live registry by required kind gives:
+
+| required kind | commands | reachable |
+|---|---|---|
+| none | 39 | yes |
+| any | 2 | yes |
+| face | 8 | yes (viewport pick) |
+| edge | 3 | yes (viewport pick) |
+| **body** | **13** | **no** |
+| **sketchref** | **5** | **no** |
+| **surface** | **4** | **no** |
+| **sketch** | **2** | **no** |
+| **opensketch** | **2** | **no** |
+| **wire** | **2** | **no** |
+
+**28 of 80 were un-invocable by a human.** The list includes `part.extrude` and `part.revolve`,
+all three booleans, all three patterns, mirror, move, rotate, loft, skin, thicken, cap, sew and the
+entire sketch-entity family. **A user could not extrude a sketch in a CAD application.**
+
+**Why every gate was green.** `capability_manifest_test` asks whether the committed manifest equals
+the live registry — it did. `app_surface_reachability_test` asks whether every surface OFFERS every
+command — it did, in both directions, for the menu, the ribbon, the palette, the tool catalog and
+the manifest; that gate states its own limit in its header ("Enumeration, not pixels"). **Offering
+a command and being able to invoke it are two claims, and only the first one had a gate.** The
+sharpest form of the finding: `ArchieCopilot::resolveSelection` builds exactly the refs that were
+missing, so the AGENT could drive all 28 commands the PERSON could not.
+
+**The close.** A feature-tree row IS a document statement, which is precisely what those signatures
+want, so the tree becomes the third producer. `ForgeFrame::clickFeature(irId, additive)` takes the
+kind from a new `forge::ui::entityKindFor(IrValueKind)` — never from a mapping the frame invents —
+and shift-click is how two bodies are picked for a boolean and three points for a sketch arc. Two
+details that are not incidental:
+
+* **The filter is honoured, and honoured FIRST.** A tree click that ignored the selection filter
+  would make "set the filter to Edge" mean nothing in half the window. It is checked before the
+  binding below, so a refused pick leaves the document exactly as it was.
+* **An unbound statement is bound on demand.** `resolveValues()` reads `bodyId -> valueFor() ->
+  kindOf()`, so a statement with no node binding cannot be resolved by ANY route — and
+  `makeDefaultPart()` binds a node for only its LAST statement, so the four rows a new document
+  opens on were exactly the un-pickable ones. `clickFeature` binds `pick_<irId>` through
+  `PartDocument::restore()`, the document's own published way to set a binding (`ensureBodyBinding`
+  already does the same for the body). This is not a document edit: bindings are not statements, so
+  `irProgram()` is unchanged and nothing rebuilds. `kindOf()` reads the record's own `produces`
+  field rather than the node's spelling, which is why the name only has to be unique and needs none
+  of PartCommands' private `sketch_` / `wire_` prefixes.
+
+**Gates, and the two halves they divide into.**
+`ui/test/selection_reachability_test.cpp` is the standing measurement: it classifies the live
+registry, reads the producible kinds out of `ForgeFrame.cpp` AS DATA (the literal
+`ref.kind = forge::ui::EntityKind::X` assignments, plus the delegated `entityKindFor` form), and
+RATCHETS the unreachable count at an EQUALITY — **28 → 0** — so a command added needing a kind no
+surface produces turns red instead of shipping a menu item nobody can invoke, and a producer
+removed turns red instead of silently greying out a family again. It also proves `entityKindFor` is
+total over `IrValueKind` and injective, because two IR kinds sharing one `EntityKind` would undo
+exactly the Wire-vs-Sketch and Surface-vs-Body distinctions the kernel forced into that enum.
+
+What a source read cannot prove is that the click reaches dispatch. That is proved where it can be:
+`frame_gate` mutation 12 clicks the seeded PROFILE row on the real linked `ForgeFrame`, asserts the
+ref comes back as an `EntityKind::Sketch` whose node resolves to that statement, dispatches
+`part.extrude` through the one registry and requires an `EXTRUDE` statement in the document — then
+sets the filter to Edge and requires the same click to select NOTHING.
+
+**One scanner defect, kept as a fact.** The first version of the source read compared the parsed
+enumerator (`Face`) against `toString(EntityKind::Face)` (`face`) and matched nothing, so it
+reported an EMPTY producible set. It did not pass vacuously: `parsed` is asserted precisely so a
+scanner that stops matching is RED rather than silent. That is why the assertion is there.
+
+**What this does NOT claim.** No window was opened and no row was clicked with a mouse: the tree's
+`ImGui::Selectable` handler is asserted by the source read, and `clickFeature` — the function it
+calls — is asserted end to end. The 28 is a count of commands whose SIGNATURE could not be
+satisfied; it is not a claim that all 28 now produce correct geometry, which is the kernel's
+question and not this one. And `forge-desktop` was NOT built locally (a 30B training run held this
+box): the compiled half is CI's.

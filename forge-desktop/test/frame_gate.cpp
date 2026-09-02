@@ -35,6 +35,10 @@
 //  11  the frame never dispatches the deferred Open     -> File > Open Recent
 //      Recent request                                      records a click and
 //                                                          opens nothing
+//  12  a feature-tree statement row is never clicked    -> nothing can put a
+//                                                          Sketch in the
+//                                                          selection, so Extrude
+//                                                          has nothing to consume
 // <algorithm> for the same reason document_gate.cpp includes it beside <cstdio>:
 // this file calls std::remove(const char*) to delete its temp .fpart, and
 // `std::remove` is declared by BOTH headers -- the iterator algorithm and the C
@@ -1043,6 +1047,76 @@ int main(int argc, char** argv) {
           "while the document that WAS open is left untouched", frame.documentPath());
 
     std::remove(reopenPath.c_str());
+  }
+
+  // ── 12. A USER CAN EXTRUDE A SKETCH ──────────────────────────────────────
+  //
+  // The claim the whole product rests on, and it was FALSE. ForgeFrame had two
+  // producers of selection refs — clickFace (EntityKind::Face) and clickEdge
+  // (EntityKind::Edge) — and SelectionSignature::satisfiedBy compares kinds
+  // EXACTLY, with no subsumption. part.extrude's signature is
+  // exactly(EntityKind::Sketch, 1). No surface in the application could produce
+  // an EntityKind::Sketch, so Extrude was permanently greyed out, along with 27
+  // other commands needing body / sketchref / opensketch / surface / wire. Every
+  // gate was green: app_surface_reachability_test proves each surface OFFERS
+  // every command, and says in its own header that this is "enumeration, not
+  // pixels".
+  //
+  // This asserts the whole path against the REAL linked application: click the
+  // statement row, get a typed ref of the right kind, dispatch Extrude through
+  // the one registry, and find an EXTRUDE statement in the document.
+  //
+  // MUTATION 12 removes the click. Everything after it is unconditional.
+  {
+    // The seeded starter part's statement %1 is the RECT profile. It is READ
+    // from the document rather than assumed to be 1: a change to
+    // defaultPartStatements() must move this gate's subject, not silently give
+    // it a different statement.
+    int profileId = 0;
+    for (const forge::ui::FeatureRecord& r : frame.document().records()) {
+      if (r.produces == forge::ui::IrValueKind::Profile) { profileId = r.irId; break; }
+    }
+    checkGe(profileId, 1, "the document holds a PROFILE statement to extrude");
+
+    // It carries NO node binding — only the last seeded statement does — so it
+    // is exactly the row that could not be resolved back to an IR value by any
+    // route. clickFeature binds one; that this used to be empty is the reason
+    // the check exists.
+    shell.selection().clearSelection();
+    shell.selection().setFilter(forge::ui::EntityKind::Any);
+    if (g_mutation != 12) frame.clickFeature(profileId, false);
+
+    checkEq(shell.selection().count(), 1u, "clicking a statement row selects exactly it");
+    forge::ui::EntityKind picked = forge::ui::EntityKind::None;
+    std::string pickedNode;
+    if (shell.selection().count() == 1) {
+      picked = shell.selection().selection().front().kind;
+      pickedNode = shell.selection().selection().front().bodyId;
+    }
+    check(picked == forge::ui::EntityKind::Sketch,
+          "and a PROFILE statement is selected as a Sketch, which is what EXTRUDE wants",
+          std::string(forge::ui::toString(picked)));
+    check(!pickedNode.empty(), "the statement now has a node a command can resolve", pickedNode);
+    check(frame.document().valueFor(pickedNode) == profileId,
+          "and that node resolves back to the statement that was clicked",
+          std::to_string(frame.document().valueFor(pickedNode)));
+
+    const std::size_t before = frame.document().records().size();
+    frame.invoke("part.extrude");
+    const std::size_t after = frame.document().records().size();
+    checkEq(after, before + 1, "Extrude, dispatched through the one registry, added a statement");
+    std::string producedOp;
+    if (after > before) producedOp = frame.document().records().back().line.op;
+    check(producedOp == "EXTRUDE", "and the statement it added is an EXTRUDE", producedOp);
+
+    // The filter is still the user's instruction. A tree click that ignored it
+    // would make "set the filter to Edge" mean nothing in half the window.
+    shell.selection().clearSelection();
+    shell.selection().setFilter(forge::ui::EntityKind::Edge);
+    frame.clickFeature(profileId, false);
+    checkEq(shell.selection().count(), 0u,
+            "a statement click obeys the selection filter instead of overriding it");
+    shell.selection().setFilter(forge::ui::EntityKind::Any);
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);
