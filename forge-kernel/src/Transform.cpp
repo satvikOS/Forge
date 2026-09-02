@@ -78,8 +78,20 @@ ShapeHandle rotate(ShapeHandle h, double ax, double ay, double az, double angleR
         ShapeRegistry::instance().kindOf(h) != ShapeKind::Occt) {
         // Rodrigues rotation about the unit axis (ax,ay,az) through the origin —
         // identical convention to OCCT's gp_Ax1(origin, dir) + SetRotation.
+        // The OCCT path below spells this same invariant `!(n > 0.0) ||
+        // !std::isfinite(n)`, and the two must MATCH -- the comment there calls
+        // it "the same invariant the native path above already checks", which
+        // `n < 1e-300` did not make true. That form rejects a zero axis and
+        // nothing else: for ax=1e308 the square overflows, n becomes +inf,
+        // `inf < 1e-300` is FALSE, and the unit axis divides out to (0,0,0), so
+        // Rodrigues collapses to cos(angle)*I -- a UNIFORM SCALE silently
+        // returned as a rotation, with no throw for any caller to attribute. A
+        // NaN component takes the same route, since every comparison against
+        // NaN is false. Both are the failure this file exists to remove: not an
+        // error, a wrong answer.
         double n = std::sqrt(ax*ax + ay*ay + az*az);
-        if (n < 1e-300) throw std::invalid_argument("forge rotate: zero axis");
+        if (!(n > 0.0) || !std::isfinite(n))
+            throw std::invalid_argument("forge rotate: zero axis");
         double ux = ax / n, uy = ay / n, uz = az / n;
         double c = std::cos(angleRad), s = std::sin(angleRad), C = 1.0 - c;
         const double R[9] = {
