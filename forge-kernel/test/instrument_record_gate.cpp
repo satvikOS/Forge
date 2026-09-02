@@ -30,6 +30,11 @@
 
 #include <cstdio>
 #include <cstring>
+#include <functional>   // runChild takes a std::function. libc++ happens to pull
+                        // this in transitively and libstdc++ does not, so without
+                        // it the gate compiles on the macOS runner and fails on a
+                        // Linux one -- a portability break in the one file whose
+                        // selling point is that it runs anywhere a compiler does.
 #include <string>
 #include <vector>
 
