@@ -15,15 +15,32 @@
 
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
+// ★ THE KERNEL PATH IS TREE-LOCAL, and it used to be the PRIMARY CHECKOUT's.
+// Hard-coding /Users/.../archdisc-Mech/forge-kernel/build/Release made this file
+// load SOMEONE ELSE'S BINARY whenever it was run from a git worktree: the suite
+// printed ALL PASS against a build that did not contain the change under test.
+// MEASURED in this session — three suites reported green against a kernel dated
+// four days earlier. Resolved from this file's own location instead, and a
+// MISSING binary is a loud failure, never a silent fall back to another tree's.
+import { fileURLToPath } from 'node:url';
+import { existsSync, mkdirSync } from 'node:fs';
+// URL resolution of '../..' yields a TRAILING SLASH, so trim it: the path is
+// printed in every failure message and '//' there reads like a typo in the test.
+const KROOT = fileURLToPath(new URL('../..', import.meta.url)).replace(/\/+$/, '');
 const KERNEL = process.env.FORGE_KERNEL ||
-  '/Users/account_clawteam1/archdisc-Mech/forge-kernel/build/Release/forge-kernel.node';
+  KROOT + '/build/Release/forge-kernel.node';
+if (!existsSync(KERNEL)) {
+  console.error(`[smoke] no kernel at ${KERNEL} — build it in THIS tree, or set FORGE_KERNEL=`);
+  process.exit(1);
+}
 
 const f = require(KERNEL);
 if (!f.ft || typeof f.ft.compile !== 'function') {
   console.error('[ft_smoke] addon lacks forge.ft.compile — wrong/old kernel'); process.exit(1);
 }
 
-const OUT = '/Users/account_clawteam1/archdisc-Mech/forge-kernel/scratchpad';
+const OUT = KROOT + '/scratchpad';
+mkdirSync(OUT, { recursive: true });
 
 // --------------------------------------------------------------- Part A
 const plateIR = `

@@ -63,12 +63,15 @@ close, and `SLOT` is not.
 read 53. The difference is nineteen commands it predates, not a disagreement:
 `app.load_sample`, `app.toggle_theme`, the six SURFACE commands (`part.skin`,
 `part.extract_faces`, `part.sew`, `part.thicken`, `part.cap`,
-`part.surfcheck`), `part.section_curve`, and the nine view commands
+`part.surfcheck`), `part.section_curve`, and the TEN view commands
 (`view.front`, `view.back`, `view.left`, `view.right`, `view.top`,
-`view.bottom`, `view.iso`, `view.selection`, plus the two focus commands). That
-list was obtained by diffing the two manifests on the command id, not by
-subtracting their totals, and the diff runs ONE WAY: there is no id this branch
-has that the base lacks.
+`view.bottom`, `view.iso`, `view.selection`, and the two focus commands
+`view.focus_next_panel` / `view.focus_previous_panel`). By prefix that is
+2 `app.` + 7 `part.` + 10 `view.` = 19, which is written out so the sentence
+checks itself — an earlier draft of this paragraph said "nine view commands"
+while naming ten, and the breakdown is what catches that. The list was obtained
+by diffing the two manifests on the command id, not by subtracting their totals,
+and the diff runs ONE WAY: there is no id this branch has that the base lacks.
 
 Diffing the REGENERATED manifest against the base's gives a delta for THIS
 branch of exactly ZERO rows -- the merged id set is identical to the base's,

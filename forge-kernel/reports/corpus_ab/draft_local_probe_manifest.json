@@ -1,0 +1,18 @@
+{
+  "generated_utc": "20260901T171622Z",
+  "corpus_dir": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+  "corpus_total": 600,
+  "stride": 1,
+  "realised_n": 600,
+  "part_timeout_s": 120,
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_ea7a257a-3a2-1/forge-kernel/.build-draft-local/draft_local_probe",
+  "kernel_head_at_run": "627ec88837b6c721a74ba47e9a503c0600f35996",
+  "build_stamp": {
+  "built_utc": "2026-09-01T17:16:18Z",
+  "git_head": "627ec88837b6c721a74ba47e9a503c0600f35996",
+  "dirty_files_in_src_include_test": 0,
+  "flags": "-std=c++20 -O2 -DFORGE_NATIVE_BREP",
+  "occt_root": "/opt/homebrew/opt/opencascade",
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_ea7a257a-3a2-1/forge-kernel/.build-draft-local/draft_local_probe"
+}
+}

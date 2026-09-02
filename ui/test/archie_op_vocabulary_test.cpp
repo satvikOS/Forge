@@ -507,6 +507,15 @@ int main() {
   PartDocument partDoc;
   UndoStack partUndo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), partDoc, partUndo);
+  // 50 -- RE-MEASURED on the merged tree at #177, not carried over from either
+  // side (kernel/draft-native-engine pinned 44, the base pinned 50). The method:
+  // count `part.*` rows in the regenerated APP_SURFACE_MANIFEST.tsv, calibrated
+  // by running it against BOTH parents' committed manifests first, where it
+  // reproduced their own 44 and 50 exactly. It is the base's number rather than
+  // a third one because the command sets are NESTED, which was checked as a set
+  // difference and not assumed: this branch adds ZERO commands the base lacks,
+  // and the base adds ten (four that emit nothing plus the six SURFACE ops), so
+  // 64 total is |ours union theirs| and 50 of those 64 are `part.*`.
   CHECK_EQ_INT(partAdded, 50);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
