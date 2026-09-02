@@ -26,6 +26,19 @@ cd "$ROOT"
 
 # pre-flight: catch missing standard #includes (libstdc++/CI) that the Mac's
 # Apple-clang/libc++ silently provides — a local compile would pass but CI fails.
+#
+# The preflight's OWN controls run first. This checker is a regex over text, and a
+# regex is only ever observed saying OK; a false positive in it is indistinguishable
+# from a real finding, and a false NEGATIVE is indistinguishable from a clean tree.
+# One false positive here (<cstdio>'s one-argument std::remove(path) read as
+# <algorithm>'s three-argument range form) kept forge-desktop's tier-2 differential
+# — the gate that compares the SOLIDS — from compiling in CI at all, and a gate that
+# cannot build cannot fail. So the controls are a gate, not a comment.
+if ! bash forge-kernel/test/native/check_includes.sh --self-test >/tmp/forge_incl_selftest.log 2>&1; then
+  cat /tmp/forge_incl_selftest.log
+  echo "[native] the missing-include preflight FAILED ITS OWN CONTROLS"; exit 1
+fi
+sed -n '$p' /tmp/forge_incl_selftest.log
 if ! bash forge-kernel/test/native/check_includes.sh >/tmp/forge_native_incl.log 2>&1; then
   cat /tmp/forge_native_incl.log; echo "[native] missing-include preflight FAILED"; exit 1
 fi

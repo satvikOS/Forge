@@ -1658,6 +1658,8 @@ reference parts (see the null-pcurve report).
 
 *(Numbering collision, resolved at merge: this entry was allocated **D-033** on `archdisc` while `claude/sacrosanct-execution-20260828` independently allocated D-033 to the axis-naming result above. It is renumbered **D-038** here. The two comments in `ui/test/part_commands_test.cpp` (the SLOT volume defect, at lines 786 and 1035 after the #177 merge -- re-measured here, because a line number cited in a second place goes stale by standing still) that once cited "D-033" refer to THIS entry, not to the axis-naming one, and now say D-038.)*
 
+
+
 `archie_op_vocabulary.json` said 18 user-invocable ops and 22 forbidden, and every forbidden
 entry carried the same reason: *"no command in the forge::ui registry emits it, so no user can
 produce it."* That is not a kernel gap. It is a **missing app surface**, and the ops it hid are
@@ -1786,6 +1788,7 @@ Recorded so the next reader does not discover them as a surprise.
 **Reversible.** Each command is one self-contained block plus one id in `partCommandIds()`;
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
+
 
 
 
@@ -3160,6 +3163,288 @@ contradiction, and quoting one alone is how that becomes one.
    id is instrument-failed on v10 does not describe this file. The paired 97-id set
    contains no instrument-failed row on either arm under it either way.
 
+
+
+
+## D-047 (2026-08-31): one feature tree, four ways to a solid, and nothing compared them — the differential gate, and the two defects it found on its first run
+
+*(Numbering collision, resolved at merge — the FOURTH in this file, and it took TWO
+attempts, which is the part worth recording. This entry was allocated **D-040** on
+`app/differential-gate`; by the first rebase the execution branch had spent D-040 on
+the SURFACE value kind and D-041 on the #146/#165 control, so it was renumbered
+**D-046**. Before that rebase could merge, 2d30916a landed on the base and allocated
+**D-046** to the sketch family. Renumbered again, to **D-047**, with its follow-on to
+**D-048**.*
+
+*The lesson is the one D-043 already wrote down, sharpened: surveying `origin` ONCE is
+not enough either, because the base can allocate a number while your branch is being
+rebased onto it. A number is only free at the instant you merge. Content unchanged.
+Nothing in the tree cites any of these numbers — `grep -rn 'D-040\|D-041\|D-046' ui
+forge-desktop forge-kernel` is empty — so every renumber has stayed confined to this
+file.)*
+
+**The gap.** A feature tree could reach the kernel by two routes and no gate tied them
+together:
+
+* **headless** — `forge_verify` consumes the IR text and reports the census every benchmark
+  number in this programme comes from.
+* **in-app** — the CoPilot proposes, `OpConstraintBridge` rules, `PartDocument::appendFeature`
+  applies, the kernel builds, the viewport draws.
+
+`ir_pipeline_gate.cpp` proved a UI-authored program compiles to *a* solid. It never compared
+that solid against anything. So a tree that builds headless and fails in the app — or worse,
+**builds differently** — was found by a user, not by CI. That is the same shape as the
+vocabulary/header desync that has bitten this repo nine times: two artifacts from one source
+with no gate between them.
+
+**The gate, in two tiers, over ONE shared corpus** (`ui/test/differential_corpus.hpp` — eight
+trees spanning PROFILE / WIRE / SOLID, every command family that emits IR, and both the
+seeded-sketch and pure-primitive ways of starting a document):
+
+* **tier 1, kernel-free** (`ui/test/differential_gate_test.cpp`, ubuntu `ui` job, ~1 s). The
+  app-authored IR must be **byte-identical** to the planner's; the bridge must accept what the
+  app itself emitted; `validateIr` must too; and the **arity differential** — every
+  kernel-legal argument count the bridge refuses — is measured and ratcheted in both
+  directions.
+* **tier 2, the solids** (`forge-desktop/test/differential_solid_gate.cpp`, macOS `kernel`
+  job, reusing `build-verify`). Four arms: `compileText`, `parse`+`compile`,
+  `KernelScene::buildFromIr`, and **the `forge_verify` binary over its stdin protocol**. The
+  first three are entry points inside one process; only the fourth tests two ARTIFACTS, which
+  is what the defect class is actually about.
+
+**The observable VECTOR, never volume alone.** `ok error failedOpId valid volume area
+bbox·min[3]/max[3] faceCount edgeCount genus shellCount welded V/E/F Euler-chi centre-of-mass[3]
+nDeclared nParsed nCompiled`. This programme has four measured cases of a wrong solid
+reproducing a right volume, and in the worst of them no single observable caught it — centre of
+mass was clean on the sphere and the bounding box was clean on the cylinder. `forge_verify` did
+not report **area or centre of mass at all**, so the vector could not be compared against the
+artifact; both are added here from one `GProp` evaluation, guarded and additive.
+
+**Tolerance, stated rather than tuned.** The in-process arms compare at 1e-9 *relative* — same
+code, same text, so anything above that is a divergence and not noise. Arm D compares at 5e-7
+**absolute**, because `forge_verify`'s own `num()` is `precision(6) << fixed`: the transcript is
+quantised to 1e-6, and a tighter tolerance would be comparing the formatter, not the geometry.
+
+**TWO DEFECTS, MEASURED BY THE COPILOT ARM ON ITS FIRST RUN.** Tier 1's original arms drove
+`CommandRegistry::dispatch` with the selection nodes spelled out — a menu click, not the path
+the invariant names. The named path differs where it matters: a plan step cannot carry a `%ref`,
+so `resolveSelection` **chooses** the operands at apply time.
+
+1. **Every two-body boolean ran the wrong way round.** `boundValues` walks the document
+   backwards, so `bound[0]` is the newest value, and the resolver handed them over in that
+   order. `PartCommands.cpp` registers the booleans with *"selection ORDER is load-bearing for
+   CUT: the first pick is the target, the second is the tool."* So a plan that said "subtract"
+   produced `CUT(%tool, %target)` — the pin minus the block. Three of eight trees. CUT changed
+   the **solid**; FUSE and COMMON are commutative in geometry but reversed **which document node
+   survived**, and the surviving node is the one every later command selects. Fixed by handing
+   the chosen values over oldest-first; `need == 1` is unaffected.
+2. **`PlanSelect` could not name the WIRE kind, so LOFT was unreachable.** The IR value model
+   has three kinds and the enum named two; the resolver read the target as
+   `LatestProfile ? Profile : Solid`, with no third answer. The only op that consumes a WIRE was
+   reachable from **no plan however written**, and the `LocalPlanner`'s own `loft` verb asked for
+   the newest PROFILE and handed it to a command whose signature is Wire. A refusal by omission
+   on a surface whose constraint is *represent, repair, tolerate — never refuse*. Added
+   `PlanSelect::LatestWire` (appended, never inserted) and replaced the ternary with a switch: a
+   ternary that answers SOLID for everything it cannot name is exactly how the missing third
+   kind stayed invisible.
+
+**WHAT REMAINS, PINNED RATHER THAN HIDDEN.** `resolveSelection` takes exactly
+`signature.minCount` values, because a `PlanStep` names a value **kind** and never a **count**.
+So an open-ended selection always gets the minimum: the three-ring `lofted_nozzle` comes out as
+`LOFT(%2, %3, RULED)`, a two-section loft and a different solid. The gate ratchets the divergence
+**set** — not a count — and prints the defect on every run.
+
+**The arity differential is a standing, measured refusal.** 61 kernel-legal argument counts
+across 23 of the 28 user-invocable ops are refused by the bridge, with a live positive control
+rather than a table read: `FILLET(%1, 3)` is the two-argument form `FeatureTree.hpp` documents,
+`validateIr` accepts it, and the bridge refuses it because no command emits that form. Under the
+owner's constraint that is a defect to shrink, not a safety feature — so it is ratcheted in both
+directions: red if it grows, and red if it shrinks without the pin moving.
+
+**Mutation-proved, nine cases, every one required to exit non-zero.** The app drops a step,
+swaps a boolean's operands, perturbs a number; the planner's text drops a statement, perturbs a
+number, reorders two ops; the bridge is handed an op no command emits; and — the two the other
+arms cannot reach — the CoPilot applies one step short, and the CoPilot picks nothing. Both
+runners ask the **binary** for the mutation count rather than carrying a second copy of it, and
+both exit 3 (never 0) when they cannot build or an input artifact is missing: a check that could
+not run is not a check that passed.
+
+**WHAT THE FIRST CI RUN OF TIER 2 FOUND — three things a laptop could not.** The solid tier had
+never executed anywhere before CI run 33453484236, and it went red on all three.
+
+1. **A corpus tree that did not build, in BOTH arms, identically.**
+   `revolved_shell` reported `SHELL: no face faces the open axis` from A *and* B. Revolving a
+   rectangle a full 360° about Y gives a torus of rectangular section — no planar face at all, so
+   SHELL's default open axis `(0,0,-1)` can never find one. The two arms agreed perfectly, **on a
+   failure**, and a tree that does not build measures agreement on nothing. SHELL now gets a body
+   that has a −Z face; REVOLVE keeps its own and is still compiled, so a REVOLVE regression fails
+   the tree through `ok` and the s0.4 census.
+
+2. **A mutation that was never caught and reported itself as caught.** Case 7 renames an op inside
+   the `OpConstraintBridge` *proposal*; tier 2 rules on no proposal. It came back "caught" with
+   `325 checks, 1 failures` — the **same** count as the red clean run. It was riding the corpus
+   failure, and would have flipped to green the moment the gate became healthy. A mutation swept by
+   a tier that cannot see it is worse than one not swept at all. The tier now declares what it can
+   observe (`--applicable-mutations`) and the runner sweeps exactly that, written as a whitelist of
+   **exclusions** so a later mutation is swept by default and has to be argued out.
+
+3. **A centre of mass of 2×10³³ mm, which adding the centre of mass exposed.** `boss_on_plate` — a
+   50×50×8 plate FUSEd with an r=12 h=20 boss — reported
+   `com=(2.02759422756e+33, -2.02759422756e+33, 23.4083321608)`, x and y exact negatives of each
+   other, on a body 50 mm across.
+
+   **It is a mass-property defect and not a geometry defect, and that is measured, not inferred.**
+   Driven through the pinned native verifier the solid is faultless:
+   `ok=true valid=true genus=0 shellCount=1 faceCount=9 edgeCount=16`,
+   `bbox min=[-25,-25,0] max=[25,25,20]`, `volume=25428.671731` against a closed form of
+   50·50·8 + π·144·20 − π·144·8 = 25428.672105 — agreeing to **1.5×10⁻⁸ relative**, which is the
+   sketcher's circle approximation and not a modelling error. By symmetry the centre of mass is x=0, y=0,
+   z=(20000·4 + 5428.67·14)/25428.67 = 6.135. All three reported components are wrong and **all
+   three lie outside the bounding box**.
+
+   **Both arms reported it identically**, so the differential called it agreement and went green on
+   that tree. A differential compares arms; it does not, on its own, notice that they agree on
+   nonsense — two measurements of the same broken thing agree perfectly. So each arm is now checked
+   against invariants true of *any* solid: positive volume and area, `bbox min ≤ max`, and a
+   **centre of mass inside that bbox**. That is not a heuristic; a centre of mass is an average of
+   points in the box. The slack is one part in a thousand of the box's own span, so a
+   tessellation-tight bbox cannot produce a false red.
+
+   **Reported, not fixed.** It is `forge::massProperties` on a fused OCCT solid, it is not
+   reproducible without a kernel build, and guessing at GProp would be worse than saying so. The
+   set is ratcheted at exactly `{boss_on_plate}` and printed in full on every run: red if it grows,
+   red if it shrinks without the pin moving.
+
+**And the reader that arm D depends on is gated where it costs nothing.** A transcript reader that
+silently fails to find a field makes the comparison measure the arm's *default* — a green produced
+by an absence, which is the shape of every gate in this programme that turned out to be measuring
+nothing. It needs no kernel, so it lives in `ui/test/verify_transcript.hpp` and tier 1 checks it on
+every PR against a line captured **verbatim** from the verifier rather than written from the
+protocol comment — which lists neither `bodies` nor `vertexCount`, and does not show that `bores`
+carries its own `cx`, `at` and `axis`, the last two being exactly the shape a careless triple search
+collides with. The negative half is the half that matters: the captured line predates `area` and
+`com`, so the reader must report them **absent**, never 0.0, which is where a great many parts
+genuinely have a centre of mass.
+
+## D-048 (2026-09-01): the app's buttons were the refusal boundary, a plan's third loft section was dropped in silence, and one `<cstdio>` call took seven forge-desktop gates dark
+
+*(Renumbered from **D-041**, then **D-047**, alongside D-047 above and for the same reason.)*
+
+Follow-on to D-047, which built the two-path differential. Four defects, one correction
+to D-047's own reading of its results, and one finding that is larger than any of them.
+
+**1. A gate that could not build could not fail — and it took six others with it.** The
+`forge-desktop` CI job died in its missing-include preflight, before the compiler ran:
+`MISSING <algorithm>: forge-desktop/test/differential_solid_gate.cpp`. The two lines that
+tripped it are `std::remove(inPath.c_str())` — `<cstdio>`'s ONE-argument file-removal
+`std::remove`, correctly included. `<algorithm>`'s is the THREE-argument range form. The
+preflight matched the field, not the meaning.
+
+That job never compiles `differential_solid_gate.cpp`; it only SCANS it, because the
+preflight globs `forge-desktop/test/*.cpp`. What it does build is forge-desktop, and it
+runs SEVEN gates — ir_pipeline, document, frame, copilot, update, click, isolation — and
+39 mutation proofs. All of it was dark, over a file the job does not compile.
+
+`<algorithm>`'s form always carries a comma in its argument list and the stdio form never
+does, so `remove` becomes `remove\([^;]*,`. And because this checker is a regex over text
+that is only ever OBSERVED saying OK — where a false positive is indistinguishable from a
+real finding and a false negative from a clean tree — it now has to prove it can fail:
+`check_includes.sh --self-test` runs 11 controls, and `run_native.sh` runs them BEFORE the
+scan. **Measured: the forge-desktop job went FAILURE -> SUCCESS.**
+
+**2. The bridge refused 61 argument forms the kernel builds.** `OpConstraintBridge`
+narrowed each op's arity to the discrete counts its emitting commands happen to produce:
+**61 kernel-legal argument counts across 23 of the user-invocable ops**. The old refusal
+said so itself — *"the kernel would accept 2-3, which is wider than the app"*.
+`FILLET(%body, r)` and `CHAMFER(%body, d)` are the forms `FeatureTree.hpp` DOCUMENTS.
+
+The owner's constraint is REPRESENT / REPAIR / TOLERATE, never refuse. A planner is not a
+transcript of the app's buttons, and refusing a form the kernel builds removes capability
+to prevent nothing. **The kernel's range is now the refusal boundary**; what was refused
+for the app's sake is accepted and RECORDED on `OpRuling::tolerated`, so the capability
+gap stays visible without being a refusal. All 61 are swept through the LIVE bridge every
+run — `0 refused for arity, 61 accepted AND recorded` — because one positive control is
+one row of a table of 61, and it was the row someone happened to pick.
+
+**The 61 UNDERCOUNTS**, and the pin cannot express by how much: the sweep skips ops whose
+kernel arity is unbounded, and `LOFT` and `VERIFY` both are. VERIFY's emitted forms stop
+at 3 arguments against a `2..n` kernel range, so every VERIFY with four or more arguments
+is kernel-legal, unauthorable, and part of an INFINITE set. All of them were refused.
+
+**3. A plan that named three sections built a two-section loft.** `resolveSelection` took
+exactly `signature.minCount` values, because a `PlanStep` named a value KIND and never a
+COUNT. `part.loft` is `2..n`, so the three-ring nozzle was applied as `LOFT(%2, %3,
+RULED)` — a different solid, from a plan naming three rings, with no error on any path. A
+quietly different solid is worse than a refusal, because a refusal is visible.
+`PlanStep::selectCount` carries the count; 0 still means the signature's minimum, so a
+step that states nothing is unchanged, and a stated count is CLAMPED rather than refused.
+
+**4. D-040 read its own tier-2 failure wrong, and so did I once.** D-040 reported the 2e33
+centre of mass as tier 2's open defect. Its incoherent-set ratchet pins `{boss_on_plate}`
+and the measured set IS that, so the ratchet PASSES and adds no failure. Tier 2's single
+failure was a different tree entirely:
+
+    [revolve_and_shell] both arms report NOT BUILT: "s0.4 graph-quality gate:
+      unexplained_orphans=2 [%1, %2] — these ops contribute nothing to the result."
+
+`%4 = SHELL(%3, 2)` was the result and `%3` a fresh BOX, so the REVOLVE above it fed
+nothing: the tree was TWO INDEPENDENT PROGRAMS sharing a name. D-040 had hit this tree
+failing on `SHELL: no face faces the open axis` and repaired it by moving SHELL onto a
+box — and that repair is what orphaned the revolve. Split into `revolved_ring` and
+`shelled_box`, which adds no operation the corpus did not already require. (My own first
+commit on this branch claimed tier 2 "has never once run in CI"; it runs in the macOS
+`kernel` job and always has. Corrected in a follow-up commit, not rewritten.)
+
+**5. THE ONE THAT MATTERS, reported and NOT fixed: every extruded wall is face-kind
+`"other"`, and the interface metric matches only `"cylinder"` and `"plane"`.**
+
+Traced entirely through committed source:
+
+* `Features.cpp::extrudeProfile` calls `occtPrism(f, dir)` with **no third argument**.
+* `occtPrism`'s `canonize` parameter **defaults to `false`** (`OcctPrimBuilder.hpp:89`).
+* So `canonicalExtrusion` — which exists precisely to return a `Geom_Plane` for a swept
+  line and a `Geom_CylindricalSurface` for a swept circle — never runs, and every lateral
+  face is a `Geom_SurfaceOfLinearExtrusion`, `P(u,v) = C(u) + v·dir`, unbounded in v.
+* `faceInventory` (`DirectEdit.cpp:264`) switches on `BRepAdaptor_Surface::GetType()`. It
+  names Plane, Cylinder, Cone, Sphere, Torus, BSpline, Bezier and SurfaceOfRevolution —
+  and NOT SurfaceOfExtrusion, which falls to `default: fi.kind = "other"`.
+
+The `occtPrism` header states the consequence in its own words: *"Since the TKPrim drop
+every prism in the kernel has carried extrusion-typed laterals where OCCT emitted Planes,
+and faceInventory reports those as kind 'other'."*
+
+And `family_census/BENCHMARK_OP_REQUIREMENTS.md:455`, under **"verified by reading an
+implementation this session"**, records what consumes that field: *"`interface_metrics.py`
+reads exactly `kind == "cylinder"` (l.465) and `kind == "plane"` (l.587, l.704) **and no
+other kind**"*, with `W_SHAPE, W_INTERFACE, W_TOPOLOGY = 0.4, 0.4, 0.2` two lines below.
+
+A face of kind `"other"` matches neither predicate, so it cannot contribute to the
+interface term — **40% of the composite**. `DirectEdit.cpp:102` names the two
+representations side by side: *"one an analytic `Geom_CylindricalSurface` (what HOLE
+builds) and one a `Geom_SurfaceOfLinearExtrusion` of a circle (what CIRCLE+EXTRUDE+CUT
+leaves behind)"*. The same bore, two representations, and only one is a `"cylinder"` to
+the scorer.
+
+**NOT MEASURED, and stated as such:** `interface_metrics.py` was not run (it is in the
+Models repo), and the share of the emitted corpus that reaches a bore by CIRCLE+EXTRUDE+CUT
+rather than by HOLE is unknown. The SIZE of the effect is unmeasured; the MECHANISM is four
+committed files. The default is deliberately not flipped here — the header says flipping it
+changes the face-type census of every extrude, push/pull, rib, parting slab and base flange
+in the product at once, and that needs the full Models-OS gate as its own measurement.
+
+**Also recorded: `prism_meets_tube` does not test TUBE.** It measures
+`V = 2094.39510239`; the upper hemisphere of `SPHERE(10)` is `(2/3)·π·10³ =
+2094.3951023932`, agreeing to 3.2e-9. The hexagon's inradius is `15·cos30° = 12.99 > 10`,
+so `COMMON` returns the plain hemisphere and the TUBE contributes nothing. A mutation
+perturbing any tube parameter is invisible on that tree. It passes the s0.4 graph gate —
+every op feeds the result IN THE GRAPH — while contributing nothing IN THE GEOMETRY.
+Graph reachability is not geometric dependence, and the corpus is checked only for the
+first. Reported, not fixed: changing corpus geometry without being able to run tier 2 is
+how `revolve_and_shell` acquired its second failure.
+
+**Ledger note.** There are TWO entries numbered D-038 (#140's ten primitives and #146's
+SURFACE value kind). Both are merged and this file is append-only, so neither is
+renumbered; the collision is recorded here rather than silently corrected.
 
 ## D-049 (2026-08-31): the app's core interaction surface — 11 of 12 forbidden ops become reachable, and the last one is a KERNEL defect whose cause was misattributed
 
