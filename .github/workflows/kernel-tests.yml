@@ -354,25 +354,36 @@ jobs:
   kernel:
     name: OCCT kernel smoke (TRANSITIONAL — pending native C++ harness)
     runs-on: macos-latest
-    # 75, raised from 40, and the reason is MEASURED rather than assumed -- this
-    # job hit exactly 40m21s on this branch and GitHub reported that as
-    # `cancelled`, which is the same word a concurrency cancel uses. Read as a
-    # blip it would have been retried for ever; it was a JOB TIMEOUT.
+    # 75, raised from 40, and the reason is MEASURED -- including one estimate
+    # that measurement then REFUTED, which is why the ceiling is set where it is.
     #
-    # It is not a hang. The step the clock ran out on had been running 94s (the
-    # same step takes 334s when it is allowed to finish), and every step before
-    # it had already passed. The job has simply GROWN, in measured increments:
+    # This job hit exactly 40m21s on this branch and GitHub reported it as
+    # `cancelled`, the same word a concurrency cancel uses. It was a JOB TIMEOUT.
+    # Not a hang: the step the clock ran out on had been running 94s, every step
+    # before it had passed, and the seven after it report `skipped`.
     #
-    #   22m26s  archdisc before this wave        (run 33594358596)
-    #   34m08s  + #176's sketch/constraint gate  (run 33644735933)
-    #   ~48m    + the two-path differential gate this branch adds -- its tier-2
-    #           step alone costs 850s (run 33652620543, step 18)
+    # THE FIRST DIAGNOSIS WAS WRONG. It looked like growth alone --
+    #   22m26s  archdisc before this wave          run 33594358596
+    #   34m08s  + #176's sketch/constraint gate    run 33644735933
+    # -- so adding this branch's two-path differential (tier-2 alone was 850s)
+    # predicted ~48m, and 48 > 40 seemed to be the whole story.
     #
-    # 40 was set when the job took 23 minutes. The ceiling exists to catch a
-    # HANG, not to budget legitimate work, so it is raised to 75 -- still far
-    # below the 180 that made three earlier timeouts look like infrastructure
-    # noise, and still tight enough that a genuinely stuck launch is caught
-    # rather than burning a runner. Re-measure when a step is added.
+    # RE-RUNNING THE SAME COMMIT REFUTED THAT: run 33657049314, byte-identical
+    # content, finished in 34m19s -- INSIDE the old 40m ceiling. Every step was
+    # faster (tier-2 850s -> 719s, crash-isolation 740s -> 552s, A/B 334s
+    # nominal); about 7 minutes of pure runner variance separates the two.
+    #
+    # So the real finding is not "the job needs 48 minutes". It is that this
+    # job's cost is a DISTRIBUTION, roughly 34-41 minutes on macos-latest, and
+    # 40 was sitting in the middle of it -- which is exactly why the same
+    # content passed on #176 and #174 and died here. A ceiling inside the
+    # variance band makes the outcome a coin toss and the failure unreadable,
+    # because a timeout is spelled `cancelled`.
+    #
+    # 75 puts the ceiling clear of the band with room for the next gate, and is
+    # still far below the 180 that let three earlier timeouts read as
+    # infrastructure noise. Re-measure when a step is added -- and re-run before
+    # concluding, because one sample cannot tell growth from variance.
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
