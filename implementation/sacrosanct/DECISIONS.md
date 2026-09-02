@@ -1892,6 +1892,7 @@ not buy a correct offset.
 *(Numbering collision, resolved at merge: this entry was allocated **D-038** on `archdisc`, which `claude/sacrosanct-execution-20260828` had already spent on the ten-primitives entry above. It is renumbered **D-040** here.)*
 
 
+
 **The finding.** The feature-tree IR had exactly three value kinds — PROFILE, WIRE, SOLID
 (`FeatureTree.hpp` "IR VALUE MODEL"; `Val::Kind` in `FeatureTreeCompiler.cpp`;
 `forge::ui::IrValueKind` in `PartCommands.hpp`). That, not a missing op, is why the product had
@@ -2340,7 +2341,399 @@ extended — there is no walk over this container in the app to click on yet. Th
 not unified. Measured on `app/viewport-document-v2` (PR #175, stacked on #167): 27 UI gates pass,
 446 checks across the four new document gates.
 
-## D-045 (2026-09-01): the sketch family leaves `forbidden_ops` — 46 → 53 user-invocable ops, and the direct-ops-alone yield goes 0.00% → 40.78%
+## D-045 — self-consistency is NOT learnable from synthesised assertion supervision (the pre-registered prediction is refuted, and the direction is WORSE than baseline)
+
+**Status: recorded mid-run at n=183 of 600. The primary prediction is refuted beyond
+recovery; the "worse than baseline" reading is DIRECTIONAL and not yet established.**
+
+A prediction was pre-registered *before* the run precisely so that it could fail. It
+failed. Recording it because it failed, not in spite of that.
+
+### What was predicted, and what was measured
+
+| | baseline `v6r8` | predicted | measured @ n=183 |
+|---|---|---|---|
+| rows emitting VERIFY | 131 of 238 | — | **112 of 183** |
+| of those, own assertion false | 76 | — | **95** |
+| **self-inconsistency** | **58.0%** | **< 25%** | **84.8%** |
+| CBORE | 0 / 238 | >= 5 (Fisher p<0.05) | **0** |
+
+Both numbers use the SAME denominator rule — failures over VERIFY-BEARING rows, not over
+all rows. Quoting `95/183 = 51.9%` would be wrong and would understate the effect; the
+denominator is the rows that actually make an assertion.
+
+### Why this is not recoverable
+
+Reaching 25% needs <= 28 failures of 112 and there are 95. The remaining 417 rows cannot
+reverse it.
+
+### The finding
+
+The corpus was built **measure-then-assert**: build first, read every assertion off the
+kernel's own assertion path, rebuild under VERIFY, keep the row only if all pass —
+**10,190 assertions, ZERO unchecked, every one true by construction.** Trained 2,400
+iters, 6.89M tokens, loss 0.591 -> 0.0345. The model still asserts properties its own
+output does not satisfy.
+
+Combined with **D-041** — build rate spans 57.6–80.8% across four arms while
+self-inconsistency stays FLAT at 55.1 / 56.3 / 58.0 / 58.4 — neither incidental nor
+targeted supervision moves it. **A 23-point spread in whether the tree BUILDS moves
+self-consistency by nothing.**
+
+### Three caveats that bound this, stated because they cut against the strongest reading
+
+1. ★**THE HOLDOUT IS SORTED HARDEST-FIRST, so a 183-row PREFIX IS A HARD SAMPLE.** This
+   has bitten before: a partial read of 0.2423 became 0.3617 on the full set. 84.8% is
+   therefore an over-estimate of the final rate by an unknown margin.
+2. **The baseline comparison is UNPAIRED** — `v6r8` at n=238 against `v10` on a different
+   prefix. "Worse than baseline" needs the same ids on both arms; until then the honest
+   claim is only that the prediction is refuted.
+3. The composite is secondary and underpowered (sd 0.2977; min detectable 0.034 at
+   n=600). It is not the result.
+
+### What follows
+
+Synthetic assertion supervision is exhausted as a lever. The untried thing is **REAL human
+construction sequences** — see the ABC `ofs` finding: chunk 0000 is already on disk, and
+an even-stride census of 80 trees gives **mean 17 real ops, max 123**, dominated by
+`newSketch 466 / extrude 411 / fillet 128 / revolve 55`. ★`hole` appears **once in 182
+features** — real modellers cut holes with sketch+extrude rather than a hole feature,
+which is a candidate explanation for CBORE never appearing and is testable.
+
+### D-045 addendum — an instrument failure is being labelled a model failure (and it is NOT what inflates the number)
+
+Re-measured at **n=318**: VERIFY-bearing 209, own-assertion-false 180 =
+**86.1%** self-inconsistency. The prefix reading is holding, not decaying.
+
+★**A defect in the taxonomy, found by reading a crash report rather than the log.**
+`forge_verify` aborted once today on an **uncaught C++ exception**
+(`__cxa_throw` -> `failed_throw` -> `std::terminate` -> `abort`; SIGABRT, not
+SIGSEGV). The harness respawned and the run continued, but **three rows are
+recorded as `the tree does not compile`** when the real cause was:
+
+```
+[verifier] timeout after 180s; respawn #1   -> ho998  "the tree does not compile: verifier timeout after 180s"
+[verifier] timeout after 180s; respawn #2   -> ho932  "the tree does not compile: verifier timeout after 180s"
+                                            -> ho962  "the tree does not compile: verifier produced no output"
+```
+
+"The tree does not compile" is a claim about the MODEL'S OUTPUT, and for these
+three it is false — the tree may compile perfectly; the INSTRUMENT died or hung.
+★This is the second instance today of the same failure class: an absent or
+failed instrument reported as a property of the specimen (the first was
+`quality_gate` labelling good STEP files `corrupt:parse_failed` because OCP was
+not importable). **A verifier that dies must be its own outcome, never a verdict
+on the input.**
+
+**Direction of the error, stated because it cuts AGAINST the headline, not for
+it.** Two of the three are VERIFY-bearing, so they sit in the DENOMINATOR
+without contributing to the numerator. Excluding them gives **180/207 = 87.0%**.
+The contamination therefore **understates** self-inconsistency slightly; D-045's
+conclusion is robust to it and conservative. It is recorded anyway, because a
+taxonomy that misattributes an instrument death will eventually mislead someone
+in the direction that flatters us.
+
+**Follow-up owed:** give the harness a distinct `instrument_failed` outcome so
+these rows are excluded from both numerator and denominator rather than silently
+scored, and capture the uncaught exception's `what()` — an abort with no message
+is a second missing measurement.
+
+### D-045 second addendum — the hardest-first caveat is EMPIRICALLY SMALL for this metric, and half the crashes never reach the report
+
+Two measurements at **n=350** (198/231 = **85.7%**; the reading is stable across
+183 -> 318 -> 350 at 84.8 / 86.1 / 85.7).
+
+**1. The prefix caveat was right to state and is smaller than feared — measured,
+not assumed.** D-045 warns that the holdout is sorted hardest-first, so a prefix
+OVERSTATES. Splitting this run in half:
+
+```
+first  half   94/109 = 86.2%
+second half  104/122 = 85.2%
+```
+
+**A 1.0-point gradient.** Hardest-first is a real property of the holdout — it
+once turned a partial composite of 0.2423 into 0.3617 on the full set — but that
+was the COMPOSITE. **Self-inconsistency is nearly order-insensitive**, which is
+itself consistent with D-041: the defect does not track difficulty any more than
+it tracked build rate (57.6-80.8% spread, self-inconsistency flat at
+55.1/56.3/58.0/58.4). ★So the caveat stays in the record, but it is now bounded
+by measurement rather than left open — and it does not rescue the prediction:
+even the easier half is 85.2% against a predicted <25%.
+
+**2. A gap between the crash reports and the run's own record.** macOS has
+written **8** `forge_verify` crash reports today; the run's report contains only
+**4** instrument-failure rows (3 VERIFY-bearing). So roughly half the aborts
+never surface as a recorded outcome at all — they are retried, or absorbed, or
+scored as something else. ★"Half the failures are invisible to the artifact that
+is supposed to record them" is a measurement defect in its own right, separate
+from mislabelling three rows as `the tree does not compile`. The
+`instrument_failed` outcome must therefore be written where the process EXITS,
+not where the harness happens to notice, and its count must reconcile against
+the crash reports.
+
+**Cause of the rising rate, and it is NOT resource pressure — a hypothesis
+tested and killed.** While the aborts accelerated (3 by 16:54 -> 8 by 17:03),
+free memory IMPROVED 892 MB -> 3,491 MB, compressed fell 1,526 -> 967 MB, swap
+stayed flat and no jetsam fired. Only one `forge_verify` was live, parented to
+the eval's own Python, and no agent worktree held one. The aborts are
+INPUT-DEPENDENT — an uncaught C++ exception on particular geometry — not an OOM,
+and not caused by the concurrent agents.
+
+### D-045 FINAL — the run completed at 600/600, and PAIRED the result is a SIGNIFICANT REGRESSION, not merely a refuted prediction
+
+The last caveat D-045 carried was that the baseline comparison was UNPAIRED, so
+only "prediction refuted" was established and "worse than baseline" was NOT.
+**The run finished; the pairing is done; the stronger claim now holds.**
+
+**Paired on the 97 shared ids where BOTH arms emit a VERIFY:**
+
+| arm | self-inconsistency |
+|---|---|
+| `v10` (targeted, measure-then-assert) | **90/97 = 92.8%** |
+| `v6r8` (baseline) | **58/97 = 59.8%** |
+
+Discordant pairs: **35 got WORSE, 3 got BETTER.** Exact McNemar two-sided
+**p = 6.68e-08**. Targeted assertion training did not fail to help — it actively
+**degraded** self-consistency, and by a margin no reasonable sampling story explains.
+
+**The conditioning was checked before the claim was made, not after.** Restricting
+to rows where BOTH arms emit a VERIFY is only safe if training did not change how
+often VERIFY is emitted. It did not: on the same 238 ids, `v10` emits VERIFY on
+**58.4%** and `v6r8` on **55.0%**. And the comparison run a second, independent way
+— unconditionally, over each arm's OWN bearers on those same ids — agrees:
+**83.5% (116/139) vs 57.3% (75/131)**. Two methods, same direction, same magnitude.
+The paired figure is the higher of the two because the both-bearing subset is
+harder; that is a property of the subset, not of the effect.
+
+**What this settles.** D-045 recorded that self-consistency is not learnable from
+synthesised assertion supervision. The final data says something sharper: a corpus
+of 10,190 assertions with ZERO unchecked, every one true by construction, trained
+2,400 iters to loss 0.0345, made the model **measurably worse** at satisfying its
+own assertions. Training a model to emit assertions taught it to emit MORE
+assertions (58.4% vs 55.0%) without teaching it to satisfy them — which is the
+failure mode the corpus was built to prevent.
+
+**Caveats that survive, stated because they still bound the claim.**
+* The 97-id conditioning set is small; the 3-vs-35 split is what carries the
+  significance, not n.
+* CBORE remains **0** across the full 600 — the second pre-registered prediction
+  (>=5 of 238) is refuted outright, with nothing to pair.
+* The composite remains underpowered (sd 0.2977) and is still not the result.
+* The instrument defect stands: ~11 `forge_verify` aborts today against ~4 recorded
+  instrument-failure rows. Those rows are VERIFY-bearing and land in the DENOMINATOR
+  only, so they UNDERSTATE both arms — the correction would widen the gap, not close it.
+
+**Consequence for the programme.** Synthetic assertion supervision is not merely
+exhausted, it is counter-productive. The untried lever remains REAL human
+construction sequences: ABC `ofs` chunk 0000 is on disk, 9,852 FeatureScript trees,
+mean 17 real ops and max 123.
+
+### D-045 FINAL, corrected — v10 is BETTER at compiling and WORSE at self-consistency; the run's scoring half never executed
+
+Two corrections to the record, both of which I would rather state than have
+someone find later.
+
+**1. "The evaluation completed" was too broad.** The run's own last lines are
+`EMIT_DONE rc=0` then **`EVAL_FAILED rc=0 rows=0`**. `emissions.jsonl` is 0 bytes.
+The TRACE completed with 600 rows; the SELF-DISTILL / COMPOSITE stage produced
+nothing, so **no composite exists for v10**. Cause, confirmed rather than guessed:
+self-distill keeps only rows that PASS the gate, and **0 of 600 passed**. The
+harness reported this correctly — `EVAL_FAILED rows=0` is the gate working, not a
+silent truncation.
+
+**2. v10 is not uniformly worse, and the record must say so.** Measured the same
+way on both arms, PAIRED on the 238 shared ids:
+
+| | v10 | v6r8 |
+|---|---|---|
+| compiled | **83 = 34.9%** | 61 = 25.6% |
+| emits a VERIFY | 58.4% | 55.0% |
+| self-inconsistency (both-bearing, n=97) | **92.8%** | 59.8% |
+| **passed the full gate** | **0 / 600** | **0 / 238** |
+
+★**Zero passes is the BASELINE condition, not a regression** — the gate requires
+volume, genus and bore count all correct, and neither arm ever clears it. Quoting
+"0/600 passed" as a v10 failure would be dishonest.
+
+★**The real shape of the effect: targeted training made the model BUILD MORE
+(+9.3 points compiled) and ASSERT MORE (+3.4 points VERIFY-bearing) while making
+its assertions MUCH LESS TRUE (92.8% vs 59.8%, McNemar p = 6.68e-08, 35 worse vs
+3 better).** It learned the FORM of a VERIFY statement without the CONTENT. That
+is a more precise and more useful finding than "assertion supervision does not
+work", and it is consistent with D-041: the thing that moves is never the thing
+being supervised.
+
+**Final n=600 figures:** VERIFY-bearing 455, assertion-false 389 = **85.5%**
+(stable across 84.8 / 86.1 / 85.7 / 85.6 at n=183/318/350/422). **CBORE = 0 across
+all 600 emissions** — the second pre-registered prediction (>=5 of 238) is refuted
+outright.
+
+**Instrument reconciliation, as owed:** 13 `forge_verify` crash reports today
+against **9** rows recorded as an instrument failure (2 timeouts, 7 "verifier
+produced no output"). ★The earlier addendum said "half never surface"; measured at
+the end, the shortfall is a CONSTANT **4**, not a proportion — it was 8-vs-4 then
+and 13-vs-9 now. The constant-offset reading is better supported, and it is the
+more useful one for finding the leak.
+
+### D-045 correction — the instrument failures are OUT of both halves, and the correction WIDENS the result
+
+The follow-up the first addendum owed itself is done: `instrument_failed` is a
+distinct outcome, emitted where the process EXITS, reconciled against the OS's own
+crash reports, and gated. This section restates every D-045 figure it touches, in
+both forms, so the direction of the correction is visible rather than asserted.
+
+**What the instrument actually lost, over the completed 600 rows.** Nine rows, all
+of them written down as `the tree does not compile`:
+
+| kind | n | rows |
+|---|---:|---|
+| `verifier timeout after 180s` (we SIGKILLed a wedged child) | 2 | ho932, ho998 |
+| `verifier produced no output` (the child ABORTED) | 7 | ho116, ho274, ho341, ho962, ho1180, ho1212, ho1229 |
+
+The first addendum caught **three** of these at n=318. Over the full run it is
+**nine**, and **eight of the nine are VERIFY-bearing**.
+
+**★ The direction, which cuts AGAINST the headline.** A VERIFY-bearing row the
+verifier never answered for can sit in the self-inconsistency DENOMINATOR but can
+never reach its NUMERATOR — a false assertion has to be *measured* to be counted.
+So the contamination could only ever push the rate DOWN. Excluding the nine from
+both halves:
+
+| | published | corrected | direction |
+|---|---|---|---|
+| self-inconsistency, n=600 | 389 / 455 = **85.5%** | 389 / **447** = **87.0%** | **+1.53 pt — WIDER** |
+| the same, counting a VERIFY failure that arrived as a compile error | 408 / 455 = 89.7% | 408 / 447 = **91.3%** | +1.60 pt — wider |
+
+Against a pre-registered prediction of **< 25%**, the correction moves the result
+*further* from the prediction, not nearer. It is recorded for that reason: a
+correction that flatters the headline and one that does not must be equally
+reportable, and this programme has already been bitten once by an instrument
+failure worn as a property of the specimen (`quality_gate` labelling good STEP
+files `corrupt:parse_failed` because OCP was not importable).
+
+**The paired result does not move at all, and that is measured, not assumed.**
+`v6r8`'s own 238-row trace contains **zero** instrument failures, and of the 238
+shared ids exactly **one** (ho998) is instrument-failed on `v10` — a row that is
+not VERIFY-bearing on either arm. The 97-id both-bearing set therefore contains
+none of them:
+
+| | published | corrected |
+|---|---|---|
+| paired self-inconsistency (both-bearing) | 92.8% vs 59.8%, n=97 | **unchanged**, n=97 |
+| discordant pairs | 35 worse / 3 better | **unchanged** |
+| McNemar (exact, two-sided) | p = 6.68e-08 | **unchanged** |
+| paired compiled | 34.9% vs 25.6%, n=238 | 35.0% vs 25.7%, n=237 |
+| VERIFY-emission rate | 58.4% vs 55.0% | 58.6% vs 55.3% |
+
+**★ The "constant shortfall of 4" was an artefact of the window, not a leak.** The
+previous section read 13 crash reports against 9 recorded instrument rows as four
+deaths that went unrecorded, and noted it had measured the same offset twice
+(8-vs-4, then 13-vs-9), which is exactly what a structural leak looks like. It is
+not one. Attributed by **parent pid** instead of by wall clock:
+
+```
+ppid 68311 (the run's own python)    7 reports  <->  7 "produced no output" rows   1:1
+five OTHER processes on the machine  6 reports  <->  nothing to do with this run
+the 2 timeouts                       0 reports  <->  correct: we SIGKILL a wedged
+                                                     child, and SIGKILL leaves none
+13 - 9 = 4  =  6 foreign  -  2 SIGKILLed
+```
+
+A wall-clock window on a machine shared with other agents is not an attribution.
+**Nothing had gone unrecorded.**
+
+That parent-pid split was measured on 2026-09-01 while the reports still existed
+and is preserved in `scripts/verifier_crash_census.py`; the `.ips` files have since
+aged off the machine, so its foreign-process half cannot be re-derived today. The
+half that *can* still be re-derived was, independently, and it holds exactly:
+**exactly 7 of the 600 emissions carry a zero-axis `ROTATE`, and they are exactly
+the 7 rows recorded "verifier produced no output"** — 7 aborts, 7 rows, 1:1.
+(`FeatureTreeCompiler::opRotate` reads `ROTATE(body, angleDeg, ax, ay, az[, ox, oy,
+oz])`; read as point-then-axis instead, 19 rows look zero-axis and six of the seven
+change classification. The argument order is load-bearing in this census.)
+
+**The cause, and the before/after, measured on one 3-row fixture.**
+`forge::rotate`'s OCCT path built `gp_Dir(ax, ay, az)` with no zero-axis guard,
+though the native path beside it always had one. `gp_Dir` raises
+`Standard_ConstructionError`, which derives from `Standard_Transient` and NOT from
+`std::exception`, so `main`'s `catch (const std::exception&)` never matched:
+`__cxa_throw -> failed_throw -> std::terminate -> abort`. Through the
+**emission-time pinned binary** (sha256 `45e9ad9a…`, the one the 600 rows were
+actually emitted and gated with):
+
+```
+before   rc=134,  1 of 3 records  — the zero-axis row AND its innocent neighbour lost
+         stderr: libc++abi: terminating due to uncaught exception of type
+                 Standard_ConstructionError          <- destroyed by the .ips, which
+                                                        carries only "abort() called"
+after    rc=0,    3 of 3 records
+         r2: op %2 (line 2): ROTATE: axis is zero (args 2-4 are the axis vector;
+             use e.g. 0,0,1 for Z)
+```
+
+The collateral is the reason this had to be fixed at the kernel rather than only in
+the harness: a mid-batch abort takes the rows behind it, so at `--batch 20` one
+zero-axis row could have written off up to nineteen innocent ones.
+
+**★ The nine lost rows, replayed.** A gate on a synthetic fixture proves the
+property; the real emissions prove the recovery. All nine rows the run lost were
+re-fed to the fixed binary **in one batch** — the case that used to cost the
+neighbours too:
+
+```
+exit rc=0,  9 of 9 records,  peak child RSS 0.05 GiB
+  ho116 ho274 ho341 ho962 ho1180 ho1212 ho1229
+        -> op %3 (line 3): ROTATE: axis is zero (args 2-4 are the axis vector...)
+  ho932 -> op %8 (line 8): VERIFY failed: faces=51 (got 0.000000)
+  ho998 -> PAUSED_INCOMPLETE: ft parse line 74 — the emission stopped mid-statement
+```
+
+Every one is now an attributed verdict about the TREE. Seven of the nine turn out
+to be the same one-line defect in the emission, which the run could not say because
+the tool measuring it died first.
+
+**The correction does not re-verify, and that is deliberate.** The nine rows are excluded from D-045's rates; they are NOT replaced by the verdicts above. Re-measuring nine rows with a fixed binary and leaving the other 591 on the pinned one would swap the instrument in the middle of the comparison — the same class of error as the one being corrected, wearing the clothes of a fix. The replay establishes that the rows are measurable, nothing more.
+
+**★ And the two "timeouts" were not a property of their rows either.** ho932 and
+ho998 were recorded as `verifier timeout after 180s`. Run ALONE against the
+**emission-time binary** — the same sha256 `45e9ad9a…`, not the fixed one — they
+answer in **0.1 s each**. So the 180-second wait belonged to the state the child
+was in, not to the input; the label was wrong on a second axis, not just the "does
+not compile" one. What put the child in that state is NOT established by this
+measurement and is not claimed here.
+
+(A caution that cuts the other way: the pinned binary and the current build are not
+otherwise identical — ho998 returns `ok:true` on the pin and `PAUSED_INCOMPLETE` on
+HEAD — so only the crash/no-crash property was compared across binaries, on one
+fixture, with everything else held constant.)
+
+**What now exists so this cannot recur silently.**
+
+* `instrument_failed` is a distinct outcome in `archie_loop.py`,
+  `measure_failure_v2.py`, `score_run.py` and `selfdistill_report.py`, excluded
+  from BOTH the numerator and the denominator; the uncorrected figures are printed
+  beside the corrected ones rather than replaced by them.
+* `forge_verify` answers for itself **from inside the crash**
+  (`src/tools/InstrumentRecord.hpp`): one record per row, emitted from
+  `std::terminate` and from the fatal signals, carrying the row in flight, the
+  exception's demangled type and its `what()`, allocation-free so a signal handler
+  can use it — and it still aborts afterwards, so the OS crash report survives to
+  be counted against.
+* The count reconciles by parent pid (`scripts/verifier_crash_census.py`), with
+  three outcomes rather than two: `unrecorded_deaths` is a finding, `pending` is
+  the oracle being slow (ReportCrash was measured 438 s late once here) and is
+  never reported as a leak.
+* Three gates, all in CI: the unit gate drives every death path in the shipped
+  header; the end-to-end gate drives the real binary; and
+  `instrument_record_mutations.sh` breaks the shipped header **eight** ways and
+  requires the gate to go red at the specific check each guarantee belongs to —
+  because the original defect survived a whole 600-row run for exactly one reason,
+  that nothing ever exercised the path it died on.
+
+## D-046 (2026-09-01): the sketch family leaves `forbidden_ops` — 46 → 53 user-invocable ops, and the direct-ops-alone yield goes 0.00% → 40.78%
+
+*(Numbering collision, resolved at merge: this entry was allocated **D-045** on `claude/sacrosanct-execution-20260828` while `archdisc` independently allocated D-045 to the self-consistency refutation above. It is renumbered **D-046** here, because that entry's number is written into a commit subject already on the default branch (#180) and this one's is not. Nothing outside this file cited either number.)*
 
 **The measurement that set this.** Paired over 9,846 real ABC / Onshape FeatureScript trees
 (154,637 features), scored by `implementation/sacrosanct/tools/abc_yield_census.py`. Arms differ
@@ -2458,23 +2851,27 @@ omission, and extending the filter combo is a UI decision this branch did not me
 provenance is UNVERIFIED (`MODEL_DATA.md`); it is a capability measurement, not a training licence,
 and it is not a benchmark score.
 
+
 ---
 
-## D-046 (2026-09-01): the sketch family's binding limit was its CONSTRAINT VOCABULARY, not its value kind — CON 9 -> 19, and a merge proved a fourth value kind can be added twice without a compile error
+## D-050 (2026-09-01): the sketch family's binding limit was its CONSTRAINT VOCABULARY, not its value kind — CON 9 -> 19, and a merge proved a fourth value kind can be added twice without a compile error
 
-*(Numbering collision, resolved at merge — the FOURTH in this file, and the second to
-land on this entry. This entry was allocated **D-042**, having deliberately skipped D-041 for
-concurrent self-consistency work. Both reservations were overtaken: the execution branch
-allocated **D-041** to the #146/#165 control, and it had ALREADY spent **D-042** on the SECTION
-boolean entry above. Per this file's own precedent (see the D-043 note), the entry already merged
-keeps the number and the incoming one moves, so this entry is renumbered **D-046**. Content
-unchanged. D-046 was chosen by surveying `implementation/sacrosanct/DECISIONS.md` on EVERY ref at
-`origin` and every local branch, not just the `decisions/*` ones — the highest number allocated
-anywhere was **D-045**, held on `archdisc` by the self-consistency refutation, which is the very
-work this entry had reserved D-041 for. D-045 has since been allocated a SECOND time, by #184 on
-this base, so it is now doubly held and D-046 is still the right answer — arrived at, as it
-happens, before either claimant landed. The lesson stands and is now doubled: a reserved number is
-not a held number, and a survey is only as good as the set of refs it covers.)*
+*(Numbering collision, resolved at merge — and the THIRD number this one entry has held.
+It was allocated **D-042**, having deliberately skipped D-041 for concurrent self-consistency
+work; both reservations were overtaken, so at the previous merge it moved to **D-046**. That has
+now been overtaken too: **#184 landed D-046 on the base** for the sketch family leaving
+`forbidden_ops`. Per this file's own precedent (see the D-043 note), the entry already merged
+keeps the number and the incoming one moves, so this entry is renumbered **D-050**. Content
+unchanged.
+
+**D-050 rather than D-047, and the survey is the reason.** The numbers were surveyed across every
+ref at `origin`, INCLUDING THE PULL REQUESTS STILL OPEN, because a number held only on an unmerged
+branch is exactly what has now overtaken this entry twice. That survey found D-047 and D-048 held
+by #169 and D-049 held by #161 — all three unmerged, and all three invisible to a survey of merged
+refs alone. Taking the next free number after the merged maximum would therefore have collided a
+FOURTH time, with a branch already written. D-050 is the first number free on every ref, merged or
+not. The lesson, three times over: a reserved number is not a held number, and a survey is only as
+good as the set of refs it covers — which must include the ones not yet landed.)*
 
 **What was already true, and is not claimed here as new.** The `SKETCH` / `SKETCHREF` value kinds,
 the `SOLVE -> PROFILE -> EXTRUDE` exit, `solveOrRepair`'s never-refuse contract and the

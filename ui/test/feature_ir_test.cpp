@@ -240,27 +240,32 @@ int main() {
   // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
   // SOLVE), plus ARC.
   //
-  // COUNTED on the MERGED tree, from opFromName's own table, rather than
-  // inherited from either side: this branch pinned 53 and the base pinned 55.
-  // The 53 is true only of this branch's own half -- it predates SECTION and
-  // ARC -- and this branch adds no op the base does not already carry, which is
-  // why the merged answer is the base's number and NOT the sum of the two.
-  // Re-count at every merge; a figure that is carried across one is the defect
-  // this assertion exists to catch.
+  // RE-MEASURED AT EVERY MERGE, because this is the assertion a merge keeps
+  // getting wrong: across earlier merges its two sides have pinned 46/41, then
+  // 54/48, then 47/55, then 55/53. Picking a side has been wrong in BOTH
+  // directions, so the number is COUNTED on the tree being committed, with the
+  // method CALIBRATED before it is trusted.
+  //
+  // AT THIS MERGE (the execution branch into app/sketch-value-kind-v2) BOTH
+  // SIDES ALREADY PIN 55, and that agreement is checked rather than assumed --
+  // an agreeing pair is the easiest place to carry a stale figure across, since
+  // no conflict is raised to prompt a re-count. Method: re-derive this same enum
+  // out of forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents, where
+  // it reproduces their committed 55 and 55 exactly, then run it on the MERGED
+  // tree, which also gives 55. It stays 55 because the two op sets are IDENTICAL
+  // here -- checked as a set difference, not inferred from the equal totals:
+  // neither side adds an OpCode the other lacks. What this branch adds is
+  // CONSTRAINT KINDS inside the existing CON op (nine to nineteen), which is a
+  // widening of one op's keyword argument and not a new entry in opFromName, so
+  // the op count is expected to be unmoved and an unmoved count is the correct
+  // result rather than a missed update.
+  //
+  // Confirmed independently by gen_archie_op_vocabulary.py, which reads
+  // opFromName in FeatureTreeCompiler.cpp rather than this header and also says
+  // counts.kernel_ops = 55.
   //
   // Anything else means the derivation itself broke, and a broken oracle must
   // not pass quietly.
-  //
-  // RE-MEASURED at the #177 merge, because this is the assertion a merge keeps
-  // getting wrong: that merge's two sides pinned 47 (kernel/draft-native-engine)
-  // and 55 (claude/sacrosanct-execution-20260828). The method was calibrated by
-  // re-deriving this same enum on BOTH parents -- it reproduced 47 and 55 exactly
-  // -- and then run on the merged tree, which gives 55. It is 55 rather than a
-  // third number because the 47 are a strict SUBSET of the 55: the merged op set
-  // is the union, and the eight the base adds (ARC SKETCH SPT SLINE SCIRC SARC
-  // CON SOLVE) are all the base's. Confirmed independently by the generator,
-  // which reads opFromName in FeatureTreeCompiler.cpp rather than this header and
-  // also says counts.kernel_ops = 55.
   CHECK_EQ_INT(kernel.size(), 55);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
@@ -315,26 +320,6 @@ int main() {
   CHECK_EQ_INT(kernel.at("SOLVE").minArgs, 1);
   CHECK_EQ_INT(kernel.at("SOLVE").maxArgs, 1);
   CHECK_EQ_INT(kernel.at("SOLVE").firstArgIsValueRef ? 1 : 0, 1);
-
-  // The SURFACE ops, read by eye out of the kernel header the same way. A count
-  // that moved from 40 to 46 proves six enumerators appeared; only these prove
-  // their documented ARGUMENT LISTS were derived rather than defaulted.
-  CHECK_EQ_INT(kernel.at("SKIN").minArgs, 2);        // SKIN(%w0, %w1 [, %w2 ...])
-  CHECK(kernel.at("SKIN").maxArgs == kIrArgsUnbounded);
-  CHECK_EQ_INT(kernel.at("FACES").minArgs, 2);       // FACES(%body, "sel")
-  CHECK_EQ_INT(kernel.at("FACES").maxArgs, 2);
-  CHECK_EQ_INT(kernel.at("SEW").minArgs, 1);         // SEW(%s0 [, %s1 ...] [, tol])
-  CHECK(kernel.at("SEW").maxArgs == kIrArgsUnbounded);
-  CHECK_EQ_INT(kernel.at("THICKEN").minArgs, 2);     // THICKEN(%surface, wall [, side])
-  CHECK_EQ_INT(kernel.at("THICKEN").maxArgs, 3);
-  CHECK_EQ_INT(kernel.at("CAP").minArgs, 1);         // CAP(%surface [, tol])
-  CHECK_EQ_INT(kernel.at("CAP").maxArgs, 2);
-  CHECK_EQ_INT(kernel.at("SURFCHECK").minArgs, 2);   // SURFCHECK(%surface, "expr", ...)
-  CHECK(kernel.at("SURFCHECK").maxArgs == kIrArgsUnbounded);
-  // Every surface op transforms an existing value, so every one leads with a %ref.
-  for (const char* op : {"SKIN", "FACES", "SEW", "THICKEN", "CAP", "SURFCHECK"}) {
-    CHECK_EQ_INT(kernel.at(op).firstArgIsValueRef ? 1 : 0, 1);
-  }
 
   // The SURFACE ops, read by eye out of the kernel header the same way. A count
   // that moved from 40 to 46 proves six enumerators appeared; only these prove
