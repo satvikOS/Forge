@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -190,9 +191,34 @@ RecoveryReport DockLayout::reconcileMonitors(const std::vector<MonitorInfo>& ava
 // ── serialization ───────────────────────────────────────────────────────────
 namespace {
 
+// ── the number format has to be LOSSLESS, and "%.6f" was not ───────────────
+// FOUND BY ui/test/parser_fuzz_test.cpp, and it is a real user-facing defect
+// rather than a fuzzer artefact. DockLayout's header states the property this
+// class is built on: "serialize -> parse -> serialize is byte-identical, and the
+// parsed layout compares equal to the original (a saved workspace really comes
+// back)". With "%.6f" that was FALSE for any value with more than six decimals,
+// and a splitter drag produces exactly such a value: ForgeFrame::setRatioAt
+// writes `ratio + delta / parentExtent`, an arbitrary double. Drag a splitter,
+// save the session, reopen it, and the layout that came back was NOT the layout
+// that was saved.
+//
+// The fix is shortest-round-trip formatting: print with the fewest significant
+// digits that strtod maps back to the SAME double. Common values get shorter and
+// more legible ("0.18" rather than "0.180000", "2560" rather than
+// "2560.000000"), unusual ones get as many digits as they need, and the property
+// holds by construction rather than by hoping the value is tidy. Files written
+// by either format are read by either: the reader is `>> double`, which takes
+// both spellings.
 std::string num(double v) {
   char buf[64];
-  std::snprintf(buf, sizeof(buf), "%.6f", v);
+  for (int precision = 1; precision <= 17; ++precision) {
+    std::snprintf(buf, sizeof(buf), "%.*g", precision, v);
+    if (std::strtod(buf, nullptr) == v) return std::string(buf);
+  }
+  // Unreachable for a finite double (17 significant digits always round-trip an
+  // IEEE-754 binary64). A non-finite one cannot be in a layout valid() accepts,
+  // so this is the honest spelling rather than a silent substitution.
+  std::snprintf(buf, sizeof(buf), "%.17g", v);
   return std::string(buf);
 }
 
@@ -261,7 +287,34 @@ void writeNode(std::ostringstream& os, const DockNode& n) {
   writeNode(os, n.children[1]);
 }
 
-bool readNode(std::istringstream& is, DockNode& out) {
+// ── THE DEPTH BOUND, and why a parser needs one ────────────────────────────
+// readNode() recurses once per `S` token, and BEFORE this bound there was no
+// limit at all. MEASURED on this build: a 2 MB shell-state file nesting 100 000
+// splits crashes the parser with SIGSEGV; the threshold on the main thread's
+// 8 MB stack is between 10 000 and 20 000, and on a secondary thread's 512 KB
+// default it is roughly thirty times lower.
+//
+// That is not a theoretical input. `~/.forge/shell_state.txt` is read at startup
+// by main.cpp -> ForgeShell::loadState() -> DockLayout::parse(), so a truncated,
+// corrupted or hostile state file took the application down BEFORE the window
+// opened, with no way for the user to recover except finding and deleting a file
+// they have never heard of.
+//
+// The bound is not a capability gate. Every real workspace in this application
+// is depth <= 6; kMaxDockDepth is 64, which admits 2^64 leaves, and the ONLY
+// behaviour it changes is a stack overflow becoming the refusal this function
+// already performs for every other kind of corruption -- after which the app
+// starts on the default layout and keeps running. Depth is checked BEFORE the
+// recursive call, so the frame that would have overflowed is never entered.
+constexpr std::size_t kMaxDockDepth = 64;
+// The header states how many windows follow, and the reader used to believe any
+// number. A corrupt header declaring 10^9 windows made the loop allocate until
+// the process died -- the same defect class, spent on the heap instead of the
+// stack. A monitor wall of 4096 windows is already absurd.
+constexpr std::size_t kMaxDockWindows = 4096;
+
+bool readNode(std::istringstream& is, DockNode& out, std::size_t depth) {
+  if (depth > kMaxDockDepth) return false;
   std::string tag;
   if (!(is >> tag)) return false;
   if (tag == "T") {
@@ -290,8 +343,8 @@ bool readNode(std::istringstream& is, DockNode& out) {
     if (axis != "h" && axis != "v") return false;
     DockNode first;
     DockNode second;
-    if (!readNode(is, first)) return false;
-    if (!readNode(is, second)) return false;
+    if (!readNode(is, first, depth + 1)) return false;
+    if (!readNode(is, second, depth + 1)) return false;
     out = DockNode::split(axis == "h" ? SplitAxis::Horizontal : SplitAxis::Vertical, ratio,
                           std::move(first), std::move(second));
     return true;
@@ -324,6 +377,9 @@ bool DockLayout::parse(const std::string& text, DockLayout& out) {
     int version = 0;
     if (!(hs >> magic >> version >> declared)) return false;
     if (magic != "forge-dock" || version != 1) return false;
+    // Refuse an absurd declaration before a single window is built, so a corrupt
+    // header cannot spend memory on its way to being rejected.
+    if (declared > kMaxDockWindows) return false;
   }
 
   DockLayout built;
@@ -340,9 +396,10 @@ bool DockLayout::parse(const std::string& text, DockLayout& out) {
     }
     if (tag != "w") return false;
     w.main = mainFlag != 0;
-    if (!readNode(is, w.root)) return false;
+    if (!readNode(is, w.root, 0)) return false;
     std::string trailing;
     if (is >> trailing) return false;  // leftover tokens: the stream desynchronised
+    if (built.windows_.size() >= kMaxDockWindows) return false;
     built.addWindow(std::move(w));
   }
   // The header states how many windows follow. Not comparing it is how a file

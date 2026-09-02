@@ -777,7 +777,16 @@ int main(int argc, char** argv) {
   // so an airfoil is not statable as one), and SWEEP is the only op that makes a solid
   // by following a 3D PATH. They needed no new value kind -- they needed a new ARGUMENT
   // kind, IrArgKind::Points, which is why they outlasted the other nine.
-  CHECK_EQ_INT(closure.creatorOps.size(), 16);
+  //
+  // The SEVENTEENTH is SKETCH, and it is a creator of a different shape from all
+  // sixteen above: each of those hands back a FINISHED value, while SKETCH hands
+  // back an EMPTY one that the four entity ops and the two constraint commands
+  // fill in before SOLVE turns it into a PROFILE. It is what makes the vendored
+  // constraint solver reachable from an empty document, and the closure report
+  // printed above is where its consequence shows: SKETCH and SKETCHREF join the
+  // reachable kinds, and the set stays CLOSED rather than owing a creator.
+  CHECK_EQ_INT(closure.creatorOps.size(), 17);
+  CHECK(contains(closure.creatorOps, "SKETCH"));
   CHECK(contains(closure.creatorOps, "POLY"));
   CHECK(contains(closure.creatorOps, "WIRE"));
   CHECK(contains(closure.creatorOps, "SWEEP"));
@@ -919,11 +928,93 @@ int main(int argc, char** argv) {
                                       {ref("sketch_16", EntityKind::Sketch, "s16")}, ext3)),
                  static_cast<int>(DispatchStatus::Ok));
 
+
+    // ── and THE SKETCH FAMILY, unreachable until this change ────────────────
+    // Eleven statements, driven the way a user drives them: open a sketch, place
+    // points in it, join them, constrain them, SOLVE, and EXTRUDE the profile
+    // that comes out. This is the proof the family's exit is real rather than
+    // merely type-correct -- %28 is `EXTRUDE(%27, 5)` where %27 is a SOLVE, and
+    // part.extrude was not touched by this change.
+    //
+    // TWO constraints on purpose. The first one REBINDS the sketch's node (CON
+    // is pass-through), so the second one is the case that fails if the node is
+    // resolved by `nodeFor(root)`: after %25 the node no longer names %18. The
+    // SOLVE that follows then names %26 -- the sketch WITH both constraints --
+    // which is what the rebinding is for.
+    CommandParams sketch;
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_new", {}, sketch)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams p0;
+    p0.setNumber("x", 0);
+    p0.setNumber("y", 0);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_entity_point",
+                                      {ref("opensketch_18", EntityKind::OpenSketch, "sk")}, p0)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams p1;
+    p1.setNumber("x", 40);
+    p1.setNumber("y", 0);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_entity_point",
+                                      {ref("opensketch_18", EntityKind::OpenSketch, "sk")}, p1)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams p2;
+    p2.setNumber("x", 40);
+    p2.setNumber("y", 30);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_entity_point",
+                                      {ref("opensketch_18", EntityKind::OpenSketch, "sk")}, p2)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams line;
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_entity_line",
+                                      {ref("sketchref_19", EntityKind::SketchRef, "e1"),
+                                       ref("sketchref_20", EntityKind::SketchRef, "e2")}, line)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams arc;
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_entity_arc",
+                                      {ref("sketchref_19", EntityKind::SketchRef, "e1"),
+                                       ref("sketchref_20", EntityKind::SketchRef, "e2"),
+                                       ref("sketchref_21", EntityKind::SketchRef, "e3")}, arc)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams circ;
+    circ.setNumber("radius", 6);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_entity_circle",
+                                      {ref("sketchref_19", EntityKind::SketchRef, "e1")}, circ)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams horiz;
+    horiz.setText("kind", "HORIZ");
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_constrain_single",
+                                      {ref("sketchref_22", EntityKind::SketchRef, "l1")}, horiz)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams dist;
+    dist.setText("kind", "DIST");
+    dist.setNumber("distance", 40);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_constrain",
+                                      {ref("sketchref_19", EntityKind::SketchRef, "e1"),
+                                       ref("sketchref_20", EntityKind::SketchRef, "e2")}, dist)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams solve;
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_solve",
+                                      {ref("opensketch_18", EntityKind::OpenSketch, "sk")}, solve)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams ext4;
+    ext4.setNumber("distance", 5);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.extrude",
+                                      {ref("sketch_27", EntityKind::Sketch, "s27")}, ext4)),
+                 static_cast<int>(DispatchStatus::Ok));
+
     std::printf("  [measured] a program a USER could have authored, from an empty document:\n%s\n",
                 doc.irProgram().c_str());
 
     // NON-TRIVIAL, stated as numbers rather than as an adjective.
-    CHECK_EQ_INT(doc.records().size(), 17);
+    CHECK_EQ_INT(doc.records().size(), 28);
     std::vector<IrLine> program;
     std::vector<std::string> distinctOps;
     for (const FeatureRecord& rec : doc.records()) {
@@ -931,7 +1022,7 @@ int main(int argc, char** argv) {
       CHECK(!rec.commandId.empty());  // every statement is command-authored
       if (!contains(distinctOps, rec.line.op)) distinctOps.push_back(rec.line.op);
     }
-    CHECK(distinctOps.size() >= 14);
+    CHECK(distinctOps.size() >= 21);
 
     // THE CLOSING OF THE LOOP: the bridge accepts, statement for statement, what
     // the app itself produced. A constraint that refuses the product's own output
@@ -939,7 +1030,7 @@ int main(int argc, char** argv) {
     const PlanRuling ruling = bridge.check(program);
     if (!ruling.allAccepted()) std::printf("%s", ruling.report().c_str());
     CHECK(ruling.allAccepted());
-    CHECK_EQ_INT(ruling.accepted, 17);
+    CHECK_EQ_INT(ruling.accepted, 28);
     CHECK_EQ_INT(ruling.rejected, 0);
 
     // And the ops it used are a subset of the allowed set, by name.

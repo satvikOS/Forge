@@ -1,0 +1,153 @@
+{
+ "build_errors": {
+  "BTCurveGeometryCircle | Standard_Failure: ": 6,
+  "BTCurveGeometryInterpolatedSpline | Standard_Failure: ": 8
+ },
+ "coincidence": {
+  "BTCurveGeometryCircle": {
+   "deviation_m": {
+    "max": 13.569857787867885,
+    "median": 3.0357660829594124e-18,
+    "n": 96030,
+    "p95": 0.0005000000000000004
+   },
+   "endpoints": 96030,
+   "rate": 0.9358846193897741,
+   "within_tol": 89873
+  },
+  "BTCurveGeometryConic": {
+   "deviation_m": {
+    "max": 3.469446951953614e-18,
+    "median": 0.0,
+    "n": 4,
+    "p95": 3.469446951953614e-18
+   },
+   "endpoints": 4,
+   "rate": 1.0,
+   "within_tol": 4
+  },
+  "BTCurveGeometryEllipse": {
+   "deviation_m": {
+    "max": 2.943700254713878,
+    "median": 1.2509268882771003e-17,
+    "n": 698,
+    "p95": 0.017678590025888237
+   },
+   "endpoints": 698,
+   "rate": 0.8710601719197708,
+   "within_tol": 608
+  },
+  "BTCurveGeometryInterpolatedSpline": {
+   "deviation_m": {
+    "max": 2.360510501405029,
+    "median": 0.0,
+    "n": 3588,
+    "p95": 0.021223229314216937
+   },
+   "endpoints": 3588,
+   "rate": 0.7865105908584169,
+   "within_tol": 2822
+  },
+  "BTCurveGeometryLine": {
+   "deviation_m": {
+    "max": 50.768638728826105,
+    "median": 8.673617379884035e-19,
+    "n": 663022,
+    "p95": 0.010040231571034603
+   },
+   "endpoints": 663022,
+   "rate": 0.8774595714772662,
+   "within_tol": 581775
+  },
+  "BTCurveGeometrySpline": {
+   "deviation_m": {
+    "max": 4.5619999999999985,
+    "median": 0.0,
+    "n": 12812,
+    "p95": 5.810749006897682e-11
+   },
+   "endpoints": 12812,
+   "rate": 0.955900718076803,
+   "within_tol": 12247
+  }
+ },
+ "files_scanned": 9852,
+ "interpolated": {
+  "end_tangent_n": 3834,
+  "end_tangent_pass_1e6": 3834,
+  "end_tangent_rad": {
+   "max": 2.580956827951785e-08,
+   "median": 0.0,
+   "n": 3834,
+   "p95": 2.1073424255447017e-08
+  },
+  "handle_m": {
+   "max": 266.0451915012738,
+   "median": 0.0045699458215479275,
+   "n": 3834,
+   "p95": 0.049647902049608825
+  },
+  "handle_n": 3834,
+  "handle_pass_tol": 0,
+  "through_points_m": {
+   "max": 1.7962296908674955e-14,
+   "median": 0.0,
+   "n": 10229,
+   "p95": 2.7755575615628914e-17
+  },
+  "through_points_n": 10229,
+  "through_points_pass_1e6": 10229
+ },
+ "licence": "corpus provenance UNVERIFIED (MODEL_DATA.md)",
+ "negative_control": {
+  "stride2": {
+   "builds_refused": 0,
+   "displacement_m": {
+    "max": 1.3739544984958296,
+    "median": 0.3893459788428413,
+    "n": 112,
+    "p95": 0.9936555032788011
+   },
+   "moved_beyond_tol": 112,
+   "n": 112
+  },
+  "unitw": {
+   "builds_refused": 0,
+   "displacement_m": {
+    "max": 0.4518401471630589,
+    "median": 0.0027482169113820644,
+    "n": 112,
+    "p95": 0.0453060241309317
+   },
+   "moved_beyond_tol": 94,
+   "n": 112
+  }
+ },
+ "rebuild": {
+  "BTCurveGeometryCircle": {
+   "built": 109536,
+   "seen": 109542
+  },
+  "BTCurveGeometryConic": {
+   "built": 3,
+   "seen": 3
+  },
+  "BTCurveGeometryEllipse": {
+   "built": 612,
+   "seen": 612
+  },
+  "BTCurveGeometryInterpolatedSpline": {
+   "built": 2137,
+   "seen": 2145
+  },
+  "BTCurveGeometryLine": {
+   "built": 334104,
+   "seen": 334104
+  },
+  "BTCurveGeometrySpline": {
+   "built": 6555,
+   "seen": 6555
+  }
+ },
+ "tolerance_m": 1e-09
+}

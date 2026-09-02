@@ -5,8 +5,13 @@
 # LangGraph
 .langgraph_api/
 
-# Dependencies
-node_modules/
+# Dependencies. NO trailing slash, on purpose: `node_modules/` matches a
+# DIRECTORY only, and forge-kernel/scripts/tkdrop_build_baseline.sh creates a
+# SYMLINK to the primary checkout's node_modules in every worktree it builds in
+# ("safe to delete afterwards", its own comment says). With the slash that
+# symlink shows as untracked, so every worktree that has built the kernel looks
+# dirty to the reaper — the exact thing the rule was written to prevent.
+node_modules
 package-lock.json
 
 # Cache directory (but keep creditUsage.json)
@@ -108,6 +113,15 @@ forge-kernel/.build-cam-offset-ab/
 # Same deal for test/build_draft_defer_probe.sh's object cache and binary; its
 # committed results live in reports/corpus_ab/draft_defer_probe.jsonl.gz.
 forge-kernel/.build-draft-probe/
+# Same deal for test/build_draft_local_probe.sh's object cache, binary and run
+# outputs; its committed results live in
+# reports/corpus_ab/draft_local_probe.jsonl.gz.
+forge-kernel/.build-draft-local/
+# test/ft/ft_smoke.mjs and ft_organic_smoke.mjs write their exported STEP files
+# here. That path used to be the PRIMARY checkout's, which made two agents in
+# two worktrees write the SAME file; it is now tree-local, so every tree grows
+# one of these and none of them is an artefact.
+forge-kernel/scratchpad/
 # Same deal for test/build_offsetshape_defer_census.sh (family H attribution).
 forge-kernel/.build-offsetshape-census/
 # test/run_tkoffset_gh_defer_census.sh's binary; its committed rows live in
@@ -117,11 +131,19 @@ forge-kernel/.build-gh-census/
 # test/run_thicksolid_nesting_gate.sh's binary — a gate, so it has no committed
 # artefact; it is rebuilt and rerun from source every time.
 forge-kernel/.build-thicksolid-nesting/
+# test/sarc_ring_mutation.sh's default build dir. It holds a CMake tree that is
+# deliberately built against a mutated source and then restored, so nothing in it
+# is ever a fact about the repository.
+forge-kernel/build-sarc-mutation/
 # test/ft/build_s0_acceptance.sh and test/ft/build_surface_round_trip.sh keep
 # their objects + binaries here. Both are gates, so there is no committed
 # artefact: they are rebuilt and rerun from source every time.
 forge-kernel/test/ft/.s0build/
 forge-kernel/test/ft/.surfacebuild/
+# test/build_section_op_gate.sh's objects + binary. Same reasoning: it is a GATE,
+# not a census, so there is no artefact to commit — it is rebuilt and rerun from
+# source every time, and its three mutations are re-proved on every run.
+forge-kernel/test/.section_gate/
 
 # --- Forge local dependency plane (Sacrosanct 3.1 s10.6 / s21.2) -------------
 # .forge-local/ is the workstation execution plane: source mirror, build trees,

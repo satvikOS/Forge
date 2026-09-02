@@ -51,6 +51,7 @@
 //   3  the historical use-after-free, on purpose-> the sanitizer must catch it
 //   4  only the first workspace is exercised    -> the tab census goes unmet
 //   5  the splitter is pressed but not dragged  -> no ratio moves
+//   8  the camera pull path never runs          -> view.* is a counter nobody reads
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>
@@ -425,6 +426,178 @@ int main(int argc, char** argv) {
     leftButton(false);
     pointerTo(-FLT_MAX, -FLT_MAX);
     step(frame);
+  }
+
+  // ══ ★ THE COMMAND SURFACE — the other 33 interactive call sites ══════════
+  //
+  // MEASURED COVERAGE GAP this section exists to close. ForgeFrame.cpp draws 35
+  // interactive widgets: 10 MenuItem, 9 Button, 4 Selectable, 4 BeginMenu, 2
+  // InvisibleButton, 2 InputText, 1 SmallButton, 1 SliderFloat, 1 RadioButton
+  // and 1 BeginPopupContextItem. Everything above this line exercises exactly
+  // TWO of them -- the tab button and the splitter grip -- because those are the
+  // only ones a headless test can address by RECTANGLE. The other 33 are laid
+  // out inside menus and popups whose geometry ImGui does not publish.
+  //
+  // They are not, however, 33 different behaviours. Every one of them ends in
+  // ForgeFrame::invoke(id) -> ForgeShell::run(id, params), so the surface that
+  // was untested is reachable by NAME even where it is not reachable by
+  // position. This sweep drives every registered command through the app's OWN
+  // invoke() -- not a re-implementation of it -- and steps A FURTHER FRAME after
+  // each, which is the discipline the historical use-after-free needed to be
+  // seen: the crash was not the click, it was the next read through what the
+  // click had freed.
+  //
+  // The whole stack is under -fsanitize=address, so "it happened to survive" is
+  // a report rather than a pass.
+  {
+    const std::vector<std::string> ids = shell.registry().ids();
+    check(!ids.empty(), "the registry has commands to exercise", "");
+
+    std::size_t invoked = 0;
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+      // MUTATION 6: stop after the first command. The census below is
+      // UNCONDITIONAL, so a truncated sweep cannot hide.
+      if (g_mutation == 6 && i > 0) break;
+      const std::string& id = ids[i];
+
+      // The command runs against a REAL frame with REAL geometry, exactly as it
+      // would from the menu.
+      frame.invoke(id);
+      ++invoked;
+
+      // ★ THE FURTHER FRAME, AND AN ASSERTION THAT ACTUALLY DEPENDS ON IT.
+      //
+      // The first version of this sweep stepped the frame and then checked the
+      // dock invariants -- and MUTATION 7 (remove the step) STAYED GREEN. That
+      // was the mutation doing its job on the gate's author: none of those
+      // invariants is rebuilt by the draw, so they read the same whether or not
+      // a frame was produced. The sweep was asserting against state the
+      // invocation left behind, which is a unit test wearing a click gate's
+      // clothes.
+      //
+      // What genuinely requires the redraw is the DRAW ITSELF: after every
+      // command the application must still be able to build a complete frame
+      // with real content. That is the property the historical use-after-free
+      // broke -- the crash was the next draw, not the click -- and it is
+      // unobservable without drawing.
+      ImDrawData* dd = (g_mutation != 7) ? step(frame) : nullptr;
+      check(dd != nullptr, "a frame was drawn after invoking", id);
+      if (dd != nullptr) {
+        checkGe(dd->TotalVtxCount, 500, "and the frame after the command drew real content", id);
+        checkGe(dd->CmdListsCount, 4, "menu, chrome and docked panels each drew after", id);
+      }
+
+      // The app is still coherent. Not "it did not crash" -- these are the
+      // invariants a freed or re-seated dock node breaks.
+      const Census after = censusOf(shell);
+      checkGe(after.tabs, std::size_t{1}, "the dock still has tabs after", id);
+      checkEq(frame.tabHits().size(), after.tabs, "every panel still drew its tab after", id);
+      checkEq(frame.splitterHits().size(), after.splits, "every split still drew its grip after",
+              id);
+      checkEq(frame.panelsDrawn(), after.tabGroups, "one panel body per tab group after", id);
+      check(shell.layout().valid(), "the dock tree is still valid after", id);
+      checkEq(frame.layoutReseatsDuringWalk(), std::size_t{0},
+              "the layout was not re-seated mid-walk by", id);
+
+      // A command that reports a side effect on the document must leave the
+      // viewport agreeing with the document -- the seam that made a stale
+      // KernelScene render a body the document no longer described.
+      check(!frame.syncSceneToDocument(), "the viewport already matches the document after", id);
+    }
+
+    std::printf("[gate] %zu of %zu registered commands invoked, each with a further frame\n",
+                invoked, ids.size());
+    // ★ THE CENSUS. A sweep that silently stopped covering commands as the
+    // registry grew would be worse than no sweep, because the number would still
+    // look like coverage. This is an EQUALITY against the registry's own count.
+    checkEq(invoked, ids.size(), "EVERY registered command was invoked", "");
+    // A RATCHET, raised in the commit that adds a command. A floor left behind
+    // cannot notice the registry shrinking back past it, which is the only
+    // thing this line is for -- so a STALE floor is the failure mode, and BOTH
+    // sides of this merge were stale. MEASURED on the merged tree by building
+    // the registry exactly as this gate does (`ForgeShell` + registerPartCommands):
+    // 22 shell commands + 50 part commands = 72. This branch carried 50 against
+    // its own 66, and the base carried 66 against its own 72 -- picking either
+    // would have left the floor 22 or 6 below the registry it is supposed to
+    // guard. Cross-checked against two independent instruments on this same
+    // tree: APP_SURFACE_MANIFEST.tsv (72 rows, written from the live registry)
+    // and archie_op_vocabulary.json counts.registry_commands (72, derived from
+    // the SOURCES), plus forge_shell_test's shellCommands == 22.
+    checkGe(ids.size(), std::size_t{72}, "the registry did not shrink under the sweep", "");
+  }
+
+  // ── THE CAMERA ACTUALLY MOVES ────────────────────────────────────────────
+  // The sweep above proves every command can be invoked without corrupting the
+  // dock. It does NOT prove any of them DID anything, and for a view command
+  // that is the whole risk: `view.fit`'s execute body is `++doc_.fitCount`, and
+  // for the entire life of that command the counter was written by the handler
+  // and READ BY NOBODY -- F printed "view.fit -> ok" and the camera did not
+  // move. The seven standard views and view.selection ride the same pull
+  // pattern, so they inherit the same failure mode and need the same proof.
+  //
+  // What is asserted is an OBSERVABLE OF THE CAMERA, not the counter: azimuth
+  // and elevation after the pull. A counter check would pass against exactly
+  // the defect this exists to catch.
+  {
+    // Park the camera somewhere that is not any named view, so "it moved" is
+    // distinguishable from "it was already there".
+    frame.camera().setIsometric();
+    frame.camera().orbit(0.37f, 0.11f);
+    const float az0 = frame.camera().azimuth();
+    const float el0 = frame.camera().elevation();
+
+    frame.invoke("view.top");
+    // MUTATION 8: never step the frame, so the pull path never runs. The camera
+    // then holds its old angles and the checks below go red -- which is exactly
+    // what a command whose counter nobody reads looks like.
+    if (g_mutation != 8) step(frame);
+
+    const float azT = frame.camera().azimuth();
+    const float elT = frame.camera().elevation();
+    check(azT != az0 || elT != el0, "view.top MOVED the camera", "");
+    // Top looks down: elevation sits on the pole guard, not at the old angle.
+    checkGe(static_cast<int>(elT * 1000.0f), 1500, "view.top raised the camera to the pole", "");
+    checkEq(frame.viewsApplied(), shell.document().viewOrientCount,
+            "the frame applied every orientation the shell requested", "");
+    checkEq(frame.layoutReseatsDuringWalk(), std::size_t{0},
+            "the layout was not re-seated mid-walk by a view command", "");
+
+    // BACK / BOTTOM / LEFT are the three that did not exist before this work;
+    // asserting one of them is what keeps the seventh from being decorative.
+    frame.invoke("view.back");
+    if (g_mutation != 8) step(frame);
+    check(frame.camera().azimuth() != azT, "view.back moved the camera again", "");
+
+    // ZOOM TO SELECTION frames the picked geometry, not the whole body. With a
+    // real face selected the camera must end up CLOSER than a whole-body fit.
+    shell.selection().clearSelection();
+    frame.invoke("view.fit");
+    if (g_mutation != 8) step(frame);
+    const float wholeBody = frame.camera().distance();
+
+    forge::ui::EntityRef faceRef;
+    // The REAL body id this frame is showing. An empty one would be rejected by
+    // SelectionService::add (EntityRef::valid() requires a body), and a rejected
+    // add would leave the selection empty and make every check below vacuous --
+    // so the add is ASSERTED rather than assumed.
+    faceRef.bodyId = frame.treeSource().rootId();
+    faceRef.kind = forge::ui::EntityKind::Face;
+    faceRef.persistentName = "face@1";
+    check(shell.selection().add(faceRef), "a face reference was selectable for view.selection", "");
+    checkEq(shell.selection().count(), std::size_t{1}, "exactly one entity is selected", "");
+    frame.invoke("view.selection");
+    if (g_mutation != 8) step(frame);
+    checkEq(frame.selectionFitsApplied(), shell.document().selectionFitCount,
+            "the frame applied every selection-fit the shell requested", "");
+    // A single face is a subset of the body, so framing it cannot need MORE
+    // distance than framing the whole thing. Stated as <= rather than < ON
+    // PURPOSE: this gate does not get to assume the demo body HAS a face 1, and
+    // a strict inequality would be asserting the fixture rather than the code.
+    // The unconditional claim is the watermark equality above.
+    check(frame.camera().distance() <= wholeBody + 1e-3f,
+          "view.selection framed no wider than view.fit", "");
+    check(frame.camera().distance() > 0.0f, "view.selection left a usable distance", "");
+    shell.selection().clearSelection();
   }
 
   // ── coverage: what was clicked is what the model said was there ──────────

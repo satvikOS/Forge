@@ -234,13 +234,29 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 53 ops; anything else means the derivation
-  // itself broke, and a broken oracle must not pass quietly.
-  // 40 -> 46 was the SURFACE value kind's producers and consumers (SKIN / FACES
-  // / SEW / THICKEN / CAP / SURFCHECK); 46 -> 53 is the 2D sketch + constraint
-  // family (SKETCH SPT SLINE SCIRC SARC CON SOLVE), which makes the vendored
-  // planegcs solver addressable from a feature tree for the first time.
-  CHECK_EQ_INT(kernel.size(), 53);
+  // forge::ft::opFromName registers 55 ops -- the original 40, plus the six that
+  // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
+  // THICKEN / CAP / SURFCHECK), plus SECTION (the fourth OCCT boolean), plus the
+  // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
+  // SOLVE), plus ARC. Anything else means the derivation itself broke, and a
+  // broken oracle must not pass quietly.
+  //
+  // RE-MEASURED AT EVERY MERGE, because this is the assertion a merge keeps
+  // getting wrong: its two sides have pinned 46/41, then 54/48, then 47/55, and
+  // at THIS merge (the execution branch into archdisc) 55 here against 53 on the
+  // base. Picking a side has been wrong in BOTH directions, so the number is
+  // COUNTED on the tree being committed, with the method CALIBRATED before it is
+  // trusted: re-derive this same enum out of
+  // forge-kernel/include/forge/ft/FeatureTree.hpp on BOTH parents -- where it
+  // reproduces their committed 55 and 53 exactly -- and then run it on the
+  // MERGED tree, which gives 55. It is 55 rather than a third number because the
+  // base's 53 are a strict SUBSET: the base adds ZERO ops this branch lacks and
+  // this branch adds exactly two the base lacks (ARC and SECTION), so the merged
+  // set is the union and the union is this side's set unchanged. Confirmed
+  // independently by gen_archie_op_vocabulary.py, which reads opFromName in
+  // FeatureTreeCompiler.cpp rather than this header and also says
+  // counts.kernel_ops = 55.
+  CHECK_EQ_INT(kernel.size(), 55);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -271,6 +287,12 @@ int main() {
   CHECK(kernel.at("LOFT").maxArgs == kIrArgsUnbounded);
   CHECK(kernel.at("VERIFY").maxArgs == kIrArgsUnbounded);
   CHECK_EQ_INT(kernel.at("POLY").maxArgs, 1);      // [x y; ...] is ONE argument
+  // ARC takes the same single point-ring literal as POLY. `[x y; x y mx my; ...]`
+  // must NOT be read as an optional group by the derivation — the `...` is inside
+  // a literal, and variadicToken() refuses a token that opens with '['.
+  CHECK_EQ_INT(kernel.at("ARC").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SWEEP").maxArgs, 2);
   CHECK_EQ_INT(kernel.at("INPUT").minArgs, 0);
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);

@@ -18,13 +18,29 @@ namespace forge::ui {
 
 const char* toString(IrValueKind kind) noexcept {
   switch (kind) {
-    case IrValueKind::None:    return "none";
-    case IrValueKind::Profile: return "profile";
-    case IrValueKind::Wire:    return "wire";
-    case IrValueKind::Solid:   return "solid";
-    case IrValueKind::Surface: return "surface";
+    case IrValueKind::None:      return "none";
+    case IrValueKind::Profile:   return "profile";
+    case IrValueKind::Wire:      return "wire";
+    case IrValueKind::Solid:     return "solid";
+    // The vocabulary spells these SKETCH / SKETCHREF / SURFACE and mapValueKind()
+    // matches case-insensitively against exactly these strings, so the two
+    // spellings are one string, lowered -- not a second transcription that can
+    // drift.
+    case IrValueKind::Sketch:    return "sketch";
+    case IrValueKind::SketchRef: return "sketchref";
+    case IrValueKind::Surface:   return "surface";
   }
   return "none";
+}
+
+bool irValueKindFromName(std::string_view name, IrValueKind& out) noexcept {
+  for (const IrValueKind kind : kAllIrValueKinds) {
+    if (name == toString(kind)) {
+      out = kind;
+      return true;
+    }
+  }
+  return false;
 }
 
 const char* toString(EditCheck check) noexcept {
@@ -354,6 +370,93 @@ std::string sketchNodeFor(int irId) { return "sketch_" + std::to_string(irId); }
 // consumes the one and EXTRUDE the other and the kernel throws on the swap.
 std::string wireNodeFor(int irId) { return "wire_" + std::to_string(irId); }
 
+// And a FOURTH prefix, for SURFACE sheets, for exactly the reason WIRE got a third.
+// A sheet and a solid are both "a body" to a click, and they are NOT interchangeable
+// to the kernel: opThicken/opCap throw on a SOLID and opShell/opFillet throw on a
+// sheet. Without its own prefix doc.kindOf() would answer Solid for a sheet, THICKEN
+// would offer itself on a fillet's output, and SHELL would offer itself on a skin --
+// the mis-selection a typed signature exists to refuse. PROFILE, WIRE, SOLID and
+// SURFACE are the whole of IrValueKind, so this is the last prefix the scheme needs.
+std::string surfaceNodeFor(int irId) { return "surface_" + std::to_string(irId); }
+
+// And a FIFTH and SIXTH, for the two kinds the constraint solver added. The
+// comment above claimed PROFILE / WIRE / SOLID / SURFACE were "the whole of
+// IrValueKind" and that the fourth prefix was the last one the scheme needed;
+// SKETCH and SKETCHREF arrived afterwards and made that sentence false. The
+// reasoning it gave is what forces these two rather than excusing them: a
+// selection resolves a NODE to a value and reads kindOf() through it, so a
+// sketch parked in `sketch_N` would read back as a solved PROFILE and EXTRUDE
+// would offer itself on a sketch that has not been solved -- which the kernel
+// refuses, because refProfile() and refSketch() are different accessors.
+//
+//   * `opensketch_N` -- the SKETCH value: still under construction, still
+//     constrainable, not yet solved. `sketch_N` stays what it has always been,
+//     the SOLVED profile, which is also where SOLVE's own output lands.
+//   * `sketchref_N`  -- one entity INSIDE a sketch (point / line / circle / arc).
+std::string openSketchNodeFor(int irId) { return "opensketch_" + std::to_string(irId); }
+std::string sketchRefNodeFor(int irId) { return "sketchref_" + std::to_string(irId); }
+
+// The SKETCH statement a sketch value ultimately belongs to, 0 when there is
+// none. Not a guess: every statement in this family names its sketch through its
+// FIRST operand -- SPT names the sketch directly, SLINE / SCIRC / SARC name
+// another entity of the same sketch (the compiler REFUSES operands from two
+// different sketches), and CON is pass-through over one of those -- so following
+// the first %ref terminates on the one statement of the family whose first
+// argument is NOT a %ref, which is SKETCH(PLANE) and only SKETCH(PLANE). The
+// test is structural rather than a comparison against the op name, so it does
+// not go quietly wrong if the family gains another root.
+//
+// validateIr() has already proved every %ref is STRICTLY EARLIER than the
+// statement holding it, so the chain cannot cycle; the record-count bound is
+// belt and braces against a future op whose first operand is not its parent.
+int sketchRootOf(const PartDocument& doc, int irId) {
+  for (std::size_t hop = 0; hop <= doc.records().size(); ++hop) {
+    const FeatureRecord* rec = doc.featureAt(irId);
+    if (rec == nullptr) return 0;
+    const bool sketch = rec->produces == IrValueKind::Sketch;
+    if (!sketch && rec->produces != IrValueKind::SketchRef) return 0;
+    if (rec->line.args.empty() || rec->line.args.front().kind != IrArgKind::Ref) {
+      return sketch ? irId : 0;
+    }
+    irId = rec->line.args.front().ref;
+  }
+  return 0;
+}
+
+// The document node of the ONE sketch every selected entity belongs to. "" means
+// either that the selection holds no sketch entity, or -- the case that matters
+// -- that it spans TWO sketches.
+//
+// One helper answers both questions because they have one answer. forge::ft
+// THROWS on a cross-sketch operand ("SLINE: both points must belong to the same
+// SKETCH", and the same for SARC), and a throw costs the whole tree over one
+// mis-click, so the pair is refused at the menu. CON needs the same value for a
+// different reason: it is PASS-THROUGH and must REBIND that sketch's node.
+// Splitting this in two would let the two answers disagree.
+//
+// THE SEARCH IS NEWEST-FIRST, and that is not a detail: CON rebinds the node, so
+// after `%25 = CON(%21, HORIZ)` the sketch's node names %25 and no longer names
+// the SKETCH statement %18. A `nodeFor(root)` here would answer "" for every
+// sketch that has already been constrained once -- so the SECOND constraint on
+// any sketch, and the SOLVE after it, would have greyed out.
+std::string sharedSketchNode(const PartDocument& doc, const SelectionService& sel) {
+  const std::vector<int> ids = resolveValues(doc, sel, IrValueKind::SketchRef);
+  if (ids.empty()) return std::string();
+  const int root = sketchRootOf(doc, ids.front());
+  if (root == 0) return std::string();
+  for (const int id : ids) {
+    if (sketchRootOf(doc, id) != root) return std::string();
+  }
+  for (std::size_t i = doc.records().size(); i > 0; --i) {
+    const int id = static_cast<int>(i);
+    if (doc.kindOf(id) != IrValueKind::Sketch) continue;
+    if (sketchRootOf(doc, id) != root) continue;
+    const std::string node = doc.nodeFor(id);
+    if (!node.empty()) return node;
+  }
+  return std::string();
+}
+
 // One emission == one undoable transaction.
 void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
           const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
@@ -497,8 +600,12 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.sketch_rect", "Rectangle", "RECT",
                                SelectionSignature::none());
-    c.schema.push_back(ParamSpec{"width", ParamType::Number, true, 40.0, ""});
-    c.schema.push_back(ParamSpec{"height", ParamType::Number, true, 30.0, ""});
+    c.schema.push_back(ParamSpec{.name = "width", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 40.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "height", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 30.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
     c.preview = PreviewPolicy::Live;
@@ -535,7 +642,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.sketch_circle", "Circle", "CIRCLE",
                                SelectionSignature::none());
-    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{.name = "radius", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
     c.preview = PreviewPolicy::Live;
@@ -733,9 +842,15 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.section_ring", "Section Ring", "RING",
                                SelectionSignature::none());
-    c.schema.push_back(ParamSpec{"rx", ParamType::Number, true, 20.0, ""});
-    c.schema.push_back(ParamSpec{"ry", ParamType::Number, true, 20.0, ""});
-    c.schema.push_back(ParamSpec{"z", ParamType::Number, true, 0.0, ""});
+    c.schema.push_back(ParamSpec{.name = "rx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 20.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "ry", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 20.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "z", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"p", ParamType::Number, false, 2.0, ""});
@@ -1205,12 +1320,23 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                                SelectionSignature::exactly(EntityKind::Sketch, 1));
     // hasDefault, so a GESTURE can run this command. ForgeShell::invoke() fills
     // only the parameters whose spec says the default MEANS something, and the
-    // braced-positional ParamSpec form below stops before that flag, so every
-    // required Part parameter defaulted to hasDefault=false and every keyboard
-    // shortcut for a Part command died on missing_required_parameter before the
-    // handler ran. The three values here are not invented: they are the honest
-    // defaults the retired ForgeShell model.* stubs already declared and shipped
-    // (distance 10, radius 1, thickness 2), moved onto the commands that emit IR.
+    // braced-positional ParamSpec form stops before that flag, so a required
+    // parameter written that way defaulted to hasDefault=false and every
+    // keyboard shortcut and menu click for it died on missing_required_parameter
+    // before the handler ran. distance 10 / radius 1 / thickness 2 are the
+    // honest defaults the retired ForgeShell model.* stubs already declared and
+    // shipped, moved onto the commands that emit IR.
+    //
+    // THIS WAS FIXED HERE FIRST AND ONLY HERE, and the other twenty-two required
+    // parameters kept the defect: measured against the registry, 23 required
+    // parameters across 13 of the 31 commands still had a usable value sitting
+    // in defaultNumber that applyDefaults() was forbidden to read. They are now
+    // all written in the designated form with hasDefault set, and
+    // forge::ui::gestureBlockedCommands() (KeymapAudit.hpp) is the standing
+    // measurement -- it reports every command a bare gesture still cannot run,
+    // and ui/test/keymap_audit_test.cpp pins that list to the two commands whose
+    // parameter genuinely has no honest value: a file path, and "the new value
+    // of the parameter you are editing".
     c.schema.push_back(ParamSpec{.name = "distance",
                                  .type = ParamType::Number,
                                  .required = true,
@@ -1244,7 +1370,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.revolve", "Revolve", "REVOLVE",
                                SelectionSignature::exactly(EntityKind::Sketch, 1));
-    c.schema.push_back(ParamSpec{"angle", ParamType::Number, true, 360.0, ""});
+    c.schema.push_back(ParamSpec{.name = "angle", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 360.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"axx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"axy", ParamType::Number, false, 1.0, ""});
     c.schema.push_back(ParamSpec{"axz", ParamType::Number, false, 0.0, ""});
@@ -1310,7 +1438,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.hole", "Hole", "HOLE",
                                SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{"diameter", ParamType::Number, true, 6.0, ""});
+    c.schema.push_back(ParamSpec{.name = "diameter", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 6.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"x", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"y", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"z", ParamType::Number, false, 0.0, ""});
@@ -1339,9 +1469,15 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.counterbore", "Counterbore Hole", "CBORE",
                                SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{"diameter", ParamType::Number, true, 6.0, ""});
-    c.schema.push_back(ParamSpec{"cbore_diameter", ParamType::Number, true, 11.0, ""});
-    c.schema.push_back(ParamSpec{"cbore_depth", ParamType::Number, true, 6.0, ""});
+    c.schema.push_back(ParamSpec{.name = "diameter", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 6.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "cbore_diameter", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 11.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "cbore_depth", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 6.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"x", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"y", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"z", ParamType::Number, false, 0.0, ""});
@@ -1402,7 +1538,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.chamfer", "Edge Chamfer", "CHAMFER",
                                SelectionSignature::atLeast(EntityKind::Edge, 1));
-    c.schema.push_back(ParamSpec{"distance", ParamType::Number, true, 1.0, ""});
+    c.schema.push_back(ParamSpec{.name = "distance", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 1.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"selector", ParamType::Text, false, 0.0, "ALL"});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
@@ -1425,8 +1563,12 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.variable_fillet", "Variable Fillet", "BLEND",
                                SelectionSignature::atLeast(EntityKind::Edge, 1));
-    c.schema.push_back(ParamSpec{"radius_start", ParamType::Number, true, 1.0, ""});
-    c.schema.push_back(ParamSpec{"radius_end", ParamType::Number, true, 3.0, ""});
+    c.schema.push_back(ParamSpec{.name = "radius_start", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 1.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "radius_end", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 3.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"smooth", ParamType::Flag, false, 0.0, ""});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
@@ -1487,8 +1629,12 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.pattern_linear", "Linear Pattern", "PATTERN",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"count", ParamType::Number, true, 2.0, ""});
-    c.schema.push_back(ParamSpec{"dx", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{.name = "count", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "dx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"dy", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"dz", ParamType::Number, false, 0.0, ""});
     c.preview = PreviewPolicy::OnDemand;
@@ -1517,7 +1663,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.pattern_circular", "Circular Pattern", "PATTERN",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"count", ParamType::Number, true, 4.0, ""});
+    c.schema.push_back(ParamSpec{.name = "count", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 4.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"total_angle", ParamType::Number, false, 360.0, ""});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
@@ -1541,10 +1689,18 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.pattern_grid", "Grid Pattern", "PATTERN",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"nx", ParamType::Number, true, 2.0, ""});
-    c.schema.push_back(ParamSpec{"ny", ParamType::Number, true, 2.0, ""});
-    c.schema.push_back(ParamSpec{"dx", ParamType::Number, true, 10.0, ""});
-    c.schema.push_back(ParamSpec{"dy", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{.name = "nx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "ny", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "dx", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "dy", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
       const double nx = num(ctx, "nx", 0.0);
@@ -1567,7 +1723,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.mirror", "Mirror Body", "MIRROR",
                                SelectionSignature::exactly(EntityKind::Body, 1));
-    c.schema.push_back(ParamSpec{"plane", ParamType::Text, true, 0.0, "XY"});
+    c.schema.push_back(ParamSpec{.name = "plane", .type = ParamType::Text,
+                                 .required = true, .defaultText = "XY",
+                                 .hasDefault = true});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
       const std::string p = txt(ctx, "plane", "");
@@ -2138,6 +2296,38 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── SECTION CURVE ─────────────────────────────────────────────────────────
+  // The FOURTH boolean, and the one the app never had because the kernel never had
+  // it either: OCCT's BRepAlgoAPI ships Fuse, Cut, Common AND Section, and the IR
+  // stopped at three. Nobody noticed because no benchmark row demanded it.
+  //
+  // It is registered next to the other three because a user reaches it the same way
+  // -- pick two bodies -- and it is NOT one of them because of what comes back. The
+  // other three return a body and CONSUME the tool. This one returns the CURVE where
+  // the two bodies' faces cross and consumes NOTHING: both operands are still there
+  // afterwards, which is the whole point of taking a section. So its consumed-node
+  // list is empty and its produced node carries the `wire_` prefix, exactly as
+  // part.section_ring's does -- a WIRE has to be selectable as a wire, because LOFT
+  // is what consumes it and EXTRUDE must not be offered for it.
+  {
+    CommandDescriptor c = base("part.section_curve", "Section Curve", "SECTION",
+                               SelectionSignature::exactly(EntityKind::Body, 2));
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() == 2;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> bodies = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      // resolveValues on an empty selection returns an empty vector, and indexing it
+      // is the SIGSEGV requireValues() exists to stop. Same guard the booleans use.
+      if (!requireValues(ctx, bodies, 2)) return;
+      std::vector<IrArg> args{IrArg::valueRef(bodies[0]), IrArg::valueRef(bodies[1])};
+      emit(ctx, *d, *s, "part.section_curve", "Section Curve", "SECTION", std::move(args),
+           IrValueKind::Wire, {}, wireNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
   // ── SWEEP: TWO COMMANDS, ONE OP ───────────────────────────────────────────
   // SWEEP has two forms that differ in the KIND of their first argument, not in an
   // argument count or a keyword:
@@ -2220,6 +2410,585 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
           IrArg::pointsFromText(txt(ctx, "path", "0 0 0; 0 0 40"), 3)};
       emit(ctx, *d, *s, "part.sweep_profile", "Swept Profile", "SWEEP", std::move(args),
            IrValueKind::Solid, {}, {});
+    };
+    add(std::move(c));
+  }
+
+  // ── THE SURFACE OPS: SKIN / FACES / SEW / THICKEN / CAP / SURFCHECK ───────
+  // The six ops #146 landed with the SURFACE value kind, and the last six members
+  // of `forbidden_ops` whose recorded reason is the plain one -- "no command in the
+  // forge::ui registry emits it, so no user can produce it". Nothing about them was
+  // in question: FeatureIr.cpp has carried their arity since #146
+  // (SKIN 2..n, FACES 2, SEW 1..n, THICKEN 2..3, CAP 1..2, SURFCHECK 2..n, every
+  // one first_arg_is_value_ref), the kernel compiles them in a default build, and
+  // the header calls each "a THIN wiring of a kernel entry point that already
+  // exists". The value kind was what was missing, and it is no longer missing --
+  // so what was left was the app surface, which is this.
+  //
+  // ★ THE ENABLING CHANGE IS A SELECTION KIND, NOT A COMMAND. Four of the six
+  // CONSUME a SURFACE, and until now nothing could hold one: a click yields an
+  // EntityRef, resolveValues() maps it bodyId -> valueFor() -> kindOf(), and every
+  // node a command produced was `body_N`, `sketch_N` or `wire_N`. A sheet parked in
+  // `body_N` reads back as a SOLID, which would have made THICKEN offer itself on a
+  // fillet's output and SHELL offer itself on a skin -- both of which the kernel
+  // throws on. `EntityKind::Surface` plus `surfaceNodeFor()` is that fourth lane,
+  // added for exactly the reason WIRE got the third one, and it is the last: the
+  // four IrValueKind members now each have an entity kind and a node prefix.
+  //
+  // ★ THE SET IS CLOSED, which is the property that makes these reachable rather
+  // than merely registered. SKIN turns >=2 WIREs into a sheet and FACES turns a
+  // SOLID into one, and both of those inputs are already user-producible
+  // (part.section_ring / part.wire_section, and every solid creator). So a user
+  // starting from an EMPTY document can reach every one of the six, and
+  // value_kind_closure stays CLOSED with SURFACE in it -- the generator derives
+  // that, it is not asserted here.
+  //
+  // ★ NOTHING HERE REFUSES A DEGENERATE SHEET, which is the header's own standing
+  // instruction ("NOTHING HERE REFUSES A DEGENERATE SHEET") and the owner's: a
+  // selector matching no face yields an EMPTY surface, a SEW of sheets that do not
+  // touch yields an unsewn one, and THICKEN/CAP of a sheet the kernel declines fail
+  // with the op id, the face count and the free-edge count in the message. The
+  // `enabled` predicates below refuse only what is UNSPELLABLE (a wall of zero, an
+  // empty assertion, a `side` that is not IN|OUT|MID) -- never a shape that is
+  // merely bad. A bad shape is SURFCHECK's business, and SURFCHECK is here too.
+
+  // ── SKIN ──────────────────────────────────────────────────────────────────
+  // LOFT's lateral skin, typed as the sheet it actually is. LOFT(..., OPEN) builds
+  // the SAME geometry and calls it a SOLID, which is the pre-existing mistyping the
+  // header says SKIN exists to let a tree avoid "without changing LOFT's meaning" --
+  // so this command is part.loft's twin with one keyword dropped and one kind
+  // changed, deliberately, rather than a new spelling of it.
+  //
+  // OPEN is NOT offered. The header records it as "implied by SKIN; accepted, not an
+  // error", so emitting it would put a no-op keyword into every skin statement
+  // Archie ever trains on. RULED is offered because it changes the surface.
+  {
+    CommandDescriptor c = base("part.skin", "Skin Sections", "SKIN",
+                               SelectionSignature::atLeast(EntityKind::Wire, 2));
+    c.schema.push_back(ParamSpec{"ruled", ParamType::Flag, false, 0.0, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Wire).size() >= 2;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args;
+      for (int section : resolveValues(*d, ctx.selection(), IrValueKind::Wire)) {
+        args.push_back(IrArg::valueRef(section));
+      }
+      if (flagOn(ctx, "ruled")) args.push_back(IrArg::keyword("RULED"));
+      emit(ctx, *d, *s, "part.skin", "Skin Sections", "SKIN", std::move(args),
+           IrValueKind::Surface, {}, surfaceNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── FACES ─────────────────────────────────────────────────────────────────
+  // The SOLID -> SURFACE direction, "without which the kind is a dead end". The
+  // selector is the SAME face-selector grammar DEFEATURE/PUSHFACE/RESIZEBORE use,
+  // and it is a required parameter with an honest default rather than something
+  // inferred from the click -- the identical rule part.push_face states: the
+  // signature carries the ENTITY the user picked, forge::ft resolves a PREDICATE,
+  // and inventing the predicate from the click would be the UI guessing at the
+  // kernel's answer.
+  //
+  // The default is "all", which is the spelling the compiler itself uses when it
+  // promotes a SOLID by hand, and it is the useful one: the whole closed sheet of a
+  // body is what a THICKEN or a CAP downstream wants. A selector matching NOTHING
+  // returns an empty SURFACE and records the miss; it does not abort the tree, and
+  // this command does not pre-empt that by greying out.
+  {
+    CommandDescriptor c = base("part.extract_faces", "Extract Faces", "FACES",
+                               SelectionSignature::atLeast(EntityKind::Face, 1));
+    c.schema.push_back(ParamSpec{.name = "selector",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "all",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok && !txt(ctx, "selector", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::text(txt(ctx, "selector", "all"))};
+      // NOT t.node: FACES does not give the body history, it produces a NEW value of a
+      // DIFFERENT kind. Reusing the solid's node would overwrite the solid's identity
+      // with a sheet and make the source body unselectable for anything afterwards.
+      emit(ctx, *d, *s, "part.extract_faces", "Extract Faces", "FACES", std::move(args),
+           IrValueKind::Surface, {}, surfaceNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SEW ───────────────────────────────────────────────────────────────────
+  // Stitch sheets into one sheet. Arity is 1..n, and ONE argument is a real form,
+  // not a degenerate one: SEW(%s) re-stitches a single unsewn face set, which is
+  // what FACES("all") hands you.
+  //
+  // The result stays a SURFACE even when the stitch closes it. That is the header's
+  // decision, not this command's: "promotion to a SOLID is CAP's job, and a sew that
+  // silently changed value kind would make the kind depend on geometry the emitter
+  // cannot see." Emitting IrValueKind::Solid here when the sheet happened to close
+  // would be exactly that defect, so it emits Surface unconditionally.
+  //
+  // `tol` is the trailing optional argument and is emitted only when supplied.
+  {
+    CommandDescriptor c = base("part.sew", "Sew Sheets", "SEW",
+                               SelectionSignature::atLeast(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{"tol", ParamType::Number, false, 0.001, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty()) return false;
+      // A tolerance is a LENGTH. Zero or negative is unspellable, not merely bad.
+      return !hasNumber(ctx, "tol") || num(ctx, "tol", 0.001) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args;
+      for (int sheet : resolveValues(*d, ctx.selection(), IrValueKind::Surface)) {
+        args.push_back(IrArg::valueRef(sheet));
+      }
+      if (hasNumber(ctx, "tol")) args.push_back(IrArg::num(num(ctx, "tol", 0.001)));
+      emit(ctx, *d, *s, "part.sew", "Sew Sheets", "SEW", std::move(args),
+           IrValueKind::Surface, {}, surfaceNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── THICKEN ───────────────────────────────────────────────────────────────
+  // SURFACE -> SOLID by offsetting the sheet to a wall. This is the op D-030's
+  // whole 193-part deletion bucket turned on, from the app side.
+  //
+  // `side` is a KEYWORD argument (IN | OUT | MID), not a number, and it is emitted
+  // only when the user asked for something other than the kernel's own default --
+  // so the statement the app emits for a plain thicken is the two-argument form the
+  // corpus is written in. The spelling is validated HERE, because opThicken throws
+  // "side `X` is not IN | OUT | MID" and a command must not offer a statement the
+  // kernel is going to refuse for a reason the UI could see.
+  {
+    CommandDescriptor c = base("part.thicken", "Thicken Sheet", "THICKEN",
+                               SelectionSignature::exactly(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{.name = "wall",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"side", ParamType::Text, false, 0.0, "OUT"});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) return false;
+      // opThicken: "THICKEN: wall must be > 0".
+      if (num(ctx, "wall", 2.0) <= 0.0) return false;
+      if (!hasText(ctx, "side")) return true;
+      // Exact spellings, compared the way part.mirror compares its plane: the
+      // kernel matches the keyword literally, so accepting "in" here and emitting
+      // it would hand opThicken a token it throws on.
+      const std::string side = txt(ctx, "side", "");
+      return side == "IN" || side == "OUT" || side == "MID";
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sheets.front()),
+                              IrArg::num(num(ctx, "wall", 2.0))};
+      if (hasText(ctx, "side")) args.push_back(IrArg::keyword(txt(ctx, "side", "MID")));
+      emit(ctx, *d, *s, "part.thicken", "Thicken Sheet", "THICKEN", std::move(args),
+           IrValueKind::Solid, {}, {});
+    };
+    add(std::move(c));
+  }
+
+  // ── CAP ───────────────────────────────────────────────────────────────────
+  // SURFACE -> SOLID by sewing the sheet and filling every free boundary. The other
+  // half of the sheet-to-solid pair: THICKEN gives a wall, CAP gives a volume.
+  {
+    CommandDescriptor c = base("part.cap", "Cap Sheet", "CAP",
+                               SelectionSignature::exactly(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{"tol", ParamType::Number, false, 0.001, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      if (resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() != 1) return false;
+      return !hasNumber(ctx, "tol") || num(ctx, "tol", 0.001) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sheets.front())};
+      if (hasNumber(ctx, "tol")) args.push_back(IrArg::num(num(ctx, "tol", 0.001)));
+      emit(ctx, *d, *s, "part.cap", "Cap Sheet", "CAP", std::move(args), IrValueKind::Solid,
+           {}, {});
+    };
+    add(std::move(c));
+  }
+
+  // ── SURFCHECK ─────────────────────────────────────────────────────────────
+  // VERIFY for sheets, and it earns the same care for the same reason: it is the
+  // DIAGNOSTIC HALF OF THE TOLERANCE CONTRACT. The five commands above refuse no
+  // degenerate sheet -- an empty FACES, an unsewn SEW and a self-intersecting skin
+  // are all representable -- and that is only defensible because the tree can then
+  // SAY SO. "Degenerate sheets are representable BECAUSE they are answerable" is the
+  // header's phrasing, and this command is the second half of that sentence.
+  //
+  // AUTHORABLE: the parameter is the assertion the kernel itself parses, in the
+  // kernel's own spelling. opSurfCheck's vocabulary is
+  //     faces, freeedges, closed, pcurves, selfintersect, area, shells
+  // compared with one of = <= >= < >. `freeedges = 0` is the one that matters most,
+  // because it is exactly the question "did my SEW actually close this sheet?" --
+  // the question SEW deliberately refuses to answer by changing value kind.
+  //
+  // INSPECTABLE: SURFCHECK is pass-through, so the assertion lives in the tree as
+  // its own numbered statement next to the sheet it constrains, editable by
+  // part.edit_feature and visible in irProgram(). A failed assertion is RECORDED and
+  // fails the compile at the end -- it never aborts the walk, so the geometry after
+  // it is still built and still measurable.
+  //
+  // The optional second assertion is what makes the variadic form reachable, exactly
+  // as in part.verify, and it carries NO hasDefault for exactly the same reason: if
+  // applyDefaults could fill it, the ONE-assertion form would stop being reachable
+  // at all and the corpus would never contain it.
+  {
+    CommandDescriptor c = base("part.surfcheck", "Assert Sheet Property", "SURFCHECK",
+                               SelectionSignature::exactly(EntityKind::Surface, 1));
+    c.schema.push_back(ParamSpec{.name = "assertion",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "freeedges = 0",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"assertion2", ParamType::Text, false, 0.0, "faces >= 1"});
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() == 1 &&
+             !txt(ctx, "assertion", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      // resolveValues on an empty selection returns an empty vector, and .front()
+      // on it is the SIGSEGV requireValues() exists to stop. Same guard the booleans
+      // and part.extrude use: `enabled` returning false does not make execute()
+      // unreachable -- a keyboard gesture and the CoPilot both dispatch by id.
+      if (!requireValues(ctx, sheets, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sheets.front()),
+                              IrArg::text(txt(ctx, "assertion", "freeedges = 0"))};
+      if (hasText(ctx, "assertion2")) {
+        args.push_back(IrArg::text(txt(ctx, "assertion2", "faces >= 1")));
+      }
+      // Pass-through: it returns %surface unchanged, so it keeps the sheet's OWN node
+      // and its OWN kind. Emitting a new node would fork the sheet's identity and
+      // leave the assertion constraining a value nothing downstream refers to.
+      emit(ctx, *d, *s, "part.surfcheck", "Assert Sheet Property", "SURFCHECK", std::move(args),
+           IrValueKind::Surface, {}, singleNode(ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+
+  // ── THE 2D SKETCH + CONSTRAINT FAMILY: SKETCH / SPT / SLINE / SCIRC / SARC /
+  //    CON / SOLVE ──────────────────────────────────────────────────────────
+  // Eight commands, seven ops, and every one of those ops was in `forbidden_ops`
+  // for the same one-line reason: "no command in the forge::ui registry emits
+  // it, so no user can produce it". The kernel COMPILES all seven -- they landed
+  // with the vendored planegcs solver behind them -- so what was missing was
+  // never geometry, it was a command a user can reach.
+  //
+  // WHY THIS FAMILY AND NOT ANOTHER, MEASURED. Paired over 9,846 real ABC /
+  // Onshape FeatureScript trees (154,637 features,
+  // implementation/sacrosanct/tools/abc_yield_census.py):
+  //
+  //   46 emittable ops   DIRECT 55.80%   translatable with DIRECT OPS ALONE  0.00%
+  //   55 kernel ops      DIRECT 86.02%   translatable with DIRECT OPS ALONE 40.78%
+  //
+  // The whole of that gap is this family. `newSketch` appears in 100.00% of the
+  // 5,629 trees that clear the census's two gates -- every translatable human
+  // tree opens with a sketch -- and with only canned profiles reachable
+  // (RECT / CIRCLE / RRECT / REGPOLY / POLY) a sketch could only be APPROXIMATED,
+  // so no tree was lossless and the direct-ops-alone figure was exactly zero.
+  // 93.63% of the corpus's 49,903 sketches are pure line/circle/arc, which is
+  // exactly what SLINE / SCIRC / SARC reproduce.
+  //
+  // It closes NONE of the other gap, and that is worth stating because it is the
+  // half a reader will assume. The number of trees clearing both census gates is
+  // 5,629 either way: this family converts PARTIAL into DIRECT and never turns a
+  // blocked tree into a clear one, because what blocks those is `importForeign`,
+  // `draft`, `helix` and spline geometry, none of which a sketch op reaches.
+  //
+  // THE SHAPE OF THE FAMILY. It bolts on IN FRONT of the existing IR and changes
+  // no existing op: SKETCH opens one, SPT / SLINE / SCIRC / SARC place entities
+  // inside it, CON constrains them, and SOLVE exits to a PROFILE that
+  // part.extrude / part.revolve / part.loft already consume. Two selection kinds
+  // had to exist first (Types.hpp: `OpenSketch`, `SketchRef`), for the same
+  // structural reason EntityKind::Wire had to exist before LOFT was reachable
+  // and EntityKind::Surface before THICKEN was.
+  //
+  // WHAT IS DELIBERATELY NOT HERE, so the vocabulary does not advertise it: the
+  // constraint kinds forge::Sketcher does not dispatch at this SHA (RADIUS,
+  // DIAM, ANGLE, CONC, COLL, SYMM, MIDPT, FIX). Each is one switch arm in the
+  // facade and none is wired, and the compiler SKIPS an unknown keyword with a
+  // verify note rather than throwing. A command offering one would put a keyword
+  // into Archie's training vocabulary that the kernel silently drops, which is
+  // worse than a short vocabulary.
+
+  // ── SKETCH ────────────────────────────────────────────────────────────────
+  // SKETCH(PLANE) -- opens an empty sketch. Takes NO selection and NO parameter,
+  // so like RECT and the primitives it is a CREATOR reachable from an empty
+  // document, and it is the root every other command in this family hangs off.
+  //
+  // THE PLANE KEYWORD IS EMITTED AS THE LITERAL `XY`, and that is a refusal
+  // rather than an omission. forge::Sketcher states the Z=0 plane as a CONTRACT
+  // every native consumer relies on, so `skNew` accepts YZ / XZ and then reports
+  // "plane=YZ NOT APPLIED -- solved on XY" on the verify channel. A command
+  // offering the keyword would record a plane in the history that the built
+  // solid does not have -- the same "the statement says one thing and the solid
+  // is another" defect part.sketch_rounded_rect's predicate exists to refuse on
+  // RRECT's silent corner clamp, and the reason SLOT is still not registered.
+  // The keyword comes back when sketch planes are implemented and RE-MEASURED,
+  // which no new command can do.
+  {
+    CommandDescriptor c = base("part.sketch_new", "New Sketch", "SKETCH",
+                               SelectionSignature::none());
+    c.preview = PreviewPolicy::Live;
+    // ALWAYS callable, and stated rather than left null: part_commands_test
+    // asserts every descriptor carries a predicate, and "there is nothing to
+    // check" is an answer, not an omission. SKETCH(XY) has no argument that
+    // could be wrong and no value it consumes.
+    c.enabled = [](const CommandContext&) { return true; };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::keyword("XY")};
+      emit(ctx, *d, *s, "part.sketch_new", "New Sketch", "SKETCH", std::move(args),
+           IrValueKind::Sketch, {}, openSketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SPT ───────────────────────────────────────────────────────────────────
+  // SPT(%sketch, x, y) -- a point in an open sketch, and the only entity op that
+  // names the SKETCH itself. Every other entity is built out of points, so this
+  // is the one statement that has to reach the sketch directly; the rest reach
+  // it through their operands.
+  //
+  // x / y are REQUIRED with an honest default of 0: the sketch origin is a real
+  // answer, and a required parameter with no fillable default is a command no
+  // keyboard gesture can run (KeymapAudit's standing measurement).
+  {
+    CommandDescriptor c = base("part.sketch_entity_point", "Sketch Point", "SPT",
+                               SelectionSignature::exactly(EntityKind::OpenSketch, 1));
+    c.schema.push_back(ParamSpec{.name = "x", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "y", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sketches = resolveValues(*d, ctx.selection(), IrValueKind::Sketch);
+      if (!requireValues(ctx, sketches, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sketches.front()),
+                              IrArg::num(num(ctx, "x", 0.0)),
+                              IrArg::num(num(ctx, "y", 0.0))};
+      emit(ctx, *d, *s, "part.sketch_entity_point", "Sketch Point", "SPT", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SLINE ─────────────────────────────────────────────────────────────────
+  // SLINE(%p0, %p1) -- a line through two points of the SAME sketch. The kernel
+  // THROWS on a cross-sketch pair ("SLINE: both points must belong to the same
+  // SKETCH"), and a throw costs the whole tree over one mis-click, so
+  // sharedSketchNode() refuses that pair at the menu instead.
+  {
+    CommandDescriptor c = base("part.sketch_entity_line", "Sketch Line", "SLINE",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 2));
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 &&
+             !sharedSketchNode(*d, ctx.selection()).empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> ends = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, ends, 2)) return;
+      std::vector<IrArg> args{IrArg::valueRef(ends[0]), IrArg::valueRef(ends[1])};
+      emit(ctx, *d, *s, "part.sketch_entity_line", "Sketch Line", "SLINE", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SCIRC ─────────────────────────────────────────────────────────────────
+  // SCIRC(%centre, r) -- a circle about one sketch point. The one entity op with
+  // a dimension of its own, and it is a RADIUS: part.hole's second argument is a
+  // DIAMETER, the two are one letter apart in a prompt and a factor of two in
+  // the part, so the vocabulary carries the semantic explicitly.
+  {
+    CommandDescriptor c = base("part.sketch_entity_circle", "Sketch Circle", "SCIRC",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 1));
+    c.schema.push_back(ParamSpec{.name = "radius", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0, .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      // A zero or negative radius is not a circle: refused rather than emitted
+      // and left for the solver to make sense of.
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 &&
+             num(ctx, "radius", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> centre = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, centre, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(centre.front()),
+                              IrArg::num(num(ctx, "radius", 10.0))};
+      emit(ctx, *d, *s, "part.sketch_entity_circle", "Sketch Circle", "SCIRC", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SARC ──────────────────────────────────────────────────────────────────
+  // SARC(%centre, %p0, %p1) -- centre, start, end, in SELECTION ORDER, and the
+  // order is load-bearing exactly as it is for CUT: swapping start and end names
+  // a different arc. Three entities of one sketch; the kernel throws on a mixed
+  // trio, so the same refusal SLINE carries applies here.
+  {
+    CommandDescriptor c = base("part.sketch_entity_arc", "Sketch Arc", "SARC",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 3));
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 3 &&
+             !sharedSketchNode(*d, ctx.selection()).empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> arc = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, arc, 3)) return;
+      std::vector<IrArg> args{IrArg::valueRef(arc[0]), IrArg::valueRef(arc[1]),
+                              IrArg::valueRef(arc[2])};
+      emit(ctx, *d, *s, "part.sketch_entity_arc", "Sketch Arc", "SARC", std::move(args),
+           IrValueKind::SketchRef, {}, sketchRefNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CON, TWICE ────────────────────────────────────────────────────────────
+  // CON(%a, KIND [, %b, value]) is ONE op with two genuinely different
+  // signatures, so it gets two commands for the same reason PATTERN has three
+  // and SWEEP has two: a single descriptor cannot state "one entity for HORIZ,
+  // two for COINC", and a signature that accepted either would offer HORIZ on a
+  // pair and COINC on a single. That mistake is not loud -- the facade THROWS on
+  // a type-mismatched operand and the compiler SWALLOWS the throw as a SKIPPED
+  // verify note -- and a constraint that silently does not apply is worse than
+  // one the menu greys out.
+  //
+  // THE KEYWORD DOMAINS ARE THE NINE forge::Sketcher ACTUALLY DISPATCHES, split
+  // by arity, and nothing else:
+  //     unary         HORIZ VERT                        one entity
+  //     binary        COINC PARA PERP TANG EQUAL PTON   two entities
+  //     dimensional   DIST                              two entities + a value
+  //
+  // BOTH REBIND THE SKETCH'S OWN NODE. CON is PASS-THROUGH -- `return owner;`,
+  // the same sketch handle it was handed -- so its statement is that sketch with
+  // one more constraint on it, not a second sketch. TAG and VERIFY rebind the
+  // body's node for exactly this reason; a fresh node here would leave
+  // part.sketch_solve offered on the sketch as it stood BEFORE the constraint,
+  // and both would build the same solid, which is the confusing half of the bug.
+
+  // ── CON, unary ────────────────────────────────────────────────────────────
+  {
+    CommandDescriptor c = base("part.sketch_constrain_single", "Constrain Entity", "CON",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 1));
+    c.schema.push_back(ParamSpec{.name = "kind", .type = ParamType::Text,
+                                 .required = true, .defaultText = "HORIZ",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const std::string kind = txt(ctx, "kind", "");
+      // Exact spellings, compared the way part.mirror compares its plane: the
+      // kernel matches the keyword literally and SKIPS anything else, so
+      // accepting "horizontal" here would emit a statement that constrains
+      // nothing and says so only on the verify channel.
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 &&
+             !sharedSketchNode(*d, ctx.selection()).empty() &&
+             (kind == "HORIZ" || kind == "VERT");
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> one = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, one, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(one.front()),
+                              IrArg::keyword(txt(ctx, "kind", "HORIZ"))};
+      emit(ctx, *d, *s, "part.sketch_constrain_single", "Constrain Entity", "CON",
+           std::move(args), IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CON, binary + dimensional ─────────────────────────────────────────────
+  // `distance` is emitted only when supplied, exactly as RECT emits its centre
+  // only when supplied, so the minimal form the app emits is the minimal form
+  // the kernel documents. It is the value DIST takes, in mm; the six purely
+  // geometric kinds ignore it, which is why it is optional and not required.
+  {
+    CommandDescriptor c = base("part.sketch_constrain", "Constrain Entity Pair", "CON",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 2));
+    c.schema.push_back(ParamSpec{.name = "kind", .type = ParamType::Text,
+                                 .required = true, .defaultText = "COINC",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"distance", ParamType::Number, false, 10.0, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const std::string kind = txt(ctx, "kind", "");
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 &&
+             !sharedSketchNode(*d, ctx.selection()).empty() &&
+             (kind == "COINC" || kind == "PARA" || kind == "PERP" || kind == "TANG" ||
+              kind == "EQUAL" || kind == "PTON" || kind == "DIST");
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> pair = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, pair, 2)) return;
+      std::vector<IrArg> args{IrArg::valueRef(pair[0]),
+                              IrArg::keyword(txt(ctx, "kind", "COINC")),
+                              IrArg::valueRef(pair[1])};
+      if (hasNumber(ctx, "distance")) {
+        args.push_back(IrArg::num(num(ctx, "distance", 10.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_constrain", "Constrain Entity Pair", "CON", std::move(args),
+           IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SOLVE ─────────────────────────────────────────────────────────────────
+  // SOLVE(%sketch) -> PROFILE. THE EXIT, and the statement that makes the whole
+  // family worth having: a solved sketch IS a profile -- the kernel's
+  // refProfile() already returns a SketchHandle -- so part.extrude,
+  // part.revolve and part.loft consume it unchanged and not one existing command
+  // moves. Its produced node is therefore a `sketch_N` PROFILE node, the same
+  // one part.sketch_rect writes, which is what makes the downstream path real
+  // rather than merely type-correct.
+  //
+  // It CONSUMES NOTHING: the sketch keeps its node and stays selectable, because
+  // the kernel's solve does not destroy it and a user may add an entity and
+  // solve again. That is why `consumed` is empty here where a boolean's is not.
+  //
+  // The op NEVER refuses -- the kernel makes that total and reports on the
+  // verify channel whatever it had to demote -- so the predicate asks only
+  // whether there is a sketch to solve.
+  {
+    CommandDescriptor c = base("part.sketch_solve", "Solve Sketch", "SOLVE",
+                               SelectionSignature::exactly(EntityKind::OpenSketch, 1));
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return resolveValues(*d, ctx.selection(), IrValueKind::Sketch).size() == 1;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> sketches = resolveValues(*d, ctx.selection(), IrValueKind::Sketch);
+      if (!requireValues(ctx, sketches, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(sketches.front())};
+      emit(ctx, *d, *s, "part.sketch_solve", "Solve Sketch", "SOLVE", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
     };
     add(std::move(c));
   }
@@ -2308,8 +3077,10 @@ const std::vector<std::string>& partCommandIds() {
   static const std::vector<std::string> ids = [] {
     std::vector<std::string> v{
         "part.boolean_intersect",  "part.boolean_subtract",   "part.boolean_union",
-        "part.chamfer",            "part.counterbore",        "part.defeature",
-        "part.edit_feature",       "part.extrude",            "part.fillet",
+        "part.cap",                "part.chamfer",            "part.counterbore",
+        "part.defeature",
+        "part.edit_feature",       "part.extract_faces",      "part.extrude",
+        "part.fillet",
         "part.fold_flange",        "part.heal",               "part.hole",
         "part.input_solid",        "part.loft",               "part.mirror",
         "part.move",               "part.pattern_circular",   "part.pattern_grid",
@@ -2317,10 +3088,19 @@ const std::vector<std::string>& partCommandIds() {
         "part.primitive_cylinder", "part.primitive_prism",    "part.primitive_sphere",
         "part.primitive_torus",    "part.primitive_tube",     "part.push_face",
         "part.resize_bore",        "part.revolve",            "part.rotate",
-        "part.section_ring",       "part.section_wire",       "part.shell",
+        "part.section_ring",       "part.section_wire",       "part.sew",
+        "part.shell",              "part.skin",
         "part.sketch_circle",      "part.sketch_poly",        "part.sketch_polygon",
-        "part.sketch_rect",        "part.sketch_rounded_rect", "part.sweep_pipe",
-        "part.sweep_profile",      "part.tag_feature",        "part.variable_fillet",
+        "part.sketch_rect",        "part.sketch_rounded_rect",
+        // The 2D sketch + constraint family: eight commands, seven ops.
+        "part.sketch_constrain",   "part.sketch_constrain_single",
+        "part.sketch_entity_arc",  "part.sketch_entity_circle",
+        "part.sketch_entity_line", "part.sketch_entity_point",
+        "part.sketch_new",         "part.sketch_solve",
+        "part.surfcheck",          "part.sweep_pipe",
+        "part.sweep_profile",      "part.tag_feature",        "part.thicken",
+        "part.section_curve",
+        "part.variable_fillet",
         "part.verify",
     };
     std::sort(v.begin(), v.end());

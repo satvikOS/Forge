@@ -118,6 +118,7 @@ ToolCatalog buildToolCatalog(const CommandRegistry& registry, const SelectionSer
     e.missing = missingRequired(*d, filled);
 
     const DispatchResult verdict = registry.evaluate(id, selection, filled);
+    e.status = verdict.status;
     if (verdict.ok()) {
       e.availability = ToolAvailability::Available;
     } else {
