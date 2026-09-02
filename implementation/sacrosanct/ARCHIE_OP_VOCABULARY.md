@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 68 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 80 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,26 +46,70 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **53 commands**; **42 of them emit
-feature-IR**, reaching **39 distinct op names**. The kernel defines **53** ops
-(`opFromName`), so **14 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **72 commands**; **49 of them emit
+feature-IR**, reaching **46 distinct op names**. The kernel defines **55** ops
+(`opFromName`), so **9 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The kernel op count is 40 base + 6 SURFACE (#146) + 7 for the 2D sketch +
-constraint family (`SKETCH` `SPT` `SLINE` `SCIRC` `SARC` `CON` `SOLVE`), which
-makes the vendored planegcs solver addressable from a feature tree. Those seven
-are `forbidden_ops` for the ordinary reason — no `forge::ui` registry command
-emits one yet. That is a UI gap, not a kernel gap: the ops compile, solve and
-extrude, and `CON` now dispatches all 19 constraint keywords of the family
-census's table.
+The nine are `SLOT`, `ARC`, and the seven 2D-sketch ops -- `SKETCH`, `SPT`,
+`SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE`. The six SURFACE ops that used to stand
+here -- `FACES`, `THICKEN`, `CAP`, `SKIN`, `SEW`, `SURFCHECK` -- now have commands
+and are gone from the list, which is what the list is for. The rest are out for
+three DIFFERENT reasons, and the distinction is what a single "no command emits
+it" line would hide: `ARC` and the sketch family are ordinary gaps a command can
+close, and `SLOT` is not.
 
-The other seven are `SLOT` and the six SURFACE ops -- `FACES`, `THICKEN`, `CAP`,
-`SKIN`, `SEW`, `SURFCHECK` -- and they are out for two DIFFERENT reasons, which
-is the distinction a single "no command emits it" line would hide.
+72 is the base's figure, and this branch does not move it. This branch alone
+read 53. The difference is nineteen commands it predates, not a disagreement:
+`app.load_sample`, `app.toggle_theme`, the six SURFACE commands (`part.skin`,
+`part.extract_faces`, `part.sew`, `part.thicken`, `part.cap`,
+`part.surfcheck`), `part.section_curve`, and the nine view commands
+(`view.front`, `view.back`, `view.left`, `view.right`, `view.top`,
+`view.bottom`, `view.iso`, `view.selection`, plus the two focus commands). That
+list was obtained by diffing the two manifests on the command id, not by
+subtracting their totals, and the diff runs ONE WAY: there is no id this branch
+has that the base lacks.
 
-The six SURFACE ops arrived with the SURFACE value kind (D-038) and are simply
-NEW: the kind exists, the kernel builds them, and no command emits one yet. That
-is the ordinary kind of gap, and one command apiece closes it.
+Diffing the REGENERATED manifest against the base's gives a delta for THIS
+branch of exactly ZERO rows -- the merged id set is identical to the base's,
+nothing added and nothing removed. **This branch adds no user-facing command at
+all**, and it adds no op either: `kernel_ops` is 55 on the base and 55 merged.
+What it adds is INSIDE an op that is still forbidden. `CON` now dispatches
+nineteen constraint keywords instead of nine, and every count on this page is
+therefore unchanged: `registry_commands` 72, `commands_emitting_ir` 49,
+`user_invocable_ops` 46, `forbidden_ops` 9 -- with `CON` still among the nine,
+because no `forge::ui` command emits it. The vocabulary cannot see this branch's
+work, and that is the correct answer rather than a missing one: a solver made
+richer behind a forbidden op must not change what Archie is allowed to emit. If
+these numbers HAD moved, that would be the defect.
+
+The six were out for the ordinary reason: they arrived with the SURFACE value
+kind (D-040 in the merged ledger, allocated D-038 on `archdisc`), the kernel
+built them, and no command emitted one yet. One command apiece closed it. What
+actually unblocked them was not six commands but ONE SELECTION KIND -- four of the six CONSUME a sheet, and until `EntityKind::Surface`
+and a `surface_N` node prefix existed, a sheet parked in `body_N` read back as a
+SOLID and `THICKEN` would have offered itself on a fillet's output. That is the
+same structural fix `WIRE` needed before `LOFT` became reachable, and it is the
+last one this scheme needs: PROFILE, WIRE, SOLID and SURFACE are the whole of
+`IrValueKind`, and each now has an entity kind and a node prefix.
+
+The seven 2D-sketch ops are the same ordinary kind of gap one layer earlier, and
+they are the larger half of what took the kernel from 47 ops to 55. They make
+the vendored planegcs solver addressable from a feature tree for the first time:
+`SKETCH` opens one, `SPT` / `SLINE` / `SCIRC` / `SARC` place entities inside it,
+`CON` constrains a pair of them, and `SOLVE` exits to a `PROFILE` that `EXTRUDE`
+already accepts. The kernel compiles and solves all seven. No `forge::ui` registry
+command emits one yet, which is why every one of them is forbidden here and why
+the count of distinct op names a user can reach is UNCHANGED at 46 by this branch:
+the solver became reachable from the IR, not yet from the app.
+
+`ARC` is the other half, and the same kind of gap again: it takes the
+`[x y; x y mx my; ...]` ring that lets a closed profile carry CURVED segments as
+well as straight ones, the kernel builds it, and no forge::ui command emits one
+yet. It is here because the ground truth needs it -- 86 ARC statements across 48
+BenchCAD GT programs, which the reharvest could not parse at all without the op --
+and the count that did NOT move is the honest one: user-invocable ops stay at 46,
+because a kernel op is not a product surface until a command spells it.
 
 `SLOT` is not that. It is spellable today and left out on EVIDENCE. Through the
 pinned native verifier its extruded area is exactly
@@ -145,6 +189,13 @@ check that silently stops checking is the failure it was written to prevent.
 | `WIRE` | part.section_wire | `WIRE([x y z; ...])` |
 | `SWEEP` | part.sweep_pipe / _profile | `SWEEP(radius, [x y z; ...])`<br>`SWEEP([x y; ...], [x y z; ...])` |
 | `FOLD` | part.fold_flange | `FOLD(%body, hinge_x, hinge_y, hinge_z, length, flange_height, thickness, angle)`<br>`FOLD(..., angle, run_angle)` |
+| `SKIN` | part.skin | `SKIN(%wire...)`<br>`SKIN(%wire..., RULED)` |
+| `FACES` | part.extract_faces | `FACES(%body, "<selector>")` |
+| `SEW` | part.sew | `SEW(%sheet...)`<br>`SEW(%sheet..., tol)` |
+| `THICKEN` | part.thicken | `THICKEN(%surface, wall)`<br>`THICKEN(%surface, wall, IN\|MID\|OUT)` |
+| `CAP` | part.cap | `CAP(%surface)`<br>`CAP(%surface, tol)` |
+| `SURFCHECK` | part.surfcheck | `SURFCHECK(%surface, "<assertion>")`<br>`SURFCHECK(%surface, "<assertion>", "<assertion2>")` |
+| `SECTION` | part.section_curve | `SECTION(%bodyA, %bodyB)` — the **fourth** boolean. It produces a **WIRE**, not a solid: the curve where the two bodies' faces cross. It consumes neither operand, so both survive; the wire is consumed by `LOFT`, like `RING`'s. |
 
 Details that a wrong signature would teach wrongly, all derived from the kernel
 header rather than assumed:
@@ -201,11 +252,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 68 on every CI run), not a hand-written illustration.
+dispatches all 80 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 39 names are legal; after the name, the argument count is bounded
+head, only the 46 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).

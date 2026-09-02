@@ -310,11 +310,15 @@ std::string locateVocabulary() {
 }
 
 // ── the fixture every example is dispatched against ─────────────────────────
-// Seven seeded values with KNOWN ids, so the %role placeholders in the file
+// NINE seeded values with KNOWN ids, so the %role placeholders in the file
 // resolve to exact tokens: %profile1..3 = %1..%3, %body = %4, %tool = %5,
-// %wire1..2 = %6..%7. The two WIRE sections are here because LOFT consumes WIRE
-// and not PROFILE -- the kernel's opLoft() reads every %ref through refWire() --
-// so a fixture of profiles alone could not dispatch a single LOFT example.
+// %wire1..2 = %6..%7, %surface / %sheet1..2 = %8..%9. The two WIRE sections are
+// here because LOFT consumes WIRE and not PROFILE -- the kernel's opLoft() reads
+// every %ref through refWire() -- so a fixture of profiles alone could not
+// dispatch a single LOFT example. The two SHEETS are here for the same reason
+// squared: THICKEN / CAP / SURFCHECK each consume one SURFACE and SEW consumes a
+// variadic list of them, and neither a profile nor a solid can stand in, because
+// the value kind is exactly what the bridge checks.
 struct Fixture {
   PartDocument doc;
   UndoStack undo;
@@ -334,13 +338,21 @@ struct Fixture {
              {IrArg::num(20), IrArg::num(20), IrArg::num(0)});
     doc.seed(IrValueKind::Wire, "wire_2", "RING",
              {IrArg::num(12), IrArg::num(12), IrArg::num(30)});
+    // Two SHEETS, for the same reason two wires are seeded: SEW's signature is
+    // atLeast(Surface, 1) but its whole point is >1, and a fixture that can only
+    // ever build the minimum leaves the variadic form undispatched.
+    doc.seed(IrValueKind::Surface, "surface_1", "FACES",
+             {IrArg::valueRef(4), IrArg::text("all")});
+    doc.seed(IrValueKind::Surface, "surface_2", "SKIN",
+             {IrArg::valueRef(6), IrArg::valueRef(7)});
   }
 
   bool seeded() const {
     return doc.valueFor("sketch_1") == 1 && doc.valueFor("sketch_2") == 2 &&
            doc.valueFor("sketch_3") == 3 && doc.valueFor("body_x") == 4 &&
            doc.valueFor("body_y") == 5 && doc.valueFor("wire_1") == 6 &&
-           doc.valueFor("wire_2") == 7;
+           doc.valueFor("wire_2") == 7 && doc.valueFor("surface_1") == 8 &&
+           doc.valueFor("surface_2") == 9;
   }
 };
 
@@ -375,6 +387,12 @@ std::vector<EntityRef> selectionFor(const CommandDescriptor& c) {
                            "w" + std::to_string(i + 1)));
       }
       break;
+    case EntityKind::Surface:
+      for (std::size_t i = 0; i < want && i < 2; ++i) {
+        refs.push_back(ref("surface_" + std::to_string(i + 1), EntityKind::Surface,
+                           "sf" + std::to_string(i + 1)));
+      }
+      break;
     case EntityKind::Any:
       // edit.delete takes a mixed bag; one ref of any kind satisfies it.
       refs.push_back(ref("body_x", EntityKind::Body, "b1"));
@@ -389,6 +407,14 @@ std::vector<EntityRef> selectionFor(const CommandDescriptor& c) {
 std::string resolvePlaceholder(const std::string& token) {
   if (token == "%body") return "%4";
   if (token == "%tool") return "%5";
+  // SECTION's two operands. The generator deliberately does NOT call them
+  // target/tool: a section consumes neither body and the operation is symmetric,
+  // so borrowing the booleans' names would teach Archie that one of them gets
+  // eaten. They still resolve to the SAME two seeded bodies as %body / %tool,
+  // because the fixture has exactly two solids and the placeholders name roles,
+  // not extra geometry.
+  if (token == "%bodyA") return "%4";
+  if (token == "%bodyB") return "%5";
   if (token == "%profile") return "%1";
   if (token == "%profile1") return "%1";
   if (token == "%profile2") return "%2";
@@ -396,6 +422,14 @@ std::string resolvePlaceholder(const std::string& token) {
   if (token == "%wire") return "%6";
   if (token == "%wire1") return "%6";
   if (token == "%wire2") return "%7";
+  // The two SURFACE roles the generator emits. They are DIFFERENT placeholders on
+  // purpose -- "%surface" is the single sheet THICKEN / CAP / SURFCHECK take, and
+  // "%sheet1..2" is SEW's variadic list -- and both resolve into the same seeded
+  // sheets. Collapsing them to one name here would hide a generator that had lost
+  // the repeat on SEW, which is the defect REF_ROLES records for LOFT.
+  if (token == "%surface") return "%8";
+  if (token == "%sheet1") return "%8";
+  if (token == "%sheet2") return "%9";
   return token;
 }
 
@@ -473,7 +507,7 @@ int main() {
   PartDocument partDoc;
   UndoStack partUndo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), partDoc, partUndo);
-  CHECK_EQ_INT(partAdded, 43);
+  CHECK_EQ_INT(partAdded, 50);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
   CHECK_EQ_INT(liveIds.size(), static_cast<long long>(j.num(counts, "registry_commands")));

@@ -44,12 +44,6 @@ const char* kindName(forge::ui::IrValueKind k) { return forge::ui::toString(k); 
 // neither half is a compile error. It now walks forge::ui::kAllIrValueKinds,
 // comparing against the same toString() the writer uses.
 bool kindFromName(const std::string& name, forge::ui::IrValueKind& out) {
-  // The if-chain this replaced listed the kinds it knew, one literal per line,
-  // where nothing could tell it a kind was missing. A saved document naming a
-  // kind this build does not know must not silently become `None` and then fail
-  // an unrelated check three layers away; every kind toString can WRITE, this
-  // must be able to READ back. forge::ui::kAllIrValueKinds is now the single
-  // list both halves walk, and a static_assert there requires it to be complete.
   return forge::ui::irValueKindFromName(name, out);
 }
 

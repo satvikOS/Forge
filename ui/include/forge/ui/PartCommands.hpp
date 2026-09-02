@@ -57,16 +57,10 @@ namespace forge::ui {
 // THIS ENUM AND THE KERNEL'S ARE SEPARATE, AND NOTHING IN THE COMPILER RELATES
 // THEM. `forge::ft`'s Val::Kind (FeatureTreeCompiler.cpp) is the kernel's answer;
 // this is the app's. They are joined only by the vocabulary derivation, which
-// REFUSES TO PUBLISH when the two disagree (gen_archie_op_vocabulary.py,
-// "value-kind disagreement"). Adding a kind here without adding it there -- or
-// naming it differently -- is caught there, not silently averaged into `None`.
-//
-// `Surface` is a SHEET BODY -- a set of faces that is not required to be closed,
-// sewn, manifold or even non-empty. It is the kind free-form geometry lives in,
-// and its absence was structural rather than incidental: with only three kinds
-// there was no value a NURBS patch or an extracted face set could be held in, so
-// no op could produce or consume one and the whole surfacing half of the kernel
-// was unreachable from the IR.
+// since the SKETCH family REFUSES TO PUBLISH when the two disagree
+// (gen_archie_op_vocabulary.py, "value-kind disagreement"). Adding a kind here
+// without adding it there -- or naming it differently -- is caught there, not
+// silently averaged into `None`.
 //
 // Sketch / SketchRef arrived with the constraint-solver family and are NOT a
 // second spelling of Profile:
@@ -83,16 +77,22 @@ namespace forge::ui {
 // That last line is the whole reason the kind is not decorative, and it is why
 // SOLVE must produce Profile here and not Sketch.
 //
-// APPENDED, never inserted, in the order the kinds landed (Surface with #146,
-// then Sketch/SketchRef). Every use in this codebase is an equality test or a
-// name lookup, never an ordering or a numeric cast to a fixed set, so adding a
-// kind at the end cannot change what an existing comparison means. The places
-// that must be updated by hand are enumerated in ui/src/OpConstraintBridge.cpp
-// above mapValueKind, and ui/test/op_constraint_bridge_test.cpp proves that
-// mapping is TOTAL by round-tripping every kind through toString.
+//   * Surface   -- a SHEET BODY: a set of faces not required to be closed, sewn,
+//                  manifold or even non-empty. It is the kind free-form geometry
+//                  lives in, and its absence was structural rather than
+//                  incidental -- with only three kinds there was no value a NURBS
+//                  patch or an extracted face set could be held in, so no op
+//                  could produce or consume one and the whole surfacing half of
+//                  the kernel was unreachable from the IR.
+//
+// Kinds are APPENDED, never inserted. Every use in this codebase is an equality
+// test or a name lookup, never an ordering or a numeric cast to a fixed set, so
+// adding one at the end cannot change what an existing comparison means. The one
+// place that must be updated by hand is the enumeration in OpConstraintBridge's
+// mapValueKind, and ui/test/op_constraint_bridge_test.cpp proves that mapping is
+// TOTAL by round-tripping every kind through toString.
 enum class IrValueKind : std::uint8_t {
-  None, Profile, Wire, Solid, Surface, Sketch, SketchRef
-};
+    None, Profile, Wire, Solid, Sketch, SketchRef, Surface };
 
 const char* toString(IrValueKind kind) noexcept;
 
@@ -108,22 +108,30 @@ const char* toString(IrValueKind kind) noexcept;
 // than a literal, so a kind added to the enum is a compile error here (the array
 // size) instead of a file that saves and will not open.
 inline constexpr IrValueKind kAllIrValueKinds[] = {
-    IrValueKind::None,    IrValueKind::Profile, IrValueKind::Wire,
-    IrValueKind::Solid,   IrValueKind::Surface, IrValueKind::Sketch,
-    IrValueKind::SketchRef,
+    IrValueKind::None,   IrValueKind::Profile,   IrValueKind::Wire,
+    IrValueKind::Solid,  IrValueKind::Sketch,    IrValueKind::SketchRef,
+    IrValueKind::Surface,
 };
 
 // The claim above -- "a kind added to the enum is a compile error here" -- was
-// NOT TRUE of an unsized array, and this merge is the proof: `Surface` landed in
-// the enum on one branch while this list was written on another, and the two
-// merged CLEANLY into a file where `Surface` had a name, a switch arm and no
-// entry here. Nothing failed to compile. Now something does.
+// NOT TRUE of an unsized array, and a previous merge is the proof: `Surface`
+// landed in the enum on one branch while this list was written on another, and
+// the two merged CLEANLY into a file where `Surface` had a name, a switch arm
+// and no entry here. Nothing failed to compile. Now something does.
 //
 // This holds only while the LAST enumerator is the largest, which is exactly the
 // "APPENDED, never inserted" rule stated above the enum; an inserted kind breaks
 // the append rule first and this assert second.
+//
+// The enumerator named below is therefore whichever one is LAST, and THIS merge
+// moved it. The two sides ordered the tail differently -- `Solid, Surface,
+// Sketch, SketchRef` here against `Solid, Sketch, SketchRef, Surface` on the
+// base -- and the merged enum keeps the base's, which is already shipping. So
+// the bound is `Surface`, not `SketchRef`. Carrying the old enumerator across
+// would have left the assert comparing 7 against 6 and failing on a file that is
+// correct; it is re-derived from the enum at the merge, not inherited.
 static_assert(std::size(kAllIrValueKinds) ==
-                  static_cast<std::size_t>(IrValueKind::SketchRef) + 1,
+                  static_cast<std::size_t>(IrValueKind::Surface) + 1,
               "kAllIrValueKinds must list EVERY IrValueKind: it is what the .fpart "
               "reader, the vocabulary bridge and the round-trip gate all walk. A "
               "kind missing from it saves to a document that will not load.");

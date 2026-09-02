@@ -39,13 +39,18 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-# 39 = the UNION of the two sides this merge joined, COUNTED from run_desktop.sh
-# rather than picked: sacrosanct had 31 (document 8 + frame 9 + update 7 + click 7)
-# and archdisc had 37 (document 8 + frame 9 + copilot 8 + update 7 + click 5).
-# The merged script runs document 8 + frame 9 + copilot 8 + update 7 + click 7.
-# Neither incoming number describes the merged script, and taking either one
-# would have made this ratchet describe a gate run that does not exist.
-EXPECTED_MUTATIONS=39
+# 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
+# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
+# from either parent: this branch said 39 and the base said 40, and each was
+# right only about its own half. This branch's 39 predates click mutation 8 --
+# the camera pull path, `g_mutation != 8` in click_gate.cpp -- which the base
+# carries; every other gate's list is identical on both sides, and this branch
+# adds no mutation of its own (what it adds to click_gate.cpp is the COMMENT
+# documenting 6 and 7, which both sides already ran). Picking a side would have
+# been red either way, in one direction or the other. This is D-028's failure
+# mode, and the method that catches it is to COUNT on the tree being committed
+# rather than to inherit a number.
+EXPECTED_MUTATIONS=40
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

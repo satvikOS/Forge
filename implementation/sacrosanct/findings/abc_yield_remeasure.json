@@ -1,0 +1,298 @@
+{
+ "arms": {
+  "0": {
+   "clear_both_gates": 5452,
+   "description": "40 ops (b003bb3a) -- the vocabulary the original census was taken against",
+   "direct": 85175,
+   "direct_ops_alone": 0,
+   "geom_blocked": 882,
+   "instances": 154637,
+   "none": 8372,
+   "op_blocked": 3894,
+   "partial": 61090
+  },
+  "1": {
+   "clear_both_gates": 5629,
+   "description": "46 ops (30a841cd HEAD) -- emission_policy.allowed_ops: what Archie MAY EMIT",
+   "direct": 86293,
+   "direct_ops_alone": 0,
+   "geom_blocked": 882,
+   "instances": 154637,
+   "none": 7254,
+   "op_blocked": 3669,
+   "partial": 61090
+  },
+  "2": {
+   "clear_both_gates": 5629,
+   "description": "55 ops -- arm 1 + the 9 forbidden_ops (sketch family): kernel-compilable, NOT user-invocable",
+   "direct": 133019,
+   "direct_ops_alone": 4015,
+   "geom_blocked": 882,
+   "instances": 154637,
+   "none": 7254,
+   "op_blocked": 3669,
+   "partial": 14364
+  }
+ },
+ "ceiling": 6957,
+ "combinations": {
+  "curve_entities_only": 548,
+  "draft+splitPart+helix": 505,
+  "every_not_yet_implemented_op": 634,
+  "every_op_plus_curve_entities": 1328
+ },
+ "features": 154637,
+ "files": 9852,
+ "first_blocker": {
+  "<spline/ellipse/conic in sketch>": 689,
+  "Beam": 2,
+  "Elbow": 1,
+  "HexInfill": 1,
+  "SimpleCylinder": 1,
+  "SpurGear": 2,
+  "assignVariable": 85,
+  "autolayout": 1,
+  "beamProfile": 1,
+  "brickFeature": 3,
+  "cPoint": 81,
+  "copyPart": 41,
+  "cycloid": 1,
+  "draft": 369,
+  "enclose": 1,
+  "fitSpline": 1,
+  "helix": 271,
+  "hexPocket": 1,
+  "importDerived": 87,
+  "importForeign": 2163,
+  "lighten": 1,
+  "mateConnector": 363,
+  "modifyFillet": 8,
+  "portFeature": 1,
+  "replaceFace": 27,
+  "rib": 3,
+  "sheetMetalEnd": 1,
+  "sheetMetalStart": 8,
+  "sphere": 1,
+  "threadCreator": 1,
+  "waveSpring": 1
+ },
+ "first_blocker_classes": {
+  "UNRECOVERABLE IN PRINCIPLE": 2740,
+  "geometry gap": 689,
+  "not yet implemented": 788
+ },
+ "licence": "corpus provenance UNVERIFIED (MODEL_DATA.md); not a training licence",
+ "measured_recovery": {
+  "<curve entities: spline/ellipse/conic>": {
+   "measured_recovery": 548,
+   "models_containing": 882
+  },
+  "Beam": {
+   "instances": 9,
+   "measured_recovery": 1,
+   "models_containing": 4
+  },
+  "Elbow": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "HexInfill": {
+   "instances": 2,
+   "measured_recovery": 1,
+   "models_containing": 2
+  },
+  "SimpleCylinder": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "SpurGear": {
+   "instances": 4,
+   "measured_recovery": 0,
+   "models_containing": 3
+  },
+  "assignVariable": {
+   "instances": 365,
+   "measured_recovery": 42,
+   "models_containing": 102
+  },
+  "autolayout": {
+   "instances": 2,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "beamProfile": {
+   "instances": 3,
+   "measured_recovery": 0,
+   "models_containing": 2
+  },
+  "beltFeature": {
+   "instances": 1,
+   "measured_recovery": 0,
+   "models_containing": 1
+  },
+  "brickFeature": {
+   "instances": 3,
+   "measured_recovery": 3,
+   "models_containing": 3
+  },
+  "cPoint": {
+   "instances": 338,
+   "measured_recovery": 56,
+   "models_containing": 138
+  },
+  "copyPart": {
+   "instances": 207,
+   "measured_recovery": 10,
+   "models_containing": 75
+  },
+  "cycloid": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "dcSphere": {
+   "instances": 4,
+   "measured_recovery": 0,
+   "models_containing": 1
+  },
+  "draft": {
+   "instances": 898,
+   "measured_recovery": 295,
+   "models_containing": 481
+  },
+  "enclose": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "fill": {
+   "instances": 1,
+   "measured_recovery": 0,
+   "models_containing": 1
+  },
+  "fitSpline": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "helix": {
+   "instances": 445,
+   "measured_recovery": 200,
+   "models_containing": 328
+  },
+  "hexPocket": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "importDerived": {
+   "instances": 174,
+   "measured_recovery": 41,
+   "models_containing": 115
+  },
+  "importForeign": {
+   "instances": 2258,
+   "measured_recovery": 1912,
+   "models_containing": 2170
+  },
+  "lighten": {
+   "instances": 3,
+   "measured_recovery": 1,
+   "models_containing": 2
+  },
+  "mateConnector": {
+   "instances": 2196,
+   "measured_recovery": 327,
+   "models_containing": 708
+  },
+  "measureDistance": {
+   "instances": 3,
+   "measured_recovery": 0,
+   "models_containing": 3
+  },
+  "modifyFillet": {
+   "instances": 96,
+   "measured_recovery": 4,
+   "models_containing": 53
+  },
+  "offsetSurface": {
+   "instances": 2,
+   "measured_recovery": 0,
+   "models_containing": 2
+  },
+  "overcut": {
+   "instances": 2,
+   "measured_recovery": 0,
+   "models_containing": 1
+  },
+  "portFeature": {
+   "instances": 1,
+   "measured_recovery": 0,
+   "models_containing": 1
+  },
+  "replaceFace": {
+   "instances": 170,
+   "measured_recovery": 18,
+   "models_containing": 82
+  },
+  "rib": {
+   "instances": 5,
+   "measured_recovery": 3,
+   "models_containing": 4
+  },
+  "sheetMetalEnd": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "sheetMetalFlange": {
+   "instances": 10,
+   "measured_recovery": 0,
+   "models_containing": 5
+  },
+  "sheetMetalJoint": {
+   "instances": 6,
+   "measured_recovery": 0,
+   "models_containing": 2
+  },
+  "sheetMetalMakeJoint": {
+   "instances": 6,
+   "measured_recovery": 0,
+   "models_containing": 1
+  },
+  "sheetMetalStart": {
+   "instances": 12,
+   "measured_recovery": 2,
+   "models_containing": 12
+  },
+  "sphere": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "surfaceText": {
+   "instances": 1,
+   "measured_recovery": 0,
+   "models_containing": 1
+  },
+  "threadCreator": {
+   "instances": 17,
+   "measured_recovery": 1,
+   "models_containing": 2
+  },
+  "waveSpring": {
+   "instances": 1,
+   "measured_recovery": 1,
+   "models_containing": 1
+  },
+  "wiring": {
+   "instances": 1,
+   "measured_recovery": 0,
+   "models_containing": 1
+  }
+ },
+ "models": 9846,
+ "unrecoverable_in_principle": 2889
+}

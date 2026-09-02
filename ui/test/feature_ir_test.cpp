@@ -234,16 +234,23 @@ int main() {
   bool opened = false;
   const std::map<std::string, DerivedSpec> kernel = deriveKernelOpTable(headerPath, opened);
   CHECK(opened);
-  // forge::ft::opFromName registers 53 ops; anything else means the derivation
-  // itself broke, and a broken oracle must not pass quietly.
-  //   40  the base IR
-  //   +6  the SURFACE value kind (#146): SKIN FACES SEW THICKEN CAP SURFCHECK
-  //   +7  the 2D sketch + constraint family: SKETCH SPT SLINE SCIRC SARC CON
-  //       SOLVE, which made the vendored planegcs solver addressable from a
-  //       feature tree for the first time.
-  // Neither branch's number described the merge of the two (46 and 47); this one
-  // is COUNTED from opFromName rather than carried over from either side.
-  CHECK_EQ_INT(kernel.size(), 53);
+  // forge::ft::opFromName registers 55 ops -- the original 40, plus the six that
+  // give the SURFACE value kind producers and consumers (SKIN / FACES / SEW /
+  // THICKEN / CAP / SURFCHECK), plus SECTION (the fourth OCCT boolean), plus the
+  // seven of the 2D sketch + constraint family (SKETCH SPT SLINE SCIRC SARC CON
+  // SOLVE), plus ARC.
+  //
+  // COUNTED on the MERGED tree, from opFromName's own table, rather than
+  // inherited from either side: this branch pinned 53 and the base pinned 55.
+  // The 53 is true only of this branch's own half -- it predates SECTION and
+  // ARC -- and this branch adds no op the base does not already carry, which is
+  // why the merged answer is the base's number and NOT the sum of the two.
+  // Re-count at every merge; a figure that is carried across one is the defect
+  // this assertion exists to catch.
+  //
+  // Anything else means the derivation itself broke, and a broken oracle must
+  // not pass quietly.
+  CHECK_EQ_INT(kernel.size(), 55);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {
@@ -274,6 +281,12 @@ int main() {
   CHECK(kernel.at("LOFT").maxArgs == kIrArgsUnbounded);
   CHECK(kernel.at("VERIFY").maxArgs == kIrArgsUnbounded);
   CHECK_EQ_INT(kernel.at("POLY").maxArgs, 1);      // [x y; ...] is ONE argument
+  // ARC takes the same single point-ring literal as POLY. `[x y; x y mx my; ...]`
+  // must NOT be read as an optional group by the derivation — the `...` is inside
+  // a literal, and variadicToken() refuses a token that opens with '['.
+  CHECK_EQ_INT(kernel.at("ARC").minArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").maxArgs, 1);
+  CHECK_EQ_INT(kernel.at("ARC").firstArgIsValueRef ? 1 : 0, 0);
   CHECK_EQ_INT(kernel.at("SWEEP").maxArgs, 2);
   CHECK_EQ_INT(kernel.at("INPUT").minArgs, 0);
   CHECK_EQ_INT(kernel.at("INPUT").maxArgs, 0);

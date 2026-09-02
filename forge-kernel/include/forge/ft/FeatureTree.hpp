@@ -91,6 +91,25 @@ enum class OpCode {
     Slot,        // SLOT(len, wid [, cx=0, cy=0, angleDeg=0])  obround
     Poly,        // POLY([x y; x y; ...])                       organic closed silhouette
     RegPoly,     // REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])      n-gon (vertex radius)
+    Arc,         // ARC([x y; x y mx my; ...])                  closed loop of straight
+                 //   segments AND TRUE circular arcs. A 2-number row `x y` says the
+                 //   segment ARRIVING at this vertex from the previous one is a LINE;
+                 //   a 4-number row `x y mx my` says that segment is the circular arc
+                 //   from the previous vertex, THROUGH (mx,my), to (x,y). Row 0
+                 //   describes the CLOSING segment (last vertex -> row 0), which is how
+                 //   a loop closed by an arc (a lens, a D-shape) is stated.
+                 //
+                 //   WHY THIS IS NOT POLY. POLY builds chords: every one of its
+                 //   segments is straight, so an arc emitted as POLY loses real
+                 //   material with no error. MEASURED over the 1317 harvested BenchCAD
+                 //   GT programs: 48 programs / 86 statements / 1354 arc segments,
+                 //   and 18 of those segments sweep MORE THAN 180 degrees — a bulge
+                 //   column could not express them either (|bulge| <= 1 is <= 180 deg),
+                 //   because both sketch readers normalise a sweep into (-pi, pi] and
+                 //   return the MINOR arc (src/Sketcher.cpp, "MINOR-ARC NORMALISATION").
+                 //   ARC splits any arc wider than 120 degrees into equal sub-arcs on
+                 //   its OWN circle — same centre, same radius, same endpoints, extra
+                 //   vertices lying ON the arc. Exact, not a tessellation.
 
     // --- 2D SKETCH + CONSTRAINTS (produce a SKETCH / SKETCHREF) ---------------
     // The six profile ops above bake COORDINATES. These six plus SOLVE let a
@@ -173,6 +192,21 @@ enum class OpCode {
     Fuse,        // FUSE(%a, %b)
     Cut,         // CUT(%a, %b)
     Common,      // COMMON(%a, %b)
+
+    // --- the fourth boolean: intersection CURVES, so these produce a WIRE ---
+    Section,     // SECTION(%a, %b)     where the two solids' FACES cross
+                 //   OCCT's BRepAlgoAPI has FOUR operators — Fuse, Cut, Common and
+                 //   Section — and this IR had three. Nothing noticed because no
+                 //   benchmark row demanded it.
+                 //   It is in its own group because the other three return a SOLID and
+                 //   this one CANNOT: a section is a CURVE — a wire with no faces, no
+                 //   shells and zero volume. Typing it SOLID would be worse than leaving
+                 //   the op out (massProperties/faceCount/checkValidity would report a
+                 //   perfectly good section as an empty invalid body).
+                 //   The wire is consumed by LOFT, like RING and WIRE. forge::section
+                 //   returns a real TopoDS_Wire when the section edges close into one
+                 //   loop, and a compound of wires when they close into several (a plane
+                 //   through a tube gives two circles; welding them would be a lie).
 
     // --- transforms / replication ---
     Translate,   // TRANSLATE(%a, dx, dy, dz)
@@ -296,7 +330,14 @@ struct Op {
     OpCode              code = OpCode::Unknown;
     std::string         name;          // raw op token, for diagnostics
     std::vector<Token>  args;
-    std::vector<Point2> poly;          // POLY only
+    std::vector<Point2> poly;          // POLY and ARC — the vertex ring
+    // ARC only — parallel to `poly`. arcThrough[i] is a point the segment ARRIVING
+    // at poly[i] passes through when arcIsArc[i] is 1; when it is 0 that segment is
+    // a straight line and arcThrough[i] is unread. Index 0 describes the CLOSING
+    // segment (last vertex -> poly[0]). Both vectors are always the same length as
+    // `poly` for an ARC op and empty for every other op.
+    std::vector<Point2> arcThrough;
+    std::vector<char>   arcIsArc;
     int                 srcLine = 0;   // 1-based source line, for diagnostics
 };
 

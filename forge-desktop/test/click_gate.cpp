@@ -54,11 +54,17 @@
 //   6  the command sweep stops after the first  -> the invocation census goes unmet
 //   7  no frame is drawn after a command runs   -> the redraw the historical
 //                                                 use-after-free broke goes unchecked
+//   8  the camera pull path never runs          -> view.* is a counter nobody reads
 //
-// 6 and 7 were IMPLEMENTED and NOT DOCUMENTED here (g_mutation is read at lines
-// 459 and 482). This list said "1..5" while run_desktop.sh ran 1..7, so a reader
-// checking whether the merged mutation count was right would have counted five
-// and concluded two of them were injected into a gate that ignores them.
+// The list above is the UNION of the two sides this merge joined, and neither
+// side was complete. This branch documented 6 and 7 and predated 8; the base
+// documented 8 and skipped 6 and 7, which it nonetheless RAN. All three are
+// implemented: g_mutation is read for 6 at line 473 and for 7 at line 496,
+// re-measured on the merged tree rather than carried over (the figures inherited
+// here said 459 and 482, and had gone stale by standing still). Taking either
+// side whole would have left a reader counting this list and concluding that
+// mutations run_desktop.sh really injects go into a gate that ignores them.
+// It is 1..8 now, with no gap.
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>
@@ -518,7 +524,93 @@ int main(int argc, char** argv) {
     // registry grew would be worse than no sweep, because the number would still
     // look like coverage. This is an EQUALITY against the registry's own count.
     checkEq(invoked, ids.size(), "EVERY registered command was invoked", "");
-    checkGe(ids.size(), std::size_t{41}, "the registry did not shrink under the sweep", "");
+    // A RATCHET, raised in the commit that adds a command. A floor left behind
+    // cannot notice the registry shrinking back past it, which is the only
+    // thing this line is for -- so a STALE floor is the failure mode, and BOTH
+    // sides of this merge were stale. MEASURED on the merged tree by building
+    // the registry exactly as this gate does (`ForgeShell` + registerPartCommands):
+    // 22 shell commands + 50 part commands = 72. This branch carried 50 against
+    // its own 66, and the base carried 66 against its own 72 -- picking either
+    // would have left the floor 22 or 6 below the registry it is supposed to
+    // guard. Cross-checked against two independent instruments on this same
+    // tree: APP_SURFACE_MANIFEST.tsv (72 rows, written from the live registry)
+    // and archie_op_vocabulary.json counts.registry_commands (72, derived from
+    // the SOURCES), plus forge_shell_test's shellCommands == 22.
+    checkGe(ids.size(), std::size_t{72}, "the registry did not shrink under the sweep", "");
+  }
+
+  // ── THE CAMERA ACTUALLY MOVES ────────────────────────────────────────────
+  // The sweep above proves every command can be invoked without corrupting the
+  // dock. It does NOT prove any of them DID anything, and for a view command
+  // that is the whole risk: `view.fit`'s execute body is `++doc_.fitCount`, and
+  // for the entire life of that command the counter was written by the handler
+  // and READ BY NOBODY -- F printed "view.fit -> ok" and the camera did not
+  // move. The seven standard views and view.selection ride the same pull
+  // pattern, so they inherit the same failure mode and need the same proof.
+  //
+  // What is asserted is an OBSERVABLE OF THE CAMERA, not the counter: azimuth
+  // and elevation after the pull. A counter check would pass against exactly
+  // the defect this exists to catch.
+  {
+    // Park the camera somewhere that is not any named view, so "it moved" is
+    // distinguishable from "it was already there".
+    frame.camera().setIsometric();
+    frame.camera().orbit(0.37f, 0.11f);
+    const float az0 = frame.camera().azimuth();
+    const float el0 = frame.camera().elevation();
+
+    frame.invoke("view.top");
+    // MUTATION 8: never step the frame, so the pull path never runs. The camera
+    // then holds its old angles and the checks below go red -- which is exactly
+    // what a command whose counter nobody reads looks like.
+    if (g_mutation != 8) step(frame);
+
+    const float azT = frame.camera().azimuth();
+    const float elT = frame.camera().elevation();
+    check(azT != az0 || elT != el0, "view.top MOVED the camera", "");
+    // Top looks down: elevation sits on the pole guard, not at the old angle.
+    checkGe(static_cast<int>(elT * 1000.0f), 1500, "view.top raised the camera to the pole", "");
+    checkEq(frame.viewsApplied(), shell.document().viewOrientCount,
+            "the frame applied every orientation the shell requested", "");
+    checkEq(frame.layoutReseatsDuringWalk(), std::size_t{0},
+            "the layout was not re-seated mid-walk by a view command", "");
+
+    // BACK / BOTTOM / LEFT are the three that did not exist before this work;
+    // asserting one of them is what keeps the seventh from being decorative.
+    frame.invoke("view.back");
+    if (g_mutation != 8) step(frame);
+    check(frame.camera().azimuth() != azT, "view.back moved the camera again", "");
+
+    // ZOOM TO SELECTION frames the picked geometry, not the whole body. With a
+    // real face selected the camera must end up CLOSER than a whole-body fit.
+    shell.selection().clearSelection();
+    frame.invoke("view.fit");
+    if (g_mutation != 8) step(frame);
+    const float wholeBody = frame.camera().distance();
+
+    forge::ui::EntityRef faceRef;
+    // The REAL body id this frame is showing. An empty one would be rejected by
+    // SelectionService::add (EntityRef::valid() requires a body), and a rejected
+    // add would leave the selection empty and make every check below vacuous --
+    // so the add is ASSERTED rather than assumed.
+    faceRef.bodyId = frame.treeSource().rootId();
+    faceRef.kind = forge::ui::EntityKind::Face;
+    faceRef.persistentName = "face@1";
+    check(shell.selection().add(faceRef), "a face reference was selectable for view.selection", "");
+    checkEq(shell.selection().count(), std::size_t{1}, "exactly one entity is selected", "");
+    frame.invoke("view.selection");
+    if (g_mutation != 8) step(frame);
+    checkEq(frame.selectionFitsApplied(), shell.document().selectionFitCount,
+            "the frame applied every selection-fit the shell requested", "");
+    // A single face is a subset of the body, so framing it cannot need MORE
+    // distance than framing the whole thing. Stated as <= rather than < ON
+    // PURPOSE: this gate does not get to assume the demo body HAS a face 1, and
+    // a strict inequality would be asserting the fixture rather than the code.
+    // The unconditional claim is the watermark equality above.
+    check(frame.camera().distance() <= wholeBody + 1e-3f,
+          "view.selection framed no wider than view.fit", "");
+    check(frame.camera().distance() > 0.0f, "view.selection left a usable distance", "");
+    shell.selection().clearSelection();
   }
 
   // ── coverage: what was clicked is what the model said was there ──────────
