@@ -2340,6 +2340,124 @@ extended — there is no walk over this container in the app to click on yet. Th
 not unified. Measured on `app/viewport-document-v2` (PR #175, stacked on #167): 27 UI gates pass,
 446 checks across the four new document gates.
 
+## D-045 (2026-09-01): the sketch family leaves `forbidden_ops` — 46 → 53 user-invocable ops, and the direct-ops-alone yield goes 0.00% → 40.78%
+
+**The measurement that set this.** Paired over 9,846 real ABC / Onshape FeatureScript trees
+(154,637 features), scored by `implementation/sacrosanct/tools/abc_yield_census.py`. Arms differ
+ONLY in which ops exist, so the rows are comparable:
+
+| arm | vocabulary | DIRECT | translatable with DIRECT OPS ALONE |
+|---|---|---|---|
+| 0 | 40 ops (b003bb3a) | 55.08% | 0.00% |
+| 1 | 46 ops, before this change | 55.80% | **0.00%** |
+| 2 | 55 ops — the KERNEL's set | 86.02% | 40.78% (4,015) |
+| 3 | **53 ops, after this change** | **86.02%** | **40.78% (4,015)** |
+
+Arm 3 is the row this change creates, and it is not an alias for arm 2: arm 2 is the kernel's 55
+and arm 3 is the 53 a user can now reach, because `ARC` and `SLOT` stay forbidden. They come out
+equal because neither of those two reaches a `newSketch`, and that equality was a PREDICTION the
+census had to measure — it is stated as a separate row for exactly that reason. Arms 0–2 reproduce
+the previous census (PR #181) to four decimals, which is what licenses the pairing.
+
+**The mechanism, exact.** `newSketch` appears in **100.00%** of the 5,629 trees that clear both
+census gates. Every translatable human tree opens with a sketch, and a sketch was reachable only
+as a canned profile (`RECT` / `CIRCLE` / `RRECT` / `REGPOLY` / `POLY`) or a `POLY` tessellation, so
+no tree was lossless and the direct-ops-alone figure was exactly zero — not nearly zero. **93.63%**
+of the corpus's 49,903 sketches are pure line / circle / arc, which is precisely what
+`SLINE` / `SCIRC` / `SARC` reproduce.
+
+**What it does NOT close, measured.** `clear_both_gates` is **5,629 on arms 1 and 3 alike**. This
+family converts PARTIAL into DIRECT and turns no blocked tree into a clear one. What blocks the
+other 4,217 is `importForeign` (51.29% of non-clearing), spline / ellipse / conic geometry
+(16.34%), `draft` (8.75%) and `mateConnector` (8.61%) — none of which a sketch op reaches. 64.98%
+of the non-clearing tail is UNRECOVERABLE IN PRINCIPLE.
+
+**Why this was UI work and not kernel work.** PR #163 added all seven ops to the kernel and to
+`forbidden_ops`, not to `ops`. Every entry read `compiled_into_a_default_build: true` with the
+reason "no command in the `forge::ui` registry emits it, so no user can produce it". The kernel
+gained the sketch family; the emittable vocabulary did not. Eight commands close it, and the
+generator derives the move from the registry — the JSON was regenerated, never edited.
+
+**Eight commands, seven ops.** `part.sketch_new` (SKETCH), `part.sketch_entity_point` (SPT),
+`part.sketch_entity_line` (SLINE), `part.sketch_entity_circle` (SCIRC), `part.sketch_entity_arc`
+(SARC), `part.sketch_constrain_single` and `part.sketch_constrain` (CON), `part.sketch_solve`
+(SOLVE). CON gets two because it is one op with two signatures — one entity for `HORIZ` / `VERT`,
+two for `COINC` / `PARA` / `PERP` / `TANG` / `EQUAL` / `PTON` / `DIST` — and a signature accepting
+either would offer each on the other's selection. That mistake is NOT loud: the facade throws on a
+type-mismatched operand and the compiler swallows the throw as a `SKIPPED` verify note, so the
+constraint would silently not apply.
+
+**Two selection kinds had to exist first**, for the same structural reason `EntityKind::Wire` had
+to exist before `LOFT` was reachable and `EntityKind::Surface` before `THICKEN` was.
+`EntityKind::Sketch` has always meant a solved PROFILE (`ArchieCopilot::wantedKind` maps it to
+`IrValueKind::Profile`, the node prefix is `sketch_`), so an unsolved sketch parked there would
+have made `EXTRUDE` offer itself on a sketch the kernel refuses. `OpenSketch` and `SketchRef`
+carry the two kinds, with `opensketch_N` and `sketchref_N` node prefixes.
+
+**Their `toString()` spelling is not free, and the rule is now written down.**
+`archie_op_vocabulary.json` records a command's selection kind by its ENUM SPELLING, and two
+consumers compare that against `toString()` case-folded — the vocabulary gate asserts the
+equality, and `OpConstraintBridge::mapEntityKind` resolves the spelling back through it. So a kind
+naming a SELECTION SIGNATURE must spell itself as its enum name lowered with no separator:
+`opensketch`, not `open_sketch`. `SketchCurve` gets away with its underscore only because no
+signature names it. Until now that agreement was a coincidence across four kinds; `Types.hpp` now
+states it as a rule.
+
+**CON rebinds the sketch's node, and the naive resolution is wrong.** CON is PASS-THROUGH — it
+returns the sketch handle it was given — so its statement is that sketch with one more constraint
+on it, not a second sketch, and it rebinds the node the way `TAG` and `VERIFY` rebind a body's.
+The consequence is that after `%25 = CON(%22, HORIZ)` the sketch's node names `%25` and no longer
+names the `SKETCH` statement `%18`, so `nodeFor(root)` answers `""` for every sketch already
+constrained once — **the second constraint on any sketch, and the SOLVE after it, would have
+greyed out**. `sharedSketchNode` therefore walks the records newest-first. Both this and the
+cross-sketch refusal are mutation-proved: replacing the walk with `nodeFor(root)` fails 11 checks,
+and removing the cross-sketch test fails 2.
+
+**What is deliberately left out.** The `YZ` / `XZ` sketch planes: `skNew` accepts them and then
+reports `plane=YZ NOT APPLIED — solved on XY`, so a command offering the keyword would record a
+plane in the history that the built solid does not have — the same defect
+`part.sketch_rounded_rect`'s predicate refuses on RRECT's silent corner clamp, and the reason
+`SLOT` is still not registered. `SKETCH(XY)` is emitted as a literal. Also left out: the eight
+constraint kinds (`RADIUS`, `DIAM`, `ANGLE`, `CONC`, `COLL`, `SYMM`, `MIDPT`, `FIX`) that exist in
+planegcs and are one switch arm each in the facade, none wired at this SHA.
+
+**A looseness this shares with REVOLVE, stated rather than discovered later.** The census scores
+DIRECT at OP level, so 40.78% is an UPPER bound on what is actually emittable. `SKETCH(XY)` is the
+concrete instance here: a tree whose sketch is on YZ or XZ is counted DIRECT by the census and is
+not emittable by this command, exactly as `REVOLVE`'s 8-argument emitted form pins the axis origin
+to a literal `0,0,0` and cannot state an off-origin revolve. Neither is corrected in the figure;
+both are named.
+
+**Two adjacent holes closed, because the tables they live in are the tables this change edits.**
+`entityKindFromName` (`DocumentModel.cpp`) omitted `EntityKind::Surface`, and its own comment
+claimed the mapping was total — the writer emits `toString(kind)` for ANY kind, so a named face of
+a SHEET saved a document the reader then refused with `unknown KIND 'surface'`; the round-trip
+gate's kind list had the same omission and a `CHECK_EQ_INT(..., 11)` that could not see it.
+`describeSelection` (`ActivityLog.cpp`) omitted it too, so a selected sheet counted as "1 selected"
+rather than "1 surface". Both are one-row fixes in tables the sketch kinds had to join anyway;
+leaving them would have meant knowingly adding rows beside a hole.
+
+**Gates.** `bash ui/test/run_ui.sh` — ALL 30 UI gates pass (a filtered `ONLY=` run announces it is
+not a gate, so the full run is the one recorded). `bash ui/test/run_op_constraint_gate.sh` — PASS,
+drift check green, 9/9 gate mutations caught, 53 allowed ops. The three generated artefacts were
+regenerated by their three separate mechanisms; `--check` then named every stale prose figure and
+REFUSED to auto-fix the narrative, and the sentences in `ARCHIE_OP_VOCABULARY.md` were authored by
+hand from the JSON.
+
+**What this does NOT claim.** No sketch has been solved through the real solver by this branch —
+the 2D family's kernel behaviour is #163's measurement, unchanged here, and nothing in this branch
+re-measures it. `forge-desktop` is not built LOCALLY here and no ribbon was clicked. CI does
+compile it (`kernel-tests.yml`: "forge-desktop compiles + its headless gates (mutation-proved)"),
+and the ribbon renders Part commands straight out of the registry through `ribbonCategories()`, so
+the eight arrive there without a code change — but "reachable in the registry" is what is GATED,
+not "clicked in the shipped app", and this branch adds no click gate. Its two curated
+`EntityKind` lists (`ForgeFrame`'s selection-filter combo, which already omitted `Wire` and
+`Surface`, and `PartFile`'s reader, which delegates to `irValueKindFromName` and is total by
+construction) are deliberately not touched: neither is a switch, so neither would have caught the
+omission, and extending the filter combo is a UI decision this branch did not measure. The 40.78% is a TRANSLATION-YIELD figure over a corpus whose
+provenance is UNVERIFIED (`MODEL_DATA.md`); it is a capability measurement, not a training licence,
+and it is not a benchmark score.
+
 ---
 
 ## D-046 (2026-09-01): the sketch family's binding limit was its CONSTRAINT VOCABULARY, not its value kind — CON 9 -> 19, and a merge proved a fourth value kind can be added twice without a compile error
@@ -2352,8 +2470,10 @@ boolean entry above. Per this file's own precedent (see the D-043 note), the ent
 keeps the number and the incoming one moves, so this entry is renumbered **D-046**. Content
 unchanged. D-046 was chosen by surveying `implementation/sacrosanct/DECISIONS.md` on EVERY ref at
 `origin` and every local branch, not just the `decisions/*` ones — the highest number allocated
-anywhere is **D-045**, held on `archdisc` by the self-consistency refutation, which is the very
-work this entry had reserved D-041 for. The lesson stands and is now doubled: a reserved number is
+anywhere was **D-045**, held on `archdisc` by the self-consistency refutation, which is the very
+work this entry had reserved D-041 for. D-045 has since been allocated a SECOND time, by #184 on
+this base, so it is now doubly held and D-046 is still the right answer — arrived at, as it
+happens, before either claimant landed. The lesson stands and is now doubled: a reserved number is
 not a held number, and a survey is only as good as the set of refs it covers.)*
 
 **What was already true, and is not claimed here as new.** The `SKETCH` / `SKETCHREF` value kinds,
@@ -2475,14 +2595,30 @@ emission-surface work, not this branch, and it is the next thing standing betwee
 a benchmark score.
 
 *(Figure re-measured at every merge, because it goes stale by standing still — which is
-the defect class this whole entry is about. When this entry was written the count was **25 of 53**
-forbidden; after #164 landed it read **14 of 53**. MEASURED on the tree this merge commits, from
-the regenerated `archie_op_vocabulary.json`, it is now **9 of 55**: `ARC`, `SLOT`, and the seven
-sketch ops `SKETCH` `SPT` `SLINE` `SCIRC` `SARC` `CON` `SOLVE`. The six SURFACE ops left the list
-because the base gave each of them a command. The seven sketch ops are still every one of them
-out — `CON` among them, which is the point worth keeping: this branch takes `CON` from nine
-constraint keywords to nineteen and the forbidden count does not move, because breadth INSIDE a
-forbidden op is invisible to the emission surface.)*
+the defect class this whole entry is about. It has now gone stale FOUR times. When this entry was
+written the count was **25 of 53** forbidden; after #164 it read **14 of 53**; at the merge before
+this one it was **9 of 55**. MEASURED on the tree this merge commits, from the regenerated
+`archie_op_vocabulary.json`, it is **2 of 55** — only `ARC` and `SLOT`. The seven sketch ops left
+`forbidden_ops` entirely, because D-045 (#184) gave the family eight commands while this branch
+was in review.
+
+★ THAT CHANGES WHAT THIS ENTRY CLAIMS, so the claim is restated rather than left standing. The
+previous wording said the nineteen keywords were "invisible to the emission surface" because `CON`
+was forbidden. `CON` is no longer forbidden, and the invisibility did not disappear — it MOVED
+DOWN ONE LAYER, and it is now measurable rather than structural. MEASURED on this tree:
+
+  the compiler dispatches            19 CON keywords (`kKinds`, FeatureTreeCompiler.cpp)
+  the two CON commands offer          9 (`part.sketch_constrain{,_single}`, PartCommands.cpp)
+  reachable by a user                 9
+  dispatchable but UNREACHABLE       10 — ANGLE COLL CONC DIAM DISTX DISTY FIX
+                                          MIDPT RADIUS SYMM
+  offered but NOT dispatched          0
+
+The last row is the one that would be a DEFECT rather than a gap, and it is empty: no command
+promises a keyword the compiler would skip. The ten in the fourth row are the same shape of gap
+this entry was written about, one layer up — the facade has them, the compiler routes them, and no
+command emits them. That is app-surface work, it is not done here, and it is now a number someone
+can close rather than a sentence.)*
 
 No benchmark number is claimed here: nothing in this branch was scored against BenchCAD,
 CADGenBench or MUSE.

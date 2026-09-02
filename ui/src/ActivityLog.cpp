@@ -172,7 +172,9 @@ std::string describeSelection(const SelectionService& selection) {
   // whole would otherwise render four hundred names into a status strip.
   const EntityKind kinds[] = {EntityKind::Vertex, EntityKind::Edge,    EntityKind::Face,
                               EntityKind::Body,   EntityKind::Sketch,  EntityKind::SketchCurve,
-                              EntityKind::Wire,   EntityKind::Feature, EntityKind::Component,
+                              EntityKind::Wire,   EntityKind::Surface, EntityKind::OpenSketch,
+                              EntityKind::SketchRef,
+                              EntityKind::Feature, EntityKind::Component,
                               EntityKind::Datum};
   std::vector<std::string> parts;
   for (EntityKind k : kinds) {

@@ -13,7 +13,7 @@
   },
   "1": {
    "clear_both_gates": 5629,
-   "description": "46 ops (30a841cd HEAD) -- emission_policy.allowed_ops: what Archie MAY EMIT",
+   "description": "46 ops (30a841cd) -- emission_policy.allowed_ops BEFORE the sketch commands",
    "direct": 86293,
    "direct_ops_alone": 0,
    "geom_blocked": 882,
@@ -25,6 +25,17 @@
   "2": {
    "clear_both_gates": 5629,
    "description": "55 ops -- arm 1 + the 9 forbidden_ops (sketch family): kernel-compilable, NOT user-invocable",
+   "direct": 133019,
+   "direct_ops_alone": 4015,
+   "geom_blocked": 882,
+   "instances": 154637,
+   "none": 7254,
+   "op_blocked": 3669,
+   "partial": 14364
+  },
+  "3": {
+   "clear_both_gates": 5629,
+   "description": "53 ops -- emission_policy.allowed_ops AFTER the sketch commands: arm 1 + the seven 2D-sketch ops, USER-INVOCABLE. ARC and SLOT remain forbidden",
    "direct": 133019,
    "direct_ops_alone": 4015,
    "geom_blocked": 882,

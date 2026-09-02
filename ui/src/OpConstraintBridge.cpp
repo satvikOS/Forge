@@ -50,6 +50,11 @@ bool mapEntityKind(std::string_view spelling, EntityKind& out) {
   const EntityKind kinds[] = {EntityKind::None,      EntityKind::Vertex,    EntityKind::Edge,
                               EntityKind::Face,      EntityKind::Body,      EntityKind::Sketch,
                               EntityKind::SketchCurve, EntityKind::Wire,    EntityKind::Surface,
+                              // The two sketch-solver kinds. A kind missing here is
+                              // not a cosmetic gap: check() REFUSES the whole
+                              // vocabulary row whose selection names it, so every
+                              // command consuming that kind stops being checked.
+                              EntityKind::OpenSketch, EntityKind::SketchRef,
                               EntityKind::Feature,
                               EntityKind::Component, EntityKind::Datum,     EntityKind::Any};
   const std::string want = lower(spelling);
