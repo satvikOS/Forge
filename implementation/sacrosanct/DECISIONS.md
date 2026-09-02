@@ -3020,3 +3020,142 @@ can close rather than a sentence.)*
 No benchmark number is claimed here: nothing in this branch was scored against BenchCAD,
 CADGenBench or MUSE.
 
+
+## D-051 (2026-09-02): D-045's "compiled" row is `status == "ok"`, not "built" — the true build rates are 86.6% and 57.6%, the effect it was cited for is THREE TIMES larger, and the quantity as recorded is not independent of the endpoint it sat beside
+
+D-045 FINAL, corrected, records this table and draws its sharpest sentence from the
+first row:
+
+| | v10 | v6r8 |
+|---|---|---|
+| compiled | **83 = 34.9%** | 61 = 25.6% |
+
+and then: *"targeted training made the model BUILD MORE (+9.3 points compiled) and
+ASSERT MORE (+3.4 points VERIFY-bearing) while making its assertions MUCH LESS TRUE."*
+
+**`83` and `61` are not build counts. They are the number of rows whose STATUS is
+exactly `ok`.** Re-derived from the only two measured artefacts on disk, on the same
+238 shared ids:
+
+```
+v10  status: verify_failed 123 | ok  83 | op_error 31 | unknown_op 1
+v6r8 status: op_error       91 | verify_failed 76 | ok 61 | unknown_op 9 | verify_malformed 1
+
+              status=="ok"        built==True
+v10             83 (34.9%)        206 (86.6%)
+v6r8            61 (25.6%)        137 (57.6%)
+```
+
+`83` and `61` reproduce the recorded numbers to the row. And `v6r8_part1_BASELINEPIN.json`
+states the build count **in its own summary** — `"built": 137, "built_pct": 57.6` — so
+the artefact was never ambiguous; only the label was.
+
+### Why this is a defect and not a naming quibble
+
+`ok` means *the tree built **and** every assertion it made passed*. A row that builds
+perfectly and then fails its own VERIFY is `verify_failed`, **not** `ok`. So `ok` has
+the self-inconsistency outcome baked into it.
+
+D-045 cites "builds more" and "assertions much less true" as **two movements**, and the
+force of the finding — *the model learned the FORM of a VERIFY without the CONTENT* —
+comes from their being independent. **They are not independent as measured.** Every row
+v10 gained on self-inconsistency was mechanically subtracted from its "compiled" count.
+The build claim was being read off a quantity that the endpoint controls.
+
+### The direction, stated because it cuts FOR the finding it corrects, not against it
+
+Under the actual build predicate the gap does not shrink, it **widens by more than
+three times**:
+
+| | as recorded | corrected | direction |
+|---|---|---|---|
+| v10 build rate, 238 shared ids | 34.9% | **86.6%** | +51.7 pt |
+| v6r8 build rate, 238 shared ids | 25.6% | **57.6%** | +32.0 pt |
+| **the gap D-045 quotes** | **+9.3 pt** | **+29.0 pt** | **3.1x LARGER** |
+
+So D-045's shape — *builds far more, asserts more, assertions much less true* — survives
+the correction and is **strengthened** by it. This entry is not a retraction of D-045 and
+nothing in its paired endpoint moves. It is filed because a number that flatters the
+conclusion has to be corrected on exactly the same terms as one that does not.
+
+### A confound on the MAGNITUDE that is NOT resolved here, and is owed
+
+The two arms were scored by **different scorers**, and this is recorded in the files
+themselves: v10's summary says `measure_failure_v2.py`, v6r8's summary names no scorer,
+i.e. `measure_failure.py` v1. v1 has a measured defect — *a mid-batch abort condemns its
+neighbours*, because it returns the lines printed before the crash and every row after
+the crashing one is recorded no-output and scored as a failure. That defect can only
+**depress** v6r8's count.
+
+**Therefore +29.0 pt is an UPPER BOUND on the build gap, not a measurement of it.** What
+is certain is the mislabel (`ok` is not `built`, on both arms, by the same rule) and the
+two absolute rates as their own files report them. What is not established is how much of
+the 29-point gap is the arm and how much is the scorer.
+
+**Owed, and deliberately NOT run today:** re-measure v6r8 from
+`runs/composite_anchor/expert3d_v6r8_e600/emissions.part1.jsonl` with
+`measure_failure_v2.py` against the same pinned binary, and report the gap again. It was
+not run now because free memory was **2.6 GB of 36 GB with 1.0 GB of swap in use** while
+the v11 eval's generator holds 10.6 GB, and a second 4 GB verifier sweep beside it is how
+this session produced two OOMs already. An OOM would cost the live run hours. **The
+measurement is owed, the reason for deferring it is resource pressure, and neither is a
+result.**
+
+### A one-row discrepancy in the paired figures, left open rather than silently fixed
+
+Re-deriving D-045's paired endpoint from the same two files reproduces every
+whole-arm figure exactly — v6r8 **76/131 = 58.0%**, v10 whole-arm **411/448 = 91.7%**,
+emission **58.4% vs 55.0%**, both-bearing **n = 97**, v10 **90/97 = 92.8%** — and differs
+on the baseline's count inside that set by **one row**:
+
+| | D-045 FINAL | re-derived |
+|---|---|---|
+| v6r8, both-bearing | 58/97 = 59.8% | **59/97 = 60.8%** |
+| discordant | 35 worse / 3 better | **34 worse / 3 better** |
+| exact McNemar, two-sided | p = 6.68e-08 | **p = 1.23e-07** |
+
+Both readings are internally forced (90 − 34 = 56 = 59 − 3; 90 − 35 = 55 = 58 − 3), so
+this is one row classified differently, not an arithmetic slip on either side. Two
+candidate predicates were tried and **neither** reproduces 58: `status == "verify_failed"`
+gives 59 and `assert_fail > 0` also gives 59. **The conclusion is untouched** — both
+p-values are below 1e-6 and both gaps are ~32 points — so this is recorded as an open
+one-row discrepancy and D-045 is **not** edited on the strength of it.
+
+### A third outcome that neither ratio should absorb
+
+`verify_malformed` — the model wrote a VERIFY the scorer could not parse — occurs once on
+v6r8 and is the entire difference between the two predicates above. Such a row made **no
+checkable claim**: it is neither a measured falsehood nor a pass. Counting it in the
+numerator would change the instrument relative to every number already in the record.
+`pair_arms.py` uses the recorded predicate and prints the malformed count **separately**,
+never folded in.
+
+### What now exists so these numbers are checkable instead of quoted
+
+`archdisc-Models: tools/selfconsist/pair_arms.py`. It reads two files that
+`measure_failure*.py` already wrote and does arithmetic only — it re-verifies nothing.
+It **refuses to pair two arms measured with different binaries** unless the caller passes
+`--allow-instrument-mismatch` and thereby says out loud that an instrument comparison is
+intended. It prints (a) **three ways** — paired both-bearing, unconditional over each
+arm's own bearers on shared ids, and whole-arm — because D-045 legitimately reports
+**59.8%** and **58.0%** for the same arm and those are different denominators, not a
+contradiction, and quoting one alone is how that becomes one.
+
+    .venv/bin/python3 tools/selfconsist/pair_arms.py \
+      --new  reports/abcreal/v10_recovered_BASELINEPIN.json      --new-name  v10 \
+      --base reports/selfconsist/v6r8_part1_BASELINEPIN.json     --base-name v6r8
+
+### Two facts about the v10 artefact, recorded because they change how it should be read
+
+1. **It is a RE-measurement, not the original.** `n_rows_emitted 600`, `n_rows 593`,
+   `n_instrument_failed 7`, ids `ho116 ho274 ho341 ho962 ho1180 ho1212 ho1229`. D-045's
+   correction lists **nine** instrument failures — those seven **plus** `ho932` and
+   `ho998`, the two 180-second timeouts. In this re-measurement **both answer normally**
+   (`ho932` → `verify_failed`, 5 assertions false; `ho998` → `ok`, no VERIFY). That is
+   the same conclusion D-045's own replay reached by a different route — the 180-second
+   wait belonged to the state the child was in, not to the input — and it is now visible
+   in a full scored artefact rather than a two-row fixture.
+2. **`ho998` is not instrument-failed here at all**, so the claim that exactly one shared
+   id is instrument-failed on v10 does not describe this file. The paired 97-id set
+   contains no instrument-failed row on either arm under it either way.
+
