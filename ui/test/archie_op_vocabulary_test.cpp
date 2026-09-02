@@ -550,23 +550,22 @@ int main() {
   PartDocument partDoc;
   UndoStack partUndo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), partDoc, partUndo);
-  // 58 -- RE-MEASURED on the merged tree at every merge that touches it, never
-  // carried over from either side. It has now been contested twice. At the #177
-  // merge the base pinned 50 and the incoming branch 58; at the
-  // app/differential-gate-v2 merge the base pins 58 and the incoming branch 43.
+  // 58 -- RE-MEASURED on the merged tree at every merge, never carried over from
+  // either side. At the #177 merge the two sides pinned 50 and 58; at THIS merge
+  // (the execution branch into archdisc) they pin 43 and 58. The method is the
+  // same one each time: regenerate APP_SURFACE_MANIFEST.tsv from the LIVE
+  // registry
+  //     FORGE_WRITE_APP_SURFACE=1 ONLY=capability_manifest_test bash ui/test/run_ui.sh
+  // and count its `part.*` rows -- CALIBRATED first against BOTH parents'
+  // COMMITTED manifests, where it reproduced their own 43 and 58 exactly before
+  // it was trusted on the merged tree, which gives 58 (80 commands in total).
   //
-  // The method is the same both times: count `part.*` rows in the regenerated
-  // APP_SURFACE_MANIFEST.tsv, CALIBRATED FIRST against BOTH parents' committed
-  // manifests. At this merge it reproduced their own 58 and 43 exactly, and only
-  // then was it run on the regenerated merged manifest, which gives 58.
-  //
-  // It lands on 58 rather than a third number because the command sets are
-  // NESTED, and that is checked as a SET DIFFERENCE rather than assumed:
-  // app/differential-gate-v2 adds ZERO `part.*` commands the base lacks -- its
-  // whole contribution is the differential gate, the CoPilot binder and the
-  // forge_verify transcript reader, none of which registers a command -- while
-  // the base adds fifteen it lacks (the 2D sketch + constraint family and the
-  // SURFACE ops). So 58 is |ours union theirs|, and the 43 are a strict subset.
+  // It lands on this branch's number rather than a third one because the command
+  // sets are NESTED, and that was checked as a SET DIFFERENCE rather than
+  // assumed: the base adds ZERO `part.*` commands this branch lacks, and this
+  // branch adds exactly FIFTEEN the base lacks -- the eight of the 2D sketch +
+  // constraint family, the six SURFACE commands, and part.section_curve -- so 58
+  // is |ours union theirs|.
   CHECK_EQ_INT(partAdded, 58);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
