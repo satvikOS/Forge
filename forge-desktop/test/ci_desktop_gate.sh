@@ -39,6 +39,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
+# HISTORY, kept for the METHOD and not as a current figure — the live value is
+# the one line at the bottom of this block.
+#
 # 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent: this branch said 40 and the base said 39, and each was

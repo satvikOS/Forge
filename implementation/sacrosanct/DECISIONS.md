@@ -2785,8 +2785,10 @@ finding, not closed here: a 90-minute packaging job on every PR would be the wro
 
 **The measurement.** ForgeFrame had exactly TWO producers of selection refs:
 `clickFace`, which makes an `EntityKind::Face`, and `clickEdge`, which makes an `EntityKind::Edge`.
-`grep -n "ref.kind = "` over `forge-desktop/src/ForgeFrame.cpp` returned those two lines and no
-others. `SelectionSignature::satisfiedBy` compares kinds EXACTLY —
+`grep -n "ref.kind = "` over `forge-desktop/src/ForgeFrame.cpp` at 2b09b774 returns FOUR lines
+naming exactly TWO kinds — 1118 and 1141 `EntityKind::Face` (the preselection and the click), 1216
+and 1233 `EntityKind::Edge` (the same pair) — and nothing else in the file assigns a ref kind at
+all. `SelectionSignature::satisfiedBy` compares kinds EXACTLY —
 `sel.countOf(kind) == total`, with no subsumption — so a picked Face does not stand in for a Body
 and certainly not for a Profile. Classifying the live registry by required kind gives:
 
