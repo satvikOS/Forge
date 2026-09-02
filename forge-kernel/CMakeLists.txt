@@ -2467,6 +2467,7 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         # regression gates
         io_stl_binary_solid_header      # binary STL whose 80-byte header says "solid"
         matelib_quat_ab                 # in-house quaternion rotate vs the rotation matrix
+        sarc_ring_gate                  # SARC's silently dropped arc + the ok:true that hid it
         # native-engine vs live-OCCT oracles
         native_vs_occt_allbox
         native_vs_occt_chamfer
