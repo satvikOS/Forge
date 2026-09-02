@@ -39,26 +39,39 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-# HISTORY, kept for the METHOD and not as a current figure — the live value is
-# the one line at the bottom of this block.
+# THE COUNT, RE-MEASURED AT THIS MERGE — never inherited from either parent.
+#
+# Both sides carried a figure and both were right only about their own half:
+# HEAD said 43, the base said 40. The difference is EXACTLY the three frame_gate
+# mutations HEAD adds (10, 11, 12); click mutation 8 is present on both sides of
+# this merge, which is what the base's own note above was about at the PREVIOUS
+# merge. Neither number was picked. This one was COUNTED on the merged tree, from
+# run_desktop.sh's own `run_gate` arguments, and cross-checked against the
+# `g_mutation` switches in the gate sources themselves:
+#
+#   document 8  (document_gate.cpp: == 1..8)
+#   frame    12 (frame_gate.cpp:    != 1,2,3,6,9,10,11,12  == 4,5,7,8)
+#   copilot  8
+#   update   7
+#   click    8  (click_gate.cpp:    != 1,2,5,7,8  == 3,4,6)
+#   ----------
+#            43
+#
+# The block below is HISTORY, kept for the METHOD (D-028: COUNT on the tree being
+# committed rather than inherit a number) and not as a current figure.
 #
 # 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
-# from either parent: this branch said 40 and the base said 39, and each was
-# right only about its own half. The base's 39 predates click mutation 8 -- the
-# camera pull path, `g_mutation != 8` in click_gate.cpp -- which this branch
-# adds; every other gate's list is identical on both sides. Picking a side
-# would have been red either way, in one direction or the other. This is
-# D-028's failure mode, and the method that catches it is to COUNT on the tree
-# being committed rather than to inherit a number.
+# from either parent: one side said 39 and the other 40, and each was right only
+# about its own half. The 39 predates click mutation 8 -- the camera pull path,
+# `g_mutation != 8` in click_gate.cpp. Picking a side would have been red either
+# way, in one direction or the other.
 #
-# 40 -> 43: frame_gate gains mutations 10 (a session with a worker CONFIGURED is
-# not distinguished from one without, so the isolation report says "off"
-# whatever is true), 11 (the frame never dispatches the deferred Open Recent
-# request, so a click records and opens nothing) and 12 (a statement row is never
-# clicked, so Extrude has no Sketch to consume). RE-COUNTED from run_desktop.sh's
-# own run_gate arguments on this tree -- document 8 + frame 12 + copilot 8 +
-# update 7 + click 8 -- not incremented by three on faith.
+# frame_gate's 9 -> 12: mutation 10 (a session with a worker CONFIGURED is not
+# distinguished from one without, so the isolation report says "off" whatever is
+# true), 11 (the frame never dispatches the deferred Open Recent request, so a
+# click records and opens nothing) and 12 (a statement row is never clicked, so
+# Extrude has no Sketch to consume).
 EXPECTED_MUTATIONS=43
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"

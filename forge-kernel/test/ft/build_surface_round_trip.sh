@@ -47,6 +47,34 @@ FLAGS=(-std=c++20 -O0 -g -Wall
        -I"$KERNEL/include" -I"$REPO/ui/include" -I"$OCCT_INC"
        -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
 
+# ---- ONE OCCT LIBRARY: a typeinfo is a DATA symbol -------------------------
+# See the same block in build_s0_acceptance.sh. FeatureTreeCompiler.cpp catches
+# Standard_Failure, and a catch clause references `typeinfo for
+# Standard_Failure`. -undefined dynamic_lookup defers FUNCTION symbols (the ~20
+# forge::* ones this harness never calls); it does NOT defer a typeinfo, which is
+# bound eagerly at load. Without TKernel this binary aborts before main with
+# `dyld: symbol not found in flat namespace '__ZTI16Standard_Failure'`.
+#
+# NOTHING WOULD HAVE TOLD ANYONE: this gate is not wired into CI, so it broke
+# silently when the kernel gained the catch. Fixed here at the same time as its
+# sibling, and worth the note -- an unrun gate is a gate that decays.
+if [ -z "${OCCT_LIB:-}" ]; then
+  for _l in "$(dirname "$OCCT_INC")/../lib" \
+            /opt/homebrew/lib /opt/homebrew/opt/opencascade/lib \
+            /usr/local/opt/opencascade/lib /usr/lib/x86_64-linux-gnu \
+            /usr/local/lib /usr/lib ; do
+    for _e in dylib so ; do
+      [ -e "$_l/libTKernel.$_e" ] && { OCCT_LIB="$(cd "$_l" && pwd)"; break 2; }
+    done
+  done
+fi
+if [ -z "${OCCT_LIB:-}" ]; then
+  echo "libTKernel not found next to $OCCT_INC or in the standard prefixes." >&2
+  echo "It defines typeinfo for Standard_Failure, needed at LOAD time." >&2
+  echo "Set OCCT_LIB=/path/to/lib (the directory holding libTKernel)." >&2
+  exit 2
+fi
+
 echo "[1/4] compile forge::ft TU (parser + compiler)"
 "$CXX" "${FLAGS[@]}" -c "$KERNEL/src/ft/FeatureTreeCompiler.cpp" -o "$OUT/FeatureTreeCompiler.o" || exit 2
 
@@ -66,9 +94,11 @@ esac
 
 "$CXX" -std=c++20 "$OUT/surface_round_trip_test.o" "$OUT/FeatureTreeCompiler.o" \
     "$OUT/GraphAudit.o" "$OUT/FeatureIr.o" -o "$OUT/surface_round_trip" \
+    -L"$OCCT_LIB" -lTKernel \
     $UNDEF_FLAGS $UNDEF_EXTRA 2>/dev/null || \
 "$CXX" -std=c++20 "$OUT/surface_round_trip_test.o" "$OUT/FeatureTreeCompiler.o" \
     "$OUT/GraphAudit.o" "$OUT/FeatureIr.o" -o "$OUT/surface_round_trip" \
+    -L"$OCCT_LIB" -lTKernel \
     $UNDEF_FLAGS || exit 2
 
 echo

@@ -41,6 +41,8 @@ std::string lower(std::string_view text) {
 bool mapValueKind(std::string_view spelling, IrValueKind& out) {
   // kAllIrValueKinds is THE list (PartCommands.hpp); the .fpart reader walks the
   // same one, so a kind cannot be known to one string layer and not the other.
+  // This replaced a local array of literals that, at the merge which brought
+  // Surface and Sketch together, was ALREADY missing a kind on both sides.
   return irValueKindFromName(lower(spelling), out);
 }
 

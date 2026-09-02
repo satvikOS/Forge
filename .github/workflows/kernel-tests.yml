@@ -435,6 +435,32 @@ jobs:
           cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
                 -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
           cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: ARC + HELIX compile probe (closed-form geometry, and HELIX's value kind)
+        # PARSING IS NOT BUILDING, and the gap between them is where an arc op
+        # fails silently: a profile that builds every arc as its CHORD parses
+        # perfectly and returns a wrong solid with no error. s0_acceptance_test
+        # covers the FORM of ARC and HELIX at parse level and cannot see any of
+        # that, so this links the kernel just built above and checks a VECTOR of
+        # observables against CLOSED FORMS -- volume, bbox, centre of mass and
+        # surface area of an ARC D-shape; the arc length and tight bbox of the
+        # helix; and the DIFFERENTIAL against POLY over the same three vertices,
+        # which is 36.34% of the part and compiles green without this op.
+        #
+        # It also asserts the one thing no parse-level test can reach: HELIX's
+        # VALUE KIND. Builder::kindOf is a private static in an anonymous
+        # namespace, but refProfile prints kindName(kindOf(...)) into its
+        # refusal, so `EXTRUDE(%helix, 10)` must fail with "is a WIRE, expected a
+        # PROFILE" -- a kindOf returning Val::Solid would instead succeed and
+        # export an EMPTY STEP as ok=true.
+        #
+        # It rides THIS step's build: forge_kernel_core is already compiled
+        # above, so the marginal cost is one translation unit.
+        # KERNEL_BUILD_REQUIRED=1: the step above built it. If it is not there the
+        # step FAILS rather than silently starting a second 40-minute OCCT build
+        # and then going green having proved nothing about the build in use.
+        run: |
+          KERNEL_BUILD=forge-kernel/build-verify KERNEL_BUILD_REQUIRED=1 \
+            bash forge-kernel/test/ft/build_arc_helix_compile_probe.sh
       - name: IR pipeline gate (a forge::ui program -> forge::ft -> an asserted SOLID)
         # THE GATE THAT AUTHORISES DELETING THE JAVASCRIPT. forge::ui emits an SSA feature-IR
         # program and forge::ft can compile one, but nothing ever fed one into the other --
@@ -540,6 +566,52 @@ jobs:
         # defect the crash was hiding -- base-16 stoi stops at the first non-hex character, so
         # "\u00ZZ" partially parsed to 0 and silently injected a NUL byte.
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh
+      - name: a dying verifier answers for itself (unit)
+        # forge_verify aborted SEVEN times during a completed 600-row run on
+        # 2026-09-01 -- uncaught Standard_ConstructionError out of forge::rotate,
+        # a zero-axis ROTATE reaching gp_Dir(0,0,0). An OCCT raise is not a
+        # std::exception, so main's handler never matched, and the process died
+        # having said nothing. All seven rows were then written down as "the tree
+        # does not compile: verifier produced no output" -- a verdict on the MODEL
+        # that nothing had established, and one that sat in the denominator of a
+        # published self-inconsistency rate: D-045 read 389/455 = 85.5% where the
+        # honest figure is 389/447 = 87.0% over the rows actually measured. The
+        # correction WIDENS the result against its pre-registered prediction.
+        #
+        # It went unnoticed for a whole run because nothing exercised the path it
+        # died on. This drives every death path in src/tools/InstrumentRecord.hpp
+        # -- the header forge_verify itself ships -- in forked children, and
+        # checks a record comes out of each, exactly one per row, with the
+        # exception's type intact. It links no kernel and no OCCT, so it costs a
+        # second.
+        run: |
+          cmake --build forge-kernel/build-verify -j3 --target forge_instrument_gate
+          ./forge-kernel/build-verify/forge_instrument_gate
+      - name: a dying verifier answers for itself (end to end)
+        # The same property through the real binary, plus the half the unit gate
+        # cannot see: a zero-axis ROTATE is now an ordinary per-op error that
+        # NAMES the op, the batch survives it, and the row after it still builds.
+        # MEASURED on this exact 3-row fixture: the pre-fix pinned binary exits
+        # 134 with 1 of 3 records (the crashing row AND its innocent neighbour
+        # lost, stderr "terminating due to uncaught exception of type
+        # Standard_ConstructionError"); after, exit 0 with 3 of 3.
+        run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_instrument_gate.sh
+      - name: ... and the gate that proves it can fail (8 mutations, red-then-green)
+        # THE NEGATIVE CONTROL FOR THE TWO STEPS ABOVE. The defect they exist for
+        # survived a COMPLETE 600-row run because nothing exercised the path
+        # forge_verify died on; a gate written in response must not be allowed to
+        # acquire the same property. This breaks the SHIPPED header eight ways --
+        # handler not installed, exception type lost, what() discarded,
+        # afterAnswer always false, row id forgotten, record written to the wrong
+        # stream, no signal handlers, and a record emitted for HEALTHY rows -- and
+        # requires the gate to go red at the specific check each guarantee belongs
+        # to. Red for the wrong reason fails too: "it turned red" is not evidence
+        # that the check you care about is awake. The count is an equality, never
+        # a floor, so a mutation that stops applying fails the job instead of
+        # quietly shrinking the suite. --selftest additionally proves THIS
+        # harness's own refusals fire (a no-op edit, and a mutant that stays
+        # green). It compiles one translation unit with no kernel and no OCCT.
+        run: bash forge-kernel/test/instrument_record_mutations.sh --selftest
 
   desktop:
     # The count is deliberately NOT in this name. It said "17 mutation proofs" while
