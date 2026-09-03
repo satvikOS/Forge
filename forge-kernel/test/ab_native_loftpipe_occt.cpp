@@ -24,10 +24,32 @@
 // agree to ten significant figures and whose geometry does not, and asserts the
 // comparator REJECTS them. A gate that cannot fail is not a gate.
 //
-// DEFER CONTROL. Four cases assert the engine returns a NULL shape on inputs
-// outside its stated scope (non-planar lateral quad, mismatched section vertex
-// counts, a smoothed 3-section loft, a guided pipe-shell). A defer contract that
-// is never exercised is a comment, not a contract.
+// DEFER CONTROL. Several cases assert the engine returns a NULL shape on inputs
+// outside its stated scope (mismatched section vertex counts, unequal circles, a
+// smoothed 3-section loft, a guided pipe-shell, an open section wire, and the
+// twisted pass's own three boundaries). A defer contract that is never exercised
+// is a comment, not a contract — and every twisted defer here carries an OCCT
+// control proving the input is one the incumbent DOES build, so the decline is a
+// stated coverage boundary rather than an impossible case.
+//
+// ★ THE NON-PLANAR-QUAD DEFER USED TO BE ONE OF THESE and is not any more: the
+// engine builds the exact bilinear patch now, so that control was PROMOTED to a
+// full A/B (see "FAMILY D — TWISTED" below) rather than re-pointed at some other
+// decline, which would have kept this file green while testing nothing.
+//
+// MUTATION-PROVED (2026-09-03, mutants injected into a COPY of the engine, the
+// tree never written to; a mutant that does not compile is never counted as a
+// kill):
+//   * remove the twist-band gate            -> RED, 1 assertion
+//   * remove the similarity gate            -> RED, 1 assertion
+//   * inherit canonicalRing's correspondence
+//     instead of deriving one (the pre-change
+//     behaviour, applied to a twisted input) -> RED, 10 assertions
+//   * swap two Bezier poles (a wrong patch)  -> RED, 9 assertions
+// The closed-form volume/centre-of-mass acceptance inside the engine is a
+// DEFENSIVE net and no mutant in that battery required it; it is kept because it
+// is the only check that reads the built B-rep back against an oracle the B-rep
+// cannot influence, and it is stated here as untested rather than claimed.
 //
 // Exit 0 iff every assertion holds. Build + run with
 //   bash forge-kernel/test/run_ab_native_loftpipe.sh
@@ -38,6 +60,7 @@
 #include <cmath>
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <BRepBndLib.hxx>
@@ -195,6 +218,78 @@ TopoDS_Wire obroundWire(double L, double r, double z) {
     mw.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(hx, r, z), gp_Pnt(-hx, r, z)).Edge());
     mw.Add(BRepBuilderAPI_MakeEdge(cl, M_PI / 2.0, 3.0 * M_PI / 2.0).Edge());
     return mw.Wire();
+}
+
+// ------------------------------------------------- TWISTED-LOFT oracles
+// A ring, and the same ring rotated about z, scaled about the origin, shifted,
+// and lifted. `rot` != k*2pi/n makes every lateral quad a twisted bilinear patch.
+std::vector<gp_Pnt> ringOf(const std::vector<std::pair<double, double> >& xy, double z) {
+    std::vector<gp_Pnt> r;
+    for (const auto& p : xy) r.push_back(gp_Pnt(p.first, p.second, z));
+    return r;
+}
+std::vector<gp_Pnt> twistRing(const std::vector<gp_Pnt>& a, double rotDeg, double k,
+                              double dx, double dy, double z) {
+    const double t = rotDeg * kPi / 180.0, c = std::cos(t), s = std::sin(t);
+    std::vector<gp_Pnt> out;
+    for (const gp_Pnt& p : a)
+        out.push_back(gp_Pnt(k * (p.X() * c - p.Y() * s) + dx,
+                             k * (p.X() * s + p.Y() * c) + dy, z));
+    return out;
+}
+
+// Shoelace area of a ring taken in the z = const plane.
+double ringArea2D(const std::vector<gp_Pnt>& r) {
+    double a = 0.0;
+    const std::size_t n = r.size();
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t j = (i + 1) % n;
+        a += r[i].X() * r[j].Y() - r[j].X() * r[i].Y();
+    }
+    return std::fabs(0.5 * a);
+}
+
+// ★ THE INDEPENDENT CLOSED FORM for a ruled loft between two PARALLEL PLANAR
+// sections. The cross-section at interpolation parameter v is the polygon with
+// vertices (1-v)A_i + v B_i — because every ruled line of a bilinear patch at
+// parameter v lies at the same height — and its shoelace area is a QUADRATIC in
+// v. Height is linear in v, so Simpson's rule over [0,1] is EXACT:
+//     V = h/6 * ( area(A) + 4*area(mid) + area(B) ).
+// DERIVED DIFFERENTLY FROM THE ENGINE'S OWN ACCEPTANCE GATE (which integrates
+// the divergence theorem over each bilinear patch by Gauss quadrature), so
+// agreement is evidence and not a tautology.
+double twistedPrismatoidVolume(const std::vector<gp_Pnt>& A, const std::vector<gp_Pnt>& B) {
+    std::vector<gp_Pnt> mid;
+    for (std::size_t i = 0; i < A.size(); ++i)
+        mid.push_back(gp_Pnt(0.5 * (A[i].X() + B[i].X()), 0.5 * (A[i].Y() + B[i].Y()), 0.0));
+    const double h = std::fabs(B[0].Z() - A[0].Z());
+    return h / 6.0 * (ringArea2D(A) + 4.0 * ringArea2D(mid) + ringArea2D(B));
+}
+
+// ★ THE CONTROL THAT PROVES THE PATCH WAS NOT TRIANGULATED. `which` selects the
+// diagonal every lateral quad is split on: 0 splits (A_i, B_j), 1 splits
+// (A_j, B_i). A bilinear patch's flux is the MEAN of these two, and they differ
+// from each other exactly when the quad is non-planar — so a triangulated answer
+// is NOT the ruled answer, which is the whole reason the twisted quad used to be
+// an honest defer rather than a triangle pair.
+double triangulatedVolume(const std::vector<gp_Pnt>& A, const std::vector<gp_Pnt>& B,
+                          int which) {
+    auto tri = [](const gp_Pnt& p, const gp_Pnt& q, const gp_Pnt& r) {
+        return p.X() * (q.Y() * r.Z() - q.Z() * r.Y())
+             - p.Y() * (q.X() * r.Z() - q.Z() * r.X())
+             + p.Z() * (q.X() * r.Y() - q.Y() * r.X());
+    };
+    const std::size_t n = A.size();
+    double sum = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t j = (i + 1) % n;
+        if (which == 0) sum += tri(A[i], A[j], B[j]) + tri(A[i], B[j], B[i]);
+        else            sum += tri(A[i], A[j], B[i]) + tri(A[j], B[j], B[i]);
+    }
+    std::vector<gp_Pnt> Ar(A.rbegin(), A.rend());
+    for (std::size_t i = 1; i + 1 < n; ++i) sum += tri(Ar[0], Ar[i], Ar[i + 1]);
+    for (std::size_t i = 1; i + 1 < n; ++i) sum += tri(B[0], B[i], B[i + 1]);
+    return std::fabs(sum) / 6.0;
 }
 
 TopoDS_Wire regularNgon(int n, double r, double z) {
@@ -418,23 +513,294 @@ int main() {
         }
     }
 
+    // ================= FAMILY D — TWISTED (non-planar-quad) LOFTS =============
+    // ★ THIS SECTION REPLACES A DEFER CONTROL. Until now the case immediately
+    // below was asserted to be DECLINED ("defer: twisted (non-planar-quad) loft
+    // is DECLINED, not triangulated"). The decline was honest — a triangulated
+    // answer is a different solid from the ruled one — but it was also a real
+    // coverage gap, because OCCT builds these and family D cannot be dropped
+    // while the native engine turns them away. The engine now lays the EXACT
+    // bilinear patch (a degree-(1,1) Bezier whose poles are the four corners),
+    // so the control is promoted to what it should always have been: a full A/B
+    // against the incumbent on the same observable vector as every other case.
+    //
+    // Three independent oracles are used, not one:
+    //   1. OCCT itself, on volume + centre of mass + bbox + F/E/V/S + validity;
+    //   2. the Simpson cross-section closed form, derived differently from the
+    //      engine's own acceptance gate;
+    //   3. the TRIANGULATION control — the ruled answer must be the MEAN of the
+    //      two triangulations and must differ from each of them, which is the
+    //      exact property the original defer existed to protect.
+    {
+        std::printf("\n=== FAMILY D — TWISTED (non-planar-quad) lofts ===\n");
+
+        // (1) ★ THE PROMOTED CASE. The 20-square at z=0 and the same square
+        //     rotated 30 degrees about z at z=12: every one of the four lateral
+        //     quads is a twisted bilinear patch.
+        const std::vector<gp_Pnt> sq =
+            ringOf({{-10, -10}, {10, -10}, {10, 10}, {-10, 10}}, 0.0);
+        {
+            const std::vector<gp_Pnt> top = twistRing(sq, 30.0, 1.0, 0.0, 0.0, 12.0);
+            std::vector<TopoDS_Shape> sec{polyWire(sq), polyWire(top)};
+            runThru("ts-twist30", sec, true, true, twistedPrismatoidVolume(sq, top));
+
+            // The triangulation control, on the same input.
+            const double v0 = triangulatedVolume(sq, top, 0);
+            const double v1 = triangulatedVolume(sq, top, 1);
+            const TopoDS_Shape nat = forge::occtloft::thruSections(sec, true, true, 1.0e-6);
+            check(!nat.IsNull(), "ts-twist30 built (the promoted defer control)");
+            if (!nat.IsNull()) {
+                const double v = measure(nat).vol;
+                std::printf("      triangulation A=%.10g  B=%.10g  ruled=%.10g\n", v0, v1, v);
+                check(!relClose(v0, v1, 1.0e-6),
+                      "ts-twist30 the two triangulations DIFFER — the quad really is twisted");
+                check(relClose(v, 0.5 * (v0 + v1), 1.0e-9),
+                      "ts-twist30 the ruled answer IS the MEAN of the two triangulations");
+                check(!relClose(v, v0, 1.0e-6) && !relClose(v, v1, 1.0e-6),
+                      "ts-twist30 the ruled answer is NEITHER triangulation — not faceted");
+            }
+        }
+
+        // (2) 40 degrees — near the contested edge for a square (the alternative
+        //     pairing is a 50 degree twist) but still separated. This pins that
+        //     the acceptance rule is not so tight that only tiny twists survive.
+        {
+            const std::vector<gp_Pnt> top = twistRing(sq, 40.0, 1.0, 0.0, 0.0, 12.0);
+            std::vector<TopoDS_Shape> sec{polyWire(sq), polyWire(top)};
+            runThru("ts-twist40", sec, true, true, twistedPrismatoidVolume(sq, top));
+        }
+
+        // (2b) EXACTLY 45 degrees is an EXACT TIE for a square: pairing with the
+        //      vertex clockwise and the one anticlockwise cost identically, and
+        //      the two solids are mirror images. The engine has no way to know
+        //      which one the incumbent's tie-break picks, so it DECLINES rather
+        //      than choose. MEASURED: the usable band for this pair is roughly
+        //      |45 - theta| > 2.5 degrees; 40 degrees above builds, 45 does not.
+        {
+            const std::vector<gp_Pnt> top = twistRing(sq, 45.0, 1.0, 0.0, 0.0, 12.0);
+            std::vector<TopoDS_Shape> sec{polyWire(sq), polyWire(top)};
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: an EXACTLY TIED twisted correspondence is DECLINED, not guessed");
+            check(!occtThru(sec, true, true).IsNull(),
+                  "control: OCCT DOES build the 45-degree twist — the decline is a "
+                  "stated boundary, not an impossible input");
+        }
+
+        // (3) Twisted AND tapered — the shape a real CAD twisted boss has.
+        {
+            const std::vector<gp_Pnt> top = twistRing(sq, 22.0, 0.55, 0.0, 0.0, 16.0);
+            std::vector<TopoDS_Shape> sec{polyWire(sq), polyWire(top)};
+            runThru("ts-twist-taper", sec, true, true, twistedPrismatoidVolume(sq, top));
+        }
+
+        // (4) A twisted HEXAGON, so the case is not a property of n == 4.
+        {
+            std::vector<gp_Pnt> hex;
+            for (int i = 0; i < 6; ++i) {
+                const double a = 2.0 * kPi * i / 6.0;
+                hex.push_back(gp_Pnt(11.0 * std::cos(a), 11.0 * std::sin(a), 0.0));
+            }
+            const std::vector<gp_Pnt> top = twistRing(hex, 17.0, 0.8, 0.0, 0.0, 14.0);
+            std::vector<TopoDS_Shape> sec{polyWire(hex), polyWire(top)};
+            runThru("ts-twist-hex", sec, true, true, twistedPrismatoidVolume(hex, top));
+        }
+
+        // (5) An ASYMMETRIC section, off-axis, at a scale change. This is the
+        //     case that caught the correspondence defect: with the origin chosen
+        //     by nearest vertex the engine built 3528.944 where OCCT builds
+        //     3771.638 — 6.4% apart, both BRepCheck-VALID, both 6/12/8/1.
+        const std::vector<gp_Pnt> quad =
+            ringOf({{-12, -9}, {14, -7}, {9, 11}, {-8, 13}}, 0.0);
+        const std::vector<gp_Pnt> quadTop = twistRing(quad, 37.0, 0.62, 3.0, -2.0, 14.0);
+        {
+            std::vector<TopoDS_Shape> sec{polyWire(quad), polyWire(quadTop)};
+            runThru("ts-twist-asym", sec, true, true, twistedPrismatoidVolume(quad, quadTop));
+        }
+
+        // (6) ★ THE CORRESPONDENCE CONTROL. OCCT runs BRepFill_CompatibleWires
+        //     before it pairs, so its answer does not depend on which vertex a
+        //     wire starts at or which way it winds — MEASURED invariant over all
+        //     64 orderings of the pair above. A native engine that pairs by raw
+        //     index, or by the wrong origin rule, produces a DIFFERENT and
+        //     perfectly valid-looking solid. Every ordering is driven through
+        //     both engines and compared on the full observable vector; one
+        //     disagreement fails this control.
+        {
+            int bad = 0, ran = 0;
+            for (int ra = 0; ra < 4; ++ra)
+             for (int wa = 0; wa < 2; ++wa)
+              for (int rb = 0; rb < 4; ++rb)
+               for (int wb = 0; wb < 2; ++wb) {
+                std::vector<gp_Pnt> A, B;
+                for (int i = 0; i < 4; ++i) A.push_back(quad[(i + ra) % 4]);
+                if (wa) std::reverse(A.begin(), A.end());
+                for (int i = 0; i < 4; ++i) B.push_back(quadTop[(i + rb) % 4]);
+                if (wb) std::reverse(B.begin(), B.end());
+                std::vector<TopoDS_Shape> sec{polyWire(A), polyWire(B)};
+                const TopoDS_Shape nat =
+                    forge::occtloft::thruSections(sec, true, true, 1.0e-6);
+                const TopoDS_Shape occ = occtThru(sec, true, true);
+                if (nat.IsNull() || occ.IsNull()) { ++bad; continue; }
+                ++ran;
+                char tag[64];
+                std::snprintf(tag, sizeof tag, "corr A(+%d,%d) B(+%d,%d)", ra, wa, rb, wb);
+                bad += compareAB(tag, measure(nat), measure(occ), true, /*report*/ false);
+               }
+            std::printf("      %d of 64 orderings built; %d sub-assertion failures\n", ran, bad);
+            check(ran == 64 && bad == 0,
+                  "ts-twist-asym: native == OCCT for ALL 64 start-vertex/winding "
+                  "orderings of the two wires");
+        }
+
+        // (7) ruled == false with exactly TWO twisted sections — PART 2 of the
+        //     engine banner says the smoothed and ruled skins coincide for two
+        //     sections, which has only ever been asserted on PLANAR quads.
+        {
+            const std::vector<gp_Pnt> top = twistRing(sq, 30.0, 1.0, 0.0, 0.0, 12.0);
+            std::vector<TopoDS_Shape> sec{polyWire(sq), polyWire(top)};
+            runThru("ts-twist-smooth", sec, true, false, twistedPrismatoidVolume(sq, top));
+        }
+
+        // (8) The OPEN skin (isSolid == false) over a twisted pair. The engine
+        //     verifies it through a capped WITNESS solid and then returns the
+        //     cap-free shell; this asserts the shell OCCT returns is the same one.
+        {
+            const std::vector<gp_Pnt> top = twistRing(sq, 30.0, 1.0, 0.0, 0.0, 12.0);
+            std::vector<TopoDS_Shape> sec{polyWire(sq), polyWire(top)};
+            runThru("ts-twist-open", sec, false, true, -1.0);
+        }
+
+        // (9) THE TWISTED PATH STILL DEFERS where its correspondence cannot be
+        //     verified. These are NOT substitutes for the promoted control above
+        //     — they are the new path's own scope boundary, and they exist so the
+        //     acceptance rule is exercised in BOTH directions.
+        {
+            // Two UNRELATED twisted sections: no similarity relates them under any
+            // pairing, so the engine has no verified correspondence and declines.
+            // OCCT builds it — the decline is a real, stated, remaining gap.
+            const std::vector<gp_Pnt> other =
+                ringOf({{-6, -11}, {13, -4}, {5, 9}, {-9, 6}}, 0.0);
+            std::vector<gp_Pnt> top;
+            for (const gp_Pnt& p : other) top.push_back(gp_Pnt(p.X(), p.Y(), 13.0));
+            std::vector<TopoDS_Shape> sec{polyWire(quad), polyWire(top)};
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: a twisted pair NOT related by a similarity is DECLINED "
+                  "(the correspondence would be a guess)");
+            check(!occtThru(sec, true, true).IsNull(),
+                  "control: OCCT DOES build that pair — the decline is a stated "
+                  "coverage boundary, not an impossible input");
+        }
+        {
+            // ★ THE CASE THE SIMILARITY GATE EXISTS FOR — a CONSISTENT twist that
+            //   is NOT a similarity. Every vertex of B sits 20 degrees round from
+            //   its partner in A, so the twist band alone is satisfied (one angle,
+            //   inside the band); but the radial scale ALTERNATES 1.0 / 1.8, so
+            //   the two rings are not similar and the pairing is not a verified
+            //   relation. Without the similarity test this would build on the
+            //   strength of the angle alone.
+            std::vector<gp_Pnt> A, B;
+            const double rad[4] = {10.0, 10.0, 10.0, 10.0};
+            const double scl[4] = {1.0, 1.8, 1.0, 1.8};
+            for (int i = 0; i < 4; ++i) {
+                const double t = 0.5 * kPi * i;
+                A.push_back(gp_Pnt(rad[i] * std::cos(t), rad[i] * std::sin(t), 0.0));
+                const double u = t + 20.0 * kPi / 180.0;
+                B.push_back(gp_Pnt(scl[i] * rad[i] * std::cos(u),
+                                   scl[i] * rad[i] * std::sin(u), 11.0));
+            }
+            std::vector<TopoDS_Shape> sec{polyWire(A), polyWire(B)};
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: a CONSISTENT twist that is NOT a similarity is DECLINED — "
+                  "the similarity gate is load-bearing, the angle alone is not enough");
+            check(!occtThru(sec, true, true).IsNull(),
+                  "control: OCCT DOES build that pair — a stated coverage boundary");
+        }
+        {
+            // ★ THE CASE THE TWIST BAND EXISTS FOR, with its measured coordinates.
+            //   Before the band gate, the engine chose this pair's correspondence
+            //   by least COST alone and built 844.429462109 where OCCT builds
+            //   940.015174936 — 10.2% apart, BRepCheck-VALID, 6/12/8/1 both. It
+            //   is a convex quadrilateral and a 0.63-scaled rotated copy whose
+            //   residual twist lands just OUTSIDE half its vertex spacing, so the
+            //   incumbent pairs with the neighbouring vertex and this engine's
+            //   radius-weighted cost does not.
+            //
+            //   This control is self-proving: it recomputes the least-cost
+            //   pairing here in the test, shows that pairing's ruled volume is
+            //   NOT OCCT's, and then requires the engine to DECLINE. Delete the
+            //   band gate and the engine builds that volume and this goes red.
+            const std::vector<gp_Pnt> A = ringOf(
+                {{-10.550870136614371, -3.4611689258788485},
+                 {3.8912499776108045, 9.6964714052426064},
+                 {4.7915855265248979, 2.1158830934595279},
+                 {0.99695566922072787, -8.303221546072864}}, 0.0);
+            const std::vector<gp_Pnt> B = ringOf(
+                {{15.55674784321713, 4.5799816230639356},
+                 {9.5384837203814143, -1.349888639617248},
+                 {-2.1469817701088325, -5.0997313800797368},
+                 {-5.7465854386529562, 8.283327633155162}}, 6.7115090433963696);
+
+            // the least-cost (least-twist) pairing, recomputed here
+            std::vector<gp_Pnt> bestB;
+            double bestCost = -1.0;
+            for (int w = 0; w < 2; ++w) {
+                std::vector<gp_Pnt> src = B;
+                if (w) std::reverse(src.begin(), src.end());
+                for (int off = 0; off < 4; ++off) {
+                    std::vector<gp_Pnt> cand;
+                    for (int i = 0; i < 4; ++i) cand.push_back(src[(i + off) % 4]);
+                    double c = 0.0;
+                    for (int i = 0; i < 4; ++i) c += A[i].SquareDistance(cand[i]);
+                    if (bestCost < 0.0 || c < bestCost) { bestCost = c; bestB = cand; }
+                }
+            }
+            const double leastTwistVol =
+                0.5 * (triangulatedVolume(A, bestB, 0) + triangulatedVolume(A, bestB, 1));
+            std::vector<TopoDS_Shape> sec{polyWire(A), polyWire(B)};
+            const TopoDS_Shape occ = occtThru(sec, true, true);
+            check(!occ.IsNull(), "band control: OCCT builds this pair");
+            if (!occ.IsNull()) {
+                const double vo = measure(occ).vol;
+                std::printf("      band control: least-twist pairing = %.10g, OCCT = %.10g\n",
+                            leastTwistVol, vo);
+                check(std::fabs(leastTwistVol - vo) > 0.05 * vo,
+                      "band control: the LEAST-COST pairing is NOT the incumbent's "
+                      "(10.2% apart) — cost alone would have been wrong here");
+            }
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: a twist OUTSIDE the vertex band is DECLINED — the gate that "
+                  "turns this case away is load-bearing");
+        }
+        {
+            // A square rotated by exactly 45 degrees is symmetric, so both
+            // pairings tie EXACTLY and case (2) above is well defined. Rotate a
+            // 3:1 RECTANGLE by 45 degrees instead and the tie is broken only by a
+            // hair: the two admissible pairings are within kTwistCostMargin, and
+            // the engine refuses to guess rather than risk the incumbent's
+            // tie-break going the other way.
+            const std::vector<gp_Pnt> rect =
+                ringOf({{-15, -5}, {15, -5}, {15, 5}, {-15, 5}}, 0.0);
+            const std::vector<gp_Pnt> top = twistRing(rect, 45.0, 1.0, 0.0, 0.0, 9.0);
+            std::vector<TopoDS_Shape> sec{polyWire(rect), polyWire(top)};
+            const TopoDS_Shape nat = forge::occtloft::thruSections(sec, true, true, 1.0e-6);
+            if (nat.IsNull()) {
+                check(true, "defer: a CONTESTED twisted correspondence is DECLINED");
+            } else {
+                // If it does build it must still be right — a build here is not a
+                // failure, an unchecked build would be.
+                const TopoDS_Shape occ = occtThru(sec, true, true);
+                check(!occ.IsNull(), "contested pair: OCCT built it too");
+                if (!occ.IsNull())
+                    check(compareAB("contested", measure(nat), measure(occ), true, false) == 0,
+                          "contested twisted pair: it BUILT, and it matches OCCT exactly");
+            }
+        }
+    }
+
     // ================================ DEFER CONTROLS =========================
     // A defer contract that is never exercised is a comment, not a contract.
     {
         std::printf("\n--- defer controls ---\n");
-        // (1) Non-planar lateral quad: rotate the top square 30 degrees about z,
-        //     so every side quad is a twisted (bilinear) patch.
-        {
-            std::vector<gp_Pnt> top;
-            const double a = 30.0 * M_PI / 180.0;
-            const double c = std::cos(a), s = std::sin(a);
-            const double q[4][2] = {{-10, -10}, {10, -10}, {10, 10}, {-10, 10}};
-            for (auto& p : q)
-                top.push_back(gp_Pnt(p[0] * c - p[1] * s, p[0] * s + p[1] * c, 12.0));
-            std::vector<TopoDS_Shape> sec{rectWire(-10, -10, 0, 20, 20), polyWire(top)};
-            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
-                  "defer: twisted (non-planar-quad) loft is DECLINED, not triangulated");
-        }
         // (2) Mismatched section vertex counts.
         {
             std::vector<TopoDS_Shape> sec{rectWire(-10, -10, 0, 20, 20),
@@ -1663,6 +2029,13 @@ int main() {
                   std::to_string(bad) + " sub-assertions failed)");
     }
 
+    // ★ TWO SUMMARY LINES ON PURPOSE. test/run_ab_all.sh ratchets each harness by
+    // scraping "<N> failed" from its output; "820/820 assertions passed" does NOT
+    // match that pattern, so the scraper fell through to its "assertions passed"
+    // branch and recorded 0 failures WHATEVER this harness printed. MEASURED: with
+    // one assertion failing, run_ab_all.sh reported "ok loftpipe: 0 failure(s)".
+    // The second line is the one the ratchet can actually read.
     std::printf("\n===== %d/%d assertions passed =====\n", g_pass, g_total);
+    std::printf("[ab-loftpipe] %d passed, %d failed\n", g_pass, g_total - g_pass);
     return g_pass == g_total ? 0 : 1;
 }
