@@ -1960,7 +1960,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // applyDefaults cannot fill it -- if it could, the one-assertion form would stop
   // being reachable at all.
   {
-    CommandDescriptor c = base("part.verify", "Assert Property", "VERIFY",
+    CommandDescriptor c = base("part.verify", "Check Property", "VERIFY",
                                SelectionSignature::exactly(EntityKind::Body, 1));
     c.schema.push_back(ParamSpec{.name = "assertion",
                                  .type = ParamType::Text,
@@ -1979,7 +1979,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       if (hasText(ctx, "assertion2")) {
         args.push_back(IrArg::text(txt(ctx, "assertion2", "faces >= 1")));
       }
-      emit(ctx, *d, *s, "part.verify", "Assert Property", "VERIFY", std::move(args),
+      emit(ctx, *d, *s, "part.verify", "Check Property", "VERIFY", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -2677,7 +2677,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // applyDefaults could fill it, the ONE-assertion form would stop being reachable
   // at all and the corpus would never contain it.
   {
-    CommandDescriptor c = base("part.surfcheck", "Assert Sheet Property", "SURFCHECK",
+    CommandDescriptor c = base("part.surfcheck", "Check Sheet Property", "SURFCHECK",
                                SelectionSignature::exactly(EntityKind::Surface, 1));
     c.schema.push_back(ParamSpec{.name = "assertion",
                                  .type = ParamType::Text,
@@ -2705,7 +2705,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       // Pass-through: it returns %surface unchanged, so it keeps the sheet's OWN node
       // and its OWN kind. Emitting a new node would fork the sheet's identity and
       // leave the assertion constraining a value nothing downstream refers to.
-      emit(ctx, *d, *s, "part.surfcheck", "Assert Sheet Property", "SURFCHECK", std::move(args),
+      emit(ctx, *d, *s, "part.surfcheck", "Check Sheet Property", "SURFCHECK", std::move(args),
            IrValueKind::Surface, {}, singleNode(ctx.selection()));
     };
     add(std::move(c));

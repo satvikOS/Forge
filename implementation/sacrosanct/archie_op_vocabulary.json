@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "7db18215209f4388b21f6b4e46cbe24a7b9bce327405e33d4bbc4bc6e5387ac9",
-        "bytes": 168477,
-        "lines": 3482
+        "sha256": "9e514bbd6d9878d81f367be61f6e13605a207f6cf9318b1f8b7c6a8ebfac208c",
+        "bytes": 173028,
+        "lines": 3559
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,8 +48,8 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "131f9d73645ec48925a75ffbfe651514ea64ce9080e47104f337acc11b7fcedd",
-        "bytes": 184087,
+        "sha256": "5b960006ffcb56ab68d63b71913629fbe80692a633a03b29fb7f6a9dfae8e4ae",
+        "bytes": 184083,
         "lines": 3135
       },
       {
@@ -6452,7 +6452,7 @@
       "signature": [
         "ARC([x y; x y mx my; ...])"
       ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+      "reason": "no command in Forge produces it, so nothing you can do in the application reaches it"
     },
     {
       "op": "HELIX",
@@ -6461,7 +6461,7 @@
       "signature": [
         "HELIX(pitch, height, radius [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1] [, LEFT])"
       ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+      "reason": "no command in Forge produces it, so nothing you can do in the application reaches it"
     },
     {
       "op": "SLOT",
@@ -6470,7 +6470,7 @@
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
       ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+      "reason": "no command in Forge produces it, so nothing you can do in the application reaches it"
     }
   ],
   "forbidden_statement_forms": [
@@ -9540,7 +9540,7 @@
     },
     {
       "id": "part.surfcheck",
-      "label": "Assert Sheet Property",
+      "label": "Check Sheet Property",
       "category": "Part",
       "feature_ir_op": "SURFCHECK",
       "emits_feature_ir": true,
@@ -9832,7 +9832,7 @@
     },
     {
       "id": "part.verify",
-      "label": "Assert Property",
+      "label": "Check Property",
       "category": "Part",
       "feature_ir_op": "VERIFY",
       "emits_feature_ir": true,

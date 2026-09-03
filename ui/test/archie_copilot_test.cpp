@@ -542,7 +542,7 @@ int testOpConstraintGate() {
                    static_cast<int>(OpConstraint::ForbiddenOpInArgument));
       CHECK(first->reason.find("SLOT") != std::string::npos);
       // The refusal quotes the vocabulary's own words rather than paraphrasing.
-      CHECK(first->reason.find("no command in the forge::ui registry emits it") !=
+      CHECK(first->reason.find("no command in Forge produces it") !=
             std::string::npos);
       // ...and the rendered row a panel prints carries all of it.
       const std::string row = first->display();

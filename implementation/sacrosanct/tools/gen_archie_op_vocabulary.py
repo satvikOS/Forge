@@ -1686,7 +1686,7 @@ def build():
     for op in kops:
         if op["name"] in allowed:
             continue
-        reason = "no command in the forge::ui registry emits it, so no user can produce it"
+        reason = "no command in Forge produces it, so nothing you can do in the application reaches it"
         if not compiled_in(op):
             reason += ("; it is also gated behind FORGE_FT_ARCHELIX, which the kernel "
                        "CMakeLists defaults to OFF, so it is not in a default build")
