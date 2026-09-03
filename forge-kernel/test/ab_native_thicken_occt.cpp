@@ -42,7 +42,16 @@
 
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <Geom2d_Line.hxx>
+#include <Geom2d_TrimmedCurve.hxx>
+#include <gp_Ax2d.hxx>
+#include <gp_Dir2d.hxx>
+#include <gp_Pnt2d.hxx>
 #include <BRepLib.hxx>
+#include <Geom_Circle.hxx>
+#include <gp_Ax2.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <gp_Ax3.hxx>
@@ -509,6 +518,125 @@ void runAll() {
         }
     }
 
+    // ================================================================= case 7
+    // A GENUINELY HOLED cylindrical patch — the PATH D input, and the shape of the
+    // whole 23-part deletion bucket PATH D was written for (all 23 corpus parts are
+    // full-turn cylinders whose trim is not the parametric rectangle; 19 of them carry
+    // exactly one hole). Unlike defer(a) above, every edge of this hole LIES ON the
+    // cylinder: two v=const arcs and two u=const rulings.
+    //
+    // This is the POSITIVE CONTROL for PATH D. It is not a repeat of case 6: case 6's
+    // face is the full rectangle and is built by the closed-form tube, so if PATH D
+    // were deleted case 6 would still pass and case 7 would not.
+    {
+        Handle(Geom_CylindricalSurface) cs7 =
+            new Geom_CylindricalSurface(gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1),
+                                               gp_Dir(1, 0, 0)), 5.0);
+        BRepBuilderAPI_MakeFace mkOuter7(cs7, 0.0, 2.0 * kPi, 0.0, 10.0, 1.0e-7);
+        ok(mkOuter7.IsDone(), "case7 : the untrimmed lateral face rebuilt");
+        if (mkOuter7.IsDone()) {
+            const double u0 = 0.5, u1 = 1.5, v0 = 3.0, v1 = 7.0, R7 = 5.0;
+            // THE HOLE IS BUILT IN THE PARAMETRIC DOMAIN, and that is the whole
+            // difference from defer(a) above. An edge made from a 2D pcurve on the
+            // surface is ON the surface by construction; BRepLib::BuildCurves3d then
+            // derives the 3D curve FROM the pcurve. Building it the other way round —
+            // 3D points first, BuildCurves3d after — is what makes defer(a)'s wire a
+            // set of chords, and it also silently yields a ZERO-AREA face (measured:
+            // 0.000000 against the intended 294.159265), so that shape could never
+            // have exercised this path at all.
+            auto seg7 = [&](double a, double b, double c, double d) {
+                Handle(Geom2d_Line) L =
+                    new Geom2d_Line(gp_Pnt2d(a, b), gp_Dir2d(c - a, d - b));
+                const double len = std::hypot(c - a, d - b);
+                return BRepBuilderAPI_MakeEdge(new Geom2d_TrimmedCurve(L, 0.0, len), cs7).Edge();
+            };
+            BRepBuilderAPI_MakeWire w7;
+            w7.Add(seg7(u0, v0, u1, v0));
+            w7.Add(seg7(u1, v0, u1, v1));
+            w7.Add(seg7(u1, v1, u0, v1));
+            w7.Add(seg7(u0, v1, u0, v0));
+            ok(w7.IsDone(), "case7 : the on-surface hole wire closed");
+            if (w7.IsDone()) {
+                BRepBuilderAPI_MakeFace mkHoled7(mkOuter7.Face());
+                mkHoled7.Add(TopoDS::Wire(w7.Wire().Reversed()));
+                ok(mkHoled7.IsDone(), "case7 : the holed face built");
+                if (mkHoled7.IsDone()) {
+                    BRepLib::BuildCurves3d(mkHoled7.Face());
+                    const TopoDS_Face f7 = mkHoled7.Face();
+
+                    // The input itself is asserted before it is used. A face that came
+                    // out empty would make every comparison below pass vacuously.
+                    const double area7 =
+                        2.0 * kPi * R7 * 10.0 - (u1 - u0) * R7 * (v1 - v0);
+                    GProp_GProps ga7;
+                    BRepGProp::SurfaceProperties(f7, ga7);
+                    okNear(ga7.Mass(), area7, 1.0e-9 * area7,
+                           "case7 : the holed INPUT face has the intended area");
+
+                    // INDEPENDENT closed form in literals: the body between R and R+t
+                    // over trim domain D has volume area(f)*((R+t)^2-R^2)/(2R).
+                    const double vPlus7 = abCase("case7 holed cylinder t=+2", f7, T,
+                                                 1.0e-6, /*compareTypes*/ false);
+                    if (vPlus7 > 0.0)
+                        okNear(vPlus7, area7 * ((R7 + T) * (R7 + T) - R7 * R7) / (2.0 * R7),
+                               1.0e-6 * area7 * 2.4,
+                               "case7 : CLOSED FORM area*((R+t)^2-R^2)/(2R)");
+                    const double vMinus7 = abCase("case7 holed cylinder t=-2", f7, -T,
+                                                  1.0e-6, /*compareTypes*/ false);
+                    if (vMinus7 > 0.0)
+                        okNear(vMinus7, area7 * (R7 * R7 - (R7 - T) * (R7 - T)) / (2.0 * R7),
+                               1.0e-6 * area7 * 1.6,
+                               "case7 : CLOSED FORM area*(R^2-(R-t)^2)/(2R)");
+
+                    // THE HOLE MUST SURVIVE. A construction that quietly dropped the
+                    // inner wire would still be a valid solid and still close in volume;
+                    // it would NOT carry the window's four walls. Pinned against OCCT.
+                    TopoDS_Shape occt7;
+                    const TopoDS_Shape nat7 = forge::occtthicken::thickenShell(f7, T);
+                    if (occtThicken(f7, T, occt7) && !nat7.IsNull()) {
+                        const Obs n7 = observe(nat7);
+                        const Obs o7 = observe(occt7);
+                        okInt(n7.nF, o7.nF, "case7 : native face count == OCCT's");
+                        okInt(n7.nE, o7.nE, "case7 : native edge count == OCCT's");
+                        okInt(n7.nV, o7.nV, "case7 : native vertex count == OCCT's");
+                        ok(n7.nF > 4, "case7 : the window's walls are present (F > 4)");
+
+                        // ★ THE SURFACE-TYPE CENSUS IS *NOT* COMPARED FOR THIS CASE,
+                        // and the exemption is pinned rather than waved through.
+                        //
+                        // This face's hole is built from pcurves, so
+                        // BRepLib::BuildCurves3d hands back B-SPLINE images of what are
+                        // geometrically four straight rulings and arcs. PATH D builds a
+                        // plane only where the rail is an analytic Geom_Line or coaxial
+                        // Geom_Circle, because fitting a plane to a B-spline rail forces
+                        // MakeFace to PROJECT it — an approximation that was MEASURED to
+                        // take the 23 corpus parts from 23/23 down to 18/23 at t>0. So
+                        // native emits ruled B-spline walls here where OCCT emits planes.
+                        //
+                        // Everything else agrees: volume to the closed form, area, centre
+                        // of mass, bounding box, validity and F/E/V, all asserted above.
+                        // The exact counts are pinned so that if this limit is ever
+                        // removed THIS TEST FAILS and the claim gets restated rather than
+                        // quietly going stale.
+                        std::printf("  [case7] surface types  native plane/cyl/other ="
+                                    " %d/%d/%d ;  OCCT = %d/%d/%d\n",
+                                    n7.nPlane, n7.nCyl, n7.nOther,
+                                    o7.nPlane, o7.nCyl, o7.nOther);
+                        okInt(n7.nCyl, 2, "case7 : native emits TWO cylindrical skins");
+                        okInt(o7.nCyl, 2, "case7 : OCCT emits TWO cylindrical skins");
+                        okInt(o7.nPlane, 6, "case7 : OCCT plans all six walls");
+                        okInt(n7.nPlane, 2,
+                              "case7 : native plans only the 2 analytic walls "
+                              "(KNOWN LIMIT: B-spline-encoded rulings)");
+                        okInt(n7.nOther, 4,
+                              "case7 : native's other 4 walls are exact RULED B-splines "
+                              "(KNOWN LIMIT, not a geometry error)");
+                    }
+                }
+            }
+        }
+    }
+
     // ========================================================= NEGATIVE CONTROL
     // A cylinder of exactly the flat case's volume (400) is not the flat case.
     {
@@ -586,10 +714,26 @@ void runAll() {
                     BRepLib::BuildCurves3d(mkHoled.Face());
                     const TopoDS_Shape got =
                         forge::occtthicken::thickenShell(mkHoled.Face(), T);
+                    // ★ THE REASON THIS CONTROL ASSERTS CHANGED, AND THE CHANGE IS
+                    // THE POINT. Before PATH D a non-rectangular trim ended the call
+                    // at the rectangle certificate, and this control asserted that
+                    // sentence. PATH D now ATTEMPTS such a face, so the certificate no
+                    // longer decides this input and asserting its old sentence would be
+                    // asserting dead code.
+                    //
+                    // THE INPUT IS STILL A GENUINE DECLINE, and for a truer reason. The
+                    // hole wire above is a MakePolygon through four points that lie on
+                    // the cylinder — but the straight segments BETWEEN them are CHORDS,
+                    // and a chord at constant v does not lie on the cylinder at all.
+                    // Only the two u=const sides are real rulings. PATH D detects
+                    // exactly that and names it. So this input is not "a holed patch"
+                    // (case 7 below builds one of those and matches OCCT); it is a face
+                    // whose boundary is not on its own surface, and declining it is
+                    // correct rather than a coverage gap.
                     ok(got.IsNull(),
-                       "defer(a) : a HOLED cylindrical patch is DECLINED");
-                    okReason("cylindrical path: the face is not the full parametric "
-                             "rectangle (a trimmed or holed patch)", "defer(a)");
+                       "defer(a) : a patch whose hole wire is CHORDS is DECLINED");
+                    okReason("trimmed-cylinder path: a straight boundary edge is not a "
+                             "ruling of the cylinder", "defer(a)");
                 }
             }
         }
