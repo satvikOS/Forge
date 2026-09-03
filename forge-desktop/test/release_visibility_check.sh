@@ -65,7 +65,21 @@ ok()   { echo "  ok    $*"; }
 
 say "repo $REPO"
 
-# ── every release, including the invisible ones ──────────────────────────────
+# ── every release this TOKEN can see ─────────────────────────────────────────
+# ★ THE COUNT BELOW IS TOKEN-DEPENDENT, AND THE DIFFERENCE IS DRAFTS. GitHub
+# only returns DRAFT releases to a caller with push access, so the same command
+# gives two different answers:
+#
+#   MEASURED 2026-09-02, same repo, same minute:
+#     with the owner's gh login  -> "1 release(s) exist"  v0.1.0-alpha.0 DRAFT,PRERELEASE
+#     in Actions, GITHUB_TOKEN   -> "0 release(s) exist"
+#
+# So "0 release(s) exist" in a CI log does NOT mean the drafts were deleted, and
+# this listing cannot be used to warn that a draft is sitting there unpublished
+# --- run it locally for that. What it does NOT change is the verdict: a draft is
+# not `latest` for anyone either way, which is the whole question below. The
+# assertions past this point are token-independent, because they run only when a
+# PUBLISHED release exists and a published release is visible to everyone.
 ALL="$(gh api "repos/$REPO/releases" 2>/dev/null)" || ALL=""
 if [ -z "$ALL" ]; then
   fail "cannot list releases (gh not authenticated, or no network)"
