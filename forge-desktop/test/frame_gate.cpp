@@ -921,7 +921,11 @@ int main(int argc, char** argv) {
     std::size_t isolationRows = 0;
     forge::ui::Severity isolationSeverity = forge::ui::Severity::Info;
     for (const forge::ui::LogEntry& e : shell.log().entries()) {
-      if (e.source != "kernel.isolation") continue;
+      // The log SOURCE is drawn on screen (ForgeFrame.cpp: ImGui::TextColored(..., e.source)),
+      // so "kernel.isolation" was developer prose shown to a user. The prose sweep renamed it
+      // to "Modelling engine". Every assertion below is unchanged — same exactly-once count,
+      // same severity contract; only the identifier this gate looks for is corrected.
+      if (e.source != "Modelling engine") continue;
       ++isolationRows;
       isolationSeverity = e.severity;
     }
@@ -948,7 +952,7 @@ int main(int argc, char** argv) {
       std::size_t active = 0;
       std::size_t warned = 0;
       for (const forge::ui::LogEntry& e : isolatedShell.log().entries()) {
-        if (e.source != "kernel.isolation") continue;
+        if (e.source != "Modelling engine") continue;
         if (e.severity == forge::ui::Severity::Info) {
           ++active;
         } else {
