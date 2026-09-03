@@ -39,6 +39,12 @@
 //                                                          Sketch in the
 //                                                          selection, so Extrude
 //                                                          has nothing to consume
+//  13  the model browser is built from an EMPTY         -> its census stops
+//      document rather than the live one                   agreeing with the
+//                                                          document it claims to
+//                                                          be describing
+//  14  the sketch tree answers from the document as     -> the edited width is
+//      it was BEFORE an edit                               not the width shown
 // <algorithm> for the same reason document_gate.cpp includes it beside <cstdio>:
 // this file calls std::remove(const char*) to delete its temp .fpart, and
 // `std::remove` is declared by BOTH headers -- the iterator algorithm and the C
@@ -695,6 +701,169 @@ int main(int argc, char** argv) {
     // behind makes the next section's failure someone else's mystery.
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
     frame.setActiveTabAt({1, 1}, 0);
+
+  // ── MERGE: sections 12c (this branch) and 16 (archdisc) are DISTINCT additions.
+  //    Both kept; taking either side alone would delete the other's coverage.
+  // ── 16. THE MODEL BROWSER AND THE SKETCH TREE ARE REAL, AND DIFFERENT ────
+  //
+  // THE DEFECT: seven docked tabs -- Features, Model, Sketch, Assembly,
+  // Operations, Studies and Sheets -- were dispatched by drawPanel() to ONE
+  // function, drawFeatureTreePanel(). Whichever a user clicked they got the
+  // build history, so six tabs named something they did not show. Nothing was
+  // red, because the panel all seven shared was itself correct.
+  //
+  // What is asserted here is that two of them now answer DIFFERENT questions
+  // about the SAME document, and that every number they print is read from the
+  // document or measured from the kernel body:
+  //
+  //   * the browser's census is TOTAL over the document's statements, and every
+  //     body it calls selectable round-trips through the document's OWN binding
+  //     table (valueFor(node) == the statement it listed);
+  //   * its per-face areas SUM to the whole-model area the Measure panel
+  //     reports, so the two instruments agree on one body;
+  //   * the sketch tree's dimensions are the statement's own arguments -- read
+  //     out of the record and compared, never spelled here;
+  //   * and the POSITIVE CONTROL: editing that argument through the registry
+  //     moves BOTH the panel's number and the kernel's bounding box. A panel
+  //     showing a plausible constant cannot survive that.
+  //
+  // ★ THAT CONTROL FOUND A REAL DEFECT THE MEASURE SECTION ABOVE COULD NOT.
+  // ForgeFrame's measurement cache was keyed on the scene's TRIANGLE COUNT, and
+  // a parametric edit re-tessellates to the SAME count with different
+  // coordinates: after editing the rectangle to 60 mm the scene's own bounding
+  // box read 60.000 and every measured number in the application -- size, area,
+  // volume, centre of mass, the recovered edges -- went on reporting the 80 mm
+  // body. Section 12 measures once and could never see it. The witness is the
+  // scene's BUILD COUNT now, and the last two checks below are what hold it.
+  //
+  // MUTATION 13 feeds the browser an EMPTY document -- the shape of a panel
+  // built from the wrong source -- and every census check below goes red.
+  // MUTATION 14 answers the sketch tree from the document as it was BEFORE the
+  // edit, which is the stale-panel defect, and the control catches it.
+  {
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+    // The left column is a Tabs node at path {0}: feature_tree, model_browser.
+    frame.setActiveTabAt({0}, 1);
+    buildOneFrame(frame, 0);
+    checkGe(frame.modelRowsDrawn(), 1u, "the model browser drew rows of its own");
+    checkGe(frame.modelFaceRowsDrawn(), 1u, "and a row per face it could show");
+    checkLe(frame.modelFaceRowsDrawn(), static_cast<std::size_t>(scene.faceCount()),
+            "and never more face rows than the body has faces");
+
+    const forge::ui::PartDocument emptyDocument;
+    const forge::ui::ModelBrowser browser =
+        g_mutation == 13 ? forge::ui::buildModelBrowser(emptyDocument) : frame.modelBrowser();
+
+    // THE CENSUS IS TOTAL. Every statement is either an object or a
+    // pass-through annotation, and every object is in exactly one bucket. A
+    // browser that silently drops a value is one a user cannot find their work
+    // in.
+    std::size_t passThrough = 0;
+    for (const forge::ui::FeatureRecord& r : frame.document().records()) {
+      if (forge::ui::isPassThroughOp(r.line.op)) ++passThrough;
+    }
+    checkEq(browser.values.size() + passThrough, frame.document().records().size(),
+            "every statement is an object in the browser or a pass-through");
+    checkEq(browser.bodies.size() + browser.sheets.size() + browser.wires.size() +
+                browser.profiles.size() + browser.sketches.size() + browser.consumed.size() +
+                browser.unnamed.size(),
+            browser.values.size(), "and every object is in exactly one bucket");
+    checkGe(browser.bodies.size(), 1u, "the built part is listed as a body");
+    // and it is the SAME body the document binds, checked through the
+    // document's own table rather than through this file's memory of it.
+    for (std::size_t i : browser.bodies) {
+      const forge::ui::ModelValue& v = browser.values[i];
+      check(v.live, "a listed body is live", v.label);
+      check(!v.node.empty(), "a listed body carries the node it is selected by", v.label);
+      checkEq(frame.document().valueFor(v.node), v.irId,
+              "and that node resolves back to the statement the browser listed");
+    }
+    // The history says WHAT WAS DONE and the browser says WHAT EXISTS. On the
+    // starting part those are different numbers, which is the whole point.
+    check(browser.bodies.size() < browser.values.size(),
+          "fewer bodies exist than statements were run",
+          std::to_string(browser.bodies.size()) + " of " + std::to_string(browser.values.size()));
+
+    // ── the two instruments agree on one body ──────────────────────────────
+    double faceAreaSum = 0.0;
+    std::size_t unmeasured = 0;
+    for (std::uint32_t f = 1; f <= scene.faceCount(); ++f) {
+      const forge::ui::FaceMeasure& fm = frame.faceMeasure(f);
+      // A face the kernel DEFERRED carries no triangles, and its measurement is
+      // a zero the panel must not print as an area. Counted, not summed.
+      if (fm.triangles == 0) { ++unmeasured; continue; }
+      check(fm.area > 0.0, "a measured face has a real area", std::to_string(fm.area));
+      faceAreaSum += fm.area;
+    }
+    checkEq(unmeasured, 0u, "every face of the starting part is measurable");
+    const double wholeArea = frame.modelMeasure().area;
+    check(std::fabs(faceAreaSum - wholeArea) < 1e-6 * (1.0 + wholeArea),
+          "the browser's per-face areas sum to the whole-body area",
+          std::to_string(faceAreaSum) + " vs " + std::to_string(wholeArea));
+
+    // ── the sketch tree ────────────────────────────────────────────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Sketch);
+    buildOneFrame(frame, 0);
+    checkGe(frame.sketchRowsDrawn(), 1u, "the sketch tree drew rows of its own");
+
+    // The subject is READ from the document: whichever statement is the baked
+    // profile, and whatever its first argument currently is.
+    int profileStatement = 0;
+    double documentWidth = 0.0;
+    for (const forge::ui::FeatureRecord& r : frame.document().records()) {
+      if (r.line.op != "RECT" || r.line.args.empty()) continue;
+      profileStatement = r.irId;
+      documentWidth = r.line.args.front().number;
+      break;
+    }
+    checkGe(profileStatement, 1, "the document holds a rectangle profile");
+    const forge::ui::SketchTree beforeEdit = frame.sketchTree();
+    checkGe(beforeEdit.profiles.size(), 1u, "and the sketch tree lists it");
+    const forge::ui::ProfileDimension* width = nullptr;
+    for (const forge::ui::ProfileShape& p : beforeEdit.profiles) {
+      if (p.irId != profileStatement || p.dimensions.empty()) continue;
+      width = &p.dimensions.front();
+    }
+    check(width != nullptr, "the rectangle has a first dimension", "");
+    if (width != nullptr) {
+      check(width->display == "Width",
+            "the first dimension is labelled with the kernel's own name for it",
+            width->display);
+      check(std::fabs(width->value - documentWidth) < 1e-9,
+            "and its value is the statement's own argument",
+            std::to_string(width->value) + " vs " + std::to_string(documentWidth));
+    }
+
+    // ── the positive control ───────────────────────────────────────────────
+    // Change that one argument through the registry. The panel's number and the
+    // KERNEL's bounding box must both follow it. Nothing that prints a constant
+    // can pass this.
+    const double edited = documentWidth - 20.0;
+    frame.setEditTarget(profileStatement, 0);
+    const bool applied = frame.applyFeatureEdit(edited);
+    check(applied, "the rectangle's width was edited through the one registry", "");
+    buildOneFrame(frame, 0);
+    const forge::ui::SketchTree afterEdit =
+        g_mutation == 14 ? beforeEdit : frame.sketchTree();
+    double shownWidth = 0.0;
+    for (const forge::ui::ProfileShape& p : afterEdit.profiles) {
+      if (p.irId != profileStatement || p.dimensions.empty()) continue;
+      shownWidth = p.dimensions.front().value;
+    }
+    check(std::fabs(shownWidth - edited) < 1e-9, "the sketch tree now shows the edited width",
+          std::to_string(shownWidth) + " want " + std::to_string(edited));
+    const double bboxX = frame.modelMeasure().box.size(0);
+    check(std::fabs(bboxX - edited) < 0.25, "and the rebuilt body really is that wide",
+          std::to_string(bboxX) + " want " + std::to_string(edited));
+
+    // Put the document back, so the sections after this one see the part they
+    // were written against.
+    frame.setEditTarget(profileStatement, 0);
+    check(frame.applyFeatureEdit(documentWidth), "and the edit is reversible", "");
+    buildOneFrame(frame, 0);
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+    frame.setActiveTabAt({0}, 0);
+    buildOneFrame(frame, 0);
   }
 
   // ── 13. the Archie Tools panel offers the LIVE registry ──────────────────

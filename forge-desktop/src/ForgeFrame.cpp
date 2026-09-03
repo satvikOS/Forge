@@ -24,6 +24,8 @@
 #include "forge/ui/InspectionReport.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/PanelCatalog.hpp"
+#include "forge/ui/MeasureModel.hpp"
+#include "forge/ui/ModelTree.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/Types.hpp"
@@ -1268,10 +1270,10 @@ bool ForgeFrame::edgePickMode() const {
 }
 
 const forge::ui::EdgeSet& ForgeFrame::edges() {
-  const std::size_t tris = scene_.triangleCount();
-  if (edgesBuilt_ && edgeTriangles_ == tris) return edges_;
+  const std::size_t builds = scene_.builds();
+  if (edgesBuilt_ && edgeBuilds_ == builds) return edges_;
   edges_ = forge::ui::deriveEdges(measureMesh());
-  edgeTriangles_ = tris;
+  edgeBuilds_ = builds;
   edgesBuilt_ = true;
   // An edge index is only meaningful against the set it came from, so a rebuild
   // must not leave a hover pointing into the old one.
@@ -1453,6 +1455,9 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   // the reverted fix. A check that resets itself before anyone reads it is not a
   // check.
   treeRowsDrawn_ = 0;
+  modelRowsDrawn_ = 0;
+  modelFaceRowsDrawn_ = 0;
+  sketchRowsDrawn_ = 0;
   treeExpanderRect_.valid = false;
   viewportRequest_ = ViewportRequest{};
   viewportRequest_.wireframe = shell_.document().wireframe;
@@ -2143,11 +2148,30 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
   panelIdsDrawn_.push_back(panelId);
   if (isViewportPanel(panelId)) {
     drawViewportPanel(viewportTexture);
-  } else if (panelId == "feature_tree" || panelId == "model_browser" ||
-             panelId == "sketch_tree" || panelId == "assembly_tree" ||
-             panelId == "operation_tree" || panelId == "study_tree" ||
-             panelId == "sheet_tree") {
+  } else if (panelId == "feature_tree") {
     drawFeatureTreePanel();
+  } else if (panelId == "model_browser") {
+    // ── SEVEN TABS, ONE FUNCTION ──────────────────────────────────────────
+    // This branch used to read
+    //     panelId == "feature_tree" || panelId == "model_browser" ||
+    //     panelId == "sketch_tree"  || panelId == "assembly_tree"  ||
+    //     panelId == "operation_tree" || panelId == "study_tree"   ||
+    //     panelId == "sheet_tree"
+    // and dispatched all seven to drawFeatureTreePanel(). Whichever of them a
+    // user clicked they got the build history, so six tabs were telling them
+    // something untrue about what they were looking at -- and no gate could see
+    // it, because the panel they shared was itself correct.
+    //
+    // Model and Sketch are now REAL and DIFFERENT readings of the document (see
+    // ModelTree.hpp). The other four are not here at all: nothing in this
+    // application holds an assembly, a machining setup, a study or a drawing
+    // sheet, so they fall through to the panel that says what the tab will show
+    // and that it is not built yet. Saying so is worse than showing an assembly
+    // tree and far better than showing a feature tree with "Assembly" written
+    // over it, which is what shipped.
+    drawModelBrowserPanel();
+  } else if (panelId == "sketch_tree") {
+    drawSketchTreePanel();
   } else if (panelId == "properties" || panelId == "operation_params") {
     drawPropertiesPanel();
   } else if (panelId == "console" || panelId == "archie_trace" || panelId == "solver_log" ||
@@ -2710,6 +2734,424 @@ void ForgeFrame::drawFeatureTreePanel() {
   ImGui::EndChild();
 }
 
+// ── the model browser ───────────────────────────────────────────────────────
+//
+// WHAT EXISTS NOW, as against the feature tree's WHAT WAS DONE. The rows are
+// forge::ui::buildModelBrowser's, read off the live PartDocument -- including
+// its binding table, which is the document's own answer to "can a user still
+// pick this" -- and the numbers under a body are forge::ui::MeasureModel's, over
+// the same triangles the viewport draws and the same face ids picking resolves
+// to. Nothing in this function computes a geometric quantity of its own.
+forge::ui::ModelBrowser ForgeFrame::modelBrowser() const {
+  return forge::ui::buildModelBrowser(partDoc_);
+}
+
+forge::ui::SketchTree ForgeFrame::sketchTree() const {
+  return forge::ui::buildSketchTree(partDoc_);
+}
+
+const forge::ui::FaceMeasure& ForgeFrame::faceMeasure(std::uint32_t faceId) {
+  const forge::ui::MeasureMesh& mesh = measureMesh();
+  if (!faceCacheBuilt_ || faceCacheBuilds_ != measureBuilds_) {
+    faceCache_.clear();
+    faceCached_.clear();
+    faceCacheBuilds_ = measureBuilds_;
+    faceCacheBuilt_ = true;
+  }
+  const std::size_t slot = static_cast<std::size_t>(faceId);
+  if (faceCache_.size() <= slot) {
+    faceCache_.resize(slot + 1);
+    faceCached_.resize(slot + 1, 0);
+  }
+  if (faceCached_[slot] == 0) {
+    forge::ui::measureFace(mesh, faceId, faceCache_[slot]);
+    faceCache_[slot].faceId = faceId;
+    faceCached_[slot] = 1;
+  }
+  return faceCache_[slot];
+}
+
+namespace {
+
+// The word a person uses for one of the IR's value kinds. forge::ui's own
+// toString() spells them for the vocabulary ("sketchref"), which is the right
+// spelling for a manifest and the wrong one for a panel.
+const char* valueKindWord(forge::ui::IrValueKind kind) {
+  switch (kind) {
+    case forge::ui::IrValueKind::Solid:     return "solid";
+    case forge::ui::IrValueKind::Surface:   return "surface";
+    case forge::ui::IrValueKind::Wire:      return "curve";
+    case forge::ui::IrValueKind::Profile:   return "profile";
+    case forge::ui::IrValueKind::Sketch:    return "sketch";
+    case forge::ui::IrValueKind::SketchRef: return "sketch entity";
+    case forge::ui::IrValueKind::None:      return "value";
+  }
+  return "value";
+}
+
+}  // namespace
+
+void ForgeFrame::drawModelBrowserPanel() {
+  modelRowsDrawn_ = 0;
+  modelFaceRowsDrawn_ = 0;
+  const forge::ui::ModelBrowser browser = modelBrowser();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+
+  // EMPTY IS A STATE, NOT A GAP. A document with no statements has nothing to
+  // browse, and the useful thing to say is what would put something here.
+  if (browser.values.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("There is nothing in this document yet. Draw a shape from the toolbar, "
+                       "or open a part, and every body, sketch and face it contains is listed "
+                       "here.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextColored(rgb(130, 137, 148), "%zu bodies | %zu sketches | %zu profiles | %zu absorbed",
+                     browser.bodies.size(), browser.sketches.size(), browser.profiles.size(),
+                     browser.consumed.size());
+
+  // One row for one value. Clicking it puts the value in the selection through
+  // the SAME clickFeature() a feature-tree row uses, so a body picked here
+  // satisfies a boolean's signature exactly as one picked in the history does --
+  // this panel is a way to work, not a read-out.
+  auto valueRow = [this](const forge::ui::ModelValue& v, const char* trailing) {
+    ++modelRowsDrawn_;
+    ImGui::PushID(v.irId);
+    bool selected = false;
+    for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+      if (r.persistentName == "feature@" + std::to_string(v.irId)) selected = true;
+    }
+    if (v.irId == editFeatureId_) selected = true;
+    if (ImGui::Selectable(v.label.c_str(), selected, ImGuiSelectableFlags_AllowOverlap)) {
+      clickFeature(v.irId, ImGui::GetIO().KeyShift);
+      setEditTarget(v.irId, 0);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", v.statement.c_str());
+    if (trailing != nullptr && trailing[0] != 0) {
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(130, 137, 148), "%s", trailing);
+    }
+    ImGui::PopID();
+  };
+
+  const forge::ui::MeshMeasure& m = modelMeasure();
+  // The measured numbers describe EVERYTHING the program built, because the
+  // kernel tessellates the finished program and not one value of it. They are
+  // therefore printed under a body only when there is exactly one body to
+  // attribute them to -- a second body would make "volume 71 234" a number about
+  // something else, which is the failure mode this whole exercise is against.
+  const bool oneBody = browser.bodies.size() == 1;
+
+  // ── AND THE SECOND WAY THOSE NUMBERS COULD LIE ────────────────────────────
+  // A failed rebuild leaves the LAST GOOD body on screen, which is what every
+  // history-based modeller does and is the right behaviour. But the statements
+  // listed above are the CURRENT document's, so without this the panel would
+  // show a body the history no longer describes, measured, to three decimal
+  // places, with nothing saying so.
+  const bool stale = !scene_.lastBuild().ok();
+  if (stale) {
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(235, 175, 95), "%s", why.c_str());
+    ImGui::PopTextWrapPos();
+  }
+
+  if (ImGui::TreeNodeEx("##bodies", ImGuiTreeNodeFlags_DefaultOpen, "Bodies (%zu)",
+                        browser.bodies.size())) {
+    if (browser.bodies.empty()) {
+      ImGui::TextDisabled("No finished solid yet. Extrude or revolve a profile to make one.");
+    }
+    for (std::size_t i : browser.bodies) {
+      const forge::ui::ModelValue& v = browser.values[i];
+      valueRow(v, v.annotations > 0 ? "named" : "");
+      ImGui::Indent();
+      if (oneBody && m.triangles > 0) {
+        if (stale) ImGui::TextDisabled("measured on the last part that built:");
+        if (m.watertight) {
+          ImGui::Text("volume    %.3f mm3", m.volume);
+        } else {
+          // A volume off an open surface is a number with no meaning, and
+          // printing one anyway is exactly how a wrong solid passes unnoticed.
+          ImGui::TextColored(rgb(235, 175, 95), "volume    not closed: %zu open edges",
+                             m.boundaryEdges);
+        }
+        ImGui::Text("area      %.3f mm2", m.area);
+        ImGui::Text("size      %.3f x %.3f x %.3f mm", m.box.size(0), m.box.size(1),
+                    m.box.size(2));
+        ImGui::Text("centre    %.3f  %.3f  %.3f", m.centroid[0], m.centroid[1], m.centroid[2]);
+      }
+      if (!v.operands.empty()) {
+        std::string built;
+        for (int op : v.operands) {
+          const forge::ui::ModelValue* from = browser.find(op);
+          if (from == nullptr) continue;
+          if (!built.empty()) built += ", ";
+          built += from->label;
+        }
+        if (!built.empty()) ImGui::TextColored(rgb(130, 137, 148), "built from %s", built.c_str());
+      }
+      ImGui::Unindent();
+    }
+    ImGui::TreePop();
+  }
+
+  // ── the faces ─────────────────────────────────────────────────────────────
+  // The B-rep faces of what was built, each measured by forge::ui::measureFace
+  // over the tessellation. Clicking one selects it, exactly as clicking it in
+  // the 3D view does, which is what makes this a way to reach a face that is
+  // hidden behind the part.
+  const std::uint32_t faces = scene_.faceCount();
+  if (faces > 0) {
+    const bool open =
+        stale ? ImGui::TreeNodeEx("##faces", ImGuiTreeNodeFlags_DefaultOpen,
+                                  "Faces of the last part that built (%u)", faces)
+              : ImGui::TreeNodeEx("##faces", ImGuiTreeNodeFlags_DefaultOpen, "Faces (%u)", faces);
+    if (open) {
+      if (!oneBody && browser.bodies.size() > 1) {
+        ImGui::TextDisabled("These faces cover everything this document builds.");
+      }
+      const std::vector<std::uint32_t> picked = selectedFaceIds();
+      const float rowH = ImGui::GetTextLineHeightWithSpacing();
+      const float height = std::min(rowH * 12.0f, rowH * static_cast<float>(faces) + 4.0f);
+      if (ImGui::BeginChild("##facelist", ImVec2(0, height), ImGuiChildFlags_None)) {
+        // VIRTUALIZED for the same reason the feature tree is: an imported part
+        // has thousands of faces, and measuring the ones nobody can see is work
+        // done for nothing.
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(faces), rowH);
+        while (clipper.Step()) {
+          for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row) {
+            const std::uint32_t faceId = static_cast<std::uint32_t>(row) + 1;
+            const forge::ui::FaceMeasure& f = faceMeasure(faceId);
+            ++modelFaceRowsDrawn_;
+            ImGui::PushID(static_cast<int>(faceId));
+            bool on = false;
+            for (std::uint32_t p : picked) {
+              if (p == faceId) on = true;
+            }
+            char label[64];
+            std::snprintf(label, sizeof(label), "Face %u", faceId);
+            if (ImGui::Selectable(label, on, ImGuiSelectableFlags_AllowOverlap)) {
+              clickFace(faceId, ImGui::GetIO().KeyShift);
+            }
+            if (ImGui::IsItemHovered()) setPreselectedFace(faceId);
+            ImGui::SameLine(120.0f * dpiScale_);
+            // A FACE WITH NO TRIANGLES IS NOT A FACE WITH NO AREA. The kernel
+            // defers a face it cannot mesh (the viewport says so: "1 face of 63
+            // DEFERRED"), and the measurement of one is a zero -- which read as
+            // "flat, 0.000 mm2" is two false statements about a real face.
+            if (f.triangles == 0) {
+              ImGui::TextColored(rgb(235, 175, 95), "this face could not be measured");
+            } else {
+              ImGui::TextColored(rgb(130, 137, 148), "%-6s %10.3f mm2  %zu triangles",
+                                 f.planar ? "flat" : "curved", f.area, f.triangles);
+            }
+            ImGui::PopID();
+          }
+        }
+        clipper.End();
+      }
+      ImGui::EndChild();
+      ImGui::TreePop();
+    }
+  } else {
+    // No triangles at all: the part did not build, and the reason belongs here
+    // rather than in a console the user never opens.
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("%s", why.empty() ? "No faces have been built yet." : why.c_str());
+    ImGui::PopTextWrapPos();
+  }
+
+  if (!browser.sketches.empty() || !browser.profiles.empty()) {
+    if (ImGui::TreeNodeEx("##drawn", ImGuiTreeNodeFlags_DefaultOpen, "Sketches and profiles (%zu)",
+                          browser.sketches.size() + browser.profiles.size())) {
+      for (std::size_t i : browser.profiles) valueRow(browser.values[i], "ready to use");
+      for (std::size_t i : browser.sketches) {
+        valueRow(browser.values[i], valueKindWord(browser.values[i].kind));
+      }
+      ImGui::TreePop();
+    }
+  }
+  if (!browser.wires.empty() || !browser.sheets.empty()) {
+    if (ImGui::TreeNodeEx("##surfaces", ImGuiTreeNodeFlags_DefaultOpen, "Surfaces and curves (%zu)",
+                          browser.wires.size() + browser.sheets.size())) {
+      for (std::size_t i : browser.sheets) valueRow(browser.values[i], "surface");
+      for (std::size_t i : browser.wires) valueRow(browser.values[i], "curve");
+      ImGui::TreePop();
+    }
+  }
+
+  // ABSORBED, not deleted. A boolean takes both its operands and the document
+  // stops binding them; they are still in the history and a user who cannot see
+  // where their plate went has lost it as far as they know.
+  if (!browser.consumed.empty()) {
+    if (ImGui::TreeNodeEx("##absorbed", 0, "Absorbed into later features (%zu)",
+                          browser.consumed.size())) {
+      for (std::size_t i : browser.consumed) {
+        const forge::ui::ModelValue& v = browser.values[i];
+        ++modelRowsDrawn_;
+        ImGui::BulletText("%s  used by  %s", v.label.c_str(), v.consumedByLabel.c_str());
+      }
+      ImGui::TreePop();
+    }
+  }
+  if (!browser.unnamed.empty()) {
+    if (ImGui::TreeNodeEx("##unnamed", 0, "Built but not selectable (%zu)",
+                          browser.unnamed.size())) {
+      for (std::size_t i : browser.unnamed) {
+        const forge::ui::ModelValue& v = browser.values[i];
+        ++modelRowsDrawn_;
+        ImGui::BulletText("%s  (%s)", v.label.c_str(), valueKindWord(v.kind));
+      }
+      ImGui::TreePop();
+    }
+  }
+}
+
+// ── the sketch tree ─────────────────────────────────────────────────────────
+//
+// WHAT WAS DRAWN. Two kinds of thing live here and they are genuinely different:
+// a SKETCH is a set of entities held together by constraints and solved into a
+// profile, while RECT / CIRCLE / SLOT / REGPOLY bake their shape as numbers.
+// Both are the document's own statements; the dimensions under a baked profile
+// are the arguments the statement carries, labelled with the kernel's own names
+// for them (see ModelTree.hpp).
+void ForgeFrame::drawSketchTreePanel() {
+  sketchRowsDrawn_ = 0;
+  const forge::ui::SketchTree tree = sketchTree();
+
+  ImGui::TextColored(rgb(242, 158, 38), "Sketches and profiles");
+  ImGui::Separator();
+
+  if (tree.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("Nothing has been drawn in this document yet. Start a sketch, or place a "
+                       "rectangle, circle or slot, and its entities and dimensions appear here.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextColored(rgb(130, 137, 148), "%zu sketches | %zu profiles", tree.sketches.size(),
+                     tree.profiles.size());
+
+  auto selectRow = [this](int irId, const char* label, const char* statement) {
+    ImGui::PushID(irId);
+    bool selected = false;
+    for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+      if (r.persistentName == "feature@" + std::to_string(irId)) selected = true;
+    }
+    const bool clicked = ImGui::Selectable(label, selected, ImGuiSelectableFlags_AllowOverlap);
+    if (clicked) {
+      clickFeature(irId, ImGui::GetIO().KeyShift);
+      setEditTarget(irId, 0);
+    }
+    if (statement != nullptr && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", statement);
+    ImGui::PopID();
+    return clicked;
+  };
+
+  for (const forge::ui::SketchGroup& g : tree.sketches) {
+    ++sketchRowsDrawn_;
+    ImGui::PushID(g.irId);
+    const bool open = ImGui::TreeNodeEx("##sketch", ImGuiTreeNodeFlags_DefaultOpen, "%s",
+                                        g.label.c_str());
+    ImGui::SameLine();
+    if (g.solvedBy != 0) {
+      ImGui::TextColored(rgb(120, 200, 130), "solved");
+    } else {
+      ImGui::TextColored(rgb(235, 175, 95), "not solved yet");
+    }
+    if (open) {
+      // The plane is the keyword the SKETCH statement carries. When it carries
+      // none the clause is left out rather than filled with a guess: "on the XY
+      // plane" is a fact about the document, and inventing one would be the
+      // whole defect this panel exists to undo, in miniature.
+      if (g.plane.empty()) {
+        ImGui::TextColored(rgb(130, 137, 148), "%zu points | %zu curves | %zu constraints",
+                           g.points, g.curves, g.constraints);
+      } else {
+        ImGui::TextColored(rgb(130, 137, 148),
+                           "on the %s plane | %zu points | %zu curves | %zu constraints",
+                           g.plane.c_str(), g.points, g.curves, g.constraints);
+      }
+      if (g.consumedBy != 0) {
+        ImGui::TextColored(rgb(130, 137, 148), "used by %s", g.consumedByLabel.c_str());
+      } else if (g.solvedBy != 0) {
+        ImGui::TextColored(rgb(130, 137, 148), "ready to extrude or revolve");
+      } else {
+        ImGui::TextDisabled("Solve this sketch to turn it into a profile.");
+      }
+      for (const forge::ui::SketchEntity& e : g.entities) {
+        ++sketchRowsDrawn_;
+        ImGui::Indent();
+        selectRow(e.irId, e.label.c_str(), nullptr);
+        if (!e.detail.empty()) {
+          ImGui::SameLine(150.0f * dpiScale_);
+          ImGui::TextColored(rgb(130, 137, 148), "%s", e.detail.c_str());
+        }
+        ImGui::Unindent();
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+
+  for (const forge::ui::ProfileShape& p : tree.profiles) {
+    ++sketchRowsDrawn_;
+    ImGui::PushID(p.irId);
+    const bool open = ImGui::TreeNodeEx("##profile", ImGuiTreeNodeFlags_DefaultOpen, "%s",
+                                        p.label.c_str());
+    ImGui::SameLine();
+    ImGui::TextColored(rgb(130, 137, 148), "%s", p.op.c_str());
+    if (open) {
+      if (p.dimensions.empty() && p.points > 0) {
+        ImGui::Text("%zu points", p.points);
+      }
+      for (const forge::ui::ProfileDimension& d : p.dimensions) {
+        ++sketchRowsDrawn_;
+        const char* unit = "mm";
+        if (d.unit == forge::ui::DimensionUnit::Angle) unit = "deg";
+        if (d.unit == forge::ui::DimensionUnit::Count) unit = "";
+        ImGui::Indent();
+        ImGui::Text("%-10s %10.3f %s", d.display.c_str(), d.value, unit);
+        if (d.defaulted) {
+          ImGui::SameLine();
+          // A number the USER chose and a number the kernel supplied are
+          // different facts, and a panel that shows both the same way invites an
+          // edit to a value that was never there.
+          ImGui::TextDisabled("(not set; this is the standard value)");
+        }
+        ImGui::Unindent();
+      }
+      if (p.consumedBy != 0) {
+        ImGui::TextColored(rgb(130, 137, 148), "used by %s", p.consumedByLabel.c_str());
+      } else {
+        ImGui::TextColored(rgb(130, 137, 148), "ready to extrude or revolve");
+      }
+      // The profile itself is selectable, which is what makes Extrude reachable
+      // from this panel rather than only from the history.
+      selectRow(p.irId, "Select this profile", nullptr);
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+
+  if (!tree.unattached.empty()) {
+    ImGui::Separator();
+    ImGui::TextColored(rgb(235, 175, 95), "%zu drawn items are not part of any sketch",
+                       tree.unattached.size());
+    for (const forge::ui::SketchEntity& e : tree.unattached) {
+      ++sketchRowsDrawn_;
+      ImGui::BulletText("%s  %s", e.label.c_str(), e.detail.c_str());
+    }
+  }
+}
+
 void ForgeFrame::drawPropertiesPanel() {
   ImGui::TextColored(rgb(242, 158, 38), "Document");
   ImGui::Separator();
@@ -2953,8 +3395,12 @@ void ForgeFrame::drawTimelinePanel() {
 // triangles the viewport draws and the SAME face ids picking resolves to. The
 // panel prints; it does not compute, which is why the numbers are gated headless.
 const forge::ui::MeasureMesh& ForgeFrame::measureMesh() {
-  const std::size_t tris = scene_.triangleCount();
-  if (measureBuilt_ && measureTriangles_ == tris) return measureMesh_;
+  // THE WITNESS IS THE BUILD COUNT, NOT THE TRIANGLE COUNT. See the member's
+  // declaration: a parametric edit re-tessellates to the SAME triangle count
+  // with different coordinates, and this cache used to hand the previous body's
+  // measurements back for ever.
+  const std::size_t builds = scene_.builds();
+  if (measureBuilt_ && measureBuilds_ == builds) return measureMesh_;
 
   measureMesh_.clear();
   const std::vector<SceneVertex>& v = scene_.vertices();
@@ -2965,7 +3411,7 @@ const forge::ui::MeasureMesh& ForgeFrame::measureMesh() {
     measureMesh_.addTriangle(a, b, c, v[i].faceId);
   }
   meshMeasure_ = forge::ui::measureMesh(measureMesh_);
-  measureTriangles_ = tris;
+  measureBuilds_ = builds;
   measureBuilt_ = true;
   return measureMesh_;
 }
