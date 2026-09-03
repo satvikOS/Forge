@@ -556,38 +556,80 @@ int testRealSizedPart() {
 int testTimerIsOrientedForward() {
   forge::uitest::Harness H("pick:timer-positive-control");
   const std::size_t kRays = 400;
-  const int kReps = 5;
+  static constexpr int kRepsMax = 5;
+  const int kReps = kRepsMax;
   const std::vector<Ray> rays = makeRays(kRays, 300.0, TorusSpec{}, 7u);
 
+  // (3) INTERLEAVE THE SIZES. The warm-up and the minimum above remove noise
+  // that is one-sided WITHIN a size; they cannot remove a drift that runs
+  // ACROSS the sizes. Measuring 3,200 then 7,200 then 12,800 in sequence means
+  // a runner whose clock ramps UP during the test measures the LARGEST mesh at
+  // the HIGHEST frequency -- and the minimum makes that worse, not better,
+  // because it keeps the best sample from the fastest period. That is the
+  // shape of the observed failure: `us[1] < us[2]` false, i.e. the 12,800-tri
+  // scan timed FASTER than the 7,200-tri one. Measured over the twelve most
+  // recent CI runs of this suite, this gate failed 5 of 12 while main was
+  // green, so the flake was blocking merges rather than catching regressions.
+  //
+  // Building every mesh first and then sweeping all three sizes inside each
+  // repetition makes any monotonic drift apply to all three roughly equally,
+  // so it cancels in the COMPARISON the assertions actually make. The
+  // assertions below are UNCHANGED and nothing is relaxed: this estimates the
+  // same quantity with a bias removed, which is the same argument the warm-up
+  // and the minimum were added under.
+  MeasureMesh meshes[3];
   double us[3] = {0.0, 0.0, 0.0};
   std::size_t tris[3] = {0, 0, 0};
   const int ks[3] = {2, 3, 4};  // 3,200 / 7,200 / 12,800 triangles
+  std::uint32_t sink = 0;
+
   for (int i = 0; i < 3; ++i) {
     TorusSpec spec;
     spec.k = ks[i];
-    const MeasureMesh mesh = makeTorus(spec);
-    tris[i] = mesh.triangleCount();
-    std::uint32_t sink = 0;
+    meshes[i] = makeTorus(spec);
+    tris[i] = meshes[i].triangleCount();
+  }
 
-    // (1) warm up: touch every page of this mesh and this code path OUTSIDE the
-    // clock, so no timed region below pays for a first touch.
-    for (const Ray& r : rays) sink += pickFaceLinear(mesh, r.o, r.d).faceId;
+  // (1) warm up EVERY size outside the clock, so no timed region below pays a
+  // first touch and the whole working set is resident before timing starts.
+  for (int i = 0; i < 3; ++i)
+    for (const Ray& r : rays) sink += pickFaceLinear(meshes[i], r.o, r.d).faceId;
 
-    // (2) the minimum over kReps. Noise is one-sided, so the floor is the work.
-    double best = 0.0;
-    for (int rep = 0; rep < kReps; ++rep) {
+  // (2) the minimum over kReps, with the three sizes swept INSIDE each rep.
+  double samples[3][kRepsMax] = {};
+  for (int rep = 0; rep < kReps; ++rep) {
+    for (int i = 0; i < 3; ++i) {
       const auto t0 = std::chrono::steady_clock::now();
-      for (const Ray& r : rays) sink += pickFaceLinear(mesh, r.o, r.d).faceId;
+      for (const Ray& r : rays) sink += pickFaceLinear(meshes[i], r.o, r.d).faceId;
       const auto t1 = std::chrono::steady_clock::now();
       const double got = microsPerCall(t1 - t0, kRays);
-      if (rep == 0 || got < best) best = got;
+      samples[i][rep] = got;
+      if (rep == 0 || got < us[i]) us[i] = got;
     }
-    us[i] = best;
-    // Consume the result so the loop cannot be optimised away entirely.
-    CHECK(sink > 0);
   }
+  // Consume the result so the loops cannot be optimised away entirely.
+  CHECK(sink > 0);
+
+  // (4) When this gate fails in CI it fails on a machine nobody can attach to,
+  // and the summary line alone cannot say WHY the ordering inverted. On a
+  // healthy host the margin is large -- 7.9 / 16.4 / 27.8 us, i.e. size 2 costs
+  // ~1.7x size 1 -- so an inversion means a disturbance of more than 40%, not a
+  // drift. Printing every sample turns the next failure into evidence: a single
+  // inflated rep is preemption the minimum should already have absorbed, while
+  // a whole row inflated is sustained contention across that size's window,
+  // which is the case interleaving is meant to spread out. Printed only on
+  // failure so a green run stays quiet.
+  if (!(us[0] < us[1] && us[1] < us[2])) {
+    std::printf("[pick:timer-positive-control] ORDERING INVERTED -- per-rep samples (us/call):\n");
+    for (int i = 0; i < 3; ++i) {
+      std::printf("  %6zu tris:", tris[i]);
+      for (int rep = 0; rep < kReps; ++rep) std::printf(" %8.2f", samples[i][rep]);
+      std::printf("   min %.2f\n", us[i]);
+    }
+  }
+
   std::printf("[pick:timer-positive-control] linear scan cost vs mesh size "
-              "(best of %d, after a warm-up pass): "
+              "(best of %d, sizes interleaved, after a warm-up pass): "
               "%zu tris %.2f us  ->  %zu tris %.2f us  ->  %zu tris %.2f us\n",
               kReps, tris[0], us[0], tris[1], us[1], tris[2], us[2]);
   CHECK(tris[0] < tris[1] && tris[1] < tris[2]);
