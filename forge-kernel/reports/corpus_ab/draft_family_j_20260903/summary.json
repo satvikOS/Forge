@@ -1,0 +1,49 @@
+{
+  "generated_from": "/private/tmp/claude-501/wt-draftj/.corpus-ab-draft/results.jsonl",
+  "parts": 600,
+  "rows": 600,
+  "part_errors": 0,
+  "malformed": 0,
+  "families": [
+    {
+      "family": "DRAFT",
+      "option": "FORGE_DRAFT_DROP_NATIVE",
+      "N": 565,
+      "not_applicable": 35,
+      "na_reasons": {
+        "no_planar_side_wall": 35
+      },
+      "both_ok": 497,
+      "native_only": 2,
+      "occt_only": 0,
+      "neither": 66,
+      "native_rate": 0.8831858407079646,
+      "occt_rate": 0.879646017699115,
+      "delta": 0.0035398230088495575,
+      "ci95": [
+        -0.0013574305993150435,
+        0.008437076617014158
+      ],
+      "mcnemar_p": 0.5000000000000004,
+      "verdict": "PASS",
+      "underpowered": true,
+      "discordant": 2,
+      "deficit_parts": 0,
+      "both_ok_agree": 497,
+      "both_ok_agree_upto_orientation": 497,
+      "both_ok_disagree": 0,
+      "native_status": {
+        "DEFER": 66,
+        "OK": 499
+      },
+      "occt_status": {
+        "THREW": 66,
+        "OK": 497,
+        "DEFER": 2
+      },
+      "native_valid": 447,
+      "occt_valid": 445,
+      "occt_only_examples": []
+    }
+  ]
+}

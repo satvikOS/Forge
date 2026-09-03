@@ -262,12 +262,18 @@ set(OCCT_LIBS
 # ★ THE DRAFT ROW IS STALE TOO, AND IT IS STALE IN TWO DIFFERENT WAYS. Left as
 #   written because it is the f71ed98b historical fact; re-measured 2026-09-03 at
 #   f53deeae + this branch over the SAME 600 gold parts, same derivation:
-#       FORGE_DRAFT_DROP_NATIVE   native 497/565 = 88.0%   OCCT 497/565 = 88.0%
-#       deletion bucket 0/565     native-only wins 2       0 discordant pairs
-#   (paired against the same tree BEFORE this branch: 426 -> 497, gained 71,
-#    lost 0, McNemar exact two-sided p = 8.5e-22; 0 parts built a solid that
-#    DISAGREED with OCCT, in either run)
-#   not the 0.0% / 497-deleted the row records.
+#       FORGE_DRAFT_DROP_NATIVE   native 88.3%   OCCT 88.0%   OCCT-only 0/565
+#       both 497   nat-only 2   neither 66   agree 497/497 = 100.0%
+#       delta 0.4% [-0.1, 0.8]   McNemar p = 0.5000   verdict PASS
+#   not the 0.0% / 497-deleted the row records. That is the OFFICIAL harness's own
+#   summary, run with FAMILIES=DRAFT over all 600 parts at commit 97969e33 with
+#   dirty_files_in_src_include_test = 0; the artefact is in
+#   reports/corpus_ab/draft_family_j_20260903/.
+#   ★ READ THE agree COLUMN BESIDE IT, as the summary itself demands: 497 of 497
+#   both-pairs match on the FULL observable vector and 0 disagree, so this is not
+#   a coverage number sitting next to two arms computing different operations.
+#   BRepCheck-valid results: native 447, OCCT 445 — the native arm is never LESS
+#   valid than the incumbent on this corpus.
 #
 #   (1) THE ROW WAS MEASURING ONLY THE FIRST OF TWO NATIVE ENGINES. Features.cpp
 #       runs a CHAIN — occtdraft::draftFaces at :2275, then, on a defer,

@@ -708,7 +708,31 @@ is case (f) at L = 2000, where they differ by 2000x. **Mutation 14** puts the ol
 bound back and case (h) is what turns red — without case (h) that mutant stays
 green and the bound is untested.
 
-### 4. What the official flip-gate harness was measuring
+### 4. The OFFICIAL flip-gate harness now says the same thing
+
+`FAMILIES=DRAFT bash test/run_corpus_ab_coverage.sh all`, all 600 parts, at commit
+`97969e33` with `dirty_files_in_src_include_test = 0`. This is the harness whose
+output the `CMakeLists.txt` table is written from, and it is a DIFFERENT program
+from the probe above with its own derivation, its own success predicate and its
+own arms. Artefact: `reports/corpus_ab/draft_family_j_20260903/`.
+
+```
+| family | option                  |   N | both | nat only | OCCT only | neither |
+| DRAFT  | FORGE_DRAFT_DROP_NATIVE | 565 |  497 |        2 |     **0** |      66 |
+  nat 88.3%   occt 88.0%   agree 497/497 (100.0%)
+  delta 0.4% [-0.1, 0.8]   McNemar p = 0.5000   verdict PASS
+  native arm statuses: DEFER:66  OK:499
+  OCCT   arm statuses: THREW:66  OK:497  DEFER:2
+  BRepCheck_Analyzer valid results: native 447, OCCT 445
+```
+
+**READ THE `agree` COLUMN BESIDE THE VERDICT**, which is what that summary's own
+text tells the reader to do: families E and F pass on coverage while agreeing on
+0 of 599 parts, which means their two arms are computing different operations.
+Here it is **497 of 497, and 0 disagree**. And the native arm is never LESS valid
+than the incumbent: 447 BRepCheck-valid results against OCCT's 445.
+
+### 4b. What that harness was measuring before
 
 `CMakeLists.txt:242` records family J as `native 0.0 %, OCCT 88.0 %, 497/565
 deleted`. That row could never have moved, for a reason that has nothing to do
@@ -749,7 +773,32 @@ rewritten, exactly as the OFFSETSHAPE row was.
 * **Solve 3 is unreached**, on every fixture and on all 565 parts.
 * **The closure did not move and could not have.** 14 before, 14 after.
 
-### 7. Reproduce
+### 7. Reproduced from a CLEAN, COMMITTED tree
+
+The headline run above was taken from a dirty worktree (2 modified files under
+`src`/`include`), which is a measurement of a tree nobody can check out. It was
+therefore repeated after the commit, from `97969e33` with
+`dirty_files_in_src_include_test = 0`, and compared row by row:
+
+```
+600 rows vs 600 rows, on applicable / status / reason / occt_ok / agrees /
+nat_vol / occt_vol / nat_valid / occt_valid / nat_bc / occt_bc /
+edges_rebuilt / edges_retrim / solve_anchor
+
+rows differing on any of those 14 fields : 0
+clean run: applicable 565, native agrees 497, OCCT 497, deletion bucket 0
+```
+
+Committed artefacts, both stamped with the commit they were run at:
+
+| file | what |
+|---|---|
+| `corpus_ab/draft_local_probe.jsonl.gz` + `_manifest.json` | the AFTER run, clean tree, `97969e33` |
+| `corpus_ab/draft_local_probe_BEFORE_f53deeae.jsonl.gz` + manifest | the BEFORE run, unmodified `f53deeae` |
+| `corpus_ab/draft_validity_forensics_52.txt` | per-part thresholds and status multisets for all 52 carried parts |
+| `corpus_ab/draft_family_j_20260903/` | the OFFICIAL flip-gate harness run for family J |
+
+### 8. Reproduce
 
 ```
 bash forge-kernel/test/run_ab_native_draft_local.sh --mutations
@@ -759,7 +808,13 @@ bash forge-kernel/test/run_draft_local_probe.sh all <outdir>
       -> 600 rows; applicable 565; native agrees 497; OCCT 497; deletion bucket 0
 bash forge-kernel/scripts/tkoffset_ledger_gate.sh forge-kernel/build/forge-kernel.node
       -> DIRECT 9, CLOSURE 14, PHANTOM 2, TKOffset syms 42 — PASS
-bash forge-kernel/test/run_ab_all.sh          -> all harnesses green
+bash forge-kernel/test/run_draft_validity_forensics.sh <outdir>
+      -> 52 examined; 52 identical status multisets; max threshold diff 0.0e+00 deg;
+         52 distinct thresholds; PASS
+FAMILIES=DRAFT bash forge-kernel/test/run_corpus_ab_coverage.sh all <outdir>
+      -> DRAFT PASS: both 497, nat-only 2, OCCT-only 0, agree 497/497 = 100.0%
+bash forge-kernel/test/run_ab_all.sh          -> GREEN, all 9 harnesses built and
+                                                 each matched its baseline
 node forge-kernel/test/ft/ft_smoke.mjs        -> ALL PASS
 node forge-kernel/test/ft/ft_unified_edit.mjs -> 20 passed
 node forge-kernel/test/directedit.mjs         -> 9/9

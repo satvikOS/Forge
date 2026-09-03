@@ -117,6 +117,7 @@ forge-kernel/.build-draft-probe/
 # outputs; its committed results live in
 # reports/corpus_ab/draft_local_probe.jsonl.gz.
 forge-kernel/.build-draft-local/
+forge-kernel/.build-draft-forensics/
 # test/ft/ft_smoke.mjs and ft_organic_smoke.mjs write their exported STEP files
 # here. That path used to be the PRIMARY checkout's, which made two agents in
 # two worktrees write the SAME file; it is now tree-local, so every tree grows
