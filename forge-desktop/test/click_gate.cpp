@@ -45,26 +45,28 @@
 // splitter drag called setRatioAt() from inside drawSplitter(), and drawNode()
 // reads node.children[1] on the line AFTER the splitter is drawn.
 //
-// PROVING THE GATE CAN FAIL: `--mutate <n>` injects defect n.
+// PROVING THE GATE CAN FAIL: `--mutate <n>` injects defect n. NINE cases, and
+// the list is complete -- both sides of the app/core-interaction-surface merge
+// carried a legend that named only their own half, which is how the numbering
+// collision below went unnoticed until it was counted.
 //   1  the pointer never reaches the tab        -> no tab activates
 //   2  no FURTHER frame after the click         -> the clicked panel never comes up
 //   3  the historical use-after-free, on purpose-> the sanitizer must catch it
 //   4  only the first workspace is exercised    -> the tab census goes unmet
 //   5  the splitter is pressed but not dragged  -> no ratio moves
 //   6  the command sweep stops after the first  -> the invocation census goes unmet
-//   7  no frame is drawn after a command runs   -> the redraw the historical
-//                                                 use-after-free broke goes unchecked
+//   7  no frame after each command invocation   -> the redraw assertion goes unmade
 //   8  the camera pull path never runs          -> view.* is a counter nobody reads
+//   9  no FURTHER frame after the EXPANDER click-> the row-count assertion goes slack
 //
-// The list above is the UNION of the two sides this merge joined, and neither
-// side was complete. This branch documented 6 and 7 and predated 8; the base
-// documented 8 and skipped 6 and 7, which it nonetheless RAN. All three are
-// implemented: g_mutation is read for 6 at line 473 and for 7 at line 496,
-// re-measured on the merged tree rather than carried over (the figures inherited
-// here said 459 and 482, and had gone stale by standing still). Taking either
-// side whole would have left a reader counting this list and concluding that
-// mutations run_desktop.sh really injects go into a gate that ignores them.
-// It is 1..8 now, with no gap.
+// 9 IS THIS MERGE'S RENUMBER, AND IT IS THE REASON THE LEGEND IS NOW EXHAUSTIVE.
+// Case 9 was authored as case 6 on app/core-interaction-surface while the base
+// independently gave 6 to the command-sweep truncation. The two edits are ~50
+// lines apart, so GIT MERGED THEM WITHOUT A CONFLICT and the merged gate had two
+// distinct defects behind one number: `--mutate 6` fired both, and a mutation
+// proof whose cases overlap cannot say which assertion is load-bearing. Nothing
+// in the build would have reported that -- it is only visible by counting the
+// cases in this file against the sweeps that drive them.
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>
@@ -277,6 +279,7 @@ int main(int argc, char** argv) {
   std::size_t splittersDragged = 0;
   std::size_t splittersExpected = 0;
   std::size_t workspacesExercised = 0;
+  std::size_t expandersClicked = 0;
 
   for (std::size_t wsIndex = 0; wsIndex < profiles.size(); ++wsIndex) {
     // MUTATION 4: the loop is trimmed to the first workspace. The census
@@ -439,6 +442,72 @@ int main(int argc, char** argv) {
     leftButton(false);
     pointerTo(-FLT_MAX, -FLT_MAX);
     step(frame);
+
+    // ── THE THIRD CONTAINER: click a real feature-tree expander ───────────
+    // The dock's two mid-walk crashes are exercised above. The THIRD one -- the
+    // feature tree, where tree_.rebuild() resized rows_ while ImGuiListClipper
+    // iterated a range sized from the previous rowCount, and rowAt() threw
+    // std::out_of_range -- was fixed and never tested. ForgeFrame has carried
+    // treeExpanderRect() the whole time, documented as "so a headless gate can
+    // click the real widget instead of guessing pixels", and NOTHING CALLED IT.
+    // A fix with no gate is a fix until someone edits that loop.
+    //
+    // Clicking the real widget matters here more than anywhere: the defect is
+    // ordering, so it only appears when the mutation happens at the point in the
+    // frame the gesture actually puts it.
+    const forge::desktop::ForgeFrame::WidgetRect exp = frame.treeExpanderRect();
+    if (exp.valid) {
+      const std::size_t rowsBefore = frame.treeRowCount();
+      const std::size_t reseatsBefore = frame.layoutReseatsDuringWalk();
+      pointerTo((exp.x0 + exp.x1) * 0.5f, (exp.y0 + exp.y1) * 0.5f);
+      step(frame);            // hover
+      leftButton(true);
+      step(frame);            // press
+      leftButton(false);
+      step(frame);            // release: SmallButton() fires HERE, and RECORDS
+
+      // ── THE FURTHER FRAME ──────────────────────────────────────────────
+      // Same reason as the tab click: the deferred rebuild is applied at the END
+      // of the frame the click landed in, so the row count only moves on the
+      // frame after. MUTATION 9 removes this line and nothing else, which makes
+      // the row-count assertion below fail -- proving the assertion is load
+      // bearing rather than incidentally true.
+      //
+      // NUMBERED 9, NOT 6, AND THAT IS A MERGE FIX RATHER THAN A PREFERENCE.
+      // This defect was mutation 6 on app/core-interaction-surface, and the base
+      // independently allocated 6 to a different one (truncating the command
+      // sweep after the first id, below). Git auto-merged this file WITHOUT A
+      // CONFLICT -- the two edits are hundreds of lines apart -- so the merged
+      // gate had two distinct defects sharing one number, and `--mutate 6` fired
+      // both. A mutation proof whose cases overlap cannot say which assertion is
+      // load-bearing, which is the one thing it exists to say. The already-merged
+      // case keeps 6, exactly as the DECISIONS.md collisions are resolved; this
+      // one becomes 9, and run_desktop.sh / run_click_gate.sh sweep to 9.
+      ImDrawData* td = nullptr;
+      if (g_mutation != 9) td = step(frame);
+      ++expandersClicked;
+
+      // 1. THE INVARIANT, for the container it did not used to cover.
+      //    setTreeExpandedAt() reports into the same counter, so a rebuild under
+      //    the clipper would move this number instead of aborting silently.
+      checkEq(frame.layoutReseatsDuringWalk(), 0u,
+              "no container mutated while the draw walked it (feature tree)", ws);
+      checkEq(frame.layoutReseatsDuringWalk(), reseatsBefore,
+              "the expander click added no mid-walk mutation", ws);
+
+      // 2. The click reached the tree MODEL. An expander that toggles nothing is
+      //    the other way this could pass: no crash, and no effect either.
+      check(frame.treeRowCount() != rowsBefore,
+            "the expander click changed the tree's row count", ws);
+
+      // 3. The process survived to draw a real frame afterwards, which is what
+      //    the std::out_of_range abort denied it.
+      check(td != nullptr && td->TotalVtxCount > 500,
+            "the frame after the expander click is real", ws);
+
+      pointerTo(-FLT_MAX, -FLT_MAX);
+      step(frame);
+    }
   }
 
   // ══ ★ THE COMMAND SURFACE — the other 33 interactive call sites ══════════
@@ -614,9 +683,9 @@ int main(int argc, char** argv) {
   }
 
   // ── coverage: what was clicked is what the model said was there ──────────
-  std::printf("[gate] %zu workspaces, %zu tabs clicked, %zu splitters dragged, %zu frames "
-              "built\n",
-              workspacesExercised, tabsClicked, splittersDragged, g_frames);
+  std::printf("[gate] %zu workspaces, %zu tabs clicked, %zu splitters dragged, "
+              "%zu tree expanders clicked, %zu frames built\n",
+              workspacesExercised, tabsClicked, splittersDragged, expandersClicked, g_frames);
   checkEq(workspacesExercised, profiles.size(), "every workspace was exercised", "");
   checkEq(tabsClicked, tabsExpected, "every tab in every workspace was clicked", "");
   checkEq(splittersDragged, splittersExpected, "every splitter in every workspace was dragged",
@@ -624,6 +693,12 @@ int main(int argc, char** argv) {
   checkEq(changingClicks, changingExpected,
           "every click on a non-active tab changed the active tab", "");
   checkGe(changingClicks, 1u, "at least one click was a real state change", "");
+  // UNCONDITIONAL, like every other census line here. The expander section is
+  // guarded by `exp.valid`, and a guarded section that stops finding its widget
+  // stops running and reports nothing -- silence that looks exactly like a pass.
+  // This is the line that makes that loud.
+  checkGe(expandersClicked, 1u,
+          "at least one feature-tree expander was found and clicked", "");
   checkGe(g_frames, tabsClicked * 4, "at least four frames were stepped per tab click", "");
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

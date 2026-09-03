@@ -121,7 +121,19 @@ BAD=0
 if [ $rc -eq 0 ]; then
   echo
   echo "[click-gate] mutation proof (each injected defect must turn the gate red):"
-  for m in 1 2 3 4 5 6 7; do
+  # 1..9 -- EXACTLY the set click_gate.cpp defines, counted from the file rather
+  # than inherited. Two things were wrong here before this merge and both are
+  # fixed in the same change:
+  #   * this sweep stopped at 7 while the gate already had 8 (the camera pull
+  #     path), so one case was proved by run_desktop.sh and by nothing here;
+  #   * app/core-interaction-surface's expander further-frame case and the base's
+  #     command-sweep truncation had BOTH been numbered 6 and git merged them
+  #     without a conflict, so `--mutate 6` fired two defects at once. The
+  #     expander case is renumbered 9 -- see the legend at the top of
+  #     click_gate.cpp -- and 9 is the count this loop and EXPECTED_MUTATIONS in
+  #     ci_desktop_gate.sh must agree on.
+  # A --mutate case added to click_gate.cpp must be added here in the SAME change.
+  for m in 1 2 3 4 5 6 7 8 9; do
     "$BIN" --mutate "$m" > "$WORK/mut$m.log" 2>&1
     mrc=$?
     if [ "$mrc" -eq 0 ]; then

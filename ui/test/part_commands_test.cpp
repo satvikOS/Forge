@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 58);
-  CHECK_EQ_INT(registry.size(), 58);
+  CHECK_EQ_INT(added, 65);
+  CHECK_EQ_INT(registry.size(), 65);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 58);
+  CHECK_EQ_INT(registry.size(), 65);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -372,7 +372,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 58);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 65);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -489,7 +489,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 58);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 65);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -521,7 +521,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 58);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 65);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -574,7 +574,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 58);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 65);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     // EVERY handler that reads a selection-derived vector belongs here, whether it
@@ -798,7 +798,7 @@ int main() {
     PartDocument docN;
     UndoStack stackN;
     SelectionService selN;
-    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 58);
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 65);
     CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
 
     // ── the minimal form of each: required parameters only ──────────────────
@@ -1056,7 +1056,7 @@ int main() {
     PartDocument docE2;
     UndoStack stackE2;
     SelectionService noneE2;
-    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 58);
+    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 65);
     CHECK_EQ_INT(docE2.records().size(), 0);  // EMPTY: INPUT is a creator
 
     // INPUT()  -- "bind the task's input STEP as a solid". No selection, no
@@ -1200,7 +1200,7 @@ int main() {
     PartDocument docS;
     UndoStack stackS;
     SelectionService selS;
-    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 58);
+    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 65);
 
     const CommandDescriptor* sc = regS.find("part.section_curve");
     CHECK(sc != nullptr);
@@ -1289,7 +1289,7 @@ int main() {
     PartDocument docF;
     UndoStack stackF;
     SelectionService selF;
-    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 58);
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 65);
 
     // The five statements of the application's own starting part, seeded exactly
     // as the app seeds them: NONE of them is command-authored, so undo cannot
@@ -1488,7 +1488,7 @@ int main() {
     PartDocument docK;
     UndoStack stackK;
     SelectionService selK;
-    CHECK_EQ_INT(registerPartCommands(regK, docK, stackK), 58);
+    CHECK_EQ_INT(registerPartCommands(regK, docK, stackK), 65);
 
     // A CREATOR: no selection, no parameter, and reachable from an empty document
     // exactly as RECT is. The plane is the LITERAL XY -- see part.sketch_new for

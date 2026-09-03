@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "755c72396873e1bbc0637989e2c665b03a696e820b0eaa14bd5297693dd71014",
-        "bytes": 154750,
-        "lines": 3232
+        "sha256": "49c98fe8886d46c566e1b6c4064a9734e49cc8d79424ff780572348fc0fc261b",
+        "bytes": 156520,
+        "lines": 3273
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "221b7590e5dfc37b6527265cdbc7a30ff68d8fc3db228ad6749f3228857e4422",
-        "bytes": 182885,
-        "lines": 3112
+        "sha256": "8d09ece421c78c1ab6a21bcaab243d10b46b863ec094d821bb5dca5d1440547b",
+        "bytes": 219675,
+        "lines": 3861
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 56,
     "ui_validator_ops": 56,
-    "registry_commands": 80,
+    "registry_commands": 87,
     "commands_emitting_ir": 57,
     "user_invocable_ops": 53,
     "forbidden_ops": 3,
@@ -6946,6 +6946,31 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.delete_feature",
+      "label": "Delete Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.edit_feature",
       "label": "Edit Feature Parameter",
       "category": "Part",
@@ -8415,6 +8440,72 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.rename_feature",
+      "label": "Rename Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "name",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
+      "id": "part.reorder_feature",
+      "label": "Reorder Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "position",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.resize_bore",
       "label": "Resize Bore",
       "category": "Part",
@@ -8534,6 +8625,47 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.rollback_end",
+      "label": "Roll Forward To End",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
+      "id": "part.rollback_to",
+      "label": "Roll Back To Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.rotate",
@@ -9539,6 +9671,31 @@
       "produces_value_kind": "Surface"
     },
     {
+      "id": "part.suppress_feature",
+      "label": "Suppress Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.surfcheck",
       "label": "Assert Sheet Property",
       "category": "Part",
@@ -9768,6 +9925,31 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.unsuppress_feature",
+      "label": "Unsuppress Feature",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.variable_fillet",
@@ -10130,9 +10312,11 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 1,
+      "count": 3,
       "parameters": [
-        "value (part.edit_feature)"
+        "value (part.edit_feature)",
+        "name (part.rename_feature)",
+        "position (part.reorder_feature)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"

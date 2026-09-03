@@ -39,26 +39,30 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-# 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
-# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
-# from either parent. This number has been contested at two earlier merges and
-# the SIDES SWAPPED between them, which is the whole argument for measuring it
-# rather than inheriting it.
+# 41 = document 8 + frame 9 + copilot 8 + update 7 + click 9. DERIVED on the
+# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken from
+# either parent -- the base pins 40 and this branch pins 41, and each is right
+# only about its own half.
 #
-# AT THIS MERGE (the execution branch, carrying #176 and #174, into
-# app/differential-gate-v2) BOTH SIDES ALREADY PIN 40 -- the disagreement the
-# two comments above describe has been resolved by the base pull this branch
-# already took. An agreeing pair is the easiest place to carry a stale figure
-# across, since no conflict is raised to prompt a re-count, so it was measured
-# anyway: counting run_desktop.sh's own run_gate arguments reproduces 40 on BOTH
-# parents and gives 40 on the merged tree.
+# MEASURED, then CALIBRATED: the same count reproduces 40 on the base and 41 on
+# this branch exactly, and gives 41 on the merged tree. 41 is the UNION, and the
+# single mutation of difference is click 9 -- which this branch adds and the base
+# does not have. Confirmed the way this comment says to confirm it, in the file
+# that implements them rather than the one that counts them: click_gate.cpp on
+# the merged tree reads g_mutation for 1..9 with no gap.
 #
-# The confirmation, not the count: click mutation 8 -- the camera pull path,
-# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree, which is
-# what the earlier disagreement turned on. This is D-028's failure mode, and the
-# method that catches it is to COUNT on the tree being committed rather than to
-# inherit a number.
-EXPECTED_MUTATIONS=40
+# AND THE REASON CLICK 9 IS NUMBERED 9. It was authored as case 6 on this
+# branch while the base independently gave 6 to the command-sweep truncation.
+# The two edits are ~50 lines apart, so GIT MERGED THEM WITHOUT A CONFLICT and
+# one number stood for two distinct defects: `--mutate 6` fired both, and a
+# mutation proof whose cases overlap cannot say which assertion is load-bearing.
+# Verified as separated on the merged tree, not assumed: mutation 9 is read at
+# click_gate.cpp:487 (the expander-click frame) and mutation 6 at :542 (the
+# command-sweep break) -- two numbers, two code paths.
+#
+# This is D-028's failure mode, and the method that catches it is to COUNT on
+# the tree being committed rather than to inherit a number.
+EXPECTED_MUTATIONS=41
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

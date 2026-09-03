@@ -739,7 +739,7 @@ PlanRuling OpConstraintBridge::check(const std::vector<ProposedOp>& plan,
     if (ruling.accepted()) {
       const OpVocabulary::Op* op = vocabulary_.find(proposal.line.op);
       // Every %ref an allowed op takes is of the SAME declared kind -- each of
-      // the 18 rows consumes at most one kind, which
+      // the 28 rows consumes at most one kind, which
       // ui/test/op_constraint_bridge_test.cpp pins. So one rule covers CUT's two
       // solid operands and LOFT's n wire sections alike.
       for (const IrArg& arg : proposal.line.args) {

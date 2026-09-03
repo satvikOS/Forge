@@ -146,6 +146,23 @@ struct FeatureRecord {
   std::string label;            // feature-tree row label
   IrLine line;                  // the emitted statement
   IrValueKind produces = IrValueKind::Solid;
+
+  // ── history state (a history modeller, not an append-only log) ───────────
+  // `uid` is the statement's IDENTITY, and it is the only thing here that is
+  // not user-visible. `irId` is a POSITION -- reordering renumbers it, and every
+  // `%N` in every later statement means something different afterwards -- so a
+  // remap needs a key that does not move. It is assigned once, at append, and
+  // never reused within a document.
+  std::uint64_t uid = 0;
+  // SUPPRESSED: skipped by emission, kept in the tree and in the file. This is
+  // the CAD meaning, not a delete: the feature is still there, still editable,
+  // and unsuppressing it puts the geometry back.
+  bool suppressed = false;
+  // DELETED: a tombstone. The row leaves the tree and the statement leaves the
+  // emitted program, but the RECORD stays, so `irId` never has to compact and no
+  // surviving `%N` can be left dangling by a delete. Emission renumbers anyway
+  // (see EmissionPlan), so a tombstone costs the kernel nothing.
+  bool deleted = false;
 };
 
 // Why an EDIT needs its own result type and may not reuse IrCheck: IrCheck is
@@ -232,6 +249,129 @@ class PartDocument {
   const FeatureRecord* featureAt(int irId) const noexcept;
   EditCheck lastEdit() const noexcept { return lastEdit_; }
 
+  // ── HISTORY STATE ─────────────────────────────────────────────────────────
+  // The three things that turn a list of statements into a history: a feature
+  // can be SUPPRESSED, a feature can be DELETED, and the whole tree can be
+  // ROLLED BACK to a point. All three are properties of the DOCUMENT; none of
+  // them rewrites a statement, so every `%N` keeps meaning what it meant.
+  //
+  // Each of these is a primitive mutator: it does the thing and answers whether
+  // it found the feature. The UNDOABLE forms live in FeatureHistory.hpp, beside
+  // the consequence analysis, for the same reason AppendFeatureEdit lives beside
+  // appendFeature() -- the receiver does the work, the ConcreteCommand owns the
+  // memento.
+  bool setSuppressed(int irId, bool on);
+  bool setDeleted(int irId, bool on);
+  bool setLabel(int irId, const std::string& label);   // RENAME, the tree-row name
+
+  // The ROLLBACK BAR. 0 == none: every statement is live. N == "build the tree
+  // up to and including statement N"; everything after it is ROLLED, not lost.
+  // Clamps into [0, records()] rather than refusing, because a bar dropped past
+  // the end of a tree means "the end of the tree" in every modeller that has one.
+  void setRollback(int irId) noexcept;
+  int rollback() const noexcept { return rollback_; }
+
+  // ── REORDER ───────────────────────────────────────────────────────────────
+  // The one history operation that MUST renumber, because creation order IS
+  // evaluation order: a statement's position in `records_` is its `%N`.
+  //
+  // It never refuses a direction. `newPosition` is CLAMPED into the window the
+  // dependency graph allows -- after the last operand this statement reads,
+  // before the first statement that reads it -- and `clampedTo` reports where it
+  // actually landed and `blockedBy` names the statement that stopped it, so a UI
+  // (or a repair loop) can say WHY rather than appearing to ignore the drag.
+  // Returns false only when `irId` names no statement.
+  bool moveFeature(int irId, int newPosition, int& clampedTo, int& blockedBy);
+  // The legal window for a move, as 1-based positions. Both are inclusive.
+  void moveWindow(int irId, int& first, int& last) const;
+
+  // ── EMISSION ──────────────────────────────────────────────────────────────
+  // The emitted program is DERIVED from the records plus the history state, and
+  // it is renumbered: a document statement's `irId` is its identity here, and the
+  // kernel gets a dense 1..N program with every `%ref` remapped.
+  //
+  // WHY RENUMBER. Without it, suppression and deletion are unimplementable
+  // without either compacting `irId` (which rewrites what every later `%N` means
+  // in the DOCUMENT, breaking undo and every stored selection) or emitting a
+  // program with holes in its numbering (which forge::ft::parse refuses). With
+  // it, both are free, and the mapping back is what lets a kernel error that
+  // names op %7 be shown on the row the user is looking at.
+  enum class OmitReason : std::uint8_t {
+    None = 0,
+    Suppressed,          // the user suppressed this feature
+    Deleted,             // the user deleted it
+    RolledBack,          // it is after the rollback bar
+    OperandUnavailable,  // a value it consumes is not emitted, and cannot be rebased
+    Orphaned,            // nothing consumes it any more, because its consumer went
+  };
+  static const char* toString(OmitReason reason) noexcept;
+
+  struct Emitted {
+    int documentId = 0;   // the record
+    int emittedId = 0;    // its %N in the emitted program
+  };
+  struct Omitted {
+    int documentId = 0;
+    OmitReason reason = OmitReason::None;
+    // For OperandUnavailable: the DOCUMENT id of the operand that could not be
+    // resolved. For Orphaned: 0. Naming it is the difference between "this
+    // feature failed" and "this feature failed because %4 is suppressed".
+    int blockingId = 0;
+  };
+
+  class EmissionPlan {
+   public:
+    // ref-qualified, and the rvalue overloads are DELETED on purpose. The
+    // natural spelling `for (const Omitted& o : doc.emissionPlan().omitted())`
+    // binds a reference into a TEMPORARY plan that dies at the end of the
+    // init-statement, and the loop then walks freed memory -- undefined
+    // behaviour that reads as a plausible wrong answer, not a crash. MEASURED
+    // while writing feature_history_test.cpp: it reported 0 omissions on a
+    // document with two, and corrupted an unrelated later check. Deleting the
+    // rvalue overloads turns that into a compile error at the call site, so the
+    // caller has to hold the plan -- which is what it wanted anyway, since every
+    // query below is a scan.
+    const std::string& program() const& noexcept { return program_; }
+    const std::vector<Emitted>& emitted() const& noexcept { return emitted_; }
+    const std::vector<Omitted>& omitted() const& noexcept { return omitted_; }
+    const std::string& program() const&& = delete;
+    const std::vector<Emitted>& emitted() const&& = delete;
+    const std::vector<Omitted>& omitted() const&& = delete;
+    int emittedIdFor(int documentId) const noexcept;   // 0 == not emitted
+    int documentIdFor(int emittedId) const noexcept;   // 0 == no such emitted op
+    OmitReason omitReasonFor(int documentId) const noexcept;
+    int blockingFor(int documentId) const noexcept;
+    std::size_t emittedCount() const noexcept { return emitted_.size(); }
+
+   private:
+    friend class PartDocument;
+    std::string program_;
+    std::vector<Emitted> emitted_;
+    std::vector<Omitted> omitted_;
+  };
+
+  EmissionPlan emissionPlan() const;
+
+  // ── the whole document, for STRUCTURAL undo ───────────────────────────────
+  // `Snapshot` above is a record COUNT plus the bindings: it is exactly enough to
+  // reverse an APPEND and nothing else. A delete, a suppress, a rename, a
+  // rollback and a reorder each change state inside the records, and a reorder
+  // renumbers all of them, so their memento is the document. It is small -- a
+  // 71-statement tree is a few kilobytes -- and being the whole state, it cannot
+  // be a PARTIAL restore, which is the failure mode a hand-written inverse has.
+  struct History {
+    std::vector<FeatureRecord> records;
+    std::map<std::string, int> bindings;
+    int rollback = 0;
+    std::uint64_t nextUid = 1;
+  };
+  History captureHistory() const;
+  void restoreHistory(const History& state);
+
+  // Statement identity, the key a renumbering remaps through.
+  std::uint64_t uidOf(int irId) const noexcept;
+  int idOfUid(std::uint64_t uid) const noexcept;   // 0 == gone
+
   // GoF Memento. Small by construction: a record count plus the binding table.
   struct Snapshot {
     std::size_t records = 0;
@@ -245,6 +385,8 @@ class PartDocument {
   std::map<std::string, int> bindings_;
   IrCheck lastCheck_ = IrCheck::Ok;
   EditCheck lastEdit_ = EditCheck::Ok;
+  int rollback_ = 0;               // 0 == the bar is at the end of the tree
+  std::uint64_t nextUid_ = 1;      // never reused within a document
 };
 
 // ── the concrete command ────────────────────────────────────────────────────

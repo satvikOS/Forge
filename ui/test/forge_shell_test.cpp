@@ -7,6 +7,8 @@
 // the same journal, a workspace switch keeping the user's picked geometry, and a
 // projector being unplugged mid-session without losing a panel.
 #include <cstddef>
+#include <cstdio>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -309,21 +311,39 @@ int main() {
     }
   }
   CHECK_EQ_INT(documentCommands, app.partCommands + 1);  // + edit.delete
-  // Every document command emits feature IR EXCEPT part.edit_feature, and that exception
-  // is structural rather than an oversight: edit_feature MUTATES an existing statement's
-  // argument in place, so it has no op of its own to emit -- the statement it edits already
-  // carries one. Naming the single exemption keeps this as strong as the equality it
-  // replaces: a SECOND op-less document command still fails here.
+  // Every document command emits feature IR EXCEPT the ones that change an EXISTING
+  // statement, or the history around it, rather than appending a new one. Each exemption
+  // is structural rather than an oversight: part.edit_feature MUTATES one statement's
+  // arguments in place, and the seven history operations change WHICH statements the
+  // document emits (and in the reorder's case, in what order) -- the statements they act
+  // on already carry their own ops. Naming the exemptions INDIVIDUALLY keeps this as
+  // strong as the equality it replaces: an op-less document command outside this list
+  // still fails here, and so does a listed one that disappears.
+  static const char* const kOpLessDocumentCommands[] = {
+      "part.delete_feature",  "part.edit_feature",     "part.rename_feature",
+      "part.reorder_feature", "part.rollback_end",     "part.rollback_to",
+      "part.suppress_feature", "part.unsuppress_feature",
+  };
+  const std::size_t kOpLessCount =
+      sizeof(kOpLessDocumentCommands) / sizeof(kOpLessDocumentCommands[0]);
   std::size_t documentCommandsWithoutIr = 0;
+  std::set<std::string> opLessSeen;
   for (const std::string& id : shell.registry().ids()) {
     const CommandDescriptor* c = shell.registry().find(id);
     if (c->undo == UndoContract::Transaction && c->featureIrOp.empty()) {
       ++documentCommandsWithoutIr;
-      CHECK_EQ_STR(id, "part.edit_feature");
+      bool listed = false;
+      for (std::size_t k = 0; k < kOpLessCount; ++k) {
+        if (id == kOpLessDocumentCommands[k]) listed = true;
+      }
+      if (!listed) std::printf("  [shell] op-less document command not exempted: %s\n", id.c_str());
+      CHECK(listed);
+      opLessSeen.insert(id);
     }
   }
-  CHECK_EQ_INT(documentCommandsWithoutIr, 1);
-  CHECK_EQ_INT(documentCommandsWithIr, documentCommands - 1);
+  CHECK_EQ_INT(documentCommandsWithoutIr, kOpLessCount);
+  CHECK_EQ_INT(opLessSeen.size(), kOpLessCount);
+  CHECK_EQ_INT(documentCommandsWithIr, documentCommands - kOpLessCount);
 
   // ── one dispatch path: shortcut, palette pick and macro step all land ───
   // in the SAME journal, because they all go through run().

@@ -66,18 +66,23 @@ int main() {
   forge::uitest::Harness H("keymap_audit");
 
   // ── (a) THE GESTURE-BLOCKED LIST, PINNED ─────────────────────────────────
-  // Exactly two commands in the whole application registry cannot be run by a
-  // bare keystroke or menu click, and both are honest: a file path has no
-  // default ("" is not a document), and "the new value of this parameter" has
-  // none either — inventing one would let a menu click silently resize the part.
+  // Exactly FOUR commands in the whole application registry cannot be run by a
+  // bare keystroke or menu click, and every one is honest: a file path has no
+  // default ("" is not a document), "the new value of this parameter" has none
+  // either — inventing one would let a menu click silently resize the part — and
+  // the two feature-history commands that take a NEW NAME and a NEW POSITION have
+  // none for the same reason. A default name would rename a row on a stray click
+  // and a default position would reorder the tree on one.
   // Pinned by NAME, deliberately: a count would go on passing while the identity
   // of the blocked command changed underneath it.
   {
     App app;
     const std::vector<std::string> blocked = gestureBlockedCommands(app.shell.registry());
-    CHECK_EQ_INT(blocked.size(), 2);
+    CHECK_EQ_INT(blocked.size(), 4);
     CHECK_EQ_STR(forge::uitest::at(blocked, 0), "file.open");
     CHECK_EQ_STR(forge::uitest::at(blocked, 1), "part.edit_feature");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 2), "part.rename_feature");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 3), "part.reorder_feature");
 
     // And the reason is the PARAMETER, named — a list of ids with no cause is
     // not something a reader can act on.
@@ -145,7 +150,7 @@ int main() {
     // application registry really holds. This is the check that caught the
     // model.* -> part.* rename when the stubs were retired.
     CHECK_EQ_INT(rep.count(BindingIssueKind::UnknownCommand), 0);
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 2);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 4);
     // The shipped defaults bind the same 13 commands in all four profiles, so
     // there is no ProfileGap yet: a gap needs a command bound HERE and not
     // THERE. Unbound and ProfileGap are raised instead of each other, never
@@ -187,7 +192,7 @@ int main() {
     // complete() must NOT be cleared by GestureBlocked: that is a property of a
     // schema and no rebinding can fix it, so treating it as an incomplete map
     // would make the flag permanently unreachable.
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 2);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 4);
 
     // IDEMPOTENT. Running it again adds nothing and changes nothing — a startup
     // that calls it after registration AND after loadState must not double-bind.

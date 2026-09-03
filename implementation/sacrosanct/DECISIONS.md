@@ -1890,6 +1890,7 @@ Whether the null on paths A and B is present on the input or generated inside th
 **still not measured**, and the report's instruction to run that sweep before writing any guard
 stands. This decision buys the app the right to stay alive and to say which statement died; it does
 not buy a correct offset.
+
 ## D-040 (2026-08-31): the missing surfacing capability was a missing TYPE — SURFACE is now the fourth IR value kind
 
 *(Numbering collision, resolved at merge: this entry was allocated **D-038** on `archdisc`, which `claude/sacrosanct-execution-20260828` had already spent on the ten-primitives entry above. It is renumbered **D-040** here.)*
@@ -3671,3 +3672,119 @@ nothing about v1's behaviour on a run that DOES crash — and the v10 arm, which
 instrument failures, was never scored with v1. So the correct reading is not "v1 and v2 agree"
 but "**v1 and v2 agree when nothing dies**", which is the only claim the data supports and
 the only one D-051 needed.
+
+## D-049 (2026-08-31): the app's core interaction surface — 11 of 12 forbidden ops become reachable, and the last one is a KERNEL defect whose cause was misattributed
+
+*(Numbering collision, resolved at merge. This entry was allocated **D-039** on
+`app/core-interaction-surface`; the execution branch had already merged D-039 for the
+out-of-process kernel worker. The merged entry keeps its number, as every other collision
+in this file has been resolved, and this one is renumbered.*
+
+*It takes **D-049**, and the gap below it is deliberate and RESERVED, not accidental:
+**D-047 and D-048 are allocated on `app/differential-gate-v2`**, which is open and not
+merged here, and **D-046** was taken by the sketch family on the base in 2d30916a. This
+number moved once already -- it was D-048 at the first rebase, until that same base merge
+allocated D-046 and pushed the differential branch's pair up onto it.*
+
+*That is D-043's lesson twice over. Surveying the `decisions/*` branches is not enough,
+because a feature PR can allocate a number too; and surveying `origin` ONCE is not enough
+either, because the base can allocate one WHILE your branch is being rebased onto it. A
+number is only free at the instant you merge, so the survey has to include the other OPEN
+PRs and be re-run at every pull. Content unchanged.)*
+
+Four measured findings, and the ordering matters: two of them are about a rescued snapshot being
+wrong, and one is about an invariant that was covering less than it claimed.
+
+**1. THE COMMAND SURFACE IS FINISHED EXCEPT FOR ONE OP.** `user_invocable_ops` 28 -> **39**,
+`forbidden_ops` 12 -> **1**. Eleven commands were added (`POLY WIRE SWEEP INPUT TAG VERIFY HEAL
+PUSHFACE RESIZEBORE DEFEATURE FOLD`), and eight more for history operations, so
+`registerPartCommands` goes 31 -> 49 and the registry 41 -> 59. Nothing was hand-edited into the
+assets: the generator DERIVES the reachable set from the registry.
+
+`POLY`, `WIRE` and `SWEEP` were **structurally** unreachable, and the recorded reason was
+CIRCULAR: `IrArgKind` modelled no points token because "a token kind nothing produces is a
+liability", and the only ops that produce one are the three the missing token blocked.
+`IrArgKind::Points` breaks the circle, and `validateIr` answers `MalformedPointList` for a spec
+the kernel's own tokenizer would refuse.
+
+Argument order was measured through the pinned native verifier on a VECTOR of observables, never
+volume alone:
+
+| statement | volume | faces | bbox |
+|---|---|---|---|
+| `POLY([-20 -20; 20 -20; 20 20; -20 20])` + E10 | 16000 | 6 | 40 x 40 |
+| `POLY([0 0; 40 0; 0 30])` + E10 | 6000 | 5 | — |
+| `POLY([0 0; 60 0; 60 20; 20 20; 20 50; 0 50])` + E10 | 18000 | 8 | 60 x 50 |
+| `WIRE` x2 + `LOFT` | 14000 | — | the exact prismatoid |
+
+**2. `SWEEP` IS EXACT ON A STRAIGHT PATH AND LOSES VOLUME ON EVERY BEND.** The rescued snapshot
+shipped a BENT default, so the out-of-the-box click emitted a statement 15% short of the pipe it
+describes. Measured, r = 5, expect = `pi*r^2*len`:
+
+| path | len | expect | measured | error |
+|---|---|---|---|---|
+| `[0 0 0; 0 0 100]` | 100.000 | 7853.982 | 7853.982 | +0.0% |
+| `[0 0 0; 0 0 50; 0 0 100]` | 100.000 | 7853.982 | 7853.982 | +0.0% (collinear) |
+| `[0 0 0; 0 30 30]` | 42.426 | 3332.162 | 3332.162 | +0.0% (tilted) |
+| `[0 0 0; 0 0 40; 0 30 40]` | 70.000 | 5497.787 | 3141.593 | **−42.9%**, shellCount **2** |
+| `[0 0 0; 0 0 40; 0 30 70]` | 82.426 | 6473.755 | 5497.787 | **−15.1%** |
+
+**The cause is one line away.** `pipeFromPolyline` has two backends; the native one is described
+in its own comment as a *"mitre-trimmed cylinder chain"* — mitring is exactly what a corner needs
+— and is taken only `if (occtloft::pipeNativeEnabled())`. `FeatureTreeCompiler::compile()` calls
+`setForgeNativeBrepEnabled(false)` for EVERY build, so **no feature-tree SWEEP ever reaches it**;
+they all fall through to `BRepOffsetAPI_MakePipe`, which does not mitre a sharp spine vertex. NOT
+fixed here — a kernel change must be re-measured through a kernel build. The command still ships
+(refusing an op the kernel has is the one thing the app layer may not do) with the default
+straightened to a path measured exact, and the app now has the instrument that catches the rest,
+because `part.verify` can assert the pipe's own volume.
+
+**3. `SLOT`'s RECORDED CAUSE WAS WRONG, AND THE CORRECTION DECIDES THE FIX.** D-038 read it as
+*"profSlot's source is right, so the defect is in how a 180-degree arc's direction is resolved
+downstream"*, which implies an endpoint-order fix would settle it. **It cannot.**
+
+* `forge::addArc(h, center, p0, p1)` stores ONLY centre, start and end as `atan2` angles. It
+  records **no orientation bit**.
+* `profileFromSketch` normalises the sweep into `(-pi, pi]` and then trims
+  `[min(sa,ea), max(sa,ea)]` — which **discards the sweep's sign** and therefore always takes the
+  MINOR arc.
+
+For a 180-degree cap the two candidate arcs are the same LENGTH, so "minor" is a tie broken
+arbitrarily by a `<=`, and it breaks it **inward for both caps**. No argument order can change
+that: the information about which semicircle was meant is never stored. Re-deriving the trim span
+from the source and comparing against D-038's four measured areas agrees to **3.6e-05** on every
+row, with the `RRECT` 90-degree control coming out OUTWARD as measured.
+
+One measurement D-038 did not have: `SLOT(30, 20)` is not merely the wrong volume, it is an
+**INVALID SOLID** — genus 1, *"first invalid solid is produced by op %2 EXTRUDE (line 2): not
+consistently oriented"* — because with `len - wid < wid` the inward caps cross the centre-line and
+the profile self-intersects.
+
+**The fix that follows** (analysed over five sizes, NOT shipped): build each cap as TWO 90-degree
+arcs meeting at its outward apex, exactly the construction `RRECT` already uses and which is
+measured exact. Every resulting arc is a true minor arc, so the tie never arises. It needs a
+kernel build to re-measure, which this run was memory-capped away from.
+
+**4. THE MID-WALK INVARIANT COVERED TWO OF ITS THREE CONTAINERS.** Mid-walk container mutation has
+shipped three crashes (tab click, splitter drag, tree expander). All three gesture sites record and
+defer, so the shipped paths are fixed — but `setRatioAt`/`setActiveTabAt` each carry a safety net
+that counts a violation into `layoutReseatsDuringWalk()`, and the feature tree had **neither a net
+nor a counter**. A reintroduced mid-walk `tree_.rebuild()` would have aborted the process with the
+invariant still reading zero: the crash ships and the gate stays green. `setTreeExpandedAt()` is
+that missing writer, reporting into the same counter.
+
+And **the click gate never clicked an expander.** `ForgeFrame::treeExpanderRect()` has existed the
+whole time, documented as *"so a headless gate can click the real widget instead of guessing
+pixels"*, and nothing called it — crash 3's fix had no gate at all. It now does, with mutation 6
+proving the assertion load-bearing.
+
+**5. PICKING IS INTERACTIVE AT 400 FACES, MEASURED.** 400 faces / 12,800 triangles / 760 recovered
+edges: `pickEdge` median **0.011 ms** (0.07% of a 60 fps frame), `deriveEdges` 3.6 ms once per
+geometry change. The gate also sweeps 180 -> 760 edges and finds **x4.36 where linear is x4.22 and
+quadratic x17.83**, which is the check that survives a slow machine — an absolute millisecond bound
+on a shared runner has to be loose enough to only catch a catastrophe. No work was needed; the
+value of this is having it as a number rather than a belief.
+
+**Every generated artifact was regenerated in the same commits** — the desync that has now bitten
+seven times. `--check` green on both generators, `run_op_constraint_gate.sh` 8/8 mutations caught,
+`run_ui.sh` ALL 17 UI GATES PASS.
