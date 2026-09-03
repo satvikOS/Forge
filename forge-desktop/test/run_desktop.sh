@@ -182,7 +182,7 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # bit-identical, and 5 (a cube of the same volume about the same centre) leaves
 # volume and the centre of mass identical. A gate checking volume alone passes both.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and
