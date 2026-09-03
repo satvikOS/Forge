@@ -741,6 +741,27 @@ void ForgeFrame::invoke(const std::string& id) {
       }
     }
   }
+  // ── the path the user CHOSE IN A PANEL ──────────────────────────────────
+  // The same shape as the prompt above, one line lower, and that is the point:
+  // a path picked with a mouse and a path typed by hand become the same
+  // CommandParams entry and travel the same dispatch. runPendingFileDialog()
+  // sets these two and calls straight back into this function.
+  if (dialogCommand_ == id && !dialogPath_.empty()) {
+    overrides.setText("path", dialogPath_);
+  }
+
+  // ── A FILE COMMAND ASKS FOR ITS FILE ────────────────────────────────────
+  // Recorded and deferred, never run here: this function is called from inside
+  // BeginMainMenuBar(), from the ribbon, from the palette and from inside the
+  // dock walk, and a modal panel runs a nested event loop before dispatching a
+  // command that can replace the document and rebuild the feature tree. That is
+  // the exact shape of the three crashes this class already carries deferral
+  // machinery for. build() shows the panel after the walk has returned.
+  if (wantsFileDialog(id, overrides)) {
+    lastInvokeOk_ = false;
+    pendingDialogId_ = id;
+    return;
+  }
 
   const forge::ui::InvokeOutcome outcome = shell_.invoke(id, overrides);
 
@@ -879,6 +900,113 @@ void ForgeFrame::runPendingOpen() {
   const std::string reason = why.empty() ? std::string(forge::ui::toString(r.status)) : why;
   shell_.log().error("file.open", "could not open " + path + " — " + reason, r.detail);
   note("file.open  ->  REFUSED: " + reason);
+}
+
+// ── the file panel ──────────────────────────────────────────────────────────
+bool ForgeFrame::wantsFileDialog(const std::string& id,
+                                 const forge::ui::CommandParams& overrides) const {
+  // No panel installed: every headless build, and any platform this application
+  // has no native picker for. The text prompt is what happens instead, exactly
+  // as it did before this seam existed.
+  if (fileDialog_ == nullptr) return false;
+  // Already answering this command's panel. Without this the dispatch below
+  // would raise another panel for the same command and never terminate.
+  if (dialogCommand_ == id) return false;
+  // The text prompt is open on this command: the user is typing a path by hand
+  // and taking it away from them mid-edit would be worse than not offering the
+  // panel at all.
+  if (promptCommand_ == id) return false;
+  // A caller that already supplied a path -- Open Recent, a macro, an Archie
+  // tool call, --open on the command line -- is not asking a question.
+  if (overrides.has("path")) return false;
+
+  FileDialogPolicy policy;
+  if (!fileDialogPolicyFor(id, policy)) return false;
+
+  // ── WHAT THE REGISTRY SAYS, not a second opinion ────────────────────────
+  // evaluate() runs the command's OWN enabled predicate and its OWN schema
+  // without executing anything. Deciding here instead would mean this file
+  // holding a copy of "a save is offered only when there is something to save",
+  // and the copy would drift -- which is the one-registry rule this application
+  // is built on.
+  const forge::ui::DispatchResult pre =
+      shell_.registry().evaluate(id, shell_.selection(), overrides);
+  switch (policy.role) {
+    case PathRole::Required:
+      // The ONLY thing standing between this command and running is the path we
+      // are about to ask for. A command that is disabled, or whose selection is
+      // wrong, must not raise a panel it cannot use: the user would pick a file
+      // and be told no afterwards.
+      return pre.status == forge::ui::DispatchStatus::MissingRequiredParameter &&
+             pre.detail == "path";
+    case PathRole::SaveTarget:
+      // Save is dispatchable with no path at all, so the registry says Ok. The
+      // question here is a different one: does the APPLICATION know where to put
+      // it? An untitled document has nowhere, and ForgeFrame::documentSave()
+      // answers that today by writing ~/.forge/untitled.fpart -- a directory the
+      // user never chose and has no reason to guess. That is the case the panel
+      // is for, and it is the only one: a document that came from a file is
+      // saved back to that file, silently, on every Ctrl+S.
+      //
+      // ── A LIMIT, STATED RATHER THAN HIDDEN ──────────────────────────────
+      // This reaches the KEYBOARD for the four Required commands and it does
+      // NOT reach Ctrl+S. onKey() can only intervene on a command the shell
+      // refused for a missing parameter, and file.save's `path` is OPTIONAL by
+      // design -- a required one would turn every keyboard save into
+      // MissingRequiredParameter, which is why ForgeShell declares it that way.
+      // So the shell DISPATCHES Ctrl+S before this frame builder ever sees the
+      // resolution, and an untitled document saved with the keyboard still goes
+      // to ~/.forge/<name>.fpart while File > Save asks. Closing that needs a
+      // resolve-without-dispatch on ForgeShell::key, which is a forge::ui change
+      // and a separate one. It is written here rather than left for someone to
+      // discover, and forge_desktop_file_dialog_gate PINS both halves so the
+      // behaviour cannot drift without a red check.
+      return pre.ok() && documentPath_.empty();
+  }
+  return false;
+}
+
+std::string ForgeFrame::fileDialogSeed() const {
+  const std::string known = pathPromptSeed();
+  if (!known.empty()) return known;
+  // Never saved and nothing remembered. The document's NAME is still a better
+  // starting point than an empty name field, and fileDialogRequestFor() puts the
+  // command's own suffix on it.
+  return documentName_;
+}
+
+void ForgeFrame::runPendingFileDialog() {
+  const std::string id = pendingDialogId_;
+  pendingDialogId_.clear();
+  if (id.empty() || fileDialog_ == nullptr) return;
+
+  FileDialogRequest request;
+  if (!fileDialogRequestFor(id, fileDialogSeed(), request)) return;
+
+  ++dialogsShown_;
+  const FileDialogResult chosen = fileDialog_->run(request);
+
+  // ── CANCEL IS A NO-OP ───────────────────────────────────────────────────
+  // Not an error, not a refusal, not a line in the activity log and not a
+  // sentence in the status strip. The user opened a File menu and changed their
+  // mind; there is nothing to report and nothing went wrong. An empty path is
+  // treated the same way for the reason FileDialogResult spells out: "" is not a
+  // file name, and dispatching it would reach the command's own "Open needs a
+  // path" refusal and show the user a failure they did not cause.
+  if (!chosen.accepted || chosen.path.empty()) {
+    ++dialogsCancelled_;
+    return;
+  }
+
+  // The chosen path reaches the command as an OVERRIDE on the next line, through
+  // the one dispatch every other invoker uses. Cleared afterwards whatever
+  // happened, so a second gesture on the same command asks again rather than
+  // silently reusing yesterday's answer.
+  dialogCommand_ = id;
+  dialogPath_ = chosen.path;
+  invoke(id);
+  dialogCommand_.clear();
+  dialogPath_.clear();
 }
 
 std::vector<std::string> ForgeFrame::promptParameters() const {
@@ -1118,6 +1246,35 @@ bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   }
   if (outcome.resolve == forge::ui::ResolveStatus::Unbound) return false;
   if (outcome.commandId == "app.command_palette") togglePalette();
+  // ── A KEYSTROKE THAT NEEDS A VALUE ASKS FOR IT ──────────────────────────
+  //
+  // WHAT THIS WAS, MEASURED. `KeyOutcome::promptFor` names the parameters the
+  // command still needs, and this function READ NOTHING FROM IT. So Ctrl+O on
+  // the shipped application resolved to file.open, came back
+  // MissingRequiredParameter, and the entire user-visible result was a status
+  // line reading "Ctrl+O  ->  file.open  missing_required_parameter". The menu
+  // at least opened a text box; the keyboard opened nothing at all and named an
+  // enum while doing it. Every binding of a command with an unfillable parameter
+  // behaved that way -- Ctrl+O and the generated bindings for the two Imports and
+  // the two Exports.
+  //
+  // It now asks the SAME WAY a menu click does: the native panel when there is
+  // one and this is a file command, the text prompt otherwise. Nothing has
+  // dispatched at this point -- ForgeShell::invoke returns before run() when a
+  // required parameter is missing -- so raising the panel here starts the
+  // command rather than repeating it.
+  if (outcome.needsParameters()) {
+    const forge::ui::CommandParams none;
+    if (wantsFileDialog(outcome.commandId, none)) {
+      // Deferred like every other panel: onKey is called from the event pump,
+      // which on the shipped path is inside the frame loop.
+      pendingDialogId_ = outcome.commandId;
+      note(stroke.toText() + "  ->  " + outcome.commandId + "  asks which file");
+    } else {
+      openPrompt(outcome.commandId, outcome.promptFor);
+    }
+    return false;
+  }
   note(stroke.toText() + "  ->  " + outcome.commandId + "  " +
        (outcome.dispatch.ok() ? "ok" : forge::ui::toString(outcome.dispatch.status)));
   return outcome.ran();
@@ -1591,6 +1748,12 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingInvokeId_.clear();
     invoke(id);
   }
+  // The file panel, before Open Recent and after everything else: it runs a
+  // MODAL nested event loop, so it must not start until the dock walk has
+  // returned and every deferred mutation above has been applied -- the panel
+  // blocks this thread until the user answers, and the frame it is standing in
+  // front of is the one the walk just finished.
+  runPendingFileDialog();
   // Open Recent, last: it REPLACES the document, so anything above that acts on
   // the document the user was looking at when they clicked must run first.
   runPendingOpen();

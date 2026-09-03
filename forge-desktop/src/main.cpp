@@ -47,6 +47,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -58,6 +59,7 @@
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 
+#include "FileDialog.hpp"
 #include "FileExchangeHost.hpp"
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
@@ -624,6 +626,27 @@ int main(int argc, char** argv) {
   // loop below.
   forge::desktop::FileExchangeHost fileExchange(frame.document(), &scene);
   shell.setFileExchange(&fileExchange);
+
+  // ── AND THE MOUSE CAN REACH ALL SIX OF THEM ──────────────────────────────
+  // The six file commands were registered and every one of them declares a
+  // `path` the user has to supply. Until this line the only thing that could
+  // supply one was an ImGui text box: to open a part you typed its absolute
+  // path. The native panel is constructed HERE, in the application, because it
+  // is Cocoa -- the frame builder holds the pointer and knows nothing about
+  // AppKit, which is what keeps every headless gate linkable.
+  //
+  // A platform with no implementation answers nullptr and the app keeps the text
+  // prompt: a missing picker degrades to the previous behaviour, never to a menu
+  // item that does nothing.
+  std::unique_ptr<forge::desktop::FileDialog> fileDialog = forge::desktop::makeNativeFileDialog();
+  if (fileDialog) {
+    frame.setFileDialog(fileDialog.get());
+    std::printf("[forge] native file panels: ON (Open, Save, Import and Export ask for a file)\n");
+  } else {
+    std::fprintf(stderr,
+                 "[forge] no native file panel on this platform - the six file commands fall "
+                 "back to the typed-path prompt\n");
+  }
 
   std::printf("[forge] registry: %zu commands (%zu of them Part), %zu categories\n",
               shell.registry().size(), partCommands, shell.registry().categories().size());
