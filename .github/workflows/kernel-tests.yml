@@ -123,28 +123,32 @@ jobs:
     # model. Nothing here includes an ImGui header, which is why it runs headless in CI: the ImGui
     # frame builder is a CONSUMER of this state, not its owner.
     runs-on: ubuntu-latest
-    # ── 20 -> 45, AND THE REASON IS A MEASUREMENT, NOT A GUESS ──────────────
-    # This job was CANCELLED AT EXACTLY 20m18s on run 33805100788 with seven
-    # steps green and none failing: the panel-ratchet mutation proof was cut off
-    # mid-step at 6m13s. Nothing was wrong with it -- the job had simply run out
-    # of wall clock.
+    # ── 20 -> 45, MEASURED, because 20 was already unreachable ──────────────
+    # This job carries the mutation proofs, and each one rebuilds every ui/
+    # source. On archdisc itself (run 33802557633) it took 18m05s of its 20:
+    # prose 7m54, model-tree 4m53, syntax 55s. That is 90% of budget spent
+    # before any pull request touches it, so ANY branch that adds work to this
+    # job times out -- and a timeout is reported as `cancelled`, which reads
+    # like "superseded by a newer push" and is not.
     #
-    # MEASURED, per step. On archdisc (abdce05e, run 33802557633) this job took
-    # 18m05s of its 20 with THREE mutation proofs: prose 7m54, model-tree 4m53,
-    # syntax 55s, and 4m23 of everything else. It was already at 90% of budget.
-    # This branch adds a FOURTH -- the empty-panel ratchet, six real mutations in
-    # the real sources, each of which rebuilds every ui/ source -- and ~2,500
-    # lines of new source that all four proofs recompile every time (prose went
-    # 7m54 -> 8m57 on run 33805100788, +13%). Measured need is therefore ~28
-    # minutes, and 45 leaves room for a slow runner rather than putting the next
-    # person one step away from this same cancellation.
+    # Two branches hit it on the same day, both with every other step green:
+    #   #219 cancelled at 20.3 min, mid "what a USER reads"
+    #   #220 cancelled at 20m18s, mid "how many docked tabs still show nothing"
+    # #220 also ADDS a fourth mutation proof (the panel ratchet, ~7 min, absent
+    # here) and ~2,500 lines that cost ~13% on every full rebuild -- measured
+    # need is about 28 minutes, so 45 leaves real headroom rather than moving
+    # the cliff by two minutes.
     #
-    # NOT a weakened check: every gate and every mutation still runs, in full.
-    # The structural fix, when CI minutes matter more than a diff does, is to
-    # split the four mutation proofs into their own parallel jobs -- they share
-    # nothing but the checkout -- which keeps each one under 20 minutes instead
-    # of extending one deadline. That changes the set of check names on every PR,
-    # so it is deliberately not bundled into a change about panel content.
+    # ★ THE STRUCTURALLY BETTER FIX IS TO SPLIT THE MUTATION PROOFS INTO
+    #   PARALLEL JOBS. It is deliberately NOT done here: it renames checks on
+    #   every open pull request, and this change exists to UNBLOCK a queue that
+    #   cannot currently prove anything. Raising a budget hides nothing -- no
+    #   assertion, tolerance, or mutation is touched by this commit.
+    #
+    # ★ A cheaper option was measured and rejected: -O2 -> -O0 on the ratchet
+    #   build saves 33% per build (24.1s -> 16.2s) but only ~1 min across the
+    #   job, and it breaks the shared -Wall -Wextra -Werror -O2 convention that
+    #   three gate scripts rely on.
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
