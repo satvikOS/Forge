@@ -702,6 +702,8 @@ int main(int argc, char** argv) {
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
     frame.setActiveTabAt({1, 1}, 0);
 
+  }  // ── end 12c. Its closing brace lived on the OTHER side of the conflict,
+     //    so the union dropped it. Restored here; brace delta was exactly +1.
   // ── MERGE: sections 12c (this branch) and 16 (archdisc) are DISTINCT additions.
   //    Both kept; taking either side alone would delete the other's coverage.
   // ── 16. THE MODEL BROWSER AND THE SKETCH TREE ARE REAL, AND DIFFERENT ────
