@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = 85ab90fe6684565af2bb9c577d4ac76f53494f0b513f8e4ce14087bc05c09c70
+// sha256(vocabulary) = 93146aa0c7d8bb83586e5a6b4e4e4368be3517967aaeacc6ff96a1a06db3567e
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,7 +35,7 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "85ab90fe6684565af2bb9c577d4ac76f53494f0b513f8e4ce14087bc05c09c70";
+inline constexpr std::string_view kVocabularySha256 = "93146aa0c7d8bb83586e5a6b4e4e4368be3517967aaeacc6ff96a1a06db3567e";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
