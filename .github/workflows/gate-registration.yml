@@ -82,3 +82,84 @@ jobs:
 
       - name: Every gate CMake builds is a gate run_desktop.sh runs
         run: bash forge-desktop/test/gate_registration_check.sh
+
+  kernel_gate_registration:
+    name: every forge-kernel gate is executed, not merely built
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Prove the ratchet can fail BEFORE trusting the run below. A registration
+      # check that cannot go red is decoration. Three cases, no build, ~1 s.
+      - name: Prove the kernel registration ratchet can fail (3 cases)
+        shell: bash
+        run: |
+          # ★ set +e IS LOAD-BEARING. GitHub's `shell: bash` runs
+          #   `bash --noprofile --norc -eo pipefail`, so -e is ALREADY ON and a
+          #   plain `set -uo pipefail` does NOT remove it. Every case below runs a
+          #   command that is SUPPOSED to fail, and `OUT=$(...)` takes that exit
+          #   status -- so under -e the step died the instant mutation 1 worked
+          #   CORRECTLY, printing the baseline and then nothing at all. The proof
+          #   succeeding is what killed the job.
+          set +e
+          set -uo pipefail
+          R=forge-kernel/test/gate_registration_ratchet.sh
+          fails=0
+
+          # ── BASELINE FIRST, PRINTED UNCONDITIONALLY ────────────────────────
+          # The previous revision only echoed the ratchet's output on FAILURE,
+          # and the fetched job log came back truncated, so a red step told me
+          # nothing at all about WHY. Print the baseline every time: if measured
+          # and pinned disagree here, every case below is meaningless and this
+          # line says so immediately.
+          echo "--- baseline (before any mutation) ---"
+          BASE=$(bash "$R" 2>&1); brc=$?
+          echo "$BASE" | sed 's/^/    /'
+          echo "    baseline exit=$brc  (0 expected: measured must equal pinned)"
+          if [ $brc -ne 0 ]; then
+            echo "::error::the ratchet is not GREEN on an unmodified tree — the proof cases below cannot mean anything"
+            exit 1
+          fi
+
+          # 1. A NEW unwired gate must be caught. This is the case nothing in the
+          #    repository caught before: adding a gate and forgetting to wire it.
+          printf '#!/usr/bin/env bash\necho phantom\n' > forge-kernel/test/run_phantom_ci_gate.sh
+          OUT=$(bash "$R" 2>&1); rc=$?
+          rm -f forge-kernel/test/run_phantom_ci_gate.sh
+          if [ $rc -eq 0 ]; then
+            echo "::error::mutation 1 stayed GREEN — the ratchet does not detect a new unwired gate"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  mutation 1 (new unwired gate) caught"; fi
+          echo "$OUT" | grep -E "measured=|RED|GREEN" | sed 's/^/      m1: /' || true
+
+          # 2. An allowlisted gate becoming REACHABLE must also be red — a ratchet
+          #    that cannot notice progress is not evidence.
+          cp .github/workflows/kernel-tests.yml /tmp/kt.bak
+          printf '\n# run_pipe_drop_gate\n' >> .github/workflows/kernel-tests.yml
+          OUT=$(bash "$R" 2>&1); rc=$?
+          cp /tmp/kt.bak .github/workflows/kernel-tests.yml
+          if [ $rc -eq 0 ]; then
+            echo "::error::mutation 2 stayed GREEN — the ratchet cannot notice an improvement"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  mutation 2 (allowlisted gate became reachable) caught"; fi
+          echo "$OUT" | grep -E "measured=|RED|GREEN" | sed 's/^/      m2: /' || true
+
+          # 3. TRUE CONTROL: an edit naming NO gate must leave the verdict alone.
+          #    Without this, cases 1-2 would pass over a check that simply reacts
+          #    to any edit. (My first attempt at case 2 was not a control at all:
+          #    the comment I inserted contained the gate name.)
+          cp .github/workflows/kernel-tests.yml /tmp/kt.bak
+          printf '\n# an unrelated comment naming nothing\n' >> .github/workflows/kernel-tests.yml
+          OUT=$(bash "$R" 2>&1); rc=$?
+          cp /tmp/kt.bak .github/workflows/kernel-tests.yml
+          if [ $rc -ne 0 ]; then
+            echo "::error::control FAILED — the ratchet reacts to any edit, not to gate reachability"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  control (unrelated edit) correctly unchanged"; fi
+
+          [ $fails -eq 0 ] || { echo "::error::$fails of 3 proof cases failed"; exit 1; }
+          echo "  all 3 proof cases pass — the ratchet is falsifiable"
+
+      - name: Every gate named *_gate is reachable from CI (or pinned with a reason)
+        shell: bash
+        run: bash forge-kernel/test/gate_registration_ratchet.sh
