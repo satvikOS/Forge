@@ -48,7 +48,14 @@ build_thicken_orientation_gate"
 
 reachable() {   # reachable <basename>
   local b="$1"
-  grep -rql "$b" .github/workflows/ 2>/dev/null && return 0
+  # ★ EXCLUDE gate-registration.yml. It is the CHECKER, not a consumer -- no gate
+  #   is ever RUN from it -- and its own mutation-proof step necessarily NAMES
+  #   gates (it creates run_phantom_ci_gate and mentions run_pipe_drop_gate). Left
+  #   in, the search finds those names THERE, calls them reachable, and every
+  #   proof case silently no-ops. That is exactly what happened: all three cases
+  #   reported failure in CI while passing locally, because locally the mutations
+  #   came from the shell and not from a file the search reads.
+  grep -rql --exclude=gate-registration.yml "$b" .github/workflows/ 2>/dev/null && return 0
   # invoked by any OTHER script or workflow in the tree
   # ★ EXCLUDE THIS SCRIPT. Its own ALLOW list names every pinned gate, so without
   #   this the search finds each name HERE and calls it reachable -- measured
@@ -57,6 +64,7 @@ reachable() {   # reachable <basename>
   grep -rl "$b" --include="*.sh" --include="*.yml" . 2>/dev/null \
     | grep -v "/$b\.sh$" \
     | grep -v "/gate_registration_ratchet\.sh$" \
+    | grep -v "/gate-registration\.yml$" \
     | grep -q . && return 0
   # run_ab_all.sh CONSTRUCTS run_ab_native_<t>.sh from its HARNESSES list, so a
   # name never appears literally. This is the only dynamic construction in the
