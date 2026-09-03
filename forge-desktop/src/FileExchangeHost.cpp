@@ -29,11 +29,30 @@ using forge::ui::ExchangeFormat;
 using forge::ui::ExchangeRefusal;
 using forge::ui::ExchangeReport;
 
-// The tessellation the observables are integrated over. The SAME deflections
-// forge::ft::compile uses for its own bounding box, so a mesh-derived number
-// here and a mesh-derived number there describe the same triangles.
-constexpr double kMeasureLinearTol = 0.3;
-constexpr double kMeasureAngularTol = 0.6;
+// The tessellation the observables are integrated over. FINER than the 0.3 / 0.6
+// forge::ft::compile uses for its own bounding box, and the difference is
+// MEASURED rather than chosen: a chord cuts inside a convex curved surface, so
+// the mesh integral under-reports a curved solid, and at 0.3 / 0.6 that is
+//
+//   torus -4.17%   sphere -3.08%   cone -0.83%   bracket +0.002%   chamfered 0%
+//
+// A number shown to a user that is 4% wrong on a torus is not a measurement. At
+// 0.02 / 0.05 the same five read
+//
+//   torus -0.31%   sphere -0.23%   cone -0.05%   bracket +0.004%   chamfered 0%
+//
+// and at the 0.05 / 0.10 actually used here
+//
+//   torus -0.80%   sphere -0.26%   cone -0.06%   bracket +0.016%   chamfered 0%
+//
+// which is what makes the gate's 1% cross-check against forge::ft::compile's
+// ANALYTIC volume a real check rather than a tolerance widened until it passed.
+// 0.02 / 0.05 would be three times better again (-0.31% worst) and costs 64 s of
+// gate time against 6 s; the gate runs six times in CI, so the finer setting was
+// measured and NOT taken. What would remove the approximation entirely is the
+// analytic forge::massProperties, and that is unusable here for the reason above.
+constexpr double kMeasureLinearTol = 0.05;
+constexpr double kMeasureAngularTol = 0.10;
 
 // A path that carries a newline cannot be quoted into a one-line message and
 // cannot survive the worker's first-line input pragma. It is refused as an

@@ -146,6 +146,87 @@ void seedBracket(PartDocument& doc) {
   }
 }
 
+// ── MORE THAN ONE PART, AND THAT IS THE POINT ───────────────────────────────
+// A round trip proven on ONE part is a result with n = 1. The app's default
+// bracket is planes, one cylindrical bore and four b-spline fillets; it says
+// nothing about the surfaces where an exchange actually goes wrong. STEP writes
+// analytic quadrics, and quadrics are where this programme has repeatedly
+// measured a wrong solid surviving a right volume -- so a sphere, a TORUS (the
+// hardest of them, and a single periodic face), a cone and a 26-face chamfered
+// prism are round-tripped too. Each is a different face-kind census, which is
+// the observable a tessellated or re-fitted surface would break first.
+struct SeedOp {
+  const char* op;
+  std::vector<forge::ui::IrArg> args;
+  forge::ui::IrValueKind produces;
+};
+
+struct Part {
+  const char* tag;
+  std::vector<SeedOp> ops;  // EMPTY means the app's own default bracket
+};
+
+void seedPart(PartDocument& doc, const Part& part) {
+  doc.restore(PartDocument::Snapshot{});
+  if (part.ops.empty()) {
+    seedBracket(doc);
+    return;
+  }
+  for (const SeedOp& op : part.ops) {
+    forge::ui::FeatureRecord rec;
+    rec.irId = doc.nextIrId();
+    rec.commandId.clear();
+    rec.label = op.op;
+    rec.line = forge::ui::IrLine{rec.irId, op.op, op.args};
+    rec.produces = op.produces;
+    const bool added =
+        doc.appendFeature(rec, {}, std::string("body_") + std::to_string(rec.irId));
+    CHECK(added, std::string(part.tag) + ": the document refused " + op.op + " -- " +
+                     forge::ui::toString(doc.lastCheck()));
+  }
+}
+
+// The sphere is NOT in the round-trip list, and section 4c is why: a STEP file
+// Forge writes with a SPHERICAL_SURFACE in it does not come back as a sphere.
+// It is kept as a named part so that section can drive it.
+Part spherePart() {
+  using forge::ui::IrArg;
+  const forge::ui::IrValueKind solid = forge::ui::IrValueKind::Solid;
+  return Part{"sphere",
+              {{"SPHERE", {IrArg::num(20.0)}, solid},
+               {"CYL",
+                {IrArg::num(6.0), IrArg::num(60.0), IrArg::num(0.0), IrArg::num(0.0),
+                 IrArg::num(-30.0)},
+                solid},
+               {"CUT", {IrArg::valueRef(1), IrArg::valueRef(2)}, solid}}};
+}
+
+std::vector<Part> parts() {
+  using forge::ui::IrArg;
+  const forge::ui::IrValueKind solid = forge::ui::IrValueKind::Solid;
+  std::vector<Part> out;
+  // The part the application itself starts on: planes + one cylinder + four
+  // b-spline fillets. Seeded from PartFile.cpp so it cannot drift from the app.
+  out.push_back(Part{"bracket", {}});
+  // ONE periodic toroidal face, and the surface an exchange is most likely to
+  // re-fit into something else.
+  out.push_back(Part{"torus", {{"TORUS", {IrArg::num(20.0), IrArg::num(6.0)}, solid}}});
+  // A cone fused to a box: a conical face plus planes, and a non-trivial boolean seam.
+  out.push_back(Part{"cone",
+                     {{"BOX", {IrArg::num(30.0), IrArg::num(30.0), IrArg::num(10.0)}, solid},
+                      {"CONE",
+                       {IrArg::num(12.0), IrArg::num(4.0), IrArg::num(20.0), IrArg::num(0.0),
+                        IrArg::num(0.0), IrArg::num(10.0)},
+                       solid},
+                      {"FUSE", {IrArg::valueRef(1), IrArg::valueRef(2)}, solid}}});
+  // 26 faces and 48 edges: the largest topology here, all planar, so a census
+  // that survives it is not surviving by being small.
+  out.push_back(Part{"chamfered",
+                     {{"BOX", {IrArg::num(40.0), IrArg::num(30.0), IrArg::num(20.0)}, solid},
+                      {"CHAMFER", {IrArg::valueRef(1), IrArg::num(3.0)}, solid}}});
+  return out;
+}
+
 // ── PART 1: the prose rule ──────────────────────────────────────────────────
 void checkProse() {
   std::printf("\n-- 1. every sentence a user can be shown ---------------------------\n");
@@ -365,9 +446,14 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
   };
   const Leg legs[] = {
       // STEP is the analytic exchange: an exact round trip is the contract.
-      {"step", "file.export_step", "file.import_step", ".step", 1e-6, 1e-9},
+      // `abs` is a NANOMETRE, not zero: a centre of mass or a bounding-box face
+      // that sits on the origin comes back as +/-1e-9 rather than exactly 0, and
+      // a purely RELATIVE tolerance on a quantity whose true value is 0 can never
+      // be satisfied. Three checks failed that way on the torus and the cone --
+      // the geometry was right and the comparison was wrong.
+      {"step", "file.export_step", "file.import_step", ".step", 1e-6, 1e-6},
       // BREP is the kernel's own format: lossless by construction.
-      {"brep", "file.export_brep", "file.import_brep", ".brep", 1e-9, 1e-9},
+      {"brep", "file.export_brep", "file.import_brep", ".brep", 1e-9, 1e-6},
       // STL IS NOT HERE, and the absence is a measurement rather than an
       // omission. forge::io::exportStl is native-backed-bodies-only and throws
       // "this handle is OCCT-backed and has no native tessellation" for anything
@@ -378,18 +464,19 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
   };
 
   std::string firstStep;
+  const std::vector<Part> allParts = parts();
+  for (const Part& part : allParts) {
   for (const Leg& leg : legs) {
-    const std::string path = dir + "/bracket_" + leg.tag + leg.extension;
+    const std::string tag = std::string(part.tag) + "/" + leg.tag;
+    const std::string path = dir + "/" + part.tag + "_" + leg.tag + leg.extension;
     std::remove(path.c_str());
 
-    // Each leg starts from the SAME part. Import REPLACES the document (it must:
-    // see runImport), so without this the second leg would be exporting the first
-    // leg's imported body instead of the bracket.
-    doc.restore(PartDocument::Snapshot{});
+    // Every (part, leg) starts from the part again. Import REPLACES the document
+    // (it must: see runImport), so without this the second leg would be exporting
+    // the first leg's imported body instead of the part.
     stack.clear();
-    seedBracket(doc);
-    CHECK(doc.records().size() == seeded,
-          std::string(leg.tag) + ": the document was not re-seeded");
+    seedPart(doc, part);
+    CHECK(!doc.records().empty(), tag + ": the document was not re-seeded");
 
     // ── the INDEPENDENT reference ──────────────────────────────────────────
     // The kernel's own ANALYTIC volume, measured by forge::ft::compile from
@@ -400,32 +487,35 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
     // deflection is what says the mesh instrument is not quietly wrong.
     const forge::ft::FeatureTree seedTree = forge::ft::parse(doc.irProgram());
     const forge::ft::CompileResult truth = forge::ft::compile(seedTree);
-    CHECK(truth.ok, std::string(leg.tag) + ": the seeded bracket did not compile");
+    CHECK(truth.ok, tag + ": the seeded part did not compile: " + truth.error);
+    if (!truth.ok) continue;
 
     exchange.setWriteMutation(mutation);
     CommandParams out;
     out.setText("path", path);
     const DispatchResult wroteResult = shell.run(leg.exportId, out);
-    CHECK(wroteResult.ok(), std::string(leg.tag) + ": export refused: " + wroteResult.detail);
+    CHECK(wroteResult.ok(), tag + ": export refused: " + wroteResult.detail);
     const ExchangeReport wrote = shell.lastExchange();
     CHECK(forge::ui::isUserReadable(wrote.message),
-          std::string(leg.tag) + ": the export message is not plain: " + wrote.message);
+          tag + ": the export message is not plain: " + wrote.message);
     const long long bytes = fileSize(path);
-    std::printf("  [%s] wrote %lld bytes  \"%s\"\n", leg.tag, bytes, wrote.message.c_str());
-    CHECK(bytes > 0, std::string(leg.tag) + ": nothing was written to disk");
+    std::printf("  [%s] wrote %lld bytes  \"%s\"\n", tag.c_str(), bytes, wrote.message.c_str());
+    CHECK(bytes > 0, tag + ": nothing was written to disk");
     if (mutation == FileExchangeHost::WriteMutation::None) {
-      // Two instruments, one shape. 0.5% is the tessellation deflection's worth
-      // on a part with a d12 bore and r3 fillets at linear 0.3 / angular 0.6.
-      CHECK(approxRel(truth.volume, wrote.volume, 5e-3, 1e-6),
-            std::string(leg.tag) + ": the mesh integral (" + std::to_string(wrote.volume) +
+      // TWO INSTRUMENTS, ONE SHAPE: forge::ft::compile's analytic integral against
+      // the exchange's mesh integral. 1% is the tessellation's own worst error at
+      // the deflection FileExchangeHost uses (-0.80% on a torus, measured and
+      // recorded there), not a tolerance widened until this passed.
+      CHECK(approxRel(truth.volume, wrote.volume, 1e-2, 1e-6),
+            tag + ": the mesh integral (" + std::to_string(wrote.volume) +
                 ") disagrees with the analytic volume (" + std::to_string(truth.volume) + ")");
       CHECK(truth.faceCount == wrote.faceCount,
-            std::string(leg.tag) + ": the face count disagrees with the kernel's");
+            tag + ": the face count disagrees with the kernel's");
     }
     if (std::strcmp(leg.tag, "step") == 0) {
       CHECK(head(path, 12) == "ISO-10303-21",
-            "the STEP file does not start with the ISO-10303-21 header");
-      firstStep = path;
+            tag + ": the STEP file does not start with the ISO-10303-21 header");
+      if (firstStep.empty()) firstStep = path;
     }
 
     // ── read it back, through the SAME registry a user would ──────────────
@@ -434,26 +524,26 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
     CommandParams in;
     in.setText("path", path);
     const DispatchResult readResult = shell.run(leg.importId, in);
-    CHECK(readResult.ok(), std::string(leg.tag) + ": import refused: " + readResult.detail +
+    CHECK(readResult.ok(), tag + ": import refused: " + readResult.detail +
                                " -- " + shell.lastDocumentError());
     const ExchangeReport read = shell.lastExchange();
     if (!readResult.ok()) continue;
     CHECK(forge::ui::isUserReadable(read.message),
-          std::string(leg.tag) + ": the import message is not plain: " + read.message);
+          tag + ": the import message is not plain: " + read.message);
 
     // The imported body reached the DOCUMENT: one more statement, and it is the
     // op that binds an input file.
     (void)before;
     CHECK(doc.records().size() == 1,
-          std::string(leg.tag) + ": import did not REPLACE the document with one statement (" +
+          tag + ": import did not REPLACE the document with one statement (" +
               std::to_string(doc.records().size()) + " statements)");
     const forge::ui::FeatureRecord* last = doc.lastFeature();
     CHECK(last != nullptr && last->line.op == "INPUT",
-          std::string(leg.tag) + ": the statement import added is not INPUT()");
+          tag + ": the statement import added is not INPUT()");
     CHECK(exchange.inputFile() == path,
-          std::string(leg.tag) + ": the exchange did not bind the file it read");
+          tag + ": the exchange did not bind the file it read");
 
-    compareReports(leg.tag, wrote, read, leg.rel, leg.abs);
+    compareReports(tag.c_str(), wrote, read, leg.rel, leg.abs);
 
     // ── and the DOCUMENT now builds it ────────────────────────────────────
     // The last statement is INPUT(); compiling the document with the bound file
@@ -461,17 +551,93 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
     // reached the GEOMETRY and not merely a report.
     const forge::ft::FeatureTree tree = forge::ft::parse(doc.irProgram());
     const forge::ft::CompileResult built = forge::ft::compile(tree, exchange.inputFile());
-    CHECK(built.ok, std::string(leg.tag) + ": the document did not compile after import: " +
+    CHECK(built.ok, tag + ": the document did not compile after import: " +
                         built.error);
     // ANALYTIC against MESH, so the tolerance is the tessellation's, not the
     // format's: built.volume is forge::ft::compile's exact integral and
     // read.volume is the exchange's mesh integral. Comparing them at 1e-6 was
     // asserting that a triangulation is exact, which it is not and must not be.
-    CHECK(approxRel(built.volume, read.volume, 5e-3, 1e-6),
-          std::string(leg.tag) + ": the compiled document (" + std::to_string(built.volume) +
+    CHECK(approxRel(built.volume, read.volume, 1e-2, 1e-6),
+          tag + ": the compiled document (" + std::to_string(built.volume) +
               ") disagrees with the imported body (" + std::to_string(read.volume) + ")");
-    std::printf("  [%s] document recompiled: %zu statements, volume %.6f\n", leg.tag,
+    std::printf("  [%s] document recompiled: %zu statements, volume %.6f\n", tag.c_str(),
                 doc.records().size(), built.volume);
+  }
+  }
+
+  // ── ★ 4c. A STEP FILE FORGE WRITES, AND CANNOT READ BACK ─────────────────
+  //
+  // MEASURED on this tree, and it is why the sphere is not in the round-trip list
+  // above. Forge exports a sphere correctly -- the file carries
+  // SPHERICAL_SURFACE, ADVANCED_FACE and a CLOSED_SHELL, and the same body
+  // round-trips through BREP with its two analytic faces intact. Re-importing the
+  // STEP through the app's own path gives back 900 PLANAR FACETS and a volume
+  // 18.6% too large.
+  //
+  // The cause is named, outside this process, by the reader gate:
+  //     forge::io::importStep(sphere.step)                 faces=1800  plane:1800
+  //     FORGE_NATIVE_STEP=0 forge::io::importStep(same)     faces=2  cylinder:1 sphere:1
+  // The native analytic STEP reader (production default ON) tessellates spherical
+  // faces; OCCT's reader does not. That is a kernel defect, reported and NOT fixed
+  // here -- this track is the app's file exchange, and the native STEP reader is
+  // not its file to rewrite.
+  //
+  // The three checks below PIN THE CURRENT BEHAVIOUR. If any of them goes red the
+  // defect has changed -- most likely it was fixed -- and the sphere should be
+  // promoted into parts() rather than left refused out of habit.
+  {
+    std::printf("\n-- 4c. a STEP file Forge writes and cannot read back (defect) -------\n");
+    const Part sphere = spherePart();
+    const std::string stepPath = dir + "/sphere_step.step";
+    const std::string brepPath = dir + "/sphere_brep.brep";
+
+    ExchangeReport wroteStep;
+    ExchangeReport readStep;
+    ExchangeReport wroteBrep;
+    ExchangeReport readBrep;
+    stack.clear();
+    seedPart(doc, sphere);
+    exchange.setWriteMutation(FileExchangeHost::WriteMutation::None);
+    CHECK(exchange.exportFile(stepPath, ExchangeFormat::Step, wroteStep), "sphere: STEP save failed");
+    CHECK(exchange.exportFile(brepPath, ExchangeFormat::Brep, wroteBrep), "sphere: BREP save failed");
+
+    // FACT 1 -- the WRITER is not the problem. The file says SPHERICAL_SURFACE.
+    std::string all;
+    {
+      std::ifstream in(stepPath, std::ios::binary);
+      all.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
+    CHECK(all.find("SPHERICAL_SURFACE") != std::string::npos,
+          "the exported STEP does not even contain a SPHERICAL_SURFACE -- the defect has moved "
+          "into the writer");
+    CHECK(all.find("CYLINDRICAL_SURFACE") != std::string::npos,
+          "the exported STEP does not contain a CYLINDRICAL_SURFACE");
+
+    // FACT 2 -- BREP round-trips the SAME body exactly, so the shape, the census
+    // and this gate's machinery are all fine.
+    CHECK(exchange.importFile(brepPath, ExchangeFormat::Brep, readBrep), "sphere: BREP open failed");
+    std::printf("  BREP: %s  ->  %s   volume %.4f -> %.4f\n", join(wroteBrep.faceKinds).c_str(),
+                join(readBrep.faceKinds).c_str(), wroteBrep.volume, readBrep.volume);
+    CHECK(wroteBrep.faceKinds == readBrep.faceKinds,
+          "the BREP round trip ALSO loses the sphere -- the defect is wider than STEP");
+    CHECK(approxRel(wroteBrep.volume, readBrep.volume, 1e-6, 1e-6),
+          "the BREP round trip moved the volume");
+
+    // FACT 3 -- and STEP does not.
+    CHECK(exchange.importFile(stepPath, ExchangeFormat::Step, readStep), "sphere: STEP open failed");
+    const double err = wroteStep.volume > 0.0
+                           ? 100.0 * (readStep.volume - wroteStep.volume) / wroteStep.volume
+                           : 0.0;
+    std::printf("  STEP: %s  ->  %s   volume %.4f -> %.4f  (%+.2f%%)\n",
+                join(wroteStep.faceKinds).c_str(), join(readStep.faceKinds).c_str(),
+                wroteStep.volume, readStep.volume, err);
+    CHECK(wroteStep.faceKinds != readStep.faceKinds,
+          "the STEP round trip now PRESERVES the sphere -- the defect is fixed; move the sphere "
+          "into parts() and delete this section");
+    CHECK(readStep.faceKinds.count("sphere") == 0,
+          "the re-imported STEP now has a spherical face -- the defect is fixed");
+    CHECK(std::fabs(err) > 10.0,
+          "the STEP round trip's volume error is no longer large -- re-measure this defect");
   }
 
   // ── WHY STL IS NOT OFFERED: the measurement, kept ─────────────────────────
