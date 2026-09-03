@@ -165,7 +165,15 @@ done
 # Comment lines are stripped first: kernel-tests.yml is 67% comments and a
 # script named only in prose is a script nobody runs.
 for pair in "${AD_HOC[@]}"; do
-  runner="${pair##*|}"
+  src="${pair%%|*}"; runner="${pair##*|}"
+  # AD_HOC is a snapshot of this tree, so say so when it stops describing one
+  # rather than blaming the workflow. Running this script against a tree that
+  # predates an entry produced exactly that confusion once: 18 commits reported
+  # as "never invoked" when neither the runner nor its gate had been written yet.
+  if [ ! -f "$TEST_DIR/$runner" ]; then
+    red "AD_HOC names $runner (for $src) but that file is not in this tree; the list is stale — remove the entry or restore the runner"
+    continue
+  fi
   hits=0
   if [ -d "$WORKFLOW_DIR" ]; then
     hits=$(cat "$WORKFLOW_DIR"/*.yml 2>/dev/null | sed 's/^[[:space:]]*#.*$//' \

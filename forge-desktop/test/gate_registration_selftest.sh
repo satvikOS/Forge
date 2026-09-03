@@ -69,6 +69,9 @@ WF
       : > "$d/forge-desktop/test/prose_gate.cpp" ;;
     adhoc_runner_gone)
       rm -f "$d/forge-desktop/test/run_differential_solid_gate.sh" ;;
+    adhoc_stale)   # the AD_HOC entry describes a tree that no longer exists
+      rm -f "$d/forge-desktop/test/run_differential_solid_gate.sh" \
+            "$d/forge-desktop/test/differential_solid_gate.cpp" ;;
     adhoc_only_in_comment)
       cat > "$d/.github/workflows/ci.yml" <<'WF2'
 jobs:
@@ -111,6 +114,7 @@ case_ "add_executable(\$VAR)"   varname               1 'only [0-9]+ name a lite
 case_ "run_gate hidden in if"  hidden_call           1 'mentions run_gate .* only .* column-0'
 case_ "gate source unaccounted" unaccounted          1 'prose_gate.cpp is neither a CMake gate target'
 case_ "ad-hoc runner missing"  adhoc_runner_gone     1 'runner run_differential_solid_gate.sh does not exist'
+case_ "AD_HOC list is stale"   adhoc_stale           1 'AD_HOC names run_differential_solid_gate.sh .* the list is stale'
 case_ "ad-hoc only in comment" adhoc_only_in_comment 1 'not invoked on any executable line'
 case_ "run_desktop.sh absent"  no_run_desktop        1 'run_desktop.sh is missing'
 
@@ -120,4 +124,4 @@ if [ "$FAIL" -ne 0 ]; then
   [ -n "${GITHUB_ACTIONS:-}" ] && echo "::error::gate_registration_check.sh did not fail on $FAIL of its documented red paths"
   exit 1
 fi
-echo "[gate-reg-selftest] GREEN — all $PASS cases behaved as documented (8 red paths + 1 green control)"
+echo "[gate-reg-selftest] GREEN — all $PASS cases behaved as documented (9 red paths + 1 green control)"

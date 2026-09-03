@@ -69,15 +69,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prove the registration check itself can fail (9 cases, ~1.4 s)
+      - name: Prove the registration check itself can fail (10 cases, ~1.6 s)
         # FIRST, before the check whose result we intend to believe. This drives
-        # gate_registration_check.sh's eight documented red paths against stub
+        # gate_registration_check.sh's nine documented red paths against stub
         # trees in a temp directory -- an orphaned target, a phantom target, an
         # add_executable naming a variable, a run_gate hidden inside a
         # conditional, an unaccounted gate source, a missing ad-hoc runner, an
-        # ad-hoc runner named only in a YAML comment, and an absent
-        # run_desktop.sh -- plus one GREEN control, without which this suite
-        # would pass just as well against a check that always exits 1.
+        # AD_HOC list gone stale, an ad-hoc runner named only in a YAML comment,
+        # and an absent run_desktop.sh -- plus one GREEN control, without which
+        # this suite would pass just as well against a check that always exits 1.
         run: bash forge-desktop/test/gate_registration_selftest.sh
 
       - name: Every gate CMake builds is a gate run_desktop.sh runs
