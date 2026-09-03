@@ -2892,11 +2892,22 @@ TopoDS_Face cylTrimmedFace(const QF& q,
             // wrong side and still look like a face.
             if (offLine[e0].Distance(A) > geoTol || offLine[e0].Distance(B) > geoTol)
                 return fail("quadric/cyltrim_vertex_off_ruling");
-            if (std::fabs(std::fabs(gp_Vec(A, B).Normalized().Dot(gp_Vec(Z))) - 1.0) > 1.0e-7)
-                return fail("quadric/cyltrim_ruling_not_axial");
+            // ORDER MATTERS, AND IT IS THE CONTRACT. gp_Vec::Normalized() RAISES
+            // gp_VectorWithNullMagnitude when the vector is shorter than
+            // gp::Resolution(), so testing axiality by normalising FIRST would
+            // throw out of an engine whose documented answer is a null shape —
+            // an inward offset that drives a ruling's two ends together is
+            // exactly the input that does it. The length is therefore measured
+            // first, and the axiality test is then written on the UN-normalised
+            // vector (|ab . Z| == |ab|), which is the same predicate with no
+            // division in it at all.
             const double len = A.Distance(B);
             if (!(len > 1.0e-12)) return fail("quadric/cyltrim_ruling_degenerate");
-            const double sgn = gp_Vec(A, B).Dot(gp_Vec(Z)) > 0.0 ? 1.0 : -1.0;
+            const gp_Vec ab(A, B);
+            const double along = ab.Dot(gp_Vec(Z));
+            if (std::fabs(std::fabs(along) - len) > 1.0e-7 * len)
+                return fail("quadric/cyltrim_ruling_not_axial");
+            const double sgn = along > 0.0 ? 1.0 : -1.0;
             BRepBuilderAPI_MakeEdge me(A, B);
             if (!me.IsDone()) return fail("quadric/cyltrim_ruling_edge_failed");
             pz.e  = me.Edge();
@@ -2927,7 +2938,12 @@ TopoDS_Face cylTrimmedFace(const QF& q,
                 double r = uCur + sgn * sweep - uB;
                 while (r >  kPi) r -= 2.0 * kPi;
                 while (r < -kPi) r += 2.0 * kPi;
-                if (std::fabs(r) * std::max(1.0, R) < geoTol) { ++hits; du = sgn * sweep; }
+                // ARC LENGTH, not radians: |r| * R is the distance on the
+                // cylinder between where this sweep lands and the solved vertex,
+                // which is the quantity geoTol is denominated in. The max(1, R)
+                // that stood here cancelled against geoTol's own max(1, R) and so
+                // silently made this a bare 1e-6 RADIAN test at every radius.
+                if (std::fabs(r) * R < geoTol) { ++hits; du = sgn * sweep; }
             }
             if (hits != 1) return fail("quadric/cyltrim_arc_sense_ambiguous");
             const double vh = vOf(A);
@@ -2957,7 +2973,15 @@ TopoDS_Face cylTrimmedFace(const QF& q,
     // The loop must CLOSE in (u, v) — if threading the sweeps does not come back
     // to where it started, the boundary this face was read from is not a loop on
     // this cylinder and nothing is built.
-    if (std::fabs(pieces.back().u1 - pieces.front().u0) > 1.0e-7 ||
+    // ★ BOTH HALVES OF THIS CONDITION ARE MILLIMETRES AGAINST THE SAME BOUND.
+    //   The u half was a bare 1.0e-7 RADIAN constant with no radius in it, sitting
+    //   in the same `if` as a v half measured in mm against geoTol — and TIGHTER,
+    //   by ten, than the arc-sense gate that produced the u values. A loop every
+    //   piece of which passed its own gate could therefore still be declined here,
+    //   which is a spurious DEFER (never a wrong shape: the area identity, the sew,
+    //   the face count and BRepCheck all still stand behind it). |du| * R is the
+    //   closure gap as a distance on the cylinder, which is what geoTol measures.
+    if (std::fabs(pieces.back().u1 - pieces.front().u0) * R > geoTol ||
         std::fabs(pieces.back().v1 - pieces.front().v0) > geoTol)
         return fail("quadric/cyltrim_loop_does_not_close");
 
