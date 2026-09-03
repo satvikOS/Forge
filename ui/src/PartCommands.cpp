@@ -43,6 +43,29 @@ bool irValueKindFromName(std::string_view name, IrValueKind& out) noexcept {
   return false;
 }
 
+EntityKind entityKindFor(IrValueKind kind) noexcept {
+  switch (kind) {
+    // A PROFILE is what part.extrude and part.revolve call a "Sketch": their
+    // signatures name EntityKind::Sketch and their handlers resolve
+    // IrValueKind::Profile. The two spellings are one concept and this is the
+    // only place that says so.
+    case IrValueKind::Profile:   return EntityKind::Sketch;
+    case IrValueKind::Wire:      return EntityKind::Wire;
+    case IrValueKind::Solid:     return EntityKind::Body;
+    // The SOLVER's open sketch, not a profile. SOLVE consumes this and EXTRUDE
+    // does not, which is the whole reason the kernel keeps them apart.
+    case IrValueKind::Sketch:    return EntityKind::OpenSketch;
+    case IrValueKind::SketchRef: return EntityKind::SketchRef;
+    case IrValueKind::Surface:   return EntityKind::Surface;
+    // A value of no kind names no entity. Returning Body here would make an
+    // unresolvable statement look selectable and then refuse at dispatch, which
+    // is the failure that reads as a broken command rather than as a value that
+    // cannot be picked.
+    case IrValueKind::None:      return EntityKind::None;
+  }
+  return EntityKind::None;
+}
+
 const char* toString(EditCheck check) noexcept {
   switch (check) {
     case EditCheck::Ok:               return "ok";
@@ -1937,7 +1960,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // applyDefaults cannot fill it -- if it could, the one-assertion form would stop
   // being reachable at all.
   {
-    CommandDescriptor c = base("part.verify", "Assert Property", "VERIFY",
+    CommandDescriptor c = base("part.verify", "Check Property", "VERIFY",
                                SelectionSignature::exactly(EntityKind::Body, 1));
     c.schema.push_back(ParamSpec{.name = "assertion",
                                  .type = ParamType::Text,
@@ -1956,7 +1979,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       if (hasText(ctx, "assertion2")) {
         args.push_back(IrArg::text(txt(ctx, "assertion2", "faces >= 1")));
       }
-      emit(ctx, *d, *s, "part.verify", "Assert Property", "VERIFY", std::move(args),
+      emit(ctx, *d, *s, "part.verify", "Check Property", "VERIFY", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -2654,7 +2677,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // applyDefaults could fill it, the ONE-assertion form would stop being reachable
   // at all and the corpus would never contain it.
   {
-    CommandDescriptor c = base("part.surfcheck", "Assert Sheet Property", "SURFCHECK",
+    CommandDescriptor c = base("part.surfcheck", "Check Sheet Property", "SURFCHECK",
                                SelectionSignature::exactly(EntityKind::Surface, 1));
     c.schema.push_back(ParamSpec{.name = "assertion",
                                  .type = ParamType::Text,
@@ -2682,7 +2705,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       // Pass-through: it returns %surface unchanged, so it keeps the sheet's OWN node
       // and its OWN kind. Emitting a new node would fork the sheet's identity and
       // leave the assertion constraining a value nothing downstream refers to.
-      emit(ctx, *d, *s, "part.surfcheck", "Assert Sheet Property", "SURFCHECK", std::move(args),
+      emit(ctx, *d, *s, "part.surfcheck", "Check Sheet Property", "SURFCHECK", std::move(args),
            IrValueKind::Surface, {}, singleNode(ctx.selection()));
     };
     add(std::move(c));

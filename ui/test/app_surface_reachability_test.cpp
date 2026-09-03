@@ -420,8 +420,16 @@ int main() {
   //                          samples offered is derived (EmptyState::sampleIds), so this
   //                          is a single dispatch through the registry, not an
   //                          enumeration -- the same argument as part.edit_feature.
+  //   file.open           -- File > Open Recent dispatches exactly this one command, with the
+  //                          remembered path as its PARAMETER, through shell_.run(). The list of
+  //                          documents offered is derived (ForgeShell::recentDocuments(), written
+  //                          by the file.open/file.save HANDLERS), so this is a single dispatch
+  //                          through the registry and not a second copy of it -- the same argument
+  //                          as app.load_sample, whose menu rows are likewise data, not commands.
+  //                          The reason it must be a literal at all: the path decides WHICH
+  //                          document, and a derived SurfaceItem carries no argument.
   const std::set<std::string> allowedLiterals = {"app.command_palette", "app.load_sample",
-                                                 "part.edit_feature"};
+                                                 "file.open", "part.edit_feature"};
   const std::set<std::string> literals = hardcodedCommandIds(frame, all);
   for (const std::string& id : literals)
     if (allowedLiterals.count(id) == 0)

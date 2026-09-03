@@ -231,6 +231,14 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void build(std::uint64_t viewportTexture, float dpiScale);
 
   const ViewportRequest& viewport() const noexcept { return viewportRequest_; }
+
+  // ── WHEN THERE IS NO 3D VIEW AND NOBODY SAYS SO ────────────────────────
+  // The renderer's own failure text went to stderr and nowhere else, so a user
+  // whose graphics driver refused got a black rectangle where their part should
+  // be, with no sentence anywhere in the application. The host loop hands the
+  // technical cause here; the frame builder shows the translation of it and
+  // logs the cause. Empty (the default) means "no problem to report".
+  void setViewportUnavailable(const std::string& internalDetail);
   Camera& camera() noexcept { return camera_; }
   const Camera& camera() const noexcept { return camera_; }
 
@@ -373,6 +381,20 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // part.chamfer, part.variable_fillet -- were unreachable from every gesture.
   void setPreselectedEdge(std::size_t index);
   void clickEdge(std::size_t index, bool additive);
+
+  // THE THIRD PRODUCER, and the one the other two could not stand in for.
+  // clickFace makes an EntityKind::Face and clickEdge an EntityKind::Edge, and
+  // SelectionSignature::satisfiedBy compares kinds EXACTLY -- so 28 of the 80
+  // commands in the registry named a kind the interface could never produce and
+  // were greyed out for ever: part.extrude and part.revolve, every boolean,
+  // every pattern, mirror/move/rotate, loft, skin, thicken and the whole sketch
+  // family. The CoPilot could drive all of them; a person could not.
+  //
+  // A feature-tree row IS a document statement, which is exactly what those
+  // signatures want. The kind comes from forge::ui::entityKindFor(), never from
+  // a mapping this class invents. `additive` is the shift-click, which is how
+  // two bodies are picked for a boolean and three points for a sketch arc.
+  void clickFeature(int irId, bool additive);
   // TRUE when the live selection filter means the viewport picks edges. The
   // filter is the status strip's existing control; before this it could only
   // REFUSE picks, because nothing ever offered it an Edge.
@@ -426,11 +448,39 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Fill one prompted parameter by name. Returns false when this prompt has no
   // such field, rather than silently creating one the command will not read.
   bool setPromptValue(const std::string& name, const std::string& value);
+  // What that box currently HOLDS — the seed before the user types, and what
+  // they typed after. "" for a field this prompt does not have.
+  //
+  // It exists because the seeding is the whole reopen fix and there was no way
+  // to assert it: a gate could call pathPromptSeed() and be checking a helper
+  // the prompt is free to stop calling, which is the "delegating and not
+  // enumerating" mistake in miniature. This reads the FIELD.
+  std::string promptValue(const std::string& name) const;
   // Dispatch the prompted command with what has been collected. Returns whether
   // it ran. Public so a gate can drive the whole prompt path by name, the way it
   // drives invoke().
   bool submitPrompt();
   void cancelPrompt() noexcept;
+
+  // What a `path` box STARTS on: the open document, else the most recent one
+  // this installation opened or saved, else "". "" is the honest answer on a
+  // first-ever launch -- there is nothing to suggest, and inventing a path that
+  // does not exist would put a refusal one Enter away.
+  //
+  // Public so the gate can assert it without a window, and because it is the
+  // whole of the reopen fix: `documentPath_` is empty on every launch, so
+  // without the recent list Ctrl+O offers an empty box and the only way back to
+  // yesterday's part is to type its absolute path from memory.
+  std::string pathPromptSeed() const;
+
+  // Open one remembered document, through the SAME `file.open` the menu, the
+  // keyboard, the palette and `--open` dispatch -- registry, undo contract,
+  // activity log and all. Deferred to the end of the frame like every other
+  // command that can replace the document, so the dock walk is never holding a
+  // node into a tree this is about to rebuild.
+  void requestOpenDocument(const std::string& path);
+  // The path requested but not yet dispatched; "" when there is none.
+  const std::string& pendingOpenPath() const noexcept { return pendingOpenPath_; }
 
   // ── dock mutations ──────────────────────────────────────────────────────
   // Public because they are the layout's write API, not a splitter-drag detail:
@@ -589,6 +639,8 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 
   Camera camera_;
   ViewportRequest viewportRequest_;
+  // The TRANSLATED sentence, not the cause. The cause is in the activity log.
+  std::string viewportUnavailable_;
 
   // Frame-builder-owned UI state.
   bool paletteOpen_ = false;
@@ -654,6 +706,21 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // press two menu items in one frame. The LAST one recorded wins, which is the
   // one they clicked.
   std::string pendingInvokeId_;
+
+  // The Open Recent click, on the same one-slot deferral and for the same
+  // reason. It is a SEPARATE slot from pendingInvokeId_ because it carries an
+  // argument: the path decides which document, and pendingInvokeId_ has nowhere
+  // to put one.
+  std::string pendingOpenPath_;
+
+  // Dispatches pendingOpenPath_ and clears it. Called by build() after the dock
+  // walk, never from inside a draw function.
+  void runPendingOpen();
+
+  // Writes whether the kernel is running out of process into the ACTIVITY LOG,
+  // where a user can still find it. main.cpp prints the same fact to stderr,
+  // which a Finder launch does not have. Called once, from wirePartCommands().
+  void reportKernelIsolation();
 
   void openPrompt(const std::string& id, const std::vector<std::string>& parameters);
   void drawParameterPrompt();

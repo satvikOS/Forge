@@ -772,8 +772,8 @@ int main() {
   // ── (d2) THE KERNEL PRIMITIVES ────────────────────────────────────────────
   // Ten ops the kernel implemented, forge::ui::irOpTable() knew, and NO COMMAND
   // EMITTED, so `archie_op_vocabulary.json` listed every one under `forbidden_ops`
-  // with the same reason: "no command in the forge::ui registry emits it, so no user
-  // can produce it". A CAD application with no cylinder primitive. The app even
+  // with the same reason: "no command in Forge produces it, so nothing you can do in
+  // the application reaches it". A CAD application with no cylinder primitive. The app even
   // SEEDED a BOX into every document (see block (e) below, which does exactly that)
   // while giving the user no way to author one.
   //

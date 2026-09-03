@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "0a9d240cdd08f53a3b05580131a1535e9ca13f219845b3bd968fe8d5bbd2d49c",
-        "bytes": 155674,
-        "lines": 3248
+        "sha256": "9e514bbd6d9878d81f367be61f6e13605a207f6cf9318b1f8b7c6a8ebfac208c",
+        "bytes": 173028,
+        "lines": 3559
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,15 +48,15 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "221b7590e5dfc37b6527265cdbc7a30ff68d8fc3db228ad6749f3228857e4422",
-        "bytes": 182885,
-        "lines": 3112
+        "sha256": "5b960006ffcb56ab68d63b71913629fbe80692a633a03b29fb7f6a9dfae8e4ae",
+        "bytes": 184083,
+        "lines": 3135
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "e46ab684bc5a6b1b7c6d7c1ec38cd1ad06546d5573b72da761e4bc5b19a25aac",
-        "bytes": 33628,
-        "lines": 836
+        "sha256": "2ecf512c71d7c8a3efbafab804240594b2f8f6d74b6587d7923c7b3d462fdab8",
+        "bytes": 35408,
+        "lines": 866
       }
     ],
     "build_configuration": {
@@ -6452,7 +6452,7 @@
       "signature": [
         "ARC([x y; x y mx my; ...])"
       ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+      "reason": "no command in Forge produces it, so nothing you can do in the application reaches it"
     },
     {
       "op": "HELIX",
@@ -6461,7 +6461,7 @@
       "signature": [
         "HELIX(pitch, height, radius [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1] [, LEFT])"
       ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+      "reason": "no command in Forge produces it, so nothing you can do in the application reaches it"
     },
     {
       "op": "SLOT",
@@ -6470,7 +6470,7 @@
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
       ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
+      "reason": "no command in Forge produces it, so nothing you can do in the application reaches it"
     }
   ],
   "forbidden_statement_forms": [
@@ -9540,7 +9540,7 @@
     },
     {
       "id": "part.surfcheck",
-      "label": "Assert Sheet Property",
+      "label": "Check Sheet Property",
       "category": "Part",
       "feature_ir_op": "SURFCHECK",
       "emits_feature_ir": true,
@@ -9832,7 +9832,7 @@
     },
     {
       "id": "part.verify",
-      "label": "Assert Property",
+      "label": "Check Property",
       "category": "Part",
       "feature_ir_op": "VERIFY",
       "emits_feature_ir": true,
