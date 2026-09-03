@@ -175,7 +175,10 @@ run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
 # path arrives at the receiving end. Mutation 1 is the state before the panel:
 # no dialog installed, so the six are unreachable again.
 run_gate forge_desktop_file_dialog_gate 1 2 3
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
+# ── MERGE: HEAD had frame_gate 1..12, archdisc 1..14. Taking the SUPERSET; the
+#    tree work added mutations 13 and 14, and keeping HEAD's line would have
+#    silently dropped them while the suite still reported green.
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

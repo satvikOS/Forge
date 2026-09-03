@@ -62,7 +62,8 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-EXPECTED_MUTATIONS=51
+# ── MERGE: measured on the MERGED tree, not taken from either parent.
+EXPECTED_MUTATIONS=53
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it
