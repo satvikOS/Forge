@@ -53,6 +53,10 @@ set -uo pipefail
 #     document 8 + file_exchange 5 + frame 12 + copilot 8 + update 7 + click 8 = 48
 # (ir_pipeline_gate and isolation_gate take no mutation arguments.)
 #
+# ★ 2026-09-03: + file_dialog 3 = 51. Counted the same way, on this tree:
+#     document 8 + file_exchange 5 + file_dialog 3 + frame 12 + copilot 8
+#     + update 7 + click 8 = 51
+#
 # ★ The merge of run_desktop.sh was the real hazard here, not this number. HEAD kept
 #   frame_gate at 1..9 while adding the file-exchange line; the base had frame_gate
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
@@ -63,11 +67,20 @@ set -uo pipefail
 #    assembly tree built from an EMPTY document and a STALE machining plan);
 #    archdisc derived 58 (its imgui-recovery gate, 8 mutations). Both correct
 #    on their OWN tree, both wrong here, because the merged tree runs BOTH.
-#      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-#    prints 60 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
-#    + frame 16 + copilot 8 + update 7 + click 8 + isolation 0.
 #    ★ Contested at FIVE merges now. Re-derive; never carry a side across.
-EXPECTED_MUTATIONS=60
+# ── 2026-09-03, THE SIXTH: 63. And this merge is the cleanest demonstration of
+#    why the rule is "derive, never inherit": BOTH sides arrived carrying a
+#    number they had themselves correctly measured one turn earlier, and BOTH
+#    were wrong here. This side had 60 (it runs frame 1..16 but not the file
+#    dialog); archdisc had 61 (it runs the file dialog but only frame 1..14).
+#    The merged tree runs both gates at their fuller settings, so taking EITHER
+#    side would have dropped real mutations -- archdisc's would have lost frame
+#    15 and 16, this side's would have lost the three file_dialog ones -- while
+#    the suite went on reporting green over less coverage than before the merge.
+#      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#    prints 63 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 16 + copilot 8 + update 7 + click 8 + isolation 0.
+EXPECTED_MUTATIONS=63
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it
