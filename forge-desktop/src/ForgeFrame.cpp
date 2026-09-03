@@ -3150,9 +3150,9 @@ void ForgeFrame::drawSketchTreePanel() {
         ++sketchRowsDrawn_;
         ImGui::Indent();
         selectRow(e.irId, e.label.c_str(), nullptr);
-        if (!e.detail.empty()) {
+        if (!e.operands.empty()) {
           ImGui::SameLine(150.0f * dpiScale_);
-          ImGui::TextColored(rgb(130, 137, 148), "%s", e.detail.c_str());
+          ImGui::TextColored(rgb(130, 137, 148), "%s", e.operands.c_str());
         }
         ImGui::Unindent();
       }
@@ -3207,7 +3207,7 @@ void ForgeFrame::drawSketchTreePanel() {
                        tree.unattached.size());
     for (const forge::ui::SketchEntity& e : tree.unattached) {
       ++sketchRowsDrawn_;
-      ImGui::BulletText("%s  %s", e.label.c_str(), e.detail.c_str());
+      ImGui::BulletText("%s  %s", e.label.c_str(), e.operands.c_str());
     }
   }
 }
