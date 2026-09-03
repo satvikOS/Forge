@@ -569,6 +569,33 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
     CHECK(forge::ui::isUserReadable(shell.lastExchange().message), "that refusal is not plain");
   }
   {
+    // A STEP file that is WELL FORMED AND EMPTY: header, schema, an empty DATA
+    // section, and its own END marker, so the magic matches and the completeness
+    // check passes. The kernel refuses it ("empty DATA section"); the point of
+    // the check is that the refusal arrives as a REFUSAL with a plain sentence,
+    // and that the document is not disturbed by it. A real one of these comes
+    // out of a CAD system that exported with nothing selected.
+    const std::string emptyStep = dir + "/empty.step";
+    {
+      std::ofstream f(emptyStep, std::ios::trunc);
+      f << "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((\'\'),\'2;1\');\n"
+        << "FILE_NAME(\'empty.step\',\'2026-01-01T00:00:00\',(\'\'),(\'\'),\'\',\'\',\'\');\n"
+        << "FILE_SCHEMA((\'AUTOMOTIVE_DESIGN\'));\n"
+        << "ENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
+    }
+    const std::size_t recordsBefore = doc.records().size();
+    CommandParams p;
+    p.setText("path", emptyStep);
+    const DispatchResult r = shell.run("file.import_step", p);
+    CHECK(!r.ok(), "an empty STEP file was accepted");
+    CHECK(shell.lastExchange().refusal == ExchangeRefusal::NoSolid,
+          "an empty STEP file was not refused as holding no solid");
+    CHECK(doc.records().size() == recordsBefore,
+          "a refused import still changed the document");
+    std::printf("  empty STEP file     : \"%s\"\n", shell.lastExchange().message.c_str());
+    CHECK(forge::ui::isUserReadable(shell.lastExchange().message), "that refusal is not plain");
+  }
+  {
     // The IGES refusal, where a user can really reach it: an .igs path typed
     // into a Save. It must be plain, AND no file may be left behind claiming to
     // be IGES.
