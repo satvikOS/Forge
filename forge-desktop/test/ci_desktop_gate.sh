@@ -39,7 +39,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-# 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
+# 45 = document 8 + file_exchange 5 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at two earlier merges and
 # the SIDES SWAPPED between them, which is the whole argument for measuring it
@@ -58,7 +58,13 @@ set -uo pipefail
 # what the earlier disagreement turned on. This is D-028's failure mode, and the
 # method that catches it is to COUNT on the tree being committed rather than to
 # inherit a number.
-EXPECTED_MUTATIONS=40
+# ── 2026-09-02: 40 -> 45. The file-exchange gate joined run_desktop.sh with five
+# mutations, so this number moves in the SAME commit, which is exactly what this
+# constant exists to force. DERIVED on this tree, not incremented on faith --
+# `awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh`
+# prints 45, made of: ir_pipeline 0 + document 8 + file_exchange 5 + frame 9 +
+# copilot 8 + update 7 + click 8 + isolation 0.
+EXPECTED_MUTATIONS=45
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

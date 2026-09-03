@@ -99,17 +99,22 @@ if [ "$MUTATIONS" -eq 1 ]; then
     # the count is taken with a `|| true`; and rc >= 128 means the gate died
     # rather than reported, which is its own defect and must never read as a pass.
     reds="$(grep -c '^  FAIL' "$OUT.m$m.log" || true)"
-    if [ "$mrc" -ge 128 ]; then
+    # The gate keeps the ORDINARY exit convention under --mutate (a caught
+    # mutation exits non-zero, like any other failure), because run_desktop.sh
+    # reads every gate here that way. So: 0 means the mutation slipped through,
+    # >=128 means the gate DIED rather than reported -- which is its own defect
+    # and must never read as a detection -- and anything else is a catch.
+    if [ "$mrc" -eq 0 ]; then
+      echo "MUTATION $m WAS NOT CAUGHT (the gate stayed green) -- see $OUT.m$m.log"
+      tail -20 "$OUT.m$m.log"
+      fail=1
+    elif [ "$mrc" -ge 128 ]; then
       echo "MUTATION $m KILLED THE GATE (signal $((mrc - 128))) -- a crash is not a"
       echo "  detection. See $OUT.m$m.log"
       tail -20 "$OUT.m$m.log"
       fail=1
-    elif [ "$mrc" -ne 0 ]; then
-      echo "MUTATION $m WAS NOT CAUGHT (the gate stayed green) -- see $OUT.m$m.log"
-      tail -20 "$OUT.m$m.log"
-      fail=1
     else
-      echo "mutation $m caught: $reds checks went red"
+      echo "mutation $m caught: $reds checks went red (exit $mrc)"
     fi
   done
 fi

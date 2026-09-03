@@ -470,9 +470,16 @@ add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
 add_test(NAME forge_desktop_file_exchange_gate COMMAND forge_desktop_file_exchange_gate)
+# WILL_FAIL, the same idiom the update gate's mutations use, and for the same
+# reason: the binary keeps its ordinary exit convention under --mutate (a CAUGHT
+# mutation exits non-zero), so ctest is told to expect the failure rather than the
+# gate being asked to invert its own status. run_desktop.sh reads every gate here
+# through one helper that treats exit 0 under --mutate as "STAYED GREEN".
 foreach(_fx 1 2 3 4 5)
     add_test(NAME forge_desktop_file_exchange_mutation_${_fx}
              COMMAND forge_desktop_file_exchange_gate --mutate ${_fx})
+    set_tests_properties(forge_desktop_file_exchange_mutation_${_fx}
+                         PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)
 add_test(NAME forge_desktop_update_gate COMMAND forge_desktop_update_gate)

@@ -625,15 +625,16 @@ int main(int argc, char** argv) {
     std::printf("THREW a non-std exception\n");
     rc = 2;
   }
-  if (mutate != 0) {
-    // Under a mutation the gate is REQUIRED to be red. A mutation that passes is
-    // the gate failing to be a gate, and it exits 0 here only when it went red.
-    if (rc == 0) {
-      std::printf("\n*** MUTATION %d WENT UNDETECTED — THE GATE IS NOT A GATE ***\n", mutate);
-      return 1;
-    }
-    std::printf("\nmutation %d was caught (the gate went red, as required)\n", mutate);
-    return 0;
+  // ── THE EXIT CONVENTION IS NOT INVERTED UNDER --mutate ──────────────────
+  // A caught mutation exits NON-ZERO, exactly as an ordinary failure does, and
+  // that is deliberate: forge-desktop/test/run_desktop.sh drives every gate here
+  // through one `run_gate` helper that reads "mutation N: STAYED GREEN" off an
+  // exit code of ZERO. A gate that inverted its own status would report every
+  // caught mutation to that runner as an unfalsifiable check. update_gate keeps
+  // the same convention for the same reason, and CMake marks the mutation tests
+  // WILL_FAIL rather than asking the binary to lie about what happened.
+  if (mutate != 0 && rc == 0) {
+    std::printf("\n*** MUTATION %d WENT UNDETECTED — THE GATE IS NOT A GATE ***\n", mutate);
   }
   return rc;
 }
