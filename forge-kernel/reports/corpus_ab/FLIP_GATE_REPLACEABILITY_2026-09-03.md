@@ -133,13 +133,18 @@ arm is right; it says the two are not interchangeable, which is the only questio
 asks. Both readings are available from one run: `agree` and `agree_strict` are reported
 side by side, and the per-family detail names the kinds.
 
-## 4. The three defects the brief named, reproduced at HEAD
+## 4. The three prior observations, reproduced at HEAD
 
-| | claim | measured here | agrees |
+Each of these was on record from a different piece of work — `CMakeLists.txt:262-270`
+for H, `reports/corpus_ab/THICKSOLID_ATTRIBUTION.md` §4 for G,
+`reports/TKOFFSET_EF_PARITY_AND_THE_WRONG_GATE.md` for E/F. None of them had reached the
+verdict. Re-measured here from one run, they reproduce:
+
+| | on record | measured here | agrees |
 |---|---|---|---|
 | **H OFFSETSHAPE** | native 24/600 vs OCCT 38/600, 33 of the 38 BRepCheck-invalid | `occt_ok` **38**, `occt_ok_invalid` **33**, valid bar **5**; `native_ok` **24**, all 24 valid | ✅ exactly |
 | **G THICKSOLID** | native 0/600 vs OCCT 133/600, all 133 invalid | `occt_ok` **132**, `occt_ok_invalid` **132**, valid bar **0**; `native_ok` 0. (133 in the BEFORE run — see §6) | ✅ |
-| **E PIPE / F PIPESHELL** | coverage-passing, agree on 0 of 600, constant ratio | both 100.0% vs 100.0%, `both_ok` 600, `agree` **0**, PIPE ratio constant 1.071797 (the brief's 7.180e-02 is the same number as a fractional excess) | ✅ exactly |
+| **E PIPE / F PIPESHELL** | coverage-passing, agree on 0 of 599, constant ratio 1.071797 | both 100.0% vs 100.0%, `both_ok` **600** (was 599), `agree` **0**, PIPE ratio constant 1.071797 — the same finding, now on the full 600 | ✅ exactly |
 
 ## 5. The added terms, and the proof that they can fail
 
@@ -262,7 +267,9 @@ git show 26db603e:forge-kernel/test/corpus_ab_aggregate.mjs > /tmp/agg_old.mjs
 node /tmp/agg_old.mjs <outdir>/results.jsonl --md before.md
 ```
 
-**A caution paid for here.** The BEFORE run's driver aborted *after* its 600th part with
+## 8. A caution paid for here
+
+The BEFORE run's driver aborted *after* its 600th part with
 `syntax error near unexpected token` — because this file's author edited
 `run_corpus_ab_coverage.sh` while bash was still executing it, and bash reads a script
 incrementally by byte offset. The 600 parts and 7,796 rows were already complete and
