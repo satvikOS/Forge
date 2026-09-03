@@ -295,7 +295,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // only RAISES a request and RENDERS a result. That split is what keeps
   // frame_gate.cpp hermetic -- a frame builder that could reach the network would
   // make every gate run depend on GitHub being up.
-  enum class UpdateState { Idle, Checking, UpToDate, Available, Failed };
+  // Installing and Installed are the second half of the path. Without them the
+  // menu can only ever say "Forge 0.1.1 is available" at a user who has no way
+  // to act on it -- the first download would be the last AUTOMATIC one, and the
+  // one-time Gatekeeper approval a shipped bundle costs would be charged again
+  // on every single release.
+  enum class UpdateState { Idle, Checking, UpToDate, Available, Installing, Installed, Failed };
   struct UpdateInfo {
     UpdateState state = UpdateState::Idle;
     std::string version;  // the offered version, when Available
@@ -307,6 +312,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Raised by the Help menu, consumed and cleared by the app layer.
   bool updateCheckRequested() const noexcept { return updateCheckPending_; }
   void clearUpdateCheckRequest() noexcept { updateCheckPending_ = false; }
+  // Likewise, and deliberately a SECOND flag rather than a mode on the first:
+  // installing is a different act from checking, it is the only one that writes
+  // to /Applications, and a single flag would make "the user asked to check"
+  // and "the user asked to install" indistinguishable at the consuming end.
+  bool updateApplyRequested() const noexcept { return updateApplyPending_; }
+  void clearUpdateApplyRequest() noexcept { updateApplyPending_ = false; }
   std::size_t treeRowCount() const noexcept { return tree_.rowCount(); }
   std::size_t treeMaterialized() const noexcept { return tree_.materialized(); }
   std::size_t treePeakMaterialized() const noexcept { return tree_.peakMaterialized(); }
@@ -699,6 +710,7 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t treeRowsDrawn_ = 0;
   WidgetRect treeExpanderRect_{};
   UpdateInfo update_{};
+  bool updateApplyPending_ = false;
   std::string runningVersion_;
   bool updateCheckPending_ = false;
   std::size_t measureFaceRowsDrawn_ = 0;
