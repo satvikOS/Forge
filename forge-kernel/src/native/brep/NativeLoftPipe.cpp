@@ -720,6 +720,12 @@ TopoDS_Shape thruSectionsTranslate(const std::vector<TopoDS_Shape>& sections,
 // here only when BOTH earlier paths returned null, so no input the engine
 // already covered can answer differently, and the 498 it covers are untouched.
 
+// Local env reader: the file's own envOn() is declared below this point.
+bool envOnRuled(const char* name) {
+    const char* v = std::getenv(name);
+    return v && (*v == '1' || *v == 'y' || *v == 'Y' || *v == 't' || *v == 'T');
+}
+
 // An edge's curve as a B-spline on [0,1], in the edge's ORIENTED direction.
 // Returns null on anything unconvertible. The reparameterisation is affine on
 // the knots, which is exact and leaves the curve's point set unchanged.
@@ -871,6 +877,15 @@ void edgeSamples(const TopoDS_Edge& e, std::vector<gp_Pnt>& out) {
 // The ruled loft between two closed wires carrying the SAME number of edges.
 TopoDS_Shape thruSectionsRuledCurved(const std::vector<TopoDS_Shape>& sections,
                                      bool solid, double tol) {
+    // ★ THE POSITIVE CONTROL'S OFF SWITCH. A coverage gain is only attributable to
+    // this path if the SAME binary, on the SAME parts, loses it when the path is
+    // disabled — otherwise "the new code ran" is an inference from the fact that
+    // new code was added. FORGE_THRUSECTIONS_NO_RULED=1 makes this path defer
+    // immediately, so test/run_thrusections_ruled_control.sh can measure both arms
+    // without rebuilding. DIAGNOSTIC ONLY and DEFAULT OFF: it can subtract
+    // capability, never add any, so no shipped behaviour depends on it.
+    static const bool off = envOnRuled("FORGE_THRUSECTIONS_NO_RULED");
+    if (off) FK_DEFER("ruled_disabled_by_env");
     if (sections.size() != 2) FK_DEFER("ruled_not_two_sections");
     if (sections[0].IsNull() || sections[1].IsNull()) FK_DEFER("ruled_section_null");
     if (sections[0].ShapeType() != TopAbs_WIRE || sections[1].ShapeType() != TopAbs_WIRE)
