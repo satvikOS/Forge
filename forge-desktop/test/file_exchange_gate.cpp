@@ -569,6 +569,25 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
     CHECK(forge::ui::isUserReadable(shell.lastExchange().message), "that refusal is not plain");
   }
   {
+    // Saving into a folder that is not there -- the most ordinary Save error there
+    // is once a path is typed by hand rather than picked. forge::io::exportStep
+    // throws "forge.io: cannot write <path>"; the user must get a sentence about a
+    // folder, and no half-written file may be left behind.
+    const std::string nowhere = dir + "/no_such_folder/bracket.step";
+    doc.restore(PartDocument::Snapshot{});
+    stack.clear();
+    seedBracket(doc);
+    CommandParams p;
+    p.setText("path", nowhere);
+    const DispatchResult r = shell.run("file.export_step", p);
+    CHECK(!r.ok(), "a save into a missing folder reported success");
+    CHECK(shell.lastExchange().refusal == ExchangeRefusal::WriteFailed,
+          "a save into a missing folder was not refused as a failed write");
+    CHECK(fileSize(nowhere) < 0, "a file appeared inside a folder that does not exist");
+    std::printf("  save to no folder   : \"%s\"\n", shell.lastExchange().message.c_str());
+    CHECK(forge::ui::isUserReadable(shell.lastExchange().message), "that refusal is not plain");
+  }
+  {
     // A STEP file that is WELL FORMED AND EMPTY: header, schema, an empty DATA
     // section, and its own END marker, so the magic matches and the completeness
     // check passes. The kernel refuses it ("empty DATA section"); the point of
