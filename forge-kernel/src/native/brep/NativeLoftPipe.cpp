@@ -118,6 +118,8 @@
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
+#include <BRepLib.hxx>
+#include <BRep_Builder.hxx>
 #include "forge/OcctPrimBuilder.hpp"  // TKPrim-free analytic cylinder
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -126,6 +128,7 @@
 #include <GProp_GProps.hxx>
 #include <Geom_Circle.hxx>
 #include <Standard_Type.hxx>
+#include <Geom_ConicalSurface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Line.hxx>
 #include <Geom_TrimmedCurve.hxx>
@@ -140,6 +143,7 @@
 #include <TopoDS_Solid.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
@@ -167,6 +171,10 @@ const TopoDS_Shape kNull;
 // satisfied by a different radius through the same corners) while keeping an
 // edge start at a multiple of it under ring reversal.
 const int kSamplesPerEdge = 5;
+
+// pi, for the coaxial-circle closed forms below. (Family E keeps its own copy,
+// kArcPi, further down; that block is not touched by this work.)
+const double kLoftPi = 3.14159265358979323846;
 
 thread_local char g_reason[192] = {0};
 void reasonClear() { g_reason[0] = '\0'; }
@@ -666,6 +674,227 @@ TopoDS_Shape thruSectionsTranslate(const std::vector<TopoDS_Shape>& sections,
     return out;
 }
 
+// ----------------------------------------- COAXIAL-CIRCLE RULED LOFT (CONE)
+// ★ WHY THIS PATH EXISTS, and why it runs only AFTER the other two decline.
+//
+// The translated-section path above covers a pair of sections related by a
+// TRANSLATION, where the ruled loft is exactly a linear extrusion. It says so in
+// its own banner, and it is deliberately narrow: two circles of DIFFERENT radius
+// are not a translate of each other, so it declines them and
+// test/ab_native_loftpipe_occt.cpp carried that decline as a documented gap with
+// a positive control proving OCCT builds the frustum. This path closes that gap.
+//
+// IT IS AN IDENTITY, NOT AN APPROXIMATION. Between two COAXIAL circles the ruled
+// line joining the point at polar angle t on one to the point at the SAME polar
+// angle t on the other is
+//     p(t,s) = C(s) + R(s) * (cos t * X + sin t * Y),
+//     C(s) = c0 + s*h*A,  R(s) = (1-s)*r0 + s*r1,
+// with A the common axis and (X, Y, A) an orthonormal frame. R(s) is affine in s
+// and vanishes at s* = r0/(r0-r1), so every one of those lines passes through the
+// single point C(s*) on the axis: the surface is EXACTLY a right circular cone,
+// and the loft is the frustum of it between the two section planes. r0 != r1 puts
+// s* outside [0,1], so no apex lies between the sections. That cone is
+// Geom_ConicalSurface, an analytic TKG3d surface — nothing is faceted, sampled or
+// fitted, and forge::occtConeSolid (the TKPrim-free analytic cone, already linked
+// into this file for the circular pipe legs) builds it as ONE conical lateral
+// face plus two planar circular caps, which is the same minimal B-rep
+// BRepOffsetAPI_ThruSections emits for the same input.
+//
+// STRICTLY ADDITIVE. thruSections runs the polygonal path, then the translated
+// path, and only reaches here when BOTH returned null, so no input the engine
+// covered before this change can answer differently. Equal radii are explicitly
+// NOT claimed here: that pair IS a translate, the path above owns it, and a
+// second engine answering the same input is how two answers start to drift.
+//
+// ===========================================================================
+// SCOPE, AND THE THREE MEASURED REASONS IT IS THIS NARROW
+// ===========================================================================
+// Accepted: exactly two sections, each a closed wire of ONE full-circle edge,
+// with parallel axes, centres ON that common axis, unequal non-zero radii, and
+// the two wire ORIGINS at the same polar angle.
+//
+//  (a) OFF-AXIS centres (parallel axes, offset centres) are an OBLIQUE circular
+//      cone. It is a perfectly real ruled loft — but not a right circular one,
+//      so no Geom_ConicalSurface represents it and this engine does not pretend
+//      otherwise. MEASURED (probe over live OCCT, r0=7 r1=4 h=13, centres offset
+//      2 mm): OCCT itself leaves its analytic path there and returns a B-SPLINE
+//      lateral whose volume misses the exact oblique-frustum closed form by
+//      2.37e-9 relative. Declined as `cone_centres_off_axis`.
+//
+//  (b) NON-PARALLEL axes are not a cone at all (MEASURED: 20 deg of tilt moves
+//      OCCT's volume 1.96e-2 off the frustum closed form). `cone_axes_not_parallel`.
+//
+//  (c) MISALIGNED wire ORIGINS. The identity above pairs polar angle t with the
+//      SAME polar angle t. If the two wires' origins sit at different polar
+//      angles the correspondence is t -> t + phi and the ruled surface is a
+//      TWISTED one, not the cone. MEASURED, sweeping that offset with everything
+//      else fixed: at phi == 0 OCCT returns the analytic 3-face cone whose volume
+//      is the closed form to 1.8e-16; from phi = 1e-9 rad to 5 deg it keeps 3
+//      faces but builds an approximated twisted skin whose volume is 2.4e-9 to
+//      1.2e-3 off that closed form; from 45 deg it re-origins the wires and
+//      returns FOUR faces / 6 edges / 4 vertices — the same solid, a different
+//      B-rep. This engine claims only phi == 0 (within tolerance) and declines
+//      the rest as `cone_seam_not_aligned`. A cone emitted for a twisted
+//      correspondence would be a rubber stamp; a 3-face cone emitted where OCCT
+//      splits into 4 would be a topology change smuggled in under a drop.
+//
+// ORACLE. The answer is accepted only against closed forms computed from the
+// INPUT NUMBERS ALONE, never from the B-rep being judged, and never on volume
+// alone (this repo has measured a wrong solid matching the right volume to ten
+// significant figures):
+//   solid  V   = pi*h/3 * (r0^2 + r0*r1 + r1^2)          AND
+//          z_c = h*(r0^2 + 2*r0*r1 + 3*r1^2) / (4*(r0^2 + r0*r1 + r1^2))
+//                measured along the axis from the r0 section — a SECOND,
+//                independent observable, so a body of the right size in the
+//                wrong place along the axis cannot pass;
+//   open   A   = pi*(r0 + r1)*sqrt(h^2 + (r1-r0)^2), the exact lateral area.
+
+// A section that is ONE FULL CIRCLE. Returns the supporting circle in WORLD space
+// (BRepAdaptor_Curve applies the edge's location) and the wire's ORIGIN point —
+// the start of its single edge, which is what fixes the loft's correspondence.
+bool circleSection(const TopoDS_Wire& w, gp_Circ& circ, gp_Pnt& origin) {
+    if (w.IsNull()) FK_DEFER_F("cone_wire_null");
+    if (!BRep_Tool::IsClosed(w)) FK_DEFER_F("cone_wire_open");
+    TopoDS_Edge e;
+    std::size_t n = 0;
+    for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) { e = ex.Current(); ++n; }
+    if (n != 1) FK_DEFER_F("cone_wire_not_single_edge");
+    BRepAdaptor_Curve ac(e);
+    if (ac.GetType() != GeomAbs_Circle) FK_DEFER_F("cone_edge_not_circle");
+    // A circular ARC is a different input: its loft has two more lateral
+    // boundaries and is not this closed frustum. Only the whole 2*pi is claimed.
+    const double a = ac.FirstParameter(), b = ac.LastParameter();
+    if (std::fabs(std::fabs(b - a) - 2.0 * kLoftPi) > 1.0e-9) FK_DEFER_F("cone_circle_not_full");
+    try {
+        circ = ac.Circle();
+        origin = ac.Value(a);     // a full circle: Value(a) == Value(b), so the
+                                  // edge's ORIENTATION cannot move this point
+    } catch (const Standard_Failure&) { FK_DEFER_F("cone_circle_threw"); }
+    return true;
+}
+
+// The ruled loft of two coaxial circles of different radius, built as the exact
+// right-circular frustum. Null (with a label) on anything outside that scope.
+TopoDS_Shape thruSectionsCoaxialCircles(const std::vector<TopoDS_Shape>& sections,
+                                        bool solid, double tol) {
+    if (sections.size() != 2) FK_DEFER("cone_not_two_sections");
+    if (sections[0].IsNull() || sections[1].IsNull()) FK_DEFER("cone_section_null");
+    if (sections[0].ShapeType() != TopAbs_WIRE || sections[1].ShapeType() != TopAbs_WIRE)
+        FK_DEFER("cone_section_not_wire");
+
+    gp_Circ k0, k1;
+    gp_Pnt o0, o1;
+    if (!circleSection(TopoDS::Wire(sections[0]), k0, o0)) return kNull;   // reason set
+    if (!circleSection(TopoDS::Wire(sections[1]), k1, o1)) return kNull;   // reason set
+
+    const gp_Pnt p0 = k0.Location(), p1 = k1.Location();
+    const double r0 = k0.Radius(), r1 = k1.Radius();
+
+    // The same scaling discipline the translated path uses: these coordinates
+    // come off imported STEP, so a fixed 1e-6 would be a statement about the
+    // importer rather than about the geometry on a 500 mm part. Never tighter
+    // than the caller's tol.
+    const double sz = std::max(std::max(r0, r1), p0.Distance(p1));
+    const double xt = std::max(tol, 1.0e-7 * std::max(1.0, sz));
+
+    if (r0 <= xt || r1 <= xt) FK_DEFER("cone_zero_radius");
+    // EQUAL radii is the CYLINDER, and a cylinder IS a translate: the path above
+    // owns it and has already run on this input. Two engines answering the same
+    // input is how two answers start to drift, so this one declines it.
+    if (std::fabs(r0 - r1) <= xt) FK_DEFER("cone_radii_equal");
+
+    const gp_Dir a0 = k0.Axis().Direction();
+    if (!a0.IsParallel(k1.Axis().Direction(), 1.0e-9)) FK_DEFER("cone_axes_not_parallel");
+
+    const gp_Vec step(p0, p1);
+    const double h = step.Magnitude();
+    if (h <= xt) FK_DEFER("cone_sections_coplanar");
+    const gp_Dir A(step);
+    if (!A.IsParallel(a0, 1.0e-9)) FK_DEFER("cone_centres_off_axis");
+
+    // Correspondence, i.e. reason (c) above. Both origins lie in their own
+    // section plane, which is perpendicular to A, so the two radial unit vectors
+    // are directly comparable; their separation is converted to a DISTANCE on the
+    // larger circle so the test is in millimetres like every other tolerance here.
+    const gp_Vec q0(p0, o0), q1(p1, o1);
+    if (q0.Magnitude() <= xt || q1.Magnitude() <= xt) FK_DEFER("cone_origin_degenerate");
+    const gp_Dir u0(q0), u1(q1);
+    if (gp_Vec(u0).Subtracted(gp_Vec(u1)).Magnitude() * std::max(r0, r1) > xt)
+        FK_DEFER("cone_seam_not_aligned");
+
+    // The emitted seam sits on the input wire's OWN origin direction, so the
+    // answer is a function of the input and not of an arbitrary internal frame.
+    gp_Ax2 ax;
+    try { ax = gp_Ax2(p0, A, u0); }
+    catch (const Standard_Failure&) { FK_DEFER("cone_frame_failed"); }
+
+    const double sumsq = r0 * r0 + r0 * r1 + r1 * r1;
+
+    if (solid) {
+        TopoDS_Shape out;
+        try { out = forge::occtConeSolid(ax, r0, r1, h); }
+        catch (const Standard_Failure&) { out = kNull; }
+        catch (const std::exception&)   { out = kNull; }
+        if (out.IsNull()) FK_DEFER("cone_solid_failed");
+
+        GProp_GProps vp;
+        try { BRepGProp::VolumeProperties(out, vp); }
+        catch (const Standard_Failure&) { FK_DEFER("cone_volume_threw"); }
+        const double cf = kLoftPi * h / 3.0 * sumsq;
+        if (std::fabs(std::fabs(vp.Mass()) - cf) > 1.0e-9 * cf)
+            FK_DEFER("cone_volume_not_closed_form");
+        // The SECOND observable. Volume alone cannot validate geometry.
+        const double zc = h * (r0 * r0 + 2.0 * r0 * r1 + 3.0 * r1 * r1) / (4.0 * sumsq);
+        if (vp.CentreOfMass().Distance(p0.Translated(gp_Vec(A) * zc)) >
+            std::max(1.0e-7, 1.0e-9 * sz))
+            FK_DEFER("cone_centroid_not_closed_form");
+        // The same watertightness contract sewAndClose imposes on every other
+        // solid this file returns.
+        int nsh = 0;
+        for (TopExp_Explorer ex(out, TopAbs_SHELL); ex.More(); ex.Next()) {
+            ++nsh;
+            if (!BRep_Tool::IsClosed(ex.Current())) FK_DEFER("cone_shell_not_closed");
+        }
+        if (nsh != 1) FK_DEFER("cone_not_one_shell");
+        return out;
+    }
+
+    // solid == false is the OPEN lateral skin: the conical surface alone, wrapped
+    // in a one-face SHELL — which is the shape kind (a shell, not a bare face)
+    // BRepOffsetAPI_ThruSections returns for the same input.
+    const double semi = std::atan2(r1 - r0, h);          // signed: r1 < r0 -> negative
+    const double cs = std::cos(semi);
+    if (!(cs > 1.0e-12)) FK_DEFER("cone_semi_angle_degenerate");
+    TopoDS_Face lat;
+    try {
+        Handle(Geom_ConicalSurface) cone = new Geom_ConicalSurface(gp_Ax3(ax), semi, r0);
+        // v is the SLANT distance along the surface, so the frustum's axial
+        // height h occupies v in [0, h/cos(semi)].
+        const double vMax = h / cs;
+        BRepBuilderAPI_MakeFace mkf(cone, 0.0, 2.0 * kLoftPi,
+                                    std::min(0.0, vMax), std::max(0.0, vMax), xt);
+        if (!mkf.IsDone()) FK_DEFER("cone_lateral_face_failed");
+        lat = mkf.Face();
+        BRepLib::SameParameter(lat, 1.0e-7, Standard_True);
+    } catch (const Standard_Failure&) { FK_DEFER("cone_lateral_threw"); }
+    if (lat.IsNull()) FK_DEFER("cone_lateral_face_failed");
+
+    TopoDS_Shell sh;
+    BRep_Builder bld;
+    bld.MakeShell(sh);
+    bld.Add(sh, lat);
+
+    // The open skin's own closed form: a frustum's lateral area. An open shell
+    // has no solid volume to check, so this is the oracle that stands in its place.
+    GProp_GProps sp;
+    try { BRepGProp::SurfaceProperties(sh, sp); }
+    catch (const Standard_Failure&) { FK_DEFER("cone_area_threw"); }
+    const double slant = std::sqrt(h * h + (r1 - r0) * (r1 - r0));
+    const double af = kLoftPi * (r0 + r1) * slant;
+    if (std::fabs(sp.Mass() - af) > 1.0e-9 * af) FK_DEFER("cone_area_not_closed_form");
+    return sh;
+}
+
 // ---------------------------------------------------------------- sections
 struct Section {
     std::vector<gp_Pnt> ring;   // size 1 == a point section (AddVertex)
@@ -806,18 +1035,25 @@ TopoDS_Shape thruSectionsPolygonal(const std::vector<TopoDS_Shape>& sections,
 
 }  // namespace
 
-// The family-D entry point. The polygonal engine answers first; the translated-
-// section identity is tried ONLY on its defer, so this is strictly additive —
-// every input the polygonal path covered still takes the polygonal path and
-// returns the shape it always returned.
+// The family-D entry point. The engines are tried in order and each one runs
+// ONLY on the previous one's defer, so every step is strictly additive — an input
+// the polygonal path covered still takes the polygonal path and returns the shape
+// it always returned, and an input the translated path covered still takes that.
+//   1. polygonal            — line-edged sections, planar lateral quads
+//   2. translated section   — the pair is a translate: an exact linear extrusion
+//   3. coaxial circles      — the pair is a coaxial circle pair of unequal radius:
+//                             an exact right-circular frustum
 TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
                           bool solid, bool ruled, double tol) {
     reasonClear();
     const TopoDS_Shape poly = thruSectionsPolygonal(sections, solid, ruled, tol);
     if (!poly.IsNull()) return poly;
-    // The polygonal reason is KEPT and this path's label is appended after it, so
-    // the census still reads why the first engine declined as well as the second.
-    return thruSectionsTranslate(sections, solid, std::max(tol, 1.0e-9));
+    // Each declining path's reason is KEPT and the next path's label is appended
+    // after it, so the census still reads why every engine declined, in order.
+    const double t = std::max(tol, 1.0e-9);
+    const TopoDS_Shape xlate = thruSectionsTranslate(sections, solid, t);
+    if (!xlate.IsNull()) return xlate;
+    return thruSectionsCoaxialCircles(sections, solid, t);
 }
 
 // =========================================================== family F

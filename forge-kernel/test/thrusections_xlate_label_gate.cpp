@@ -95,9 +95,17 @@ TopoDS_Wire rect5split(double hx, double hy, double z) {
     return p.Wire();
 }
 
-// One full circle as a single-edge closed wire.
+// One full circle as a single-edge closed wire, centred on the z axis.
 TopoDS_Wire circle1(double r, double z) {
     const gp_Circ c(gp_Ax2(gp_Pnt(0, 0, z), gp_Dir(0, 0, 1)), r);
+    BRepBuilderAPI_MakeEdge me(c);
+    BRepBuilderAPI_MakeWire mw(me.Edge());
+    return mw.Wire();
+}
+// The same, with the centre moved OFF that axis. See NEUTRAL-2 below for why the
+// offset is load-bearing.
+TopoDS_Wire circle1At(double r, double x, double z) {
+    const gp_Circ c(gp_Ax2(gp_Pnt(x, 0, z), gp_Dir(0, 0, 1)), r);
     BRepBuilderAPI_MakeEdge me(c);
     BRepBuilderAPI_MakeWire mw(me.Edge());
     return mw.Wire();
@@ -204,9 +212,22 @@ int main() {
     // not reached at all and the pre-existing geometric label must still be the
     // one recorded. (Circular sections also make the polygonal path decline, so
     // the translated path is genuinely reached.)
+    //
+    // ★ RE-AUTHORED. This control used to use two COAXIAL circles of different
+    //   radius, and it fired its own "the engine BUILT - this control cannot fire
+    //   and must be re-authored" arm the moment the coaxial-circle path landed:
+    //   that pair is exactly the right circular frustum the new path now builds
+    //   (test/ab_native_loftpipe_occt.cpp::ts-cone-frustum), so it can no longer
+    //   reach any defer at all. The second circle's centre is therefore moved OFF
+    //   the common axis, which is the SMALLEST change that restores the property
+    //   this control is about — one edge each, still not a translate, and now
+    //   also outside the coaxial-circle path's scope (an oblique cone is not a
+    //   right circular one, so that path declines it as `cone_centres_off_axis`).
+    //   The assertion itself is UNCHANGED: the translated path must still record
+    //   `xlate_not_a_translate`, and must not record the LENGTH label.
     {
         const TopoDS_Wire a = circle1(20.0, 0.0);
-        const TopoDS_Wire b = circle1(10.0, 12.0);
+        const TopoDS_Wire b = circle1At(10.0, 7.0, 12.0);
         ok(nEdges(a) == nEdges(b), "NEUTRAL-2 setup: edge counts MATCH (1 and 1)");
         std::vector<TopoDS_Shape> secs{a, b};
         const TopoDS_Shape out = forge::occtloft::thruSections(secs, true, true, 1.0e-6);

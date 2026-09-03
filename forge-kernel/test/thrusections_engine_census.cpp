@@ -248,6 +248,14 @@ TopoDS_Wire circleWire(double z, double rad) {
     BRepBuilderAPI_MakeWire mw(me.Edge());
     return mw.Wire();
 }
+// The same circle with its centre moved OFF the z axis, for the oblique-cone
+// control below.
+TopoDS_Wire circleWireAt(double z, double rad, double x) {
+    const gp_Circ c(gp_Ax2(gp_Pnt(x, 0, z), gp_Dir(0, 0, 1)), rad);
+    BRepBuilderAPI_MakeEdge me(c);
+    BRepBuilderAPI_MakeWire mw(me.Edge());
+    return mw.Wire();
+}
 
 struct Probe {
     TopoDS_Shape shape;
@@ -300,11 +308,19 @@ int selftest() {
         r2.push_back(gp_Pnt(0, -s, 20)); r2.push_back(gp_Pnt(s, 0, 20));
         r2.push_back(gp_Pnt(0, s, 20));  r2.push_back(gp_Pnt(-s, 0, 20));
         const Probe p = callEngine(polyWire(r1), polyWire(r2));
-        const bool ok = p.shape.IsNull() && p.reason == "quad_nonplanar|xlate_not_a_translate";
+        // ★ The chain has THREE links now, one per engine thruSections tries in
+        //   order, and the comparison stays EXACT rather than becoming a
+        //   substring test: every time an engine is appended behind the previous
+        //   ones this constant must be re-read and re-stated by a human, which is
+        //   the point. What is load-bearing here is the FIRST link — the
+        //   polygonal path's verdict on a twisted pair.
+        const bool ok = p.shape.IsNull() &&
+                        p.reason == "quad_nonplanar|xlate_not_a_translate|cone_wire_not_single_edge";
         std::printf("SELFTEST %-22s engine=%-5s reason=%-30s  %s\n", "twisted45(negative)",
                     p.shape.IsNull() ? "NULL" : "SHAPE",
                     p.reason.empty() ? "(none)" : p.reason.c_str(),
-                    ok ? "PASS" : "FAIL (want quad_nonplanar|xlate_not_a_translate)");
+                    ok ? "PASS" : "FAIL (want quad_nonplanar|xlate_not_a_translate|"
+                                 "cone_wire_not_single_edge)");
         if (!ok) ++bad;
     }
     // POSITIVE for the TRANSLATED-SECTION path: two EQUAL circles offset in z.
@@ -329,15 +345,51 @@ int selftest() {
                     ok ? "PASS" : "FAIL (want SHAPE, prof_edge_not_line, pi r^2 h)");
         if (!ok) ++bad;
     }
-    // NEGATIVE 2: UNEQUAL circles are not a translate either -> the chained label.
+    // POSITIVE for the COAXIAL-CIRCLE path: two UNEQUAL coaxial circles.
+    // ★ RE-AUTHORED. This was a NEGATIVE control ("unequal circles are not a
+    //   translate either"), and it went red the moment the coaxial-circle engine
+    //   landed, because that pair is exactly what the third path now builds: the
+    //   right circular frustum. Flipping it to a POSITIVE keeps it load-bearing
+    //   and makes it say something stronger — the polygonal path declines
+    //   (prof_edge_not_line), the translated path declines (xlate_not_a_translate)
+    //   and the cone path builds, to the closed form pi h/3 (r0^2+r0 r1+r1^2). A
+    //   census run where this cannot be produced is measuring an engine without
+    //   that fix in it. The NEGATIVE it used to be is not lost: the off-axis pair
+    //   below is the same input with one degree of freedom turned, and it must
+    //   still decline.
     {
-        const Probe p = callEngine(circleWire(0.0, 5.0), circleWire(10.0, 3.0));
+        const double r0 = 5.0, r1 = 3.0, h = 10.0;
+        const Probe p = callEngine(circleWire(0.0, r0), circleWire(h, r1));
+        double vol = 0.0;
+        if (!p.shape.IsNull()) {
+            GProp_GProps g;
+            try { BRepGProp::VolumeProperties(p.shape, g); vol = std::fabs(g.Mass()); } catch (...) {}
+        }
+        const double want = M_PI * h / 3.0 * (r0 * r0 + r0 * r1 + r1 * r1);
+        const bool ok = !p.shape.IsNull() &&
+                        p.reason == "prof_edge_not_line|xlate_not_a_translate" &&
+                        std::fabs(vol - want) <= 1e-6 * want;
+        std::printf("SELFTEST %-22s engine=%-5s reason=%-30s vol=%.6f want=%.6f  %s\n",
+                    "cone(cone+)", p.shape.IsNull() ? "NULL" : "SHAPE",
+                    p.reason.empty() ? "(none)" : p.reason.c_str(), vol, want,
+                    ok ? "PASS" : "FAIL (want SHAPE, prof_edge_not_line|xlate_not_a_translate, "
+                                 "pi h/3 (r0^2+r0 r1+r1^2))");
+        if (!ok) ++bad;
+    }
+    // NEGATIVE 2: the SAME unequal circles with the second centre moved OFF the
+    // common axis. The loft is then an OBLIQUE cone, which no analytic conical
+    // surface represents, so all three engines must decline — the control that
+    // keeps the coaxial-circle path from being a rubber stamp on any circle pair.
+    {
+        const Probe p = callEngine(circleWire(0.0, 5.0), circleWireAt(10.0, 3.0, 4.0));
         const bool ok = p.shape.IsNull() &&
-                        p.reason == "prof_edge_not_line|xlate_not_a_translate";
-        std::printf("SELFTEST %-22s engine=%-5s reason=%-30s  %s\n", "circles(negative)",
+                        p.reason == "prof_edge_not_line|xlate_not_a_translate|"
+                                    "cone_centres_off_axis";
+        std::printf("SELFTEST %-22s engine=%-5s reason=%-30s  %s\n", "circles-offaxis(neg)",
                     p.shape.IsNull() ? "NULL" : "SHAPE",
                     p.reason.empty() ? "(none)" : p.reason.c_str(),
-                    ok ? "PASS" : "FAIL (want prof_edge_not_line|xlate_not_a_translate)");
+                    ok ? "PASS" : "FAIL (want prof_edge_not_line|xlate_not_a_translate|"
+                                 "cone_centres_off_axis)");
         if (!ok) ++bad;
     }
     // NEGATIVE 3: 4 vertices against 5 -> loft_vertex_count_mismatch.
@@ -350,12 +402,25 @@ int selftest() {
         r2.push_back(gp_Pnt(4, 0, 9));   r2.push_back(gp_Pnt(4, 4, 9));
         r2.push_back(gp_Pnt(-4, 4, 9));
         const Probe p = callEngine(polyWire(r1), polyWire(r2));
+        // ★ THIS CONSTANT WAS ALREADY STALE, and it took the WHOLE CENSUS DOWN
+        //   with it: the runner treats a failed control as fatal, so nothing here
+        //   has emitted a row since. MEASURED at origin/archdisc f53deeae, this
+        //   file compiled against that commit's own engine: the reason is
+        //   `loft_vertex_count_mismatch|xlate_not_a_translate_length`, not
+        //   `...|xlate_edge_count_mismatch`. The translated path gained a LENGTH
+        //   discriminator that separates "the same curve with an extra vertex"
+        //   from "two different curves", and a 4-gon against a 5-gon of unequal
+        //   perimeter is the second — so the engine deliberately stopped saying
+        //   the old label for this input and the expectation was never updated.
+        //   Corrected here, with the cone path's link appended.
         const bool ok = p.shape.IsNull() &&
-                        p.reason == "loft_vertex_count_mismatch|xlate_edge_count_mismatch";
+                        p.reason == "loft_vertex_count_mismatch|xlate_not_a_translate_length|"
+                                    "cone_wire_not_single_edge";
         std::printf("SELFTEST %-22s engine=%-5s reason=%-30s  %s\n", "count4v5(negative)",
                     p.shape.IsNull() ? "NULL" : "SHAPE",
                     p.reason.empty() ? "(none)" : p.reason.c_str(),
-                    ok ? "PASS" : "FAIL (want loft_vertex_count_mismatch|xlate_edge_count_mismatch)");
+                    ok ? "PASS" : "FAIL (want loft_vertex_count_mismatch|"
+                                 "xlate_not_a_translate_length|cone_wire_not_single_edge)");
         if (!ok) ++bad;
     }
     std::printf("SELFTEST %s\n", bad == 0 ? "ALL PASS" : "FAILED");

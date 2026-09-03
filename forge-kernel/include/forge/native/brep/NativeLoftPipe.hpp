@@ -47,6 +47,35 @@
 //   With solid=true the two end sections are closed by planar cap faces. The
 //   result is sewn, checked watertight, and oriented to positive volume.
 //
+//   ★ TWO MORE ENGINES SIT BEHIND THAT ONE, each tried ONLY when the previous
+//   declines, so every one of them is strictly additive — an input the polygonal
+//   path covered still takes the polygonal path and returns the shape it always
+//   returned. Both are IDENTITIES, not approximations, and both exist because the
+//   polygonal path represents a section as a ring of VERTICES and therefore turns
+//   away every curved section (measured: 291 of 291 native THRUSECTIONS deferrals
+//   on the 600-part corpus A/B):
+//
+//     TRANSLATED SECTIONS. When section B is section A translated by T, every
+//     ruled line joins p to p + T, so the loft IS the linear extrusion of A along
+//     T — exactly, for any edge geometry, arcs and splines alike. Built with
+//     forge::occtPrism. 189 of the 258 corpus parts the drop was deleting.
+//
+//     COAXIAL CIRCLES (unequal radii). Between two COAXIAL full circles the ruled
+//     line from polar angle t on one to polar angle t on the other has radius
+//     (1-s) r0 + s r1, affine in s, which vanishes at one point ON the axis — so
+//     every such line passes through a single apex and the surface is EXACTLY a
+//     right circular cone. The loft is the frustum of it, built by
+//     forge::occtConeSolid as one analytic Geom_ConicalSurface lateral plus two
+//     planar circular caps (solid=true) or as that lateral alone in a one-face
+//     shell (solid=false) — the same minimal B-rep BRepOffsetAPI_ThruSections
+//     emits for the same input, MEASURED equal on volume, centre of mass, all six
+//     bbox bounds and face/edge/vertex/shell counts.
+//     EQUAL radii is NOT claimed here: that pair is a translate and the path above
+//     owns it. Accepted only against closed forms computed from the INPUT NUMBERS
+//     alone, and never on volume alone: V = pi h/3 (r0^2 + r0 r1 + r1^2) AND the
+//     axial centroid h(r0^2 + 2 r0 r1 + 3 r1^2)/(4(r0^2 + r0 r1 + r1^2)) for the
+//     solid, the exact lateral area pi (r0+r1) sqrt(h^2 + (r1-r0)^2) for the skin.
+//
 //   ★ WHY PLANAR QUADS ARE A HARD REQUIREMENT, not a shortcut. The ruled surface
 //   between two non-parallel straight edges is a BILINEAR patch, and a bilinear
 //   patch's signed volume contribution is the MEAN of its two triangulations —
@@ -80,6 +109,25 @@
 //       this engine does NOT and says so);
 //     * a lateral quad whose 4 corners are not coplanar within `tol`, or whose
 //       area is degenerate;
+//     * a circle pair the coaxial-circle path cannot claim, each declined by name
+//       and each MEASURED against live OCCT rather than assumed impossible:
+//         - centres OFF the common axis (`cone_centres_off_axis`) — the loft is an
+//           OBLIQUE cone, which no Geom_ConicalSurface represents; OCCT leaves its
+//           own analytic path there too and returns a B-spline lateral 2.37e-9
+//           relative away from the exact oblique-frustum closed form;
+//         - axes NOT PARALLEL (`cone_axes_not_parallel`) — not a cone at all;
+//           20 degrees of tilt moves OCCT's own volume 1.96e-2 off the frustum;
+//         - wire ORIGINS at different polar angles (`cone_seam_not_aligned`) — the
+//           correspondence is then t -> t + phi and the surface is TWISTED, not
+//           the cone. At phi = 0 OCCT returns the analytic 3-face cone whose volume
+//           is the closed form to 1.8e-16; from 1e-9 rad to 5 degrees it keeps 3
+//           faces but approximates a twisted skin 2.4e-9 to 1.2e-3 off it; from 45
+//           degrees it re-origins the wires and returns 4 faces / 6 edges / 4
+//           vertices. Emitting a 3-face cone for any of those would be a rubber
+//           stamp on a curved pair or a topology change smuggled in under a drop;
+//         - anything that is not two closed single-edge FULL-circle wires (an arc,
+//           an ellipse, a three-section stack);
+//         - a built frustum that misses either closed form above;
 //     * a non-planar end section when solid=true;
 //     * ruled=false (the SMOOTHED B-spline skin is a genuinely different
 //       surface — approximating it here would be a silent substitution);
@@ -144,6 +192,11 @@
 // face/edge/vertex/shell counts AND validity, plus independent closed forms,
 // plus a NEGATIVE CONTROL proving the comparator rejects two shapes of equal
 // volume. Run it with test/run_ab_native_loftpipe.sh.
+// test/run_cone_loft_mutation_gate.sh proves the coaxial-circle half of that
+// harness CAN fail: six mutants of THIS FILE (never of the test), each of which
+// must turn the harness red on its OWN assertion — including the two-sided pair
+// that shows the closed-form oracle is what converts a deliberately wrong build
+// into an honest defer rather than a plausible wrong answer.
 //
 // WIRING. The OCCT calls stay live by default; the native attempt is opt-in
 // (FORGE_LOFT_NATIVE=1 / FORGE_PIPESHELL_NATIVE=1) and falls through on defer.

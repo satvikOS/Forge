@@ -731,6 +731,17 @@ jobs:
         # FALLS without the baseline being lowered in the same commit. All seven run in
         # about 93 seconds on this runner, which already has OCCT installed.
         run: bash forge-kernel/test/run_ab_all.sh
+      - name: coaxial-circle loft mutation gate (the A/B's cone half must be able to FAIL)
+        # run_ab_all.sh above proves the loftpipe harness is GREEN. It cannot prove the
+        # harness would notice if the engine broke -- a green count and an inert assertion
+        # look identical from outside. This drives six mutants of the ENGINE (never of the
+        # test) through that same harness and requires each to turn it RED on its OWN named
+        # assertion: the coaxial-circle path switched off, each of its three scope guards
+        # removed in turn, and a two-sided pair proving the closed-form oracle is what
+        # converts a deliberately wrong build into an honest defer instead of a plausible
+        # wrong answer. NOBUILD is never accepted as a kill. It needs only OCCT, which this
+        # job already has, and runs in about 100 seconds.
+        run: bash forge-kernel/test/run_cone_loft_mutation_gate.sh
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
         # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
