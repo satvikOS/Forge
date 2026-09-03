@@ -58,7 +58,12 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-EXPECTED_MUTATIONS=48
+EXPECTED_MUTATIONS=54
+# 2026-09-03: +6 for forge_desktop_drawing_gate. Counted the same way every other
+# revision of this number has been -- by adding up run_desktop.sh's own run_gate
+# arguments on the tree being committed:
+#     document 8 + file_exchange 5 + frame 12 + drawing 6 + copilot 8
+#   + update 7 + click 8 = 54
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

@@ -34,11 +34,13 @@
 #include <vector>
 
 #include "Camera.hpp"
+#include "DrawingGdt.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/CommandSurface.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/Drawing.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -355,6 +357,64 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // one was actually drawn.
   std::size_t measureEdgeRowsDrawn() const noexcept { return measureEdgeRowsDrawn_; }
 
+  // ── the drawing ─────────────────────────────────────────────────────────
+  // The 2-D documentation side of this document: the title block, the datums,
+  // the notes and the geometric tolerances. It is SAVED with the part (format
+  // version 2), so a drawing is part of the document rather than something the
+  // panels hold until the window closes.
+  const forge::ui::DrawingModel& drawing() const noexcept { return drawing_; }
+  forge::ui::DrawingModel& drawing() noexcept { return drawing_; }
+
+  // Everything the drawing panels derive from the built part and the chosen
+  // sheet. Nothing in it is stored: it is recomputed whenever the tessellation
+  // or the sheet choice changes, so a scale can never outlive the geometry it
+  // was chosen for.
+  struct DrawingLayout {
+    bool modelBuilt = false;
+    const forge::ui::SheetSize* sheet = nullptr;
+    forge::ui::ScaleFit scale{};
+    std::vector<forge::ui::DrawingView> views;
+    double groupWidthMm = 0.0;
+    double groupHeightMm = 0.0;
+    forge::ui::MeasureBox box{};
+  };
+  // Non-const because the first call is what builds it, exactly like
+  // measureMesh() above.
+  const DrawingLayout& drawingLayout();
+  // The title block as it would be drawn, for a gate that wants the values
+  // without an ImGui context.
+  std::vector<forge::ui::TitleBlockField> titleBlockRows();
+  // What the GD&T panel says about one control.
+  GdtVerdict gdtVerdict(const forge::ui::FeatureControlFrame& frame);
+  // ── the drawing panels' controls, reachable without a mouse ─────────────
+  // Same pattern and same reason as the CoPilot's above: a host, a macro and a
+  // gate must be able to work these surfaces, and they must do it through the
+  // SHIPPING path rather than a private one beside it. Each of these is the
+  // exact call the panel's own button makes -- the button and the method call
+  // one private body, so there is no second way to add a note.
+  //
+  // Each returns true when it happened; when it did not, drawingRefusal() holds
+  // the sentence the panel shows.
+  bool drawingAddNote(const std::string& text, forge::ui::AnnotationKind kind,
+                      forge::ui::NamedView view, bool attachToPickedFace);
+  bool drawingRemoveNote(const std::string& id);
+  bool drawingAddDatum();  // the picked face, at the next free letter
+  bool drawingRemoveDatum(char letter);
+  bool drawingAddControl(forge::ui::GdtCharacteristic characteristic, double toleranceMm,
+                         double basicAngleDeg, forge::ui::ControlledFeatureKind feature,
+                         forge::ui::MaterialModifier modifier,
+                         const std::vector<char>& datumRefs);
+  bool drawingRemoveControl(const std::string& id);
+  const std::string& drawingRefusal() const noexcept { return gdtAddRefusal_; }
+  const std::string& noteRefusal() const noexcept { return noteRefusal_; }
+
+  // Rows each drawing panel drew on its last draw -- the same witness the
+  // Measure panel keeps, so "the panel rendered real data" is a number.
+  std::size_t titleBlockRowsDrawn() const noexcept { return titleBlockRowsDrawn_; }
+  std::size_t viewListRowsDrawn() const noexcept { return viewListRowsDrawn_; }
+  std::size_t gdtRowsDrawn() const noexcept { return gdtRowsDrawn_; }
+  std::size_t annotationRowsDrawn() const noexcept { return annotationRowsDrawn_; }
+
   // ── the recovered B-rep edges ───────────────────────────────────────────
   // Derived from the SAME triangle soup the Measure panel uses and cached on the
   // same witness (the scene's triangle count), so a rebuild invalidates both at
@@ -513,6 +573,18 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawConsolePanel();
   void drawTimelinePanel();
   void drawMeasurePanel();
+  void drawTitleBlockPanel();
+  void drawViewListPanel();
+  void drawGdtPanel();
+  void drawAnnotationPanel();
+  // One editable title-block row. Returns true when the user changed it. Not a
+  // draw* function by name on purpose: it draws one widget, and the draw*
+  // census is about PANELS.
+  bool editTextField(const char* id, std::string& value, char* buffer, std::size_t size);
+  // The stable reference for a picked face, built in ONE place: the selection,
+  // the datums and the notes all have to name a face the same way or a drawing
+  // saved today stops resolving tomorrow.
+  forge::ui::EntityRef faceRefFor(std::uint32_t faceId) const;
   void drawToolsPanel();
   void drawCopilotPanel();
   // The work the three recorded presses stand for. Private: the ONLY caller is
@@ -629,6 +701,48 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   forge::ui::MeshMeasure meshMeasure_{};
   std::size_t measureTriangles_ = 0;
   bool measureBuilt_ = false;
+
+  // ── the drawing, and its derived layout ─────────────────────────────────
+  forge::ui::DrawingModel drawing_;
+  DrawingLayout drawingLayout_{};
+  bool drawingLayoutBuilt_ = false;
+  // The witnesses the layout was computed from. All four are inputs to the
+  // answer, so all four invalidate it: a sheet change with a stale triangle
+  // count would print a scale chosen for a different part.
+  std::size_t drawingTriangles_ = 0;
+  std::string drawingSheetId_;
+  forge::ui::ProjectionAngle drawingProjection_ = forge::ui::ProjectionAngle::First;
+  forge::ui::ScaleMode drawingScaleMode_ = forge::ui::ScaleMode::Automatic;
+  forge::ui::Scale drawingFixedScale_{1, 1};
+
+  // Panel edit buffers. ImGui's text widget writes into a char array, and these
+  // are refreshed from the document every frame the widget is NOT being typed
+  // in -- so an undo, an Open or a New is visible immediately and a half-typed
+  // value is never overwritten under the cursor.
+  static constexpr std::size_t kTitleFieldCount = 8;
+  static constexpr std::size_t kTitleFieldSize = 96;
+  char titleFields_[kTitleFieldCount][kTitleFieldSize] = {};
+  char noteText_[256] = {};
+  int noteKindIndex_ = 0;
+  int noteViewIndex_ = 0;
+  bool noteAttach_ = true;
+  int gdtCharIndex_ = 0;
+  int gdtFeatureIndex_ = 0;
+  int gdtModifierIndex_ = 0;
+  float gdtTolerance_ = 0.05f;
+  float gdtBasicAngle_ = 45.0f;
+  // The primary, secondary and tertiary datum a new control references. 0 means
+  // "none"; n means the (n-1)th letter that exists on the part. Three slots
+  // because ASME Y14.5 allows three, and their ORDER is the precedence.
+  int gdtDatumSlot_[3] = {0, 0, 0};
+  // The last refusal each add form produced, kept so the sentence stays on
+  // screen after the click that caused it rather than flashing for one frame.
+  std::string gdtAddRefusal_;
+  std::string noteRefusal_;
+  std::size_t titleBlockRowsDrawn_ = 0;
+  std::size_t viewListRowsDrawn_ = 0;
+  std::size_t gdtRowsDrawn_ = 0;
+  std::size_t annotationRowsDrawn_ = 0;
 
   // The recovered edges, on the SAME triangle-count witness as the measure
   // cache. Two witnesses for one tessellation is how one of them goes stale.

@@ -210,6 +210,11 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
+    # The drawing's tolerance seam. It reaches ONE forge-kernel header -- the
+    # in-house ASME Y14.5 evaluator, which is pure C++20 with no OCCT -- so the
+    # property stated above still holds: KernelScene and FileExchangeHost remain
+    # the only two translation units that see an OCCT header.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -327,6 +332,21 @@ target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_cor
 set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ---------------------------------------------------- the DRAWING gate
+# HEADLESS: the four drawing panels over a REAL kernel body. It asserts that the
+# view sizes are the part's own measured extents, that the scale is the largest
+# published rung that fits the chosen sheet, that a geometric tolerance is
+# MEASURED where the tessellation carries the answer and REFUSED where it does
+# not, and that the drawing round-trips through a real .fpart. `--mutate 1..6`
+# breaks the QUERY and each mutation is registered below as a WILL_FAIL test, so
+# a check that stops detecting its defect turns ctest red.
+add_executable(forge_desktop_drawing_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/drawing_gate.cpp")
+target_compile_options(forge_desktop_drawing_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_drawing_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_drawing_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
@@ -378,6 +398,11 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
+    # The drawing's tolerance seam. It reaches ONE forge-kernel header -- the
+    # in-house ASME Y14.5 evaluator, which is pure C++20 with no OCCT -- so the
+    # property stated above still holds: KernelScene and FileExchangeHost remain
+    # the only two translation units that see an OCCT header.
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core_asan PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -469,6 +494,17 @@ add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
 add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
+add_test(NAME forge_desktop_drawing_gate COMMAND forge_desktop_drawing_gate)
+# The negative controls. Same idiom as the file-exchange and update mutations:
+# the binary keeps its ordinary exit convention, so a mutated run is EXPECTED to
+# be red and WILL_FAIL says so declaratively. A mutation that starts exiting ZERO
+# is one whose defect the gate no longer detects; do not "fix" that by removing
+# the property.
+foreach(_dm RANGE 1 6)
+    add_test(NAME forge_desktop_drawing_mutation_${_dm}
+             COMMAND forge_desktop_drawing_gate --mutate ${_dm})
+    set_tests_properties(forge_desktop_drawing_mutation_${_dm} PROPERTIES WILL_FAIL TRUE)
+endforeach()
 add_test(NAME forge_desktop_file_exchange_gate COMMAND forge_desktop_file_exchange_gate)
 # WILL_FAIL, the same idiom the update gate's mutations use, and for the same
 # reason: the binary keeps its ordinary exit convention under --mutate (a CAUGHT

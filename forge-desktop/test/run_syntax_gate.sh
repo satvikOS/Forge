@@ -131,6 +131,7 @@ FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 # for a stated reason and a new file must be classified rather than absorbed.
 CHECKED=(
   forge-desktop/src/Camera.cpp
+  forge-desktop/src/DrawingGdt.cpp
   forge-desktop/src/ForgeFrame.cpp
   forge-desktop/src/kernel_worker_main.cpp
   forge-desktop/src/PartFile.cpp
@@ -138,6 +139,7 @@ CHECKED=(
   forge-desktop/test/appcast_check.cpp
   forge-desktop/test/copilot_gate.cpp
   forge-desktop/test/document_gate.cpp
+  forge-desktop/test/drawing_gate.cpp
   forge-desktop/test/file_exchange_gate.cpp
   forge-desktop/test/frame_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp

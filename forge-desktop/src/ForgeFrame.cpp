@@ -9,8 +9,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <string>
 #include <vector>
+
+#include <sys/stat.h>
 
 #include "imgui.h"
 
@@ -18,6 +21,7 @@
 #include "KernelScene.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/Drawing.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -26,6 +30,7 @@
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/Types.hpp"
+#include "forge/ui/Units.hpp"
 #include "forge/ui/UserFacingText.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
@@ -540,6 +545,10 @@ bool ForgeFrame::documentNew(std::string& error) {
   if (!seedDefaultPart(error)) return false;
   documentPath_.clear();
   documentName_ = "untitled";
+  // A new document gets a new drawing: keeping the last one's title block would
+  // put somebody else's part number and revision on a part that has neither.
+  drawing_ = forge::ui::DrawingModel{};
+  drawingLayoutBuilt_ = false;
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
   syncSceneToDocument();
   documentDirty_ = false;
@@ -610,7 +619,30 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
   forge::ui::PartDocument candidate;
   if (!restorePartDocument(file, candidate, error)) return false;
 
+  // ── THE UNIT THE FILE CLAIMS ────────────────────────────────────────────
+  // This field has been written since the format existed and NEVER READ. Every
+  // number in a .fpart is a millimetre by the rule forge/ui/Units.hpp states,
+  // and a file that says otherwise is one whose lengths this build is about to
+  // treat as millimetres anyway -- a part silently 25.4 times the wrong size,
+  // which is the exact failure that header exists to prevent. It cannot be
+  // converted (the statements are already in the file's own numbers and the
+  // kernel has no unit token), so the honest move is to SAY so rather than to
+  // carry on quietly.
+  {
+    const std::string expected = forge::ui::toString(forge::ui::kInternalLengthUnit);
+    forge::ui::LengthUnit claimed = forge::ui::kInternalLengthUnit;
+    const bool named = forge::ui::lengthUnitFromName(file.units, claimed);
+    if (!file.units.empty() && (!named || claimed != forge::ui::kInternalLengthUnit)) {
+      shell_.log().warning("document.open",
+                           "This file says its sizes are in a different unit. Forge is opening it "
+                           "as millimetres, so check the part against your drawing before you "
+                           "machine from it.",
+                           "file UNITS=" + file.units + " expected " + expected);
+    }
+  }
   partDoc_ = candidate;  // the command handlers captured this OBJECT by reference
+  drawing_ = file.drawing;
+  drawingLayoutBuilt_ = false;
   partUndo_.clear();
   ensureBodyBinding();
   documentPath_ = path;
@@ -636,7 +668,7 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
     target = dir + "/" + documentName_ + kPartFileExtension;
   }
   documentName_ = documentNameFromPath(target);
-  const PartFileDoc file = capturePartDocument(partDoc_, documentName_);
+  const PartFileDoc file = capturePartDocument(partDoc_, documentName_, drawing_);
   if (!savePartFile(target, file, error)) return false;
   documentPath_ = target;
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
@@ -1124,6 +1156,20 @@ bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
 }
 
 // ── selection ───────────────────────────────────────────────────────────────
+// ONE place builds a face reference. setPreselectedFace and clickFace each held
+// a copy of these three lines, and the bodyId half of one of them was a literal
+// for a while after the other had been fixed -- so hovering named the live body
+// and clicking named a node that had stopped existing. The drawing panels need
+// the same reference to attach a note or a datum to a face, which would have
+// made it three copies.
+forge::ui::EntityRef ForgeFrame::faceRefFor(std::uint32_t faceId) const {
+  forge::ui::EntityRef ref;
+  ref.bodyId = activeBodyNode();
+  ref.kind = forge::ui::EntityKind::Face;
+  ref.persistentName = "face@" + std::to_string(faceId);
+  return ref;
+}
+
 void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
   hoverFace_ = faceId;
   // ONE hover at a time. Leaving the edge hover set would keep an edge lit under
@@ -1134,11 +1180,7 @@ void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
     shell_.selection().clearPreselection();
     return;
   }
-  forge::ui::EntityRef ref;
-  ref.bodyId = activeBodyNode();
-  ref.kind = forge::ui::EntityKind::Face;
-  ref.persistentName = "face@" + std::to_string(faceId);
-  shell_.selection().setPreselection(ref);
+  shell_.selection().setPreselection(faceRefFor(faceId));
 }
 
 void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
@@ -1150,17 +1192,7 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
     }
     return;
   }
-  forge::ui::EntityRef ref;
-  // activeBodyNode(), NOT the literal "body.bracket" this line used to hold.
-  // setPreselectedFace two functions up already read it from the document; only
-  // half the fix had landed, so hovering named the live body and CLICKING named
-  // a node that stops existing the moment a command rebinds it or a .fpart
-  // written by another tool names its body anything else -- and resolveValues()
-  // maps EntityRef::bodyId through PartDocument::valueFor(), so every solid
-  // command silently greys out. See this class's header: it says exactly that.
-  ref.bodyId = activeBodyNode();
-  ref.kind = forge::ui::EntityKind::Face;
-  ref.persistentName = "face@" + std::to_string(faceId);
+  const forge::ui::EntityRef ref = faceRefFor(faceId);
   if (!shell_.selection().accepts(ref.kind)) {
     note("selection filter rejects a Face");
     return;
@@ -2172,6 +2204,14 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
   } else if (panelId == "console" || panelId == "archie_trace" || panelId == "solver_log" ||
              panelId == "simulation_log") {
     drawConsolePanel();
+  } else if (panelId == "title_block") {
+    drawTitleBlockPanel();
+  } else if (panelId == "view_list") {
+    drawViewListPanel();
+  } else if (panelId == "gdt") {
+    drawGdtPanel();
+  } else if (panelId == "annotation") {
+    drawAnnotationPanel();
   } else if (panelId == "timeline") {
     drawTimelinePanel();
   } else if (panelId == "measure") {
@@ -3341,6 +3381,795 @@ void ForgeFrame::drawCopilotPanel() {
   if (!copilot_.hasPlan()) {
     ImGui::SameLine();
     ImGui::TextDisabled("nothing on offer");
+  }
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// THE DRAWING PANELS
+//
+// Four tabs that used to fall through to the generic fallback. Every value they
+// print is read from the document, or measured from the part that is built right
+// now; nothing here has a default that reads as data, and the two places where
+// the display tessellation cannot answer a question honestly SAY SO instead of
+// printing the answer the mesh would give.
+// ════════════════════════════════════════════════════════════════════════════
+
+// The layout every drawing panel derives from. Cached on FOUR witnesses -- the
+// triangle count, the sheet, the projection and the scale choice -- because all
+// four are inputs to the answer. A cache keyed on fewer of them would print a
+// scale that was chosen for a different sheet or a different part, which is the
+// one failure mode a drawing must not have.
+const ForgeFrame::DrawingLayout& ForgeFrame::drawingLayout() {
+  const forge::ui::TitleBlockData& t = drawing_.titleBlock();
+  const std::size_t tris = scene_.triangleCount();
+  if (drawingLayoutBuilt_ && drawingTriangles_ == tris && drawingSheetId_ == t.sheetId &&
+      drawingProjection_ == t.projection && drawingScaleMode_ == t.scaleMode &&
+      drawingFixedScale_ == t.fixedScale) {
+    return drawingLayout_;
+  }
+
+  DrawingLayout out;
+  out.sheet = forge::ui::findSheetSize(t.sheetId);
+  const forge::ui::MeasureMesh& mesh = measureMesh();
+  out.box = meshMeasure_.box;
+  out.modelBuilt = mesh.triangleCount() > 0 && out.box.valid;
+
+  double groupW = 0.0;
+  double groupH = 0.0;
+  if (out.modelBuilt) {
+    out.modelBuilt = forge::ui::projectionGroupSize(mesh, t.projection, groupW, groupH);
+  }
+  out.groupWidthMm = groupW;
+  out.groupHeightMm = groupH;
+
+  if (out.sheet != nullptr) {
+    if (t.scaleMode == forge::ui::ScaleMode::Fixed) {
+      out.scale = forge::ui::applyScale(t.fixedScale, groupW, groupH, *out.sheet);
+    } else {
+      out.scale = forge::ui::fitScale(groupW, groupH, *out.sheet);
+    }
+    out.views = forge::ui::buildViewList(mesh, out.scale.scale, t.projection, *out.sheet);
+  }
+
+  drawingLayout_ = std::move(out);
+  drawingLayoutBuilt_ = true;
+  drawingTriangles_ = tris;
+  drawingSheetId_ = t.sheetId;
+  drawingProjection_ = t.projection;
+  drawingScaleMode_ = t.scaleMode;
+  drawingFixedScale_ = t.fixedScale;
+  return drawingLayout_;
+}
+
+namespace {
+
+// When the open document was last written, from the file itself. Empty for a
+// document that has never been saved -- which is the honest answer, and is why
+// the title block's Date row can read as unset.
+std::string fileModifiedText(const std::string& path) {
+  if (path.empty()) return std::string();
+  struct stat st {};
+  if (::stat(path.c_str(), &st) != 0) return std::string();
+  const std::time_t when = static_cast<std::time_t>(st.st_mtime);
+  std::tm parts{};
+  if (::localtime_r(&when, &parts) == nullptr) return std::string();
+  char buf[32];
+  if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M", &parts) == 0) return std::string();
+  return std::string(buf);
+}
+
+const char* sourceTag(forge::ui::FieldSource s) {
+  switch (s) {
+    case forge::ui::FieldSource::Unset: return "";
+    case forge::ui::FieldSource::Document: return "typed";
+    case forge::ui::FieldSource::Model: return "measured";
+    case forge::ui::FieldSource::File: return "from the file";
+  }
+  return "";
+}
+
+}  // namespace
+
+std::vector<forge::ui::TitleBlockField> ForgeFrame::titleBlockRows() {
+  const DrawingLayout& layout = drawingLayout();
+  forge::ui::TitleBlockContext ctx;
+  ctx.documentName = documentName_;
+  ctx.documentPath = documentPath_;
+  ctx.savedOn = fileModifiedText(documentPath_);
+  // THE UNIT, from the one place that owns it. forge/ui/Units.hpp states the
+  // rule for the whole application -- every stored length is a millimetre -- and
+  // this reads the name out of that header rather than printing the letters
+  // "mm" as a literal in a title block.
+  ctx.units = std::string(forge::ui::unitLabel(forge::ui::kInternalLengthUnit)) + " (" +
+              forge::ui::toString(forge::ui::kInternalLengthUnit) + ")";
+  ctx.featureCount = partDoc_.records().size();
+  ctx.modelBuilt = layout.modelBuilt;
+  ctx.scale = layout.scale;
+  ctx.sheet = layout.sheet;
+  if (layout.box.valid) {
+    ctx.extentXmm = layout.box.size(0);
+    ctx.extentYmm = layout.box.size(1);
+    ctx.extentZmm = layout.box.size(2);
+  }
+  return forge::ui::titleBlockRows(drawing_.titleBlock(), ctx);
+}
+
+bool ForgeFrame::editTextField(const char* id, std::string& value, char* buffer,
+                               std::size_t size) {
+  bool changed = false;
+  ImGui::SetNextItemWidth(-1);
+  if (ImGui::InputText(id, buffer, size)) {
+    value = buffer;
+    changed = true;
+  }
+  // Refresh from the document whenever the box is NOT being typed in, so undo,
+  // Open and New are visible immediately and a half-typed value is never
+  // overwritten under the cursor.
+  if (!ImGui::IsItemActive()) std::snprintf(buffer, size, "%s", value.c_str());
+  return changed;
+}
+
+// ── the title block ─────────────────────────────────────────────────────────
+void ForgeFrame::drawTitleBlockPanel() {
+  titleBlockRowsDrawn_ = 0;
+  const DrawingLayout& layout = drawingLayout();
+  forge::ui::TitleBlockData& t = drawing_.titleBlock();
+
+  ImGui::TextColored(rgb(242, 158, 38), "Title block");
+  ImGui::SameLine();
+  ImGui::TextDisabled("%s%s", documentName_.c_str(), documentDirty_ ? "  (unsaved changes)" : "");
+  ImGui::Separator();
+
+  const std::vector<forge::ui::TitleBlockField> rows = titleBlockRows();
+  const float labelWidth = 132.0f * dpiScale_;
+  std::size_t editSlot = 0;
+  for (const forge::ui::TitleBlockField& row : rows) {
+    ++titleBlockRowsDrawn_;
+    ImGui::PushID(row.key.c_str());
+    ImGui::TextColored(rgb(150, 157, 168), "%s", row.label.c_str());
+    ImGui::SameLine(labelWidth);
+    if (row.editable && editSlot < kTitleFieldCount) {
+      std::string* field = forge::ui::titleBlockFieldByKey(t, row.key);
+      char* buffer = titleFields_[editSlot];
+      ++editSlot;
+      if (field != nullptr && editTextField("##value", *field, buffer, kTitleFieldSize)) {
+        documentDirty_ = true;
+      }
+    } else if (row.value.empty()) {
+      // NOT a fabricated default. A title block row the document has no value
+      // for stays empty, and says what would fill it.
+      ImGui::TextDisabled("--");
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", row.origin.c_str());
+    } else {
+      const ImVec4 colour = row.source == forge::ui::FieldSource::Model ? rgb(120, 200, 130)
+                                                                       : rgb(210, 216, 226);
+      ImGui::TextColored(colour, "%s", row.value.c_str());
+      ImGui::SameLine();
+      ImGui::TextDisabled("%s", sourceTag(row.source));
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", row.origin.c_str());
+    }
+    ImGui::PopID();
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Sheet and scale");
+  ImGui::Separator();
+
+  ImGui::TextColored(rgb(150, 157, 168), "Sheet size");
+  ImGui::SameLine(labelWidth);
+  ImGui::SetNextItemWidth(-1);
+  const std::string sheetLabel = layout.sheet != nullptr ? layout.sheet->label : t.sheetId;
+  if (ImGui::BeginCombo("##sheet", sheetLabel.c_str())) {
+    for (const forge::ui::SheetSize& s : forge::ui::sheetSizes()) {
+      const bool on = s.id == t.sheetId;
+      if (ImGui::Selectable(s.label.c_str(), on)) {
+        t.sheetId = s.id;
+        documentDirty_ = true;
+      }
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", s.family.c_str());
+      if (on) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+
+  ImGui::TextColored(rgb(150, 157, 168), "Projection");
+  ImGui::SameLine(labelWidth);
+  ImGui::SetNextItemWidth(-1);
+  if (ImGui::BeginCombo("##projection", forge::ui::projectionLabel(t.projection))) {
+    for (const forge::ui::ProjectionAngle a :
+         {forge::ui::ProjectionAngle::First, forge::ui::ProjectionAngle::Third}) {
+      const bool on = a == t.projection;
+      if (ImGui::Selectable(forge::ui::projectionLabel(a), on)) {
+        t.projection = a;
+        documentDirty_ = true;
+      }
+      if (on) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+
+  ImGui::TextColored(rgb(150, 157, 168), "Scale");
+  ImGui::SameLine(labelWidth);
+  bool automatic = t.scaleMode == forge::ui::ScaleMode::Automatic;
+  if (ImGui::Checkbox("choose it to fit the sheet", &automatic)) {
+    // Pinning starts from the scale the fit had already chosen, so switching
+    // the control does not silently change the drawing.
+    if (!automatic && layout.scale.ok) t.fixedScale = layout.scale.scale;
+    t.scaleMode = automatic ? forge::ui::ScaleMode::Automatic : forge::ui::ScaleMode::Fixed;
+    documentDirty_ = true;
+  }
+  if (!automatic) {
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(90.0f * dpiScale_);
+    if (ImGui::BeginCombo("##fixedscale", t.fixedScale.text().c_str())) {
+      for (const forge::ui::Scale& s : forge::ui::standardScales()) {
+        const bool on = s == t.fixedScale;
+        if (ImGui::Selectable(s.text().c_str(), on)) {
+          t.fixedScale = s;
+          documentDirty_ = true;
+        }
+        if (on) ImGui::SetItemDefaultFocus();
+      }
+      ImGui::EndCombo();
+    }
+  }
+
+  // ── THE WORKING, SHOWN ──────────────────────────────────────────────────
+  // A scale a user cannot check is a scale a user has to trust. These four
+  // numbers are the whole calculation, so anyone can do the division.
+  ImGui::Spacing();
+  if (layout.sheet == nullptr) {
+    ImGui::TextWrapped("This document names a sheet size this version does not have. Pick one "
+                       "from the list above.");
+  } else if (!layout.modelBuilt) {
+    ImGui::TextWrapped("Nothing is built yet, so there is no size to scale. Add a feature to the "
+                       "part and the scale will follow it.");
+  } else {
+    ImGui::TextDisabled("paper      %.0f x %.0f mm", layout.sheet->widthMm,
+                        layout.sheet->heightMm);
+    ImGui::TextDisabled("inside the frame  %.0f x %.0f mm  (%.0f mm border, %.0f mm filing edge)",
+                        layout.sheet->drawableWidthMm(), layout.sheet->drawableHeightMm(),
+                        layout.sheet->borderMm, layout.sheet->filingMm);
+    ImGui::TextDisabled("the views  %.2f x %.2f mm at full size", layout.groupWidthMm,
+                        layout.groupHeightMm);
+    if (layout.scale.ok) {
+      ImGui::TextColored(layout.scale.fits ? rgb(120, 200, 130) : rgb(235, 175, 95),
+                         "at %s that is %.1f x %.1f mm on the paper",
+                         layout.scale.scale.text().c_str(), layout.scale.paperWidthMm,
+                         layout.scale.paperHeightMm);
+    }
+    if (!layout.scale.reason.empty()) {
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextColored(rgb(235, 175, 95), "%s", layout.scale.reason.c_str());
+      ImGui::PopTextWrapPos();
+    }
+    ImGui::TextDisabled("The figure is the front, top and side views side by side. It does not "
+                        "reserve room between them or for this block.");
+  }
+}
+
+// ── the view list ───────────────────────────────────────────────────────────
+void ForgeFrame::drawViewListPanel() {
+  viewListRowsDrawn_ = 0;
+  const DrawingLayout& layout = drawingLayout();
+  const forge::ui::TitleBlockData& t = drawing_.titleBlock();
+
+  ImGui::TextColored(rgb(242, 158, 38), "Views on this sheet");
+  ImGui::Separator();
+  if (layout.sheet == nullptr) {
+    ImGui::TextWrapped("Choose a sheet size in the Title Block tab and the views will be laid out "
+                       "on it.");
+    return;
+  }
+  if (!layout.modelBuilt) {
+    ImGui::TextWrapped("There is nothing built to draw yet. Add a feature to the part and every "
+                       "view will appear here with its real size.");
+    return;
+  }
+
+  ImGui::TextDisabled("%s   %s   %s", layout.sheet->label.c_str(),
+                      layout.scale.scale.text().c_str(),
+                      forge::ui::projectionLabel(t.projection));
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(130, 137, 148), "%-11s %-13s %-19s %-19s %s", "view", "looking along",
+                     "part size", "on the paper", "where");
+  ImGui::Separator();
+
+  for (const forge::ui::DrawingView& v : layout.views) {
+    ++viewListRowsDrawn_;
+    ImGui::PushID(static_cast<int>(v.view));
+    char where[48];
+    if (!v.cell.placedByProjection) {
+      std::snprintf(where, sizeof(where), "a free corner");
+    } else if (v.cell.column == 0 && v.cell.row == 0) {
+      std::snprintf(where, sizeof(where), "the main view");
+    } else {
+      const char* across = v.cell.column == 0 ? "" : (v.cell.column < 0 ? "left" : "right");
+      const char* down = v.cell.row == 0 ? "" : (v.cell.row < 0 ? "below" : "above");
+      if (v.cell.column != 0 && v.cell.row == 0) {
+        std::snprintf(where, sizeof(where), "%d %s of the front", std::abs(v.cell.column), across);
+      } else {
+        std::snprintf(where, sizeof(where), "%d %s the front", std::abs(v.cell.row), down);
+      }
+    }
+    ImGui::TextColored(v.fitsSheet ? rgb(210, 216, 226) : rgb(235, 175, 95), "%-11s",
+                       forge::ui::toString(v.view));
+    ImGui::SameLine();
+    ImGui::TextDisabled("%5.2f %5.2f %5.2f", v.axes.normal[0], v.axes.normal[1], v.axes.normal[2]);
+    ImGui::SameLine();
+    ImGui::Text("%7.2f x %-7.2f", v.extent.widthMm, v.extent.heightMm);
+    ImGui::SameLine();
+    ImGui::Text("%7.2f x %-7.2f", v.paperWidthMm, v.paperHeightMm);
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s", where);
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("%zu points projected, %.2f mm deep along the line of sight",
+                        v.extent.points, v.extent.depthMm);
+    }
+    ImGui::PopID();
+  }
+
+  ImGui::Spacing();
+  ImGui::TextDisabled("Sizes are in %s. The part size is what the view really measures; the "
+                      "paper size is that at %s.",
+                      forge::ui::toString(forge::ui::kInternalLengthUnit),
+                      layout.scale.scale.text().c_str());
+  ImGui::TextDisabled("The isometric view is not one of the projected views: it is placed wherever "
+                      "there is room.");
+}
+
+// ── geometric tolerances ────────────────────────────────────────────────────
+GdtVerdict ForgeFrame::gdtVerdict(const forge::ui::FeatureControlFrame& frame) {
+  return evaluateFrame(frame, drawing_, measureMesh());
+}
+
+void ForgeFrame::drawGdtPanel() {
+  gdtRowsDrawn_ = 0;
+  const forge::ui::MeasureMesh& mesh = measureMesh();
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+
+  // ── datums ──────────────────────────────────────────────────────────────
+  ImGui::TextColored(rgb(242, 158, 38), "Datums");
+  ImGui::Separator();
+  if (drawing_.datums().empty()) {
+    ImGui::TextWrapped("A geometric tolerance is measured from a datum. Pick a flat face in the "
+                       "3D view and add it as datum A.");
+  }
+  // DEFERRED, like every other structural edit in this class: removing a datum
+  // rewrites the vector this loop is walking AND drops the controls that
+  // reference it, so the click is recorded and applied after the walk.
+  char removeDatum = 0;
+  for (const forge::ui::DatumFeature& d : drawing_.datums()) {
+    ++gdtRowsDrawn_;
+    ImGui::PushID(static_cast<int>(d.letter));
+    forge::ui::FaceMeasure face{};
+    const std::uint32_t faceId = faceIdOfRef(d.target);
+    const bool live = faceId != 0 && forge::ui::measureFace(mesh, faceId, face);
+    ImGui::TextColored(rgb(242, 158, 38), "%c", d.letter);
+    ImGui::SameLine();
+    ImGui::Text("%s", d.targetLabel.c_str());
+    ImGui::SameLine();
+    if (!live) {
+      ImGui::TextColored(rgb(235, 105, 95), "not in the part that is built now");
+    } else if (!face.planar) {
+      ImGui::TextColored(rgb(235, 175, 95), "this face is curved, so it cannot be a datum plane");
+    } else {
+      ImGui::TextDisabled("%.2f mm2,  normal %.3f %.3f %.3f", face.area, face.normal[0],
+                          face.normal[1], face.normal[2]);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove")) removeDatum = d.letter;
+    ImGui::PopID();
+  }
+
+  // The next free letter, from the letters ASME Y14.5 allows.
+  char freeLetter = 0;
+  for (char c = 'A'; c <= 'Z' && freeLetter == 0; ++c) {
+    if (c == 'I' || c == 'O' || c == 'Q') continue;
+    if (drawing_.datum(c) == nullptr) freeLetter = c;
+  }
+  ImGui::BeginDisabled(picked.size() != 1 || freeLetter == 0);
+  char addLabel[48];
+  std::snprintf(addLabel, sizeof(addLabel), "Add the picked face as datum %c",
+                freeLetter == 0 ? '-' : freeLetter);
+  const bool addDatum = ImGui::Button(addLabel);
+  ImGui::EndDisabled();
+  if (picked.size() != 1) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("pick exactly one face");
+  }
+
+  // ── the controls ────────────────────────────────────────────────────────
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Geometric tolerances");
+  ImGui::Separator();
+  if (drawing_.frames().empty()) {
+    ImGui::TextWrapped("No geometric tolerances on this drawing yet. Add one below and it will be "
+                       "checked against the part as it is built.");
+  }
+  std::string removeFrame;
+  for (const forge::ui::FeatureControlFrame& f : drawing_.frames()) {
+    ++gdtRowsDrawn_;
+    ImGui::PushID(f.id.c_str());
+    const GdtVerdict v = gdtVerdict(f);
+    ImGui::TextColored(rgb(210, 216, 226), "%s", forge::ui::describeFcf(f).c_str());
+    ImGui::SameLine();
+    ImGui::TextDisabled("on %s", f.targetLabel.c_str());
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove")) removeFrame = f.id;
+
+    ImGui::Indent(16.0f * dpiScale_);
+    ImGui::PushTextWrapPos(0.0f);
+    if (!v.legal) {
+      ImGui::TextColored(rgb(235, 105, 95), "%s", v.legality.c_str());
+    }
+    if (v.haveAngle) {
+      ImGui::TextDisabled("as modelled this face is %.2f degrees to datum %c; the control calls "
+                          "for %.2f",
+                          v.nominalAngleDeg, f.datumRefs.empty() ? '-' : f.datumRefs.front(),
+                          v.basicAngleDeg);
+    }
+    if (v.measured) {
+      // ── WHAT THIS NUMBER IS, AND WHAT IT IS NOT ──────────────────────────
+      // It is measured on the part AS MODELLED. A modelled flat face is
+      // perfectly flat, so a form call-out the model satisfies reads as zero and
+      // will always read as zero. That is the truth about the model and it is
+      // worth knowing -- it says the call-out and the shape agree -- but it is
+      // NOT an inspection result, and a panel that let it be mistaken for one
+      // would be the most expensive kind of wrong. So every row says which it
+      // is, in the row, not in a footnote somewhere else.
+      ImGui::TextColored(v.pass ? rgb(120, 200, 130) : rgb(235, 105, 95),
+                         "as modelled: %s   %.4f mm against %.4f mm allowed, over %zu points",
+                         v.pass ? "within tolerance" : "outside tolerance", v.deviationMm,
+                         v.allowedMm, v.samples);
+    } else if (!v.refusal.empty()) {
+      ImGui::TextColored(rgb(235, 175, 95), "%s", v.refusal.c_str());
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent(16.0f * dpiScale_);
+    ImGui::PopID();
+  }
+
+  // ── the form that adds one ──────────────────────────────────────────────
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(130, 137, 148), "Add a control to the picked face");
+  const std::vector<forge::ui::GdtCharacteristic>& chars = forge::ui::allGdtCharacteristics();
+  if (gdtCharIndex_ < 0 || gdtCharIndex_ >= static_cast<int>(chars.size())) gdtCharIndex_ = 0;
+  ImGui::SetNextItemWidth(200.0f * dpiScale_);
+  if (ImGui::BeginCombo("##char", forge::ui::gdtLabel(chars[static_cast<std::size_t>(gdtCharIndex_)]))) {
+    for (std::size_t i = 0; i < chars.size(); ++i) {
+      const bool on = static_cast<int>(i) == gdtCharIndex_;
+      if (ImGui::Selectable(forge::ui::gdtLabel(chars[i]), on)) gdtCharIndex_ = static_cast<int>(i);
+      if (on) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  const forge::ui::GdtCharacteristic chosen = chars[static_cast<std::size_t>(gdtCharIndex_)];
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(110.0f * dpiScale_);
+  ImGui::InputFloat("mm", &gdtTolerance_, 0.005f, 0.05f, "%.4f");
+  if (chosen == forge::ui::GdtCharacteristic::Angularity) {
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(110.0f * dpiScale_);
+    ImGui::InputFloat("deg", &gdtBasicAngle_, 1.0f, 5.0f, "%.2f");
+  }
+
+  const std::vector<forge::ui::ControlledFeatureKind>& feats =
+      forge::ui::allControlledFeatureKinds();
+  if (gdtFeatureIndex_ < 0 || gdtFeatureIndex_ >= static_cast<int>(feats.size())) {
+    gdtFeatureIndex_ = 0;
+  }
+  ImGui::SetNextItemWidth(200.0f * dpiScale_);
+  if (ImGui::BeginCombo("##feat",
+                        forge::ui::controlledFeatureLabel(
+                            feats[static_cast<std::size_t>(gdtFeatureIndex_)]))) {
+    for (std::size_t i = 0; i < feats.size(); ++i) {
+      const bool on = static_cast<int>(i) == gdtFeatureIndex_;
+      if (ImGui::Selectable(forge::ui::controlledFeatureLabel(feats[i]), on)) {
+        gdtFeatureIndex_ = static_cast<int>(i);
+      }
+      if (on) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  const std::vector<forge::ui::MaterialModifier>& mods = forge::ui::allMaterialModifiers();
+  if (gdtModifierIndex_ < 0 || gdtModifierIndex_ >= static_cast<int>(mods.size())) {
+    gdtModifierIndex_ = 0;
+  }
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(220.0f * dpiScale_);
+  if (ImGui::BeginCombo("##mod", forge::ui::materialModifierLabel(
+                                     mods[static_cast<std::size_t>(gdtModifierIndex_)]))) {
+    for (std::size_t i = 0; i < mods.size(); ++i) {
+      const bool on = static_cast<int>(i) == gdtModifierIndex_;
+      if (ImGui::Selectable(forge::ui::materialModifierLabel(mods[i]), on)) {
+        gdtModifierIndex_ = static_cast<int>(i);
+      }
+      if (on) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+
+  const std::vector<char> letters = drawing_.datumLetters();
+  const char* const slotName[3] = {"primary", "secondary", "tertiary"};
+  for (int slot = 0; slot < 3; ++slot) {
+    if (gdtDatumSlot_[slot] < 0 || gdtDatumSlot_[slot] > static_cast<int>(letters.size())) {
+      gdtDatumSlot_[slot] = 0;
+    }
+    if (slot > 0) ImGui::SameLine();
+    ImGui::PushID(slot);
+    ImGui::SetNextItemWidth(110.0f * dpiScale_);
+    char current[24];
+    if (gdtDatumSlot_[slot] == 0) {
+      std::snprintf(current, sizeof(current), "%s: none", slotName[slot]);
+    } else {
+      std::snprintf(current, sizeof(current), "%s: %c", slotName[slot],
+                    letters[static_cast<std::size_t>(gdtDatumSlot_[slot] - 1)]);
+    }
+    if (ImGui::BeginCombo("##datumslot", current)) {
+      if (ImGui::Selectable("none", gdtDatumSlot_[slot] == 0)) gdtDatumSlot_[slot] = 0;
+      for (std::size_t i = 0; i < letters.size(); ++i) {
+        char one[4] = {letters[i], 0, 0, 0};
+        if (ImGui::Selectable(one, gdtDatumSlot_[slot] == static_cast<int>(i) + 1)) {
+          gdtDatumSlot_[slot] = static_cast<int>(i) + 1;
+        }
+      }
+      ImGui::EndCombo();
+    }
+    ImGui::PopID();
+  }
+
+  ImGui::BeginDisabled(picked.size() != 1);
+  const bool addFrame = ImGui::Button("Add this control");
+  ImGui::EndDisabled();
+  if (picked.size() != 1) {
+    ImGui::SameLine();
+    ImGui::TextDisabled("pick exactly one face in the 3D view");
+  }
+  if (!gdtAddRefusal_.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(235, 105, 95), "%s", gdtAddRefusal_.c_str());
+    ImGui::PopTextWrapPos();
+  }
+
+  ImGui::Spacing();
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextDisabled("Every result above is measured on this part as you have modelled it, not on "
+                      "a part that has been made. A modelled surface is exact, so a call-out the "
+                      "shape already satisfies reads as zero; what these checks catch is a "
+                      "call-out that the shape does NOT satisfy, and a control that cannot be "
+                      "checked at all.");
+  ImGui::PopTextWrapPos();
+
+  // ── the deferred edits, applied AFTER the walk ──────────────────────────
+  // MID-WALK CONTAINER MUTATION, again: removing a datum rewrites the vector
+  // this function has just finished iterating AND drops the controls that
+  // reference it. The click is recorded above and applied here, which is the
+  // same discipline DocumentModel's walk guard enforces for the feature tree.
+  if (removeDatum != 0) drawingRemoveDatum(removeDatum);
+  if (!removeFrame.empty()) drawingRemoveControl(removeFrame);
+  if (addDatum) drawingAddDatum();
+  if (addFrame) {
+    std::vector<char> refs;
+    for (int slot = 0; slot < 3; ++slot) {
+      if (gdtDatumSlot_[slot] > 0) {
+        refs.push_back(letters[static_cast<std::size_t>(gdtDatumSlot_[slot] - 1)]);
+      }
+    }
+    drawingAddControl(chosen, static_cast<double>(gdtTolerance_),
+                      static_cast<double>(gdtBasicAngle_),
+                      feats[static_cast<std::size_t>(gdtFeatureIndex_)],
+                      mods[static_cast<std::size_t>(gdtModifierIndex_)], refs);
+  }
+}
+
+// ── the drawing's edits, in ONE body each ───────────────────────────────────
+// The panel's button and the mouseless control above both end here. Two bodies
+// would be two behaviours: the one a user gets and the one a gate proves.
+bool ForgeFrame::drawingAddDatum() {
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+  if (picked.size() != 1) {
+    gdtAddRefusal_ = "Pick exactly one face in the 3D view first.";
+    return false;
+  }
+  char freeLetter = 0;
+  for (char c = 'A'; c <= 'Z' && freeLetter == 0; ++c) {
+    if (c == 'I' || c == 'O' || c == 'Q') continue;
+    if (drawing_.datum(c) == nullptr) freeLetter = c;
+  }
+  if (freeLetter == 0) {
+    gdtAddRefusal_ = "Every datum letter is already used on this part.";
+    return false;
+  }
+  forge::ui::DatumFeature d;
+  d.letter = freeLetter;
+  d.target = faceRefFor(picked.front());
+  d.targetLabel = "face " + std::to_string(picked.front());
+  std::string why;
+  if (!drawing_.addDatum(d, why)) {
+    gdtAddRefusal_ = why;
+    return false;
+  }
+  documentDirty_ = true;
+  gdtAddRefusal_.clear();
+  note(std::string("datum ") + freeLetter + " is now " + d.targetLabel);
+  return true;
+}
+
+bool ForgeFrame::drawingRemoveDatum(char letter) {
+  if (!drawing_.removeDatum(letter)) return false;
+  documentDirty_ = true;
+  note(std::string("removed datum ") + letter);
+  return true;
+}
+
+bool ForgeFrame::drawingAddControl(forge::ui::GdtCharacteristic characteristic, double toleranceMm,
+                                   double basicAngleDeg,
+                                   forge::ui::ControlledFeatureKind feature,
+                                   forge::ui::MaterialModifier modifier,
+                                   const std::vector<char>& datumRefs) {
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+  if (picked.size() != 1) {
+    gdtAddRefusal_ = "Pick exactly one face in the 3D view first.";
+    return false;
+  }
+  forge::ui::FeatureControlFrame f;
+  f.characteristic = characteristic;
+  f.toleranceMm = toleranceMm;
+  f.basicAngleDeg = basicAngleDeg;
+  f.feature = feature;
+  f.modifier = modifier;
+  f.datumRefs = datumRefs;
+  f.target = faceRefFor(picked.front());
+  f.targetLabel = "face " + std::to_string(picked.front());
+  std::string why;
+  if (!drawing_.addFrame(f, why)) {
+    gdtAddRefusal_ = why;
+    return false;
+  }
+  documentDirty_ = true;
+  gdtAddRefusal_.clear();
+  const GdtVerdict v = gdtVerdict(drawing_.frames().back());
+  // The evaluator's own wording goes to the console, where an engineer can read
+  // it, and never into the panel.
+  if (!v.internalDetail.empty()) {
+    shell_.log().info("drawing.gdt", forge::ui::describeFcf(f), v.internalDetail);
+  } else {
+    note("added " + forge::ui::describeFcf(f));
+  }
+  return true;
+}
+
+bool ForgeFrame::drawingRemoveControl(const std::string& id) {
+  if (!drawing_.removeFrame(id)) return false;
+  documentDirty_ = true;
+  note("removed a geometric tolerance");
+  return true;
+}
+
+bool ForgeFrame::drawingAddNote(const std::string& text, forge::ui::AnnotationKind kind,
+                                forge::ui::NamedView view, bool attachToPickedFace) {
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+  forge::ui::Annotation a;
+  a.kind = kind;
+  a.view = view;
+  a.text = text;
+  if (attachToPickedFace && picked.size() == 1) a.target = faceRefFor(picked.front());
+  std::string why;
+  if (!drawing_.addAnnotation(a, why)) {
+    noteRefusal_ = why;
+    return false;
+  }
+  documentDirty_ = true;
+  noteRefusal_.clear();
+  note("added a note");
+  return true;
+}
+
+bool ForgeFrame::drawingRemoveNote(const std::string& id) {
+  if (!drawing_.removeAnnotation(id)) return false;
+  documentDirty_ = true;
+  note("removed a note");
+  return true;
+}
+
+// ── annotations ─────────────────────────────────────────────────────────────
+void ForgeFrame::drawAnnotationPanel() {
+  annotationRowsDrawn_ = 0;
+  const forge::ui::MeasureMesh& mesh = measureMesh();
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+
+  ImGui::TextColored(rgb(242, 158, 38), "Notes on this drawing");
+  ImGui::Separator();
+  if (drawing_.annotations().empty()) {
+    ImGui::TextWrapped("Nothing is noted on this drawing yet. Type a note below; pick a face in "
+                       "the 3D view first and the note will point at it.");
+  }
+
+  std::string removeNote;
+  for (const forge::ui::Annotation& a : drawing_.annotations()) {
+    ++annotationRowsDrawn_;
+    ImGui::PushID(a.id.c_str());
+    ImGui::TextColored(rgb(150, 157, 168), "%-13s", forge::ui::annotationLabel(a.kind));
+    ImGui::SameLine();
+    ImGui::TextDisabled("%s view", forge::ui::toString(a.view));
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove")) removeNote = a.id;
+    ImGui::Indent(16.0f * dpiScale_);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("%s", a.text.c_str());
+    if (a.attached()) {
+      forge::ui::FaceMeasure face{};
+      const std::uint32_t faceId = faceIdOfRef(a.target);
+      if (faceId != 0 && forge::ui::measureFace(mesh, faceId, face)) {
+        ImGui::TextDisabled("points at face %u  (%.2f mm2, centre %.2f %.2f %.2f)", faceId,
+                            face.area, face.centroid[0], face.centroid[1], face.centroid[2]);
+      } else {
+        ImGui::TextColored(rgb(235, 175, 95),
+                           "the face this note pointed at is not in the part that is built now");
+      }
+    } else {
+      ImGui::TextDisabled("on the sheet, not attached to the part");
+    }
+    ImGui::PopTextWrapPos();
+    ImGui::Unindent(16.0f * dpiScale_);
+    ImGui::PopID();
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(130, 137, 148), "Add a note");
+  const std::vector<forge::ui::AnnotationKind>& kinds = forge::ui::allAnnotationKinds();
+  if (noteKindIndex_ < 0 || noteKindIndex_ >= static_cast<int>(kinds.size())) noteKindIndex_ = 0;
+  ImGui::SetNextItemWidth(150.0f * dpiScale_);
+  if (ImGui::BeginCombo("##notekind",
+                        forge::ui::annotationLabel(kinds[static_cast<std::size_t>(noteKindIndex_)]))) {
+    for (std::size_t i = 0; i < kinds.size(); ++i) {
+      const bool on = static_cast<int>(i) == noteKindIndex_;
+      if (ImGui::Selectable(forge::ui::annotationLabel(kinds[i]), on)) {
+        noteKindIndex_ = static_cast<int>(i);
+      }
+      if (on) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SameLine();
+  if (noteViewIndex_ < 0 || noteViewIndex_ >= static_cast<int>(forge::ui::kNamedViewCount)) {
+    noteViewIndex_ = 0;
+  }
+  const forge::ui::NamedView noteView =
+      static_cast<forge::ui::NamedView>(static_cast<std::uint8_t>(noteViewIndex_));
+  ImGui::SetNextItemWidth(120.0f * dpiScale_);
+  if (ImGui::BeginCombo("##noteview", forge::ui::toString(noteView))) {
+    for (std::size_t i = 0; i < forge::ui::kNamedViewCount; ++i) {
+      const forge::ui::NamedView v = static_cast<forge::ui::NamedView>(static_cast<std::uint8_t>(i));
+      const bool on = static_cast<int>(i) == noteViewIndex_;
+      if (ImGui::Selectable(forge::ui::toString(v), on)) noteViewIndex_ = static_cast<int>(i);
+      if (on) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SameLine();
+  ImGui::BeginDisabled(picked.size() != 1);
+  ImGui::Checkbox("point it at the picked face", &noteAttach_);
+  ImGui::EndDisabled();
+
+  ImGui::SetNextItemWidth(-1);
+  const bool entered = ImGui::InputText("##notetext", noteText_, sizeof(noteText_),
+                                        ImGuiInputTextFlags_EnterReturnsTrue);
+  const bool pressed = ImGui::Button("Add note");
+  if (!noteRefusal_.empty()) {
+    ImGui::SameLine();
+    ImGui::TextColored(rgb(235, 105, 95), "%s", noteRefusal_.c_str());
+  }
+
+  // Deferred past the loop above, for the same reason every other structural
+  // edit in this class is.
+  if (!removeNote.empty()) drawingRemoveNote(removeNote);
+  if (entered || pressed) {
+    if (drawingAddNote(noteText_, kinds[static_cast<std::size_t>(noteKindIndex_)], noteView,
+                       noteAttach_)) {
+      noteText_[0] = 0;
+    }
   }
 }
 

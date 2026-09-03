@@ -1,5 +1,8 @@
 #include "PartFile.hpp"
 
+#include "forge/ui/Units.hpp"
+
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -142,7 +145,121 @@ bool argFromLine(const std::string& rest, forge::ui::IrArg& out, std::string& er
   return false;
 }
 
+
+// ── the drawing blocks (format version 2) ───────────────────────────────────
+//
+// One key per line, values written VERBATIM after the key, so a note keeps its
+// interior spacing. Two rules make write(read(x)) == x byte for byte:
+//   * every free-text value is SANITISED on the way out -- control characters
+//     become spaces and the ends are trimmed -- because the reader trims, and a
+//     value the reader would change is a value the file does not round-trip.
+//   * an EMPTY value is not written at all, and reads back empty.
+std::string sanitizeValue(const std::string& in) {
+  std::string out;
+  out.reserve(in.size());
+  for (char c : in) {
+    const unsigned char u = static_cast<unsigned char>(c);
+    out.push_back(u < 0x20 || u == 0x7f ? ' ' : c);
+  }
+  return trim(out);
+}
+
+void writeField(std::string& out, const char* key, const std::string& value) {
+  const std::string v = sanitizeValue(value);
+  if (v.empty()) return;
+  out += key;
+  out += ' ';
+  out += v;
+  out += '\n';
+}
+
+// An entity reference, one key per field so a name containing a space is safe.
+void writeRef(std::string& out, const forge::ui::EntityRef& ref) {
+  if (!ref.valid()) return;
+  writeField(out, "TARGETKIND", forge::ui::toString(ref.kind));
+  writeField(out, "TARGETBODY", ref.bodyId);
+  writeField(out, "TARGETNAME", ref.persistentName);
+  if (ref.generation != 0) {
+    out += "TARGETGEN " + std::to_string(ref.generation) + "\n";
+  }
+}
+
+// The inverse of forge::ui::toString(EntityKind), DERIVED from it rather than
+// written out a second time: an if-chain over the spellings someone remembered
+// is how a kind that stops loading gets shipped. `Any` is a signature wildcard
+// and is deliberately not a storable reference kind.
+bool entityKindFromName(const std::string& name, forge::ui::EntityKind& out) {
+  for (int i = 0; i <= static_cast<int>(forge::ui::EntityKind::Any); ++i) {
+    const forge::ui::EntityKind k = static_cast<forge::ui::EntityKind>(i);
+    if (k == forge::ui::EntityKind::Any) continue;
+    if (name == forge::ui::toString(k)) {
+      out = k;
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string drawingText(const forge::ui::DrawingModel& d) {
+  std::string out;
+  const forge::ui::TitleBlockData& t = d.titleBlock();
+  out += "TITLEBLOCK\n";
+  writeField(out, "PARTNUMBER", t.partNumber);
+  writeField(out, "TITLE", t.title);
+  writeField(out, "REVISION", t.revision);
+  writeField(out, "AUTHOR", t.author);
+  writeField(out, "APPROVED", t.approvedBy);
+  writeField(out, "COMPANY", t.company);
+  writeField(out, "MATERIAL", t.material);
+  writeField(out, "FINISH", t.finish);
+  writeField(out, "SHEET", t.sheetId);
+  writeField(out, "PROJECTION", forge::ui::toString(t.projection));
+  writeField(out, "SCALEMODE", forge::ui::toString(t.scaleMode));
+  writeField(out, "SCALE", t.fixedScale.text());
+  out += "END\n";
+
+  for (const forge::ui::DatumFeature& dat : d.datums()) {
+    out += "DATUM\n";
+    out += std::string("LETTER ") + dat.letter + "\n";
+    writeRef(out, dat.target);
+    writeField(out, "LABEL", dat.targetLabel);
+    out += "END\n";
+  }
+  for (const forge::ui::Annotation& a : d.annotations()) {
+    out += "NOTE\n";
+    writeField(out, "ID", a.id);
+    writeField(out, "KIND", forge::ui::toString(a.kind));
+    writeField(out, "VIEW", forge::ui::commandSuffix(a.view));
+    writeField(out, "TEXT", a.text);
+    writeRef(out, a.target);
+    out += "END\n";
+  }
+  for (const forge::ui::FeatureControlFrame& f : d.frames()) {
+    out += "CONTROL\n";
+    writeField(out, "ID", f.id);
+    writeField(out, "CHAR", forge::ui::toString(f.characteristic));
+    out += "TOL " + forge::ui::formatIrNumber(f.toleranceMm) + "\n";
+    if (f.characteristic == forge::ui::GdtCharacteristic::Angularity) {
+      out += "BASIC " + forge::ui::formatIrNumber(f.basicAngleDeg) + "\n";
+    }
+    if (f.diametralZone) out += "ZONE diametral\n";
+    writeField(out, "MOD", forge::ui::toString(f.modifier));
+    writeField(out, "FEATURE", forge::ui::toString(f.feature));
+    if (!f.datumRefs.empty()) {
+      out += "DATUMS " + std::string(f.datumRefs.begin(), f.datumRefs.end()) + "\n";
+    }
+    writeRef(out, f.target);
+    writeField(out, "LABEL", f.targetLabel);
+    out += "END\n";
+  }
+  return out;
+}
+
 }  // namespace
+
+bool partFileVersionIsReadable(int version) noexcept {
+  return version == 1 || version == kPartFileVersion;
+}
 
 // ── PartFileDoc ─────────────────────────────────────────────────────────────
 std::string PartFileDoc::irProgram() const {
@@ -160,6 +277,7 @@ std::string writePartFile(const PartFileDoc& doc) {
   out += std::string(kPartFileMagic) + " " + std::to_string(kPartFileVersion) + "\n";
   out += "NAME " + (doc.name.empty() ? std::string("untitled") : doc.name) + "\n";
   out += "UNITS " + (doc.units.empty() ? std::string("mm") : doc.units) + "\n";
+  out += drawingText(doc.drawing);
   for (const PartFileFeature& f : doc.features) {
     out += "FEATURE\n";
     out += "ID " + std::to_string(f.record.irId) + "\n";
@@ -182,8 +300,48 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
   std::string raw;
   int lineNo = 0;
   bool sawHeader = false;
+  int fileVersion = kPartFileVersion;
   bool inFeature = false;
   PartFileFeature current;
+
+  // The drawing, accumulated block by block. Held in locals rather than being
+  // pushed into `doc.drawing` as it is read, because a file that fails halfway
+  // must not half-replace anything -- the same rule the feature list follows.
+  enum class Block { None, TitleBlock, Datum, Note, Control };
+  Block block = Block::None;
+  forge::ui::TitleBlockData title;
+  std::vector<forge::ui::DatumFeature> datums;
+  std::vector<forge::ui::Annotation> notes;
+  std::vector<forge::ui::FeatureControlFrame> controls;
+  forge::ui::DatumFeature curDatum;
+  forge::ui::Annotation curNote;
+  forge::ui::FeatureControlFrame curControl;
+  forge::ui::EntityRef curRef;
+
+  const auto refKey = [&curRef](const std::string& key, const std::string& rest,
+                                std::string& why) -> int {
+    // 1 = consumed, 0 = not a reference key, -1 = consumed but malformed.
+    if (key == "TARGETKIND") {
+      if (!entityKindFromName(rest, curRef.kind)) {
+        why = "unknown TARGETKIND '" + rest + "'";
+        return -1;
+      }
+      return 1;
+    }
+    if (key == "TARGETBODY") { curRef.bodyId = rest; return 1; }
+    if (key == "TARGETNAME") { curRef.persistentName = rest; return 1; }
+    if (key == "TARGETGEN") {
+      char* end = nullptr;
+      const unsigned long long g = std::strtoull(rest.c_str(), &end, 10);
+      if (end == rest.c_str() || *end != 0) {
+        why = "TARGETGEN is not a whole number: " + rest;
+        return -1;
+      }
+      curRef.generation = static_cast<std::uint64_t>(g);
+      return 1;
+    }
+    return 0;
+  };
 
   const auto fail = [&error, &lineNo](const std::string& why) {
     error = "line " + std::to_string(lineNo) + ": " + why;
@@ -204,12 +362,156 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
                     kPartFileMagic + " <version>', got '" + line + "')");
       }
       const int version = std::atoi(rest.c_str());
-      if (version != kPartFileVersion) {
-        return fail("unsupported version " + rest + " (this build reads " +
+      if (version == 2) {
+        // Named rather than lumped in with "unsupported": a version 2 file under
+        // this magic is a well-formed document written by the other layer, and
+        // telling its owner it is corrupt would be false.
+        return fail("this file is version 2, which is written by the document layer and uses "
+                    "different records; this build reads version 1 and version " +
+                    std::to_string(kPartFileVersion));
+      }
+      if (!partFileVersionIsReadable(version)) {
+        return fail("unsupported version " + rest + " (this build reads version " +
+                    std::to_string(kOldestReadablePartFileVersion) + " and version " +
                     std::to_string(kPartFileVersion) + ")");
       }
+      fileVersion = version;
       sawHeader = true;
       continue;
+    }
+
+    // ── the version-2 drawing blocks ────────────────────────────────────────
+    if (block != Block::None) {
+      if (key == "END") {
+        switch (block) {
+          case Block::Datum:
+            curDatum.target = curRef;
+            if (curDatum.letter == 0) return fail("DATUM block has no LETTER");
+            datums.push_back(curDatum);
+            break;
+          case Block::Note:
+            curNote.target = curRef;
+            if (curNote.text.empty()) return fail("NOTE block has no TEXT");
+            if (curNote.id.empty()) return fail("NOTE block has no ID");
+            notes.push_back(curNote);
+            break;
+          case Block::Control:
+            curControl.target = curRef;
+            if (curControl.id.empty()) return fail("CONTROL block has no ID");
+            if (!(curControl.toleranceMm > 0.0)) return fail("CONTROL block has no TOL");
+            controls.push_back(curControl);
+            break;
+          case Block::TitleBlock:
+          case Block::None:
+            break;
+        }
+        block = Block::None;
+        continue;
+      }
+      std::string why;
+      const int consumed = refKey(key, rest, why);
+      if (consumed < 0) return fail(why);
+      if (consumed > 0) continue;
+
+      if (block == Block::TitleBlock) {
+        if (key == "PARTNUMBER") { title.partNumber = rest; continue; }
+        if (key == "TITLE") { title.title = rest; continue; }
+        if (key == "REVISION") { title.revision = rest; continue; }
+        if (key == "AUTHOR") { title.author = rest; continue; }
+        if (key == "APPROVED") { title.approvedBy = rest; continue; }
+        if (key == "COMPANY") { title.company = rest; continue; }
+        if (key == "MATERIAL") { title.material = rest; continue; }
+        if (key == "FINISH") { title.finish = rest; continue; }
+        if (key == "SHEET") { title.sheetId = rest; continue; }
+        if (key == "PROJECTION") {
+          if (!forge::ui::projectionAngleFromName(rest, title.projection)) {
+            return fail("unknown PROJECTION '" + rest + "' (expected first|third)");
+          }
+          continue;
+        }
+        if (key == "SCALEMODE") {
+          if (!forge::ui::scaleModeFromName(rest, title.scaleMode)) {
+            return fail("unknown SCALEMODE '" + rest + "' (expected automatic|fixed)");
+          }
+          continue;
+        }
+        if (key == "SCALE") {
+          if (!forge::ui::scaleFromText(rest, title.fixedScale)) {
+            return fail("SCALE is not a ratio like 1:2: " + rest);
+          }
+          continue;
+        }
+        return fail("unknown key '" + key + "' inside a TITLEBLOCK block");
+      }
+      if (block == Block::Datum) {
+        if (key == "LETTER") {
+          if (rest.size() != 1) return fail("LETTER takes one letter: " + rest);
+          curDatum.letter = rest[0];
+          continue;
+        }
+        if (key == "LABEL") { curDatum.targetLabel = rest; continue; }
+        return fail("unknown key '" + key + "' inside a DATUM block");
+      }
+      if (block == Block::Note) {
+        if (key == "ID") { curNote.id = rest; continue; }
+        if (key == "KIND") {
+          if (!forge::ui::annotationKindFromName(rest, curNote.kind)) {
+            return fail("unknown note KIND '" + rest + "'");
+          }
+          continue;
+        }
+        if (key == "VIEW") {
+          if (!forge::ui::namedViewFromSuffix(rest, curNote.view)) {
+            return fail("unknown VIEW '" + rest + "'");
+          }
+          continue;
+        }
+        if (key == "TEXT") { curNote.text = rest; continue; }
+        return fail("unknown key '" + key + "' inside a NOTE block");
+      }
+      // Block::Control
+      if (key == "ID") { curControl.id = rest; continue; }
+      if (key == "CHAR") {
+        if (!forge::ui::gdtCharacteristicFromName(rest, curControl.characteristic)) {
+          return fail("unknown control CHAR '" + rest + "'");
+        }
+        continue;
+      }
+      if (key == "TOL" || key == "BASIC") {
+        const char* begin = rest.c_str();
+        char* end = nullptr;
+        const double value = std::strtod(begin, &end);
+        if (end == begin || *end != 0) return fail(key + " is not a number: " + rest);
+        if (key == "TOL") {
+          curControl.toleranceMm = value;
+        } else {
+          curControl.basicAngleDeg = value;
+        }
+        continue;
+      }
+      if (key == "ZONE") {
+        if (rest != "diametral") return fail("unknown ZONE '" + rest + "' (expected diametral)");
+        curControl.diametralZone = true;
+        continue;
+      }
+      if (key == "MOD") {
+        if (!forge::ui::materialModifierFromName(rest, curControl.modifier)) {
+          return fail("unknown MOD '" + rest + "'");
+        }
+        continue;
+      }
+      if (key == "FEATURE") {
+        if (!forge::ui::controlledFeatureKindFromName(rest, curControl.feature)) {
+          return fail("unknown control FEATURE '" + rest + "'");
+        }
+        continue;
+      }
+      if (key == "DATUMS") {
+        curControl.datumRefs.assign(rest.begin(), rest.end());
+        continue;
+      }
+      if (key == "LABEL") { curControl.targetLabel = rest; continue; }
+      return fail("unknown key '" + key + "' inside a CONTROL block");
     }
 
     if (!inFeature) {
@@ -218,6 +520,23 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
       if (key == "FEATURE") {
         inFeature = true;
         current = PartFileFeature{};
+        continue;
+      }
+      if (key == "TITLEBLOCK" || key == "DATUM" || key == "NOTE" || key == "CONTROL") {
+        // ADDITIVE-ONLY, enforced rather than documented: these blocks were
+        // introduced in version 2, so a file that CLAIMS version 1 and contains
+        // one has been hand-edited or half-written, and reading it would produce
+        // a document neither version describes.
+        if (fileVersion < kPartFileDrawingVersion) {
+          return fail("'" + key + "' was added in format version " +
+                      std::to_string(kPartFileDrawingVersion) +
+                      ", but this file says it is version " + std::to_string(fileVersion));
+        }
+        curRef = forge::ui::EntityRef{};
+        if (key == "TITLEBLOCK") { block = Block::TitleBlock; title = forge::ui::TitleBlockData{}; }
+        if (key == "DATUM") { block = Block::Datum; curDatum = forge::ui::DatumFeature{}; }
+        if (key == "NOTE") { block = Block::Note; curNote = forge::ui::Annotation{}; }
+        if (key == "CONTROL") { block = Block::Control; curControl = forge::ui::FeatureControlFrame{}; }
         continue;
       }
       return fail("unexpected '" + key + "' outside a FEATURE block");
@@ -267,15 +586,28 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
     error = "file ends inside a FEATURE block (truncated write?)";
     return false;
   }
+  if (block != Block::None) {
+    error = "file ends inside a drawing block (truncated write?)";
+    return false;
+  }
+  doc.version = fileVersion;
+  doc.drawing.restore(std::move(title), std::move(datums), std::move(notes), std::move(controls));
   out = std::move(doc);
   error.clear();
   return true;
 }
 
 // ── document <-> file ───────────────────────────────────────────────────────
-PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name) {
+PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name,
+                                const forge::ui::DrawingModel& drawing) {
   PartFileDoc out;
   out.name = name.empty() ? std::string("untitled") : name;
+  // THE UNIT, from the one place that owns it. forge/ui/Units.hpp states the
+  // rule for the whole application -- every stored length is a millimetre -- and
+  // writing the letters "mm" here as a literal would be a second place that could
+  // come to disagree with it.
+  out.units = forge::ui::toString(forge::ui::kInternalLengthUnit);
+  out.drawing = drawing;
   // snapshot() is the document's own published view of its node bindings; the
   // reverse index is built here rather than kept in a second place that could
   // fall behind it.
