@@ -42,8 +42,8 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. FORTY
-#                       defects (8 document + 9 frame + 8 copilot + 7 update +
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. FORTY-THREE
+#                       defects (8 document + 12 frame + 8 copilot + 7 update +
 #                       8 click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
@@ -52,9 +52,10 @@
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
 # status is whatever ran last and a run that fell out of its own middle would
-# exit 0. That wrapper also pins the mutation count at an EXACT 40, so adding or
-# removing a --mutate case below means changing EXPECTED_MUTATIONS in
-# ci_desktop_gate.sh in the SAME commit.
+# exit 0. That wrapper pins the mutation count EXACTLY, so adding or removing a
+# --mutate case below means changing EXPECTED_MUTATIONS in ci_desktop_gate.sh in
+# the SAME commit. The number itself is deliberately NOT repeated here as a
+# figure this comment can go stale on -- it lives where it decides the build.
 #
 # The windowed application is NOT launched here: it needs a display server, and
 # a gate that cannot run in CI is not a gate. Launch it yourself with
@@ -158,7 +159,7 @@ run_gate() {
 # would not reject on its own.
 run_gate forge_desktop_ir_pipeline_gate
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

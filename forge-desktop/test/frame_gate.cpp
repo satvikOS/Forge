@@ -28,6 +28,25 @@
 //   9  the frame never pulls the shell's fit request    -> view.fit journals "ok"
 //                                                          and the camera does
 //                                                          not move
+//  10  a session with a worker CONFIGURED is not        -> the isolation report is
+//      distinguished from one without                      unconditional, so
+//                                                          "isolation is off" is
+//                                                          said whatever is true
+//  11  the frame never dispatches the deferred Open     -> File > Open Recent
+//      Recent request                                      records a click and
+//                                                          opens nothing
+//  12  a feature-tree statement row is never clicked    -> nothing can put a
+//                                                          Sketch in the
+//                                                          selection, so Extrude
+//                                                          has nothing to consume
+// <algorithm> for the same reason document_gate.cpp includes it beside <cstdio>:
+// this file calls std::remove(const char*) to delete its temp .fpart, and
+// `std::remove` is declared by BOTH headers -- the iterator algorithm and the C
+// file-removal function. Including only one leaves which of them is meant
+// resolvable by overload rules but not by a reader, and the missing-include
+// preflight (forge-kernel/test/native/check_includes.sh) refuses that ambiguity
+// by name. It refused this file, which is how the ambiguity was found.
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -42,7 +61,10 @@
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "PartFile.hpp"
+#include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/EdgeModel.hpp"
+#include "forge/ui/GuardedProcess.hpp"
+#include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/MeasureModel.hpp"
@@ -118,6 +140,15 @@ struct HeadlessImGui {
   }
   ~HeadlessImGui() { ImGui::DestroyContext(); }
 };
+
+// A writable path for the .fpart this gate saves and reopens. Same rule as
+// document_gate.cpp: TMPDIR where the platform sets one, /tmp otherwise.
+std::string tempPath(const char* leaf) {
+  const char* tmp = std::getenv("TMPDIR");
+  std::string dir = (tmp != nullptr && tmp[0] != 0) ? std::string(tmp) : std::string("/tmp");
+  if (!dir.empty() && dir.back() != '/') dir += '/';
+  return dir + leaf;
+}
 
 ImDrawData* buildOneFrame(forge::desktop::ForgeFrame& frame, std::uint64_t tex) {
   ImGui::NewFrame();
@@ -861,6 +892,231 @@ int main(int argc, char** argv) {
     checkEq(frame.fitsApplied(), fitsBefore + 1, "a frame with no new request does not re-fit");
     check(frame.camera().distance() < settled, "so a user zoom survives the next frame",
           std::to_string(frame.camera().distance()) + " vs " + std::to_string(settled));
+  }
+
+  // ── 10. THE REOPEN LEG, AND THE SAFETY NET A USER CAN SEE ────────────────
+  //
+  // Two facts the shipped app knew and never told anyone.
+  //
+  // (a) main.cpp probes forge_kernel_worker at startup and, when it will not
+  //     launch, turns isolation OFF and prints "kernel isolation: UNAVAILABLE
+  //     -- modelling runs IN PROCESS" to STDERR. A user who launches Forge.app
+  //     from the Finder has no stderr. The single most consequential fact the
+  //     startup path knows -- that an OCCT fault will now take the document
+  //     with it -- reached nobody.
+  //
+  // (b) `file.open` needs a path and the prompt seeded that box from
+  //     `documentPath_`, which is EMPTY on every launch. So Ctrl+O on a freshly
+  //     started Forge opened an empty box, and the only way back to yesterday's
+  //     part was to type its absolute path from memory -- while a part saved
+  //     with a bare Ctrl+S had gone to ~/.forge, a directory the user never
+  //     chose and cannot guess. Open, model, save, reopen is the loop this
+  //     product is judged on, and its last step was unreachable without a
+  //     terminal.
+  {
+    // ── (a) the isolation state reaches the ACTIVITY LOG ───────────────────
+    // The log, not note(): the console panel filters by severity and the status
+    // strip counts it, so it is still there when a user goes looking. A status
+    // line is gone by the next frame.
+    std::size_t isolationRows = 0;
+    forge::ui::Severity isolationSeverity = forge::ui::Severity::Info;
+    for (const forge::ui::LogEntry& e : shell.log().entries()) {
+      if (e.source != "kernel.isolation") continue;
+      ++isolationRows;
+      isolationSeverity = e.severity;
+    }
+    checkEq(isolationRows, 1u, "kernel isolation is reported to the log exactly once");
+    check(isolationSeverity == forge::ui::Severity::Warning,
+          "with NO worker configured it is a WARNING, which the error filter keeps",
+          std::string(forge::ui::toString(isolationSeverity)));
+
+    // THE POSITIVE HALF, without which the check above passes for a report that
+    // says "unavailable" unconditionally. A second scene with a worker
+    // CONFIGURED must log the other answer. Nothing is built and nothing is
+    // launched: workerConfigured() is set by useIsolatedWorker() itself, and no
+    // geometry is compiled here, so this costs a document seed and no kernel.
+    {
+      forge::desktop::KernelScene isolatedScene;
+      forge::ui::GuardLimits limits;
+      limits.deadlineMs = 1000;
+      if (g_mutation != 10) {
+        isolatedScene.useIsolatedWorker({"/nonexistent/forge_kernel_worker"}, limits);
+      }
+      forge::ui::ForgeShell isolatedShell;
+      forge::desktop::ForgeFrame isolatedFrame(isolatedShell, isolatedScene);
+      isolatedFrame.wirePartCommands();
+      std::size_t active = 0;
+      std::size_t warned = 0;
+      for (const forge::ui::LogEntry& e : isolatedShell.log().entries()) {
+        if (e.source != "kernel.isolation") continue;
+        if (e.severity == forge::ui::Severity::Info) {
+          ++active;
+        } else {
+          ++warned;
+        }
+      }
+      checkEq(active, 1u, "a session WITH a worker configured logs isolation as ACTIVE");
+      checkEq(warned, 0u, "and does not also warn about it");
+    }
+
+    // ── (b) save -> Open Recent -> reopen, through the shipping host ────────
+    // Nothing may be remembered that the user did not open or save.
+    checkEq(shell.recentDocuments().size(), 0u,
+            "Open Recent is empty until the user opens or saves something");
+
+    // Save is offered only on a DIRTY document. Make it dirty through the ONE
+    // registry rather than assuming the earlier sections left it that way: a
+    // Save that was refused as unavailable would fail this section for a reason
+    // that has nothing to do with what it is testing.
+    frame.invoke("part.primitive_box");
+    check(shell.document().dirty, "the document is dirty, so Save is offered", "");
+
+    const std::string reopenPath = tempPath("recent_reopen.fpart");
+    std::remove(reopenPath.c_str());
+    forge::ui::CommandParams saveParams;
+    saveParams.setText("path", reopenPath);
+    const forge::ui::DispatchResult saved = shell.run("file.save", saveParams);
+    check(saved.ok() && shell.lastDocumentError().empty(), "saved the document to a real .fpart",
+          shell.lastDocumentError().empty() ? std::string(forge::ui::toString(saved.status))
+                                            : shell.lastDocumentError());
+    checkEq(shell.recentDocuments().size(), 1u, "a successful save is remembered");
+    check(shell.recentDocuments().mostRecent() == reopenPath,
+          "and it is remembered by the path the HOST wrote to",
+          shell.recentDocuments().mostRecent());
+
+    // File > New is the state EVERY launch starts in: no open document, so no
+    // documentPath_ to seed a path box from. This is where the old behaviour
+    // handed the user an empty box.
+    const forge::ui::DispatchResult fresh = shell.run("file.new");
+    check(fresh.ok() && shell.lastDocumentError().empty(), "File > New",
+          shell.lastDocumentError());
+    check(frame.documentPath().empty(), "there is now no open document path",
+          frame.documentPath());
+    check(frame.pathPromptSeed() == reopenPath,
+          "so the path seed falls back to the most recent document",
+          frame.pathPromptSeed());
+
+    // THE BOX ITSELF, not the helper that computes what goes in it: a gate that
+    // only checked pathPromptSeed() would be checking a function the prompt is
+    // free to stop calling.
+    frame.invoke("file.open");
+    check(frame.promptOpen(), "file.open with no path opens the prompt instead of failing", "");
+    check(frame.promptValue("path") == reopenPath,
+          "and the path box is PRE-FILLED with the most recent document",
+          frame.promptValue("path"));
+    frame.cancelPrompt();
+
+    // ── the Open Recent click is DEFERRED, like every other document-replacing
+    //    command. Dispatching inside the dock walk is what has already shipped
+    //    three crashes in this class.
+    //
+    // MUTATION 11 removes the frame that dispatches it. Both checks after it are
+    // unconditional.
+    frame.requestOpenDocument(reopenPath);
+    check(frame.pendingOpenPath() == reopenPath, "an Open Recent click is recorded, not dispatched",
+          frame.pendingOpenPath());
+    check(frame.documentPath().empty(), "and nothing has been opened yet", frame.documentPath());
+    if (g_mutation != 11) buildOneFrame(frame, 0);
+    check(frame.pendingOpenPath().empty(), "the next frame dispatched it",
+          frame.pendingOpenPath());
+    check(frame.documentPath() == reopenPath, "and the remembered document is open",
+          frame.documentPath());
+
+    // Re-opening the same document MOVES it in the list; it does not appear
+    // twice. A user who works on one part all day must not lose the other nine.
+    checkEq(shell.recentDocuments().size(), 1u, "reopening the same document does not duplicate it");
+
+    // ── a remembered path that no longer opens must SAY SO ─────────────────
+    // The entry is deliberately KEPT: this frame cannot tell "deleted" from "the
+    // volume is not mounted today", and silently forgetting a part because a
+    // share was asleep is the worse of the two mistakes.
+    const std::string gonePath = tempPath("recent_gone.fpart");
+    std::remove(gonePath.c_str());
+    const std::size_t errorsBefore = shell.log().count(forge::ui::Severity::Error);
+    frame.requestOpenDocument(gonePath);
+    buildOneFrame(frame, 0);
+    checkGe(shell.log().count(forge::ui::Severity::Error), errorsBefore + 1,
+            "a remembered document that will not open raises an ERROR, not a silent no-op");
+    bool namedThePath = false;
+    for (const forge::ui::LogEntry& e : shell.log().entries()) {
+      if (e.severity != forge::ui::Severity::Error) continue;
+      if (e.message.find(gonePath) != std::string::npos) namedThePath = true;
+    }
+    check(namedThePath, "and the message NAMES the path that failed", gonePath);
+    check(frame.documentPath() == reopenPath,
+          "while the document that WAS open is left untouched", frame.documentPath());
+
+    std::remove(reopenPath.c_str());
+  }
+
+  // ── 12. A USER CAN EXTRUDE A SKETCH ──────────────────────────────────────
+  //
+  // The claim the whole product rests on, and it was FALSE. ForgeFrame had two
+  // producers of selection refs — clickFace (EntityKind::Face) and clickEdge
+  // (EntityKind::Edge) — and SelectionSignature::satisfiedBy compares kinds
+  // EXACTLY, with no subsumption. part.extrude's signature is
+  // exactly(EntityKind::Sketch, 1). No surface in the application could produce
+  // an EntityKind::Sketch, so Extrude was permanently greyed out, along with 27
+  // other commands needing body / sketchref / opensketch / surface / wire. Every
+  // gate was green: app_surface_reachability_test proves each surface OFFERS
+  // every command, and says in its own header that this is "enumeration, not
+  // pixels".
+  //
+  // This asserts the whole path against the REAL linked application: click the
+  // statement row, get a typed ref of the right kind, dispatch Extrude through
+  // the one registry, and find an EXTRUDE statement in the document.
+  //
+  // MUTATION 12 removes the click. Everything after it is unconditional.
+  {
+    // The seeded starter part's statement %1 is the RECT profile. It is READ
+    // from the document rather than assumed to be 1: a change to
+    // defaultPartStatements() must move this gate's subject, not silently give
+    // it a different statement.
+    int profileId = 0;
+    for (const forge::ui::FeatureRecord& r : frame.document().records()) {
+      if (r.produces == forge::ui::IrValueKind::Profile) { profileId = r.irId; break; }
+    }
+    checkGe(profileId, 1, "the document holds a PROFILE statement to extrude");
+
+    // It carries NO node binding — only the last seeded statement does — so it
+    // is exactly the row that could not be resolved back to an IR value by any
+    // route. clickFeature binds one; that this used to be empty is the reason
+    // the check exists.
+    shell.selection().clearSelection();
+    shell.selection().setFilter(forge::ui::EntityKind::Any);
+    if (g_mutation != 12) frame.clickFeature(profileId, false);
+
+    checkEq(shell.selection().count(), 1u, "clicking a statement row selects exactly it");
+    forge::ui::EntityKind picked = forge::ui::EntityKind::None;
+    std::string pickedNode;
+    if (shell.selection().count() == 1) {
+      picked = shell.selection().selection().front().kind;
+      pickedNode = shell.selection().selection().front().bodyId;
+    }
+    check(picked == forge::ui::EntityKind::Sketch,
+          "and a PROFILE statement is selected as a Sketch, which is what EXTRUDE wants",
+          std::string(forge::ui::toString(picked)));
+    check(!pickedNode.empty(), "the statement now has a node a command can resolve", pickedNode);
+    check(frame.document().valueFor(pickedNode) == profileId,
+          "and that node resolves back to the statement that was clicked",
+          std::to_string(frame.document().valueFor(pickedNode)));
+
+    const std::size_t before = frame.document().records().size();
+    frame.invoke("part.extrude");
+    const std::size_t after = frame.document().records().size();
+    checkEq(after, before + 1, "Extrude, dispatched through the one registry, added a statement");
+    std::string producedOp;
+    if (after > before) producedOp = frame.document().records().back().line.op;
+    check(producedOp == "EXTRUDE", "and the statement it added is an EXTRUDE", producedOp);
+
+    // The filter is still the user's instruction. A tree click that ignored it
+    // would make "set the filter to Edge" mean nothing in half the window.
+    shell.selection().clearSelection();
+    shell.selection().setFilter(forge::ui::EntityKind::Edge);
+    frame.clickFeature(profileId, false);
+    checkEq(shell.selection().count(), 0u,
+            "a statement click obeys the selection filter instead of overriding it");
+    shell.selection().setFilter(forge::ui::EntityKind::Any);
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

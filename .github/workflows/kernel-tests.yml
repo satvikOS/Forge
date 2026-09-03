@@ -1009,10 +1009,19 @@ jobs:
             echo "::error::forge-desktop did not COMPILE (rc=$rc); the application is un-buildable on this commit"
             exit 1
           fi
+          # EVERY executable forge-desktop/CMakeLists.txt adds, not a subset.
+          # copilot, click, update and the forge_update CLI were absent from
+          # this list while `cmake --build` compiled them, so any one of them
+          # could have stopped being PRODUCED with this step still green -- and
+          # the four gates among them are only run by name afterwards, which
+          # reports "gate binary missing" from inside a script's log instead of
+          # here, under the step whose name says the application did not build.
           missing=0
-          for b in forge_desktop forge_desktop_frame_gate \
-                   forge_desktop_document_gate forge_desktop_ir_pipeline_gate \
-                   forge_kernel_worker forge_desktop_isolation_gate; do
+          for b in forge_desktop forge_kernel_worker forge_update \
+                   forge_desktop_frame_gate forge_desktop_document_gate \
+                   forge_desktop_ir_pipeline_gate forge_desktop_copilot_gate \
+                   forge_desktop_click_gate forge_desktop_update_gate \
+                   forge_desktop_isolation_gate; do
             if [ -x "forge-desktop/build/$b" ]; then printf 'ok       %s\n' "$b"
             else printf 'MISSING  %s\n' "$b"; missing=1; fi
           done
@@ -1023,15 +1032,25 @@ jobs:
 
       - name: forge-desktop gates + mutation proofs (headless -- no window, no GPU)
         # ci_desktop_gate.sh runs run_desktop.sh -- the missing-include
-        # preflight, then the three headless gates (ir_pipeline, document,
-        # frame, isolation), then 31 injected defects each of which MUST turn its gate red
-        # -- and then JUDGES ITS OUTPUT rather than trusting its exit status.
+        # preflight, then the SIX headless gates (ir_pipeline, document, frame,
+        # copilot, update, click, isolation), then the injected defects each of
+        # which MUST turn its gate red -- and then JUDGES ITS OUTPUT rather than
+        # trusting its exit status.
         # run_desktop.sh has no `set -e`, so its status is the status of
         # whatever ran last and a run that fell out of its own middle would exit
         # 0; the gate script requires a zero status AND no mutation reported as
-        # having STAYED GREEN AND the exact verdict line naming exactly 31
-        # mutations. Its own red paths are proved by the self-test that runs as
-        # the first step of this job.
+        # having STAYED GREEN AND the exact verdict line naming exactly
+        # EXPECTED_MUTATIONS. Its own red paths are proved by the self-test that
+        # runs as the first step of this job.
+        #
+        # THE COUNT IS NOT REPEATED HERE. This comment said "31" while
+        # ci_desktop_gate.sh pinned 40, for as long as it took four gates and
+        # nine mutations to be added without anyone editing prose that no
+        # process reads. A number in two places is a number that drifts, and the
+        # one that decides the build is EXPECTED_MUTATIONS in
+        # forge-desktop/test/ci_desktop_gate.sh -- which carries its own
+        # derivation, and whose refusal to be an environment variable is what
+        # makes it reviewable.
         #
         # It is a script, not inline YAML, so a developer runs the identical
         # judgement locally and the two cannot drift; and so that the self-test
