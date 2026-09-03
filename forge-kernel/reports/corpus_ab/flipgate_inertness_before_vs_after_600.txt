@@ -1,0 +1,43 @@
+rows in A: 7796   rows in B: 7796   common keys: 7796
+identical on every pre-existing field : 7781/7796
+differ ONLY in a centre-of-mass component: 14
+rows with any other difference          : 1
+differing fields (count):
+  occt.com[1]: 15
+  occt.status: 1
+  occt.valid: 1
+  occt.f: 1
+  occt.e: 1
+  occt.v: 1
+  occt.sh: 1
+  occt.so: 1
+  occt.vol: 1
+  occt.area: 1
+  occt.com[0]: 1
+  occt.com[2]: 1
+  occt.bb[0]: 1
+  occt.bb[1]: 1
+  occt.bb[3]: 1
+  occt.bb[4]: 1
+  occt.bb[5]: 1
+  occt.note: 1
+  bucket: 1
+  eg ho1041|THICKSOLID: occt.com[1]
+  eg ho1155|THICKSOLID: occt.com[1]
+  eg ho1241|THICKSOLID: occt.com[1]
+  eg ho211|THICKSOLID: occt.com[1]
+  eg ho249|THICKSOLID: occt.com[1]
+  eg ho301|THICKSOLID: occt.com[1]
+  eg ho317|THICKSOLID: occt.status, occt.valid, occt.f, occt.e, occt.v, occt.sh, occt.so, occt.vol, occt.area, occt.com[0], occt.com[1], occt.com[2], occt.bb[0], occt.bb[1], occt.bb[3], occt.bb[4], occt.bb[5], occt.note, bucket
+  eg ho330|THICKSOLID: occt.com[1]
+
+INTERPRETATION (measured, not asserted)
+  14 rows differ ONLY in occt.com[1]: the pre-existing BRepGProp::VolumeProperties
+     summation-order noise THICKSOLID_ATTRIBUTION.md section 1 already measured
+     (y centroid exactly zero, ~1e-15 against |com| ~1e2), in an arm this change
+     cannot reach.
+   1 row (ho317|THICKSOLID) differs on the whole OCCT arm: OK in the BEFORE run,
+     CRASH signal 11 in the AFTER run. NOT an effect of this change -- the same
+     AFTER binary run five times on ho317 returns OK five times out of five.
+     OCCT's MakeThickSolidByJoin SIGSEGVs intermittently on this part; the fork
+     containment caught it. It is the whole of THICKSOLID's occt_ok 133 -> 132.

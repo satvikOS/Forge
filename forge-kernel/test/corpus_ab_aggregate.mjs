@@ -298,9 +298,6 @@ for (const r of rows) {
   if (nOK) { if (nV) f.natOkValid++; else if (r.native?.valid === 0) f.natOkInvalid++; else f.natOkUnk++; }
   if (oOK) { if (oV) f.occtOkValid++; else if (r.occt?.valid === 0) f.occtOkInvalid++; else f.occtOkUnk++; }
 
-  // The agreement observable. `agree_strict` adds the surface/curve-kind
-  // histograms to `agree`; a JSONL produced before the harness emitted it falls
-  // back to `agree`, and every such row is counted so the fallback is visible.
   // The wrong-code-path fingerprint, per arm, independent of the other.
   if (comIsFingerprint(r.native)) {
     f.natComOut++;
@@ -314,6 +311,9 @@ for (const r of rows) {
   if (comOutsideVertexBBox(r.native)) f.natComBulge++;
   if (comOutsideVertexBBox(r.occt)) f.occtComBulge++;
 
+  // The agreement observable. `agree_strict` adds the surface/curve-kind
+  // histograms to `agree`; a JSONL produced before the harness emitted it falls
+  // back to `agree`, and every such row is counted so the fallback is visible.
   const hasStrict = r.agree_strict !== undefined;
   if (!hasStrict) f.rowsMissingStrict++;
   const ag = hasStrict ? !!r.agree_strict : !!r.agree;

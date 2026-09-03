@@ -755,6 +755,56 @@ observation worth a controlled A/B between those two commits, not as a result.
 
 ---
 
+### 3.5 BEFORE / AFTER under the five terms (2026-09-03)
+
+Full detail, with the failure-class decomposition and the proofs, is in
+`reports/corpus_ab/FLIP_GATE_REPLACEABILITY_2026-09-03.md`. Both columns below come from
+**one** corpus run at `9f309b52` (600 parts, 7,796 rows, 0 part-level failures) aggregated
+twice: BEFORE with `corpus_ab_aggregate.mjs` exactly as it stands at `26db603e`, AFTER
+with the five terms. **The denominators are not merely comparable, they are the same
+rows.** A clean-tree BEFORE run at `26db603e` reproduces the BEFORE column family for
+family.
+
+| option | N | nat % | occt % | BEFORE (coverage only) | AFTER (five terms) | failing terms |
+|---|---:|---:|---:|---|---|---|
+| `FORGE_FILLET_DROP_NATIVE` | 600 | 67.2% | 76.8% | FAIL | **FAIL** | coverage, validity, agreement, replaceability |
+| `FORGE_OFFSET_DROP_MAKEOFFSET` | 600 | 100.0% | 99.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_THICKSOLID_DROP_NATIVE` | 600 | 0.0% | 22.0% | FAIL | **FAIL** | coverage |
+| `FORGE_OFFSETSHAPE_DROP_NATIVE` | 600 | 4.0% | 6.3% | FAIL | **FAIL** | coverage, replaceability |
+| `FORGE_THRUSECTIONS_DROP_NATIVE` | 600 | 83.0% | 94.5% | FAIL | **FAIL** | coverage, validity, agreement, replaceability |
+| `FORGE_PIPE_DROP_NATIVE` | 600 | 100.0% | 100.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_PIPESHELL_DROP_NATIVE` | 600 | 100.0% | 100.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_FILLING_DROP_NATIVE` | 600 | 67.8% | 67.8% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_THICKEN_DROP_NATIVE` | 600 | 100.0% | 100.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_DRAFT_DROP_NATIVE` | 565 | 0.0% | 88.0% | FAIL | **FAIL** | coverage, validity, replaceability |
+
+**Five of the ten drop options passed the coverage gate; none passes the five-term gate.**
+The four that changed are not marginal: PIPE and PIPESHELL differ from OCCT on 600 of 600
+parts at a constant volume ratio 2/(1+cos 30°); THICKEN differs on 600 of 600 by exactly
+one sign bit on the solid (595 agree up to orientation); FILLING and MAKEOFFSET differ on
+407 of 407 and 285 of 594 respectively. **That is the finding, and it is not a
+regression** — the geometry was always like this and the verdict could not see it.
+
+And the bar the failing families are held to is not what it looked like either:
+
+| option | OCCT ok | of which INVALID | valid bar | native ok | native ok+valid | deficit vs the valid bar |
+|---|---:|---:|---:|---:|---:|---:|
+| `FORGE_THICKSOLID_DROP_NATIVE` | 132 | **132** | **0** | 0 | 0 | 0 |
+| `FORGE_OFFSETSHAPE_DROP_NATIVE` | 38 | **33** | **5** | 24 | 24 | 5 |
+| `FORGE_DRAFT_DROP_NATIVE` | 497 | 52 | 445 | 0 | 0 | 445 |
+| `FORGE_FILLET_DROP_NATIVE` | 461 | 6 | 455 | 403 | 312 | 202 |
+
+THICKSOLID's entire 132-answer baseline fails `BRepCheck`, so its valid bar is zero — and
+its coverage bar is not even stable run to run: `MakeThickSolidByJoin` returned `OK` on
+`ho317` in one 600-part run and SIGSEGV'd on it in the next, with the same binary
+returning `OK` five times out of five on re-run. OFFSETSHAPE's 24 native answers are all
+valid and comfortably exceed its valid bar of 5, yet it reproduces **none** of those 5,
+because it declines on exactly those parts. **Neither observation is a licence to flip an
+option**, and none was flipped: the coverage bar is still term 1 and both families still
+fail it.
+
+---
+
 ## 4. How to run it
 
 ```sh
