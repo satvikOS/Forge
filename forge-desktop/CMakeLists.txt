@@ -327,6 +327,21 @@ target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_cor
 set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ---------------------------------------------------- the assembly gate
+# The four assembly panels — Components, Mates, Contacts and BOM — against REAL
+# multi-body models, with every reference computed from the models' own
+# dimensions rather than copied out of a previous run. It also builds one model
+# BOTH WAYS, in process and through a real forge_kernel_worker, because the
+# shipped application always runs the kernel out of process and an inventory
+# that does not cross that boundary is one no user ever sees.
+add_executable(forge_desktop_assembly_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/assembly_gate.cpp")
+target_compile_options(forge_desktop_assembly_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_assembly_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_assembly_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+add_dependencies(forge_desktop_assembly_gate forge_kernel_worker)
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)

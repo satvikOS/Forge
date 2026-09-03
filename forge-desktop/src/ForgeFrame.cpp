@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1477,6 +1478,8 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   viewportRequest_.wireframe = shell_.document().wireframe;
   viewportRequest_.geometryDirty = geometryDirty_;
   geometryDirty_ = false;
+  viewportRequest_.visibilityDirty = visibilityDirty_;
+  visibilityDirty_ = false;
 
   // ── view.fit, ON THE SAME PATH AS view.wireframe ─────────────────────────
   // `view.fit`'s whole execute body is `++doc_.fitCount` (ForgeShell.cpp), and
@@ -2178,6 +2181,14 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawMeasurePanel();
   } else if (panelId == "archie_tools") {
     drawToolsPanel();
+  } else if (panelId == "bom") {
+    drawBomPanel();
+  } else if (panelId == "contacts") {
+    drawContactsPanel();
+  } else if (panelId == "component_filter") {
+    drawComponentFilterPanel();
+  } else if (panelId == "mates") {
+    drawMatesPanel();
   } else if (panelId == "archie_copilot" || panelId == "archie_chat") {
     // ONE panel behind both tabs. The CoPilot IS the chat surface and the plan
     // surface: splitting them would put the transcript on one tab and the offer
@@ -3000,6 +3011,16 @@ void ForgeFrame::drawMeasurePanel() {
                                          : why.c_str());
     return;
   }
+  // ★ WHAT IS BEING MEASURED, when it is not all of it. This panel measures the
+  // triangles the viewport draws, and the Components tab can now take a body out
+  // of that set. A size and a volume for three quarters of a model, printed with
+  // no indication that a quarter is missing, is the exact shape of a plausible
+  // wrong number -- so the panel says which it is. It is one line, and it only
+  // appears when it is true.
+  if (scene_.hiddenBodyCount() > 0) {
+    ImGui::TextColored(rgb(235, 190, 95), "measuring what is shown: %zu bod%s hidden",
+                       scene_.hiddenBodyCount(), scene_.hiddenBodyCount() == 1 ? "y" : "ies");
+  }
   ImGui::Text("size      %.3f x %.3f x %.3f mm", m.box.size(0), m.box.size(1), m.box.size(2));
   ImGui::Text("min       %.3f  %.3f  %.3f", m.box.min[0], m.box.min[1], m.box.min[2]);
   ImGui::Text("max       %.3f  %.3f  %.3f", m.box.max[0], m.box.max[1], m.box.max[2]);
@@ -3341,6 +3362,478 @@ void ForgeFrame::drawCopilotPanel() {
   if (!copilot_.hasPlan()) {
     ImGui::SameLine();
     ImGui::TextDisabled("nothing on offer");
+  }
+}
+
+// ── THE ASSEMBLY PANELS ─────────────────────────────────────────────────────
+//
+// Four tabs — Components, Mates, Contacts and BOM — that between them used to
+// draw one apologetic sentence and nothing else. Every number they show now is
+// measured by the kernel off the B-REP of the model that is on screen, at the
+// moment it was built, and carried here in the build report: the volume and the
+// surface area from the kernel's own integrators, the distance between two
+// bodies from its exact distance solver, the shared volume from a real boolean.
+// No LENGTH, AREA or VOLUME on these four tabs is measured on the display mesh —
+// a meshed volume is wrong in the fourth digit for any curved body — nothing is
+// estimated, and nothing is filled in to make a layout look finished. The one
+// mesh number that does appear is a TRIANGLE COUNT, on the Components tab, and
+// it is labelled as what it is.
+//
+// WHAT A "BODY" IS HERE, PRECISELY. A Forge document is one feature program,
+// and that program can build more than one separate solid: two shapes 60 mm
+// apart joined by a union stay two bodies, a linear pattern of a spaced part is
+// four of them, and a file the document opens can carry a whole assembly. Two
+// shapes that actually MEET over a face become one body, because that is what a
+// union means. So "how many separate pieces is this, and how do they sit against
+// each other" is a question the geometry already answers, and these four tabs
+// are that answer.
+
+std::string ForgeFrame::bodyLabel(std::uint32_t bodyIndex) {
+  return "Body " + std::to_string(bodyIndex);
+}
+
+void ForgeFrame::setComponentFilterText(const std::string& text) {
+  const std::size_t n = std::min(text.size(), sizeof(componentQuery_) - 1);
+  std::memcpy(componentQuery_, text.data(), n);
+  componentQuery_[n] = '\0';
+}
+
+// ── the Components panel's four verbs ───────────────────────────────────────
+// Every one of them does TWO things, and the second is the one that is easy to
+// forget: it latches visibilityDirty_ so the host re-uploads the vertex stream.
+// A body hidden without that latch stays on screen until something unrelated
+// happens to redraw, which is the worst kind of broken -- it works when you test
+// it and not when you use it. There is one path, and the widgets take it.
+bool ForgeFrame::showBody(std::uint32_t bodyIndex, bool visible) {
+  if (!scene_.setBodyVisible(bodyIndex, visible)) return false;
+  visibilityDirty_ = true;
+  note(bodyLabel(bodyIndex) + (visible ? " is shown" : " is hidden"));
+  return true;
+}
+
+void ForgeFrame::showEveryBody() {
+  if (scene_.hiddenBodyCount() == 0) return;
+  scene_.showAllBodies();
+  visibilityDirty_ = true;
+  note("every body is shown again");
+}
+
+void ForgeFrame::hideEveryBody() {
+  bool moved = false;
+  for (std::uint32_t i = 1; i <= scene_.bodyCount(); ++i) {
+    if (scene_.setBodyVisible(i, false)) moved = true;
+  }
+  if (!moved) return;
+  visibilityDirty_ = true;
+  note("every body is hidden");
+}
+
+void ForgeFrame::showOnlyBody(std::uint32_t bodyIndex) {
+  bool moved = false;
+  for (std::uint32_t i = 1; i <= scene_.bodyCount(); ++i) {
+    if (scene_.setBodyVisible(i, i == bodyIndex)) moved = true;
+  }
+  if (!moved) return;
+  visibilityDirty_ = true;
+  note("only " + bodyLabel(bodyIndex) + " is shown");
+}
+
+namespace {
+
+// Case-insensitive substring, so a filter box behaves the way every other one
+// the user has ever used behaves.
+bool matchesFilter(const std::string& haystack, const char* needle) {
+  if (needle == nullptr || needle[0] == '\0') return true;
+  std::string lowHay = haystack;
+  std::string lowNeedle = needle;
+  for (char& c : lowHay) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (char& c : lowNeedle) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return lowHay.find(lowNeedle) != std::string::npos;
+}
+
+// Two bodies are the SAME ITEM when their measured volume, surface area and
+// overall size all agree. That is a real test on real numbers, not a guess from
+// the feature history: a pattern of four identical blocks reads as one item with
+// a quantity of four, and four blocks that merely look alike do not.
+//
+// The tolerance is RELATIVE, because an absolute one would call two 5 m castings
+// identical and two 0.2 mm pins different.
+bool sameShape(const forge::desktop::SceneBody& a, const forge::desktop::SceneBody& b) {
+  auto close = [](double x, double y) {
+    const double scale = std::max(1.0, std::max(std::fabs(x), std::fabs(y)));
+    return std::fabs(x - y) <= 1e-6 * scale;
+  };
+  return close(a.volume, b.volume) && close(a.area, b.area) && close(a.sizeX(), b.sizeX()) &&
+         close(a.sizeY(), b.sizeY()) && close(a.sizeZ(), b.sizeZ());
+}
+
+}  // namespace
+
+// The one answer all four tabs give when there is nothing to inventory. Three
+// DIFFERENT situations, told apart, because a single "nothing here" for all
+// three teaches a user to distrust the panel:
+//
+//   * the model has not been built at all       -> say what to draw
+//   * it built, and holds no solid body         -> say what kind of shape it is
+//   * it built solids the kernel could not walk -> say so, do NOT show an empty
+//                                                  list for a model that plainly
+//                                                  has bodies in it
+bool ForgeFrame::drawAssemblyEmptyState() {
+  const IrBuildReport& report = scene_.lastBuild();
+  if (!report.ok()) {
+    ImGui::TextColored(rgb(235, 175, 95), "There is no model to break down yet");
+    ImGui::PushTextWrapPos(0.0f);
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped(
+        "%s", why.empty() ? "Draw a shape, or open a file, and the bodies it is made of will be "
+                            "listed here."
+                          : why.c_str());
+    ImGui::PopTextWrapPos();
+    return true;
+  }
+  if (!report.bodiesAnalysed) {
+    ImGui::TextColored(rgb(235, 175, 95), "This model has no solid bodies to list");
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped(
+        "What was built is a surface or a faceted shape rather than solid material, so there is "
+        "nothing to count, measure or compare. Build a solid — extrude a sketch, revolve one, or "
+        "start from a box or a cylinder — and the bodies it is made of will be listed here.");
+    ImGui::PopTextWrapPos();
+    return true;
+  }
+  if (report.bodies.empty()) {
+    ImGui::TextColored(rgb(235, 175, 95), "This model holds nothing solid");
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("Build a solid and it will appear here.");
+    ImGui::PopTextWrapPos();
+    return true;
+  }
+  return false;
+}
+
+void ForgeFrame::selectBody(std::uint32_t bodyIndex) {
+  const IrBuildReport& report = scene_.lastBuild();
+  if (!shell_.selection().accepts(forge::ui::EntityKind::Face)) {
+    note("the selection filter is set to something other than faces, so a body cannot be picked");
+    return;
+  }
+  std::vector<forge::ui::EntityRef> refs;
+  for (std::uint32_t faceId = 1; faceId < report.bodyOfFace.size(); ++faceId) {
+    if (report.bodyOfFace[faceId] != bodyIndex) continue;
+    forge::ui::EntityRef ref;
+    ref.bodyId = activeBodyNode();
+    ref.kind = forge::ui::EntityKind::Face;
+    ref.persistentName = "face@" + std::to_string(faceId);
+    refs.push_back(ref);
+  }
+  if (refs.empty()) return;
+  // Through the SAME selection service a viewport click goes through, so a row
+  // click and a pick produce one selection and not two competing ones.
+  shell_.selection().replaceWith(refs);
+  shell_.selection().setFocus(refs.front());
+  syncSelectionToScene();
+  note(bodyLabel(bodyIndex) + " picked: " + std::to_string(refs.size()) + " faces");
+}
+
+// ── BOM: what this model is made of ─────────────────────────────────────────
+// One row per DISTINCT item, with how many of it there are. Identical bodies
+// are folded together by comparing three independent measurements — volume,
+// surface area and overall size — so a pattern of four blocks reads as one item
+// with a quantity of four. Volume alone would fold together two different shapes
+// that happen to displace the same material, which this programme has measured
+// happening more than once.
+void ForgeFrame::drawBomPanel() {
+  bomRowsDrawn_ = 0;
+  ImGui::TextColored(rgb(242, 158, 38), "Parts list");
+  ImGui::Separator();
+  if (drawAssemblyEmptyState()) return;
+
+  const IrBuildReport& report = scene_.lastBuild();
+  // Fold identical bodies into items, keeping every member so a row can select
+  // and count what it stands for.
+  std::vector<std::vector<std::uint32_t>> items;  // 1-based body indices
+  for (std::size_t i = 0; i < report.bodies.size(); ++i) {
+    bool placed = false;
+    for (std::vector<std::uint32_t>& item : items) {
+      if (sameShape(report.bodies[item.front() - 1], report.bodies[i])) {
+        item.push_back(static_cast<std::uint32_t>(i + 1));
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) items.push_back({static_cast<std::uint32_t>(i + 1)});
+  }
+
+  double totalVolume = 0.0;
+  double totalArea = 0.0;
+  for (const SceneBody& b : report.bodies) {
+    totalVolume += b.volume;
+    totalArea += b.area;
+  }
+  ImGui::TextColored(rgb(130, 137, 148), "%zu bod%s, %zu different one%s", report.bodies.size(),
+                     report.bodies.size() == 1 ? "y" : "ies", items.size(),
+                     items.size() == 1 ? "" : "s");
+  ImGui::Spacing();
+  ImGui::Text("%-6s %-4s %-16s %-14s %s", "Item", "Qty", "Volume each mm3", "Surface mm2",
+              "Size mm");
+  ImGui::Separator();
+  for (std::size_t i = 0; i < items.size(); ++i) {
+    const std::vector<std::uint32_t>& item = items[i];
+    const SceneBody& body = report.bodies[item.front() - 1];
+    ImGui::PushID(static_cast<int>(i));
+    // ONE Selectable holding the whole row, not a Selectable with columns drawn
+    // beside it: clicking anywhere on a row picks the bodies it stands for in the
+    // 3D view, which is the whole reason to have a parts list beside a model
+    // rather than on a sheet of paper.
+    char line[224];
+    std::snprintf(line, sizeof(line), "%-6zu %-4zu %-16.3f %-14.3f %.2f x %.2f x %.2f", i + 1,
+                  item.size(), body.volume, body.area, body.sizeX(), body.sizeY(), body.sizeZ());
+    if (ImGui::Selectable(line)) selectBody(item.front());
+    if (ImGui::IsItemHovered()) {
+      // WHICH bodies this item stands for. An item with a quantity of four is
+      // four rows in the Components list, and a user picking one wants to know
+      // which. Named, not counted.
+      std::string which;
+      for (std::uint32_t index : item) {
+        if (!which.empty()) which += ", ";
+        which += bodyLabel(index);
+      }
+      ImGui::SetTooltip("%s", which.c_str());
+    }
+    ImGui::PopID();
+    ++bomRowsDrawn_;
+  }
+  ImGui::Separator();
+  ImGui::Text("Total    %.3f mm3 of material, %.3f mm2 of surface", totalVolume, totalArea);
+}
+
+// ── CONTACTS: what is touching what ─────────────────────────────────────────
+// Every distance on this tab is the exact minimum distance between two solids,
+// from the kernel's own distance solver, and every overlap is the volume of a
+// real boolean between them. EVERY pair the kernel measured is listed, in three
+// groups -- overlapping, touching, and everything else closest-first -- so a 4
+// mm clearance is as visible as a contact.
+//
+// A model with more pairs than can be measured while somebody works has the
+// CLOSEST measured and the rest left out, and the panel says so rather than
+// letting a short list read as a complete one. Which ones get left out is not a
+// guess: they are ordered by bounding-box gap, and a box gap is a LOWER BOUND on
+// the true gap, so the ones dropped are provably the furthest apart.
+void ForgeFrame::drawContactsPanel() {
+  contactRowsDrawn_ = 0;
+  ImGui::TextColored(rgb(242, 158, 38), "Contacts");
+  ImGui::Separator();
+  if (drawAssemblyEmptyState()) return;
+
+  const IrBuildReport& report = scene_.lastBuild();
+  if (report.bodies.size() < 2) {
+    ImGui::TextColored(rgb(130, 137, 148), "This model is a single body");
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped(
+        "Nothing touches anything, because there is only one body. Add a second shape without "
+        "merging it into the first — a pattern, a mirror, or a union of two shapes that do not "
+        "meet — and where the two bodies touch will be measured here.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  std::vector<const SceneBodyPair*> interfering;
+  std::vector<const SceneBodyPair*> touching;
+  std::vector<const SceneBodyPair*> apart;
+  for (const SceneBodyPair& pair : report.bodyPairs) {
+    if (pair.interfering()) {
+      interfering.push_back(&pair);
+    } else if (pair.touching()) {
+      touching.push_back(&pair);
+    } else {
+      apart.push_back(&pair);
+    }
+  }
+  std::stable_sort(apart.begin(), apart.end(),
+                   [](const SceneBodyPair* l, const SceneBodyPair* r) { return l->gap < r->gap; });
+
+  // How many pairs EXIST is arithmetic on the body count, not a second number
+  // from the kernel: N bodies is N(N-1)/2 pairs. Printing it beside how many
+  // were measured is what stops a truncated list reading as a complete one.
+  const std::size_t possiblePairs = report.bodies.size() * (report.bodies.size() - 1) / 2;
+  ImGui::TextColored(rgb(130, 137, 148), "%zu of %zu pair%s measured across %zu bodies",
+                     report.pairsEvaluated, possiblePairs, possiblePairs == 1 ? "" : "s",
+                     report.bodies.size());
+  if (report.pairsTruncated) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(235, 190, 95),
+                       "This model has more pairs of bodies than can be measured while you work, "
+                       "so the closest ones were measured and the rest were not. Everything listed "
+                       "below is exact; everything missing was further apart than all of it.");
+    ImGui::PopTextWrapPos();
+  }
+  ImGui::Spacing();
+
+  if (!interfering.empty()) {
+    ImGui::TextColored(rgb(235, 105, 95), "Overlapping — these bodies share the same space");
+    for (const SceneBodyPair* pair : interfering) {
+      ImGui::PushID(static_cast<int>(contactRowsDrawn_));
+      char line[160];
+      std::snprintf(line, sizeof(line), "%s and %s     %.4f mm3 of shared material",
+                    bodyLabel(pair->a).c_str(), bodyLabel(pair->b).c_str(),
+                    pair->overlapVolume);
+      if (ImGui::Selectable(line)) selectBody(pair->a);
+      ImGui::PopID();
+      ++contactRowsDrawn_;
+    }
+    ImGui::Spacing();
+  }
+  if (!touching.empty()) {
+    ImGui::TextColored(rgb(120, 200, 130), "Touching");
+    for (const SceneBodyPair* pair : touching) {
+      ImGui::PushID(static_cast<int>(1000 + contactRowsDrawn_));
+      char line[160];
+      std::snprintf(line, sizeof(line), "%s and %s     meeting, no gap",
+                    bodyLabel(pair->a).c_str(), bodyLabel(pair->b).c_str());
+      if (ImGui::Selectable(line)) selectBody(pair->a);
+      ImGui::PopID();
+      ++contactRowsDrawn_;
+    }
+    ImGui::Spacing();
+  }
+  if (!apart.empty()) {
+    ImGui::TextColored(rgb(130, 137, 148), "Clearances, closest first");
+    for (const SceneBodyPair* pair : apart) {
+      ImGui::PushID(static_cast<int>(2000 + contactRowsDrawn_));
+      char line[160];
+      std::snprintf(line, sizeof(line), "%s and %s     %.4f mm apart",
+                    bodyLabel(pair->a).c_str(), bodyLabel(pair->b).c_str(), pair->gap);
+      if (ImGui::Selectable(line)) selectBody(pair->a);
+      ImGui::PopID();
+      ++contactRowsDrawn_;
+    }
+  }
+  if (contactRowsDrawn_ == 0) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped(
+        "No two bodies of this model are close enough to each other to have been measured.");
+    ImGui::PopTextWrapPos();
+  }
+}
+
+// ── COMPONENTS: showing and hiding bodies ───────────────────────────────────
+// The checkbox is the feature. It does not grey a row out and it does not filter
+// a list: it removes the body from what the 3D view draws, from what a picking
+// ray can hit and from what the Measure panel adds up, all three at once,
+// because any other reading of "hidden" lies to somebody. The text box narrows
+// the LIST only, and says so by leaving the hidden count alone.
+void ForgeFrame::drawComponentFilterPanel() {
+  componentRowsDrawn_ = 0;
+  ImGui::TextColored(rgb(242, 158, 38), "Components");
+  ImGui::Separator();
+  if (drawAssemblyEmptyState()) return;
+
+  const IrBuildReport& report = scene_.lastBuild();
+  const std::size_t hidden = scene_.hiddenBodyCount();
+  ImGui::TextColored(rgb(130, 137, 148), "%zu bod%s, %zu hidden, %zu of %zu triangles drawn",
+                     report.bodies.size(), report.bodies.size() == 1 ? "y" : "ies", hidden,
+                     scene_.triangleCount(), scene_.totalTriangleCount());
+  if (ImGui::Button("Show all")) showEveryBody();
+  ImGui::SameLine();
+  if (ImGui::Button("Hide all")) hideEveryBody();
+  ImGui::SetNextItemWidth(-1);
+  ImGui::InputTextWithHint("##componentq", "find a body...", componentQuery_,
+                           sizeof(componentQuery_));
+  ImGui::Separator();
+
+  for (std::size_t i = 0; i < report.bodies.size(); ++i) {
+    const std::uint32_t index = static_cast<std::uint32_t>(i + 1);
+    const std::string label = bodyLabel(index);
+    if (!matchesFilter(label, componentQuery_)) continue;
+    const SceneBody& body = report.bodies[i];
+    ImGui::PushID(static_cast<int>(i));
+    bool shown = scene_.bodyVisible(index);
+    if (ImGui::Checkbox("##shown", &shown)) showBody(index, shown);
+    ImGui::SameLine();
+    // "Only" comes BEFORE the row text, because a Selectable with no width given
+    // takes the whole rest of the line -- anything placed after it on the same
+    // line is drawn off the right edge where nobody can click it.
+    if (ImGui::SmallButton("Only")) showOnlyBody(index);
+    ImGui::SameLine();
+    char line[192];
+    std::snprintf(line, sizeof(line), "%-8s %10.3f mm3   %.2f x %.2f x %.2f mm   %u faces",
+                  label.c_str(), body.volume, body.sizeX(), body.sizeY(), body.sizeZ(),
+                  body.faceCount);
+    if (ImGui::Selectable(line)) selectBody(index);
+    ImGui::PopID();
+    ++componentRowsDrawn_;
+  }
+  if (componentRowsDrawn_ == 0) {
+    ImGui::TextDisabled("no body matches \"%s\"", componentQuery_);
+  }
+}
+
+// ── MATES: how the bodies line up ───────────────────────────────────────────
+//
+// ★ READ THIS BEFORE CHANGING THE PANEL. What is listed here is MEASURED off the
+// model, not stored in it. A Forge document holds a feature history; it does not
+// hold assembly constraints, nothing in the application authors one, and this
+// panel therefore does not pretend to list any. What it does instead is answer
+// the question a mate is for — is my pin actually concentric with my hole, are
+// these two plates actually flush — exactly, from the kernel's own surfaces: two
+// round faces on different bodies turning about one axis, two flat faces on
+// different bodies lying in one plane, and how far off each one really is.
+//
+// The panel says all of that IN THE PANEL, in the user's words, because a row
+// that reads like a constraint the user set is a row they will try to delete.
+void ForgeFrame::drawMatesPanel() {
+  mateRowsDrawn_ = 0;
+  ImGui::TextColored(rgb(242, 158, 38), "How the bodies line up");
+  ImGui::Separator();
+  if (drawAssemblyEmptyState()) return;
+
+  const IrBuildReport& report = scene_.lastBuild();
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextColored(rgb(130, 137, 148),
+                     "Measured from the model as it is now, not rules you have set. Nothing here "
+                     "can be edited or deleted; change the model and it is measured again.");
+  ImGui::PopTextWrapPos();
+  ImGui::Spacing();
+
+  if (report.bodies.size() < 2) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped(
+        "This model is a single body, so there is nothing for it to line up with. Add a second "
+        "shape without merging it into the first, and the axes and the faces the two of them "
+        "share will be listed here.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  for (const SceneBodyAlignment& al : report.alignments) {
+    ImGui::PushID(static_cast<int>(mateRowsDrawn_));
+    char line[256];
+    if (al.kind == BodyAlignment::Concentric) {
+      std::snprintf(line, sizeof(line),
+                    "Concentric  %s with %s   axis (%.2f, %.2f, %.2f) through "
+                    "(%.3f, %.3f, %.3f)   %.4f mm off",
+                    bodyLabel(al.a).c_str(), bodyLabel(al.b).c_str(), al.direction[0],
+                    al.direction[1], al.direction[2], al.point[0], al.point[1], al.point[2],
+                    al.deviation);
+    } else {
+      std::snprintf(line, sizeof(line),
+                    "Flush       %s with %s   faces normal to (%.2f, %.2f, %.2f) at "
+                    "(%.3f, %.3f, %.3f)   %.4f mm apart",
+                    bodyLabel(al.a).c_str(), bodyLabel(al.b).c_str(), al.direction[0],
+                    al.direction[1], al.direction[2], al.point[0], al.point[1], al.point[2],
+                    al.deviation);
+    }
+    if (ImGui::Selectable(line)) selectBody(al.a);
+    ImGui::PopID();
+    ++mateRowsDrawn_;
+  }
+  if (mateRowsDrawn_ == 0) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped(
+        "None of the bodies in this model shares an axis or a plane with another one. Put a "
+        "round face of one on the same axis as a round face of another, or two flat faces on the "
+        "same plane, and it will be measured here.");
+    ImGui::PopTextWrapPos();
   }
 }
 

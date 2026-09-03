@@ -189,6 +189,15 @@ run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
 # memory-safety half is silent.
 run_gate forge_desktop_click_gate 1 2 3 4 5 6 7 8
 
+# THE ASSEMBLY GATE. The four assembly panels -- Components, Mates, Contacts and
+# BOM -- against real multi-body models, with every reference computed from the
+# models' own dimensions rather than copied from a previous run. It also builds
+# one model BOTH WAYS, in process and through the CMake-built forge_kernel_worker
+# it finds beside itself, because the shipped app always runs the kernel out of
+# process: an inventory that does not cross that boundary is one no user sees.
+# It REFUSES to run without that worker rather than skipping the comparison.
+run_gate forge_desktop_assembly_gate 1 2 3 4
+
 # The CRASH-ISOLATION gate, with NO mutation list here on purpose. Its proof
 # needs six mutations injected into a COPY of the production sources and two
 # rebuilds of the worker, which is a job for a script and not for a --mutate

@@ -58,7 +58,13 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-EXPECTED_MUTATIONS=48
+# ── 2026-09-03: 48 -> 52. The assembly gate joined run_desktop.sh with four
+# mutations, so this number moves in the SAME commit, which is exactly what this
+# constant exists to force. DERIVED on this tree, not incremented on faith --
+#   awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+# prints 52, made of: ir_pipeline 0 + document 8 + file_exchange 5 + frame 12 +
+# copilot 8 + update 7 + click 8 + assembly 4 + isolation 0.
+EXPECTED_MUTATIONS=52
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it
