@@ -59,6 +59,7 @@
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <GeomAbs_JoinType.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -215,6 +216,31 @@ TopoDS_Shape triPrism(double a, double b, double h) {
 
 // A NON-CONVEX (L-shaped) prism: every vertex still has exactly three faces, so
 // the sharp-join corner solve is exact, but two of the eight are REFLEX.
+// A W x H x T plate with its four VERTICAL edges rounded at radius r. This is
+// the MIXED profile: cap faces bounded by four straight runs AND four ARCS, and
+// four PARTIAL-revolution cylindrical corners. Both were declined outright until
+// the mixed line/arc increment; the case is here so that capability cannot
+// regress silently.
+TopoDS_Shape roundedPlate(double W, double H, double T, double r) {
+    const TopoDS_Shape box = BRepPrimAPI_MakeBox(W, H, T).Shape();
+    BRepFilletAPI_MakeFillet fil(box);
+    int n = 0;
+    TopTools_IndexedMapOfShape em;
+    TopExp::MapShapes(box, TopAbs_EDGE, em);
+    for (int i = 1; i <= em.Extent(); ++i) {
+        const TopoDS_Edge e = TopoDS::Edge(em.FindKey(i));
+        TopoDS_Vertex a, b;
+        TopExp::Vertices(e, a, b);
+        const gp_Pnt pa = BRep_Tool::Pnt(a), pb = BRep_Tool::Pnt(b);
+        if (std::fabs(pa.X() - pb.X()) < 1.0e-9 && std::fabs(pa.Y() - pb.Y()) < 1.0e-9 &&
+            std::fabs(pa.Z() - pb.Z()) > 1.0e-9) { fil.Add(r, e); ++n; }
+    }
+    if (n != 4) return TopoDS_Shape();
+    try { fil.Build(); } catch (...) { return TopoDS_Shape(); }
+    if (!fil.IsDone()) return TopoDS_Shape();
+    return fil.Shape();
+}
+
 TopoDS_Shape lPrism(double A, double B, double t, double h) {
     BRepBuilderAPI_MakePolygon poly;
     poly.Add(gp_Pnt(0, 0, 0));
@@ -290,6 +316,28 @@ int main() {
         const double h   = H + 2 * d;
         runCase("cone-frustum-grow", BRepPrimAPI_MakeCone(R1, R2, H).Shape(), d,
                 kPi * h / 3.0 * (r1 * r1 + r1 * r2 + r2 * r2));
+    }
+
+    // ---------------- MIXED line/arc profile ----------------
+    // A rounded-corner plate. Its cap wires mix straight runs with ARCS and its
+    // corners are PARTIAL-revolution cylinders — the two things the mixed
+    // increment added. Closed form, independent of both engines: the section
+    // becomes (W+2d)(H+2d) less the four corners the rounds remove,
+    // (4-pi)(r+d)^2, over a height of T+2d.
+    //
+    // ★ THE MARGIN THAT MAKES THIS CASE WORTH RUNNING: if an arc were flattened
+    //   to its CHORD — the one plausible wrong answer here, and a chamfer is a
+    //   perfectly valid-looking solid — the volume would read 17808.0 against
+    //   18383.362697409, 3.1% low. So the closed form can actually SEE that
+    //   substitution, which a "did something come back" check could not.
+    {
+        const double W = 40, H = 30, T = 12, r = 5, d = 1.0;
+        const TopoDS_Shape plate = roundedPlate(W, H, T, r);
+        check(!plate.IsNull(), "rounded-plate fixture built (4 vertical edges rounded)");
+        if (!plate.IsNull()) {
+            runCase("rounded-plate-grow", plate, d,
+                    ((W + 2 * d) * (H + 2 * d) - (4.0 - kPi) * (r + d) * (r + d)) * (T + 2 * d));
+        }
     }
 
     // ---------------- negative control ----------------
