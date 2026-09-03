@@ -12,8 +12,8 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "b5bd59e4ec4416ed3da1f4db85f500dbda7533db48ebda3827c647f62e2ebca5",
-        "bytes": 200209,
+        "sha256": "a59ab93f92e9b5ea389e01f2114fa1eac089e6d1f06783c2df0b993859d088db",
+        "bytes": 200215,
         "lines": 4117
       },
       {
