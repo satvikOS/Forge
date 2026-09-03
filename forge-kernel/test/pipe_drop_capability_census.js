@@ -82,3 +82,38 @@ run('part.sweep with a LINE spine sketch', () => {
   sk.addLine(path, a, b);
   return forge.part.sweep(prof, path, false);
 });
+
+// ── 6. THE DEFECT, CHARACTERISED IN CLOSED FORM ─────────────────────────────
+// Sweep a circle along a 2-leg spine and turn the second leg through a range of
+// angles. This is the single measurement that says what each engine COMPUTES,
+// rather than whether it returns something.
+//
+//   native : A*(L1+L2), CONSTANT in theta — what a mitred sweep must give, since
+//            the volume of a swept prism does not depend on how the spine turns.
+//   OCCT   : A*(L1 + L2*cos theta) — it contributes only the PROJECTION of the
+//            second leg onto the first leg's direction.
+//
+// theta = 0 is the CONTROL: a straight spine needs no mitre, OCCT is a valid
+// oracle there, and the two engines agree exactly. Every other row is OCCT
+// under-integrating, by 64% at 120 degrees.
+//
+// It also reconciles two readings that look inconsistent elsewhere: with 90-degree
+// elbows cos theta = 0, the cascade collapses and OCCT returns EXACTLY the first
+// leg; with the corpus harness's 30-degree turn it returns A(L1 + L2*cos30), i.e.
+// the ratio 2/(1+cos30) = 1.0717968 measured on 599 of 600 corpus parts.
+console.log('--- case 6: what each engine COMPUTES, vs closed form (r=2, L1=40, L2=30) ---');
+{
+  const r = 2, L1 = 40, L2 = 30, A = Math.PI * r * r;
+  console.log(`  ${label.padEnd(8)} ${'theta'.padStart(6)} ${'volume'.padStart(14)}` +
+              ` ${'A(L1+L2cos)'.padStart(13)} ${'A(L1+L2)'.padStart(11)}`);
+  for (const deg of [0, 30, 60, 90, 120]) {
+    const th = deg * Math.PI / 180;
+    const pts = [0,0,0, L1,0,0, L1 + L2*Math.cos(th), L2*Math.sin(th), 0];
+    let v = NaN;
+    try { v = forge.massProps(forge.part.pipeFromPolyline(pts, r)).volume; }
+    catch (e) { v = NaN; }
+    console.log(`  ${label.padEnd(8)} ${(deg+'deg').padStart(6)} ${v.toFixed(6).padStart(14)}` +
+                ` ${(A*(L1+L2*Math.cos(th))).toFixed(6).padStart(13)}` +
+                ` ${(A*(L1+L2)).toFixed(6).padStart(11)}`);
+  }
+}
