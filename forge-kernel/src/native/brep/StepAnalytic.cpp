@@ -32,6 +32,7 @@
 //   ENDSEC; END-ISO-10303-21;
 
 #include "forge/native/brep/StepAnalytic.hpp"
+#include "forge/native/brep/StepRead.hpp"  // resolveLengthScaleMm
 #include "forge/native/brep/StepPart21.hpp"
 
 #include <algorithm>
@@ -1128,6 +1129,33 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
     if (!p21::parseInstances(text, dB, dE, tab, why))
         return readFail("StepAnalytic.read: " + why);
     if (tab.empty()) return readFail("StepAnalytic.read: empty DATA section");
+
+    // ── DECLINE A FILE THAT IS NOT IN MILLIMETRES ────────────────────────────
+    // This reader exists to round-trip FORGE'S OWN analytic dialect, which write()
+    // below always emits as SI_UNIT(.MILLI.,.METRE.). Because Forge is the only
+    // producer it was written for, it never resolved a unit context at all -- and
+    // so it read a FOREIGN file declaring SI_UNIT($,.METRE.) raw, returning metres
+    // where every other instrument returns millimetres. MEASURED: exactly 1000x on
+    // every axis, which refused 359 otherwise round-trip-proved rows from the
+    // STEP->IR corpus against 187 kept.
+    //
+    // ★ THE FIX IS TO DECLINE, NOT TO SCALE. Teaching this reader to scale would
+    //   mean multiplying every length it produces -- getPoint(), getAxis2(), the
+    //   radii in buildSurface(), circleOfEdgeCurve() -- a large new surface that
+    //   duplicates logic readForeignStep() ALREADY HAS CORRECT (StepRead.cpp,
+    //   which resolves and applies the same scale). Returning !ok here drops the
+    //   file to that reader via IoExchange.cpp's ladder. A fast path specialised
+    //   for one producer should REFUSE foreign input, not be generalised to it:
+    //   refusing routes to code already proven, generalising writes code that can
+    //   be wrong.
+    {
+        std::string unitName;
+        const double scaleMm = resolveLengthScaleMm(tab, unitName);
+        if (scaleMm != 1.0)
+            return readFail("StepAnalytic.read: unit context is " + unitName +
+                            " (scale " + std::to_string(scaleMm) +
+                            " mm), not millimetres; deferring to the foreign reader");
+    }
 
     // Locate the (single) MANIFOLD_SOLID_BREP -> CLOSED_SHELL -> faces.
     std::uint64_t msb = 0; bool found = false;

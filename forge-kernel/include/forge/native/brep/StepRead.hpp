@@ -59,10 +59,12 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "forge/native/brep/Topology.hpp"     // Solid / Face / TopologyBuilder
 #include "forge/native/brep/TrimmedFace.hpp"   // TrimmedFace (B-spline faces)
+#include "forge/native/brep/StepPart21.hpp"   // p21::Instance (resolveLengthScaleMm)
 
 namespace forge {
 namespace native {
@@ -137,6 +139,16 @@ struct ForeignReadResult {
 // of the sew, not an artefact of shared topology.
 // ---------------------------------------------------------------------------
 ForeignReadResult readForeignStep(const std::string& text, double sewTol = -1.0);
+
+
+// Resolve a Part 21 file's LENGTH_UNIT context to a scale in millimetres (1.0 when
+// the file is already millimetres). Defined in StepRead.cpp OUTSIDE its anonymous
+// namespace so a second reader can ask the same question: StepAnalytic::read had no
+// unit handling at all and read foreign metre files raw, exactly 1000x small.
+// DECLARED, never copied -- two copies would drift and the next reader could not
+// tell which one ran.
+double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, p21::Instance>& tab,
+                            std::string& unitNameOut);
 
 } // namespace brep
 } // namespace native
