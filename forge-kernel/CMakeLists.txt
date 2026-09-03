@@ -416,6 +416,63 @@ set(OCCT_LIBS
 #   been bitten by, and the reason every path in this file carries a topology and
 #   surface-inventory check next to its closed form. Left as an honest defer.
 #
+# ★ THE GENERAL RADIAL-SWEEP WALL NOW EXISTS, AND FAMILY I PASSES ITS FLIP GATE.
+#   The paragraph above is right about the diagnosis and right to refuse to widen the
+#   certificate; what it treats as out of reach is the thing that got built.
+#   src/native/brep/NativeThickenShell.cpp carries PATH D (see its banner): the offset
+#   faces are the SAME face re-based onto radius R+t through BRepTools_Modifier with
+#   every PCURVE KEPT — a radial scale is LINEAR and preserves (u,v), so the trim,
+#   its holes and its seams cross over exactly — and each free boundary edge gets a
+#   wall: a PLANE over a ruling or a coaxial arc, and otherwise the EXACT degree-(p,1)
+#   ruled B-spline between the edge's two offset copies (the true wall is linear in r,
+#   so linear interpolation between the rails IS the surface, weights and all).
+#   RE-MEASURED over the same 600 gold parts, stride 1, 0 part-level errors:
+#     FORGE_THICKEN_DROP_NATIVE         100.0     100.0        0/600       1.0000
+#   600 both / 0 native-only / 0 OCCT-only / 0 neither. Paired against the 96.2% row:
+#   23 parts GAINED, 0 LOST. THE DELETION BUCKET IS EMPTY, which is the flip condition
+#   this option has always named. Family I is the SECOND family to earn it, after
+#   FILLING, and the first to do so by adding a capability rather than by already
+#   having had one.
+#
+#   VERIFIED ON THE 23 AT BOTH SIGNS OF t (46 trials, forge-kernel/test/eng-level run):
+#     native DEFER                        0/46
+#     F/E/V identical to OCCT            46/46
+#     surface-type census identical      46/46
+#     both BRepCheck-valid               46/46
+#     worst |volume| relative          4.61e-08
+#     worst area relative              1.80e-07
+#     worst centre-of-mass             2.08e-06 mm
+#     worst TIGHT bbox (AddOptimal)    7.67e-06 mm
+#   The bbox line needs its qualifier: with the DEFAULT BRepBndLib::Add the worst
+#   difference is 5.58e-02 mm, because that routine bounds a B-spline face by its
+#   CONTROL POLYGON. AddOptimal collapses it to 7.67e-06, which identifies the 5.58e-02
+#   as a property of the bounding-box routine and not of the geometry.
+#
+#   TWO CHEAPER CONSTRUCTIONS WERE TRIED FIRST AND BOTH ARE REJECTED ON MEASUREMENT,
+#   recorded so they are not re-attempted:
+#     * BRepBuilderAPI_GTransform with a radial gp_GTrsf. It is the obvious way to
+#       re-base the face and it is WRONG TWICE: it degrades Geom_CylindricalSurface to
+#       Geom_BSplineSurface (the same surface-type regression PATH C already refused),
+#       and its area ratio reads 1.1032 where the exact answer is 1.1000 — 0.3% error.
+#     * Deciding wall planarity by SAMPLING the rails and fitting a plane. More general
+#       than dispatching on curve type, and measurably worse: fitting a plane to a
+#       B-spline rail makes MakeFace PROJECT it, and that approximation took the 23
+#       from 23/23 to 18/23 at t>0 and 17/23 at t<0, all failing the path's own
+#       BRepCheck guard. Planes are therefore built ONLY over an analytic ruling or
+#       coaxial arc, where they are exact.
+#
+#   KNOWN LIMIT, pinned by A/B case 7 rather than left to be discovered: a rail that is
+#   geometrically a straight ruling but ENCODED as a B-spline gets a ruled wall where
+#   OCCT emits a plane (native plane/cyl/other 2/2/4 against OCCT 6/2/0). Volume, area,
+#   centre of mass, bbox, validity and F/E/V all still agree. It occurs on 0 of the 600
+#   corpus parts, whose boundary curves are genuine Geom_Line / Geom_Circle /
+#   Geom_BSplineCurve.
+#
+#   ★ AND THE LEDGER DID NOT MOVE. OCCT_CLOSURE is still 14 and TKOffset is still on
+#     the link line, because the block below removes it only when ALL NINE families
+#     A,C,D,E,F,G,H,I,J are compiled out and eight of them are still open. Family I
+#     passing its own gate is a precondition for the drop, not the drop.
+#
 # ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
 #   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
 #   pairs in 600 trials, and all 407 shared successes agree on the FULL observable
@@ -1346,10 +1403,15 @@ option(FORGE_DRAFT_DROP_NATIVE
 if(FORGE_NATIVE_BREP AND FORGE_THICKEN_DROP_NATIVE)
     add_compile_definitions(FORGE_THICKEN_DROP_NATIVE=1)
     message(WARNING "FORGE_THICKEN_DROP_NATIVE=ON — BRepOffset_MakeOffset fallback compiled out "
-                    "(TKOffset family I, 5 symbols). A shell the native thicken declines — a "
-                    "curved face, a curved fold, a non-manifold edge, or a convex fold ending at "
-                    "a 3-or-more-plate corner — now THROWS, quoting the engine's own defer "
-                    "reason, instead of falling back to OCCT.")
+                    "(TKOffset family I, 5 symbols: 42 -> 37 measured). TKOffset is STILL LINKED "
+                    "and OCCT_CLOSURE is UNCHANGED at 14 — the block below removes the toolkit "
+                    "only when all nine families are out, and eight are still open. This family "
+                    "PASSES its flip gate: 600/600 native against 600/600 OCCT over the gold "
+                    "corpus, deletion bucket 0. A shell the native thicken still declines — a "
+                    "curved FOLD, a non-manifold edge, or a convex fold ending at a "
+                    "3-or-more-plate corner — now THROWS, quoting the engine's own defer reason, "
+                    "instead of falling back to OCCT. A lone CURVED FACE is no longer in that "
+                    "list: a cylindrical one is built by paths C and D.")
 endif()
 if(FORGE_NATIVE_BREP AND FORGE_DRAFT_DROP_NATIVE)
     add_compile_definitions(FORGE_DRAFT_DROP_NATIVE=1)

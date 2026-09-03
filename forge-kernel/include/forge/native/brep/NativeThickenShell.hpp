@@ -52,7 +52,7 @@
 //   volume matched the closed form. So this family is proved by direct A/B.
 //
 // ===========================================================================
-// TWO PATHS
+// FOUR PATHS
 // ===========================================================================
 // (A) COPLANAR — every face of the shell lies in ONE plane (a single face, or a
 //     sewn flat patchwork). The offset body is the shell's own PRISM along t*n.
@@ -68,6 +68,24 @@
 //     a single offset operation would. The sector wedge is built from a
 //     Geom_Circle arc and two segments — no primitive-boolean trimming and no
 //     tessellation — so its volume is exactly (theta/2)*|t|^2*L.
+//
+// (C) ONE CYLINDRICAL FACE trimmed to its WHOLE parametric rectangle. The offset
+//     body is the annular tube between radii R and R+t over the face's v-range,
+//     assembled from canonical primitives (occtCylinderSolid CUT occtCylinderSolid)
+//     rather than revolved, so it carries the two Geom_CylindricalSurface walls and
+//     two Geom_Plane annular caps OCCT returns. Selected by the RECTANGLE
+//     CERTIFICATE, area(f) == R*du*dv, which is exact rather than heuristic.
+//
+// (D) ONE CYLINDRICAL FACE whose trim is NOT that rectangle — a holed or otherwise
+//     non-rectangular patch. The offset faces are the SAME face re-based onto radius
+//     R+t with every pcurve kept (the radial scale is LINEAR and preserves (u,v)),
+//     and the body is closed by a wall over each free boundary edge: a plane over a
+//     ruling or a coaxial arc, an exact degree-(p,1) ruled B-spline otherwise. This
+//     is the path that closed the family's deletion bucket — see the PATH D banner in
+//     src/native/brep/NativeThickenShell.cpp for the construction, the measurement,
+//     and the two rejected alternatives (BRepBuilderAPI_GTransform, which degrades the
+//     cylinder to a B-spline and carries 0.3% area error; and a fitted plane over a
+//     B-spline rail, which took the corpus from 23/23 to 18/23).
 //
 // ===========================================================================
 // DROP HYGIENE. Uses ONLY toolkits ALREADY in the load closure and ALREADY named
@@ -87,7 +105,8 @@
 // ===========================================================================
 // HONEST DEFER (returns a null TopoDS_Shape, IsNull() == true):
 //   * a thickness of zero, or a non-finite one;
-//   * any face that is not a Geom_Plane;
+//   * on the PLANAR paths (A/B), any face that is not a Geom_Plane. A LONE
+//     cylindrical face is NOT declined — it goes to path C or D;
 //   * an edge shared by more than two faces (non-manifold);
 //   * a shared edge that is not a straight segment (a fold about a curve needs a
 //     swept wedge, not a prismed sector);
@@ -99,7 +118,30 @@
 //     than emit a body missing a corner patch the whole call declines;
 //   * a fuse that fails, a result that is not exactly one solid with one shell,
 //     a non-positive volume, or a volume outside the [max prism, sum of parts]
-//     bracket the decomposition guarantees.
+//     bracket the decomposition guarantees;
+//   * on path C, an offset radius that reaches the axis, or a PARTIAL u-span (the
+//     two planar side walls are not built by that path);
+//   * on path D, a boundary edge that is not a Line / coaxial Circle / B-spline, a
+//     straight edge that is not a ruling of the cylinder, rails that do not share a
+//     control structure, a sew that does not close to exactly one shell, a result
+//     that is not one BRepCheck-valid solid, or a volume that misses the closed form
+//     area(f)*(Rhi^2-Rlo^2)/(2R).
+//
+// ===========================================================================
+// WHAT IS MEASURED, AND WHERE. forge-kernel/test/run_ab_native_thicken.sh is the
+// live-OCCT A/B (338 assertions, 0 failed) and asserts on this engine's OBJECT FILE
+// that it imports ZERO TKOffset symbol. The COVERAGE claim is separate and is made by
+// test/run_corpus_ab_coverage.sh over all 600 gold reference solids, stride 1:
+//
+//     THICKEN   native 600/600   OCCT 600/600   deletion bucket 0   PASS
+//
+// Before path D that read 577/600 against 600/600 with a 23-part bucket. Note what
+// the coverage number does NOT say: 0 of the 600 both-OK pairs agree on the full
+// observable vector, because OCCT returns this solid NEGATIVELY oriented and this
+// engine normalises it (595 agree up to |volume|). Of the 5 that differ beyond
+// orientation, all 5 are path-C parts on which OCCT splits the cylindrical wall into
+// extra faces — native 4/6/4 against OCCT 6/13/8 — with volume and area bit-identical.
+// Those 5 predate path D and are unchanged by it.
 
 #ifndef FORGE_NATIVE_BREP_NATIVETHICKENSHELL_HPP
 #define FORGE_NATIVE_BREP_NATIVETHICKENSHELL_HPP
