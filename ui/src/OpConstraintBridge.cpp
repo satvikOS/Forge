@@ -294,7 +294,7 @@ VocabularyClosure computeClosure(const OpVocabulary& v) {
 }  // namespace
 
 // ── names ───────────────────────────────────────────────────────────────────
-const char* toString(OpConstraint check) noexcept {
+const char* machineName(OpConstraint check) noexcept {
   switch (check) {
     case OpConstraint::Ok:                  return "ok";
     case OpConstraint::EmptyOp:             return "empty_op";
@@ -314,6 +314,28 @@ const char* toString(OpConstraint check) noexcept {
     case OpConstraint::MalformedArgumentValue: return "malformed_argument_value";
   }
   return "unknown_op";
+}
+
+const char* userText(OpConstraint check) noexcept {
+  switch (check) {
+    case OpConstraint::Ok:                    return "allowed";
+    case OpConstraint::EmptyOp:               return "no operation was named";
+    case OpConstraint::UnknownOp:             return "Forge has no such operation";
+    case OpConstraint::ForbiddenOp:           return "this operation is not offered here";
+    case OpConstraint::WrongArity:            return "the wrong number of values";
+    case OpConstraint::WrongSelectionKind:    return "the wrong kind of thing is picked";
+    case OpConstraint::WrongSelectionCount:   return "the wrong number of things is picked";
+    case OpConstraint::BadStatementId:        return "the step is out of order";
+    case OpConstraint::MissingValueRef:       return "it does not say what to work on";
+    case OpConstraint::UnexpectedValueRef:    return "it works on something it should not";
+    case OpConstraint::ForwardValueRef:       return "it uses a result that does not exist yet";
+    case OpConstraint::UnresolvedValueRef:    return "it uses a result that was never made";
+    case OpConstraint::WrongValueKind:        return "a value is the wrong kind";
+    case OpConstraint::ForbiddenOpInArgument: return "a value is not a value";
+    case OpConstraint::OpNameInArgument:      return "a value is not a value";
+    case OpConstraint::MalformedArgumentValue:return "a value could not be read";
+  }
+  return "Forge has no such operation";
 }
 
 // ── OpVocabulary ────────────────────────────────────────────────────────────
@@ -358,7 +380,7 @@ std::string PlanRuling::report() const {
     // in a log, and identically to it in the counts -- it IS an accept.
     out += !r.accepted() ? "  REFUSE " : (r.tolerated.empty() ? "  ACCEPT " : "  TOLERATE ");
     out += "%" + std::to_string(r.statementId) + " " + r.op;
-    if (!r.accepted()) out += " -- " + std::string(toString(r.verdict)) + ": " + r.reason;
+    if (!r.accepted()) out += " -- " + std::string(machineName(r.verdict)) + ": " + r.reason;
     else if (!r.tolerated.empty()) out += " -- " + r.tolerated;
     out += "\n";
   }
@@ -517,8 +539,8 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
   const std::string word = arg.kind == IrArgKind::Keyword ? upperWord(arg.word) : arg.word;
   if (const OpVocabulary::Forbidden* forbidden = vocabulary_.findForbidden(word)) {
     reason = word + ": forbidden -- " + forbidden->reason +
-             "; it is here in an ARGUMENT, where the op name of the statement is " +
-             "not what carries it";
+             "; it appears here as a VALUE, which is not where an operation can " +
+             "be named";
     return OpConstraint::ForbiddenOpInArgument;
   }
   const bool allowed = vocabulary_.find(word) != nullptr;
@@ -550,7 +572,7 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
   const IrLine& line = proposal.line;
   if (line.op.empty()) {
     return reject(proposal, OpConstraint::EmptyOp,
-                  "a statement with no op name: there is nothing to allow or forbid");
+                  "this step does not say what to do, so Forge cannot check it");
   }
 
   // ── 1. membership ─────────────────────────────────────────────────────────
@@ -578,8 +600,9 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
   // ── 2. statement id ───────────────────────────────────────────────────────
   if (line.id <= 0) {
     return reject(proposal, OpConstraint::BadStatementId,
-                  line.op + ": statement id " + std::to_string(line.id) +
-                      " is not positive; ids are 1-based and define what later %N mean");
+                  line.op + ": step number " + std::to_string(line.id) +
+                      " is not a step number Forge can use; steps are numbered from 1, "
+                      "and later steps refer back to them");
   }
 
   // ── 3. arity ──────────────────────────────────────────────────────────────
@@ -609,8 +632,8 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
       (op->kernelMaxArgs == kIrArgsUnbounded || argc <= op->kernelMaxArgs);
   if (!kernelOk) {
     return reject(proposal, OpConstraint::WrongArity,
-                  line.op + ": wrong arity -- " + std::to_string(argc) +
-                      " argument(s); the modelling engine accepts " +
+                  line.op + ": " + std::to_string(argc) +
+                      " value(s) given; the modelling engine takes " +
                       std::to_string(op->kernelMinArgs) + "-" +
                       (op->kernelMaxArgs == kIrArgsUnbounded ? std::string("n")
                                                              : std::to_string(op->kernelMaxArgs)) +
@@ -629,14 +652,13 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
   const bool leadsWithRef = !line.args.empty() && line.args[0].kind == IrArgKind::Ref;
   if (op->firstArgIsValueRef && !leadsWithRef) {
     return reject(proposal, OpConstraint::MissingValueRef,
-                  line.op + ": the app writes it as " + line.op +
-                      "(%body, ...) -- its first argument must be a value reference to an "
-                      "earlier statement, and this one is not");
+                  line.op + ": this step does not say which shape to work on. It has to "
+                      "name the result of an earlier step, and it does not");
   }
   if (!op->firstArgIsValueRef && leadsWithRef) {
     return reject(proposal, OpConstraint::UnexpectedValueRef,
-                  line.op + ": it CREATES a value (" + toString(op->produces) +
-                      ") and takes no leading value reference, but one was given");
+                  line.op + ": this step makes a new shape of its own, so it must not also "
+                      "name an earlier one to work on, and it does");
   }
 
   // ── 5. what each argument SAYS ────────────────────────────────────────────
@@ -666,17 +688,13 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
       std::string wanted;
       for (std::size_t i = 0; i < kinds.size(); ++i) {
         if (i != 0) wanted += " or ";
-        wanted += toString(kinds[i]);
-      }
-      std::vector<std::string> owners;
-      for (const OpVocabulary::Command& cmd : vocabulary_.commands) {
-        if (cmd.op == line.op) owners.push_back(cmd.id);
+        wanted += userText(kinds[i]);
       }
       return reject(proposal, OpConstraint::WrongSelectionKind,
-                    line.op + ": wrong selection kind -- the plan states a " +
-                        std::string(toString(proposal.selection)) +
-                        " selection, and the command(s) that emit this op (" + joined(owners) +
-                        ") require " + (wanted.empty() ? std::string("no selection") : wanted));
+                    line.op + ": the wrong kind of thing is picked -- the step states a " +
+                        std::string(userText(proposal.selection)) +
+                        " selection, and this operation needs " +
+                        (wanted.empty() ? std::string("nothing selected") : wanted));
     }
     bool countOk = false;
     std::string bounds;
@@ -694,9 +712,9 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
     }
     if (!countOk) {
       return reject(proposal, OpConstraint::WrongSelectionCount,
-                    line.op + ": wrong selection count -- the plan picks " +
+                    line.op + ": the wrong number of things is picked -- the step picks " +
                         std::to_string(proposal.selectionCount) + " " +
-                        toString(proposal.selection) + "(s); the command needs " + bounds);
+                        userText(proposal.selection) + "(s); this operation needs " + bounds);
     }
   }
   OpRuling ok = accept(proposal);

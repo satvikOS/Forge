@@ -19,9 +19,25 @@
 #   6  a translator that echoes the internal detail it was given       -> check G
 #   7  the scanner neutered to find nothing                            -> check A
 #
-# 7 is the one that matters most. Every other check in that file is an
+# -- THE SIX THE FIRST VERSION OF THIS SCRIPT COULD NOT PROVE ----------------
+# Every mutation above was still red on the day a live leak was on screen,
+# because each targets a check that was working. These target the six holes:
+#
+#   8  ToolEntry::reason back to the STATUS CODE                       -> check K
+#      THE ACTUAL DEFECT. "selection_signature_mismatch: 1..n edge
+#      (homogeneous)", on 51 of the 84 shipped commands, on the menu tooltip and
+#      in every panel command list -- while check F scanned that exact field, by
+#      name, on every command, and passed.
+#   9  a command id drawn on every palette row                         -> check I
+#  10  "an OCCT fault" back in an activity-log MESSAGE                 -> check H
+#  11  a C++ class name back in the CoPilot header                     -> check D
+#      (CamelCase with no "::" and no underscore: invisible to the old scanner)
+#  12  a leak in a file the OLD four-name source list never read       -> check D
+#  13  userText(DispatchStatus) forwarding to machineName()            -> check J
+#
+# 7 is still the one that matters most. Every other check in that file is an
 # application of scanUserFacingProse(); if it could be emptied and the gate stay
-# green, all six of the others would be decoration.
+# green, all the others would be decoration.
 #
 # Each mutation runs against a COPY of the tree, so nothing edits the working
 # checkout. A mutation that fails to COMPILE is reported as a broken mutation,
@@ -95,6 +111,9 @@ FRAME="forge-desktop/src/ForgeFrame.cpp"
 CAT="ui/src/PanelCatalog.cpp"
 PROFILE="ui/src/WorkspaceProfile.cpp"
 TEXT="ui/src/UserFacingText.cpp"
+TOOLS="ui/src/ToolCatalog.cpp"
+PLATFORM="forge-desktop/src/PlatformSDL2.cpp"
+REG="ui/src/CommandRegistry.cpp"
 
 mutate() {
   local n="$1" tree="$WORK/m$1"
@@ -171,11 +190,83 @@ PY
 import sys
 p=sys.argv[1]; s=open(p).read()
 old='''  std::vector<ProseFinding> out;
-  if (text.empty()) return out;'''
+  if (raw.empty()) return out;'''
 new='''  std::vector<ProseFinding> out;
   return out;
-  if (text.empty()) return out;'''
+  if (raw.empty()) return out;'''
 assert old in s, "mutation 7 anchor missing"
+open(p,'w').write(s.replace(old,new,1))
+PY
+       ;;
+    8) # THE DEFECT: the status code back on the field every surface draws
+       python3 - "$tree/$TOOLS" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+old='      e.reason = explainUnavailable(id, d, verdict.status, verdict.detail, e.missing, &selection);'
+new='      e.reason = std::string(machineName(verdict.status)) + (verdict.detail.empty() ? std::string() : (": " + verdict.detail));'
+assert old in s, "mutation 8 anchor missing"
+open(p,'w').write(s.replace(old,new,1))
+PY
+       ;;
+    9) # a command id drawn on every palette row
+       python3 - "$tree/$FRAME" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+old='      ImGui::TextDisabled("%s", item.category.c_str());'
+new='      ImGui::TextDisabled("%s", item.commandId.c_str());'
+assert old in s, "mutation 9 anchor missing"
+open(p,'w').write(s.replace(old,new,1))
+PY
+       ;;
+    10) # a library name back in a log MESSAGE (argument 1, which is drawn)
+       python3 - "$tree/$FRAME" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+old='"operation fails badly, you lose that operation and nothing else \u2014 "'
+new='"operation fails badly, an OCCT fault loses that operation and nothing else \u2014 "'
+assert old in s, "mutation 10 anchor missing"
+open(p,'w').write(s.replace(old,new,1))
+PY
+       ;;
+    11) # a bare CamelCase class name: no "::", no underscore, no vk prefix
+       python3 - "$tree/$FRAME" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+old='copilotAutoPlan_ ? "Working offline, on this computer"'
+new='copilotAutoPlan_ ? "LocalPlanner (offline, deterministic)"'
+assert old in s, "mutation 11 anchor missing"
+open(p,'w').write(s.replace(old,new,1))
+PY
+       ;;
+    12) # a leak in a file the source list never named
+       #
+       # MEASURED, and it is a LATENT hole rather than a live one: of the 28
+       # files under forge-desktop/src, exactly two hold a call that puts
+       # characters on a user's screen today, and the old four-name list had
+       # both. It also had two files with no text call in them at all
+       # (ViewportRenderer.cpp, KernelScene.cpp) and did not have the other 24.
+       # So this mutation does not restore a leak that was shipping; it proves
+       # the WALK -- that a text call added to any file in the directory is
+       # scanned, which under a hand-written list of four names it was not.
+       python3 - "$tree/$PLATFORM" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+anchor = "  ImGuiIO& io = ImGui::GetIO();"
+assert anchor in s, "mutation 12 anchor missing"
+leak = anchor + chr(10) + '  ImGui::TextUnformatted("forge::ui::DockLayout is not implemented in this segment");'
+open(p,'w').write(s.replace(anchor, leak, 1))
+PY
+       ;;
+    13) # userText forwards to the machine spelling
+       python3 - "$tree/$REG" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+old="""const char* userText(DispatchStatus status) noexcept {
+  switch (status) {"""
+new="""const char* userText(DispatchStatus status) noexcept {
+  return machineName(status);
+  switch (status) {"""
+assert old in s, "mutation 13 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
        ;;
@@ -186,7 +277,7 @@ PY
 }
 
 BAD=0
-for m in 1 2 3 4 5 6 7; do
+for m in 1 2 3 4 5 6 7 8 9 10 11 12 13; do
   mutate "$m"
   rc=$?
   case "$rc" in
@@ -200,6 +291,6 @@ for m in 1 2 3 4 5 6 7; do
 done
 
 if [ "$BAD" -ne 0 ]; then
-  echo "[prose] RED: $BAD of 7 mutations did not prove the gate can fail"; exit 1
+  echo "[prose] RED: $BAD of 13 mutations did not prove the gate can fail"; exit 1
 fi
-echo "[prose] GREEN -- clean run passes and all 7 mutations proved red"
+echo "[prose] GREEN -- clean run passes and all 13 mutations proved red"

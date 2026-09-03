@@ -53,24 +53,26 @@ set -uo pipefail
 #     document 8 + file_exchange 5 + frame 12 + copilot 8 + update 7 + click 8 = 48
 # (ir_pipeline_gate and isolation_gate take no mutation arguments.)
 #
+# ★ 2026-09-03: + file_dialog 3 = 51. Counted the same way, on this tree:
+#     document 8 + file_exchange 5 + file_dialog 3 + frame 12 + copilot 8
+#     + update 7 + click 8 = 51
+#
 # ★ The merge of run_desktop.sh was the real hazard here, not this number. HEAD kept
 #   frame_gate at 1..9 while adding the file-exchange line; the base had frame_gate
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-# ── 2026-09-03: 48 -> 54 at a MERGE, and neither side's number was right.
-#    This branch derived 52 (frame 12 + assembly 4). archdisc derived 50
-#    (frame 14, no assembly gate). Both were correct on their OWN tree and both
-#    are wrong on the merged one, which carries the assembly gate AND the frame
-#    gate's mutations 13/14. Taking either side would have silently dropped
-#    real mutations -- so this is MEASURED on the merged tree, not reconciled
-#    by arithmetic:
+# ── 2026-09-03: 65, MEASURED at the merge -- the SEVENTH time neither side was
+#    right. This branch derived 54 (its assembly gate, 4 mutations); archdisc
+#    derived 61 (the file-dialog gate's 3 and the imgui-recovery gate's 8). Both
+#    were correct on their OWN tree; the merged tree runs ALL of them.
 #      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-#    prints 54, made of: ir_pipeline 0 + document 8 + file_exchange 5 +
-#    frame 14 + copilot 8 + update 7 + click 8 + assembly 4 + isolation 0.
-#    ★ This number has now been contested at FOUR merges. Re-derive it here;
-#      never carry a side across.
-EXPECTED_MUTATIONS=54
+#    prints 65 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 14 + copilot 8 + update 7 + click 8 + assembly 4
+#    + isolation 0.
+#    ★ Re-derive here at EVERY merge. Carrying a side across has been wrong
+#      seven times running, and each time it would have DROPPED real mutations.
+EXPECTED_MUTATIONS=65
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

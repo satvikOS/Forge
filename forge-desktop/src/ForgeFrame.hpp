@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "Camera.hpp"
+#include "FileDialog.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/ArchieCopilot.hpp"
@@ -541,6 +542,45 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // The path requested but not yet dispatched; "" when there is none.
   const std::string& pendingOpenPath() const noexcept { return pendingOpenPath_; }
 
+  // ── THE NATIVE FILE PANEL ───────────────────────────────────────────────
+  //
+  // WHAT WAS BROKEN. PR #206 registered six file commands and the registry went
+  // 80 -> 84. Four of them declare `path` REQUIRED with no honest default, so a
+  // menu click reached DispatchStatus::MissingRequiredParameter and this class
+  // answered with an ImGui text box: to open a part, a user had to know and type
+  // an absolute path. That is a command layer that works and a mouse layer that
+  // does not.
+  //
+  // INSTALLED, NOT OWNED, and nullable. main.cpp constructs the macOS panel and
+  // hands it in; every headless gate leaves it null and gets the text prompt
+  // that has always been here, so nothing this class already does changes shape
+  // when there is no window to put a panel over. It is also what lets the
+  // file-dialog gate drive the WHOLE path with a scripted panel and no mouse.
+  void setFileDialog(FileDialog* dialog) noexcept { fileDialog_ = dialog; }
+  FileDialog* fileDialog() const noexcept { return fileDialog_; }
+
+  // The command whose panel is owed but has not been shown yet; "" when none is.
+  // Deferred exactly like the tab click and Open Recent, and for a REASON THIS
+  // CLASS HAS ALREADY PAID FOR THREE TIMES: invoke() is called from inside
+  // BeginMainMenuBar(), from inside the ribbon and from inside the dock walk,
+  // and a modal panel runs a nested event loop and then dispatches a command
+  // that can replace the document and rebuild the feature tree -- under a walk
+  // still holding references into both.
+  const std::string& pendingFileDialog() const noexcept { return pendingDialogId_; }
+
+  // Shows the owed panel and dispatches with what the user chose. PUBLIC for the
+  // same reason applyPendingFit() is: a gate must be able to drive the shipping
+  // path without building a frame. build() calls it after the dock walk, so the
+  // application reaches it by exactly one route.
+  void runPendingFileDialog();
+
+  // How many panels this frame builder has shown, and how many of those the user
+  // cancelled. A cancel is a NO-OP -- no dispatch, no refusal, no error -- and
+  // "nothing happened" is not observable without a counter that says a panel
+  // really was shown and really was declined.
+  std::size_t fileDialogsShown() const noexcept { return dialogsShown_; }
+  std::size_t fileDialogsCancelled() const noexcept { return dialogsCancelled_; }
+
   // ── dock mutations ──────────────────────────────────────────────────────
   // Public because they are the layout's write API, not a splitter-drag detail:
   // a host uses them for "reset column widths", for restoring a workspace, and
@@ -815,6 +855,40 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Dispatches pendingOpenPath_ and clears it. Called by build() after the dock
   // walk, never from inside a draw function.
   void runPendingOpen();
+
+  // ── the file panel's three slots ────────────────────────────────────────
+  // `fileDialog_` is null in every headless build; see setFileDialog().
+  //
+  // `pendingDialogId_` is the one-slot deferral, exactly like pendingInvokeId_:
+  // a user cannot click two File menu items in one frame, and the last gesture
+  // recorded is the one they made.
+  //
+  // `dialogCommand_` / `dialogPath_` are how the chosen path reaches the
+  // dispatch. runPendingFileDialog() sets them and calls invoke() again; invoke()
+  // reads them as an OVERRIDE for exactly the command they name -- the same
+  // mechanism promptCommand_/promptFields_ already use for the text box, so a
+  // path from a panel and a path typed by hand travel the identical route into
+  // CommandParams and there is no second dispatch path to disagree.
+  FileDialog* fileDialog_ = nullptr;
+  std::string pendingDialogId_;
+  std::string dialogCommand_;
+  std::string dialogPath_;
+  std::size_t dialogsShown_ = 0;
+  std::size_t dialogsCancelled_ = 0;
+
+  // True when `id` is owed a panel RIGHT NOW: there is a dialog installed, this
+  // command has a policy, we are not already answering its panel, and the
+  // registry says the only thing standing between the command and running is the
+  // path we are about to ask for. Reading the registry rather than re-deciding
+  // here is what keeps a disabled command from raising a panel it cannot use.
+  bool wantsFileDialog(const std::string& id, const forge::ui::CommandParams& overrides) const;
+
+  // Where a panel should open. The document's own path first, then the most
+  // recent one, then the document's NAME -- so a Save on a never-saved part
+  // starts on "untitled" rather than on nothing at all.
+  // fileDialogRequestFor() puts the COMMAND's own suffix on whatever this
+  // returns, which is why the seed itself does not depend on the command.
+  std::string fileDialogSeed() const;
 
   // Writes whether the kernel is running out of process into the ACTIVITY LOG,
   // where a user can still find it. main.cpp prints the same fact to stderr,

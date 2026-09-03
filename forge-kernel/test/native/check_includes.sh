@@ -17,7 +17,7 @@ cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 # header|regex pairs — symbol present without its header => CI (libstdc++) build fail
 PAIRS=(
-  'algorithm|std::(sort|stable_sort|find|find_if|min_element|max_element|clamp|nth_element|partial_sort|shuffle|count|count_if|remove\([^;]*,|remove_if|unique|reverse|fill|lower_bound|upper_bound|transform|for_each|any_of|all_of|none_of|copy|copy_if|generate|swap_ranges|minmax|max\(|min\()'
+  'algorithm|std::(sort|stable_sort|find|find_if|min_element|max_element|clamp|nth_element|partial_sort|shuffle|count|count_if|remove\([^;]*,|remove_if|unique\(|reverse|fill|lower_bound|upper_bound|transform|for_each|any_of|all_of|none_of|copy|copy_if|generate|swap_ranges|minmax|max\(|min\()'
   'numeric|std::(accumulate|iota|inner_product|reduce|partial_sum|adjacent_difference)'
   'cstring|std::(memcpy|memset|memmove|strlen|strcmp)'
   'functional|std::(function|hash|bind|greater|less|ref|cref|plus|multiplies)'
@@ -31,6 +31,15 @@ PAIRS=(
 # discriminator -- <algorithm>'s std::remove is the THREE-argument range form,
 # <cstdio>'s is the ONE-argument path form -- and that discriminator is worth
 # exactly as much as the evidence that it still flags what it is meant to flag.
+#
+# `unique` carries the SECOND discriminator, added 2026-09-03 and for the same
+# class of wrong verdict. The alternation had no boundary after it, so
+# `std::unique_ptr` -- a <memory> TYPE that has nothing to do with <algorithm> --
+# matched, and the file was told to include a header it does not use. MEASURED:
+# forge-desktop/src/FileDialog.hpp and src/main.cpp were the first two files in
+# forge-desktop to hold a std::unique_ptr, and both were flagged. The algorithm
+# is CALLED, so it is spelled `unique(`; the smart pointer is DECLARED, so it is
+# not. Both directions are controlled below.
 # Every fixture below is a positive or a negative control; a wrong verdict is RED.
 if [ "${1:-}" = "--self-test" ]; then
   T="$(mktemp -d "${TMPDIR:-/tmp}/check_includes_selftest.XXXXXX")" || exit 3
@@ -78,6 +87,18 @@ void f(std::vector<int>& v) { v.erase(std::remove(v.begin(), v.end(), 3), v.end(
   mk remove_if '#include <vector>
 void f(std::vector<int>& v, bool(*p)(int)) { std::remove_if(v.begin(), v.end(), p); }'
   chk remove_if flag
+
+  # The `unique` discriminator, both directions. A smart pointer is not an
+  # algorithm, and demanding <algorithm> for one is a wrong verdict -- the same
+  # shape as std::remove(path) above, and it flagged real files.
+  mk unique_ptr_ok '#include <memory>
+std::unique_ptr<int> f() { return nullptr; }'
+  chk unique_ptr_ok ok
+
+  # ...and the algorithm it must still catch, unchanged.
+  mk range_unique '#include <vector>
+void f(std::vector<int>& v) { std::unique(v.begin(), v.end()); }'
+  chk range_unique flag
 
   # One control per remaining PAIR, so a future edit that guts a whole entry is loud.
   mk sort_missing '#include <vector>

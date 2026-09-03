@@ -9,9 +9,17 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — seven headless gates, none of which needs a GPU:
+#   2. gates          — nine headless gates, none of which needs a GPU:
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
+#                       * imgui_recovery — what a RECOVERABLE interface error
+#                         costs the user. The library ships an assert on one
+#                         (fatal wherever assert() is live) and a tooltip in its
+#                         own words on the user's model where it is not; this
+#                         asserts the configuration is set the other way, that a
+#                         real unbalanced frame is REPAIRED and still draws the
+#                         model, and that what the user reads is one plain
+#                         sentence with none of the library's vocabulary in it.
 #                       * document    — the user-launchable slice: the ONE
 #                         registry -> PartDocument -> forge::ft -> the viewport's
 #                         vertices -> a .fpart file on disk -> back again.
@@ -42,9 +50,9 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. FORTY-THREE
-#                       defects (8 document + 12 frame + 8 copilot + 7 update +
-#                       8 click) are
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. FIFTY-SIX
+#                       defects (8 imgui_recovery + 8 document + 5 file_exchange +
+#                       12 frame + 8 copilot + 7 update + 8 click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -113,7 +121,7 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + forge_kernel_worker + 7 headless gates (-Wall -Wextra -Werror clean)"
+echo "[desktop] built forge_desktop + forge_kernel_worker + 9 headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0
@@ -158,6 +166,13 @@ run_gate() {
 # what the UI emits at all, and there is nothing to inject that the compiler
 # would not reject on its own.
 run_gate forge_desktop_ir_pipeline_gate
+# THE INTERFACE-ERROR GATE, early because it is the cheapest of the lot and
+# because what it guards is the difference between a repaired frame and a lost
+# model. It links no kernel and no OCCT. Its eight mutations each leave the
+# interface configured the way the LIBRARY ships it -- an abort on a recoverable
+# error, the library's own prose over the user's part -- or break the path that
+# carries the message out in Forge's own words.
+run_gate forge_desktop_imgui_recovery_gate 1 2 3 4 5 6 7 8
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # FILE EXCHANGE: open and save real CAD files through the shipping command path,
 # comparing a VECTOR of observables at the seam -- volume AND area AND centre of
@@ -167,6 +182,17 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # bit-identical, and 5 (a cube of the same volume about the same centre) leaves
 # volume and the centre of mass identical. A gate checking volume alone passes both.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
+# THE OTHER HALF OF FILE EXCHANGE: not "can the kernel read a STEP file" but "can
+# a user REACH the command that asks it to". The six file commands each declare a
+# `path`, and until the native panel existed nothing in the application could
+# produce one -- while every gate above stayed green, because every gate above
+# supplies the path itself. This one makes the GESTURE and asserts the chosen
+# path arrives at the receiving end. Mutation 1 is the state before the panel:
+# no dialog installed, so the six are unreachable again.
+run_gate forge_desktop_file_dialog_gate 1 2 3
+# ── MERGE: HEAD had frame_gate 1..12, archdisc 1..14. Taking the SUPERSET; the
+#    tree work added mutations 13 and 14, and keeping HEAD's line would have
+#    silently dropped them while the suite still reported green.
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7

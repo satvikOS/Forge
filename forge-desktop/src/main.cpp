@@ -47,6 +47,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -58,8 +59,10 @@
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 
+#include "FileDialog.hpp"
 #include "FileExchangeHost.hpp"
 #include "ForgeFrame.hpp"
+#include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
 #include "PlatformSDL2.hpp"
 #include "UpdateService.hpp"
@@ -476,50 +479,27 @@ int main(int argc, char** argv) {
   ImGuiIO& io = ImGui::GetIO();
   io.IniFilename = nullptr;  // the DOCK LAYOUT is ours; imgui.ini would fight it
 
-  // ── DEAR IMGUI'S DEVELOPER DIAGNOSTICS ARE OFF IN A SHIPPED BUILD ────────
+  // ── A RECOVERABLE INTERFACE ERROR MUST NOT COST THE USER THEIR MODEL ────
   //
-  // MEASURED, in the vendored library this app links (1.92.9 WIP), with the
-  // defaults it ships:
+  // The settings, what they are measured to do when left alone, and why each one
+  // is set the way it is, are all in ImGuiErrorPolicy.hpp -- ONE place, linked
+  // into forge_desktop_imgui_recovery_gate, which fails when the context is left
+  // at the library's defaults.
   //
-  //   ConfigErrorRecoveryEnableAssert   = true   -> IM_ASSERT() on a recoverable
-  //                                                error, which ABORTS the
-  //                                                process on a user's machine
-  //   ConfigErrorRecoveryEnableTooltip  = true   -> a red popup over the model
-  //   ConfigDebugHighlightIdConflicts   = true   -> "Programmer error: N visible
-  //                                                items with conflicting ID!",
-  //                                                followed by advice to call
-  //                                                PushID()/PopID() and to set
-  //                                                io.ConfigDebugHighlightIdConflicts
-  //                                                = false "in non-programmers
-  //                                                builds"
+  // This file used to hold those six assignments inline. CI COMPILES this file
+  // (kernel-tests.yml's `desktop` job builds forge_desktop), and compiling is not
+  // asserting: no gate can LINK main.cpp, because it defines main(), so nothing
+  // could ever execute or check what those six lines did. Deleting them would
+  // have built clean and left every check in the repository green, with a user's
+  // unsaved model one recoverable error away from the floor.
   //
-  // That last string is the library telling us, in its own words, that this
-  // configuration is for programmers. A person who bought a CAD application is
-  // not one, and a diagnostic they cannot act on -- drawn on top of the part
-  // they are working on -- is worse than the defect it reports.
-  //
-  // NOTHING IS SUPPRESSED, only redirected: the debug log stays ON, so every one
-  // of these errors is still printed to the console this process writes to, and
-  // an engineer reads exactly what they read before. FORGE_IMGUI_DEV_DIAGNOSTICS
-  // in the environment restores the library's defaults for a developer who wants
-  // the popup and the abort back.
-  //
-  // The abort is the important half. `ConfigErrorRecoveryEnableAssert` means a
-  // recoverable ImGui error terminates the application; recovery exists so that
-  // it does not have to, and a user losing unsaved work to a mismatched Begin()
-  // is not a trade this application gets to make on their behalf.
-  const bool devDiagnostics = std::getenv("FORGE_IMGUI_DEV_DIAGNOSTICS") != nullptr;
-  if (!devDiagnostics) {
-    io.ConfigErrorRecovery = true;                  // recover, do not die
-    io.ConfigErrorRecoveryEnableAssert = false;     // ... and do not abort either
-    io.ConfigErrorRecoveryEnableDebugLog = true;    // the engineer still reads it
-    io.ConfigErrorRecoveryEnableTooltip = false;    // the user does not
-    io.ConfigDebugHighlightIdConflicts = false;
-    io.ConfigDebugHighlightIdConflictsShowItemPicker = false;
-  } else {
-    std::fprintf(stderr, "[forge] FORGE_IMGUI_DEV_DIAGNOSTICS set: ImGui error asserts, "
-                         "tooltips and ID-conflict popups are ON\n");
-  }
+  // Do not put them back here: the gate READS THIS FILE and goes red if any of
+  // those settings is assigned anywhere in it.
+  forge::desktop::applyImGuiErrorPolicy(
+      std::getenv("FORGE_IMGUI_DEV_DIAGNOSTICS") != nullptr
+          ? forge::desktop::ImGuiErrorPolicy::DeveloperDiagnostics
+          : forge::desktop::ImGuiErrorPolicy::Shipping);
+
   // NavEnableKeyboard is deliberately OFF. ImGui's keyboard nav consumes the
   // arrows, Space and Enter to move a focus cursor between widgets; in a CAD
   // shell those keys belong to the keymap and to the modal command that is
@@ -625,6 +605,27 @@ int main(int argc, char** argv) {
   forge::desktop::FileExchangeHost fileExchange(frame.document(), &scene);
   shell.setFileExchange(&fileExchange);
 
+  // ── AND THE MOUSE CAN REACH ALL SIX OF THEM ──────────────────────────────
+  // The six file commands were registered and every one of them declares a
+  // `path` the user has to supply. Until this line the only thing that could
+  // supply one was an ImGui text box: to open a part you typed its absolute
+  // path. The native panel is constructed HERE, in the application, because it
+  // is Cocoa -- the frame builder holds the pointer and knows nothing about
+  // AppKit, which is what keeps every headless gate linkable.
+  //
+  // A platform with no implementation answers nullptr and the app keeps the text
+  // prompt: a missing picker degrades to the previous behaviour, never to a menu
+  // item that does nothing.
+  std::unique_ptr<forge::desktop::FileDialog> fileDialog = forge::desktop::makeNativeFileDialog();
+  if (fileDialog) {
+    frame.setFileDialog(fileDialog.get());
+    std::printf("[forge] native file panels: ON (Open, Save, Import and Export ask for a file)\n");
+  } else {
+    std::fprintf(stderr,
+                 "[forge] no native file panel on this platform - the six file commands fall "
+                 "back to the typed-path prompt\n");
+  }
+
   std::printf("[forge] registry: %zu commands (%zu of them Part), %zu categories\n",
               shell.registry().size(), partCommands, shell.registry().categories().size());
 
@@ -636,7 +637,7 @@ int main(int argc, char** argv) {
     const forge::ui::DispatchResult r = shell.run("file.open", params);
     if (!r.ok() || !shell.lastDocumentError().empty()) {
       std::fprintf(stderr, "[forge] could not open %s: %s\n", openPath.c_str(),
-                   shell.lastDocumentError().empty() ? forge::ui::toString(r.status)
+                   shell.lastDocumentError().empty() ? forge::ui::machineName(r.status)
                                                      : shell.lastDocumentError().c_str());
     } else {
       std::printf("[forge] opened %s: %zu statements, %zu triangles\n", openPath.c_str(),

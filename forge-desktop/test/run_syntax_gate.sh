@@ -132,15 +132,19 @@ FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 CHECKED=(
   forge-desktop/src/Camera.cpp
   forge-desktop/test/assembly_gate.cpp
+  forge-desktop/src/FileDialog.cpp
   forge-desktop/src/ForgeFrame.cpp
+  forge-desktop/src/ImGuiErrorPolicy.cpp
   forge-desktop/src/kernel_worker_main.cpp
   forge-desktop/src/PartFile.cpp
   forge-desktop/src/UpdateService.cpp
   forge-desktop/test/appcast_check.cpp
   forge-desktop/test/copilot_gate.cpp
   forge-desktop/test/document_gate.cpp
+  forge-desktop/test/file_dialog_gate.cpp
   forge-desktop/test/file_exchange_gate.cpp
   forge-desktop/test/frame_gate.cpp
+  forge-desktop/test/imgui_recovery_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
 )
@@ -153,6 +157,8 @@ SKIPPED=(
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"
   "forge-desktop/test/click_gate.cpp     (Vulkan, through its ImGui backend)"
   "forge-desktop/test/differential_solid_gate.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/Topology.hpp -> forge/ShapeRegistry.hpp)"
+  "forge-desktop/src/FileDialogMac.mm    (AppKit + UniformTypeIdentifiers, and it is Objective-C++: -x objective-c++, not a C++ TU)"
+  "forge-desktop/test/panel_probe.mm     (AppKit + UniformTypeIdentifiers; run it with test/run_panel_probe.sh, which builds it under the same -Wall -Wextra -Werror this gate would)"
 )
 # Needs NO SDK, but is written against ONE platform's libc. Checked on that
 # platform, skipped by name everywhere else. See the header for the measurement.
@@ -198,8 +204,13 @@ done
 # then read as "nothing new", which is the zero-that-arrives-too-fast failure.
 # Assert the directory first.
 [ -d forge-desktop/src ] || { echo "[syntax] forge-desktop/src is missing"; exit 1; }
-PRESENT="$(find forge-desktop/src forge-desktop/test -maxdepth 1 -name '*.cpp' | sort)"
-PRESENT_N="$(printf '%s\n' "$PRESENT" | grep -c '\.cpp$')"
+# .mm AS WELL AS .cpp. The census existed so that a new translation unit must be
+# classified rather than absorbed, and an Objective-C++ file is a translation
+# unit: counting only *.cpp would have let src/FileDialogMac.mm -- the one file
+# that opens a window -- join forge-desktop with nothing saying so.
+PRESENT="$(find forge-desktop/src forge-desktop/test -maxdepth 1 \
+                \( -name '*.cpp' -o -name '*.mm' \) | sort)"
+PRESENT_N="$(printf '%s\n' "$PRESENT" | grep -cE '\.(cpp|mm)$')"
 # All THREE lists, so the platform routing cannot become a way to hide a file.
 # CHECKED has already absorbed DARWIN_ONLY on Darwin, so counting both there
 # would double-count; PLATFORM_SKIPPED is non-empty exactly when it did not.

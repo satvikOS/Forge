@@ -224,7 +224,10 @@ enum class PlanCheck : std::uint8_t {
   OpConstraintRefused,
 };
 
-const char* toString(PlanCheck check) noexcept;
+// The machine's spelling ("op_constraint_refused"). Wire name, never drawn.
+const char* machineName(PlanCheck check) noexcept;
+// The same verdict as a phrase a person reads.
+const char* userText(PlanCheck check) noexcept;
 
 // ── one step's op-constraint verdict ────────────────────────────────────────
 // Kept PER STEP, and kept even when the step is accepted, because the panel has
@@ -255,7 +258,13 @@ struct StepVerdict {
 // check, with one row per step either way.
 struct PlanVerdict {
   PlanCheck check = PlanCheck::Ok;
-  std::string detail;               // names the offending step, in words
+  // NOT called `detail`. DispatchResult::detail and LogEntry::detail are the
+  // INTERNAL cause -- the thing the Console panel is the only surface allowed to
+  // draw -- and this field is the opposite: it is the sentence the CoPilot panel
+  // shows the user under "NOT OFFERED". Two fields with one name and opposite
+  // contracts is how a structural gate has to choose between forbidding the
+  // remedy and permitting the defect.
+  std::string explanation;          // names the offending step, in words
   std::vector<StepVerdict> steps;   // one per plan step, in plan order
 
   bool accepted() const noexcept { return check == PlanCheck::Ok; }

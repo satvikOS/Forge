@@ -73,6 +73,27 @@ enum class ProseDefect : std::uint8_t {
   DeveloperNoun,
   // "ForgeFrame.cpp:1278" — where the code is, which is never where the user is.
   SourceLocation,
+  // "selection_signature_mismatch", "part.fillet", "LocalPlanner" — a name the
+  // PROGRAM answers to. The three shapes below are one defect because they are
+  // one mistake: putting an identifier where a sentence belongs.
+  //
+  //   snake_case   an enum spelling or a status code   selection_signature_mismatch
+  //   dotted id    a command id                        part.edit_feature
+  //   CamelCase    a class                             LocalPlanner, DockLayout
+  //
+  // This class is why the FIRST prose gate passed over a live leak. Its scanner
+  // could see "forge::ui::DockLayout" (a scope operator), "ImGui_ImplVulkan_Add"
+  // (an underscore joining two cases) and "vkCreateBuffer" (the vk prefix) --
+  // and was SILENT on all three shapes above, so `item.reason`, a field that
+  // gate scanned by name on every shipped command, read
+  // "selection_signature_mismatch: 1..n edge (homogeneous)" and passed.
+  MachineIdentifier,
+  // "registry", "dispatch", "predicate", "handler", "statement", "compiled",
+  // "emits", "arity" — ordinary English words that name the PROGRAM'S OWN
+  // MACHINERY. No word list of debugger nouns catches these, because each of
+  // them is a perfectly normal word; what makes them a defect is that the thing
+  // they name is inside Forge rather than inside the user's part.
+  DeveloperVocabulary,
 };
 
 const char* toString(ProseDefect defect) noexcept;
@@ -116,6 +137,23 @@ std::string userFacingViewportFailure(const std::string& detail);
 // The application could not finish starting. `stage` is a short internal name
 // for what was being set up; it is used to choose a sentence and is not quoted.
 std::string userFacingStartupFailure(const std::string& stage, const std::string& detail);
+
+// A part of the interface reported a problem it RECOVERED FROM. `detail` is the
+// interface library's own message -- "Missing End()", "Missing PopID()",
+// "Programmer error: 2 visible items with conflicting ID!" -- and it is used to
+// choose a sentence and is never quoted in one.
+//
+// This translator exists because that library's own answer to a recoverable
+// error is to draw its message, in its own words, on top of the user's model
+// (MEASURED: with the shipped defaults a `##Tooltip_Error` window is created on
+// the erring frame and is active on the next), and, in any build where assert()
+// is live, to abort the process on the way. Neither is a thing to do to somebody
+// who has unsaved work. The library is told to be quiet and to hand the message
+// here instead; what comes out of here is what the user reads.
+//
+// Empty detail returns an empty string: no error happened, and inventing a
+// sentence would put one in front of a user who does not have one.
+std::string userFacingInterfaceFailure(const std::string& detail);
 
 // Where a user can read the detail that was not shown. One sentence, appended by
 // the callers that have a console to point at, so the wording is written once.

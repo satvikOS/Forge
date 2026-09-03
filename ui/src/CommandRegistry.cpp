@@ -54,6 +54,30 @@ bool SelectionSignature::satisfiedBy(const SelectionService& sel) const noexcept
   return sel.countOf(kind) == total;
 }
 
+// The counted phrase a person reads. "1..n edge (homogeneous)" is notation: it
+// was on the menu tooltip of every command in the shipped build, and a machinist
+// reading "needs 1..n edge (homogeneous)" learns nothing they can act on.
+std::string SelectionSignature::describeForUser() const {
+  if (kind == EntityKind::None) return "nothing selected";
+  const std::string noun = userText(kind);
+  const std::string plural = noun + "s";
+  const bool unbounded = maxCount == static_cast<std::size_t>(-1);
+  std::string out;
+  if (minCount == maxCount) {
+    out = minCount == 1 ? ("one " + noun)
+                        : (toDecimal(minCount) + " " + plural);
+  } else if (unbounded) {
+    out = minCount <= 1 ? ("one or more " + plural)
+                        : (toDecimal(minCount) + " or more " + plural);
+  } else {
+    out = toDecimal(minCount) + " to " + toDecimal(maxCount) + " " + plural;
+  }
+  // "homogeneous" says the picks must all be the same kind. Only worth saying
+  // when more than one pick is possible; on a one-pick command it is noise.
+  if (requireHomogeneous && (unbounded || maxCount > 1)) out += ", all of the same kind";
+  return out;
+}
+
 std::string SelectionSignature::describe() const {
   if (kind == EntityKind::None) return "no selection required";
   std::string out = toDecimal(minCount);
@@ -111,7 +135,7 @@ std::vector<std::string> missingRequired(const CommandDescriptor& command,
   return out;
 }
 
-const char* toString(DispatchStatus status) noexcept {
+const char* machineName(DispatchStatus status) noexcept {
   switch (status) {
     case DispatchStatus::Ok:                         return "ok";
     case DispatchStatus::UnknownCommand:             return "unknown_command";
@@ -122,6 +146,19 @@ const char* toString(DispatchStatus status) noexcept {
     case DispatchStatus::EditRefused:                return "edit_refused";
   }
   return "unknown_command";
+}
+
+const char* userText(DispatchStatus status) noexcept {
+  switch (status) {
+    case DispatchStatus::Ok:                         return "ready";
+    case DispatchStatus::UnknownCommand:             return "not in this version";
+    case DispatchStatus::SelectionSignatureMismatch: return "needs a pick";
+    case DispatchStatus::Disabled:                   return "not available now";
+    case DispatchStatus::MissingRequiredParameter:   return "needs a value";
+    case DispatchStatus::NoHandler:                  return "not finished yet";
+    case DispatchStatus::EditRefused:                return "change not accepted";
+  }
+  return "not available now";
 }
 
 // ── CommandRegistry ─────────────────────────────────────────────────────────
