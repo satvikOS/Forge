@@ -69,7 +69,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"constraints",
      "The constraints holding this sketch together, and which of them conflict.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"contacts",
      "Where the parts in this study touch, and whether they are bonded, free to slide, or free to "
      "separate.",
@@ -82,12 +82,12 @@ constexpr Row kRows[] = {
      "finer.",
      PanelContent::Planned},
     {"curve_list",
-     "The curves this surface model is built from, so you can pick one without hunting in the 3D "
-     "view.",
-     PanelContent::Planned},
+     "Every point, line, circle and arc in the sketch you are working in, at the size the solver "
+     "gave it, so you can pick one without hunting in the 3D view.",
+     PanelContent::Live},
     {"dimensions",
      "The dimensions driving this sketch, and which of them you can still change.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"feature_tree",
      "Every feature in this part, in the order it was built. Pick a row to select it, or change "
      "its number to change the shape.",
@@ -139,9 +139,9 @@ constexpr Row kRows[] = {
      "it.",
      PanelContent::Live},
     {"relations",
-     "How the entities in this sketch depend on each other, so you can see what will move when "
-     "you drag one.",
-     PanelContent::Planned},
+     "How the curves in this sketch depend on each other, so you can see what will move when you "
+     "drag one.",
+     PanelContent::Live},
     {"restraints",
      "Where this study is held still: the faces that are fixed, pinned or supported.",
      PanelContent::Planned},

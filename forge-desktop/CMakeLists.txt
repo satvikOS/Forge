@@ -327,6 +327,26 @@ target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_cor
 set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------------- the SKETCH PANELS gate
+# The four sketching tabs -- Constraints, Dimensions, Relations, Curves -- driven
+# against a REAL solved sketch, headless. The sketch is authored through the same
+# command registry a menu click uses, and every number the panels report is
+# checked against the SOLVER rather than against the statement that drew it: the
+# rectangle is drawn 30 x 18 and constrained 40 x 25, so a panel echoing its own
+# input cannot pass. The last block extrudes the solved profile, edits a
+# dimension through the panel's own edit path and requires the SOLID's bounding
+# box to move -- which is what makes "this field drives the model" falsifiable.
+#
+# `--mutate 1..6` breaks it on purpose; the mutations are registered below as
+# ordinary ctest entries with WILL_FAIL, so a mutation that stops being caught is
+# a red test rather than a line nobody reads.
+add_executable(forge_desktop_sketch_panels_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/sketch_panels_gate.cpp")
+target_compile_options(forge_desktop_sketch_panels_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_sketch_panels_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_sketch_panels_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
@@ -479,6 +499,13 @@ foreach(_fx 1 2 3 4 5)
     add_test(NAME forge_desktop_file_exchange_mutation_${_fx}
              COMMAND forge_desktop_file_exchange_gate --mutate ${_fx})
     set_tests_properties(forge_desktop_file_exchange_mutation_${_fx}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_sketch_panels_gate COMMAND forge_desktop_sketch_panels_gate)
+foreach(_sk RANGE 1 6)
+    add_test(NAME forge_desktop_sketch_panels_mutation_${_sk}
+             COMMAND forge_desktop_sketch_panels_gate --mutate ${_sk})
+    set_tests_properties(forge_desktop_sketch_panels_mutation_${_sk}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)

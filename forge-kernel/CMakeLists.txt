@@ -2169,6 +2169,13 @@ set(FORGE_KERNEL_SOURCES
     # produce (a compact typed op-list), + the C++ compiler that walks it into
     # native forge-kernel calls -> real 3D CAD -> STEP. Replaces scope-plan-JSON.
     src/ft/FeatureTreeCompiler.cpp   # parser (text->FeatureTree) + compiler (->native kernel)
+    src/ft/SketchInspect.cpp         # the READ-ONLY half of the sketch family: the
+                                     # live constraint set, the driving dimensions,
+                                     # what is still free to move and the solved
+                                     # curve geometry, straight out of planegcs.
+                                     # It also owns the ONE CON keyword table the
+                                     # compiler dispatches through, so a keyword
+                                     # cannot mean two things in one build.
     src/ft/GraphAudit.cpp            # s0.4 graph-quality gate: zero unresolved refs,
                                      # zero duplicate ids, zero unexplained orphans.
                                      # compile() refuses a graph it does not call clean,

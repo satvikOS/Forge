@@ -1041,6 +1041,8 @@ jobs:
                    forge_desktop_frame_gate forge_desktop_document_gate \
                    forge_desktop_ir_pipeline_gate forge_desktop_copilot_gate \
                    forge_desktop_click_gate forge_desktop_update_gate \
+                   forge_desktop_file_exchange_gate \
+                   forge_desktop_sketch_panels_gate \
                    forge_desktop_isolation_gate; do
             if [ -x "forge-desktop/build/$b" ]; then printf 'ok       %s\n' "$b"
             else printf 'MISSING  %s\n' "$b"; missing=1; fi

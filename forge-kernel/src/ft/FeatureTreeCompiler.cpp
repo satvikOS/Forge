@@ -32,6 +32,7 @@
 // ============================================================================
 
 #include "forge/ft/FeatureTree.hpp"
+#include "forge/ft/SketchInspect.hpp"
 #include "forge/ft/GraphAudit.hpp"
 
 #include "forge/Primitives.hpp"
@@ -1173,41 +1174,34 @@ private:
         // the other ten are now wired in the facade, each to a planegcs
         // primitive that was already there.
         //
-        // The order below is the census's own table, geometric then dimensional,
-        // so the two can be read against each other.
-        static const std::unordered_map<std::string, forge::SketchConstraintKind> kKinds = {
-            // geometric
-            {"COINC", forge::SketchConstraintKind::Coincident},
-            {"PARA",  forge::SketchConstraintKind::Parallel},
-            {"PERP",  forge::SketchConstraintKind::Perpendicular},
-            {"TANG",  forge::SketchConstraintKind::Tangent},
-            {"EQUAL", forge::SketchConstraintKind::Equal},
-            {"CONC",  forge::SketchConstraintKind::Concentric},
-            {"COLL",  forge::SketchConstraintKind::Collinear},
-            {"SYMM",  forge::SketchConstraintKind::Symmetric},
-            {"MIDPT", forge::SketchConstraintKind::Midpoint},
-            {"HORIZ", forge::SketchConstraintKind::Horizontal},
-            {"VERT",  forge::SketchConstraintKind::Vertical},
-            {"PTON",  forge::SketchConstraintKind::PointOnLine},
-            {"FIX",   forge::SketchConstraintKind::Fix},
-            // dimensional
-            {"DIST",  forge::SketchConstraintKind::Distance},
-            {"DISTX", forge::SketchConstraintKind::DistanceX},
-            {"DISTY", forge::SketchConstraintKind::DistanceY},
-            {"ANGLE", forge::SketchConstraintKind::Angle},
-            {"RADIUS", forge::SketchConstraintKind::Radius},
-            {"DIAM",  forge::SketchConstraintKind::Diameter},
-        };
-        auto it = kKinds.find(kind);
-        if (it == kKinds.end()) {
+        // THE KEYWORD TABLE IS NOT HERE ANY MORE. It was nineteen rows private
+        // to this file, so a second reader of the family — a panel that wants to
+        // show a user which constraints are on a sketch — had to write the same
+        // nineteen rows again, and a keyword the compiler applies while another
+        // surface calls it unknown is a disagreement nothing would catch until a
+        // part came out wrong. It now lives in forge::ft::conKeywords(), the two
+        // read the same rows, and each row's `kind` is pinned to the enumerator
+        // in the file that defines it.
+        const ConKeyword* kw = findConKeyword(kind);
+        if (kw == nullptr) {
             // NOT a throw. An unrecognised constraint keyword is one statement's
             // worth of information, and refusing it would cost the whole tree —
             // the exact failure mode the owner's constraint forbids. Skip it,
             // NAME it on the verify channel, and keep building.
             if (res)
-                res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — unknown kind '" +
-                                      kind + "' (known: COINC PARA PERP TANG EQUAL CONC COLL SYMM "
-                                      "MIDPT HORIZ VERT PTON FIX DIST DISTX DISTY ANGLE RADIUS DIAM)");
+            {
+                // The "known" list is BUILT from the table rather than spelled
+                // again. A second hand-written copy is how a keyword gets wired
+                // and then reported as unknown by the message beside it.
+                std::string known;
+                for (const ConKeyword& k : conKeywords()) {
+                    if (!known.empty()) known += ' ';
+                    known += k.word;
+                }
+                res->verify.push_back("CON %" + std::to_string(op.id) +
+                                      " SKIPPED — unknown kind '" + kind + "' (known: " + known +
+                                      ")");
+            }
             return owner;
         }
         // The facade THROWS on a type-mismatched operand — TANG wants
@@ -1226,11 +1220,10 @@ private:
         // sides say so — see the Angle enumerator in Sketcher.hpp. A silent
         // 57.3x error is exactly the kind of defect that still BUILDS, so it
         // would be found by nobody until a part came out the wrong shape.
-        const double sent = (it->second == forge::SketchConstraintKind::Angle)
-                                ? value * 3.14159265358979323846 / 180.0
-                                : value;
+        const double sent = kw->angular ? value * 3.14159265358979323846 / 180.0 : value;
         try {
-            forge::addConstraint(owner, it->second, refs, sent);
+            forge::addConstraint(
+                owner, static_cast<forge::SketchConstraintKind>(kw->kind), refs, sent);
         } catch (const std::exception& e) {
             if (res)
                 res->verify.push_back("CON %" + std::to_string(op.id) + " SKIPPED — " + kind +

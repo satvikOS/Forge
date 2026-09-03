@@ -229,6 +229,38 @@ SketchPoint readPoint(SketchHandle h, SketchParamId pid);
 // one point, then solve" workflows from JS.
 void writePoint(SketchHandle h, SketchParamId pid, double x, double y);
 
+// ── READING BACK AN ENTITY ──────────────────────────────────────────────────
+// readPoint() exposes a POINT's live (x, y). An ENTITY had no accessor at all,
+// so a caller could add a circle and never learn what radius the solve left it
+// at. That gap is not academic: RADIUS, DIAM, EQUAL and TANG all MOVE a radius,
+// and an arc's endpoints are derived from its angles — so the as-drawn numbers
+// a caller passed to addCircle / addArc stop being true the moment solve() runs,
+// and a surface that reported them back would be reporting the drawing rather
+// than the model.
+//
+// This adds NO numerics. Every field is either a raw parameter the solver itself
+// mutates (centre, radius, angles, the stored endpoints) or the elementary
+// length of the curve those parameters define.
+enum class SketchEntityShape : std::uint8_t { Line = 1, Circle = 2, Arc = 3 };
+
+struct SketchEntityGeometry {
+    SketchEntityShape shape = SketchEntityShape::Line;
+    double x0 = 0.0, y0 = 0.0;   // Line: first endpoint.  Arc: start point.
+    double x1 = 0.0, y1 = 0.0;   // Line: second endpoint. Arc: end point.
+    double cx = 0.0, cy = 0.0;   // Circle / Arc: centre.
+    double radius = 0.0;         // Circle / Arc.
+    double startAngle = 0.0;     // Arc only, RADIANS — planegcs's own storage.
+    double endAngle   = 0.0;     //   ditto; the sweep is normalised into (-pi, pi]
+                                 //   exactly as extractProfileRings normalises it,
+                                 //   so the length below is the arc the profile
+                                 //   bridge actually builds and not the major arc.
+    double length = 0.0;         // line |p1-p0| / arc |r*sweep| / circle 2*pi*r
+};
+
+// The live geometry of one entity, read out of the SAME storage solve() writes.
+// Throws (like every other accessor here) on an id that is not an entity of `h`.
+SketchEntityGeometry readEntity(SketchHandle h, SketchEntityId eid);
+
 // Build OCCT wires (TopoDS_Wire) from the sketch's lines / circles / arcs.
 // The sketch is assumed to live on the XY plane (Z = 0) — every native
 // part-feature consumer (extrude, revolve, sweep, …) re-orients via its
@@ -310,6 +342,30 @@ struct SketchDiagnostics {
     std::vector<int>    partiallyRedundant;     // constraint TAGS over-determining a sub-DOF
     std::vector<SketchDependentParam> dependentParams;  // which geometry is still free
     int                 dependentParamGroupCount;
+    // ── WHY THE TWO FIELDS BELOW EXIST, MEASURED ────────────────────────────
+    // `dependentParams` above is a faithful copy of GCS::getDependentParams(),
+    // and that list is a MULTISET: GCS.cpp pushes a parameter once per group it
+    // belongs to (GCS.cpp:5329-5336), so a coupled point coordinate appears
+    // several times. Its LENGTH is therefore not a count of free parameters —
+    // a two-coordinate point in a three-freedom sketch measured as SIX.
+    //
+    // `SketchDependentParam::group` has the mirror-image loss: it is the FIRST
+    // group holding that parameter, and the engine's groups OVERLAP, so a group
+    // whose every member also appears in an earlier one vanishes entirely from
+    // any reconstruction built out of that field. Measured: a sketch with
+    // dofsNumber()==4 reconstructed as three groups.
+    //
+    // Neither field is changed — a caller reading them keeps exactly what it
+    // read. These two are what a caller needs to say something TRUE:
+    //
+    //   distinctDependentParams  every free parameter exactly ONCE, so its size
+    //                            is a count somebody can print.
+    //   dependentParamGroups     the engine's groups as the engine computed
+    //                            them, each parameter mapped back to geometry,
+    //                            deduplicated WITHIN a group and overlapping
+    //                            BETWEEN groups exactly as the coupling does.
+    std::vector<SketchDependentParam>              distinctDependentParams;
+    std::vector<std::vector<SketchDependentParam>> dependentParamGroups;
     // Classification derived from the above (DCM-style):
     //   "well"       — dof == 0, no conflicts/redundancy
     //   "under"      — dof  > 0

@@ -102,6 +102,17 @@ compile_one "$KERNEL/src/native/linalg/LinAlg.cpp" "$OUT/LinAlg.o" || exit 2
 echo "[3/4] forge::Sketcher facade + forge::ft compiler + graph audit"
 compile_one "$KERNEL/src/Sketcher.cpp"               "$OUT/Sketcher.o" || exit 2
 compile_one "$KERNEL/src/ft/FeatureTreeCompiler.cpp" "$OUT/FeatureTreeCompiler.o" || exit 2
+# SketchInspect.cpp owns the ONE CON keyword table the compiler dispatches
+# through, so it is a hard dependency of FeatureTreeCompiler.o and not an extra.
+#
+# WHAT ITS ABSENCE DID, MEASURED. The link below leaves the kernel's geometry
+# symbols unresolved on purpose; on Darwin that is -undefined dynamic_lookup,
+# which does not distinguish "a geometry symbol this gate never calls" from "a
+# forge::ft symbol the compiler calls on every CON statement". So omitting this
+# TU did not fail the link -- it produced a binary that SIGSEGV'd (exit 139) the
+# first time a tree contained a constraint. A gate that dies before its first
+# assertion reports no failures at all.
+compile_one "$KERNEL/src/ft/SketchInspect.cpp"       "$OUT/SketchInspect.o" || exit 2
 # compile() calls auditGraph() unconditionally (s0.4). It is pure std C++, so it
 # is linked FOR REAL here rather than stubbed -- the gate's trees go through the
 # same graph-quality pass every other tree does.
@@ -125,7 +136,8 @@ if [ -d "$OCCT_LIB" ]; then
   LIBS=(-L"$OCCT_LIB" -lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo -lTKGeomAlgo)
 fi
 
-"$CXX" -std=c++20 "$OUT/sketch_solve_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/Sketcher.o" "$OUT/GraphAudit.o" \
+"$CXX" -std=c++20 "$OUT/sketch_solve_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/Sketcher.o" \
+    "$OUT/SketchInspect.o" "$OUT/GraphAudit.o" \
     "${PG_OBJS[@]}" "$OUT/LinAlg.o" -o "$OUT/sketch_solve" "${LIBS[@]}" "${UNDEF[@]}" || exit 2
 
 echo

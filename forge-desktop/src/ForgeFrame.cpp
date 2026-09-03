@@ -1576,6 +1576,13 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingCopilotDiscard_ = false;
     runCopilotDiscard();
   }
+  // The Dimensions panel's Apply, deferred for the reason every mutation in this
+  // class is: it rewrites a statement, which rebuilds the document, the feature
+  // tree and the scene, and the walk that drew the button was indexing the tree.
+  if (pendingSketchEditValid_) {
+    pendingSketchEditValid_ = false;
+    applySketchDimensionEdit(pendingSketchEditIrId_, pendingSketchEditValue_);
+  }
   // Run on the parameter prompt, deferred for the same reason: it dispatches a
   // command that can replace the document (file.open, app.load_sample) and
   // rebuild the feature tree the walk was indexing.
@@ -2169,6 +2176,14 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawFeatureTreePanel();
   } else if (panelId == "properties" || panelId == "operation_params") {
     drawPropertiesPanel();
+  } else if (panelId == "constraints") {
+    drawSketchConstraintsPanel();
+  } else if (panelId == "dimensions") {
+    drawSketchDimensionsPanel();
+  } else if (panelId == "relations") {
+    drawSketchRelationsPanel();
+  } else if (panelId == "curve_list") {
+    drawSketchCurvesPanel();
   } else if (panelId == "console" || panelId == "archie_trace" || panelId == "solver_log" ||
              panelId == "simulation_log") {
     drawConsolePanel();
@@ -3341,6 +3356,610 @@ void ForgeFrame::drawCopilotPanel() {
   if (!copilot_.hasPlan()) {
     ImGui::SameLine();
     ImGui::TextDisabled("nothing on offer");
+  }
+}
+
+// ── THE SKETCH PANELS ───────────────────────────────────────────────────────
+//
+// Four tabs — Constraints, Dimensions, Relations and Curves — over ONE reading
+// of the live constraint solver. Every number any of them prints was read back
+// out of planegcs after the same solve the part was built with: a coordinate
+// comes from the solver's own parameter storage, an error comes from its own
+// residual function, "still free to move" comes from its own Jacobian rank. Not
+// one of them is carried over from the statement that drew the sketch, because
+// the whole point of a solver is that the drawing stops being true the moment it
+// runs — a circle drawn at r4 with a Radius constraint of 6 IS 6, and a panel
+// that showed 4 would be showing the request instead of the part.
+//
+// WHAT IS DELIBERATELY NOT HERE. Nothing invents a number to fill a column. A
+// residual that the solver cannot give (because the constraint never reached it,
+// or was dropped to make the rest solvable) prints as "-", and a dimension whose
+// statement has no single number to edit is READ-ONLY and says so, rather than
+// offering a field that quietly does nothing.
+namespace {
+
+// How far a constraint may be from satisfied and still be called satisfied. One
+// nanometre: six orders of magnitude below anything a machine shop can hold, so
+// a row this calls "holding" is holding by any standard a user has. It exists at
+// all because a converged solve leaves rounding, not zero, and labelling 1e-16
+// as "not met" would make every well-solved sketch look broken.
+constexpr double kSketchSatisfiedTolerance = 1.0e-6;
+
+// The words a person reads for each constraint the solver dispatches.
+//
+// The IR spells "DIST" and the kernel hands that spelling straight through,
+// deliberately: the prose gate reads THIS file, so a sentence written in the
+// kernel would be a sentence nothing scans. The mapping therefore lives here,
+// where it is checked. A keyword with no row is drawn AS WRITTEN rather than
+// dropped — "DIST" is a word a machinist can read, and hiding a constraint would
+// be worse than naming it tersely. The sketch panel gate requires a row for every
+// keyword the kernel dispatches, so the terse path is a backstop and not the
+// normal case.
+struct SketchConstraintLabel {
+  const char* keyword;
+  const char* label;
+};
+const SketchConstraintLabel kSketchConstraintLabels[] = {
+    {"COINC", "Coincident"},  {"PARA", "Parallel"},   {"PERP", "Perpendicular"},
+    {"TANG", "Tangent"},      {"EQUAL", "Equal"},     {"CONC", "Concentric"},
+    {"COLL", "Collinear"},    {"SYMM", "Symmetric"},  {"MIDPT", "Midpoint"},
+    {"HORIZ", "Horizontal"},  {"VERT", "Vertical"},   {"PTON", "Point on curve"},
+    {"FIX", "Fixed in place"},{"DIST", "Distance"},   {"DISTX", "Horizontal distance"},
+    {"DISTY", "Vertical distance"}, {"ANGLE", "Angle"}, {"RADIUS", "Radius"},
+    {"DIAM", "Diameter"},
+};
+
+const char* sketchFreeRoleWord(forge::ft::SketchFreeRole role) {
+  switch (role) {
+    case forge::ft::SketchFreeRole::X: return "left and right";
+    case forge::ft::SketchFreeRole::Y: return "up and down";
+    case forge::ft::SketchFreeRole::Radius: return "its radius";
+    case forge::ft::SketchFreeRole::StartAngle: return "where it starts";
+    case forge::ft::SketchFreeRole::EndAngle: return "where it ends";
+    case forge::ft::SketchFreeRole::Other: break;
+  }
+  return "one of its values";
+}
+
+}  // namespace
+
+std::string sketchConstraintLabel(const std::string& keyword) {
+  for (const SketchConstraintLabel& row : kSketchConstraintLabels) {
+    if (keyword == row.keyword) return row.label;
+  }
+  return keyword;
+}
+
+const forge::ft::SketchInspection& ForgeFrame::sketchInspection() {
+  // THE WITNESS IS THE PROGRAM ITSELF, compared, exactly as builtProgram_ is the
+  // witness for the scene. A dirty FLAG here would have to be set by every path
+  // that can change the document — the menu, the keyboard, the palette, undo,
+  // redo, file.open, the CoPilot — and the one that forgot would leave these
+  // four panels describing a sketch the user has already edited.
+  const std::string program = partDoc_.irProgram();
+  if (sketchInspected_ && program == sketchProgram_) return sketchInspection_;
+  sketchInspection_ = forge::ft::inspectSketchesText(program);
+  sketchProgram_ = program;
+  sketchInspected_ = true;
+  if (!sketchInspection_.ok && !sketchInspection_.error.empty()) {
+    // A program the sketch reader cannot parse is a program the SCENE cannot
+    // compile either, so this is the same failure the rebuild path already
+    // translates — and it is translated the same way, through the one
+    // translator, with the internal cause going to the log's detail channel
+    // where an engineer can read it and a user never has to. Handing the raw
+    // cause to note() would put it straight into the panel the console draws,
+    // which is the leak this whole translator exists for.
+    shell_.log().error("sketch", forge::ui::userFacingBuildFailure(sketchInspection_.error),
+                       sketchInspection_.error);
+  }
+  return sketchInspection_;
+}
+
+int ForgeFrame::activeSketchIrId() {
+  const forge::ft::SketchInspection& insp = sketchInspection();
+  if (insp.sketches.empty()) return 0;
+  // 1. THE SKETCH THE SELECTION IS IN. forge::ui::sketchRootOf is the same walk
+  //    the command predicates use to decide whether a pair of picked entities
+  //    belongs to one sketch, so the panel and the menu cannot disagree about
+  //    which sketch the user is working in.
+  for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+    const int irId = partDoc_.valueFor(r.bodyId);
+    if (irId == 0) continue;
+    const int root = forge::ui::sketchRootOf(partDoc_, irId);
+    if (root == 0) continue;
+    for (const forge::ft::SketchInfo& s : insp.sketches) {
+      if (s.irId == root) return root;
+    }
+  }
+  // 2. Otherwise the most recent sketch in the document, which is the one a user
+  //    who just drew something is looking at.
+  return insp.sketches.back().irId;
+}
+
+const forge::ft::SketchInfo* ForgeFrame::activeSketch() {
+  const int id = activeSketchIrId();
+  if (id == 0) return nullptr;
+  for (const forge::ft::SketchInfo& s : sketchInspection().sketches) {
+    if (s.irId == id) return &s;
+  }
+  return nullptr;
+}
+
+std::string ForgeFrame::sketchEntityName(const forge::ft::SketchInfo& s, int irId) const {
+  for (const forge::ft::SketchEntityInfo& e : s.entities) {
+    if (e.irId != irId) continue;
+    switch (e.kind) {
+      case forge::ft::SketchCurveKind::Point: return "Point " + std::to_string(irId);
+      case forge::ft::SketchCurveKind::Line: return "Line " + std::to_string(irId);
+      case forge::ft::SketchCurveKind::Circle: return "Circle " + std::to_string(irId);
+      case forge::ft::SketchCurveKind::Arc: return "Arc " + std::to_string(irId);
+    }
+  }
+  return "Item " + std::to_string(irId);
+}
+
+int ForgeFrame::sketchDimensionNumberIndex(int statementIrId) const {
+  const forge::ui::FeatureRecord* rec = partDoc_.featureAt(statementIrId);
+  if (rec == nullptr) return -1;
+  // The index part.edit_feature counts by is the position among the statement's
+  // NUMBER arguments. A dimension statement carries exactly one — a constrained
+  // distance, an angle, a radius — so a statement with two would be one this
+  // function cannot aim at, and it refuses rather than editing whichever came
+  // first. A refusal makes the row read-only; a guess would silently rewrite the
+  // wrong number of somebody's part.
+  int numbers = 0;
+  int firstIndex = -1;
+  for (const forge::ui::IrArg& a : rec->line.args) {
+    if (a.kind != forge::ui::IrArgKind::Number) continue;
+    if (firstIndex < 0) firstIndex = numbers;
+    ++numbers;
+  }
+  return numbers == 1 ? firstIndex : -1;
+}
+
+bool ForgeFrame::applySketchDimensionEdit(int statementIrId, double value) {
+  const int index = sketchDimensionNumberIndex(statementIrId);
+  if (index < 0) {
+    note("statement %" + std::to_string(statementIrId) +
+         " has no single number to change, so the dimension was not edited");
+    return false;
+  }
+  forge::ui::CommandParams p;
+  p.setNumber("feature", static_cast<double>(statementIrId));
+  p.setNumber("index", static_cast<double>(index));
+  p.setNumber("value", value);
+  // THE ONE REGISTRY, for the same reason the Properties panel uses it: a panel
+  // that wrote to the document itself would bypass the undo stack, the activity
+  // log and the enabled predicate.
+  const forge::ui::DispatchResult r = shell_.run("part.edit_feature", p);
+  if (!r.ok()) {
+    note("part.edit_feature  ->  " + std::string(forge::ui::toString(r.status)) +
+         (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+    return false;
+  }
+  note("part.edit_feature  ->  ok");
+  // The document changed, so the part is rebuilt from it AND the field is
+  // released: sketchInspection() will re-read the solver on the next call
+  // because the program text it compares against has moved.
+  syncSceneToDocument();
+  sketchEditIrId_ = 0;
+  return true;
+}
+
+const forge::ft::SketchInfo* ForgeFrame::drawSketchHeader(const char* title,
+                                                          const char* emptyLine1,
+                                                          const char* emptyLine2) {
+  ImGui::TextColored(rgb(242, 158, 38), "%s", title);
+  ImGui::Separator();
+  const forge::ft::SketchInfo* s = activeSketch();
+  if (s == nullptr) {
+    // AN EMPTY STATE IS A FEATURE. It says what the user has to do to fill this
+    // tab, which is the one thing a panel with nothing in it can usefully say.
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("%s", emptyLine1);
+    ImGui::Spacing();
+    ImGui::TextWrapped("%s", emptyLine2);
+    ImGui::PopTextWrapPos();
+    return nullptr;
+  }
+
+  std::size_t curves = 0;
+  for (const forge::ft::SketchEntityInfo& e : s->entities) {
+    if (e.kind != forge::ft::SketchCurveKind::Point) ++curves;
+  }
+  ImGui::Text("Sketch %d   %zu curves, %zu constraints", s->irId, curves,
+              s->constraints.size());
+
+  // THE HEALTH LINE, from the solver's own verdict — not from counting.
+  // Counting entities against constraints is the estimate every sketcher starts
+  // with and it is wrong for any coupled sketch; this is the Jacobian rank.
+  switch (s->health) {
+    case forge::ft::SketchHealth::FullyConstrained:
+      ImGui::TextColored(rgb(120, 200, 130), "Fully constrained. Nothing in it can move.");
+      break;
+    case forge::ft::SketchHealth::UnderConstrained:
+      if (s->dof > 0) {
+        ImGui::TextColored(rgb(235, 175, 95), "%d %s of movement left.", s->dof,
+                           s->dof == 1 ? "direction" : "directions");
+      } else {
+        ImGui::TextColored(rgb(235, 175, 95), "Parts of this sketch can still move.");
+      }
+      break;
+    case forge::ft::SketchHealth::OverConstrained:
+      ImGui::TextColored(rgb(235, 105, 95),
+                         "Too many constraints: some of them contradict each other.");
+      break;
+    case forge::ft::SketchHealth::Redundant:
+      ImGui::TextColored(rgb(235, 175, 95),
+                         "Solved, but some constraints repeat what others already say.");
+      break;
+    case forge::ft::SketchHealth::Empty:
+      ImGui::TextColored(rgb(235, 175, 95),
+                         "Nothing constrains this sketch yet, so all of it can move.");
+      break;
+  }
+  if (s->solveIrId == 0) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextDisabled("Not solved yet. Use Solve Sketch to turn it into a profile you can "
+                        "extrude or revolve.");
+    ImGui::PopTextWrapPos();
+  } else if (s->solved && !s->converged) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(235, 105, 95),
+                       "The solver could not meet every constraint, so the sketch kept the "
+                       "positions it was drawn with.");
+    ImGui::PopTextWrapPos();
+  }
+  if (!s->planeApplied) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(235, 175, 95),
+                       "This sketch asked for a different plane. Forge builds it flat, so the "
+                       "positions below are the ones the part actually has.");
+    ImGui::PopTextWrapPos();
+  }
+  return s;
+}
+
+// ── Constraints ─────────────────────────────────────────────────────────────
+void ForgeFrame::drawSketchConstraintsPanel() {
+  sketchConstraintRows_ = 0;
+  const forge::ft::SketchInfo* s = drawSketchHeader(
+      "Constraints", "There is no sketch in this part yet.",
+      "Start one with New Sketch, then place points and lines in it. Everything you constrain "
+      "shows up here with the solver's own verdict on it.");
+  if (s == nullptr) return;
+  ImGui::Spacing();
+  if (s->constraints.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("Nothing constrains this sketch yet. Pick one line and use Constrain "
+                       "Entity, or two points and Constrain Entity Pair.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextDisabled("The number on each row is how far this sketch is from satisfying it.");
+  ImGui::Separator();
+  for (const forge::ft::SketchConstraintInfo& c : s->constraints) {
+    ++sketchConstraintRows_;
+    ImGui::PushID(c.irId);
+
+    // The verdict, in the order the solver decides it: whether it reached the
+    // solver at all, then whether the repair had to drop it, then what the
+    // diagnosis said about it, and only then its numeric error.
+    const char* verdict = "holding";
+    ImVec4 colour = rgb(120, 200, 130);
+    std::string because;
+    switch (c.state) {
+      case forge::ft::SketchConstraintState::UnknownKind:
+        verdict = "not applied";
+        colour = rgb(235, 175, 95);
+        because = "Forge has no constraint called " + c.keyword + ".";
+        break;
+      case forge::ft::SketchConstraintState::BadOperand:
+        verdict = "not applied";
+        colour = rgb(235, 175, 95);
+        because = "It names something that is not part of this sketch.";
+        break;
+      case forge::ft::SketchConstraintState::Rejected:
+        verdict = "not applied";
+        colour = rgb(235, 175, 95);
+        because = "This kind of constraint cannot be put on what it names.";
+        break;
+      case forge::ft::SketchConstraintState::Applied:
+        if (c.demoted) {
+          verdict = "dropped";
+          colour = rgb(235, 105, 95);
+          because = c.demotedForConflict
+                        ? "Dropped so the rest could solve: it contradicts another constraint."
+                        : "Dropped so the rest could solve: it could not be met.";
+        } else if (c.conflicting) {
+          verdict = "conflicts";
+          colour = rgb(235, 105, 95);
+          because = "It contradicts another constraint on this sketch.";
+        } else if (c.redundant || c.partiallyRedundant) {
+          verdict = "repeats";
+          colour = rgb(235, 175, 95);
+          because = "It adds nothing the other constraints do not already say.";
+        } else if (c.hasResidual && std::fabs(c.residual) > kSketchSatisfiedTolerance) {
+          verdict = "not met";
+          colour = rgb(235, 175, 95);
+          because = "The sketch does not satisfy it as it stands.";
+        }
+        break;
+    }
+
+    ImGui::TextColored(colour, "%-12s", verdict);
+    ImGui::SameLine();
+    ImGui::Text("%-20s", sketchConstraintLabel(c.keyword).c_str());
+    ImGui::SameLine();
+
+    std::string on;
+    for (const int operand : c.operandIrIds) {
+      if (!on.empty()) on += " and ";
+      on += sketchEntityName(*s, operand);
+    }
+    ImGui::Text("%s", on.c_str());
+
+    if (c.hasValue) {
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(150, 157, 168), c.angular ? "  %.3f°" : "  %.3f mm", c.value);
+    }
+    if (c.hasResidual) {
+      ImGui::SameLine();
+      // THE SOLVER'S OWN RESIDUAL, always printed when it can give one. A column
+      // that appeared only on failures would leave a user unable to tell
+      // "satisfied" from "never measured", and those are very different things.
+      // It carries no unit on purpose: the residual of a Distance is in
+      // millimetres and the residual of an Angle is not, so a unit here would be
+      // wrong on one of them.
+      ImGui::TextColored(rgb(130, 137, 148), "   error %.6f", c.residual);
+    }
+    if (!because.empty()) {
+      ImGui::Indent();
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextColored(rgb(150, 157, 168), "%s", because.c_str());
+      ImGui::PopTextWrapPos();
+      ImGui::Unindent();
+    }
+    ImGui::PopID();
+  }
+}
+
+// ── Dimensions ──────────────────────────────────────────────────────────────
+void ForgeFrame::drawSketchDimensionsPanel() {
+  sketchDimensionRows_ = 0;
+  const forge::ft::SketchInfo* s = drawSketchHeader(
+      "Dimensions", "There is no sketch in this part yet.",
+      "Start one with New Sketch. Radii and constrained distances then appear here, and "
+      "changing one of them here changes the part.");
+  if (s == nullptr) return;
+  ImGui::Spacing();
+  if (s->dimensions.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("This sketch has no dimensions yet. Add a Distance between two points, or "
+                       "a circle, and its number shows up here.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+  ImGui::TextDisabled("Change a number and the part is rebuilt from it.");
+  ImGui::Separator();
+
+  for (const forge::ft::SketchDimensionInfo& d : s->dimensions) {
+    ++sketchDimensionRows_;
+    ImGui::PushID(d.irId);
+
+    std::string what;
+    if (d.source == forge::ft::SketchDimensionSource::CircleRadius) {
+      what = "Radius of " + sketchEntityName(*s, d.irId);
+    } else {
+      what = sketchConstraintLabel(d.keyword);
+      for (const int operand : d.operandIrIds) {
+        what += (operand == d.operandIrIds.front() ? "  " : " and ");
+        what += sketchEntityName(*s, operand);
+      }
+    }
+    ImGui::Text("%s", what.c_str());
+    ImGui::SameLine();
+    ImGui::TextColored(rgb(130, 137, 148), "%s", d.angular ? "deg" : "mm");
+
+    const int index = sketchDimensionNumberIndex(d.irId);
+    if (index < 0) {
+      // READ-ONLY, AND SAID SO. A field that cannot drive the model is a lie
+      // whether or not it looks editable, so this one is not a field at all.
+      ImGui::SameLine();
+      ImGui::TextDisabled("   %.3f  (this one cannot be changed here)", d.value);
+    } else {
+      float v = (sketchEditIrId_ == d.irId) ? sketchEditValue_ : static_cast<float>(d.value);
+      ImGui::SetNextItemWidth(140.0f * dpiScale_);
+      if (ImGui::InputFloat("##dimvalue", &v, 0.0f, 0.0f, "%.3f")) {
+        sketchEditIrId_ = d.irId;
+        sketchEditValue_ = v;
+      }
+      ImGui::SameLine();
+      const bool changed =
+          sketchEditIrId_ == d.irId && static_cast<double>(sketchEditValue_) != d.value;
+      ImGui::BeginDisabled(!changed);
+      if (ImGui::Button("Apply")) {
+        // RECORDED, not applied: this dispatches part.edit_feature, which
+        // rewrites the document and rebuilds the feature tree the dock walk is
+        // indexing. Every other mutation reachable from inside a panel is
+        // deferred for exactly this reason, and the three crashes that taught
+        // this class the rule were all the same shape.
+        pendingSketchEditValid_ = true;
+        pendingSketchEditIrId_ = d.irId;
+        pendingSketchEditValue_ = static_cast<double>(sketchEditValue_);
+      }
+      ImGui::EndDisabled();
+    }
+
+    ImGui::Indent();
+    if (!d.driving) {
+      ImGui::TextColored(rgb(235, 105, 95),
+                         "Not driving the part: the solver could not use it.");
+    } else if (d.hasSolvedValue &&
+               std::fabs(d.solvedValue - d.value) > kSketchSatisfiedTolerance) {
+      // THE MOST USEFUL LINE IN THIS PANEL. A circle drawn at 4 with a Radius
+      // constraint of 6 IS 6, and only a readback can say so.
+      ImGui::TextColored(rgb(235, 175, 95), "The part uses %.3f — something else drives it.",
+                         d.solvedValue);
+    } else if (d.hasSolvedValue) {
+      ImGui::TextColored(rgb(130, 137, 148), "The part measures %.3f here.", d.solvedValue);
+    }
+    ImGui::Unindent();
+    ImGui::PopID();
+  }
+}
+
+// ── Relations ───────────────────────────────────────────────────────────────
+void ForgeFrame::drawSketchRelationsPanel() {
+  sketchRelationRows_ = 0;
+  const forge::ft::SketchInfo* s = drawSketchHeader(
+      "Relations", "There is no sketch in this part yet.",
+      "Start one with New Sketch. Once it has constraints on it, this tab shows what moves "
+      "when you drag something and what is holding everything else still.");
+  if (s == nullptr) return;
+  ImGui::Spacing();
+
+  // ── WHAT MOVES TOGETHER ────────────────────────────────────────────────
+  // One group per remaining direction of movement, straight out of the solver's
+  // own coupling analysis. Groups OVERLAP where a curve is coupled to more than
+  // one direction, and that overlap is the answer to "what will move when you
+  // drag this" rather than an artefact.
+  ImGui::TextColored(rgb(242, 158, 38), "What moves together");
+  ImGui::Separator();
+  if (s->freeGroups.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("Nothing can move: the constraints on this sketch hold every curve in it.");
+    ImGui::PopTextWrapPos();
+  } else {
+    for (const forge::ft::SketchFreeGroup& g : s->freeGroups) {
+      ++sketchRelationRows_;
+      std::string members;
+      for (const int irId : g.entityIrIds) {
+        if (!members.empty()) members += ", ";
+        members += sketchEntityName(*s, irId);
+      }
+      if (members.empty()) members = "part of this sketch";
+      ImGui::BulletText("%s", members.c_str());
+    }
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "What each curve is free to do");
+  ImGui::Separator();
+  std::size_t movable = 0;
+  for (const forge::ft::SketchEntityInfo& e : s->entities) {
+    if (e.freeRoles.empty()) continue;
+    ++movable;
+    ++sketchRelationRows_;
+    std::string ways;
+    for (const forge::ft::SketchFreeRole role : e.freeRoles) {
+      if (!ways.empty()) ways += ", ";
+      ways += sketchFreeRoleWord(role);
+    }
+    ImGui::BulletText("%s   moves %s", sketchEntityName(*s, e.irId).c_str(), ways.c_str());
+  }
+  if (movable == 0) {
+    ImGui::TextDisabled("Every curve is held in place.");
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "What is holding each curve");
+  ImGui::Separator();
+  std::size_t held = 0;
+  for (const forge::ft::SketchEntityInfo& e : s->entities) {
+    if (e.constraintIrIds.empty()) continue;
+    ++held;
+    ++sketchRelationRows_;
+    std::string by;
+    for (const int conIrId : e.constraintIrIds) {
+      for (const forge::ft::SketchConstraintInfo& c : s->constraints) {
+        if (c.irId != conIrId) continue;
+        if (!by.empty()) by += ", ";
+        by += sketchConstraintLabel(c.keyword);
+        // The OTHER end of the constraint, which is the relation itself: this
+        // curve is tied to that one.
+        for (const int operand : c.operandIrIds) {
+          if (operand == e.irId) continue;
+          by += " to " + sketchEntityName(*s, operand);
+        }
+      }
+    }
+    ImGui::BulletText("%s   %s", sketchEntityName(*s, e.irId).c_str(), by.c_str());
+  }
+  if (held == 0) {
+    ImGui::TextDisabled("No curve in this sketch carries a constraint yet.");
+  }
+}
+
+// ── Curves ──────────────────────────────────────────────────────────────────
+void ForgeFrame::drawSketchCurvesPanel() {
+  sketchCurveRows_ = 0;
+  const forge::ft::SketchInfo* s = drawSketchHeader(
+      "Curves", "There is no sketch in this part yet.",
+      "Start one with New Sketch and draw in it. Every point, line, circle and arc it holds is "
+      "listed here at the size the solver gave it, and picking a row here picks it in the model.");
+  if (s == nullptr) return;
+
+  std::size_t points = 0, lines = 0, circles = 0, arcs = 0;
+  for (const forge::ft::SketchEntityInfo& e : s->entities) {
+    switch (e.kind) {
+      case forge::ft::SketchCurveKind::Point: ++points; break;
+      case forge::ft::SketchCurveKind::Line: ++lines; break;
+      case forge::ft::SketchCurveKind::Circle: ++circles; break;
+      case forge::ft::SketchCurveKind::Arc: ++arcs; break;
+    }
+  }
+  ImGui::Text("%zu points, %zu lines, %zu circles, %zu arcs", points, lines, circles, arcs);
+  ImGui::Separator();
+  if (s->entities.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("This sketch is empty. Add a Sketch Point to it, then join two points "
+                       "with a Sketch Line.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  for (const forge::ft::SketchEntityInfo& e : s->entities) {
+    ++sketchCurveRows_;
+    ImGui::PushID(e.irId);
+    char row[224];
+    switch (e.kind) {
+      case forge::ft::SketchCurveKind::Point:
+        std::snprintf(row, sizeof(row), "Point %-4d  (%.3f, %.3f)", e.irId, e.x0, e.y0);
+        break;
+      case forge::ft::SketchCurveKind::Line:
+        std::snprintf(row, sizeof(row), "Line %-5d  (%.3f, %.3f) to (%.3f, %.3f)   %.3f mm long",
+                      e.irId, e.x0, e.y0, e.x1, e.y1, e.length);
+        break;
+      case forge::ft::SketchCurveKind::Circle:
+        std::snprintf(row, sizeof(row), "Circle %-3d  centre (%.3f, %.3f)   radius %.3f mm",
+                      e.irId, e.cx, e.cy, e.radius);
+        break;
+      case forge::ft::SketchCurveKind::Arc:
+        std::snprintf(row, sizeof(row),
+                      "Arc %-6d  centre (%.3f, %.3f)   radius %.3f mm   %.3f mm long", e.irId,
+                      e.cx, e.cy, e.radius, e.length);
+        break;
+    }
+    bool selected = false;
+    for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+      if (r.persistentName == "feature@" + std::to_string(e.irId)) selected = true;
+    }
+    // Picking a row picks the entity, through the SAME clickFeature the feature
+    // tree uses — which is what makes the sketch commands (a line needs two
+    // points, an arc needs three) reachable from this list.
+    if (ImGui::Selectable(row, selected)) {
+      clickFeature(e.irId, ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
+    }
+    if (e.hasWrittenRadius && e.hasRadius &&
+        std::fabs(e.writtenRadius - e.radius) > kSketchSatisfiedTolerance) {
+      ImGui::Indent();
+      ImGui::TextColored(rgb(235, 175, 95), "drawn at %.3f mm; a constraint moved it",
+                         e.writtenRadius);
+      ImGui::Unindent();
+    }
+    ImGui::PopID();
   }
 }
 

@@ -168,6 +168,15 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # volume and the centre of mass identical. A gate checking volume alone passes both.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
+# The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.
+# Its subject is the difference between the drawing and the model -- the test
+# sketch is drawn 30 x 18 and constrained 40 x 25, and a circle drawn at r4 is
+# driven to r6 -- so a panel echoing its own input fails every check in it. The
+# last block extrudes the solved profile, edits a dimension through the panel's
+# own edit path and requires the SOLID's bounding box to move from 40 to 60 mm
+# while the other axis stays put, which is what makes "this field drives the
+# model" a measurement rather than a claim.
+run_gate forge_desktop_sketch_panels_gate 1 2 3 4 5 6
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

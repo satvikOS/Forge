@@ -346,6 +346,19 @@ class UndoStack {
   std::vector<std::unique_ptr<UndoableEdit>> undone_;
 };
 
+// ── which SKETCH does this statement belong to ──────────────────────────────
+// The SKETCH statement a sketch value ultimately belongs to; 0 when the id names
+// nothing in the sketch family. It follows each statement's FIRST operand, which
+// is what every op in the family uses to name its sketch, so it terminates on
+// the one statement whose first argument is not a reference — SKETCH itself.
+//
+// It is on the interface because there are now TWO callers who must agree: the
+// command predicates that grey out a cross-sketch pair, and the application's
+// sketch panels, which have to decide which sketch the user is looking at. Two
+// walks of the same chain is two answers that can disagree, and the disagreement
+// would show up as a panel describing one sketch while the menu acts on another.
+int sketchRootOf(const PartDocument& doc, int irId);
+
 // ── registration ────────────────────────────────────────────────────────────
 // Adds the Part workspace core to `registry` and returns how many were added.
 // Both references must outlive the registry: the handlers capture them.

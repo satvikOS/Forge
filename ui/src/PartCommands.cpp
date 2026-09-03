@@ -419,32 +419,11 @@ std::string surfaceNodeFor(int irId) { return "surface_" + std::to_string(irId);
 std::string openSketchNodeFor(int irId) { return "opensketch_" + std::to_string(irId); }
 std::string sketchRefNodeFor(int irId) { return "sketchref_" + std::to_string(irId); }
 
-// The SKETCH statement a sketch value ultimately belongs to, 0 when there is
-// none. Not a guess: every statement in this family names its sketch through its
-// FIRST operand -- SPT names the sketch directly, SLINE / SCIRC / SARC name
-// another entity of the same sketch (the compiler REFUSES operands from two
-// different sketches), and CON is pass-through over one of those -- so following
-// the first %ref terminates on the one statement of the family whose first
-// argument is NOT a %ref, which is SKETCH(PLANE) and only SKETCH(PLANE). The
-// test is structural rather than a comparison against the op name, so it does
-// not go quietly wrong if the family gains another root.
-//
-// validateIr() has already proved every %ref is STRICTLY EARLIER than the
-// statement holding it, so the chain cannot cycle; the record-count bound is
-// belt and braces against a future op whose first operand is not its parent.
-int sketchRootOf(const PartDocument& doc, int irId) {
-  for (std::size_t hop = 0; hop <= doc.records().size(); ++hop) {
-    const FeatureRecord* rec = doc.featureAt(irId);
-    if (rec == nullptr) return 0;
-    const bool sketch = rec->produces == IrValueKind::Sketch;
-    if (!sketch && rec->produces != IrValueKind::SketchRef) return 0;
-    if (rec->line.args.empty() || rec->line.args.front().kind != IrArgKind::Ref) {
-      return sketch ? irId : 0;
-    }
-    irId = rec->line.args.front().ref;
-  }
-  return 0;
-}
+// sketchRootOf() USED TO LIVE HERE, with internal linkage. It is now declared in
+// PartCommands.hpp and defined below the anonymous namespace: the application's
+// sketch panels have to answer the same question -- WHICH SKETCH does this
+// statement belong to -- and a second copy of this walk in the frame builder
+// would be a second answer able to disagree with the one the menu greys out on.
 
 // The document node of the ONE sketch every selected entity belongs to. "" means
 // either that the selection holds no sketch entity, or -- the case that matters
@@ -595,6 +574,33 @@ CommandDescriptor base(const char* id, const char* label, const char* irOp,
 }
 
 }  // namespace
+
+// The SKETCH statement a sketch value ultimately belongs to, 0 when there is
+// none. Not a guess: every statement in this family names its sketch through its
+// FIRST operand -- SPT names the sketch directly, SLINE / SCIRC / SARC name
+// another entity of the same sketch (the compiler REFUSES operands from two
+// different sketches), and CON is pass-through over one of those -- so following
+// the first %ref terminates on the one statement of the family whose first
+// argument is NOT a %ref, which is SKETCH(PLANE) and only SKETCH(PLANE). The
+// test is structural rather than a comparison against the op name, so it does
+// not go quietly wrong if the family gains another root.
+//
+// validateIr() has already proved every %ref is STRICTLY EARLIER than the
+// statement holding it, so the chain cannot cycle; the record-count bound is
+// belt and braces against a future op whose first operand is not its parent.
+int sketchRootOf(const PartDocument& doc, int irId) {
+  for (std::size_t hop = 0; hop <= doc.records().size(); ++hop) {
+    const FeatureRecord* rec = doc.featureAt(irId);
+    if (rec == nullptr) return 0;
+    const bool sketch = rec->produces == IrValueKind::Sketch;
+    if (!sketch && rec->produces != IrValueKind::SketchRef) return 0;
+    if (rec->line.args.empty() || rec->line.args.front().kind != IrArgKind::Ref) {
+      return sketch ? irId : 0;
+    }
+    irId = rec->line.args.front().ref;
+  }
+  return 0;
+}
 
 std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                                  UndoStack& stack) {

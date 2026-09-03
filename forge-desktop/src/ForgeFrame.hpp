@@ -47,6 +47,10 @@
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/StatusModel.hpp"
 #include "forge/ui/ToolCatalog.hpp"
+// The sketch panels read the LIVE constraint solver through this. It is plain
+// C++ over plain data and reaches no OCCT header, which is what lets the frame
+// builder include it at all -- forge/Sketcher.hpp, which it wraps, does not.
+#include "forge/ft/SketchInspect.hpp"
 #include "forge/ui/Types.hpp"
 
 struct ImDrawList;
@@ -355,6 +359,49 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // one was actually drawn.
   std::size_t measureEdgeRowsDrawn() const noexcept { return measureEdgeRowsDrawn_; }
 
+  // ── THE SKETCH PANELS' DATA ─────────────────────────────────────────────
+  // Constraints, Dimensions, Relations and Curves all report ONE thing: the
+  // state of the sketch the user is working in, as the constraint solver has it
+  // right now. So they share ONE reading of it rather than each taking their own
+  // -- four readings of one sketch is four numbers that can disagree, and the
+  // solver is the expensive part besides.
+  //
+  // The reading is re-taken when the DOCUMENT'S PROGRAM CHANGES, on the same
+  // witness the scene rebuild uses: the IR text itself, compared, never a flag
+  // somebody has to remember to set. Non-const because the first call after an
+  // edit is what re-takes it.
+  const forge::ft::SketchInspection& sketchInspection();
+  // The SKETCH statement the four panels are describing: the sketch the
+  // selection is in, else the last one in the document, else 0 for "there is no
+  // sketch yet", which is a state the panels say out loud rather than fake.
+  int activeSketchIrId();
+  // ★ THE RETURNED POINTER POINTS INTO THE CACHED READING. It stays valid for
+  //   as long as the document's program does — which is the whole of one frame,
+  //   because every edit reachable from a panel is deferred to after the dock
+  //   walk. A caller that changes the document must RE-FETCH: the next call
+  //   re-takes the reading and the old pointer names freed memory.
+  const forge::ft::SketchInfo* activeSketch();
+  // Rows each panel drew on its last draw. Four counters, not one: a caller
+  // asking "did the Dimensions panel list the dimension" must not be answered by
+  // a constraint row drawn in another tab.
+  std::size_t sketchConstraintRowsDrawn() const noexcept { return sketchConstraintRows_; }
+  std::size_t sketchDimensionRowsDrawn() const noexcept { return sketchDimensionRows_; }
+  std::size_t sketchRelationRowsDrawn() const noexcept { return sketchRelationRows_; }
+  std::size_t sketchCurveRowsDrawn() const noexcept { return sketchCurveRows_; }
+  // Change one driving dimension and REBUILD. Public so the gate can drive the
+  // exact path the panel's field drives, without a window.
+  //
+  // It goes through part.edit_feature and the ONE registry, like every other
+  // edit in this class: a panel that wrote to the document directly would bypass
+  // the undo stack, the journal and the enabled predicate. Returns whether the
+  // document actually changed.
+  bool applySketchDimensionEdit(int statementIrId, double value);
+  // Which NUMBER argument of that statement the dimension is, in the index
+  // part.edit_feature counts by. -1 when the statement has no number to edit,
+  // which is what makes a read-only row read-only rather than a field that
+  // silently does nothing.
+  int sketchDimensionNumberIndex(int statementIrId) const;
+
   // ── the recovered B-rep edges ───────────────────────────────────────────
   // Derived from the SAME triangle soup the Measure panel uses and cached on the
   // same witness (the scene's triangle count), so a rebuild invalidates both at
@@ -520,6 +567,20 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void runCopilotSubmit();
   void runCopilotApply();
   void runCopilotDiscard();
+  // The four sketch panels. They share one reading of the sketch and one header,
+  // so "which sketch am I looking at" and "how is it doing" cannot be answered
+  // two different ways on two tabs.
+  void drawSketchConstraintsPanel();
+  void drawSketchDimensionsPanel();
+  void drawSketchRelationsPanel();
+  void drawSketchCurvesPanel();
+  // Draws the shared title + health line and returns the sketch, or draws the
+  // empty state and returns nullptr. `title` is what this tab is called.
+  const forge::ft::SketchInfo* drawSketchHeader(const char* title, const char* emptyLine1,
+                                                const char* emptyLine2);
+  // How a statement is named to a user: "Line 6", "Point 2", "Circle 17".
+  std::string sketchEntityName(const forge::ft::SketchInfo& s, int irId) const;
+
   void drawGenericPanel(const std::string& panelId);
   void drawCommandPalette();
   void drawViewportOverlays(float x, float y, float w, float h);
@@ -780,6 +841,29 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool updateApplyPending_ = false;
   std::string runningVersion_;
   bool updateCheckPending_ = false;
+  // ── the sketch panels' shared reading ───────────────────────────────────
+  // `sketchProgram_` is the IR the reading was taken from. Comparing it to
+  // partDoc_.irProgram() is the whole staleness check -- a witness taken from
+  // the thing itself, the same idiom builtProgram_ uses for the scene.
+  forge::ft::SketchInspection sketchInspection_;
+  std::string sketchProgram_;
+  bool sketchInspected_ = false;
+  std::size_t sketchConstraintRows_ = 0;
+  std::size_t sketchDimensionRows_ = 0;
+  std::size_t sketchRelationRows_ = 0;
+  std::size_t sketchCurveRows_ = 0;
+  // The dimension field's live value, and which statement it belongs to. Held
+  // per statement id rather than per row index, because a row index moves when
+  // the document does and would silently retarget the field.
+  int sketchEditIrId_ = 0;
+  float sketchEditValue_ = 0.0f;
+  // A dimension edit asked for from INSIDE the dock walk, deferred like every
+  // other mutation in this class: part.edit_feature rewrites the document, which
+  // rebuilds the feature tree the walk is indexing.
+  bool pendingSketchEditValid_ = false;
+  int pendingSketchEditIrId_ = 0;
+  double pendingSketchEditValue_ = 0.0;
+
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
@@ -814,6 +898,14 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 
   void note(const std::string& line);
 };
+
+// The words a person reads for one sketch constraint, from the IR keyword the
+// kernel dispatches ("DIST" -> "Distance"). Exposed so the sketch-panel gate can
+// require a row for EVERY keyword forge::ft::conKeywords() carries: a keyword
+// with no row falls back to its own spelling, which is legible but terse, and a
+// silent fallback is how a wired constraint comes to be shown to a user as a
+// shouted abbreviation for ever.
+std::string sketchConstraintLabel(const std::string& keyword);
 
 // Applies the Forge dark style. Exposed so the headless gate styles its context
 // exactly as the app does — a style that only the app applies is a style nobody
