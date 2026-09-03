@@ -158,6 +158,25 @@ jobs:
         # gates. The mutation count stays written because ci_desktop_gate.sh's
         # EXPECTED_MUTATIONS idiom requires an exact figure to be falsifiable.
         run: bash ui/test/run_op_constraint_gate.sh
+      - name: two-path differential, tier 1 (kernel-free, + 9 mutations)
+        # ONE feature tree can reach the kernel two ways -- forge_verify's
+        # compileText, and commands -> OpConstraintBridge -> PartDocument ->
+        # KernelScene -- and NOTHING compared them. This tier needs no kernel: it
+        # requires the app-authored IR to be byte-identical to the planner's IR,
+        # requires the bridge to accept what the app itself emitted, and measures
+        # the ARITY DIFFERENTIAL (kernel-legal argument counts the bridge refuses)
+        # against a two-directional ratchet. run_ui.sh above runs its clean pass;
+        # this step is the PROOF that it can fail.
+        #
+        # It also drives the arm the invariant actually names: the real
+        # ArchieCopilot::submit/deliver/apply, whose plan steps carry a SYMBOLIC
+        # target rather than a %ref, so `resolveSelection` CHOOSES the operands at
+        # apply time. That arm found two live defects on its first run -- every
+        # two-body boolean ran the wrong way round, and PlanSelect could not name
+        # the WIRE kind so LOFT was unreachable -- and it RATCHETS the divergence
+        # SET, so the one that remains (an open-ended selection gets minCount
+        # values and no more) is printed on every run rather than remembered.
+        run: bash ui/test/run_differential_gate.sh
       - name: forge-desktop still TYPE-CHECKS (the cheap half of "the app builds")
         # THE GATE THAT WOULD HAVE CAUGHT 2026-08-31's UN-BUILDABLE APP, IN THIS
         # JOB, IN SECONDS.
@@ -304,6 +323,16 @@ jobs:
         # is C++ (src/update/Manifest.cpp) with a parser stricter than json.load.
         # Two halves of one contract that had never been run together.
         run: bash forge-desktop/test/appcast_selftest.sh
+      - name: the packager still stages the library nothing can SEE it needs
+        # `brew install sdl2` installs sdl2-compat, whose libSDL2 dlopen()s SDL3.
+        # A dlopen is not a link record, so a dependency walk seeded from
+        # `otool -L` stages nothing and the shipped bundle dies in a MODAL
+        # NSAlert inside a library constructor, before main(). That fix was
+        # written, proven at 80 ms (run 33445851975), and then LOST in a rewrite;
+        # run 33644564583 reproduced the hang on 2026-09-02. A comment did not
+        # survive the rewrite, so this does. --mutations is the negative control:
+        # three ways to break the staging, each of which must turn this red.
+        run: bash forge-desktop/test/sdl3_staging_gate.sh --mutations
 
   simulation:
     name: real-time simulation frame contract (SR-4)
@@ -335,7 +364,37 @@ jobs:
   kernel:
     name: OCCT kernel smoke (TRANSITIONAL — pending native C++ harness)
     runs-on: macos-latest
-    timeout-minutes: 40
+    # 75, raised from 40, and the reason is MEASURED -- including one estimate
+    # that measurement then REFUTED, which is why the ceiling is set where it is.
+    #
+    # This job hit exactly 40m21s on this branch and GitHub reported it as
+    # `cancelled`, the same word a concurrency cancel uses. It was a JOB TIMEOUT.
+    # Not a hang: the step the clock ran out on had been running 94s, every step
+    # before it had passed, and the seven after it report `skipped`.
+    #
+    # THE FIRST DIAGNOSIS WAS WRONG. It looked like growth alone --
+    #   22m26s  archdisc before this wave          run 33594358596
+    #   34m08s  + #176's sketch/constraint gate    run 33644735933
+    # -- so adding this branch's two-path differential (tier-2 alone was 850s)
+    # predicted ~48m, and 48 > 40 seemed to be the whole story.
+    #
+    # RE-RUNNING THE SAME COMMIT REFUTED THAT: run 33657049314, byte-identical
+    # content, finished in 34m19s -- INSIDE the old 40m ceiling. Every step was
+    # faster (tier-2 850s -> 719s, crash-isolation 740s -> 552s, A/B 334s
+    # nominal); about 7 minutes of pure runner variance separates the two.
+    #
+    # So the real finding is not "the job needs 48 minutes". It is that this
+    # job's cost is a DISTRIBUTION, roughly 34-41 minutes on macos-latest, and
+    # 40 was sitting in the middle of it -- which is exactly why the same
+    # content passed on #176 and #174 and died here. A ceiling inside the
+    # variance band makes the outcome a coin toss and the failure unreadable,
+    # because a timeout is spelled `cancelled`.
+    #
+    # 75 puts the ceiling clear of the band with room for the next gate, and is
+    # still far below the 180 that let three earlier timeouts read as
+    # infrastructure noise. Re-measure when a step is added -- and re-run before
+    # concluding, because one sample cannot tell growth from variance.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -473,6 +532,38 @@ jobs:
         # a wrong solid matching a right volume to ten significant figures is a measured
         # failure mode in this programme, not a hypothetical one.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: two-path differential, tier 2 (THE SOLIDS, 5 arms, mutation-swept)
+        # The IR-pipeline step above proves a UI-authored program compiles to A solid. It
+        # never compared that solid against anything, so a tree that builds headless and
+        # builds DIFFERENTLY in the app was invisible -- the same "two artifacts from one
+        # source, no gate tying them together" that produced the vocabulary/header desync
+        # nine times.
+        #
+        # This runs FOUR arms over the shared corpus and requires all four to describe
+        # the same solid: forge::ft::compileText (forge_verify's entry, where every
+        # benchmark number comes from), forge::ft::parse + compile (KernelScene's entry)
+        # over the IR the REAL registered commands assembled,
+        # forge::desktop::KernelScene itself -- the application object, tessellation and
+        # viewport de-index included -- and the forge_verify BINARY over its stdin
+        # protocol.
+        #
+        # The comparison is a VECTOR, never volume alone: valid, faces, edges, volume,
+        # area, bbox, genus, shell count, welded V/E/F, Euler characteristic, centre of
+        # mass and the s0.4 census. It reuses build-verify, so it adds no build.
+        # Nine deliberate divergences are injected and every one must be caught.
+        #
+        # A FOURTH ARM runs the forge_verify BINARY over its stdin protocol. A, B and
+        # C are three entry points inside ONE process, and the defect class this whole
+        # gate is named for is TWO ARTIFACTS built from one source: a stale,
+        # differently-configured or differently-linked verifier is invisible to any
+        # comparison that never runs it. The build below is the same one-liner the
+        # batch-survival step uses later in this job -- build-verify is already
+        # configured, so only forge_verify itself links -- and it is here rather than
+        # there because this step runs first. Its ABSENCE is exit 3, never a skip.
+        run: |
+          cmake --build forge-kernel/build-verify -j3 --target forge_verify
+          FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify \
+            bash forge-desktop/test/run_differential_solid_gate.sh
       - name: Desktop CLICK gate (the first CI step that compiles forge-desktop/src)
         # THE GATE THAT WOULD HAVE CAUGHT BOTH OF 2026-08-30's SHIPPED DEFECTS, and the
         # first thing in CI that compiles forge-desktop/src at all.

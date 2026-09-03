@@ -62,16 +62,26 @@ set -uo pipefail
 #
 # 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
-# from either parent: one side said 39 and the other 40, and each was right only
-# about its own half. The 39 predates click mutation 8 -- the camera pull path,
-# `g_mutation != 8` in click_gate.cpp. Picking a side would have been red either
-# way, in one direction or the other.
+# from either parent. This number has been contested at THREE merges now and the
+# sides have swapped between them, which is the whole argument for measuring it
+# on the tree being committed rather than inheriting it.
 #
-# frame_gate's 9 -> 12: mutation 10 (a session with a worker CONFIGURED is not
-# distinguished from one without, so the isolation report says "off" whatever is
-# true), 11 (the frame never dispatches the deferred Open Recent request, so a
-# click records and opens nothing) and 12 (a statement row is never clicked, so
-# Extrude has no Sketch to consume).
+# AT THIS MERGE (origin/archdisc into app/forge-cpp-user-ready) the parents
+# DISAGREE: this branch pins 43, the base pins 40. NEITHER was taken. Counting
+# run_desktop.sh's own run_gate arguments on the MERGED tree gives:
+#     document 8 + frame 12 + copilot 8 + update 7 + click 8 = 43
+# (ir_pipeline_gate and isolation_gate take no mutation arguments.)
+#
+# Both parents are right about their own half. The base's 40 is correct FOR THE
+# BASE, where frame_gate still runs 1..9; this branch adds frame mutations 10, 11
+# and 12 -- a worker CONFIGURED is not distinguished from one absent, the frame
+# never dispatches the deferred Open Recent request, and a statement row is never
+# clicked so Extrude has no Sketch to consume. 40 + 3 = 43.
+#
+# The confirmation, not the count: click mutation 8 -- the camera pull path,
+# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree (four
+# sites), which is what the earlier disagreements turned on. This is D-028's
+# failure mode; the method that catches it is to COUNT on the merged tree.
 EXPECTED_MUTATIONS=43
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
