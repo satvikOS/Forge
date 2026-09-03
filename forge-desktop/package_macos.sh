@@ -227,6 +227,30 @@ WORKER_SRC="$APP_BUILD/forge_kernel_worker"
 cp "$WORKER_SRC" "$APP/Contents/MacOS/forge_kernel_worker" || die "cannot stage the worker"
 chmod +x "$APP/Contents/MacOS/forge_kernel_worker"
 
+# ── ★ THE UPDATER — the difference between NOTICING a release and INSTALLING it
+# The app's own update check is READ-ONLY by design: it fetches the appcast off
+# the UI thread, decides, and downloads nothing. Everything that installs --
+# fetch, sha256, ditto staging, signature validation, renamex_np(RENAME_SWAP) --
+# lives in libforge_updater and is driven by this executable.
+#
+# Without it in the bundle the whole release chain ends one inch short: an
+# installed copy says "Forge 0.1.1 is available" and has no code that can act on
+# it, so every user re-downloads a zip by hand and clears Gatekeeper again. The
+# first download is only the last manual one if this file is here.
+#
+# It is ALSO the reason the swap is safe. Run as a separate process, the updater
+# replaces the bundle from OUTSIDE the app being replaced -- so the hazard
+# Updater.hpp documents at length (a running process whose own bundle path now
+# resolves into the NEW bundle) never applies to the code doing the swapping.
+#
+# ~200 KB, links libforge_updater and libc++ and nothing else -- not OCCT, not
+# SDL, not Vulkan -- so it adds nothing to the dependency walk below.
+UPDATER_SRC="$APP_BUILD/forge_update"
+[ -f "$UPDATER_SRC" ] || die "$UPDATER_SRC not found -- the bundle would ship able to \
+DETECT an update and unable to INSTALL one"
+cp "$UPDATER_SRC" "$APP/Contents/MacOS/forge_update" || die "cannot stage the updater"
+chmod +x "$APP/Contents/MacOS/forge_update"
+
 FW="$APP/Contents/Frameworks"
 WORK="$(mktemp -d /tmp/forge_package.XXXXXX)" || die "mktemp failed"
 trap 'rm -rf "$WORK"' EXIT
@@ -257,7 +281,8 @@ say "walking the transitive dylib closure"
 # bundle -- the worker would fail to launch on a clean machine and isolation
 # would be silently off.
 { echo "$APP/Contents/MacOS/forge_desktop"
-  echo "$APP/Contents/MacOS/forge_kernel_worker"; } > "$QUEUE"
+  echo "$APP/Contents/MacOS/forge_kernel_worker"
+  echo "$APP/Contents/MacOS/forge_update"; } > "$QUEUE"
 while [ -s "$QUEUE" ]; do
   f="$(head -1 "$QUEUE")"
   sed -i '' '1d' "$QUEUE"
@@ -400,6 +425,7 @@ say "rewriting install names to @rpath"
 BUNDLED="$WORK/bundled"
 { echo "$APP/Contents/MacOS/forge_desktop"
   echo "$APP/Contents/MacOS/forge_kernel_worker"
+  echo "$APP/Contents/MacOS/forge_update"
   ls "$FW"/*.dylib 2>/dev/null; } > "$BUNDLED"
 
 while IFS= read -r f; do
@@ -491,6 +517,7 @@ say "codesign --verify --deep --strict: OK (ad-hoc)"
 say "verifying the bundle is self-contained"
 { echo "$APP/Contents/MacOS/forge_desktop"
   echo "$APP/Contents/MacOS/forge_kernel_worker"
+  echo "$APP/Contents/MacOS/forge_update"
   ls "$FW"/*.dylib 2>/dev/null; } > "$BUNDLED"
 LEAKS=0
 while IFS= read -r f; do
@@ -599,6 +626,45 @@ bash "$ROOT/forge-desktop/emit_appcast.sh" \
   --min-macos "$FLOOR" --out "$APPCAST" \
   || die "could not write the appcast"
 CHANNEL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["channel"])' "$APPCAST")"
+
+# ── 10c. ★ CLOSE THE LOOP ON THE ARTIFACT ITSELF ─────────────────────────────
+# Everything above proves halves. This proves the whole thing, on the bytes that
+# are about to be shipped and with no network at all:
+#
+#   the SHIPPED updater binary, launched from the RELOCATED bundle,
+#   reads the appcast THIS RUN wrote,
+#   takes its running version from the RELOCATED bundle's own Info.plist,
+#   and reaches the verdict `already on <version>`.
+#
+# Three artefacts that are produced by three different steps and that nothing
+# else ever compares: Info.plist's CFBundleShortVersionString (step 7), the
+# appcast's `version` (step 10b), and the parser compiled into forge_update.
+# A mismatch between any two of them is a release in which the shipped app either
+# never sees the update or offers itself an endless "update" to the version it is
+# already running -- and both of those are discovered on a user's machine.
+#
+# `check` is READ-ONLY: it parses and decides, and downloads nothing. Exit 10 is
+# the CLI's documented code for "already current", which is the only correct
+# answer when the appcast describes the very bundle doing the asking. Exit 0
+# (an update is available) would mean the bundle believes it is older than
+# itself, and is a FAILURE here even though it is a success code for the CLI.
+UPD_OUT="$WORK/updater.selfcheck.txt"
+run_bounded 60 "bundled updater self-check" "$UPD_OUT" \
+  "$RELOC/Forge.app/Contents/MacOS/forge_update" check --appcast "$APPCAST"
+upd_rc=$?
+case "$upd_rc" in
+  10) say "bundled updater read the shipped appcast and said: already current ($VERSION)" ;;
+  0)  cat "$UPD_OUT" >&2 2>/dev/null
+      die "the bundled updater thinks THIS bundle is OLDER than the appcast this run \
+just wrote. Info.plist says $VERSION; compare it with the appcast's version field. \
+A shipped app in this state offers itself a perpetual update to itself." ;;
+  124) cat "$UPD_OUT" >&2 2>/dev/null
+      die "the bundled updater HUNG reading a LOCAL file (see the sample(1) stack above)" ;;
+  *)  cat "$UPD_OUT" >&2 2>/dev/null
+      die "the bundled updater REFUSED the appcast this run just wrote (exit $upd_rc). \
+The shipped app uses the same parser, so every installed copy would refuse every \
+release this pipeline produces." ;;
+esac
 
 APP_SZ="$(du -sh "$APP" | awk '{print $1}')"
 ZIP_SZ="$(du -h "$ZIP" | awk '{print $1}')"
