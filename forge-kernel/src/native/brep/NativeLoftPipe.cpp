@@ -146,6 +146,14 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
+#include <GeomConvert.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColStd_Array2OfReal.hxx>
+#include <TColgp_Array2OfPnt.hxx>
+
 #include "forge/native/brep/NativeShapeHeal.hpp"  // occtheal::solidFromShell
 
 namespace forge {
@@ -665,6 +673,266 @@ TopoDS_Shape thruSectionsTranslate(const std::vector<TopoDS_Shape>& sections,
     return out;
 }
 
+
+// ═══════════════════════════ GENERAL RULED LOFT (curved sections, family D)
+// ★ WHY A THIRD PATH, and why it runs only after the other two decline.
+//
+// The polygonal path represents a section as a ring of VERTICES, so every
+// section edge must be supported by a LINE. The translate path lifts that for
+// the case where section B is section A moved by a vector T, where the ruled
+// loft IS the linear extrusion of A along T. Instrumented on the 600-part
+// corpus A/B at 75d612c8 those two paths together cover 498/600 (83.0%) against
+// OCCT's 567/600 (94.5%), and the engine's own labels put the whole 102-deferral
+// remainder in ONE place: `prof_edge_not_line|xlate_not_a_translate*`, i.e. two
+// sections that are genuinely DIFFERENT closed curves. 69 of those 102 are
+// inputs OCCT builds — the deletion bucket this path exists to attack.
+//
+// THE IDENTITY THIS PATH USES. The ruled surface between two curves is
+//     S(u,v) = (1-v) C0(u) + v C1(u).
+// If C0 and C1 are B-splines over the SAME knot vector and degree and carry the
+// SAME weights w_i, then, writing N_i for the basis,
+//     (1-v) ΣN_i w_i P0_i / ΣN_i w_i  +  v ΣN_i w_i P1_i / ΣN_i w_i
+//   = ΣN_i w_i [(1-v) P0_i + v P1_i] / ΣN_i w_i,
+// which is EXACTLY a NURBS surface of V-degree 1 whose two pole rows are the two
+// curves' poles and whose weights are w_i, independent of v. So the ruled patch
+// is representable with NO approximation for any edge geometry — lines, arcs,
+// ellipses and splines alike — provided the two curves are first brought onto a
+// common basis. Degree elevation and knot insertion are both EXACT operations
+// (they change the representation, never the curve), so bringing them onto that
+// common basis costs no geometry.
+//
+// THE WEIGHT PRECONDITION IS REAL AND IS ENFORCED, NOT ASSUMED. The step from
+// line 2 to line 3 above requires w_i to be the same for both curves; if the two
+// weight vectors differ, (1-v)C0 + vC1 is NOT the surface built from blended
+// poles, and building it anyway would return a plausible WRONG solid. Mismatched
+// weights are therefore an honest defer (`ruled_weight_mismatch`), not a
+// tolerance to be widened.
+//
+// SCOPE. Equal edge counts only. A pair whose wires carry different numbers of
+// edges needs a compatibility step (splitting both wires at the union of their
+// vertices' curvilinear abscissae) that this path does NOT implement; those
+// keep their existing label. Measured: 21 of the 69 deletion-bucket parts have
+// equal edge counts, 48 do not.
+//
+// STRICTLY ADDITIVE, like the translate path before it: thruSections reaches
+// here only when BOTH earlier paths returned null, so no input the engine
+// already covered can answer differently, and the 498 it covers are untouched.
+
+// An edge's curve as a B-spline on [0,1], in the edge's ORIENTED direction.
+// Returns null on anything unconvertible. The reparameterisation is affine on
+// the knots, which is exact and leaves the curve's point set unchanged.
+Handle(Geom_BSplineCurve) edgeToBSpline01(const TopoDS_Edge& e) {
+    Standard_Real f = 0.0, l = 0.0;
+    Handle(Geom_Curve) c = BRep_Tool::Curve(e, f, l);
+    if (c.IsNull() || !(l > f)) return Handle(Geom_BSplineCurve)();
+    Handle(Geom_BSplineCurve) b;
+    try {
+        Handle(Geom_TrimmedCurve) tc = new Geom_TrimmedCurve(c, f, l);
+        b = GeomConvert::CurveToBSplineCurve(tc);
+    } catch (const Standard_Failure&) { return Handle(Geom_BSplineCurve)(); }
+    if (b.IsNull()) return Handle(Geom_BSplineCurve)();
+    try {
+        if (b->IsPeriodic()) b->SetNotPeriodic();
+        if (e.Orientation() == TopAbs_REVERSED) b->Reverse();
+        TColStd_Array1OfReal k(1, b->NbKnots());
+        b->Knots(k);
+        const double a0 = k(k.Lower()), z0 = k(k.Upper());
+        if (!(z0 > a0)) return Handle(Geom_BSplineCurve)();
+        for (Standard_Integer i = k.Lower(); i <= k.Upper(); ++i)
+            k(i) = (k(i) - a0) / (z0 - a0);
+        b->SetKnots(k);
+    } catch (const Standard_Failure&) { return Handle(Geom_BSplineCurve)(); }
+    return b;
+}
+
+// Bring two [0,1] B-splines onto ONE degree and ONE knot vector. Both steps are
+// exact. Returns false if they do not agree afterwards — which is a defer, never
+// a silently accepted near-match.
+bool unifyBSplinePair(Handle(Geom_BSplineCurve)& a, Handle(Geom_BSplineCurve)& b,
+                      double tol) {
+    if (a.IsNull() || b.IsNull()) return false;
+    try {
+        const Standard_Integer d = std::max(a->Degree(), b->Degree());
+        if (a->Degree() < d) a->IncreaseDegree(d);
+        if (b->Degree() < d) b->IncreaseDegree(d);
+        TColStd_Array1OfReal ka(1, a->NbKnots());       a->Knots(ka);
+        TColStd_Array1OfInteger ma(1, a->NbKnots());    a->Multiplicities(ma);
+        TColStd_Array1OfReal kb(1, b->NbKnots());       b->Knots(kb);
+        TColStd_Array1OfInteger mb(1, b->NbKnots());    b->Multiplicities(mb);
+        a->InsertKnots(kb, mb, tol, Standard_False);
+        b->InsertKnots(ka, ma, tol, Standard_False);
+    } catch (const Standard_Failure&) { return false; }
+    if (a->Degree() != b->Degree()) return false;
+    if (a->NbKnots() != b->NbKnots() || a->NbPoles() != b->NbPoles()) return false;
+    for (Standard_Integer i = 1; i <= a->NbKnots(); ++i) {
+        if (a->Multiplicity(i) != b->Multiplicity(i)) return false;
+        if (std::fabs(a->Knot(i) - b->Knot(i)) > 1.0e-9) return false;
+    }
+    return true;
+}
+
+// The exact ruled patch between two unified B-splines, as a NURBS of V-degree 1.
+// Null when the weights disagree — see the derivation in the banner: equal
+// weights are what make the blended-pole surface EQUAL the ruled surface.
+Handle(Geom_BSplineSurface) ruledPatch(const Handle(Geom_BSplineCurve)& a,
+                                       const Handle(Geom_BSplineCurve)& b,
+                                       double wtol, const char** why) {
+    const Standard_Integer np = a->NbPoles();
+    const bool rat = a->IsRational() || b->IsRational();
+    if (rat) {
+        for (Standard_Integer i = 1; i <= np; ++i) {
+            const double wa = a->Weight(i), wb = b->Weight(i);
+            if (std::fabs(wa - wb) > wtol * std::max(1.0, std::fabs(wa))) {
+                *why = "ruled_weight_mismatch";
+                return Handle(Geom_BSplineSurface)();
+            }
+        }
+    }
+    TColgp_Array2OfPnt poles(1, np, 1, 2);
+    for (Standard_Integer i = 1; i <= np; ++i) {
+        poles(i, 1) = a->Pole(i);
+        poles(i, 2) = b->Pole(i);
+    }
+    TColStd_Array1OfReal uk(1, a->NbKnots());      a->Knots(uk);
+    TColStd_Array1OfInteger um(1, a->NbKnots());   a->Multiplicities(um);
+    TColStd_Array1OfReal vk(1, 2);      vk(1) = 0.0; vk(2) = 1.0;
+    TColStd_Array1OfInteger vm(1, 2);   vm(1) = 2;   vm(2) = 2;
+    try {
+        if (rat) {
+            TColStd_Array2OfReal w(1, np, 1, 2);
+            for (Standard_Integer i = 1; i <= np; ++i) {
+                w(i, 1) = a->Weight(i);
+                w(i, 2) = a->Weight(i);   // equal by the check above
+            }
+            return new Geom_BSplineSurface(poles, w, uk, vk, um, vm,
+                                           a->Degree(), 1,
+                                           Standard_False, Standard_False);
+        }
+        return new Geom_BSplineSurface(poles, uk, vk, um, vm,
+                                       a->Degree(), 1,
+                                       Standard_False, Standard_False);
+    } catch (const Standard_Failure&) {
+        *why = "ruled_surface_ctor_threw";
+        return Handle(Geom_BSplineSurface)();
+    }
+}
+
+// Ordered edges of a wire in BRepTools_WireExplorer order.
+bool wireEdges(const TopoDS_Wire& w, std::vector<TopoDS_Edge>& out) {
+    out.clear();
+    if (w.IsNull()) return false;
+    for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) out.push_back(ex.Current());
+    return !out.empty();
+}
+
+// Five ordered points along an edge in its ORIENTED direction (the same sampling
+// the translate path uses, so the two paths speak about curves the same way).
+void edgeSamples(const TopoDS_Edge& e, std::vector<gp_Pnt>& out) {
+    out.clear();
+    try {
+        BRepAdaptor_Curve ac(e);
+        const double a = ac.FirstParameter(), b = ac.LastParameter();
+        const bool rev = (e.Orientation() == TopAbs_REVERSED);
+        for (int k = 0; k <= kSamplesPerEdge; ++k) {
+            const double u = static_cast<double>(k) / kSamplesPerEdge;
+            out.push_back(ac.Value(rev ? (b + (a - b) * u) : (a + (b - a) * u)));
+        }
+    } catch (const Standard_Failure&) { out.clear(); }
+}
+
+// The ruled loft between two closed wires carrying the SAME number of edges.
+TopoDS_Shape thruSectionsRuledCurved(const std::vector<TopoDS_Shape>& sections,
+                                     bool solid, double tol) {
+    if (sections.size() != 2) FK_DEFER("ruled_not_two_sections");
+    if (sections[0].IsNull() || sections[1].IsNull()) FK_DEFER("ruled_section_null");
+    if (sections[0].ShapeType() != TopAbs_WIRE || sections[1].ShapeType() != TopAbs_WIRE)
+        FK_DEFER("ruled_section_not_wire");
+    const TopoDS_Wire w0 = TopoDS::Wire(sections[0]);
+    const TopoDS_Wire w1 = TopoDS::Wire(sections[1]);
+    if (!BRep_Tool::IsClosed(w0) || !BRep_Tool::IsClosed(w1)) FK_DEFER("ruled_wire_open");
+
+    std::vector<TopoDS_Edge> e0, e1;
+    if (!wireEdges(w0, e0) || !wireEdges(w1, e1)) FK_DEFER("ruled_wire_no_edge");
+    const std::size_t m = e0.size();
+    if (e1.size() != m) FK_DEFER("ruled_edge_count_mismatch");
+
+    // ── the correspondence, chosen by LEAST TOTAL RULING LENGTH ──────────────
+    // Edge i of w0 is joined to edge (k + dir*i) mod m of w1. Both `dir` values
+    // are searched because the outer wires of two OPPOSITE faces of a solid wind
+    // in OPPOSITE senses in world space, so the reversed match is the common case
+    // here rather than the exotic one — the same fact canonicalRing exists for.
+    // The score is the summed squared distance between corresponding samples,
+    // i.e. the total length of the rulings: the minimum is the UNTWISTED loft,
+    // and any other offset threads the same two rings with a twist. This is a
+    // CHOICE, not a theorem about what OCCT picks, so the A/B's agreement column
+    // — not this comment — is what says whether it matches; measured below.
+    std::vector<std::vector<gp_Pnt> > s0(m), s1(m);
+    for (std::size_t i = 0; i < m; ++i) {
+        edgeSamples(e0[i], s0[i]);
+        edgeSamples(e1[i], s1[i]);
+        if (s0[i].empty() || s1[i].empty()) FK_DEFER("ruled_edge_sample_failed");
+    }
+    const std::size_t ns = s0[0].size();
+    int bestDir = 0; std::size_t bestK = 0; double bestScore = -1.0;
+    for (int dir = 1; dir >= -1; dir -= 2) {
+        for (std::size_t k = 0; k < m; ++k) {
+            double sc = 0.0;
+            for (std::size_t i = 0; i < m; ++i) {
+                const std::size_t j =
+                    (k + static_cast<std::size_t>(
+                             (dir > 0 ? static_cast<long>(i)
+                                      : static_cast<long>(m) - static_cast<long>(i))
+                             % static_cast<long>(m))) % m;
+                if (s1[j].size() != ns) { sc = -1.0; break; }
+                for (std::size_t t = 0; t < ns; ++t) {
+                    // dir<0 walks the partner edge backwards, so its sample t
+                    // pairs with sample ns-1-t.
+                    const gp_Pnt& q = (dir > 0) ? s1[j][t] : s1[j][ns - 1 - t];
+                    sc += s0[i][t].SquareDistance(q);
+                }
+            }
+            if (sc >= 0.0 && (bestScore < 0.0 || sc < bestScore)) {
+                bestScore = sc; bestDir = dir; bestK = k;
+            }
+        }
+    }
+    if (bestScore < 0.0) FK_DEFER("ruled_no_correspondence");
+
+    // ── one exact ruled patch per corresponding edge pair ────────────────────
+    BRepBuilderAPI_Sewing sew(std::max(tol, 1.0e-7));
+    const char* why = "ruled_patch_failed";
+    for (std::size_t i = 0; i < m; ++i) {
+        const std::size_t j =
+            (bestK + static_cast<std::size_t>(
+                         (bestDir > 0 ? static_cast<long>(i)
+                                      : static_cast<long>(m) - static_cast<long>(i))
+                         % static_cast<long>(m))) % m;
+        Handle(Geom_BSplineCurve) a = edgeToBSpline01(e0[i]);
+        Handle(Geom_BSplineCurve) b = edgeToBSpline01(e1[j]);
+        if (a.IsNull() || b.IsNull()) FK_DEFER("ruled_curve_unconvertible");
+        if (bestDir < 0) { try { b->Reverse(); } catch (const Standard_Failure&) {
+            FK_DEFER("ruled_curve_reverse_threw"); } }
+        if (!unifyBSplinePair(a, b, std::max(tol, 1.0e-9))) FK_DEFER("ruled_basis_unify_failed");
+        Handle(Geom_BSplineSurface) surf = ruledPatch(a, b, 1.0e-9, &why);
+        if (surf.IsNull()) FK_DEFER(why);
+        BRepBuilderAPI_MakeFace mkf(surf, std::max(tol, 1.0e-7));
+        if (!mkf.IsDone()) FK_DEFER("ruled_makeface_failed");
+        sew.Add(mkf.Face());
+    }
+
+    if (solid) {
+        // The caps are the caller's OWN wires, so the cap boundary is the exact
+        // input curve set and not a rebuilt approximation of it.
+        BRepBuilderAPI_MakeFace c0(w0, Standard_True);
+        if (!c0.IsDone()) FK_DEFER("ruled_cap0_not_planar");
+        BRepBuilderAPI_MakeFace c1(w1, Standard_True);
+        if (!c1.IsDone()) FK_DEFER("ruled_cap1_not_planar");
+        sew.Add(c0.Face());
+        sew.Add(c1.Face());
+    }
+    return sewAndClose(sew, solid);
+}
+
 // ---------------------------------------------------------------- sections
 struct Section {
     std::vector<gp_Pnt> ring;   // size 1 == a point section (AddVertex)
@@ -816,7 +1084,14 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
     if (!poly.IsNull()) return poly;
     // The polygonal reason is KEPT and this path's label is appended after it, so
     // the census still reads why the first engine declined as well as the second.
-    return thruSectionsTranslate(sections, solid, std::max(tol, 1.0e-9));
+    const TopoDS_Shape xl = thruSectionsTranslate(sections, solid, std::max(tol, 1.0e-9));
+    if (!xl.IsNull()) return xl;
+    // THIRD and last: the general ruled patch for two DIFFERENT closed curves
+    // carrying the same edge count. Reached only when both engines above
+    // declined, so it cannot change any answer either of them already gives.
+    // `ruled` is not consulted: this path is only ever asked for the ruled loft
+    // (thruSectionsPolygonal returns the smooth case or defers before here).
+    return thruSectionsRuledCurved(sections, solid, std::max(tol, 1.0e-9));
 }
 
 // =========================================================== family F
