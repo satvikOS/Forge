@@ -9,6 +9,18 @@
 # measure nothing extra. That independence is itself checked — the link fails
 # loud if the engine ever grows one.
 #
+# ★ THE SENTENCE ABOVE IS NO LONGER TRUE, AND IS KEPT SO THE CHANGE IS VISIBLE.
+# The engine grew exactly the first-party dependency that paragraph promised the
+# link would catch, and the link DID catch it — loudly, with three undefined
+# forge::pcurvefit symbols. That is the check working, not the check failing.
+# NativeDraftLocal.cpp now calls forge::pcurvefit (planeCylinderSection,
+# sectionResidual, cylinderPCurve) to build and fit the pcurve for a wall edge
+# lying on a cylinder, so src/native/geom/NativePCurveFit.cpp is compiled and
+# linked below, exactly as run_ab_native_draft_local.sh does it. The claim this
+# script can still make is the NARROWER one: the engine's dependencies are
+# ENUMERATED here, and a NEW one still fails the link loud. Deleting the stale
+# sentence would have hidden which promise changed.
+#
 # ★ NOT A DROP BUILD. No FORGE_*_DROP_* macro is defined, exactly as in the A/B.
 #
 # A GATE THAT CANNOT BUILD CANNOT FAIL: the build runs the probe's own
@@ -56,14 +68,19 @@ compile() {   # compile <src> <obj>
 
 ENGINE_OBJ="$OBJDIR/obj/NativeDraftLocal.o"
 PROBE_OBJ="$OBJDIR/obj/draft_local_probe.o"
+# The engine's ONE first-party dependency. Enumerated, not globbed: a glob would
+# silently absorb the next new dependency and retire the loud link failure that
+# is the only thing telling us the engine's surface moved.
+FITTER_OBJ="$OBJDIR/obj/NativePCurveFit.o"
 compile src/native/brep/NativeDraftLocal.cpp "$ENGINE_OBJ" || exit 1
+compile src/native/geom/NativePCurveFit.cpp  "$FITTER_OBJ" || exit 1
 compile test/draft_local_probe.cpp           "$PROBE_OBJ"  || exit 1
 
 OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo \
            -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing -lTKFillet -lTKOffset \
            -lTKDESTEP -lTKXSBase"
 # shellcheck disable=SC2086
-if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" "$ENGINE_OBJ" "$PROBE_OBJ" \
+if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" "$ENGINE_OBJ" "$FITTER_OBJ" "$PROBE_OBJ" \
      -L "$OCCT_LIB" -Wl,-rpath,"$OCCT_LIB" $OCCT_LIBS -o "$OUT" 2> "$OBJDIR/link.err"; then
   echo "[draft-local-probe] LINK FAILED:" >&2
   tail -40 "$OBJDIR/link.err" >&2
