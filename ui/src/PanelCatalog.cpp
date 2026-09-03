@@ -30,7 +30,7 @@ struct Row {
 //   * for a Planned panel, say what it WILL show -- "not finished" is not an
 //     answer to "what is this tab".
 //
-// ── LIVE IS A CLAIM, AND IT WAS FALSE FOR FOUR OF THESE ────────────────────
+// ── LIVE IS A CLAIM, AND IT WAS FALSE FOR FOUR OF THESE, TWICE ─────────────
 // assembly_tree, operation_tree, study_tree and sheet_tree were all marked Live,
 // and all four were: the frame builder dispatched them, together with
 // feature_tree, model_browser and sketch_tree, to ONE function that draws the
@@ -38,11 +38,17 @@ struct Row {
 // could measure -- something was drawn -- while showing a user the build history
 // under a name that promised the components of an assembly.
 //
-// Nothing in this application holds an assembly, a machining setup, a simulation
-// study or a drawing sheet: there is no such data to query, so there is no
-// honest content to draw. They are Planned, which is what they are, and the
-// frame builder no longer pretends otherwise. Model and Sketch stayed Live
-// because they became real (see ModelTree.hpp).
+// They were then marked Planned, with the reason written here that "nothing in
+// this application holds an assembly, a machining setup, a simulation study or a
+// drawing sheet: there is no such data to query". That was the SECOND false
+// claim, and it is the one that left four workspace tabs drawing nothing at all.
+// There is no second document holding those things and there does not need to
+// be: an assembly is the bodies this program builds and how they nest, a
+// machining setup is the statements that take material away, a drawing sheet is
+// the standard sheet and scale this part's measured size needs, and a study is a
+// question plus the inputs it is waiting for. All four are readings of the part
+// document that already exists -- see forge/ui/WorkspaceTrees.hpp -- and all four
+// are Live because all four are now written.
 //
 // Sorted by id so the table reads as a list and a missing entry is visible.
 constexpr Row kRows[] = {
@@ -71,7 +77,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"assembly_tree",
      "The components in this assembly and how they are nested.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"bom",
      "The parts list for this assembly: what goes into it, how many of each, and what they are "
      "made of.",
@@ -146,7 +152,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"operation_tree",
      "The machining operations for this part, in the order the machine will run them.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"post_output",
      "The machine code produced for this setup, ready to read before you send it to the machine.",
      PanelContent::Planned},
@@ -167,7 +173,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"sheet_tree",
      "The sheets in this drawing and the views on each one.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"simulation_log",
      "What the machining simulation did, step by step, and anything it stopped on.",
      PanelContent::Live},
@@ -187,7 +193,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"study_tree",
      "The simulation studies set up for this part, and what each one is solving for.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"timeline",
      "The history of this part as a strip you can roll back through to see how it was built.",
      PanelContent::Live},

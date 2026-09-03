@@ -31,6 +31,7 @@
 #include "forge/ui/Types.hpp"
 #include "forge/ui/UserFacingText.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
+#include "forge/ui/WorkspaceTrees.hpp"
 
 namespace forge::desktop {
 namespace {
@@ -2151,7 +2152,7 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
   } else if (panelId == "feature_tree") {
     drawFeatureTreePanel();
   } else if (panelId == "model_browser") {
-    // ── SEVEN TABS, ONE FUNCTION ──────────────────────────────────────────
+    // ── SEVEN TABS, ONE FUNCTION, AND WHAT REPLACED IT ────────────────────
     // This branch used to read
     //     panelId == "feature_tree" || panelId == "model_browser" ||
     //     panelId == "sketch_tree"  || panelId == "assembly_tree"  ||
@@ -2162,16 +2163,25 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     // something untrue about what they were looking at -- and no gate could see
     // it, because the panel they shared was itself correct.
     //
-    // Model and Sketch are now REAL and DIFFERENT readings of the document (see
-    // ModelTree.hpp). The other four are not here at all: nothing in this
-    // application holds an assembly, a machining setup, a study or a drawing
-    // sheet, so they fall through to the panel that says what the tab will show
-    // and that it is not built yet. Saying so is worse than showing an assembly
-    // tree and far better than showing a feature tree with "Assembly" written
-    // over it, which is what shipped.
+    // Model and Sketch became REAL and DIFFERENT readings of the document (see
+    // ModelTree.hpp). The remaining four were then dispatched NOWHERE, on the
+    // reasoning that nothing in this application holds an assembly, a machining
+    // setup, a study or a drawing sheet -- and the wrong half of that was
+    // load-bearing. There is no SECOND document holding those things and there
+    // does not need to be: all four are readings of the part document that
+    // already exists, and each now has its own branch below and its own model in
+    // forge/ui/WorkspaceTrees.hpp. Seven tabs, seven functions, seven questions.
     drawModelBrowserPanel();
   } else if (panelId == "sketch_tree") {
     drawSketchTreePanel();
+  } else if (panelId == "assembly_tree") {
+    drawAssemblyTreePanel();
+  } else if (panelId == "operation_tree") {
+    drawOperationTreePanel();
+  } else if (panelId == "sheet_tree") {
+    drawSheetTreePanel();
+  } else if (panelId == "study_tree") {
+    drawStudyTreePanel();
   } else if (panelId == "properties" || panelId == "operation_params") {
     drawPropertiesPanel();
   } else if (panelId == "console" || panelId == "archie_trace" || panelId == "solver_log" ||
@@ -3149,6 +3159,336 @@ void ForgeFrame::drawSketchTreePanel() {
       ++sketchRowsDrawn_;
       ImGui::BulletText("%s  %s", e.label.c_str(), e.detail.c_str());
     }
+  }
+}
+
+// ── THE ASSEMBLY, THE OPERATIONS, THE SHEETS AND THE STUDIES ────────────────
+//
+// Four docked tabs that drew NOTHING. The reasoning written into the catalogue
+// beside them was that "nothing in this application holds an assembly, a
+// machining setup, a simulation study or a drawing sheet", and the wrong half of
+// that is load-bearing: there is no SECOND document holding those things, and
+// there does not need to be, because all four are readings of the part document
+// that already exists. See forge/ui/WorkspaceTrees.hpp for what each one reads
+// and why it is honest.
+//
+// Every number below comes from forge::ui::WorkspaceTrees and is asserted by
+// ui/test/workspace_trees_test.cpp. This file lays them out and nothing else --
+// which is the rule InspectionReport.hpp states, and the reason it exists: the
+// frame builder is the one file CI compiles and never RUNS, so a number invented
+// here is a number nothing can contradict.
+
+forge::ui::AssemblyTree ForgeFrame::assemblyTree() const {
+  return forge::ui::buildAssemblyTree(partDoc_);
+}
+
+forge::ui::MachiningPlan ForgeFrame::machiningPlan() const {
+  return forge::ui::buildMachiningPlan(partDoc_);
+}
+
+forge::ui::DrawingSheetSet ForgeFrame::drawingSheets() {
+  return forge::ui::buildDrawingSheets(modelMeasure().box);
+}
+
+forge::ui::StudyPlan ForgeFrame::studyPlan() {
+  const forge::ui::MeshMeasure& m = modelMeasure();
+  const IrBuildReport& r = scene_.lastBuild();
+  // The kernel's exact volume when it has one, and 0 when it does not -- the
+  // study says which instrument answered, because a number whose source is
+  // unstated is a number nobody can check.
+  const double exact = r.ok() && r.volume > 0.0 ? r.volume : 0.0;
+  // The document carries no material choice yet, and that is a real state rather
+  // than a gap: the Weight study names it as the one input it is waiting for and
+  // says how much of an answer it is holding up.
+  //
+  // The LIVE selection goes in too, because the two inputs the stress study is
+  // missing are both faces: what the user has picked is what they would hold or
+  // load the part by, and a setup row that cannot see the selection can only ever
+  // print the same sentence.
+  return forge::ui::buildStudyPlan(m, exact, forge::ui::unassignedMaterial(),
+                                   forge::ui::MassUnit::Gram, selectionMeasure());
+}
+
+// ── the assembly ────────────────────────────────────────────────────────────
+//
+// WHAT IS PLACED WHERE. Every body the program builds, nested under the body
+// that absorbed it, and under each one the statements that place counted copies
+// of it. Clicking a row selects that body through the SAME clickFeature() a
+// feature-tree row uses, so a component picked here satisfies a boolean's
+// signature exactly as one picked in the history does.
+void ForgeFrame::drawAssemblyTreePanel() {
+  assemblyRowsDrawn_ = 0;
+  const forge::ui::AssemblyTree tree = assemblyTree();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+
+  if (tree.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("There are no components in this document yet. Draw a shape from the "
+                       "toolbar, or open a part, and every body it contains is listed here with "
+                       "what went into it.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextColored(rgb(130, 137, 148), "%zu components | %zu you can still pick | %zu placed "
+                                         "copies",
+                     tree.components.size(), tree.liveComponents, tree.placedCopies);
+
+  // A failed rebuild leaves the LAST GOOD body on screen while these rows come
+  // from the CURRENT document, so the two can describe different things. Say so
+  // here rather than in a console the user never opens.
+  if (!scene_.lastBuild().ok()) {
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(235, 175, 95), "%s", why.c_str());
+    ImGui::PopTextWrapPos();
+  }
+
+  // The nesting, drawn from the depth the model computed. Indent and Unindent
+  // are matched by tracking the depth of the PREVIOUS row, so a tree of any
+  // shape closes exactly as many levels as it opened.
+  std::size_t open = 0;
+  for (const forge::ui::AssemblyComponent& c : tree.components) {
+    while (open < c.depth) { ImGui::Indent(); ++open; }
+    while (open > c.depth) { ImGui::Unindent(); --open; }
+
+    ++assemblyRowsDrawn_;
+    ImGui::PushID(c.irId);
+    bool selected = false;
+    for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+      if (r.persistentName == "feature@" + std::to_string(c.irId)) selected = true;
+    }
+    if (c.irId == editFeatureId_) selected = true;
+    if (ImGui::Selectable(c.label.c_str(), selected, ImGuiSelectableFlags_AllowOverlap)) {
+      clickFeature(c.irId, ImGui::GetIO().KeyShift);
+      setEditTarget(c.irId, 0);
+    }
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", c.statement.c_str());
+    ImGui::SameLine();
+    // ABSORBED IS NOT DELETED. A boolean takes both its operands and the document
+    // stops binding them; they are still part of what this body is made of, and a
+    // user who cannot see where their plate went has lost it as far as they know.
+    //
+    // WHICH of the two things "not selectable" means is decided by the DEPTH, not
+    // guessed: a nested row really does have its parent drawn immediately above
+    // it, and a top-level one has nothing above it to have been built into.
+    if (c.live) {
+      ImGui::TextColored(rgb(130, 137, 148), "%s", valueKindWord(c.kind));
+    } else if (c.depth > 0) {
+      ImGui::TextColored(rgb(130, 137, 148), "%s, built into the one above",
+                         valueKindWord(c.kind));
+    } else {
+      ImGui::TextColored(rgb(130, 137, 148), "%s, with no name to pick it by yet",
+                         valueKindWord(c.kind));
+    }
+    // The placements that copy THIS component, with the statement's own count and
+    // spacing in them.
+    for (std::size_t p : c.placements) {
+      const forge::ui::AssemblyPlacement& pl = tree.placements[p];
+      ++assemblyRowsDrawn_;
+      ImGui::Indent();
+      if (pl.countKnown) {
+        ImGui::BulletText("%s", pl.describe.c_str());
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("%s, from %s", forge::ui::placementWord(pl.kind),
+                            pl.sourceLabel.c_str());
+        }
+      } else {
+        // A count that is not a whole number is not a count. The statement plainly
+        // makes copies, so the row still draws and refuses the number instead.
+        ImGui::Bullet();
+        ImGui::TextColored(rgb(235, 175, 95), "%s, and how many is not a whole number",
+                           pl.describe.c_str());
+      }
+      ImGui::Unindent();
+    }
+    ImGui::PopID();
+  }
+  while (open > 0) { ImGui::Unindent(); --open; }
+}
+
+// ── the machining operations ────────────────────────────────────────────────
+//
+// WHAT MUST BE TAKEN AWAY, in the order the model takes it. Every row is a
+// statement of this document that removes material, with the diameter, depth,
+// radius or wall the statement itself carries. Read from the model, not from a
+// posted toolpath: this says what the part NEEDS cut, and the numbers are the
+// ones a shop asks for first.
+void ForgeFrame::drawOperationTreePanel() {
+  operationRowsDrawn_ = 0;
+  const forge::ui::MachiningPlan plan = machiningPlan();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+
+  if (plan.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    if (plan.shapingStatements == 0) {
+      ImGui::TextWrapped("There is nothing to cut yet. Draw a shape from the toolbar, or open a "
+                         "part, and every hole, pocket and edge it needs is listed here in the "
+                         "order the model takes it away.");
+    } else {
+      ImGui::TextWrapped("Nothing is cut away in this part: all %zu of its steps add or shape "
+                         "material. Drill a hole, cut a shape away or round an edge and it "
+                         "appears here.",
+                         plan.shapingStatements);
+    }
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextColored(rgb(130, 137, 148), "%zu operations | %zu holes | %zu cut away | %zu edges",
+                     plan.operations.size(), plan.holes, plan.cutouts, plan.edgeOperations);
+  if (plan.smallestToolKnown) {
+    // The tool that limits the job. A shop reads this line first: it decides
+    // whether the part can be cut at all on the machine they have.
+    ImGui::Text("smallest tool  %.3f mm across", plan.smallestToolMm);
+  }
+  ImGui::TextDisabled("read from the model, in the order it takes the material away");
+  ImGui::Spacing();
+
+  for (const forge::ui::MachiningOperation& o : plan.operations) {
+    ++operationRowsDrawn_;
+    ImGui::PushID(o.irId);
+    bool selected = false;
+    for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+      if (r.persistentName == "feature@" + std::to_string(o.irId)) selected = true;
+    }
+    if (o.irId == editFeatureId_) selected = true;
+    char head[160];
+    std::snprintf(head, sizeof(head), "%zu.  %s", o.order, o.action.c_str());
+    if (ImGui::Selectable(head, selected, ImGuiSelectableFlags_AllowOverlap)) {
+      // The same selection every other panel makes, so picking an operation here
+      // puts its feature in the selection and the Operation Settings tab beside
+      // it shows that feature's numbers.
+      clickFeature(o.irId, ImGui::GetIO().KeyShift);
+      setEditTarget(o.irId, 0);
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip("%s  (%s)", o.label.c_str(), forge::ui::machiningWord(o.kind));
+    }
+    ImGui::Indent();
+    ImGui::TextColored(rgb(130, 137, 148), "%s", o.detail.c_str());
+    if (o.toolDiameterMm > 0.0) {
+      ImGui::TextColored(rgb(130, 137, 148), "needs a tool %.3f mm across", o.toolDiameterMm);
+    }
+    ImGui::Unindent();
+    ImGui::PopID();
+  }
+}
+
+// ── the drawing sheets ──────────────────────────────────────────────────────
+//
+// WHAT IT TAKES TO DRAW THIS PART. The sheet and the scale are worked out from
+// the part's own measured size against two standards -- the A-series sheet sizes
+// and the preferred series of scales -- so the answer changes when the part
+// does. Clicking a view turns the 3D view to that direction through the SAME
+// `view.` command the corner buttons and the menu use.
+void ForgeFrame::drawSheetTreePanel() {
+  sheetRowsDrawn_ = 0;
+  const forge::ui::DrawingSheetSet set = drawingSheets();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+
+  if (!set.known) {
+    ImGui::PushTextWrapPos(0.0f);
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty()
+                                 ? "There is nothing to draw yet. Draw a shape from the toolbar, "
+                                   "or open a part, and the sheet it needs and the views on it "
+                                   "are listed here."
+                                 : why.c_str());
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  for (const forge::ui::DrawingSheet& s : set.sheets) {
+    ++sheetRowsDrawn_;
+    ImGui::PushID(s.name.c_str());
+    if (ImGui::TreeNodeEx("##sheet", ImGuiTreeNodeFlags_DefaultOpen, "%s   %s at %s",
+                          s.name.c_str(), s.size.name.c_str(), s.scaleLabelText.c_str())) {
+      ImGui::Text("sheet     %.0f x %.0f mm, %.0f mm border", s.size.widthMm, s.size.heightMm,
+                  s.marginMm);
+      ImGui::Text("views     %.1f x %.1f mm of the %.1f x %.1f mm inside the border",
+                  s.usedWidthMm, s.usedHeightMm, s.drawableWidthMm, s.drawableHeightMm);
+      if (!s.fits) {
+        // Bigger than the largest sheet at the smallest standard reduction. Said
+        // plainly, at the sheet that comes closest, rather than by inventing a
+        // scale nobody draws at.
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(rgb(235, 175, 95),
+                           "This part is too big for the largest sheet at any standard scale.");
+        ImGui::PopTextWrapPos();
+      }
+      ImGui::Spacing();
+      ImGui::TextDisabled("each view, and how big it prints at this scale");
+      for (const forge::ui::SheetView& v : s.views) {
+        ++sheetRowsDrawn_;
+        ImGui::PushID(static_cast<int>(v.view));
+        char row[128];
+        std::snprintf(row, sizeof(row), "%-10s %8.1f x %6.1f mm", v.name.c_str(), v.paperWidthMm,
+                      v.paperHeightMm);
+        if (ImGui::Selectable(row, false)) {
+          // invoke(), the one route to the camera: the command bumps the shell's
+          // counter and applyPendingView() moves the camera at the top of the
+          // next frame, so this cannot mutate anything the walk is holding.
+          invoke(std::string("view.") + forge::ui::commandSuffix(v.view));
+        }
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("%s view: %.1f x %.1f mm full size. Click to turn the 3D view here.",
+                            v.name.c_str(), v.widthMm, v.heightMm);
+        }
+        ImGui::PopID();
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+}
+
+// ── the simulation studies ──────────────────────────────────────────────────
+//
+// WHAT CAN BE SOLVED, AND WHAT IS STILL MISSING. One of these needs nothing but
+// the shape and is therefore ANSWERED, with real numbers; the other two name the
+// exact input the document does not carry yet. A study tree that listed three
+// promises would be worth nothing; one that says which single thing is holding
+// each answer up is what a user can act on.
+void ForgeFrame::drawStudyTreePanel() {
+  studyRowsDrawn_ = 0;
+  const forge::ui::StudyPlan plan = studyPlan();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+  ImGui::TextColored(rgb(130, 137, 148), "%zu studies | %zu answered now", plan.studies.size(),
+                     plan.answered());
+
+  for (std::size_t i = 0; i < plan.studies.size(); ++i) {
+    const forge::ui::Study& st = plan.studies[i];
+    ++studyRowsDrawn_;
+    ImGui::PushID(static_cast<int>(i));
+    if (ImGui::TreeNodeEx("##study", ImGuiTreeNodeFlags_DefaultOpen, "%s   %s", st.name.c_str(),
+                          forge::ui::toString(st.state))) {
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("solves for %s", st.solvesFor.c_str());
+      ImGui::PopTextWrapPos();
+      if (st.state == forge::ui::StudyState::Answered) {
+        ImGui::TextColored(rgb(120, 200, 140), "%s", st.answer.c_str());
+      }
+      for (const forge::ui::StudySetupItem& item : st.setup) {
+        ++studyRowsDrawn_;
+        ImVec4 colour = rgb(130, 137, 148);
+        if (item.state == forge::ui::StudyItemState::Ready) colour = rgb(120, 200, 140);
+        if (item.state == forge::ui::StudyItemState::Blocked) colour = rgb(235, 105, 95);
+        if (item.state == forge::ui::StudyItemState::Missing) colour = rgb(235, 175, 95);
+        ImGui::Bullet();
+        ImGui::TextColored(colour, "%-10s %s", item.name.c_str(), item.detail.c_str());
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
   }
 }
 

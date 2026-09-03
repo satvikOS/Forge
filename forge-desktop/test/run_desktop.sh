@@ -42,9 +42,9 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. FORTY-THREE
-#                       defects (8 document + 12 frame + 8 copilot + 7 update +
-#                       8 click) are
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. The defects
+#                       (document + frame + file exchange + copilot + update +
+#                       click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -167,7 +167,7 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # bit-identical, and 5 (a cube of the same volume about the same centre) leaves
 # volume and the centre of mass identical. A gate checking volume alone passes both.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

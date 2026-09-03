@@ -45,6 +45,14 @@
 //                                                          be describing
 //  14  the sketch tree answers from the document as     -> the edited width is
 //      it was BEFORE an edit                               not the width shown
+//  15  the assembly is built from an EMPTY document    -> its component census
+//      rather than the live one                            stops agreeing with the
+//                                                          bodies the document
+//                                                          actually builds
+//  16  the operation tree answers from the machining   -> the edited fillet needs
+//      plan as it was BEFORE an edit                       a bigger tool and the
+//                                                          panel goes on naming
+//                                                          the old one
 // <algorithm> for the same reason document_gate.cpp includes it beside <cstdio>:
 // this file calls std::remove(const char*) to delete its temp .fpart, and
 // `std::remove` is declared by BOTH headers -- the iterator algorithm and the C
@@ -76,11 +84,13 @@
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/MeasureModel.hpp"
+#include "forge/ui/ModelTree.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
+#include "forge/ui/WorkspaceTrees.hpp"
 
 namespace {
 
@@ -862,6 +872,235 @@ int main(int argc, char** argv) {
     // were written against.
     frame.setEditTarget(profileStatement, 0);
     check(frame.applyFeatureEdit(documentWidth), "and the edit is reversible", "");
+    buildOneFrame(frame, 0);
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+    frame.setActiveTabAt({0}, 0);
+    buildOneFrame(frame, 0);
+  }
+
+  // ── 17. THE OTHER FOUR TREE TABS ARE REAL, AND ALL FOUR ARE DIFFERENT ────
+  //
+  // THE DEFECT: Assembly, Operations, Sheets and Studies were four docked tabs
+  // that drew NOTHING AT ALL. The reason written beside them was that "nothing in
+  // this application holds an assembly, a machining setup, a simulation study or
+  // a drawing sheet" -- and there is no second document holding those things, and
+  // there does not need to be. All four are readings of the part document that
+  // already exists (forge/ui/WorkspaceTrees.hpp).
+  //
+  // ui/test/workspace_trees_test.cpp asserts the ARITHMETIC of all four,
+  // headless. What THIS section adds is the half that gate cannot give: that the
+  // frame builder really dispatches each tab to its own panel, that each panel
+  // puts rows on screen, and that the four are DIFFERENT READINGS of one
+  // document rather than one panel wearing four names -- which is the exact
+  // defect that shipped when seven tabs shared one function.
+  //
+  // MUTATION 15 answers the assembly from an EMPTY document, the shape of a panel
+  // built from the wrong source. MUTATION 16 answers the machining plan from the
+  // document as it was BEFORE an edit, which is the stale-panel defect, and the
+  // positive control at the end is what catches it.
+  {
+    // ── the assembly: what is placed where ─────────────────────────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Assembly);
+    frame.setActiveTabAt({0}, 0);
+    buildOneFrame(frame, 0);
+    checkGe(frame.assemblyRowsDrawn(), 1u, "the assembly tree drew rows of its own");
+
+    const forge::ui::PartDocument emptyDocument;
+    const forge::ui::AssemblyTree tree =
+        g_mutation == 15 ? forge::ui::buildAssemblyTree(emptyDocument) : frame.assemblyTree();
+
+    // THE CENSUS IS TOTAL, and it is derived from the document rather than
+    // remembered: every statement that produces a body or a sheet is a component,
+    // and nothing else is. A profile in a parts list is a parts list nobody can
+    // order from.
+    std::size_t bodyStatements = 0;
+    for (const forge::ui::FeatureRecord& r : frame.document().records()) {
+      if (forge::ui::isPassThroughOp(r.line.op)) continue;
+      if (r.produces == forge::ui::IrValueKind::Solid ||
+          r.produces == forge::ui::IrValueKind::Surface) {
+        ++bodyStatements;
+      }
+    }
+    checkGe(bodyStatements, 1u, "the starting part builds at least one body");
+    checkEq(tree.components.size(), bodyStatements,
+            "every body the document builds is a component, and nothing else is");
+    // Every component is a root or the child of exactly one other component.
+    std::size_t asChild = 0;
+    for (const forge::ui::AssemblyComponent& c : tree.components) asChild += c.children.size();
+    checkEq(asChild + tree.roots.size(), tree.components.size(),
+            "and every component sits in exactly one place in the nesting");
+    checkGe(tree.roots.size(), 1u, "the assembly has a top-level component");
+    // A parent is always drawn before its children and exactly one level above.
+    for (const forge::ui::AssemblyComponent& c : tree.components) {
+      for (std::size_t kid : c.children) {
+        check(kid < tree.components.size(), "a child index is in range",
+              std::to_string(kid));
+        if (kid >= tree.components.size()) continue;
+        checkEq(tree.components[kid].depth, c.depth + 1,
+                "a child is drawn exactly one level in from its parent");
+      }
+    }
+    // Whatever the tree calls selectable round-trips through the document's OWN
+    // binding table, never through this file's memory of it.
+    checkGe(tree.liveComponents, 1u, "at least one component is still selectable");
+    for (const forge::ui::AssemblyComponent& c : tree.components) {
+      if (!c.live) continue;
+      check(!c.node.empty(), "a selectable component carries the node it is picked by", c.label);
+      checkEq(frame.document().valueFor(c.node), c.irId,
+              "and that node resolves back to the statement the assembly listed");
+    }
+
+    // ── the machining operations: what must be taken away ──────────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Manufacturing);
+    frame.setActiveTabAt({0}, 0);
+    buildOneFrame(frame, 0);
+    checkGe(frame.operationRowsDrawn(), 1u, "the operation tree drew rows of its own");
+
+    const forge::ui::MachiningPlan plan = frame.machiningPlan();
+    std::size_t passThrough = 0;
+    std::size_t removals = 0;
+    int filletStatement = 0;
+    double filletRadius = 0.0;
+    for (const forge::ui::FeatureRecord& r : frame.document().records()) {
+      if (forge::ui::isPassThroughOp(r.line.op)) { ++passThrough; continue; }
+      if (forge::ui::isMaterialRemovalOp(r.line.op)) ++removals;
+      // The subject is READ from the document: whichever statement is the fillet,
+      // and whatever its radius currently is.
+      if (r.line.op == "FILLET" && filletStatement == 0) {
+        for (const forge::ui::IrArg& a : r.line.args) {
+          if (a.kind != forge::ui::IrArgKind::Number) continue;
+          filletStatement = r.irId;
+          filletRadius = a.number;
+          break;
+        }
+      }
+    }
+    checkEq(plan.operations.size(), removals,
+            "every statement that removes material is an operation");
+    checkEq(plan.operations.size() + plan.shapingStatements + passThrough,
+            frame.document().records().size(),
+            "and every statement is an operation, a shaping step or a pass-through");
+    checkGe(plan.operations.size(), 1u, "the starting part has something to cut");
+    for (std::size_t i = 0; i < plan.operations.size(); ++i) {
+      checkEq(plan.operations[i].order, i + 1, "the operations are numbered in document order");
+      check(!plan.operations[i].action.empty(), "each operation says what it does",
+            plan.operations[i].op);
+    }
+    // THE TOOL THAT LIMITS THE JOB is arithmetic on the fillet's own radius: an
+    // internal corner of radius r takes a tool of diameter 2r.
+    checkGe(filletStatement, 1, "the document holds a fillet");
+    check(plan.smallestToolKnown, "and the plan therefore names a limiting tool", "");
+    check(std::fabs(plan.smallestToolMm - 2.0 * filletRadius) < 1e-9,
+          "the limiting tool is twice the fillet's own radius",
+          std::to_string(plan.smallestToolMm) + " vs " + std::to_string(2.0 * filletRadius));
+
+    // ── the drawing sheet: what it takes to draw it ────────────────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Drawing);
+    frame.setActiveTabAt({0}, 0);
+    buildOneFrame(frame, 0);
+    checkGe(frame.sheetRowsDrawn(), 1u, "the sheet tree drew rows of its own");
+
+    const forge::ui::DrawingSheetSet sheets = frame.drawingSheets();
+    check(sheets.known, "a part that built has a sheet to be drawn on", "");
+    checkEq(sheets.sheets.size(), 1u, "one sheet");
+    if (!sheets.sheets.empty()) {
+      const forge::ui::DrawingSheet& sh = sheets.sheets.front();
+      checkEq(sh.views.size(), 4u, "carrying the four views of a general arrangement");
+      check(sh.fits, "and this part fits on it at a standard scale", sh.size.name);
+      check(sh.usedWidthMm <= sh.drawableWidthMm + 1e-9, "the arrangement fits across the sheet",
+            std::to_string(sh.usedWidthMm) + " of " + std::to_string(sh.drawableWidthMm));
+      check(sh.usedHeightMm <= sh.drawableHeightMm + 1e-9, "and down it",
+            std::to_string(sh.usedHeightMm) + " of " + std::to_string(sh.drawableHeightMm));
+      // The scale is one of the STANDARD ones, not a number this application
+      // made up to make a part fit.
+      bool standard = false;
+      for (double s : forge::ui::drawingScaleLibrary()) {
+        if (std::fabs(s - sh.scale) < 1e-12) standard = true;
+      }
+      check(standard, "at a scale from the preferred series", sh.scaleLabelText);
+      // and the views are the MEASURED body's own extents, axis by axis.
+      const forge::ui::MeasureBox& box = frame.modelMeasure().box;
+      if (sh.views.size() == 4) {
+        check(std::fabs(sh.views[0].widthMm - box.size(0)) < 1e-9,
+              "the front view is as wide as the part measures across X",
+              std::to_string(sh.views[0].widthMm));
+        check(std::fabs(sh.views[0].heightMm - box.size(2)) < 1e-9,
+              "and as tall as it measures up Z", std::to_string(sh.views[0].heightMm));
+        check(std::fabs(sh.views[1].heightMm - box.size(1)) < 1e-9,
+              "the plan is as deep as the part measures along Y",
+              std::to_string(sh.views[1].heightMm));
+        check(std::fabs(sh.views[2].widthMm - box.size(1)) < 1e-9,
+              "and the end view is as wide as that same depth",
+              std::to_string(sh.views[2].widthMm));
+      }
+    }
+
+    // ── the studies: what can be solved, and what is missing ───────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Simulation);
+    frame.setActiveTabAt({0}, 0);
+    buildOneFrame(frame, 0);
+    checkGe(frame.studyRowsDrawn(), 1u, "the study tree drew rows of its own");
+
+    const forge::ui::StudyPlan studies = frame.studyPlan();
+    checkGe(studies.studies.size(), 3u, "the study tree lists the studies this part can have");
+    // The balance point of a homogeneous body is its volume centroid and needs no
+    // material at all, so on a part that closes it is ANSWERED rather than
+    // promised. That is the difference between a study tree and a list of hopes.
+    checkGe(studies.answered(), 1u, "and at least one of them is answered outright");
+    if (!studies.studies.empty()) {
+      check(studies.studies[0].state == forge::ui::StudyState::Answered,
+            "the balance point is answered from the shape alone", studies.studies[0].name);
+      check(!studies.studies[0].answer.empty(), "with a real answer in it",
+            studies.studies[0].answer);
+      check(!studies.studies[0].setup.empty(), "over a setup it lists", "");
+      if (!studies.studies[0].setup.empty()) {
+        check(studies.studies[0].setup[0].state == forge::ui::StudyItemState::Ready,
+              "whose shape input is ready", studies.studies[0].setup[0].detail);
+      }
+    }
+    // The document carries no material choice, so the weight is WAITING and says
+    // exactly what for. A study tree that claimed a weight here would be inventing
+    // a material the user never picked.
+    if (studies.studies.size() > 1) {
+      check(studies.studies[1].state == forge::ui::StudyState::Waiting,
+            "the weight is waiting on the one input the document does not carry",
+            studies.studies[1].name);
+      checkEq(studies.studies[1].missing, 1u, "and names exactly one missing input");
+    }
+
+    // ── THE FOUR ARE DIFFERENT READINGS, NOT ONE PANEL WEARING FOUR NAMES ──
+    // This is the defect the whole exercise is against, made into a check: on
+    // this document the assembly, the machining plan and the model browser give
+    // three different counts, and if any two of them ever became equal by
+    // accident the check below still holds while the ones above carry the load.
+    const forge::ui::ModelBrowser browser = frame.modelBrowser();
+    check(tree.components.size() != plan.operations.size(),
+          "the assembly and the operations are different readings of one document",
+          std::to_string(tree.components.size()) + " vs " +
+              std::to_string(plan.operations.size()));
+    check(browser.values.size() != tree.components.size(),
+          "and so are the model browser and the assembly",
+          std::to_string(browser.values.size()) + " vs " +
+              std::to_string(tree.components.size()));
+
+    // ── the positive control ───────────────────────────────────────────────
+    // Change the fillet's radius through the registry. The machining plan's
+    // limiting tool must follow it. Nothing that prints a constant can pass this.
+    const double edited = filletRadius + 2.0;
+    frame.setEditTarget(filletStatement, 0);
+    check(frame.applyFeatureEdit(edited), "the fillet's radius was edited through the registry",
+          "");
+    buildOneFrame(frame, 0);
+    const forge::ui::MachiningPlan afterEdit =
+        g_mutation == 16 ? plan : frame.machiningPlan();
+    check(std::fabs(afterEdit.smallestToolMm - 2.0 * edited) < 1e-9,
+          "and the operation tree now needs a bigger tool",
+          std::to_string(afterEdit.smallestToolMm) + " want " + std::to_string(2.0 * edited));
+
+    // Put the document and the workspace back, so the sections after this one see
+    // the part they were written against.
+    frame.setEditTarget(filletStatement, 0);
+    check(frame.applyFeatureEdit(filletRadius), "and the edit is reversible", "");
     buildOneFrame(frame, 0);
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
     frame.setActiveTabAt({0}, 0);

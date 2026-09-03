@@ -66,7 +66,16 @@ set -uo pipefail
 #    `awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh`
 #    prints 50, made of ir_pipeline 0 + document 8 + file_exchange 5 + frame 14 +
 #    copilot 8 + update 7 + click 8 + isolation 0.
-EXPECTED_MUTATIONS=50
+# ── 2026-09-03: 50 -> 52. The frame gate gained mutations 15 and 16 with the
+#    OTHER four tabs -- Assembly, Operations, Sheets and Studies -- which drew
+#    nothing at all until forge::ui::WorkspaceTrees gave each of them its own
+#    reading of the document. 15 builds the assembly from an EMPTY document, 16
+#    answers the machining plan from the document as it was BEFORE an edit, so
+#    the panel goes on naming the tool the old fillet needed. DERIVED on this
+#    tree by the same awk line above, which now prints 52: ir_pipeline 0 +
+#    document 8 + file_exchange 5 + frame 16 + copilot 8 + update 7 + click 8 +
+#    isolation 0.
+EXPECTED_MUTATIONS=52
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

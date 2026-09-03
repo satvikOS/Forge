@@ -49,6 +49,7 @@
 #include "forge/ui/StatusModel.hpp"
 #include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
+#include "forge/ui/WorkspaceTrees.hpp"
 
 struct ImDrawList;
 
@@ -390,6 +391,24 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t modelRowsDrawn() const noexcept { return modelRowsDrawn_; }
   std::size_t modelFaceRowsDrawn() const noexcept { return modelFaceRowsDrawn_; }
   std::size_t sketchRowsDrawn() const noexcept { return sketchRowsDrawn_; }
+
+  // ── the other four readings of the same document ────────────────────────
+  // Assembly, Operations, Sheets and Studies. Accessors for the same reason the
+  // two above are: a gate can ask for the exact structure the panel draws and
+  // check its rows against the document or the measurement that produced them,
+  // which is the only thing that keeps "this tab shows the components" true.
+  //
+  // The last two take a MEASUREMENT rather than the document, so they are
+  // non-const: the first call is what builds the triangle-soup measurement they
+  // read, exactly as modelMeasure() is.
+  forge::ui::AssemblyTree assemblyTree() const;
+  forge::ui::MachiningPlan machiningPlan() const;
+  forge::ui::DrawingSheetSet drawingSheets();
+  forge::ui::StudyPlan studyPlan();
+  std::size_t assemblyRowsDrawn() const noexcept { return assemblyRowsDrawn_; }
+  std::size_t operationRowsDrawn() const noexcept { return operationRowsDrawn_; }
+  std::size_t sheetRowsDrawn() const noexcept { return sheetRowsDrawn_; }
+  std::size_t studyRowsDrawn() const noexcept { return studyRowsDrawn_; }
   // The measurement of ONE B-rep face, memoized on the live tessellation. The
   // arithmetic is forge::ui::measureFace's -- this adds a cache and nothing
   // else, because a model browser lists every face and asking the O(triangles)
@@ -563,6 +582,16 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawVerifyReportPanel();
   void drawDimensionsPanel();
   void drawToolsPanel();
+  // ── THE FOUR TREE TABS THAT DREW NOTHING AT ALL ─────────────────────────
+  // Assembly, Operations, Sheets and Studies each named a tab, said in one
+  // sentence what it would show, and stopped. Each now draws a DIFFERENT
+  // reading of the live document, computed by forge::ui::WorkspaceTrees so
+  // every row and every number is one a headless gate has already asserted --
+  // ui/test/workspace_trees_test.cpp -- rather than one this file invented.
+  void drawAssemblyTreePanel();
+  void drawOperationTreePanel();
+  void drawSheetTreePanel();
+  void drawStudyTreePanel();
   void drawCopilotPanel();
   // The work the three recorded presses stand for. Private: the ONLY caller is
   // build(), after the walk.
@@ -850,6 +879,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t modelRowsDrawn_ = 0;
   std::size_t modelFaceRowsDrawn_ = 0;
   std::size_t sketchRowsDrawn_ = 0;
+  std::size_t assemblyRowsDrawn_ = 0;
+  std::size_t operationRowsDrawn_ = 0;
+  std::size_t sheetRowsDrawn_ = 0;
+  std::size_t studyRowsDrawn_ = 0;
   // Per-face measurement cache, indexed by 1-based face id and invalidated on
   // the SAME witness measureMesh() uses -- the scene's BUILD COUNT -- so a
   // rebuild can never leave a face row describing the previous body.
