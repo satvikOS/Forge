@@ -318,8 +318,22 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-      - name: update gate + all seven negative controls
+      - name: update gate + all eight negative controls
         run: bash forge-desktop/test/run_update_gate.sh --mutations
+      - name: the exit codes and messages a USER sees + six negative controls
+        # update_gate.cpp links libforge_updater and does NOT compile
+        # main_update_cli.cpp, so until 2026-09-03 the one file that decides what
+        # a person is told and what a script is returned was the only file in the
+        # update path no gate had ever built. Five user-visible defects lived
+        # there, including `forge_update --version` making a network request and
+        # reporting curl's exit code, and exit 1 meaning both "this release is
+        # refused" and "I could not reach the network".
+        #
+        # Hermetic: every case runs off a local appcast fixture, and the cases
+        # that must prove no fetch happened use an off-allow-list URL as a tracer
+        # rather than a timeout. Six mutations are the negative control, two of
+        # them on the refuse-to-downgrade path.
+        run: bash forge-desktop/test/update_cli_gate.sh --mutations
       - name: the release pipeline and the app agree on the appcast
         # The producer is bash (forge-desktop/emit_appcast.sh) and the consumer
         # is C++ (src/update/Manifest.cpp) with a parser stricter than json.load.

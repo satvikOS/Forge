@@ -34,6 +34,11 @@
 //        -> a truncated archive replaces a working app with a broken one.
 //   7  the swap removes the installed app and THEN renames the new one in
 //        -> any failure between those two calls leaves the user with no app.
+//   8  a failed fetch is reported by handing the user curl's own error text
+//        -> the menu item and the CLI quote an exit code from a program the user
+//           has never heard of, and the single most common case in this
+//           project's life -- NOTHING PUBLISHED YET, which is a 404 -- reads as
+//           a fault. THIS IS THE NEGATIVE CONTROL FOR describeFetchFailure.
 #include <sys/stat.h>
 #include <sys/xattr.h>
 #include <unistd.h>
@@ -112,6 +117,12 @@ bool verifyUnderTest(const std::string& zip, const Manifest& m, std::string& err
     return true;
   }
   return verifyPayload(zip, m, err);
+}
+
+// MUTATION 8: "just show them what curl said".
+std::string describeUnderTest(const std::string& err) {
+  if (g_mutation == 8) return err;
+  return describeFetchFailure(err);
 }
 
 // MUTATION 5: "it has a URL, ship it".
@@ -860,6 +871,71 @@ void checkEndToEnd(const std::string& dir, const std::string& self_exe) {
         std::to_string(leftovers) + " left");
 }
 
+// ── what a user is told when the check could not run ─────────────────────────
+//
+// The verdict half of this file asserts what happens when the appcast IS read.
+// This asserts what happens when it is NOT -- the far more common outcome for an
+// app that ships before its first release exists, and the half that had no test
+// at all until 2026-09-03.
+//
+// The strings below are REAL. They were produced by running the shipped binary
+// against the real URL on this machine; `curl: (56) The requested URL returned
+// error: 404` is what an installed Forge sees today, because the only release
+// object in the repository is a draft and GitHub's `latest` skips drafts.
+void checkFetchFailureMessages() {
+  struct Case {
+    const char* raw;
+    const char* must_say;
+    const char* what;
+  };
+  const Case cases[] = {
+      {"download failed: /usr/bin/curl exited 56: curl: (56) The requested URL returned error: 404",
+       "no published release",
+       "a 404 is explained as 'nothing published yet', not as a fault"},
+      {"download failed: /usr/bin/curl exited 22: curl: (22) The requested URL returned error: 404 "
+       "Not Found",
+       "no published release", "so is the --fail spelling of the same 404"},
+      {"download failed: /usr/bin/curl exited 6: curl: (6) Could not resolve host: github.com",
+       "internet connection", "a DNS failure names the thing the user can fix"},
+      {"download failed: /usr/bin/curl exited 7: curl: (7) Failed to connect to github.com port 443",
+       "internet connection", "so does a refused connection"},
+      {"download failed: /usr/bin/curl exited 28: curl: (28) Operation timed out after 20001 "
+       "milliseconds",
+       "timed out", "a timeout says it timed out"},
+      {"download failed: /usr/bin/curl exited 60: curl: (60) SSL certificate problem",
+       "secure connection", "a TLS failure is described as a TLS failure"},
+      {"download failed: /usr/bin/curl exited 18: curl: (18) transfer closed with 1024 bytes "
+       "remaining to read",
+       "ended early", "a truncated transfer says the download ended early"},
+      {"download failed: /usr/bin/curl exited 63: curl: (63) Maximum file size exceeded",
+       "bigger than Forge is willing to fetch", "an oversized payload says nothing was installed"},
+      {"download failed: /usr/bin/curl: posix_spawn failed: No such file or directory",
+       "curl is missing", "a missing curl is named, not blamed on the network"},
+  };
+  for (const Case& c : cases) {
+    const std::string got = describeUnderTest(c.raw);
+    check(got.find(c.must_say) != std::string::npos, c.what, got);
+    // ★ THE PROPERTY THAT MATTERS MOST, asserted on every case rather than on a
+    // representative one: whatever we say, we never hand the user curl's own
+    // words. A message that quotes an exit code is a message that has told the
+    // user nothing they can act on.
+    check(got.find("curl") == std::string::npos || got.find("curl is missing") != std::string::npos,
+          "the message does not quote curl at the user", got);
+    check(got.find("exited") == std::string::npos, "the message does not quote an exit code", got);
+    check(!got.empty(), "the message is never empty", got);
+  }
+
+  // An error nobody anticipated still produces a sentence. A blank message is
+  // the failure mode this whole function exists to prevent: a failed check that
+  // renders as nothing is a failed check that looks like a successful one.
+  const std::string unknown = describeUnderTest("download failed: something nobody has seen");
+  check(!unknown.empty(), "an unrecognised failure still produces a sentence", unknown);
+  check(unknown.find("could not be completed") != std::string::npos,
+        "and that sentence says the check did not complete", unknown);
+  check(describeUnderTest("").empty() == false, "even an empty error produces a sentence",
+        describeUnderTest(""));
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -893,6 +969,7 @@ int main(int argc, char** argv) {
   checkCurlArgv();
   checkDecide();
   checkChannelPolicy();
+  checkFetchFailureMessages();
   checkPayloadVerification(dir);
   checkStagingAndSwap(dir, self_exe);
   checkEndToEnd(dir, self_exe);

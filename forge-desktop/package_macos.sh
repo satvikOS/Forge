@@ -660,6 +660,10 @@ just wrote. Info.plist says $VERSION; compare it with the appcast's version fiel
 A shipped app in this state offers itself a perpetual update to itself." ;;
   124) cat "$UPD_OUT" >&2 2>/dev/null
       die "the bundled updater HUNG reading a LOCAL file (see the sample(1) stack above)" ;;
+  3)  cat "$UPD_OUT" >&2 2>/dev/null
+      die "the bundled updater COULD NOT READ the appcast this run just wrote ($APPCAST). \
+Exit 3 is 'could not check', not 'refused' -- the file is missing, empty or unreadable, so \
+nothing is known about whether it would have been accepted." ;;
   *)  cat "$UPD_OUT" >&2 2>/dev/null
       die "the bundled updater REFUSED the appcast this run just wrote (exit $upd_rc). \
 The shipped app uses the same parser, so every installed copy would refuse every \

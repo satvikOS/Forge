@@ -457,7 +457,7 @@ target_link_libraries(forge_update PRIVATE forge_updater)
 # The UPDATE gate: headless, offline, and it never opens a socket. It drives the
 # real manifest parser, version ordering, digest, ditto staging, ad-hoc signature
 # check and atomic swap against real files in a temp directory, with a Fetcher
-# that copies from disk. `--mutate 1..7` proves it can fail; run_update_gate.sh
+# that copies from disk. `--mutate 1..8` proves it can fail; run_update_gate.sh
 # --mutations runs every one and requires each to go red.
 add_executable(forge_desktop_update_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/update_gate.cpp")
@@ -491,12 +491,21 @@ add_test(NAME forge_desktop_update_gate COMMAND forge_desktop_update_gate)
 # EXPECTED to be red, and WILL_FAIL says so declaratively. A mutation that starts
 # exiting ZERO is one whose defect the gate no longer detects, and ctest reports
 # that as a failure. Do not "fix" one of these by removing WILL_FAIL.
-foreach(_m RANGE 1 7)
+foreach(_m RANGE 1 8)
     add_test(NAME forge_desktop_update_gate_mutation_${_m}
              COMMAND forge_desktop_update_gate --mutate ${_m})
     set_tests_properties(forge_desktop_update_gate_mutation_${_m}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
+
+# The CLI gate is a script and not a C++ target because what it asserts is the
+# BEHAVIOUR OF A PROCESS -- the exit code a caller reads and the text a person
+# sees -- which cannot be observed from inside the process producing it. It
+# compiles the real forge_update sources itself, so it needs nothing from this
+# build tree and it runs its own six mutations, each of which must go red.
+add_test(NAME forge_desktop_update_cli_gate
+         COMMAND ${CMAKE_COMMAND} -E env bash
+                 "${CMAKE_CURRENT_SOURCE_DIR}/test/update_cli_gate.sh" --mutations)
 
 # A run helper that sets VK_ICD_FILENAMES, so "how do I run it" has one answer.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/run_forge.sh.in"

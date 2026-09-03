@@ -60,7 +60,7 @@ fi
 if [ "$MUTATIONS" -eq 1 ]; then
   echo
   echo "── negative controls: every mutation must make the gate go red ────────"
-  for n in 1 2 3 4 5 6 7; do
+  for n in 1 2 3 4 5 6 7 8; do
     echo
     # The gate uses the SAME exit convention as its three siblings: non-zero
     # means checks failed. A mutated run is therefore SUPPOSED to be red, and a

@@ -399,6 +399,10 @@ silence.
 # offline: the gate and all seven negative controls, no kernel, no OCCT, ~10 s
 bash forge-desktop/test/run_update_gate.sh --mutations
 
+# offline: the exit codes and messages a USER sees, over the real forge_update
+# binary, with six mutations as the negative control
+bash forge-desktop/test/update_cli_gate.sh --mutations
+
 # offline: the bash producer and the C++ consumer agree on the appcast
 bash forge-desktop/test/appcast_selftest.sh
 
@@ -407,7 +411,19 @@ forge_update check
 forge_update apply --app /Applications/Forge.app --relaunch
 ```
 
-`forge_update check` exits 0 when an update is available, 10 when already current, 1 when refused.
+`forge_update check` exit codes:
+
+| code | meaning |
+|-----|---------|
+| `0`  | an update is available (`check`) / it was installed (`apply`) |
+| `10` | already current |
+| `1`  | **refused** — the manifest was read and the policy said no: a downgrade, a foreign channel, an off-host or floating payload URL, a bad digest field. Something is wrong with the release. |
+| `2`  | the command line was wrong. Nothing was fetched. |
+| `3`  | **could not check** — the appcast was never read: no network, a timeout, an unreadable file, or nothing published yet. Nothing is known about whether an update exists. |
+
+`1` and `3` were the same code until 2026-09-03. Conflating them means a caller reports "this
+release is refused" when the truth is "your wifi is off"; `test/update_cli_gate.sh --mutations`
+mutation 5 is the negative control that keeps them apart.
 
 ## Known limits, stated rather than hidden
 

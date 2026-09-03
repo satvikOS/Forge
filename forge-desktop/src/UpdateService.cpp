@@ -133,12 +133,15 @@ void UpdateService::start(const std::string& running_version) {
 
     if (!fetcher.get(forge::update::kDefaultAppcastUrl, tmp, err)) {
       out.state = ForgeFrame::UpdateState::Failed;
-      // The most common cause by far is that nothing is PUBLISHED: GitHub's
-      // `latest` skips drafts and prereleases, so the URL 404s. Say so, rather
-      // than showing a bare curl exit code to a user who cannot act on it.
-      out.message = err.find("404") != std::string::npos
-                        ? "no published release to update from yet"
-                        : "update check failed: " + err;
+      // One sentence, from the SAME function `forge_update` uses, so the menu and
+      // the command never disagree about what went wrong. The 404 case — nothing
+      // published yet, which is where this repository stands today — keeps the
+      // exact wording it already had; every OTHER case used to fall through to
+      // "update check failed: download failed: /usr/bin/curl exited 6: curl: (6)
+      // Could not resolve host: github.com", which is a menu item quoting a
+      // program the user has never heard of about a problem they can fix in one
+      // click (turn the wifi on) if only anyone told them that is what it was.
+      out.message = forge::update::describeFetchFailure(err);
       std::lock_guard<std::mutex> lk(m_);
       info_ = out;
       busy_ = false;
