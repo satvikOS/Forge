@@ -43,6 +43,7 @@
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MeasureModel.hpp"
+#include "forge/ui/ModelTree.hpp"
 #include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/StatusModel.hpp"
@@ -372,6 +373,34 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // one key() vocabulary so the overlay and the Measure panel cannot disagree.
   std::vector<std::size_t> selectedEdgeIndices();
 
+  // ── the Model Browser's and the Sketch Tree's data ──────────────────────
+  //
+  // WHY THESE ARE ACCESSORS AND NOT PANEL LOCALS. Both views used to be the
+  // FEATURE TREE: seven docked tabs -- Features, Model, Sketch, Assembly,
+  // Operations, Studies and Sheets -- were dispatched to drawFeatureTreePanel(),
+  // so six of them showed a user the build history under a name that promised
+  // something else, and nothing could assert otherwise because the panel they
+  // shared was itself correct.
+  //
+  // Each is now a real reading of the live document, computed by forge::ui and
+  // therefore assertable HEADLESS: a gate can ask for the same structure the
+  // panel draws and check the rows against the document that produced them,
+  // which is the only thing that keeps "this tab shows the bodies" true.
+  forge::ui::ModelBrowser modelBrowser() const;
+  forge::ui::SketchTree sketchTree() const;
+  // How many rows each of the two actually put on screen, and -- separately --
+  // how many B-REP FACE rows the browser drew. Separate counters because a
+  // browser that lists the bodies and silently draws no faces is a different
+  // failure from one that draws nothing at all, and one number cannot say which.
+  std::size_t modelRowsDrawn() const noexcept { return modelRowsDrawn_; }
+  std::size_t modelFaceRowsDrawn() const noexcept { return modelFaceRowsDrawn_; }
+  std::size_t sketchRowsDrawn() const noexcept { return sketchRowsDrawn_; }
+  // The measurement of ONE B-rep face, memoized on the live tessellation. The
+  // arithmetic is forge::ui::measureFace's -- this adds a cache and nothing
+  // else, because a model browser lists every face and asking the O(triangles)
+  // function once per face per frame is quadratic in the body's size.
+  const forge::ui::FaceMeasure& faceMeasure(std::uint32_t faceId);
+
   // ── the Archie Tools panel's data ───────────────────────────────────────
   forge::ui::ToolCatalog toolCatalog() const;
   std::size_t toolRowsDrawn() const noexcept { return toolRowsDrawn_; }
@@ -539,6 +568,9 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawPanel(const std::string& panelId, std::uint64_t viewportTexture);
   void drawViewportPanel(std::uint64_t viewportTexture);
   void drawFeatureTreePanel();
+  // The two panels the feature tree used to stand in for.
+  void drawModelBrowserPanel();
+  void drawSketchTreePanel();
   void drawPropertiesPanel();
   void drawConsolePanel();
   void drawTimelinePanel();
@@ -678,18 +710,29 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t viewsApplied_ = 0;
   std::size_t selectionFitsApplied_ = 0;
 
-  // Measure panel cache. `measureTriangles_` is the triangle count the cache was
-  // built from: it is the cheap witness that the scene has not been re-built
-  // under us, so a stale measurement cannot be printed as a live one.
+  // ── Measure panel cache, and the witness that MUST be the build count ────
+  //
+  // ★ MEASURED DEFECT, fixed here. The witness used to be the scene's TRIANGLE
+  // COUNT, on the reasoning that a re-tessellation changes it. It does not: a
+  // PARAMETRIC EDIT that leaves the topology alone re-tessellates to the same
+  // triangle count with entirely different coordinates. Editing the starting
+  // part's rectangle from 80 mm wide to 60 mm rebuilt the body (the scene's own
+  // bounding box went to 60.000) and the Measure panel went on reporting
+  // 80.000 x 50.000 x 20.000, with the old area, the old volume and the old
+  // centre of mass, indefinitely -- a plausible WRONG number, which is worse
+  // than no number, because a user believes it.
+  //
+  // KernelScene::builds() increments on every successful re-tessellation and on
+  // nothing else, so it cannot collide the way a count of triangles can. Both
+  // caches take it, because two witnesses for one tessellation is how one of
+  // them goes stale.
   forge::ui::MeasureMesh measureMesh_;
   forge::ui::MeshMeasure meshMeasure_{};
-  std::size_t measureTriangles_ = 0;
+  std::size_t measureBuilds_ = 0;
   bool measureBuilt_ = false;
 
-  // The recovered edges, on the SAME triangle-count witness as the measure
-  // cache. Two witnesses for one tessellation is how one of them goes stale.
   forge::ui::EdgeSet edges_;
-  std::size_t edgeTriangles_ = 0;
+  std::size_t edgeBuilds_ = 0;
   bool edgesBuilt_ = false;
   std::size_t hoverEdge_ = forge::ui::kNoEdge;
 
@@ -846,6 +889,16 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // The Components panel's list filter. A fixed buffer because that is what an
   // input box writes into.
   char componentQuery_[64] = {0};
+  std::size_t modelRowsDrawn_ = 0;
+  std::size_t modelFaceRowsDrawn_ = 0;
+  std::size_t sketchRowsDrawn_ = 0;
+  // Per-face measurement cache, indexed by 1-based face id and invalidated on
+  // the SAME witness measureMesh() uses -- the scene's BUILD COUNT -- so a
+  // rebuild can never leave a face row describing the previous body.
+  std::vector<forge::ui::FaceMeasure> faceCache_;
+  std::vector<char> faceCached_;
+  std::size_t faceCacheBuilds_ = 0;
+  bool faceCacheBuilt_ = false;
 
   // ── the CoPilot ─────────────────────────────────────────────────────────
   // Owned here because it is panel state, not document state: the transcript,
