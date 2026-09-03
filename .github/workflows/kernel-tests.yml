@@ -123,7 +123,29 @@ jobs:
     # model. Nothing here includes an ImGui header, which is why it runs headless in CI: the ImGui
     # frame builder is a CONSUMER of this state, not its owner.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # ── 20 -> 45, AND THE REASON IS A MEASUREMENT, NOT A GUESS ──────────────
+    # This job was CANCELLED AT EXACTLY 20m18s on run 33805100788 with seven
+    # steps green and none failing: the panel-ratchet mutation proof was cut off
+    # mid-step at 6m13s. Nothing was wrong with it -- the job had simply run out
+    # of wall clock.
+    #
+    # MEASURED, per step. On archdisc (abdce05e, run 33802557633) this job took
+    # 18m05s of its 20 with THREE mutation proofs: prose 7m54, model-tree 4m53,
+    # syntax 55s, and 4m23 of everything else. It was already at 90% of budget.
+    # This branch adds a FOURTH -- the empty-panel ratchet, six real mutations in
+    # the real sources, each of which rebuilds every ui/ source -- and ~2,500
+    # lines of new source that all four proofs recompile every time (prose went
+    # 7m54 -> 8m57 on run 33805100788, +13%). Measured need is therefore ~28
+    # minutes, and 45 leaves room for a slow runner rather than putting the next
+    # person one step away from this same cancellation.
+    #
+    # NOT a weakened check: every gate and every mutation still runs, in full.
+    # The structural fix, when CI minutes matter more than a diff does, is to
+    # split the four mutation proofs into their own parallel jobs -- they share
+    # nothing but the checkout -- which keeps each one under 20 minutes instead
+    # of extending one deadline. That changes the set of check names on every PR,
+    # so it is deliberately not bundled into a change about panel content.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: forge::ui gates
