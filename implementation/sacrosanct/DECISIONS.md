@@ -3024,6 +3024,175 @@ No benchmark number is claimed here: nothing in this branch was scored against B
 CADGenBench or MUSE.
 
 
+## D-047 (2026-09-02): the app could save a part and could not offer it back — the reopen leg had no surface, and the crash-isolation state was reported to a stream a Finder launch does not have
+
+**The audit that found it.** Against the running surface rather than the source: the committed
+`APP_SURFACE_MANIFEST.tsv` holds 80 commands (58 Part, carrying 53 distinct feature-IR ops), and
+`app_surface_reachability_test` already proves every one of them is offered by the menu, the
+ribbon, the palette, the tool catalog and the manifest. So breadth was not the gap. The gap was on
+the ONE path the product is judged on — open, sketch, extrude, modify, save, reopen — and it was in
+the last step.
+
+**`file.open` declares `path` REQUIRED with no default, and it is right to.** `""` is not a
+document, so Ctrl+O opens the parameter prompt instead of failing. The prompt seeded that box from
+`ForgeFrame::documentPath_` — **which is empty on every launch**. A user who saved a part, quit,
+and came back got an EMPTY text box and no way to reopen their work except to type its absolute
+path from memory. Worse for the commonest case: `file.save` with no path writes to
+`~/.forge/<name>.fpart` (ForgeFrame.cpp), a directory the user never chose, never sees and has no
+reason to guess — so they could save successfully and be unable to find the file again, with
+nothing anywhere reporting a failure. There was no recent-documents list of any kind in the tree:
+`grep -rn recent ui/ forge-desktop/src` matched an LRU cache in `FeatureTreeModel` and a comment.
+
+**The fix is a model in the layer CI compiles, written by the HANDLERS.**
+`forge::ui::RecentDocuments` is a bounded MRU list (10, dedup, most-recent-first) owned by
+`ForgeShell` and written inside the `file.open` and `file.save` execute bodies — so a menu click,
+Ctrl+O, the palette, `--open` on the command line and an Archie tool call all feed it by
+construction. A surface that remembered paths itself would be a second list only that surface can
+see. Three specifics that are not incidental:
+
+* It reads the path back from `documentHost_->documentPath()`, never from the command's `path`
+  argument. A bare Ctrl+S passes `""` and the HOST chooses where it went; remembering the argument
+  would remember the empty string, which is precisely the case that loses the file.
+* Only a SUCCESSFUL open or save is remembered. A refused open leaves the list untouched, so a path
+  that does not exist is never offered back for ever.
+* `isStorable()` refuses a path containing `\n` or `\r`. A POSIX path may legally contain a
+  newline and the session file is line-oriented, so storing one would emit a `recent` record whose
+  tail parses as a further record — silently corrupting the workspace, layouts or keymap after it.
+
+**It persists, and `restore()` is not `remember()` in a loop.** `saveState`/`loadState` carry
+`recent <path>` lines beside the workspace and the keymap. `remember()` pushes to the FRONT, so
+replaying a most-recent-first file through it would load the list REVERSED and the session file
+would invert the user's history on every launch. `restore()` takes the order as given. The record
+is optional on read (a session file that predates it still loads, and an unknown record was already
+tolerated-and-counted rather than refused), and the round trip is byte-identical.
+
+**The second half: the safety net nobody could see.** `main.cpp` probes `forge_kernel_worker` at
+startup and, when it will not launch, turns isolation OFF and prints `kernel isolation:
+UNAVAILABLE ... modelling runs IN PROCESS` to **stderr**. A user who launches Forge.app from the
+Finder or the Dock has no stderr. The single most consequential fact the startup path knows — that
+an OCCT fault will now take the document with it — reached nobody. `ForgeFrame::reportKernelIsolation()`
+now writes it into `shell_.log()`, which the console panel filters by severity and the status strip
+counts, and it READS THE SCENE rather than being told, so the log cannot say "active" about a
+session that is not. It is a WARNING, not an error: the app is still an application without its
+worker, and refusing to model would be the capability gate wearing a safety hat that
+`KernelSession.hpp` already argues against.
+
+**What is deliberately NOT done.** No native file dialog. `file.open` still takes a typed path, now
+pre-filled and reachable from File > Open Recent; an `NSOpenPanel` is Objective-C++, would make the
+TU `.mm`, and cannot be driven by a headless gate — so it is written down as owed rather than
+half-built. The prompt seeds `""` on a first-ever launch with nothing remembered: there is nothing
+to suggest, and inventing a path that does not exist would put a refusal one Enter away. A
+remembered path that stops opening is KEPT, not dropped — this frame cannot tell "deleted" from
+"the volume is not mounted today", and silently forgetting a part because a share was asleep is the
+worse of the two mistakes; it raises a named error instead.
+
+**Gates.** `bash ui/test/run_ui.sh` — ALL 31 UI gates pass (30 before; `recent_documents` is the
+new one, 78 checks). `bash forge-desktop/test/run_syntax_gate.sh` — GREEN, all 12 forge-desktop TUs
+type-check. `frame_gate` gains mutations 10 and 11 (a session with a worker CONFIGURED is not
+distinguished from one without; the frame never dispatches the deferred Open Recent request), so
+`EXPECTED_MUTATIONS` in `ci_desktop_gate.sh` moves 40 → 42 — RE-COUNTED from run_desktop.sh's own
+`run_gate` arguments on this tree (document 8 + frame 11 + copilot 8 + update 7 + click 8), not
+incremented on faith.
+
+**Two gate defects found while reading them, and fixed here.** The `desktop_app` job asserted six
+of the TEN executables `cmake --build` produces — `forge_desktop_copilot_gate`,
+`forge_desktop_click_gate`, `forge_desktop_update_gate` and `forge_update` could all have stopped
+being PRODUCED with that step still green. And its comment said the gate pins "exactly 31
+mutations" while `ci_desktop_gate.sh` pinned 40: a number in two places is a number that drifts, so
+the count is now named only where it decides the build.
+
+**What this does NOT claim.** `forge-desktop` was NOT built locally (a 30B training run held this
+box); only the `-fsyntax-only` gate and the headless forge::ui suite were run here, and CI is the
+authority for the compiled half. No window was opened and no menu was clicked: File > Open Recent
+is asserted by ENUMERATION and by the deferral contract, not by pixels, exactly as
+`app_surface_reachability_test` states of every other surface. And the packaging assertions that
+prove `forge_kernel_worker` ships inside `Contents/MacOS/` (`package_macos.sh` dies without it;
+`release_dryrun.sh` re-checks the built bundle) still run ONLY on a tag or a dispatch of
+`desktop-release.yml` — they are correct and they have no PR-time gate. That is recorded as an open
+finding, not closed here: a 90-minute packaging job on every PR would be the wrong answer to it.
+
+## D-048 (2026-09-02): a user could not extrude a sketch — 28 of the 80 commands needed a selection kind the interface could not produce, and every gate was green because none of them was asking
+
+**The measurement.** ForgeFrame had exactly TWO producers of selection refs:
+`clickFace`, which makes an `EntityKind::Face`, and `clickEdge`, which makes an `EntityKind::Edge`.
+`grep -n "ref.kind = "` over `forge-desktop/src/ForgeFrame.cpp` at 2b09b774 returns FOUR lines
+naming exactly TWO kinds — 1118 and 1141 `EntityKind::Face` (the preselection and the click), 1216
+and 1233 `EntityKind::Edge` (the same pair) — and nothing else in the file assigns a ref kind at
+all. `SelectionSignature::satisfiedBy` compares kinds EXACTLY —
+`sel.countOf(kind) == total`, with no subsumption — so a picked Face does not stand in for a Body
+and certainly not for a Profile. Classifying the live registry by required kind gives:
+
+| required kind | commands | reachable |
+|---|---|---|
+| none | 39 | yes |
+| any | 2 | yes |
+| face | 8 | yes (viewport pick) |
+| edge | 3 | yes (viewport pick) |
+| **body** | **13** | **no** |
+| **sketchref** | **5** | **no** |
+| **surface** | **4** | **no** |
+| **sketch** | **2** | **no** |
+| **opensketch** | **2** | **no** |
+| **wire** | **2** | **no** |
+
+**28 of 80 were un-invocable by a human.** The list includes `part.extrude` and `part.revolve`,
+all three booleans, all three patterns, mirror, move, rotate, loft, skin, thicken, cap, sew and the
+entire sketch-entity family. **A user could not extrude a sketch in a CAD application.**
+
+**Why every gate was green.** `capability_manifest_test` asks whether the committed manifest equals
+the live registry — it did. `app_surface_reachability_test` asks whether every surface OFFERS every
+command — it did, in both directions, for the menu, the ribbon, the palette, the tool catalog and
+the manifest; that gate states its own limit in its header ("Enumeration, not pixels"). **Offering
+a command and being able to invoke it are two claims, and only the first one had a gate.** The
+sharpest form of the finding: `ArchieCopilot::resolveSelection` builds exactly the refs that were
+missing, so the AGENT could drive all 28 commands the PERSON could not.
+
+**The close.** A feature-tree row IS a document statement, which is precisely what those signatures
+want, so the tree becomes the third producer. `ForgeFrame::clickFeature(irId, additive)` takes the
+kind from a new `forge::ui::entityKindFor(IrValueKind)` — never from a mapping the frame invents —
+and shift-click is how two bodies are picked for a boolean and three points for a sketch arc. Two
+details that are not incidental:
+
+* **The filter is honoured, and honoured FIRST.** A tree click that ignored the selection filter
+  would make "set the filter to Edge" mean nothing in half the window. It is checked before the
+  binding below, so a refused pick leaves the document exactly as it was.
+* **An unbound statement is bound on demand.** `resolveValues()` reads `bodyId -> valueFor() ->
+  kindOf()`, so a statement with no node binding cannot be resolved by ANY route — and
+  `makeDefaultPart()` binds a node for only its LAST statement, so the four rows a new document
+  opens on were exactly the un-pickable ones. `clickFeature` binds `pick_<irId>` through
+  `PartDocument::restore()`, the document's own published way to set a binding (`ensureBodyBinding`
+  already does the same for the body). This is not a document edit: bindings are not statements, so
+  `irProgram()` is unchanged and nothing rebuilds. `kindOf()` reads the record's own `produces`
+  field rather than the node's spelling, which is why the name only has to be unique and needs none
+  of PartCommands' private `sketch_` / `wire_` prefixes.
+
+**Gates, and the two halves they divide into.**
+`ui/test/selection_reachability_test.cpp` is the standing measurement: it classifies the live
+registry, reads the producible kinds out of `ForgeFrame.cpp` AS DATA (the literal
+`ref.kind = forge::ui::EntityKind::X` assignments, plus the delegated `entityKindFor` form), and
+RATCHETS the unreachable count at an EQUALITY — **28 → 0** — so a command added needing a kind no
+surface produces turns red instead of shipping a menu item nobody can invoke, and a producer
+removed turns red instead of silently greying out a family again. It also proves `entityKindFor` is
+total over `IrValueKind` and injective, because two IR kinds sharing one `EntityKind` would undo
+exactly the Wire-vs-Sketch and Surface-vs-Body distinctions the kernel forced into that enum.
+
+What a source read cannot prove is that the click reaches dispatch. That is proved where it can be:
+`frame_gate` mutation 12 clicks the seeded PROFILE row on the real linked `ForgeFrame`, asserts the
+ref comes back as an `EntityKind::Sketch` whose node resolves to that statement, dispatches
+`part.extrude` through the one registry and requires an `EXTRUDE` statement in the document — then
+sets the filter to Edge and requires the same click to select NOTHING.
+
+**One scanner defect, kept as a fact.** The first version of the source read compared the parsed
+enumerator (`Face`) against `toString(EntityKind::Face)` (`face`) and matched nothing, so it
+reported an EMPTY producible set. It did not pass vacuously: `parsed` is asserted precisely so a
+scanner that stops matching is RED rather than silent. That is why the assertion is there.
+
+**What this does NOT claim.** No window was opened and no row was clicked with a mouse: the tree's
+`ImGui::Selectable` handler is asserted by the source read, and `clickFeature` — the function it
+calls — is asserted end to end. The 28 is a count of commands whose SIGNATURE could not be
+satisfied; it is not a claim that all 28 now produce correct geometry, which is the kernel's
+question and not this one. And `forge-desktop` was NOT built locally (a 30B training run held this
+box): the compiled half is CI's.
 ## D-051 (2026-09-02): D-045's "compiled" row is `status == "ok"`, not "built" — the true build rates are 86.6% and 57.6%, the effect it was cited for is THREE TIMES larger, and the quantity as recorded is not independent of the endpoint it sat beside
 
 D-045 FINAL, corrected, records this table and draws its sharpest sentence from the
