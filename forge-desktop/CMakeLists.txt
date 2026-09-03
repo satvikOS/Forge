@@ -205,10 +205,16 @@ target_link_libraries(forge_imgui PUBLIC "${VK_LOADER_LIB}")
 # folding it into KernelScene would have made the viewport own the file system.
 # The property that matters is unchanged -- the ImGui frame builder still reaches
 # no OCCT header, and every headless gate still links what it needs and no more.
+# FileDialog.cpp is the POLICY half of the native file panel -- which command
+# opens which panel, filtering for which extensions -- and it is pure C++ with no
+# AppKit in it. That is why it is here and not in the app: a headless gate has to
+# be able to link the decision and script the panel. FileDialogMac.mm, the Cocoa
+# half, is in the application target below and in no gate.
 add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ImGuiErrorPolicy.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
@@ -221,14 +227,42 @@ target_compile_options(forge_desktop_core PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui "${FORGE_KERNEL_CORE_LIB}")
 
 # ---------------------------------------------------------------- the app
-add_executable(forge_desktop
+# ── the NATIVE FILE PANEL is in the app and in nothing else ────────────────
+# FileDialogMac.mm is the only translation unit in this project that imports
+# AppKit. It is Objective-C++, it opens a modal window, and it is linked HERE
+# rather than into forge_desktop_core for the same reason forge_updater is: a
+# headless gate must not need a window server. Six file commands are reachable
+# with a mouse because of this file; forge_desktop_file_dialog_gate proves the
+# path they travel with the panel scripted instead.
+set(FORGE_DESKTOP_APP_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PlatformSDL2.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateService.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/ViewportRenderer.cpp"
-    ${SHADER_HEADERS})
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ViewportRenderer.cpp")
+if(APPLE)
+    list(APPEND FORGE_DESKTOP_APP_SOURCES
+         "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialogMac.mm")
+else()
+    # NOT a silent omission: makeNativeFileDialog() is DECLARED in FileDialog.hpp
+    # and main.cpp calls it, so a platform with no implementation fails to LINK
+    # rather than shipping a File menu whose items do nothing. Teach this branch
+    # a picker for that platform; do not stub the symbol out.
+    message(FATAL_ERROR
+        "forge-desktop: no native file panel is implemented for this platform. "
+        "src/FileDialogMac.mm is macOS only; the six file commands would have no "
+        "way to obtain a path. Add an implementation of "
+        "forge::desktop::makeNativeFileDialog() and list it here.")
+endif()
+
+add_executable(forge_desktop ${FORGE_DESKTOP_APP_SOURCES} ${SHADER_HEADERS})
 target_include_directories(forge_desktop PRIVATE "${SDL2_INC}" "${SHADER_GEN_DIR}")
 target_compile_options(forge_desktop PRIVATE -Wall -Wextra -Werror)
+if(APPLE)
+    # UniformTypeIdentifiers, not the deprecated allowedFileTypes: this target is
+    # -Werror and NSSavePanel.allowedFileTypes has been deprecated since macOS 12.
+    target_link_libraries(forge_desktop PRIVATE
+        "-framework AppKit" "-framework Foundation" "-framework UniformTypeIdentifiers")
+endif()
 # forge_updater is linked into the APP, not into forge_desktop_core. The core is what
 # every headless gate drives, and a frame builder that could reach the network would
 # make each gate run depend on GitHub being up. The app owns the socket; the frame
@@ -328,6 +362,24 @@ target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_cor
 set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ---------------------------------------------------- the FILE-DIALOG gate
+# The other half of file exchange: not "can the kernel read a STEP file" but
+# "can a user REACH the command that asks it to". PR #206 registered six file
+# commands, four of them declaring `path` required with no default, and nothing
+# in the application could produce a path -- every existing gate stayed green
+# because every existing gate supplies the path itself. This one makes the
+# GESTURE (ForgeFrame::invoke with no arguments, the same call a menu click
+# makes), lets the deferred panel run inside a real ImGui frame with the dialog
+# SCRIPTED, and asserts at the receiving end that each of the six holds the path
+# the panel produced. It also requires a CANCEL to be a no-op, with the error
+# count as the witness.
+add_executable(forge_desktop_file_dialog_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/file_dialog_gate.cpp")
+target_compile_options(forge_desktop_file_dialog_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_file_dialog_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_file_dialog_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # ------------------------------------------- the INTERFACE-ERROR gate
 # What a RECOVERABLE Dear ImGui error costs the user. MEASURED against the
 # vendored library: with its shipped defaults an unbalanced frame ABORTS the
@@ -412,6 +464,7 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ImGuiErrorPolicy.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
@@ -516,6 +569,21 @@ foreach(_ie RANGE 1 8)
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_file_exchange_gate COMMAND forge_desktop_file_exchange_gate)
+add_test(NAME forge_desktop_file_dialog_gate COMMAND forge_desktop_file_dialog_gate)
+# The same WILL_FAIL idiom the other two mutation sets use, for the same reason:
+# the binary keeps the ordinary exit convention under --mutate, so a CAUGHT
+# mutation is a red run and ctest is told to expect it. A mutation that starts
+# exiting zero is one whose defect the gate no longer detects.
+#   1  no dialog installed        the state before this change: the six commands
+#                                 registered and no way to produce a path
+#   2  the panel answers a DIFFERENT path than the one it was given
+#   3  a cancel reports the previous choice instead of nothing
+foreach(_fd 1 2 3)
+    add_test(NAME forge_desktop_file_dialog_mutation_${_fd}
+             COMMAND forge_desktop_file_dialog_gate --mutate ${_fd})
+    set_tests_properties(forge_desktop_file_dialog_mutation_${_fd}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
 # WILL_FAIL, the same idiom the update gate's mutations use, and for the same
 # reason: the binary keeps its ordinary exit convention under --mutate (a CAUGHT
 # mutation exits non-zero), so ctest is told to expect the failure rather than the

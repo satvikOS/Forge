@@ -182,6 +182,17 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # bit-identical, and 5 (a cube of the same volume about the same centre) leaves
 # volume and the centre of mass identical. A gate checking volume alone passes both.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
+# THE OTHER HALF OF FILE EXCHANGE: not "can the kernel read a STEP file" but "can
+# a user REACH the command that asks it to". The six file commands each declare a
+# `path`, and until the native panel existed nothing in the application could
+# produce one -- while every gate above stayed green, because every gate above
+# supplies the path itself. This one makes the GESTURE and asserts the chosen
+# path arrives at the receiving end. Mutation 1 is the state before the panel:
+# no dialog installed, so the six are unreachable again.
+run_gate forge_desktop_file_dialog_gate 1 2 3
+# ── MERGE: HEAD had frame_gate 1..12, archdisc 1..14. Taking the SUPERSET; the
+#    tree work added mutations 13 and 14, and keeping HEAD's line would have
+#    silently dropped them while the suite still reported green.
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
