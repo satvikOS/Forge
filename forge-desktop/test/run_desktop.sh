@@ -168,6 +168,15 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # volume and the centre of mass identical. A gate checking volume alone passes both.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
+# THE TRUST PANELS: Interference, Verification, Continuity, Draft and Zebra,
+# with every number asserted against the model's own definition -- 500 mm3 of
+# overlap centred at (7.5, 5, 5) between two 10 mm cubes 5 mm apart, a genus of 1
+# for the plate's bore, fillets that meet their walls with no crease and corners
+# that meet at a right angle. It also runs the whole check a SECOND time in the
+# isolated worker and compares the two answers field by field, because the
+# worker is the configuration a user actually runs. The seven mutations each
+# break one link between a kernel query and a panel row.
+run_gate forge_desktop_quality_gate 1 2 3 4 5 6 7
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

@@ -46,6 +46,7 @@
 #include <unistd.h>
 
 #include "KernelScene.hpp"
+#include "ModelQuality.hpp"
 #include "forge/ft/FeatureTree.hpp"
 #include "forge/ui/KernelSession.hpp"
 
@@ -105,7 +106,18 @@ void emitHeader(const forge::desktop::IrBuildReport& r, const std::string& backe
   // as the start of another field.
   std::printf("errorBytes %zu\n", r.error.size());
   std::fwrite(r.error.data(), 1, r.error.size(), stdout);
-  std::printf("\nbackend %s\n", backend.c_str());
+  std::printf("\n");
+  // THE PART'S OWN CHECKS. `VERIFY`/`SURFCHECK` statements measure the live body
+  // and record one line each; length-prefixed for the same reason the error is,
+  // and because a check line quoting a name could one day contain anything.
+  std::string checks;
+  for (const std::string& c : r.checks) {
+    checks += c;
+    checks += '\n';
+  }
+  std::printf("checkBytes %zu\n", checks.size());
+  if (!checks.empty()) std::fwrite(checks.data(), 1, checks.size(), stdout);
+  std::printf("backend %s\n", backend.c_str());
 }
 
 }  // namespace
@@ -144,6 +156,42 @@ int main(int argc, char** argv) {
     }
   }
 
+  // ── the ANALYSE pragma ───────────────────────────────────────────────────
+  // `#!forge-worker-analyse <pullX> <pullY> <pullZ> <thresholdDeg> <lx> <ly> <lz>
+  // <stripes> <clashTolerance>` asks for the QUALITY CHECK instead of a vertex
+  // stream: the same compile, then every query in ModelQuality.hpp, answered as
+  // one text report. It travels as a first-line pragma for the same reason the
+  // input path does -- `#` starts a comment in the IR grammar, so nothing the
+  // application can emit collides with it -- and it keeps the check inside the
+  // process this application is allowed to lose, which is the whole reason these
+  // OCCT paths are reachable from a panel at all.
+  bool wantQuality = false;
+  forge::desktop::QualitySettings qualitySettings;
+  {
+    const std::string pragma = forge::desktop::kWorkerAnalysePragma;
+    if (program.rfind(pragma, 0) == 0) {
+      std::size_t end = program.find('\n', pragma.size());
+      if (end == std::string::npos) end = program.size();
+      const std::string args = program.substr(pragma.size(), end - pragma.size());
+      program = end < program.size() ? program.substr(end + 1) : std::string();
+      wantQuality = true;
+      unsigned stripes = qualitySettings.stripeCount;
+      // A malformed settings line leaves the DEFAULTS in place rather than
+      // zeroing a pull direction, which would make every draft answer wrong
+      // instead of making the request fail.
+      if (std::sscanf(args.c_str(), "%lf %lf %lf %lf %lf %lf %lf %u %lf",
+                      &qualitySettings.pull[0], &qualitySettings.pull[1],
+                      &qualitySettings.pull[2], &qualitySettings.draftThresholdDeg,
+                      &qualitySettings.light[0], &qualitySettings.light[1],
+                      &qualitySettings.light[2], &stripes,
+                      &qualitySettings.clashTolerance) == 9) {
+        qualitySettings.stripeCount = stripes;
+      } else {
+        qualitySettings = forge::desktop::QualitySettings{};
+      }
+    }
+  }
+
   const std::string mode = selftestMode(program);
   if (!mode.empty()) {
     std::fprintf(stderr, "[worker] SELFTEST mode '%s'\n", mode.c_str());
@@ -174,6 +222,26 @@ int main(int argc, char** argv) {
   if (!workerInputFile.empty()) scene.setInputFile(workerInputFile);
   const bool ok = scene.buildFromIr(program);
   forge::ft::setCompileProgressHook(nullptr, nullptr);
+
+  if (wantQuality) {
+    // The check answers on its own, in its own format. A build that FAILED still
+    // gets an answer -- the report says what could not be measured and why, which
+    // is what a person who pressed Check is owed.
+    if (!ok) {
+      forge::desktop::ModelQualityReport empty;
+      empty.unavailable =
+          "The model could not be built, so there is nothing to check yet.";
+      const std::string text = forge::desktop::encodeQualityReport(empty);
+      std::fwrite(text.data(), 1, text.size(), stdout);
+      std::fflush(stdout);
+      return 0;
+    }
+    scene.analyseQuality(qualitySettings);
+    const std::string text = forge::desktop::encodeQualityReport(scene.lastQuality());
+    std::fwrite(text.data(), 1, text.size(), stdout);
+    std::fflush(stdout);
+    return 0;
+  }
 
   emitHeader(scene.lastBuild(), scene.backend());
 

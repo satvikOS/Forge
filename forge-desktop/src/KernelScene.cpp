@@ -1,5 +1,7 @@
 #include "KernelScene.hpp"
 
+#include "ModelQuality.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -117,6 +119,10 @@ void KernelScene::setDocumentLabel(std::string label) {
 // caller can forget to ask for isolation and no gate has to be rewritten to get
 // it. With no worker configured this is exactly the function it always was.
 bool KernelScene::buildFromIr(const std::string& program) {
+  // Kept so the quality check can be asked for later without the caller having
+  // to hand the program back. It is the program THIS SCENE was last asked to
+  // build, which is what makes a check and a viewport describe one model.
+  program_ = program;
   if (session_.workerConfigured()) {
     bool fellBack = false;
     const bool ok = buildIsolated(program, fellBack);
@@ -184,6 +190,12 @@ bool KernelScene::buildInProcess(const std::string& program) {
   report_.nParsed = res.nParsed;
   report_.nCompiled = res.nCompiled;
   report_.failedOpId = res.failedOpId;
+  // ★ BEFORE the ok test, and that ordering is the whole point. A requirement
+  // written into the part that FAILS is what makes the compile fail, so reading
+  // the check log only on the success path drops exactly the lines a user needs
+  // -- the gate caught this by asking for a part whose own requirement is false
+  // and finding the report empty.
+  report_.checks = res.verify;
   if (!res.ok || res.handle == 0) {
     report_.error = res.error.empty() ? std::string("the kernel produced no solid") : res.error;
     error_ = report_.error;
@@ -191,6 +203,7 @@ bool KernelScene::buildInProcess(const std::string& program) {
   }
   report_.compiled = true;
   report_.valid = res.valid;
+  solidHandle_ = static_cast<std::uint32_t>(res.handle);
   report_.faceCount = res.faceCount;
   report_.edgeCount = res.edgeCount;
   report_.volume = res.volume;
@@ -417,6 +430,10 @@ bool KernelScene::buildIsolated(const std::string& program, bool& fellBack) {
   built_ = true;
   error_.clear();
   ++builds_;
+  // The solid this build produced lives in the WORKER, not here. Zeroing it is
+  // what stops a later check measuring the last in-process body and reporting
+  // the answer as if it belonged to the part now on screen.
+  solidHandle_ = 0;
   backend_ = backend.empty() ? std::string("isolated kernel worker") : backend;
   return true;
 }
@@ -520,6 +537,33 @@ bool KernelScene::decodeWorkerPayload(const std::string& payload, IrBuildReport&
     error = "the kernel worker did not terminate its error block";
     return false;
   }
+
+  // THE PART'S OWN CHECKS, length-prefixed for the same reason the error is.
+  if (!workerReadLine(payload, pos, line) || line.rfind("checkBytes ", 0) != 0) {
+    error = "the kernel worker did not declare how much it wrote about the part's own checks";
+    return false;
+  }
+  unsigned long long checkBytes = 0;
+  if (std::sscanf(line.c_str() + 11, "%llu", &checkBytes) != 1) {
+    error = "the kernel worker's check length was unreadable: \"" + workerSnippet(line) + "\"";
+    return false;
+  }
+  if (pos + static_cast<std::size_t>(checkBytes) > payload.size()) {
+    error = "the kernel worker declared " + std::to_string(checkBytes) +
+            " bytes of checks but its output ended after " +
+            std::to_string(payload.size() - pos);
+    return false;
+  }
+  {
+    const std::string block(payload, pos, static_cast<std::size_t>(checkBytes));
+    pos += static_cast<std::size_t>(checkBytes);
+    std::size_t at = 0;
+    std::string one;
+    while (workerReadLine(block, at, one)) {
+      if (!one.empty()) report.checks.push_back(one);
+    }
+  }
+
   if (!workerReadLine(payload, pos, line) || line.rfind("backend ", 0) != 0) {
     error = "the kernel worker did not name its backend";
     return false;
@@ -701,6 +745,105 @@ constexpr forge::ui::NodeId kRootNode = 1;
 constexpr forge::ui::NodeId kFeatureBase = 2;
 constexpr forge::ui::NodeId kFaceBase = 1000;
 }  // namespace
+
+
+// ── ★ THE QUALITY CHECK ─────────────────────────────────────────────────────
+//
+// ONE entry point, the SAME two roads a build takes, chosen by the same
+// property of the scene. The panels never learn which road ran: they read
+// lastQuality(), and the report says for every field whether it was measured.
+bool KernelScene::analyseQuality(const QualitySettings& settings) {
+  if (session_.workerConfigured()) {
+    bool fellBack = false;
+    const bool ok = analyseQualityIsolated(settings, fellBack);
+    if (!fellBack) return ok;
+  }
+  return analyseQualityInProcess(settings);
+}
+
+bool KernelScene::analyseQualityInProcess(const QualitySettings& settings) {
+  quality_ = ModelQualityReport{};
+  if (solidHandle_ == 0) {
+    quality_.unavailable = "There is no model to check yet. Build or open a part first.";
+    return false;
+  }
+  try {
+    quality_ = analyseSolidQuality(solidHandle_, settings);
+  } catch (...) {
+    // analyseSolidQuality guards every kernel call and is documented not to
+    // throw; this is the belt for the one that gets added later without one.
+    quality_ = ModelQualityReport{};
+    quality_.unavailable = "The check could not finish on this model.";
+    return false;
+  }
+  ++qualityRuns_;
+  return quality_.ran;
+}
+
+bool KernelScene::analyseQualityIsolated(const QualitySettings& settings, bool& fellBack) {
+  fellBack = false;
+  // The same guard buildIsolated carries, for the same reason: a synchronous
+  // wait with neither a deadline nor a host pump has nothing that can end it.
+  if (limits_.deadlineMs == 0 && !hostPump_) {
+    fellBack = true;
+    return false;
+  }
+  if (program_.empty()) {
+    quality_ = ModelQualityReport{};
+    quality_.unavailable = "There is no model to check yet. Build or open a part first.";
+    return false;
+  }
+
+  char args[256];
+  std::snprintf(args, sizeof(args), "%.17g %.17g %.17g %.17g %.17g %.17g %.17g %u %.17g",
+                settings.pull[0], settings.pull[1], settings.pull[2],
+                settings.draftThresholdDeg, settings.light[0], settings.light[1],
+                settings.light[2], static_cast<unsigned>(settings.stripeCount),
+                settings.clashTolerance);
+  // The analyse pragma FIRST, the input pragma second: the worker reads the
+  // input path off the first line, so the two cannot both lead. It strips the
+  // analyse line and then looks for the input line, which is the order written
+  // here.
+  std::string payload = std::string(kWorkerAnalysePragma) + args + "\n";
+  if (!inputFile_.empty()) payload += std::string(kWorkerInputPragma) + inputFile_ + "\n";
+  payload += program_;
+
+  const std::uint64_t startMs = forge::ui::steadyNowMs();
+  if (!session_.submit("check", payload, startMs)) {
+    fellBack = true;
+    return false;
+  }
+  ++isolatedQualityRuns_;
+
+  for (;;) {
+    const std::uint64_t now = forge::ui::steadyNowMs();
+    if (session_.pump(now)) break;
+    if (!session_.running()) break;
+    if (hostPump_ && hostPump_(session_.elapsedMs(now), session_.lastOp().text())) {
+      session_.cancel(now);
+    }
+    ::usleep(1000);
+  }
+
+  quality_ = ModelQualityReport{};
+  if (session_.state() != forge::ui::KernelJobState::Succeeded) {
+    // ★ THE POINT, again: the check faulted and the application did not. These
+    // are the OCCT paths the kernel's own report records SIGSEGVing on, and a
+    // fault here costs one check.
+    quality_.unavailable =
+        "The check stopped before it finished. Your model and your work are unchanged.";
+    return false;
+  }
+  std::string why;
+  if (!decodeQualityReport(session_.result(), quality_, why)) {
+    quality_ = ModelQualityReport{};
+    quality_.unavailable = why.empty() ? std::string("The check did not report anything readable.")
+                                       : why;
+    return false;
+  }
+  ++qualityRuns_;
+  return quality_.ran;
+}
 
 SceneFeatureTreeSource::SceneFeatureTreeSource(const KernelScene& scene,
                                                const forge::ui::PartDocument& document)

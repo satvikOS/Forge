@@ -199,14 +199,18 @@ target_include_directories(forge_imgui PUBLIC "${IMGUI_DIR}" "${VK_INC}")
 target_link_libraries(forge_imgui PUBLIC "${VK_LOADER_LIB}")
 
 # ---------------------------------------------------------------- app sources
-# KernelScene.cpp and FileExchangeHost.cpp are the ONLY translation units that
-# see OCCT headers. FileExchangeHost is the second one and it is deliberate: file
+# KernelScene.cpp, FileExchangeHost.cpp and ModelQuality.cpp are the ONLY
+# translation units that see OCCT headers. Each split is deliberate: file
 # exchange reads and writes files, holds no geometry and has no scene, and
-# folding it into KernelScene would have made the viewport own the file system.
+# folding it into KernelScene would have made the viewport own the file system;
+# ModelQuality is the five trust panels' measurements, which are a QUERY over a
+# finished solid and have nothing to do with getting one on screen.
 # The property that matters is unchanged -- the ImGui frame builder still reaches
-# no OCCT header, and every headless gate still links what it needs and no more.
+# no OCCT header (ModelQuality.hpp carries a plain struct and a 32-bit handle),
+# and every headless gate still links what it needs and no more.
 add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ModelQuality.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
@@ -217,7 +221,39 @@ target_include_directories(forge_desktop_core PUBLIC
     "${OCCT_PREFIX}/include/opencascade")
 target_compile_definitions(forge_desktop_core PRIVATE FORGE_NATIVE_BREP=1)
 target_compile_options(forge_desktop_core PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui "${FORGE_KERNEL_CORE_LIB}")
+
+# ---------------------------------------------------- the OCCT toolkits, named
+# ModelQuality.cpp is the first translation unit here that CALLS OCCT rather than
+# only including its headers, and it does so for exactly one reason: the quality
+# queries need SUB-SHAPES. `forge::classa::continuityCheck` takes two faces and
+# the edge between them, `forge::detectInterference` takes one instance per
+# solid, and the kernel's public surface hands out handles to WHOLE SHAPES only
+# (DirectModeling.hpp counts sub-shapes; nothing there returns one). So the
+# enumeration -- the solids of the model, the edges with a face on each side, the
+# face map -- happens here, and it needs the four toolkits that own those types.
+#
+# This is a DIRECT link record where there was a transitive one: every OCCT
+# library below is already in this application's closure through
+# libforge_kernel_core, and package_macos.sh already walks that closure
+# transitively, so nothing new is shipped. Listed one per line with what needs
+# it, because an unexplained library list is how one gets added and never
+# removed.
+set(FORGE_DESKTOP_OCCT_LIBS
+    TKernel     # Standard_Failure and the handle machinery every other one needs
+    TKMath      # Bnd_Box, gp_Dir
+    TKBRep      # TopoDS_Shape/Face/Edge, BRep_Builder, TopLoc
+    TKTopAlgo   # BRepBndLib, TopExp ancestors
+    TKG3d       # the surface and curve types the shape types refer to
+    TKGeomBase) # the geometry those surfaces are built on
+foreach(_tk IN LISTS FORGE_DESKTOP_OCCT_LIBS)
+    if(NOT EXISTS "${OCCT_PREFIX}/lib/lib${_tk}.dylib")
+        message(FATAL_ERROR "OCCT toolkit ${_tk} not found under ${OCCT_PREFIX}/lib")
+    endif()
+    list(APPEND FORGE_DESKTOP_OCCT_PATHS "${OCCT_PREFIX}/lib/lib${_tk}.dylib")
+endforeach()
+
+target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
+                      "${FORGE_KERNEL_CORE_LIB}" ${FORGE_DESKTOP_OCCT_PATHS})
 
 # ---------------------------------------------------------------- the app
 add_executable(forge_desktop
@@ -327,6 +363,27 @@ target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_cor
 set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------------- the TRUST PANELS' gate
+# HEADLESS: builds the real frame, runs the real quality check against the
+# application's own default part AND against a two-solid file it writes itself,
+# and asserts on the values that reach the screen -- 500 mm3 of overlap centred
+# at (7.5, 5, 5), a genus of 1 for the bore, fillets that meet their walls with
+# no crease, one face that faces straight along the pull and one straight
+# against it. `--mutate 1..7` breaks one link on purpose; each is registered
+# below as a WILL_FAIL test, so a mutation that stops being caught is red here
+# rather than a line nobody reads.
+add_executable(forge_desktop_quality_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/quality_gate.cpp")
+target_compile_options(forge_desktop_quality_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_quality_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_quality_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+# The gate runs the check in the SHIPPED configuration too -- in the worker
+# beside it -- and compares that answer with the in-process one field by field.
+# It reports the worker as absent rather than failing when it is not there, so
+# this dependency is what makes the comparison actually happen in a normal build.
+add_dependencies(forge_desktop_quality_gate forge_kernel_worker)
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
@@ -375,6 +432,7 @@ target_link_libraries(forge_imgui_asan PUBLIC "${VK_LOADER_LIB}")
 
 add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ModelQuality.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
@@ -386,7 +444,8 @@ target_include_directories(forge_desktop_core_asan PUBLIC
 target_compile_definitions(forge_desktop_core_asan PRIVATE FORGE_NATIVE_BREP=1)
 target_compile_options(forge_desktop_core_asan PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
 target_link_libraries(forge_desktop_core_asan
-    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}")
+    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}"
+           ${FORGE_DESKTOP_OCCT_PATHS})
 
 add_executable(forge_desktop_click_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/click_gate.cpp")
@@ -479,6 +538,13 @@ foreach(_fx 1 2 3 4 5)
     add_test(NAME forge_desktop_file_exchange_mutation_${_fx}
              COMMAND forge_desktop_file_exchange_gate --mutate ${_fx})
     set_tests_properties(forge_desktop_file_exchange_mutation_${_fx}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_quality_gate COMMAND forge_desktop_quality_gate)
+foreach(_qx RANGE 1 7)
+    add_test(NAME forge_desktop_quality_mutation_${_qx}
+             COMMAND forge_desktop_quality_gate --mutate ${_qx})
+    set_tests_properties(forge_desktop_quality_mutation_${_qx}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)

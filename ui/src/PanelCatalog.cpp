@@ -76,7 +76,7 @@ constexpr Row kRows[] = {
      PanelContent::Planned},
     {"continuity",
      "How smoothly neighbouring surfaces meet, so you can find the joins a customer would see.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"convergence",
      "Whether the study's answer has settled, and how much it is still moving as the mesh gets "
      "finer.",
@@ -100,12 +100,12 @@ constexpr Row kRows[] = {
      "datums they are measured from.",
      PanelContent::Planned},
     {"interference",
-     "Which components in this assembly overlap each other, and by how much.",
-     PanelContent::Planned},
+     "Which solids in this model overlap each other, by how much, and where.",
+     PanelContent::Live},
     {"isocline",
      "Where a surface tips past a chosen angle, so you can check a part will release from its "
      "mould.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"loads",
      "The forces, pressures and temperatures applied to this study.",
      PanelContent::Planned},
@@ -182,7 +182,7 @@ constexpr Row kRows[] = {
      PanelContent::Planned},
     {"verify_report",
      "Whether the part that was built matches what was asked for, and where it does not.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"view_list",
      "The views placed on this drawing sheet, and which part each one is showing.",
      PanelContent::Planned},
@@ -203,7 +203,7 @@ constexpr Row kRows[] = {
     {"zebra_analysis",
      "Striped reflections across a surface, which is the quickest way to see a kink a shaded view "
      "hides.",
-     PanelContent::Planned},
+     PanelContent::Live},
 };
 
 std::vector<PanelInfo> buildCatalog() {

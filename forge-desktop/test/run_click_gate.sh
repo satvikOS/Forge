@@ -87,6 +87,10 @@ for f in imgui imgui_draw imgui_tables imgui_widgets; do
   IMGUI_OBJS+=("$WORK/$f.o")
 done
 
+# ModelQuality.cpp CALLS OCCT (it enumerates the sub-shapes the quality queries
+# need: the solids of the model, the edges with a face on each side, the face
+# map). Every toolkit below is already in this binary's closure through the
+# kernel library; naming them makes the DIRECT references resolve.
 echo "[click-gate] compiling forge::ui + the desktop frame builder + the gate"
 # shellcheck disable=SC2086
 "$CXX" -std=c++20 -O1 -Wall -Wextra -Werror "${ASAN[@]}" \
@@ -94,11 +98,12 @@ echo "[click-gate] compiling forge::ui + the desktop frame builder + the gate"
   -I ui/include -I forge-kernel/include -I forge-desktop/src -I "$IMGUI_DIR" \
   -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
   ui/src/*.cpp \
-  forge-desktop/src/KernelScene.cpp forge-desktop/src/PartFile.cpp \
+  forge-desktop/src/KernelScene.cpp forge-desktop/src/ModelQuality.cpp \
+  forge-desktop/src/PartFile.cpp \
   forge-desktop/src/Camera.cpp forge-desktop/src/ForgeFrame.cpp \
   forge-desktop/test/click_gate.cpp \
   "${IMGUI_OBJS[@]}" \
-  "$LIB" -L "$OCCT_PREFIX/lib" \
+  "$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase \
   -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib" \
   -o "$BIN"
 rc=$?

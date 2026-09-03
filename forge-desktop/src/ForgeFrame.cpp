@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -1591,6 +1592,13 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingInvokeId_.clear();
     invoke(id);
   }
+  // The quality check, deferred like every other mutation: it runs the kernel
+  // (in the worker, when one is configured), can take seconds and pumps this
+  // host while it waits, so it must not run with a dock node held open.
+  if (pendingQualityCheck_) {
+    pendingQualityCheck_ = false;
+    runQualityCheck();
+  }
   // Open Recent, last: it REPLACES the document, so anything above that acts on
   // the document the user was looking at when they clicked must run first.
   runPendingOpen();
@@ -2157,6 +2165,48 @@ void ForgeFrame::drawTabGroup(const forge::ui::DockNode& node, const forge::ui::
   ImGui::PopStyleVar();
 }
 
+// ── "show me that panel" ────────────────────────────────────────────────────
+// A depth-first walk of the main window's tree for the tab group that holds the
+// named panel, answered as the SAME (path, index) pair the tab strip records. It
+// goes through setActiveTabAt so the choice is serialized exactly like a click,
+// which is what keeps "show this panel" and "the user clicked this tab" one
+// mechanism rather than two.
+bool ForgeFrame::focusPanel(const std::string& panelId) {
+  const forge::ui::DockWindow* window = shell_.layout().mainWindow();
+  if (window == nullptr) return false;
+  std::vector<std::size_t> path;
+  std::vector<std::size_t> found;
+  std::size_t index = 0;
+  bool hit = false;
+  // An explicit stack rather than recursion into a lambda: the node references
+  // are read-only here and never outlive the walk, and setActiveTabAt (which
+  // re-seats the whole layout) is called only AFTER it finishes.
+  std::function<void(const forge::ui::DockNode&)> walk =
+      [&](const forge::ui::DockNode& node) {
+        if (hit) return;
+        if (node.kind == forge::ui::DockNodeKind::Tabs) {
+          for (std::size_t i = 0; i < node.panels.size(); ++i) {
+            if (node.panels[i] != panelId) continue;
+            found = path;
+            index = i;
+            hit = true;
+            return;
+          }
+          return;
+        }
+        for (std::size_t c = 0; c < node.children.size(); ++c) {
+          path.push_back(c);
+          walk(node.children[c]);
+          path.pop_back();
+          if (hit) return;
+        }
+      };
+  walk(window->root);
+  if (!hit) return false;
+  setActiveTabAt(found, index);
+  return true;
+}
+
 void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTexture) {
   ++panelsDrawn_;
   panelIdsDrawn_.push_back(panelId);
@@ -2178,6 +2228,16 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawMeasurePanel();
   } else if (panelId == "archie_tools") {
     drawToolsPanel();
+  } else if (panelId == "interference") {
+    drawInterferencePanel();
+  } else if (panelId == "verify_report") {
+    drawVerifyReportPanel();
+  } else if (panelId == "continuity") {
+    drawContinuityPanel();
+  } else if (panelId == "isocline") {
+    drawIsoclinePanel();
+  } else if (panelId == "zebra_analysis") {
+    drawZebraPanel();
   } else if (panelId == "archie_copilot" || panelId == "archie_chat") {
     // ONE panel behind both tabs. The CoPilot IS the chat surface and the plan
     // surface: splitting them would put the transcript on one tab and the offer
@@ -3342,6 +3402,629 @@ void ForgeFrame::drawCopilotPanel() {
     ImGui::SameLine();
     ImGui::TextDisabled("nothing on offer");
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE TRUST PANELS — "is this part actually good?"
+//
+// Five tabs, one check. Interference, Verification, Continuity, Draft and Zebra
+// are the surfaces a mechanical engineer opens before they commit to a model,
+// and every number on all five comes from a kernel query run against the solid
+// the viewport is drawing — the interference query, the shape and closure
+// checks, the mass and topology measurements, the Class-A continuity pass, the
+// mould draft pass and the zebra-stripe pass. See ModelQuality.hpp for which
+// query fills which field.
+//
+// ── why there is a button ─────────────────────────────────────────────────
+// The check is NOT part of a rebuild. The continuity pass alone projects a
+// point onto two surfaces at every sample of every shared edge, so its cost is
+// proportional to the model and putting it on every keystroke would make
+// editing slower for everyone who never opens these tabs. A person asks; the
+// check runs; the answer stays on screen and SAYS SO when the model has moved
+// on underneath it.
+//
+// ── what is deliberately absent ───────────────────────────────────────────
+// The Class-A pass also returns a fourth continuity term. The kernel's own
+// header states, with the measurement, that it is identically zero for every
+// join it has ever been run on — including a forty-fold curvature jump —
+// because of what it projects onto what. A column that reads zero whatever the
+// geometry does would be read as "this join is perfect". It is not drawn.
+// ═══════════════════════════════════════════════════════════════════════════
+
+bool ForgeFrame::qualityStale() const {
+  if (!qualityRan_) return false;
+  return qualityProgram_ != builtProgram_;
+}
+
+void ForgeFrame::runQualityCheck() {
+  ++qualityChecksRun_;
+  scene_.analyseQuality(qualitySettings_);
+  qualityRan_ = true;
+  qualityProgram_ = builtProgram_;
+  // The check READS geometry and produces none: no rebuild is triggered, no
+  // vertex buffer is re-uploaded, and the document is untouched.
+}
+
+// The shared top of the five panels. Returns true when there is an answer to
+// draw below it.
+//
+// The heading is the panel's OWN name out of the catalogue, so the tab a person
+// clicked and the heading they land on are the same words. A literal here would
+// be a second name for one panel, free to drift from the tab.
+bool ForgeFrame::beginQualityPanel(const char* panelId) {
+  const forge::ui::PanelInfo* info = forge::ui::findPanelInfo(panelId);
+  const std::string title =
+      info != nullptr ? info->name : forge::ui::panelDisplayName(panelId);
+  ImGui::TextColored(rgb(242, 158, 38), "%s", title.c_str());
+  ImGui::Separator();
+
+  const ModelQualityReport& q = quality();
+  if (ImGui::Button(qualityRan_ ? "Check again" : "Check this model")) {
+    pendingQualityCheck_ = true;
+  }
+  ImGui::SameLine();
+  if (!qualityRan_) {
+    ImGui::TextDisabled("nothing checked yet");
+  } else if (qualityStale()) {
+    ImGui::TextColored(rgb(230, 190, 90), "the model has changed since this was checked");
+  } else {
+    ImGui::TextColored(rgb(120, 200, 130), "up to date with the model on screen");
+  }
+  ImGui::Spacing();
+
+  if (!qualityRan_) {
+    ImGui::TextWrapped("Press the button above and every measurement on this tab will be "
+                       "taken from your model.");
+    return false;
+  }
+  if (!q.ran) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("%s", q.unavailable.empty()
+                                 ? "The check did not reach this model."
+                                 : q.unavailable.c_str());
+    ImGui::PopTextWrapPos();
+    return false;
+  }
+  return true;
+}
+
+// ── interference: which solids occupy the same space ───────────────────────
+void ForgeFrame::drawInterferencePanel() {
+  clashRowsDrawn_ = 0;
+  if (!beginQualityPanel("interference")) return;
+  const ModelQualityReport& q = quality();
+
+  if (!q.checkedClashes) {
+    ImGui::TextWrapped("The solids in this model could not be separated out, so they could "
+                       "not be compared with each other.");
+    return;
+  }
+
+  ImGui::Text("%zu solid%s in this model", q.solids.size(), q.solids.size() == 1 ? "" : "s");
+  if (q.solids.empty()) {
+    // NOT the same answer as "one solid", and saying so matters: a model whose
+    // faces never close into a solid body cannot be compared with anything, and
+    // that is a fact about the model rather than a fact about the check.
+    ImGui::Spacing();
+    ImGui::TextWrapped("This model's faces do not close into a solid body, so there is nothing "
+                       "here that could overlap. The Verify Report tab says which edges are "
+                       "still open.");
+    return;
+  }
+  if (q.solids.size() < 2) {
+    ImGui::Spacing();
+    ImGui::TextWrapped("One solid cannot overlap itself, so there is nothing to report here. "
+                       "Open a file that holds several parts and each pair will be compared, "
+                       "with the size and the position of every overlap.");
+    return;
+  }
+
+  if (q.clashes.empty()) {
+    ImGui::TextColored(rgb(120, 200, 130), "no two solids overlap");
+  } else {
+    ImGui::TextColored(rgb(235, 105, 95), "%zu overlap%s found", q.clashes.size(),
+                       q.clashes.size() == 1 ? "" : "s");
+  }
+  ImGui::Spacing();
+
+  for (const QualityClash& c : q.clashes) {
+    ImGui::BulletText("solid %d and solid %d share %.4f mm3", c.solidA, c.solidB, c.volume);
+    if (c.located) {
+      ImGui::Text("     centre of the shared material  %.3f  %.3f  %.3f", c.com[0], c.com[1],
+                  c.com[2]);
+      ImGui::Text("     it reaches from  %.3f %.3f %.3f  to  %.3f %.3f %.3f", c.bboxMin[0],
+                  c.bboxMin[1], c.bboxMin[2], c.bboxMax[0], c.bboxMax[1], c.bboxMax[2]);
+      // TWO INSTRUMENTS ON ONE OVERLAP. The first number is the interference
+      // query's; the second is the shared solid built and weighed on its own.
+      // They are printed together only when they DISAGREE, because two numbers
+      // that always match teach a reader to stop looking at either.
+      const double reference = std::max(1e-9, std::fabs(c.volume));
+      if (std::fabs(c.commonVolume - c.volume) > 1e-6 * reference) {
+        ImGui::TextColored(rgb(230, 190, 90),
+                           "     measured twice and the two answers differ: %.4f and %.4f mm3",
+                           c.volume, c.commonVolume);
+      }
+    } else {
+      ImGui::TextDisabled("     the shared material could not be measured on its own");
+    }
+    ++clashRowsDrawn_;
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "The solids");
+  ImGui::Separator();
+  for (const QualitySolid& s : q.solids) {
+    if (s.measured) {
+      ImGui::BulletText("solid %d   %.3f mm3   %.3f mm2   centre %.3f %.3f %.3f", s.index,
+                        s.volume, s.area, s.com[0], s.com[1], s.com[2]);
+    } else {
+      ImGui::BulletText("solid %d   could not be weighed", s.index);
+    }
+  }
+}
+
+// ── verification: what passed, what failed, and why ────────────────────────
+void ForgeFrame::drawVerifyReportPanel() {
+  verifyRowsDrawn_ = 0;
+  // The controls come FIRST, so the heading appears once and the Check button is
+  // where it is on the other four tabs. What follows them is drawn WHETHER OR
+  // NOT a check has been run, which is why the return value is held rather than
+  // acted on here.
+  const bool haveAnswer = beginQualityPanel("verify_report");
+
+  // ── the part of this panel that needs no button ─────────────────────────
+  // Whether the features read, built and drew is known after every rebuild, and
+  // so is what the part asserts about itself. Making a person press Check to see
+  // that their last edit failed would be the panel withholding the one thing it
+  // is for.
+  const IrBuildReport& r = scene_.lastBuild();
+  ImGui::TextColored(rgb(242, 158, 38), "Building");
+  const char* const kStages[] = {"features read", "shape built", "surface drawn"};
+  const bool done[] = {r.parsed, r.compiled, r.tessellated};
+  for (int i = 0; i < 3; ++i) {
+    if (done[i]) {
+      ImGui::TextColored(rgb(120, 200, 130), "   %s", kStages[i]);
+    } else {
+      ImGui::TextColored(rgb(235, 105, 95), "   %s  -  did not finish", kStages[i]);
+    }
+    ++verifyRowsDrawn_;
+  }
+  if (!r.ok()) {
+    if (r.failedOpId > 0) {
+      const forge::ui::FeatureRecord* rec = partDoc_.featureAt(r.failedOpId);
+      if (rec != nullptr && !rec->label.empty()) {
+        ImGui::TextColored(rgb(235, 105, 95), "   it stopped at  %s", rec->label.c_str());
+      } else {
+        ImGui::TextColored(rgb(235, 105, 95), "   it stopped at feature %d", r.failedOpId);
+      }
+    } else if (r.failedLine > 0) {
+      ImGui::TextColored(rgb(235, 105, 95), "   it stopped at feature %d", r.failedLine);
+    }
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    if (!why.empty()) {
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextWrapped("   %s", why.c_str());
+      ImGui::PopTextWrapPos();
+    }
+  }
+  ImGui::Text("   %zu of %zu features built", r.nCompiled, r.nDeclared);
+  ++verifyRowsDrawn_;
+
+  // ── the checks the part carries ─────────────────────────────────────────
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Checks written into the part");
+  if (r.checks.empty()) {
+    ImGui::TextDisabled("   this part carries none");
+  }
+  for (const std::string& line : r.checks) {
+    if (line.rfind("PASS ", 0) == 0) {
+      ImGui::TextColored(rgb(120, 200, 130), "   met      %s", line.c_str() + 5);
+    } else if (line.rfind("FAIL ", 0) == 0) {
+      ImGui::TextColored(rgb(235, 105, 95), "   NOT met  %s", line.c_str() + 5);
+    } else if (forge::ui::userFacingProseIsClean(line)) {
+      // A surface check writes a summary line rather than a met/not-met verdict.
+      // It is the kernel's wording, not this application's, so it is SCANNED
+      // before it is shown -- the same rule the shape-fault list below follows,
+      // and the reason a line this version cannot put in a user's words is
+      // summarised instead of pasted.
+      ImGui::Text("   %s", line.c_str());
+    } else {
+      ImGui::TextDisabled("   a check this version cannot describe in plain words");
+    }
+    ++verifyRowsDrawn_;
+  }
+
+  if (!haveAnswer) return;
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Measured");
+  ImGui::Separator();
+  const ModelQualityReport& q = quality();
+
+  if (q.checkedMass) {
+    ImGui::Text("volume    %.4f mm3", q.volume);
+    ImGui::Text("surface   %.4f mm2", q.area);
+    ImGui::Text("centre    %.4f  %.4f  %.4f", q.com[0], q.com[1], q.com[2]);
+    verifyRowsDrawn_ += 3;
+  } else {
+    ImGui::TextColored(rgb(230, 190, 90), "volume    could not be measured on this model");
+  }
+  if (q.checkedBox) {
+    ImGui::Text("size      %.4f x %.4f x %.4f mm", q.bboxMax[0] - q.bboxMin[0],
+                q.bboxMax[1] - q.bboxMin[1], q.bboxMax[2] - q.bboxMin[2]);
+    ++verifyRowsDrawn_;
+  }
+  if (q.checkedCounts) {
+    ImGui::Text("faces %ld   edges %ld", q.faceCount, q.edgeCount);
+    ++verifyRowsDrawn_;
+  }
+  if (q.checkedTopology) {
+    ImGui::Text("%ld separate bod%s, %ld opening%s straight through", q.shells,
+                q.shells == 1 ? "y" : "ies", q.genus, q.genus == 1 ? "" : "s");
+    ++verifyRowsDrawn_;
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Sound shape");
+  ImGui::Separator();
+  if (q.checkedClosure) {
+    if (q.closed && q.manifold && q.oriented) {
+      ImGui::TextColored(rgb(120, 200, 130),
+                         "closed, every edge shared by two faces, facing outward");
+    } else {
+      if (!q.closed) ImGui::TextColored(rgb(235, 105, 95), "the surface does not close");
+      if (!q.manifold) {
+        ImGui::TextColored(rgb(235, 105, 95), "some edges are shared by more than two faces");
+      }
+      if (!q.oriented) ImGui::TextColored(rgb(235, 105, 95), "some faces point inward");
+    }
+    if (q.selfIntersecting) {
+      ImGui::TextColored(rgb(235, 105, 95), "the shape passes through itself");
+    }
+    if (q.badFaces > 0 || q.badEdges > 0) {
+      ImGui::Text("%zu face%s and %zu edge%s need attention", q.badFaces,
+                  q.badFaces == 1 ? "" : "s", q.badEdges, q.badEdges == 1 ? "" : "s");
+    }
+    ++verifyRowsDrawn_;
+  } else {
+    ImGui::TextColored(rgb(230, 190, 90), "the surface could not be checked for closure");
+  }
+  if (q.checkedShape) {
+    if (q.shapeValid) {
+      ImGui::TextColored(rgb(120, 200, 130), "the full shape check found nothing wrong");
+    } else {
+      ImGui::TextColored(rgb(235, 105, 95), "the full shape check found %ld faulty piece%s",
+                         q.faultyCount, q.faultyCount == 1 ? "" : "s");
+      for (const std::string& f : q.faults) {
+        // The kernel's own wording for what it found. Scanned before it is
+        // drawn, because it is text this application did not write: a phrase
+        // that would leak the program's internals is summarised instead.
+        if (forge::ui::userFacingProseIsClean(f)) {
+          ImGui::BulletText("%s", f.c_str());
+        } else {
+          ImGui::BulletText("a fault this version cannot describe in plain words");
+        }
+      }
+    }
+    ++verifyRowsDrawn_;
+  }
+
+  // ── two instruments on one model ────────────────────────────────────────
+  // The shape's own volume and the volume of the SURFACE THE VIEWPORT DRAWS are
+  // independent measurements of the same body. A wrong solid reproducing a right
+  // volume has been measured repeatedly in this programme; two measurements that
+  // disagree is the cheapest way to see it.
+  const forge::ui::MeshMeasure& m = modelMeasure();
+  if (q.checkedMass && m.watertight && m.volume > 0.0) {
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(242, 158, 38), "Measured twice");
+    ImGui::Separator();
+    ImGui::Text("from the shape     %.4f mm3", q.volume);
+    ImGui::Text("from the surface   %.4f mm3", m.volume);
+    const double gap = std::fabs(q.volume - m.volume) / std::max(1e-9, std::fabs(q.volume));
+    if (gap <= 0.01) {
+      ImGui::TextColored(rgb(120, 200, 130), "they agree to %.4f%%", gap * 100.0);
+    } else {
+      ImGui::TextColored(rgb(235, 105, 95), "they differ by %.4f%%", gap * 100.0);
+    }
+    if (q.checkedCounts) {
+      const long drawn = static_cast<long>(m.faces);
+      if (drawn == q.faceCount) {
+        ImGui::TextColored(rgb(120, 200, 130), "both count %ld faces", q.faceCount);
+      } else {
+        ImGui::TextColored(rgb(230, 190, 90), "the shape has %ld faces, %ld were drawn",
+                           q.faceCount, drawn);
+      }
+    }
+    verifyRowsDrawn_ += 2;
+  }
+}
+
+// ── continuity: how neighbouring faces meet ────────────────────────────────
+void ForgeFrame::drawContinuityPanel() {
+  continuityRowsDrawn_ = 0;
+  if (!beginQualityPanel("continuity")) return;
+  const ModelQualityReport& q = quality();
+
+  if (!q.checkedContinuity) {
+    ImGui::TextWrapped("The joins between this model's faces could not be found.");
+    return;
+  }
+  if (q.joins.empty()) {
+    ImGui::TextWrapped("No two faces in this model share an edge, so there is no join to "
+                       "report on.");
+    return;
+  }
+
+  // The thresholds are the ones the surface module itself uses to call a join
+  // smooth. They are named here in the words a reviewer uses at the bench.
+  std::size_t apart = 0, angled = 0, tangent = 0, smooth = 0, unmeasured = 0;
+  for (const QualityJoin& j : q.joins) {
+    if (!j.measured) { ++unmeasured; continue; }
+    if (j.g0mm >= 1.0e-3) ++apart;
+    else if (j.g1deg >= 1.0) ++angled;
+    else if (j.g2pct >= 5.0) ++tangent;
+    else ++smooth;
+  }
+  ImGui::Text("%zu join%s between neighbouring faces", q.sharedEdges,
+              q.sharedEdges == 1 ? "" : "s");
+  ImGui::TextColored(rgb(120, 200, 130), "   %zu flow through with no change of curvature",
+                     smooth);
+  ImGui::TextColored(rgb(150, 200, 230), "   %zu meet smoothly but the curvature steps", tangent);
+  ImGui::Text("   %zu meet at a visible angle", angled);
+  if (apart > 0) {
+    ImGui::TextColored(rgb(235, 105, 95), "   %zu leave a gap between the two faces", apart);
+  }
+  if (unmeasured > 0) ImGui::TextDisabled("   %zu could not be measured", unmeasured);
+  if (q.continuityCapped) {
+    ImGui::TextColored(rgb(230, 190, 90),
+                       "This model has more joins than one check reports on; the %zu listed "
+                       "below are the ones that were measured.",
+                       q.joins.size());
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Roughest first");
+  ImGui::Separator();
+
+  // Sorted by what a reviewer looks for, in order: a gap first, then a crease,
+  // then a curvature step. Sorting a COPY of the indices leaves the report the
+  // check produced untouched.
+  std::vector<std::size_t> order(q.joins.size());
+  for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+  std::sort(order.begin(), order.end(), [&q](std::size_t a, std::size_t b) {
+    const QualityJoin& x = q.joins[a];
+    const QualityJoin& y = q.joins[b];
+    if ((x.g0mm >= 1.0e-3) != (y.g0mm >= 1.0e-3)) return x.g0mm >= 1.0e-3;
+    if (x.g1deg != y.g1deg) return x.g1deg > y.g1deg;
+    if (x.g2pct != y.g2pct) return x.g2pct > y.g2pct;
+    return a < b;
+  });
+
+  if (ImGui::BeginChild("##joins", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    for (std::size_t idx : order) {
+      const QualityJoin& j = q.joins[idx];
+      if (!j.measured) {
+        ImGui::BulletText("faces %d and %d   could not be measured", j.faceA, j.faceB);
+        ++continuityRowsDrawn_;
+        continue;
+      }
+      const char* verdict = "flows through";
+      ImVec4 colour = rgb(120, 200, 130);
+      if (j.g0mm >= 1.0e-3) {
+        verdict = "leaves a gap";
+        colour = rgb(235, 105, 95);
+      } else if (j.g1deg >= 1.0) {
+        verdict = "meets at an angle";
+        colour = rgb(190, 195, 205);
+      } else if (j.g2pct >= 5.0) {
+        verdict = "smooth, curvature steps";
+        colour = rgb(150, 200, 230);
+      }
+      ImGui::TextColored(colour, "faces %d and %d   %s", j.faceA, j.faceB, verdict);
+      ImGui::Text("     gap %.6f mm   angle %.4f deg   curvature step %.2f%%   over %u points",
+                  j.g0mm, j.g1deg, j.g2pct, j.samples);
+      ++continuityRowsDrawn_;
+    }
+  }
+  ImGui::EndChild();
+}
+
+// ── draft: where a surface tips past the pull direction ────────────────────
+void ForgeFrame::drawIsoclinePanel() {
+  draftRowsDrawn_ = 0;
+  if (!beginQualityPanel("isocline")) return;
+  const ModelQualityReport& q = quality();
+
+  // The pull direction is a SETTING of the check, so changing it asks for a new
+  // one rather than re-labelling the old answer.
+  ImGui::Text("Pull direction");
+  ImGui::SameLine();
+  const char* const kNames[] = {"+X", "-X", "+Y", "-Y", "+Z", "-Z"};
+  const double kDirs[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+  for (int i = 0; i < 6; ++i) {
+    if (i > 0) ImGui::SameLine();
+    const bool on = std::fabs(qualitySettings_.pull[0] - kDirs[i][0]) < 1e-9 &&
+                    std::fabs(qualitySettings_.pull[1] - kDirs[i][1]) < 1e-9 &&
+                    std::fabs(qualitySettings_.pull[2] - kDirs[i][2]) < 1e-9;
+    ImGui::PushStyleColor(ImGuiCol_Button, on ? rgb(70, 78, 92) : rgb(38, 42, 50));
+    if (ImGui::Button(kNames[i])) {
+      for (int k = 0; k < 3; ++k) qualitySettings_.pull[k] = kDirs[i][k];
+      pendingQualityCheck_ = true;
+    }
+    ImGui::PopStyleColor();
+  }
+  ImGui::Text("checked along  %.0f  %.0f  %.0f   with %.1f deg counted as standing along it",
+              q.pull[0], q.pull[1], q.pull[2], q.draftThresholdDeg);
+
+  if (!q.checkedDraft) {
+    ImGui::Spacing();
+    ImGui::TextWrapped("The faces of this model could not be measured against that direction.");
+    return;
+  }
+
+  // ── the caveat, before the counts it qualifies ──────────────────────────
+  // Each face is measured at ONE point, at the middle of the face. On a flat
+  // face that point IS the face. On a curved one the angle changes across the
+  // surface, so the row below is a reading at the middle and not a verdict on
+  // the whole of it -- said here once, and marked again on every row it applies
+  // to.
+  std::size_t curved = 0, unknownShape = 0;
+  for (const QualityDraftFace& d : q.draft) {
+    if (!d.curvatureMeasured) ++unknownShape;
+    else if (!d.flat) ++curved;
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(120, 200, 130), "%zu face%s release", q.releasing,
+                     q.releasing == 1 ? "" : "s");
+  if (q.undercutting > 0) {
+    ImGui::TextColored(rgb(235, 105, 95), "%zu face%s hold the part in", q.undercutting,
+                       q.undercutting == 1 ? "" : "s");
+  } else {
+    ImGui::TextColored(rgb(120, 200, 130), "no face holds the part in");
+  }
+  ImGui::Text("%zu face%s stand along the pull with no draft either way", q.standingVertical,
+              q.standingVertical == 1 ? "" : "s");
+  if (curved > 0) {
+    ImGui::TextColored(rgb(230, 190, 90),
+                       "%zu of those %s curved: each is read at the middle of the face, and the "
+                       "angle changes across it.",
+                       curved, curved == 1 ? "is" : "are");
+  }
+  if (unknownShape > 0) {
+    ImGui::TextDisabled("%zu face%s could not be told flat from curved", unknownShape,
+                        unknownShape == 1 ? "" : "s");
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "The faces that hold it in, first");
+  ImGui::Separator();
+
+  std::vector<std::size_t> order(q.draft.size());
+  for (std::size_t i = 0; i < order.size(); ++i) order[i] = i;
+  std::sort(order.begin(), order.end(), [&q](std::size_t a, std::size_t b) {
+    const QualityDraftFace& x = q.draft[a];
+    const QualityDraftFace& y = q.draft[b];
+    const int rx = x.verdict == DraftVerdict::Undercut ? 0
+                                                       : (x.verdict == DraftVerdict::Vertical ? 1 : 2);
+    const int ry = y.verdict == DraftVerdict::Undercut ? 0
+                                                       : (y.verdict == DraftVerdict::Vertical ? 1 : 2);
+    if (rx != ry) return rx < ry;
+    if (x.area != y.area) return x.area > y.area;
+    return a < b;
+  });
+
+  if (ImGui::BeginChild("##draft", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    for (std::size_t idx : order) {
+      const QualityDraftFace& d = q.draft[idx];
+      const char* verdict = "releases";
+      ImVec4 colour = rgb(120, 200, 130);
+      if (d.verdict == DraftVerdict::Undercut) {
+        verdict = "holds the part in";
+        colour = rgb(235, 105, 95);
+      } else if (d.verdict == DraftVerdict::Vertical) {
+        verdict = "stands along the pull";
+        colour = rgb(190, 195, 205);
+      }
+      ImGui::TextColored(colour, "face %d   %s", d.face, verdict);
+      if (d.area > 0.0) {
+        ImGui::Text("     %s   %.3f mm2   %.3f deg from the pull",
+                    d.kind.empty() ? "surface" : d.kind.c_str(), d.area, d.angleDeg);
+      } else {
+        ImGui::Text("     %.3f deg from the pull", d.angleDeg);
+      }
+      // The caveat travels WITH the number it qualifies. A reader who scrolls
+      // past the summary above must still be able to tell a whole-face verdict
+      // from a reading at one point.
+      if (!d.curvatureMeasured) {
+        ImGui::TextDisabled("     this face could not be told flat from curved");
+      } else if (!d.flat) {
+        ImGui::TextColored(rgb(230, 190, 90),
+                           "     curved: read at the middle, and the angle changes across it");
+      }
+      ++draftRowsDrawn_;
+    }
+  }
+  ImGui::EndChild();
+}
+
+// ── zebra: the stripe pattern a surface reflects ───────────────────────────
+void ForgeFrame::drawZebraPanel() {
+  zebraCellsDrawn_ = 0;
+  if (!beginQualityPanel("zebra_analysis")) return;
+  const ModelQualityReport& q = quality();
+
+  if (!q.checkedZebra || q.zebra.empty()) {
+    ImGui::TextWrapped("The stripe pattern could not be taken from this model's faces.");
+    return;
+  }
+
+  ImGui::Text("%zu face%s striped, %u bands, light from  %.2f  %.2f  %.2f", q.zebra.size(),
+              q.zebra.size() == 1 ? "" : "s", q.stripeCount, q.light[0], q.light[1], q.light[2]);
+  if (q.zebraCapped) {
+    ImGui::TextColored(rgb(230, 190, 90),
+                       "This model has more faces than one check stripes; the first %zu are "
+                       "listed.",
+                       q.zebra.size());
+  }
+
+  // A face the user has picked in the 3D view wins: they asked about THAT one.
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+  if (picked.size() == 1) zebraFace_ = static_cast<int>(picked.front());
+
+  const QualityZebraFace* shown = nullptr;
+  for (const QualityZebraFace& z : q.zebra) {
+    if (z.face == zebraFace_) { shown = &z; break; }
+  }
+  if (shown == nullptr) shown = &q.zebra.front();
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Face %d, laid out flat", shown->face);
+  ImGui::Separator();
+  ImGui::Text("%u band%s cross this face", shown->bands, shown->bands == 1 ? "" : "s");
+
+  // ── THE STRIPES THEMSELVES ────────────────────────────────────────────────
+  // One cell per sample the check took, in the face's own surface coordinates.
+  // The stripe number IS the value the check recorded; the only thing done to it
+  // here is turning an odd number dark and an even number light, which is what
+  // makes a stripe a stripe. A band that wanders, splits or reverses across the
+  // patch is the defect this view exists to show.
+  {
+    const float cell = std::max(3.0f, 8.0f * dpiScale_);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    for (std::uint32_t row = 0; row < shown->gridH; ++row) {
+      for (std::uint32_t col = 0; col < shown->gridW; ++col) {
+        const std::size_t at = static_cast<std::size_t>(row) * shown->gridW + col;
+        if (at >= shown->stripes.size()) continue;
+        const bool dark = (shown->stripes[at] % 2u) == 0u;
+        const ImVec2 lo(origin.x + static_cast<float>(col) * cell,
+                        origin.y + static_cast<float>(row) * cell);
+        const ImVec2 hi(lo.x + cell, lo.y + cell);
+        dl->AddRectFilled(lo, hi, ImGui::GetColorU32(dark ? rgb(26, 29, 34) : rgb(222, 226, 232)));
+        ++zebraCellsDrawn_;
+      }
+    }
+    const float side = cell * static_cast<float>(std::max(shown->gridW, 1u));
+    const float tall = cell * static_cast<float>(std::max(shown->gridH, 1u));
+    dl->AddRect(origin, ImVec2(origin.x + side, origin.y + tall),
+                ImGui::GetColorU32(rgb(90, 96, 106)));
+    ImGui::Dummy(ImVec2(side, tall));
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Every face");
+  ImGui::Separator();
+  if (ImGui::BeginChild("##zebrafaces", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    for (const QualityZebraFace& z : q.zebra) {
+      char label[64];
+      std::snprintf(label, sizeof(label), "face %d   %u band%s##zebra%d", z.face, z.bands,
+                    z.bands == 1 ? "" : "s", z.face);
+      if (ImGui::Selectable(label, z.face == shown->face)) zebraFace_ = z.face;
+    }
+  }
+  ImGui::EndChild();
 }
 
 void ForgeFrame::drawGenericPanel(const std::string& panelId) {

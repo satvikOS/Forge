@@ -39,6 +39,9 @@
 // out of forge::ui::PartDocument. Both headers are headless forge::ui: this
 // file still reaches no OCCT and no ImGui.
 #include "forge/ui/PartCommands.hpp"
+// The trust panels' answers. A plain struct: no kernel type and no OCCT type
+// crosses it, so this header stays includable by the ImGui frame builder.
+#include "ModelQuality.hpp"
 
 // forge::Mesh lives in forge/Tessellate.hpp, which reaches OCCT headers. This
 // header is included by the ImGui frame builder and by every headless gate, so
@@ -118,6 +121,13 @@ struct IrBuildReport {
   std::size_t nParsed = 0;
   std::size_t nCompiled = 0;
   std::size_t triangles = 0;
+  // ── THE PART'S OWN CHECKS, AS THE KERNEL ANSWERED THEM ──────────────────
+  // `VERIFY` and `SURFCHECK` statements measure the live body and record one
+  // line each -- "PASS holes=2 (got 2)", "FAIL volume<=100 (got 140)". The
+  // compiler has always produced them and this report DROPPED them, so the one
+  // thing a part can say about itself reached no panel and no user. They are
+  // carried here and across the worker boundary with everything else.
+  std::vector<std::string> checks;
   bool ok() const noexcept { return parsed && compiled && tessellated && error.empty(); }
 };
 
@@ -207,6 +217,29 @@ class KernelScene {
 
   const IrBuildReport& lastBuild() const noexcept { return report_; }
 
+  // ── ★ THE QUALITY CHECK: interference, verification, continuity, draft, zebra ──
+  //
+  // Runs every query in ModelQuality.hpp against the solid this scene last
+  // built, and returns what each one answered. It is NOT part of a rebuild: the
+  // continuity pass alone projects a point onto two surfaces at every sample of
+  // every shared edge, which is proportional to the model and would put that
+  // cost on every keystroke. A person asks for a check; the check runs.
+  //
+  // It takes the SAME road a build takes. With an isolated worker configured the
+  // whole analysis happens in that process -- which matters more here than for a
+  // build, because these are exactly the OCCT paths
+  // forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md records faulting on, and a
+  // fault must cost one check rather than the user's document.
+  //
+  // Returns false when the check could not be run at all; `lastQuality()` then
+  // carries the sentence saying why. A check that RAN and found problems is a
+  // SUCCESS -- the problems are the answer.
+  bool analyseQuality(const QualitySettings& settings);
+  const ModelQualityReport& lastQuality() const noexcept { return quality_; }
+  // How many checks have completed, and how many of those ran out of process.
+  std::size_t qualityRuns() const noexcept { return qualityRuns_; }
+  std::size_t isolatedQualityRuns() const noexcept { return isolatedQualityRuns_; }
+
   // ── THE FILE `INPUT()` BINDS ────────────────────────────────────────────
   //
   // THE GAP THIS CLOSES, MEASURED. `part.input_solid` has been in the registry
@@ -281,8 +314,30 @@ class KernelScene {
   bool deindex(const forge::Mesh& mesh, std::vector<SceneVertex>& out,
                std::uint32_t& faceCount, std::string& error) const;
 
+  // The check, in this process, against `solidHandle_`.
+  bool analyseQualityInProcess(const QualitySettings& settings);
+  // The check, in the worker. `fellBack` comes back true only when nothing
+  // started, exactly as buildIsolated uses it.
+  bool analyseQualityIsolated(const QualitySettings& settings, bool& fellBack);
+
   bool built_ = false;
   IrBuildReport report_;
+  // The solid the last IN-PROCESS build produced, so the quality check measures
+  // the body the viewport is showing rather than recompiling its own. Recorded,
+  // not retained: nothing in this application releases a compiled handle, so the
+  // entry outlives the scene either way and taking a reference here would change
+  // a lifetime rule that is not this feature's to change. Zero after an isolated
+  // build -- that solid lives in the worker, which is where the isolated check
+  // runs.
+  std::uint32_t solidHandle_ = 0;
+  // The program this scene was last asked to build. The isolated check has to
+  // send the worker something to compile, and asking the caller to hand the
+  // program back is how the check and the viewport come to describe two
+  // different models.
+  std::string program_;
+  ModelQualityReport quality_;
+  std::size_t qualityRuns_ = 0;
+  std::size_t isolatedQualityRuns_ = 0;
   std::size_t builds_ = 0;
   std::string error_;
   std::string backend_ = "unknown";

@@ -57,7 +57,11 @@ fi
 # undefined symbols in a file nobody touched.
 UI_SRCS=("$ROOT"/ui/src/*.cpp)
 
-echo "compiling the file-exchange gate (${#UI_SRCS[@]} forge::ui sources + 3 desktop sources)"
+# ModelQuality.cpp CALLS OCCT (it enumerates the sub-shapes the quality queries
+# need: the solids of the model, the edges with a face on each side, the face
+# map). Every toolkit below is already in this binary's closure through the
+# kernel library; naming them makes the DIRECT references resolve.
+echo "compiling the file-exchange gate (${#UI_SRCS[@]} forge::ui sources + 4 desktop sources)"
 c++ -std=c++20 -O1 -g -Wall -Wextra -Werror -DFORGE_NATIVE_BREP=1 \
     -I "$ROOT/ui/include" -I "$DESKTOP/src" -I "$ROOT/forge-kernel/include" \
     -I "$OCCT/include/opencascade" \
@@ -65,9 +69,10 @@ c++ -std=c++20 -O1 -g -Wall -Wextra -Werror -DFORGE_NATIVE_BREP=1 \
     "${UI_SRCS[@]}" \
     "$DESKTOP/src/FileExchangeHost.cpp" \
     "$DESKTOP/src/KernelScene.cpp" \
+    "$DESKTOP/src/ModelQuality.cpp" \
     "$DESKTOP/src/PartFile.cpp" \
     "$HERE/file_exchange_gate.cpp" \
-    "$LIB" \
+    "$LIB" -L "$OCCT/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase \
     -Wl,-rpath,"$KBUILD" -Wl,-rpath,"$OCCT/lib"
 rc=$?
 if [ "$rc" -ne 0 ]; then

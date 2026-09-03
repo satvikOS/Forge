@@ -465,7 +465,8 @@ int main(int argc, char** argv) {
         std::string(forge::desktop::kWorkerResultMagic) +
         "\nparsed 1\ncompiled 1\ntessellated 1\nvalid 1\nfailedOpId -1\nfailedLine 0\n"
         "faceCount 6\nedgeCount 12\nvolume 1000\nbboxMin 0 0 0\nbboxMax 10 10 10\n"
-        "nDeclared 1\nnParsed 1\nnCompiled 1\ntriangles 1\nerrorBytes 0\n\nbackend test\n";
+        "nDeclared 1\nnParsed 1\nnCompiled 1\ntriangles 1\nerrorBytes 0\n\n"
+        "checkBytes 0\nbackend test\n";
 
     forge::desktop::IrBuildReport r;
     std::vector<forge::desktop::SceneVertex> v;
@@ -507,15 +508,30 @@ int main(int argc, char** argv) {
     // it is how the first run of this gate declared 21 bytes for a 22-byte error
     // and then blamed the decoder for refusing it.
     const std::string embeddedError = "line one\nbackend fake\n";
+    // ★ COMPUTED, never typed -- the same rule the error length above earned the
+    // hard way. The second line is "backend fake" DELIBERATELY: a reader that
+    // scanned for the next field instead of honouring the declared length would
+    // stop here and report the wrong backend.
+    const std::string partChecks = "PASS faces=6 (got 6)\nbackend fake\n";
+    const std::string checkBlockHeader = "checkBytes " + std::to_string(partChecks.size()) + "\n";
     const std::string embedded =
         std::string(forge::desktop::kWorkerResultMagic) +
         "\nparsed 1\ncompiled 0\ntessellated 0\nvalid 0\nfailedOpId 7\nfailedLine 0\n"
         "faceCount -1\nedgeCount -1\nvolume 0\nbboxMin 0 0 0\nbboxMax 0 0 0\n"
         "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes " +
         std::to_string(embeddedError.size()) + "\n" + embeddedError +
-        "\nbackend real\nVERTICES 0\n";
+        "\n" + checkBlockHeader + partChecks +
+        "backend real\nVERTICES 0\n";
     check(forge::desktop::KernelSceneTestAccess::decode(embedded, r, v, backend, err),
           "an error string containing a newline decodes", err);
+    // The part's own checks travel on this same wire, length-prefixed for the
+    // same reason the error is: one of them says "backend fake" on purpose.
+    checkEq(r.checks.size(), std::size_t{2}, "the part's own checks decode");
+    if (r.checks.size() == 2) {
+      check(r.checks[0] == "PASS faces=6 (got 6)", "the first is intact", r.checks[0]);
+      check(r.checks[1] == "backend fake", "and a check line is not mistaken for a field",
+            r.checks[1]);
+    }
     check(backend == "real", "★ and the EMBEDDED 'backend fake' was not mistaken for a field",
           backend);
     check(r.error.find("line one") != std::string::npos, "the error text is intact", r.error);
@@ -530,9 +546,22 @@ int main(int argc, char** argv) {
         "faceCount -1\nedgeCount -1\nvolume 0\nbboxMin 0 0 0\nbboxMax 0 0 0\n"
         "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes " +
         std::to_string(embeddedError.size() - 1) + "\n" + embeddedError +
-        "\nbackend real\nVERTICES 0\n";
+        "\n" + checkBlockHeader + partChecks + "backend real\nVERTICES 0\n";
     check(!forge::desktop::KernelSceneTestAccess::decode(shortCount, r, v, backend, err),
           "an error block whose declared length is one byte short is refused");
+
+    // A CHECK block whose declared length is longer than what follows: the same
+    // protocol breach as the short error block, on the wire that was added
+    // beside it, and it has to be refused for the same reason.
+    const std::string longCheckCount =
+        std::string(forge::desktop::kWorkerResultMagic) +
+        "\nparsed 1\ncompiled 0\ntessellated 0\nvalid 0\nfailedOpId 7\nfailedLine 0\n"
+        "faceCount -1\nedgeCount -1\nvolume 0\nbboxMin 0 0 0\nbboxMax 0 0 0\n"
+        "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes 0\n\n"
+        "checkBytes " + std::to_string(partChecks.size() + 64) + "\n" + partChecks +
+        "backend real\nVERTICES 0\n";
+    check(!forge::desktop::KernelSceneTestAccess::decode(longCheckCount, r, v, backend, err),
+          "a check block that declares more than it sends is refused");
 
     // Empty output from a worker that exited 0.
     check(!forge::desktop::KernelSceneTestAccess::decode("", r, v, backend, err),

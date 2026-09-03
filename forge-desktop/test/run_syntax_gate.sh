@@ -146,6 +146,8 @@ CHECKED=(
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
   "forge-desktop/src/KernelScene.cpp     (OCCT: TopoDS_Shape.hxx)"
+  "forge-desktop/src/ModelQuality.cpp    (OCCT: TopoDS_Shape.hxx, BRepBndLib.hxx -- it is the trust panels' kernel queries and enumerates sub-shapes)"
+  "forge-desktop/test/quality_gate.cpp   (OCCT: BRep_Builder.hxx, TopoDS_Compound.hxx -- it BUILDS its two-solid fixture rather than shipping one)"
   "forge-desktop/src/FileExchangeHost.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/IoExchange.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/main.cpp            (SDL2 + Vulkan)"
   "forge-desktop/src/PlatformSDL2.cpp    (SDL2)"
