@@ -22,8 +22,10 @@
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/PanelCatalog.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/Types.hpp"
+#include "forge/ui/UserFacingText.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
 namespace forge::desktop {
@@ -239,16 +241,32 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   camera_.frame(c, scene_.bounds().radius());
   note("Forge desktop shell started");
   if (scene_.built()) {
-    note("kernel body: " + std::to_string(scene_.triangleCount()) + " triangles, " +
-         std::to_string(scene_.faceCount()) + " faces  [" + scene_.backend() + "]");
+    note("Ready: " + std::to_string(scene_.faceCount()) + " faces, " +
+         std::to_string(scene_.triangleCount()) + " triangles.");
+    // The build path and its counts are an ENGINEER's sentence. It belongs in
+    // the log's detail column, where it is kept and not drawn, and not in the
+    // line a user reads on the way to their first sketch.
+    shell_.log().info("kernel.startup", "The part is ready to work on.", scene_.backend());
   } else {
-    note("kernel body UNAVAILABLE: " + scene_.error());
+    // The user reads what happened to THEIR part; the log keeps what happened
+    // inside the program. Before this, both were the same string, and that
+    // string named C++ functions.
+    note(forge::ui::userFacingBuildFailure(scene_.error()));
     // Same reason as the failed rebuild below: startup with no kernel body is an
     // ERROR, and a user who opens the log looking for one must find it there
     // rather than in the untyped frame notes that the error filter hides.
-    shell_.log().error("kernel.startup", "no kernel body at startup -- the viewport is empty",
-                       scene_.error());
+    shell_.log().error("kernel.startup",
+                       forge::ui::userFacingBuildFailure(scene_.error()), scene_.error());
   }
+}
+
+void ForgeFrame::setViewportUnavailable(const std::string& internalDetail) {
+  if (internalDetail.empty()) {
+    viewportUnavailable_.clear();
+    return;
+  }
+  viewportUnavailable_ = forge::ui::userFacingViewportFailure(internalDetail);
+  shell_.log().error("viewport", viewportUnavailable_, internalDetail);
 }
 
 bool ForgeFrame::applyPendingFit() {
@@ -453,7 +471,10 @@ bool ForgeFrame::syncSceneToDocument() {
     rebuildError_ = r.error;
     // The previous body stays on screen -- what every history-based CAD system
     // does with a failed rebuild -- and the failure is stated, not swallowed.
-    note("REBUILD FAILED: " + r.error + "  (showing the last good body)");
+    // The status strip is read at a glance, mid-task, by somebody who is not
+    // debugging Forge. "REBUILD FAILED: parse failed: a non-std exception
+    // escaped forge::ft::parse (showing the last good body)" was what it said.
+    note(forge::ui::userFacingBuildFailure(r.error));
     // ...and stated WHERE SOMEONE LOOKING FOR AN ERROR WILL FIND IT.
     //
     // note() writes to the frame's own `log_` and to status_. The console panel
@@ -1955,6 +1976,13 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
                       ImGui::GetColorU32(rgb(20, 23, 28)));
     dl->AddRect(origin, ImVec2(origin.x + w, origin.y + h),
                 ImGui::GetColorU32(rgb(56, 61, 70)));
+    // A black rectangle where the part should be, and the only explanation on a
+    // console the user never opens, is the application failing silently. Say it
+    // here, in the space the 3D view was going to occupy.
+    if (!viewportUnavailable_.empty()) {
+      const ImVec2 at(origin.x + 18.0f * dpiScale_, origin.y + 24.0f * dpiScale_);
+      dl->AddText(at, ImGui::GetColorU32(rgb(235, 175, 95)), viewportUnavailable_.c_str());
+    }
   }
 
   const bool hovered = ImGui::IsItemHovered();
@@ -2300,8 +2328,12 @@ void ForgeFrame::drawViewportOverlays(float x, float y, float w, float h) {
     }
   }
   if (!scene_.built()) {
+    // Over the user's model, in red, is the WORST place for a sentence written
+    // for a compiler. The technical cause is in the Console panel; this says
+    // what happened to the part.
+    const std::string said = forge::ui::userFacingBuildFailure(scene_.error());
     dl->AddText(ImVec2(x + 14, y + h * 0.5f), ImGui::GetColorU32(rgb(235, 105, 95)),
-                scene_.error().c_str());
+                said.c_str());
   }
 }
 
@@ -2538,8 +2570,9 @@ void ForgeFrame::drawPropertiesPanel() {
     ImGui::Text("bbox   %.2f x %.2f x %.2f", r.bboxMax[0] - r.bboxMin[0],
                 r.bboxMax[1] - r.bboxMin[1], r.bboxMax[2] - r.bboxMin[2]);
   } else {
-    ImGui::TextColored(rgb(235, 105, 95), "REBUILD FAILED");
-    ImGui::TextWrapped("%s", r.error.c_str());
+    ImGui::TextColored(rgb(235, 105, 95), "This part did not rebuild");
+    const std::string why = forge::ui::userFacingBuildFailure(r.error);
+    ImGui::TextWrapped("%s", why.c_str());
     ImGui::TextDisabled("the viewport is showing the last body that built");
   }
 
@@ -2618,6 +2651,20 @@ void ForgeFrame::drawConsolePanel() {
       ImGui::PushStyleColor(ImGuiCol_Text, colour);
       ImGui::TextWrapped("%s", e.message.c_str());
       ImGui::PopStyleColor();
+      // ── THE ONE PLACE THE TECHNICAL DETAIL BELONGS ──────────────────────
+      // Everywhere else in this application tells the user "the Console panel
+      // has the technical detail". That sentence was FALSE: the detail column
+      // was recorded and never drawn, so the panel we pointed at held nothing
+      // extra. The Console is the engineer's surface -- dimmed, under the
+      // sentence, out of the way of the model -- and it is the only surface
+      // allowed to show a message the program wrote for itself.
+      if (!e.detail.empty()) {
+        ImGui::Indent(28.0f * dpiScale_);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("%s", e.detail.c_str());
+        ImGui::PopTextWrapPos();
+        ImGui::Unindent(28.0f * dpiScale_);
+      }
     }
     if (shown == 0) {
       ImGui::TextDisabled("(nothing at this level — %zu entries hidden)", log.size());
@@ -2697,9 +2744,10 @@ void ForgeFrame::drawMeasurePanel() {
   ImGui::TextColored(rgb(242, 158, 38), "Model");
   ImGui::Separator();
   if (mesh.empty()) {
-    ImGui::TextColored(rgb(235, 105, 95), "no tessellation to measure");
-    ImGui::TextWrapped("%s", scene_.error().empty() ? "(the scene is empty)"
-                                                    : scene_.error().c_str());
+    ImGui::TextColored(rgb(235, 105, 95), "There is nothing to measure yet");
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty() ? "Draw or open a part and its size will appear here."
+                                         : why.c_str());
     return;
   }
   ImGui::Text("size      %.3f x %.3f x %.3f mm", m.box.size(0), m.box.size(1), m.box.size(2));
@@ -3047,17 +3095,46 @@ void ForgeFrame::drawCopilotPanel() {
 }
 
 void ForgeFrame::drawGenericPanel(const std::string& panelId) {
-  ImGui::TextColored(rgb(242, 158, 38), "%s", prettyPanelName(panelId));
+  // ── WHAT THIS PANEL USED TO SAY, VERBATIM ─────────────────────────────────
+  //
+  //   Panel "mates" is docked and laid out by forge::ui::DockLayout, and its
+  //   position, tab order and active tab persist across restart. Its content is
+  //   not implemented in this segment.
+  //
+  // Twenty-seven tabs across the eight workspaces drew that, unchanged, in a
+  // shipped build. It named a C++ class, described the program's serialisation
+  // guarantees, and closed with a note about somebody's development schedule --
+  // and in doing so it never once said what a Mates panel IS. A user who opens
+  // a tab is asking one question and it answered a different one.
+  //
+  // What replaces it is DATA, from forge::ui::panelCatalog(): the panel's name
+  // and one sentence, written for the person reading it, saying what this tab
+  // will show them. ui/test/user_facing_text_test.cpp proves every panel the
+  // shipped workspaces define has such a sentence, that the sentence names no
+  // class and no library, and that the "not built yet" claim below matches this
+  // function's own dispatch -- so a panel that GAINS content and forgets to say
+  // so turns CI red rather than apologising to a user for work already done.
+  const forge::ui::PanelInfo* info = forge::ui::findPanelInfo(panelId);
+  const std::string title =
+      info != nullptr ? info->name : forge::ui::panelDisplayName(panelId);
+  ImGui::TextColored(rgb(242, 158, 38), "%s", title.c_str());
   ImGui::Separator();
-  // Honest: this panel is a docked surface with no content yet. It says so, and
-  // it still offers the commands its workspace owns, so it is not a dead tab.
-  ImGui::TextWrapped(
-      "Panel \"%s\" is docked and laid out by forge::ui::DockLayout, and its position, "
-      "tab order and active tab persist across restart. Its content is not implemented "
-      "in this segment.",
-      panelId.c_str());
+  if (info != nullptr) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("%s", info->purpose.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::Spacing();
+    ImGui::TextDisabled("Not built yet. This tab keeps its place in your layout, and your");
+    ImGui::TextDisabled("work is unaffected by it being empty.");
+  } else {
+    // A layout saved by a newer build can name a panel this one has never heard
+    // of. Saying so plainly beats inventing a description for it.
+    ImGui::TextWrapped("This tab came from a saved layout and this version of Forge does not "
+                       "know what it holds. You can close it, or open it again in the version "
+                       "that made it.");
+  }
   ImGui::Spacing();
-  ImGui::TextColored(rgb(130, 137, 148), "Commands this workspace owns:");
+  ImGui::TextColored(rgb(130, 137, 148), "What you can do from this workspace now:");
   // ribbonSurface_, NOT a second walk of the registry. This function used to
   // call ribbonCategories(shell_.workspace(), registry().categories()) and then
   // registry().idsInCategory(cat) itself -- the same enumeration the ribbon

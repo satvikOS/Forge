@@ -231,6 +231,14 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void build(std::uint64_t viewportTexture, float dpiScale);
 
   const ViewportRequest& viewport() const noexcept { return viewportRequest_; }
+
+  // ── WHEN THERE IS NO 3D VIEW AND NOBODY SAYS SO ────────────────────────
+  // The renderer's own failure text went to stderr and nowhere else, so a user
+  // whose graphics driver refused got a black rectangle where their part should
+  // be, with no sentence anywhere in the application. The host loop hands the
+  // technical cause here; the frame builder shows the translation of it and
+  // logs the cause. Empty (the default) means "no problem to report".
+  void setViewportUnavailable(const std::string& internalDetail);
   Camera& camera() noexcept { return camera_; }
   const Camera& camera() const noexcept { return camera_; }
 
@@ -578,6 +586,8 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 
   Camera camera_;
   ViewportRequest viewportRequest_;
+  // The TRANSLATED sentence, not the cause. The cause is in the activity log.
+  std::string viewportUnavailable_;
 
   // Frame-builder-owned UI state.
   bool paletteOpen_ = false;

@@ -382,7 +382,7 @@ std::string VocabularyClosure::report() const {
   }
   out += "  NOT CLOSED -- the allowed set cannot express a program on its own.\n";
   if (!owedCreatorKinds.empty()) {
-    out += "  OWED, a forge::ui command that CREATES: " + kindList(owedCreatorKinds) + "\n";
+    out += "  OWED, a command that CREATES: " + kindList(owedCreatorKinds) + "\n";
   }
   if (!unreachableOps.empty()) {
     out += "  OWED, unreachable until then: " + joined(unreachableOps) + "\n";
@@ -460,8 +460,8 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
     // that re-reads as a KEYWORD -- an argument that changed kind on the way to
     // the kernel.
     if (!std::isfinite(arg.number)) {
-      reason = "a non-finite number cannot be written as feature-IR: formatIrNumber() renders "
-               "it as a bare word, which forge::ft re-reads as a KEYWORD rather than a number";
+      reason = "a value that is not a finite number cannot be written into a feature history: "
+               "it is written as a word, and read back as a word rather than as a number";
       return OpConstraint::MalformedArgumentValue;
     }
     return OpConstraint::Ok;
@@ -477,14 +477,14 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
     // bypass this whole function exists to close, one kind later.
     for (const IrPoint& p : arg.pts) {
       if (std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z)) continue;
-      reason = "a point ring with a non-finite coordinate: formatIrNumber() renders it as a "
-               "bare word inside the `[x y; ...]` token, so the ring forge::ft reads back is "
-               "not the ring that was written";
+      reason = "a point ring with a coordinate that is not a finite number: it is written as "
+               "a word inside the list of points, so the ring that is read back is not the "
+               "ring that was written";
       return OpConstraint::MalformedArgumentValue;
     }
     if (arg.pts.empty()) {
-      reason = "an EMPTY point ring: it renders as the literal `[]`, which forge::ft's lexer "
-               "refuses outright (\"empty point list\") -- the statement cannot be parsed at all";
+      reason = "an EMPTY point ring: a shape needs at least one point, and a list with none "
+               "in it cannot be read back at all";
       return OpConstraint::MalformedArgumentValue;
     }
     // Rule 2 (NOT AN OP) cannot apply: a ring carries no word, and IrArg::token()
@@ -498,18 +498,18 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
                  ? std::string("an EMPTY keyword argument: it renders as nothing at all, and "
                                "the statement comes back with one argument fewer than it was "
                                "written with")
-                 : ("a keyword argument that is not a bare keyword: forge::ft reads a bare "
-                    "token as [A-Za-z0-9_]+ and this one carries something else, so it does "
-                    "not come back as the ONE keyword it was written as");
+                 : ("a keyword argument that is not a plain word: a keyword may hold only "
+                    "letters, digits and underscores, and this one holds something else, so "
+                    "it does not come back as the ONE keyword it was written as");
     return OpConstraint::MalformedArgumentValue;
   }
   if (const char bad = unwritableChar(arg.word); bad != '\0') {
     reason = "the value carries " + describeChar(bad) +
-             ", and IrArg::token() escapes nothing: rendered into a statement it does not "
-             "come back as one argument of one statement. forge::ft reads statements LINE BY "
-             "LINE and opens a string on either quote, so such a value can carry a whole "
-             "further statement -- including an op no command emits -- past a gate that only "
-             "read the op name";
+             ", which cannot be written into a feature history unchanged: it does not come "
+             "back as one argument of one step. A feature history is read a line at a time "
+             "and a quote opens a string, so such a value can smuggle a whole further step -- "
+             "including an operation no command produces -- past a check that read only the "
+             "name of the step";
     return OpConstraint::MalformedArgumentValue;
   }
 
@@ -525,9 +525,10 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
   if (!allowed && findIrOp(word) != nullptr) {
     // Same DRIFT case check() reports for a statement op, and the same answer: an
     // op nobody classified is not a permission.
-    reason = word + ": forbidden -- forge::ui::irOpTable() has this op but the generated "
-                    "vocabulary (" + vocabulary_.sourcePath + ") classifies it neither as "
-                    "user-invocable nor as forbidden, so no command is known to emit it";
+    reason = word + ": forbidden -- the modelling engine has this operation but Forge's own "
+                    "table of operations (" + vocabulary_.sourcePath + ") lists it neither as "
+                    "one a user can reach nor as one that is forbidden, so no command is known "
+                    "to produce it";
     return OpConstraint::ForbiddenOpInArgument;
   }
   if (allowed && arg.kind == IrArgKind::Keyword) {
@@ -538,8 +539,8 @@ OpConstraint OpConstraintBridge::checkValue(const IrArg& arg, std::string& reaso
     // text the kernel resolves against the face inventory, and refusing a face a
     // user legitimately named "EXTRUDE" would remove capability to fix nothing --
     // an allowed op inside a quoted string escalates to nothing.
-    reason = word + ": user-invocable as a STATEMENT op, but no forge::ui command emits an op "
-                    "name as a bare keyword argument";
+    reason = word + ": a user can reach this operation as a step of its own, but no command "
+                    "in Forge writes the name of an operation as a keyword argument";
     return OpConstraint::OpNameInArgument;
   }
   return OpConstraint::Ok;
@@ -564,14 +565,14 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
       // allowed nor as forbidden. That is DRIFT, and it is reported as such
       // rather than waved through: an op nobody classified is not a permission.
       return reject(proposal, OpConstraint::ForbiddenOp,
-                    line.op + ": forbidden -- forge::ui::irOpTable() has this op but the "
-                              "generated vocabulary (" + vocabulary_.sourcePath +
-                              ") classifies it neither as user-invocable nor as forbidden, so "
-                              "no command is known to emit it");
+                    line.op + ": forbidden -- the modelling engine has this operation but "
+                              "Forge's own table of operations (" + vocabulary_.sourcePath +
+                              ") lists it neither as one a user can reach nor as one that is "
+                              "forbidden, so no command is known to produce it");
     }
     return reject(proposal, OpConstraint::UnknownOp,
-                  line.op + ": unknown -- not a feature-IR op at all; it is absent from "
-                            "forge::ui::irOpTable(), which mirrors forge::ft::opFromName");
+                  line.op + ": unknown -- not a modelling operation at all; it is absent from "
+                            "the table of operations Forge shares with the modelling engine");
   }
 
   // ── 2. statement id ───────────────────────────────────────────────────────
@@ -609,12 +610,12 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
   if (!kernelOk) {
     return reject(proposal, OpConstraint::WrongArity,
                   line.op + ": wrong arity -- " + std::to_string(argc) +
-                      " argument(s); forge::ft::compile accepts " +
+                      " argument(s); the modelling engine accepts " +
                       std::to_string(op->kernelMinArgs) + "-" +
                       (op->kernelMaxArgs == kIrArgsUnbounded ? std::string("n")
                                                              : std::to_string(op->kernelMaxArgs)) +
-                      ", so the KERNEL cannot build this statement (the forms a forge::ui "
-                      "command emits are narrower still: " +
+                      ", so it cannot build this step (the forms Forge's own commands "
+                      "produce are narrower still: " +
                       countList(op->emittedForms) + ")");
   }
   bool appEmitsThisForm = false;
@@ -704,11 +705,11 @@ OpRuling OpConstraintBridge::check(const ProposedOp& proposal) const {
     // than thrown away. This is the fact the old refusal was carrying: the
     // KERNEL builds this statement and the app cannot yet author it.
     ok.tolerated = line.op + ": " + std::to_string(argc) +
-                   " argument(s) -- kernel-legal (forge::ft::compile accepts " +
+                   " argument(s) -- the modelling engine builds this (it accepts " +
                    std::to_string(op->kernelMinArgs) + "-" +
                    (op->kernelMaxArgs == kIrArgsUnbounded ? std::string("n")
                                                           : std::to_string(op->kernelMaxArgs)) +
-                   ") but NO forge::ui command emits this form; the app emits " +
+                   ") but no command in Forge produces this form; Forge produces " +
                    countList(op->emittedForms) +
                    ". TOLERATED, not refused -- a planner is not the command set.";
   }

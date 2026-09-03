@@ -65,7 +65,35 @@
 #include "PngWriter.hpp"
 #include "ViewportRenderer.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/UserFacingText.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
+
+namespace forge::desktop {
+
+// ── WHEN THE APPLICATION CANNOT START ───────────────────────────────────────
+//
+// Every startup failure in this file used to end in `return 1;` after an
+// fprintf. On a developer's terminal that is fine. On a user's Mac, a
+// double-clicked Forge.app that returns 1 does not open, shows nothing, and
+// leaves the only explanation in a console they have no reason to have open --
+// so the application is indistinguishable from one that is broken beyond
+// reporting. A dialog is the whole difference between "it does not work" and
+// "it cannot use your graphics card".
+//
+// The SENTENCE comes from forge::ui::userFacingStartupFailure(), which is
+// headlessly gated: the technical cause chooses which sentence is shown and is
+// never quoted inside one. The cause still goes to stderr, immediately above
+// every call to this.
+void sayStartupFailed(const char* stage, const char* detail) {
+  const std::string message =
+      forge::ui::userFacingStartupFailure(stage != nullptr ? stage : "",
+                                          detail != nullptr ? detail : "");
+  // SDL_ShowSimpleMessageBox works before SDL_Init and needs no window, which is
+  // exactly the situation every caller is in.
+  SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Forge cannot start", message.c_str(), nullptr);
+}
+
+}  // namespace forge::desktop
 
 namespace {
 
@@ -408,6 +436,10 @@ int main(int argc, char** argv) {
 
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {
     std::fprintf(stderr, "[forge] SDL_Init: %s\n", SDL_GetError());
+    // A double-clicked .app that returns 1 to nobody simply does not open, and
+    // the only explanation lands on a console the user never sees. Say it where
+    // they are. The technical cause stays on stderr.
+    forge::desktop::sayStartupFailed("video", SDL_GetError());
     return 1;
   }
   SDL_Window* window = SDL_CreateWindow(
@@ -415,11 +447,13 @@ int main(int argc, char** argv) {
       SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI);
   if (window == nullptr) {
     std::fprintf(stderr, "[forge] SDL_CreateWindow: %s\n", SDL_GetError());
+    forge::desktop::sayStartupFailed("window", SDL_GetError());
     SDL_Quit();
     return 1;
   }
 
   if (!createVulkan(window)) {
+    forge::desktop::sayStartupFailed("graphics device", "");
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 2;
@@ -427,6 +461,7 @@ int main(int argc, char** argv) {
   int fbw = 0, fbh = 0;
   SDL_Vulkan_GetDrawableSize(window, &fbw, &fbh);
   if (!setupSwapchain(window, fbw, fbh)) {
+    forge::desktop::sayStartupFailed("swapchain", "");
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 2;
@@ -439,6 +474,51 @@ int main(int argc, char** argv) {
   ImGui::CreateContext();
   ImGuiIO& io = ImGui::GetIO();
   io.IniFilename = nullptr;  // the DOCK LAYOUT is ours; imgui.ini would fight it
+
+  // ── DEAR IMGUI'S DEVELOPER DIAGNOSTICS ARE OFF IN A SHIPPED BUILD ────────
+  //
+  // MEASURED, in the vendored library this app links (1.92.9 WIP), with the
+  // defaults it ships:
+  //
+  //   ConfigErrorRecoveryEnableAssert   = true   -> IM_ASSERT() on a recoverable
+  //                                                error, which ABORTS the
+  //                                                process on a user's machine
+  //   ConfigErrorRecoveryEnableTooltip  = true   -> a red popup over the model
+  //   ConfigDebugHighlightIdConflicts   = true   -> "Programmer error: N visible
+  //                                                items with conflicting ID!",
+  //                                                followed by advice to call
+  //                                                PushID()/PopID() and to set
+  //                                                io.ConfigDebugHighlightIdConflicts
+  //                                                = false "in non-programmers
+  //                                                builds"
+  //
+  // That last string is the library telling us, in its own words, that this
+  // configuration is for programmers. A person who bought a CAD application is
+  // not one, and a diagnostic they cannot act on -- drawn on top of the part
+  // they are working on -- is worse than the defect it reports.
+  //
+  // NOTHING IS SUPPRESSED, only redirected: the debug log stays ON, so every one
+  // of these errors is still printed to the console this process writes to, and
+  // an engineer reads exactly what they read before. FORGE_IMGUI_DEV_DIAGNOSTICS
+  // in the environment restores the library's defaults for a developer who wants
+  // the popup and the abort back.
+  //
+  // The abort is the important half. `ConfigErrorRecoveryEnableAssert` means a
+  // recoverable ImGui error terminates the application; recovery exists so that
+  // it does not have to, and a user losing unsaved work to a mismatched Begin()
+  // is not a trade this application gets to make on their behalf.
+  const bool devDiagnostics = std::getenv("FORGE_IMGUI_DEV_DIAGNOSTICS") != nullptr;
+  if (!devDiagnostics) {
+    io.ConfigErrorRecovery = true;                  // recover, do not die
+    io.ConfigErrorRecoveryEnableAssert = false;     // ... and do not abort either
+    io.ConfigErrorRecoveryEnableDebugLog = true;    // the engineer still reads it
+    io.ConfigErrorRecoveryEnableTooltip = false;    // the user does not
+    io.ConfigDebugHighlightIdConflicts = false;
+    io.ConfigDebugHighlightIdConflictsShowItemPicker = false;
+  } else {
+    std::fprintf(stderr, "[forge] FORGE_IMGUI_DEV_DIAGNOSTICS set: ImGui error asserts, "
+                         "tooltips and ID-conflict popups are ON\n");
+  }
   // NavEnableKeyboard is deliberately OFF. ImGui's keyboard nav consumes the
   // arrows, Space and Enter to move a focus cursor between widgets; in a CAD
   // shell those keys belong to the keymap and to the modal command that is
@@ -471,6 +551,7 @@ int main(int argc, char** argv) {
   init.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
   if (!ImGui_ImplVulkan_Init(&init)) {
     std::fprintf(stderr, "[forge] ImGui_ImplVulkan_Init failed\n");
+    forge::desktop::sayStartupFailed("renderer", "");
     return 3;
   }
 
@@ -546,6 +627,8 @@ int main(int argc, char** argv) {
   forge::desktop::ViewportRenderer viewport;
   if (!viewport.init(g_phys, g_device, g_queue, g_queueFamily, scene.vertices())) {
     std::fprintf(stderr, "[forge] viewport renderer: %s\n", viewport.error().c_str());
+    // ... and, unlike before, somewhere the user will actually see it.
+    frame.setViewportUnavailable(viewport.error());
   }
 
   // ── frame loop ───────────────────────────────────────────────────────────

@@ -177,6 +177,22 @@ jobs:
         # SET, so the one that remains (an open-ended selection gets minCount
         # values and no more) is printed on every run rather than remembered.
         run: bash ui/test/run_differential_gate.sh
+      - name: what a USER reads (prove the prose gate can fail)
+        # run_ui.sh above already runs ui/test/user_facing_text_test.cpp -- it globs
+        # ui/test/*_test.cpp -- so this step is the half a clean pass cannot give.
+        #
+        # THE DEFECT, VERBATIM, FROM A SHIPPED BUILD: 27 of the 50 panels the eight
+        # workspaces define drew "Panel \"%s\" is docked and laid out by
+        # forge::ui::DockLayout ... Its content is not implemented in this segment.",
+        # the kernel's exception text went straight into a panel and the activity log,
+        # and Dear ImGui's own error recovery shipped with asserts and its
+        # "Programmer error: N visible items with conflicting ID!" popup ENABLED.
+        #
+        # Seven mutations, each one a real leak put back in the real source, and the
+        # seventh empties the scanner every other check calls -- because six checks
+        # over a scanner that returns nothing would all be green and all be
+        # decoration.
+        run: bash ui/test/run_user_prose_gate.sh --mutations
       - name: forge-desktop still TYPE-CHECKS (the cheap half of "the app builds")
         # THE GATE THAT WOULD HAVE CAUGHT 2026-08-31's UN-BUILDABLE APP, IN THIS
         # JOB, IN SECONDS.
