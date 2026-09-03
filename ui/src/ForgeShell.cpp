@@ -16,6 +16,7 @@
 #include "forge/ui/KeymapAudit.hpp"
 #include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PanelFocus.hpp"
+#include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Theme.hpp"
 #include "forge/ui/Types.hpp"
@@ -74,6 +75,11 @@ void ForgeShell::registerCommands() {
           ++documentErrorSeq_;
           return;
         }
+        // AFTER the host said yes, and read back from the HOST rather than from
+        // `path`: the host is what knows where the document actually ended up,
+        // and a host that normalised or resolved the path would otherwise have
+        // the un-normalised one remembered against it.
+        recent_.remember(documentHost_->documentPath());
         syncDocumentStats();
         doc_.dirty = false;
         return;
@@ -103,6 +109,12 @@ void ForgeShell::registerCommands() {
           ++documentErrorSeq_;
           return;
         }
+        // The host is the ONLY thing that knows where a bare Ctrl+S went: this
+        // command's `path` is optional and empty in that case, and the host
+        // chooses ~/.forge/<name>.fpart. Remembering `path` here would remember
+        // "" — which is exactly how a user saves successfully and can never find
+        // the file again.
+        recent_.remember(documentHost_->documentPath());
         syncDocumentStats();
         doc_.dirty = false;
         return;
@@ -978,6 +990,15 @@ std::string ForgeShell::saveState() const {
   // would never reach a user who had ever saved state.
   os << "theme " << toString(themeMode_) << '\n';
 
+  // MOST RECENT FIRST, one per line, and BEFORE the block records: a `recent`
+  // line is a simple record, and the block records (layout, keymap) run to a
+  // "." terminator that swallows whatever follows until it finds one.
+  // RecentDocuments::isStorable already refuses a path containing a newline, so
+  // no path written here can split into a second record.
+  for (const std::string& p : recent_.paths()) {
+    os << "recent " << p << '\n';
+  }
+
   std::map<std::string, std::string> layouts = savedLayouts_;
   {
     // Same rule as setWorkspace: never persist a layout that cannot be read
@@ -1014,6 +1035,7 @@ ForgeShell::StateLoadReport ForgeShell::loadStateReport(const std::string& text)
   bool haveWorkspace = false;
   bool haveInput = false;
   std::map<std::string, std::string> layouts;
+  std::vector<std::string> recent;
   Keymap keymap;
   bool haveKeymap = false;
 
@@ -1032,6 +1054,13 @@ ForgeShell::StateLoadReport ForgeShell::loadStateReport(const std::string& text)
         report.error = "unknown theme name: " + line.substr(6);
         return report;
       }
+    } else if (line.rfind("recent ", 0) == 0) {
+      // OPTIONAL and NEVER FATAL. A session file written before this record
+      // existed is a valid session file, and an entry this build cannot store
+      // (an empty path) is one menu row lost — not a reason to discard the
+      // user's layouts and keymap. restore() below drops what it cannot keep and
+      // reports the count, rather than refusing the file.
+      recent.push_back(line.substr(7));
     } else if (line.rfind("input ", 0) == 0) {
       const std::string name = line.substr(6);
       bool found = false;
@@ -1109,6 +1138,7 @@ ForgeShell::StateLoadReport ForgeShell::loadStateReport(const std::string& text)
   workspace_ = workspace;
   input_ = input;
   themeMode_ = theme;
+  recent_.restore(recent);
   savedLayouts_ = std::move(layouts);
   keymap_ = std::move(keymap);
   pending_.clear();

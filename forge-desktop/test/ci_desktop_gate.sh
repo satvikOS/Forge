@@ -39,19 +39,42 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-# 45 = document 8 + file_exchange 5 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
-# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
-# from either parent. This number has been contested at two earlier merges and
-# the SIDES SWAPPED between them, which is the whole argument for measuring it
-# rather than inheriting it.
+# from either parent. This number has now been contested at FOUR merges and the
+# sides have swapped between them, which is the whole argument for measuring it on
+# the tree being committed rather than inheriting it.
 #
-# AT THIS MERGE (the execution branch, carrying #176 and #174, into
-# app/differential-gate-v2) BOTH SIDES ALREADY PIN 40 -- the disagreement the
-# two comments above describe has been resolved by the base pull this branch
-# already took. An agreeing pair is the easiest place to carry a stale figure
-# across, since no conflict is raised to prompt a re-count, so it was measured
-# anyway: counting run_desktop.sh's own run_gate arguments reproduces 40 on BOTH
-# parents and gives 40 on the merged tree.
+# AT THIS MERGE (origin/archdisc into work/file-exchange-step) the parents disagree
+# and BOTH are right about their own half. This branch said 45 (document 8 +
+# file_exchange 5 + frame 9 + copilot 8 + update 7 + click 8). The base said 43
+# (document 8 + frame 12 + copilot 8 + update 7 + click 8) because #189 added frame
+# mutations 10, 11 and 12. NEITHER is correct on the merged tree, which carries the
+# file-exchange gate AND the three new frame mutations. Counting run_desktop.sh's
+# own run_gate arguments on the MERGED tree gives:
+#     document 8 + file_exchange 5 + frame 12 + copilot 8 + update 7 + click 8 = 48
+# (ir_pipeline_gate and isolation_gate take no mutation arguments.)
+#
+# ★ The merge of run_desktop.sh was the real hazard here, not this number. HEAD kept
+#   frame_gate at 1..9 while adding the file-exchange line; the base had frame_gate
+#   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
+#   either the five file-exchange ones or the three frame ones — and the suite would
+#   have gone green while testing less than it did before the merge.
+EXPECTED_MUTATIONS=48
+# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
+# from either parent. This number has been contested at THREE merges now and the
+# sides have swapped between them, which is the whole argument for measuring it
+# on the tree being committed rather than inheriting it.
+#
+# AT THIS MERGE (origin/archdisc into app/forge-cpp-user-ready) the parents
+# DISAGREE: this branch pins 43, the base pins 40. NEITHER was taken. Counting
+# run_desktop.sh's own run_gate arguments on the MERGED tree gives:
+#     document 8 + frame 12 + copilot 8 + update 7 + click 8 = 43
+# (ir_pipeline_gate and isolation_gate take no mutation arguments.)
+#
+# Both parents are right about their own half. The base's 40 is correct FOR THE
+# BASE, where frame_gate still runs 1..9; this branch adds frame mutations 10, 11
+# and 12 -- a worker CONFIGURED is not distinguished from one absent, the frame
+# never dispatches the deferred Open Recent request, and a statement row is never
+# clicked so Extrude has no Sketch to consume. 40 + 3 = 43.
 #
 # The confirmation, not the count: click mutation 8 -- the camera pull path,
 # `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree, which is
@@ -64,7 +87,15 @@ set -uo pipefail
 # `awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh`
 # prints 45, made of: ir_pipeline 0 + document 8 + file_exchange 5 + frame 9 +
 # copilot 8 + update 7 + click 8 + isolation 0.
-EXPECTED_MUTATIONS=45
+# (a stale EXPECTED_MUTATIONS from one parent was removed here at the merge —
+#  in bash the LAST assignment wins, so leaving both sides' lines in place would
+#  have silently restored a parent's number over the one counted on this tree.)
+# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree (four
+# sites), which is what the earlier disagreements turned on. This is D-028's
+# failure mode; the method that catches it is to COUNT on the merged tree.
+# (a stale EXPECTED_MUTATIONS from one parent was removed here at the merge —
+#  in bash the LAST assignment wins, so leaving both sides' lines in place would
+#  have silently restored a parent's number over the one counted on this tree.)
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

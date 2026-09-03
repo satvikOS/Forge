@@ -24,6 +24,7 @@
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/KeymapAudit.hpp"
 #include "forge/ui/PanelFocus.hpp"
+#include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Theme.hpp"
 #include "forge/ui/Types.hpp"
@@ -236,6 +237,21 @@ class ForgeShell {
   // `execute` returns void, so this is how a refused open reaches the UI.
   const std::string& lastDocumentError() const noexcept { return documentError_; }
 
+  // ── where the user's parts are ──────────────────────────────────────────
+  // Written by the file.open and file.save HANDLERS, so every invoker feeds it
+  // by construction: a menu click, Ctrl+O, the palette, `--open` on the command
+  // line and an Archie tool call all dispatch the same command. A surface that
+  // remembered paths itself would be a second, drifting copy of this list that
+  // only the surface it lives on can see.
+  //
+  // Only a SUCCESSFUL open or save is remembered. A refused open — a path that
+  // does not exist, a file that is not a .fpart — leaves the list untouched,
+  // because a document that never opened is not a document the user was working
+  // on, and offering it back in File > Open Recent would offer a broken path
+  // for ever.
+  const RecentDocuments& recentDocuments() const noexcept { return recent_; }
+  RecentDocuments& recentDocuments() noexcept { return recent_; }
+
   // ── what happened, and why ──────────────────────────────────────────────
   // EVERY dispatch is recorded here, refusals included, each with the sentence
   // that names the missing selection or parameter. `journal()` below is still
@@ -364,6 +380,7 @@ class ForgeShell {
   // string alone cannot, because two failed opens leave the same text.
   std::size_t documentErrorSeq_ = 0;
   std::vector<std::string> journal_;
+  RecentDocuments recent_;
   ActivityLog log_;
   ThemeMode themeMode_ = ThemeMode::Dark;
   FocusRing panelFocus_;
