@@ -193,6 +193,23 @@ jobs:
         # over a scanner that returns nothing would all be green and all be
         # decoration.
         run: bash ui/test/run_user_prose_gate.sh --mutations
+      - name: what the Model and Sketch tabs SHOW (prove the model-tree gate can fail)
+        # run_ui.sh above already runs ui/test/model_tree_test.cpp -- it globs
+        # ui/test/*_test.cpp -- so this step is the half a clean pass cannot give.
+        #
+        # THE DEFECT, FROM A SHIPPED BUILD: drawPanel() dispatched SEVEN docked
+        # tabs -- Features, Model, Sketch, Assembly, Operations, Studies and
+        # Sheets -- to ONE function, drawFeatureTreePanel(). Whichever a user
+        # clicked they got the build history, so six tabs named something they
+        # did not show, and no check could see it because the panel all seven
+        # shared was itself correct.
+        #
+        # forge::ui::ModelTree is what the Model Browser and the Sketch Tree draw
+        # instead. Four mutations, each breaking one reading of the document: a
+        # constraint becomes a phantom body, a rectangle's width is labelled its
+        # height, a constrained sketch reads as unnamed, and a number the KERNEL
+        # supplied is shown as one the user chose.
+        run: bash ui/test/run_model_tree_gate.sh --mutations
       - name: forge-desktop still TYPE-CHECKS (the cheap half of "the app builds")
         # THE GATE THAT WOULD HAVE CAUGHT 2026-08-31's UN-BUILDABLE APP, IN THIS
         # JOB, IN SECONDS.
