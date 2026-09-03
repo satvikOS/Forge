@@ -720,10 +720,28 @@ int main(int argc, char** argv) {
   // box, which spans 0..20. By symmetry x and y are 0 and z is
   // (20000*4 + 5428.67*14)/25428.67 = 6.135.
   //
-  // NOT FIXED HERE, and saying so is the point: it is forge::massProperties on a
-  // fused OCCT solid, it is not reproducible without a kernel build, and guessing
-  // at OCCT's GProp would be worse than reporting it. What this change owes is
-  // that the gate SAYS it, every run.
+  // ★★ FIXED 2026-09-03, AND THE PIN IS NOW EMPTY. The cause was not in
+  // forge::massProperties at all: forge::ft::compile() saved ONE native-gate bit and
+  // restored FOUR through setForgeNativeBrepEnabled(), whose own comment says
+  // "production never calls this" -- and the compiler is production. CORE, STEP and
+  // INTERFERENCE default ON while FEATURES defaults OFF, so FEATURES was forced ON by
+  // the first compile and stayed on for the life of the process, routing mass
+  // properties down the native features path.
+  //
+  // The signature matches exactly. This tree read com=(2.03e+33, -2.03e+33, 23.41)
+  // with its volume correct to 1.5e-8; the same defect made the app's own bracket read
+  // com=(-1.37e+34, -8.53e+33, 67.38) with mass 11514.79 against an analytic 77583.54.
+  // A centre of mass 10^32 times the part, x and y exact negatives, on a body whose
+  // VOLUME is right, is that bug's fingerprint -- and it is exactly why volume alone
+  // could never have caught either of them.
+  //
+  // With the guard restoring all four overrides (save/restoreNativeGateOverrides in
+  // NativeRoute, used by FeatureTreeCompiler), g_incoherent measures EMPTY. The pin
+  // moves from {boss_on_plate} to {} exactly as this ratchet's own failure text
+  // instructs -- it is RED IN BOTH DIRECTIONS, so a fix MUST move it, and leaving the
+  // old pin would hold the gate red forever on a defect that no longer exists.
+  //
+  // The ratchet still bites: ANY tree becoming incoherent from here is RED.
   if (mutation == Mutation::None) {
     std::printf("[differential-solid] physically incoherent trees: %zu\n", g_incoherent.size());
     for (const std::string& t : g_incoherent) {
@@ -731,9 +749,10 @@ int main(int argc, char** argv) {
                   t.c_str());
     }
     ++checks;
-    if (g_incoherent.size() != 1 || g_incoherent.front() != "boss_on_plate") {
+    if (!g_incoherent.empty()) {
       ++failures;
-      std::printf("  [FAIL] the incoherent SET moved. Pinned: {boss_on_plate}. Measured: {");
+      std::printf("  [FAIL] the incoherent SET moved. Pinned: {} (empty since the "
+                    "native-gate guard fix). Measured: {");
       for (std::size_t i = 0; i < g_incoherent.size(); ++i) {
         std::printf("%s%s", i ? ", " : "", g_incoherent[i].c_str());
       }

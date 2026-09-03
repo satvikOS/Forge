@@ -131,6 +131,11 @@ cp "$KERNEL/src/native/brep/NativeRoute.cpp" "$OUT/NativeRoute.cpp.orig"
 restore_sources() {
   cp "$OUT/FeatureTreeCompiler.cpp.orig" "$COMPILER_SRC"
   cp "$OUT/NativeRoute.cpp.orig" "$KERNEL/src/native/brep/NativeRoute.cpp"
+  # REBUILD after restoring. This gate may share a build tree with the rest of the
+  # job (CI points GATE_GUARD_BUILD at build-verify), so an early exit mid-mutation
+  # would otherwise leave a MUTATED library in place for every later step — a gate
+  # that corrupts its neighbours is worse than no gate.
+  rebuild_lib >/dev/null 2>&1 || true
 }
 trap restore_sources EXIT
 
