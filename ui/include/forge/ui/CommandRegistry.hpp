@@ -51,7 +51,13 @@ struct SelectionSignature {
   }
 
   bool satisfiedBy(const SelectionService& sel) const noexcept;
+  // "1..n edge (homogeneous)" — the MACHINE form. It is the agent-facing tool
+  // catalogue's field and the Console's detail column, and it is pinned by
+  // forge_shell_test. It is notation, not English, and must never be drawn.
   std::string describe() const;
+  // "one or more edges, all of the same kind" — the same fact for a person. This
+  // is what every tooltip, panel and log sentence uses.
+  std::string describeForUser() const;
 };
 
 // ── parameter schema ────────────────────────────────────────────────────────
@@ -175,7 +181,17 @@ enum class DispatchStatus : std::uint8_t {
   EditRefused,
 };
 
-const char* toString(DispatchStatus status) noexcept;
+// THE MACHINE'S OWN SPELLING: "selection_signature_mismatch". It is a stable
+// wire name -- macros store it, the agent surface reports it, the Console
+// panel's detail column shows it -- and it is NOT prose. It is called
+// machineName rather than toString so that a gate can forbid it, by name, inside
+// a call that draws text: this exact value, under its old name, was on the menu
+// tooltip and in every panel's command list of the shipped build.
+const char* machineName(DispatchStatus status) noexcept;
+
+// The same fact as a short phrase a person can read. Used wherever a surface
+// needs a word rather than a sentence (a palette's right-hand column, a badge).
+const char* userText(DispatchStatus status) noexcept;
 
 struct DispatchResult {
   DispatchStatus status = DispatchStatus::Ok;

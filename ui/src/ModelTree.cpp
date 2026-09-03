@@ -411,7 +411,7 @@ SketchTree buildSketchTree(const PartDocument& document) {
       e.label = "Point";
       if (rec.line.args.size() >= 3 && rec.line.args[1].kind == IrArgKind::Number &&
           rec.line.args[2].kind == IrArgKind::Number) {
-        e.detail = "at " + joinNumber(rec.line.args[1].number) + ", " +
+        e.operands = "at " + joinNumber(rec.line.args[1].number) + ", " +
                    joinNumber(rec.line.args[2].number) + " mm";
       }
     } else if (curve) {
@@ -419,19 +419,19 @@ SketchTree buildSketchTree(const PartDocument& document) {
       if (op == "SLINE") {
         e.label = "Line";
         if (rec.line.args.size() >= 2) {
-          e.detail = "from " + refLabel(records, rec.line.args[0].ref) + " to " +
+          e.operands = "from " + refLabel(records, rec.line.args[0].ref) + " to " +
                      refLabel(records, rec.line.args[1].ref);
         }
       } else if (op == "SCIRC") {
         e.label = "Circle";
         if (rec.line.args.size() >= 2 && rec.line.args[1].kind == IrArgKind::Number) {
-          e.detail = "centre " + refLabel(records, rec.line.args[0].ref) + ", radius " +
+          e.operands = "centre " + refLabel(records, rec.line.args[0].ref) + ", radius " +
                      joinNumber(rec.line.args[1].number) + " mm";
         }
       } else {
         e.label = "Arc";
         if (rec.line.args.size() >= 3) {
-          e.detail = "centre " + refLabel(records, rec.line.args[0].ref) + ", from " +
+          e.operands = "centre " + refLabel(records, rec.line.args[0].ref) + ", from " +
                      refLabel(records, rec.line.args[1].ref) + " to " +
                      refLabel(records, rec.line.args[2].ref);
         }
@@ -448,23 +448,23 @@ SketchTree buildSketchTree(const PartDocument& document) {
       // word for a constraint the kernel ignored would be worse than one that
       // shows the word the document actually carries.
       e.label = named.empty() ? kind : named;
-      std::string detail;
+      std::string operands;
       bool firstRef = true;
       for (const IrArg& a : rec.line.args) {
         if (a.kind == IrArgKind::Ref) {
           const std::string who = refLabel(records, a.ref);
           if (who.empty()) continue;
-          detail += (firstRef ? "" : " and ") + who;
+          operands += (firstRef ? "" : " and ") + who;
           firstRef = false;
         }
       }
       for (const IrArg& a : rec.line.args) {
         if (a.kind == IrArgKind::Number) {
-          detail += " = " + joinNumber(a.number);
+          operands += " = " + joinNumber(a.number);
           break;
         }
       }
-      e.detail = detail;
+      e.operands = operands;
     }
 
     if (g == nullptr) {

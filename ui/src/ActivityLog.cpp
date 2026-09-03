@@ -180,12 +180,41 @@ std::string describeSelection(const SelectionService& selection) {
   for (EntityKind k : kinds) {
     const std::size_t n = selection.countOf(k);
     if (n == 0) continue;
-    parts.push_back(std::to_string(n) + " " + toString(k));
+    // userText, not toString: toString is the SIGNATURE SPELLING, matched
+    // against the enum's own name lowered ("sketch_curve", "opensketch"), and a
+    // status strip that says "1 sketch_curve is picked" is reading an identifier
+    // out loud.
+    parts.push_back(std::to_string(n) + " " + userText(k) + (n == 1 ? "" : "s"));
   }
   if (parts.empty()) return std::to_string(selection.count()) + " selected";
   return joinNames(parts);
 }
 
+// ── THE SENTENCE A USER READS WHEN A COMMAND WILL NOT RUN ───────────────────
+//
+// This is the most-read piece of prose in the application: it is the menu
+// tooltip on every command, the greyed row in the palette, the line under every
+// panel's command list and the message in the activity log, and it is built
+// once here so those four can never disagree.
+//
+// It was ALSO the largest single source of developer prose in the shipped
+// build, and none of it looked like developer prose at a glance:
+//
+//   "there is no command with the id "part.fillet" — nothing in the registry
+//    answers to it"            a user has never heard of the registry, and
+//                              "part.fillet" is a name only the program uses.
+//   "its enabled predicate refused the current parameters"
+//                              three words from the command system's internals.
+//   "is registered with no handler — this is an application defect"
+//                              true, and addressed to whoever has to fix it.
+//   "needs 1..n edge (homogeneous)"
+//                              signature notation, not English.
+//   "[op FILLET]"              the feature-IR op, appended to every refusal.
+//
+// What replaces each is a sentence that says what happened and what to do. The
+// machine's own spelling of the refusal still exists -- machineName(status) --
+// and still reaches the Console panel's detail column, which is the one surface
+// in this application that is allowed to talk to an engineer.
 std::string explainUnavailable(const std::string& commandId, const CommandDescriptor* command,
                                DispatchStatus status, const std::string& detail,
                                const std::vector<std::string>& missingParameters,
@@ -197,44 +226,44 @@ std::string explainUnavailable(const std::string& commandId, const CommandDescri
       os << label << " ran";
       break;
     case DispatchStatus::UnknownCommand:
-      os << "there is no command with the id \"" << commandId
-         << "\" — nothing in the registry answers to it";
+      // NOT the id. A user who somehow reaches this has clicked something that
+      // no longer exists -- a stale saved layout, an old shortcut -- and the
+      // useful sentence is what to do, not what it was called.
+      os << "This tool is not part of this version of Forge. Look for it in the "
+            "menus, or check that Forge is up to date";
       break;
     case DispatchStatus::SelectionSignatureMismatch:
-      os << label << " needs " << (command != nullptr ? command->signature.describe() : "a selection")
+      os << label << " needs " << (command != nullptr ? command->signature.describeForUser()
+                                                      : std::string("something selected"))
          << "; " << (selection != nullptr ? describeSelection(*selection) : std::string("the selection"))
          << " is picked";
       if (command != nullptr && command->signature.kind != EntityKind::None &&
           command->signature.kind != EntityKind::Any) {
-        os << ". Set the selection filter to " << toString(command->signature.kind)
-           << " and pick in the viewport";
+        os << ". Set the pick filter to " << userText(command->signature.kind)
+           << " and click one in the 3D view";
       }
       break;
     case DispatchStatus::Disabled:
-      os << label << " is not available right now";
-      if (!detail.empty()) os << ": " << detail;
-      else if (command != nullptr && !command->schema.empty())
-        os << " — its enabled predicate refused the current parameters";
+      // `detail` on this path is the command's own id -- see
+      // CommandRegistry::evaluate -- so it is never quoted here.
+      os << label << " cannot be used on this part right now. Finish or undo what "
+                     "is in progress, or pick something for it to work on";
       break;
     case DispatchStatus::MissingRequiredParameter:
       os << label << " needs a value for "
-         << (missingParameters.empty() ? (detail.empty() ? std::string("a required parameter")
+         << (missingParameters.empty() ? (detail.empty() ? std::string("one of its settings")
                                                          : detail)
                                        : joinNames(missingParameters))
          << " before it can run";
       break;
     case DispatchStatus::NoHandler:
-      os << label << " is registered with no handler — this is an application defect, not "
-                     "something the document can fix";
+      os << label << " is not finished in this version of Forge and does nothing "
+                     "yet. Nothing about your part has changed";
       break;
     case DispatchStatus::EditRefused:
-      os << label << " ran and the document refused the edit";
+      os << label << " ran and the change was not accepted";
       if (!detail.empty()) os << ": " << detail;
       break;
-  }
-  if (command != nullptr && !command->featureIrOp.empty() &&
-      status != DispatchStatus::Ok && status != DispatchStatus::UnknownCommand) {
-    os << " [op " << command->featureIrOp << ']';
   }
   return os.str();
 }

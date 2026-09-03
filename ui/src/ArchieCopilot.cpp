@@ -39,7 +39,7 @@ const char* toString(TranscriptRole role) noexcept {
   return "system";
 }
 
-const char* toString(PlanCheck check) noexcept {
+const char* machineName(PlanCheck check) noexcept {
   switch (check) {
     case PlanCheck::Ok:                       return "ok";
     case PlanCheck::StaleResponse:            return "stale_response";
@@ -55,6 +55,22 @@ const char* toString(PlanCheck check) noexcept {
   return "ok";
 }
 
+const char* userText(PlanCheck check) noexcept {
+  switch (check) {
+    case PlanCheck::Ok:                       return "accepted";
+    case PlanCheck::StaleResponse:            return "this answer arrived too late to use";
+    case PlanCheck::PlannerFailed:            return "Archie could not produce a plan";
+    case PlanCheck::EmptyPlan:                return "Archie proposed no steps";
+    case PlanCheck::UnknownCommand:           return "it uses a tool Forge does not have";
+    case PlanCheck::OpMismatch:               return "a step does not match the tool it names";
+    case PlanCheck::UndeclaredParameter:      return "a step sets something the tool does not take";
+    case PlanCheck::WrongParameterType:       return "a step gives a value of the wrong kind";
+    case PlanCheck::MissingRequiredParameter: return "a step is missing a value it needs";
+    case PlanCheck::OpConstraintRefused:      return "a step is not something Forge can build";
+  }
+  return "accepted";
+}
+
 // ── the verdict rows ────────────────────────────────────────────────────────
 std::string StepVerdict::display() const {
   std::string out = std::to_string(index);
@@ -65,7 +81,7 @@ std::string StepVerdict::display() const {
   if (!accepted()) {
     if (constraint != OpConstraint::Ok) {
       out += " ";
-      out += toString(constraint);
+      out += machineName(constraint);
     }
     if (!parameter.empty()) out += " (" + parameter + ")";
     out += ": ";
@@ -94,8 +110,8 @@ std::string PlanVerdict::report() const {
   for (const StepVerdict& s : steps) out += "  " + s.display() + "\n";
   out += "  " + std::to_string(steps.size() - refusedSteps()) + " accepted, " +
          std::to_string(refusedSteps()) + " refused";
-  if (check != PlanCheck::Ok && !detail.empty()) {
-    out += " -- " + std::string(toString(check)) + ": " + detail;
+  if (check != PlanCheck::Ok && !explanation.empty()) {
+    out += " -- " + std::string(machineName(check)) + ": " + explanation;
   }
   out += "\n";
   return out;
@@ -191,7 +207,7 @@ std::vector<PlanTool> planTools(const CommandRegistry& registry,
     }
     const DispatchResult r = registry.evaluate(id, selection, probe);
     t.callableNow = r.ok();
-    t.reason = r.ok() ? std::string() : (std::string(toString(r.status)) +
+    t.reason = r.ok() ? std::string() : (std::string(machineName(r.status)) +
                                          (r.detail.empty() ? "" : (": " + r.detail)));
     out.push_back(std::move(t));
   }
@@ -505,13 +521,16 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
   PlanVerdict out;
   if (plan.steps.empty()) {
     out.check = PlanCheck::EmptyPlan;
-    out.detail = "the plan has no steps";
+    out.explanation = "There were no steps in it.";
     return out;
   }
 
   for (std::size_t i = 0; i < plan.steps.size(); ++i) {
     const PlanStep& step = plan.steps[i];
-    const std::string where = "step " + std::to_string(i + 1) + " (" + step.commandId + ")";
+    // "step 2", not "step 2 (part.fillet)". This string is the head of
+    // PlanVerdict::detail, which the CoPilot panel draws under "NOT OFFERED",
+    // and the command id it carried is the name a macro stores.
+    const std::string where = "Step " + std::to_string(i + 1);
 
     StepVerdict sv;
     sv.index = i + 1;
@@ -521,10 +540,10 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
     if (cmd == nullptr) {
       sv.irOp = step.irOp;
       sv.refused = true;
-      sv.reason = "no such command in the live registry";
+      sv.reason = "this uses a tool Forge does not have";
       out.steps.push_back(std::move(sv));
       out.check = PlanCheck::UnknownCommand;
-      out.detail = where + ": no such command in the live registry";
+      out.explanation = where + " uses a tool Forge does not have.";
       return out;
     }
     // The COMMAND's op, never the plan's claim about it. The two are reconciled
@@ -534,12 +553,10 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
 
     if (step.irOp != cmd->featureIrOp) {
       sv.refused = true;
-      sv.reason = "the plan labels this step \"" + step.irOp + "\" and the command emits \"" +
-                  cmd->featureIrOp + "\"";
+      sv.reason = "this step does not match the tool it names";
       out.steps.push_back(std::move(sv));
       out.check = PlanCheck::OpMismatch;
-      out.detail = where + ": names op \"" + step.irOp + "\" but the command emits \"" +
-                   cmd->featureIrOp + "\"";
+      out.explanation = where + " does not match the tool it names.";
       return out;
     }
 
@@ -560,7 +577,7 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
       sv.reason = ruling.reason;
       out.steps.push_back(std::move(sv));
       out.check = PlanCheck::OpConstraintRefused;
-      out.detail = where + ": " + ruling.reason;
+      out.explanation = where + ": " + ruling.reason;
       return out;
     }
 
@@ -571,19 +588,19 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
       if (spec == nullptr) {
         sv.refused = true;
         sv.parameter = a.name;
-        sv.reason = "the schema declares no parameter \"" + a.name + "\"";
+        sv.reason = "this tool has no setting called \"" + a.name + "\"";
         out.steps.push_back(std::move(sv));
         out.check = PlanCheck::UndeclaredParameter;
-        out.detail = where + ": the schema declares no parameter \"" + a.name + "\"";
+        out.explanation = where + " sets \"" + a.name + "\", which this tool does not have.";
         return out;
       }
       if (spec->type != a.type) {
         sv.refused = true;
         sv.parameter = a.name;
-        sv.reason = "parameter \"" + a.name + "\" is declared a different type";
+        sv.reason = "\"" + a.name + "\" was given the wrong kind of value";
         out.steps.push_back(std::move(sv));
         out.check = PlanCheck::WrongParameterType;
-        out.detail = where + ": parameter \"" + a.name + "\" is declared a different type";
+        out.explanation = where + " gives \"" + a.name + "\" the wrong kind of value.";
         return out;
       }
 
@@ -603,7 +620,7 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
       }
     }
     if (refused) {
-      out.detail = where + ": " + sv.reason;
+      out.explanation = where + ": " + sv.reason;
       out.steps.push_back(std::move(sv));
       out.check = PlanCheck::OpConstraintRefused;
       return out;
@@ -615,10 +632,10 @@ PlanVerdict validatePlan(const Plan& plan, const CommandRegistry& registry,
     if (!missing.empty()) {
       sv.refused = true;
       sv.parameter = missing.front();
-      sv.reason = "required parameter \"" + missing.front() + "\" was not stated";
+      sv.reason = "it does not say what \"" + missing.front() + "\" should be";
       out.steps.push_back(std::move(sv));
       out.check = PlanCheck::MissingRequiredParameter;
-      out.detail = where + ": required parameter \"" + missing.front() + "\" was not stated";
+      out.explanation = where + " does not say what \"" + missing.front() + "\" should be.";
       return out;
     }
 
@@ -788,24 +805,38 @@ std::string describeRefs(const std::vector<EntityRef>& refs) {
 
 }  // namespace
 
+// WHAT ARCHIE SAYS BACK, and it is said INTO THE TRANSCRIPT the CoPilot panel
+// draws. It used to read
+//
+//   1/3 step(s) applied; part.fillet -> REFUSED BY THE OP-CONSTRAINT GATE
+//   (wrong_selection_kind): ...
+//
+// -- a command id, the name of an internal gate, and an enum spelling, in the
+// one place in this application where the user is having a conversation. The
+// facts are unchanged; only the words are. The machine spellings still exist on
+// the outcome (`constraint`, `dispatch.status`) for the log and for a gate.
 std::string ApplyOutcome::summary() const {
-  std::string out = std::to_string(applied) + "/" + std::to_string(requested) + " step(s) applied";
-  for (const StepOutcome& s : steps) {
+  const std::string steps_ = requested == 1 ? " step" : " steps";
+  std::string out = "Applied " + std::to_string(applied) + " of " +
+                    std::to_string(requested) + steps_;
+  for (std::size_t n = 0; n < steps.size(); ++n) {
+    const StepOutcome& s = steps[n];
     if (s.ok()) continue;
     if (s.blocked()) {
       // Named as a REFUSAL and not as a failed dispatch, because nothing was
       // dispatched: reporting a DispatchStatus here would describe a call that
       // was never made.
-      out += "; " + s.commandId + " -> REFUSED BY THE OP-CONSTRAINT GATE";
+      out += ". Step " + std::to_string(n + 1) + " was not something Forge could build";
       if (s.constraint != OpConstraint::Ok) {
-        out += " (" + std::string(toString(s.constraint)) + ")";
+        out += " — " + std::string(userText(s.constraint));
       }
       if (!s.constraintReason.empty()) out += ": " + s.constraintReason;
+      out += ". Nothing after it was run and your part is unchanged.";
       break;
     }
-    out += "; " + s.commandId + " -> " + toString(s.dispatch.status);
-    const std::string why = s.detail.empty() ? s.dispatch.detail : s.detail;
-    if (!why.empty()) out += " (" + why + ")";
+    out += ". Step " + std::to_string(n + 1) + " could not run — " +
+           std::string(userText(s.dispatch.status)) +
+           ". Nothing after it was run and the steps before it are still applied.";
     break;  // the first refusal is the cause; everything after it never ran
   }
   return out;
@@ -843,10 +874,10 @@ ApplyOutcome applyPlan(const Plan& plan, ForgeShell& shell, const PartDocument& 
     // Refuse rather than fall through: a missing verdict is not an acceptance.
     if (i >= verdict.steps.size()) {
       so.gateRefused = true;
-      so.constraintReason = verdict.detail.empty()
+      so.constraintReason = verdict.explanation.empty()
                                 ? std::string("the op-constraint gate returned no ruling for "
                                               "this step")
-                                : verdict.detail;
+                                : verdict.explanation;
       so.detail = so.constraintReason;
       ++out.blocked;
       out.steps.push_back(std::move(so));
@@ -955,8 +986,10 @@ PlanCheck ArchieCopilot::deliver(const PlanResponse& response, const CommandRegi
   if (!response.ok) {
     ++refused_;
     say(TranscriptRole::Copilot,
-        response.error.empty() ? std::string("the planner refused, and did not say why")
-                               : response.error);
+        response.error.empty()
+            ? std::string("I could not work out an edit for that. Try describing it "
+                          "in terms of a face, an edge or a size.")
+            : response.error);
     return PlanCheck::PlannerFailed;
   }
 
@@ -967,14 +1000,18 @@ PlanCheck ArchieCopilot::deliver(const PlanResponse& response, const CommandRegi
   verdict_ = validatePlan(response.plan, registry, bridge_);
   if (!verdict_.accepted()) {
     ++refused_;
-    std::string why = std::string("refused the plan (") + toString(verdict_.check) + "): " +
-                      verdict_.detail;
+    // THE TRANSCRIPT IS A CONVERSATION, and this is Forge's half of it. It read
+    // "refused the plan (op_constraint_refused): ... [forbidden_op_in_argument]"
+    // -- two enum spellings, in a chat window. The categories are still recorded
+    // on verdict_ and are still shown, per step, in the panel below; what a user
+    // reads here is what happened.
+    std::string why = std::string("I did not offer that plan — ") +
+                      userText(verdict_.check);
     if (const StepVerdict* first = verdict_.firstRefusal();
         first != nullptr && first->constraint != OpConstraint::Ok) {
-      // Name the CONSTRAINT as well as the category. "op_constraint_refused" is
-      // a bucket; "forbidden_op_in_argument" is the fact a planner can act on.
-      why += " [" + std::string(toString(first->constraint)) + "]";
+      why += " (" + std::string(userText(first->constraint)) + ")";
     }
+    if (!verdict_.explanation.empty()) why += ": " + verdict_.explanation;
     say(TranscriptRole::System, why);
     return verdict_.check;
   }
@@ -982,16 +1019,25 @@ PlanCheck ArchieCopilot::deliver(const PlanResponse& response, const CommandRegi
   plan_ = response.plan;
   ++accepted_;
   say(TranscriptRole::Copilot, plan_.summary.empty()
-                                   ? (std::to_string(plan_.size()) + " step(s) planned")
+                                   ? ("Here is an edit in " + std::to_string(plan_.size()) +
+                                      (plan_.size() == 1 ? " step" : " steps"))
                                    : plan_.summary);
   return PlanCheck::Ok;
 }
 
+// `why` is the HOST'S internal reason -- a socket error, a model name, an HTTP
+// status. It chooses nothing and is not quoted: the transcript is a
+// conversation, and the host logs the reason at its own call site (see
+// ForgeFrame::failCopilotRequest, which puts it in the activity log's detail
+// column). Kept in the signature so that call site keeps having something to
+// hand over.
 void ArchieCopilot::failRequest(std::string why) {
+  (void)why;
   if (!pending_) return;
   pending_ = false;
   ++refused_;
-  say(TranscriptRole::System, "the planner could not be reached: " + why);
+  say(TranscriptRole::System,
+      "I could not be reached just now, so nothing was changed. Try again in a moment.");
 }
 
 void ArchieCopilot::discardPlan() {
@@ -1000,13 +1046,14 @@ void ArchieCopilot::discardPlan() {
   plan_ = Plan{};
   verdict_ = PlanVerdict{};
   ++rejectedByUser_;
-  say(TranscriptRole::User, "rejected the plan (" + std::to_string(n) + " step(s))");
+  say(TranscriptRole::User, "Rejected that edit (" + std::to_string(n) +
+                                (n == 1 ? " step" : " steps") + ")");
 }
 
 ApplyOutcome ArchieCopilot::apply(ForgeShell& shell, const PartDocument& document) {
   ApplyOutcome out;
   if (plan_.empty()) {
-    say(TranscriptRole::System, "there is no plan to apply");
+    say(TranscriptRole::System, "There is nothing on offer to apply.");
     return out;
   }
   out = applyPlan(plan_, shell, document, bridge_);

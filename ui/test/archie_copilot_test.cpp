@@ -214,8 +214,8 @@ int testValidation() {
         break;
     }
     const PlanCheck got = bad.deliver(r, fx.shell.registry());
-    CHECK_EQ_STR(std::string(toString(got)) + " for " + c.what,
-                 std::string(toString(c.want)) + " for " + c.what);
+    CHECK_EQ_STR(std::string(machineName(got)) + " for " + c.what,
+                 std::string(machineName(c.want)) + " for " + c.what);
     CHECK(!bad.hasPlan());
     CHECK_EQ_INT(bad.plansRefused(), 1);
   }
@@ -574,7 +574,12 @@ int testOpConstraintGate() {
     CHECK_EQ_INT(fx.shell.registry().dispatchCount() - dispatchesBefore, 0);
     // And the control DID move all of them, so the four are not simply inert.
     CHECK(appliedRecords > fx.doc.records().size());
-    CHECK(out.summary().find("REFUSED BY THE OP-CONSTRAINT GATE") != std::string::npos);
+    // The summary says the step was not built, and says it WITHOUT naming the
+    // internal gate, the command id or the constraint's enum spelling -- it is
+    // spoken into the CoPilot transcript, which is a conversation surface.
+    CHECK(out.summary().find("was not something Forge could build") != std::string::npos);
+    CHECK(out.summary().find("OP-CONSTRAINT") == std::string::npos);
+    CHECK(out.summary().find("part.") == std::string::npos);
   }
 
   // -- the injection form: a value that carries a whole further STATEMENT ----
@@ -618,12 +623,19 @@ int testOpConstraintGate() {
     CHECK_EQ_INT(cp.verdict().steps.size(), 1);
     CHECK_EQ_INT(cp.verdict().refusedSteps(), 1);
     CHECK(cp.verdict().report().find("forbidden_op_in_argument") != std::string::npos);
-    // and the transcript names the constraint, not just "refused".
+    // The transcript names WHICH constraint, not just "refused" -- but in the
+    // words userText gives it. The enum spelling stays in report(), asserted
+    // three lines above, which is what a gate and a log read.
     bool said = false;
+    bool leaked = false;
     for (const TranscriptLine& line : cp.transcript()) {
-      if (line.text.find("forbidden_op_in_argument") != std::string::npos) said = true;
+      if (line.text.find(userText(OpConstraint::ForbiddenOpInArgument)) != std::string::npos) {
+        said = true;
+      }
+      if (line.text.find("forbidden_op_in_argument") != std::string::npos) leaked = true;
     }
     CHECK(said);
+    CHECK(!leaked);
     // Applying now does nothing: there is no plan on offer.
     const ApplyOutcome out = cp.apply(fx.shell, fx.doc);
     CHECK_EQ_INT(out.requested, 0);

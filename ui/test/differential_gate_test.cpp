@@ -354,7 +354,7 @@ int main(int argc, char** argv) {
         ++H.failures;
         std::printf("  FAIL [%s] the CoPilot REFUSED a plan built entirely from registered\n"
                     "        commands: %s\n%s",
-                    t.id.c_str(), forge::ui::toString(c.check), c.verdict.c_str());
+                    t.id.c_str(), forge::ui::machineName(c.check), c.verdict.c_str());
         continue;
       }
       ++H.checks;

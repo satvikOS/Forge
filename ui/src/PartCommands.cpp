@@ -16,6 +16,21 @@
 
 namespace forge::ui {
 
+std::string featureDisplayName(const FeatureRecord& record) {
+  if (!record.label.empty()) return record.label;
+  std::string name = record.line.op;
+  if (name.empty()) return "Feature " + std::to_string(record.irId);
+  for (std::size_t i = 0; i < name.size(); ++i) {
+    const unsigned char c = static_cast<unsigned char>(name[i]);
+    if (i == 0) {
+      if (c >= 'a' && c <= 'z') name[i] = static_cast<char>(c - 'a' + 'A');
+    } else if (c >= 'A' && c <= 'Z') {
+      name[i] = static_cast<char>(c - 'A' + 'a');
+    }
+  }
+  return name + " " + std::to_string(record.irId);
+}
+
 const char* toString(IrValueKind kind) noexcept {
   switch (kind) {
     case IrValueKind::None:      return "none";

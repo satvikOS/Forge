@@ -33,7 +33,12 @@ enum class WorkspaceProfile : std::uint8_t {
 
 inline constexpr std::size_t kWorkspaceProfileCount = 8;
 
+// The slug: "part", "manufacturing". A saved-layout key and a surface context,
+// not a label -- a tab that reads "manufacturing" in lower case is showing an
+// identifier where a name belongs.
 const char* toString(WorkspaceProfile profile) noexcept;
+// The name on the tab.
+const char* userText(WorkspaceProfile profile) noexcept;
 bool workspaceFromString(const std::string& name, WorkspaceProfile& out) noexcept;
 std::vector<WorkspaceProfile> allWorkspaceProfiles();
 
