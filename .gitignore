@@ -113,6 +113,10 @@ forge-kernel/.build-cam-offset-ab/
 # Same deal for test/build_draft_defer_probe.sh's object cache and binary; its
 # committed results live in reports/corpus_ab/draft_defer_probe.jsonl.gz.
 forge-kernel/.build-draft-probe/
+# Same deal for test/run_thicksolid_g_evidence.sh (TKOffset family G): the four
+# probe binaries, the 600-part JSONL and the enumerator census are all
+# regenerable from that one script, which is committed.
+forge-kernel/.build-thicksolid-g/
 # Same deal for test/build_draft_local_probe.sh's object cache, binary and run
 # outputs; its committed results live in
 # reports/corpus_ab/draft_local_probe.jsonl.gz.
