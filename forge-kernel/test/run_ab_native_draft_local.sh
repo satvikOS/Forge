@@ -60,6 +60,12 @@ trap 'rm -rf "$OUT"' EXIT
 
 ENGINE=forge-kernel/src/native/brep/NativeDraftLocal.cpp
 HARNESS=forge-kernel/test/ab_native_draft_local.cpp
+# ★ THE ENGINE NOW HAS A FIRST-PARTY DEPENDENCY, AND THAT IS A REAL CHANGE.
+# NativeDraftLocal.cpp calls forge::pcurvefit to build the pcurve for a wall edge
+# on a cylinder, so every place that compiles the engine must compile the fitter
+# too. build_draft_local_probe.sh:7 still says the engine "has no first-party"
+# dependency -- that sentence is now false and is flagged, not quietly deleted.
+FITTER=forge-kernel/src/native/geom/NativePCurveFit.cpp
 
 OCCT_LIBS=(-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKGeomAlgo
            -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool)
@@ -73,7 +79,7 @@ build_one() {   # build_one <engine.cpp> <out-binary>
   "$CXX" -std=c++20 -O1 -Wall -Wextra -Wno-deprecated-declarations \
       -DFORGE_NATIVE_BREP=1 \
       -I "$INC" -I "$OCCT_INC" \
-      "$HARNESS" "$1" \
+      "$HARNESS" "$1" "$FITTER" \
       -L "$OCCT_LIB" "${OCCT_LIBS[@]}" -o "$2" 2>"$OUT/build.err"
 }
 
@@ -225,6 +231,36 @@ mutate 7 "reversed-face normal not flipped" \
 #    stayed green. Now it must turn the equivalence comparison red.
 mutate 8 "anchor root displaced" \
   's/                cand = p;/                cand = p.Translated(gp_Vec(0.0, 0.0, 1.0e-3));/'
+
+# 9. THE 2*pi BRANCH. A cylinder's u is periodic, so the fitted pcurve is only
+#    determined up to a whole period; uNear picks the period the face's own 2-D
+#    domain already uses. Put it back to the 0.0 default this call site shipped
+#    with and every endpoint of the new pcurve lands exactly 2*pi from the
+#    neighbour it must meet -- each edge still individually perfect, the wire
+#    Closed2d = NotClosed, the solid rejected. That defect is why case(e) was a
+#    defer control for as long as it was, so it gets a mutant of its own.
+mutate 9 "cylinder pcurve put back on the default 2*pi branch" \
+  's/radius, resTol, uNear);/radius, resTol, 0.0);/'
+
+# 10. THE CLOSED RIM'S SPAN. A bore lying wholly inside the drafted wall meets it
+#     in ONE closed edge, so both endpoints project to the same parameter and the
+#     range only LOOKS degenerate. Take the full-period branch away and case(f)
+#     goes back to declining.
+mutate 10 "closed rim no longer spans a full period" \
+  's/if (v0.IsSame(v1)) {/if (false) {/'
+
+# 11. THE CLOSED RIM'S SENSE. The span is only half the answer: with v0 == v1
+#     there is no vertex order to take a direction from, and the wrong one leaves
+#     every edge individually perfect while the 2-D wire does not close.
+mutate 11 "closed rim not reversed to match the old edge's sense" \
+  's/if (dNew.Dot(dOld) < 0.0) {/if (false) {/'
+
+# 12. THE BRANCH ANCHOR. Anchoring on the old pcurve's MIDPOINT instead of its
+#     start is exactly half a period from both candidates for a closed rim, so
+#     the nearest-branch round() decides a tie and the rim lands a period away
+#     from the seam edges it must meet.
+mutate 12 "branch anchored on the old pcurve midpoint instead of its start" \
+  's/uNear = oldPc->Value(oa).X();/uNear = oldPc->Value(0.5 * (oa + ob)).X();/'
 
 echo "[ab-draft-local] $MUT_TOTAL mutation(s) run, $MUT_BAD stayed green"
 if [ "$MUT_BAD" -ne 0 ]; then

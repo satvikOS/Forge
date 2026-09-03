@@ -37,7 +37,27 @@ LIBDIR="$BUILD"
 # to reach the binary under test. Rebuilding only the gate object would leave every
 # mutation "uncaught" for the wrong reason.
 rebuild_lib() {
-  cmake --build "$BUILD" -j3 --target forge_kernel_core > "$OUT/libbuild.log" 2>&1
+  # CONFIGURE IF NEEDED. The first version of this only ran `cmake --build`, which
+  # worked locally because I had configured the directory by hand and never encoded
+  # that step. In CI the directory does not exist, so the gate died with
+  # "FATAL: library build failed" before running a single check — a "works on my
+  # machine" failure in a harness whose whole job is to not be fooled.
+  if [ ! -f "$BUILD/CMakeCache.txt" ]; then
+    if ! cmake -S "$KERNEL" -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
+              -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON \
+              > "$OUT/libconfig.log" 2>&1; then
+      echo "[gate-guard] cmake CONFIGURE failed:" >&2
+      tail -30 "$OUT/libconfig.log" >&2
+      return 1
+    fi
+  fi
+  if ! cmake --build "$BUILD" -j3 --target forge_kernel_core > "$OUT/libbuild.log" 2>&1; then
+    # Say WHY. A harness that reports a build failure without the compiler's reason
+    # forces the next reader to reproduce it before they can even start.
+    echo "[gate-guard] cmake BUILD failed:" >&2
+    tail -30 "$OUT/libbuild.log" >&2
+    return 1
+  fi
 }
 
 OUT="${OUT:-$KERNEL/test/.gate_guard}"
