@@ -40,6 +40,7 @@
 #include "PartFile.hpp"
 
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/CommandSurface.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -246,6 +247,36 @@ void checkRegistry(const forge::ui::CommandRegistry& reg) {
   }
   std::printf("  4 file-exchange commands; table and registry agree on all %zu formats\n",
               sizeof(forge::ui::kAllExchangeFormats) / sizeof(forge::ui::kAllExchangeFormats[0]));
+
+  // ── AND THEY REACH THE FILE MENU ────────────────────────────────────────
+  // ForgeFrame::drawMenuBar builds no table: "a group is a registry CATEGORY, an
+  // item is a registry COMMAND ... Register a command and it appears here, with
+  // no edit to this file." That is the claim; this is the check. The surface is
+  // built here from the same forge::ui::buildMenuSurface the frame calls, so a
+  // command that is registered and somehow not surfaced is caught in a headless
+  // gate rather than by looking at a screenshot.
+  //
+  // opensDialog() must be TRUE for all four: each needs a `path` the caller has
+  // to supply, which is what makes the menu draw them with the trailing "..."
+  // every menu since 1984 has used to mean "this one will ask you something".
+  // With no file dialog yet that ellipsis IS the whole interaction contract.
+  {
+    forge::ui::SelectionService selection;
+    forge::ui::SurfaceContext sctx;
+    sctx.registry = &reg;
+    sctx.selection = &selection;
+    const forge::ui::CommandSurface menu = forge::ui::buildMenuSurface(sctx);
+    for (const char* id : ids) {
+      const forge::ui::SurfaceItem* item = menu.find(id);
+      CHECK(item != nullptr, std::string("the File menu does not surface ") + id);
+      if (item == nullptr) continue;
+      CHECK(item->opensDialog(),
+            std::string(id) + " is surfaced without the ellipsis that says it will ask for a path");
+      CHECK(item->prompts.size() == 1 && item->prompts.front() == "path",
+            std::string(id) + " does not prompt for exactly one thing, the path");
+    }
+    std::printf("  all 4 appear in the menu surface, each marked as opening a dialog\n");
+  }
 }
 
 // ── PART 3: the defect this fixes, measured ─────────────────────────────────
