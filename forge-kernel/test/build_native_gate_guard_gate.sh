@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# build_native_gate_guard_gate.sh — build + run test/native_gate_guard_gate.cpp, then
+# PROVE it can fail by reverting the fix it pins.
+#
+# ★ FORGE_NATIVE_BREP IS DEFINED HERE ON PURPOSE, AND THAT IS THE WHOLE POINT.
+#   The guard this gate tests lives inside `#ifdef FORGE_NATIVE_BREP` in
+#   FeatureTreeCompiler.cpp. Built WITHOUT that define the guard does not exist,
+#   the gate passes vacuously, and the run reports success over nothing at all —
+#   the same shape as a translation unit that is entirely #ifdef'd out compiling
+#   rc=0. Step 0 below therefore asserts the guard text is actually present in
+#   the source being compiled, so a future edit that moves or renames it cannot
+#   silently turn this gate into a no-op.
+#
+# Exit 0 iff the gate built, passed clean, AND both mutations turned it red.
+set -uo pipefail
+
+KERNEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$KERNEL" || exit 2
+
+CXX="${CXX:-clang++}"
+
+OCCT="${OCCT_ROOT:-}"
+if [ -z "$OCCT" ]; then
+  for _c in /opt/homebrew/opt/opencascade /usr/local/opt/opencascade /usr; do
+    [ -e "$_c/include/opencascade/Standard_Version.hxx" ] && { OCCT="$_c"; break; }
+  done
+fi
+if [ -z "$OCCT" ] || [ ! -e "$OCCT/include/opencascade/Standard_Version.hxx" ]; then
+  echo "[gate-guard] FATAL: OCCT not found (brew install opencascade, or set OCCT_ROOT)" >&2
+  exit 2
+fi
+
+BUILD="${GATE_GUARD_BUILD:-$KERNEL/build-gateguard}"
+LIBDIR="$BUILD"
+
+# The mutations edit kernel SOURCES, so the LIBRARY has to be rebuilt for a mutation
+# to reach the binary under test. Rebuilding only the gate object would leave every
+# mutation "uncaught" for the wrong reason.
+rebuild_lib() {
+  cmake --build "$BUILD" -j3 --target forge_kernel_core > "$OUT/libbuild.log" 2>&1
+}
+
+OUT="${OUT:-$KERNEL/test/.gate_guard}"
+rm -rf "$OUT"; mkdir -p "$OUT" || exit 2
+
+FLAGS=(-std=c++20 -O1 -g0 -DFORGE_NATIVE_BREP=1
+       -I"$KERNEL/include" -I"$OCCT/include/opencascade"
+       -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
+
+COMPILER_SRC="$KERNEL/src/ft/FeatureTreeCompiler.cpp"
+
+echo "[0/5] the guard under test is PRESENT in the source being compiled"
+if ! grep -q "saveNativeGateOverrides" "$COMPILER_SRC"; then
+  echo "[gate-guard] FATAL: FeatureTreeCompiler.cpp does not call saveNativeGateOverrides()." >&2
+  echo "[gate-guard] Either the fix was reverted or it moved. This gate would otherwise" >&2
+  echo "[gate-guard] pass over code that is not there. Refusing to report success." >&2
+  exit 2
+fi
+if ! grep -q "restoreNativeGateOverrides" "$COMPILER_SRC"; then
+  echo "[gate-guard] FATAL: no restoreNativeGateOverrides() in the compiler. Refusing." >&2
+  exit 2
+fi
+echo "      ok — both save and restore are called in FeatureTreeCompiler.cpp"
+
+compile_tu() {   # compile_tu <src> <obj> [extra flags...]
+  local src="$1" obj="$2"; shift 2
+  if ! "$CXX" "${FLAGS[@]}" "$@" -c "$src" -o "$obj" 2> "$OUT/$(basename "$obj").err"; then
+    echo "[gate-guard] COMPILE FAILED: $src" >&2
+    tail -40 "$OUT/$(basename "$obj").err" >&2
+    exit 2
+  fi
+}
+
+build_all() {
+  # LINK AGAINST THE REAL LIBRARY, NOT A HAND-PICKED SET OF TRANSLATION UNITS.
+  # The first version of this runner copied build_section_op_gate.sh's TU list plus
+  # -Wl,-undefined,dynamic_lookup. It BUILT and then SIGSEGV'd at
+  #   main -> forge::ft::compile -> <null>
+  # because compile() dispatches to op implementations that were never linked, and
+  # dynamic_lookup turns that link error into a runtime jump to address zero.
+  # section_op_gate.cpp says so in its own header: "It never calls
+  # forge::ft::compile()." A dynamic_lookup harness is only safe for code paths it
+  # does not execute, and this gate exists precisely to execute one.
+  compile_tu "$KERNEL/test/native_gate_guard_gate.cpp" "$OUT/gate.o" -Wall -Wextra -Werror
+  if ! "$CXX" -std=c++20 "$OUT/gate.o" \
+        -o "$OUT/gate" \
+        -L "$LIBDIR" -lforge_kernel_core -Wl,-rpath,"$LIBDIR" \
+        -L "$OCCT/lib" -Wl,-rpath,"$OCCT/lib" 2> "$OUT/link.err"; then
+    echo "[gate-guard] LINK FAILED:" >&2
+    tail -40 "$OUT/link.err" >&2
+    exit 2
+  fi
+}
+
+echo "[1/5] build (clean tree)"
+rebuild_lib || { echo "[gate-guard] FATAL: library build failed" >&2; exit 2; }
+build_all
+echo "[2/5] run"
+"$OUT/gate"; rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "[gate-guard] RED — the clean run failed (exit $rc)."
+  exit 1
+fi
+
+# ── the falsifiability proof ────────────────────────────────────────────────
+# Mutation 1 restores the ONE-BIT guard this fix replaced — the actual historical
+# defect. Mutation 2 breaks restore() itself. A mutation that stays green means
+# the gate is not testing what it claims to.
+cp "$COMPILER_SRC" "$OUT/FeatureTreeCompiler.cpp.orig"
+cp "$KERNEL/src/native/brep/NativeRoute.cpp" "$OUT/NativeRoute.cpp.orig"
+restore_sources() {
+  cp "$OUT/FeatureTreeCompiler.cpp.orig" "$COMPILER_SRC"
+  cp "$OUT/NativeRoute.cpp.orig" "$KERNEL/src/native/brep/NativeRoute.cpp"
+}
+trap restore_sources EXIT
+
+fails=0
+
+echo "[3/5] mutation 1 — the historical one-bit guard"
+python3 - "$COMPILER_SRC" <<'PY'
+import sys,re
+p=sys.argv[1]; s=open(p).read()
+s=s.replace("const forge::native::brep::NativeGateOverrides prevGates =\n        forge::native::brep::saveNativeGateOverrides();",
+            "const bool prevGates = forge::native::brep::forgeNativeBrepEnabled();")
+s=s.replace("forge::native::brep::NativeGateOverrides prev;\n        ~GateGuard() { forge::native::brep::restoreNativeGateOverrides(prev); }",
+            "bool prev;\n        ~GateGuard() { forge::native::brep::setForgeNativeBrepEnabled(prev); }")
+open(p,"w").write(s)
+PY
+# step 0 would refuse this build, so bypass it for the mutation only
+if grep -q "saveNativeGateOverrides" "$COMPILER_SRC"; then
+  echo "      mutation 1 did not apply (source shape changed) — reporting as BROKEN, not green"
+  fails=$((fails+1))
+else
+  rebuild_lib && build_all 2>/dev/null && { "$OUT/gate" >/dev/null 2>&1; m1=$?; } || m1=2
+  if [ "${m1:-0}" -eq 0 ]; then echo "      ★ mutation 1 stayed GREEN — the gate does not test the defect"; fails=$((fails+1));
+  else echo "      caught (exit $m1)"; fi
+fi
+restore_sources
+
+echo "[4/5] mutation 2 — restore() drops the FEATURES gate"
+python3 - "$KERNEL/src/native/brep/NativeRoute.cpp" <<'PY'
+import sys
+p=sys.argv[1]; s=open(p).read()
+s=s.replace("    g_featOverride.store(prev.features, std::memory_order_relaxed);\n","",1)
+open(p,"w").write(s)
+PY
+rebuild_lib && build_all 2>/dev/null && { "$OUT/gate" >/dev/null 2>&1; m2=$?; } || m2=2
+if [ "${m2:-0}" -eq 0 ]; then echo "      ★ mutation 2 stayed GREEN"; fails=$((fails+1));
+else echo "      caught (exit $m2)"; fi
+restore_sources
+
+echo "[5/5] rebuild clean and re-run (the mutations must leave no residue)"
+rebuild_lib && build_all
+"$OUT/gate" >/dev/null 2>&1; rc2=$?
+[ "$rc2" -ne 0 ] && { echo "[gate-guard] RED — the tree did not come back clean (exit $rc2)"; exit 1; }
+
+if [ "$fails" -ne 0 ]; then
+  echo "[gate-guard] RED — $fails mutation(s) were not caught."
+  exit 1
+fi
+echo "[gate-guard] GREEN — clean run passes and both mutations were caught."

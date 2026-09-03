@@ -87,6 +87,32 @@ bool forgeNativeInterferenceEnabled();
 void setForgeNativeBrepEnabled(bool on);
 
 // ---------------------------------------------------------------------------
+// SAVE / RESTORE THE GATE OVERRIDES EXACTLY.
+//
+// setForgeNativeBrepEnabled() writes FOUR overrides from ONE bool, and its own
+// comment says "production never calls this". The feature-tree compiler DOES
+// call it (FeatureTreeCompiler.cpp), which made its four-bit write semantics
+// wrong on the production path: the compiler saved forgeNativeBrepEnabled()
+// alone and restored all four from it, so the FEATURES gate -- whose default is
+// OFF while CORE/STEP/INTERFERENCE default ON -- came back ON after any compile
+// and stayed on. Measured: forgeNativeFeaturesEnabled() reads 0 before the first
+// compile and 1 after, permanently; mass properties on the app's own bracket
+// then read 11514.789967 against an analytic 77583.539933 (-85.2%), with a
+// centre of mass of (-1.37e34, -8.53e33, 67.38) instead of (0,0,10).
+//
+// These capture the RAW override values, not the effective booleans, so an
+// UNSET override (-1, meaning "use the env/compiled default") is restored as
+// unset rather than being frozen to whatever it happened to evaluate to.
+struct NativeGateOverrides {
+    int core = -1;
+    int features = -1;
+    int step = -1;
+    int interference = -1;
+};
+NativeGateOverrides saveNativeGateOverrides();
+void restoreNativeGateOverrides(const NativeGateOverrides& prev);
+
+// ---------------------------------------------------------------------------
 // transformSolid — THE PLACEMENT-GAP FIX.
 //
 // Deep-clone `src` into a NEW solid owned by `outOwner`, with every Vertex
