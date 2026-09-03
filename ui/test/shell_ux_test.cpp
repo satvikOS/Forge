@@ -141,8 +141,20 @@ int main() {
       CHECK(mentions(e1->message, "Edge Fillet"));
       CHECK(mentions(e1->message, "edge"));            // the kind it wanted
       CHECK(mentions(e1->message, "nothing selected"));  // what was actually picked
-      CHECK(mentions(e1->message, "selection filter"));  // what to DO about it
-      CHECK(mentions(e1->message, "FILLET"));            // the op, for a bug report
+      CHECK(mentions(e1->message, "pick filter"));       // what to DO about it
+      // THE OP IS NOT IN THE MESSAGE, and this assertion is the inverse of the
+      // one it replaces. The explanation used to end "[op FILLET]" -- the
+      // feature-IR op name, appended to every refusal in the application, on the
+      // menu tooltip and in the status strip. It was justified here as being
+      // "for a bug report", which is the whole defect in one comment: a bug
+      // report is written by an engineer, and this string is read by a
+      // machinist. The op is still recorded -- it is a field of the descriptor,
+      // and the agent surface reports it -- and the MESSAGE now says only what
+      // the user can act on. The machine's own spelling of the refusal is still
+      // the log's detail column, one line below, which is the one surface in
+      // this application that is allowed to talk to a developer.
+      CHECK(!mentions(e1->message, "FILLET"));
+      CHECK(!mentions(e1->message, "[op"));
       CHECK_EQ_STR(e1->detail, "selection_signature_mismatch");
     }
 
@@ -164,7 +176,14 @@ int main() {
     CHECK(e3 != nullptr);
     if (e3 != nullptr) {
       CHECK(e3->severity == Severity::Error);
-      CHECK(mentions(e3->message, "part.no_such_command"));
+      // NOT the id. This used to require the command id inside the sentence --
+      // "there is no command with the id "part.no_such_command" -- nothing in
+      // the registry answers to it". The id is still the log entry's SOURCE
+      // column, which is where an engineer reads it.
+      CHECK(!mentions(e3->message, "part.no_such_command"));
+      CHECK(!mentions(e3->message, "registry"));
+      CHECK(mentions(e3->message, "version of Forge"));
+      CHECK_EQ_STR(e3->source, "part.no_such_command");
     }
 
     // 4. the enabled predicate refusing
@@ -222,9 +241,9 @@ int main() {
     sel.add(ref(EntityKind::Face, "face@1"));
     CHECK_EQ_STR(describeSelection(sel), "1 face");
     sel.add(ref(EntityKind::Face, "face@2"));
-    CHECK_EQ_STR(describeSelection(sel), "2 face");
+    CHECK_EQ_STR(describeSelection(sel), "2 faces");
     sel.add(ref(EntityKind::Edge, "edge@9"));
-    CHECK_EQ_STR(describeSelection(sel), "1 edge and 2 face");
+    CHECK_EQ_STR(describeSelection(sel), "1 edge and 2 faces");
 
     std::vector<EntityRef> many;
     for (int i = 0; i < 400; ++i) {
@@ -232,7 +251,7 @@ int main() {
     }
     sel.replaceWith(many);
     const std::string text = describeSelection(sel);
-    CHECK_EQ_STR(text, "400 face");
+    CHECK_EQ_STR(text, "400 faces");
     CHECK(text.size() < 40);
   }
 
@@ -339,7 +358,13 @@ int main() {
       CHECK(d->signature.kind == EntityKind::None);
       CHECK(!d->featureIrOp.empty());
       CHECK_EQ_STR(action.label, d->label);
-      CHECK(mentions(action.description, d->featureIrOp));
+      // NOT the op. This used to require the feature-IR op name INSIDE the
+      // description, so the first tooltip a new user hovers read
+      // "emits BOX — nothing needs to be selected". The op is still a field of
+      // the descriptor, checked non-empty two lines above, which is what makes
+      // this a creator; it is simply not what the tooltip says.
+      CHECK(!mentions(action.description, d->featureIrOp));
+      CHECK(!action.description.empty());
       // And it dispatches from a fresh shell, with nothing selected.
       App probe;
       const InvokeOutcome outcome = probe.shell.invoke(action.commandId);

@@ -98,11 +98,11 @@ bool isViewportPanel(const std::string& id) {
 
 const char* featureStateLabel(forge::ui::FeatureState s) {
   switch (s) {
-    case forge::ui::FeatureState::Ok:         return "OK";
-    case forge::ui::FeatureState::Warning:    return "WARN";
-    case forge::ui::FeatureState::Error:      return "ERROR";
-    case forge::ui::FeatureState::Suppressed: return "SUPPR";
-    case forge::ui::FeatureState::Rolled:     return "ROLLED";
+    case forge::ui::FeatureState::Ok:         return "ok";
+    case forge::ui::FeatureState::Warning:    return "check";
+    case forge::ui::FeatureState::Error:      return "failed";
+    case forge::ui::FeatureState::Suppressed: return "off";
+    case forge::ui::FeatureState::Rolled:     return "rolled back";
   }
   return "";
 }
@@ -243,14 +243,13 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   scene_.bounds().centre(c);
   camera_.setIsometric();
   camera_.frame(c, scene_.bounds().radius());
-  note("Forge desktop shell started");
+  note("Forge is ready");
   if (scene_.built()) {
-    note("Ready: " + std::to_string(scene_.faceCount()) + " faces, " +
-         std::to_string(scene_.triangleCount()) + " triangles.");
+    note("Part ready: " + std::to_string(scene_.faceCount()) + " faces");
     // The build path and its counts are an ENGINEER's sentence. It belongs in
     // the log's detail column, where it is kept and not drawn, and not in the
     // line a user reads on the way to their first sketch.
-    shell_.log().info("kernel.startup", "The part is ready to work on.", scene_.backend());
+    shell_.log().info("Startup", "The part is ready to work on.", scene_.backend());
   } else {
     // The user reads what happened to THEIR part; the log keeps what happened
     // inside the program. Before this, both were the same string, and that
@@ -259,7 +258,7 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
     // Same reason as the failed rebuild below: startup with no kernel body is an
     // ERROR, and a user who opens the log looking for one must find it there
     // rather than in the untyped frame notes that the error filter hides.
-    shell_.log().error("kernel.startup",
+    shell_.log().error("Startup",
                        forge::ui::userFacingBuildFailure(scene_.error()), scene_.error());
   }
 }
@@ -270,7 +269,7 @@ void ForgeFrame::setViewportUnavailable(const std::string& internalDetail) {
     return;
   }
   viewportUnavailable_ = forge::ui::userFacingViewportFailure(internalDetail);
-  shell_.log().error("viewport", viewportUnavailable_, internalDetail);
+  shell_.log().error("3D view", viewportUnavailable_, internalDetail);
 }
 
 bool ForgeFrame::applyPendingFit() {
@@ -283,11 +282,11 @@ bool ForgeFrame::applyPendingFit() {
   // keeps the camera where the user left it instead of teleporting it to a
   // radius the geometry does not have.
   if (!scene_.bounds().valid) {
-    note("view.fit: nothing to frame");
+    note("Zoom to fit: there is nothing on screen to fit to");
     return false;
   }
   camera_.frame(c, scene_.bounds().radius());
-  note("view.fit: framed the body");
+  note("Zoomed to fit the part");
   return true;
 }
 
@@ -303,7 +302,7 @@ bool ForgeFrame::applyPendingView() {
   viewsApplied_ = want;
   const forge::ui::NamedView v = shell_.document().requestedView;
   camera_.setNamedView(v);
-  note(std::string("view -> ") + forge::ui::toString(v));
+  note(std::string("View: ") + forge::ui::toString(v));
   return true;
 }
 
@@ -319,7 +318,7 @@ bool ForgeFrame::applyPendingSelectionFit() {
 
   const std::vector<forge::ui::EntityRef>& refs = shell_.selection().selection();
   if (refs.empty()) {
-    note("view.selection: nothing selected");
+    note("Zoom to selection: nothing is picked");
     return false;
   }
 
@@ -333,8 +332,8 @@ bool ForgeFrame::applyPendingSelectionFit() {
 
   const forge::ui::FramingBounds b = forge::ui::selectionBounds(scene, refs);
   if (!b.usable()) {
-    note("view.selection: " + std::to_string(b.unresolved) +
-         " selected entities resolved to no geometry");
+    note("Zoom to selection: the " + std::to_string(b.unresolved) +
+         " picked item(s) are not on the part that is on screen");
     return false;
   }
 
@@ -347,9 +346,11 @@ bool ForgeFrame::applyPendingSelectionFit() {
                       static_cast<float>(centre[2])};
   camera_.frame(c, static_cast<float>(b.box.diagonal() * 0.5));
 
-  std::string msg = "view.selection: framed " + std::to_string(b.resolved) + " of " +
-                    std::to_string(refs.size());
-  if (b.unresolved > 0) msg += " (" + std::to_string(b.unresolved) + " unresolved)";
+  std::string msg = "Zoomed to " + std::to_string(b.resolved) + " of " +
+                    std::to_string(refs.size()) + " picked";
+  if (b.unresolved > 0) {
+    msg += " (" + std::to_string(b.unresolved) + " are not on the part on screen)";
+  }
   note(msg);
   return true;
 }
@@ -394,7 +395,7 @@ std::size_t ForgeFrame::wirePartCommands() {
   // and "sketch.base" was never bound: every profile-consuming command in the
   // Part workspace was permanently unreachable, silently.
   std::string why;
-  if (!seedDefaultPart(why)) note("document seed FAILED: " + why);
+  if (!seedDefaultPart(why)) note("The starting part could not be built — " + why);
   builtProgram_ = partDoc_.irProgram();
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
 
@@ -404,7 +405,7 @@ std::size_t ForgeFrame::wirePartCommands() {
   // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
   // act on this document, and the status strip's counters are read from it.
   shell_.setDocumentHost(this);
-  note("registered " + std::to_string(added) + " Part commands into the shell registry");
+  note("Part tools ready: " + std::to_string(added));
 
   // ── EVERY COMMAND GETS A KEY, and this is the only moment that can do it ──
   // defaultKeymaps() binds 13 commands. The registry now holds 45, so 32 of them
@@ -419,11 +420,11 @@ std::size_t ForgeFrame::wirePartCommands() {
   // would bind the shell's and leave the Part workspace's unreachable, which is
   // the state this call exists to end.
   const std::size_t bound = shell_.completeKeymap();
-  note("keymap completed: " + std::to_string(bound) + " generated bindings, " +
-       std::to_string(shell_.keymap().bindingCount()) + " total over " +
-       std::to_string(shell_.registry().size()) + " commands");
+  note("Shortcuts ready: " + std::to_string(shell_.keymap().bindingCount()) +
+       " over " + std::to_string(shell_.registry().size()) + " tools (" +
+       std::to_string(bound) + " assigned automatically)");
 
-  note("document seeded: " + std::to_string(partDoc_.records().size()) + " statements");
+  note("Starting part loaded: " + std::to_string(partDoc_.records().size()) + " features");
   reportKernelIsolation();
   rebuildTree();
   return added;
@@ -450,18 +451,20 @@ std::size_t ForgeFrame::wirePartCommands() {
 // "active" about a session that is not.
 void ForgeFrame::reportKernelIsolation() {
   if (scene_.isolationConfigured()) {
-    shell_.log().info("kernel.isolation",
-                      "Kernel crash isolation is ACTIVE — geometry is compiled in a separate "
-                      "process, so an OCCT fault loses that operation, not your document.");
-    note("kernel isolation: active");
+    shell_.log().info("Modelling engine",
+                      "Modelling runs on its own, apart from the rest of Forge. If one "
+                      "operation fails badly, you lose that operation and nothing else — "
+                      "your document and the part on screen are safe.",
+                      "kernel crash isolation ACTIVE");
+    note("Modelling engine: protected");
     return;
   }
   shell_.log().warning(
-      "kernel.isolation",
-      "Kernel crash isolation is NOT active — geometry is being compiled IN THIS PROCESS, so an "
-      "OCCT fault will close the application and lose unsaved work. Save often.",
-      "forge_kernel_worker did not launch");
-  note("kernel isolation: UNAVAILABLE — modelling runs in process");
+      "Modelling engine",
+      "Modelling is NOT running apart from the rest of Forge on this machine. If one "
+      "operation fails badly, Forge will close and unsaved work will be lost. Save often.",
+      "kernel crash isolation UNAVAILABLE: forge_kernel_worker did not launch");
+  note("Modelling engine: not protected — save often");
 }
 
 // ── the document -> geometry edge ───────────────────────────────────────────
@@ -495,16 +498,19 @@ bool ForgeFrame::syncSceneToDocument() {
   const IrBuildReport& r = scene_.lastBuild();
   if (ok) {
     rebuildError_.clear();
-    note("rebuilt: " + std::to_string(before) + " -> " + std::to_string(scene_.triangleCount()) +
-         " triangles, " + std::to_string(r.faceCount) + " faces, V=" + std::to_string(r.volume) +
-         (r.valid ? "  [valid]" : "  [INVALID SOLID]"));
+    note("Rebuilt: " + std::to_string(r.faceCount) + " faces, volume " +
+         std::to_string(r.volume) + " mm3" +
+         (r.valid ? "" : "  (not a watertight solid)") + "  [was " +
+         std::to_string(before) + " triangles, now " +
+         std::to_string(scene_.triangleCount()) + "]");
     // A body that BUILT but is not a valid solid is not a success, and it is the
     // failure a user is least able to see: the geometry appears in the viewport.
     // It is a warning rather than an error because there is something to look at.
     if (!r.valid) {
-      shell_.log().warning("kernel.rebuild",
-                           "the rebuild produced a body that is NOT A VALID SOLID -- it is on "
-                           "screen, but it will not measure, mesh or export correctly",
+      shell_.log().warning("Rebuild",
+                           "This part rebuilt, but the shape it produced is not a watertight "
+                           "solid. It is on screen; it will not measure or export correctly "
+                           "until it is fixed.",
                            r.error);
     }
   } else {
@@ -531,7 +537,10 @@ bool ForgeFrame::syncSceneToDocument() {
     // statement index and the line. That is the message the brief means by
     // learning why without a debugger, and it now reaches the error log, the
     // error count badge and the status strip's severity colour.
-    shell_.log().error("kernel.rebuild", "REBUILD FAILED -- showing the last good body", r.error);
+    shell_.log().error("Rebuild",
+                       "This part did not rebuild. The shape on screen is the last one that "
+                       "did, and nothing you have drawn has been lost.",
+                       r.error);
   }
   return true;
 }
@@ -546,7 +555,7 @@ bool ForgeFrame::documentNew(std::string& error) {
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
   syncSceneToDocument();
   documentDirty_ = false;
-  note("new document");
+  note("New part");
   return true;
 }
 
@@ -581,7 +590,7 @@ bool ForgeFrame::documentReset(std::string& error) {
   syncSceneToDocument();
   rebuildTree();
   documentDirty_ = true;
-  note("document emptied");
+  note("Part emptied");
   return true;
 }
 
@@ -625,7 +634,7 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
   builtProgram_.clear();  // force the rebuild below
   syncSceneToDocument();
   documentDirty_ = false;
-  note("opened " + path + "  (" + std::to_string(partDoc_.records().size()) + " statements)");
+  note("Opened " + path + "  (" + std::to_string(partDoc_.records().size()) + " features)");
   return true;
 }
 
@@ -644,7 +653,7 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
   documentPath_ = target;
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
   documentDirty_ = false;
-  note("saved " + target + "  (" + std::to_string(file.features.size()) + " statements)");
+  note("Saved " + target + "  (" + std::to_string(file.features.size()) + " features)");
   return true;
 }
 
@@ -782,29 +791,36 @@ void ForgeFrame::invoke(const std::string& id) {
   // A file.* command reports refusal through the shell rather than through the
   // dispatch status, so "it ran" is BOTH conditions, not just the status.
   lastInvokeOk_ = r.ok() && shell_.lastDocumentError().empty();
+  // THE LABEL, NOT THE ID. Every line below used to open with the command's
+  // stable id -- "part.edit_feature  ->  ok" -- which is the name a macro
+  // stores, not a name anybody has read on a button.
+  const forge::ui::CommandDescriptor* invoked = shell_.registry().find(id);
+  const std::string label =
+      (invoked != nullptr && !invoked->label.empty()) ? invoked->label : id;
   if (r.ok()) {
     // A file.* command reports refusal through the shell, not through the
     // dispatch status: `execute` returns void, so "ok" only means it ran.
     if (shell_.lastDocumentError().empty()) {
-      note(id + "  ->  ok");
+      note(label + " — done");
     } else {
-      note(id + "  ->  REFUSED: " + shell_.lastDocumentError());
+      note(label + " — " + shell_.lastDocumentError());
     }
   } else {
     // THE SENTENCE, NOT THE ENUM. ForgeShell::run() has already written this
     // dispatch into its activity log with the explanation forge::ui built --
-    // which names the kind the command wanted, what is actually picked, what to
-    // do about it and the feature-IR op. "selection_signature_mismatch" is a
-    // status code; "Edge Fillet needs 1..n edge; nothing selected is picked. Set
-    // the selection filter to edge and pick in the viewport [op FILLET]" is
-    // something a user can act on without a debugger. Falling back to the status
-    // only when there is somehow no entry, so this can never print nothing.
+    // which names the kind the command wanted, what is actually picked and what
+    // to do about it. "selection_signature_mismatch" is a status code; "Edge
+    // Fillet needs one or more edges, all of the same kind; nothing selected is
+    // picked. Set the pick filter to edge and click one in the 3D view" is
+    // something a user can act on without a debugger. Falling back to the
+    // status only when there is somehow no entry, so this can never print
+    // nothing -- and the fallback is userText, because the machine spelling is
+    // what this line was reported for.
     const forge::ui::LogEntry* explained = shell_.log().last();
     if (explained != nullptr && explained->source == id && !explained->message.empty()) {
-      note(id + "  ->  " + explained->message);
+      note(explained->message);
     } else {
-      note(id + "  ->  " + forge::ui::toString(r.status) +
-           (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+      note(label + " — " + forge::ui::userText(r.status));
     }
   }
   // NO sync here. ForgeShell::run() has already called documentChanged() on this
@@ -892,7 +908,7 @@ void ForgeFrame::runPendingOpen() {
   const std::string& why = shell_.lastDocumentError();
   lastInvokeOk_ = r.ok() && why.empty();
   if (lastInvokeOk_) {
-    note("opened " + path + " from Open Recent");
+    note("Opened " + path);
     return;
   }
   // A remembered path can stop opening -- the file moved, the volume is not
@@ -900,9 +916,14 @@ void ForgeFrame::runPendingOpen() {
   // entry is left in the list: this frame cannot tell "deleted" from "not
   // mounted today", and silently forgetting a part because a network share was
   // asleep is the worse of the two mistakes.
-  const std::string reason = why.empty() ? std::string(forge::ui::toString(r.status)) : why;
-  shell_.log().error("file.open", "could not open " + path + " — " + reason, r.detail);
-  note("file.open  ->  REFUSED: " + reason);
+  const std::string reason =
+      why.empty() ? std::string(forge::ui::userText(r.status)) : why;
+  shell_.log().error("Open", "Forge could not open " + path + " — " + reason +
+                                 ". The file may have moved, or the drive it is on may not be "
+                                 "connected. Your current part is unchanged.",
+                     std::string(forge::ui::machineName(r.status)) +
+                         (r.detail.empty() ? std::string() : (": " + r.detail)));
+  note("Could not open " + path + " — " + reason);
 }
 
 // ── the file panel ──────────────────────────────────────────────────────────
@@ -1139,11 +1160,10 @@ bool ForgeFrame::applyFeatureEdit(double value) {
   // enabled predicate, which is the whole reason the registry exists.
   const forge::ui::DispatchResult r = shell_.run("part.edit_feature", p);
   if (!r.ok()) {
-    note("part.edit_feature  ->  " + std::string(forge::ui::toString(r.status)) +
-         (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+    note(std::string("Feature value not changed — ") + forge::ui::userText(r.status));
     return false;
   }
-  note("part.edit_feature  ->  ok");
+  note("Feature value changed");
   syncSceneToDocument();
   editValue_ = static_cast<float>(editParamValue());
   return true;
@@ -1244,7 +1264,8 @@ bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   stroke.mods = mods;
   const forge::ui::KeyOutcome outcome = shell_.key(stroke);
   if (outcome.resolve == forge::ui::ResolveStatus::Pending) {
-    note("pending: " + forge::ui::sequenceText(shell_.pendingSequence()) + " ...");
+    note("Waiting for the rest of the shortcut: " +
+         forge::ui::sequenceText(shell_.pendingSequence()) + " ...");
     return false;
   }
   if (outcome.resolve == forge::ui::ResolveStatus::Unbound) return false;
@@ -1266,20 +1287,31 @@ bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   // dispatched at this point -- ForgeShell::invoke returns before run() when a
   // required parameter is missing -- so raising the panel here starts the
   // command rather than repeating it.
+  //
+  // ★ MERGED WITH THE PROSE SWEEP, and the two halves fix the SAME status line
+  //   from opposite ends. Raising the dialog removed the dead end; naming the
+  //   command by its LABEL and translating the status with userText() removes
+  //   the developer prose. `file.open` is an internal id and
+  //   `missing_required_parameter` is an enum spelling -- neither belongs on a
+  //   status line, so BOTH notes below use `what`, never outcome.commandId.
+  const forge::ui::CommandDescriptor* bound = shell_.registry().find(outcome.commandId);
+  const std::string what =
+      (bound != nullptr && !bound->label.empty()) ? bound->label : outcome.commandId;
   if (outcome.needsParameters()) {
     const forge::ui::CommandParams none;
     if (wantsFileDialog(outcome.commandId, none)) {
       // Deferred like every other panel: onKey is called from the event pump,
       // which on the shipped path is inside the frame loop.
       pendingDialogId_ = outcome.commandId;
-      note(stroke.toText() + "  ->  " + outcome.commandId + "  asks which file");
+      note(stroke.toText() + " — " + what + " — asks which file");
     } else {
       openPrompt(outcome.commandId, outcome.promptFor);
     }
     return false;
   }
-  note(stroke.toText() + "  ->  " + outcome.commandId + "  " +
-       (outcome.dispatch.ok() ? "ok" : forge::ui::toString(outcome.dispatch.status)));
+  note(stroke.toText() + " — " + what + " — " +
+       (outcome.dispatch.ok() ? std::string("done")
+                              : std::string(forge::ui::userText(outcome.dispatch.status))));
   return outcome.ran();
 }
 
@@ -1306,7 +1338,7 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
     if (!additive) {
       shell_.selection().clearSelection();
       syncSelectionToScene();
-      note("selection cleared");
+      note("Selection cleared");
     }
     return;
   }
@@ -1322,7 +1354,7 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
   ref.kind = forge::ui::EntityKind::Face;
   ref.persistentName = "face@" + std::to_string(faceId);
   if (!shell_.selection().accepts(ref.kind)) {
-    note("selection filter rejects a Face");
+    note("The pick filter is not set to face, so this face was not picked");
     return;
   }
   if (additive) {
@@ -1332,8 +1364,8 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
   }
   shell_.selection().setFocus(ref);
   syncSelectionToScene();
-  note("selected face " + std::to_string(faceId) + "  (" +
-       std::to_string(shell_.selection().count()) + " picked)");
+  note("Picked face " + std::to_string(faceId) + "  (" +
+       std::to_string(shell_.selection().count()) + " picked in all)");
 }
 
 // ── SELECTING A STATEMENT: the producer 28 commands were waiting for ────────
@@ -1364,7 +1396,7 @@ void ForgeFrame::clickFeature(int irId, bool additive) {
   if (irId == 0) return;
   const forge::ui::EntityKind kind = forge::ui::entityKindFor(partDoc_.kindOf(irId));
   if (kind == forge::ui::EntityKind::None) {
-    note("statement %" + std::to_string(irId) + " produces no value, so it cannot be selected");
+    note("That row makes nothing a later feature can be built on, so it cannot be picked");
     return;
   }
   // The filter is the user's own instruction about what they are picking. A tree
@@ -1375,10 +1407,10 @@ void ForgeFrame::clickFeature(int irId, bool additive) {
   // exactly as it was: a click the app declines must not still write to the
   // thing it declined to act on.
   if (!shell_.selection().accepts(kind)) {
-    note(std::string("the selection filter is ") +
-         forge::ui::toString(shell_.selection().filter()) + ", so a " +
-         forge::ui::toString(kind) + " cannot be picked — set the filter to Any or " +
-         forge::ui::toString(kind));
+    note(std::string("The pick filter is set to ") +
+         forge::ui::userText(shell_.selection().filter()) + ", so a " +
+         forge::ui::userText(kind) + " cannot be picked — set the filter to any, or to " +
+         forge::ui::userText(kind));
     return;
   }
 
@@ -1422,8 +1454,8 @@ void ForgeFrame::clickFeature(int irId, bool additive) {
   // highlight is cleared rather than left showing the previous pick as though it
   // were still selected.
   syncSelectionToScene();
-  note(std::string("selected ") + forge::ui::toString(kind) + " %" + std::to_string(irId) +
-       "  (" + std::to_string(shell_.selection().count()) + " picked)");
+  note(std::string("Picked a ") + forge::ui::userText(kind) + "  (" +
+       std::to_string(shell_.selection().count()) + " picked in all)");
 }
 
 std::vector<std::uint32_t> ForgeFrame::selectedFaceIds() const {
@@ -1504,7 +1536,7 @@ void ForgeFrame::clickEdge(std::size_t index, bool additive) {
   ref.kind = forge::ui::EntityKind::Edge;
   ref.persistentName = set.edges[index].key();
   if (!shell_.selection().accepts(ref.kind)) {
-    note("selection filter rejects an Edge");
+    note("The pick filter is not set to edge, so this edge was not picked");
     return;
   }
   if (additive) {
@@ -1517,8 +1549,8 @@ void ForgeFrame::clickEdge(std::size_t index, bool additive) {
   // face highlight left over from a face pick -- otherwise the viewport shows a
   // face lit while the status strip and every command say an edge is selected.
   syncSelectionToScene();
-  note("selected " + ref.persistentName + "  (" +
-       std::to_string(shell_.selection().count()) + " picked)");
+  note("Picked an edge  (" + std::to_string(shell_.selection().count()) +
+       " picked in all)");
 }
 
 // ── dock ratio writeback ────────────────────────────────────────────────────
@@ -1819,10 +1851,19 @@ void ForgeFrame::drawMenuBar() {
         // `hint` is the SAME sentence the activity log prints when this command
         // refuses, from the same explainer, so a tooltip and a log line can
         // never tell the user two different stories about one command.
-        ImGui::SetTooltip("%s\nid: %s\nneeds: %s\nIR: %s\nparameters: %s", item.hint.c_str(),
-                          item.commandId.c_str(),
-                          item.reason.empty() ? "nothing more" : item.reason.c_str(),
-                          item.featureIrOp.c_str(), item.parameters.c_str());
+        // WHAT IT DOES AND WHY IT IS GREY. This tooltip, on every menu item in
+        // the application, used to be a four-field dump of the command
+        // descriptor: "id: part.fillet", "IR: FILLET", "parameters:
+        // radius:number*=3". Three of those four fields name the program's own
+        // objects; the fourth, `reason`, carried the status code. The id, the
+        // op and the schema are still on the item -- the agent surface and the
+        // capability manifest report all three -- and none of them belongs on a
+        // machinist's screen.
+        if (item.reason.empty()) {
+          ImGui::SetTooltip("%s", item.hint.c_str());
+        } else {
+          ImGui::SetTooltip("%s\n\n%s", item.hint.c_str(), item.reason.c_str());
+        }
       }
     }
     // ── File > Open Recent ────────────────────────────────────────────────
@@ -1862,13 +1903,13 @@ void ForgeFrame::drawMenuBar() {
   if (ImGui::BeginMenu("Window")) {
     if (ImGui::MenuItem("Reset Workspace Layout")) {
       shell_.resetWorkspaceLayout();
-      note("workspace layout reset to the deterministic default");
+      note("Workspace layout reset");
     }
     ImGui::Separator();
     for (forge::ui::WorkspaceProfile p : forge::ui::allWorkspaceProfiles()) {
-      if (ImGui::MenuItem(forge::ui::toString(p), nullptr, p == shell_.workspace())) {
+      if (ImGui::MenuItem(forge::ui::userText(p), nullptr, p == shell_.workspace())) {
         shell_.setWorkspace(p);
-        note(std::string("workspace -> ") + forge::ui::toString(p));
+        note(std::string("Workspace: ") + forge::ui::userText(p));
       }
     }
     ImGui::Separator();
@@ -1916,9 +1957,9 @@ void ForgeFrame::drawMenuBar() {
 
   if (ImGui::BeginMenu("Input Profile")) {
     for (forge::ui::InputProfile p : forge::ui::allInputProfiles()) {
-      if (ImGui::MenuItem(forge::ui::toString(p), nullptr, p == shell_.inputProfile())) {
+      if (ImGui::MenuItem(forge::ui::userText(p), nullptr, p == shell_.inputProfile())) {
         shell_.setInputProfile(p);
-        note(std::string("input profile -> ") + forge::ui::toString(p) + "  |  " +
+        note(std::string("Mouse and keyboard: ") + forge::ui::userText(p) + "  |  " +
              navHintFor(p));
       }
     }
@@ -1953,12 +1994,14 @@ void ForgeFrame::drawWorkspaceTabs(float y, float width, float height) {
     for (forge::ui::WorkspaceProfile p : forge::ui::allWorkspaceProfiles()) {
       const bool active = (p == shell_.workspace());
       if (active) ImGui::PushStyleColor(ImGuiCol_Button, rgb(242, 158, 38, 0.85f));
-      char label[64];
-      const char* n = forge::ui::toString(p);
-      std::snprintf(label, sizeof(label), "%c%s", static_cast<char>(std::toupper(n[0])), n + 1);
-      if (ImGui::Button(label)) {
+      // userText, not a capitalised slug. This loop used to upper-case the
+      // FIRST LETTER of toString(p) -- the saved-layout key -- so the tabs read
+      // "Part", "Manufacturing" only because those slugs happen to be single
+      // words. The name is data now, not a transformation of an identifier.
+      const char* n = forge::ui::userText(p);
+      if (ImGui::Button(n)) {
         shell_.setWorkspace(p);
-        note(std::string("workspace -> ") + n);
+        note(std::string("Workspace: ") + n);
       }
       if (active) ImGui::PopStyleColor();
       ImGui::SameLine();
@@ -2038,7 +2081,7 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
       for (forge::ui::EntityKind k : kinds) {
         if (ImGui::Selectable(forge::ui::toString(k), k == shell_.selection().filter())) {
           shell_.selection().setFilter(k);
-          note(std::string("selection filter -> ") + forge::ui::toString(k));
+          note(std::string("Pick filter: ") + forge::ui::userText(k));
         }
       }
       ImGui::EndCombo();
@@ -2607,8 +2650,13 @@ void ForgeFrame::drawEmptyState(float x, float y, float w, float h) {
       ImGui::PushID(static_cast<int>(i));
       if (ImGui::Button(action.label.c_str())) pendingInvokeId_ = action.commandId;
       if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("%s\n%s  %s", action.description.c_str(), action.commandId.c_str(),
-                          shortcutText(action.commandId).c_str());
+        // The shortcut is worth showing; the command id is not.
+        const std::string keys = shortcutText(action.commandId);
+        if (keys.empty()) {
+          ImGui::SetTooltip("%s", action.description.c_str());
+        } else {
+          ImGui::SetTooltip("%s\n%s", action.description.c_str(), keys.c_str());
+        }
       }
       ImGui::PopID();
     }
@@ -2827,10 +2875,14 @@ void ForgeFrame::drawContextMenu() {
 
 // ── feature tree ────────────────────────────────────────────────────────────
 void ForgeFrame::drawFeatureTreePanel() {
-  ImGui::TextColored(rgb(130, 137, 148),
-                     "%zu rows | resident %zu/%zu | peak %zu | fetch %zu",
-                     tree_.rowCount(), tree_.materialized(), tree_.cacheCapacity(),
-                     tree_.peakMaterialized(), treeSource_.fetches());
+  // THE PART, NOT THE CACHE. This line read
+  //   "1 rows | resident 1/512 | peak 1 | fetch 3"
+  // -- the row cache's occupancy, its capacity, its high-water mark and a fetch
+  // counter, at the top of the panel a user opens to see their features. Those
+  // four numbers are how the virtualisation is gated and they are still asserted
+  // in ui/test/feature_tree_virtualization_test.cpp, which is where they belong.
+  ImGui::TextColored(rgb(130, 137, 148), "%zu row%s", tree_.rowCount(),
+                     tree_.rowCount() == 1 ? "" : "s");
   ImGui::Separator();
 
   const float rowH = ImGui::GetTextLineHeightWithSpacing();
@@ -2911,8 +2963,15 @@ void ForgeFrame::drawFeatureTreePanel() {
         // reachable only because the source hands back the document's own record.
         if (ImGui::IsItemHovered()) {
           if (const forge::ui::FeatureRecord* rec = treeSource_.recordAt(d.id)) {
-            ImGui::SetTooltip("%s\n%s", rec->line.text().c_str(),
-                              rec->commandId.empty() ? "(starting part)" : rec->commandId.c_str());
+            // The row's own LABEL and how it got here. It used to show the raw
+            // feature-IR statement ("%3 EXTRUDE %1 10.000") and the command id
+            // underneath it.
+            const forge::ui::CommandDescriptor* by =
+                rec->commandId.empty() ? nullptr : shell_.registry().find(rec->commandId);
+            const std::string origin = (by != nullptr && !by->label.empty())
+                                           ? ("added by " + by->label)
+                                           : std::string("part of the starting part");
+            ImGui::SetTooltip("%s\n%s", d.label.c_str(), origin.c_str());
           }
         }
 
@@ -3285,9 +3344,9 @@ void ForgeFrame::drawSketchTreePanel() {
         ++sketchRowsDrawn_;
         ImGui::Indent();
         selectRow(e.irId, e.label.c_str(), nullptr);
-        if (!e.detail.empty()) {
+        if (!e.operands.empty()) {
           ImGui::SameLine(150.0f * dpiScale_);
-          ImGui::TextColored(rgb(130, 137, 148), "%s", e.detail.c_str());
+          ImGui::TextColored(rgb(130, 137, 148), "%s", e.operands.c_str());
         }
         ImGui::Unindent();
       }
@@ -3342,7 +3401,7 @@ void ForgeFrame::drawSketchTreePanel() {
                        tree.unattached.size());
     for (const forge::ui::SketchEntity& e : tree.unattached) {
       ++sketchRowsDrawn_;
-      ImGui::BulletText("%s  %s", e.label.c_str(), e.detail.c_str());
+      ImGui::BulletText("%s  %s", e.label.c_str(), e.operands.c_str());
     }
   }
 }
@@ -3350,9 +3409,10 @@ void ForgeFrame::drawSketchTreePanel() {
 void ForgeFrame::drawPropertiesPanel() {
   ImGui::TextColored(rgb(242, 158, 38), "Document");
   ImGui::Separator();
-  ImGui::Text("features   %zu", shell_.document().features);
-  ImGui::Text("undo/redo  %zu / %zu", shell_.document().undoDepth, shell_.document().redoDepth);
-  ImGui::Text("modified   %s", shell_.document().dirty ? "yes" : "no");
+  ImGui::Text("features        %zu", shell_.document().features);
+  ImGui::Text("steps to undo   %zu", shell_.document().undoDepth);
+  ImGui::Text("steps to redo   %zu", shell_.document().redoDepth);
+  ImGui::Text("unsaved changes %s", shell_.document().dirty ? "yes" : "no");
   ImGui::Spacing();
 
   ImGui::TextColored(rgb(242, 158, 38), "Parameter");
@@ -3371,18 +3431,22 @@ void ForgeFrame::drawPropertiesPanel() {
   ImGui::TextColored(rgb(242, 158, 38), "Feature Parameter");
   ImGui::Separator();
   if (partDoc_.records().empty()) {
-    ImGui::TextDisabled("(the document has no statements)");
+    ImGui::TextDisabled("(this part has no features yet)");
   } else {
     // Re-resolve every frame: undo, redo, New and Open all move records, and a
     // target cached across one of those would edit the wrong statement.
     if (partDoc_.featureAt(editFeatureId_) == nullptr) setEditTarget(0, 0);
     const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
     ImGui::SetNextItemWidth(-1);
+    // THE FEATURE'S NAME, not its feature-IR statement. Both the closed combo
+    // and every row in it drew rec->line.text() -- "%4 FILLET %3 2.000" -- which
+    // is the compiler's rendering of the statement and the only name this panel
+    // ever offered for a feature.
     if (ImGui::BeginCombo("##editfeature",
-                          rec == nullptr ? "(none)" : rec->line.text().c_str())) {
+                          rec == nullptr ? "(none)" : forge::ui::featureDisplayName(*rec).c_str())) {
       for (const forge::ui::FeatureRecord& r2 : partDoc_.records()) {
         const bool isSel = r2.irId == editFeatureId_;
-        if (ImGui::Selectable(r2.line.text().c_str(), isSel)) setEditTarget(r2.irId, 0);
+        if (ImGui::Selectable(forge::ui::featureDisplayName(r2).c_str(), isSel)) setEditTarget(r2.irId, 0);
         if (isSel) ImGui::SetItemDefaultFocus();
       }
       ImGui::EndCombo();
@@ -3391,8 +3455,9 @@ void ForgeFrame::drawPropertiesPanel() {
     if (numbers == 0) {
       // CUT(%2, %3) has no number in it. Saying so is the honest answer; a
       // disabled field with a 0 in it would read as "this feature is 0 mm".
-      ImGui::TextDisabled("%s takes no numeric parameter",
-                          rec == nullptr ? "this statement" : rec->line.op.c_str());
+      ImGui::TextDisabled("%s has no number to change",
+                          rec == nullptr ? "This feature"
+                                         : forge::ui::featureDisplayName(*rec).c_str());
     } else {
       for (std::size_t i = 0; i < numbers; ++i) {
         if (i > 0) ImGui::SameLine();
@@ -3426,11 +3491,12 @@ void ForgeFrame::drawPropertiesPanel() {
     ImGui::TextDisabled("(nothing picked)");
   } else {
     for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
-      ImGui::BulletText("%s  %s", forge::ui::toString(r.kind), r.persistentName.c_str());
+      ImGui::BulletText("%s", forge::ui::userText(r.kind));
     }
-    if (ImGui::Button("Commit snapshot")) {
+    if (ImGui::Button("Keep this selection")) {
       shell_.selection().commit();
-      note("committed " + std::to_string(shell_.selection().committed().size()) + " refs");
+      note("Kept " + std::to_string(shell_.selection().committed().size()) +
+           " picked item(s) for the next command");
     }
     ImGui::SameLine();
     if (ImGui::Button("Focus next")) shell_.selection().advanceFocus(1);
@@ -3440,15 +3506,17 @@ void ForgeFrame::drawPropertiesPanel() {
   ImGui::TextColored(rgb(242, 158, 38), "Rebuild");
   ImGui::Separator();
   const IrBuildReport& r = scene_.lastBuild();
-  ImGui::Text("rebuilds   %zu", rebuilds_);
-  ImGui::Text("ops        %zu declared / %zu parsed / %zu compiled", r.nDeclared, r.nParsed,
-              r.nCompiled);
+  // "ops 14 declared / 14 parsed / 14 compiled" was a compiler's progress
+  // report in a properties panel. The counts a user can act on are how many
+  // features were built and how many were not.
+  ImGui::Text("features built  %zu of %zu", r.nCompiled, r.nDeclared);
   if (r.ok()) {
     ImGui::TextColored(r.valid ? rgb(120, 200, 130) : rgb(235, 175, 95), "%s",
-                       r.valid ? "solid is valid" : "solid compiled but is NOT valid");
+                       r.valid ? "watertight solid"
+                               : "built, but NOT a watertight solid");
     ImGui::Text("faces %ld   edges %ld", r.faceCount, r.edgeCount);
     ImGui::Text("volume %.3f mm3", r.volume);
-    ImGui::Text("bbox   %.2f x %.2f x %.2f", r.bboxMax[0] - r.bboxMin[0],
+    ImGui::Text("overall size   %.2f x %.2f x %.2f mm", r.bboxMax[0] - r.bboxMin[0],
                 r.bboxMax[1] - r.bboxMin[1], r.bboxMax[2] - r.bboxMin[2]);
   } else {
     ImGui::TextColored(rgb(235, 105, 95), "This part did not rebuild");
@@ -3458,12 +3526,17 @@ void ForgeFrame::drawPropertiesPanel() {
   }
 
   ImGui::Spacing();
-  ImGui::TextColored(rgb(242, 158, 38), "Feature IR");
+  ImGui::TextColored(rgb(242, 158, 38), "File");
   ImGui::Separator();
-  ImGui::TextDisabled("%s%s", documentPath_.empty() ? "(unsaved)" : documentPath_.c_str(),
+  ImGui::TextDisabled("%s%s", documentPath_.empty() ? "(not saved yet)" : documentPath_.c_str(),
                       documentDirty_ ? "  *" : "");
-  const std::string ir = partDoc_.irProgram();
-  ImGui::TextWrapped("%s", ir.empty() ? "(no statements yet)" : ir.c_str());
+  // ── WHAT WAS HERE ────────────────────────────────────────────────────────
+  // A section headed "Feature IR" that printed partDoc_.irProgram() -- the whole
+  // feature-IR program, verbatim, in the Properties panel of a CAD application.
+  // It is the document's internal form; the Feature Tree above is the same
+  // information, named. It is NOT gone: drawConsolePanel() draws it under a
+  // collapsed header, in the panel this application already treats as the
+  // engineer's. Deleting a capability is not a way to pass a gate.
 }
 
 // ── THE ACTIVITY LOG: WHY A FEATURE FAILED, WITHOUT A DEBUGGER ──────────────
@@ -3496,7 +3569,7 @@ void ForgeFrame::drawConsolePanel() {
   const char* levels[] = {"all", "warnings+", "errors"};
   ImGui::Combo("##loglevel", &logLevel_, levels, 3);
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("What this panel shows. Every dispatch is recorded whatever this says.");
+    ImGui::SetTooltip("What this panel shows. Everything is recorded whatever this says.");
   }
   ImGui::Separator();
 
@@ -3557,6 +3630,23 @@ void ForgeFrame::drawConsolePanel() {
       ImGui::TextDisabled("frame notes");
       for (const std::string& l : log_) ImGui::TextUnformatted(l.c_str());
     }
+    // ── THE FEATURE PROGRAM, MOVED RATHER THAN DELETED ────────────────────
+    // The Properties panel used to carry a section headed "Feature IR" that
+    // printed partDoc_.irProgram() verbatim -- the document's internal form, in
+    // the panel a machinist opens to change a number. Deleting it would have
+    // removed a real capability to make a gate green, so it is HERE instead:
+    // collapsed, in the one panel this application has already declared to be
+    // the engineer's, next to the detail column that carries the same kind of
+    // thing. Nobody who did not go looking will read it.
+    if (logLevel_ == 0) {
+      ImGui::Separator();
+      if (ImGui::CollapsingHeader("The program behind this part")) {
+        const std::string ir = partDoc_.irProgram();
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("%s", ir.empty() ? "(nothing yet)" : ir.c_str());
+        ImGui::PopTextWrapPos();
+      }
+    }
     if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 4.0f) ImGui::SetScrollHereY(1.0f);
   }
   ImGui::EndChild();
@@ -3569,18 +3659,26 @@ void ForgeFrame::drawTimelinePanel() {
   // statement the starting part contributed).
   const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
   const IrBuildReport& r = scene_.lastBuild();
-  ImGui::TextColored(rgb(130, 137, 148), "feature history: %zu statements", records.size());
+  ImGui::TextColored(rgb(130, 137, 148), "feature history: %zu feature%s", records.size(),
+                     records.size() == 1 ? "" : "s");
   ImGui::Separator();
   for (std::size_t i = 0; i < records.size(); ++i) {
     const forge::ui::FeatureRecord& rec = records[i];
     const bool named = (r.failedOpId == rec.irId) || (r.failedLine == rec.irId);
     const bool ok = r.ok() || !named;
     ImGui::PushID(static_cast<int>(i));
-    ImGui::TextColored(ok ? rgb(120, 200, 130) : rgb(235, 105, 95), "%s", ok ? "OK " : "ERR");
+    ImGui::TextColored(ok ? rgb(120, 200, 130) : rgb(235, 105, 95), "%s",
+                       ok ? "OK " : "failed");
     ImGui::SameLine();
-    ImGui::Text("%%%-3d %-22s %-18s %s", rec.irId,
-                (rec.label.empty() ? rec.line.op : rec.label).c_str(),
-                rec.commandId.empty() ? "seed" : rec.commandId.c_str(), rec.line.text().c_str());
+    // NAME, then WHERE IT CAME FROM. The two right-hand columns used to be the
+    // command id ("part.fillet", or "seed") and the raw feature-IR statement.
+    const forge::ui::CommandDescriptor* by =
+        rec.commandId.empty() ? nullptr : shell_.registry().find(rec.commandId);
+    const std::string origin = (by != nullptr && !by->label.empty())
+                                   ? by->label
+                                   : std::string("starting part");
+    ImGui::Text("%-3zu %-24s %s", i + 1,
+                forge::ui::featureDisplayName(rec).c_str(), origin.c_str());
     ImGui::PopID();
   }
 }
@@ -3677,9 +3775,11 @@ void ForgeFrame::drawMeasurePanel() {
     const forge::ui::EdgeMeasure em = forge::ui::measureEdges(es, pickedEdges);
     for (std::size_t idx : pickedEdges) {
       const forge::ui::MeshEdge& e = es.edges[idx];
-      ImGui::BulletText("%s   %.4f mm   %zu seg%s", e.key().c_str(), e.length, e.segments,
+      // e.key() is the persistent name -- "e:12|34" -- which is how the
+      // selection stores an edge, not how a user names one.
+      ImGui::BulletText("Edge between faces %u and %u   %.4f mm   %zu segment%s%s", e.faceA,
+                        e.faceB, e.length, e.segments, e.segments == 1 ? "" : "s",
                         e.closed ? "   closed" : "");
-      ImGui::Text("     between faces %u and %u", e.faceA, e.faceB);
       ++measureEdgeRowsDrawn_;
     }
     ImGui::Text("total     %.4f mm over %zu edge%s", em.length, em.edges,
@@ -3760,10 +3860,20 @@ void ForgeFrame::drawToolsPanel() {
       ImGui::SameLine();
       ImGui::TextColored(e.callable() ? rgb(120, 200, 130) : rgb(150, 157, 168), "%s",
                          forge::ui::toString(e.availability));
-      ImGui::TextDisabled("  %s   ir=%s   undo=%s", e.id.c_str(), e.featureIrOp.c_str(),
-                          e.undo.c_str());
-      ImGui::TextDisabled("  needs %s", e.selection.c_str());
-      if (e.parameters != "-") ImGui::TextDisabled("  args  %s", e.parameters.c_str());
+      // ── WHAT WAS HERE ──────────────────────────────────────────────────
+      // Three lines under every one of the 84 rows:
+      //   "  part.counterbore   ir=CBORE   undo=single"
+      //   "  needs 1..n face (homogeneous)"
+      //   "  args  diameter:number*=6, cbore_diameter:number*=11, ..."
+      // Every field on those lines is a field of the AGENT-facing tool
+      // catalogue -- the stable id, the feature-IR op, the undo contract, the
+      // signature notation, the parameter schema. They are all still on
+      // ToolEntry, they are still what the capability manifest reports, and not
+      // one of them is a sentence for the person clicking the button.
+      const forge::ui::CommandDescriptor* d = shell_.registry().find(e.id);
+      if (d != nullptr && d->signature.kind != forge::ui::EntityKind::None) {
+        ImGui::TextDisabled("  works on %s", d->signature.describeForUser().c_str());
+      }
       if (!e.reason.empty()) {
         ImGui::TextColored(rgb(230, 190, 90), "  %s", e.reason.c_str());
       }
@@ -3857,13 +3967,16 @@ void ForgeFrame::drawCopilotPanel() {
 
   ImGui::TextColored(rgb(242, 158, 38), "Archie CoPilot");
   ImGui::TextColored(rgb(130, 137, 148),
-                     "%zu accepted | %zu refused by the gate | %zu rejected by you | %zu steps "
+                     "%zu accepted | %zu Forge would not build | %zu you rejected | %zu steps "
                      "applied",
                      copilot_.plansAccepted(), copilot_.plansRefused(),
                      copilot_.plansRejectedByUser(), copilot_.stepsApplied());
-  ImGui::TextColored(rgb(130, 137, 148), "planner: %s   |   %zu tools from the live registry",
-                     copilotAutoPlan_ ? "LocalPlanner (offline, deterministic)"
-                                      : "host transport",
+  // "planner: LocalPlanner (offline, deterministic) | 84 tools from the live
+  // registry" -- a C++ class name and the name of an internal object, on the
+  // header line of the panel a user talks to.
+  ImGui::TextColored(rgb(130, 137, 148), "%s   |   %zu tools Archie can use",
+                     copilotAutoPlan_ ? "Working offline, on this computer"
+                                      : "Connected",
                      shell_.registry().size());
   ImGui::Separator();
 
@@ -3886,8 +3999,7 @@ void ForgeFrame::drawCopilotPanel() {
   // Two ways to press one button is two behaviours to keep in step.
   if (entered || sent) copilotSubmit();
   if (copilot_.requestPending()) {
-    ImGui::TextColored(rgb(230, 190, 90), "waiting for a plan (request %llu)",
-                       static_cast<unsigned long long>(copilot_.request().id));
+    ImGui::TextColored(rgb(230, 190, 90), "Thinking...");
   }
 
   // ── the verdict, LINE BY LINE ─────────────────────────────────────────────
@@ -3903,9 +4015,9 @@ void ForgeFrame::drawCopilotPanel() {
       ImGui::TextColored(rgb(120, 200, 130), "PLAN  %s",
                          plan.summary.empty() ? plan.intent.c_str() : plan.summary.c_str());
     } else {
-      ImGui::TextColored(rgb(230, 120, 110), "PLAN REFUSED  (%s)",
-                         forge::ui::toString(verdict.check));
-      if (!verdict.detail.empty()) ImGui::TextWrapped("%s", verdict.detail.c_str());
+      ImGui::TextColored(rgb(230, 120, 110), "NOT OFFERED  —  %s",
+                         forge::ui::userText(verdict.check));
+      if (!verdict.explanation.empty()) ImGui::TextWrapped("%s", verdict.explanation.c_str());
     }
   }
 
@@ -3915,24 +4027,29 @@ void ForgeFrame::drawCopilotPanel() {
     for (std::size_t i = 0; i < verdict.steps.size(); ++i) {
       const forge::ui::StepVerdict& sv = verdict.steps[i];
       ImGui::PushID(static_cast<int>(i));
+      // The step number and the TOOL'S LABEL. This row was the step index, the
+      // feature-IR op ("FILLET"), the word ACCEPT or REFUSE, and the command id
+      // on the line below it.
+      const forge::ui::CommandDescriptor* tool = shell_.registry().find(sv.commandId);
+      const std::string toolName = (tool != nullptr && !tool->label.empty())
+                                       ? tool->label
+                                       : std::string("this step");
       ImGui::TextColored(sv.accepted() ? rgb(120, 200, 130) : rgb(230, 120, 110), "%zu  %s  %s",
-                         sv.index, sv.irOp.empty() ? "-" : sv.irOp.c_str(),
-                         sv.accepted() ? "ACCEPT" : "REFUSE");
-      ImGui::TextDisabled("  %s", sv.commandId.c_str());
+                         sv.index, toolName.c_str(),
+                         sv.accepted() ? "will run" : "will not run");
       // The step as it would run, when the plan is still on offer.
       if (i < plan.steps.size()) {
-        ImGui::TextDisabled("  %s", plan.steps[i].display().c_str());
         if (!plan.steps[i].note.empty()) {
           ImGui::TextDisabled("  %s", plan.steps[i].note.c_str());
         }
-        ImGui::TextDisabled("  selection: %s", forge::ui::toString(plan.steps[i].select));
+        ImGui::TextDisabled("  works on: %s", forge::ui::toString(plan.steps[i].select));
       }
       if (!sv.accepted()) {
         // WHICH CONSTRAINT, and WHY. Both, always: the constraint's name is what
         // a planner can act on, and the reason is what a person can act on.
         if (sv.constraint != forge::ui::OpConstraint::Ok) {
-          ImGui::TextColored(rgb(230, 120, 110), "  constraint: %s",
-                             forge::ui::toString(sv.constraint));
+          ImGui::TextColored(rgb(230, 120, 110), "  %s",
+                             forge::ui::userText(sv.constraint));
         }
         if (!sv.parameter.empty()) {
           ImGui::TextColored(rgb(230, 190, 90), "  parameter: %s", sv.parameter.c_str());
@@ -3959,9 +4076,9 @@ void ForgeFrame::drawCopilotPanel() {
       }
     }
     if (verdict.steps.empty() && copilot_.transcript().empty()) {
-      ImGui::TextDisabled("Ask for an edit. Archie may only use commands you could use --");
-      ImGui::TextDisabled("every plan is checked against the op-constraint gate before it is");
-      ImGui::TextDisabled("offered, and again before any step runs.");
+      ImGui::TextDisabled("Ask for an edit. Archie may only use tools you could use");
+      ImGui::TextDisabled("yourself, and every step is checked against what Forge can");
+      ImGui::TextDisabled("actually build — before it is offered, and again before it runs.");
     }
   }
   ImGui::EndChild();
@@ -4042,7 +4159,7 @@ void ForgeFrame::drawGenericPanel(const std::string& panelId) {
   for (const forge::ui::SurfaceGroup& group : ribbonSurface_.groups) {
     for (const forge::ui::SurfaceItem& item : group.items) {
       const bool on = item.enabled() || item.opensDialog();
-      ImGui::BulletText("%s  (%s)", item.label.c_str(), item.commandId.c_str());
+      ImGui::BulletText("%s", item.label.c_str());
       if (!on && !item.hint.empty()) {
         ImGui::SameLine();
         ImGui::TextColored(rgb(130, 137, 148), "-- %s", item.reason.c_str());
@@ -4077,15 +4194,13 @@ void ForgeFrame::drawParameterPrompt() {
                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
                        ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextColored(rgb(242, 158, 38), "%s", label.c_str());
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", promptCommand_.c_str());
     ImGui::Separator();
     // WHY it is asking, in the schema's own terms. "There is no honest default
     // for this" is the whole reason a prompt exists rather than a default, and a
     // box with no explanation is a box a user guesses at.
     ImGui::TextWrapped(
-        "This command declares no default for the value%s below, so a keystroke or a "
-        "menu click cannot supply %s. Type %s and press Run.",
+        "There is no sensible default for the value%s below, so Forge cannot fill %s in "
+        "for you. Type %s and press Run.",
         promptFields_.size() == 1 ? "" : "s", promptFields_.size() == 1 ? "it" : "them",
         promptFields_.size() == 1 ? "it" : "them");
     ImGui::Spacing();
@@ -4177,8 +4292,10 @@ void ForgeFrame::drawCommandPalette() {
       if (!on && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("%s", item.hint.c_str());
       }
+      // The middle column used to be the command id ("part.counterbore") on
+      // every row of the palette. The category is what a user is scanning for.
       ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.55f);
-      ImGui::TextDisabled("%s", item.commandId.c_str());
+      ImGui::TextDisabled("%s", item.category.c_str());
       ImGui::SameLine(ImGui::GetContentRegionAvail().x * 0.85f);
       ImGui::TextColored(on ? rgb(120, 200, 130) : rgb(140, 140, 150), "%s",
                          on ? item.shortcut.c_str() : forge::ui::toString(item.availability));

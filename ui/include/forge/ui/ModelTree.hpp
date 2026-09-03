@@ -133,7 +133,12 @@ struct SketchEntity {
   std::string op;
   SketchItemRole role = SketchItemRole::Point;
   std::string label;    // "Point", "Line", "Circle", "Arc", or the constraint's kind
-  std::string detail;   // the operands/values the statement actually carries
+  // The operands the statement carries -- "at 10, 20", "from Line1 to Line2".
+  // NOT called `detail`: in this codebase `.detail` means the program's own
+  // description of a failure (DispatchResult::detail, ActivityLogEntry::detail),
+  // which may only be drawn in the Console. This is user-facing geometry, so
+  // it carries a name that says so and can be drawn anywhere.
+  std::string operands;
 };
 
 // One SKETCH statement and everything the document attaches to it.

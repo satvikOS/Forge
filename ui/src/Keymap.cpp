@@ -21,6 +21,16 @@ const char* toString(InputProfile profile) noexcept {
   return "forge-native";
 }
 
+const char* userText(InputProfile profile) noexcept {
+  switch (profile) {
+    case InputProfile::ForgeNative: return "Forge";
+    case InputProfile::NXLike:      return "NX";
+    case InputProfile::CATIALike:   return "CATIA";
+    case InputProfile::BlenderLike: return "Blender";
+  }
+  return "Forge";
+}
+
 std::vector<InputProfile> allInputProfiles() {
   return {InputProfile::ForgeNative, InputProfile::NXLike, InputProfile::CATIALike,
           InputProfile::BlenderLike};
