@@ -355,6 +355,23 @@ jobs:
         # Cheap enough to ride a PR: it reads sources and compiles ONE small C++
         # checker. Seven mutations are the negative control.
         run: bash forge-desktop/test/release_contract_gate.sh --mutations
+      - name: rehearse the PUBLISH path — the half that has never run
+        # The gate above is static: it reads text and proves the three files
+        # NAME the same artifact. Nothing had ever EXECUTED the publish step, the
+        # acceptance step or the kernel gate, because all three are `if:`-gated
+        # on a push to archdisc, and MEASURED 2026-09-03 this repository had zero
+        # tags and `releases/latest` answering 404 — so the first run of that
+        # shell would have been the run that published to users. Same shape of
+        # mistake as desktop-release.yml's own history, where the only trigger
+        # that worked was the one that published.
+        #
+        # This runs THE WORKFLOW'S OWN SHELL, extracted from the YAML rather than
+        # retyped, against a stubbed `gh` and a stubbed `curl` that reproduce
+        # GitHub's one load-bearing rule: `releases/latest` resolves only to a
+        # release that is neither a draft nor a prerelease. It publishes nothing,
+        # authenticates nothing and touches no network. Seven mutations are the
+        # negative control.
+        run: bash forge-desktop/test/release_publish_selftest.sh --mutations
 
   release_visibility:
     name: could an installed Forge actually SEE the latest release?

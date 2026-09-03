@@ -53,12 +53,21 @@
 #      that nothing else compares, and gets them wrong in exactly the same way:
 #      a tag that is not the tag the payload URL enters is a release every
 #      installed copy 404s on.
-#   8. THE AUTOMATIC RELEASE IS NEITHER A DRAFT NOR A PRERELEASE. This is THE
-#      requirement, not a detail. GitHub's `latest` skips both, and
-#      releases/latest/download/appcast.json is the only URL a shipped Forge ever
-#      asks for, so either flag turns a release that looks perfect on the
-#      releases page into one no user can see. Measured 2026-09-02: the
-#      repository's one existing release has BOTH set and has never been visible.
+#   8. THE AUTOMATIC RELEASE ENDS UP NEITHER A DRAFT NOR A PRERELEASE, AND ONLY
+#      AFTER ITS ASSETS ARE UP. Two requirements, not one, and they pull in
+#      opposite directions:
+#        * GitHub's `latest` skips drafts and prereleases, and
+#          releases/latest/download/appcast.json is the only URL a shipped Forge
+#          ever asks for, so either flag left set turns a release that looks
+#          perfect on the releases page into one no user can see. Measured
+#          2026-09-02: the repository's one existing release has BOTH set and has
+#          never been visible.
+#        * and `--latest` at CREATE time makes it resolvable before a single
+#          asset exists. The uploads are separate requests; in that window real
+#          users 404, and a job that dies mid-upload leaves an incomplete release
+#          as `latest` until somebody notices.
+#      So the automatic path STAGES A DRAFT, uploads all four assets, and then
+#      publishes in one `gh release edit`. This checks the shape AND the order.
 #   9. THE ACCEPTANCE STEP IS STILL AN ACCEPTANCE TEST. It must fetch the live
 #      URL an installed app fetches, and it must NOT be softened with
 #      --allow-unreleased, which tolerates "nothing is published" — the single
@@ -303,11 +312,12 @@ case "$AUTO_V$AUTO_TAG" in
 esac
 
 # ═════════════════════════════════════════════════════════════════════════════
-say "8. the automatic release is NEITHER a draft NOR a prerelease"
+say "8. the automatic release becomes visible, and only after its assets are up"
 
-# Read the actual command out of the workflow rather than asserting on a
-# comment. `--target` is what distinguishes the automatic create (which makes the
-# tag) from the tag path's create (which is deliberately a draft).
+# Read the actual commands out of the workflow rather than asserting on a
+# comment, and read them WITH THEIR LINE NUMBERS, because the order is half the
+# requirement. `--target` is what distinguishes the automatic create (which makes
+# the tag) from the tag path's create.
 #
 # BACKSLASH CONTINUATIONS ARE JOINED FIRST. Reading one grep line found
 # `--target` and missed the `--latest` on the following line, and would equally
@@ -315,7 +325,7 @@ say "8. the automatic release is NEITHER a draft NOR a prerelease"
 # whole failure this check exists for. `index()` rather than a regex so no `$` or
 # `"` needs escaping into a shell string into an awk pattern.
 AUTO_CREATE="$(LC_ALL=C awk '
-  index($0, "gh release create \"$TAG\" --target") {
+  index($0, "gh release create \"$TAG\" --draft --target") {
     buf = $0; sub(/^[ \t]+/, "", buf)
     while (buf ~ /\\$/) {
       sub(/\\[ \t]*$/, "", buf)
@@ -323,24 +333,48 @@ AUTO_CREATE="$(LC_ALL=C awk '
       sub(/^[ \t]+/, " ", nl)
       buf = buf nl
     }
-    print buf; exit
+    print NR ": " buf; exit
   }' "$WF")"
 if [ -z "$AUTO_CREATE" ]; then
-  bad "no automatic 'gh release create \"\$TAG\" --target ...' in $WF — nothing publishes on green"
+  bad "no automatic 'gh release create \"\$TAG\" --draft --target ...' in $WF — nothing stages a release on green"
 else
   say "   $AUTO_CREATE"
+  # It is staged INVISIBLE on purpose. --latest or a missing --draft here would
+  # make releases/latest resolve before any asset is attached.
   case "$AUTO_CREATE" in
-    *--draft*)
-      bad "the automatic path creates a DRAFT. GitHub's 'latest' skips drafts, so releases/latest/download/appcast.json stays a 404 and no installed copy can ever see the release" ;;
+    *--latest*)
+      bad "the automatic CREATE passes --latest, so releases/latest resolves to a release with NO assets until the uploads finish — a real user in that window gets a 404, and a job that dies mid-upload leaves it that way" ;;
     *--prerelease*)
-      bad "the automatic path marks the release as a PRERELEASE. GitHub's 'latest' skips prereleases too" ;;
+      bad "the automatic create marks the release as a PRERELEASE; GitHub's 'latest' skips prereleases" ;;
     *)
-      ok "it passes neither --draft nor --prerelease" ;;
+      ok "the automatic path STAGES a draft — invisible to 'latest' until it is complete" ;;
   esac
-  case "$AUTO_CREATE" in
-    *--latest*) ok "and it marks the release as 'latest' explicitly rather than relying on the API default" ;;
-    *)          bad "the automatic create does not pass --latest; the one property the whole feature turns on is left to a default" ;;
-  esac
+fi
+
+# ...and exactly one command publishes it, in the create branch, AFTER both
+# uploads. Line numbers, because "the right commands in the wrong order" is the
+# defect this half exists for and no set of greps can see it.
+# The region is the create branch itself: from its `gh release create` down to
+# the `STATE=created` that closes it. Scoping matters — the pushed-tag path at
+# the bottom of the file uploads too, and an unscoped search reads ITS upload as
+# the last one and reports a false failure.
+CREATE_LINE="${AUTO_CREATE%%:*}"
+END_LINE="$(LC_ALL=C awk -v lo="${CREATE_LINE:-0}" '
+  NR > lo && $0 ~ /^[ \t]*STATE=created[ \t]*$/ { print NR; exit }' "$WF")"
+PUBLISH_LINE="$(LC_ALL=C awk -v lo="${CREATE_LINE:-0}" -v hi="${END_LINE:-0}" '
+  NR > lo && NR < hi && index($0, "gh release edit \"$TAG\" --draft=false --prerelease=false --latest") { print NR; exit }' "$WF")"
+LAST_UPLOAD="$(LC_ALL=C awk -v lo="${CREATE_LINE:-0}" -v hi="${END_LINE:-0}" '
+  NR > lo && NR < hi && index($0, "gh release upload \"$TAG\"") { n = NR } END { print n+0 }' "$WF")"
+if [ -z "$END_LINE" ]; then
+  bad "could not find the end of the automatic create branch (STATE=created) in $WF"
+elif [ -z "$PUBLISH_LINE" ]; then
+  bad "nothing runs 'gh release edit --draft=false --prerelease=false --latest' — the staged draft would never be published and no installed copy could see it"
+elif [ "$LAST_UPLOAD" -eq 0 ]; then
+  bad "no 'gh release upload' follows the automatic create — the release would be published empty"
+elif [ "$PUBLISH_LINE" -lt "$LAST_UPLOAD" ]; then
+  bad "the release is published (line $PUBLISH_LINE) BEFORE its last asset is uploaded (line $LAST_UPLOAD) — releases/latest would resolve to an incomplete release"
+else
+  ok "it is published at line $PUBLISH_LINE, after the last upload at line $LAST_UPLOAD, with --draft=false --prerelease=false --latest"
 fi
 
 # The two flags are re-read from the API after publishing, because `gh release
@@ -351,7 +385,10 @@ LC_ALL=C grep -q 'isDraft,isPrerelease' "$WF" \
 
 # The DRAFT path must survive: it is the human escape hatch, and losing it would
 # mean a human can no longer stage a release before anyone sees it.
-LC_ALL=C grep -qE 'gh release create "\$TAG" --draft' "$WF" \
+# `--draft --title`, not just `--draft`: the automatic path now stages a draft
+# too (`--draft --target`), and a grep that both lines satisfy would report the
+# human escape hatch as present after it had been deleted.
+LC_ALL=C grep -qE 'gh release create "\$TAG" --draft --title' "$WF" \
   && ok "the pushed-tag path still creates a DRAFT for a human to publish" \
   || bad "the pushed-tag path no longer creates a draft — the manual escape hatch is gone"
 
@@ -441,12 +478,18 @@ if [ "${1:-}" = "--mutations" ]; then
   # Each of these is a change that leaves the workflow valid YAML, leaves the job
   # green, and silently takes the product back to where it was on 2026-09-02: a
   # release that exists and that no installed copy can see.
-  run_mutation "the automatic release goes out as a DRAFT" \
+  run_mutation "the automatic release is never taken OUT of draft" \
     ".github/workflows/desktop-release.yml" \
-    's|gh release create "\$TAG" --target "\$GITHUB_SHA" --title|gh release create "$TAG" --draft --target "$GITHUB_SHA" --title|'
+    '/gh release edit "\$TAG" --draft=false --prerelease=false --latest/d'
   run_mutation "the automatic release goes out marked PRERELEASE" \
     ".github/workflows/desktop-release.yml" \
-    's|gh release create "\$TAG" --target "\$GITHUB_SHA" --title|gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title|'
+    's|gh release create "\$TAG" --draft --target "\$GITHUB_SHA" --title|gh release create "$TAG" --draft --prerelease --target "$GITHUB_SHA" --title|'
+  run_mutation "the release is made visible BEFORE its assets are uploaded" \
+    ".github/workflows/desktop-release.yml" \
+    's|^\([[:space:]]*\)gh release upload "\$TAG" "\$ZIP" "\$ZIP.sha256" "\$REPORT" --clobber$|\1gh release edit "$TAG" --draft=false --prerelease=false --latest\n\1gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber|'
+  run_mutation "the human escape hatch stops creating a draft" \
+    ".github/workflows/desktop-release.yml" \
+    's|gh release create "\$TAG" --draft --title|gh release create "$TAG" --title|'
   run_mutation "the automatic tag stops being the tag the payload URL enters" \
     ".github/workflows/desktop-release.yml" \
     's|^\([[:space:]]*\)TAG="v\${V}"$|\1TAG="release-${V}"|'

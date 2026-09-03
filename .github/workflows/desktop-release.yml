@@ -6,7 +6,10 @@ name: Desktop Release (macOS arm64)
 #
 #   * On a PUSH TO archdisc that goes green, it PUBLISHES a real GitHub Release
 #     automatically — draft:false, prerelease:false — and then proves against the
-#     live API and the live download URL that an installed copy can see it.
+#     live API and the live download URL that an installed copy can see it. It
+#     stages that release as a draft while the four assets upload and publishes
+#     it in one edit at the end, so `releases/latest` never resolves to a release
+#     that is missing the file the app came to read.
 #   * On a pushed TAG (a human's `git push origin v1.2.3`) it attaches the zip to
 #     that tag's release as a DRAFT, unchanged. That is the manual escape hatch.
 #   * On a manual dispatch it does everything EXCEPT publish.
@@ -60,12 +63,34 @@ name: Desktop Release (macOS arm64)
 #   THE PAYLOAD IT NAMES, AND CHECK ITS DIGEST — and a final step fails the job
 #   if the publish path was skipped rather than run.
 #
+#   AND THAT ACCEPTANCE TEST IS ITSELF REHEARSED BEFORE IT EVER RUNS FOR REAL.
+#   Every step below marked ★ is gated on a push to archdisc, so until the first
+#   merge none of them had executed even once, and the first execution would have
+#   been the one that published to users — this file's own original defect, one
+#   layer in. forge-desktop/test/release_publish_selftest.sh EXTRACTS the shell
+#   out of this YAML and runs it against a stubbed `gh` and `curl` that reproduce
+#   GitHub's `latest` rule: the version derivation including the shallow clone,
+#   the kernel gate's three answers, first publish, re-run no-op, partial repair,
+#   tag collision, both ordering refusals, a `create` that exits 0 having made a
+#   draft, and each way a release can be invisible. kernel-tests.yml runs it with
+#   --mutations on every PR.
+#
 # ── THE THREE PATHS ──────────────────────────────────────────────────────────
 #   1. PUSH TO archdisc  → AUTOMATIC PUBLICATION. Builds, packages, measures,
-#      then creates tag v<version> at this commit and a release that is NEITHER
-#      a draft NOR a prerelease, carrying the zip, its .sha256, the dryrun report
-#      and appcast.json. Then it verifies against the live API that
+#      then creates tag v<version> at this commit and a release carrying the zip,
+#      its .sha256, the dryrun report and appcast.json — staged as a DRAFT while
+#      those four upload, then published in ONE edit as NEITHER a draft NOR a
+#      prerelease and marked `latest`. Then it verifies against the live API that
 #      `releases/latest` resolves to exactly that release.
+#
+#      The brief draft is not caution, it is the fix for a real window: with
+#      `--latest` passed at CREATE time the release resolves for every installed
+#      copy BEFORE a single asset exists, and the uploads that follow are
+#      separate requests. A user polling in that window 404s, and a job that dies
+#      mid-upload leaves an incomplete release as `latest` until somebody
+#      notices. A draft is invisible to `latest` — the same property that made
+#      this repository's one existing release unreachable, used deliberately and
+#      briefly as a staging area.
 #
 #      Re-running the same commit publishes NOTHING SECOND: the version is a
 #      function of the commit (see "Derive the version"), so the tag is the same
@@ -119,13 +144,22 @@ name: Desktop Release (macOS arm64)
 #      to be updated.
 #
 # ── THE BRAKE ────────────────────────────────────────────────────────────────
-# Repository variable FORGE_AUTORELEASE set to the exact string `off` stops path
-# 1 publishing, while leaving the build, the measurements and the dry-run
-# artifact intact. Unset (the default) means ON. The state is printed in every
-# run and written to the job summary, and the final step below refuses to let a
-# skip pass unremarked:
+# Repository variable FORGE_AUTORELEASE set to `off` stops path 1 publishing,
+# while leaving the build, the measurements and the dry-run artifact intact.
+# Unset (the default) means ON. The state is printed in every run and written to
+# the job summary, and the final step below refuses to let a skip pass
+# unremarked:
 #     gh variable set FORGE_AUTORELEASE --body off    # stop auto-publishing
 #     gh variable delete FORGE_AUTORELEASE            # resume
+#
+# * A VALUE THAT IS NEITHER `off` NOR `on` FAILS THE BUILD rather than being
+#   ignored. This is the one switch in the file whose failure DIRECTION matters:
+#   a brake that only recognises the exact string `off` fails OPEN on a typo --
+#   somebody types `OFF`, `false` or `0` to stop a publication, sees the variable
+#   set, and the next merge ships to every installed copy anyway. Case and
+#   surrounding whitespace are forgiven because that is how the mistake is
+#   actually made; a different word is refused, because guessing what `disabled`
+#   was meant to mean is how a brake becomes advisory.
 #
 # ── TWO BLOCKERS A HUMAN MUST DECIDE ON BEFORE PUBLISHING ────────────────────
 #   * AN OS FLOOR SET BY SOMEBODY ELSE'S BINARIES. A Homebrew bottle carries the
@@ -253,6 +287,13 @@ jobs:
           # (`gh api repos/satvikOS/Forge --jq .size` -> 533985 KB), so this adds
           # roughly a minute to a job whose build is 40-90.
           fetch-depth: 0
+          # This job raises itself to `contents: write`, and actions/checkout
+          # otherwise leaves that token in .git/config for every later step and
+          # every process they spawn -- including a 40-minute CMake build that
+          # runs third-party code. Nothing here needs it: the only writes go
+          # through `gh` with an explicit GH_TOKEN, and the one git command used
+          # (`rev-list --count`) reads the local clone.
+          persist-credentials: false
 
       - name: Preflight — does this ref carry the desktop release path?
         # This file lives on the default branch so the workflow can be
@@ -411,7 +452,27 @@ jobs:
           # The brake. Read here so its state is recorded on EVERY run, including
           # the runs where it changes nothing — a switch you only hear about when
           # it fires is a switch nobody remembers is set.
-          BRAKE="${FORGE_AUTORELEASE:-}"
+          #
+          # ★ AN UNRECOGNISED VALUE IS A RED BUILD, NOT A QUIET 'ON'. A brake
+          # whose only stopping value is the exact string `off` fails OPEN on a
+          # typo: someone types `OFF`, `false`, `0` or `off ` to stop a
+          # publication, sees the variable set, and the next merge publishes to
+          # every user anyway. That is the one direction this switch must never
+          # fail in, so anything that is neither `off` nor `on` stops the run
+          # instead of being ignored. Case and surrounding space are forgiven
+          # because they are how the mistake is actually made; a different WORD
+          # is not, because guessing what someone meant by `disabled` is how a
+          # brake becomes advisory.
+          BRAKE="$(printf '%s' "${FORGE_AUTORELEASE:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+          case "$BRAKE" in
+            ''|off|on) ;;
+            *) echo "::error::repository variable FORGE_AUTORELEASE is '${FORGE_AUTORELEASE}'," \
+                    "which is neither 'off' nor 'on'. Refusing to guess: if that was meant to" \
+                    "STOP auto-publishing it has not, and this build would have published to" \
+                    "every installed copy. Set it to exactly 'off', or delete it to resume:" \
+                    "gh variable set FORGE_AUTORELEASE --body off | gh variable delete FORGE_AUTORELEASE"
+               exit 1 ;;
+          esac
           if [ "$MODE" = "auto" ] && [ "$BRAKE" = "off" ]; then
             MODE=brake
           fi
@@ -663,6 +724,20 @@ jobs:
         #                           was superseded by a newer commit, whose own build
         #                           will publish. Self-healing, because the newest
         #                           commit is the one nothing supersedes.
+        #                           * THAT TOLERANCE HAS TO REACH THE TWO STEPS
+        #                           AFTER THIS ONE OR IT DOES NOT EXIST, AND IT
+        #                           FIRST DID NOT. The acceptance step's `if:`
+        #                           stopped one clause short of the publish
+        #                           step's, so on `skip` it ran anyway, asked
+        #                           releases/latest for a version nobody had
+        #                           published, and failed the job after twelve
+        #                           retries. MEASURED the same day: 9 of the last
+        #                           15 archdisc pushes had kernel-tests
+        #                           CANCELLED, so the "tolerated" outcome was the
+        #                           COMMON one and it was never once reachable.
+        #                           Both later steps now carry `gate == 'go'`,
+        #                           and the final proof step ANNOUNCES the skip
+        #                           instead of demanding a publication.
         #   completed/<other>    -> FAIL LOUD. A red job is visible; a skipped one is
         #                           not, and a correctness failure must never be quiet.
         #
@@ -791,7 +866,98 @@ jobs:
             test -f "$f" || { echo "::error::$f is missing; refusing to publish a partial release"; exit 1; }
           done
 
-          # ── does this tag already exist? ───────────────────────────────────
+          # ── ORDERING, AND WHY BOTH BRANCHES BELOW NEED IT ──────────────────
+          # `--latest` MOVES GitHub's pointer; it is never merely tidying. The
+          # release this step marks `latest` is the one every new download and
+          # every installed copy's update check resolves to, so the comparison
+          # against what is ALREADY published has to guard the existing-release
+          # branch as well as the create branch. Without it, re-running a
+          # superseded commit's workflow -- one click in the Actions UI -- drags
+          # `latest` BACKWARDS to an older build, and every check in this job
+          # still passes, because the acceptance step below only asks whether
+          # `latest` names THIS run's version, which after such a re-run it does.
+          #
+          #   strict     creating: the new version must order strictly ABOVE the
+          #              published one, or it is a release the updater ignores.
+          #   not-below  existing: equal is the ordinary re-run, where `latest`
+          #              already IS this tag. Only BELOW is refused.
+          assert_ordering() {   # $1 = published tag, $2 = our tag, $3 = strict|not-below
+            python3 - "$1" "$2" "$3" <<'MONOTONIC'
+          import re, sys
+          def core(t):
+              m = re.match(r'^v?(\d+)\.(\d+)\.(\d+)', t.strip())
+              if not m:
+                  sys.stderr.write("cannot read a major.minor.patch out of %r\n" % t)
+                  sys.exit(1)
+              return tuple(int(x) for x in m.groups())
+          prev, new, how = sys.argv[1], sys.argv[2], sys.argv[3]
+          bad = core(new) <= core(prev) if how == "strict" else core(new) < core(prev)
+          if bad:
+              sys.stderr.write(
+                  "the version this run would mark as `latest` (%s) does not order above the\n"
+                  "one that is already published (%s). GitHub's `latest` is the only release an\n"
+                  "installed copy can resolve, so this would either hand every user an OLDER\n"
+                  "build or publish one they all ignore. Raise FORGE_VERSION_LINE, or do not\n"
+                  "re-run a superseded commit's workflow.\n" % (new, prev))
+              sys.exit(1)
+          MONOTONIC
+          }
+
+          # Read ONCE, and used by whichever branch runs. `|| true` because a 404
+          # here is the legitimate pre-first-release state, not an error.
+          PREV="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          if [ -n "${PREV:-}" ]; then
+            echo "currently published latest: $PREV"
+          else
+            echo "no published release yet — this would be the first one"
+          fi
+
+          # ── DOES THE TAG ALREADY POINT SOMEWHERE ELSE? ─────────────────────
+          # Asked about the GIT REF, unconditionally, and BEFORE the release is
+          # looked up. It used to be asked only when a RELEASE already existed,
+          # which left the worse half open: a tag that exists with NO release
+          # went straight to `gh release create`, and `--target` is IGNORED when
+          # the tag is already there -- so this build's zip would be attached to
+          # a release pointing at somebody else's commit, and every check
+          # downstream would still pass, because the appcast, the digest and the
+          # payload are all self-consistent. The only wrong thing would be which
+          # source the release claims to be.
+          # 404 is the ONLY tolerated failure here, and it has to be told apart
+          # from every other one. `|| echo {}` swallowed all of them alike, so a
+          # rate limit or a five-second API outage read as "the tag does not
+          # exist" and this check -- the one that stops a build being published
+          # under a tag naming a different commit -- silently passed. A check
+          # that cannot ask must fail, not assume.
+          REF_ERR="${RUNNER_TEMP:-/tmp}/tagref.err"
+          if REF_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>"$REF_ERR")"; then
+            :
+          elif grep -q '404' "$REF_ERR"; then
+            REF_JSON='{}'          # the tag genuinely does not exist yet
+          else
+            sed 's/^/  /' "$REF_ERR" >&2
+            echo "::error::could not read the git ref for $TAG, and the failure above is not" \
+                 "a 404. Refusing to publish: this is the check that stops a build going out" \
+                 "under a tag that names a different commit, and skipping it because the API" \
+                 "was briefly unreachable is how that check stops existing."
+            exit 1
+          fi
+          OBJ_TYPE="$(printf '%s' "$REF_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("object",{}).get("type",""))')"
+          OBJ_SHA="$(printf '%s' "$REF_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("object",{}).get("sha",""))')"
+          if [ "$OBJ_TYPE" = "tag" ]; then
+            # An ANNOTATED tag's ref points at the tag object, not the commit.
+            OBJ_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${OBJ_SHA}" --jq '.object.sha')"
+          fi
+          if [ -n "$OBJ_SHA" ] && [ "$OBJ_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::$TAG already exists and points at $OBJ_SHA, not this commit" \
+                 "($GITHUB_SHA). Either two commits have derived the same version -- the" \
+                 "commit count is no longer unique because history was rewritten or" \
+                 "FORGE_VERSION_LINE was changed back -- or somebody created this tag by" \
+                 "hand. Publishing here would ship this build under a tag that names a" \
+                 "different source. Bump FORGE_VERSION_LINE."
+            exit 1
+          fi
+
+          # ── does this tag already have a RELEASE? ──────────────────────────
           if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
             EXISTS=yes
           else
@@ -799,30 +965,13 @@ jobs:
           fi
 
           if [ "$EXISTS" = "yes" ]; then
-            # A release under our tag can only have come from an earlier run of
-            # THIS step on THIS commit -- unless the commit count has been made
-            # non-unique by a rewritten history, in which case two different
-            # commits want the same version and silently reusing the release
-            # would publish neither. Check rather than assume.
-            REF_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>/dev/null || echo '{}')"
-            OBJ_TYPE="$(printf '%s' "$REF_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("object",{}).get("type",""))')"
-            OBJ_SHA="$(printf '%s' "$REF_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("object",{}).get("sha",""))')"
-            if [ "$OBJ_TYPE" = "tag" ]; then
-              OBJ_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${OBJ_SHA}" --jq '.object.sha')"
-            fi
-            if [ -n "$OBJ_SHA" ] && [ "$OBJ_SHA" != "$GITHUB_SHA" ]; then
-              echo "::error::$TAG already exists and points at $OBJ_SHA, not this commit" \
-                   "($GITHUB_SHA). Two commits have derived the same version, which means" \
-                   "the commit count is no longer unique -- history was rewritten, or" \
-                   "FORGE_VERSION_LINE was changed back. Publishing here would silently" \
-                   "ship neither build. Bump FORGE_VERSION_LINE."
-              exit 1
-            fi
+            # Past the ref check above, a release under our tag can only have
+            # come from an earlier run of THIS step on THIS commit.
             echo "release $TAG already exists for this commit — not creating a second one"
-            # Idempotent, and it is the requirement rather than tidying: if an
-            # earlier run or a human left either flag set, this release is not
-            # `latest` and no installed copy can see it.
-            gh release edit "$TAG" --draft=false --prerelease=false --latest
+            # ASSETS FIRST, THE POINTER LAST -- the same order as the create
+            # branch below, and for the same reason: this release may already be
+            # `latest`, and repairing it by flipping the flags BEFORE re-uploading
+            # would widen the very window the repair exists to close.
             HAVE="$(gh release view "$TAG" --json assets --jq '[.assets[].name] | join(" ")')"
             MISSING=""
             for f in "$ZIP" "$ZIP.sha256" "$REPORT" "$APPCAST"; do
@@ -838,46 +987,54 @@ jobs:
               gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
               STATE=repaired
             fi
+            # Only now may it be the release every installed copy resolves.
+            # Idempotent, and it is the requirement rather than tidying: if an
+            # earlier run or a human left either flag set, this release is not
+            # `latest` and no installed copy can see it. Guarded, because the
+            # same command that REPAIRS a release left as a draft is the command
+            # that STEALS `latest` from a newer one.
+            if [ -n "${PREV:-}" ] && [ "$PREV" != "$TAG" ]; then
+              assert_ordering "$PREV" "$TAG" not-below
+            fi
+            gh release edit "$TAG" --draft=false --prerelease=false --latest
           else
             # ── the version must order ABOVE what users already have ─────────
             # One test that catches a shallow clone, a rewritten history and a
             # lowered FORGE_VERSION_LINE alike. A release that does not order
             # above the published one is a release the updater ignores, and the
             # only place that would ever be noticed is a user's machine.
-            PREV="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
             if [ -n "${PREV:-}" ]; then
-              echo "currently published latest: $PREV"
-              python3 - "$PREV" "$TAG" <<'MONOTONIC'
-          import re, sys
-          def core(t):
-              m = re.match(r'^v?(\d+)\.(\d+)\.(\d+)', t.strip())
-              if not m:
-                  sys.stderr.write("cannot read a major.minor.patch out of %r\n" % t)
-                  sys.exit(1)
-              return tuple(int(x) for x in m.groups())
-          prev, new = sys.argv[1], sys.argv[2]
-          if core(new) <= core(prev):
-              sys.stderr.write(
-                  "the version about to be published (%s) does NOT order above the one that\n"
-                  "is already published (%s). Publishing it would create a release every\n"
-                  "installed copy ignores. Raise FORGE_VERSION_LINE in this workflow.\n"
-                  % (new, prev))
-              sys.exit(1)
-          MONOTONIC
-            else
-              echo "no published release yet — this is the first one"
+              assert_ordering "$PREV" "$TAG" strict
             fi
 
+            # ── CREATED AS A DRAFT ON PURPOSE, AND PUBLISHED THREE LINES ON ──
+            # `--latest` at CREATE time makes the release resolvable by every
+            # installed copy BEFORE a single asset exists, and the uploads that
+            # follow are three separate HTTP requests that can fail or be slow.
+            # In that window releases/latest/download/appcast.json 404s for real
+            # users, and if the job then dies the release stays `latest` and
+            # incomplete until somebody notices. A draft is invisible to
+            # GitHub's `latest` -- the same property that made the repository's
+            # one existing release unreachable is, used deliberately and briefly,
+            # exactly the staging area this needs.
+            #
+            # So the ONLY difference from the tag path's draft is that this one
+            # is taken out of draft automatically, after the assets are up. The
+            # flags that decide whether anyone can see it are set in ONE place,
+            # last, and re-read from the API immediately after.
+            #
             # --target creates the tag at this commit as part of creating the
             # release, so no `git push` and no write to a ref happens here.
-            # Neither --draft nor --prerelease is passed, and --latest is passed
-            # explicitly rather than left to the API default, because those two
-            # booleans ARE the feature.
-            echo "creating PUBLISHED release $TAG at $GITHUB_SHA"
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "Forge $TAG" \
-              --notes-file "$NOTES" --latest
+            echo "staging release $TAG at $GITHUB_SHA as a draft"
+            gh release create "$TAG" --draft --target "$GITHUB_SHA" --title "Forge $TAG" \
+              --notes-file "$NOTES"
             gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
             gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
+            # Complete. Publish it: neither a draft nor a prerelease, and
+            # `--latest` explicit rather than left to the API's date heuristic,
+            # because those two booleans ARE the feature.
+            echo "all four assets attached — publishing $TAG as latest"
+            gh release edit "$TAG" --draft=false --prerelease=false --latest
             STATE=created
           fi
 
@@ -913,11 +1070,29 @@ jobs:
         # `releases/latest` can lag a publish by a few seconds, so the first
         # fetch is retried. Everything after it is one-shot: a retry loop around
         # an assertion is a slow way to hide a failure.
+        #
+        # ── WHY THIS CONDITION CARRIES THE KERNEL GATE TOO ───────────────────
+        # It used to stop at `mode == 'auto'`, one clause short of the publish
+        # step's condition, and that single missing clause cancelled the kernel
+        # gate's whole design. kgate answers `skip` when kernel-tests was
+        # CANCELLED -- documented above as "NOT an error ... self-healing" --
+        # and on that answer the publish step is skipped and NOTHING is
+        # published. This step would then still run, fetch releases/latest,
+        # find it does not name a version nobody published, and fail the job
+        # after twelve retries. The tolerated outcome was unreachable.
+        #
+        # That is not a rare corner. MEASURED 2026-09-03 against this repo:
+        # 9 of the last 15 archdisc pushes had kernel-tests CANCELLED, because
+        # kernel-tests keys cancel-in-progress on the ref and a merge train
+        # supersedes the previous commit as a matter of course. A red build on
+        # 60% of merges for a reason that resolves itself is the silent-block
+        # failure this design exists to avoid, wearing a red tick instead.
         if: >-
           github.event_name == 'push'
           && github.ref == 'refs/heads/archdisc'
           && github.ref_type != 'tag'
           && steps.ver.outputs.mode == 'auto'
+          && steps.kgate.outputs.gate == 'go'
         id: acceptance
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1087,16 +1262,18 @@ jobs:
         # it then asserts that on a push to archdisc the publish and acceptance
         # steps did not merely get skipped. The only tolerated skip is the
         # explicit FORGE_AUTORELEASE brake, and even that is announced.
+        id: prove
         shell: bash
         env:
           MODE: ${{ steps.ver.outputs.mode }}
+          KGATE: ${{ steps.kgate.outputs.gate }}
           PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
           PUBLISH_STATE: ${{ steps.publish.outputs.state }}
           ACCEPT_OUTCOME: ${{ steps.acceptance.outcome }}
         run: |
           set -uo pipefail
           echo "event=${GITHUB_EVENT_NAME} ref=${GITHUB_REF} ref_type=${GITHUB_REF_TYPE}"
-          echo "mode=${MODE} publish=${PUBLISH_OUTCOME}/${PUBLISH_STATE:-<none>} acceptance=${ACCEPT_OUTCOME}"
+          echo "mode=${MODE} kgate=${KGATE:-<none>} publish=${PUBLISH_OUTCOME}/${PUBLISH_STATE:-<none>} acceptance=${ACCEPT_OUTCOME}"
 
           if [ "${GITHUB_EVENT_NAME}" != "push" ] || [ "${GITHUB_REF}" != "refs/heads/archdisc" ]; then
             echo "not an archdisc push — nothing was expected to publish."
@@ -1105,6 +1282,21 @@ jobs:
           if [ "${MODE}" = "brake" ]; then
             echo "::warning::FORGE_AUTORELEASE is 'off', so this green build published" \
                  "NOTHING and installed copies will not see it. Unset the variable to resume."
+            exit 0
+          fi
+          # The kernel gate's third answer. `skip` means kernel-tests was
+          # CANCELLED for this commit because a newer push superseded it, so this
+          # commit deliberately publishes nothing and the superseding commit's own
+          # build publishes instead -- the newest commit is the one nothing
+          # supersedes, which is what makes it self-healing. Tolerated here for
+          # the same reason the brake is: announced, never silent. Any OTHER
+          # non-'go' answer never reaches this step, because kgate exits 1 on a
+          # red kernel run and no step below it runs.
+          if [ "${KGATE:-}" = "skip" ]; then
+            echo "::warning::kernel-tests was cancelled/skipped for this commit (superseded by" \
+                 "a newer push), so this build published NOTHING. The superseding commit's own" \
+                 "build publishes instead. If this was the LAST push to archdisc, re-run this" \
+                 "workflow once kernel-tests has finished for this commit."
             exit 0
           fi
           bad=0
@@ -1119,4 +1311,3 @@ jobs:
             exit 1
           fi
           echo "publish path ran: ${PUBLISH_STATE}, acceptance ${ACCEPT_OUTCOME}."
-

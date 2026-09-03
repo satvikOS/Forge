@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+"""A `curl` stub that serves what the gh stub has "published", so the acceptance
+step's live fetch is exercised for real.
+
+`releases/latest/download/<asset>` resolves ONLY to a release that is neither a
+draft nor a prerelease -- which is the exact GitHub rule the whole feature turns
+on, so the rehearsal reproduces it rather than assuming it.
+"""
+import json, os, shutil, sys
+STATE = os.environ["FORGE_SIM_STATE"]
+a = sys.argv[1:]
+url = next((x for x in a if x.startswith("http")), None)
+out = a[a.index("-o") + 1] if "-o" in a else None
+s = json.load(open(STATE))
+served = os.path.join(os.path.dirname(STATE), "served")
+
+def die(msg, code=22):
+    sys.stderr.write("curl: (%d) %s\n" % (code, msg)); sys.exit(code)
+
+if not url: die("no URL", 2)
+pub = [r for r in s["releases"] if not r["draft"] and not r["prerelease"]]
+lat = next((r for r in pub if r.get("latest")), pub[-1] if pub else None)
+
+if "/releases/latest/download/" in url:
+    if lat is None: die("The requested URL returned error: 404", 56)
+    name = url.rsplit("/", 1)[-1]; tag = lat["tag_name"]
+elif "/releases/download/" in url:
+    tail = url.split("/releases/download/", 1)[1]
+    tag, name = tail.split("/", 1)
+    r = next((r for r in s["releases"] if r["tag_name"] == tag), None)
+    if r is None or r["draft"] or r["prerelease"]:
+        die("The requested URL returned error: 404", 56)
+else:
+    die("unsupported url %s" % url, 2)
+
+src = os.path.join(served, tag, name)
+if not os.path.exists(src): die("The requested URL returned error: 404", 56)
+if out: shutil.copyfile(src, out)
+else: sys.stdout.write(open(src).read())
