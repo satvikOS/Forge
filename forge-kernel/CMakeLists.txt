@@ -391,6 +391,23 @@ set(OCCT_LIBS
 #   closed form is measurably NOT OCCT's answer (rel 2e-2 .. 9e-2), so the engine
 #   declines rather than return a plausible wrong solid. That is the next bounded target.
 #
+# ★ THE PIPESHELL ROW HAS ALSO SINCE MOVED, AND SO HAS THE WAY IT WAS SCORED.
+#   RE-MEASURED 2026-09-02 at 75d612c8, same 600 parts, stride 1, 0 part-level
+#   failures: FORGE_PIPESHELL_DROP_NATIVE reads 99.8% native against 100.0% OCCT
+#   with ONE part deleted (ho1190), not 51.5% and 291. Nothing was fixed to get
+#   there — the arc-chain and general-transport paths landed after f71ed98b and
+#   the table was simply never re-read, which is the cheapest way a ledger goes
+#   wrong. SEPARATELY, the "on ALL 309 both-build parts the two arms DISAGREE"
+#   claim recorded further down is RETRACTED: it was the AGREEMENT VECTOR, not the
+#   geometry. That vector includes the vertex-hull bbox and the face/edge/vertex
+#   counts, which are seam conventions; scored on volume+area+centre-of-mass
+#   instead, 567 of 597 agree and the 30 that do not are exactly the 30 where
+#   OCCT's own RightCorner answer is BRepCheck-INVALID. Full derivation at the
+#   option itself. ★ AND THE GATE STILL FAILS, for a reason no corpus row can
+#   show: all three call sites are GUIDED sweeps and this harness passes an empty
+#   guide list, so the 99.8% is measured on inputs the call sites do not produce.
+#   test/run_pipeshell_guided_gate.sh measures that half.
+#
 # ★ "THE NEXT BOUNDED TARGET" IS MEASURED AND IT IS NOT BOUNDED. Corrected
 #   2026-08-31 at 32ee7485 by test/thicken_cylpatch_probe.cpp, which links no
 #   forge object and asks only what OCCT's own answer IS on those 23 parts —
@@ -945,6 +962,83 @@ endif()
 #   The mitre-transport difference this header records is not an edge case; it is
 #   every part.
 #
+# ★★★ BOTH OF THE F NUMBERS ABOVE ARE STALE AND THE SECOND PARAGRAPH IS RETRACTED.
+#   They are kept rather than edited because the way they went wrong is the point.
+#   RE-MEASURED 2026-09-02 at 75d612c8 over the SAME 600 gold reference solids,
+#   stride 1, 0 part-level failures (test/run_corpus_ab_coverage.sh all,
+#   FAMILIES=PIPESHELL,PIPESHELL_RC):
+#
+#       FORGE_PIPESHELL_DROP_NATIVE       99.8      100.0        1/600       1.0000
+#
+#   Not 51.5% and not 291 parts — ONE part (ho1190). The engine acquired the
+#   arc-chain and general-transport paths after f71ed98b and the table was never
+#   re-read. A COVERAGE NUMBER IS A PROPERTY OF A COMMIT, NOT OF A FAMILY.
+#
+#   (1) THE 51.5% WAS FIVE MONTHS OF ENGINE WORK OUT OF DATE. The single survivor
+#   ho1190 is an 8-edge all-B-spline outline whose general-transport build misses
+#   its closed-form volume oracle by rel 1.46e-6 against a 1e-6 threshold. It is
+#   left DECLINED. The tolerance is anchored to the corpus A/B's own agreement
+#   tolerance (NativeLoftPipe.cpp:1610) and widening it by 46% to absorb the last
+#   part would be tuning the instrument to the result.
+#
+#   (2) "ALL 309 DISAGREE" WAS AN INSTRUMENT ARTEFACT, AND THIS IS THE USEFUL HALF.
+#   The A/B's agreement vector includes the VERTEX-HULL bounding box
+#   (corpus_ab_coverage.cpp:226) and the face/edge/vertex counts. Neither is a
+#   property of the SOLID; both are properties of where the SEAMS are. A solid of
+#   revolution carries every vertex on its seam, so native's 3-vertex and OCCT's
+#   6-vertex representations of the SAME point set report hulls differing by 126
+#   units on a 210-unit part while agreeing on volume to 12 figures. Re-scored
+#   against OCCT(RightCorner) on observables that have no convention to get wrong:
+#       volume + surface area + centre of mass, 1e-6 rel / 1e-9 x diag
+#       567 of 597 both-build parts AGREE
+#       the 30 that do not are EXACTLY the 30 on which OCCT's own RightCorner
+#       answer is BRepCheck_Analyzer-INVALID (set equality, not overlap)
+#   Native is VALID on all 599 it builds. So on every part where the incumbent
+#   produces a valid mitred solid, the native engine reproduces it. THE INCUMBENT
+#   IS NOT ALWAYS A WORKING BASELINE — the same thing §4.2 measured for
+#   MakeThickSolid, and it has to be measured rather than assumed.
+#   ★ AND THAT IS SETTLED BY A COMPARATOR WITH NO CONVENTION TO GET WRONG, not by
+#   a better-chosen vector — the vector above was chosen AFTER seeing the data, so
+#   on its own it would be special pleading. Family PIPESHELL_XOR in the same
+#   harness computes the SYMMETRIC DIFFERENCE VOLUME with TKBO booleans,
+#   |(A \ B) u (B \ A)|, which is zero iff the two solids occupy the same point
+#   set whatever their seams, counts or orientation. MEASURED at cc3877eb over the
+#   same 600, 0 part-level failures, 597 applicable:
+#       symmetric difference EXACTLY zero            581
+#       non-zero                                      15   <- ALL 15 are parts on
+#                                                            which OCCT's own answer
+#                                                            is BRepCheck-INVALID
+#   The 15 here and the 30 above are consistent and both are subsets of the same
+#   OCCT-invalid set: the vector comparison flags a part when volume/area/COM move
+#   at all, the boolean asks whether the POINT SETS differ, and on 15 of those 30
+#   the difference is real solid (12 of them 1.7%..87% of the part) while on the
+#   rest it is below the boolean's own resolution. Neither test flags a single part
+#   on which OCCT returned a VALID solid.
+#       timeout                                        1   (ho457)
+#   POSITIVE CONTROL, xor(A,A): EMPTY on 597/597, max volume 0 — a zero is
+#   reachable and the boolean does not fail closed on these solids.
+#   NEGATIVE CONTROL, xor(A, A translated by 1% of the part diagonal): non-empty on
+#   586/597, median 3.0% of part volume — the comparator can see a difference of
+#   the size that would matter.
+#   ★★ THE NUMBER TO QUOTE IS 574, NOT 581. On 10 parts the NEGATIVE CONTROL DID
+#   NOT FIRE (the shifted copy also differenced to empty), so on those a zero
+#   cannot be read as agreement — it is indistinguishable from the boolean failing.
+#   Intersecting "zero symmetric difference" with "negative control fired on THIS
+#   part" leaves 574 of 596 pairs proved identical by an instrument independently
+#   shown, on that same part, able to detect the difference. The 7 unproven
+#   overlaps are ho126, ho1309, ho408, ho542, ho655, ho722, ho995. A control that
+#   fails on part of the sample shrinks the claim; it does not get averaged away.
+#
+#   (3) AND THE GATE STILL DOES NOT PASS — for a reason the corpus cannot see.
+#   All three MakePipeShell call sites exist to serve GUIDED sweeps; an unguided
+#   sweep is family E's job. The corpus A/B passes an EMPTY guide list, so 99.8%
+#   is measured on an input distribution the call sites do not produce, and the
+#   native engine has no general guided pipe-shell. Nothing in the tree measured
+#   that: both smoke tests that drive a guided sweep (part_features_smoke.js:624,
+#   push07_classa_smoke.js:190) wrap the call in a try/catch that prints the
+#   exception and continues, so a build with no guided sweeping at all passes them
+#   unchanged. test/run_pipeshell_guided_gate.sh now measures it, two-sidedly.
+#
 # ★ ONE MEASURED CAPABILITY ADD, recorded here because it repeats the §4.2
 #   pattern: on a BENT spine OCCT's own MakePipeShell answer is INVALID.
 #   Measured, profile = the 10x10 square centred in z=0, spine
@@ -970,9 +1064,20 @@ endif()
 if(FORGE_NATIVE_BREP AND FORGE_PIPESHELL_DROP_NATIVE)
     add_compile_definitions(FORGE_PIPESHELL_DROP_NATIVE=1)
     message(WARNING "FORGE_PIPESHELL_DROP_NATIVE=ON — BRepOffsetAPI_MakePipeShell fallback compiled out "
-                    "(TKOffset family F, 7 symbols: 38 -> 31). TKOffset STILL LINKED and OCCT_CLOSURE "
-                    "UNCHANGED at 14. EVERY GUIDED sweep now THROWS — the native engine has no guided "
-                    "pipe-shell and never pretends to.")
+                    "(TKOffset family F, 7 symbols: 42 -> 35 measured on the built .node). TKOffset "
+                    "STILL LINKED and OCCT_CLOSURE UNCHANGED at 14. Nearly every GUIDED sweep now "
+                    "THROWS: the only guide the native engine accepts is one that is the spine RIGIDLY "
+                    "TRANSLATED, whose section law is the identity, so it reduces to the unguided sweep "
+                    "exactly. Any other guide is a named defer (guides_not_spine_translate) and becomes "
+                    "a thrown error here. ALSO: forge::part::sweepWithGuides throws for EVERY input "
+                    "under this option, guided or not — extractWires emits profile and spine both on "
+                    "the world Z=0 plane, so the section is never transverse to the spine and the "
+                    "native transport always declines. What that deletes at THAT entry point is a "
+                    "ZERO-VOLUME shell (measured: OCCT returns vol 0, area 46.523 where the true swept "
+                    "solid encloses 31.416), so the option turns a silently degenerate answer into a "
+                    "loud one. forge::classa::sweepWithGuides takes 3D wires and is the entry point "
+                    "where real guided capability is lost. All of this is gated two-sidedly by "
+                    "test/run_pipeshell_guided_gate.sh.")
 endif()
 
 # ── TKOffset FAMILY E — BRepOffsetAPI_MakePipe (authored 2026-08-28) ──────────────

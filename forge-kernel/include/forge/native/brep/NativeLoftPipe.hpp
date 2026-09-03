@@ -88,6 +88,25 @@
 //     * ANY guide wire (there is no native guided pipe-shell anywhere in the
 //       tree; reports/TKOFFSET_DECOMPOSITION.md §2 names family F the one
 //       genuine wall and this engine does not pretend otherwise);
+//       ★ NARROWED 2026-09-02, and the sentence above is kept rather than edited
+//       because it states the rule this is an exception TO. ONE guide is now
+//       ACCEPTED: a guide that is the spine RIGIDLY TRANSLATED. Under
+//       SetMode(guide, CurvilinearEquivalence) the guide is an auxiliary spine
+//       whose motion relative to the spine defines the section's rotation/scaling
+//       law; when it is a constant translation that law is the IDENTITY and the
+//       guided sweep IS the unguided sweep, exactly, for any profile. It is an
+//       identity, not an approximation, and it is confirmed on the incumbent:
+//       OCCT returns 50.265440 guided against 50.265482 unguided for the same
+//       input (8e-7, its own approximation noise). Edges are matched on the
+//       underlying CURVE, not just on endpoints — two arcs can share endpoints
+//       and bulge differently — so a LINE is pinned by its endpoints and a CIRCLE
+//       must also match in radius with a parallel axis; any other curve kind is
+//       declined. EVERY other guide still defers, now by the name
+//       `guides_not_spine_translate` rather than the blanket `guides_present`.
+//       The general guided sweep REMAINS the wall: a guide that spreads moves
+//       OCCT's answer by 2.4e-3 relative and this engine does not fake it.
+//       Two-sided gate: test/run_pipeshell_guided_gate.sh (10 checks, proved to
+//       FAIL 3 against the pre-change engine).
 //     * a spine that is not an open polyline of >= 1 LINE edges;
 //     * a profile that is none of the FIVE kinds this engine can sweep EXACTLY:
 //       a closed planar POLYGON wire; a full CIRCLE wire (family E only); a face
