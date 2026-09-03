@@ -64,6 +64,7 @@
 #include <BRepGProp.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
+#include <Geom2d_Curve.hxx>
 #include <ElCLib.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_Circle.hxx>
@@ -1022,6 +1023,9 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                 // (planeSystemLine + lineMeetQuadric), so they MUST lie on this
                 // ellipse. Checking it is what makes the section a cross-check of
                 // the vertex solve rather than a restatement of it.
+                // The curve the edge is finally built on. It is sec.curve unless a
+                // CLOSED rim has to be reversed to keep the old edge's sense.
+                Handle(Geom_Curve) secCurve = sec.curve;
                 const double lo2 = sec.curve->FirstParameter(), hi2 = sec.curve->LastParameter();
                 double d0c = 0.0, d1c = 0.0;
                 if (!curveParamAt(sec.curve, lo2, hi2, p0, t0, d0c) ||
@@ -1031,19 +1035,107 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     return defer("a wall edge on a cylinder does not pass through its own new vertices");
                 if (!(t1 > t0)) {
                     const double period = 2.0 * kPi;
-                    if (t1 < t0) t1 += period;
+                    // ── THE CLOSED RIM ──────────────────────────────────────
+                    // A bore that lies WHOLLY inside the drafted wall meets it in
+                    // a CLOSED ellipse: one vertex, used twice, so both endpoints
+                    // project to the SAME parameter and the range looks degenerate
+                    // rather than reversed. Measured on the corpus as t0 = t1 = 0
+                    // with BOTH residuals exactly 0 -- the signature of one point,
+                    // not of a failed projection. Such an edge spans the WHOLE
+                    // period. Distinguishing it from a genuinely reversed arc is
+                    // what v0.IsSame(v1) is for: closedness is read from the
+                    // TOPOLOGY, never inferred from the parameters, because a
+                    // short arc whose ends happen to round together would take the
+                    // same branch and silently become a full loop.
+                    if (v0.IsSame(v1)) {
+                        // ── AND ITS DIRECTION ───────────────────────────────
+                        // A closed rim has NO vertex order to take a direction
+                        // from -- v0 IS v1 -- so t0 + period is only half an
+                        // answer: it fixes the SPAN and leaves the SENSE free,
+                        // and the wrong sense is not a small error. Measured on
+                        // the (f) fixture: the pcurve ran u from 2*pi down to 0
+                        // while the face's two seam edges and its other rim
+                        // needed 0 up to 2*pi, so the 2-D wire read NotClosed and
+                        // the face BadOrientationOfSubshape -- every edge again
+                        // individually perfect. The sense is not a free choice
+                        // either: the OLD edge ran one way round this same hole
+                        // and the rebuilt one must run the same way, so the old
+                        // curve's own tangent at its start decides it, and the
+                        // section is reversed when the two oppose.
+                        gp_Pnt qOld, qNew;
+                        gp_Vec dOld, dNew;
+                        try {
+                            c3d->D1(lo, qOld, dOld);
+                            sec.curve->D1(t0, qNew, dNew);
+                        } catch (const Standard_Failure&) {
+                            return defer("a closed wall rim on a cylinder would not yield a tangent");
+                        }
+                        if (dOld.Magnitude() <= 0.0 || dNew.Magnitude() <= 0.0)
+                            return defer("a closed wall rim on a cylinder has a null tangent");
+                        if (dNew.Dot(dOld) < 0.0) {
+                            Handle(Geom_Curve) rev =
+                                Handle(Geom_Curve)::DownCast(sec.curve->Copy());
+                            if (rev.IsNull())
+                                return defer("a closed wall rim on a cylinder could not be reversed");
+                            rev->Reverse();
+                            double dRev = 0.0;
+                            if (!curveParamAt(rev, rev->FirstParameter(), rev->LastParameter(),
+                                              p0, t0, dRev) || dRev > resTol)
+                                return defer("a reversed closed wall rim does not pass through its own vertex");
+                            secCurve = rev;
+                        }
+                        t1 = t0 + period;
+                    }
+                    else if (t1 < t0)  t1 += period;
                     if (!(t1 > t0))
-                        return defer("a wall edge on a cylinder would have a non-increasing range");
+                        return defer("a wall edge on a cylinder would have a non-increasing range"
+                                     " [t0=" + std::to_string(t0) + " t1=" + std::to_string(t1) +
+                                     " lo=" + std::to_string(lo2) + " hi=" + std::to_string(hi2) +
+                                     " d0=" + std::to_string(d0c) + " d1=" + std::to_string(d1c) + "]");
+                }
+
+                // ── THE 2*pi BRANCH ─────────────────────────────────────────
+                // A cylinder's u is periodic, so the fitted pcurve is only
+                // determined UP TO a whole period, and cylinderPCurve picks the
+                // period whose u(t0) is nearest `uNear`. Leaving that at its 0.0
+                // default put the new pcurve on the [-pi, pi] branch while the
+                // face's untouched edges stayed on [pi/2, 3pi/2]: every endpoint
+                // was then exactly 2*pi from the neighbour it had to meet, the
+                // wire read Closed2d = NotClosed, and the SOLID was rejected as
+                // not BRepCheck-valid -- with no edge itself invalid, because
+                // each pcurve was individually perfect. The branch is not a free
+                // choice: the OLD edge already runs along this same cylinder and
+                // carries the pcurve the face's own 2-D domain is written in, so
+                // its u IS the answer. The draft moves this edge by the draft
+                // angle only, far under the half-period that would make the
+                // nearest-branch choice ambiguous.
+                double uNear = 0.0;
+                {
+                    double oa = 0.0, ob = 0.0;
+                    const Handle(Geom2d_Curve) oldPc =
+                        BRep_Tool::CurveOnSurface(TopoDS::Edge(oldE), cylFace, oa, ob);
+                    if (oldPc.IsNull())
+                        return defer("the old wall edge carries no pcurve on the cylinder to take a branch from");
+                    // Anchor on the old pcurve's START, not its midpoint. oldE is
+                    // taken FORWARD, so parameter `oa` is the vertex v0 that p0
+                    // replaces, and u(v0) is precisely the branch the new t0 has
+                    // to land on. The midpoint is not merely less direct, it is
+                    // AMBIGUOUS for the closed rim: that pcurve spans a whole
+                    // period, so its middle sits exactly half a period from both
+                    // candidate starts and the nearest-branch round() decides a
+                    // TIE -- measured landing the rim on [2*pi, 4*pi] beside seam
+                    // edges at 0 and 2*pi.
+                    uNear = oldPc->Value(oa).X();
                 }
 
                 const forge::pcurvefit::PCurveFit fit =
-                    forge::pcurvefit::cylinderPCurve(sec.curve, t0, t1, cylAx, radius, resTol);
+                    forge::pcurvefit::cylinderPCurve(secCurve, t0, t1, cylAx, radius, resTol, uNear);
                 if (fit.curve.IsNull())
                     return defer("the pcurve on the cylinder could not be built: " + fit.defer);
                 if (!(fit.maxDev3d >= 0.0) || fit.maxDev3d > resTol)
                     return defer("the fitted pcurve exceeds the declared deviation bound");
 
-                bb.MakeEdge(ne, sec.curve, std::max(tol, BRep_Tool::Tolerance(oldE)));
+                bb.MakeEdge(ne, secCurve, std::max(tol, BRep_Tool::Tolerance(oldE)));
                 CylPCurve rec;
                 rec.pc       = fit.curve;
                 rec.face     = cylFace;

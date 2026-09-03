@@ -12,6 +12,17 @@ requires, located at the call sites rather than estimated.
 neither engine drafts are 62 bspline+cylinder, 2 bspline, 2 cylinder, 2 cone — nothing is
 owed there.
 
+> **★ SUPERSEDED 2026-09-02.** Both numbers above have moved, and the quoted
+> sentence was wrong when it was written. The gap was **125**, not 73: the other
+> 52 decline on `the rebuilt solid is not BRepCheck-valid` with a **plane-only**
+> wall neighbour, so no pcurve work could reach them. The wall/cylinder meet is
+> now built and measured, paired over the same 565 parts:
+> **372/565 = 65.8 % -> 426/565 = 75.4 %, +54 gained, 0 lost, 0 disagreements**,
+> OCCT unchanged at 497/565 = 88.0 %. 71 parts remain: 52 plane (the drafted wall
+> crosses a feature, so the TOPOLOGY changes and this topology-preserving engine
+> cannot represent it) and 19 cylinder. See DRAFT_NATIVE_ENGINE.md, section
+> "2026-09-02".
+
 ## CORRECTION, 2026-09-03: it is THREE sites, not two
 
 This document first said "exactly two sites defer". **That was wrong**, and it was wrong in
@@ -100,3 +111,15 @@ A **PAIRED** native-vs-OCCT pass rate re-measured on the same 565 parts, reporte
 #177 reported 372/565 — never a projection from "73 parts are cylinders". Until that
 number exists, the correct statement remains: **`OCCT_CLOSURE` = 14, ZERO of 14 dropped**,
 and this changes DRAFT capability only, since TKGeomAlgo is already a free rider.
+
+**★ That number now exists (2026-09-02): 426/565 = 75.4 %, +54 paired, 0 lost, 0
+disagreements.** And the warning above earned itself — a projection from "73 parts
+are cylinders" would have been wrong twice over. It would have *over*-counted, because
+19 of the 73 still decline; and it would have *under*-counted the work, because the gap
+was never 73 in the first place but 125, the missing 52 being a plane-only defect that no
+pcurve work can touch.
+
+**`OCCT_CLOSURE` is STILL 14, ZERO of 14 dropped, and this run does not move it.**
+Coverage is not closure. TKOffset leaves at 42/42 symbols across all NINE of its
+families or not at all; this is family J, 6 symbols, and seven of the nine still fail
+their flip gate. Nothing here is a dependency drop.

@@ -1088,8 +1088,13 @@ option(FORGE_FILLING_DROP_NATIVE
 #     face/edge/vertex/shell counts are preserved by construction and asserted.
 #
 #   PROOF: forge-kernel/test/run_ab_native_draft_local.sh --mutations,
-#     213/213 assertions and 8/8 mutations red, over seven cases of which five
-#     carry BOTH a non-planar face and multi-wire faces. Observables: volume,
+#     256/256 assertions and 12/12 mutations red, over NINE cases of which five
+#     carry BOTH a non-planar face and multi-wire faces. Two of the nine were
+#     DEFER CONTROLS until the wall/cylinder meet was built: case(e), a bore
+#     breaking OUT through the drafted wall, and case(f), a bore lying WHOLLY
+#     INSIDE it. Each was promoted to the full observable vector rather than
+#     deleted, and the decline path they used to cover is kept by defer(e2) on a
+#     spherical neighbour, which really is still out of scope. Observables: volume,
 #     surface AREA, centre of mass, bounding box, four counts, Euler, GENUS and
 #     BRepCheck validity. TWO negative controls, because volume alone cannot
 #     validate geometry: an equal-VOLUME impostor (rejected on 7 observables) and
