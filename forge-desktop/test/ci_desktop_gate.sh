@@ -58,15 +58,11 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-# ── 2026-09-03: 48 -> 50. The frame gate gained mutations 13 and 14 with the
-#    model browser and the sketch tree -- the two panels that used to be the
-#    feature tree wearing another tab's name. 13 builds the browser from an
-#    EMPTY document, 14 answers the sketch tree from the document as it was
-#    BEFORE an edit. DERIVED on this tree, not incremented on faith:
-#    `awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh`
-#    prints 50, made of ir_pipeline 0 + document 8 + file_exchange 5 + frame 14 +
-#    copilot 8 + update 7 + click 8 + isolation 0.
-EXPECTED_MUTATIONS=50
+# ── 2026-09-03 MERGE: neither parent's number was taken. HEAD said 56, archdisc said
+#    50, and the file's own instruction is to COUNT run_desktop.sh's run_gate
+#    arguments on the MERGED tree. Measured: 58. This value has now been contested
+#    at four merges; measuring it is the only resolution that cannot silently test less.
+EXPECTED_MUTATIONS=58
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it
