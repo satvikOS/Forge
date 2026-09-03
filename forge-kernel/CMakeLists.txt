@@ -909,8 +909,37 @@ endif()
 #   produces a valid mitred solid, the native engine reproduces it. THE INCUMBENT
 #   IS NOT ALWAYS A WORKING BASELINE — the same thing §4.2 measured for
 #   MakeThickSolid, and it has to be measured rather than assumed.
-#   The convention-free comparator that settles it (symmetric-difference volume
-#   via TKBO, with both controls) is family PIPESHELL_XOR in the same harness.
+#   ★ AND THAT IS SETTLED BY A COMPARATOR WITH NO CONVENTION TO GET WRONG, not by
+#   a better-chosen vector — the vector above was chosen AFTER seeing the data, so
+#   on its own it would be special pleading. Family PIPESHELL_XOR in the same
+#   harness computes the SYMMETRIC DIFFERENCE VOLUME with TKBO booleans,
+#   |(A \ B) u (B \ A)|, which is zero iff the two solids occupy the same point
+#   set whatever their seams, counts or orientation. MEASURED at cc3877eb over the
+#   same 600, 0 part-level failures, 597 applicable:
+#       symmetric difference EXACTLY zero            581
+#       non-zero                                      15   <- ALL 15 are parts on
+#                                                            which OCCT's own answer
+#                                                            is BRepCheck-INVALID
+#   The 15 here and the 30 above are consistent and both are subsets of the same
+#   OCCT-invalid set: the vector comparison flags a part when volume/area/COM move
+#   at all, the boolean asks whether the POINT SETS differ, and on 15 of those 30
+#   the difference is real solid (12 of them 1.7%..87% of the part) while on the
+#   rest it is below the boolean's own resolution. Neither test flags a single part
+#   on which OCCT returned a VALID solid.
+#       timeout                                        1   (ho457)
+#   POSITIVE CONTROL, xor(A,A): EMPTY on 597/597, max volume 0 — a zero is
+#   reachable and the boolean does not fail closed on these solids.
+#   NEGATIVE CONTROL, xor(A, A translated by 1% of the part diagonal): non-empty on
+#   586/597, median 3.0% of part volume — the comparator can see a difference of
+#   the size that would matter.
+#   ★★ THE NUMBER TO QUOTE IS 574, NOT 581. On 10 parts the NEGATIVE CONTROL DID
+#   NOT FIRE (the shifted copy also differenced to empty), so on those a zero
+#   cannot be read as agreement — it is indistinguishable from the boolean failing.
+#   Intersecting "zero symmetric difference" with "negative control fired on THIS
+#   part" leaves 574 of 596 pairs proved identical by an instrument independently
+#   shown, on that same part, able to detect the difference. The 7 unproven
+#   overlaps are ho126, ho1309, ho408, ho542, ho655, ho722, ho995. A control that
+#   fails on part of the sample shrinks the claim; it does not get averaged away.
 #
 #   (3) AND THE GATE STILL DOES NOT PASS — for a reason the corpus cannot see.
 #   All three MakePipeShell call sites exist to serve GUIDED sweeps; an unguided
