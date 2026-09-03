@@ -80,13 +80,19 @@ static void checkEuler(SolidFactory& fac, const std::string& tag, long long expe
 // Watertight tessellation. The UNDIRECTED "every triangle edge shared by exactly
 // 2 tris" check (no boundary edge => closed surface) is asserted for ALL solids.
 // `halfEdge` additionally asserts the stricter half-edge weld builds + validates +
-// (when `checkVol`) matches the analytic volume. It is turned OFF for a NON-CONVEX
-// planar cap: SolidTessellate fans each face from a single loop vertex, and a fan
-// of a reflex polygon self-overlaps at the notch, so the DISPLAY soup is not
-// orientable-weldable (a pre-existing display-mesh limitation, independent of this
-// work — the ANALYTIC solid is still a proven closed 2-manifold with EXACT volume,
-// see the structural checks + massProperties above). Improving that fan would edit
-// the shared SolidTessellate and perturb the core 34/34 byte-identical gate.
+// (when `checkVol`) matches the analytic volume.
+//
+// These two were previously turned OFF for the NON-CONVEX L cap, with a comment
+// blaming an inherent limitation: "a fan of a reflex polygon self-overlaps at the
+// notch, so the DISPLAY soup is not orientable-weldable (a pre-existing display-mesh
+// limitation)". That diagnosis was wrong, and the waiver hid a real defect for as
+// long as it stood. A fan self-overlaps GEOMETRICALLY but is exact as a 2-chain: the
+// diagonals (0,t) cancel in pairs, so its boundary is the loop and the welded soup IS
+// orientable — as long as the triangles keep the loop's winding. What made it
+// non-weldable was tessellateSolid re-winding each fan triangle individually against
+// the surface normal; that is fixed, and a reflex cap now welds and integrates to the
+// EXACT analytic volume. Both flags are on for every case here.
+// The property has its own dedicated gate in brep/tessellate_closure_test.cpp.
 static void checkTess(const Solid& solid, const std::string& tag,
                       double analyticVol, bool halfEdge, bool checkVol, double volTol) {
     std::vector<double> pos;
@@ -158,9 +164,10 @@ int main() {
             check(rel(mp.volume, expV, 1e-9), "prism/L: analytic volume == area*h (non-convex, EXACT)");
             check(fac.builder().faceCount() == 8, "prism/L: 8 faces (6 side + 2 caps == OCCT)");
             checkEuler(fac, "prism/L", 2);
-            // Non-convex cap: display fan is chordal/approximate -> skip tess volume,
-            // but the mesh must still be a closed 2-manifold (topological watertight).
-            checkTess(*s, "prism/L", expV, /*halfEdge*/ false, /*checkVol*/ false, 0.0);
+            // Non-convex cap: an all-planar prism has NO chordal error, so the
+            // tessellated volume is the analytic volume EXACTLY (1e-9), not
+            // approximately. See the header note on the waiver this replaces.
+            checkTess(*s, "prism/L", expV, /*halfEdge*/ true, /*checkVol*/ true, 1e-9);
         }
     }
 
