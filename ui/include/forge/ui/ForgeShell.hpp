@@ -20,6 +20,7 @@
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/FileExchange.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/KeymapAudit.hpp"
 #include "forge/ui/PanelFocus.hpp"
@@ -204,6 +205,28 @@ class ForgeShell {
   KeymapReport keymapReport() const { return auditKeymap(keymap_, registry_); }
   const DocumentStats& document() const noexcept { return doc_; }
 
+  // ── the FILE-EXCHANGE seam ──────────────────────────────────────────────
+  //
+  // A SECOND seam rather than three more DocumentHost methods, and the reason is
+  // not tidiness. DocumentHost's methods are PURE, ForgeFrame is the application's
+  // only implementation of it, and "a file nothing compiles cannot break" is
+  // already a measured lesson in this tree: adding a pure virtual there makes the
+  // one implementer abstract and breaks a translation unit no forge::ui gate
+  // compiles. A separate, separately-installed interface adds nothing to any
+  // existing implementer and cannot break one.
+  //
+  // It is also a different QUESTION. DocumentHost answers "what is the document";
+  // this answers "what can the geometry kernel read and write". A build with a
+  // document and no kernel is a real configuration -- every headless forge::ui
+  // gate is one -- and the file commands below say so by being disabled rather
+  // than by failing when pressed.
+  void setFileExchange(FileExchange* exchange) noexcept { fileExchange_ = exchange; }
+  FileExchange* fileExchange() const noexcept { return fileExchange_; }
+  // What the last file.import_* / file.export_* command measured. Volume AND
+  // bounding box AND centre of mass AND the face-kind census, because this
+  // programme has measured a wrong solid reproducing a right volume four times.
+  const ExchangeReport& lastExchange() const noexcept { return lastExchange_; }
+
   // ── the document seam ───────────────────────────────────────────────────
   // Install the owner of the real document. Pass nullptr to detach. The counters
   // are refreshed from the host immediately, and again after every dispatch.
@@ -300,6 +323,26 @@ class ForgeShell {
                       const DispatchResult& result, const CommandParams& params,
                       std::size_t documentErrorSeqBefore);
 
+  // The two file-exchange handlers, written once and invoked by each registered
+  // format's command. The command IDs and parameter schemas are still spelled
+  // LONGHAND at each registration -- that is what the vocabulary generator reads
+  // -- but the BEHAVIOUR is one code path, so "Import STEP" and "Import STL"
+  // cannot come to disagree about what a missing file means.
+  void runImport(CommandContext& ctx, ExchangeFormat format);
+  void runExport(CommandContext& ctx, ExchangeFormat format);
+  // True when a file command can run at all: an exchange is installed, and (for
+  // import) the ONE command that can state an imported body in feature-IR is
+  // registered. Offering an Import that cannot put the body in the document is
+  // the same defect app.load_sample already refuses to commit.
+  bool importAvailable() const noexcept;
+  bool exportAvailable() const noexcept;
+  // Records the refusal on the shell in the ONE way a file command reports one:
+  // the user-readable sentence into documentError_, the sequence bumped, and the
+  // same sentence handed to the dispatcher. Returns false, always, so a caller
+  // can `return refuseExchange(...)`.
+  void refuseExchange(CommandContext& ctx, ExchangeRefusal refusal,
+                      ExchangeFormat format, const std::string& path);
+
   CommandRegistry registry_;
   SelectionService selection_;
   Keymap keymap_ = defaultKeymaps();
@@ -312,6 +355,8 @@ class ForgeShell {
 
   DocumentStats doc_;
   DocumentHost* documentHost_ = nullptr;
+  FileExchange* fileExchange_ = nullptr;
+  ExchangeReport lastExchange_;
   std::string documentError_;
   // Bumped every time a handler RAISES a document error. Comparing the counter
   // across a dispatch is what tells the log "this command refused" apart from

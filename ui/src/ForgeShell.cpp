@@ -11,6 +11,7 @@
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/FileExchange.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/KeymapAudit.hpp"
 #include "forge/ui/Onboarding.hpp"
@@ -108,6 +109,117 @@ void ForgeShell::registerCommands() {
       }
       doc_.dirty = false;
     };
+    registry_.add(std::move(c));
+  }
+  // ── FILE EXCHANGE: the commands that open and save REAL CAD FILES ────────
+  //
+  // MEASURED, on the tree these were written against: `grep -rnE
+  // 'importStep|exportStep|\.stp|ISO-10303' ui/src forge-desktop/src` returned ONE
+  // COMMENT LINE and ZERO CALL SITES, and 0 of the 80 commands in
+  // APP_SURFACE_MANIFEST.tsv touched STEP -- while forge::io::importStep and
+  // forge::io::exportStep were implemented, linked and green (forge_step_probe,
+  // 21/21 checks). Every reference CAD session begins by opening a file and ends
+  // by saving one, and Forge could do neither.
+  //
+  // ── WHY THESE DO NOT EMIT FEATURE-IR, DELIBERATELY ──────────────────────
+  // A Part command emits one line of IR and the app COMPILES THE WHOLE PROGRAM
+  // on every document change (ForgeFrame::syncSceneToDocument). So an IR op that
+  // WROTE a file would rewrite that file on every rebuild -- a filesystem side
+  // effect re-executed on every keystroke -- and an IR op that READ one would
+  // make a .fpart document mean something different tomorrow, when the file it
+  // names has moved or changed. Neither property is one the feature-IR has today
+  // and neither should be acquired by accident. Export is therefore a
+  // DOCUMENT-LEVEL command in exactly the sense file.save already is.
+  //
+  // Import is the interesting half, and it is NOT non-emitting: the kernel
+  // already has the op for it. `INPUT()` binds the compiler's input file as a
+  // solid (FeatureTreeCompiler opInput, which sniffs STEP / BREP / STL by
+  // CONTENT), and `part.input_solid` already emits it. What was missing was the
+  // FILE: nothing in the app could give the compiler one, so part.input_solid was
+  // registered, dispatchable, and could only ever fail. So Import binds the file
+  // through the exchange and then runs THAT command, through the one registry --
+  // the same composition app.load_sample already does with replaySample. The
+  // model is taught nothing new, and the op it was already allowed to write
+  // finally means something.
+  //
+  // ── NO FILE DIALOG YET, AND THE PATH PARAMETER IS THE HONEST INTERIM ────
+  // There is no native file picker in Forge yet. A required `path` text
+  // parameter is what the command contract already provides for exactly this
+  // case: ParamSpec's `hasDefault` is false here, which is documented to mean
+  // "a fillet radius has an honest default; a file path does not", so a bare
+  // keystroke reports the parameter for a UI to prompt for instead of running
+  // with an empty name.
+  //
+  // ── IGES IS ABSENT FROM THE EXPORT SET ON PURPOSE ──────────────────────
+  // forge::io::exportIges REFUSES unconditionally, and a command that can never
+  // succeed is a capability manifest that lies -- to the user, and to Archie,
+  // which is trained from that manifest. So there is no Export IGES command, and
+  // the refusal is surfaced where a user can really reach it: typing an .igs
+  // path into any Save, which runExport answers in plain words.
+  {
+    CommandDescriptor c;
+    c.id = "file.import_step";
+    c.label = "Import STEP File";
+    c.category = "File";
+    // Required, and NO default: "" is not a file name.
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Document, so ForgeShell::run tells the host to re-derive its geometry: the
+    // imported body has to reach the viewport, and this is the one path that says so.
+    c.sideEffect = SideEffectClass::Document;
+    // It REPLACES the document (see runImport: documentReset, then the INPUT()
+    // statement), and documentReset clears the undo stack. file.open and
+    // app.load_sample are NotUndoable for exactly this reason.
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return importAvailable(); };
+    c.execute = [this](CommandContext& ctx) { runImport(ctx, ExchangeFormat::Step); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "file.import_brep";
+    c.label = "Import BREP File";
+    c.category = "File";
+    // Required, and NO default: "" is not a file name.
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Document, so ForgeShell::run tells the host to re-derive its geometry: the
+    // imported body has to reach the viewport, and this is the one path that says so.
+    c.sideEffect = SideEffectClass::Document;
+    // It REPLACES the document (see runImport: documentReset, then the INPUT()
+    // statement), and documentReset clears the undo stack. file.open and
+    // app.load_sample are NotUndoable for exactly this reason.
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return importAvailable(); };
+    c.execute = [this](CommandContext& ctx) { runImport(ctx, ExchangeFormat::Brep); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "file.export_step";
+    c.label = "Save a Copy as STEP";
+    c.category = "File";
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Application, not Document: writing a file changes nothing in the document,
+    // so asking the host to re-derive geometry afterwards would be a rebuild
+    // nobody asked for. file.save is classified the same way for the same reason.
+    c.sideEffect = SideEffectClass::Application;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return exportAvailable(); };
+    c.execute = [this](CommandContext& ctx) { runExport(ctx, ExchangeFormat::Step); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "file.export_brep";
+    c.label = "Save a Copy as BREP";
+    c.category = "File";
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Application, not Document: writing a file changes nothing in the document,
+    // so asking the host to re-derive geometry afterwards would be a rebuild
+    // nobody asked for. file.save is classified the same way for the same reason.
+    c.sideEffect = SideEffectClass::Application;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return exportAvailable(); };
+    c.execute = [this](CommandContext& ctx) { runExport(ctx, ExchangeFormat::Brep); };
     registry_.add(std::move(c));
   }
   {
@@ -509,6 +621,186 @@ void ForgeShell::registerCommands() {
 }
 
 // ── dispatch ────────────────────────────────────────────────────────────────
+// ── FILE EXCHANGE ───────────────────────────────────────────────────────────
+bool ForgeShell::importAvailable() const noexcept {
+  // TWO conditions, and the second is the one that is easy to forget. Importing
+  // BINDS a file and then states it in feature-IR through `part.input_solid`; in
+  // a build where the Part workspace was never registered there is nothing that
+  // can put the imported body into the document, so the command would read a
+  // file and change nothing on screen. app.load_sample already refuses on
+  // exactly this ground ("offering a sample this build cannot actually author is
+  // worse than not offering it") and this is the same refusal.
+  return fileExchange_ != nullptr && documentHost_ != nullptr &&
+         registry_.contains("part.input_solid");
+}
+
+bool ForgeShell::exportAvailable() const noexcept {
+  // Nothing in the document means nothing to write. `doc_.features` is pulled
+  // from the host every dispatch (syncDocumentStats), so this cannot drift from
+  // what the document actually holds.
+  return fileExchange_ != nullptr && doc_.features > 0;
+}
+
+void ForgeShell::refuseExchange(CommandContext& ctx, ExchangeRefusal refusal,
+                                ExchangeFormat format, const std::string& path) {
+  lastExchange_ = ExchangeReport{};
+  lastExchange_.ok = false;
+  lastExchange_.refusal = refusal;
+  lastExchange_.message = exchangeMessage(refusal, format, path);
+  documentError_ = lastExchange_.message;
+  ++documentErrorSeq_;
+  ctx.fail(lastExchange_.message);
+}
+
+namespace {
+
+// ── ★ THE LEAK STOP ─────────────────────────────────────────────────────────
+// A FileExchange implementation lives where OCCT does, and every failure it sees
+// arrives as a kernel sentence written for us. Measured, verbatim, from
+// forge-kernel/src/IoExchange.cpp: "forge.io: IGES export is not available in
+// this build. No IGES writer is linked (OCCT TKDEIGES is read-only; the native
+// kernel ships an analytic STEP writer, not an IGES 5.3 writer)". That string
+// must never reach a user, and the interface DOCUMENTING that is not the same as
+// the interface ENFORCING it -- a documented rule is one careless `+ e.what()`
+// away from being false.
+//
+// So the shell checks. `isUserReadable` is the mechanical predicate (no `::`, no
+// snake_case, no interior-capital identifier, outside quoted spans), and anything
+// that fails it is REPLACED by the closed-set sentence for the same refusal. The
+// implementation is still the best source of a specific message; it is simply not
+// trusted to be the only one.
+void sanitiseExchangeMessage(ExchangeReport& report, ExchangeFormat format,
+                             const std::string& path) {
+  if (report.message.empty() || !isUserReadable(report.message)) {
+    report.message = exchangeMessage(report.refusal, format, path);
+  }
+}
+
+}  // namespace
+
+void ForgeShell::runImport(CommandContext& ctx, ExchangeFormat format) {
+  documentError_.clear();
+  lastExchange_ = ExchangeReport{};
+  const std::string path = ctx.params().text("path").value_or(std::string());
+  if (fileExchange_ == nullptr) {
+    refuseExchange(ctx, ExchangeRefusal::NoExchange, format, path);
+    return;
+  }
+  if (path.empty()) {
+    refuseExchange(ctx, ExchangeRefusal::NoPath, format, path);
+    return;
+  }
+  if (!canImport(format)) {
+    refuseExchange(ctx, ExchangeRefusal::CannotRead, format, path);
+    return;
+  }
+
+  ExchangeReport report;
+  const bool read = fileExchange_->importFile(path, format, report);
+  if (read && report.refusal != ExchangeRefusal::None) {
+    // An implementation that answers "it worked" while naming a refusal is
+    // reporting two different things; believe the refusal, because the failure
+    // mode of believing the other one is a user told a file opened when it did not.
+    report.ok = false;
+  } else {
+    report.ok = read;
+  }
+  sanitiseExchangeMessage(report, format, path);
+  lastExchange_ = report;
+  if (!report.ok) {
+    documentError_ = report.message;
+    ++documentErrorSeq_;
+    ctx.fail(report.message);
+    return;
+  }
+
+  // ── the file is bound; now SAY SO IN THE DOCUMENT ───────────────────────
+  // Through the ONE registry, exactly as app.load_sample replays its steps: the
+  // op that binds an input file as a solid is INPUT(), and `part.input_solid` is
+  // the command that emits it. No second code path builds a statement here.
+  //
+  // ── AND THE DOCUMENT IS EMPTIED FIRST, WHICH IS NOT A STYLE CHOICE ──────
+  // MEASURED: appending `%6 = INPUT()` to the five-statement starter part gives a
+  // program the kernel REFUSES outright --
+  //   "s0.4 graph-quality gate: unexplained_orphans=5 [%1, %2, %3, %4, %5]"
+  // -- because compile delivers the LAST solid, so every earlier statement now
+  // contributes nothing to the result and the graph gate requires that count to
+  // be zero. An import that appends would therefore leave a document that cannot
+  // build at all. Emptying first is also the truthful semantics: the kernel takes
+  // ONE input file per compile (Builder::inputStep), so a document cannot hold two
+  // imported bodies however the statements are arranged, and opening a foreign CAD
+  // file replaces the part in every system that ships one.
+  //
+  // documentReset() -- not documentNew() -- for the reason its own comment gives:
+  // New seeds the starter part, and stacking an import on top of that seed is the
+  // program the graph gate just refused. app.load_sample takes the same door.
+  std::string resetError;
+  if (documentHost_ == nullptr || !documentHost_->documentReset(resetError)) {
+    lastExchange_.ok = false;
+    lastExchange_.refusal = ExchangeRefusal::NotPlaced;
+    lastExchange_.message = exchangeMessage(ExchangeRefusal::NotPlaced, format, path);
+    documentError_ = lastExchange_.message;
+    ++documentErrorSeq_;
+    ctx.fail(lastExchange_.message);
+    return;
+  }
+  const DispatchResult placed = registry_.dispatch("part.input_solid", selection_);
+  if (!placed.ok()) {
+    lastExchange_.ok = false;
+    lastExchange_.refusal = ExchangeRefusal::NotPlaced;
+    lastExchange_.message = exchangeMessage(ExchangeRefusal::NotPlaced, format, path);
+    documentError_ = lastExchange_.message;
+    ++documentErrorSeq_;
+    ctx.fail(lastExchange_.message);
+    return;
+  }
+  syncDocumentStats();
+}
+
+void ForgeShell::runExport(CommandContext& ctx, ExchangeFormat format) {
+  documentError_.clear();
+  lastExchange_ = ExchangeReport{};
+  const std::string path = ctx.params().text("path").value_or(std::string());
+  if (fileExchange_ == nullptr) {
+    refuseExchange(ctx, ExchangeRefusal::NoExchange, format, path);
+    return;
+  }
+  if (path.empty()) {
+    refuseExchange(ctx, ExchangeRefusal::NoPath, format, path);
+    return;
+  }
+  if (!canExport(format)) {
+    refuseExchange(ctx, ExchangeRefusal::CannotWrite, format, path);
+    return;
+  }
+  // ── the extension the USER typed ────────────────────────────────────────
+  // The only reason this is checked at all: writing STEP bytes into a file the
+  // user named `part.igs` would look like IGES export working. It is not a
+  // general extension/command reconciliation -- an extension naming a format
+  // Forge CAN write is left alone, because the command the user picked is the
+  // more explicit statement of intent and there is no dialog to ask with.
+  ExchangeFormat named = format;
+  if (formatFromPath(path, named) && !canExport(named)) {
+    refuseExchange(ctx, ExchangeRefusal::CannotWrite, named, path);
+    return;
+  }
+  if (doc_.features == 0) {
+    refuseExchange(ctx, ExchangeRefusal::NoDocument, format, path);
+    return;
+  }
+
+  ExchangeReport report;
+  const bool wrote = fileExchange_->exportFile(path, format, report);
+  report.ok = wrote && report.refusal == ExchangeRefusal::None;
+  sanitiseExchangeMessage(report, format, path);
+  lastExchange_ = report;
+  if (!report.ok) {
+    documentError_ = report.message;
+    ++documentErrorSeq_;
+    ctx.fail(report.message);
+  }
+}
+
 void ForgeShell::setDocumentHost(DocumentHost* host) noexcept {
   documentHost_ = host;
   documentError_.clear();

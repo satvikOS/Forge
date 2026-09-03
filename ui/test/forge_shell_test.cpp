@@ -178,7 +178,31 @@ int main() {
   // sides of this merge pinned 14 and 18, each having counted only its own half.
   // This count rising does NOT mean a modelling command crept back in -- the
   // four checks below are what assert that, and they are the ones that matter.
-  CHECK_EQ_INT(app.shellCommands, 22);
+  //
+  // 26, not 22: FILE EXCHANGE added four -- file.import_step, file.import_brep,
+  // file.export_step, file.export_brep. They belong to the SHELL and not to the
+  // Part workspace on purpose: they are document-level, they emit no feature-IR
+  // (the vocabulary's commands_emitting_ir did not move when the registry went
+  // 80 -> 84), and they sit beside the file.open / file.save this class already
+  // owns. The assertion just below -- no id begins "model." -- is still what
+  // proves no modelling command crept back in, and it is unaffected.
+  CHECK_EQ_INT(app.shellCommands, 26);
+  CHECK(shell.registry().contains("file.import_step"));
+  CHECK(shell.registry().contains("file.export_step"));
+  // They must be DISABLED with no exchange installed, rather than failing when
+  // pressed: a shell with no kernel behind it genuinely cannot open a file, and
+  // saying so by being unavailable is the contract every other command here keeps.
+  {
+    const CommandDescriptor* imp = shell.registry().find("file.import_step");
+    CHECK(imp != nullptr);
+    if (imp != nullptr) {
+      CommandParams p;
+      p.setText("path", "/tmp/whatever.step");
+      CHECK_EQ_INT(static_cast<int>(shell.registry().evaluate("file.import_step",
+                                                              shell.selection(), p).status),
+                   static_cast<int>(DispatchStatus::Disabled));
+    }
+  }
   CHECK(!shell.registry().contains("model.extrude"));
   CHECK(!shell.registry().contains("model.fillet"));
   CHECK(!shell.registry().contains("model.shell"));

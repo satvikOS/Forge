@@ -123,7 +123,26 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  const std::string program = readAllStdin();
+  std::string program = readAllStdin();
+
+  // ── the input-file pragma ────────────────────────────────────────────────
+  // The parent prepends `#!forge-worker-input <path>` when the document's
+  // `INPUT()` binds a file (KernelScene::buildIsolated). Read it off the FIRST
+  // LINE and strip it, so the scene compiles the same program the parent would
+  // have compiled in process. `#` starts a comment in the IR grammar, so leaving
+  // the line in would still parse -- but the path would be lost and INPUT()
+  // would fail here and nowhere else, which is the divergence this exists to
+  // prevent.
+  std::string workerInputFile;
+  {
+    const std::string pragma = forge::desktop::kWorkerInputPragma;
+    if (program.rfind(pragma, 0) == 0) {
+      std::size_t end = program.find('\n', pragma.size());
+      if (end == std::string::npos) end = program.size();
+      workerInputFile = program.substr(pragma.size(), end - pragma.size());
+      program = end < program.size() ? program.substr(end + 1) : std::string();
+    }
+  }
 
   const std::string mode = selftestMode(program);
   if (!mode.empty()) {
@@ -152,6 +171,7 @@ int main(int argc, char** argv) {
   // ── the real work ─────────────────────────────────────────────────────────
   forge::ft::setCompileProgressHook(&announce, nullptr);
   forge::desktop::KernelScene scene;
+  if (!workerInputFile.empty()) scene.setInputFile(workerInputFile);
   const bool ok = scene.buildFromIr(program);
   forge::ft::setCompileProgressHook(nullptr, nullptr);
 

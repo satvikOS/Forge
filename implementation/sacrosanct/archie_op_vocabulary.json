@@ -54,9 +54,9 @@
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "e46ab684bc5a6b1b7c6d7c1ec38cd1ad06546d5573b72da761e4bc5b19a25aac",
-        "bytes": 33628,
-        "lines": 836
+        "sha256": "04719b9409199b0e7bd70d599a5eff5010234fff0c121938b63fa8756cb3e75d",
+        "bytes": 48527,
+        "lines": 1128
       }
     ],
     "build_configuration": {
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 56,
     "ui_validator_ops": 56,
-    "registry_commands": 80,
+    "registry_commands": 84,
     "commands_emitting_ir": 57,
     "user_invocable_ops": 53,
     "forbidden_ops": 3,
@@ -6583,6 +6583,106 @@
         "max": null
       },
       "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "file.export_brep",
+      "label": "Save a Copy as BREP",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "file.export_step",
+      "label": "Save a Copy as STEP",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "file.import_brep",
+      "label": "Import BREP File",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "file.import_step",
+      "label": "Import STEP File",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
       "preview": "None",
       "undo": "NotUndoable",
       "source": "ui/src/ForgeShell.cpp"

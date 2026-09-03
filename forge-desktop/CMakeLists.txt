@@ -199,9 +199,15 @@ target_include_directories(forge_imgui PUBLIC "${IMGUI_DIR}" "${VK_INC}")
 target_link_libraries(forge_imgui PUBLIC "${VK_LOADER_LIB}")
 
 # ---------------------------------------------------------------- app sources
-# KernelScene.cpp is the ONLY translation unit that sees OCCT headers.
+# KernelScene.cpp and FileExchangeHost.cpp are the ONLY translation units that
+# see OCCT headers. FileExchangeHost is the second one and it is deliberate: file
+# exchange reads and writes files, holds no geometry and has no scene, and
+# folding it into KernelScene would have made the viewport own the file system.
+# The property that matters is unchanged -- the ImGui frame builder still reaches
+# no OCCT header, and every headless gate still links what it needs and no more.
 add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
@@ -302,6 +308,25 @@ set_target_properties(forge_desktop_ir_pipeline_gate PROPERTIES
 # The DOCUMENT gate: the user-launchable slice, headless. It drives the real
 # registry, rebuilds the real kernel geometry from the document, and round-trips
 # the document through a real .fpart file on disk.
+# ---------------------------------------------------- the file-exchange gate
+# Opens and saves REAL CAD FILES through the shipping command path and compares a
+# VECTOR of observables at the seam -- volume AND area AND centre of mass AND
+# bounding box AND the per-kind face census. `--mutate 1..5` breaks the write on
+# purpose and the gate is then REQUIRED to go red; the mutations are registered
+# below as ordinary tests because the binary inverts its own exit code in that
+# mode (a caught mutation exits 0), so a mutation that stops being caught fails
+# here rather than needing WILL_FAIL.
+#
+# test/run_file_exchange_gate.sh builds and runs the same sources with ONE c++
+# invocation, so the gate is reachable from a tree that has never configured this
+# project -- it needs the kernel core and nothing else, no ImGui, no SDL, no Vulkan.
+add_executable(forge_desktop_file_exchange_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/file_exchange_gate.cpp")
+target_compile_options(forge_desktop_file_exchange_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
@@ -350,6 +375,7 @@ target_link_libraries(forge_imgui_asan PUBLIC "${VK_LOADER_LIB}")
 
 add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
@@ -443,6 +469,11 @@ add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
 add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
+add_test(NAME forge_desktop_file_exchange_gate COMMAND forge_desktop_file_exchange_gate)
+foreach(_fx 1 2 3 4 5)
+    add_test(NAME forge_desktop_file_exchange_mutation_${_fx}
+             COMMAND forge_desktop_file_exchange_gate --mutate ${_fx})
+endforeach()
 add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)
 add_test(NAME forge_desktop_update_gate COMMAND forge_desktop_update_gate)
 # The negative controls are their own ctest entries, so a mutation that stops
