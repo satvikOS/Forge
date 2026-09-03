@@ -211,6 +211,7 @@ target_link_libraries(forge_imgui PUBLIC "${VK_LOADER_LIB}")
 # be able to link the decision and script the panel. FileDialogMac.mm, the Cocoa
 # half, is in the application target below and in no gate.
 add_library(forge_desktop_core STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ImGuiErrorPolicy.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
@@ -379,6 +380,40 @@ target_link_libraries(forge_desktop_file_dialog_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_file_dialog_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------- the INTERFACE-ERROR gate
+# What a RECOVERABLE Dear ImGui error costs the user. MEASURED against the
+# vendored library: with its shipped defaults an unbalanced frame ABORTS the
+# process wherever assert() is live (SIGABRT, exit 134), and where it is not --
+# CMAKE_BUILD_TYPE=Release, i.e. the shipped bundle -- it instead draws the
+# library's own message over the user's model in a `##Tooltip_Error` window.
+# Neither is acceptable in an application that must never lose unsaved work, so
+# src/ImGuiErrorPolicy.cpp sets the six settings explicitly and this gate fails
+# when they are left at the library's defaults.
+#
+# It links forge_ui and forge_imgui and NOTHING ELSE -- no kernel, no OCCT, no
+# SDL. The subject is one context's configuration and one frame's recovery, and a
+# gate that needed a 40-minute OCCT build to answer that question is a gate that
+# stops being run. src/ImGuiErrorPolicy.cpp is compiled directly into it for the
+# same reason: forge_desktop_core carries the two translation units that see OCCT
+# headers, and this gate must not.
+#
+# FORGE_DESKTOP_REPO_ROOT is how its last section reads forge-desktop/src/main.cpp
+# and asserts the APPLICATION calls the policy and sets none of those settings
+# itself. main.cpp IS compiled by CI as part of forge_desktop, but it defines
+# main(), so no gate can LINK it and nothing can assert on what it configures --
+# reading it is the only way to bind the policy to its one caller.
+# FORGE_DESKTOP_ROOT in the environment overrides it, which is what lets the gate
+# be run against a copied tree.
+add_executable(forge_desktop_imgui_recovery_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/imgui_recovery_gate.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ImGuiErrorPolicy.cpp")
+target_include_directories(forge_desktop_imgui_recovery_gate PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_compile_definitions(forge_desktop_imgui_recovery_gate PRIVATE
+    FORGE_DESKTOP_REPO_ROOT="${FORGE_ROOT}")
+target_compile_options(forge_desktop_imgui_recovery_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_imgui_recovery_gate PRIVATE forge_ui forge_imgui)
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
@@ -426,6 +461,7 @@ target_compile_options(forge_imgui_asan PRIVATE ${FORGE_ASAN_FLAGS})
 target_link_libraries(forge_imgui_asan PUBLIC "${VK_LOADER_LIB}")
 
 add_library(forge_desktop_core_asan STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ImGuiErrorPolicy.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
@@ -522,6 +558,16 @@ add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
 add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
+add_test(NAME forge_desktop_imgui_recovery_gate COMMAND forge_desktop_imgui_recovery_gate)
+# Same WILL_FAIL idiom as the update and file-exchange mutations: a mutated run
+# is EXPECTED to be red, so a mutation that starts exiting ZERO -- one whose
+# defect the gate no longer detects -- is a failing test. Do not remove these.
+foreach(_ie RANGE 1 8)
+    add_test(NAME forge_desktop_imgui_recovery_mutation_${_ie}
+             COMMAND forge_desktop_imgui_recovery_gate --mutate ${_ie})
+    set_tests_properties(forge_desktop_imgui_recovery_mutation_${_ie}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
 add_test(NAME forge_desktop_file_exchange_gate COMMAND forge_desktop_file_exchange_gate)
 add_test(NAME forge_desktop_file_dialog_gate COMMAND forge_desktop_file_dialog_gate)
 # The same WILL_FAIL idiom the other two mutation sets use, for the same reason:

@@ -787,6 +787,20 @@ int main() {
         "SDL_Vulkan_CreateSurface: no MoltenVK ICD",
         "no VkPhysicalDevice",
         "forge::ui -> forge::ft -> forge-kernel (14 ops, 68 faces)",
+        // Dear ImGui's own recoverable-error messages, quoted from
+        // forge-desktop/third_party/imgui/imgui.cpp. These reach a user through
+        // the error callback ImGuiErrorPolicy.cpp installs, so the sentence they
+        // are turned into is scanned here with every other one.
+        "Missing End()",
+        "Missing PopID()",
+        "Missing EndTable()",
+        "Missing PopStyleVar()",
+        "Missing EndChild()",
+        "Missing TreePop()",
+        "Missing EndDisabled()",
+        "Missing EndMenuBar()",
+        "Forgot to call ImGui::NewFrame()?",
+        "Programmer error: 2 visible items with conflicting ID!",
         "",
     };
     for (const char* detail : kInternalDetails) {
@@ -796,6 +810,7 @@ int main() {
           userFacingViewportFailure(d),
           userFacingStartupFailure("swapchain", d),
           userFacingStartupFailure("window", d),
+          userFacingInterfaceFailure(d),
       };
       for (const std::string& s : sentences) {
         const std::vector<ProseFinding> f = scanUserFacingProse(s);
@@ -810,9 +825,16 @@ int main() {
         CHECK(!echoed);
       }
       // An empty detail is not an error, and the build translator must not
-      // invent one.
-      if (d.empty()) CHECK(userFacingBuildFailure(d).empty());
-      else CHECK(!userFacingBuildFailure(d).empty());
+      // invent one. Nor must the interface one: a recoverable error always
+      // arrives with the library's message attached, so an empty detail means
+      // nothing happened and a sentence would be an error the user does not have.
+      if (d.empty()) {
+        CHECK(userFacingBuildFailure(d).empty());
+        CHECK(userFacingInterfaceFailure(d).empty());
+      } else {
+        CHECK(!userFacingBuildFailure(d).empty());
+        CHECK(!userFacingInterfaceFailure(d).empty());
+      }
     }
   }
 
