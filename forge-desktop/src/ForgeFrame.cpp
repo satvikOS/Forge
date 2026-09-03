@@ -24,6 +24,7 @@
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/PanelCatalog.hpp"
 #include "forge/ui/PartCommands.hpp"
+#include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/UserFacingText.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
@@ -420,8 +421,44 @@ std::size_t ForgeFrame::wirePartCommands() {
        std::to_string(shell_.registry().size()) + " commands");
 
   note("document seeded: " + std::to_string(partDoc_.records().size()) + " statements");
+  reportKernelIsolation();
   rebuildTree();
   return added;
+}
+
+// ── THE SAFETY NET THE USER COULD NOT SEE ───────────────────────────────────
+// main.cpp probes forge_kernel_worker at startup and, when it cannot be
+// launched, turns isolation OFF and prints
+//
+//   [forge] kernel isolation: UNAVAILABLE (...) -- modelling runs IN PROCESS,
+//   so an OCCT fault will take the app down. The app still starts.
+//
+// to STDERR. A user who launches Forge.app from the Finder or the Dock has no
+// stderr: they get a window, and nothing in it ever says that the process is now
+// one null Geom2d_Curve away from taking the document with it. That is the
+// "errors surface to the user instead of vanishing" requirement failing on the
+// single most consequential fact the startup path knows.
+//
+// It is reported here, into shell_.log(), because that is the log the console
+// panel draws, filters by severity and COUNTS in the status strip -- so it is
+// still there when the user goes looking, unlike a status line that the next
+// note() overwrites. And it is read from the SCENE rather than passed in by
+// main.cpp: the scene is what actually holds the worker, so the log cannot say
+// "active" about a session that is not.
+void ForgeFrame::reportKernelIsolation() {
+  if (scene_.isolationConfigured()) {
+    shell_.log().info("kernel.isolation",
+                      "Kernel crash isolation is ACTIVE — geometry is compiled in a separate "
+                      "process, so an OCCT fault loses that operation, not your document.");
+    note("kernel isolation: active");
+    return;
+  }
+  shell_.log().warning(
+      "kernel.isolation",
+      "Kernel crash isolation is NOT active — geometry is being compiled IN THIS PROCESS, so an "
+      "OCCT fault will close the application and lose unsaved work. Save often.",
+      "forge_kernel_worker did not launch");
+  note("kernel isolation: UNAVAILABLE — modelling runs in process");
 }
 
 // ── the document -> geometry edge ───────────────────────────────────────────
@@ -776,8 +813,18 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
     // but the APPLICATION does know where the open document lives, and a path
     // box that starts empty makes the user retype what the title bar is already
     // showing. Seeding is not defaulting: nothing dispatches until Run.
-    if (name == "path" && !documentPath_.empty()) {
-      std::snprintf(field.value.data(), field.value.size(), "%s", documentPath_.c_str());
+    //
+    // ── AND ON A FRESH LAUNCH, THE LAST DOCUMENT ────────────────────────────
+    // `documentPath_` is EMPTY every time the app starts, so before the fallback
+    // below, Ctrl+O on a newly launched Forge opened a box with nothing in it and
+    // the only way to reopen yesterday's part was to type its absolute path from
+    // memory -- and a part saved with a bare Ctrl+S lives in ~/.forge, a
+    // directory the user never chose and has no reason to guess. The shell's
+    // recent list is restored from the session file before this object is built,
+    // so it is exactly what the box should start on.
+    const std::string pathSeed = (name == "path") ? pathPromptSeed() : std::string();
+    if (!pathSeed.empty()) {
+      std::snprintf(field.value.data(), field.value.size(), "%s", pathSeed.c_str());
     } else if (name == "value") {
       std::snprintf(field.value.data(), field.value.size(), "%g", editParamValue());
     }
@@ -791,6 +838,47 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
   }
   note(label + " needs " + names + " — enter " +
        (parameters.size() == 1 ? std::string("it") : std::string("them")) + " and press Run");
+}
+
+std::string ForgeFrame::pathPromptSeed() const {
+  if (!documentPath_.empty()) return documentPath_;
+  return shell_.recentDocuments().mostRecent();
+}
+
+void ForgeFrame::requestOpenDocument(const std::string& path) {
+  // Refused here rather than at dispatch: "" would reach file.open, which
+  // declares its path REQUIRED, and come back as a prompt -- so a menu row that
+  // somehow carried no path would silently turn into "type one", which reads as
+  // a bug in the menu rather than as the empty row it is.
+  if (path.empty()) return;
+  pendingOpenPath_ = path;
+}
+
+void ForgeFrame::runPendingOpen() {
+  const std::string path = pendingOpenPath_;
+  pendingOpenPath_.clear();
+  if (path.empty()) return;
+  // THE SAME COMMAND, through the registry -- not documentOpen() directly. Going
+  // straight to the host would skip the activity log, the document-error seam
+  // and the shell's own counters, so a failed open from this menu would be the
+  // one open in the app that leaves no record.
+  forge::ui::CommandParams params;
+  params.setText("path", path);
+  const forge::ui::DispatchResult r = shell_.run("file.open", params);
+  const std::string& why = shell_.lastDocumentError();
+  lastInvokeOk_ = r.ok() && why.empty();
+  if (lastInvokeOk_) {
+    note("opened " + path + " from Open Recent");
+    return;
+  }
+  // A remembered path can stop opening -- the file moved, the volume is not
+  // mounted -- and that must SAY SO where a user looks, not merely fail. The
+  // entry is left in the list: this frame cannot tell "deleted" from "not
+  // mounted today", and silently forgetting a part because a network share was
+  // asleep is the worse of the two mistakes.
+  const std::string reason = why.empty() ? std::string(forge::ui::toString(r.status)) : why;
+  shell_.log().error("file.open", "could not open " + path + " — " + reason, r.detail);
+  note("file.open  ->  REFUSED: " + reason);
 }
 
 std::vector<std::string> ForgeFrame::promptParameters() const {
@@ -807,6 +895,16 @@ bool ForgeFrame::setPromptValue(const std::string& name, const std::string& valu
     return true;
   }
   return false;  // no such field: creating one would pass an argument nothing reads
+}
+
+std::string ForgeFrame::promptValue(const std::string& name) const {
+  for (const PromptField& f : promptFields_) {
+    // .data() and not the array: the buffer is fixed-size and NUL-terminated by
+    // snprintf, so constructing a std::string from the whole array would carry
+    // the trailing NULs into the value and make every comparison fail.
+    if (f.name == name) return std::string(f.value.data());
+  }
+  return std::string();
 }
 
 bool ForgeFrame::submitPrompt() {
@@ -1076,6 +1174,96 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
   syncSelectionToScene();
   note("selected face " + std::to_string(faceId) + "  (" +
        std::to_string(shell_.selection().count()) + " picked)");
+}
+
+// ── SELECTING A STATEMENT: the producer 28 commands were waiting for ────────
+//
+// THE DEFECT, MEASURED. Before this, ForgeFrame had exactly TWO producers of
+// selection refs — clickFace (EntityKind::Face) and clickEdge
+// (EntityKind::Edge). Nothing anywhere constructed a ref of any other kind, and
+// SelectionSignature::satisfiedBy compares kinds EXACTLY, with no subsumption.
+// So of the 80 commands in the registry, 28 named a kind the interface could
+// never produce — 13 body, 5 sketchref, 4 surface, 2 sketch, 2 opensketch, 2
+// wire — and every one of them was permanently greyed out. That set includes
+// part.extrude and part.revolve, every boolean, every pattern, mirror, move,
+// rotate, loft, skin, thicken and the whole sketch family: a user could not
+// extrude a sketch in a CAD application. The Archie CoPilot COULD drive all 28,
+// because ArchieCopilot::resolveSelection builds exactly these refs from the
+// document. The agent could do what the person could not.
+//
+// Every gate stayed green because none of them was asking this question.
+// app_surface_reachability_test proves each surface OFFERS every command and
+// says so precisely — "enumeration, not pixels". Offering is not invoking.
+//
+// The feature tree is the right surface: its rows ARE the document's statements,
+// and a statement is exactly what these signatures want. The kind comes from
+// forge::ui::entityKindFor(), so the tree cannot invent a mapping of its own —
+// ui/test/selection_reachability_test.cpp proves that function total, injective
+// and sufficient for all 28.
+void ForgeFrame::clickFeature(int irId, bool additive) {
+  if (irId == 0) return;
+  const forge::ui::EntityKind kind = forge::ui::entityKindFor(partDoc_.kindOf(irId));
+  if (kind == forge::ui::EntityKind::None) {
+    note("statement %" + std::to_string(irId) + " produces no value, so it cannot be selected");
+    return;
+  }
+  // The filter is the user's own instruction about what they are picking. A tree
+  // click that ignored it would make "set the filter to edge" mean nothing in
+  // half the window, and it would break the homogeneity every signature requires.
+  //
+  // Checked BEFORE the binding below, so a refused pick leaves the document
+  // exactly as it was: a click the app declines must not still write to the
+  // thing it declined to act on.
+  if (!shell_.selection().accepts(kind)) {
+    note(std::string("the selection filter is ") +
+         forge::ui::toString(shell_.selection().filter()) + ", so a " +
+         forge::ui::toString(kind) + " cannot be picked — set the filter to Any or " +
+         forge::ui::toString(kind));
+    return;
+  }
+
+  // resolveValues() reads EntityRef::bodyId -> valueFor() -> kindOf(), so a
+  // statement with no node binding cannot be resolved back to an IR value by ANY
+  // route — the CoPilot's boundValues() skips it for the same reason. The
+  // SEEDED statements of the starter part carry no node (only the last one
+  // does), so without this the four rows a new document opens on would be the
+  // ones that could not be picked. A statement whose node was CONSUMED by a
+  // command is in the same position, and is re-bound here for the same reason.
+  //
+  // Binding here is not a document EDIT: bindings are not statements, so
+  // irProgram() is unchanged, syncSceneToDocument() sees no difference and
+  // nothing rebuilds. restore() with an unchanged record count rewrites the
+  // binding table and nothing else — the document's own published way to set
+  // one, which is why this needs no new mutation entry point (ensureBodyBinding
+  // does the same thing for the body).
+  std::string node = partDoc_.nodeFor(irId);
+  if (node.empty()) {
+    forge::ui::PartDocument::Snapshot snap = partDoc_.snapshot();
+    // "pick_" and not one of PartCommands' own sketch_/wire_ prefixes: those
+    // name values a COMMAND produced and are private to it, and kindOf() reads
+    // the record's own `produces` field rather than the node's spelling, so the
+    // name only has to be unique. A statement index is unique by construction.
+    node = "pick_" + std::to_string(irId);
+    snap.bindings[node] = irId;
+    partDoc_.restore(snap);
+  }
+
+  forge::ui::EntityRef ref;
+  ref.bodyId = node;
+  ref.kind = kind;
+  ref.persistentName = "feature@" + std::to_string(irId);
+  if (additive) {
+    shell_.selection().toggle(ref);
+  } else {
+    shell_.selection().replaceWith({ref});
+  }
+  shell_.selection().setFocus(ref);
+  // The viewport highlights FACES; a statement is not a face, so the face
+  // highlight is cleared rather than left showing the previous pick as though it
+  // were still selected.
+  syncSelectionToScene();
+  note(std::string("selected ") + forge::ui::toString(kind) + " %" + std::to_string(irId) +
+       "  (" + std::to_string(shell_.selection().count()) + " picked)");
 }
 
 std::vector<std::uint32_t> ForgeFrame::selectedFaceIds() const {
@@ -1403,6 +1591,9 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingInvokeId_.clear();
     invoke(id);
   }
+  // Open Recent, last: it REPLACES the document, so anything above that acts on
+  // the document the user was looking at when they clicked must run first.
+  runPendingOpen();
 }
 
 void ForgeFrame::drawMenuBar() {
@@ -1438,6 +1629,37 @@ void ForgeFrame::drawMenuBar() {
                           item.commandId.c_str(),
                           item.reason.empty() ? "nothing more" : item.reason.c_str(),
                           item.featureIrOp.c_str(), item.parameters.c_str());
+      }
+    }
+    // ── File > Open Recent ────────────────────────────────────────────────
+    // NOT a second enumeration of the registry, and not a second copy of the
+    // menu: the rows are DOCUMENTS, they come from the shell's own recent list,
+    // and clicking one dispatches the single `file.open` command that the item
+    // loop above already offers. Drawn inside the File group so it sits where
+    // every CAD application has put it, and appended after the derived items so
+    // the derived surface still decides what File contains.
+    if (group.title == "File") {
+      const forge::ui::RecentDocuments& recent = shell_.recentDocuments();
+      ImGui::Separator();
+      if (ImGui::BeginMenu("Open Recent", !recent.empty())) {
+        const std::vector<std::string>& paths = recent.paths();
+        const std::vector<std::string> labels = recent.labels();
+        for (std::size_t i = 0; i < paths.size() && i < labels.size(); ++i) {
+          if (ImGui::MenuItem(labels[i].c_str())) requestOpenDocument(paths[i]);
+          if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+            // The FULL path, always: the row may be showing only a leaf, and
+            // "which bracket.fpart is this" has to be answerable without
+            // opening it.
+            ImGui::SetTooltip("%s", paths[i].c_str());
+          }
+        }
+        ImGui::EndMenu();
+      }
+      // A disabled "Open Recent" says the list is empty; nothing else in the
+      // window does, and a menu that is simply absent reads as a missing feature.
+      if (recent.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("No documents yet. Opening or saving one puts it here,\n"
+                          "and it survives a relaunch.");
       }
     }
     ImGui::EndMenu();
@@ -2449,10 +2671,22 @@ void ForgeFrame::drawFeatureTreePanel() {
         }
         const int featureIrId = treeSource_.featureIrIdOf(d.id);
         if (faceId == 0 && featureIrId != 0 && featureIrId == editFeatureId_) selected = true;
+        // A feature row now carries a real SELECTION, so it has to draw as
+        // selected when it is one -- a row that is picked and looks unpicked is
+        // how a user comes to believe a command refused for no reason.
+        if (faceId == 0 && featureIrId != 0) {
+          for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+            if (r.persistentName == "feature@" + std::to_string(featureIrId)) selected = true;
+          }
+        }
         if (ImGui::Selectable(d.label.c_str(), selected, ImGuiSelectableFlags_AllowOverlap)) {
           if (faceId != 0) {
             clickFace(faceId, ImGui::GetIO().KeyShift);
           } else if (featureIrId != 0) {
+            // AND it becomes the typed SELECTION. This is the click that makes
+            // Extrude, the booleans, the patterns, loft, thicken and the sketch
+            // family reachable at all -- see clickFeature().
+            clickFeature(featureIrId, ImGui::GetIO().KeyShift);
             // Clicking a FEATURE row used to do nothing at all. It is the row a
             // user reaches for to change that feature's numbers, so it is what
             // aims the parameter editor.

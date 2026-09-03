@@ -140,6 +140,37 @@ static_assert(std::size(kAllIrValueKinds) ==
 // that accept the vocabulary's upper-case spellings lower them first.
 bool irValueKindFromName(std::string_view name, IrValueKind& out) noexcept;
 
+// ── THE SELECTION KIND THAT NAMES A VALUE OF THIS IR KIND ───────────────────
+//
+// The inverse of the mapping ArchieCopilot::wantedKind() applies in the other
+// direction, and it exists because ONE SIDE of that mapping had a caller and the
+// other did not. resolveValues() reads EntityRef::bodyId -> valueFor() ->
+// kindOf(), and a signature naming EntityKind::Sketch is satisfied only by refs
+// whose kind IS Sketch -- satisfiedBy() compares kinds exactly, with no
+// subsumption, so a picked Face does not stand in for a Body and certainly not
+// for a Profile.
+//
+// ★ MEASURED, and this is why the function is here. The application had exactly
+// TWO producers of selection refs -- clickFace (EntityKind::Face) and clickEdge
+// (EntityKind::Edge). Nothing anywhere constructed a ref of any other kind. So
+// of the 80 commands in the registry, 28 named a kind the user interface could
+// never put in the selection: 13 body, 5 sketchref, 4 surface, 2 sketch, 2
+// opensketch, 2 wire -- including part.extrude and part.revolve, every boolean,
+// every pattern, mirror, move, rotate, loft, skin, thicken and the whole sketch
+// family. They were in the registry, in the manifest, in the menu and in the
+// ribbon, and app_surface_reachability_test was green on all of it, because
+// OFFERING a command is not the same claim as being able to INVOKE it -- that
+// gate says so itself ("enumeration, not pixels").
+//
+// The CoPilot could drive all 28 (ArchieCopilot::resolveSelection builds exactly
+// these refs); a person could not. This is the function a UI surface needs to
+// close that, and ui/test/selection_reachability_test.cpp is the standing
+// measurement of how much of it is closed.
+//
+// Total over the enum, so a kind added to IrValueKind is a -Wswitch error here
+// rather than a command that silently stops being selectable.
+EntityKind entityKindFor(IrValueKind kind) noexcept;
+
 struct FeatureRecord {
   int irId = 0;                 // == line.id; also the 1-based document position
   std::string commandId;        // "" for a value seeded before any command ran

@@ -39,26 +39,50 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
+# THE COUNT, RE-MEASURED AT THIS MERGE — never inherited from either parent.
+#
+# Both sides carried a figure and both were right only about their own half:
+# HEAD said 43, the base said 40. The difference is EXACTLY the three frame_gate
+# mutations HEAD adds (10, 11, 12); click mutation 8 is present on both sides of
+# this merge, which is what the base's own note above was about at the PREVIOUS
+# merge. Neither number was picked. This one was COUNTED on the merged tree, from
+# run_desktop.sh's own `run_gate` arguments, and cross-checked against the
+# `g_mutation` switches in the gate sources themselves:
+#
+#   document 8  (document_gate.cpp: == 1..8)
+#   frame    12 (frame_gate.cpp:    != 1,2,3,6,9,10,11,12  == 4,5,7,8)
+#   copilot  8
+#   update   7
+#   click    8  (click_gate.cpp:    != 1,2,5,7,8  == 3,4,6)
+#   ----------
+#            43
+#
+# The block below is HISTORY, kept for the METHOD (D-028: COUNT on the tree being
+# committed rather than inherit a number) and not as a current figure.
+#
 # 40 = document 8 + frame 9 + copilot 8 + update 7 + click 8. DERIVED on the
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
-# from either parent. This number has been contested at two earlier merges and
-# the SIDES SWAPPED between them, which is the whole argument for measuring it
-# rather than inheriting it.
+# from either parent. This number has been contested at THREE merges now and the
+# sides have swapped between them, which is the whole argument for measuring it
+# on the tree being committed rather than inheriting it.
 #
-# AT THIS MERGE (the execution branch, carrying #176 and #174, into
-# app/differential-gate-v2) BOTH SIDES ALREADY PIN 40 -- the disagreement the
-# two comments above describe has been resolved by the base pull this branch
-# already took. An agreeing pair is the easiest place to carry a stale figure
-# across, since no conflict is raised to prompt a re-count, so it was measured
-# anyway: counting run_desktop.sh's own run_gate arguments reproduces 40 on BOTH
-# parents and gives 40 on the merged tree.
+# AT THIS MERGE (origin/archdisc into app/forge-cpp-user-ready) the parents
+# DISAGREE: this branch pins 43, the base pins 40. NEITHER was taken. Counting
+# run_desktop.sh's own run_gate arguments on the MERGED tree gives:
+#     document 8 + frame 12 + copilot 8 + update 7 + click 8 = 43
+# (ir_pipeline_gate and isolation_gate take no mutation arguments.)
+#
+# Both parents are right about their own half. The base's 40 is correct FOR THE
+# BASE, where frame_gate still runs 1..9; this branch adds frame mutations 10, 11
+# and 12 -- a worker CONFIGURED is not distinguished from one absent, the frame
+# never dispatches the deferred Open Recent request, and a statement row is never
+# clicked so Extrude has no Sketch to consume. 40 + 3 = 43.
 #
 # The confirmation, not the count: click mutation 8 -- the camera pull path,
-# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree, which is
-# what the earlier disagreement turned on. This is D-028's failure mode, and the
-# method that catches it is to COUNT on the tree being committed rather than to
-# inherit a number.
-EXPECTED_MUTATIONS=40
+# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree (four
+# sites), which is what the earlier disagreements turned on. This is D-028's
+# failure mode; the method that catches it is to COUNT on the merged tree.
+EXPECTED_MUTATIONS=43
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"
