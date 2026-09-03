@@ -583,6 +583,21 @@ jobs:
           GATE_GUARD_BUILD: forge-kernel/build-verify
         run: bash forge-kernel/test/build_native_gate_guard_gate.sh
 
+      - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
+        # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,
+        # so a foreign file declaring SI_UNIT($,.METRE.) was read RAW. It refused
+        # 359 otherwise round-trip-proved corpus rows against 187 kept.
+        #
+        # Reuses build-verify, the tree the step above already populates, rather
+        # than standing up a second one. Its own restore() touches the source
+        # before rebuilding -- without that, a cp landing in the same second as
+        # the previous build leaves cmake believing the library is current and the
+        # MUTATED code linked.
+        env:
+          STEP_UNIT_BUILD: forge-kernel/build-verify
+          JOBS: 3
+        run: bash forge-kernel/test/run_step_unit_decline_gate.sh
+
       - name: ARC + HELIX compile probe (closed-form geometry, and HELIX's value kind)
         # PARSING IS NOT BUILDING, and the gap between them is where an arc op
         # fails silently: a profile that builds every arc as its CHORD parses

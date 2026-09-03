@@ -131,6 +131,14 @@ cp "$KERNEL/src/native/brep/NativeRoute.cpp" "$OUT/NativeRoute.cpp.orig"
 restore_sources() {
   cp "$OUT/FeatureTreeCompiler.cpp.orig" "$COMPILER_SRC"
   cp "$OUT/NativeRoute.cpp.orig" "$KERNEL/src/native/brep/NativeRoute.cpp"
+  # ★ TOUCH, OR THE REBUILD BELOW IS A NO-OP. MEASURED on the neighbouring STEP
+  #   gate: a cp that lands in the SAME SECOND as the previous build leaves the
+  #   source and libforge_kernel_core.dylib sharing an mtime to the second, cmake
+  #   judges the library current, skips the compile, and the MUTATED code stays
+  #   linked while the source shows the fix. That is a concrete mechanism for the
+  #   "[5/5] RED — the tree did not come back clean" this script reported on
+  #   PR #206 while its own 8 invariant checks passed.
+  touch "$COMPILER_SRC" "$KERNEL/src/native/brep/NativeRoute.cpp"
   # REBUILD after restoring. This gate may share a build tree with the rest of the
   # job (CI points GATE_GUARD_BUILD at build-verify), so an early exit mid-mutation
   # would otherwise leave a MUTATED library in place for every later step — a gate

@@ -193,177 +193,6 @@ bool getAxis1(const Resolver& R, std::uint64_t id, Vec3& loc, Vec3& axis) {
     return true;
 }
 
-// ---------------------------------------------------------------------------
-// UNIT context — find the length scale to millimetres.
-// ---------------------------------------------------------------------------
-double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& tab,
-                            std::string& unitNameOut) {
-    // Look for a (LENGTH_UNIT()...SI_UNIT(prefix,.METRE.)) or a
-    // CONVERSION_BASED_UNIT('inch'/'foot',...). Default mm (scale 1).
-    auto siMetreScale = [](const std::string& prefix) -> double {
-        // SI metre prefixes -> scale-to-mm.
-        if (prefix.find("MILLI") != std::string::npos) return 1.0;
-        if (prefix.find("CENTI") != std::string::npos) return 10.0;
-        if (prefix.find("DECI")  != std::string::npos) return 100.0;
-        if (prefix.find("KILO")  != std::string::npos) return 1.0e6;
-        if (prefix.find("MICRO") != std::string::npos) return 1.0e-3;
-        if (prefix.find("$") != std::string::npos || prefix.empty()) return 1000.0; // bare metre
-        return 1000.0; // unknown prefix -> treat as metre
-    };
-    // A resolved candidate: the scale to mm, the display name, and the ENTITY ID it
-    // was read from.
-    //
-    // `tab` is an unordered_map, so ITERATION ORDER IS A PROPERTY OF THE STDLIB
-    // BUILD, NOT OF THE FILE (libc++ on macOS vs libstdc++ on Linux CI, and it can
-    // shift between runs). Every pass below therefore collects ALL candidates and
-    // then picks by LOWEST ENTITY ID — the file's own declaration order — instead
-    // of returning whichever one iteration happened to yield first.
-    //
-    // This is the same nondeterminism the imperial pass already documented fixing
-    // by ordering the passes, one level up: a file may declare SEVERAL geometric
-    // representation contexts (an assembly with several SHAPE_REPRESENTATIONs has
-    // one each), and the old code returned on the FIRST context that resolved. When
-    // two contexts name different units that was a coin flip that mis-scales the
-    // WHOLE model — the worst class of import bug, because the geometry still looks
-    // plausible and every dimension is wrong. In the overwhelmingly common case the
-    // contexts agree and this changes nothing; when they disagree the answer is now
-    // at least the same on every platform and every run, and is the unit the file
-    // declares FIRST.
-    struct UnitCand {
-        std::uint64_t id = 0;
-        double        scale = 1.0;
-        std::string   name;
-    };
-    auto pickLowestId = [](const std::vector<UnitCand>& c) -> const UnitCand* {
-        const UnitCand* best = nullptr;
-        for (const auto& u : c)
-            if (best == nullptr || u.id < best->id) best = &u;
-        return best;
-    };
-
-    // PASS 1 — imperial CONVERSION_BASED_UNIT (inch/foot) takes PRIORITY. An inch
-    // file ALSO contains the SI base unit (millimetre/metre) the inch is defined in
-    // terms of, so scanning both kinds in ONE pass let iteration ORDER decide which
-    // matched first. Scanning imperial FIRST, and resolving ALL of them by lowest
-    // id, makes the result deterministic on every platform.
-    std::vector<UnitCand> imperial;
-    for (const auto& kv : tab) {
-        const Instance& ins = kv.second;
-        if (ins.type != "CONVERSION_BASED_UNIT") continue;
-        auto p = splitTopLevel(ins.params);
-        if (p.empty()) continue;
-        std::string nm = p[0];
-        std::transform(nm.begin(), nm.end(), nm.begin(),
-                       [](unsigned char c){ return (char)std::tolower(c); });
-        if (nm.find("inch") != std::string::npos)
-            imperial.push_back(UnitCand{kv.first, 25.4, "INCH"});
-        else if (nm.find("foot") != std::string::npos)
-            imperial.push_back(UnitCand{kv.first, 304.8, "FOOT"});
-    }
-    if (const UnitCand* u = pickLowestId(imperial)) {
-        unitNameOut = u->name;
-        return u->scale;
-    }
-
-    // PASS 1.5 — THE UNIT THE GEOMETRY IS ACTUALLY IN. A file may declare several
-    // LENGTH_UNITs and use only one; the geometric context names which:
-    //
-    //   #248=(GEOMETRIC_REPRESENTATION_CONTEXT(3)
-    //         GLOBAL_UNIT_ASSIGNED_CONTEXT((#250,#252,#253)) ...)
-    //   #250=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.CENTI.,.METRE.))   <- referenced
-    //   #251=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.))         <- NOT referenced
-    //
-    // A bare scan of every LENGTH_UNIT in the file is a coin flip between scale 10
-    // and scale 1000 on the file above — a 100x error. Measured on the
-    // neuralCAD-Edit corpus: a 76.3 mm part read as 7630 mm. The file banner has
-    // always claimed the unit is resolved from the GEOMETRIC_REPRESENTATION_CONTEXT
-    // — now it actually is, across ALL such contexts.
-    std::vector<UnitCand> ctxCands;
-    for (const auto& kv : tab) {
-        const Instance& ins = kv.second;
-        if (!ins.type.empty()) continue;                 // contexts are complex records
-        auto subs = splitComplex(ins.params);
-        bool isGeoCtx = false;
-        std::vector<std::uint64_t> unitIds;
-        for (const auto& s : subs) {
-            if (s.type == "GEOMETRIC_REPRESENTATION_CONTEXT") isGeoCtx = true;
-            if (s.type == "GLOBAL_UNIT_ASSIGNED_CONTEXT") {
-                // params are a single list argument, `(#250,#252,#253)`. Read the
-                // entity refs straight out of the text — nesting depth here is fixed
-                // by the schema, so there is nothing a split would buy.
-                for (std::size_t i = 0; i + 1 < s.params.size(); ++i) {
-                    if (s.params[i] != '#') continue;
-                    std::uint64_t uid = 0;
-                    std::size_t j = i + 1;
-                    while (j < s.params.size() && std::isdigit(static_cast<unsigned char>(s.params[j])))
-                        uid = uid * 10 + static_cast<std::uint64_t>(s.params[j++] - '0');
-                    if (j > i + 1) unitIds.push_back(uid);
-                    i = j - 1;
-                }
-            }
-        }
-        if (!isGeoCtx || unitIds.empty()) continue;
-        // The referenced unit list is in FILE order, so the first LENGTH_UNIT this
-        // context names is this context's length unit; the context is then a single
-        // candidate keyed by its OWN id.
-        for (std::uint64_t uid : unitIds) {
-            auto it = tab.find(uid);
-            if (it == tab.end() || !it->second.type.empty()) continue;
-            auto usubs = splitComplex(it->second.params);
-            bool isLength = false;
-            std::string prefix;
-            for (const auto& s : usubs) {
-                if (s.type == "LENGTH_UNIT") isLength = true;
-                if (s.type == "SI_UNIT") {
-                    auto f = splitTopLevel(s.params);
-                    if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) prefix = f[0];
-                }
-            }
-            if (isLength && !prefix.empty()) {
-                std::string nm = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE"
-                               : (prefix.find("CENTI") != std::string::npos) ? "CENTIMETRE"
-                                                                            : "METRE";
-                ctxCands.push_back(UnitCand{kv.first, siMetreScale(prefix), nm});
-                break;
-            }
-        }
-    }
-    if (const UnitCand* u = pickLowestId(ctxCands)) {
-        unitNameOut = u->name;
-        return u->scale;
-    }
-
-    // PASS 2 — SI length unit (only when no imperial conversion is present, and no
-    // geometric context named one). The SIMPLE SI length unit appears as a COMPLEX
-    // record: (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
-    std::vector<UnitCand> siCands;
-    for (const auto& kv : tab) {
-        const Instance& ins = kv.second;
-        if (!ins.type.empty()) continue;
-        auto subs = splitComplex(ins.params);
-        bool isLength = false; std::string prefix;
-        for (const auto& s : subs) {
-            if (s.type == "LENGTH_UNIT") isLength = true;
-            if (s.type == "SI_UNIT") {
-                auto f = splitTopLevel(s.params);
-                if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) {
-                    prefix = f[0];
-                }
-            }
-        }
-        if (isLength && !prefix.empty()) {
-            std::string nm = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE" : "METRE";
-            siCands.push_back(UnitCand{kv.first, siMetreScale(prefix), nm});
-        }
-    }
-    if (const UnitCand* u = pickLowestId(siCands)) {
-        unitNameOut = u->name;
-        return u->scale;
-    }
-
-    unitNameOut = "MILLIMETRE";
-    return 1.0;
-}
 
 // ---------------------------------------------------------------------------
 // SURFACE reconstruction.
@@ -1141,6 +970,183 @@ bool buildProfileCurve(const Resolver& R, std::uint64_t curveId, double scale, N
 }
 
 } // namespace
+
+// ★ DEFINED OUTSIDE THE ANONYMOUS NAMESPACE ON PURPOSE, so StepAnalytic.cpp
+//   can call it. It stays in THIS translation unit -- it depends on
+//   splitComplex()/SubRecord, which remain anonymous above and are still
+//   visible here. Moving it to a public header would have dragged that whole
+//   chain along; giving it external linkage costs one declaration instead.
+// ---------------------------------------------------------------------------
+// UNIT context — find the length scale to millimetres.
+// ---------------------------------------------------------------------------
+double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& tab,
+                            std::string& unitNameOut) {
+    // Look for a (LENGTH_UNIT()...SI_UNIT(prefix,.METRE.)) or a
+    // CONVERSION_BASED_UNIT('inch'/'foot',...). Default mm (scale 1).
+    auto siMetreScale = [](const std::string& prefix) -> double {
+        // SI metre prefixes -> scale-to-mm.
+        if (prefix.find("MILLI") != std::string::npos) return 1.0;
+        if (prefix.find("CENTI") != std::string::npos) return 10.0;
+        if (prefix.find("DECI")  != std::string::npos) return 100.0;
+        if (prefix.find("KILO")  != std::string::npos) return 1.0e6;
+        if (prefix.find("MICRO") != std::string::npos) return 1.0e-3;
+        if (prefix.find("$") != std::string::npos || prefix.empty()) return 1000.0; // bare metre
+        return 1000.0; // unknown prefix -> treat as metre
+    };
+    // A resolved candidate: the scale to mm, the display name, and the ENTITY ID it
+    // was read from.
+    //
+    // `tab` is an unordered_map, so ITERATION ORDER IS A PROPERTY OF THE STDLIB
+    // BUILD, NOT OF THE FILE (libc++ on macOS vs libstdc++ on Linux CI, and it can
+    // shift between runs). Every pass below therefore collects ALL candidates and
+    // then picks by LOWEST ENTITY ID — the file's own declaration order — instead
+    // of returning whichever one iteration happened to yield first.
+    //
+    // This is the same nondeterminism the imperial pass already documented fixing
+    // by ordering the passes, one level up: a file may declare SEVERAL geometric
+    // representation contexts (an assembly with several SHAPE_REPRESENTATIONs has
+    // one each), and the old code returned on the FIRST context that resolved. When
+    // two contexts name different units that was a coin flip that mis-scales the
+    // WHOLE model — the worst class of import bug, because the geometry still looks
+    // plausible and every dimension is wrong. In the overwhelmingly common case the
+    // contexts agree and this changes nothing; when they disagree the answer is now
+    // at least the same on every platform and every run, and is the unit the file
+    // declares FIRST.
+    struct UnitCand {
+        std::uint64_t id = 0;
+        double        scale = 1.0;
+        std::string   name;
+    };
+    auto pickLowestId = [](const std::vector<UnitCand>& c) -> const UnitCand* {
+        const UnitCand* best = nullptr;
+        for (const auto& u : c)
+            if (best == nullptr || u.id < best->id) best = &u;
+        return best;
+    };
+
+    // PASS 1 — imperial CONVERSION_BASED_UNIT (inch/foot) takes PRIORITY. An inch
+    // file ALSO contains the SI base unit (millimetre/metre) the inch is defined in
+    // terms of, so scanning both kinds in ONE pass let iteration ORDER decide which
+    // matched first. Scanning imperial FIRST, and resolving ALL of them by lowest
+    // id, makes the result deterministic on every platform.
+    std::vector<UnitCand> imperial;
+    for (const auto& kv : tab) {
+        const Instance& ins = kv.second;
+        if (ins.type != "CONVERSION_BASED_UNIT") continue;
+        auto p = splitTopLevel(ins.params);
+        if (p.empty()) continue;
+        std::string nm = p[0];
+        std::transform(nm.begin(), nm.end(), nm.begin(),
+                       [](unsigned char c){ return (char)std::tolower(c); });
+        if (nm.find("inch") != std::string::npos)
+            imperial.push_back(UnitCand{kv.first, 25.4, "INCH"});
+        else if (nm.find("foot") != std::string::npos)
+            imperial.push_back(UnitCand{kv.first, 304.8, "FOOT"});
+    }
+    if (const UnitCand* u = pickLowestId(imperial)) {
+        unitNameOut = u->name;
+        return u->scale;
+    }
+
+    // PASS 1.5 — THE UNIT THE GEOMETRY IS ACTUALLY IN. A file may declare several
+    // LENGTH_UNITs and use only one; the geometric context names which:
+    //
+    //   #248=(GEOMETRIC_REPRESENTATION_CONTEXT(3)
+    //         GLOBAL_UNIT_ASSIGNED_CONTEXT((#250,#252,#253)) ...)
+    //   #250=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.CENTI.,.METRE.))   <- referenced
+    //   #251=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.))         <- NOT referenced
+    //
+    // A bare scan of every LENGTH_UNIT in the file is a coin flip between scale 10
+    // and scale 1000 on the file above — a 100x error. Measured on the
+    // neuralCAD-Edit corpus: a 76.3 mm part read as 7630 mm. The file banner has
+    // always claimed the unit is resolved from the GEOMETRIC_REPRESENTATION_CONTEXT
+    // — now it actually is, across ALL such contexts.
+    std::vector<UnitCand> ctxCands;
+    for (const auto& kv : tab) {
+        const Instance& ins = kv.second;
+        if (!ins.type.empty()) continue;                 // contexts are complex records
+        auto subs = splitComplex(ins.params);
+        bool isGeoCtx = false;
+        std::vector<std::uint64_t> unitIds;
+        for (const auto& s : subs) {
+            if (s.type == "GEOMETRIC_REPRESENTATION_CONTEXT") isGeoCtx = true;
+            if (s.type == "GLOBAL_UNIT_ASSIGNED_CONTEXT") {
+                // params are a single list argument, `(#250,#252,#253)`. Read the
+                // entity refs straight out of the text — nesting depth here is fixed
+                // by the schema, so there is nothing a split would buy.
+                for (std::size_t i = 0; i + 1 < s.params.size(); ++i) {
+                    if (s.params[i] != '#') continue;
+                    std::uint64_t uid = 0;
+                    std::size_t j = i + 1;
+                    while (j < s.params.size() && std::isdigit(static_cast<unsigned char>(s.params[j])))
+                        uid = uid * 10 + static_cast<std::uint64_t>(s.params[j++] - '0');
+                    if (j > i + 1) unitIds.push_back(uid);
+                    i = j - 1;
+                }
+            }
+        }
+        if (!isGeoCtx || unitIds.empty()) continue;
+        // The referenced unit list is in FILE order, so the first LENGTH_UNIT this
+        // context names is this context's length unit; the context is then a single
+        // candidate keyed by its OWN id.
+        for (std::uint64_t uid : unitIds) {
+            auto it = tab.find(uid);
+            if (it == tab.end() || !it->second.type.empty()) continue;
+            auto usubs = splitComplex(it->second.params);
+            bool isLength = false;
+            std::string prefix;
+            for (const auto& s : usubs) {
+                if (s.type == "LENGTH_UNIT") isLength = true;
+                if (s.type == "SI_UNIT") {
+                    auto f = splitTopLevel(s.params);
+                    if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) prefix = f[0];
+                }
+            }
+            if (isLength && !prefix.empty()) {
+                std::string nm = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE"
+                               : (prefix.find("CENTI") != std::string::npos) ? "CENTIMETRE"
+                                                                            : "METRE";
+                ctxCands.push_back(UnitCand{kv.first, siMetreScale(prefix), nm});
+                break;
+            }
+        }
+    }
+    if (const UnitCand* u = pickLowestId(ctxCands)) {
+        unitNameOut = u->name;
+        return u->scale;
+    }
+
+    // PASS 2 — SI length unit (only when no imperial conversion is present, and no
+    // geometric context named one). The SIMPLE SI length unit appears as a COMPLEX
+    // record: (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
+    std::vector<UnitCand> siCands;
+    for (const auto& kv : tab) {
+        const Instance& ins = kv.second;
+        if (!ins.type.empty()) continue;
+        auto subs = splitComplex(ins.params);
+        bool isLength = false; std::string prefix;
+        for (const auto& s : subs) {
+            if (s.type == "LENGTH_UNIT") isLength = true;
+            if (s.type == "SI_UNIT") {
+                auto f = splitTopLevel(s.params);
+                if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) {
+                    prefix = f[0];
+                }
+            }
+        }
+        if (isLength && !prefix.empty()) {
+            std::string nm = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE" : "METRE";
+            siCands.push_back(UnitCand{kv.first, siMetreScale(prefix), nm});
+        }
+    }
+    if (const UnitCand* u = pickLowestId(siCands)) {
+        unitNameOut = u->name;
+        return u->scale;
+    }
+
+    unitNameOut = "MILLIMETRE";
+    return 1.0;
+}
 
 // ===========================================================================
 // readForeignStep
