@@ -53,16 +53,24 @@ set -uo pipefail
 #     document 8 + file_exchange 5 + frame 12 + copilot 8 + update 7 + click 8 = 48
 # (ir_pipeline_gate and isolation_gate take no mutation arguments.)
 #
+# ★ 2026-09-03: + file_dialog 3 = 51. Counted the same way, on this tree:
+#     document 8 + file_exchange 5 + file_dialog 3 + frame 12 + copilot 8
+#     + update 7 + click 8 = 51
+#
 # ★ The merge of run_desktop.sh was the real hazard here, not this number. HEAD kept
 #   frame_gate at 1..9 while adding the file-exchange line; the base had frame_gate
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-# ── 2026-09-03 MERGE: neither parent's number was taken. HEAD said 56, archdisc said
-#    50, and the file's own instruction is to COUNT run_desktop.sh's run_gate
-#    arguments on the MERGED tree. Measured: 58. This value has now been contested
-#    at four merges; measuring it is the only resolution that cannot silently test less.
-EXPECTED_MUTATIONS=58
+# ── 2026-09-03: 48 -> 61, MEASURED at the merge. This branch derived 53 (its
+#    file-dialog gate, 3 mutations); archdisc derived 58 (its imgui-recovery
+#    gate, 8). Both were right on their OWN tree and both are wrong here: the
+#    merged tree runs BOTH gates. Taking a side would have dropped real
+#    mutations, so this is derived, never carried across:
+#      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#    prints 61 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 14 + copilot 8 + update 7 + click 8 + isolation 0.
+EXPECTED_MUTATIONS=61
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it
