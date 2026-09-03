@@ -16,12 +16,14 @@
 
 #include "Camera.hpp"
 #include "KernelScene.hpp"
+#include "StudyHost.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/Material.hpp"
 #include "forge/ui/PanelCatalog.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/RecentDocuments.hpp"
@@ -2176,6 +2178,10 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawTimelinePanel();
   } else if (panelId == "measure") {
     drawMeasurePanel();
+  } else if (panelId == "restraints") {
+    drawRestraintsPanel();
+  } else if (panelId == "loads") {
+    drawLoadsPanel();
   } else if (panelId == "archie_tools") {
     drawToolsPanel();
   } else if (panelId == "archie_copilot" || panelId == "archie_chat") {
@@ -3085,6 +3091,383 @@ void ForgeFrame::drawMeasurePanel() {
   } else if (s.faces > 2) {
     ImGui::TextDisabled("(distance and angle need exactly two faces)");
   }
+}
+
+
+// ── the simulation study: what holds the part, what pushes on it ────────────
+//
+// TWO PANELS AND ONE STUDY. Restraints and Loads are two views of one set-up, so
+// they share the footer that carries the material, the mesh density, the Run
+// button and the answer -- and they share it as one FUNCTION, not as two copies
+// that have to be kept saying the same thing.
+//
+// ★ EVERY NUMBER BELOW IS MEASURED. The extent comes from the same triangle soup
+// the Measure panel reports; the mesh point counts, the peak movement, the peak
+// stress, the out-of-balance force and the elapsed time all come back from a
+// real solve of the real part, through forge::desktop::runStudy. Where a number
+// does not exist yet -- before the first run, or after an edit -- it is NOT
+// shown. A panel that keeps printing the answer to a part the user has since
+// changed is worse than one that prints nothing, because the number looks alive.
+
+bool ForgeFrame::setStudyMaterial(const std::string& id) {
+  const forge::ui::Material* m = forge::ui::findMaterial(id);
+  if (m == nullptr) return false;
+  study_.materialId = m->id;
+  study_.materialName = m->name;
+  study_.densityKgPerM3 = m->densityKgPerM3;
+  // The answer was computed with the OLD material. Dropping it is the same rule
+  // the staleness witness applies to a geometry edit.
+  studyOutcome_ = forge::ui::StudyOutcome{};
+  studyProgram_.clear();
+  return true;
+}
+
+bool ForgeFrame::studyOutcomeIsStale() const {
+  if (!studyOutcome_.solved) return false;
+  return studyProgram_ != partDoc_.irProgram();
+}
+
+bool ForgeFrame::runStudy() {
+  StudyRequest request;
+  request.irProgram = partDoc_.irProgram();
+  request.inputFile = scene_.inputFile();
+  request.study = study_;
+  std::string detail;
+  studyOutcome_ = forge::desktop::runStudy(request, detail);
+  studyProgram_ = request.irProgram;
+  ++studyRuns_;
+  if (studyOutcome_.solved) {
+    char line[192];
+    std::snprintf(line, sizeof(line),
+                  "study solved: %zu mesh points, largest movement %.4f mm, highest stress "
+                  "%.2f MPa",
+                  studyOutcome_.meshNodes, studyOutcome_.maxDisplacementMm,
+                  studyOutcome_.maxStressMPa);
+    note(line);
+    shell_.log().info("simulation", line, detail);
+  } else {
+    // The SENTENCE goes to the user; the cause goes to the log's detail field,
+    // which is the one place in this application that is meant to carry it.
+    note(studyOutcome_.blocker);
+    shell_.log().warning("simulation", studyOutcome_.blocker, detail);
+  }
+  return studyOutcome_.solved;
+}
+
+namespace {
+
+// The extent of the part along one axis, in millimetres, or 0 when there is no
+// part. Read off the SAME measured box the Measure panel prints, so the two
+// panels cannot report different sizes for one model.
+const char* kAxisNames[3] = {"x", "y", "z"};
+
+}  // namespace
+
+void ForgeFrame::drawStudyFooter(const char* scopeId) {
+  ImGui::PushID(scopeId);
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Study");
+  ImGui::Separator();
+
+  // ── the material ────────────────────────────────────────────────────────
+  // The picker is here rather than on a Materials tab because the study cannot
+  // run without one, and a control the user has to go and find is a control that
+  // makes a panel look broken.
+  const forge::ui::ElasticProperties* elastic =
+      study_.materialId.empty() ? nullptr : forge::ui::elasticPropertiesFor(study_.materialId);
+  ImGui::Text("Material");
+  ImGui::SetNextItemWidth(-1);
+  const std::string current = study_.materialName.empty() ? std::string("(none chosen)")
+                                                          : study_.materialName;
+  if (ImGui::BeginCombo("##studymaterial", current.c_str())) {
+    for (const forge::ui::Material& m : forge::ui::materialLibrary()) {
+      // A material with no weight cannot be stretched either: offering it would
+      // be offering a choice that can only refuse.
+      if (!m.hasDensity()) continue;
+      if (forge::ui::elasticPropertiesFor(m.id) == nullptr) continue;
+      const bool isSel = m.id == study_.materialId;
+      if (ImGui::Selectable(m.name.c_str(), isSel)) setStudyMaterial(m.id);
+      if (isSel) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  if (elastic != nullptr) {
+    ImGui::Text("           stiffness %.1f GPa, sideways spread %.2f, density %.0f kg/m3",
+                elastic->youngsModulusPa / 1.0e9, elastic->poissonRatio, study_.densityKgPerM3);
+  }
+
+  // ── the mesh ────────────────────────────────────────────────────────────
+  const forge::ui::MeshMeasure& mm = modelMeasure();
+  double longest = 0.0;
+  for (std::size_t axis = 0; axis < 3; ++axis) longest = std::max(longest, mm.box.size(axis));
+  ImGui::Spacing();
+  ImGui::Text("Pieces across the part");
+  ImGui::SetNextItemWidth(-1);
+  int divisions = study_.divisions;
+  if (ImGui::SliderInt("##studydiv", &divisions, forge::ui::kMinStudyDivisions,
+                       forge::ui::kMaxStudyDivisions)) {
+    if (divisions != study_.divisions) {
+      study_.divisions = divisions;
+      studyOutcome_ = forge::ui::StudyOutcome{};
+      studyProgram_.clear();
+    }
+  }
+  if (longest > 0.0) {
+    ImGui::Text("           %d across %.3f mm, so about %.3f mm each", study_.divisions, longest,
+                studyElementSizeMm(longest, study_.divisions));
+  }
+
+  // ── running it ──────────────────────────────────────────────────────────
+  ImGui::Spacing();
+  const bool bodyReady = scene_.built() && !partDoc_.irProgram().empty();
+  std::string blocker = forge::ui::studyBlocker(study_, bodyReady);
+  if (blocker.empty() && builtProgram_ != partDoc_.irProgram()) {
+    blocker = "The part is still rebuilding. The study runs on the shape you can see, so it "
+              "waits for that to finish.";
+  }
+  ImGui::BeginDisabled(!blocker.empty());
+  if (ImGui::Button("Run study", ImVec2(-1, 0))) runStudy();
+  ImGui::EndDisabled();
+  if (!blocker.empty()) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("%s", blocker.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopID();
+    return;
+  }
+
+  // ── the answer ──────────────────────────────────────────────────────────
+  if (studyRuns_ == 0) {
+    ImGui::TextDisabled("(this study has not been run yet)");
+    ImGui::PopID();
+    return;
+  }
+  if (!studyOutcome_.solved) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(235, 105, 95), "The study did not run.");
+    ImGui::TextWrapped("%s", studyOutcome_.blocker.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::PopID();
+    return;
+  }
+  if (studyOutcomeIsStale()) {
+    // The witness has fired. Printing the old peak stress here is precisely the
+    // number a user would act on and precisely the one that is no longer true.
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(rgb(230, 190, 90),
+                       "This part has changed since the study ran, so the last answer no longer "
+                       "describes it. Run it again.");
+    ImGui::PopTextWrapPos();
+    ImGui::PopID();
+    return;
+  }
+
+  const forge::ui::StudyOutcome& o = studyOutcome_;
+  ImGui::Text("mesh       %zu points, %zu pieces, %.3f mm each", o.meshNodes, o.meshElements,
+              o.elementSizeMm);
+  ImGui::Text("freedoms   %zu, of which %zu are held", o.freedoms, o.heldFreedoms);
+  ImGui::Text("push       %.3f N over %zu points", forge::ui::appliedForceMagnitudeN(o),
+              o.loadedNodes);
+  ImGui::TextColored(rgb(120, 200, 130), "movement   %.4f mm at the furthest point",
+                     o.maxDisplacementMm);
+  ImGui::TextColored(rgb(120, 200, 130), "stress     %.3f MPa at its highest", o.maxStressMPa);
+  ImGui::Text("took       %.0f ms", o.solveMs);
+  // The out-of-balance force is the honest check on the answer: it is what is
+  // left over of the push after the part has taken it up. Printed with the force
+  // it is compared against, because a residual on its own has no scale.
+  if (forge::ui::studyConverged(o)) {
+    ImGui::Text("settled    %.3g N left over against %.3f N applied", o.residualN,
+                forge::ui::appliedForceMagnitudeN(o));
+  } else {
+    ImGui::TextColored(rgb(230, 190, 90),
+                       "not settled: %.3g N left over against %.3f N applied", o.residualN,
+                       forge::ui::appliedForceMagnitudeN(o));
+  }
+  ImGui::PopID();
+}
+
+// ── restraints ──────────────────────────────────────────────────────────────
+void ForgeFrame::drawRestraintsPanel() {
+  restraintRowsDrawn_ = 0;
+  ImGui::TextColored(rgb(242, 158, 38), "Restraints");
+  ImGui::Separator();
+
+  const forge::ui::MeshMeasure& mm = modelMeasure();
+  if (measureMesh().empty()) {
+    ImGui::TextColored(rgb(235, 105, 95), "There is nothing to hold yet");
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty()
+                                 ? "Draw or open a part, then come back to hold one of its sides."
+                                 : why.c_str());
+    return;
+  }
+  ImGui::Text("This part spans %.3f x %.3f x %.3f mm", mm.box.size(0), mm.box.size(1),
+              mm.box.size(2));
+  ImGui::Spacing();
+
+  if (study_.restraints.empty()) {
+    ImGui::TextDisabled("Nothing is holding this part yet. Until one side is held it is free");
+    ImGui::TextDisabled("to drift, and the study has no answer to give. Pick a side below.");
+  }
+  std::size_t removeAt = study_.restraints.size();
+  for (std::size_t i = 0; i < study_.restraints.size(); ++i) {
+    const forge::ui::Restraint& r = study_.restraints[i];
+    ImGui::PushID(static_cast<int>(i));
+    ImGui::BulletText("%s   %s", forge::ui::studyFaceName(r.face), r.describeHold().c_str());
+    // The mesh point count and the plane are only real once the solver has built
+    // the mesh, so they appear only when they exist -- and only while the answer
+    // they came from still describes this part.
+    const forge::ui::FaceCensus* census =
+        (studyOutcome_.solved && !studyOutcomeIsStale()) ? studyOutcome_.censusFor(r.face)
+                                                         : nullptr;
+    if (census != nullptr) {
+      ImGui::Text("     %zu mesh points at %s = %.3f mm", census->meshNodes,
+                  kAxisNames[forge::ui::studyFaceAxis(r.face)], census->planeMm);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove")) removeAt = i;
+    ImGui::PopID();
+    ++restraintRowsDrawn_;
+  }
+  if (removeAt < study_.restraints.size()) {
+    study_.restraints.erase(study_.restraints.begin() + static_cast<std::ptrdiff_t>(removeAt));
+    studyOutcome_ = forge::ui::StudyOutcome{};
+    studyProgram_.clear();
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(130, 137, 148), "Hold a side");
+  const std::vector<forge::ui::StudyFace>& faces = forge::ui::allStudyFaces();
+  if (restraintFacePick_ < 0 || restraintFacePick_ >= static_cast<int>(faces.size())) {
+    restraintFacePick_ = 0;
+  }
+  ImGui::SetNextItemWidth(-1);
+  if (ImGui::BeginCombo("##holdface",
+                        forge::ui::studyFaceName(faces[static_cast<std::size_t>(restraintFacePick_)]))) {
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+      const bool isSel = static_cast<int>(i) == restraintFacePick_;
+      if (ImGui::Selectable(forge::ui::studyFaceName(faces[i]), isSel)) {
+        restraintFacePick_ = static_cast<int>(i);
+      }
+      if (isSel) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::Checkbox("X", &restraintHold_[0]);
+  ImGui::SameLine();
+  ImGui::Checkbox("Y", &restraintHold_[1]);
+  ImGui::SameLine();
+  ImGui::Checkbox("Z", &restraintHold_[2]);
+  const bool anyDirection = restraintHold_[0] || restraintHold_[1] || restraintHold_[2];
+  ImGui::BeginDisabled(!anyDirection);
+  if (ImGui::Button("Hold this side", ImVec2(-1, 0))) {
+    forge::ui::Restraint r;
+    r.face = faces[static_cast<std::size_t>(restraintFacePick_)];
+    r.holdX = restraintHold_[0];
+    r.holdY = restraintHold_[1];
+    r.holdZ = restraintHold_[2];
+    study_.restraints.push_back(r);
+    studyOutcome_ = forge::ui::StudyOutcome{};
+    studyProgram_.clear();
+    note(std::string("holding the ") + forge::ui::studyFaceName(r.face));
+  }
+  ImGui::EndDisabled();
+  if (!anyDirection) {
+    ImGui::TextDisabled("(tick at least one direction to hold)");
+  }
+
+  drawStudyFooter("restraints");
+}
+
+// ── loads ───────────────────────────────────────────────────────────────────
+void ForgeFrame::drawLoadsPanel() {
+  loadRowsDrawn_ = 0;
+  ImGui::TextColored(rgb(242, 158, 38), "Forces");
+  ImGui::Separator();
+
+  const forge::ui::MeshMeasure& mm = modelMeasure();
+  if (measureMesh().empty()) {
+    ImGui::TextColored(rgb(235, 105, 95), "There is nothing to push on yet");
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty()
+                                 ? "Draw or open a part, then come back to push on one of its sides."
+                                 : why.c_str());
+    return;
+  }
+  ImGui::Text("This part spans %.3f x %.3f x %.3f mm", mm.box.size(0), mm.box.size(1),
+              mm.box.size(2));
+  ImGui::Spacing();
+
+  if (study_.loads.empty()) {
+    ImGui::TextDisabled("Nothing is pushing on this part yet, so it would stay exactly where");
+    ImGui::TextDisabled("it is. Pick a side below and give the force a size in newtons.");
+  }
+  std::size_t removeAt = study_.loads.size();
+  for (std::size_t i = 0; i < study_.loads.size(); ++i) {
+    const forge::ui::Load& l = study_.loads[i];
+    ImGui::PushID(static_cast<int>(i));
+    ImGui::BulletText("%s on the %s", l.describeDirection().c_str(),
+                      forge::ui::studyFaceName(l.face));
+    const forge::ui::FaceCensus* census =
+        (studyOutcome_.solved && !studyOutcomeIsStale()) ? studyOutcome_.censusFor(l.face)
+                                                         : nullptr;
+    if (census != nullptr && census->meshNodes > 0) {
+      // Spread EQUALLY over the points on that side, and said so: the total is
+      // exactly what was typed, and how it is shared out is a choice the user is
+      // entitled to know about rather than a detail hidden behind a total.
+      ImGui::Text("     spread over %zu mesh points, %.4f N each, at %s = %.3f mm",
+                  census->meshNodes, l.magnitudeN() / static_cast<double>(census->meshNodes),
+                  kAxisNames[forge::ui::studyFaceAxis(l.face)], census->planeMm);
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Remove")) removeAt = i;
+    ImGui::PopID();
+    ++loadRowsDrawn_;
+  }
+  if (removeAt < study_.loads.size()) {
+    study_.loads.erase(study_.loads.begin() + static_cast<std::ptrdiff_t>(removeAt));
+    studyOutcome_ = forge::ui::StudyOutcome{};
+    studyProgram_.clear();
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(130, 137, 148), "Push on a side");
+  const std::vector<forge::ui::StudyFace>& faces = forge::ui::allStudyFaces();
+  if (loadFacePick_ < 0 || loadFacePick_ >= static_cast<int>(faces.size())) loadFacePick_ = 0;
+  ImGui::SetNextItemWidth(-1);
+  if (ImGui::BeginCombo("##loadface",
+                        forge::ui::studyFaceName(faces[static_cast<std::size_t>(loadFacePick_)]))) {
+    for (std::size_t i = 0; i < faces.size(); ++i) {
+      const bool isSel = static_cast<int>(i) == loadFacePick_;
+      if (ImGui::Selectable(forge::ui::studyFaceName(faces[i]), isSel)) {
+        loadFacePick_ = static_cast<int>(i);
+      }
+      if (isSel) ImGui::SetItemDefaultFocus();
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::SetNextItemWidth(-1);
+  ImGui::InputFloat3("##loadxyz", loadForce_, "%.2f N");
+  const bool anyForce =
+      loadForce_[0] != 0.0f || loadForce_[1] != 0.0f || loadForce_[2] != 0.0f;
+  ImGui::BeginDisabled(!anyForce);
+  if (ImGui::Button("Add this force", ImVec2(-1, 0))) {
+    forge::ui::Load l;
+    l.face = faces[static_cast<std::size_t>(loadFacePick_)];
+    l.fx = static_cast<double>(loadForce_[0]);
+    l.fy = static_cast<double>(loadForce_[1]);
+    l.fz = static_cast<double>(loadForce_[2]);
+    study_.loads.push_back(l);
+    studyOutcome_ = forge::ui::StudyOutcome{};
+    studyProgram_.clear();
+    note(l.describeDirection() + " on the " + forge::ui::studyFaceName(l.face));
+  }
+  ImGui::EndDisabled();
+  if (!anyForce) {
+    ImGui::TextDisabled("(type a force in newtons along at least one direction)");
+  }
+
+  drawStudyFooter("loads");
 }
 
 // ── archie tools ────────────────────────────────────────────────────────────

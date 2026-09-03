@@ -46,6 +46,7 @@
 #include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/StatusModel.hpp"
+#include "forge/ui/StudyModel.hpp"
 #include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
 
@@ -355,6 +356,33 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // one was actually drawn.
   std::size_t measureEdgeRowsDrawn() const noexcept { return measureEdgeRowsDrawn_; }
 
+  // ── the simulation study ────────────────────────────────────────────────
+  // The study the Restraints and Loads panels edit, and the answer the solver
+  // last gave for it. Public so a gate drives the SHIPPING path -- the button in
+  // the panel calls runStudy() and so does the gate, and there is no second way
+  // in.
+  const forge::ui::StudyDefinition& study() const noexcept { return study_; }
+  forge::ui::StudyDefinition& study() noexcept { return study_; }
+  const forge::ui::StudyOutcome& studyOutcome() const noexcept { return studyOutcome_; }
+  // Picks the study's material out of the material library. Returns false,
+  // changing nothing, on an id the library does not carry.
+  bool setStudyMaterial(const std::string& id);
+  // Solves the study against the DOCUMENT's own feature history, so the part
+  // that is tested is the part on screen. Returns whether it solved; either way
+  // studyOutcome() then holds what happened, and the technical cause of a
+  // refusal is in the activity log rather than in the panel.
+  bool runStudy();
+  // True when the document has been edited since the answer below was computed.
+  // A number from a part that no longer exists is worse than no number, so the
+  // panels hide the answer and say so instead.
+  bool studyOutcomeIsStale() const;
+  std::size_t studyRuns() const noexcept { return studyRuns_; }
+  // Rows the two panels drew on their last draw -- one per restraint, one per
+  // force. Separate counters, because they are separate panels and one number
+  // for both could not say which of them drew anything.
+  std::size_t restraintRowsDrawn() const noexcept { return restraintRowsDrawn_; }
+  std::size_t loadRowsDrawn() const noexcept { return loadRowsDrawn_; }
+
   // ── the recovered B-rep edges ───────────────────────────────────────────
   // Derived from the SAME triangle soup the Measure panel uses and cached on the
   // same witness (the scene's triangle count), so a rebuild invalidates both at
@@ -513,6 +541,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawConsolePanel();
   void drawTimelinePanel();
   void drawMeasurePanel();
+  void drawRestraintsPanel();
+  void drawLoadsPanel();
+  // The material, the mesh density, the Run button and the last answer. Drawn at
+  // the foot of BOTH simulation panels, from one function, so the two cannot
+  // disagree about what the study is set to or what it last said.
+  void drawStudyFooter(const char* scopeId);
   void drawToolsPanel();
   void drawCopilotPanel();
   // The work the three recorded presses stand for. Private: the ONLY caller is
@@ -783,6 +817,29 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
+
+  // ── the simulation study ────────────────────────────────────────────────
+  // Panel state, like the CoPilot's transcript: the restraints and forces a user
+  // has set up belong to the surface they are looking at. The ANSWER is not
+  // panel state -- it comes from the solver, through StudyHost, and
+  // `studyProgram_` is the witness that keeps it honest: it records the feature
+  // history the answer was computed from, so an edit makes the answer STALE
+  // rather than silently wrong. That is the same witness measureTriangles_ is,
+  // and for the same reason.
+  forge::ui::StudyDefinition study_;
+  forge::ui::StudyOutcome studyOutcome_;
+  std::string studyProgram_;
+  std::size_t studyRuns_ = 0;
+  std::size_t restraintRowsDrawn_ = 0;
+  std::size_t loadRowsDrawn_ = 0;
+  // The pickers at the foot of each panel. Indices into allStudyFaces().
+  int restraintFacePick_ = 0;
+  int loadFacePick_ = 1;
+  bool restraintHold_[3] = {true, true, true};
+  // Zero, deliberately: an input box that starts with a number in it is a
+  // number the application made up, and Add stays disabled until the person
+  // using it types one.
+  float loadForce_[3] = {0.0f, 0.0f, 0.0f};
 
   // ── the CoPilot ─────────────────────────────────────────────────────────
   // Owned here because it is panel state, not document state: the transcript,

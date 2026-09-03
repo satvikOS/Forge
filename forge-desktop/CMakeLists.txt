@@ -210,6 +210,7 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -327,6 +328,21 @@ target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_cor
 set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ---------------------------------------------------- the SIMULATION gate
+# The Restraints and Loads panels, against a real solve of a real cantilever and
+# the Euler-Bernoulli deflection for it. `--mutate 1..6` breaks the SET-UP the
+# production code is fed -- the restraint moved onto the loaded side, the beam
+# built a thousand times larger, the material swapped, the force turned along the
+# beam, the study never run, the part never edited -- and each is registered
+# below as a WILL_FAIL test, so a mutation that stops being caught is a red test
+# rather than a line nobody reads.
+add_executable(forge_desktop_study_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/study_gate.cpp")
+target_compile_options(forge_desktop_study_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_study_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_study_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
@@ -378,6 +394,7 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core_asan PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -480,6 +497,12 @@ foreach(_fx 1 2 3 4 5)
              COMMAND forge_desktop_file_exchange_gate --mutate ${_fx})
     set_tests_properties(forge_desktop_file_exchange_mutation_${_fx}
                          PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_study_gate COMMAND forge_desktop_study_gate)
+foreach(_sm RANGE 1 6)
+    add_test(NAME forge_desktop_study_mutation_${_sm}
+             COMMAND forge_desktop_study_gate --mutate ${_sm})
+    set_tests_properties(forge_desktop_study_mutation_${_sm} PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)
 add_test(NAME forge_desktop_update_gate COMMAND forge_desktop_update_gate)

@@ -142,11 +142,13 @@ CHECKED=(
   forge-desktop/test/frame_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
+  forge-desktop/test/study_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
   "forge-desktop/src/KernelScene.cpp     (OCCT: TopoDS_Shape.hxx)"
   "forge-desktop/src/FileExchangeHost.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/IoExchange.hpp -> forge/ShapeRegistry.hpp)"
+  "forge-desktop/src/StudyHost.cpp       (OCCT: TopoDS_Shape.hxx, reached through forge/Fea.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/main.cpp            (SDL2 + Vulkan)"
   "forge-desktop/src/PlatformSDL2.cpp    (SDL2)"
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"

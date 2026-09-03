@@ -174,6 +174,16 @@ run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
 # whose every parameter is declared and correctly typed, carrying a REFUSED op
 # inside a `selector` VALUE. They must be refused before any dispatch is spent.
 run_gate forge_desktop_copilot_gate 1 2 3 4 5 6 7 8
+# The SIMULATION gate: the Restraints and Loads panels, over a real solve of a
+# real cantilever, checked against the Euler-Bernoulli tip deflection for it. The
+# six mutations break the SET-UP the production code is fed -- the restraint
+# moved onto the loaded side, the beam built a thousand times larger with the
+# formula left alone, the material swapped, the force turned along the beam
+# instead of across it, the study never run, the part never edited -- so each one
+# names a different link in the chain from a panel control to a solved matrix,
+# and none of them can be caught by a check that only asks whether a number came
+# out.
+run_gate forge_desktop_study_gate 1 2 3 4 5 6
 # The AUTO-UPDATE gate. It needs none of the build above -- libforge_updater
 # links nothing but libc++ -- so it can also be run on its own in seconds with
 # test/run_update_gate.sh --mutations, which is the form CI uses. It runs here
