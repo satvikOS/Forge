@@ -832,6 +832,51 @@ endif()
 #   symbols, and carries a NEGATIVE CONTROL: two solids whose volumes agree to 1e-16 and
 #   whose geometry does not, which the same comparator must REJECT — a volume match
 #   proves nothing on its own.
+#   ★★★★ RE-MEASURED 2026-09-02 AT 75d612c8 (wave 1, family G). The three
+#   numbers above are REPRODUCED from a tree pinned to origin/archdisc, stride 1,
+#   all 600 parts, 0 part-level errors, and the row is now WORSE than the table at
+#   the top of this file records for the native arm — 0.0%, not 1.2%:
+#       native DEFER 600/600 (0.0%)   OCCT OK 133/600 (22.2%)   deletion bucket 133
+#   POSITIVE CONTROL, same run, same binary: THRUSECTIONS reads native 85.2% with
+#   369/369 agreeing with OCCT on the full observable vector and 369 BRepCheck
+#   VALID. "native 0" is therefore a fact about THIS engine, not a dead harness.
+#
+#   THE WHOLE DELETION BUCKET IS THREE GUARDS, and the engine's own labels say so:
+#       105  q_planar_wire_not_circle_or_polygon
+#        23  cn_hole_escapes_rim...   (was an UNLABELLED q_inner_face_null)
+#         5  pcf_collapsed...
+#
+#   ★ LIFTING THE WIRE RULE FREES ZERO PARTS — MEASURED, NOT ARGUED. The
+#   diagnostic probe FORGE_TS_PROBE_SKIP_WIREKIND (NativeThickSolid.cpp; it is
+#   wired so it CANNOT return a shape) relaxes that one rung and reports what
+#   binds next for all 142 parts it releases:
+#       138  q_curved_face_partial_revolution
+#         4  q_edge_not_circle
+#         0  would have built
+#   This is the SAME trap reports/TKOFFSET_GH_DEFER_CENSUS.md already recorded
+#   one rung earlier, reproduced at HEAD. A mixed planar WIRE and a PARTIAL
+#   REVOLUTION quadric are ONE piece of work — a rounded-corner plate has both —
+#   and neither alone moves a single part. CROSS-CHECKED against the OCCT-only
+#   input census (which links no forge code): both instruments name the same 138
+#   parts, set difference 0/0.
+#
+#   THE HONEST CEILING AFTER BOTH INCREMENTS IS 138/600 = 23.0% against OCCT's
+#   22.2% — a margin of FIVE PARTS, and that assumes every one of the 138 also
+#   survives sew and the volume self-checks, which nothing yet shows.
+#
+#   ★ AND THE BAR ITSELF IS NOT CAPABILITY. Re-verified here with observables the
+#   flip gate does not read: 0 of OCCT's 133 successes pass BRepCheck_Analyzer,
+#   and 6 of 133 have MORE VOLUME THAN THE SOLID THEY HOLLOWED (worst ho1253,
+#   1.089x; the native path has a `q_wall_volume_check` that refuses exactly
+#   this). On the 28 nest failures OCCT's volumes are all PLAUSIBLE (0.376-0.933
+#   of source) and still every one is invalid — volume alone cannot see it.
+#   OCCT is also NOT DETERMINISTIC here: ho317 returned OK on one run of this
+#   harness and SIGSEGV on the next, same binary, same input.
+#
+#   WHY THE 28 ARE NOT WINNABLE BY A RE-TRIM. Their offset hole circles cross the
+#   offset rim by 1.539 to 4.474 mm (median 2.406) — millimetres, not tolerance.
+#   The cavity's boundary loops have MERGED; faces disappear. That is a topology
+#   change, and no analytic re-trim of the original faces can express it.
 option(FORGE_THICKSOLID_DROP_NATIVE
        "route part::shell through the native thick-solid & compile out the OCCT BRepOffsetAPI_MakeThickSolid fallback (TKOffset family G)"
        OFF)

@@ -147,6 +147,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -188,6 +189,38 @@ void tsReasonAdd(const char* label) {
     std::snprintf(g_tsReason + n, sizeof g_tsReason - n, "%s%s", n ? "|" : "", label);
 }
 #define FK_DEFER(label) do { tsReasonAdd(label); return kNull; } while (0)
+
+// ───────────────────────────────────────────────────────────────────────────
+// ★ DIAGNOSTIC PROBE — FORGE_TS_PROBE_SKIP_WIREKIND. NOT A CAPABILITY SWITCH.
+//
+// THE QUESTION IT ANSWERS. 142 of 600 corpus parts stop at ONE rung, the planar
+// wire rule, and 105 of them are the deletion bucket. Whether lifting that rule
+// is worth one increment or three cannot be read off that number: this
+// programme has already measured a case where suppressing the SAME rung freed
+// exactly ZERO parts because a second rung bound immediately behind it
+// (reports/TKOFFSET_GH_DEFER_CENSUS.md, "The prize — and the trap in reading a
+// first-binding rung as one"). Guessing here would repeat that error.
+//
+// ★★ IT CANNOT PRODUCE A SHAPE, BY CONSTRUCTION. With the variable set, the
+//   wire rule records its label and lets the ladder WALK ON so the next binding
+//   rung can be read — and BOTH success returns of quadricThickSolid then defer
+//   with `probe_would_have_built` instead of returning the solid. A relaxed
+//   precondition without its downstream build produces a plausible WRONG
+//   answer, so this probe is wired so that "plausible wrong answer" is not a
+//   reachable state: the only outcomes are a defer label or the literal string
+//   `probe_would_have_built`, which is a statement about the LADDER and never a
+//   statement that the geometry is right.
+//
+// It is read once, cached, and defaults OFF, so an unset environment is exactly
+// the shipping behaviour.
+inline bool tsProbeSkipWireKind() {
+    static const bool on = [] {
+        const char* v = std::getenv("FORGE_TS_PROBE_SKIP_WIREKIND");
+        return v && v[0] == '1';
+    }();
+    return on;
+}
+#define FK_PROBE_STOP() do { if (tsProbeSkipWireKind()) FK_DEFER("probe_would_have_built"); } while (0)
 
 constexpr double kPi   = 3.14159265358979323846;
 constexpr double kPara = 1.0e-9;   // direction-parallelism slack (1 - |dot|)
@@ -816,13 +849,40 @@ TopoDS_Wire circleWire(const gp_Circ& c) {
 //
 // Tangency is rejected along with crossing: a hole touching the rim or another
 // hole makes a non-manifold vertex, which is not a face this engine may emit.
+//
+// ★ THE LABEL IS PART OF THE GUARD. This routine used to `return false` and let
+//   the caller return a null face with NO reason recorded, so the whole class
+//   surfaced in the corpus census as a bare `q_inner_face_null` — 28 of 600
+//   parts, 23 of them in the deletion bucket, with nothing to say WHICH
+//   constraint failed or by how much. That is the same defect the THICKSOLID
+//   attribution report names as its own top lesson ("the cheapest attribution is
+//   the engine's own guard text"), reproduced one level down. It now carries the
+//   two distances that decided it, so a reader can tell a genuine merge from a
+//   mis-signed offset radius without rebuilding anything.
+//   BEHAVIOUR IS UNCHANGED: the same inputs return false, and a defer stays a
+//   defer. Only the note string differs.
 bool circlesNest(const gp_Circ& outer, const std::vector<gp_Circ>& holes) {
+    static thread_local char lbl[160];
     for (std::size_t i = 0; i < holes.size(); ++i) {
         const double d = outer.Location().Distance(holes[i].Location());
-        if (!(d + holes[i].Radius() < outer.Radius() - kGeo)) return false;
+        if (!(d + holes[i].Radius() < outer.Radius() - kGeo)) {
+            std::snprintf(lbl, sizeof lbl,
+                          "cn_hole_escapes_rim_d%.4g_rh%.4g_Ro%.4g_over%.4g",
+                          d, holes[i].Radius(), outer.Radius(),
+                          d + holes[i].Radius() - outer.Radius());
+            tsReasonAdd(lbl);
+            return false;
+        }
         for (std::size_t j = i + 1; j < holes.size(); ++j) {
             const double dij = holes[i].Location().Distance(holes[j].Location());
-            if (!(dij > holes[i].Radius() + holes[j].Radius() + kGeo)) return false;
+            if (!(dij > holes[i].Radius() + holes[j].Radius() + kGeo)) {
+                std::snprintf(lbl, sizeof lbl,
+                              "cn_holes_overlap_d%.4g_ri%.4g_rj%.4g_over%.4g",
+                              dij, holes[i].Radius(), holes[j].Radius(),
+                              holes[i].Radius() + holes[j].Radius() - dij);
+                tsReasonAdd(lbl);
+                return false;
+            }
         }
     }
     return true;
@@ -870,9 +930,9 @@ TopoDS_Face planarCircularFace(const Handle(Geom_Plane)& pl,
         // Outer wire wound about +N; holes wound the opposite way.
         gp_Circ o(gp_Ax2(outer.Location(), N, outer.Position().XDirection()), outer.Radius());
         TopoDS_Wire ow = circleWire(o);
-        if (ow.IsNull()) return TopoDS_Face();
+        if (ow.IsNull()) { tsReasonAdd("pcf_outer_circle_wire_null"); return TopoDS_Face(); }
         BRepBuilderAPI_MakeFace mk(pl, ow, Standard_True);
-        if (!mk.IsDone()) return TopoDS_Face();
+        if (!mk.IsDone()) { tsReasonAdd("pcf_makeface_outer_fail"); return TopoDS_Face(); }
         bool ok = true;
         for (const gp_Circ& h : holes) {
             gp_Dir hn = N;
@@ -1122,8 +1182,11 @@ TopoDS_Shape quadricThickSolid(const TopoDS_Shape& shape, double t,
             if (nWires < 1) FK_DEFER("q_planar_face_no_wire");
             for (TopoDS_Iterator it(q.face); it.More(); it.Next()) {
                 if (it.Value().ShapeType() != TopAbs_WIRE) continue;
-                if (wireKind(TopoDS::Wire(it.Value())) == WK::Other)
-                    FK_DEFER("q_planar_wire_not_circle_or_polygon");
+                if (wireKind(TopoDS::Wire(it.Value())) == WK::Other) {
+                    if (!tsProbeSkipWireKind())
+                        FK_DEFER("q_planar_wire_not_circle_or_polygon");
+                    tsReasonAdd("probe_relaxed_q_planar_wire_not_circle_or_polygon");
+                }
             }
         }
     }
@@ -1523,6 +1586,7 @@ TopoDS_Shape quadricThickSolid(const TopoDS_Shape& shape, double t,
         const double want = std::fabs(po.Mass()) - std::fabs(pi.Mass());
         if (!(want > 1.0e-9)) FK_DEFER("q_closed_wall_nonpositive");
         if (std::fabs(pw.Mass() - want) > 1.0e-6 * std::max(1.0, want)) FK_DEFER("q_closed_volume_identity");
+        FK_PROBE_STOP();
         return solid;
     }
 
@@ -1647,6 +1711,7 @@ TopoDS_Shape quadricThickSolid(const TopoDS_Shape& shape, double t,
     BRepGProp::VolumeProperties(shape, po);
     const double vw = pw.Mass(), vo = std::fabs(po.Mass());
     if (!(vw > 1.0e-9) || vw > vo * (1.0 + 1.0e-9)) FK_DEFER("q_wall_volume_check");
+    FK_PROBE_STOP();
     return solid;
 }
 
