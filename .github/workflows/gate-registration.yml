@@ -94,6 +94,14 @@ jobs:
       - name: Prove the kernel registration ratchet can fail (3 cases)
         shell: bash
         run: |
+          # ★ set +e IS LOAD-BEARING. GitHub's `shell: bash` runs
+          #   `bash --noprofile --norc -eo pipefail`, so -e is ALREADY ON and a
+          #   plain `set -uo pipefail` does NOT remove it. Every case below runs a
+          #   command that is SUPPOSED to fail, and `OUT=$(...)` takes that exit
+          #   status -- so under -e the step died the instant mutation 1 worked
+          #   CORRECTLY, printing the baseline and then nothing at all. The proof
+          #   succeeding is what killed the job.
+          set +e
           set -uo pipefail
           R=forge-kernel/test/gate_registration_ratchet.sh
           fails=0
