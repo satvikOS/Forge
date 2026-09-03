@@ -131,6 +131,7 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <Standard_Failure.hxx>
+#include <TopExp.hxx>                       // FirstVertex/LastVertex (guide translate test)
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
@@ -1100,6 +1101,78 @@ TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
 // declined on some OTHER precondition (a non-planar ring, a tilted hole): those
 // stay honest defers and the 309 parts the polygon path already covers stay on
 // a byte-identical code path.
+// ───────────────────── A GUIDE THAT CONSTRAINS NOTHING ─────────────────────
+// THE ONE GUIDED CASE THAT IS AN IDENTITY, not an approximation.
+//
+// BRepOffsetAPI_MakePipeShell::SetMode(guide, CurvilinearEquivalence) makes the
+// guide an AUXILIARY SPINE: the section's rotation/scaling law along the sweep is
+// derived from how the guide moves relative to the spine. When the guide is the
+// spine RIGIDLY TRANSLATED by a constant vector, that relative motion is constant,
+// the law is the identity, and the guided sweep IS the unguided sweep — exactly,
+// for any profile. So such a guide can be DROPPED rather than deferred on.
+//
+// MEASURED against the incumbent (test/pipeshell_guided_gate.sh, case
+// "GUIDED parallel aux spine"): OCCT returns 50.26544 for the guided sweep and
+// 50.26548 for the same sweep unguided — 8e-7 relative, which is OCCT's own
+// approximation noise, not a difference in the answer.
+//
+// EVERYTHING ELSE STILL DEFERS, BY NAME (`guides_not_spine_translate`). A guide
+// that is NOT a translate — the concentric offset arc test/part_features_smoke.js
+// uses, radius 6 against a spine of radius 5 — genuinely changes the section law
+// and this engine does not pretend to implement it. MEASURED for that shape of
+// guide ("GUIDED spreading aux spine"): OCCT moves 50.26548 -> 50.38412, 2.4e-3
+// relative, so the difference this declines to fake is real but small.
+//
+// EXACTNESS. Matching endpoints alone would NOT prove two edges are translates —
+// two arcs can share endpoints and bulge differently — so the underlying curve is
+// compared too: a LINE is pinned by its endpoints, a CIRCLE must additionally
+// match in RADIUS and have a PARALLEL axis. Any other curve kind is declined
+// rather than assumed.
+bool edgeIsTranslateOf(const TopoDS_Edge& g, const TopoDS_Edge& s,
+                       const gp_Vec& off, double t) {
+    Standard_Real f1 = 0, l1 = 0, f2 = 0, l2 = 0;
+    Handle(Geom_Curve) cg = BRep_Tool::Curve(g, f1, l1);
+    Handle(Geom_Curve) cs = BRep_Tool::Curve(s, f2, l2);
+    while (!cg.IsNull() && cg->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
+        cg = Handle(Geom_TrimmedCurve)::DownCast(cg)->BasisCurve();
+    while (!cs.IsNull() && cs->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
+        cs = Handle(Geom_TrimmedCurve)::DownCast(cs)->BasisCurve();
+    if (cg.IsNull() || cs.IsNull()) return false;
+    // endpoints must differ by exactly `off`
+    const gp_Pnt g0 = BRep_Tool::Pnt(TopExp::FirstVertex(g, Standard_True));
+    const gp_Pnt g1 = BRep_Tool::Pnt(TopExp::LastVertex(g, Standard_True));
+    const gp_Pnt s0 = BRep_Tool::Pnt(TopExp::FirstVertex(s, Standard_True));
+    const gp_Pnt s1 = BRep_Tool::Pnt(TopExp::LastVertex(s, Standard_True));
+    if (s0.Translated(off).Distance(g0) > t) return false;
+    if (s1.Translated(off).Distance(g1) > t) return false;
+    if (cg->IsKind(STANDARD_TYPE(Geom_Line)) && cs->IsKind(STANDARD_TYPE(Geom_Line)))
+        return true;                       // a segment is pinned by its endpoints
+    Handle(Geom_Circle) kg = Handle(Geom_Circle)::DownCast(cg);
+    Handle(Geom_Circle) ks = Handle(Geom_Circle)::DownCast(cs);
+    if (!kg.IsNull() && !ks.IsNull()) {
+        if (std::fabs(kg->Radius() - ks->Radius()) > t) return false;
+        if (!kg->Circ().Axis().Direction().IsParallel(
+                 ks->Circ().Axis().Direction(), 1.0e-7)) return false;
+        return ks->Circ().Location().Translated(off).Distance(kg->Circ().Location()) <= t;
+    }
+    return false;                          // any other curve kind: not proved
+}
+
+bool guideIsSpineTranslate(const TopoDS_Wire& guide, const TopoDS_Wire& spine, double t) {
+    if (guide.IsNull() || spine.IsNull()) return false;
+    std::vector<TopoDS_Edge> ge, se;
+    for (BRepTools_WireExplorer ex(guide); ex.More(); ex.Next()) ge.push_back(ex.Current());
+    for (BRepTools_WireExplorer ex(spine); ex.More(); ex.Next()) se.push_back(ex.Current());
+    if (ge.empty() || ge.size() != se.size()) return false;
+    const gp_Pnt g0 = BRep_Tool::Pnt(TopExp::FirstVertex(ge[0], Standard_True));
+    const gp_Pnt s0 = BRep_Tool::Pnt(TopExp::FirstVertex(se[0], Standard_True));
+    const gp_Vec off(s0, g0);
+    // A ZERO offset means the guide is the spine itself, which is also a no-op.
+    for (std::size_t i = 0; i < ge.size(); ++i)
+        if (!edgeIsTranslateOf(ge[i], se[i], off, t)) return false;
+    return true;
+}
+
 bool allLineEdges(const TopoDS_Shape& s) {
     if (s.IsNull()) return false;
     int n = 0;
@@ -1134,10 +1207,16 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
                        const TopoDS_Shape& profile,
                        const std::vector<TopoDS_Wire>& guides,
                        bool makeSolid, double tol) {
-    // There is no native guided pipe-shell anywhere in the tree. Say so.
+    // There is no GENERAL native guided pipe-shell anywhere in the tree, and this
+    // engine does not pretend otherwise. The ONE exception is a guide that is the
+    // spine rigidly translated: its section law is the identity, so it constrains
+    // nothing the unguided mitre transport does not already satisfy, and it is
+    // dropped rather than deferred on. See guideIsSpineTranslate above for why
+    // that is an identity and not an approximation. Everything else defers BY NAME.
     reasonClear();
-    if (!guides.empty()) FK_DEFER("guides_present");
     const double t = std::max(tol, 1.0e-9);
+    for (const TopoDS_Wire& g : guides)
+        if (!guideIsSpineTranslate(g, spine, t)) FK_DEFER("guides_not_spine_translate");
 
     const TopoDS_Shape poly = sweepPolygonProfile(spine, profile, makeSolid, t);
     if (!poly.IsNull()) return poly;
