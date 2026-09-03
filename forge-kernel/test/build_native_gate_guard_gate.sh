@@ -157,7 +157,11 @@ if grep -q "saveNativeGateOverrides" "$COMPILER_SRC"; then
   fails=$((fails+1))
 else
   rebuild_lib && build_all 2>/dev/null && { "$OUT/gate" >/dev/null 2>&1; m1=$?; } || m1=2
-  if [ "${m1:-0}" -eq 0 ]; then echo "      ★ mutation 1 stayed GREEN — the gate does not test the defect"; fails=$((fails+1));
+  if [ "${m1:-0}" -eq 2 ]; then
+    echo "      * mutation 1 INCONCLUSIVE -- the library did not rebuild, so the gate never ran."
+    echo "        A build failure is NOT evidence the mutation was caught."
+    fails=$((fails+1));
+  elif [ "${m1:-0}" -eq 0 ]; then echo "      ★ mutation 1 stayed GREEN — the gate does not test the defect"; fails=$((fails+1));
   else echo "      caught (exit $m1)"; fi
 fi
 restore_sources
@@ -170,14 +174,29 @@ s=s.replace("    g_featOverride.store(prev.features, std::memory_order_relaxed);
 open(p,"w").write(s)
 PY
 rebuild_lib && build_all 2>/dev/null && { "$OUT/gate" >/dev/null 2>&1; m2=$?; } || m2=2
-if [ "${m2:-0}" -eq 0 ]; then echo "      ★ mutation 2 stayed GREEN"; fails=$((fails+1));
+if [ "${m2:-0}" -eq 2 ]; then
+  echo "      * mutation 2 INCONCLUSIVE -- the library did not rebuild, so the gate never ran."
+  echo "        A build failure is NOT evidence the mutation was caught."
+  fails=$((fails+1));
+elif [ "${m2:-0}" -eq 0 ]; then echo "      ★ mutation 2 stayed GREEN"; fails=$((fails+1));
 else echo "      caught (exit $m2)"; fi
 restore_sources
 
 echo "[5/5] rebuild clean and re-run (the mutations must leave no residue)"
 rebuild_lib && build_all
-"$OUT/gate" >/dev/null 2>&1; rc2=$?
-[ "$rc2" -ne 0 ] && { echo "[gate-guard] RED — the tree did not come back clean (exit $rc2)"; exit 1; }
+"$OUT/gate" > "$OUT/final.log" 2>&1; rc2=$?
+if [ "$rc2" -ne 0 ]; then
+  # SAY WHY. This ran with >/dev/null 2>&1, so when it went red on PR #206 the
+  # log held only "the tree did not come back clean" and the actual failing
+  # check was unrecoverable -- the very defect this file's own rebuild_lib()
+  # comment criticises. The gate names its failing invariant on stdout.
+  echo "[gate-guard] RED -- the clean re-run FAILED after the mutations were reverted (exit $rc2)."
+  echo "[gate-guard] --- the gate's own output follows; the FAIL line names the invariant ---"
+  sed 's/^/    /' "$OUT/final.log"
+  echo "[gate-guard] --- end ---"
+  echo "[gate-guard] If those checks PASS here, the fault is the REBUILD, not the invariant."
+  exit 1
+fi
 
 if [ "$fails" -ne 0 ]; then
   echo "[gate-guard] RED — $fails mutation(s) were not caught."
