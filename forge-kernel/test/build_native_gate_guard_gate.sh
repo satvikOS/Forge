@@ -162,6 +162,21 @@ restore_sources() {
   #   local PASS would NOT refute this. For a race, different hardware has
   #   different timing, so only a reproduction confirms -- treating a
   #   non-reproduction as refutation is how a real race is closed "works for me".
+  #   ★★ AND THE SHARED CLOCK IS NOT THE WHOLE TRIGGER -- REPRODUCED, one
+  #   variable: same commit, same machine, same clock, same kernel sources,
+  #     private build dir (build-gateguard, FRESH)   -> GREEN, exit 0
+  #     shared  build dir (build-verify, PRE-BUILT)  -> RED,   exit 1
+  #   with the RED reproducing CI's signature exactly (feat=1 -> feat=0, same
+  #   four FAIL lines). The tree must have been BUILT BY AN EARLIER STEP: that
+  #   makes every later rebuild INCREMENTAL and seconds-fast, so the restore's
+  #   touch and the relink land in the same second. In a fresh tree the first
+  #   build takes minutes and the timestamps never collide -- which is why this
+  #   fires only in CI, where build-verify is pre-built by "Build
+  #   forge_kernel_core (node-free, for the C++ gates)". "One-second
+  #   granularity" ALONE would predict a flake that also hits fresh trees, and
+  #   would leave unexplained why one branch went 3/3 red while another went
+  #   green every time. It is not branch content and not chance: it is
+  #   SHARED-AND-PRE-BUILT versus FRESH.
   #   It reproduced on re-run and passed on the same tree locally, because locally
   #   the gate owns its build directory while CI points GATE_GUARD_BUILD at the
   #   SHARED build-verify, whose library an earlier job step had just linked.
