@@ -73,6 +73,27 @@ enum class ProseDefect : std::uint8_t {
   DeveloperNoun,
   // "ForgeFrame.cpp:1278" — where the code is, which is never where the user is.
   SourceLocation,
+  // "selection_signature_mismatch", "part.fillet", "LocalPlanner" — a name the
+  // PROGRAM answers to. The three shapes below are one defect because they are
+  // one mistake: putting an identifier where a sentence belongs.
+  //
+  //   snake_case   an enum spelling or a status code   selection_signature_mismatch
+  //   dotted id    a command id                        part.edit_feature
+  //   CamelCase    a class                             LocalPlanner, DockLayout
+  //
+  // This class is why the FIRST prose gate passed over a live leak. Its scanner
+  // could see "forge::ui::DockLayout" (a scope operator), "ImGui_ImplVulkan_Add"
+  // (an underscore joining two cases) and "vkCreateBuffer" (the vk prefix) --
+  // and was SILENT on all three shapes above, so `item.reason`, a field that
+  // gate scanned by name on every shipped command, read
+  // "selection_signature_mismatch: 1..n edge (homogeneous)" and passed.
+  MachineIdentifier,
+  // "registry", "dispatch", "predicate", "handler", "statement", "compiled",
+  // "emits", "arity" — ordinary English words that name the PROGRAM'S OWN
+  // MACHINERY. No word list of debugger nouns catches these, because each of
+  // them is a perfectly normal word; what makes them a defect is that the thing
+  // they name is inside Forge rather than inside the user's part.
+  DeveloperVocabulary,
 };
 
 const char* toString(ProseDefect defect) noexcept;

@@ -602,9 +602,14 @@ void ForgeShell::registerCommands() {
       }
       const SampleOutcome outcome = replaySample(*sample, registry_, selection_, nullptr);
       if (!outcome.ok) {
+        // This lands in documentError_, which the status strip draws. The
+        // command id and the status code that used to be in it are the two
+        // things a user cannot act on, so the failing STEP NUMBER and a
+        // sentence stay, and the rest goes to the log's detail column.
         ctx.fail(sample->title + " stopped at step " + std::to_string(outcome.stepsRun + 1) +
-                 " (" + outcome.failedCommand + "): " + toString(outcome.status) +
-                 (outcome.detail.empty() ? std::string() : (" -- " + outcome.detail)));
+                 " of " + std::to_string(sample->steps.size()) + ": " +
+                 userText(outcome.status) +
+                 ". The sample was not loaded and your part is unchanged.");
         return;
       }
       syncDocumentStats();
@@ -839,7 +844,7 @@ void ForgeShell::recordDispatch(const std::string& id, const CommandDescriptor* 
     const std::vector<std::string> missing =
         command != nullptr ? missingRequired(*command, params) : std::vector<std::string>{};
     log_.add(severityOf(result.status), id,
-             explainDispatch(id, command, result, missing, &selection_), toString(result.status));
+             explainDispatch(id, command, result, missing, &selection_), machineName(result.status));
     return;
   }
   // Ok means "the handler ran", not "the thing happened": a file command reports
@@ -886,7 +891,7 @@ InvokeOutcome ForgeShell::invoke(const std::string& id, const CommandParams& ove
   if (cmd == nullptr) {
     outcome.dispatch = DispatchResult{DispatchStatus::UnknownCommand, id};
     log_.error(id, explainDispatch(id, nullptr, outcome.dispatch, {}, &selection_),
-               toString(DispatchStatus::UnknownCommand));
+               machineName(DispatchStatus::UnknownCommand));
     return outcome;
   }
   // A gesture carries no arguments, so fill in every default the schema declares
@@ -903,7 +908,7 @@ InvokeOutcome ForgeShell::invoke(const std::string& id, const CommandParams& ove
     // hits, because it is what every gesture on a command with an unfillable
     // parameter does.
     log_.warning(id, explainDispatch(id, cmd, outcome.dispatch, outcome.promptFor, &selection_),
-                 toString(DispatchStatus::MissingRequiredParameter));
+                 machineName(DispatchStatus::MissingRequiredParameter));
     return outcome;
   }
   outcome.dispatch = run(id, params);

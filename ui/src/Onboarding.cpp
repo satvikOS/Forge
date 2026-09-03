@@ -94,7 +94,7 @@ std::vector<SampleDocument> buildSamples() {
     s.id = "transition";
     s.title = "Lofted Transition";
     s.summary = "Two 3D section rings lofted into a tapered duct, then shelled.";
-    s.teaches = {"WIRE sections are not sketches", "loft", "shell"};
+    s.teaches = {"section outlines are not sketches", "loft", "shell"};
     s.steps = {
         step("part.section_ring", {}, {{"rx", 25.0}, {"ry", 25.0}, {"z", 0.0}}),
         step("part.section_ring", {}, {{"rx", 12.0}, {"ry", 12.0}, {"z", 40.0}}),
@@ -119,7 +119,7 @@ std::vector<SampleDocument> buildSamples() {
     s.summary =
         "Fourteen features: a shelled box, a grid of mounting holes, a counterbored boss "
         "fused on, and the whole thing mirrored.";
-    s.teaches = {"14-statement feature tree", "grid pattern", "counterbore",
+    s.teaches = {"14-feature history", "grid pattern", "counterbore",
                  "boolean union consumes the tool body", "mirror"};
     s.steps = {
         step("part.sketch_rect", {}, {{"width", 120.0}, {"height", 80.0}}),
@@ -190,8 +190,12 @@ std::string SampleOutcome::describe() const {
     os << "built " << stepsRun << " step(s)";
     return os.str();
   }
+  // machineName, not userText: SampleOutcome::describe() is the DIAGNOSTIC
+  // rendering -- it is what a gate prints and what the log's detail column
+  // carries. The sentence a user reads when a sample will not load is built in
+  // ForgeShell, from userText.
   os << "stopped after " << stepsRun << " step(s) at " << failedCommand << ": "
-     << toString(status);
+     << machineName(status);
   if (!detail.empty()) os << " (" << detail << ')';
   return os.str();
 }
@@ -255,13 +259,19 @@ std::vector<std::string> consumerIds(const CommandRegistry& registry, EntityKind
   return out;
 }
 
-std::string joinIds(const std::vector<std::string>& ids, std::size_t limit) {
+// Names, capped, with an honest "and N more" rather than an ellipsis that
+// hides how many were dropped. Renamed from joinIds when the thing being joined
+// stopped being ids: the old name would have made the next caller reach for the
+// ids again.
+std::string joinNames(const std::vector<std::string>& names, std::size_t limit) {
   std::string out;
-  for (std::size_t i = 0; i < ids.size() && i < limit; ++i) {
+  for (std::size_t i = 0; i < names.size() && i < limit; ++i) {
     if (i != 0) out += ", ";
-    out += ids[i];
+    out += names[i];
   }
-  if (ids.size() > limit) out += ", ...";
+  if (names.size() > limit) {
+    out += " and " + std::to_string(names.size() - limit) + " more";
+  }
   return out;
 }
 
@@ -283,7 +293,10 @@ EmptyState buildEmptyState(const CommandRegistry& registry, std::size_t featureC
     EmptyStateAction action;
     action.commandId = d->id;
     action.label = d->label;
-    action.description = "emits " + d->featureIrOp + " — nothing needs to be selected";
+    // WHAT PRESSING IT DOES, not which token it emits. This is the tooltip on
+    // the very first thing a new user hovers, and it used to say
+    // "emits BOX — nothing needs to be selected".
+    action.description = "Starts a new shape. Nothing has to be selected first.";
     state.creators.push_back(std::move(action));
   }
 
@@ -303,23 +316,27 @@ EmptyState buildEmptyState(const CommandRegistry& registry, std::size_t featureC
         "strip's filter decides what a click picks: face, edge, or body.";
   }
 
-  const std::vector<std::string> creators = [&state] {
-    std::vector<std::string> ids;
-    for (const EmptyStateAction& a : state.creators) ids.push_back(a.commandId);
-    return ids;
-  }();
+  // ── THE THREE STEPS, IN LABELS, NOT IDS ─────────────────────────────────
+  // These lines used to end with a comma-separated list of COMMAND IDS --
+  // "part.input_solid, part.primitive_box, part.primitive_cone, ..." -- on the
+  // card that a user with an empty document reads first. The counts are the
+  // useful half and they are derived, so they still grow by themselves; the
+  // names are the ones on the buttons directly above.
   const std::vector<std::string> profileConsumers = consumerIds(registry, EntityKind::Sketch);
+  std::vector<std::string> creatorLabels;
+  for (const EmptyStateAction& a : state.creators) creatorLabels.push_back(a.label);
 
   state.nextSteps.push_back(
-      "1. Run one of the " + std::to_string(creators.size()) +
-      " commands that need no selection: " + joinIds(creators, 4));
+      "1. Start a shape — any of the " + std::to_string(state.creators.size()) +
+      " buttons above works with nothing selected: " + joinNames(creatorLabels, 4) + ".");
   state.nextSteps.push_back(
-      "2. Select what it made and run one of the " + std::to_string(profileConsumers.size()) +
-      " commands that consume a Sketch: " + joinIds(profileConsumers, 4));
+      "2. Pick what it made, then build on it — " + std::to_string(profileConsumers.size()) +
+      " tools work on a sketch.");
   state.nextSteps.push_back(
-      "3. Refine the solid: " + std::to_string(countConsumers(registry, EntityKind::Edge)) +
-      " commands consume an Edge, " + std::to_string(countConsumers(registry, EntityKind::Face)) +
-      " a Face, and " + std::to_string(countConsumers(registry, EntityKind::Body)) + " a Body.");
+      "3. Refine the solid — " + std::to_string(countConsumers(registry, EntityKind::Edge)) +
+      " tools work on edges, " + std::to_string(countConsumers(registry, EntityKind::Face)) +
+      " on faces, and " + std::to_string(countConsumers(registry, EntityKind::Body)) +
+      " on the whole body.");
   return state;
 }
 

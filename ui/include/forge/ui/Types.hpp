@@ -77,7 +77,17 @@ enum class EntityKind : std::uint8_t {
   Any,  // signature wildcard: any single concrete kind satisfies it
 };
 
+// THE SIGNATURE SPELLING. This is the enum's own name, lowered, and a selection
+// signature is MATCHED against it -- so it is a wire name and must not change to
+// suit a sentence. It is not fit to draw: "sketch_curve", "opensketch" and
+// "sketchref" are identifiers, and a status strip that reads one out loud is
+// showing the user the inside of the program.
 const char* toString(EntityKind kind) noexcept;
+
+// THE WORD A MACHINIST USES for the same thing, singular, lower case, so a
+// caller can pluralise it ("2 sketch curves") or put it in a sentence ("Set the
+// pick filter to edge"). Every user-facing surface uses THIS one.
+const char* userText(EntityKind kind) noexcept;
 
 // ── the standard views ──────────────────────────────────────────────────────
 // The six orthographic directions plus true isometric. The ANGLES live in

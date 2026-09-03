@@ -188,10 +188,18 @@ jobs:
         # and Dear ImGui's own error recovery shipped with asserts and its
         # "Programmer error: N visible items with conflicting ID!" popup ENABLED.
         #
-        # Seven mutations, each one a real leak put back in the real source, and the
-        # seventh empties the scanner every other check calls -- because six checks
-        # over a scanner that returns nothing would all be green and all be
-        # decoration.
+        # Thirteen mutations. Twelve put a real leak back in the real source; the
+        # seventh empties the scanner every other check calls, because checks over
+        # a scanner that returns nothing would all be green and all be decoration.
+        #
+        # Mutations 8-13 exist because the first seven were ALL RED on a day the app
+        # was showing "selection_signature_mismatch: 1..n edge (homogeneous)" on the
+        # menu tooltip of 51 of its 84 commands. Each of the seven targeted a check
+        # that was working; the leak was in the SCANNER, which could see "::", a
+        # fixed word list and three identifier shapes that all need an underscore,
+        # and could not see snake_case, CamelCase, a dotted command id, or a sentence
+        # of ordinary words naming the program's own machinery. 8 puts that exact
+        # defect back.
         run: bash ui/test/run_user_prose_gate.sh --mutations
       - name: forge-desktop still TYPE-CHECKS (the cheap half of "the app builds")
         # THE GATE THAT WOULD HAVE CAUGHT 2026-08-31's UN-BUILDABLE APP, IN THIS

@@ -87,7 +87,11 @@ enum class OpConstraint : std::uint8_t {
   MalformedArgumentValue,  // the value cannot be written into IR as ONE token of ONE statement
 };
 
-const char* toString(OpConstraint check) noexcept;
+// The machine's spelling ("wrong_arity"). A wire name for the agent surface and
+// the Console's detail column; never drawn. See machineName(DispatchStatus).
+const char* machineName(OpConstraint check) noexcept;
+// The same refusal as a phrase a person reads.
+const char* userText(OpConstraint check) noexcept;
 
 // ── the proposal ────────────────────────────────────────────────────────────
 // One statement a planner would like emitted, plus the selection the user would

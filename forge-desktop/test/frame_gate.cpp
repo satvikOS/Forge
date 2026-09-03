@@ -977,7 +977,7 @@ int main(int argc, char** argv) {
     saveParams.setText("path", reopenPath);
     const forge::ui::DispatchResult saved = shell.run("file.save", saveParams);
     check(saved.ok() && shell.lastDocumentError().empty(), "saved the document to a real .fpart",
-          shell.lastDocumentError().empty() ? std::string(forge::ui::toString(saved.status))
+          shell.lastDocumentError().empty() ? std::string(forge::ui::machineName(saved.status))
                                             : shell.lastDocumentError());
     checkEq(shell.recentDocuments().size(), 1u, "a successful save is remembered");
     check(shell.recentDocuments().mostRecent() == reopenPath,

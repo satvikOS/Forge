@@ -46,6 +46,46 @@
 //   G. the translators do not echo their input: fed every internal failure
 //      string this repository actually produces, their output is clean AND does
 //      not contain the detail.
+//   H. the ACTIVITY LOG'S MESSAGE. log().info/warning/error take (source,
+//      message, detail); the MESSAGE is drawn in the Console panel and in the
+//      status strip, the detail is the one engineer surface. Check D scanned
+//      neither, because a log call is not a text-drawing call -- which is how
+//      "an OCCT fault loses that operation" sat in ForgeFrame.cpp, in a file
+//      this gate already read, and passed.
+//   I. NO MACHINE NAME AT A SINK. machineName(DispatchStatus) and its two
+//      siblings return the wire spelling ("selection_signature_mismatch"); they
+//      are named so that this check can forbid them, by name, inside a call that
+//      draws text -- along with the descriptor fields that are identifiers
+//      (commandId, featureIrOp, parameters, the raw IR of a statement).
+//   J. EVERY userText() ENUMERATOR is clean, and every one of them differs from
+//      its machineName() twin. A userText that forwarded to machineName would
+//      satisfy every other check in this file.
+//   K. THE RUNTIME SENTENCES, over the whole cross-product: explainUnavailable
+//      for every registered command x every DispatchStatus, every ToolCatalog
+//      reason, every selection description, every signature phrase, the empty
+//      state, the samples, and the CoPilot's transcript.
+//
+// ── WHY THE FIRST VERSION OF THIS GATE PASSED OVER A LIVE LEAK ─────────────
+// It was not a reachability failure. Check F scanned `item.reason` BY NAME on
+// every shipped command, and on 51 of the 84 that field read
+//
+//     selection_signature_mismatch: 1..n edge (homogeneous)
+//
+// on the menu tooltip, in every panel's command list and in the Tools panel. The
+// SCANNER could not see it. Its only positive detectors were (a) the "::"
+// operator, (b) a fixed list of debugger nouns and library names, and (c) three
+// identifier SHAPES that every one require an underscore joining two DIFFERENT
+// cases, or a "vk" prefix. An all-lower-case snake_case identifier matched none
+// of them; neither did a bare CamelCase class name ("LocalPlanner", drawn in the
+// CoPilot panel's header); neither did a dotted command id ("part.fillet", drawn
+// on every palette row); and neither did a sentence built entirely out of
+// ordinary English words that names the program's own machinery -- "its enabled
+// predicate refused the current parameters", "registered with no handler",
+// "id: %s  IR: %s  parameters: %s".
+//
+// ProseDefect::MachineIdentifier and ProseDefect::DeveloperVocabulary are those
+// four shapes. Check A now pins each of them with an example taken from the
+// shipped build.
 //
 // forge-desktop/src is read, not compiled: run_ui.sh builds ui/ only, and the
 // application's own sources are checked for TYPE by
@@ -54,6 +94,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -66,7 +107,11 @@
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/PanelCatalog.hpp"
 #include "forge/ui/PanelFocus.hpp"
+#include "forge/ui/ArchieCopilot.hpp"
+#include "forge/ui/Onboarding.hpp"
 #include "forge/ui/OpConstraintBridge.hpp"
+#include "forge/ui/StatusModel.hpp"
+#include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/UserFacingText.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
@@ -191,8 +236,43 @@ const char* const kTextSinks[] = {
 // of the call sites somebody remembered is the same census failure the app
 // surface gate already learned once.
 const char* const kInternalDetailMembers[] = {
+    // A member that returns the program's own description of a failure...
     "error", "backend", "diagnostic", "what",
+    // ...and `detail`, which is the SAME thing under the name the dispatcher
+    // gives it. DispatchResult::detail carried "1..n edge (homogeneous)" and the
+    // command's own id, and it was handed to note() -- a text sink this file
+    // already knew about -- from two places in ForgeFrame.cpp. It was not on
+    // this list, so check E was silent at a call site it was reading.
+    "detail",
 };
+
+// EXPRESSIONS THAT ARE NAMES, at a call that draws text.
+//
+// Check D reads the LITERAL at a sink and check E reads one class of runtime
+// value. Neither could see the third thing a sink is handed: a field of a
+// descriptor, a record or a verdict whose value is an IDENTIFIER. The menu
+// tooltip's literal was "%s\nid: %s\nneeds: %s\nIR: %s\nparameters: %s" --
+// which is clean, and which drew "part.fillet", "FILLET" and
+// "radius:number*=3" on every command in the application.
+//
+// Matched as written, including the "." or "->", so a local named `parameters`
+// is not the same thing as `item.parameters`.
+const char* const kMachineExpressions[] = {
+    ".commandId",   "->commandId",   ".featureIrOp", "->featureIrOp",
+    ".parameters",  "->parameters",  ".irOp",        "->irOp",
+    ".line.text()", "->line.text()", ".line.op",     "->line.op",
+    ".persistentName", "->persistentName",
+    "machineName(",
+};
+
+// The ONE surface allowed to draw a machine name, and the one line of it.
+//
+// The Console panel's detail column is dimmed, sits under the sentence, and is
+// where every other surface in this application tells the user the technical
+// detail is. Carving it out BY FUNCTION NAME rather than by a magic comment
+// means the exemption is one place, is named, and shows up in a grep for the
+// function.
+const char kDetailSurface[] = "ForgeFrame::drawConsolePanel";
 
 // True when `code` reads one of those members off something. Requires the name
 // to END there: `.errorCount` and `.whatever` are not failure text.
@@ -410,6 +490,141 @@ std::vector<SinkCall> findSinkCalls(const std::vector<Piece>& pieces) {
   return calls;
 }
 
+// ── the activity log's MESSAGE argument ─────────────────────────────────────
+//
+// log().info(source, message, detail) — argument 1 is DRAWN (Console panel, and
+// the status strip when it is the worst entry); argument 2 is the one engineer
+// surface in this application and is deliberately NOT scanned. A gate that read
+// all three would forbid the remedy it exists to require.
+//
+// This is a separate walker from findSinkCalls because it needs the ARGUMENT
+// POSITION, which a sink call does not: a sink's literals are all drawn.
+struct LogCall {
+  std::string method;
+  std::size_t line = 1;
+  std::vector<std::string> messageLiterals;
+};
+
+std::vector<LogCall> findLogCalls(const std::vector<Piece>& pieces) {
+  struct Spec { const char* name; std::size_t messageArg; };
+  const Spec kSpecs[] = {{"info", 1}, {"warning", 1}, {"error", 1}, {"add", 2}};
+  std::vector<LogCall> calls;
+  for (std::size_t p = 0; p < pieces.size(); ++p) {
+    if (pieces[p].isString) continue;
+    const std::string& code = pieces[p].text;
+    for (const Spec& spec : kSpecs) {
+      const std::string name = spec.name;
+      std::size_t at = 0;
+      while ((at = code.find(name + "(", at)) != std::string::npos) {
+        // A METHOD call, not a free function: `log_.info(` / `log().info(`.
+        const bool qualified = at > 0 && (code[at - 1] == '.' || code[at - 1] == '>');
+        if (!qualified) { at += name.size(); continue; }
+        std::size_t line = pieces[p].line;
+        for (std::size_t k = 0; k < at; ++k) {
+          if (code[k] == '\n') ++line;
+        }
+        LogCall call;
+        call.method = name;
+        call.line = line;
+        int depth = 0;
+        std::size_t argIndex = 0;
+        std::size_t q = p;
+        std::size_t cursor = at + name.size();
+        bool closed = false;
+        while (q < pieces.size() && !closed) {
+          if (pieces[q].isString) {
+            if (depth > 0 && argIndex == spec.messageArg) {
+              call.messageLiterals.push_back(pieces[q].text);
+            }
+            ++q;
+            cursor = 0;
+            continue;
+          }
+          const std::string& c2 = pieces[q].text;
+          for (std::size_t k = cursor; k < c2.size(); ++k) {
+            if (c2[k] == '(' || c2[k] == '[' || c2[k] == '{') ++depth;
+            else if (c2[k] == ')' || c2[k] == ']' || c2[k] == '}') {
+              --depth;
+              if (depth == 0) { closed = true; break; }
+            } else if (c2[k] == ',' && depth == 1) {
+              ++argIndex;
+            }
+          }
+          if (!closed) { ++q; cursor = 0; }
+        }
+        calls.push_back(std::move(call));
+        at += name.size();
+      }
+    }
+  }
+  return calls;
+}
+
+// First and last line of one function's body, so a check can ask WHERE a call
+// is. Used for exactly one carve-out — see kDetailSurface.
+bool functionLineRange(const std::vector<Piece>& pieces, const std::string& signature,
+                       std::size_t& first, std::size_t& last) {
+  int depth = 0;
+  bool inside = false;
+  for (std::size_t p = 0; p < pieces.size(); ++p) {
+    if (!inside) {
+      if (pieces[p].isString) continue;
+      const std::size_t at = pieces[p].text.find(signature);
+      if (at == std::string::npos) continue;
+      inside = true;
+      first = pieces[p].line;
+      for (std::size_t k = 0; k < at; ++k) {
+        if (pieces[p].text[k] == '\n') ++first;
+      }
+      std::size_t line = first;
+      for (std::size_t k = at; k < pieces[p].text.size(); ++k) {
+        if (pieces[p].text[k] == '\n') ++line;
+        if (pieces[p].text[k] == '{') ++depth;
+        else if (pieces[p].text[k] == '}') {
+          --depth;
+          if (depth == 0) { last = line; return true; }
+        }
+      }
+      continue;
+    }
+    if (pieces[p].isString) continue;
+    std::size_t line = pieces[p].line;
+    for (char c : pieces[p].text) {
+      if (c == '\n') ++line;
+      if (c == '{') ++depth;
+      else if (c == '}') {
+        --depth;
+        if (depth == 0) { last = line; return true; }
+      }
+    }
+  }
+  return false;
+}
+
+// Every .cpp and .hpp under a directory, sorted. THE LIST IS THE FILESYSTEM, not
+// a list somebody remembered to extend.
+//
+// MEASURED, so the claim is the right size: check D used to name four files by
+// hand; forge-desktop/src holds 28. Of those 28, exactly TWO hold a call that
+// puts characters on a user's screen today -- ForgeFrame.cpp and main.cpp -- and
+// the four-name list had both. It also listed two files with no text call in
+// them at all. So this is a LATENT hole, not a live one: no leak was hiding
+// behind it, and the next text call added to any of the other 24 files would
+// have been unscanned. Mutation 12 puts one there.
+std::vector<std::string> sourcesUnder(const std::string& dir) {
+  std::vector<std::string> out;
+  std::error_code ec;
+  for (std::filesystem::recursive_directory_iterator it(dir, ec), end; it != end; it.increment(ec)) {
+    if (ec) break;
+    if (!it->is_regular_file()) continue;
+    const std::string ext = it->path().extension().string();
+    if (ext != ".cpp" && ext != ".hpp") continue;
+    out.push_back(it->path().string());
+  }
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
 // The body of one function, as pieces, for check C.
 std::vector<Piece> functionBody(const std::vector<Piece>& pieces, const std::string& signature,
                                 bool& found) {
@@ -494,6 +709,27 @@ int main() {
         {"content is not built in this segment", ProseDefect::DeveloperNoun},
         {"assertion failed while rebuilding", ProseDefect::DeveloperNoun},
         {"see ForgeFrame.cpp for the reason", ProseDefect::SourceLocation},
+        // ── THE FOUR SHAPES THE FIRST SCANNER COULD NOT SEE ────────────────
+        // Every one of these was on screen in the build this gate was written
+        // against, and every one of them scanned CLEAN.
+        {"selection_signature_mismatch: 1..n edge (homogeneous)",
+         ProseDefect::MachineIdentifier},                                  // item.reason
+        {"missing_required_parameter: path", ProseDefect::MachineIdentifier},
+        {"planner: LocalPlanner (offline, deterministic)",
+         ProseDefect::MachineIdentifier},                                  // CoPilot header
+        {"Extrude  (part.extrude)", ProseDefect::MachineIdentifier},       // panel command list
+        {"id: app.load_sample", ProseDefect::MachineIdentifier},           // menu tooltip
+        {"the tool catalog did not produce an entry for it",
+         ProseDefect::DeveloperVocabulary},
+        {"its enabled predicate refused the current parameters",
+         ProseDefect::DeveloperVocabulary},
+        {"nothing in the registry answers to it", ProseDefect::DeveloperVocabulary},
+        {"is registered with no handler", ProseDefect::DeveloperVocabulary},
+        {"Edge Fillet — emits FILLET", ProseDefect::DeveloperVocabulary},
+        {"ops 14 declared / 14 parsed / 14 compiled", ProseDefect::DeveloperVocabulary},
+        {"(the document has no statements)", ProseDefect::DeveloperVocabulary},
+        {"host transport", ProseDefect::DeveloperVocabulary},
+        {"BOX: wrong arity -- 7 argument(s)", ProseDefect::DeveloperVocabulary},
     };
     for (const Bad& b : kBad) {
       const std::vector<ProseFinding> f = scanUserFacingProse(b.text);
@@ -523,6 +759,24 @@ int main() {
         "##body",
         "distance and angle need exactly two faces",
         "Forge could not find a graphics card it can draw 3D with, so the 3D view is empty.",
+        // The wider scanner's own false-positive corpus. Each of these WOULD be
+        // caught by a lazier version of one of the two new rules, and each is
+        // something a CAD application has to be able to say.
+        "bracket.fpart",                       // a dotted word that is the USER'S file
+        "untitled.fpart  *",
+        "Opened /Users/anna/parts/housing.step  (14 features)",
+        "Archie CoPilot",                      // a product name with an internal capital
+        "Front", "Isometric", "Extrude", "Open Recent", "Command Palette",
+        "##tree_rows",                         // an ImGui identity: drawn as nothing
+        "Fillet##part.fillet",                 // ...and one carrying a real label
+        "edges     12 recovered from 48 face-boundary segments",
+        "closed surface, outward winding",     // the user's mesh, not the program
+        "42 boundary, 0 non-manifold, 0 reversed edges",
+        ("Edge Fillet needs one or more edges, all of the same kind; nothing selected is "
+         "picked. Set the pick filter to edge and click one in the 3D view"),
+        "peak stress 240 MPa",                 // "peak" is a reading, not a cache
+        "the gate diameter is 2.5 mm",         // "gate" is a feature of a moulded part
+        "12 segments",                         // a mesh edge really is made of segments
     };
     for (const char* g : kGood) {
       const std::vector<ProseFinding> f = scanUserFacingProse(g);
@@ -618,23 +872,40 @@ int main() {
                 shipped.size(), plannedPanelCount());
   }
 
-  // ── D/E. what reaches an ImGui text call ────────────────────────────────
+  // ── D/E/H/I. what reaches a user surface, across the WHOLE application ──
+  //
+  // THE LIST IS THE DIRECTORY. This block used to name four files; there are 28.
+  // Nothing was leaking from the other 24 on the day this was written -- see
+  // sourcesUnder() for that measurement -- and the hazard is the shape of the
+  // list, not what is behind it today: a gate whose coverage is a list somebody
+  // remembered to extend has the same failure mode as the defect it checks for.
   {
-    const char* const kSources[] = {
-        "/forge-desktop/src/ForgeFrame.cpp",
-        "/forge-desktop/src/main.cpp",
-        "/forge-desktop/src/ViewportRenderer.cpp",
-        "/forge-desktop/src/KernelScene.cpp",
-    };
+    const std::vector<std::string> sources = sourcesUnder(root + "/forge-desktop/src");
+    if (sources.size() < 12) {
+      std::printf("  only %zu sources found under forge-desktop/src -- the walk is not working\n",
+                  sources.size());
+    }
+    CHECK(sources.size() >= 12);
     std::size_t sinkCalls = 0;
     std::size_t sinkLiterals = 0;
-    for (const char* rel : kSources) {
+    std::size_t logCalls = 0;
+    std::size_t logLiterals = 0;
+    for (const std::string& path : sources) {
       bool ok = false;
-      const std::string src = readFile(root + rel, ok);
-      if (!ok) { std::printf("  cannot read %s%s\n", root.c_str(), rel); }
+      const std::string src = readFile(path, ok);
+      if (!ok) { std::printf("  cannot read %s\n", path.c_str()); }
       CHECK(ok);
       if (!ok) continue;
+      const std::string rel = path.substr(root.size() + 1);
       const std::vector<Piece> pieces = lex(src);
+
+      // The one carve-out, resolved per file: the Console panel's detail line.
+      std::size_t detailFirst = 0;
+      std::size_t detailLast = 0;
+      const bool hasDetailSurface =
+          functionLineRange(pieces, std::string("void ") + kDetailSurface + "(", detailFirst,
+                            detailLast);
+
       const std::vector<SinkCall> calls = findSinkCalls(pieces);
       for (const SinkCall& call : calls) {
         ++sinkCalls;
@@ -642,19 +913,49 @@ int main() {
           ++sinkLiterals;
           const std::vector<ProseFinding> f = scanUserFacingProse(lit);
           if (!f.empty()) {
-            std::printf("  %s:%zu ImGui::%s draws \"%s\"\n        %s\n", rel + 1, call.line,
+            std::printf("  %s:%zu %s draws \"%s\"\n        %s\n", rel.c_str(), call.line,
                         call.sink.c_str(), lit.c_str(), describeProseFindings(f).c_str());
           }
           CHECK(f.empty());
         }
+        const bool inDetailSurface =
+            hasDetailSurface && call.line >= detailFirst && call.line <= detailLast;
         std::string which;
         const bool leaked = readsInternalDetail(call.code, which);
-        if (leaked) {
+        if (leaked && !inDetailSurface) {
           std::printf("  %s:%zu %s is handed %s -- translate it with "
                       "forge::ui::userFacing*Failure() and log the detail instead\n",
-                      rel + 1, call.line, call.sink.c_str(), which.c_str());
+                      rel.c_str(), call.line, call.sink.c_str(), which.c_str());
         }
-        CHECK(!leaked);
+        CHECK(leaked ? inDetailSurface : true);
+
+        // ── I. a NAME where a sentence belongs ────────────────────────────
+        for (const char* needle : kMachineExpressions) {
+          const bool present = call.code.find(needle) != std::string::npos;
+          if (present && !inDetailSurface) {
+            std::printf("  %s:%zu %s draws %s -- that is an identifier, not a sentence. Use the "
+                        "command's label, forge::ui::userText() or "
+                        "forge::ui::featureDisplayName().\n",
+                        rel.c_str(), call.line, call.sink.c_str(), needle);
+          }
+          CHECK(present ? inDetailSurface : true);
+        }
+      }
+
+      // ── H. the activity log's MESSAGE ───────────────────────────────────
+      for (const LogCall& call : findLogCalls(pieces)) {
+        ++logCalls;
+        for (const std::string& lit : call.messageLiterals) {
+          ++logLiterals;
+          const std::vector<ProseFinding> f = scanUserFacingProse(lit);
+          if (!f.empty()) {
+            std::printf("  %s:%zu log().%s writes \"%s\" as the MESSAGE -- the Console panel "
+                        "draws it. Put this in the third argument, the detail.\n        %s\n",
+                        rel.c_str(), call.line, call.method.c_str(), lit.c_str(),
+                        describeProseFindings(f).c_str());
+          }
+          CHECK(f.empty());
+        }
       }
     }
     // A scan that found nothing to scan is a scan that proves nothing.
@@ -662,8 +963,11 @@ int main() {
                                      sinkCalls);
     CHECK(sinkCalls >= 100);
     CHECK(sinkLiterals >= 100);
-    std::printf("[user_facing_text] %zu text calls, %zu drawn literals scanned\n", sinkCalls,
-                sinkLiterals);
+    CHECK(logCalls >= 5);
+    CHECK(logLiterals >= 5);
+    std::printf("[user_facing_text] %zu sources, %zu text calls, %zu drawn literals, "
+                "%zu log messages scanned\n",
+                sources.size(), sinkCalls, sinkLiterals, logLiterals);
   }
 
   // ── F. the LIVE command surface ─────────────────────────────────────────
@@ -814,6 +1118,199 @@ int main() {
       if (d.empty()) CHECK(userFacingBuildFailure(d).empty());
       else CHECK(!userFacingBuildFailure(d).empty());
     }
+  }
+
+  // ── J. every userText() enumerator, and it is not machineName in disguise ─
+  //
+  // Five of the enums in this layer have two spellings: the wire name a macro
+  // stores and an agent reads, and the phrase a person reads. The whole scheme
+  // rests on the second being different from the first, so that is asserted
+  // rather than assumed -- a userText() that forwarded to machineName() would
+  // satisfy every other check in this file, because every other check reads the
+  // sentence these produce.
+  {
+    std::size_t pairs = 0;
+    auto both = [&](const char* user, const char* machine) {
+      const std::vector<ProseFinding> f = scanUserFacingProse(user);
+      if (!f.empty()) {
+        std::printf("  userText gives \"%s\": %s\n", user, describeProseFindings(f).c_str());
+      }
+      CHECK(f.empty());
+      if (std::string(user) == std::string(machine)) {
+        std::printf("  userText and machineName agree on \"%s\" -- one of them is not doing "
+                    "its job\n", user);
+      }
+      CHECK(std::string(user) != std::string(machine));
+      ++pairs;
+    };
+    for (DispatchStatus x : {DispatchStatus::Ok, DispatchStatus::UnknownCommand,
+                             DispatchStatus::SelectionSignatureMismatch, DispatchStatus::Disabled,
+                             DispatchStatus::MissingRequiredParameter, DispatchStatus::NoHandler,
+                             DispatchStatus::EditRefused}) {
+      both(userText(x), machineName(x));
+    }
+    for (int i = 0; i <= static_cast<int>(OpConstraint::MalformedArgumentValue); ++i) {
+      const auto x = static_cast<OpConstraint>(i);
+      both(userText(x), machineName(x));
+    }
+    for (int i = 0; i <= static_cast<int>(PlanCheck::OpConstraintRefused); ++i) {
+      const auto x = static_cast<PlanCheck>(i);
+      both(userText(x), machineName(x));
+    }
+    // EntityKind and the two profiles have no machineName(): their toString IS
+    // the wire name (a selection signature is matched against it), so the pair
+    // is toString/userText and the same two properties hold.
+    for (int i = 0; i <= static_cast<int>(EntityKind::Any); ++i) {
+      const auto k = static_cast<EntityKind>(i);
+      const std::vector<ProseFinding> f = scanUserFacingProse(userText(k));
+      if (!f.empty()) {
+        std::printf("  userText(EntityKind) gives \"%s\": %s\n", userText(k),
+                    describeProseFindings(f).c_str());
+      }
+      CHECK(f.empty());
+      ++pairs;
+    }
+    for (WorkspaceProfile w : allWorkspaceProfiles()) {
+      CHECK(scanUserFacingProse(userText(w)).empty());
+      ++pairs;
+    }
+    for (InputProfile ip : allInputProfiles()) {
+      CHECK(scanUserFacingProse(userText(ip)).empty());
+      ++pairs;
+    }
+    CHECK(pairs >= 40);
+    std::printf("[user_facing_text] %zu enum spellings checked\n", pairs);
+  }
+
+  // ── K. THE RUNTIME SENTENCES, over the whole cross-product ───────────────
+  //
+  // Checks B and F enumerate a surface. This one enumerates the FUNCTIONS that
+  // build what those surfaces show, over every input the shipped application can
+  // hand them: every registered command against every DispatchStatus, every
+  // catalogue row, every selection shape, the empty state and the samples. The
+  // leak this gate was rewritten for -- "selection_signature_mismatch: 1..n edge
+  // (homogeneous)" -- lived in exactly one of these functions, and reached three
+  // separate surfaces from there.
+  {
+    App app;
+    std::size_t sentences = 0;
+    auto expect = [&](const char* what, const std::string& text) {
+      if (text.empty()) return;
+      ++sentences;
+      const std::vector<ProseFinding> f = scanUserFacingProse(text);
+      if (!f.empty()) {
+        std::printf("  %s: \"%s\"\n        %s\n", what, text.c_str(),
+                    describeProseFindings(f).c_str());
+      }
+      CHECK(f.empty());
+    };
+
+    const std::vector<std::string> ids = app.shell.registry().ids();
+    CHECK(ids.size() >= 40);
+    for (const std::string& id : ids) {
+      const CommandDescriptor* d = app.shell.registry().find(id);
+      CHECK(d != nullptr);
+      if (d == nullptr) continue;
+      expect("signature", d->signature.describeForUser());
+      expect("label", d->label);
+      expect("category", d->category);
+      for (DispatchStatus st : {DispatchStatus::Ok, DispatchStatus::UnknownCommand,
+                                DispatchStatus::SelectionSignatureMismatch,
+                                DispatchStatus::Disabled,
+                                DispatchStatus::MissingRequiredParameter,
+                                DispatchStatus::NoHandler, DispatchStatus::EditRefused}) {
+        // Both with and without a detail, because two branches append one.
+        expect("explainUnavailable", explainUnavailable(id, d, st, "", {}, &app.shell.selection()));
+        expect("explainUnavailable+detail",
+               explainUnavailable(id, d, st, "the internal cause", {}, &app.shell.selection()));
+      }
+    }
+    // Unknown ids go through the same explainer and must not quote themselves.
+    for (const char* strange : {"part.no_such_command", "app.load_sample", ""}) {
+      const std::string sentence = explainUnavailable(strange, nullptr,
+                                                      DispatchStatus::UnknownCommand, "", {},
+                                                      &app.shell.selection());
+      expect("explainUnavailable(unknown)", sentence);
+      if (strange[0] != 0) CHECK(sentence.find(strange) == std::string::npos);
+    }
+
+    // The tool catalogue, and the surface item built from it, with the selection
+    // both empty and populated -- the reason field only exists when a command
+    // refuses, so an empty selection is what makes most of them speak.
+    for (int pass = 0; pass < 2; ++pass) {
+      if (pass == 1) {
+        EntityRef r;
+        r.bodyId = "body";
+        r.kind = EntityKind::Face;
+        r.persistentName = "face@1";
+        app.shell.selection().setFilter(EntityKind::Any);
+        app.shell.selection().replaceWith({r});
+      }
+      const ToolCatalog cat = buildToolCatalog(app.shell.registry(), app.shell.selection(), "");
+      CHECK(cat.entries.size() >= 40);
+      std::size_t reasons = 0;
+      for (const ToolEntry& e : cat.entries) {
+        expect("ToolEntry::reason", e.reason);
+        expect("ToolEntry::label", e.label);
+        if (!e.reason.empty()) ++reasons;
+      }
+      // A catalogue in which nothing refused would scan nothing.
+      if (pass == 0 && reasons < 10) {
+        std::printf("  only %zu tool reasons produced -- the corpus is not biting\n", reasons);
+      }
+      if (pass == 0) CHECK(reasons >= 10);
+      expect("describeSelection", describeSelection(app.shell.selection()));
+      expect("selectionStatusText", selectionStatusText(app.shell.selection()));
+    }
+    app.shell.selection().clearSelection();
+
+    // The first card a new user sees, and every sample it offers.
+    for (std::size_t features : {std::size_t(0), std::size_t(14)}) {
+      const EmptyState st = buildEmptyState(app.shell.registry(), features);
+      expect("EmptyState::headline", st.headline);
+      expect("EmptyState::body", st.body);
+      for (const EmptyStateAction& a : st.creators) {
+        expect("EmptyStateAction::label", a.label);
+        expect("EmptyStateAction::description", a.description);
+      }
+      for (const std::string& next : st.nextSteps) expect("EmptyState::nextSteps", next);
+    }
+    for (const SampleDocument& sample : sampleDocuments()) {
+      expect("sample.title", sample.title);
+      expect("sample.summary", sample.summary);
+      for (const std::string& t : sample.teaches) expect("sample.teaches", t);
+    }
+
+    // The plan verdict's own sentence, over every refusal validatePlan can
+    // reach. Drawn under "NOT OFFERED" in the CoPilot panel.
+    {
+      const OpConstraintBridge bridge(generatedVocabulary());
+      auto planWith = [](const char* commandId, const char* irOp) {
+        Plan plan;
+        PlanStep step;
+        step.commandId = commandId;
+        step.irOp = irOp;
+        plan.steps.push_back(std::move(step));
+        return plan;
+      };
+      const Plan kPlans[] = {
+          Plan{},
+          planWith("part.no_such_command", "FILLET"),
+          planWith("part.fillet", "CHAMFER"),
+          planWith("part.fillet", "FILLET"),
+          planWith("part.primitive_box", "BOX"),
+      };
+      std::size_t refusals = 0;
+      for (const Plan& plan : kPlans) {
+        const PlanVerdict v = validatePlan(plan, app.shell.registry(), bridge);
+        expect("PlanVerdict::explanation", v.explanation);
+        for (const StepVerdict& sv : v.steps) expect("StepVerdict::reason", sv.reason);
+        if (v.check != PlanCheck::Ok) ++refusals;
+      }
+      CHECK(refusals >= 3);
+    }
+    CHECK(sentences >= 500);
+    std::printf("[user_facing_text] %zu runtime sentences scanned\n", sentences);
   }
 
   return H.finish();

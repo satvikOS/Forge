@@ -636,7 +636,7 @@ int main(int argc, char** argv) {
     const forge::ui::DispatchResult r = shell.run("file.open", params);
     if (!r.ok() || !shell.lastDocumentError().empty()) {
       std::fprintf(stderr, "[forge] could not open %s: %s\n", openPath.c_str(),
-                   shell.lastDocumentError().empty() ? forge::ui::toString(r.status)
+                   shell.lastDocumentError().empty() ? forge::ui::machineName(r.status)
                                                      : shell.lastDocumentError().c_str());
     } else {
       std::printf("[forge] opened %s: %zu statements, %zu triangles\n", openPath.c_str(),

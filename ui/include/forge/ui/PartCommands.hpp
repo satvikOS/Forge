@@ -179,6 +179,18 @@ struct FeatureRecord {
   IrValueKind produces = IrValueKind::Solid;
 };
 
+// THE NAME ON THE ROW. A feature-tree row, a combo entry and a tooltip all
+// showed one of two things before this existed: `label`, when a command set one,
+// and otherwise the raw feature-IR text of the statement -- "%4 FILLET %3 2.000"
+// -- or the SHOUTED op name, "FILLET". Neither is a name; the first is the
+// compiler's rendering of the statement and the second is its opcode.
+//
+// Title case rather than a lookup table of sixty op names, deliberately: a table
+// would have to be extended for every op the kernel gains, and the one nobody
+// extends is the one that ships an opcode again. "Fillet 4", "Extrude 2",
+// "Regpoly 7" -- the third is not beautiful, and it is still a name.
+std::string featureDisplayName(const FeatureRecord& record);
+
 // Why an EDIT needs its own result type and may not reuse IrCheck: IrCheck is
 // the FeatureTree.hpp grammar, rule for rule ("Ops reference prior ids by %N",
 // the per-op arg list). "you moved an operand" is not a grammar rule -- the
