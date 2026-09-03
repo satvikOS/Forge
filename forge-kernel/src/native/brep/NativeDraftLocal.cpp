@@ -57,18 +57,21 @@
 #include <cmath>
 #include <cstdlib>
 #include <string>
+#include <map>
 #include <vector>
 
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
+#include <Geom2d_Curve.hxx>
 #include <ElCLib.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_CylindricalSurface.hxx>
+#include "forge/native/geom/NativePCurveFit.hpp"
 #include <Geom_Ellipse.hxx>
 #include <Geom_Hyperbola.hxx>
 #include <Geom_Line.hxx>
@@ -651,18 +654,26 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
     // reason names the capability gap instead of the downstream symptom it
     // produces three stages later (a vertex that misses one of its own planes).
     for (int ei = 1; ei <= edgeMap.Extent(); ++ei) {
-        bool onWall = false, curvedNeighbour = false;
+        bool onWall = false, curvedNeighbour = false, cylinderNeighbour = false;
         for (TopTools_ListIteratorOfListOfShape it(edgeFaces.FindFromIndex(ei));
              it.More(); it.Next()) {
             const int fi = faceMap.FindIndex(it.Value());
             if (fi == 0) return defer("an edge is incident to a face not on the shape");
             if (isWall[static_cast<std::size_t>(fi) - 1]) { onWall = true; continue; }
-            if (classifySurface(BRep_Tool::Surface(TopoDS::Face(it.Value()))) != SurfKind::Plane)
-                curvedNeighbour = true;
+            const SurfKind k = classifySurface(BRep_Tool::Surface(TopoDS::Face(it.Value())));
+            if (k == SurfKind::Plane) continue;
+            // A CYLINDER is now buildable: the section of the rotated plane with
+            // it is an exact ellipse and forge::pcurvefit::cylinderPCurve fits the
+            // pcurve with a MEASURED, out-of-sample bound. Every other curved
+            // kind still defers, by name, because no such construction exists for
+            // it -- a cone section is a general conic and a spline neither.
+            if (k == SurfKind::Cylinder) { cylinderNeighbour = true; continue; }
+            curvedNeighbour = true;
         }
         if (onWall && curvedNeighbour)
             return defer("a drafted wall meets a non-planar face (the new edge would be "
                          "a conic needing a new pcurve)");
+        (void)cylinderNeighbour;
     }
 
     // ---- 3. the three topological classes ----------------------------------
@@ -878,6 +889,21 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
     // the one thing this engine will not approximate.
     TopTools_MapOfShape rebuiltNotRetrim;
 
+    // ── what site 3 needs from site 2 ────────────────────────────────────────
+    // A wall edge built on a CYLINDER carries its fitted pcurve here, keyed by the
+    // OLD edge, so the face rebuild can attach it with UpdateEdge instead of
+    // deferring. Recording it is what lets :1022 tell "an edge this engine built a
+    // pcurve for" from "an edge with no pcurve on this surface at all" -- the two
+    // are indistinguishable from `rebuiltNotRetrim` alone.
+    struct CylPCurve {
+        Handle(Geom2d_Curve) pc;
+        TopoDS_Face          face;      // the cylindrical face it is the pcurve ON
+        double               maxDev3d = -1.0;
+    };
+    TopTools_DataMapOfShapeShape cylPCurveFace;   // old edge -> cylindrical face
+    std::map<int, CylPCurve> cylFits;             // edgeMap index -> the fit
+
+
     for (int ei = 1; ei <= edgeMap.Extent(); ++ei) {
         const TopoDS_Edge oldE = TopoDS::Edge(edgeMap(ei).Oriented(TopAbs_FORWARD));
         if (!edgeMoved(oldE)) { ++statsSlot().edgesVerbatim; continue; }   // verbatim
@@ -939,6 +965,7 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
             // pcurve on a curved surface, so only that case is built.
             std::vector<Plane> two;
             bool neighbourNonPlanar = false;
+            TopoDS_Face cylFace;                 // the CYLINDER this edge runs on, if any
             for (TopTools_ListIteratorOfListOfShape it(edgeFaces.FindFromKey(edgeMap(ei)));
                  it.More(); it.Next()) {
                 const TopoDS_Face f = TopoDS::Face(it.Value());
@@ -948,12 +975,182 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     two.push_back(wallPlane[static_cast<std::size_t>(fi) - 1]);
                 } else {
                     Plane pl;
-                    if (!outwardPlaneOf(f, pl)) { neighbourNonPlanar = true; break; }
+                    if (!outwardPlaneOf(f, pl)) {
+                        if (classifySurface(BRep_Tool::Surface(f)) == SurfKind::Cylinder &&
+                            cylFace.IsNull()) {
+                            cylFace = f;         // buildable: handled below
+                            continue;
+                        }
+                        neighbourNonPlanar = true;
+                        break;
+                    }
                     two.push_back(pl);
                 }
             }
             if (neighbourNonPlanar)
                 return defer("a drafted wall meets a non-planar face (the new edge would be a conic needing a new pcurve)");
+
+            if (!cylFace.IsNull()) {
+                // ── WALL EDGE ON A CYLINDER ──────────────────────────────────
+                // The rotated wall plane meets the cylinder in an exact ELLIPSE
+                // (closed form). Only the PCURVE has to be approximated: on the
+                // cylinder's own (u, v) the section is v(u) = a + b cos u + c sin u,
+                // a sinusoid no Geom2d conic represents. That is the declared
+                // contract change -- "exact or defer" becomes "exact except for a
+                // bounded pcurve deviation" -- so the bound is ASSERTED here, per
+                // edge, from cylinderPCurve's own OUT-OF-SAMPLE audit, never assumed.
+                if (two.size() != 1)
+                    return defer("a wall edge on a cylinder does not have exactly one wall plane");
+                const Handle(Geom_CylindricalSurface) cs =
+                    Handle(Geom_CylindricalSurface)::DownCast(basisSurface(BRep_Tool::Surface(cylFace)));
+                if (cs.IsNull()) return defer("the cylindrical neighbour is not a cylinder");
+                const gp_Ax3  cylAx = cs->Position();
+                const double  radius = cs->Radius();
+                const Plane&  wp = two[0];
+                const gp_Dir  wn(wp.nx, wp.ny, wp.nz);
+
+                const forge::pcurvefit::PlaneCylSection sec =
+                    forge::pcurvefit::planeCylinderSection(wn, wp.d, cylAx, radius);
+                if (sec.curve.IsNull())
+                    return defer("the wall plane does not section this cylinder in one curve: " +
+                                 sec.defer);
+                // The section must lie on BOTH surfaces before anything is built on
+                // it: a wrong 3-D curve with a perfect pcurve is still a wrong edge.
+                if (forge::pcurvefit::sectionResidual(sec, wn, wp.d, cylAx, radius) > resTol)
+                    return defer("the plane/cylinder section does not lie on its own surfaces");
+
+                // The two vertices were solved earlier against these same surfaces
+                // (planeSystemLine + lineMeetQuadric), so they MUST lie on this
+                // ellipse. Checking it is what makes the section a cross-check of
+                // the vertex solve rather than a restatement of it.
+                // The curve the edge is finally built on. It is sec.curve unless a
+                // CLOSED rim has to be reversed to keep the old edge's sense.
+                Handle(Geom_Curve) secCurve = sec.curve;
+                const double lo2 = sec.curve->FirstParameter(), hi2 = sec.curve->LastParameter();
+                double d0c = 0.0, d1c = 0.0;
+                if (!curveParamAt(sec.curve, lo2, hi2, p0, t0, d0c) ||
+                    !curveParamAt(sec.curve, lo2, hi2, p1, t1, d1c))
+                    return defer("a wall edge on a cylinder would not yield a parameter");
+                if (d0c > resTol || d1c > resTol)
+                    return defer("a wall edge on a cylinder does not pass through its own new vertices");
+                if (!(t1 > t0)) {
+                    const double period = 2.0 * kPi;
+                    // ── THE CLOSED RIM ──────────────────────────────────────
+                    // A bore that lies WHOLLY inside the drafted wall meets it in
+                    // a CLOSED ellipse: one vertex, used twice, so both endpoints
+                    // project to the SAME parameter and the range looks degenerate
+                    // rather than reversed. Measured on the corpus as t0 = t1 = 0
+                    // with BOTH residuals exactly 0 -- the signature of one point,
+                    // not of a failed projection. Such an edge spans the WHOLE
+                    // period. Distinguishing it from a genuinely reversed arc is
+                    // what v0.IsSame(v1) is for: closedness is read from the
+                    // TOPOLOGY, never inferred from the parameters, because a
+                    // short arc whose ends happen to round together would take the
+                    // same branch and silently become a full loop.
+                    if (v0.IsSame(v1)) {
+                        // ── AND ITS DIRECTION ───────────────────────────────
+                        // A closed rim has NO vertex order to take a direction
+                        // from -- v0 IS v1 -- so t0 + period is only half an
+                        // answer: it fixes the SPAN and leaves the SENSE free,
+                        // and the wrong sense is not a small error. Measured on
+                        // the (f) fixture: the pcurve ran u from 2*pi down to 0
+                        // while the face's two seam edges and its other rim
+                        // needed 0 up to 2*pi, so the 2-D wire read NotClosed and
+                        // the face BadOrientationOfSubshape -- every edge again
+                        // individually perfect. The sense is not a free choice
+                        // either: the OLD edge ran one way round this same hole
+                        // and the rebuilt one must run the same way, so the old
+                        // curve's own tangent at its start decides it, and the
+                        // section is reversed when the two oppose.
+                        gp_Pnt qOld, qNew;
+                        gp_Vec dOld, dNew;
+                        try {
+                            c3d->D1(lo, qOld, dOld);
+                            sec.curve->D1(t0, qNew, dNew);
+                        } catch (const Standard_Failure&) {
+                            return defer("a closed wall rim on a cylinder would not yield a tangent");
+                        }
+                        if (dOld.Magnitude() <= 0.0 || dNew.Magnitude() <= 0.0)
+                            return defer("a closed wall rim on a cylinder has a null tangent");
+                        if (dNew.Dot(dOld) < 0.0) {
+                            Handle(Geom_Curve) rev =
+                                Handle(Geom_Curve)::DownCast(sec.curve->Copy());
+                            if (rev.IsNull())
+                                return defer("a closed wall rim on a cylinder could not be reversed");
+                            rev->Reverse();
+                            double dRev = 0.0;
+                            if (!curveParamAt(rev, rev->FirstParameter(), rev->LastParameter(),
+                                              p0, t0, dRev) || dRev > resTol)
+                                return defer("a reversed closed wall rim does not pass through its own vertex");
+                            secCurve = rev;
+                        }
+                        t1 = t0 + period;
+                    }
+                    else if (t1 < t0)  t1 += period;
+                    if (!(t1 > t0))
+                        return defer("a wall edge on a cylinder would have a non-increasing range"
+                                     " [t0=" + std::to_string(t0) + " t1=" + std::to_string(t1) +
+                                     " lo=" + std::to_string(lo2) + " hi=" + std::to_string(hi2) +
+                                     " d0=" + std::to_string(d0c) + " d1=" + std::to_string(d1c) + "]");
+                }
+
+                // ── THE 2*pi BRANCH ─────────────────────────────────────────
+                // A cylinder's u is periodic, so the fitted pcurve is only
+                // determined UP TO a whole period, and cylinderPCurve picks the
+                // period whose u(t0) is nearest `uNear`. Leaving that at its 0.0
+                // default put the new pcurve on the [-pi, pi] branch while the
+                // face's untouched edges stayed on [pi/2, 3pi/2]: every endpoint
+                // was then exactly 2*pi from the neighbour it had to meet, the
+                // wire read Closed2d = NotClosed, and the SOLID was rejected as
+                // not BRepCheck-valid -- with no edge itself invalid, because
+                // each pcurve was individually perfect. The branch is not a free
+                // choice: the OLD edge already runs along this same cylinder and
+                // carries the pcurve the face's own 2-D domain is written in, so
+                // its u IS the answer. The draft moves this edge by the draft
+                // angle only, far under the half-period that would make the
+                // nearest-branch choice ambiguous.
+                double uNear = 0.0;
+                {
+                    double oa = 0.0, ob = 0.0;
+                    const Handle(Geom2d_Curve) oldPc =
+                        BRep_Tool::CurveOnSurface(TopoDS::Edge(oldE), cylFace, oa, ob);
+                    if (oldPc.IsNull())
+                        return defer("the old wall edge carries no pcurve on the cylinder to take a branch from");
+                    // Anchor on the old pcurve's START, not its midpoint. oldE is
+                    // taken FORWARD, so parameter `oa` is the vertex v0 that p0
+                    // replaces, and u(v0) is precisely the branch the new t0 has
+                    // to land on. The midpoint is not merely less direct, it is
+                    // AMBIGUOUS for the closed rim: that pcurve spans a whole
+                    // period, so its middle sits exactly half a period from both
+                    // candidate starts and the nearest-branch round() decides a
+                    // TIE -- measured landing the rim on [2*pi, 4*pi] beside seam
+                    // edges at 0 and 2*pi.
+                    uNear = oldPc->Value(oa).X();
+                }
+
+                const forge::pcurvefit::PCurveFit fit =
+                    forge::pcurvefit::cylinderPCurve(secCurve, t0, t1, cylAx, radius, resTol, uNear);
+                if (fit.curve.IsNull())
+                    return defer("the pcurve on the cylinder could not be built: " + fit.defer);
+                if (!(fit.maxDev3d >= 0.0) || fit.maxDev3d > resTol)
+                    return defer("the fitted pcurve exceeds the declared deviation bound");
+
+                bb.MakeEdge(ne, secCurve, std::max(tol, BRep_Tool::Tolerance(oldE)));
+                CylPCurve rec;
+                rec.pc       = fit.curve;
+                rec.face     = cylFace;
+                rec.maxDev3d = fit.maxDev3d;
+                cylFits[ei]  = rec;
+                ++statsSlot().edgesRebuilt;
+                rebuiltNotRetrim.Add(edgeMap(ei));
+                bb.Add(ne, n0.Oriented(TopAbs_FORWARD));
+                bb.Add(ne, n1.Oriented(TopAbs_REVERSED));
+                bb.UpdateVertex(TopoDS::Vertex(n0.Oriented(TopAbs_FORWARD)), t0, ne, tol);
+                bb.UpdateVertex(TopoDS::Vertex(n1.Oriented(TopAbs_REVERSED)), t1, ne, tol);
+                bb.Range(ne, t0, t1);
+                newEdgeMap.Bind(edgeMap(ei), ne);
+                continue;
+            }
             gp_Lin L;
             if (two.size() < 2 || !planeSystemLine(two, L))
                 return defer("a wall edge's two planes do not meet in a line");
@@ -1017,9 +1214,21 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
         // carried. A new curve would need a new pcurve, and that is an
         // approximation this engine will not make silently.
         if (!planar) {
-            for (TopExp_Explorer ex(oldF, TopAbs_EDGE); ex.More(); ex.Next())
-                if (rebuiltNotRetrim.Contains(ex.Current().Oriented(TopAbs_FORWARD)))
+            for (TopExp_Explorer ex(oldF, TopAbs_EDGE); ex.More(); ex.Next()) {
+                const TopoDS_Shape key = ex.Current().Oriented(TopAbs_FORWARD);
+                if (!rebuiltNotRetrim.Contains(key)) continue;
+                // A rebuilt edge for which THIS engine fitted a pcurve on THIS
+                // face is buildable; anything else still defers. The distinction
+                // cannot be made from rebuiltNotRetrim alone -- it marks "the
+                // curve changed", not "we have a pcurve for it" -- which is why
+                // site 2 records the fit.
+                bool handled = false;
+                for (const auto& [ei2, fit] : cylFits)
+                    if (edgeMap(ei2).Oriented(TopAbs_FORWARD).IsSame(key) &&
+                        fit.face.IsSame(oldF)) { handled = true; break; }
+                if (!handled)
                     return defer("a non-planar face would need a new pcurve for a rebuilt edge");
+            }
         }
 
         TopoDS_Face nf;
@@ -1055,6 +1264,18 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
             for (TopoDS_Iterator eit(w); eit.More(); eit.Next())
                 bb.Add(nw, edgeFor(eit.Value()));
             bb.Add(nf, nw.Oriented(w.Orientation()));
+        }
+        // ── ATTACH THE FITTED PCURVE ────────────────────────────────────────
+        // The face's SURFACE is untouched (EmptyCopied), so nothing about the
+        // cylinder changes; what is new is the pcurve of the rebuilt edge ON it.
+        // UpdateEdge is the only thing missing, and it is done AFTER the wires
+        // are added so the edge in the new face is the rebuilt one.
+        for (const auto& [ei2, fit] : cylFits) {
+            if (!fit.face.IsSame(oldF)) continue;
+            const TopoDS_Shape key = edgeMap(ei2).Oriented(TopAbs_FORWARD);
+            if (!newEdgeMap.IsBound(key)) continue;
+            bb.UpdateEdge(TopoDS::Edge(newEdgeMap.Find(key)), fit.pc, nf,
+                          std::max(tol, BRep_Tool::Tolerance(oldF)));
         }
         newFaceMap.Bind(faceMap(fi), nf);
     }
