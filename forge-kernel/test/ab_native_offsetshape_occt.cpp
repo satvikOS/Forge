@@ -337,6 +337,12 @@ int main() {
         if (!plate.IsNull()) {
             runCase("rounded-plate-grow", plate, d,
                     ((W + 2 * d) * (H + 2 * d) - (4.0 - kPi) * (r + d) * (r + d)) * (T + 2 * d));
+            // THE OTHER SIGN. A shrink drives the corner radius DOWN (r-d), which
+            // is the direction that can collapse it, so it is asserted here rather
+            // than assumed to follow from the grow.
+            const double e = -2.0;
+            runCase("rounded-plate-shrink", plate, e,
+                    ((W + 2 * e) * (H + 2 * e) - (4.0 - kPi) * (r + e) * (r + e)) * (T + 2 * e));
         }
     }
 
