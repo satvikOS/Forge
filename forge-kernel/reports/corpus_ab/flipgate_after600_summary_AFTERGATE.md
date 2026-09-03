@@ -83,7 +83,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   THREW:116 OK:461 DEFER:23
 - BRepCheck_Analyzer valid results: native 312, OCCT 455
 - of the answers each arm RETURNED: native 403 ok (312 valid, 91 invalid, 0 unknown), OCCT 461 ok (455 valid, 6 invalid, 0 unknown)
-- inside `both`: 253 agree on the full observable vector, 253 agree up to solid orientation (|volume|), 149 disagree
+- inside `both`: 253 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 253 on the STRICT vector the verdict reads (+ surface/curve kinds), 253 agree up to solid orientation (|volume|), 149 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 0, OCCT 0
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -98,7 +98,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:594 TIMEOUT:5 DEFER:1
 - BRepCheck_Analyzer valid results: native 600, OCCT 594
 - of the answers each arm RETURNED: native 600 ok (600 valid, 0 invalid, 0 unknown), OCCT 594 ok (594 valid, 0 invalid, 0 unknown)
-- inside `both`: 309 agree on the full observable vector, 309 agree up to solid orientation (|volume|), 285 disagree
+- inside `both`: 309 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 309 on the STRICT vector the verdict reads (+ surface/curve kinds), 309 agree up to solid orientation (|volume|), 285 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 0, OCCT 44
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -112,7 +112,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   DEFER:467 OK:132 CRASH:1
 - BRepCheck_Analyzer valid results: native 0, OCCT 0
 - of the answers each arm RETURNED: native 0 ok (0 valid, 0 invalid, 0 unknown), OCCT 132 ok (0 valid, 132 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 0 agree up to solid orientation (|volume|), 0 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 0 agree up to solid orientation (|volume|), 0 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 0, OCCT 0
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -125,7 +125,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   DEFER:490 OK:38 CRASH:66 THREW:6
 - BRepCheck_Analyzer valid results: native 24, OCCT 5
 - of the answers each arm RETURNED: native 24 ok (24 valid, 0 invalid, 0 unknown), OCCT 38 ok (5 valid, 33 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 0 agree up to solid orientation (|volume|), 0 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 0 agree up to solid orientation (|volume|), 0 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 0, OCCT 34
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -139,7 +139,8 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:567 DEFER:33
 - BRepCheck_Analyzer valid results: native 498, OCCT 567
 - of the answers each arm RETURNED: native 498 ok (498 valid, 0 invalid, 0 unknown), OCCT 567 ok (567 valid, 0 invalid, 0 unknown)
-- inside `both`: 498 agree on the full observable vector, 498 agree up to solid orientation (|volume|), 0 disagree
+- inside `both`: 498 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 498 agree up to solid orientation (|volume|), 0 disagree on the loose vector
+  - **498 pair(s) match on every scalar AND every count and are different B-Rep** — caught only by the kind histograms.
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 33, OCCT 53
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -154,7 +155,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:600
 - BRepCheck_Analyzer valid results: native 600, OCCT 600
 - of the answers each arm RETURNED: native 600 ok (600 valid, 0 invalid, 0 unknown), OCCT 600 ok (600 valid, 0 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 0 agree up to solid orientation (|volume|), 600 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 0 agree up to solid orientation (|volume|), 600 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 6, OCCT 9
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -168,7 +169,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:600
 - BRepCheck_Analyzer valid results: native 600, OCCT 600
 - of the answers each arm RETURNED: native 600 ok (600 valid, 0 invalid, 0 unknown), OCCT 600 ok (600 valid, 0 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 0 agree up to solid orientation (|volume|), 600 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 0 agree up to solid orientation (|volume|), 600 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 9, OCCT 44
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -182,7 +183,8 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:407 THREW:154 DEFER:39
 - BRepCheck_Analyzer valid results: native 407, OCCT 407
 - of the answers each arm RETURNED: native 407 ok (407 valid, 0 invalid, 0 unknown), OCCT 407 ok (407 valid, 0 invalid, 0 unknown)
-- inside `both`: 407 agree on the full observable vector, 407 agree up to solid orientation (|volume|), 0 disagree
+- inside `both`: 407 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 407 agree up to solid orientation (|volume|), 0 disagree on the loose vector
+  - **407 pair(s) match on every scalar AND every count and are different B-Rep** — caught only by the kind histograms.
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 1, OCCT 1
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -196,7 +198,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:600
 - BRepCheck_Analyzer valid results: native 600, OCCT 600
 - of the answers each arm RETURNED: native 600 ok (600 valid, 0 invalid, 0 unknown), OCCT 600 ok (600 valid, 0 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 595 agree up to solid orientation (|volume|), 600 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 595 agree up to solid orientation (|volume|), 600 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 171, OCCT 167
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -210,7 +212,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   THREW:66 OK:497 DEFER:2
 - BRepCheck_Analyzer valid results: native 0, OCCT 445
 - of the answers each arm RETURNED: native 0 ok (0 valid, 0 invalid, 0 unknown), OCCT 497 ok (445 valid, 52 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 0 agree up to solid orientation (|volume|), 0 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 0 agree up to solid orientation (|volume|), 0 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 0, OCCT 0
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -224,7 +226,8 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:598 THREW:2
 - BRepCheck_Analyzer valid results: native 600, OCCT 567
 - of the answers each arm RETURNED: native 600 ok (600 valid, 0 invalid, 0 unknown), OCCT 598 ok (567 valid, 31 invalid, 0 unknown)
-- inside `both`: 325 agree on the full observable vector, 325 agree up to solid orientation (|volume|), 273 disagree
+- inside `both`: 325 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 309 on the STRICT vector the verdict reads (+ surface/curve kinds), 325 agree up to solid orientation (|volume|), 273 disagree on the loose vector
+  - **16 pair(s) match on every scalar AND every count and are different B-Rep** — caught only by the kind histograms.
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 9, OCCT 0
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -238,7 +241,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   OK:586 DEFER:1 EMPTY:11
 - BRepCheck_Analyzer valid results: native 580, OCCT 595
 - of the answers each arm RETURNED: native 20 ok (3 valid, 17 invalid, 0 unknown), OCCT 586 ok (584 valid, 2 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 0 agree up to solid orientation (|volume|), 14 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 0 agree up to solid orientation (|volume|), 14 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 6, OCCT 0
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind
@@ -253,7 +256,7 @@ count is in the per-family detail, labelled as reporting only.
 - OCCT arm statuses:   NOTRUN:598
 - BRepCheck_Analyzer valid results: native 598, OCCT 0
 - of the answers each arm RETURNED: native 0 ok (0 valid, 0 invalid, 0 unknown), OCCT 0 ok (0 valid, 0 invalid, 0 unknown)
-- inside `both`: 0 agree on the full observable vector, 0 agree up to solid orientation (|volume|), 0 disagree
+- inside `both`: 0 agree on the LOOSE vector (volume, area, com, bbox, f/e/v/shell/solid counts), 0 on the STRICT vector the verdict reads (+ surface/curve kinds), 0 agree up to solid orientation (|volume|), 0 disagree on the loose vector
 - centre-of-mass wrong-code-path fingerprint (COM more than 1000x the shape's own diagonal outside its own bbox): native 0, OCCT 0
 - (reporting only, NOT a defect count) COM outside the VERTEX-derived bbox at all, which a curved face legitimately does: native 0, OCCT 0
 - agreement observables: volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind

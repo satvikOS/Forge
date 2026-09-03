@@ -556,9 +556,20 @@ for (const s of summary) {
              `(${s.native_ok_valid} valid, ${s.native_ok_invalid} invalid, ${s.native_ok_validity_unknown} unknown), ` +
              `OCCT ${s.occt_ok} ok ` +
              `(${s.occt_ok_valid} valid, ${s.occt_ok_invalid} invalid, ${s.occt_ok_validity_unknown} unknown)`);
-  lines.push(`- inside \`both\`: ${s.both_ok_agree} agree on the full observable vector, ` +
+  // TWO NUMBERS, NAMED. The first is the LOOSE vector `agree` — volume, area, com,
+  // bbox and the topology COUNTS — kept because reports already in reports/corpus_ab/
+  // quote it. The second is `agree_strict`, which adds the surface/curve KINDS and is
+  // WHAT THE VERDICT READS. Printing only the first put a "407 agree" line directly
+  // above an "agreement FAIL (407 disagree)" line and read as a contradiction; it was
+  // two different vectors, and they are now labelled as such on both lines.
+  lines.push(`- inside \`both\`: ${s.both_ok_agree} agree on the LOOSE vector ` +
+             `(volume, area, com, bbox, f/e/v/shell/solid counts), ` +
+             `${s.both_ok_agree_strict} on the STRICT vector the verdict reads (+ surface/curve kinds), ` +
              `${s.both_ok_agree_upto_orientation} agree up to solid orientation (|volume|), ` +
-             `${s.both_ok_disagree} disagree`);
+             `${s.both_ok_disagree} disagree on the loose vector`);
+  if (s.both_ok_agree > s.both_ok_agree_strict)
+    lines.push(`  - **${s.both_ok_agree - s.both_ok_agree_strict} pair(s) match on every scalar AND every ` +
+               `count and are different B-Rep** — caught only by the kind histograms.`);
   lines.push(`- centre-of-mass wrong-code-path fingerprint (COM more than ` +
              `${s.com_fingerprint_k}x the shape's own diagonal outside its own bbox): ` +
              `native ${s.native_com_fingerprint}, OCCT ${s.occt_com_fingerprint}` +
