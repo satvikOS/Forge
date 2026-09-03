@@ -443,4 +443,32 @@ std::string userFacingStartupFailure(const std::string& stage, const std::string
          "send the startup log to support.";
 }
 
+std::string userFacingInterfaceFailure(const std::string& detail) {
+  // Nothing went wrong. A sentence here would be an error the user does not have.
+  if (detail.empty()) return std::string();
+  const std::string d = toLower(detail);
+
+  // Two controls sharing one identity. The user's symptom is a control that does
+  // not answer, which is what this says; the cause is a loop that forgot to make
+  // its rows distinct, which is what the log keeps.
+  if (mentions(d, "conflicting") || mentions(d, "conflict") || mentions(d, "duplicate")) {
+    return "Two controls in this panel answer to the same click, so one of them may not "
+           "respond. Your part is untouched. Closing the panel and opening it again usually "
+           "clears it. " +
+           std::string(userFacingDetailPointer());
+  }
+  // The whole "Missing End()" / "Missing PopID()" / "Missing EndTable()" family:
+  // a panel opened something it did not close, and the frame was repaired before
+  // it was shown.
+  if (mentions(d, "missing") || mentions(d, "forgot") || mentions(d, "too many")) {
+    return "A panel did not finish drawing and Forge tidied it up before showing the frame. "
+           "Your part is untouched and nothing has been lost. If it keeps happening, close "
+           "that panel and open it again. " +
+           std::string(userFacingDetailPointer());
+  }
+  return "Part of the Forge window ran into a problem and recovered on its own. Your part is "
+         "untouched and nothing has been lost. " +
+         std::string(userFacingDetailPointer());
+}
+
 }  // namespace forge::ui

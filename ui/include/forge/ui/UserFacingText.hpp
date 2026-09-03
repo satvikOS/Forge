@@ -138,6 +138,23 @@ std::string userFacingViewportFailure(const std::string& detail);
 // for what was being set up; it is used to choose a sentence and is not quoted.
 std::string userFacingStartupFailure(const std::string& stage, const std::string& detail);
 
+// A part of the interface reported a problem it RECOVERED FROM. `detail` is the
+// interface library's own message -- "Missing End()", "Missing PopID()",
+// "Programmer error: 2 visible items with conflicting ID!" -- and it is used to
+// choose a sentence and is never quoted in one.
+//
+// This translator exists because that library's own answer to a recoverable
+// error is to draw its message, in its own words, on top of the user's model
+// (MEASURED: with the shipped defaults a `##Tooltip_Error` window is created on
+// the erring frame and is active on the next), and, in any build where assert()
+// is live, to abort the process on the way. Neither is a thing to do to somebody
+// who has unsaved work. The library is told to be quiet and to hand the message
+// here instead; what comes out of here is what the user reads.
+//
+// Empty detail returns an empty string: no error happened, and inventing a
+// sentence would put one in front of a user who does not have one.
+std::string userFacingInterfaceFailure(const std::string& detail);
+
 // Where a user can read the detail that was not shown. One sentence, appended by
 // the callers that have a console to point at, so the wording is written once.
 const char* userFacingDetailPointer() noexcept;
