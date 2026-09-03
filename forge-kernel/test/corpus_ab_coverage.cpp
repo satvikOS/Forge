@@ -129,6 +129,9 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepAlgoAPI_Cut.hxx>                   // PIPESHELL_XOR (family F)
+#include <BRepAlgoAPI_Fuse.hxx>                  // PIPESHELL_XOR (family F)
+#include <BRepBuilderAPI_Transform.hxx>          // PIPESHELL_XOR negative control
 #include <BRepGProp.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
@@ -1374,6 +1377,96 @@ int main(int argc, char** argv) {
                 }, true, T, NF);
                 emit("PIPESHELL_RC", true, "", nat, ocRc,
                      "same, with OCCT SetTransitionMode(RightCorner)");
+
+                // ── PIPESHELL_XOR — A COMPARATOR THAT CANNOT EXPRESS A CONVENTION
+                //
+                // WHY THIS ROW EXISTS. The two rows above score agreement on a
+                // vector that includes the VERTEX-HULL bounding box (measure(),
+                // :226) and the face/edge/vertex counts. Neither is a property of
+                // the SOLID; both are properties of where the modeller put the
+                // SEAMS. A solid of revolution carries all of its vertices on its
+                // seam, so two byte-for-byte identical point sets that seam
+                // differently report different hulls and different counts and are
+                // scored as a disagreement. MEASURED on this corpus at 75d612c8:
+                // of the 272 pairs the PIPESHELL_RC row calls disagreements, 242
+                // agree on volume AND surface area AND centre of mass to 1e-6
+                // relative, and the 30 that do not are EXACTLY the 30 on which
+                // OCCT's own RightCorner answer is BRepCheck_Analyzer-INVALID.
+                //
+                // So the disagreement count was an INSTRUMENT ARTEFACT. This row
+                // replaces the instrument with one that has no convention to get
+                // wrong: the SYMMETRIC DIFFERENCE VOLUME, via TKBO booleans,
+                //     xor(A,B) = | (A \ B) u (B \ A) |
+                // which is zero iff the two solids occupy the same point set --
+                // whatever their seams, face counts, vertex counts or orientation.
+                // Divide by |B| in the aggregator to get a scale-free ratio.
+                //
+                // TWO CONTROLS, because a differencing comparator that silently
+                // returned "empty" for every input would be indistinguishable
+                // from perfect agreement, and one that returned a large number
+                // for everything would be indistinguishable from total failure:
+                //   NEGATIVE (the oc arm of the PIPESHELL_XOR row): xor(A, A
+                //     translated by 1% of the part diagonal) must be LARGE. This
+                //     proves the comparator can see a difference of the size that
+                //     would matter, so a zero on the real pair means something.
+                //   POSITIVE (the PIPESHELL_XOR_POS row below): xor(A, A) must be
+                //     EMPTY. This proves a zero is reachable at all, and that the
+                //     boolean does not simply fail closed on these solids.
+                if (wanted(cfg, "PIPESHELL_XOR") &&
+                    nat.status == ARM_OK && ocRc.status == ARM_OK) {
+                    const double shift = 0.01 * part.diag;
+                    const ArmResult xr = runArm([&]() -> TopoDS_Shape {
+                        const std::vector<TopoDS_Wire> g;
+                        const TopoDS_Shape A =
+                            forge::occtloft::pipeShell(sp, pw, g, true, 1.0e-6);
+                        BRepOffsetAPI_MakePipeShell mk(sp);
+                        mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+                        mk.Add(pw);
+                        mk.Build();
+                        if (!mk.IsDone()) return TopoDS_Shape();
+                        mk.MakeSolid();
+                        const TopoDS_Shape B = mk.Shape();
+                        if (A.IsNull() || B.IsNull()) return TopoDS_Shape();
+                        const TopoDS_Shape ab = BRepAlgoAPI_Cut(A, B).Shape();
+                        const TopoDS_Shape ba = BRepAlgoAPI_Cut(B, A).Shape();
+                        return BRepAlgoAPI_Fuse(ab, ba).Shape();
+                    }, false, T, NF);
+
+                    const ArmResult xn = runArm([&]() -> TopoDS_Shape {
+                        const std::vector<TopoDS_Wire> g;
+                        const TopoDS_Shape A =
+                            forge::occtloft::pipeShell(sp, pw, g, true, 1.0e-6);
+                        if (A.IsNull()) return TopoDS_Shape();
+                        gp_Trsf tr;
+                        tr.SetTranslation(gp_Vec(shift, 0, 0));
+                        const TopoDS_Shape A2 =
+                            BRepBuilderAPI_Transform(A, tr, Standard_True).Shape();
+                        const TopoDS_Shape ab = BRepAlgoAPI_Cut(A, A2).Shape();
+                        const TopoDS_Shape ba = BRepAlgoAPI_Cut(A2, A).Shape();
+                        return BRepAlgoAPI_Fuse(ab, ba).Shape();
+                    }, false, T, NF);
+
+                    emit("PIPESHELL_XOR", true, "", xr, xn,
+                         "symmetric-difference volume native vs OCCT(RightCorner); "
+                         "oc arm is the NEGATIVE CONTROL, native vs itself translated "
+                         "by 1% of the part diagonal");
+
+                    // POSITIVE CONTROL, its own row so its number is read rather
+                    // than assumed. xor(A,A) over the SAME boolean path.
+                    const ArmResult xp = runArm([&]() -> TopoDS_Shape {
+                        const std::vector<TopoDS_Wire> g;
+                        const TopoDS_Shape A =
+                            forge::occtloft::pipeShell(sp, pw, g, true, 1.0e-6);
+                        if (A.IsNull()) return TopoDS_Shape();
+                        const TopoDS_Shape ab = BRepAlgoAPI_Cut(A, A).Shape();
+                        const TopoDS_Shape ba = BRepAlgoAPI_Cut(A, A).Shape();
+                        return BRepAlgoAPI_Fuse(ab, ba).Shape();
+                    }, false, T, NF);
+                    ArmResult none2;
+                    emit("PIPESHELL_XOR_POS", true, "", xp, none2,
+                         "POSITIVE CONTROL: symmetric difference of the native solid "
+                         "with ITSELF, same boolean path; must be EMPTY");
+                }
             }
         }
     }
