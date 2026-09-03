@@ -132,6 +132,7 @@ FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 CHECKED=(
   forge-desktop/src/Camera.cpp
   forge-desktop/src/ForgeFrame.cpp
+  forge-desktop/src/ImGuiErrorPolicy.cpp
   forge-desktop/src/kernel_worker_main.cpp
   forge-desktop/src/PartFile.cpp
   forge-desktop/src/UpdateService.cpp
@@ -140,6 +141,7 @@ CHECKED=(
   forge-desktop/test/document_gate.cpp
   forge-desktop/test/file_exchange_gate.cpp
   forge-desktop/test/frame_gate.cpp
+  forge-desktop/test/imgui_recovery_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
 )

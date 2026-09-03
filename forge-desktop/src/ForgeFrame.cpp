@@ -15,6 +15,7 @@
 #include "imgui.h"
 
 #include "Camera.hpp"
+#include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
@@ -1454,6 +1455,31 @@ void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_
 
 // ── the frame ───────────────────────────────────────────────────────────────
 void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
+  // ── WHAT THE INTERFACE RECOVERED FROM LAST FRAME REACHES THE USER HERE ───
+  //
+  // The library raises a recoverable error from INSIDE EndFrame()/End(), which
+  // is after this builder has returned, so the notice queued on frame N is
+  // drained at the top of frame N+1. It is the first thing done, before any
+  // panel is drawn, so a panel that erred every frame still gets its first
+  // notice into the log before it errs again.
+  //
+  // TWO REGISTERS, deliberately, and they are the columns the log already has:
+  // the user reads a sentence about their part, and the library's own words
+  // ("Missing End()") are kept verbatim in the detail column beside it. Nothing
+  // is suppressed and nothing developer-shaped is drawn.
+  for (const ImGuiErrorNotice& notice : drainImGuiErrorNotices()) {
+    shell_.log().error("interface", notice.userText, notice.detail);
+  }
+  // A queue that filled and dropped is itself a fact worth one line -- silence
+  // there would make "3 notices" and "3 notices out of 900" read the same.
+  if (const std::size_t dropped = imGuiErrorNoticesDropped(); dropped > 0) {
+    shell_.log().error("interface",
+                       "Forge is recovering from a repeating problem in one of its panels. "
+                       "Your part is untouched. Save your work and restart Forge.",
+                       "notices dropped past the queue cap: " + std::to_string(dropped));
+    resetImGuiErrorNotices();
+  }
+
   // THE EDGE, on the one path nothing can bypass. Every mutation of the document
   // -- a menu item, a shortcut, the palette, a macro, an Archie tool call, a
   // file.open -- is visible here before the frame that shows it is drawn.
