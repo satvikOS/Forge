@@ -28,6 +28,13 @@
 //   appcast_check <appcast.json> --running <version> --expect <verdict>
 //     verdict: update | uptodate | reject
 //     --allow-prerelease  override the shipping policy and opt in to prereleases
+//     --print-url         also print `payload_url=<url>`, the URL the app would
+//                         fetch, taken from the PARSED manifest rather than from
+//                         the JSON on disk. release_contract_gate.sh compares
+//                         that string with the URL the release workflow will
+//                         actually publish under, which is the only way the
+//                         bash producer, the YAML release path and the C++
+//                         consumer are ever checked against each other at once.
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -44,6 +51,7 @@ int main(int argc, char** argv) {
   std::string running = "0.0.0";
   std::string expect;
   bool allow_prerelease = false;
+  bool print_url = false;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--running") == 0 && i + 1 < argc) {
       running = argv[++i];
@@ -51,6 +59,8 @@ int main(int argc, char** argv) {
       expect = argv[++i];
     } else if (std::strcmp(argv[i], "--allow-prerelease") == 0) {
       allow_prerelease = true;
+    } else if (std::strcmp(argv[i], "--print-url") == 0) {
+      print_url = true;
     } else if (path.empty()) {
       path = argv[i];
     }
@@ -82,6 +92,10 @@ int main(int argc, char** argv) {
     p.channel.clear();  // opting in also stops pinning to a channel
   }
   const Plan plan = decide(running, m, p);
+
+  // Printed BEFORE the verdict line and on its own, machine-readable line: the
+  // caller that wants this wants the URL even when the verdict is not `update`.
+  if (print_url) std::printf("payload_url=%s\n", m.url.c_str());
 
   const char* got = plan.decision == Decision::UpdateAvailable ? "update"
                     : plan.decision == Decision::UpToDate      ? "uptodate"
