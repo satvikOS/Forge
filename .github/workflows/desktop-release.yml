@@ -53,10 +53,42 @@ name: Desktop Release (macOS arm64)
 #        git tag -a v0.1.0 -m "Forge desktop v0.1.0"
 #        git push origin v0.1.0
 #
-#   3. The tag run uploads the zip, its .sha256 and its report to the release
-#      for that tag, creating it as a DRAFT if it does not exist. A draft is not
-#      public until a human presses Publish, which is where the blockers below
-#      get a decision.
+#   3. The tag run uploads the zip, its .sha256, its report and appcast.json to
+#      the release for that tag, creating it as a DRAFT if it does not exist. A
+#      draft is not public until a human presses Publish, which is where the
+#      blockers below get a decision.
+#
+#   4. ★ PUBLISH IT, AND LEAVE "SET AS A PRE-RELEASE" UNTICKED. This is the step
+#      that decides whether ALREADY-INSTALLED copies ever see the release, and
+#      it is the one that is easy to get wrong because both wrong answers look
+#      like success on the release page.
+#
+#      Every installed Forge fetches ONE fixed URL:
+#          .../releases/latest/download/appcast.json
+#      GitHub resolves `latest` to the newest release that is NEITHER A DRAFT NOR
+#      A PRERELEASE. So a release that is left as a draft, or published with the
+#      pre-release box ticked, is a release that exists, carries every asset,
+#      passes every check here — and is INVISIBLE to every installed copy. The
+#      app reports "no published release to update from yet" and each user stays
+#      on the version they happened to install, for ever, silently.
+#
+#      MEASURED 2026-09-02 against the live API: this repository has exactly one
+#      release, v0.1.0-alpha.0, and it is BOTH a draft AND a prerelease with zero
+#      assets. Publishing THAT one alone would still not make it `latest` — the
+#      prerelease flag has to come off too. Note also that tagging v0.1.0-alpha.0
+#      would upload into that existing draft rather than create a fresh release,
+#      because the step below deliberately leaves an existing release's state
+#      alone. Use a tag that does not already exist.
+#
+#      forge-desktop/test/release_visibility_check.sh asks the live API this
+#      exact question, and kernel-tests.yml runs it on every PR.
+#
+#      The version's OWN suffix is a SEPARATE thing and is handled correctly
+#      either way: emit_appcast.sh puts 0.1.0-alpha.1 on the `prerelease`
+#      CHANNEL and a stable client refuses it, while an installed alpha accepts
+#      both the next alpha and the first stable. That is the app's policy. It has
+#      nothing to do with GitHub's pre-release CHECKBOX, which only decides what
+#      `latest` resolves to — and which must be off for anyone to be updated.
 #
 # ── TWO BLOCKERS A HUMAN MUST DECIDE ON BEFORE PUBLISHING ────────────────────
 #   * AN OS FLOOR SET BY SOMEBODY ELSE'S BINARIES. A Homebrew bottle carries the
@@ -293,7 +325,24 @@ jobs:
             echo "::error::no forge_kernel_worker in the bundle -- the app would" \
                  "ship with NO crash isolation and would not say so at runtime"
             exit 1; }
-          echo "--- Contents/MacOS (both executables must be here) ---"
+          # The updater. Its absence is silent in the same way the worker's is:
+          # the app still starts, still checks, still reports "Forge X is
+          # available" -- and has no code that can install it. The release chain
+          # would be complete right up to the last inch and then stop, on the
+          # user's machine, for ever.
+          test -x forge-desktop/dist/Forge.app/Contents/MacOS/forge_update || {
+            echo "::error::no forge_update in the bundle -- the shipped app could" \
+                 "DETECT a release and would have no way to INSTALL one"
+            exit 1; }
+          # The appcast IS the release, as far as an installed copy is concerned.
+          # A run that produced a zip and no appcast publishes a release nobody's
+          # app can find.
+          test -f forge-desktop/dist/appcast.json || {
+            echo "::error::no appcast.json -- installed copies would never see this release"
+            exit 1; }
+          echo "--- appcast.json (what every installed Forge will read) ---"
+          cat forge-desktop/dist/appcast.json
+          echo "--- Contents/MacOS (all three executables must be here) ---"
           ls -la forge-desktop/dist/Forge.app/Contents/MacOS/
           ls -la forge-desktop/dist/
           echo "--- executable link closure ---"
@@ -396,6 +445,17 @@ jobs:
       - name: Upload as a CI artifact (always)
         # Every run keeps its build, tag or not, so a dry run is downloadable
         # and testable WITHOUT touching a release.
+        #
+        # appcast.json is in this list for the same reason the release notes are
+        # rendered on a dispatch: it is a RELEASE OUTPUT, and every release
+        # output a human cannot inspect before tagging is one whose first reader
+        # is a user. It is also the highest-consequence one — it is the document
+        # every already-installed copy of Forge reads to find and verify this
+        # build, and if it names the wrong file or the wrong tag then every
+        # installed app 404s and stays on its old version for ever, silently.
+        # Its name has no version in it, so it needs its own line rather than
+        # riding the Forge-macos-arm64-* globs. release_contract_gate.sh asserts
+        # that some glob here captures it.
         uses: actions/upload-artifact@v4
         with:
           name: Forge-macos-arm64-${{ steps.ver.outputs.version }}
@@ -404,6 +464,7 @@ jobs:
             forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
             forge-desktop/dist/Forge-macos-arm64-*.dryrun.json
             forge-desktop/dist/Forge-macos-arm64-*.notes.md
+            forge-desktop/dist/appcast.json
           if-no-files-found: error
           retention-days: 30
 

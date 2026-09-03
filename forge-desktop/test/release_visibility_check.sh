@@ -18,16 +18,41 @@
 #
 #   ./release_visibility_check.sh              # is the newest release reachable?
 #   ./release_visibility_check.sh --expect-version 0.1.0-alpha.6
+#   ./release_visibility_check.sh --allow-unreleased   # for CI; see below
 #
 # Read-only. Uses the authenticated `gh` API and publishes nothing.
+#
+# ── --allow-unreleased, AND WHY IT IS NOT A WEAKENING ────────────────────────
+# Run bare, this script FAILS when nothing is published. That is the right
+# answer for a human asking "can my users update?", and it is the default.
+#
+# It is the wrong answer for a per-PR job, for one reason: BEFORE THE FIRST
+# RELEASE, "nothing is published" is not a defect, it is the state the project
+# is deliberately in -- no tag has been pushed, and pushing one is the owner's
+# decision. A check that is red for a condition no pull request can change is a
+# check people learn to ignore, and this repository already has that rule
+# written down (desktop-release.yml, on Gatekeeper: "a check that cannot pass
+# without a credential is a permanently red gate, which is the same as no gate
+# at all").
+#
+# So --allow-unreleased tolerates EXACTLY ONE condition: zero published
+# releases. Every other assertion stays hard, including the ones that matter
+# most -- the moment a release IS published, it must carry an appcast.json and a
+# zip or this goes red. It also still FAILS on an unreachable API, because "I
+# could not ask" must never be reported as "the answer was fine".
+#
+# The flag is spelled at the CALL SITE, never defaulted on, so the tolerance is
+# visible in the workflow rather than buried here.
 set -uo pipefail
 
 REPO="${FORGE_REPO:-satvikOS/Forge}"
 EXPECT=""
+ALLOW_UNRELEASED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --expect-version) shift; EXPECT="${1:-}" ;;
     --repo) shift; REPO="${1:-}" ;;
+    --allow-unreleased) ALLOW_UNRELEASED=1 ;;
     *) echo "[release-visibility] unknown argument: $1"; exit 2 ;;
   esac
   shift
@@ -67,6 +92,19 @@ for r in json.load(sys.stdin):
 # ── the question that matters ────────────────────────────────────────────────
 LATEST="$(gh api "repos/$REPO/releases/latest" 2>/dev/null)" || LATEST=""
 if [ -z "$LATEST" ]; then
+  # The tolerated case, and ONLY this one: nothing has ever been published, so
+  # there is no installed copy for a 404 to strand. Note the asymmetry -- if a
+  # release IS published, every check below stays hard.
+  if [ "$ALLOW_UNRELEASED" -eq 1 ] && [ "$BAD" -eq 0 ]; then
+    say "PENDING — no PUBLISHED release exists yet, so there is nothing for an"
+    echo "        installed copy to find. This is the pre-first-release state and"
+    echo "        --allow-unreleased tolerates it. It is NOT a pass: the update"
+    echo "        path is unexercised against the live API until a tag is pushed"
+    echo "        and the resulting DRAFT release is published by a human."
+    echo "        The $TOTAL release(s) listed above are drafts and/or prereleases;"
+    echo "        GitHub's 'latest' skips both."
+    exit 0
+  fi
   fail "GET /releases/latest returned nothing — the updater's URL is a 404"
   echo "        Every release above is a draft or a prerelease. GitHub's 'latest'"
   echo "        skips both, so releases/latest/download/appcast.json does not"

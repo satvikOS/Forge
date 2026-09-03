@@ -68,12 +68,17 @@ Apple Developer ID certificate we have not bought yet. macOS trusts
 warning is not saying the download is damaged or suspect; it is saying Apple has
 not personally vouched for it, and the approval is you vouching instead.
 
-You approve **a copy of the app**, not the name. An app that updates itself in
-place never re-triggers the prompt, because nothing was re-downloaded through a
-browser. This native build does not have an in-app updater yet, so a new version
-you download and install by hand needs the same one-time approval. The whole
-step disappears for every build once a Developer ID certificate and
-notarization are in place.
+You approve **a copy of the app**, not the name — which is why this is a
+one-time cost rather than a per-release one. **Forge updates itself.** From this
+release on, the app checks for new versions in the background and
+**Help → Check for Updates…** offers to install one in place: it downloads the
+new build, verifies its SHA-256 against the release, and swaps the bundle
+atomically. Because that path never goes through a browser, macOS does not
+attach the quarantine flag and does not ask you to approve anything again. The
+approval below is for your FIRST install only.
+
+The whole step disappears even for that first install once a Developer ID
+certificate and notarization are in place.
 
 Full detail, including the exact commands and system strings this was checked
 against: [`docs/FIRST_LAUNCH_MACOS.md`](@@REPO_URL@@/blob/@@TAG@@/docs/FIRST_LAUNCH_MACOS.md)
@@ -84,3 +89,8 @@ against: [`docs/FIRST_LAUNCH_MACOS.md`](@@REPO_URL@@/blob/@@TAG@@/docs/FIRST_LAU
 - `Forge-macos-arm64-@@VERSION@@.dryrun.json` — the build's own measurement
   report: per-file OS floor, the bundled Mach-O inventory, and the Gatekeeper
   verdict
+- `appcast.json` — the update manifest. This is the file every already-installed
+  copy of Forge reads to discover this release and verify the download; it names
+  the version, the pinned payload URL, the size and the SHA-256. It is here for
+  the app, not for you, but it is readable and it is what the checksum above is
+  checked against.
