@@ -66,18 +66,43 @@ int main() {
   forge::uitest::Harness H("keymap_audit");
 
   // ── (a) THE GESTURE-BLOCKED LIST, PINNED ─────────────────────────────────
-  // Exactly two commands in the whole application registry cannot be run by a
-  // bare keystroke or menu click, and both are honest: a file path has no
-  // default ("" is not a document), and "the new value of this parameter" has
-  // none either — inventing one would let a menu click silently resize the part.
-  // Pinned by NAME, deliberately: a count would go on passing while the identity
-  // of the blocked command changed underneath it.
+  // Exactly six commands in the whole application registry cannot be run by a
+  // bare keystroke or menu click, and every one of them is honest: a file path
+  // has no default ("" is not a document), and "the new value of this parameter"
+  // has none either — inventing one would let a menu click silently resize the
+  // part. Pinned by NAME, deliberately: a count would go on passing while the
+  // identity of the blocked command changed underneath it.
+  //
+  // FOUR of the six arrived with file exchange (file.import_step / .import_brep,
+  // file.export_step / .export_brep) and they are blocked for the SAME reason
+  // file.open always has been: each takes a required `path` of type Text whose
+  // ParamSpec declares hasDefault=false, which the header defines as "a fillet
+  // radius has an honest default; a file path does not". There is no native file
+  // dialog in Forge yet, so a path parameter is the honest interim and being
+  // reported here is exactly the right outcome -- GestureBlocked is a FACT ABOUT
+  // A SCHEMA, not a defect in the keymap, and this gate exists to say so.
   {
     App app;
     const std::vector<std::string> blocked = gestureBlockedCommands(app.shell.registry());
-    CHECK_EQ_INT(blocked.size(), 2);
-    CHECK_EQ_STR(forge::uitest::at(blocked, 0), "file.open");
-    CHECK_EQ_STR(forge::uitest::at(blocked, 1), "part.edit_feature");
+    CHECK_EQ_INT(blocked.size(), 6);
+    CHECK_EQ_STR(forge::uitest::at(blocked, 0), "file.export_brep");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 1), "file.export_step");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 2), "file.import_brep");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 3), "file.import_step");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 4), "file.open");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 5), "part.edit_feature");
+    // And each of the four names its own unfillable parameter, so the list is
+    // not four ids that merely happen to sort into place.
+    for (const char* id : {"file.import_step", "file.import_brep", "file.export_step",
+                           "file.export_brep"}) {
+      const CommandDescriptor* d = app.shell.registry().find(id);
+      CHECK(d != nullptr);
+      if (d == nullptr) continue;
+      const std::vector<std::string> unfillable = unfillableParameters(*d);
+      CHECK_EQ_INT(unfillable.size(), 1);
+      CHECK_EQ_STR(forge::uitest::at(unfillable, 0), "path");
+      CHECK(!keyboardInvocable(*d));
+    }
 
     // And the reason is the PARAMETER, named — a list of ids with no cause is
     // not something a reader can act on.
@@ -145,7 +170,7 @@ int main() {
     // application registry really holds. This is the check that caught the
     // model.* -> part.* rename when the stubs were retired.
     CHECK_EQ_INT(rep.count(BindingIssueKind::UnknownCommand), 0);
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 2);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 6);
     // The shipped defaults bind the same 13 commands in all four profiles, so
     // there is no ProfileGap yet: a gap needs a command bound HERE and not
     // THERE. Unbound and ProfileGap are raised instead of each other, never
@@ -187,7 +212,7 @@ int main() {
     // complete() must NOT be cleared by GestureBlocked: that is a property of a
     // schema and no rebinding can fix it, so treating it as an incomplete map
     // would make the flag permanently unreachable.
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 2);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 6);
 
     // IDEMPOTENT. Running it again adds nothing and changes nothing — a startup
     // that calls it after registration AND after loadState must not double-bind.

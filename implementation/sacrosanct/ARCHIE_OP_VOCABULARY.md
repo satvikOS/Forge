@@ -46,10 +46,25 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **80 commands**; **57 of them emit
+Measured at this revision: the registry holds **84 commands**; **57 of them emit
 feature-IR**, reaching **53 distinct op names**. The kernel defines **56** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+The registry grew from 80 to 84 and the EMITTING count did not move, which is the
+whole point of the four that arrived: `file.import_step`, `file.import_brep`,
+`file.export_step` and `file.export_brep` open and save real CAD files and emit no
+feature-IR of their own. That is a deliberate refusal rather than an oversight.
+The app compiles the whole IR program on every document change, so an op that
+WROTE a file would rewrite it on every rebuild, and an op that READ one would make
+a saved document mean something different tomorrow. Neither property is one this
+IR has, and neither should be acquired by accident. Import is not a gap in the
+vocabulary either: `INPUT()` already binds an input file as a solid and
+`part.input_solid` already emits it -- what was missing was any way for the app to
+GIVE the compiler a file, so `part.input_solid` was registered, dispatchable, and
+could only ever fail with "INPUT() used but no input STEP was supplied to the
+compiler". Import binds the file and then runs that same command through this one
+registry, so the op the model was already allowed to write finally means something.
 
 The three are `SLOT`, `ARC` and `HELIX`. The seven 2D-sketch ops that stood here one
 revision ago -- `SKETCH`, `SPT`, `SLINE`, `SCIRC`, `SARC`, `CON`, `SOLVE` -- now

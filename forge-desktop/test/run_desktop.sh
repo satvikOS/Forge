@@ -159,6 +159,14 @@ run_gate() {
 # would not reject on its own.
 run_gate forge_desktop_ir_pipeline_gate
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
+# FILE EXCHANGE: open and save real CAD files through the shipping command path,
+# comparing a VECTOR of observables at the seam -- volume AND area AND centre of
+# mass AND bounding box AND the per-kind face census. The five mutations break the
+# WRITE on purpose and are chosen so that no single observable catches all of
+# them: 4 (the right solid in the wrong place) leaves volume, area and the census
+# bit-identical, and 5 (a cube of the same volume about the same centre) leaves
+# volume and the centre of mass identical. A gate checking volume alone passes both.
+run_gate forge_desktop_file_exchange_gate 1 2 3 4 5
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7

@@ -58,6 +58,7 @@
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 
+#include "FileExchangeHost.hpp"
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "PlatformSDL2.hpp"
@@ -609,6 +610,21 @@ int main(int argc, char** argv) {
     std::printf("[forge] running outside an .app bundle - auto-update check skipped\n");
   }
   const std::size_t partCommands = frame.wirePartCommands();
+
+  // ── FILE EXCHANGE: the app can open and save real CAD files ──────────────
+  // Installed AFTER wirePartCommands(), and the order is load-bearing: an Import
+  // binds the file and then states it in the document through `part.input_solid`,
+  // and ForgeShell refuses to offer the command at all until that one is in the
+  // registry (importAvailable). Wiring it earlier would leave the File menu
+  // showing an Open that the shell has already decided it cannot serve.
+  //
+  // It reads the document straight out of the frame, so what a Save writes is the
+  // program the viewport was built from, and it tells the scene which file the
+  // document's `INPUT()` binds so the next rebuild resolves it. Both outlive the
+  // loop below.
+  forge::desktop::FileExchangeHost fileExchange(frame.document(), &scene);
+  shell.setFileExchange(&fileExchange);
+
   std::printf("[forge] registry: %zu commands (%zu of them Part), %zu categories\n",
               shell.registry().size(), partCommands, shell.registry().categories().size());
 

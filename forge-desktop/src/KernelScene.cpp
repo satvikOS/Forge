@@ -103,6 +103,8 @@ bool KernelScene::build() {
   return buildFromIr(defaultPartIr());
 }
 
+void KernelScene::setInputFile(std::string path) { inputFile_ = std::move(path); }
+
 void KernelScene::setDocumentLabel(std::string label) {
   documentLabel_ = label.empty() ? std::string("untitled.fpart") : std::move(label);
 }
@@ -165,7 +167,9 @@ bool KernelScene::buildInProcess(const std::string& program) {
     // Each independent body gets its own boolean budget window; see
     // Booleans.hpp for why sharing one across a batch is a measured bug.
     forge::resetBooleanBudget();
-    res = forge::ft::compile(tree);
+    // The second argument backs `INPUT()`. It is "" for every document that
+    // has not opened a file, which is exactly the call this used to make.
+    res = forge::ft::compile(tree, inputFile_);
   } catch (const std::exception& e) {
     report_.error = std::string("compile threw: ") + e.what();
     error_ = report_.error;
@@ -336,7 +340,14 @@ bool KernelScene::buildIsolated(const std::string& program, bool& fellBack) {
   }
 
   const std::uint64_t startMs = forge::ui::steadyNowMs();
-  if (!session_.submit("rebuild", program, startMs)) {
+  // The worker compiles in ITS OWN process, so it needs the input file too --
+  // otherwise a document holding `INPUT()` builds in-process and fails under
+  // isolation, which is the worst kind of difference: one that only appears in
+  // the shipped configuration. Prepended only when a file is bound.
+  const std::string payload =
+      inputFile_.empty() ? program
+                         : (std::string(kWorkerInputPragma) + inputFile_ + "\n" + program);
+  if (!session_.submit("rebuild", payload, startMs)) {
     fellBack = true;
     return false;
   }

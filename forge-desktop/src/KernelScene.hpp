@@ -54,6 +54,21 @@ namespace forge::desktop {
 // places is a protocol that drifts.
 inline constexpr const char* kWorkerResultMagic = "FORGE-WORKER-RESULT 1";
 
+// ── the file `INPUT()` binds, across the worker boundary ────────────────────
+// `forge::ft::compile` takes the input file as a COMPILE PARAMETER, not as an op
+// argument: `INPUT()` has arity 0..0 and reads Builder::inputStep. The parent
+// therefore has to tell the worker which file the program's INPUT() means, and
+// the worker reads one thing -- the program on stdin. So the path travels as a
+// first-line pragma, exactly as the self-test pragmas already do, and for the
+// same reason they can: `#` starts a comment in the IR grammar
+// (FeatureTreeCompiler strips '#' and '//'), so nothing forge::ui can emit
+// collides with it, and a worker that failed to strip the line would still parse
+// the program correctly rather than mis-compile it.
+//
+// It is prepended ONLY when a file is bound, so every existing gate submits a
+// byte-identical payload to the one it submitted before.
+inline constexpr const char* kWorkerInputPragma = "#!forge-worker-input ";
+
 // One de-indexed vertex, matching shaders/viewport_solid.vert exactly.
 struct SceneVertex {
   float px = 0.0f, py = 0.0f, pz = 0.0f;
@@ -192,6 +207,22 @@ class KernelScene {
 
   const IrBuildReport& lastBuild() const noexcept { return report_; }
 
+  // ── THE FILE `INPUT()` BINDS ────────────────────────────────────────────
+  //
+  // THE GAP THIS CLOSES, MEASURED. `part.input_solid` has been in the registry
+  // and dispatchable, and it emits `INPUT()`. Nothing in the application ever
+  // gave the compiler an input file: KernelScene called
+  // `forge::ft::compile(tree)` with the default empty path, and opInput's first
+  // line is `if (inputStep.empty()) throw OpError(op.id, "INPUT() used but no
+  // input STEP was supplied to the compiler")`. So the one op every editing
+  // benchmark starts from was a command that could only ever fail, and the
+  // failure it produced was a developer sentence in the user's status strip.
+  //
+  // Setting this does NOT rebuild: it is a parameter of the NEXT build, and the
+  // caller that binds a file is about to change the document anyway.
+  void setInputFile(std::string path);
+  const std::string& inputFile() const noexcept { return inputFile_; }
+
   // The tree's ROOT row. It used to be the string literal "Bracket.fpart", which
   // named a file that did not exist and could not change; it is now the open
   // document's name, so opening a file is visible in the tree.
@@ -259,6 +290,8 @@ class KernelScene {
   Bounds bounds_;
   std::uint32_t faceCount_ = 0;
   std::string documentLabel_ = "untitled.fpart";
+  // "" means no file is bound, which is what every build before this one had.
+  std::string inputFile_;
 
   // The isolation. Idle and inert until useIsolatedWorker() is called, which is
   // what keeps every existing headless gate on the in-process path it was written
