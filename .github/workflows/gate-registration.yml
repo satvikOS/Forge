@@ -1,0 +1,84 @@
+name: Gate registration
+
+# IS EVERY forge-desktop GATE ACTUALLY WIRED IN?
+#
+# WHAT THIS DOES **NOT** CLAIM. It does not compile forge-desktop and it does not
+# run a single gate. The `desktop` job in kernel-tests.yml already does both, on
+# every pull request, and it was MEASURED doing so: run 33694445319, job
+# 100460336054, step 8 "Compile forge-desktop" success in 30 s, step 9 "gates +
+# mutation proofs" success in 159 s, ending "[ci-desktop] GREEN — verdict
+# confirmed: [desktop] ALL FORGE DESKTOP GATES PASS, and all 41 mutations proved
+# red-then-green". Anyone who believes forge-desktop is uncompiled in CI should
+# read that job before writing another one.
+#
+# THE SEAM THIS DOES CLOSE, and it is narrow on purpose. run_desktop.sh chooses
+# what to execute from a HARDCODED list of `run_gate <target> <mutations...>`
+# lines. forge-desktop/CMakeLists.txt chooses what to BUILD. Nothing compared
+# the two. The gap between them is asymmetric, and only one half was already
+# covered — measured, both directions, before this workflow was written:
+#
+#   REMOVING an existing gate's run_gate line  -> TOTAL_MUTATIONS falls 40 -> 32,
+#       which no longer equals the EXPECTED_MUTATIONS=40 that ci_desktop_gate.sh
+#       pins, so that job already goes red. ALREADY COVERED; this adds nothing.
+#
+#   ADDING a new gate target and forgetting its run_gate line -> TOTAL_MUTATIONS
+#       stays 40, the pin still matches, ci_desktop_gate.sh stays GREEN, and
+#       run_syntax_gate.sh is satisfied the moment the new .cpp is added to its
+#       CHECKED array — where it is only -fsyntax-only'd, never run. NOTHING in
+#       the repository caught this. That is the case this workflow exists for.
+#
+# It is the live shape, not a hypothetical: a gate written to keep developer
+# prose out of a panel can be compiled, syntax-checked, committed, and never
+# executed once, with every check green.
+#
+# ui/test needs no equivalent: run_ui.sh:60 is `TESTS=(ui/test/*_test.cpp)`, a
+# glob, so a new test there is picked up by construction. forge-desktop/test is
+# the one gate directory enumerated by hand, so it is the one directory checked.
+#
+# A SEPARATE FILE, not a job added to kernel-tests.yml, for two reasons: it
+# shares no dependency, runner or cache with anything there, and a new file
+# cannot conflict with the several branches editing that workflow concurrently.
+#
+# COST. MEASURED locally over three runs: the check 0.22 s, its self-test 1.44 s.
+# On a GitHub ubuntu runner the billable cost is dominated by job setup and
+# checkout, ~15-25 s wall, at the 1x ubuntu multiplier — roughly a third of one
+# runner-minute per pull request, against the macOS `desktop` job's ~5 minutes at
+# 10x. An unaffordable gate gets disabled, so this one was kept to text
+# processing: bash, grep, sed, awk, sort, comm. No compiler, no SDK, no network.
+
+on:
+  push:
+    branches: [archdisc]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate_registration:
+    name: every forge-desktop gate is executed, not merely built
+    runs-on: ubuntu-latest
+    # Against a measured 1.7 s of actual work. The ceiling is here to kill a
+    # hang, not to express a budget.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove the registration check itself can fail (9 cases, ~1.4 s)
+        # FIRST, before the check whose result we intend to believe. This drives
+        # gate_registration_check.sh's eight documented red paths against stub
+        # trees in a temp directory -- an orphaned target, a phantom target, an
+        # add_executable naming a variable, a run_gate hidden inside a
+        # conditional, an unaccounted gate source, a missing ad-hoc runner, an
+        # ad-hoc runner named only in a YAML comment, and an absent
+        # run_desktop.sh -- plus one GREEN control, without which this suite
+        # would pass just as well against a check that always exits 1.
+        run: bash forge-desktop/test/gate_registration_selftest.sh
+
+      - name: Every gate CMake builds is a gate run_desktop.sh runs
+        run: bash forge-desktop/test/gate_registration_check.sh
