@@ -1918,9 +1918,44 @@ TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
     // V = area(section) * (length of the centroid's transported path). Derived
     // next to sweepPolygonProfile; independent of OCCT, and tight enough that a
     // mis-trimmed leg, a dropped fuse operand or an inverted operand cannot pass.
+    //
+    // ★ THE VOLUME IS MEASURED WITH OCCT'S ADAPTIVE OVERLOAD, AND THAT IS
+    // LOAD-BEARING, NOT FASTIDIOUS. BRepGProp's DEFAULT VolumeProperties is
+    // FIXED-ORDER quadrature — BRepGProp.hxx documents the `Eps` overloads, and
+    // only those, as "Adaptive 2D Gauss integration" — so on a section bounded by
+    // B-splines its error can exceed the tolerance this oracle then tests against.
+    // MEASURED on the 600-part corpus (FORGE_GEN_ORACLE_REPORT=1, n = 49 sections
+    // that reach this line, this machine, HEAD 75d612c8):
+    //     |vol_adaptive - vol_fixed| / vol   p50 2.2e-9   p90 2.6e-8   max 1.31e-6
+    // The max is part ho1190, an 8-edge all-B-spline outline, and it is 45x the
+    // next-largest disagreement (2.9e-8). TWO INTEGRATORS MEASURING THE SAME SOLID
+    // DISAGREEING BY 1.31e-6 IS A LOWER BOUND ON THE ERROR OF AT LEAST ONE OF
+    // THEM, and it is larger than the 1e-6 acceptance below. The old gate was
+    // therefore comparing a number to a tolerance BELOW ITS OWN MEASUREMENT NOISE
+    // and rejected ho1190 (rel 1.60e-6) for the integrator's error, not the
+    // engine's; measured accurately the same solid sits at 2.94e-7.
+    //
+    // THE SECTION AREA IS NOT THE PROBLEM and is deliberately left on the default
+    // overload: fixed-order and adaptive areas were measured to agree to 2.5e-15
+    // (max over the same 49), three decades better than needed. Changing what is
+    // already right buys risk and no accuracy.
+    //
+    // ★ AND THE ORACLE NOW CHECKS ITS OWN INSTRUMENT. The adaptive overload
+    // RETURNS the relative error it achieved. If it cannot get two decades below
+    // the acceptance tolerance, this engine does not know whether it built the
+    // right solid, and says so instead of guessing. That is the opposite of
+    // widening a tolerance: the tolerance below is UNCHANGED at 1e-6, and this
+    // adds a way to FAIL that did not exist before. On the corpus the achieved
+    // error is p50 4.4e-14 / max 9.9e-12, so this guard has NOT been observed to
+    // fire — it is a bound on a future pathological section, not a live filter.
+    static const double kOracleEps       = 1.0e-11;   // requested
+    static const double kOracleMaxAchErr = 1.0e-8;    // 100x below the 1e-6 accept
     GProp_GProps vp;
-    try { BRepGProp::VolumeProperties(out, vp); }
+    double achErr = -1.0;
+    try { achErr = BRepGProp::VolumeProperties(out, vp, kOracleEps); }
     catch (const Standard_Failure&) { FK_DEFER("gen_out_volume_threw"); }
+    if (!(achErr >= 0.0) || achErr > kOracleMaxAchErr)
+        FK_DEFER("gen_oracle_integration_unreliable");
     const double actual = std::fabs(vp.Mass());
     const double expected = area * pathLen;
     if (!(expected > 0.0)) FK_DEFER("gen_zero_expected");
@@ -1942,9 +1977,34 @@ TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
     // 8-edge all-B-spline outline) lands at 1.46e-6 and is declined. That is a
     // close call and it is left as a decline rather than tuned away: a tolerance
     // widened until the last part fits is not a tolerance.
-    if (std::getenv("FORGE_GEN_ORACLE_REPORT") != nullptr)
-        std::fprintf(stderr, "gen_oracle rel=%.6g actual=%.12g expected=%.12g\n",
-                     rel, actual, expected);
+    //
+    // ★ UPDATE 2026-09-02 — THAT PARAGRAPH IS KEPT BECAUSE ITS RULE STILL HOLDS,
+    // AND ho1190 IS NO LONGER DECLINED. The tolerance was NOT widened; it is
+    // still 1e-6. What changed is the INSTRUMENT: the `actual` side of the
+    // comparison was being read off BRepGProp's FIXED-ORDER quadrature, whose
+    // disagreement with OCCT's own ADAPTIVE integrator on that one part is
+    // 1.31e-6 — larger than the tolerance being tested. See the oracle block
+    // below for the measurement. ho1190's 1.46e-6 (1.60e-6 at HEAD 75d612c8) was
+    // therefore never a statement about the geometry; measured adaptively the
+    // same solid reads 2.94e-7. The distribution quoted just above was collected
+    // with the fixed-order integrator and is left as the historical record; the
+    // adaptive distribution over the same corpus is p50 1.4e-9 / max 2.94e-7.
+    // FORGE_GEN_ORACLE_REPORT prints the ratio for every build, accepted or
+    // rejected, so the numbers in the block above can be RE-DERIVED rather than
+    // re-argued — including the fixed-order integrator this oracle no longer
+    // reads, so the disagreement that motivated the change stays measurable.
+    if (std::getenv("FORGE_GEN_ORACLE_REPORT") != nullptr) {
+        GProp_GProps vfix;
+        double volFix = -1.0;
+        try { BRepGProp::VolumeProperties(out, vfix); volFix = std::fabs(vfix.Mass()); }
+        catch (const Standard_Failure&) { volFix = -1.0; }
+        std::fprintf(stderr,
+            "gen_oracle rel=%.6g actual=%.12g expected=%.12g achErr=%.3g "
+            "volFixed=%.12g relFixed=%.6g integratorDelta=%.6g\n",
+            rel, actual, expected, achErr, volFix,
+            (volFix > 0.0 ? std::fabs(volFix - expected) / expected : -1.0),
+            (volFix > 0.0 ? std::fabs(volFix - actual) / actual : -1.0));
+    }
     if (rel > 1.0e-6) FK_DEFER("gen_volume_oracle");
 
     // ★ THE RESULT MUST BE A VALID SOLID, and the volume oracle above CANNOT
