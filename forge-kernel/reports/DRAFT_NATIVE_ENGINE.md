@@ -783,6 +783,34 @@ rewritten, exactly as the OFFSETSHAPE row was.
 * **Solve 3 is unreached**, on every fixture and on all 565 parts.
 * **The closure did not move and could not have.** 14 before, 14 after.
 
+### 6b. THE FLAG WAS ACTUALLY FLIPPED, AND THE LEDGER STILL DID NOT MOVE
+
+A coverage gate that passes is a claim about what a build WOULD do. This one was
+built. `cmake -DFORGE_DRAFT_DROP_NATIVE=ON`, full Release build of the `.node`
+from the committed tree:
+
+```
+compiles and links clean; configure prints
+  "TKOffset KEPT on the link line - still called by: FORGE_OFFSET_DROP_MAKEOFFSET;
+   FORGE_FILLING_DROP_NATIVE;FORGE_THRUSECTIONS_DROP_NATIVE;FORGE_PIPE_DROP_NATIVE;
+   FORGE_PIPESHELL_DROP_NATIVE;FORGE_THICKSOLID_DROP_NATIVE;
+   FORGE_OFFSETSHAPE_DROP_NATIVE;FORGE_THICKEN_DROP_NATIVE"     <- J is gone from this list
+
+                     default build     FORGE_DRAFT_DROP_NATIVE=ON
+  OCCT_DIRECT              9                    9
+  OCCT_CLOSURE            14                   14      <- UNMOVED
+  OCCT_PHANTOM             2                    2
+  TKOffset symbols        42                   36      <- the six family-J symbols
+```
+
+ft_smoke ALL PASS, ft_unified_edit 20 passed, directedit 9/9, ft_organic_smoke
+ALL PASS — **against the drop build**, not the default one.
+
+**Six of forty-two symbols, and zero of fourteen libraries.** That is the whole
+shape of the TKOffset problem stated as a measurement rather than an argument:
+family J is now genuinely droppable and dropping it buys nothing on its own,
+because eight families still hold the toolkit on the link line.
+
 ### 7. Reproduced from a CLEAN, COMMITTED tree
 
 The headline run above was taken from a dirty worktree (2 modified files under
