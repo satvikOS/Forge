@@ -10,9 +10,12 @@
 # WHAT IT WILL NOT DO. This is checkable rather than promised — below the
 # header, this file contains no invocation of git, of gh, or of any network
 # client. It creates no tag, touches no release, and uploads nothing.
-# Publishing lives ONLY in the tag-gated step of desktop-release.yml, which is
-# additionally gated on the event being a push, so a manual dispatch cannot
-# reach it at all.
+# Publishing lives ONLY in the publish steps of desktop-release.yml -- one for a
+# push to archdisc and one for a pushed tag -- and BOTH are additionally gated on
+# the event being a push, so a manual dispatch cannot reach either of them at
+# all. That is what keeps a dry run safe by construction rather than by
+# convention, and it is unchanged by archdisc pushes having become a publishing
+# trigger on 2026-09-03.
 #
 # WHAT IT REPORTS, because these are the two things that decide whether the
 # artifact is fit to ship:
