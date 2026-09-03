@@ -46,6 +46,9 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_ListIteratorOfListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
+#include <map>
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -251,6 +254,30 @@ TopoDS_Shape boxWithThroughHole(double lx, double ly, double lz,
         BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(cx, cy, -1.0), gp_Dir(0, 0, 1)),
                                  r, lz + 2.0).Shape();
     return BRepAlgoAPI_Cut(box, cyl).Shape();
+}
+
+// The BRepCheck status MULTISET, as a comparable string. "Invalid" is a verdict;
+// two solids that are invalid for DIFFERENT reasons are not the same answer, and
+// only the multiset can say so.
+std::string checkStatuses(const TopoDS_Shape& s) {
+    if (s.IsNull()) return "null";
+    BRepCheck_Analyzer an(s);
+    if (an.IsValid()) return "VALID";
+    std::map<std::string, int> t;
+    static const TopAbs_ShapeEnum kinds[] = {TopAbs_VERTEX, TopAbs_EDGE, TopAbs_WIRE,
+                                             TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID};
+    static const char* kn[] = {"V", "E", "W", "F", "SH", "SO"};
+    for (int k = 0; k < 6; ++k)
+        for (TopExp_Explorer ex(s, kinds[k]); ex.More(); ex.Next()) {
+            const Handle(BRepCheck_Result) r = an.Result(ex.Current());
+            if (r.IsNull()) continue;
+            for (BRepCheck_ListIteratorOfListOfStatus it(r->Status()); it.More(); it.Next())
+                if (it.Value() != BRepCheck_NoError)
+                    t[std::string(kn[k]) + ":" + std::to_string(static_cast<int>(it.Value()))] += 1;
+        }
+    std::string o;
+    for (const auto& kv : t) { if (!o.empty()) o += " "; o += kv.first + "x" + std::to_string(kv.second); }
+    return o.empty() ? "invalid-unnamed" : o;
 }
 
 // ------------------------------------------------------------------ the cases
@@ -665,6 +692,155 @@ void runAll() {
         ok(!f.First().IsNull(), "case(f) : the +X wall was found");
         abCase("case(f) drafted wall with a bore wholly inside it", part, f, zUp,
                5.0 * kPi / 180.0, nz0);
+    }
+
+    // ================================================================= case (g)
+    // ★ THE CROSSING CARRY, WITH ITS THRESHOLD. A drafted wall's own boundary
+    // walks INWARD as the angle grows. Far enough in it reaches an island the
+    // neighbouring face already carried, and that face's 2-D wires genuinely
+    // overlap: the answer is a solid BRepCheck rejects, and no engine that moves
+    // geometry while keeping topology can produce anything else. OCCT's
+    // BRepOffsetAPI_DraftAngle does exactly the same thing.
+    //
+    // The engine therefore CARRIES that one class of invalidity and declines
+    // every other, and this case holds all four halves of that claim:
+    //   (g1) below the threshold  -> both engines VALID, and nothing is carried;
+    //   (g2) above it             -> both engines invalid, the SAME status
+    //                                multiset, the same solid on the full
+    //                                observable vector, and exactly one carry;
+    //   (g3) the two engines' validity THRESHOLDS are the same angle, which is
+    //        what makes the crossing a property of the requested draft rather
+    //        than of either construction -- the fixture form of the corpus
+    //        measurement over 52 parts (52 distinct thresholds, max native/OCCT
+    //        difference 0.0 deg at 6.1e-5 deg resolution);
+    //   (g4) FORGE_DRAFT_LOCAL_STRICT_VALIDITY=1 puts the old blanket gate back
+    //        and the SAME input then declines, so the carry is one switch away
+    //        from being disproved and cannot be confused with a silent pass.
+    //
+    // Geometry: a 40 x 40 x 10 plate with a 3 mm through-bore whose outer edge is
+    // 1 mm from the +X wall. Drafting that wall moves the top face's boundary in
+    // by H*tan(alpha), so the crossing begins at alpha = atan(1/10) = 5.71 deg.
+    {
+        const double L = 40.0, H = 10.0, r = 3.0, clear = 1.0;
+        const TopoDS_Shape part =
+            boxWithThroughHole(L, L, H, L - clear - r, 0.5 * L, r);
+        TopTools_ListOfShape f;
+        f.Append(faceTowards(part, gp_Dir(1, 0, 0)));
+        ok(!f.First().IsNull(), "case(g) : the +X wall was found");
+
+        // (g1) BELOW the threshold: an ordinary draft, and NOTHING carried.
+        abCase("case(g1) below the crossing threshold (2deg)", part, f, zUp,
+               2.0 * kPi / 180.0, nz0);
+        {
+            const TopoDS_Shape nat = forge::occtdraftlocal::draftFacesLocal(
+                part, f, zUp, 2.0 * kPi / 180.0, nz0);
+            ok(!nat.IsNull() && forge::occtdraftlocal::draftLocalLastStats().crossingsCarried == 0,
+               "case(g1) : nothing was carried below the threshold");
+        }
+
+        // (g2) ABOVE it: the same solid OCCT builds, invalid the same way.
+        const double big = 15.0 * kPi / 180.0;
+        TopoDS_Shape occt;
+        const bool occtOk = occtDraft(part, f, zUp, big, nz0, occt);
+        ok(occtOk, "case(g2) : OCCT built the reference");
+        const TopoDS_Shape nat =
+            forge::occtdraftlocal::draftFacesLocal(part, f, zUp, big, nz0);
+        const int carried = forge::occtdraftlocal::draftLocalLastStats().crossingsCarried;
+        if (nat.IsNull())
+            std::printf("  [defer] case(g2) : %s\n",
+                        forge::occtdraftlocal::draftLocalLastDeferReason());
+        ok(!nat.IsNull(), "case(g2) : native returned the crossing solid");
+        if (occtOk && !nat.IsNull()) {
+            const Obs a = observe(nat), b = observe(occt);
+            ok(!a.valid, "case(g2) : the native answer really is BRepCheck-invalid");
+            ok(!b.valid, "case(g2) : OCCT's answer is invalid too, on the same input");
+            const std::string sa = checkStatuses(nat), sb = checkStatuses(occt);
+            ok(sa == sb, "case(g2) : IDENTICAL BRepCheck status multiset (native '" +
+                         sa + "' vs OCCT '" + sb + "')");
+            ok(sa.find("18") != std::string::npos || sa.find("22") != std::string::npos,
+               "case(g2) : and the complaint is a 2-D CROSSING (18/22), got '" + sa + "'");
+            ok(carried == 1, "case(g2) : exactly one crossing was carried, and counted");
+            compareSolids(a, b, "case(g2) crossing solid", 1.0e-7, /*report*/ true);
+        }
+
+        // (g3) the THRESHOLD is the same angle for both engines.
+        {
+            auto natValid = [&](double deg) {
+                const TopoDS_Shape s2 = forge::occtdraftlocal::draftFacesLocal(
+                    part, f, zUp, deg * kPi / 180.0, nz0);
+                if (s2.IsNull()) return false;
+                return BRepCheck_Analyzer(s2).IsValid() == Standard_True;
+            };
+            auto occtValid = [&](double deg) {
+                TopoDS_Shape s2;
+                if (!occtDraft(part, f, zUp, deg * kPi / 180.0, nz0, s2)) return false;
+                return BRepCheck_Analyzer(s2).IsValid() == Standard_True;
+            };
+            auto bisect = [&](bool (*ignored)(double), auto&& fn) {
+                (void)ignored;
+                double lo = 0.5, hi = 20.0;
+                if (!fn(lo) || fn(hi)) return -1.0;
+                for (int i = 0; i < 16; ++i) {
+                    const double m = 0.5 * (lo + hi);
+                    if (fn(m)) lo = m; else hi = m;
+                }
+                return 0.5 * (lo + hi);
+            };
+            const double tn = bisect(nullptr, natValid);
+            const double to = bisect(nullptr, occtValid);
+            ok(tn > 0.0 && to > 0.0, "case(g3) : both engines have a validity threshold");
+            ok(tn > 0.0 && to > 0.0 && std::fabs(tn - to) <= 1.0e-3,
+               "case(g3) : the two thresholds are the SAME angle (native " +
+                   std::to_string(tn) + " deg, OCCT " + std::to_string(to) + " deg)");
+            // and it is where the arithmetic says: atan(clear / H).
+            const double predicted = std::atan(clear / H) * 180.0 / kPi;
+            ok(tn > 0.0 && std::fabs(tn - predicted) <= 0.05,
+               "case(g3) : and it is atan(clearance/height) = " +
+                   std::to_string(predicted) + " deg, measured " + std::to_string(tn));
+        }
+
+        // (g4) the OLD blanket gate, one environment variable away.
+        {
+            setenv("FORGE_DRAFT_LOCAL_STRICT_VALIDITY", "1", 1);
+            const TopoDS_Shape strict =
+                forge::occtdraftlocal::draftFacesLocal(part, f, zUp, big, nz0);
+            const std::string why = forge::occtdraftlocal::draftLocalLastDeferReason();
+            unsetenv("FORGE_DRAFT_LOCAL_STRICT_VALIDITY");
+            ok(strict.IsNull(), "case(g4) : STRICT_VALIDITY=1 declines the same input");
+            ok(why.find("not BRepCheck-valid") != std::string::npos,
+               "case(g4) : and names the blanket gate (got '" + why + "')");
+        }
+    }
+
+    // ================================================================= case (h)
+    // ★ THE PCURVE'S BOUND IS THE TOLERANCE IT LIVES UNDER, NOT THE MODEL'S SIZE.
+    // The fitted pcurve on a cylinder used to be graded against 1e-7 * the
+    // model's own extent. That is the right yardstick for a residual on a solved
+    // point and the wrong one for a pcurve: it scales with the part while the
+    // tolerance stamped on the face does not, so on a LARGE part the pcurve is
+    // allowed to miss by far more than BRepTopAdaptor_FClass2d will accept when
+    // it closes the face's 2-D wire, and BRepCheck_Face then reports the whole
+    // face UnorientableShape with no edge, wire or curve of it individually
+    // wrong. MEASURED on 19 of the 565 corpus parts, every one of which OCCT
+    // drafts to a VALID solid.
+    //
+    // Case (f) is the same topology at L = 20, where the two bounds differ by
+    // only 20x and the defect does not appear. This case is (f) at L = 2000,
+    // where they differ by 2000x, so the bound is the thing under test rather
+    // than a scale nothing exercises. Mutation 14 puts the model-extent bound
+    // back and this case is what turns red.
+    {
+        const double L = 2000.0, H = 1000.0;
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(L, L, H).Shape();
+        const TopoDS_Shape bore =
+            BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(-100.0, 0.5 * L, 0.5 * H), gp_Dir(1, 0, 0)),
+                                     300.0, L + 200.0).Shape();
+        const TopoDS_Shape part = BRepAlgoAPI_Cut(box, bore).Shape();
+        TopTools_ListOfShape f;
+        f.Append(faceTowards(part, gp_Dir(1, 0, 0)));
+        ok(!f.First().IsNull(), "case(h) : the +X wall was found");
+        abCase("case(h) L=2000 wall with a bore wholly inside it", part, f, zUp,
+               5.0 * kPi / 180.0, nz0, 1.0e-6);
     }
 }
 

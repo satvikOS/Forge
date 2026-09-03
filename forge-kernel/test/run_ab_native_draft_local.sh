@@ -240,7 +240,7 @@ mutate 8 "anchor root displaced" \
 #    Closed2d = NotClosed, the solid rejected. That defect is why case(e) was a
 #    defer control for as long as it was, so it gets a mutant of its own.
 mutate 9 "cylinder pcurve put back on the default 2*pi branch" \
-  's/radius, resTol, uNear);/radius, resTol, 0.0);/'
+  's/radius, pcTol, uNear);/radius, pcTol, 0.0);/'
 
 # 10. THE CLOSED RIM'S SPAN. A bore lying wholly inside the drafted wall meets it
 #     in ONE closed edge, so both endpoints project to the same parameter and the
@@ -261,6 +261,44 @@ mutate 11 "closed rim not reversed to match the old edge's sense" \
 #     from the seam edges it must meet.
 mutate 12 "branch anchored on the old pcurve midpoint instead of its start" \
   's/uNear = oldPc->Value(oa).X();/uNear = oldPc->Value(0.5 * (oa + ob)).X();/'
+
+# 13. THE CHECK CLASSIFIER. The engine returns a solid whose ONLY BRepCheck
+#     complaint is a 2-D CROSSING and declines every other status. Deleting that
+#     distinction ON ITS OWN is UNFALSIFIABLE -- no fixture here produces a
+#     non-crossing invalidity, so nothing changes (the harness's own lesson from
+#     its first four mutants). This mutant therefore MANUFACTURES one: it
+#     re-injects mutation 9's 2*pi branch defect, which leaves every edge
+#     individually perfect and the face's 2-D wire NotClosed, and then removes
+#     ALL FOUR conditions the carry is gated on.
+#
+#     ALL FOUR, and that is the point. Removing them one at a time was measured
+#     and each time the engine STILL DECLINED, on the next condition down:
+#       - drop `chk.constructionDefect` -> stopped by `!cylFits.empty()`
+#         (case(e) fits a pcurve, and an approximation may not carry a crossing);
+#       - drop that too              -> stopped by `!chk.sawCrossing`
+#         (a NotClosed wire is not a crossing, so there is nothing to carry).
+#     The guard is layered, so a mutant that lifts one layer proves nothing about
+#     the others. With all four gone the wrong solid finally escapes and the A/B
+#     fails on validity AND on volume, area and all three centre-of-mass
+#     components -- 6 assertions, not one. That is the difference between testing
+#     the boolean and testing the classification.
+mutate 13 "2*pi branch defect AND every condition on the crossing carry removed" \
+  's/radius, pcTol, uNear);/radius, pcTol, 0.0);/' \
+  's/        if (chk.constructionDefect)/        if (false)/' \
+  's/        if (!cylFits.empty())/        if (false)/' \
+  's/        if (!chk.sawCrossing)/        if (false)/'
+
+# 14. THE PCURVE BOUND. Put it back to resTol -- 1e-7 times the MODEL EXTENT --
+#     instead of the tolerance of the face and edge the pcurve is attached to. On
+#     a 20 mm fixture the two differ by 20x and nothing moves; case(h) is the same
+#     topology at L = 2000, where they differ by 2000x, and the fitted pcurve then
+#     misses the face's 2-D wire closure by more than FClass2d accepts. That is
+#     the defect measured on 19 corpus parts, and this is the fixture that makes
+#     it reachable in the harness. A mutant of a bound needs a case whose SCALE
+#     exercises it; without case(h) this one stays green and proves nothing.
+mutate 14 "pcurve graded against the model extent instead of its own tolerance" \
+  's/const double pcTol = std::min(/const double pcTol = resTol; const double pcTolUnused = std::min(/' \
+  's/^                                     BRep_Tool::Tolerance(TopoDS::Edge(oldE))));/                                     BRep_Tool::Tolerance(TopoDS::Edge(oldE)))); (void)pcTolUnused;/'
 
 echo "[ab-draft-local] $MUT_TOTAL mutation(s) run, $MUT_BAD stayed green"
 if [ "$MUT_BAD" -ne 0 ]; then

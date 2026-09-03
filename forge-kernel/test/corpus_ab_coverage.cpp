@@ -166,6 +166,7 @@
 #include <BRepOffsetAPI_MakeOffset.hxx>          // MAKEOFFSET   (family A)
 #include <BRepOffsetAPI_MakeFilling.hxx>         // FILLING      (family B/C)
 #include <BRepOffsetAPI_DraftAngle.hxx>          // DRAFT        (family J)
+#include "forge/native/brep/NativeDraftLocal.hpp"   // DRAFT, the SECOND native engine
 #include <BRepOffsetAPI_ThruSections.hxx>        // THRUSECTIONS (family D)
 #include <BRepOffsetAPI_MakePipe.hxx>            // PIPE         (family E)
 #include <BRepBuilderAPI_TransitionMode.hxx>     // PIPESHELL_RC (family F, mitre)
@@ -1523,8 +1524,23 @@ int main(int argc, char** argv) {
     }
 
     // ═══════════════════════════════════════════ DRAFT (TKOffset family J)
-    // native  occtdraft::draftFaces(src, faces, pull, ang, plane)  Features.cpp:2171
-    // occt    DraftAngle(src); Add/AddDone/Remove; Build           Features.cpp:2177
+    // native  occtdraft::draftFaces      THEN occtdraftlocal::draftFacesLocal
+    //                                                  Features.cpp:2275 and :2285
+    // occt    DraftAngle(src); Add/AddDone/Remove; Build           Features.cpp:2291
+    //
+    // ★ THE NATIVE ARM WAS MEASURING ONLY THE FIRST OF TWO ENGINES, AND THAT IS
+    // WHY THIS ROW READ 0.0 %. Features.cpp runs a CHAIN: the plane-arrangement
+    // engine answers first and is exact on a polyhedron, and whatever it declines
+    // falls through to the general local-rebuild engine at :2285; only when BOTH
+    // decline does the OCCT fallback at :2291 run. Under the drop option those two
+    // native engines are the whole of what remains, so the deletion bucket this
+    // row exists to report is "OCCT built and NEITHER native engine did".
+    // Calling just the first one measured an arm the call site does not have, and
+    // no amount of work on the second engine could ever move the number. The
+    // harness's own rule (CORPUS_AB_COVERAGE.md section 2.1) is that each arm is
+    // the exact call the call site makes; this restores that for family J. It is
+    // a correction of the INSTRUMENT, and it moves a published number, so the
+    // superseded row is left in CMakeLists.txt with a note rather than rewritten.
     if (wanted(cfg, "DRAFT")) {
         if (pk.sideWall.IsNull()) emit("DRAFT", false, "no_planar_side_wall", none, none, "");
         else {
@@ -1536,7 +1552,10 @@ int main(int argc, char** argv) {
             const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                 TopTools_ListOfShape faces;
                 faces.Append(f);
-                return forge::occtdraft::draftFaces(src, faces, pull, ang, neutral, 1.0e-6);
+                const TopoDS_Shape a =
+                    forge::occtdraft::draftFaces(src, faces, pull, ang, neutral, 1.0e-6);
+                if (!a.IsNull()) return a;
+                return forge::occtdraftlocal::draftFacesLocal(src, faces, pull, ang, neutral);
             }, true, T, NF);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                 BRepOffsetAPI_DraftAngle mk(src);

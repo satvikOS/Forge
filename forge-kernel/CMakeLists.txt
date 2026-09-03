@@ -259,6 +259,36 @@ set(OCCT_LIBS
 #   but the failure is by a margin this corpus cannot resolve, and anyone quoting
 #   p=3.1e-6 for this family is quoting a superseded measurement.
 #
+# ★ THE DRAFT ROW IS STALE TOO, AND IT IS STALE IN TWO DIFFERENT WAYS. Left as
+#   written because it is the f71ed98b historical fact; re-measured 2026-09-03 at
+#   f53deeae + this branch over the SAME 600 gold parts, same derivation:
+#       FORGE_DRAFT_DROP_NATIVE   native 497/565 = 88.0%   OCCT 497/565 = 88.0%
+#       deletion bucket 0/565     native-only wins 2       0 discordant pairs
+#   (paired against the same tree BEFORE this branch: 426 -> 497, gained 71,
+#    lost 0, McNemar exact two-sided p = 8.5e-22; 0 parts built a solid that
+#    DISAGREED with OCCT, in either run)
+#   not the 0.0% / 497-deleted the row records.
+#
+#   (1) THE ROW WAS MEASURING ONLY THE FIRST OF TWO NATIVE ENGINES. Features.cpp
+#       runs a CHAIN — occtdraft::draftFaces at :2275, then, on a defer,
+#       occtdraftlocal::draftFacesLocal at :2285 — and only when BOTH decline does
+#       the OCCT fallback at :2291 run. corpus_ab_coverage.cpp's native arm called
+#       just the first, so the row could never move however good the second engine
+#       got. That is a defect of the INSTRUMENT and it is fixed in this branch;
+#       the harness's own rule is that each arm is the exact call the call site
+#       makes (CORPUS_AB_COVERAGE.md section 2.1).
+#   (2) THE GENERAL ENGINE LANDED AFTER THE ROW WAS TAKEN. reports/
+#       DRAFT_NATIVE_ENGINE.md carries the derivation and the paired numbers:
+#       0.0% -> 65.8% -> 75.4% -> 88.0%, each step measured over the same 565.
+#
+#   ★ SO FAMILY J NOW PASSES ITS FLIP GATE — 88.0% >= 88.0%, deletion bucket 0 —
+#   AND FLIPPING IT STILL MOVES OCCT_CLOSURE BY NOTHING. TKOffset leaves the link
+#   line only when ALL NINE families are compiled out (the block below), and eight
+#   are still open. MEASURED on this branch's own .node with every option at its
+#   default: OCCT_DIRECT 9, OCCT_CLOSURE 14, OCCT_PHANTOM 2, TKOffset symbols 42 —
+#   byte-identical to origin/archdisc. A family that passes its gate becomes
+#   CAPABLE of being dropped; it does not drop anything on its own.
+#
 # ★ AND VALIDITY CUTS THE OTHER WAY FOR H. Of OCCT's 38 successes only 5 are
 #   BRepCheck_Analyzer-VALID; all 24 native successes are. The OCCT arm also CRASHED
 #   on 66 of 600 and threw on 6. The coverage gate deliberately ignores validity
@@ -1416,11 +1446,19 @@ endif()
 if(FORGE_NATIVE_BREP AND FORGE_DRAFT_DROP_NATIVE)
     add_compile_definitions(FORGE_DRAFT_DROP_NATIVE=1)
     message(WARNING "FORGE_DRAFT_DROP_NATIVE=ON — BRepOffsetAPI_DraftAngle fallback compiled out "
-                    "(TKOffset family J, 6 symbols). A solid the native draft declines — a "
-                    "non-planar face, a face with a hole, or a selected face parallel to the "
-                    "neutral plane — now THROWS instead of falling back to OCCT. NOTE the native "
-                    "MESH-BRIDGE draft for NativeSolid handles earlier in draftFaces is "
-                    "untouched; this is the OCCT-backed-handle path only.")
+                    "(TKOffset family J, 6 symbols). TWO native engines remain and they are "
+                    "CHAINED: the exact plane-arrangement engine answers first, and whatever it "
+                    "declines falls through to the general local-rebuild engine "
+                    "(NativeDraftLocal). A solid BOTH decline now THROWS, quoting the second "
+                    "engine's own defer reason. ★ THE OLD TEXT HERE LISTED 'a non-planar face, "
+                    "a face with a hole' AS DECLINE REASONS AND THAT IS NO LONGER TRUE — those "
+                    "are the FIRST engine's whole-shape guards, and the general engine covers "
+                    "both (a face that does not move is never examined, whatever its surface "
+                    "type or wire count). What still declines is a drafted wall meeting a "
+                    "non-planar neighbour that is not a cylinder. MEASURED 2026-09-03 over the "
+                    "600 gold parts: native 497/565 against OCCT's 497/565, deletion bucket 0. "
+                    "NOTE the native MESH-BRIDGE draft for NativeSolid handles earlier in "
+                    "draftFaces is untouched; this is the OCCT-backed-handle path only.")
 endif()
 
 # ─────────────────────────────────────────────────────────────────────────────────

@@ -534,3 +534,240 @@ counts, so it CANNOT represent a wall that has begun to cut a feature. OCCT
 drafts these by recomputing the intersection topology. **The validity gate is
 catching a real defect here, not costing coverage** — the distinction
 `run_draft_local_validity_diag.sh` exists to make, answered for this block.
+
+---
+
+## 2026-09-03 — PARITY. 75.4 % -> 88.0 %, deletion bucket 0, closure still 14
+
+Branch `draft-j-20260903`, measured from a worktree pinned to `origin/archdisc`
+`f53deeae` plus this branch. Every number below was produced on this machine by a
+script in this commit. The BEFORE column is a full 600-part run of
+`test/run_draft_local_probe.sh` taken from the UNMODIFIED tree at `f53deeae`
+before a line of this work existed, so the comparison is paired and not quoted.
+
+| | before (`f53deeae`) | after | OCCT, both runs |
+|---|---:|---:|---:|
+| applicable / not applicable / errors | 565 / 35 / 0 | 565 / 35 / 0 | — |
+| native **BUILT** | 428 / 565 = 75.8 % | **499 / 565 = 88.3 %** | 497 / 565 = 88.0 % |
+| native **AGREES with OCCT** (= COVERAGE) | 426 / 565 = 75.4 % | **497 / 565 = 88.0 %** | 497 / 565 = 88.0 % |
+| paired | — | **gained 71, lost 0** | — |
+| built but DISAGREED with OCCT | 0 | **0** | — |
+| **parts DELETED by flipping the flag** | 71 | **0** | — |
+| native-only wins (OCCT failed, native built) | 2 | **2** | — |
+| `OCCT_CLOSURE` | 14 | **14** | — |
+
+McNemar exact, before vs after: 71 discordant one way, 0 the other, two-sided
+**p = 8.5e-22**. McNemar exact, native vs OCCT after: **0 discordant pairs**.
+
+**★ FAMILY J NOW PASSES ITS FLIP GATE AND THAT MOVES `OCCT_CLOSURE` BY NOTHING.**
+The gate is "native success rate >= the measured OCCT baseline"; it is 88.0 % vs
+88.0 % with a deletion bucket of 0. TKOffset leaves the link line only when ALL
+NINE families are compiled out (`CMakeLists.txt:1170`) and eight are still open.
+Measured on this branch's own `.node`, built here with every drop option at its
+default: `OCCT_DIRECT 9, OCCT_CLOSURE 14, OCCT_PHANTOM 2, TKOffset symbols 42` —
+`scripts/tkoffset_ledger_gate.sh` PASS, every ceiling held, byte-identical to the
+`origin/archdisc` ledger. **A family that passes its gate becomes CAPABLE of
+being dropped; it drops nothing on its own.**
+
+### 1. The 12.6-point deficit was ONE reason, and it was not what §5 said
+
+Re-measured, not inherited. At `f53deeae` all 71 parts of the gap declined on
+**the same guard**, and the earlier split into "19 closed rims + 52 topology" is
+not what the histogram says:
+
+```
+DEFER taxonomy, 565 applicable, before:
+   71  the rebuilt solid is not BRepCheck-valid          <- the WHOLE gap to OCCT
+   66  a drafted wall meets a non-planar face            <- OCCT fails all 66 too
+
+the 71, by what the drafted wall meets:
+   52  plane only        OCCT's answer is INVALID TOO
+   19  cylinder          OCCT's answer is VALID
+```
+
+Those two blocks look identical from outside the gate — both are "the rebuilt
+solid is not BRepCheck-valid" — and they are **opposite defects**. Separating
+them needed a face-level walk of both engines' output, not a count.
+
+### 2. The larger block (52) — the engine's answer is OCCT's answer
+
+Walked face by face, on both engines, with `BRepCheck_Analyzer::Result()` over
+VERTEX / EDGE / WIRE / FACE / SHELL / SOLID, on all 52:
+
+```
+parts native returned that BRepCheck rejects              52
+  native status multiset == OCCT status multiset          52   <- all of them
+  signatures:   38 x FACE:IntersectingWires
+                14 x FACE:UnorientableShape + WIRE:SelfIntersectingWire
+  parts whose OCCT arm is VALID                            0
+  parts whose INPUT was already invalid                    0
+  statuses on an EDGE, VERTEX, SHELL or SOLID              0   <- none, on any part
+```
+
+Nothing about a curve, a pcurve, a range, a flag, closure or connectivity. The
+only complaint, on either engine, is that two 2-D wires **cross**.
+
+**The decisive control is the ANGLE.** Two engines agreeing at 3 degrees have
+agreed once. Bisecting the draft angle at which each engine's answer first stops
+being BRepCheck-valid, independently per arm, 17 iterations on `[0.01, 8]`
+degrees (resolution 6.1e-5 deg), over all 52:
+
+```
+52 parts, 52 DISTINCT thresholds, spanning 0.0433 deg .. 2.9835 deg
+max |native threshold - OCCT threshold| over the 52  =  0.0
+```
+
+Every part has its own threshold and both engines cross it at the same angle. On
+`ho1152` the wire-to-wire clearance on the offending face falls linearly with the
+angle — 0.65, 0.617, 0.583, 0.516, 0.382, 0.248, 0.114 mm at 0, 0.05, 0.1, 0.2,
+0.4, 0.6, 0.8 deg — and reaches zero between 0.8 and 1.0 deg, where BOTH engines
+turn invalid. **The crossing is a property of the draft that was asked for, not
+of either construction.** No engine that moves geometry while keeping topology
+can answer otherwise, and `BRepOffsetAPI_DraftAngle` does not.
+
+So the blanket gate was holding the native engine to a bar its own incumbent does
+not meet, on parts where the two produce the same solid. That is the exact
+inversion of the rule this programme already wrote down for the OTHER arm:
+`CORPUS_AB_COVERAGE.md` §2.2 keeps validity **out** of the success predicate
+because folding it in "would quietly re-score the OCCT baseline downward and
+flatter the native side". Folding it into the native side alone flatters OCCT by
+52 parts.
+
+#### What was changed, and why it is not a relaxation
+
+`inspectCheck()` in `NativeDraftLocal.cpp` classifies what BRepCheck found instead
+of reading one boolean. **Every status outside `SelfIntersectingWire` /
+`IntersectingWires` still declines, named** — the defer text now carries the
+status, e.g. `"the rebuilt solid is not BRepCheck-valid: UnorientableShape"`.
+`UnorientableShape` is admitted only on a face that already carries a crossing,
+because that is the pair OCCT itself reports on 14 of the 52. And a crossing is
+carried only when THREE further conditions hold, each of which is a tightening
+and not a widening:
+
+1. **nothing in the rebuild was approximated** — if any pcurve was fitted, the
+   strict gate stands, because an approximation can manufacture a crossing;
+2. **the offending face is one this engine rebuilt** — a crossing on a face
+   carried verbatim is an INPUT defect and is not this gate's to bless;
+3. **a crossing is the only complaint.**
+
+`FORGE_DRAFT_LOCAL_STRICT_VALIDITY=1` restores the blanket `IsValid()` gate, so
+the before number is reproducible from the same binary.
+
+**Four proofs that this is not a weakened gate.**
+
+* the corpus: of the 71 parts it admits, **0 disagree with OCCT** on the full
+  observable vector, and 0 parts anywhere in the run built a solid that disagreed;
+* the four defects the gate was ever proved on — the 2*pi branch, the closed
+  rim's span, the closed rim's sense, the branch anchor — arrive as `NotClosed` /
+  `BadOrientationOfSubshape`, which the classifier rejects. **Mutations 9-12 are
+  still RED**;
+* a new **mutation 13** re-injects the 2*pi defect and removes **all four**
+  conditions on the carry. Removing them one at a time was measured and the
+  engine still declined each time, on the next condition down — the guard is
+  layered — so a one-layer mutant proves nothing. With all four gone the wrong
+  solid escapes and the A/B fails on validity AND volume AND area AND all three
+  centre-of-mass components;
+* a new **case(g)** fixture holds the carry end to end: below the threshold both
+  engines are valid and nothing is carried; above it both are invalid with the
+  IDENTICAL status multiset and exactly one carry, counted; the two engines'
+  thresholds are the same angle, and it is `atan(clearance / height)` to 0.05 deg;
+  and `STRICT_VALIDITY=1` declines the same input.
+
+### 3. The smaller block (19) — a real defect, and the third of its exact shape
+
+These are NOT the same thing. OCCT drafts all 19 to a **VALID** solid; native's
+was invalid, uniformly `FACE:UnorientableShape x1`, with **no** crossing status
+and no edge, wire, vertex, shell or solid status anywhere. One face, one
+complaint, all 19.
+
+Localised by **substitution**, not by inference: native's offending face and
+OCCT's have the same wires, the same 14 edges in the same order, the same
+orientations, the same `SameParameter` / `SameRange` / degenerate flags, and 2-D
+pcurve samples agreeing to 1e-5. Copying **only OCCT's pcurve for the one rebuilt
+edge** onto native's own face makes that face `VALID`. The pcurve is the cause.
+
+**The bound was the model's size, not the tolerance the pcurve lives under.** The
+fit was graded against `resTol = 1e-7 * the model's extent`, which is the right
+yardstick for a residual on a solved point and the wrong one for a pcurve: on a
+200 mm part it is 2e-5, twenty times the tolerance stamped on the edge and two
+hundred times the cylinder face's own 1e-7. `BRepTopAdaptor_FClass2d` closes the
+face's 2-D wire with the FACE's tolerance, so the wire read open, and
+`BRepCheck_Face` reported the whole face unorientable with every edge, curve and
+pcurve of it individually perfect. That is the **same shape of defect** as the
+2*pi branch and the closed rim — the third of its kind in this engine, and the
+third time only the 2-D WIRE was wrong.
+
+The fix is one line and it is a TIGHTENING: grade the fit against
+`min(resTol, max(face tolerance, edge tolerance))`. The fitter's adaptive loop
+must now reach it and returns an honest defer when it cannot. **All 19 build,
+all 19 are BRepCheck-VALID, all 19 agree with OCCT on the full vector.**
+
+A bound needs a fixture whose SCALE exercises it. Case (f) is the same topology
+at L = 20, where the two bounds differ by 20x and nothing moves; new **case (h)**
+is case (f) at L = 2000, where they differ by 2000x. **Mutation 14** puts the old
+bound back and case (h) is what turns red — without case (h) that mutant stays
+green and the bound is untested.
+
+### 4. What the official flip-gate harness was measuring
+
+`CMakeLists.txt:242` records family J as `native 0.0 %, OCCT 88.0 %, 497/565
+deleted`. That row could never have moved, for a reason that has nothing to do
+with the engine: **`corpus_ab_coverage.cpp`'s native arm called only the FIRST of
+the two native engines.** `Features.cpp` runs a chain — `occtdraft::draftFaces`
+at :2275, then `occtdraftlocal::draftFacesLocal` at :2285 on a defer, and only
+when both decline does the OCCT fallback at :2291 run. The harness called just
+:2275, which is an arm the call site does not have, and the harness's own rule
+(§2.1) is that each arm is the exact call the call site makes. Fixed here; the
+superseded row is left in `CMakeLists.txt` with a note beside it rather than
+rewritten, exactly as the OFFSETSHAPE row was.
+
+### 5. Two things the previous census got wrong, corrected by re-measurement
+
+* **The anchor solve is no longer unexecuted.** §4 recorded "solved by anchor
+  curve 0 — 0 parts". At `f53deeae` it fires on **150 moved vertices across 75 of
+  the 565 parts**, 73 of which agree with OCCT and the other 2 of which are the
+  native-only wins. The cylinder work made it reachable. Solve 3 (line versus
+  quadric) is **still 0 and is still NOT claimed as proved.**
+* **"0 native-only wins" is no longer true.** `ho296` and `ho857` are parts where
+  `BRepOffsetAPI_DraftAngle` fails outright and the native chain returns a
+  BRepCheck-VALID solid.
+
+### 6. What remains, and what this does NOT claim
+
+* **66 parts still defer**, all on `a drafted wall meets a non-planar face`, and
+  **OCCT fails on all 66 as well**. Nothing is owed there against this incumbent.
+* **The 52 are returned INVALID.** That is parity, not perfection: flipping the
+  flag hands the caller exactly the solid the incumbent hands it today, carrying
+  the same defect. A bar of "the drop must ship no invalid geometry" is not met —
+  and is not met by `BRepOffsetAPI_DraftAngle` either, on the same 52 inputs.
+* **One corpus, one derived operation.** 600 gold-reference STEP parts, the
+  largest planar side wall, +Z pull, 3 degrees, neutral plane at z-min, ONE wall.
+  Nothing here measures multi-wall drafts on the corpus, non-vertical walls, or
+  any other distribution. The A/B fixtures cover a rotated frame, a negative
+  angle, two walls at once and two bores, but seven fixtures are not a
+  distribution.
+* **Solve 3 is unreached**, on every fixture and on all 565 parts.
+* **The closure did not move and could not have.** 14 before, 14 after.
+
+### 7. Reproduce
+
+```
+bash forge-kernel/test/run_ab_native_draft_local.sh --mutations
+      -> 330 passed, 0 failed; 14/14 mutations RED
+         NativeDraftLocal.o TKOffset/TKGeomBase/TKGeomAlgo imports: 0/0/0
+bash forge-kernel/test/run_draft_local_probe.sh all <outdir>
+      -> 600 rows; applicable 565; native agrees 497; OCCT 497; deletion bucket 0
+bash forge-kernel/scripts/tkoffset_ledger_gate.sh forge-kernel/build/forge-kernel.node
+      -> DIRECT 9, CLOSURE 14, PHANTOM 2, TKOffset syms 42 — PASS
+bash forge-kernel/test/run_ab_all.sh          -> all harnesses green
+node forge-kernel/test/ft/ft_smoke.mjs        -> ALL PASS
+node forge-kernel/test/ft/ft_unified_edit.mjs -> 20 passed
+node forge-kernel/test/directedit.mjs         -> 9/9
+node forge-kernel/test/ft/ft_organic_smoke.mjs-> ALL PASS
+```
+
+The engine's own object file is unchanged in what it needs from OCCT. Compiling
+`origin/archdisc`'s `NativeDraftLocal.cpp` and this branch's with identical flags
+and diffing `nm -u`: **141 undefined symbols each, 0 added, 0 removed, and the
+per-toolkit counts identical across all fourteen toolkits** (TKOffset 0, TKGeomBase
+0, TKGeomAlgo 0 in both).

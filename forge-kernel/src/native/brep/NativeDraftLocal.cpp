@@ -61,6 +61,9 @@
 #include <vector>
 
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_ListIteratorOfListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
+#include <BRepCheck_Status.hxx>
 #include <BRepGProp.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
@@ -85,10 +88,12 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_DataMapOfShapeShape.hxx>
+#include <TopTools_DataMapIteratorOfDataMapOfShapeShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_MapIteratorOfMapOfShape.hxx>
 #include <TopTools_MapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
@@ -137,6 +142,148 @@ constexpr double kPi = 3.14159265358979323846;
 bool envOn(const char* name) {
     const char* v = std::getenv(name);
     return v && (*v == '1' || *v == 'y' || *v == 'Y' || *v == 't' || *v == 'T');
+}
+
+// ═══════════════════════════════════════════════════════════ the check verdict
+// WHAT DID BRepCheck OBJECT TO? "Invalid" is a verdict, not a diagnosis, and the
+// gate below needs the diagnosis, because two completely different things reach
+// it wearing the same boolean:
+//
+//   (a) THIS ENGINE built something wrong -- a curve that does not lie on its
+//       surface, a pcurve on the wrong branch, a range that does not close, an
+//       edge whose two faces disagree. Everything of that kind is bookkeeping
+//       this engine is answerable for, and every one of it must DEFER. All three
+//       defects the pcurve work found were of exactly this kind and every one of
+//       them arrived here as NotClosed / BadOrientationOfSubshape.
+//
+//   (b) THE DRAFT THE CALLER ASKED FOR makes the exact boundary CROSS. A drafted
+//       wall moves its own boundary line inward; far enough in, that line reaches
+//       an island the face already carried, and the face's 2-D wires genuinely
+//       overlap. No engine that moves geometry and keeps topology can avoid it,
+//       and OCCT's BRepOffsetAPI_DraftAngle does not: MEASURED over the 52 corpus
+//       parts that reach this gate, its output carries the IDENTICAL BRepCheck
+//       status multiset, part for part, and bisecting the draft angle puts the two
+//       engines' validity thresholds at the SAME angle to 6.1e-5 degrees on every
+//       one of them (reports/DRAFT_NATIVE_ENGINE.md, 2026-09-03).
+//
+// (a) is a defect. (b) is the answer. Only (b) is carried, and only under three
+// further conditions the caller of this helper enforces: nothing in the rebuild
+// was APPROXIMATED, the offending faces are ones this engine REBUILT, and a
+// crossing is the ONLY complaint on the whole solid.
+//
+// This is deliberately NOT a relaxation of the tolerance or of the check. Every
+// status outside the crossing pair still defers, and the crossing pair is
+// admitted only with a named face and a named reason.
+struct CheckReport {
+    bool valid = false;               // BRepCheck_Analyzer::IsValid()
+    bool constructionDefect = false;  // a status this engine is answerable for
+    bool sawCrossing = false;         // at least one 2-D crossing
+    std::string first;                // the first disqualifying status, named
+    TopTools_MapOfShape crossingFaces;  // faces whose only complaint is a crossing
+};
+
+const char* checkStatusName(BRepCheck_Status s) {
+    switch (s) {
+    case BRepCheck_NoError: return "NoError";
+    case BRepCheck_InvalidPointOnCurve: return "InvalidPointOnCurve";
+    case BRepCheck_InvalidPointOnCurveOnSurface: return "InvalidPointOnCurveOnSurface";
+    case BRepCheck_InvalidPointOnSurface: return "InvalidPointOnSurface";
+    case BRepCheck_No3DCurve: return "No3DCurve";
+    case BRepCheck_Multiple3DCurve: return "Multiple3DCurve";
+    case BRepCheck_Invalid3DCurve: return "Invalid3DCurve";
+    case BRepCheck_NoCurveOnSurface: return "NoCurveOnSurface";
+    case BRepCheck_InvalidCurveOnSurface: return "InvalidCurveOnSurface";
+    case BRepCheck_InvalidCurveOnClosedSurface: return "InvalidCurveOnClosedSurface";
+    case BRepCheck_InvalidSameRangeFlag: return "InvalidSameRangeFlag";
+    case BRepCheck_InvalidSameParameterFlag: return "InvalidSameParameterFlag";
+    case BRepCheck_InvalidDegeneratedFlag: return "InvalidDegeneratedFlag";
+    case BRepCheck_FreeEdge: return "FreeEdge";
+    case BRepCheck_InvalidMultiConnexity: return "InvalidMultiConnexity";
+    case BRepCheck_InvalidRange: return "InvalidRange";
+    case BRepCheck_EmptyWire: return "EmptyWire";
+    case BRepCheck_RedundantEdge: return "RedundantEdge";
+    case BRepCheck_SelfIntersectingWire: return "SelfIntersectingWire";
+    case BRepCheck_NoSurface: return "NoSurface";
+    case BRepCheck_InvalidWire: return "InvalidWire";
+    case BRepCheck_RedundantWire: return "RedundantWire";
+    case BRepCheck_IntersectingWires: return "IntersectingWires";
+    case BRepCheck_InvalidImbricationOfWires: return "InvalidImbricationOfWires";
+    case BRepCheck_EmptyShell: return "EmptyShell";
+    case BRepCheck_RedundantFace: return "RedundantFace";
+    case BRepCheck_UnorientableShape: return "UnorientableShape";
+    case BRepCheck_NotClosed: return "NotClosed";
+    case BRepCheck_NotConnected: return "NotConnected";
+    case BRepCheck_SubshapeNotInShape: return "SubshapeNotInShape";
+    case BRepCheck_BadOrientation: return "BadOrientation";
+    case BRepCheck_BadOrientationOfSubshape: return "BadOrientationOfSubshape";
+    case BRepCheck_InvalidPolygonOnTriangulation: return "InvalidPolygonOnTriangulation";
+    case BRepCheck_InvalidToleranceValue: return "InvalidToleranceValue";
+    case BRepCheck_CheckFail: return "CheckFail";
+    default: return "UnknownStatus";
+    }
+}
+
+bool isCrossingStatus(BRepCheck_Status s) {
+    return s == BRepCheck_SelfIntersectingWire || s == BRepCheck_IntersectingWires;
+}
+
+// Two passes on purpose. UnorientableShape is reported on a FACE and is the
+// CONSEQUENCE of that face's wire crossing itself -- OCCT reports exactly this
+// pair on 14 of the 52 -- but on its own it is a serious defect, so it is
+// accepted only for a face already known to carry a crossing. That cannot be
+// decided in one walk, because the wire's status and the face's status are found
+// on different sub-shapes.
+CheckReport inspectCheck(const TopoDS_Shape& s) {
+    CheckReport r;
+    if (s.IsNull()) { r.constructionDefect = true; r.first = "null shape"; return r; }
+    BRepCheck_Analyzer an(s);
+    if (an.IsValid()) { r.valid = true; return r; }
+
+    // pass 1 -- which faces carry a crossing, on themselves or on a wire of theirs
+    for (TopExp_Explorer fx(s, TopAbs_FACE); fx.More(); fx.Next()) {
+        bool crossing = false;
+        const Handle(BRepCheck_Result) fr = an.Result(fx.Current());
+        if (!fr.IsNull())
+            for (BRepCheck_ListIteratorOfListOfStatus it(fr->Status()); it.More(); it.Next())
+                if (isCrossingStatus(it.Value())) crossing = true;
+        for (TopExp_Explorer wx(fx.Current(), TopAbs_WIRE); wx.More() && !crossing; wx.Next()) {
+            const Handle(BRepCheck_Result) wr = an.Result(wx.Current());
+            if (wr.IsNull()) continue;
+            for (BRepCheck_ListIteratorOfListOfStatus it(wr->Status()); it.More(); it.Next())
+                if (isCrossingStatus(it.Value())) crossing = true;
+        }
+        if (crossing) { r.sawCrossing = true; r.crossingFaces.Add(fx.Current()); }
+    }
+
+    // pass 2 -- every status on every sub-shape must be a crossing, or the
+    // UnorientableShape of a face that already has one. Anything else is (a).
+    static const TopAbs_ShapeEnum kKinds[] = {TopAbs_VERTEX, TopAbs_EDGE, TopAbs_WIRE,
+                                              TopAbs_FACE, TopAbs_SHELL, TopAbs_SOLID};
+    for (TopAbs_ShapeEnum k : kKinds) {
+        for (TopExp_Explorer ex(s, k); ex.More(); ex.Next()) {
+            const Handle(BRepCheck_Result) res = an.Result(ex.Current());
+            if (res.IsNull()) continue;
+            for (BRepCheck_ListIteratorOfListOfStatus it(res->Status()); it.More(); it.Next()) {
+                const BRepCheck_Status st = it.Value();
+                if (st == BRepCheck_NoError) continue;
+                if (isCrossingStatus(st)) continue;
+                if (st == BRepCheck_UnorientableShape && k == TopAbs_FACE &&
+                    r.crossingFaces.Contains(ex.Current()))
+                    continue;
+                if (!r.constructionDefect) {
+                    r.constructionDefect = true;
+                    r.first = checkStatusName(st);
+                }
+            }
+        }
+    }
+    // A shape BRepCheck rejects with nothing this walk can name is not understood,
+    // and an unnamed rejection is never carried.
+    if (!r.constructionDefect && !r.sawCrossing) {
+        r.constructionDefect = true;
+        r.first = "invalid with no reported status";
+    }
+    return r;
 }
 
 // ─────────────────────────────────────────────────────────── plane arithmetic
@@ -1128,11 +1275,35 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     uNear = oldPc->Value(oa).X();
                 }
 
+                // ── THE BOUND THE FIT IS GRADED AGAINST ─────────────────────
+                // NOT resTol. resTol is 1e-7 * the MODEL'S OWN EXTENT, which is
+                // the right yardstick for a residual on a solved point and the
+                // wrong one for a pcurve: on a 200 mm part it is 2e-5, twenty
+                // times the tolerance this edge is about to be stamped with and
+                // two hundred times the cylinder face's own. A pcurve accurate
+                // only to the model's size, attached to a face whose tolerance
+                // is 1e-7, leaves the face's 2-D wire open by more than
+                // BRepTopAdaptor_FClass2d will accept, and BRepCheck_Face then
+                // reports the whole face UnorientableShape with no edge, wire or
+                // curve of it individually wrong -- the same shape of defect as
+                // the 2*pi branch and the closed rim, and the third of its kind.
+                // MEASURED: 19 of the 565 corpus parts, every one of which OCCT
+                // drafts to a VALID solid, and substituting OCCT's own pcurve
+                // for this one on the SAME face makes it valid, which is how the
+                // pcurve was identified as the cause rather than inferred.
+                //
+                // The bound is therefore the tolerance of the entities the
+                // pcurve will live on. It is a TIGHTENING: the fit's adaptive
+                // loop must reach it, and an honest defer is what it returns
+                // when it cannot.
+                const double pcTol = std::min(
+                    resTol, std::max(BRep_Tool::Tolerance(cylFace),
+                                     BRep_Tool::Tolerance(TopoDS::Edge(oldE))));
                 const forge::pcurvefit::PCurveFit fit =
-                    forge::pcurvefit::cylinderPCurve(secCurve, t0, t1, cylAx, radius, resTol, uNear);
+                    forge::pcurvefit::cylinderPCurve(secCurve, t0, t1, cylAx, radius, pcTol, uNear);
                 if (fit.curve.IsNull())
                     return defer("the pcurve on the cylinder could not be built: " + fit.defer);
-                if (!(fit.maxDev3d >= 0.0) || fit.maxDev3d > resTol)
+                if (!(fit.maxDev3d >= 0.0) || fit.maxDev3d > pcTol)
                     return defer("the fitted pcurve exceeds the declared deviation bound");
 
                 bb.MakeEdge(ne, secCurve, std::max(tol, BRep_Tool::Tolerance(oldE)));
@@ -1333,9 +1504,48 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
     // can compare those very shapes against OCCT on the full observable vector
     // and the two hypotheses separate. It is read fresh so a probe can toggle
     // it per call, it defaults OFF, and nothing in src/ sets it.
-    BRepCheck_Analyzer an(out);
-    if (!an.IsValid() && !envOn("FORGE_DRAFT_LOCAL_SKIP_VALIDITY"))
-        return defer("the rebuilt solid is not BRepCheck-valid");
+    //
+    // FORGE_DRAFT_LOCAL_STRICT_VALIDITY is the OTHER measurement switch, and it
+    // exists so the paired before/after of the classification below is taken
+    // from ONE binary: with it on, the gate is the plain
+    // BRepCheck_Analyzer::IsValid() this engine shipped with. It also defaults
+    // OFF and nothing in src/ sets it.
+    const CheckReport chk = inspectCheck(out);
+    if (!chk.valid && !envOn("FORGE_DRAFT_LOCAL_SKIP_VALIDITY")) {
+        if (envOn("FORGE_DRAFT_LOCAL_STRICT_VALIDITY"))
+            return defer("the rebuilt solid is not BRepCheck-valid");
+        // (a) THE ENGINE'S OWN BOOKKEEPING. Any status outside the crossing pair
+        // is a defect of this construction and still declines, named.
+        if (chk.constructionDefect)
+            return defer("the rebuilt solid is not BRepCheck-valid: " + chk.first);
+        // Three further conditions before a crossing is carried, each one
+        // narrowing the carry to the case the measurement actually covers.
+        //
+        //  1. NOTHING WAS APPROXIMATED. A fitted pcurve is the one place this
+        //     engine trades exactness for coverage, and an approximation can
+        //     manufacture a crossing that the exact geometry does not have. If
+        //     this rebuild fitted any pcurve at all, the strict gate stands.
+        if (!cylFits.empty())
+            return defer("the rebuilt solid is not BRepCheck-valid: a fitted pcurve is "
+                         "present, so a 2-D crossing is not proved exact");
+        //  2. THE CROSSING IS ON A FACE THIS ENGINE REBUILT. A crossing on a face
+        //     carried VERBATIM is a defect of the INPUT, and carrying an input
+        //     this engine never looked at is not this gate's business to bless.
+        for (TopTools_MapIteratorOfMapOfShape it(chk.crossingFaces); it.More(); it.Next()) {
+            bool rebuilt = false;
+            for (TopTools_DataMapIteratorOfDataMapOfShapeShape nm(newFaceMap);
+                 nm.More(); nm.Next())
+                if (nm.Value().IsSame(it.Value())) { rebuilt = true; break; }
+            if (!rebuilt)
+                return defer("the rebuilt solid is not BRepCheck-valid: a 2-D crossing on a "
+                             "face this engine did not rebuild");
+        }
+        //  3. IT IS THE ONLY COMPLAINT. Guaranteed by (a) above; asserted here so
+        //     a future edit to inspectCheck cannot silently widen the carry.
+        if (!chk.sawCrossing)
+            return defer("the rebuilt solid is not BRepCheck-valid");
+        ++statsSlot().crossingsCarried;
+    }
 
     return out;
 }

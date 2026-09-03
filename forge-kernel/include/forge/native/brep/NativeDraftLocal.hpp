@@ -108,7 +108,19 @@
 //   * any face carrying a non-identity Location (the sub-shape frames would
 //     have to be composed, and a silently mis-composed frame is a wrong part);
 //   * a result whose face/edge/vertex/shell count differs from the input's, or
-//     that BRepCheck_Analyzer rejects, or whose volume is not positive.
+//     whose volume is not positive, or that BRepCheck_Analyzer rejects for any
+//     reason OTHER than a 2-D CROSSING of the exact drafted boundary with a wire
+//     the same face already carried. That single exception is the answer, not a
+//     defect: the wall's own boundary walks inward as the angle grows and at a
+//     large enough angle it genuinely reaches an island the face carries. OCCT's
+//     BRepOffsetAPI_DraftAngle returns the same solid with the IDENTICAL
+//     BRepCheck status multiset on all 52 corpus parts that reach it, and the
+//     angle at which each engine first turns invalid is the SAME angle to
+//     6.1e-5 degrees on every one of them. It is carried only when nothing in
+//     the rebuild was approximated, the offending face is one this engine
+//     rebuilt, and a crossing is the only complaint; every other status still
+//     declines, named. FORGE_DRAFT_LOCAL_STRICT_VALIDITY=1 restores the plain
+//     IsValid() gate for measurement.
 //
 // |angle| must be > 0 and < 90 degrees, as for NativeDraft.
 
@@ -155,6 +167,12 @@ struct DraftLocalStats {
     int edgesVerbatim = 0;
     int edgesRetrimmed = 0;     // same curve, new range
     int edgesRebuilt = 0;       // new line from the rotated plane meet
+    // A solid returned whose ONLY BRepCheck complaint is that the exact drafted
+    // boundary CROSSES a wire the face already carried. Counted, never silent:
+    // it is the one class of answer this engine returns that BRepCheck rejects,
+    // and a number that cannot be seen cannot be audited. See the gate at the
+    // end of NativeDraftLocal.cpp for the three conditions on it.
+    int crossingsCarried = 0;
 };
 const DraftLocalStats& draftLocalLastStats();
 
