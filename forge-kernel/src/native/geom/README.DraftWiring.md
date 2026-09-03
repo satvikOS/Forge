@@ -12,12 +12,41 @@ requires, located at the call sites rather than estimated.
 neither engine drafts are 62 bspline+cylinder, 2 bspline, 2 cylinder, 2 cone — nothing is
 owed there.
 
-## Exactly two sites defer, and both name the same cause
+## CORRECTION, 2026-09-03: it is THREE sites, not two
+
+This document first said "exactly two sites defer". **That was wrong**, and it was wrong in
+the direction that matters — the site it missed is the one that actually ATTACHES the
+pcurve. `grep -n 'defer("' src/native/brep/NativeDraftLocal.cpp` filtered to the
+pcurve/non-planar reasons returns **664, 956 and 1022**.
+
+`:1022` sits in the FACE rebuild:
+
+```cpp
+if (!planar) {
+    for (TopExp_Explorer ex(oldF, TopAbs_EDGE); ex.More(); ex.Next())
+        if (rebuiltNotRetrim.Contains(ex.Current().Oriented(TopAbs_FORWARD)))
+            return defer("a non-planar face would need a new pcurve for a rebuilt edge");
+}
+```
+
+A non-planar face may be rebuilt today **only** when every changed edge is a pure re-trim,
+because then the pcurves are the same curves on the same surface and only their range
+moves — which `EmptyCopied` already carried. A *new* curve needs a *new* pcurve, and the
+engine will not make that approximation silently.
+
+★**And that site is where the fitted pcurve has to land.** The face rebuild does
+`nf = oldF.EmptyCopied()` — the cylinder's SURFACE is unchanged — and then re-adds each
+wire with `edgeFor(...)` swapping in the rebuilt edges. So nothing about the face changes;
+what is missing is the pcurve of the new edge **on** that face, attached with
+`BRep_Builder::UpdateEdge(newEdge, pcurve2d, nf, tol)`.
+
+## Three sites defer, and they name the same cause
 
 | site | what it does |
 |---|---|
 | `NativeDraftLocal.cpp:664` | the **capability precondition**, checked BEFORE anything is solved: any wall edge with a non-planar neighbour defers |
 | `NativeDraftLocal.cpp:956` | the **wall-edge rebuild**: `outwardPlaneOf(f, pl)` fails on a curved face, so it defers |
+| `NativeDraftLocal.cpp:1022` | the **face rebuild**: a non-planar face with a rebuilt (not re-trimmed) edge defers — **this is where the fitted pcurve must be attached** |
 
 The precondition is deliberate and must stay deliberate — its own comment says it is
 "detected here, at its cause, so the defer reason names the capability gap instead of the
@@ -49,7 +78,11 @@ path. The blocker was never the vertex; it is only the EDGE and its pcurve.
    two already-solved vertices lie on it, to the same `resTol` and with the same
    cross-check discipline the line path uses ("what makes the line a cross-check of the
    vertex solve rather than a restatement of it"); build the edge on that ellipse; and
-   attach the fitted pcurve from `cylinderPCurve`, alongside the wall plane's own pcurve.
+   carry the fitted pcurve from `cylinderPCurve` forward to site 3.
+3. **`:1022`** — stop deferring when the only rebuilt edges on that non-planar face are ones
+   site 2 handled, and attach their pcurves with
+   `BRep_Builder::UpdateEdge(newEdge, pcurve2d, nf, tol)`. The surface is untouched
+   (`EmptyCopied`); only the pcurve is new.
 
 ## ★ It is a CONTRACT CHANGE, and it must be declared as one
 
