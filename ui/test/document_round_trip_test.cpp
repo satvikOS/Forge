@@ -436,10 +436,28 @@ int main() {
   }
   {  // rule 5: a v1 file may NOT carry a v2 key. That is corruption, not
      // forward compatibility, and accepting it makes the policy unenforceable.
+     //
+     // The EXEMPLAR used to be MATERIAL-DENSITY. It had to move, and the reason
+     // is the rule working rather than the rule bending: the shipped v1 writer
+     // (forge-desktop/src/PartFile.cpp) now stores the part's material under the
+     // four MATERIAL-* names this format already had, so those four became v1
+     // keys and a v1 file carrying one is no longer corrupt. DISPLAY-MASS is
+     // still v2-only -- v1 spelled units as one UNITS word and could not express
+     // a separate display mass unit at all -- so it is what the rule is
+     // demonstrated on now.
     DocumentFileData f;
     DocumentIoError e;
-    CHECK(!readDocumentFile("FORGE-PART 1\nNAME x\nMATERIAL-DENSITY 7850\n", f, e));
+    CHECK(!readDocumentFile("FORGE-PART 1\nNAME x\nDISPLAY-MASS kg\n", f, e));
     CHECK(e.message.find("version 2") != std::string::npos);
+    // And the four that MOVED are readable at v1, which is the other half of the
+    // same claim: a rule that refuses everything is not a rule about versions.
+    DocumentFileData v1material;
+    DocumentIoError me;
+    CHECK(readDocumentFile("FORGE-PART 1\nNAME x\nMATERIAL-ID steel-1018\n"
+                           "MATERIAL-NAME Mild Steel 1018\nMATERIAL-DENSITY 7870\n",
+                           v1material, me));
+    CHECK_EQ_STR(v1material.material.id, "steel-1018");
+    CHECK_NEAR(v1material.material.densityKgPerM3, 7870.0, 1e-12);
   }
   {  // rule 2: a v1 file is READ and UPGRADED IN MEMORY, taking the documented
      // defaults for everything v1 could not express

@@ -106,13 +106,20 @@ std::string constantOf(const std::string& source, const std::string& name) {
 // So the SHAPE is asserted here rather than the one literal being special-cased:
 // a token that is not [A-Z][A-Z0-9_]* is a value fragment, not a key. A key added
 // in that shape is still picked up; a separator never is.
+// A HYPHEN IS PART OF A KEY, and leaving it out was a hole rather than a
+// simplification: v2's own vocabulary is hyphenated (STORAGE-LENGTH,
+// MATERIAL-ID, VIEW-EYE), so a v1 writer that adopted one of those names would
+// have been INVISIBLE to this extractor and the coverage requirement below would
+// have passed over it in silence. That is the shape of a gate that cannot fail.
+// The separator this rule was written to exclude -- "; " between points -- does
+// not start with a capital and is still excluded.
 bool looksLikeKey(const std::string& token) {
   if (token.empty()) return false;
   if (token[0] < 'A' || token[0] > 'Z') return false;
   for (const char c : token) {
     const bool upper = c >= 'A' && c <= 'Z';
     const bool digit = c >= '0' && c <= '9';
-    if (!upper && !digit && c != '_') return false;
+    if (!upper && !digit && c != '_' && c != '-') return false;
   }
   return true;
 }
@@ -216,6 +223,14 @@ int main() {
       "FORGE-PART 1\n"
       "NAME probe\n"
       "UNITS mm\n"
+      // v1 carries the part's material since the shipped writer started storing
+      // it, under the SAME four names v2 already used. A v1 file that states
+      // what the part is made of must mean the same thing to both readers, or a
+      // part saved with a material opens weighing nothing.
+      "MATERIAL-ID aluminium-6061\n"
+      "MATERIAL-NAME Aluminium 6061-T6\n"
+      "MATERIAL-DENSITY 2700\n"
+      "MATERIAL-APPEARANCE 0.83 0.85 0.87 1 0.35 1\n"
       "FEATURE\n"
       "ID 1\n"
       "KIND solid\n"

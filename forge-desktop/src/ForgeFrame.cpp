@@ -536,6 +536,12 @@ bool ForgeFrame::syncSceneToDocument() {
 // ── forge::ui::DocumentHost ─────────────────────────────────────────────────
 bool ForgeFrame::documentNew(std::string& error) {
   partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
+  // Snapshot does NOT carry the material -- deliberately, so undoing a fillet
+  // cannot change what the part is made of -- which means restore() leaves the
+  // old one behind. A NEW document has not been given a material, and saying it
+  // is aluminium because the last one was would put a weight on it that nobody
+  // chose.
+  partDoc_.setMaterial(forge::ui::unassignedMaterial());
   partUndo_.clear();
   if (!seedDefaultPart(error)) return false;
   documentPath_.clear();
@@ -1591,6 +1597,10 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingInvokeId_.clear();
     invoke(id);
   }
+  // The Materials picker, on the same one-slot deferral: part.set_material
+  // touches the document, and the combo that asks for it is drawn inside the
+  // dock walk.
+  runPendingMaterial();
   // Open Recent, last: it REPLACES the document, so anything above that acts on
   // the document the user was looking at when they clicked must run first.
   runPendingOpen();
@@ -2178,6 +2188,14 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawMeasurePanel();
   } else if (panelId == "archie_tools") {
     drawToolsPanel();
+  } else if (panelId == "tool_library") {
+    drawToolLibraryPanel();
+  } else if (panelId == "post_output") {
+    drawPostOutputPanel();
+  } else if (panelId == "stock") {
+    drawStockPanel();
+  } else if (panelId == "materials") {
+    drawMaterialsPanel();
   } else if (panelId == "archie_copilot" || panelId == "archie_chat") {
     // ONE panel behind both tabs. The CoPilot IS the chat surface and the plan
     // surface: splitting them would put the transcript on one tab and the offer
@@ -2819,6 +2837,15 @@ void ForgeFrame::drawPropertiesPanel() {
     ImGui::Text("volume %.3f mm3", r.volume);
     ImGui::Text("bbox   %.2f x %.2f x %.2f", r.bboxMax[0] - r.bboxMin[0],
                 r.bboxMax[1] - r.bboxMin[1], r.bboxMax[2] - r.bboxMin[2]);
+    // ── THE SAME WEIGHT THE MATERIALS TAB REPORTS ─────────────────────────
+    // partMass() is ONE call over the document's material and the volume
+    // printed on the line above, so these two panels cannot answer "what does
+    // it weigh" differently. Two readouts of one physical quantity that can
+    // disagree will, and a user who found them disagreeing would be right to
+    // stop trusting both.
+    ImGui::Text("made of %s", partDoc_.material().name.c_str());
+    ImGui::Text("weight %s",
+                forge::ui::describeMass(partMass(), forge::ui::MassUnit::Gram).c_str());
   } else {
     ImGui::TextColored(rgb(235, 105, 95), "This part did not rebuild");
     const std::string why = forge::ui::userFacingBuildFailure(r.error);
@@ -3342,6 +3369,449 @@ void ForgeFrame::drawCopilotPanel() {
     ImGui::SameLine();
     ImGui::TextDisabled("nothing on offer");
   }
+}
+
+// ── THE MANUFACTURING PANELS ────────────────────────────────────────────────
+//
+// WHAT THESE FOUR TABS USED TO DRAW. Tool Library, Stock, Post Output and
+// Materials all fell through to drawGenericPanel and printed one sentence saying
+// what they WOULD show. A machinist opening the Tool Library got a paragraph
+// about the dock layout.
+//
+// The kernel underneath them was never the problem: forge::camx has held a
+// cutting-tool catalogue with real geometry and real chip loads, a 2.5-axis
+// contour generator, three post-processors and a cycle-time estimator, and
+// forge::cam has held a voxel stock simulation, throughout. NONE of it was
+// reachable from the application. What was missing was the ONE input those
+// generators need and the app did not have -- a planar boundary polygon -- and
+// CamHost.hpp takes it from the tessellation the viewport already draws.
+//
+// EVERY NUMBER ON THESE FOUR TABS COMES BACK FROM A KERNEL CALL. The tools are
+// forge::camx::listTools(). The passes are forge::camx::contourToolpath(). The
+// program is forge::camx::postProcess(). The cutting time is
+// forge::camx::estimateCycleTime(). What is left over is
+// forge::cam::simulateStock(). The part's volume and bounding box are the
+// compiler's own, off the last rebuild. The densities are the document's
+// material. Nothing here is filled in to complete a layout.
+//
+// The ONE derivation this file performs is arithmetic whose formula is printed
+// beside the answer -- feed from speed, flutes and chip load; mass from volume
+// and density -- so a reader can check it rather than believe it.
+
+// Rapid moves stay this far above the top of the block. It is a SETTING, not a
+// measurement, and the Post Output panel says so in the same words.
+namespace {
+constexpr double kCamSafeZMm = 5.0;
+// Said in one place because three panels say it.
+const char* const kCamNoPart =
+    "There is no part in this document yet. Draw or open one and this fills in.";
+}  // namespace
+
+void ForgeFrame::ensureCamPlan() {
+  namespace cam = forge::desktop::cam;
+  const IrBuildReport& r = scene_.lastBuild();
+  const bool haveBody = scene_.built() && r.ok() && !scene_.vertices().empty();
+
+  if (!camSectionSeeded_ && haveBody) {
+    camSectionZ_ = static_cast<float>(0.5 * (r.bboxMin[2] + r.bboxMax[2]));
+    camSectionSeeded_ = true;
+  }
+
+  CamControls now;
+  now.toolId = camToolId_;
+  now.side = camSideIndex_;
+  now.post = camPostIndex_;
+  now.sectionZ = camSectionZ_;
+  now.stockSide = camStockSideMm_;
+  now.stockTop = camStockTopMm_;
+  now.spindlePercent = camSpindlePercent_;
+  now.stepdown = camStepdownMm_;
+  now.builds = scene_.builds();
+  now.triangles = scene_.triangleCount();
+  if (camPlanValid_ && now == camControls_) return;
+  camControls_ = now;
+  camPlanValid_ = true;
+  ++camRecomputes_;
+
+  camOutline_ = cam::PartOutline{};
+  camStock_ = cam::StockBlock{};
+  camPlan_ = cam::CamPlan{};
+  camCut_ = cam::StockCutReport{};
+  if (!haveBody) {
+    camOutline_.advice = kCamNoPart;
+    camPlan_.advice = kCamNoPart;
+    camCut_.advice = kCamNoPart;
+    return;
+  }
+
+  camOutline_ = cam::sectionOutline(scene_.vertices(), static_cast<double>(camSectionZ_));
+  camStock_ = cam::stockAround(r.bboxMin, r.bboxMax, static_cast<double>(camStockSideMm_),
+                               static_cast<double>(camStockTopMm_));
+
+  cam::CutParameters p;
+  p.toolId = camToolId_;
+  const cam::CuttingTool* tool = cam::findTool(camToolId_);
+  p.spindleRpm =
+      tool == nullptr ? 0.0 : tool->maxSpindleRpm * (static_cast<double>(camSpindlePercent_) / 100.0);
+  p.stepdownMm = static_cast<double>(camStepdownMm_);
+  // From the top of the block to the underside of the part: the whole of what
+  // this setup has to cut through, measured rather than chosen.
+  p.depthMm = camStock_.ok ? camStock_.maxMm[2] - r.bboxMin[2] : 0.0;
+  p.safeZMm = kCamSafeZMm;
+  p.side = camSideIndex_ == 0   ? cam::ContourSide::Inside
+           : camSideIndex_ == 2 ? cam::ContourSide::On
+                                : cam::ContourSide::Outside;
+  p.post = camPostIndex_ == 1   ? cam::PostFlavour::Heidenhain
+           : camPostIndex_ == 2 ? cam::PostFlavour::Siemens
+                                : cam::PostFlavour::Fanuc;
+
+  if (camOutline_.outer() != nullptr) {
+    camPlan_ = cam::planContour(*camOutline_.outer(), p);
+  } else {
+    camPlan_.params = p;
+    if (tool != nullptr) camPlan_.tool = *tool;
+    camPlan_.advice = camOutline_.advice;
+  }
+  camCut_ = cam::simulateCut(camStock_, camPlan_);
+}
+
+bool ForgeFrame::setCamToolId(std::uint32_t id) {
+  if (forge::desktop::cam::findTool(id) == nullptr) return false;
+  camToolId_ = id;
+  return true;
+}
+
+void ForgeFrame::setCamSectionZ(float z) {
+  camSectionZ_ = z;
+  // Set by hand means set: the one-time seeding must not overwrite it on the
+  // next rebuild.
+  camSectionSeeded_ = true;
+}
+
+forge::ui::MassProperties ForgeFrame::partMass() const {
+  // The KERNEL's volume, off the last rebuild -- not the tessellation's. The
+  // Measure panel reports the mesh's volume and labels it as the mesh's; a mass
+  // is a property of the solid, so it is computed from the solid's.
+  return partDoc_.massProperties(scene_.lastBuild().volume);
+}
+
+void ForgeFrame::runPendingMaterial() {
+  const std::string id = pendingMaterialId_;
+  pendingMaterialId_.clear();
+  if (id.empty()) return;
+  // THROUGH THE REGISTRY, not partDoc_.setMaterial() directly. Going straight to
+  // the document would skip the undo stack, the activity log and the shell's
+  // counters -- so Ctrl+Z would not put the old material back and nothing would
+  // record that the part's weight had changed.
+  forge::ui::CommandParams params;
+  params.setText("material", id);
+  const forge::ui::DispatchResult r = shell_.run("part.set_material", params);
+  lastInvokeOk_ = r.ok();
+  if (!r.ok()) {
+    note("part.set_material  ->  REFUSED: " + std::string(forge::ui::toString(r.status)));
+    return;
+  }
+  // A material change alters what the part WEIGHS, so the document has changed
+  // even though not one statement did. Without this line the change would be
+  // lost on close with no prompt.
+  documentDirty_ = true;
+  note("material: " + partDoc_.material().name);
+}
+
+// ── TOOL LIBRARY ────────────────────────────────────────────────────────────
+void ForgeFrame::drawToolLibraryPanel() {
+  namespace cam = forge::desktop::cam;
+  ensureCamPlan();
+  camToolRowsDrawn_ = 0;
+  const std::vector<cam::CuttingTool>& tools = cam::toolLibrary();
+
+  ImGui::TextColored(rgb(242, 158, 38), "Cutting tools");
+  ImGui::SameLine();
+  ImGui::TextColored(rgb(130, 137, 148), "%zu available", tools.size());
+  ImGui::Separator();
+  if (tools.empty()) {
+    ImGui::TextWrapped("This build has no cutting tools, so nothing can be machined from it yet.");
+    return;
+  }
+
+  for (const cam::CuttingTool& t : tools) {
+    const bool chosen = t.id == camToolId_;
+    char head[160];
+    std::snprintf(head, sizeof(head), "%-22s  %6.2f mm  %d flute  %s", t.name.c_str(),
+                  t.diameterMm, t.flutes, t.toolMaterial.c_str());
+    if (ImGui::Selectable(head, chosen)) camToolId_ = t.id;
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::Text("      cutting length %.1f mm   overall %.1f mm   up to %.0f rev/min   "
+                "%.3f mm per tooth",
+                t.fluteLengthMm, t.totalLengthMm, t.maxSpindleRpm, t.chipLoadMm);
+    ImGui::PopStyleColor();
+    ++camToolRowsDrawn_;
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Speeds and feeds");
+  ImGui::Separator();
+  const cam::CuttingTool* t = cam::findTool(camToolId_);
+  if (t == nullptr) {
+    ImGui::TextWrapped("Pick a tool above and its speeds and feeds appear here.");
+    return;
+  }
+  ImGui::SetNextItemWidth(-1);
+  ImGui::SliderFloat("##camspindle", &camSpindlePercent_, 10.0f, 100.0f,
+                     "spindle at %.0f%% of this tool's maximum");
+  const double rpm = t->maxSpindleRpm * static_cast<double>(camSpindlePercent_) / 100.0;
+  ImGui::Text("speed          %.0f rev/min", rpm);
+  ImGui::Text("feed           %.0f mm/min", t->feedAt(rpm));
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::Text("               speed x %d flutes x %.3f mm per tooth", t->flutes, t->chipLoadMm);
+  ImGui::PopStyleColor();
+  ImGui::Text("surface speed  %.1f m/min", t->surfaceSpeedAt(rpm));
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::Text("               3.1416 x %.2f mm x speed / 1000", t->diameterMm);
+  ImGui::PopStyleColor();
+  ImGui::Spacing();
+  ImGui::TextWrapped("The Post Output and Stock tabs cut with the tool chosen here.");
+}
+
+// ── POST OUTPUT ─────────────────────────────────────────────────────────────
+void ForgeFrame::drawPostOutputPanel() {
+  namespace cam = forge::desktop::cam;
+  ensureCamPlan();
+  camProgramRowsDrawn_ = 0;
+  const IrBuildReport& r = scene_.lastBuild();
+
+  ImGui::TextColored(rgb(242, 158, 38), "Operation");
+  ImGui::Separator();
+  const bool haveBody = scene_.built() && r.ok();
+  if (!haveBody) {
+    ImGui::TextWrapped("%s", kCamNoPart);
+    return;
+  }
+
+  // ── the controls ─────────────────────────────────────────────────────────
+  const float zLo = static_cast<float>(r.bboxMin[2]);
+  const float zHi = static_cast<float>(r.bboxMax[2]);
+  ImGui::SetNextItemWidth(-1);
+  if (ImGui::SliderFloat("##camz", &camSectionZ_, zLo, zHi, "outline taken at z = %.3f mm")) {
+    camSectionSeeded_ = true;
+  }
+  ImGui::SetNextItemWidth(-1);
+  const char* sides[] = {"cut inside the outline", "cut outside the outline",
+                         "cut on the outline"};
+  ImGui::Combo("##camside", &camSideIndex_, sides, 3);
+  ImGui::SetNextItemWidth(-1);
+  const char* posts[] = {"Fanuc", "Heidenhain", "Siemens"};
+  ImGui::Combo("##campost", &camPostIndex_, posts, 3);
+  ImGui::SetNextItemWidth(-1);
+  ImGui::SliderFloat("##camstep", &camStepdownMm_, 0.0f, 20.0f,
+                     camStepdownMm_ <= 0.0f ? "depth per pass: half the tool"
+                                            : "depth per pass %.2f mm");
+
+  ImGui::Spacing();
+  if (!camPlan_.ok) {
+    ImGui::TextColored(rgb(235, 175, 95), "Nothing is being cut");
+    ImGui::TextWrapped("%s", camPlan_.advice.empty()
+                                 ? "Move the outline height and this operation will appear."
+                                 : camPlan_.advice.c_str());
+    return;
+  }
+
+  ImGui::Text("tool           %s", camPlan_.tool.name.c_str());
+  ImGui::Text("passes         %zu down to %.2f mm, %.2f mm at a time", camPlan_.passes,
+              camPlan_.params.depthMm, camPlan_.stepdownMm);
+  ImGui::Text("cutting        %.1f mm at %.0f mm/min", camPlan_.pathLengthMm,
+              camPlan_.feedMmPerMin);
+  ImGui::Text("cutting time   %d min %02d s", static_cast<int>(camPlan_.cutSeconds) / 60,
+              static_cast<int>(camPlan_.cutSeconds) % 60);
+  ImGui::Text("spindle        %.0f rev/min", camPlan_.spindleRpm);
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::TextWrapped("Zero is the top of the block, so every depth is a distance below it, and "
+                     "rapid moves stay %.1f mm clear of it.", kCamSafeZMm);
+  ImGui::TextWrapped("The outline follows the shape on screen, which is drawn to within %.2f mm "
+                     "of the true surface.", forge::desktop::cam::kOutlineChordToleranceMm);
+  ImGui::PopStyleColor();
+  if (camOutline_.islands() != 0) {
+    ImGui::TextColored(rgb(235, 175, 95),
+                       "%zu more boundaries lie inside this outline and are not cut here.",
+                       camOutline_.islands());
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "%s program", posts[camPostIndex_]);
+  ImGui::SameLine();
+  ImGui::TextColored(rgb(130, 137, 148), "%zu lines", camPlan_.programLines);
+  ImGui::SameLine();
+  if (ImGui::SmallButton("Copy")) {
+    ImGui::SetClipboardText(camPlan_.program.c_str());
+    note("copied the machine program to the clipboard");
+  }
+  ImGui::Separator();
+  // The WHOLE program, unformatted and in the panel's own scroll region rather
+  // than a nested one. It is machine code: reflowing it would change what it
+  // means, and a nested child would hide it entirely whenever the tab is shorter
+  // than the summary above -- which is a layout the docked bottom strip
+  // routinely produces. TextUnformatted takes the string as one block, so a long
+  // program costs one draw call rather than one per line.
+  ImGui::TextUnformatted(camPlan_.program.c_str());
+  camProgramRowsDrawn_ = camPlan_.programLines;
+}
+
+// ── STOCK ───────────────────────────────────────────────────────────────────
+void ForgeFrame::drawStockPanel() {
+  ensureCamPlan();
+  camStockRowsDrawn_ = 0;
+  const IrBuildReport& r = scene_.lastBuild();
+
+  ImGui::TextColored(rgb(242, 158, 38), "The block");
+  ImGui::Separator();
+  if (!camStock_.ok) {
+    ImGui::TextWrapped("%s", kCamNoPart);
+    return;
+  }
+  ImGui::Text("size      %.2f x %.2f x %.2f mm", camStock_.sizeMm[0], camStock_.sizeMm[1],
+              camStock_.sizeMm[2]);
+  ImGui::Text("volume    %.3f mm3", camStock_.volumeMm3);
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::Text("          the part measures %.2f x %.2f x %.2f mm", r.bboxMax[0] - r.bboxMin[0],
+              r.bboxMax[1] - r.bboxMin[1], r.bboxMax[2] - r.bboxMin[2]);
+  ImGui::TextWrapped("The block is squared up around the part. Nothing is added underneath: the "
+                     "underside of the part sits on the table.");
+  ImGui::PopStyleColor();
+  ImGui::SetNextItemWidth(-1);
+  ImGui::SliderFloat("##camside_all", &camStockSideMm_, 0.0f, 30.0f, "%.2f mm spare all round");
+  ImGui::SetNextItemWidth(-1);
+  ImGui::SliderFloat("##camtop", &camStockTopMm_, 0.0f, 30.0f, "%.2f mm spare on top");
+  camStockRowsDrawn_ += 2;
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "What has to come off");
+  ImGui::Separator();
+  const double waste = camStock_.volumeMm3 - r.volume;
+  ImGui::Text("part      %.3f mm3", r.volume);
+  ImGui::Text("to remove %.3f mm3", waste);
+  if (camStock_.volumeMm3 > 0.0) {
+    ImGui::SameLine();
+    ImGui::TextColored(rgb(130, 137, 148), "  %.1f%% of the block",
+                       100.0 * waste / camStock_.volumeMm3);
+  }
+  camStockRowsDrawn_ += 2;
+  const forge::ui::Material& material = partDoc_.material();
+  if (material.hasDensity()) {
+    const forge::ui::MassProperties block =
+        forge::ui::massPropertiesOf(material, camStock_.volumeMm3);
+    const forge::ui::MassProperties part = partMass();
+    ImGui::Text("block     %s of %s",
+                forge::ui::describeMass(block, forge::ui::MassUnit::Gram).c_str(),
+                material.name.c_str());
+    ImGui::Text("finished  %s",
+                forge::ui::describeMass(part, forge::ui::MassUnit::Gram).c_str());
+    ImGui::Text("swarf     %.3f g", block.massGrams - part.massGrams);
+    camStockRowsDrawn_ += 3;
+  } else {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::TextWrapped("Choose a material on the Materials tab and this block gets a weight too.");
+    ImGui::PopStyleColor();
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "What this operation takes out");
+  ImGui::Separator();
+  if (!camCut_.ok) {
+    ImGui::TextWrapped("%s", camCut_.advice.empty()
+                                 ? "Set up an operation on the Post Output tab and its effect on "
+                                   "the block appears here."
+                                 : camCut_.advice.c_str());
+    return;
+  }
+  ImGui::Text("removed   %.3f mm3", camCut_.removedVolumeMm3);
+  if (camCut_.startVolumeMm3 > 0.0) {
+    ImGui::SameLine();
+    ImGui::TextColored(rgb(130, 137, 148), "  %.1f%% of the block",
+                       100.0 * camCut_.removedVolumeMm3 / camCut_.startVolumeMm3);
+  }
+  ImGui::Text("left      %.3f mm3", camCut_.leftVolumeMm3);
+  ImGui::Text("deepest   %.2f mm below the top", camCut_.deepestCutMm);
+  camStockRowsDrawn_ += 3;
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::TextWrapped("Worked out by filling the block with %u by %u by %u cells of %.2f x %.2f x "
+                     "%.2f mm and sweeping the tool through them, so it is that precise and no "
+                     "more.",
+                     camCut_.gridCells, camCut_.gridCells, camCut_.gridCells,
+                     camCut_.cellSizeMm[0], camCut_.cellSizeMm[1], camCut_.cellSizeMm[2]);
+  ImGui::TextWrapped("This setup has one operation in it, so the rest of the block is still "
+                     "standing.");
+  ImGui::PopStyleColor();
+}
+
+// ── MATERIALS ───────────────────────────────────────────────────────────────
+void ForgeFrame::drawMaterialsPanel() {
+  camMaterialRowsDrawn_ = 0;
+  const forge::ui::Material& material = partDoc_.material();
+  const IrBuildReport& r = scene_.lastBuild();
+
+  ImGui::TextColored(rgb(242, 158, 38), "This part is made of");
+  ImGui::Separator();
+  if (material.hasDensity()) {
+    ImGui::Text("%s", material.name.c_str());
+    ImGui::Text("density   %.0f kg per cubic metre", material.densityKgPerM3);
+    camMaterialRowsDrawn_ += 2;
+  } else {
+    ImGui::TextWrapped("Nothing yet, so Forge cannot say what this part weighs. Choose one "
+                       "below and its weight appears everywhere the part is described.");
+  }
+
+  ImGui::Spacing();
+  ImGui::SetNextItemWidth(-1);
+  if (ImGui::BeginCombo("##campickmaterial", material.name.c_str())) {
+    for (const forge::ui::Material& m : forge::ui::materialLibrary()) {
+      const bool chosen = m.id == material.id;
+      char row[96];
+      if (m.hasDensity()) {
+        std::snprintf(row, sizeof(row), "%-24s %6.0f kg/m3", m.name.c_str(), m.densityKgPerM3);
+      } else {
+        std::snprintf(row, sizeof(row), "%-24s", m.name.c_str());
+      }
+      // RECORD, do not apply. This combo is drawn inside the dock walk, and
+      // dispatching here would rebuild the document while the walk still holds
+      // references into it -- the shape that has already shipped three crashes
+      // in this class.
+      if (ImGui::Selectable(row, chosen)) pendingMaterialId_ = m.id;
+      if (chosen) ImGui::SetItemDefaultFocus();
+      ++camMaterialRowsDrawn_;
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::TextWrapped("Densities are typical handbook values for the alloy, not certified figures "
+                     "for a particular batch.");
+  ImGui::PopStyleColor();
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "What it weighs");
+  ImGui::Separator();
+  if (!scene_.built() || !r.ok()) {
+    ImGui::TextWrapped("%s", kCamNoPart);
+    return;
+  }
+  const forge::ui::MassProperties mass = partMass();
+  ImGui::Text("volume    %.3f mm3", mass.volumeMm3);
+  if (mass.known) {
+    ImGui::Text("weight    %s",
+                forge::ui::describeMass(mass, forge::ui::MassUnit::Gram).c_str());
+    ImGui::Text("          %s",
+                forge::ui::describeMass(mass, forge::ui::MassUnit::Kilogram).c_str());
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+    ImGui::Text("          volume x %.0f kg per cubic metre", mass.densityKgPerM3);
+    ImGui::PopStyleColor();
+    camMaterialRowsDrawn_ += 3;
+  } else {
+    ImGui::TextColored(rgb(235, 175, 95), "weight    %s",
+                       forge::ui::describeMass(mass, forge::ui::MassUnit::Gram).c_str());
+    camMaterialRowsDrawn_ += 1;
+  }
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::TextWrapped("The Properties tab reports the same weight from the same measurement.");
+  ImGui::PopStyleColor();
 }
 
 void ForgeFrame::drawGenericPanel(const std::string& panelId) {

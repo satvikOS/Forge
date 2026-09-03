@@ -174,6 +174,14 @@ run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12
 # whose every parameter is declared and correctly typed, carrying a REFUSED op
 # inside a `selector` VALUE. They must be refused before any dispatch is spent.
 run_gate forge_desktop_copilot_gate 1 2 3 4 5 6 7 8
+# The MANUFACTURING PANELS gate: Tool Library, Post Output, Stock and Materials,
+# driven as real ImGui frames over a real kernel body. Every value the four tabs
+# hold is compared against a SECOND call into forge::camx / forge::cam made by the
+# gate itself, so a table typed into the panel fails even when it looks right.
+# The seven mutations break one query each: the tool catalogue, the section
+# height, the density, the stock extent, the posted program, the shared-weight
+# scan and the removal arithmetic.
+run_gate forge_desktop_cam_panels_gate 1 2 3 4 5 6 7
 # The AUTO-UPDATE gate. It needs none of the build above -- libforge_updater
 # links nothing but libc++ -- so it can also be run on its own in seconds with
 # test/run_update_gate.sh --mutations, which is the form CI uses. It runs here

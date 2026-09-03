@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 58);
-  CHECK_EQ_INT(registry.size(), 58);
+  CHECK_EQ_INT(added, 59);
+  CHECK_EQ_INT(registry.size(), 59);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 58);
+  CHECK_EQ_INT(registry.size(), 59);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -372,7 +372,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 58);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 59);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -489,7 +489,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 58);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 59);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -521,7 +521,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 58);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 59);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -574,7 +574,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 58);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 59);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     // EVERY handler that reads a selection-derived vector belongs here, whether it
@@ -798,7 +798,7 @@ int main() {
     PartDocument docN;
     UndoStack stackN;
     SelectionService selN;
-    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 58);
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 59);
     CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
 
     // ── the minimal form of each: required parameters only ──────────────────
@@ -1056,7 +1056,7 @@ int main() {
     PartDocument docE2;
     UndoStack stackE2;
     SelectionService noneE2;
-    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 58);
+    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 59);
     CHECK_EQ_INT(docE2.records().size(), 0);  // EMPTY: INPUT is a creator
 
     // INPUT()  -- "bind the task's input STEP as a solid". No selection, no
@@ -1200,7 +1200,7 @@ int main() {
     PartDocument docS;
     UndoStack stackS;
     SelectionService selS;
-    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 58);
+    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 59);
 
     const CommandDescriptor* sc = regS.find("part.section_curve");
     CHECK(sc != nullptr);
@@ -1289,7 +1289,7 @@ int main() {
     PartDocument docF;
     UndoStack stackF;
     SelectionService selF;
-    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 58);
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 59);
 
     // The five statements of the application's own starting part, seeded exactly
     // as the app seeds them: NONE of them is command-authored, so undo cannot
@@ -1488,7 +1488,7 @@ int main() {
     PartDocument docK;
     UndoStack stackK;
     SelectionService selK;
-    CHECK_EQ_INT(registerPartCommands(regK, docK, stackK), 58);
+    CHECK_EQ_INT(registerPartCommands(regK, docK, stackK), 59);
 
     // A CREATOR: no selection, no parameter, and reachable from an empty document
     // exactly as RECT is. The plane is the LITERAL XY -- see part.sketch_new for
@@ -1684,6 +1684,94 @@ int main() {
     CHECK(!irValueKindFromName("not_a_kind", unknown));
     // a refused name leaves the out-parameter alone
     CHECK_EQ_INT(static_cast<int>(unknown), static_cast<int>(IrValueKind::Solid));
+  }
+
+  // ── part.set_material — WHAT THE PART IS MADE OF ──────────────────────────
+  // The one document command that changes no statement. It is here rather than
+  // only in the desktop gate because the CONTRACT is a forge::ui contract: an
+  // unknown name is refused, the whole record is stored (not the id), a repeat
+  // is not an edit, and undo puts back what was there.
+  {
+    CommandRegistry regM;
+    PartDocument docM;
+    UndoStack stackM;
+    SelectionService selM;
+    CHECK_EQ_INT(registerPartCommands(regM, docM, stackM), 59);
+
+    const CommandDescriptor* d = regM.find("part.set_material");
+    CHECK(d != nullptr);
+    if (d != nullptr) {
+      // It emits no feature IR: a material is a property of the document, not a
+      // step in its history.
+      CHECK(d->featureIrOp.empty());
+      CHECK_EQ_INT(static_cast<int>(d->sideEffect), static_cast<int>(SideEffectClass::Document));
+      CHECK_EQ_INT(static_cast<int>(d->undo), static_cast<int>(UndoContract::Transaction));
+      CHECK_EQ_INT(d->schema.size(), 1);
+      CHECK_EQ_STR(d->schema[0].name, "material");
+      CHECK(d->schema[0].required);
+      // NO default, deliberately: there is no default material for a part
+      // somebody is designing, and filling one in would let a bare keystroke
+      // decide what the part weighs.
+      CHECK(!d->schema[0].hasDefault);
+    }
+
+    // A fresh document has no material and therefore no mass.
+    CHECK_EQ_STR(docM.material().id, "unassigned");
+    CHECK(!docM.material().hasDensity());
+    CHECK(!docM.massProperties(1000.0).known);
+
+    // An unknown name is REFUSED and changes nothing.
+    CommandParams bad;
+    bad.setText("material", "unobtainium");
+    const DispatchResult rBad = regM.dispatch("part.set_material", selM, bad);
+    CHECK(!rBad.ok());
+    CHECK_EQ_STR(docM.material().id, "unassigned");
+    CHECK_EQ_INT(stackM.undoDepth(), 0);
+
+    // A real one is applied WHOLE -- the density comes with it, which is the
+    // property that makes a saved document keep its weight.
+    CommandParams good;
+    good.setText("material", "titanium-ti6al4v");
+    const DispatchResult rGood = regM.dispatch("part.set_material", selM, good);
+    CHECK(rGood.ok());
+    CHECK_EQ_STR(docM.material().id, "titanium-ti6al4v");
+    CHECK_EQ_STR(docM.material().name, "Titanium Ti-6Al-4V");
+    CHECK_NEAR(docM.material().densityKgPerM3, 4430.0, 1e-12);
+    CHECK_EQ_INT(stackM.undoDepth(), 1);
+    // 1000 mm3 of Ti-6Al-4V is 4.43 g. Stated here from the density rather than
+    // read from the document, so the arithmetic is checked and not echoed.
+    CHECK(docM.massProperties(1000.0).known);
+    CHECK_NEAR(docM.massProperties(1000.0).massGrams, 1000.0 * 4430.0 / 1.0e6, 1e-12);
+
+    // Choosing it AGAIN is not an edit: no second undo step for a no-op.
+    const DispatchResult rSame = regM.dispatch("part.set_material", selM, good);
+    CHECK(!rSame.ok());
+    CHECK_EQ_INT(stackM.undoDepth(), 1);
+
+    // Undo puts back "no material", and redo brings the weight back.
+    CHECK(stackM.undo(docM));
+    CHECK_EQ_STR(docM.material().id, "unassigned");
+    CHECK(!docM.massProperties(1000.0).known);
+    CHECK(stackM.redo(docM));
+    CHECK_EQ_STR(docM.material().id, "titanium-ti6al4v");
+    CHECK_NEAR(docM.massProperties(1000.0).massGrams, 4.43, 1e-12);
+
+    // A FEATURE undo must not touch it. Appending a statement goes through
+    // AppendFeatureEdit, whose inverse is a PartDocument::Snapshot -- and
+    // Snapshot deliberately carries the record count and the bindings and NOT
+    // the material. This is what that decision buys: rolling back a sketch
+    // cannot change what the part is made of.
+    CommandParams rect;
+    rect.setNumber("width", 40.0);
+    rect.setNumber("height", 30.0);
+    const DispatchResult rRect = regM.dispatch("part.sketch_rect", selM, rect);
+    CHECK(rRect.ok());
+    CHECK_EQ_INT(docM.records().size(), 1);
+    CHECK_EQ_INT(stackM.undoDepth(), 2);
+    CHECK(stackM.undo(docM));
+    CHECK_EQ_INT(docM.records().size(), 0);
+    CHECK_EQ_STR(docM.material().id, "titanium-ti6al4v");
+    CHECK_NEAR(docM.material().densityKgPerM3, 4430.0, 1e-12);
   }
 
   return H.finish();

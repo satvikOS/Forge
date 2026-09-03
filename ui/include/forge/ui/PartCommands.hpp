@@ -46,6 +46,7 @@
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
+#include "forge/ui/Material.hpp"
 
 namespace forge::ui {
 
@@ -263,6 +264,26 @@ class PartDocument {
   const FeatureRecord* featureAt(int irId) const noexcept;
   EditCheck lastEdit() const noexcept { return lastEdit_; }
 
+  // ── THE MATERIAL THIS PART IS MADE OF ─────────────────────────────────────
+  //
+  // A document that has a volume and no material has no WEIGHT, and weight is
+  // the first thing anyone asks a solid model for. The document holds the WHOLE
+  // record -- id, name, density, appearance -- and not just the id, for the
+  // reason Material.hpp gives: a file that stored only `aluminium-6061` would
+  // change weight when the library is edited, and would open with NO density at
+  // all on a build whose library lacks that id.
+  //
+  // It is NOT part of Snapshot, deliberately. Snapshot is the memento a FEATURE
+  // edit restores; folding the material into it would make undoing a fillet
+  // silently change what the part is made of.
+  const Material& material() const noexcept { return material_; }
+  // Refuses a no-op and changes nothing, so choosing the material the part
+  // already has does not push an undo step nobody asked for.
+  bool setMaterial(const Material& value);
+  // What a body of `volumeMm3` weighs in this document's material. ONE call, so
+  // no two panels can compute a mass two different ways.
+  MassProperties massProperties(double volumeMm3) const;
+
   // GoF Memento. Small by construction: a record count plus the binding table.
   struct Snapshot {
     std::size_t records = 0;
@@ -276,6 +297,7 @@ class PartDocument {
   std::map<std::string, int> bindings_;
   IrCheck lastCheck_ = IrCheck::Ok;
   EditCheck lastEdit_ = EditCheck::Ok;
+  Material material_ = unassignedMaterial();
 };
 
 // ── the concrete command ────────────────────────────────────────────────────
@@ -324,6 +346,25 @@ class EditFeatureArgsEdit final : public UndoableEdit {
   int irId_;
   std::vector<IrArg> after_;
   std::vector<IrArg> before_;
+  std::string label_;
+};
+
+// The THIRD ConcreteCommand. Like an argument edit and unlike an append, its
+// inverse is derivable from what it replaced, so it stores the old record and no
+// Memento -- and it must not use PartDocument::Snapshot even if it wanted to,
+// because Snapshot does not carry the material at all and restore() would put
+// the old one back only by accident of never having removed it.
+class SetMaterialEdit final : public UndoableEdit {
+ public:
+  explicit SetMaterialEdit(Material value);
+
+  const std::string& label() const noexcept override { return label_; }
+  bool apply(PartDocument& doc) override;
+  void revert(PartDocument& doc) override;
+
+ private:
+  Material after_;
+  Material before_{};
   std::string label_;
 };
 

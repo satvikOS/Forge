@@ -46,15 +46,20 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **84 commands**; **57 of them emit
+Measured at this revision: the registry holds **85 commands**; **57 of them emit
 feature-IR**, reaching **53 distinct op names**. The kernel defines **56** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-The registry grew from 80 to 84 and the EMITTING count did not move, which is the
-whole point of the four that arrived: `file.import_step`, `file.import_brep`,
-`file.export_step` and `file.export_brep` open and save real CAD files and emit no
-feature-IR of their own. That is a deliberate refusal rather than an oversight.
+The registry grew from 80 to 85 and the EMITTING count did not move, which is the
+whole point of the five that arrived. Four are `file.import_step`,
+`file.import_brep`, `file.export_step` and `file.export_brep`: they open and save
+real CAD files and emit no feature-IR of their own. The fifth is
+`part.set_material`, which records what the part is MADE OF -- the density the
+mass properties are computed from -- and emits none for a related reason: a
+material is a property of the document, not a step in its history, and putting it
+in the feature tree would let undoing an unrelated fillet change what the part
+weighs. That is a deliberate refusal rather than an oversight.
 The app compiles the whole IR program on every document change, so an op that
 WROTE a file would rewrite it on every rebuild, and an op that READ one would make
 a saved document mean something different tomorrow. Neither property is one this

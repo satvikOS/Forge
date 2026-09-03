@@ -428,8 +428,16 @@ int main() {
   //                          as app.load_sample, whose menu rows are likewise data, not commands.
   //                          The reason it must be a literal at all: the path decides WHICH
   //                          document, and a derived SurfaceItem carries no argument.
+  //   part.set_material   -- the Materials panel dispatches exactly this one command, with
+  //                          the chosen material id as its PARAMETER, through shell_.run().
+  //                          The list of materials offered is derived (materialLibrary()), so
+  //                          this is a single dispatch through the registry rather than a
+  //                          second copy of it -- the same argument as file.open, and it must
+  //                          be a literal for the same reason: the id decides WHICH material
+  //                          and a derived SurfaceItem carries no argument.
   const std::set<std::string> allowedLiterals = {"app.command_palette", "app.load_sample",
-                                                 "file.open", "part.edit_feature"};
+                                                 "file.open", "part.edit_feature",
+                                                 "part.set_material"};
   const std::set<std::string> literals = hardcodedCommandIds(frame, all);
   for (const std::string& id : literals)
     if (allowedLiterals.count(id) == 0)

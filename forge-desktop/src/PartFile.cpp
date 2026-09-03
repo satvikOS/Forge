@@ -89,6 +89,21 @@ std::string argLine(const forge::ui::IrArg& a) {
   return "ARG kw INVALID";
 }
 
+// Exactly `count` numbers, whitespace-separated, and no more: a
+// MATERIAL-APPEARANCE line with a seventh value is a line this build does not
+// understand, and reading the first six of it would be inventing a meaning for
+// the rest. Each token goes through the format's OWN number parser, so what one
+// writer wrote the other reads back to the last bit.
+bool readNumbers(const std::string& text, double* out, std::size_t count) {
+  std::istringstream in(text);
+  std::string token;
+  for (std::size_t i = 0; i < count; ++i) {
+    if (!(in >> token)) return false;
+    if (!forge::ui::parseRoundTripNumber(token, out[i])) return false;
+  }
+  return !(in >> token);
+}
+
 bool argFromLine(const std::string& rest, forge::ui::IrArg& out, std::string& error) {
   std::string kind, value;
   splitKey(rest, kind, value);
@@ -160,6 +175,34 @@ std::string writePartFile(const PartFileDoc& doc) {
   out += std::string(kPartFileMagic) + " " + std::to_string(kPartFileVersion) + "\n";
   out += "NAME " + (doc.name.empty() ? std::string("untitled") : doc.name) + "\n";
   out += "UNITS " + (doc.units.empty() ? std::string("mm") : doc.units) + "\n";
+  // ── the material, whole, and only when there is one ───────────────────────
+  //
+  // THE KEYS ARE NOT NEW. ui/src/DocumentModel.cpp -- the OTHER writer of this
+  // same `.fpart` name -- already spells a stored material MATERIAL-ID,
+  // MATERIAL-NAME, MATERIAL-DENSITY and MATERIAL-APPEARANCE. Inventing a second
+  // spelling here would have been the "one thing, two code paths" shape this
+  // format's own compatibility gate exists to refuse, and the new reader would
+  // have rejected every file the shipped app wrote. So v1 gains the keys v2
+  // already had, and both readers accept them (the version table in
+  // DocumentModel.cpp records that they now start at v1).
+  //
+  // A document with no material chosen writes NOTHING here, so a file saved from
+  // an unassigned document is byte-for-byte what the previous writer produced.
+  // Numbers go through formatRoundTripNumber, which is the pair the other writer
+  // uses and the one parseRoundTripNumber reads back exactly.
+  if (doc.material.id != forge::ui::unassignedMaterial().id) {
+    out += "MATERIAL-ID " + doc.material.id + "\n";
+    out += "MATERIAL-NAME " + doc.material.name + "\n";
+    out += "MATERIAL-DENSITY " + forge::ui::formatRoundTripNumber(doc.material.densityKgPerM3) +
+           "\n";
+    const forge::ui::Appearance& a = doc.material.appearance;
+    out += "MATERIAL-APPEARANCE " + forge::ui::formatRoundTripNumber(a.red) + " " +
+           forge::ui::formatRoundTripNumber(a.green) + " " +
+           forge::ui::formatRoundTripNumber(a.blue) + " " +
+           forge::ui::formatRoundTripNumber(a.metallic) + " " +
+           forge::ui::formatRoundTripNumber(a.roughness) + " " +
+           forge::ui::formatRoundTripNumber(a.opacity) + "\n";
+  }
   for (const PartFileFeature& f : doc.features) {
     out += "FEATURE\n";
     out += "ID " + std::to_string(f.record.irId) + "\n";
@@ -215,6 +258,42 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
     if (!inFeature) {
       if (key == "NAME") { doc.name = rest; continue; }
       if (key == "UNITS") { doc.units = rest; continue; }
+      if (key == "MATERIAL-ID") {
+        if (rest.empty()) return fail("MATERIAL-ID with no name");
+        doc.material.id = rest;
+        // The NAME falls back to the id until a MATERIAL-NAME line replaces it,
+        // exactly as the other reader of this format does, so a hand-written
+        // file that gives only the id still shows something a person can read.
+        if (doc.material.name == forge::ui::unassignedMaterial().name) doc.material.name = rest;
+        continue;
+      }
+      if (key == "MATERIAL-NAME") {
+        if (rest.empty()) return fail("MATERIAL-NAME with no text");
+        doc.material.name = rest;
+        continue;
+      }
+      if (key == "MATERIAL-DENSITY") {
+        double density = 0.0;
+        if (!forge::ui::parseRoundTripNumber(rest, density)) {
+          return fail("MATERIAL-DENSITY is not a number: " + rest);
+        }
+        if (density < 0.0) return fail("MATERIAL-DENSITY is negative: " + rest);
+        doc.material.densityKgPerM3 = density;
+        continue;
+      }
+      if (key == "MATERIAL-APPEARANCE") {
+        double v[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+        if (!readNumbers(rest, v, 6)) {
+          return fail("MATERIAL-APPEARANCE needs six numbers, got '" + rest + "'");
+        }
+        doc.material.appearance.red = v[0];
+        doc.material.appearance.green = v[1];
+        doc.material.appearance.blue = v[2];
+        doc.material.appearance.metallic = v[3];
+        doc.material.appearance.roughness = v[4];
+        doc.material.appearance.opacity = v[5];
+        continue;
+      }
       if (key == "FEATURE") {
         inFeature = true;
         current = PartFileFeature{};
@@ -276,6 +355,7 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
 PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name) {
   PartFileDoc out;
   out.name = name.empty() ? std::string("untitled") : name;
+  out.material = doc.material();
   // snapshot() is the document's own published view of its node bindings; the
   // reverse index is built here rather than kept in a second place that could
   // fall behind it.
@@ -296,6 +376,10 @@ PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::s
 
 bool restorePartDocument(const PartFileDoc& file, forge::ui::PartDocument& doc,
                          std::string& error) {
+  // The material FIRST, and its return value is deliberately not checked:
+  // setMaterial refuses a no-op, and restoring "no material chosen" into a fresh
+  // document is exactly that. A refusal here means the document already agreed.
+  doc.setMaterial(file.material);
   for (const PartFileFeature& f : file.features) {
     if (f.record.irId != doc.nextIrId()) {
       error = "statement %" + std::to_string(f.record.irId) +

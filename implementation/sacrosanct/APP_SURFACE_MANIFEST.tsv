@@ -50,6 +50,7 @@ part.rotate	Part	ROTATE	document	transaction	live	1	angle:number:required:hasdef
 part.section_curve	Part	SECTION	document	transaction	none	1	-
 part.section_ring	Part	RING	document	transaction	live	1	rx:number:required:hasdefault,ry:number:required:hasdefault,z:number:required:hasdefault,cx:number:optional,cy:number:optional,p:number:optional,seg:number:optional
 part.section_wire	Part	WIRE	document	transaction	live	1	ring:text:required:hasdefault
+part.set_material	Part	-	document	transaction	none	1	material:text:required
 part.sew	Part	SEW	document	transaction	ondemand	1	tol:number:optional
 part.shell	Part	SHELL	document	transaction	ondemand	1	thickness:number:required:hasdefault,open_axx:number:optional,open_axy:number:optional,open_axz:number:optional
 part.sketch_circle	Part	CIRCLE	document	transaction	live	1	radius:number:required:hasdefault,cx:number:optional,cy:number:optional

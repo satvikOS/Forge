@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "9e514bbd6d9878d81f367be61f6e13605a207f6cf9318b1f8b7c6a8ebfac208c",
-        "bytes": 173028,
-        "lines": 3559
+        "sha256": "8f0718684c1f0fe42383b7e0e35e8546485d68eefb7e972c4e7e24a9c3e28a50",
+        "bytes": 195114,
+        "lines": 4029
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "5b960006ffcb56ab68d63b71913629fbe80692a633a03b29fb7f6a9dfae8e4ae",
-        "bytes": 184083,
-        "lines": 3135
+        "sha256": "9eb1b054526f8d68286c554ef7ab637a27c5b39c3bfea2244f9f17fb2fb7ba85",
+        "bytes": 187810,
+        "lines": 3208
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 56,
     "ui_validator_ops": 56,
-    "registry_commands": 84,
+    "registry_commands": 85,
     "commands_emitting_ir": 57,
     "user_invocable_ops": 53,
     "forbidden_ops": 3,
@@ -8887,6 +8887,31 @@
       "produces_value_kind": "Wire"
     },
     {
+      "id": "part.set_material",
+      "label": "Set Material",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "material",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.sew",
       "label": "Sew Sheets",
       "category": "Part",
@@ -10230,9 +10255,10 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 1,
+      "count": 2,
       "parameters": [
-        "value (part.edit_feature)"
+        "value (part.edit_feature)",
+        "material (part.set_material)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"

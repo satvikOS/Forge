@@ -42,6 +42,7 @@
 #include <vector>
 
 #include "forge/ui/FeatureIr.hpp"
+#include "forge/ui/Material.hpp"
 #include "forge/ui/PartCommands.hpp"
 
 namespace forge::desktop {
@@ -62,6 +63,18 @@ struct PartFileFeature {
 struct PartFileDoc {
   std::string name = "untitled";
   std::string units = "mm";
+  // ── WHAT THE PART IS MADE OF ──────────────────────────────────────────────
+  // Stored WHOLE -- id, name, density and appearance -- rather than as the id
+  // alone. Material.hpp gives the reason and it is a data-loss argument, not a
+  // style one: a file carrying only `aluminium-6061` would silently change
+  // weight when the library table is edited, and would open with NO density at
+  // all on a build whose table lacks that id, so a part that plainly states its
+  // material would have no mass. The library is a picker; the file is the record.
+  //
+  // Written only when a material has been chosen, so every .fpart saved before
+  // this existed still reads, and one saved by a document with no material is
+  // byte-identical to what the previous writer produced.
+  forge::ui::Material material = forge::ui::unassignedMaterial();
   std::vector<PartFileFeature> features;
 
   // The feature-IR program these records spell, newline-joined — derived, never

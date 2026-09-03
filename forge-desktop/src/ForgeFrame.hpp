@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "Camera.hpp"
+#include "CamHost.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/ArchieCopilot.hpp"
@@ -482,6 +483,42 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // The path requested but not yet dispatched; "" when there is none.
   const std::string& pendingOpenPath() const noexcept { return pendingOpenPath_; }
 
+  // ── THE MANUFACTURING PANELS ────────────────────────────────────────────
+  // Four tabs -- Tool Library, Stock, Post Output and Materials -- share ONE
+  // computation, cached behind a witness. These readers exist so a headless gate
+  // can assert on the values the panels DRAW, against independent calls into the
+  // same kernel, without a window: everything below is what is on screen.
+  const forge::desktop::cam::PartOutline& camOutline() const noexcept { return camOutline_; }
+  const forge::desktop::cam::StockBlock& camStock() const noexcept { return camStock_; }
+  const forge::desktop::cam::CamPlan& camPlan() const noexcept { return camPlan_; }
+  const forge::desktop::cam::StockCutReport& camCut() const noexcept { return camCut_; }
+  // How many times the whole chain was actually recomputed. The cache claim is
+  // only meaningful if something counts it.
+  std::size_t camRecomputes() const noexcept { return camRecomputes_; }
+  // Rows the panels actually put in front of somebody this frame. A model that
+  // holds the right numbers and a panel that draws none of them is the defect
+  // these panels exist to end, so the two are counted separately.
+  std::size_t camToolRowsDrawn() const noexcept { return camToolRowsDrawn_; }
+  std::size_t camProgramRowsDrawn() const noexcept { return camProgramRowsDrawn_; }
+  std::size_t camStockRowsDrawn() const noexcept { return camStockRowsDrawn_; }
+  std::size_t camMaterialRowsDrawn() const noexcept { return camMaterialRowsDrawn_; }
+
+  std::uint32_t camToolId() const noexcept { return camToolId_; }
+  // Public so a gate can drive the tool choice the way a click does. Refuses an
+  // id the library does not hold rather than leaving the panels pointing at a
+  // tool that does not exist.
+  bool setCamToolId(std::uint32_t id);
+  float camSectionZ() const noexcept { return camSectionZ_; }
+  void setCamSectionZ(float z);
+  // What the Materials panel and the Properties panel BOTH report. One call, so
+  // the two cannot answer the same question differently.
+  forge::ui::MassProperties partMass() const;
+  // The id of the material the open document holds. "unassigned" when none has
+  // been chosen, which is a real document state and has to be nameable.
+  const std::string& partDocumentMaterialId() const noexcept {
+    return partDoc_.material().id;
+  }
+
   // ── dock mutations ──────────────────────────────────────────────────────
   // Public because they are the layout's write API, not a splitter-drag detail:
   // a host uses them for "reset column widths", for restoring a workspace, and
@@ -520,6 +557,18 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void runCopilotSubmit();
   void runCopilotApply();
   void runCopilotDiscard();
+  void drawToolLibraryPanel();
+  void drawPostOutputPanel();
+  void drawStockPanel();
+  void drawMaterialsPanel();
+  // Recomputes the section, the stock, the toolpath and the stock simulation
+  // when -- and only when -- something they depend on has moved. Called at the
+  // top of each of the four panels above, so a workspace with none of them open
+  // pays nothing.
+  void ensureCamPlan();
+  // Dispatches the material the Materials panel asked for, through the ONE
+  // registry. Deferred like every other mutation in this class.
+  void runPendingMaterial();
   void drawGenericPanel(const std::string& panelId);
   void drawCommandPalette();
   void drawViewportOverlays(float x, float y, float w, float h);
@@ -636,6 +685,63 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t edgeTriangles_ = 0;
   bool edgesBuilt_ = false;
   std::size_t hoverEdge_ = forge::ui::kNoEdge;
+
+  // ── the manufacturing panels' shared state and cache ────────────────────
+  //
+  // WHY ONE CACHE FOR FOUR PANELS. The section, the toolpath, the posted program
+  // and the stock simulation are ONE chain: the stock's depth comes from the
+  // block, the toolpath comes from the section, the program comes from the
+  // toolpath and the simulation comes from both. Computing them per panel would
+  // let the Stock tab and the Post Output tab disagree about the operation they
+  // are both describing.
+  //
+  // WHY A WITNESS AND NOT A FLAG. `camControls_` records the inputs the cache was
+  // built from, INCLUDING the scene's own build counter and triangle count, so a
+  // rebuild under the panels invalidates it without anyone remembering to say so.
+  struct CamControls {
+    std::uint32_t toolId = 0;
+    int side = 0;
+    int post = 0;
+    float sectionZ = 0.0f;
+    float stockSide = 0.0f;
+    float stockTop = 0.0f;
+    float spindlePercent = 0.0f;
+    float stepdown = 0.0f;
+    std::size_t builds = 0;
+    std::size_t triangles = 0;
+    bool operator==(const CamControls& o) const noexcept {
+      return toolId == o.toolId && side == o.side && post == o.post && sectionZ == o.sectionZ &&
+             stockSide == o.stockSide && stockTop == o.stockTop &&
+             spindlePercent == o.spindlePercent && stepdown == o.stepdown && builds == o.builds &&
+             triangles == o.triangles;
+    }
+  };
+  std::uint32_t camToolId_ = 1;
+  int camSideIndex_ = 1;   // 0 inside the line, 1 outside it, 2 on it
+  int camPostIndex_ = 0;   // 0 Fanuc, 1 Heidenhain, 2 Siemens
+  float camSectionZ_ = 0.0f;
+  // Seeded ONCE, at the middle of the part. Re-seeding on every rebuild would
+  // drag the slider out from under anybody who had moved it.
+  bool camSectionSeeded_ = false;
+  float camStockSideMm_ = 5.0f;
+  float camStockTopMm_ = 2.0f;
+  float camSpindlePercent_ = 100.0f;
+  float camStepdownMm_ = 0.0f;  // 0 asks for half the tool diameter
+  CamControls camControls_{};
+  bool camPlanValid_ = false;
+  std::size_t camRecomputes_ = 0;
+  forge::desktop::cam::PartOutline camOutline_{};
+  forge::desktop::cam::StockBlock camStock_{};
+  forge::desktop::cam::CamPlan camPlan_{};
+  forge::desktop::cam::StockCutReport camCut_{};
+  std::size_t camToolRowsDrawn_ = 0;
+  std::size_t camProgramRowsDrawn_ = 0;
+  std::size_t camStockRowsDrawn_ = 0;
+  std::size_t camMaterialRowsDrawn_ = 0;
+  // The material a click asked for, dispatched after the dock walk for the same
+  // reason every other mutation in this class is: it runs a command that touches
+  // the document while the walk still holds references into it.
+  std::string pendingMaterialId_;
 
   Camera camera_;
   ViewportRequest viewportRequest_;

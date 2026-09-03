@@ -213,6 +213,17 @@ void PartDocument::restore(const Snapshot& state) {
   bindings_ = state.bindings;
 }
 
+// ── the material ────────────────────────────────────────────────────────────
+bool PartDocument::setMaterial(const Material& value) {
+  if (value == material_) return false;  // a no-op is not an edit
+  material_ = value;
+  return true;
+}
+
+MassProperties PartDocument::massProperties(double volumeMm3) const {
+  return massPropertiesOf(material_, volumeMm3);
+}
+
 // ── AppendFeatureEdit (GoF ConcreteCommand + Memento) ───────────────────────
 AppendFeatureEdit::AppendFeatureEdit(FeatureRecord record, std::vector<std::string> consumedNodes,
                                      std::string producedNode)
@@ -251,6 +262,24 @@ void EditFeatureArgsEdit::revert(PartDocument& doc) {
   // differ (or editFeatureArgs would have answered NoChange and apply() would
   // have returned false, so this edit would never have been pushed).
   doc.editFeatureArgs(irId_, before_);
+}
+
+// ── SetMaterialEdit (GoF ConcreteCommand, self-inverse) ────────────────────
+SetMaterialEdit::SetMaterialEdit(Material value)
+    : after_(std::move(value)), label_("Material " + after_.name) {}
+
+bool SetMaterialEdit::apply(PartDocument& doc) {
+  // Captured on EVERY apply for the same reason EditFeatureArgsEdit does it:
+  // redo calls apply() a second time, and a `before_` frozen at construction
+  // would put back a material the document stopped holding two steps ago.
+  before_ = doc.material();
+  return doc.setMaterial(after_);
+}
+
+void SetMaterialEdit::revert(PartDocument& doc) {
+  // setMaterial refuses a no-op, and this one cannot be one: apply() succeeded,
+  // which means the two records differ.
+  doc.setMaterial(before_);
 }
 
 // ── UndoStack (GoF Caretaker) ───────────────────────────────────────────────
@@ -3084,6 +3113,49 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── SET MATERIAL ──────────────────────────────────────────────────────────
+  // The command that gives the part a WEIGHT. Until it existed the only physical
+  // quantity anywhere in a Forge document was a volume in cubic millimetres: the
+  // material table, the densities and the mass arithmetic were all written and
+  // all unreachable, because nothing in the application could assign one.
+  //
+  // Takes NO selection. A material belongs to the document, not to a face the
+  // user happens to have picked, and requiring a pick would make the Materials
+  // panel -- the surface a person actually uses to choose one -- the one place
+  // that could not invoke it.
+  //
+  // `featureIrOp` is empty for the same reason part.edit_feature's is: it emits
+  // no statement. It changes what the statements are made OF.
+  //
+  // `material` is REQUIRED and carries NO default, exactly as part.edit_feature's
+  // `value` does. There is no default material for a part somebody is designing,
+  // and filling one in would let a menu click silently decide a part is aluminium.
+  {
+    CommandDescriptor c = base("part.set_material", "Set Material", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "material", .type = ParamType::Text,
+                                 .required = true, .defaultNumber = 0.0,
+                                 .defaultText = "", .hasDefault = false});
+    c.preview = PreviewPolicy::None;
+    // STRUCTURE only, never the value -- the same rule part.edit_feature is
+    // written to. "Is there a table to choose from?" is what a greyed menu item
+    // answers; whether a particular name is in it is the execute's answer, and
+    // deciding it here would grey out a legal keystroke.
+    c.enabled = [](const CommandContext&) { return !materialLibrary().empty(); };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::string id = txt(ctx, "material", "");
+      const Material* picked = findMaterial(id);
+      if (picked == nullptr) {
+        ctx.fail("no material is recorded under that name");
+        return;
+      }
+      if (!s->perform(*d, std::make_unique<SetMaterialEdit>(*picked))) {
+        ctx.fail("this part is already made of that material");
+      }
+    };
+    add(std::move(c));
+  }
+
   // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
   // There used to be `part.undo` and `part.redo` beside `edit.undo` / `edit.redo`,
   // two pairs of buttons driving ONE stack. Whichever a user pressed, the other
@@ -3123,6 +3195,7 @@ const std::vector<std::string>& partCommandIds() {
         "part.surfcheck",          "part.sweep_pipe",
         "part.sweep_profile",      "part.tag_feature",        "part.thicken",
         "part.section_curve",
+        "part.set_material",
         "part.variable_fillet",
         "part.verify",
     };

@@ -110,9 +110,9 @@ constexpr Row kRows[] = {
      "The forces, pressures and temperatures applied to this study.",
      PanelContent::Planned},
     {"materials",
-     "The material assigned to each body in this study, and the properties the solver reads from "
-     "it.",
-     PanelContent::Planned},
+     "What this part is made of, what that makes it weigh, and the whole list you can choose "
+     "from.",
+     PanelContent::Live},
     {"mates",
      "The mates holding this assembly together, and how many ways each component can still move.",
      PanelContent::Planned},
@@ -133,7 +133,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"post_output",
      "The machine code produced for this setup, ready to read before you send it to the machine.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"properties",
      "The document you have open and the feature you have picked, with the one number that drives "
      "it.",
@@ -167,7 +167,7 @@ constexpr Row kRows[] = {
      PanelContent::Planned},
     {"stock",
      "The block of raw material this part is cut from, and how much of it is left.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"study_tree",
      "The simulation studies set up for this part, and what each one is solving for.",
      PanelContent::Live},
@@ -178,8 +178,9 @@ constexpr Row kRows[] = {
      "The title block of this drawing: part number, revision, material, scale and who signed it.",
      PanelContent::Planned},
     {"tool_library",
-     "The cutting tools available for this setup, with their diameters, flute counts and holders.",
-     PanelContent::Planned},
+     "The cutting tools available for this setup, with their sizes, flute counts and the speeds "
+     "and feeds they cut at.",
+     PanelContent::Live},
     {"verify_report",
      "Whether the part that was built matches what was asked for, and where it does not.",
      PanelContent::Planned},
