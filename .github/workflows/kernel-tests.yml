@@ -123,7 +123,33 @@ jobs:
     # model. Nothing here includes an ImGui header, which is why it runs headless in CI: the ImGui
     # frame builder is a CONSUMER of this state, not its owner.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # ── 20 -> 45, MEASURED, because 20 was already unreachable ──────────────
+    # This job carries the mutation proofs, and each one rebuilds every ui/
+    # source. On archdisc itself (run 33802557633) it took 18m05s of its 20:
+    # prose 7m54, model-tree 4m53, syntax 55s. That is 90% of budget spent
+    # before any pull request touches it, so ANY branch that adds work to this
+    # job times out -- and a timeout is reported as `cancelled`, which reads
+    # like "superseded by a newer push" and is not.
+    #
+    # Two branches hit it on the same day, both with every other step green:
+    #   #219 cancelled at 20.3 min, mid "what a USER reads"
+    #   #220 cancelled at 20m18s, mid "how many docked tabs still show nothing"
+    # #220 also ADDS a fourth mutation proof (the panel ratchet, ~7 min, absent
+    # here) and ~2,500 lines that cost ~13% on every full rebuild -- measured
+    # need is about 28 minutes, so 45 leaves real headroom rather than moving
+    # the cliff by two minutes.
+    #
+    # ★ THE STRUCTURALLY BETTER FIX IS TO SPLIT THE MUTATION PROOFS INTO
+    #   PARALLEL JOBS. It is deliberately NOT done here: it renames checks on
+    #   every open pull request, and this change exists to UNBLOCK a queue that
+    #   cannot currently prove anything. Raising a budget hides nothing -- no
+    #   assertion, tolerance, or mutation is touched by this commit.
+    #
+    # ★ A cheaper option was measured and rejected: -O2 -> -O0 on the ratchet
+    #   build saves 33% per build (24.1s -> 16.2s) but only ~1 min across the
+    #   job, and it breaks the shared -Wall -Wextra -Werror -O2 convention that
+    #   three gate scripts rely on.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: forge::ui gates
