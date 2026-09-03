@@ -146,14 +146,16 @@
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
-#include <GeomConvert.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <Geom_BezierCurve.hxx>
+#include <Geom_Ellipse.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColStd_Array2OfReal.hxx>
 #include <TColgp_Array2OfPnt.hxx>
 
+#include "forge/native/geom/NativeNurbsConvert.hpp"  // occtconv::curveToBSpline (no TKGeomBase)
 #include "forge/native/brep/NativeShapeHeal.hpp"  // occtheal::solidFromShell
 
 namespace forge {
@@ -721,14 +723,40 @@ TopoDS_Shape thruSectionsTranslate(const std::vector<TopoDS_Shape>& sections,
 // An edge's curve as a B-spline on [0,1], in the edge's ORIENTED direction.
 // Returns null on anything unconvertible. The reparameterisation is affine on
 // the knots, which is exact and leaves the curve's point set unchanged.
+// ★ EXACTNESS WHITELIST, and why the conversion is not simply handed the curve.
+// forge::occtconv::curveToBSpline is a 1:1 drop-in for
+// GeomConvert::CurveToBSplineCurve and is EXACT for line, circle, ellipse, Bezier
+// and B-spline — but its own header states that a parabola, hyperbola or offset
+// curve is instead SAMPLED and least-squares fitted. This engine's whole contract
+// is that every shape it builds is exact and everything else is an honest defer,
+// so those classes are turned away here rather than silently approximated. The
+// test is on the BASIS curve, under any number of Geom_TrimmedCurve wrappers.
+bool exactlyConvertible(const Handle(Geom_Curve)& c0) {
+    Handle(Geom_Curve) c = c0;
+    while (!c.IsNull() && c->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
+        c = Handle(Geom_TrimmedCurve)::DownCast(c)->BasisCurve();
+    if (c.IsNull()) return false;
+    return c->IsKind(STANDARD_TYPE(Geom_Line))
+        || c->IsKind(STANDARD_TYPE(Geom_Circle))
+        || c->IsKind(STANDARD_TYPE(Geom_Ellipse))
+        || c->IsKind(STANDARD_TYPE(Geom_BezierCurve))
+        || c->IsKind(STANDARD_TYPE(Geom_BSplineCurve));
+}
+
 Handle(Geom_BSplineCurve) edgeToBSpline01(const TopoDS_Edge& e) {
     Standard_Real f = 0.0, l = 0.0;
     Handle(Geom_Curve) c = BRep_Tool::Curve(e, f, l);
     if (c.IsNull() || !(l > f)) return Handle(Geom_BSplineCurve)();
+    if (!exactlyConvertible(c)) return Handle(Geom_BSplineCurve)();
     Handle(Geom_BSplineCurve) b;
     try {
+        // The NATIVE converter, not GeomConvert: GeomConvert lives in TKGeomBase,
+        // and calling it here took the binary from OCCT_PHANTOM 2 to 3 (measured
+        // by scripts/tkoffset_ledger_gate.sh, which failed on exactly this one
+        // symbol). TKGeomBase is a toolkit this programme has to drop later, so
+        // adding a fresh call into it to drop TKOffset would be moving the debt.
         Handle(Geom_TrimmedCurve) tc = new Geom_TrimmedCurve(c, f, l);
-        b = GeomConvert::CurveToBSplineCurve(tc);
+        b = forge::occtconv::curveToBSpline(tc);
     } catch (const Standard_Failure&) { return Handle(Geom_BSplineCurve)(); }
     if (b.IsNull()) return Handle(Geom_BSplineCurve)();
     try {
