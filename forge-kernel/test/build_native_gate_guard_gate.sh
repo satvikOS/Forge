@@ -147,7 +147,21 @@ restore_sources() {
   #   checks, 0 failures) and BOTH mutations caught, failing only at [5/5] with
   #   `before: feat=1 -> after: feat=0` -- i.e. mutation 2's deletion of the
   #   FEATURES restore was STILL LINKED after being reverted in the source. The
-  #   step completed in 3 SECONDS, which cannot have recompiled anything.
+  #   ★ CORRECTED: an earlier version of this comment argued that [5/5]
+  #   finishing in 3 SECONDS proved the rebuild was elided. That number DOES NOT
+  #   DISCRIMINATE. Comparing sub-step timings between a PASSING archdisc run
+  #   (3d886631) and a FAILING one (5dc9aaf0): [1/5] 2m41s vs 2m01s, mutation 1
+  #   10s vs 8s, mutation 2 5s vs 4s, the restore window 9s vs 7s, and [5/5]
+  #   itself 3s in BOTH. So [5/5] recompiles nothing even when the gate PASSES:
+  #   the compile that decides the outcome happens inside restore_sources(), in
+  #   that 9s-vs-7s window -- which is exactly where the deletion below lives.
+  #   The failing run was uniformly ~25% faster at every phase: a RUNNER-SPEED
+  #   signature tightening a one-second collision, not a branch-content
+  #   signature, since this gate compiles no file that branch touched.
+  #   ★ And the evidentiary asymmetry, because it nearly cost the diagnosis: a
+  #   local PASS would NOT refute this. For a race, different hardware has
+  #   different timing, so only a reproduction confirms -- treating a
+  #   non-reproduction as refutation is how a real race is closed "works for me".
   #   It reproduced on re-run and passed on the same tree locally, because locally
   #   the gate owns its build directory while CI points GATE_GUARD_BUILD at the
   #   SHARED build-verify, whose library an earlier job step had just linked.
