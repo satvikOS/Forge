@@ -49,6 +49,7 @@
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <Standard_Failure.hxx>
@@ -606,15 +607,64 @@ void runAll() {
                  "not present on the shape");
     }
     {
-        // (e) ★ THE NAMED CAPABILITY GAP. A wall that MEETS a cylinder: the new
-        // edge would be a conic section needing a NEW pcurve on the cylinder,
-        // which is an approximation. It must be declined and SAID, not fudged.
-        // The bore here breaks out through the +X wall.
+        // (e) ★ WAS THE NAMED CAPABILITY GAP; IT IS NOW A CAPABILITY. A wall that
+        // MEETS a cylinder: the new edge is the exact plane/cylinder ELLIPSE, and
+        // only its PCURVE on the cylinder is approximated, under the deviation
+        // bound the engine asserts per edge. So this fixture is no longer a
+        // defer control -- it is held to the FULL observable vector against live
+        // OCCT, which is strictly more than the old control demanded. The bore
+        // here breaks out through the +X wall.
+        //
+        // A DEFER CONTROL THAT BECAME REACHABLE MUST BE PROMOTED, NOT DELETED.
+        // Turning "it must decline" into "it must decline for some other reason"
+        // would have kept the suite green while testing nothing; the case is
+        // instead re-pointed at the harder assertion, and the defer PATH it used
+        // to cover is kept alive by (e2) below on a neighbour that really is
+        // still out of scope.
         const TopoDS_Shape part = boxWithThroughHole(20.0, 20.0, 10.0, 20.0, 10.0, 4.0);
         TopTools_ListOfShape f;
         f.Append(faceTowards(part, gp_Dir(1, 0, 0)));
-        deferCtl("defer(e) drafted wall meets a cylinder", part, f, zUp,
+        abCase("case(e) drafted wall meets a cylinder", part, f, zUp,
+               5.0 * kPi / 180.0, nz0);
+    }
+    {
+        // (e2) THE DEFER PATH (e) USED TO COVER. A SPHERE is not a cylinder, so
+        // the section is not an ellipse this engine can write in closed form and
+        // the "non-planar" decline must still fire, and still be NAMED.
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 10.0).Shape();
+        const TopoDS_Shape sph =
+            BRepPrimAPI_MakeSphere(gp_Pnt(20.0, 10.0, 5.0), 4.0).Shape();
+        const TopoDS_Shape part = BRepAlgoAPI_Cut(box, sph).Shape();
+        TopTools_ListOfShape f;
+        f.Append(faceTowards(part, gp_Dir(1, 0, 0)));
+        deferCtl("defer(e2) drafted wall meets a sphere", part, f, zUp,
                  5.0 * kPi / 180.0, nz0, "non-planar");
+    }
+    {
+        // (f) ★ THE CLOSED RIM. Case (e)'s bore breaks OUT through the wall's
+        // boundary, so its edge on the cylinder is an ARC with two distinct
+        // vertices. A bore that lies WHOLLY INSIDE the drafted wall gives the
+        // other case: ONE closed edge, one vertex used twice, and both endpoints
+        // therefore project to the SAME parameter. The engine used to read that
+        // as a degenerate range and decline; it is a FULL PERIOD.
+        //
+        // This case exists because the corpus said so: 73 of the 565 parts
+        // declined with exactly t0 = t1 = 0 and BOTH residuals 0, which is the
+        // signature of one point rather than of a failed projection. A fix
+        // derived from a corpus histogram is still a guess until a fixture holds
+        // it to OCCT, which is what this is.
+        const double L = 20.0, H = 10.0;
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(L, L, H).Shape();
+        // axis along +X, through the +X wall, well clear of every wall boundary
+        const TopoDS_Shape bore =
+            BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(-1.0, 10.0, 5.0), gp_Dir(1, 0, 0)),
+                                     3.0, L + 2.0).Shape();
+        const TopoDS_Shape part = BRepAlgoAPI_Cut(box, bore).Shape();
+        TopTools_ListOfShape f;
+        f.Append(faceTowards(part, gp_Dir(1, 0, 0)));
+        ok(!f.First().IsNull(), "case(f) : the +X wall was found");
+        abCase("case(f) drafted wall with a bore wholly inside it", part, f, zUp,
+               5.0 * kPi / 180.0, nz0);
     }
 }
 

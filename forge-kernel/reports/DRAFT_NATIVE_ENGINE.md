@@ -299,6 +299,29 @@ The 68 neither engine drafts:  62 bspline+cylinder, 2 bspline, 2 cylinder, 2 con
 meeting a CYLINDER.** Every part whose wall meets a b-spline defeats OCCT as
 well, so nothing is owed there.
 
+> ### ★ CORRECTION, 2026-09-02 — that sentence undercounted the gap by 52 parts
+>
+> The gap was **125**, not 73. The two numbers differ because "73" counted only
+> the parts that decline with a CYLINDER neighbour and quietly dropped the ones
+> declining on `the rebuilt solid is not BRepCheck-valid`, which are a different
+> defect with a different fix:
+>
+> | declining on | parts | wall neighbour |
+> |---|---|---|
+> | `a wall edge on a cylinder would have a non-increasing range` | 73 | cylinder |
+> | `the rebuilt solid is not BRepCheck-valid` | 52 | **plane only** |
+>
+> The 52 have no cylinder anywhere near the drafted wall, so no amount of
+> pcurve work could ever have reached them, and any plan that scheduled "73
+> parts" as the remaining work was scheduling 58 % of it. Measured with
+> `test/run_draft_local_probe.sh` over all 565 applicable parts; all 565 inputs
+> are BRepCheck-valid, so every one of these is the engine breaking a good
+> solid, not carrying a bad one.
+>
+> **Reading a gap off one defer reason is what caused this.** The histogram of
+> reasons was there in the same JSONL the 73 came from; only one row of it was
+> quoted.
+
 ### Why that is not one more predicate
 
 The 3-D curve is easy and exact: a plane section of a cylinder is an **ellipse**,
@@ -448,3 +471,66 @@ CANNOT BUILD CANNOT FAIL, which is the entire reason that ratchet exists.
   drafted wall picked by largest vertical planar area, +Z pull, 3°, neutral plane
   at z-min. Nothing here measures multi-wall drafts, non-vertical walls, or any
   other corpus.
+
+
+---
+
+## 2026-09-02 — the wall/cylinder meet is BUILT; coverage 65.8 % -> 75.4 %
+
+Paired re-run of `test/run_draft_local_probe.sh` over the SAME 565 applicable
+parts, same sideWall pick, same draft arguments, scored the same way (a part
+counts only if the native solid AGREES WITH OCCT on the whole observable vector).
+
+```
+                              native agrees      OCCT built
+before (branch head)          372 / 565 = 65.8%  497 / 565 = 88.0%
+after                         426 / 565 = 75.4%  497 / 565 = 88.0%
+paired: gained 54, lost 0, built-but-disagreed 0
+```
+
+Three defects, all in the same place, none of them visible as a bad edge —
+every edge was individually perfect in all three, and only the 2-D WIRE was
+wrong, which is why `BRepCheck_Analyzer::IsValid()` alone could not name any of
+them:
+
+1. **The 2*pi branch.** `cylinderPCurve` takes a `uNear` that selects which
+   period the fitted pcurve lands on. The call site never passed it, so it
+   defaulted to `0.0` and put the new pcurve on `[-pi, pi]` while the face's
+   untouched edges stayed on `[pi/2, 3pi/2]`. Every endpoint was exactly `2*pi`
+   from the neighbour it had to meet. Fixed by anchoring on the OLD edge's own
+   pcurve, which is written in the branch the face's 2-D domain already uses.
+2. **The closed rim's span.** A bore lying WHOLLY INSIDE the drafted wall meets
+   it in one CLOSED edge — one vertex used twice — so both endpoints project to
+   the same parameter. Measured signature: `t0 = t1 = 0` with BOTH residuals
+   exactly `0`, which is one point, not a failed projection. Such an edge spans
+   a whole period. Closedness is read from `v0.IsSame(v1)`, never inferred from
+   the parameters.
+3. **The closed rim's sense.** With `v0 == v1` there is no vertex order to take
+   a direction from, so the span alone left the sense free and the wrong one ran
+   `u` from `2*pi` down to `0` against seam edges that needed `0` up to `2*pi`.
+   The old curve's tangent at its start decides it.
+
+Anchoring the branch on the old pcurve's MIDPOINT looked equivalent to anchoring
+on its start and is not: for a closed rim the midpoint sits exactly half a period
+from both candidates, so the nearest-branch `round()` decides a **tie** — measured
+landing the rim on `[2*pi, 4*pi]`. All three are mutation-proved
+(`run_ab_native_draft_local.sh --mutations`, mutations 9-12).
+
+### What is left: 71 parts, and they are NOT one problem
+
+```
+52  plane neighbour only   -- the drafted wall crosses a feature; TOPOLOGY changes
+19  cylinder neighbour     -- closed rims this fix does not yet reach
+```
+
+The 52 are the harder half and are **out of this engine's stated design**, not a
+missing predicate. Diagnosed on `ho1024`: the drafted wall moves INWARD by
+2.56274, and a scalloped island bounded by a circle of centre `(9.634, -29.61)`
+and radius `24.93` reaches `y = -54.54` — it was inside the original boundary at
+`-55.6` and is outside the drafted one at `-53.037`. `BRepCheck_Wire::SelfIntersect`
+names the offending pair directly: the moved boundary line and that arc. The
+engine "changes geometry and never topology" and asserts equal face/edge/vertex
+counts, so it CANNOT represent a wall that has begun to cut a feature. OCCT
+drafts these by recomputing the intersection topology. **The validity gate is
+catching a real defect here, not costing coverage** — the distinction
+`run_draft_local_validity_diag.sh` exists to make, answered for this block.
