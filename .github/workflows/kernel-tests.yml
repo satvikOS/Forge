@@ -287,20 +287,6 @@ jobs:
       - name: SECTION op gate (geometry + IR round trip + 3 mutations)
         run: bash forge-kernel/test/build_section_op_gate.sh
 
-  nafems_ratchet_selftest:
-    name: NAFEMS ratchet — prove the gate can fail
-    # SR-3: a gate whose failure path cannot produce a non-zero exit is not a gate. Until
-    # 2026-08-28 fea_nafems_gate.mjs printed FAIL for a missed NAFEMS benchmark and still
-    # exited 0. The ratchet that replaces it is therefore not trusted on its say-so: this
-    # job drives every one of its documented red paths with stub gates and asserts each
-    # exit code. No kernel build needed.
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: NAFEMS ratchet self-test
         run: bash forge-kernel/test/fea_nafems_ratchet_selftest.sh
 
@@ -578,6 +564,25 @@ jobs:
           cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
                 -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
           cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: native gate guard — a compile must restore every gate it forced
+        # WHY HERE AND NOT IN THE APPENDIX B JOB, WHERE THIS FIRST LIVED.
+        #   This gate needs a full CMake configure of forge-kernel. The Appendix B job
+        #   installs OCCT but does NOT seed the pinned dependency plane, so configuring
+        #   there failed with "ForgeDeps: could not resolve 'boost' 1.90.0". Its
+        #   neighbour, the SECTION op gate, works there only because it compiles a
+        #   hand-picked TU list with -Wl,-undefined,dynamic_lookup and never configures
+        #   at all. This job installs Boost and has ALREADY built build-verify, so the
+        #   gate reuses that tree instead of standing up a second one.
+        #
+        # THE DEFECT IT PINS: forge::ft::compile() saved ONE gate bit and restored FOUR
+        #   via setForgeNativeBrepEnabled(), whose own comment says "production never
+        #   calls this" — the compiler is production. FEATURES defaults OFF while the
+        #   other three default ON, so it latched ON after the first compile and mass
+        #   properties on the app's own bracket read -85.2% with a COM of -1.37e34.
+        env:
+          GATE_GUARD_BUILD: forge-kernel/build-verify
+        run: bash forge-kernel/test/build_native_gate_guard_gate.sh
+
       - name: ARC + HELIX compile probe (closed-form geometry, and HELIX's value kind)
         # PARSING IS NOT BUILDING, and the gap between them is where an arc op
         # fails silently: a profile that builds every arc as its CHORD parses

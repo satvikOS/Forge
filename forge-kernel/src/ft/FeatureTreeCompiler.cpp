@@ -3170,12 +3170,21 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
 
 #ifdef FORGE_NATIVE_BREP
     // Force the clean OCCT analytic backend for the whole build, then restore.
-    bool prevGate = forge::native::brep::forgeNativeBrepEnabled();
+    // Capture ALL FOUR gate overrides, not one effective bool. setForgeNativeBrepEnabled()
+    // writes core+features+step+interference from a single value, so restoring it from
+    // forgeNativeBrepEnabled() alone WIDENED three gates this scope never saved. FEATURES
+    // defaults OFF while the other three default ON, so it came back ON after the first
+    // compile and stayed on for the life of the process -- measured as
+    // forgeNativeFeaturesEnabled() reading 0 before and 1 after, and as mass properties on
+    // the app's own bracket reading 11514.789967 against an analytic 77583.539933 (-85.2%)
+    // with a centre of mass of (-1.37e34, ...) instead of (0,0,10).
+    const forge::native::brep::NativeGateOverrides prevGates =
+        forge::native::brep::saveNativeGateOverrides();
     forge::native::brep::setForgeNativeBrepEnabled(false);
     struct GateGuard {
-        bool prev;
-        ~GateGuard() { forge::native::brep::setForgeNativeBrepEnabled(prev); }
-    } guard{prevGate};
+        forge::native::brep::NativeGateOverrides prev;
+        ~GateGuard() { forge::native::brep::restoreNativeGateOverrides(prev); }
+    } guard{prevGates};
 #endif
 
     if (ft.ops.empty()) { out.error = "empty feature tree"; return out; }
