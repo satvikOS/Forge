@@ -587,9 +587,30 @@ int selftest() {
         checkVol("L_PRISM", rl, (10.4 * 8.4 - 4.0 * 3.0) * 6.4);
     }
 
-    // ARC BOX — a planar wire of LINES **and an ARC**. The relaxation admits a
-    // polygon and a circle and NOTHING ELSE; without this control "accept a
-    // polygon" and "accept anything" look identical from the corpus numbers.
+    // ARC BOX — a planar wire of LINES **and an ARC**.
+    //
+    // ★ THIS CONTROL HAS CHANGED SIDES, DELIBERATELY. The sentence it used to
+    //   carry is kept verbatim because it states the invariant that was broken:
+    //
+    //       "The relaxation admits a polygon and a circle and NOTHING ELSE;
+    //        without this control 'accept a polygon' and 'accept anything' look
+    //        identical from the corpus numbers."
+    //
+    //   The MIXED line/arc increment (NativeThickSolid.cpp PART 5b: LoopKind::
+    //   Mixed, edgeArcCircle, the tangent plane/cylinder seam and
+    //   solveOffsetVertexWithCyl) admits exactly this shape ON PURPOSE, so the
+    //   control is now a POSITIVE one and is checked against a CLOSED FORM. The
+    //   job the old sentence describes — telling "accept an arc" apart from
+    //   "accept anything" — is now done by NURBS_BOX below, which must still be
+    //   DECLINED, and by the arc-vs-chord margin in the closed form here: a
+    //   chord substituted for the arc would read 1117.19, which this tolerance
+    //   rejects.
+    //
+    //   The census's own mixed_* PREDICTION columns still model the PRE-arc
+    //   guard set, so elig is asserted false below and is now KNOWN STALE. The
+    //   header labels those columns a prediction "published so it can be
+    //   falsified by building it and re-measuring"; this increment is that
+    //   re-measurement, and the prediction is superseded rather than retuned.
     TopoDS_Shape arcBox;
     {
         TopoDS_Edge pick;
@@ -610,7 +631,12 @@ int selftest() {
     if (arcBox.IsNull()) { std::printf("  ARC_BOX      could not be built — CONTROL INERT\n"); ++bad; }
     else {
         Row ra = runPart(arcBox, d);
-        check("ARC_BOX", ra, "DEFER", "quadric/planar_wire_not_polygon_or_circle", false);
+        check("ARC_BOX", ra, "OK", nullptr, false);
+        // One vertical edge of the 10-cube rounded at r=1.5, grown by d: the
+        // section is (10+2d)^2 less the corner the fillet removes, (1-pi/4)(r+d)^2,
+        // over a height of 10+2d. The chord (chamfer) reading is 1117.19.
+        checkVol("ARC_BOX", ra,
+                 (10.4 * 10.4 - (1.0 - kPi / 4.0) * 1.7 * 1.7) * 10.4);
     }
 
     // TWO BODIES, FAR APART — 271 of the 600 corpus parts import as a compound

@@ -246,6 +246,28 @@ set(OCCT_LIBS
 # ERROR. Nine of ten options fail with p < 1e-5 — these are not underpowered ties, the
 # intervals are in reports/corpus_ab/summary.md and none of the nine straddles zero.
 #
+# ★ THE OFFSETSHAPE ROW ABOVE IS STALE, AND THE STALENESS FLATTERS NOTHING — it
+#   UNDERSTATES the native arm. The row is the f71ed98b measurement and is left as
+#   written because it is a historical fact; re-measured at 75d612c8 (origin/archdisc)
+#   over the same 600 parts with the same harness, family H reads
+#       FORGE_OFFSETSHAPE_DROP_NATIVE   native 24/600 = 4.0%   OCCT 38/600 = 6.3%
+#       deletion bucket 38/600, BOTH_OK 0, McNemar two-sided exact p = 0.098
+#   not the 1.2% the row records. The mixed planar-face work landed between the two.
+#   ★ NOTE THE p: at 24-vs-38 discordant the gap is NO LONGER significant at 0.05,
+#   so "OCCT beats native here" is not something this corpus can currently establish.
+#   The FLIP GATE still fails — it is 4.0% >= 6.3%, a rate comparison, not a p-value —
+#   but the failure is by a margin this corpus cannot resolve, and anyone quoting
+#   p=3.1e-6 for this family is quoting a superseded measurement.
+#
+# ★ AND VALIDITY CUTS THE OTHER WAY FOR H. Of OCCT's 38 successes only 5 are
+#   BRepCheck_Analyzer-VALID; all 24 native successes are. The OCCT arm also CRASHED
+#   on 66 of 600 and threw on 6. The coverage gate deliberately ignores validity
+#   (CORPUS_AB_COVERAGE.md §2.2) and that is the right choice FOR A GATE, but it means
+#   the 38-part baseline family H is being held to is 33 parts of invalid geometry.
+#   That is an argument about what the gate is worth, NOT a licence to flip the option:
+#   38 parts still get an answer today and would throw under the drop, so Law 9 holds
+#   and FORGE_OFFSETSHAPE_DROP_NATIVE stays OFF.
+#
 # ★ [1] THICKSOLID's 1.2% WAS SEVEN INVALID SOLIDS AND IS NOW AN HONEST 0.0%. The seven
 #   parts the native thick-solid "built" on this corpus were every one of them
 #   BRepCheck_Analyzer-INVALID (IntersectingWires) — the corpus A/B already recorded
@@ -825,6 +847,53 @@ endif()
 #   native engine honestly DECLINES cases OCCT answers (e.g. the closed-hollow box:
 #   shellNativeThick throws where the OCCT route returns, wrongly, the 512 cavity). Family H has no such problem: its A/B matches
 #   OCCT exactly on volume, position and topology across all nine cases.
+#
+#   ★★★ FAMILY H's MIXED line/arc INCREMENT IS BUILT AND MEASURED (2026-09-02),
+#   AND IT MOVED THE COVERAGE NUMBER BY EXACTLY ZERO. Recorded in full because a
+#   necessary-but-not-sufficient increment is the easiest kind to mis-score.
+#
+#   WHAT WAS BUILT (src/native/brep/NativeThickSolid.cpp, PART 5b only — family G
+#   is untouched): LoopKind::Mixed and an OffLoop that carries ORDERED line/arc
+#   segments; edgeArcCircle + the arc re-trim (an arc's supporting circle offsets
+#   by the SAME closed form a full circle does); PARTIAL-revolution CYLINDER bands
+#   (the offset is coaxial so MakeFace keeps the u-range, and the rebuild is
+#   unchanged); the TANGENT plane/cylinder seam, with tangency VERIFIED not
+#   assumed; and solveOffsetVertexWithCyl, the closed-form vertex solve for the
+#   line-meets-arc corner that only TWO independent planes pin.
+#
+#   IT IS EXACT WHERE IT ANSWERS. A 40x30x12 plate with its four vertical edges
+#   rounded at r=5, grown by d=1, against the INDEPENDENT closed form
+#   [(W+2d)(H+2d) - (4-pi)(r+d)^2](T+2d) = 18383.362697409: native matches to
+#   1.98e-16 relative, bbox and centre of mass EXACT, 4 cylindrical faces still
+#   cylindrical in the output, BRepCheck valid. The CHORD substitution this
+#   increment could plausibly have made reads 17808 (3.1% low), so the closed form
+#   can see that mistake. POSITIVE CONTROL: the SAME probe against the engine at
+#   75d612c8 returns DEFER quadric/planar_wire_not_polygon_or_circle.
+#
+#   ★ AND THE 600-PART COVERAGE IS UNCHANGED: native 24/600 before, 24/600 after.
+#   The whole 141-part planar_wire_not_polygon_or_circle column moved forward one
+#   rung and stopped again, on LINE edges this engine cannot re-trim:
+#       121  quadric/line_edge_not_between_two_planes
+#        20  quadric/line_edge_plane_cyl_not_tangent   (a SECANT plane; real geometry)
+#   Per-part census of those 141: 137 carry CYLINDER-CYLINDER straight seams
+#   (7,348 of them). Of those, 4,610 are INTERNAL tangency — which an offset
+#   PRESERVES, because |rA-rB| is invariant when one cylinder grows and the other
+#   shrinks — 0 are external, and 2,738 are neither. Only 4 of the 141 parts have
+#   ALL their CC seams internal, so the CC increment ALONE is worth at most ~4
+#   parts and does NOT reach the gate either.
+#
+#   THE LESSON, and it is the same one THRUSECTIONS and THICKSOLID already paid
+#   for: a first-binding rung is not a prize. This increment was scoped from a
+#   pre-registered ceiling (below) that said so, and it was built anyway because
+#   the ceiling ALSO said the arc rule is on the only path that reaches the gate.
+#   Both halves of that turned out right.
+#
+#   MEASURED CEILINGS over the same 600 (structural eligibility, an upper bound
+#   twice over — eligibility is not a build, and a build is not a valid solid):
+#       mixed line/arc ALONE ................ 37/600  → gate FAILS (OCCT is 38)
+#       + partial-revolution curved faces ... 61/600  → gate could pass
+#   The arc increment alone was NEVER capable of flipping this family, and that
+#   was known before it was written rather than discovered after.
 #
 #   EQUIVALENCE EVIDENCE FOR H (test/run_ab_native_offsetshape.sh, 206/206 assertions,
 #   2026-08-28): box grow+shrink, right-triangular prism, NON-CONVEX L-prism grow+shrink,
