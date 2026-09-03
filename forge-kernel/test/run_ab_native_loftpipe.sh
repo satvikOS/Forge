@@ -43,6 +43,17 @@ OCCT_LIBS=(-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKGeomAlgo
            -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool)
 
 # OcctPrimBuilder.cpp is linked because NativeLoftPipe.cpp calls forge::occtCylinderSolid
+# NativeNurbsConvert.cpp is linked because NativeLoftPipe.cpp calls
+# forge::occtconv::curveToBSpline. That dependency arrived when THRUSECTIONS
+# swapped GeomConvert::CurveToBSplineCurve (header-only OCCT) for our own helper
+# -- a correct change, because GeomConvert lives in TKGeomBase, a toolkit still
+# on the drop list, so using it would have MOVED the debt rather than paid it.
+# The cost was that this harness's hand-maintained link list stopped matching
+# its own sources, and run_ab_all.sh reported
+#   RED loftpipe: DID NOT BUILD/LINK -- its assertions did not run at all
+# i.e. the assertions silently did not run at all. A hand-maintained link list
+# is a standing trap: when an engine gains a first-party dependency, EVERY
+# harness that compiles that engine standalone has to gain it too.
 # and forge::occtPrism since the TKPrim-free swap (PR #64). Without it this harness dies
 # with "symbol(s) not found for architecture arm64" and its assertions never run at all.
 # This is the SECOND harness PR #64 broke; run_ab_native_thicken.sh was the first, and CI
@@ -54,6 +65,7 @@ if ! "$CXX" -std=c++20 -O1 -Wall -Wextra -DFORGE_NATIVE_BREP=1 \
       forge-kernel/src/native/brep/NativeLoftPipe.cpp \
       forge-kernel/src/native/brep/NativeShapeHeal.cpp \
       forge-kernel/src/OcctPrimBuilder.cpp \
+      forge-kernel/src/native/geom/NativeNurbsConvert.cpp \
       -L "$OCCT_LIB" "${OCCT_LIBS[@]}" -o "$OUT/ab_loftpipe" 2>"$OUT/build.err"; then
   echo "[ab-loftpipe] BUILD/LINK FAIL"; sed -n '1,80p' "$OUT/build.err"; exit 1
 fi

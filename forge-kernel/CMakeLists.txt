@@ -318,6 +318,49 @@ set(OCCT_LIBS
 #   reading (a) is empty on this corpus, relaxing the edge-count guard would have
 #   bought ZERO parts, and the whole residue is one class needing ruled surfaces —
 #   exactly as the sentence above concludes, but for all 81 rather than for 21.
+#
+# ★★★ AND THE ROW HAS MOVED A THIRD TIME — the ruled engine that paragraph names
+#   now exists, for the half of the residue it can be exact on. For two B-splines
+#   over a COMMON knot vector, degree and weights,
+#       (1-v) SUM N_i w_i P0_i / SUM N_i w_i  +  v SUM N_i w_i P1_i / SUM N_i w_i
+#     = SUM N_i w_i [(1-v) P0_i + v P1_i] / SUM N_i w_i,
+#   so the ruled patch is EXACTLY a NURBS of V-degree 1 whose two pole rows are
+#   the two curves' poles — for any edge geometry, with nothing faceted. Degree
+#   elevation and knot insertion are exact, so reaching that common basis costs no
+#   geometry. RE-MEASURED over the same 600 parts, stride 1, 0 part-level errors,
+#   at 768316c7:
+#     FORGE_THRUSECTIONS_DROP_NATIVE     85.8      94.5       52/600       4.4e-16
+#   The 498 parts the two earlier engines covered are BYTE-IDENTICAL (0 lost, 0
+#   payload changes on any of the 12 compared fields), and the 17 gained are
+#   attributed by a POSITIVE CONTROL, not by inference:
+#   test/run_thrusections_ruled_control.sh runs the same binary with
+#   FORGE_THRUSECTIONS_NO_RULED=1 and reads 498 vs 515, with 0 parts building only
+#   when the path is disabled. All 17 are BRepCheck_Analyzer VALID.
+#
+# ★★ 11 OF THOSE 17 ARE REPORTED AS `disagree` BY THE A/B AND THE GEOMETRY IS
+#   RIGHT. On all 11 the two arms agree EXACTLY on bounding box (1e-15) and on
+#   every topology count and on validity, and differ only on volume, area and
+#   centre of mass — the three quantities BRepGProp obtains by GAUSS QUADRATURE at
+#   an order picked from the surface degree. That is exact for the polynomial
+#   integrand of OCCT's analytic lateral and NOT exact for the RATIONAL integrand
+#   of a NURBS ruled patch between two circles. Adjudicated against a CLOSED FORM
+#   rather than against OCCT (test/run_thrusections_quadrature_gate.sh, over all
+#   44 corpus parts whose sections are single circles, frustum volume and
+#   centroid): native matches to <= 5.9e-11 relative on volume and <= 6.4e-11 on
+#   centre of mass, 0 of 44 NATIVE_WRONG, while the SAME native shapes read up to
+#   8.0e-3 wrong under the default quadrature. ★ THE `agree` COLUMN IS THEREFORE
+#   BIASED BY SURFACE TYPE: it can call two identical solids different when one
+#   arm returns a rational surface. Do not read it as a geometry verdict without
+#   checking which quantities moved.
+#
+#   THE OPTION STILL FAILS ITS FLIP GATE — 85.8% is not 94.5%. The surviving 52
+#   are, by the engine's own labels, 48 `ruled_edge_count_mismatch` (two wires
+#   with different edge counts, which need the wire-COMPATIBILITY step — splitting
+#   both at the union of their vertices' curvilinear abscissae — that this engine
+#   does not implement) and 4 `ruled_weight_mismatch` (two RATIONAL curves whose
+#   weight functions differ, where the blended-pole surface is not the ruled
+#   surface; that case is still exactly representable, as a NURBS of u-degree 2d
+#   over the product basis, but needs B-spline product machinery).
 #   src/native/brep/NativeLoftPipe.cpp now records `xlate_not_a_translate_length`
 #   for that case so the label names the BINDING cause. It is behaviour-neutral by
 #   construction (it sits inside the branch that already returned kNull and both
