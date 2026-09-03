@@ -2,9 +2,14 @@ name: Desktop Release (macOS arm64)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Builds the NATIVE C++ desktop app (forge_desktop) and produces a relocatable,
-# self-contained Forge.app + zip. On a TAG it attaches that zip to the matching
-# GitHub Release as a DRAFT. On a manual dispatch it does everything EXCEPT
-# publish.
+# self-contained Forge.app + zip.
+#
+#   * On a PUSH TO archdisc that goes green, it PUBLISHES a real GitHub Release
+#     automatically — draft:false, prerelease:false — and then proves against the
+#     live API and the live download URL that an installed copy can see it.
+#   * On a pushed TAG (a human's `git push origin v1.2.3`) it attaches the zip to
+#     that tag's release as a DRAFT, unchanged. That is the manual escape hatch.
+#   * On a manual dispatch it does everything EXCEPT publish.
 #
 # This is deliberately a SEPARATE workflow from kernel-tests.yml. That file is
 # the correctness gate and every job in it is hardware-calm and independent; a
@@ -35,60 +40,92 @@ name: Desktop Release (macOS arm64)
 # the copy on the default branch is what makes the workflow selectable; the ref
 # you pick is what actually runs and what gets built.
 #
-# ── WHAT A HUMAN RUNS ────────────────────────────────────────────────────────
-# Nothing here fires on its own.
+# ── WHY THIS PUBLISHES BY ITSELF, AND WHAT THAT COST BEFORE ──────────────────
+# Until 2026-09-03 nothing here fired on its own, and the result was measured:
 #
-#   1. Dry run — builds, packages, measures, publishes NOTHING:
+#     $ gh api repos/satvikOS/Forge/releases        -> ONE release, v0.1.0-alpha.0
+#                                                      draft=true, prerelease=true, assets=0
+#     $ gh api repos/satvikOS/Forge/releases/latest -> 404
+#     $ gh api repos/satvikOS/Forge/tags            -> 0 tags
+#
+# Zero tags, so the only publishing trigger this file had (`push: tags: v*`) had
+# NEVER FIRED, and `releases/latest` — the URL every installed copy polls — had
+# never resolved once in the project's life. The shipped updater was complete and
+# had nothing to read. That is the defect this workflow now fixes by publishing
+# on green rather than by asking a human to remember a sequence.
+#
+# ★ THE ACCEPTANCE TEST IS NOT "THE JOB WENT GREEN". A publish job that leaves
+#   `releases/latest` at 404 is the exact defect above wearing a green tick, so
+#   the last steps below FETCH THE LIVE URL AN INSTALLED APP FETCHES, DOWNLOAD
+#   THE PAYLOAD IT NAMES, AND CHECK ITS DIGEST — and a final step fails the job
+#   if the publish path was skipped rather than run.
+#
+# ── THE THREE PATHS ──────────────────────────────────────────────────────────
+#   1. PUSH TO archdisc  → AUTOMATIC PUBLICATION. Builds, packages, measures,
+#      then creates tag v<version> at this commit and a release that is NEITHER
+#      a draft NOR a prerelease, carrying the zip, its .sha256, the dryrun report
+#      and appcast.json. Then it verifies against the live API that
+#      `releases/latest` resolves to exactly that release.
+#
+#      Re-running the same commit publishes NOTHING SECOND: the version is a
+#      function of the commit (see "Derive the version"), so the tag is the same
+#      tag, the release is already there, and the step no-ops.
+#
+#   2. DISPATCH → dry run. Builds, packages, measures, renders the notes,
+#      publishes NOTHING:
 #        gh workflow run desktop-release.yml --ref <branch>
 #        gh run list --workflow desktop-release.yml --limit 1
-#      Read the floor / Gatekeeper table it writes to the job summary, and
-#      download the artifact to test the app itself.
+#      A dispatch CANNOT publish. That is structural, not a convention: every
+#      publish step is gated on `github.event_name == 'push'`, so there is no
+#      input to set wrongly and no way to reach the release API from a manual
+#      run.
 #
-#      A dispatch CANNOT publish. That is structural, not a convention: the
-#      publish step below is gated on `github.event_name == 'push'`, so there is
-#      no input to set wrongly and no way to reach the release API from a
-#      manual run.
-#
-#   2. When that is green, tag and push — THIS is the step that publishes:
+#   3. PUSHED TAG → the manual escape hatch, behaviour UNCHANGED:
 #        git tag -a v0.1.0 -m "Forge desktop v0.1.0"
 #        git push origin v0.1.0
+#      uploads the same four files to that tag's release, creating it as a DRAFT
+#      if it does not exist, and leaving an existing release's state alone. A
+#      draft is not public until a human presses Publish. Use this when you want
+#      to decide the version and inspect the release before anyone can see it.
 #
-#   3. The tag run uploads the zip, its .sha256, its report and appcast.json to
-#      the release for that tag, creating it as a DRAFT if it does not exist. A
-#      draft is not public until a human presses Publish, which is where the
-#      blockers below get a decision.
+#      ★ IF YOU USE PATH 3, LEAVE "SET AS A PRE-RELEASE" UNTICKED WHEN YOU PRESS
+#        PUBLISH. Every installed Forge fetches ONE fixed URL,
+#            .../releases/latest/download/appcast.json
+#        and GitHub resolves `latest` to the newest release that is NEITHER A
+#        DRAFT NOR A PRERELEASE. A release left as a draft, or published with the
+#        pre-release box ticked, exists, carries every asset, passes every check
+#        here — and is INVISIBLE to every installed copy, which reports "no
+#        published release to update from yet" and stays on its old version for
+#        ever, silently. Path 1 cannot make that mistake: it never creates a
+#        draft, never sets prerelease, and refuses to finish until the live API
+#        agrees.
 #
-#   4. ★ PUBLISH IT, AND LEAVE "SET AS A PRE-RELEASE" UNTICKED. This is the step
-#      that decides whether ALREADY-INSTALLED copies ever see the release, and
-#      it is the one that is easy to get wrong because both wrong answers look
-#      like success on the release page.
-#
-#      Every installed Forge fetches ONE fixed URL:
-#          .../releases/latest/download/appcast.json
-#      GitHub resolves `latest` to the newest release that is NEITHER A DRAFT NOR
-#      A PRERELEASE. So a release that is left as a draft, or published with the
-#      pre-release box ticked, is a release that exists, carries every asset,
-#      passes every check here — and is INVISIBLE to every installed copy. The
-#      app reports "no published release to update from yet" and each user stays
-#      on the version they happened to install, for ever, silently.
-#
-#      MEASURED 2026-09-02 against the live API: this repository has exactly one
-#      release, v0.1.0-alpha.0, and it is BOTH a draft AND a prerelease with zero
-#      assets. Publishing THAT one alone would still not make it `latest` — the
-#      prerelease flag has to come off too. Note also that tagging v0.1.0-alpha.0
-#      would upload into that existing draft rather than create a fresh release,
-#      because the step below deliberately leaves an existing release's state
-#      alone. Use a tag that does not already exist.
+#      Note that tagging v0.1.0-alpha.0 would upload into the EXISTING draft
+#      rather than create a fresh release, because path 3 deliberately leaves an
+#      existing release's state alone. Use a tag that does not already exist.
 #
 #      forge-desktop/test/release_visibility_check.sh asks the live API this
-#      exact question, and kernel-tests.yml runs it on every PR.
+#      exact question; kernel-tests.yml runs it on every PR, and path 1 runs it
+#      against the release it has just made.
 #
 #      The version's OWN suffix is a SEPARATE thing and is handled correctly
 #      either way: emit_appcast.sh puts 0.1.0-alpha.1 on the `prerelease`
 #      CHANNEL and a stable client refuses it, while an installed alpha accepts
-#      both the next alpha and the first stable. That is the app's policy. It has
-#      nothing to do with GitHub's pre-release CHECKBOX, which only decides what
-#      `latest` resolves to — and which must be off for anyone to be updated.
+#      both the next alpha and the first stable (policyFor() in
+#      src/update/Updater.cpp clears the channel pin for a prerelease build
+#      precisely so the first stable release is reachable). That is the app's
+#      policy. It has nothing to do with GitHub's pre-release CHECKBOX, which
+#      only decides what `latest` resolves to — and which must be off for anyone
+#      to be updated.
+#
+# ── THE BRAKE ────────────────────────────────────────────────────────────────
+# Repository variable FORGE_AUTORELEASE set to the exact string `off` stops path
+# 1 publishing, while leaving the build, the measurements and the dry-run
+# artifact intact. Unset (the default) means ON. The state is printed in every
+# run and written to the job summary, and the final step below refuses to let a
+# skip pass unremarked:
+#     gh variable set FORGE_AUTORELEASE --body off    # stop auto-publishing
+#     gh variable delete FORGE_AUTORELEASE            # resume
 #
 # ── TWO BLOCKERS A HUMAN MUST DECIDE ON BEFORE PUBLISHING ────────────────────
 #   * AN OS FLOOR SET BY SOMEBODY ELSE'S BINARIES. A Homebrew bottle carries the
@@ -139,14 +176,37 @@ name: Desktop Release (macOS arm64)
 
 on:
   push:
+    # `branches` and `tags` under one `push` are OR'd: this workflow runs on a
+    # push to archdisc OR on a pushed v* tag. archdisc is the AUTOMATIC path and
+    # is spelled here as well as in the publish step's `if:`, deliberately — a
+    # future edit that adds a branch here still cannot publish from it.
+    branches:
+      - archdisc
     tags:
       - 'v*'
   workflow_dispatch:
 
+# The workflow-level default stays READ. The one job below raises itself to
+# `contents: write`, which is the minimum that can create a tag and a release;
+# nothing else is granted. Job-level `permissions:` REPLACES the workflow-level
+# block for that job, so this line is the floor for anything added later, not a
+# cap on the job.
+#
+# This repository's default GITHUB_TOKEN permission is `read`
+# (`gh api repos/satvikOS/Forge/actions/permissions/workflow` ->
+# {"default_workflow_permissions":"read"}). That setting is a DEFAULT, not a
+# ceiling: "Anyone with write access to a repository can modify the permissions
+# granted to the GITHUB_TOKEN, adding or removing access as required, by editing
+# the permissions key in the workflow file."
 permissions:
   contents: read
 
 concurrency:
+  # Two pushes to archdisc QUEUE rather than race, and cancel-in-progress stays
+  # false on purpose: cancelling a run that is midway through publishing could
+  # leave a release created and its assets missing, which is a release that IS
+  # `latest` and that every installed copy 404s on. A queued 90-minute build is
+  # cheaper than that.
   group: desktop-release-${{ github.ref }}
   cancel-in-progress: false
 
@@ -165,12 +225,34 @@ jobs:
       # What OUR code compiles against, so our own binaries never set the floor.
       FORGE_MACOS_MIN: "14.0"
       CCACHE_DIR: /Users/runner/.ccache
+      # ── THE ONE HUMAN DECISION IN THE AUTOMATIC VERSION ──────────────────────
+      # The MAJOR.MINOR line this branch ships on. The PATCH is machine-derived
+      # (see "Derive the version"), so this is the only number a person chooses,
+      # and it is the number to bump when the product moves — never the patch.
+      #
+      # Raising it is a one-line PR. LOWERING it will make the publish step go
+      # red rather than publish a version older than what users already have.
+      FORGE_VERSION_LINE: "0.1"
     permissions:
-      # Needed ONLY by the final step, to attach the zip to a release on a tag.
+      # Raised from the workflow-level `contents: read`. `contents: write` is the
+      # minimum that can create a tag and a release; no other scope is granted,
+      # and in particular nothing here can write to Actions, packages or checks.
       # The build itself reads nothing privileged.
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `git rev-list --count HEAD` is the automatic version's patch number
+          # and it is WRONG, silently and by a lot, on the depth-1 clone
+          # actions/checkout takes by default — it would report 1, which is both
+          # a version that goes BACKWARDS and a tag that collides. The step that
+          # uses it refuses to run on a shallow repository, so this is checked
+          # rather than assumed, but this is where it is made true.
+          #
+          # COST, stated rather than hidden: the repository is ~530 MB
+          # (`gh api repos/satvikOS/Forge --jq .size` -> 533985 KB), so this adds
+          # roughly a minute to a job whose build is 40-90.
+          fetch-depth: 0
 
       - name: Preflight — does this ref carry the desktop release path?
         # This file lives on the default branch so the workflow can be
@@ -254,21 +336,112 @@ jobs:
           restore-keys: |
             ccache-desktop-${{ runner.os }}-
 
-      - name: Derive the version
+      - name: Derive the version, the tag, and whether this run publishes
         id: ver
-        # A tag is v0.1.0; CFBundleShortVersionString must be 0.1.0. A manual
-        # dispatch has no tag, so it is stamped with the short sha to make an
-        # unreleasable build obviously unreleasable.
+        # ── THE VERSION IS THE TAG IS THE PAYLOAD URL ────────────────────────
+        # emit_appcast.sh writes the payload URL as
+        #     .../releases/download/v<VERSION>/Forge-macos-arm64-<VERSION>.zip
+        # so the tag is NOT a label chosen later at publish time — it is derived
+        # from the version that gets baked into Info.plist and into the appcast
+        # forty minutes earlier. That is why both are computed HERE, once, before
+        # anything is built, and no later step spells either of them again.
+        # forge-desktop/test/release_contract_gate.sh EVALUATES the assignments
+        # below and checks the payload URL lands inside the tag they produce.
+        #
+        # ── THE AUTOMATIC VERSION, AND WHY IT IS THE COMMIT COUNT ────────────
+        # <line>.<commits>, e.g. 0.1.2896, where <commits> is
+        # `git rev-list --count HEAD`. Two properties are needed and this is the
+        # cheapest thing that has BOTH:
+        #
+        #   MONOTONIC. The updater compares semantic versions
+        #   (src/update/Version.cpp), so a release that does not order ABOVE the
+        #   installed one is a release nobody receives. A push can only ADD
+        #   commits to a branch, so the count only rises.
+        #
+        #   A FUNCTION OF THE COMMIT. Re-running this workflow on the same commit
+        #   derives the SAME tag, finds the release already there, and publishes
+        #   nothing a second time. `github.run_number` and a timestamp both
+        #   satisfy monotonicity and fail this one: every re-run would mint a
+        #   fresh release for a commit that already had one, and each of those
+        #   would be a new "update" pushed at every user for no change at all.
+        #
+        # The count is not sanity-checked against a magic floor, which would rot.
+        # The publish step checks the invariant that actually matters — the new
+        # version must order strictly ABOVE what is already published — which
+        # catches a shallow clone, a rewritten history and a lowered
+        # FORGE_VERSION_LINE with one test.
+        #
+        # A 'v' prefix is a TAG convention; CFBundleShortVersionString must not
+        # carry it, which is why V and TAG are separate values rather than one
+        # string sliced at use sites.
         shell: bash
+        env:
+          FORGE_AUTORELEASE: ${{ vars.FORGE_AUTORELEASE }}
         run: |
           set -uo pipefail
+          MODE=dryrun
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # Path 3: a human pushed the tag and owns the version.
             V="${GITHUB_REF_NAME#v}"
+            TAG="${GITHUB_REF_NAME}"
+            MODE=tag
+          elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/archdisc" ]; then
+            # Path 1: automatic publication.
+            if [ "$(git rev-parse --is-shallow-repository)" != "false" ]; then
+              echo "::error::the checkout is SHALLOW, so 'git rev-list --count HEAD'" \
+                   "would report a small wrong number and mint a version that goes" \
+                   "BACKWARDS. Restore 'fetch-depth: 0' on actions/checkout."
+              exit 1
+            fi
+            COMMITS="$(git rev-list --count HEAD)"
+            case "$COMMITS" in
+              ''|*[!0-9]*) echo "::error::git rev-list --count printed '$COMMITS', not a number"; exit 1 ;;
+            esac
+            V="${FORGE_VERSION_LINE}.${COMMITS}"
+            TAG="v${V}"
+            MODE=auto
           else
+            # Path 2: a dispatch, or a push to some other branch. The short sha
+            # makes an unreleasable build obviously unreleasable, and the '-dev'
+            # suffix additionally puts it on the prerelease CHANNEL.
             V="0.0.0-dev+${GITHUB_SHA:0:7}"
+            TAG="v${V}"
           fi
-          echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "Packaging version $V"
+
+          # The brake. Read here so its state is recorded on EVERY run, including
+          # the runs where it changes nothing — a switch you only hear about when
+          # it fires is a switch nobody remembers is set.
+          BRAKE="${FORGE_AUTORELEASE:-}"
+          if [ "$MODE" = "auto" ] && [ "$BRAKE" = "off" ]; then
+            MODE=brake
+          fi
+
+          {
+            echo "version=$V"
+            echo "tag=$TAG"
+            echo "mode=$MODE"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Packaging version $V  (tag $TAG, mode $MODE)"
+          case "$MODE" in
+            auto)   echo "This run WILL publish $TAG automatically if every step below passes." ;;
+            tag)    echo "This run will attach its artifacts to the release for $TAG as a DRAFT." ;;
+            brake)  echo "::warning::repository variable FORGE_AUTORELEASE is 'off' — this run" \
+                         "builds and measures everything and PUBLISHES NOTHING." ;;
+            *)      echo "This run publishes nothing (dry run)." ;;
+          esac
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### Release mode: \`$MODE\`"
+              echo
+              echo "| | |"
+              echo "|---|---|"
+              echo "| version | \`$V\` |"
+              echo "| tag | \`$TAG\` |"
+              echo "| FORGE_AUTORELEASE | \`${BRAKE:-<unset — auto-publish enabled>}\` |"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Build, package, and report the floor + Gatekeeper verdict
         # ONE script, run identically here and on a developer's machine, so the
@@ -370,10 +543,11 @@ jobs:
         id: notes
         shell: bash
         env:
-          # A tag run has the real tag. A dispatch has none, so the version
-          # string is used, which already carries the short sha and makes an
-          # unreleasable build obviously unreleasable.
-          TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+          # The tag comes from the ONE step that derives it. It used to be
+          # re-derived here with a second expression that happened to agree; two
+          # expressions for one value is how the notes and the release end up
+          # naming different tags on the day one of them changes.
+          TAG_NAME: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
           V="${{ steps.ver.outputs.version }}"
@@ -468,6 +642,331 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: ★ PUBLISH the release (pushes to archdisc ONLY)
+        # ── THE STEP THE WHOLE FEATURE IS ────────────────────────────────────
+        # Creates the tag at THIS commit and a release that is NEITHER a draft
+        # NOR a prerelease, because GitHub's `latest` skips both and
+        # `releases/latest/download/appcast.json` is the only URL an installed
+        # Forge ever asks for. Every other property of a release is cosmetic next
+        # to those two booleans; the repository's one existing release has both
+        # set and is invisible to every user because of it.
+        #
+        # THE CONDITION IS FOUR-PART AND EACH PART IS LOAD-BEARING:
+        #   event_name == 'push'   a workflow_dispatch can never reach this, so
+        #                          the dry run is safe BY CONSTRUCTION rather
+        #                          than by remembering not to tick a box.
+        #   ref == archdisc        a feature branch publishes nothing, and this
+        #                          is asserted here as well as in `on:` so that
+        #                          widening the trigger cannot widen publishing.
+        #   ref_type != 'tag'      a tag run takes the DRAFT path below instead.
+        #                          This is also what makes a trigger loop
+        #                          impossible: a tag-triggered run cannot enter
+        #                          this step, so it can never create a tag, so
+        #                          there is no second generation. See the note on
+        #                          GITHUB_TOKEN below.
+        #   mode == 'auto'         the derivation step agreed, and the
+        #                          FORGE_AUTORELEASE brake is not 'off'.
+        #
+        # A red or cancelled build never gets here at all: steps run in order,
+        # no step above is `continue-on-error`, and a cancelled job runs no
+        # further steps. There is deliberately no `if: always()` anywhere on this
+        # path.
+        #
+        # ── NO TRIGGER LOOP ──────────────────────────────────────────────────
+        # This file also fires on `push: tags: v*`, so "does creating a tag here
+        # start another run?" has to be answered rather than hoped about. It is
+        # answered TWICE, independently:
+        #
+        #   1. STRUCTURALLY, and this is the one that does not depend on anyone's
+        #      documentation being right: a run started by a tag has
+        #      github.ref_type == 'tag', which fails this step's condition. Such
+        #      a run therefore creates NO tag. One extra build is the worst case
+        #      that is even expressible; a second generation is not.
+        #
+        #   2. BY GITHUB'S RULE for the token this step uses. GITHUB_TOKEN is the
+        #      default token here (`GH_TOKEN: ${{ github.token }}`), and the
+        #      Actions documentation states: "With the exception of
+        #      workflow_dispatch and repository_dispatch, other GITHUB_TOKEN-
+        #      triggered events do not create workflow runs at all."
+        #      (docs.github.com, Events that trigger workflows.)
+        #
+        # Reason 2 alone would be an assumption, so the ACCEPTANCE step below
+        # MEASURES it on the live API after the fact and prints the answer. If a
+        # run does appear, reason 1 still holds and the build is merely wasted.
+        #
+        # ── RE-RUNNING THE SAME COMMIT PUBLISHES NOTHING SECOND ──────────────
+        # The tag is a function of the commit, so a re-run computes the same tag,
+        # finds the release, and stops. It does NOT simply exit, though: a run
+        # that died between `release create` and `release upload` would otherwise
+        # leave a release that IS `latest` and has no appcast for anyone to read,
+        # and no re-run could ever repair it. So an existing release is checked
+        # for all four assets and repaired if any are missing.
+        if: >-
+          github.event_name == 'push'
+          && github.ref == 'refs/heads/archdisc'
+          && github.ref_type != 'tag'
+          && steps.ver.outputs.mode == 'auto'
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
+          V="${{ steps.ver.outputs.version }}"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
+          APPCAST="forge-desktop/dist/appcast.json"
+          NOTES="${{ steps.notes.outputs.notes }}"
+          test -s "$NOTES" || { echo "::error::no rendered notes at $NOTES"; exit 1; }
+          for f in "$ZIP" "$ZIP.sha256" "$REPORT" "$APPCAST"; do
+            test -f "$f" || { echo "::error::$f is missing; refusing to publish a partial release"; exit 1; }
+          done
+
+          # ── does this tag already exist? ───────────────────────────────────
+          if gh release view "$TAG" --json tagName >/dev/null 2>&1; then
+            EXISTS=yes
+          else
+            EXISTS=no
+          fi
+
+          if [ "$EXISTS" = "yes" ]; then
+            # A release under our tag can only have come from an earlier run of
+            # THIS step on THIS commit -- unless the commit count has been made
+            # non-unique by a rewritten history, in which case two different
+            # commits want the same version and silently reusing the release
+            # would publish neither. Check rather than assume.
+            REF_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" 2>/dev/null || echo '{}')"
+            OBJ_TYPE="$(printf '%s' "$REF_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("object",{}).get("type",""))')"
+            OBJ_SHA="$(printf '%s' "$REF_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("object",{}).get("sha",""))')"
+            if [ "$OBJ_TYPE" = "tag" ]; then
+              OBJ_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${OBJ_SHA}" --jq '.object.sha')"
+            fi
+            if [ -n "$OBJ_SHA" ] && [ "$OBJ_SHA" != "$GITHUB_SHA" ]; then
+              echo "::error::$TAG already exists and points at $OBJ_SHA, not this commit" \
+                   "($GITHUB_SHA). Two commits have derived the same version, which means" \
+                   "the commit count is no longer unique -- history was rewritten, or" \
+                   "FORGE_VERSION_LINE was changed back. Publishing here would silently" \
+                   "ship neither build. Bump FORGE_VERSION_LINE."
+              exit 1
+            fi
+            echo "release $TAG already exists for this commit — not creating a second one"
+            # Idempotent, and it is the requirement rather than tidying: if an
+            # earlier run or a human left either flag set, this release is not
+            # `latest` and no installed copy can see it.
+            gh release edit "$TAG" --draft=false --prerelease=false --latest
+            HAVE="$(gh release view "$TAG" --json assets --jq '[.assets[].name] | join(" ")')"
+            MISSING=""
+            for f in "$ZIP" "$ZIP.sha256" "$REPORT" "$APPCAST"; do
+              b="$(basename "$f")"
+              case " $HAVE " in *" $b "*) ;; *) MISSING="$MISSING $b" ;; esac
+            done
+            if [ -z "$MISSING" ]; then
+              echo "all four assets are already attached — nothing to do"
+              STATE=noop
+            else
+              echo "::warning::$TAG is missing:$MISSING — repairing a partial publication"
+              gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
+              gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
+              STATE=repaired
+            fi
+          else
+            # ── the version must order ABOVE what users already have ─────────
+            # One test that catches a shallow clone, a rewritten history and a
+            # lowered FORGE_VERSION_LINE alike. A release that does not order
+            # above the published one is a release the updater ignores, and the
+            # only place that would ever be noticed is a user's machine.
+            PREV="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+            if [ -n "${PREV:-}" ]; then
+              echo "currently published latest: $PREV"
+              python3 - "$PREV" "$TAG" <<'MONOTONIC'
+          import re, sys
+          def core(t):
+              m = re.match(r'^v?(\d+)\.(\d+)\.(\d+)', t.strip())
+              if not m:
+                  sys.stderr.write("cannot read a major.minor.patch out of %r\n" % t)
+                  sys.exit(1)
+              return tuple(int(x) for x in m.groups())
+          prev, new = sys.argv[1], sys.argv[2]
+          if core(new) <= core(prev):
+              sys.stderr.write(
+                  "the version about to be published (%s) does NOT order above the one that\n"
+                  "is already published (%s). Publishing it would create a release every\n"
+                  "installed copy ignores. Raise FORGE_VERSION_LINE in this workflow.\n"
+                  % (new, prev))
+              sys.exit(1)
+          MONOTONIC
+            else
+              echo "no published release yet — this is the first one"
+            fi
+
+            # --target creates the tag at this commit as part of creating the
+            # release, so no `git push` and no write to a ref happens here.
+            # Neither --draft nor --prerelease is passed, and --latest is passed
+            # explicitly rather than left to the API default, because those two
+            # booleans ARE the feature.
+            echo "creating PUBLISHED release $TAG at $GITHUB_SHA"
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Forge $TAG" \
+              --notes-file "$NOTES" --latest
+            gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
+            gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
+            STATE=created
+          fi
+
+          # Re-read the two booleans from the API rather than trusting the flags
+          # we passed. `gh release create` succeeding is not evidence that the
+          # release is not a draft.
+          FLAGS="$(gh release view "$TAG" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"')"
+          echo "draft/prerelease after publishing: $FLAGS"
+          [ "$FLAGS" = "false false" ] || {
+            echo "::error::$TAG is draft/prerelease='$FLAGS'. GitHub's 'latest' skips both," \
+                 "so releases/latest/download/appcast.json would stay a 404 and no installed" \
+                 "copy of Forge could ever see this release."
+            exit 1; }
+
+          echo "state=$STATE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: ★ ACCEPTANCE — fetch the URL an INSTALLED Forge fetches
+        # ── A GREEN PUBLISH JOB IS NOT THE ACCEPTANCE TEST ───────────────────
+        # The defect being fixed here is a release that exists, carries every
+        # asset and passes every check, and that `releases/latest` does not
+        # resolve to. Every check that could have caught that was on the wrong
+        # side of the network: they all asked the repository what it had
+        # uploaded. This step asks the question the product asks.
+        #
+        # It uses the LITERAL URL compiled into every shipped copy
+        # (kDefaultAppcastUrl, src/update/Updater.hpp) over plain unauthenticated
+        # curl, then downloads the payload that document names and checks its
+        # SHA-256 -- which is exactly what forge_update does on a user's machine.
+        # Nothing here consults the API for the answer; the API listing at the
+        # end is a second, independent opinion.
+        #
+        # `releases/latest` can lag a publish by a few seconds, so the first
+        # fetch is retried. Everything after it is one-shot: a retry loop around
+        # an assertion is a slow way to hide a failure.
+        if: >-
+          github.event_name == 'push'
+          && github.ref == 'refs/heads/archdisc'
+          && github.ref_type != 'tag'
+          && steps.ver.outputs.mode == 'auto'
+        id: acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          TAG="${{ steps.ver.outputs.tag }}"
+          STATE="${{ steps.publish.outputs.state }}"
+          W="$RUNNER_TEMP/acceptance"; mkdir -p "$W"
+          LIVE="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/appcast.json"
+
+          echo "=== 1. GET $LIVE  (unauthenticated, exactly as the app does) ==="
+          # The retry covers BOTH ways this URL lags a publish: not resolving at
+          # all, and resolving to the PREVIOUS release. Retrying only the fetch
+          # would turn the second one into a false red on attempt one, and a
+          # release step that goes red for a reason that fixes itself in ten
+          # seconds is a release step people start ignoring.
+          got=no
+          for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if curl -fsSL --max-time 30 "$LIVE" -o "$W/live.json" 2>"$W/curl.err"; then
+              LIVE_V="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("version",""))' "$W/live.json" 2>/dev/null || true)"
+              if [ "${LIVE_V:-}" = "$V" ]; then
+                got=yes; echo "  resolved to version $V on attempt $attempt"; break
+              fi
+              echo "  attempt $attempt: resolves, but to version '${LIVE_V:-<unreadable>}' (want $V)"
+            else
+              echo "  attempt $attempt: does not resolve ($(tr -d '\n' < "$W/curl.err"))"
+            fi
+            sleep 5
+          done
+          if [ "$got" != yes ]; then
+            echo "::error::$LIVE did not resolve to version $V after 12 attempts. THIS IS" \
+                 "THE DEFECT THIS WORKFLOW EXISTS TO PREVENT: the release can look perfect" \
+                 "on the releases page while no installed copy of Forge can see it. Check" \
+                 "that $TAG is neither a draft nor a prerelease and that it is marked latest."
+            exit 1
+          fi
+          echo "--- what an installed Forge just read ---"
+          cat "$W/live.json"; echo
+
+          echo "=== 2. is it THIS release? ==="
+          PAYLOAD_URL="$(python3 - "$W/live.json" "$V" "$TAG" <<'CHECK'
+          import json, sys
+          m = json.load(open(sys.argv[1]))
+          want_v, tag = sys.argv[2], sys.argv[3]
+          errs = []
+          if m.get("schema") != "forge-appcast/1": errs.append("schema is %r" % m.get("schema"))
+          if m.get("version") != want_v:          errs.append("version is %r, this run built %r" % (m.get("version"), want_v))
+          url = m.get("url", "")
+          if "/releases/download/%s/" % tag not in url:
+              errs.append("payload url %r does not enter /releases/download/%s/" % (url, tag))
+          if "/releases/latest/" in url:
+              errs.append("payload url is floating, not pinned: %r" % url)
+          if len(m.get("sha256", "")) != 64:      errs.append("sha256 is %r" % m.get("sha256"))
+          if errs:
+              sys.stderr.write("the live appcast does not describe this release: " + "; ".join(errs) + "\n")
+              sys.exit(1)
+          print(url)
+          CHECK
+          )"
+          echo "  ok — live appcast is version $V and points at $PAYLOAD_URL"
+
+          echo "=== 3. download that payload and verify its digest ==="
+          curl -fsSL --max-time 900 "$PAYLOAD_URL" -o "$W/payload.zip"
+          GOT_SHA="$(shasum -a 256 "$W/payload.zip" | awk '{print $1}')"
+          WANT_SHA="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha256"])' "$W/live.json")"
+          WANT_SIZE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["size"])' "$W/live.json")"
+          GOT_SIZE="$(stat -f %z "$W/payload.zip")"
+          echo "  size   want $WANT_SIZE  got $GOT_SIZE"
+          echo "  sha256 want $WANT_SHA"
+          echo "         got  $GOT_SHA"
+          [ "$GOT_SIZE" = "$WANT_SIZE" ] || { echo "::error::the published payload is $GOT_SIZE bytes, the appcast says $WANT_SIZE"; exit 1; }
+          [ "$GOT_SHA" = "$WANT_SHA" ]   || { echo "::error::the published payload does not hash to what the appcast declares — every installed copy would download it and reject it as corrupt"; exit 1; }
+
+          # Only when this run actually uploaded the bytes. On a no-op re-run the
+          # release legitimately carries an EARLIER build of the same commit, and
+          # ditto(1) zips are not byte-reproducible, so demanding equality there
+          # would be a false red.
+          if [ "$STATE" != "noop" ]; then
+            LOCAL_SHA="$(awk '{print $1}' "forge-desktop/dist/Forge-macos-arm64-${V}.zip.sha256")"
+            [ "$GOT_SHA" = "$LOCAL_SHA" ] || {
+              echo "::error::the release serves a payload that is not the zip this run built"
+              exit 1; }
+            echo "  and it is byte-for-byte the zip this run built"
+          fi
+
+          echo "=== 4. second opinion, from the API, with the repo's own checker ==="
+          # No --allow-unreleased: after a publish, "nothing is published" is a
+          # failure, and this is the one call site where that tolerance would
+          # hide exactly the defect being tested for.
+          bash forge-desktop/test/release_visibility_check.sh --expect-version "$V"
+
+          echo "=== 5. did creating the tag start another workflow run? ==="
+          # MEASURED rather than assumed. GitHub documents that GITHUB_TOKEN-
+          # triggered events do not create workflow runs; this records what
+          # actually happened. Either answer is safe -- a tag run cannot reach
+          # the publish step -- so this reports and never fails.
+          sleep 10
+          N="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?event=push&per_page=50" \
+                 --jq "[.workflow_runs[] | select(.head_branch==\"${TAG}\")] | length" 2>/dev/null || echo unknown)"
+          if [ "$N" = "0" ]; then
+            echo "  0 push-triggered runs for $TAG — the GITHUB_TOKEN rule held"
+          else
+            echo "::warning::$N push-triggered run(s) exist for tag $TAG. That run cannot" \
+                 "publish (its github.ref_type is 'tag'), so there is no loop, but it is a" \
+                 "wasted build and this note is the evidence."
+          fi
+
+          {
+            echo "### ✅ Published and verified"
+            echo
+            echo "- release: [\`$TAG\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${TAG}) (\`$STATE\`)"
+            echo "- \`releases/latest/download/appcast.json\` **resolves** and names version \`$V\`"
+            echo "- payload downloaded from the live URL and its SHA-256 matched"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Attach to the GitHub Release (pushed tags ONLY)
         # The condition is deliberately BOTH halves. `ref_type == 'tag'` alone
         # would still let a manual dispatch against a tag ref reach the release
@@ -510,3 +1009,46 @@ jobs:
           gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
           gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
           echo "attached $ZIP and appcast.json to release $TAG"
+      - name: Prove the publish path RAN rather than being quietly skipped
+        # ★ A GREEN JOB IS NOT PROOF A STEP RAN. Both steps above carry an `if:`,
+        # and an `if:` that silently evaluates false produces a green job that
+        # published nothing -- which is indistinguishable, from the outside, from
+        # the bug this whole change exists to fix.
+        #
+        # This step has NO `if:`. Reaching it means every step above succeeded;
+        # it then asserts that on a push to archdisc the publish and acceptance
+        # steps did not merely get skipped. The only tolerated skip is the
+        # explicit FORGE_AUTORELEASE brake, and even that is announced.
+        shell: bash
+        env:
+          MODE: ${{ steps.ver.outputs.mode }}
+          PUBLISH_OUTCOME: ${{ steps.publish.outcome }}
+          PUBLISH_STATE: ${{ steps.publish.outputs.state }}
+          ACCEPT_OUTCOME: ${{ steps.acceptance.outcome }}
+        run: |
+          set -uo pipefail
+          echo "event=${GITHUB_EVENT_NAME} ref=${GITHUB_REF} ref_type=${GITHUB_REF_TYPE}"
+          echo "mode=${MODE} publish=${PUBLISH_OUTCOME}/${PUBLISH_STATE:-<none>} acceptance=${ACCEPT_OUTCOME}"
+
+          if [ "${GITHUB_EVENT_NAME}" != "push" ] || [ "${GITHUB_REF}" != "refs/heads/archdisc" ]; then
+            echo "not an archdisc push — nothing was expected to publish."
+            exit 0
+          fi
+          if [ "${MODE}" = "brake" ]; then
+            echo "::warning::FORGE_AUTORELEASE is 'off', so this green build published" \
+                 "NOTHING and installed copies will not see it. Unset the variable to resume."
+            exit 0
+          fi
+          bad=0
+          [ "${MODE}" = "auto" ] || { echo "::error::mode is '${MODE}' on an archdisc push; it should be 'auto'"; bad=1; }
+          [ "${PUBLISH_OUTCOME}" = "success" ] || { echo "::error::the publish step did not run (outcome '${PUBLISH_OUTCOME}')"; bad=1; }
+          [ -n "${PUBLISH_STATE:-}" ] || { echo "::error::the publish step produced no state output"; bad=1; }
+          [ "${ACCEPT_OUTCOME}" = "success" ] || { echo "::error::the acceptance step did not run (outcome '${ACCEPT_OUTCOME}')"; bad=1; }
+          if [ "$bad" -ne 0 ]; then
+            echo "::error::this build went green on archdisc and did not publish a visible" \
+                 "release. That is the exact failure this workflow exists to prevent, so it" \
+                 "is a RED build rather than a quiet one."
+            exit 1
+          fi
+          echo "publish path ran: ${PUBLISH_STATE}, acceptance ${ACCEPT_OUTCOME}."
+
