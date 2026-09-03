@@ -406,14 +406,14 @@ int main() {
       CHECK_EQ_STR(g.consumedByLabel, "Boss  extrude 10");
       // Entity details are read off the statements, never composed from a guess.
       CHECK_EQ_STR(g.entities[0].label, "Point");
-      CHECK_EQ_STR(g.entities[0].detail, "at 0, 0 mm");
+      CHECK_EQ_STR(g.entities[0].operands, "at 0, 0 mm");
       CHECK_EQ_STR(g.entities[2].label, "Line");
-      CHECK_EQ_STR(g.entities[2].detail, "from Point A to Point B");
+      CHECK_EQ_STR(g.entities[2].operands, "from Point A to Point B");
       CHECK_EQ_STR(g.entities[3].label, "Circle");
-      CHECK_EQ_STR(g.entities[3].detail, "centre Point A, radius 12 mm");
+      CHECK_EQ_STR(g.entities[3].operands, "centre Point A, radius 12 mm");
       CHECK_EQ_STR(g.entities[4].label, "Horizontal");
       CHECK_EQ_STR(g.entities[5].label, "Distance");
-      CHECK_EQ_STR(g.entities[5].detail, "Point A and Point B = 40");
+      CHECK_EQ_STR(g.entities[5].operands, "Point A and Point B = 40");
     }
 
     const ModelBrowser b = buildModelBrowser(doc);

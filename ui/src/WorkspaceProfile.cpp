@@ -25,6 +25,20 @@ const char* toString(WorkspaceProfile profile) noexcept {
   return "part";
 }
 
+const char* userText(WorkspaceProfile profile) noexcept {
+  switch (profile) {
+    case WorkspaceProfile::Part:          return "Part";
+    case WorkspaceProfile::Sketch:        return "Sketch";
+    case WorkspaceProfile::Assembly:      return "Assembly";
+    case WorkspaceProfile::Surface:       return "Surface";
+    case WorkspaceProfile::Manufacturing: return "Manufacturing";
+    case WorkspaceProfile::Drawing:       return "Drawing";
+    case WorkspaceProfile::Simulation:    return "Simulation";
+    case WorkspaceProfile::Archie:        return "Archie";
+  }
+  return "Part";
+}
+
 std::vector<WorkspaceProfile> allWorkspaceProfiles() {
   return {WorkspaceProfile::Part,          WorkspaceProfile::Sketch,
           WorkspaceProfile::Assembly,      WorkspaceProfile::Surface,

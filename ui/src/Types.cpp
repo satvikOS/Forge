@@ -30,6 +30,29 @@ const char* toString(EntityKind kind) noexcept {
   return "none";
 }
 
+const char* userText(EntityKind kind) noexcept {
+  switch (kind) {
+    case EntityKind::None:        return "nothing";
+    case EntityKind::Vertex:      return "corner point";
+    case EntityKind::Edge:        return "edge";
+    case EntityKind::Face:        return "face";
+    case EntityKind::Body:        return "solid body";
+    case EntityKind::Sketch:      return "sketch";
+    case EntityKind::SketchCurve: return "sketch curve";
+    case EntityKind::Wire:        return "section outline";
+    case EntityKind::Surface:     return "surface";
+    case EntityKind::OpenSketch:  return "open sketch";
+    case EntityKind::SketchRef:   return "sketch element";
+    case EntityKind::Feature:     return "feature";
+    case EntityKind::Component:   return "component";
+    case EntityKind::Datum:       return "datum";
+    // Used where a signature accepts anything at all, so the noun has to be the
+    // general one rather than a list of thirteen.
+    case EntityKind::Any:         return "item";
+  }
+  return "item";
+}
+
 const char* toString(NamedView view) noexcept {
   switch (view) {
     case NamedView::Front:     return "Front";

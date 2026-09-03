@@ -509,13 +509,13 @@ int main(int argc, char** argv) {
                                                 IrArg::num(0), IrArg::num(0), IrArg::num(0)}));
     CHECK_EQ_INT(static_cast<int>(tooMany.verdict), static_cast<int>(OpConstraint::WrongArity));
     CHECK(tooMany.reason.find("EXTRUDE") != std::string::npos);
-    CHECK(tooMany.reason.find("6 argument") != std::string::npos);
+    CHECK(tooMany.reason.find("6 value") != std::string::npos);
     CHECK(tooMany.reason.find("it cannot build this step") != std::string::npos);
     CHECK(tooMany.tolerated.empty());
 
     const OpRuling tooFew = bridge.check(step(2, "EXTRUDE", {IrArg::valueRef(1)}));
     CHECK_EQ_INT(static_cast<int>(tooFew.verdict), static_cast<int>(OpConstraint::WrongArity));
-    CHECK(tooFew.reason.find("1 argument") != std::string::npos);
+    CHECK(tooFew.reason.find("1 value") != std::string::npos);
 
     // (d) a form the app DOES emit is accepted with NO note -- otherwise
     // "tolerated" would just be a second name for "accepted".

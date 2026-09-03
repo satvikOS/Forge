@@ -84,6 +84,135 @@ const char* const kDeveloperNouns[] = {
     "dereference",       "std",                "unreachable",    "should not happen",
 };
 
+// The program's own machinery, named in ordinary English.
+//
+// THE MISS THIS LIST EXISTS FOR. Every word above is a word no one would type
+// into a CAD dialog by accident. These are the opposite: each is a normal word,
+// and a sentence made entirely of them reads as English and still tells the user
+// about the inside of Forge. The menu tooltip on EVERY command said
+//
+//     id: part.fillet   needs: selection_signature_mismatch: 1..n edge   IR: FILLET
+//
+// and not one character of it is a debugger noun.
+//
+// Chosen so that each entry has NO meaning in a machine shop:
+//   "registry", "dispatch", "handler", "predicate", "schema", "callback" —
+//        the command system's own parts.
+//   "compile", "parse", "statement", "declared", "emits", "arity", "opcode" —
+//        the compiler's vocabulary. A part has features, not statements.
+//   "in process", "out of process", "transport", "serialise" — the runtime's.
+// Deliberately NOT here, and each for a reason a reader can check:
+//   "segment"   a mesh edge really is made of segments (Measure says so).
+//   "peak"      peak stress is a real reading.
+//   "gate"      a gate is a real feature of a moulded part.
+//   "mesh", "triangle", "non-manifold", "winding" — these describe the USER'S
+//               model. A CAD application is allowed to name the user's geometry.
+const char* const kDeveloperVocabulary[] = {
+    "registry",   "dispatch",    "dispatcher",  "dispatched", "handler",
+    "predicate",  "schema",      "callback",    "enum",       "namespace",
+    "singleton",  "mutex",       "deadlock",    "opcode",     "bytecode",
+    "compiler",   "parser",      "lexer",       "compile",    "compiled",
+    "compiles",   "parse",       "parsed",      "parses",     "statement",
+    "statements", "declares",    "declared",    "emits",      "emitted",
+    "arity",      "refs",        "serialise",   "serialize",  "in process",
+    "in-process", "out of process", "subprocess", "transport", "telemetry",
+    "op-constraint", "value ref", "valueref",   "identifier", "api",
+    "sdk",        "stderr",      "stdout",      "codebase",   "call site",
+    // "the tool catalog did not produce an entry for it" was a real hint on a
+    // real menu item. "catalog" alone is NOT here: a parts catalogue is a thing
+    // a machinist has.
+    "tool catalog", "tool catalogue", "live registry",
+};
+
+// Names the PROGRAM answers to, in three shapes. See ProseDefect::MachineIdentifier.
+//
+// Two allowlists, and both are narrow ON PURPOSE:
+//   kProductNames  spellings a user is MEANT to read. "CoPilot" is the panel's
+//                  own title; flagging it would make the gate wrong and a wrong
+//                  gate gets switched off.
+//   kUserFileTypes a dotted word ending in one of these is a FILE, which is the
+//                  user's own object -- "bracket.fpart" must stay sayable while
+//                  "part.fillet" must not.
+const char* const kProductNames[] = {"CoPilot", "ArchDisc", "OpenSCAD"};
+const char* const kUserFileTypes[] = {"fpart", "step", "stp",  "brep", "iges",
+                                      "igs",   "stl",  "json", "txt",  "csv",
+                                      "png",   "log",  "obj",  "dxf",  "pdf"};
+
+bool inList(const std::string& word, const char* const* list, std::size_t count) {
+  for (std::size_t i = 0; i < count; ++i) {
+    if (word == list[i]) return true;
+  }
+  return false;
+}
+
+// snake_case: two or more all-lower-case segments joined by underscores. Our own
+// panel and command ids are exactly this shape, which is the point -- they are
+// identifiers and a sentence must not contain one.
+bool isSnakeCaseIdentifier(const std::string& token) {
+  if (token.size() < 5) return false;
+  std::size_t segments = 1;
+  std::size_t segLen = 0;
+  for (char c : token) {
+    if (c == '_') {
+      if (segLen < 2) return false;  // "a_b" is not an identifier, it is punctuation
+      ++segments;
+      segLen = 0;
+      continue;
+    }
+    if (c >= 'A' && c <= 'Z') return false;  // handled by the mixed-case rule
+    ++segLen;
+  }
+  return segments >= 2 && segLen >= 2;
+}
+
+// CamelCase: a capital, then lower case, then ANOTHER capital -- "LocalPlanner",
+// "DockLayout", "ForgeShell". One capitalised word ("Front", "Extrude") is
+// English and is left alone, which is why the second capital is required.
+bool isCamelCaseIdentifier(const std::string& token) {
+  if (token.size() < 4) return false;
+  if (!(token[0] >= 'A' && token[0] <= 'Z')) return false;
+  bool sawLower = false;
+  for (std::size_t i = 1; i < token.size(); ++i) {
+    const char c = token[i];
+    if (c >= 'a' && c <= 'z') { sawLower = true; continue; }
+    if (c >= 'A' && c <= 'Z') { if (sawLower) return true; continue; }
+    return false;  // a digit or an underscore: another rule's business
+  }
+  return false;
+}
+
+// A dotted id -- "part.fillet", "app.load_sample", "view.iso". Both halves are
+// lower case, and the tail must not be a file type a user owns.
+void scanDottedIdentifiers(const std::string& text, std::vector<ProseFinding>& out) {
+  std::size_t i = 0;
+  while (i < text.size()) {
+    if (!isWordChar(text[i])) { ++i; continue; }
+    const std::size_t start = i;
+    bool dotted = false;
+    bool upper = false;
+    while (i < text.size() && (isWordChar(text[i]) ||
+                               (text[i] == '.' && i + 1 < text.size() && isWordChar(text[i + 1])))) {
+      if (text[i] == '.') dotted = true;
+      if (text[i] >= 'A' && text[i] <= 'Z') upper = true;
+      ++i;
+    }
+    if (!dotted || upper) continue;
+    const std::string token = text.substr(start, i - start);
+    const std::size_t dot = token.find_last_of('.');
+    const std::string head = token.substr(0, dot);
+    const std::string tail = token.substr(dot + 1);
+    if (head.size() < 3 || tail.size() < 2) continue;
+    if (inList(tail, kUserFileTypes, sizeof(kUserFileTypes) / sizeof(kUserFileTypes[0]))) continue;
+    // A decimal number is not a name.
+    bool anyAlpha = false;
+    for (char c : token) {
+      if (c >= 'a' && c <= 'z') anyAlpha = true;
+    }
+    if (!anyAlpha) continue;
+    out.push_back(ProseFinding{ProseDefect::MachineIdentifier, token, start});
+  }
+}
+
 void scanTokens(const std::string& text, std::vector<ProseFinding>& out) {
   std::size_t i = 0;
   while (i < text.size()) {
@@ -119,6 +248,11 @@ void scanTokens(const std::string& text, std::vector<ProseFinding>& out) {
 
     if (vkPrefixed || mixedCaseIdentifier || shoutedConstant) {
       out.push_back(ProseFinding{ProseDefect::ApiSymbol, token, start});
+      continue;
+    }
+    if (inList(token, kProductNames, sizeof(kProductNames) / sizeof(kProductNames[0]))) continue;
+    if (isSnakeCaseIdentifier(token) || isCamelCaseIdentifier(token)) {
+      out.push_back(ProseFinding{ProseDefect::MachineIdentifier, token, start});
     }
   }
 }
@@ -155,12 +289,24 @@ const char* toString(ProseDefect defect) noexcept {
     case ProseDefect::NotImplemented: return "NotImplemented";
     case ProseDefect::DeveloperNoun:  return "DeveloperNoun";
     case ProseDefect::SourceLocation: return "SourceLocation";
+    case ProseDefect::MachineIdentifier:   return "MachineIdentifier";
+    case ProseDefect::DeveloperVocabulary: return "DeveloperVocabulary";
   }
   return "Unknown";
 }
 
-std::vector<ProseFinding> scanUserFacingProse(const std::string& text) {
+std::vector<ProseFinding> scanUserFacingProse(const std::string& raw) {
   std::vector<ProseFinding> out;
+  if (raw.empty()) return out;
+  // ── ImGui's "##" ────────────────────────────────────────────────────────────
+  // Everything from "##" onward is an IDENTITY, not a label: ImGui hashes it and
+  // draws nothing. "##tree_rows" puts no characters on the screen, so it is not
+  // prose and a rule that called it one would be wrong -- and a wrong rule is
+  // the one that gets an exception written for it, then two, then it is off.
+  // The part BEFORE the "##" is drawn and is scanned exactly as before, which is
+  // what stops "Fillet##part.fillet" from becoming a hiding place.
+  const std::size_t hash = raw.find("##");
+  const std::string text = hash == std::string::npos ? raw : raw.substr(0, hash);
   if (text.empty()) return out;
   const std::string low = toLower(text);
 
@@ -187,7 +333,10 @@ std::vector<ProseFinding> scanUserFacingProse(const std::string& text) {
               sizeof(kNotImplemented) / sizeof(kNotImplemented[0]), out);
   findPhrases(low, text, ProseDefect::DeveloperNoun, kDeveloperNouns,
               sizeof(kDeveloperNouns) / sizeof(kDeveloperNouns[0]), out);
+  findPhrases(low, text, ProseDefect::DeveloperVocabulary, kDeveloperVocabulary,
+              sizeof(kDeveloperVocabulary) / sizeof(kDeveloperVocabulary[0]), out);
   scanTokens(text, out);
+  scanDottedIdentifiers(text, out);
   scanSourceLocations(low, text, out);
 
   std::sort(out.begin(), out.end(), [](const ProseFinding& a, const ProseFinding& b) {
