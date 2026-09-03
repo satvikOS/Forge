@@ -487,7 +487,7 @@ int main(int argc, char** argv) {
     CHECK(!wide.tolerated.empty());
     CHECK(wide.tolerated.find("EXTRUDE") != std::string::npos);
     CHECK(wide.tolerated.find("4 argument") != std::string::npos);
-    CHECK(wide.tolerated.find("kernel-legal") != std::string::npos);
+    CHECK(wide.tolerated.find("the modelling engine builds this") != std::string::npos);
 
     // (b) the forms FeatureTree.hpp DOCUMENTS and part.fillet never writes.
     // Both were refused before; both build.
@@ -510,7 +510,7 @@ int main(int argc, char** argv) {
     CHECK_EQ_INT(static_cast<int>(tooMany.verdict), static_cast<int>(OpConstraint::WrongArity));
     CHECK(tooMany.reason.find("EXTRUDE") != std::string::npos);
     CHECK(tooMany.reason.find("6 argument") != std::string::npos);
-    CHECK(tooMany.reason.find("KERNEL cannot build") != std::string::npos);
+    CHECK(tooMany.reason.find("it cannot build this step") != std::string::npos);
     CHECK(tooMany.tolerated.empty());
 
     const OpRuling tooFew = bridge.check(step(2, "EXTRUDE", {IrArg::valueRef(1)}));
@@ -702,7 +702,7 @@ int main(int argc, char** argv) {
     CHECK(quoted.reason.find("SLOT") != std::string::npos);
     // ForbiddenOp's own words are quoted through, so the refusal cites the
     // vocabulary rather than paraphrasing it.
-    CHECK(quoted.reason.find("no command in the forge::ui registry emits it") !=
+    CHECK(quoted.reason.find("no command in Forge produces it") !=
           std::string::npos);
 
     // A BARE keyword spelling it, which forge::ft upper-cases as it reads --
