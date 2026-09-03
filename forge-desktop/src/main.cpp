@@ -596,6 +596,10 @@ int main(int argc, char** argv) {
   forge::desktop::UpdateService updates;
   const std::string runningVersion =
       forge::desktop::UpdateService::detectRunningVersion(argv[0]);
+  // The SAME path the version was read out of. Deriving it a second way here is
+  // exactly how the bundle that gets replaced stops being the bundle that was
+  // measured.
+  const std::string appBundle = forge::desktop::UpdateService::detectAppBundle(argv[0]);
   frame.setRunningVersion(runningVersion);
   if (!runningVersion.empty()) {
     std::printf("[forge] version %s; checking for updates in the background\n",
@@ -680,6 +684,13 @@ int main(int argc, char** argv) {
     if (frame.updateCheckRequested()) {
       frame.clearUpdateCheckRequest();
       updates.start(runningVersion);
+    }
+    // The install half. apply() refuses unless a check has already offered a
+    // version, so this cannot become a speculative download; it runs off the UI
+    // thread and reports back through the same snapshot as the check.
+    if (frame.updateApplyRequested()) {
+      frame.clearUpdateApplyRequest();
+      updates.apply(appBundle);
     }
 
     frame.build(viewport.texture(), platform.dpiScale());

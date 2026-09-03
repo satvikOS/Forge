@@ -349,6 +349,74 @@ jobs:
         # survive the rewrite, so this does. --mutations is the negative control:
         # three ways to break the staging, each of which must turn this red.
         run: bash forge-desktop/test/sdl3_staging_gate.sh --mutations
+      - name: the release path, the appcast and the bundle name the same artifact
+        # The gap the step above it does NOT cover. appcast_selftest proves the
+        # emitter writes a DOCUMENT the app accepts. Nothing proved that the
+        # document describes THE RELEASE.
+        #
+        # The artifact's name is spelled three times, in three files nothing
+        # compares: package_macos.sh creates the zip, desktop-release.yml uploads
+        # it, emit_appcast.sh puts it in the payload URL. Change one and all
+        # three files still pass every other gate — and the release ships with an
+        # appcast pointing at a 404, which no CI run can see because the first
+        # reader is an installed copy on a user's machine.
+        #
+        # It also asserts the two executables whose absence is SILENT reach the
+        # bundle: forge_kernel_worker (crash isolation) and forge_update (the
+        # only code in the product that can INSTALL a release — without it the
+        # app detects updates it can never apply).
+        #
+        # Cheap enough to ride a PR: it reads sources and compiles ONE small C++
+        # checker. Seven mutations are the negative control.
+        run: bash forge-desktop/test/release_contract_gate.sh --mutations
+
+  release_visibility:
+    name: could an installed Forge actually SEE the latest release?
+    # SEPARATE from desktop_update on purpose. That job documents itself as
+    # having NO NETWORK — every decision in the updater is a pure function and it
+    # injects a fetcher that copies a local file — and putting a live API call
+    # inside it would quietly make that sentence false.
+    #
+    # This asks the one question no offline gate can: given what is PUBLISHED
+    # right now, would a running copy of Forge find it? The app fetches
+    # releases/latest/download/appcast.json, and GitHub's `latest` skips drafts
+    # AND prereleases. The release workflow creates every release as a draft, so
+    # the failure is one careless checkbox away and is silent in the worst way —
+    # nothing errors, no release is malformed, and every shipped copy is frozen
+    # for ever.
+    #
+    # MEASURED 2026-09-02: the repository has exactly one release, v0.1.0-alpha.0,
+    # and it is BOTH a draft AND a prerelease with zero assets. Publishing it
+    # alone would therefore still not make it `latest` — the prerelease flag has
+    # to come off too. That is precisely the kind of thing this job exists to say
+    # out loud instead of leaving it to be discovered by a user.
+    #
+    # --allow-unreleased tolerates EXACTLY ONE condition: zero published
+    # releases, which before the first tag is the state the project is
+    # deliberately in and which no pull request can change. Everything else stays
+    # hard — the moment a release is published it must carry an appcast.json and
+    # a zip, and an unreachable API is a failure, never a quiet pass.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: prove the check fires in BOTH directions (offline, stubbed gh)
+        # FIRST, and with no network at all. Against the live repository the
+        # check can currently only return one answer -- nothing is published --
+        # so every observation of it is consistent with a script that
+        # unconditionally exits 1, and the live step below would prove nothing.
+        #
+        # This stubs `gh` on PATH and drives twelve arms from fixtures: the
+        # positive control (published + appcast + zip -> GREEN), the two states
+        # GitHub's `latest` skips, the two where `latest` resolves and the
+        # release is still useless, and four that pin down --allow-unreleased --
+        # that it tolerates "nothing published yet" and NOTHING else. Publishes
+        # nothing, deletes nothing, needs no authentication.
+        run: bash forge-desktop/test/release_visibility_check_selftest.sh
+      - name: is the newest release reachable by an installed copy?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash forge-desktop/test/release_visibility_check.sh --allow-unreleased
 
   simulation:
     name: real-time simulation frame contract (SR-4)
