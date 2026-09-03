@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = 42c98230cf3d93a6f06127a70fc840e4e1f969e56c9efce1b9118e6be1c908df
+// sha256(vocabulary) = 9cfb1411cc9a8de33cb732dbb372e10e97952600b5d38e6e819a10b221eb221f
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,7 +35,7 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "42c98230cf3d93a6f06127a70fc840e4e1f969e56c9efce1b9118e6be1c908df";
+inline constexpr std::string_view kVocabularySha256 = "9cfb1411cc9a8de33cb732dbb372e10e97952600b5d38e6e819a10b221eb221f";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
@@ -324,11 +324,11 @@ struct ForbiddenRow {
 };
 inline constexpr std::array<ForbiddenRow, 3> kForbiddenOps = {{
     ForbiddenRow{"ARC",
-                 "no command in the forge::ui registry emits it, so no user can produce it"},
+                 "no command in Forge produces it, so nothing you can do in the application reaches it"},
     ForbiddenRow{"HELIX",
-                 "no command in the forge::ui registry emits it, so no user can produce it"},
+                 "no command in Forge produces it, so nothing you can do in the application reaches it"},
     ForbiddenRow{"SLOT",
-                 "no command in the forge::ui registry emits it, so no user can produce it"},
+                 "no command in Forge produces it, so nothing you can do in the application reaches it"},
 }};
 
 // --------------------------------------------------- the commands that emit IR
