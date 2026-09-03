@@ -103,6 +103,22 @@ bool forgeNativeInterferenceEnabled() {
     return envSet ? envOn : true;
 }
 
+NativeGateOverrides saveNativeGateOverrides() {
+    NativeGateOverrides s;
+    s.core         = g_coreOverride.load(std::memory_order_relaxed);
+    s.features     = g_featOverride.load(std::memory_order_relaxed);
+    s.step         = g_stepOverride.load(std::memory_order_relaxed);
+    s.interference = g_interfOverride.load(std::memory_order_relaxed);
+    return s;
+}
+
+void restoreNativeGateOverrides(const NativeGateOverrides& prev) {
+    g_coreOverride.store(prev.core, std::memory_order_relaxed);
+    g_featOverride.store(prev.features, std::memory_order_relaxed);
+    g_stepOverride.store(prev.step, std::memory_order_relaxed);
+    g_interfOverride.store(prev.interference, std::memory_order_relaxed);
+}
+
 void setForgeNativeBrepEnabled(bool on) {
     // The A/B harness toggles the WHOLE native surface (core + features + step) so
     // native_vs_occt can compare every op; production never calls this.
