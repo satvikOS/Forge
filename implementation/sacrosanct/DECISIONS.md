@@ -3840,3 +3840,157 @@ nothing about v1's behaviour on a run that DOES crash — and the v10 arm, which
 instrument failures, was never scored with v1. So the correct reading is not "v1 and v2 agree"
 but "**v1 and v2 agree when nothing dies**", which is the only claim the data supports and
 the only one D-051 needed.
+
+
+## D-053 — MM-CAD's 33,816 rows carry the answer inside the question, and the blocker was never the download
+
+**Question.** The owner asked, with visible frustration, why Archie is not "under heavy training"
+on the ~34,000 rows of `exanos/MMCAD`. Two prior sessions answered "it was never downloaded".
+That answer was wrong twice, for the same reason both times: the check looked at `data/mmcad*`
+when the corpus lives at **`data/external/mmcad`**. A path miss printed as a fact.
+
+### What is actually on disk, and what I added
+
+`data/external/mmcad/scan/mmcad_a_*.jsonl` holds **exactly 33,816 rows** — train 27,048,
+val 3,376, test 3,392. The corpus shipped **without its images**: every row referenced
+`renders/iso1/<uid>.png` and `find data/external -name '*.png'` returned **0**. The renders ship
+as separate archives that had never been fetched. I pulled `archives/renders/renders_iso1.zip`
+(33,816 entries, 512x512, 1.1 GB), extracted it, verified **33,816/33,816 rows resolve with 0
+missing** over the full set rather than a sample, then deleted the now-redundant zip after
+proving the extraction complete — re-checking resolvability *after* the delete (27,048/27,048).
+
+The repo's own permanent gate passes it: `scripts/contamination_guard.py --scan` reports
+**0 contaminated rows across all three splits**, and still 0 under `--strict-family`.
+
+### The two measurements that decide it
+
+Over **all 33,816 rows, no sampling**:
+
+| measurement | result |
+|---|---|
+| assistant string appears VERBATIM inside the user message | **33,816 / 33,816 = 100.00%** |
+| rows carrying a construction op token AND a numeric parameter | **0 / 33,816 = 0.00%** |
+| assistant length | p50 **201** chars, p90 372, max 1055 |
+
+**The answer is in the question in every single row.** Training a 30B VLM on this teaches it to
+echo the tail of its own prompt and to emit prose where an IR belongs — and the loss curve would
+have looked excellent throughout.
+
+★**This is not a preprocessing slip; the source has nothing better.** `metadata.csv` has 28
+columns — uid, benchmark, source_id, category, supervision, split, title/description (+`_gemini`,
++`_human`) and asset paths. **There is no op, parameter, sequence or feature column anywhere.**
+MM-CAD:A is a mesh + render + caption corpus. Archie's task is to emit a construction tree; this
+dataset holds no trees to teach. A parallel measurement over MM-CAD:B's 192,626 captions agrees:
+47.6% name a CAD op verb, but only **0.375%** carry a verb AND a dimension, and 93.6% contain no
+digit at all.
+
+★**A SCHEMA MATCH IS NOT A CONTENT MATCH, and I asserted the opposite mid-session before
+correcting it.** The rows carry the right KEYS (`image` + a 3-role `messages`), which reads as
+"already canonical". Their system prompt is **115 characters**; ours is **3,477**. And
+`validate_corpus.check_row` forbids extra top-level keys, while these rows carry `id`/`source`/
+`stem` — so the trainer's own gate rejects them as they stand.
+
+### The real blocker is ours, not the dataset's
+
+`scripts/canonicalize_dataset.py` returns `in=3 accepted=0 rejected=3`, and
+`grep -n "accepted.append"` returns **nothing** — the variable is declared and read, never
+written. Every measured row dies at `rejected@emit`: *"measured OK but IR recovery is not wired
+for this source; refusing to emit a row whose assistant side would be invented."*
+`representation.extract` builds the USER side (face census) only. **There is no STEP -> IR
+recovery wired. That, not the download, is why the model is not training on MM-CAD.**
+The door refusing was correct, and it must stay correct: "no data" and "not implemented" must
+not look alike downstream.
+
+### Decision
+
+1. **Do not train on `scan/*.jsonl` in any form.** Rebuild from `metadata.csv`, which holds the
+   caption columns SEPARATELY (`description_human` 22,634 = 66.9%, `description_gemini` 33,816,
+   `title`), so the caption can be the answer without also being the question. Gate every emitted
+   row with a leak check — assistant not a substring of user, and no 8-word shingle shared — run
+   over 100% of rows and mutation-proved to fail on a poisoned row.
+2. **Treat MM-CAD as vision grounding and as GEOMETRY, not as construction supervision.**
+3. **Wire STEP -> IR recovery** for the narrow cases where it can be proven, accepting a row only
+   when recompiling the recovered IR reproduces the source within tolerance on a VECTOR of
+   observables (volume AND bbox AND face-kind census AND centre of mass) — volume alone cannot
+   validate geometry.
+
+### Scope, licence and cost
+
+The repo is **200.83 GB across 5,809 files** (`mmcad_b/` 140.56 GB, `photoreal/` 39.17 GB,
+`archives/` 20.91 GB); it does not fit in the free space and was never bulk-pulled. **We hold
+5.2 GB** — MM-CAD:A metadata + splits + renders (1.2 GB) and three **stride-sampled** STEP shards
+(4.0 GB); stride, never a contiguous block, because a contiguous block is one region of a sorted
+corpus. Geometry from shard 00000 (200 files by stride, parser first proved on a known-good box):
+**198/200 parse = 99.0%**, BRepCheck-valid 194/198, analytic-only 66.7%, and 31.3% "tractable"
+(1 solid, <=30 faces, analytic-only) — projecting **~59,700 candidate parts** of 192,625. That is
+a ceiling on candidate GEOMETRY, not on trainable rows, and "tractable" is a **chosen threshold,
+not a measured boundary of our decomposer**.
+
+**Licence: CC BY-NC 4.0, NonCommercial** (`LICENSES.md` + README front-matter; the Hub's `"other"`
+tag is only the aggregate label). MM-CAD:A aggregates 11 benchmarks and the geometry keeps each
+upstream licence — **ShapeNetV2 is gated and forbids mesh redistribution**, Thingi10K is per-model.
+**The owner has directed that the work proceed on a non-commercial research basis** and that
+decision is recorded here so a future commercial decision is not made blind — it would need
+counsel and, for several constituents, would not be available at all.
+
+### Cutting against this entry
+
+The geometry is genuinely good and 31.3% is a real, sizeable pool: MM-CAD is worth having, and the
+thing to build is **the decomposer, not another download**. Nothing here argues the corpus is
+worthless — only that it cannot teach a feature tree in the form it ships.
+
+### A defect found in passing, unrelated to MM-CAD
+
+**2 of the 103 rows in `data/forge/selfconsist_v10_split/valid.jsonl` have a byte-identical user
+census to a train row carrying a DIFFERENT correct answer** — `%10 = BOX(12, 70, 12, 0, 0, 0)` in
+valid against `BOX(20, 70, 12, 0, 0, 0)` in train, and the mirror case. Those rows are unanswerable
+as posed and the model is trained toward the wrong one, **capping holdout accuracy at 98.1%**.
+Pre-existing; recorded so no future run reads that ceiling as a model failure.
+
+### Reproduction
+
+    python3 scripts/contamination_guard.py --scan data/external/mmcad/scan/mmcad_a_{train,val,test}.jsonl
+    python3 scripts/canonicalize_dataset.py --source mmcad_b --raw data/external/mmcad_b_raw --limit 3 ...
+    grep -n "accepted.append" scripts/canonicalize_dataset.py    # returns nothing
+
+
+## D-054 — OCCT is not always a working incumbent: its own offset engine segfaults on corpus parts
+
+**Context.** Six agents were dropping six TKOffset families natively, in parallel, under the wave-1
+work that gates all thirteen waves of the OCCT chain. Their A/B harnesses produced a burst of
+`corpus_ab_coverage` crash reports.
+
+**The reports are two different things, and a count of them is not a count of defects:**
+
+* **20 x SIGSEGV entirely inside OCCT**, one identical stack:
+  `BRepOffsetAPI_MakeOffsetShape::PerformByJoin` -> `BRepOffset_MakeOffset::MakeOffsetShape` ->
+  `BuildOffsetByInter` -> `IntersectEdges` -> `BRepOffset_Inter2d::ConnexIntByInt` ->
+  `BRepAdaptor_Curve::Initialize` -> `BRep_Tool::CurveOnSurface`, terminating
+  **`EXC_BAD_ACCESS`, `KERN_INVALID_ADDRESS at 0x0000000000000060`** — a null dereference plus a
+  field offset. **No `forge::` frame appears above `runArm`.** This is OCCT's own code failing.
+* **5 x SIGSEGV in the harness's own `selftest`** — its positive control, crashing deliberately to
+  prove per-part subprocess isolation works. All six agents kept running throughout.
+
+Separating the two required reading the **faulting frames**, not the filename.
+
+**Why this changes the plan.** `BRepOffsetAPI_MakeOffsetShape` is family **H (OFFSETSHAPE)** and the
+engine beneath it, `BRepOffset_MakeOffset`, is family **I (THICKEN)** — so **two of the nine
+TKOffset families are being measured against an incumbent that segfaults.** A native replacement
+there does not have to match a working baseline; it has to beat a crashing one. That is a
+materially easier bar than DRAFT faces (native 372/565 = 65.8% against OCCT 497/565 = 88.0%), and
+it should change which families are attempted first.
+
+This is the same shape as THICKSOLID, where **all 133 of OCCT's "successes" are `BRepCheck`-INVALID**
+— a pass that is not a pass. Both point one way: **the reason a family has not been dropped is not
+always that OCCT is good at it.** Measure the incumbent; never assume it.
+
+**What this does NOT establish.** The crash was observed under concurrent load from fourteen agents,
+and the specific parts that trigger it were not isolated here — so no per-part rate is claimed, and
+none should be quoted until one is measured. It is also not established that a native path would
+succeed on those same parts; only that the incumbent fails on them.
+
+**Ledger, unchanged and stated plainly:** `forge-kernel/scripts/occt_closure_count.sh` reports
+**OCCT_CLOSURE = 14, ZERO of 14 toolkits dropped.** No family work has moved that number, because
+`CMakeLists.txt:1170` removes TKOffset only when **all nine** families compile out and seven still
+fail their flip gate. **"11" must never be quoted as progress** — it is reachable only with
+`FORGE_DRAFT_DROP_NATIVE=ON`, which deletes 497 draft parts.

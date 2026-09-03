@@ -1671,9 +1671,25 @@ void ForgeFrame::drawMenuBar() {
       ImGui::Separator();
     }
     const bool checking = update_.state == UpdateState::Checking;
+    const bool installing = update_.state == UpdateState::Installing;
+    const bool busy = checking || installing;
     if (ImGui::MenuItem(checking ? "Checking for Updates..." : "Check for Updates...", nullptr,
-                        false, !checking)) {
+                        false, !busy)) {
       updateCheckPending_ = true;
+    }
+    // ★ THE ACT, not just the news. An update the user is told about and cannot
+    // install is the release chain stopping one inch short, on their machine,
+    // for ever: they re-download a zip by hand and clear Gatekeeper again every
+    // time. This item is the only place in the product that writes to the
+    // installed bundle, so it is enabled ONLY when a check has actually offered
+    // a version -- never as a speculative "try to update".
+    if (update_.state == UpdateState::Available && !update_.version.empty()) {
+      if (ImGui::MenuItem(("Install Forge " + update_.version + "...").c_str(), nullptr, false,
+                          !busy)) {
+        updateApplyPending_ = true;
+      }
+    } else if (installing) {
+      ImGui::MenuItem("Installing...", nullptr, false, false);
     }
     if (!update_.message.empty()) {
       ImGui::Separator();

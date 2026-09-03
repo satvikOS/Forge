@@ -163,6 +163,30 @@ else
   say "note: this ref's packager stages no kernel worker; nothing to check"
 fi
 
+# ── 3a-ii. the UPDATER must be INSIDE the bundle ─────────────────────────────
+# forge_update is the only code in the shipped product that can INSTALL a
+# release. The app's own check is read-only by design -- it fetches the appcast,
+# decides, and downloads nothing -- so a bundle without this binary produces an
+# app that can tell a user a new version exists and can do nothing whatever
+# about it. Every user then re-downloads a zip by hand and clears Gatekeeper
+# again, which is the exact cost the update path exists to charge once.
+#
+# Like the worker, its absence is SILENT: nothing errors, no gate goes red, and
+# the product is simply frozen at the version each user happened to install.
+# Capability-detected against the packager's own staging assignment, anchored so
+# the comments that explain the updater cannot make an absent capability look
+# present.
+UPDATER_BUNDLED="not-applicable"
+if grep -qE '^[[:space:]]*UPDATER_SRC=' "$PKG"; then
+  UPD="$APP/Contents/MacOS/forge_update"
+  [ -x "$UPD" ] || die "this ref STAGES an updater but $UPD is not in the bundle -- \
+the shipped app could DETECT a release and would have no way to INSTALL one"
+  UPDATER_BUNDLED="yes"
+  say "updater is in the bundle: Contents/MacOS/forge_update"
+else
+  say "note: this ref's packager stages no updater; nothing to check"
+fi
+
 # ── 3b. the appcast must describe THIS zip ───────────────────────────────────
 # appcast.json is what every already-installed copy of Forge reads to find and
 # verify this release. A release whose appcast names a different build is a
@@ -256,6 +280,7 @@ REPORT="$DIST/Forge-macos-arm64-${VERSION}.dryrun.json"
   printf '  "zip_sha256": "%s",\n' "$SHA"
   printf '  "appcast_describes_this_zip": "%s",\n' "$APPCAST_OK"
   printf '  "crash_isolation_worker_bundled": "%s",\n' "$WORKER_BUNDLED"
+  printf '  "updater_bundled": "%s",\n' "$UPDATER_BUNDLED"
   printf '  "host_macos": "%s",\n' "$(sw_vers -productVersion)"
   printf '  "deployment_target_requested": "%s",\n' "$MACOS_MIN"
   printf '  "measured_floor": "%s",\n' "$FLOOR"
@@ -282,6 +307,7 @@ cat <<SUMMARY
   report          $REPORT
   appcast         $APPCAST  (describes this zip: $APPCAST_OK)
   crash isolation forge_kernel_worker in the bundle: $WORKER_BUNDLED
+  self-update     forge_update in the bundle: $UPDATER_BUNDLED
   version         $VERSION
   host macOS      $(sw_vers -productVersion)
   Mach-O files    $NMACH
