@@ -61,6 +61,7 @@
 #include <BRepGProp.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_Plane.hxx>
@@ -360,8 +361,14 @@ int selftest() {
         }
     }
 
-    // NEGATIVE: a bore that BREAKS OUT through the drafted wall. The new wall
-    // edge would be a conic on the cylinder; it MUST decline, and say so.
+    // POSITIVE 2 (WAS THE NEGATIVE CONTROL): a bore that BREAKS OUT through the
+    // drafted wall. This used to be the proof the engine COULD decline -- the new
+    // wall edge is a conic on the cylinder, and that was out of scope. It is now
+    // in scope: the section is the exact plane/cylinder ellipse and its pcurve is
+    // fitted under an asserted deviation bound. So the control is re-pointed
+    // rather than relaxed -- it must now SUCCEED and hand back a BRepCheck-VALID
+    // solid, which is more than "it declined" ever demanded -- and the ability to
+    // decline is re-proved just below on a neighbour that is still out of scope.
     {
         const TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 10.0).Shape();
         const TopoDS_Shape cyl =
@@ -383,12 +390,47 @@ int selftest() {
         const TopoDS_Shape r =
             forge::occtdraftlocal::draftFacesLocal(part, fs, zUp, 5.0 * kPi / 180.0, nz0);
         const std::string why = forge::occtdraftlocal::draftLocalLastDeferReason();
+        bool rValid = false;
+        if (!r.IsNull()) { try { rValid = BRepCheck_Analyzer(r).IsValid() == Standard_True; } catch (...) {} }
+        if (r.IsNull() || !why.empty() || !rValid) {
+            std::printf("  POSITIVE CONTROL 2 FAILED: null=%d valid=%d why='%s'\n",
+                        r.IsNull() ? 1 : 0, rValid ? 1 : 0, why.c_str());
+            bad = 1;
+        } else {
+            std::printf("  positive control 2: wall meeting a bore drafted, solid is BRepCheck-valid\n");
+        }
+    }
+
+    // NEGATIVE: the decline path the block above used to cover. A SPHERE is not a
+    // cylinder, so the section is not an ellipse this engine can write in closed
+    // form, and it MUST still decline -- and still SAY why. Without this the
+    // promotion above would have retired the only proof the engine can refuse.
+    {
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(20.0, 20.0, 10.0).Shape();
+        const TopoDS_Shape sph =
+            BRepPrimAPI_MakeSphere(gp_Pnt(20.0, 10.0, 5.0), 4.0).Shape();
+        TopoDS_Shape part;
+        try { part = BRepAlgoAPI_Cut(box, sph).Shape(); } catch (...) {}
+        if (part.IsNull()) { std::printf("  selftest: sphere cut failed\n"); return 1; }
+        TopoDS_Face wall; double bestX = -1.0e300;
+        for (TopExp_Explorer ex(part, TopAbs_FACE); ex.More(); ex.Next()) {
+            gp_Pln pl;
+            const TopoDS_Face f = TopoDS::Face(ex.Current());
+            if (!planeOf(f, pl)) continue;
+            if (pl.Axis().Direction().X() < 0.9) continue;
+            if (pl.Location().X() > bestX) { bestX = pl.Location().X(); wall = f; }
+        }
+        if (wall.IsNull()) { std::printf("  selftest: no +X wall on the sphere-cut part\n"); return 1; }
+        TopTools_ListOfShape fs; fs.Append(wall);
+        const TopoDS_Shape r =
+            forge::occtdraftlocal::draftFacesLocal(part, fs, zUp, 5.0 * kPi / 180.0, nz0);
+        const std::string why = forge::occtdraftlocal::draftLocalLastDeferReason();
         if (!r.IsNull() || why.find("non-planar") == std::string::npos) {
             std::printf("  NEGATIVE CONTROL FAILED: null=%d why='%s'\n",
                         r.IsNull() ? 1 : 0, why.c_str());
             bad = 1;
         } else {
-            std::printf("  negative control: wall meeting a bore declines '%s' ok\n", why.c_str());
+            std::printf("  negative control: wall meeting a sphere declines '%s' ok\n", why.c_str());
         }
     }
 
