@@ -104,7 +104,13 @@ const char* toString(CheckState state) noexcept;
 
 struct InspectionCheck {
   std::string name;    // what was checked, in a user's words
-  std::string detail;  // the evidence, with its numbers
+  // NAMED `evidence`, not `detail`. `detail` is what this codebase calls the
+  // program's OWN description of a failure -- the thing that must be
+  // translated before a user sees it -- and the prose gate reads the member
+  // NAME to find leaks. This holds the opposite: a sentence already composed
+  // for a person, with its numbers. Two meanings under one name is how a real
+  // leak hides beside a false positive.
+  std::string evidence;
   CheckState state = CheckState::Unavailable;
 };
 

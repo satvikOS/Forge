@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/SelectionService.hpp"
@@ -136,8 +137,22 @@ ToolCatalog buildToolCatalog(const CommandRegistry& registry, const SelectionSer
           e.availability = ToolAvailability::Unavailable;
           break;
       }
-      e.reason = std::string(toString(verdict.status)) +
-                 (verdict.detail.empty() ? std::string() : (": " + verdict.detail));
+      // THE SENTENCE, NOT THE STATUS CODE.
+      //
+      // This one line put "selection_signature_mismatch: 1..n edge
+      // (homogeneous)" on screen in three places -- the menu tooltip's "needs:"
+      // row, the greyed line under every command in a panel's list, and the
+      // Tools panel -- for 51 of the 84 shipped commands. It also passed the
+      // first prose gate, which scanned this exact field, by name, on every
+      // command: an all-lower-case identifier was a shape that scanner could
+      // not see.
+      //
+      // explainUnavailable is the SAME explainer the activity log and the
+      // ribbon use, so a tooltip and a log line still cannot tell two stories.
+      // The machine spelling has not been deleted -- `status` is right here on
+      // the entry, and machineName() turns it back into "selection_signature_
+      // mismatch" for the Console's detail column and for the agent surface.
+      e.reason = explainUnavailable(id, d, verdict.status, verdict.detail, e.missing, &selection);
     }
     catalog.entries.push_back(std::move(e));
   }

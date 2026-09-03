@@ -67,7 +67,7 @@ InspectionReport buildInspectionReport(const KernelSolidReport& kernel, const Me
     InspectionCheck c;
     c.name = std::move(name);
     c.state = state;
-    c.detail = std::move(detail);
+    c.evidence = std::move(detail);
     report.checks.push_back(std::move(c));
   };
 

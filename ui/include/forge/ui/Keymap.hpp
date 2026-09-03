@@ -29,7 +29,10 @@ enum class InputProfile : std::uint8_t {
 };
 
 inline constexpr std::size_t kInputProfileCount = 4;
+// The slug: "nx-like". A settings key, not a menu label.
 const char* toString(InputProfile profile) noexcept;
+// The name in the menu.
+const char* userText(InputProfile profile) noexcept;
 std::vector<InputProfile> allInputProfiles();
 
 enum class Mod : std::uint8_t {

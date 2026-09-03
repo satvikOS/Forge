@@ -192,7 +192,9 @@ struct MachiningOperation {
   MachiningKind kind = MachiningKind::Cutout;
   std::string label;          // the record's own row label
   std::string action;         // "Drill a hole", in a user's words
-  std::string detail;         // the numbers the statement carries
+  // `evidence`, not `detail` -- see InspectionReport.hpp: `detail` names
+  // untranslated internal detail in this codebase, and this is the opposite.
+  std::string evidence;       // the numbers the statement carries
   // The diameter of the round tool this feature NAMES, in mm: a drill of the
   // hole's diameter, a cutter of twice the fillet's corner radius, a boring head
   // at twice the bore's radius. 0 when the statement names none -- a CUT by
@@ -327,7 +329,7 @@ const char* toString(StudyItemState state) noexcept;
 
 struct StudySetupItem {
   std::string name;    // "Shape", "Material", "Restraints", "Loads"
-  std::string detail;  // the evidence, with its numbers
+  std::string evidence;  // the evidence, with its numbers
   StudyItemState state = StudyItemState::Missing;
 };
 

@@ -51,11 +51,16 @@ Band bandFor(ToolAvailability availability) noexcept {
 std::string hintFor(const std::string& id, const CommandDescriptor* command,
                     const ToolEntry& entry, const SelectionService* selection) {
   if (entry.availability == ToolAvailability::Available) {
-    std::string out = command != nullptr && !command->label.empty() ? command->label : id;
-    if (command != nullptr && !command->featureIrOp.empty()) {
-      out += " — emits " + command->featureIrOp;
-    }
-    return out;
+    // WHAT IT DOES, or nothing. This used to append " — emits FILLET": the
+    // feature-IR op name, on the tooltip of every one of the 18 commands that
+    // have one, in a sentence that told the user which token the modelling
+    // engine would receive. "emits" is the compiler's word and the op is the
+    // compiler's name for the operation the button is already labelled with.
+    const std::string label = command != nullptr && !command->label.empty() ? command->label : id;
+    if (command == nullptr || command->signature.kind == EntityKind::None) return label;
+    // What it will act on, in the same words the refusal above uses, so the
+    // available and the unavailable tooltip read as one voice.
+    return label + " — works on " + command->signature.describeForUser();
   }
   return explainUnavailable(id, command, entry.status, entry.reason, entry.missing, selection);
 }
@@ -173,7 +178,10 @@ SurfaceItem buildSurfaceItem(const SurfaceContext& ctx, const std::string& comma
   SurfaceItem item;
   item.commandId = commandId;
   if (!ctx.valid()) {
-    item.hint = "the command surface was asked to build an item with no registry";
+    // Reachable only from a caller that has not finished wiring itself up, but
+    // the string is drawn like any other hint, so it says something a user could
+    // act on rather than naming the object that was missing.
+    item.hint = "Forge is still starting up. Try this again in a moment.";
     return item;
   }
   const CommandDescriptor* d = ctx.registry->find(commandId);
@@ -181,7 +189,7 @@ SurfaceItem buildSurfaceItem(const SurfaceContext& ctx, const std::string& comma
     item.status = DispatchStatus::UnknownCommand;
     item.availability = ToolAvailability::Unavailable;
     item.label = commandId;
-    item.reason = "unknown_command";
+    item.reason = "This tool is not part of this version of Forge.";
     item.hint = explainUnavailable(commandId, nullptr, DispatchStatus::UnknownCommand, {}, {},
                                    ctx.selection);
     return item;
@@ -196,7 +204,8 @@ SurfaceItem buildSurfaceItem(const SurfaceContext& ctx, const std::string& comma
     item.label = d->label;
     item.category = d->category;
     item.status = DispatchStatus::UnknownCommand;
-    item.hint = "the tool catalog did not produce an entry for " + commandId;
+    item.hint = "Forge could not work out whether this tool can be used right now. "
+                "Try it, or restart Forge if it keeps happening.";
     return item;
   }
   return itemFrom(ctx, *entry);

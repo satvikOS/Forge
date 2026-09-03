@@ -371,7 +371,7 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
       o.depthMm = o.through ? 0.0 : depth;
       o.toolDiameterMm = dia > 0.0 ? dia : 0.0;
       o.action = "Drill a hole";
-      o.detail = mm(dia) + " across, " + (o.through ? "right through" : mm(depth) + " deep") +
+      o.evidence = mm(dia) + " across, " + (o.through ? "right through" : mm(depth) + " deep") +
                  ", centred at " + formatIrNumber(numberAt(n, 1)) + ", " +
                  formatIrNumber(numberAt(n, 2)) + ", " + mm(numberAt(n, 3));
       ++plan.holes;
@@ -385,7 +385,7 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
       o.depthMm = cdepth;
       o.toolDiameterMm = dia > 0.0 ? dia : 0.0;
       o.action = "Drill and counterbore";
-      o.detail = mm(dia) + " through, opened to " + mm(cdia) + " for " + mm(cdepth);
+      o.evidence = mm(dia) + " through, opened to " + mm(cdia) + " for " + mm(cdepth);
       ++plan.holes;
     } else if (rec.line.op == "RESIZEBORE") {
       // RESIZEBORE(%body, "sel", newRadius)
@@ -393,7 +393,7 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
       const double radius = numberAt(n, 0);
       o.toolDiameterMm = radius > 0.0 ? 2.0 * radius : 0.0;
       o.action = "Bore to size";
-      o.detail = "opened to " + mm(2.0 * radius) + " across";
+      o.evidence = "opened to " + mm(2.0 * radius) + " across";
       ++plan.holes;
     } else if (rec.line.op == "CUT") {
       // CUT(%a, %b) -- what is taken away is the SECOND body, and naming it is
@@ -408,7 +408,7 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
       }
       const FeatureRecord* tool = index.find(second);
       o.action = "Cut a shape away";
-      o.detail = tool != nullptr ? "takes away " + labelOf(*tool)
+      o.evidence = tool != nullptr ? "takes away " + labelOf(*tool)
                                  : "takes away the shape this statement names";
       ++plan.cutouts;
     } else if (rec.line.op == "SHELL") {
@@ -416,7 +416,7 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
       o.kind = MachiningKind::Hollow;
       const double wall = numberAt(n, 0);
       o.action = "Hollow it out";
-      o.detail = "leaving a wall " + mm(std::fabs(wall)) + " thick";
+      o.evidence = "leaving a wall " + mm(std::fabs(wall)) + " thick";
       ++plan.cutouts;
     } else if (rec.line.op == "FILLET") {
       // FILLET(%body, radius [, sel=ALL])
@@ -427,14 +427,14 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
       // is arithmetic on the statement's own argument.
       o.toolDiameterMm = radius > 0.0 ? 2.0 * radius : 0.0;
       o.action = "Round the edges";
-      o.detail = mm(radius) + " radius";
+      o.evidence = mm(radius) + " radius";
       ++plan.edgeOperations;
     } else {
       // CHAMFER(%body, dist [, sel=ALL])
       o.kind = MachiningKind::EdgeBreak;
       const double dist = numberAt(n, 0);
       o.action = "Break the edges";
-      o.detail = mm(dist) + " chamfer";
+      o.evidence = mm(dist) + " chamfer";
       ++plan.edgeOperations;
     }
 
@@ -442,9 +442,9 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
     // would make two different operations read identically.
     const std::string sel = keywordOf(rec.line);
     if (!sel.empty() && (o.kind == MachiningKind::EdgeRound || o.kind == MachiningKind::EdgeBreak)) {
-      o.detail += ", on the ";
-      o.detail += sel;
-      o.detail += " edges";
+      o.evidence += ", on the ";
+      o.evidence += sel;
+      o.evidence += " edges";
     }
 
     if (o.toolDiameterMm > 0.0 &&
@@ -676,18 +676,18 @@ StudySetupItem shapeItem(const MeshMeasure& mesh, double volume, bool exact) {
   item.name = "Shape";
   if (mesh.triangles == 0) {
     item.state = StudyItemState::Missing;
-    item.detail = "nothing has been built yet";
+    item.evidence = "nothing has been built yet";
     return item;
   }
   if (!mesh.watertight || !(volume > 0.0)) {
     item.state = StudyItemState::Blocked;
-    item.detail = "the surface does not close: " + std::to_string(mesh.boundaryEdges) +
+    item.evidence = "the surface does not close: " + std::to_string(mesh.boundaryEdges) +
                   " edges are used once, " + std::to_string(mesh.nonManifoldEdges) +
                   " by more than two";
     return item;
   }
   item.state = StudyItemState::Ready;
-  item.detail = "a closed shape of " + number(volume, 3) + " mm3, " +
+  item.evidence = "a closed shape of " + number(volume, 3) + " mm3, " +
                 std::to_string(mesh.triangles) + " triangles" +
                 (exact ? ", measured exactly" : ", measured from the shape as drawn");
   return item;
@@ -747,7 +747,7 @@ StudyPlan buildStudyPlan(const MeshMeasure& mesh, double exactVolumeMm3, const M
     m.name = "Material";
     if (material.hasDensity()) {
       m.state = StudyItemState::Ready;
-      m.detail = material.name + ", " + number(material.densityKgPerM3, 0) + " kg/m3";
+      m.evidence = material.name + ", " + number(material.densityKgPerM3, 0) + " kg/m3";
     } else {
       m.state = StudyItemState::Missing;
       // The range is REAL: it is the library this application already ships,
@@ -761,7 +761,7 @@ StudyPlan buildStudyPlan(const MeshMeasure& mesh, double exactVolumeMm3, const M
         if (withDensity == 0 || lib.densityKgPerM3 > hi) hi = lib.densityKgPerM3;
         ++withDensity;
       }
-      m.detail = "no material chosen yet; " + std::to_string(withDensity) +
+      m.evidence = "no material chosen yet; " + std::to_string(withDensity) +
                  " in the list carry a density, from " + number(lo, 0) + " to " + number(hi, 0) +
                  " kg/m3";
     }
@@ -782,7 +782,7 @@ StudyPlan buildStudyPlan(const MeshMeasure& mesh, double exactVolumeMm3, const M
     StudySetupItem stiffness;
     stiffness.name = "Stiffness";
     stiffness.state = StudyItemState::Missing;
-    stiffness.detail =
+    stiffness.evidence =
         "the material list carries a density and a colour, and a stiffness has to be added before "
         "this can be worked out";
     s.setup.push_back(std::move(stiffness));
@@ -795,7 +795,7 @@ StudyPlan buildStudyPlan(const MeshMeasure& mesh, double exactVolumeMm3, const M
     StudySetupItem held;
     held.name = "Held by";
     held.state = StudyItemState::Missing;
-    held.detail = picked.faces == 0
+    held.evidence = picked.faces == 0
                       ? "nothing holds this part still yet: pick the faces it is bolted or "
                         "clamped by"
                       : pickedFaces + ", and none of them is holding it yet";
@@ -803,7 +803,7 @@ StudyPlan buildStudyPlan(const MeshMeasure& mesh, double exactVolumeMm3, const M
     StudySetupItem loads;
     loads.name = "Loaded by";
     loads.state = StudyItemState::Missing;
-    loads.detail = picked.faces == 0
+    loads.evidence = picked.faces == 0
                        ? "nothing pushes or pulls on it yet: pick a face and give it a force"
                        : pickedFaces + ", and nothing is pushing on them yet";
     s.setup.push_back(std::move(loads));

@@ -327,7 +327,7 @@ int main(int argc, char** argv) {
           ? shell.registry().dispatch("part.fillet", shell.selection(), filletParams)
           : shell.run("part.fillet", filletParams);
   check(fillet.ok(), "part.fillet dispatched through the one registry",
-        forge::ui::toString(fillet.status) + std::string(" ") + fillet.detail);
+        forge::ui::machineName(fillet.status) + std::string(" ") + fillet.detail);
   checkEq(frame.document().records().size(),
           forge::desktop::defaultPartStatements().size() + 1,
           "the command appended one statement to the document");
@@ -459,7 +459,7 @@ int main(int argc, char** argv) {
   // follows it back.
   checkGt(shell.document().undoDepth, 0u, "the shell sees a real undo stack");
   const forge::ui::DispatchResult undo = shell.run("edit.undo");
-  check(undo.ok(), "edit.undo dispatched", forge::ui::toString(undo.status));
+  check(undo.ok(), "edit.undo dispatched", forge::ui::machineName(undo.status));
   check(shell.lastDocumentError().empty(), "edit.undo was not refused",
         shell.lastDocumentError());
   checkEq(frame.document().records().size(), forge::desktop::defaultPartStatements().size(),
@@ -476,7 +476,7 @@ int main(int argc, char** argv) {
         "the undone statement has no row left", "a row outlived its statement");
 
   const forge::ui::DispatchResult redo = shell.run("edit.redo");
-  check(redo.ok(), "edit.redo dispatched", forge::ui::toString(redo.status));
+  check(redo.ok(), "edit.redo dispatched", forge::ui::machineName(redo.status));
   check(shell.lastDocumentError().empty(), "edit.redo was not refused",
         shell.lastDocumentError());
   const Fingerprint afterRedo = fingerprint(scene);
@@ -490,7 +490,7 @@ int main(int argc, char** argv) {
   forge::ui::CommandParams saveParams;
   saveParams.setText("path", g_mutation == 3 ? std::string() : path);
   const forge::ui::DispatchResult saved = shell.run("file.save", saveParams);
-  check(saved.ok(), "file.save dispatched", forge::ui::toString(saved.status));
+  check(saved.ok(), "file.save dispatched", forge::ui::machineName(saved.status));
   check(shell.lastDocumentError().empty(), "file.save was not refused",
         shell.lastDocumentError());
 
@@ -645,7 +645,7 @@ int main(int argc, char** argv) {
   // Drop the document first, so a successful open cannot be the old one still
   // sitting there. file.new re-seeds the starting part.
   const forge::ui::DispatchResult fresh = shell.run("file.new");
-  check(fresh.ok(), "file.new dispatched", forge::ui::toString(fresh.status));
+  check(fresh.ok(), "file.new dispatched", forge::ui::machineName(fresh.status));
   check(shell.lastDocumentError().empty(), "file.new was not refused",
         shell.lastDocumentError());
   checkStrEq(frame.document().irProgram(), forge::desktop::defaultPartIr(),
@@ -656,7 +656,7 @@ int main(int argc, char** argv) {
   forge::ui::CommandParams openParams;
   openParams.setText("path", path);
   const forge::ui::DispatchResult opened = shell.run("file.open", openParams);
-  check(opened.ok(), "file.open dispatched", forge::ui::toString(opened.status));
+  check(opened.ok(), "file.open dispatched", forge::ui::machineName(opened.status));
   check(shell.lastDocumentError().empty(), "file.open READ THE PATH and succeeded",
         shell.lastDocumentError());
 
@@ -704,7 +704,7 @@ int main(int argc, char** argv) {
     const std::size_t before = frame.document().records().size();
     const forge::ui::DispatchResult r2 = shell.run("part.chamfer", p2);
     check(r2.ok(), "a command dispatches on the REOPENED document",
-          forge::ui::toString(r2.status) + std::string(" ") + r2.detail);
+          forge::ui::machineName(r2.status) + std::string(" ") + r2.detail);
     checkEq(frame.document().records().size(), before + 1,
             "it appended to the document the file restored");
     // After a command the body answers to the node THAT command produced. A
@@ -757,7 +757,7 @@ int main(int argc, char** argv) {
       const std::size_t before = frame.document().records().size();
       const forge::ui::DispatchResult r3 = shell.run("part.fillet", p3);
       check(r3.ok(), "a viewport pick on it resolves to an IR value",
-            forge::ui::toString(r3.status) + std::string(" ") + r3.detail);
+            forge::ui::machineName(r3.status) + std::string(" ") + r3.detail);
       checkEq(frame.document().records().size(), before + 1, "and the command appended to it");
     }
     std::remove(foreign.c_str());

@@ -696,7 +696,7 @@ int main() {
         CHECK_EQ_INT(static_cast<int>(r.status), static_cast<int>(DispatchStatus::Ok));
         if (!r.ok()) {
           std::printf("  FAIL %s example %zu refused: %s (%s)\n", cmdId.c_str(), e,
-                      toString(r.status), r.detail.c_str());
+                      machineName(r.status), r.detail.c_str());
           continue;
         }
         const FeatureRecord* rec = fx.doc.lastFeature();

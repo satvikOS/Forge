@@ -1055,7 +1055,7 @@ int main(int argc, char** argv) {
       check(!studies.studies[0].setup.empty(), "over a setup it lists", "");
       if (!studies.studies[0].setup.empty()) {
         check(studies.studies[0].setup[0].state == forge::ui::StudyItemState::Ready,
-              "whose shape input is ready", studies.studies[0].setup[0].detail);
+              "whose shape input is ready", studies.studies[0].setup[0].evidence);
       }
     }
     // The document carries no material choice, so the weight is WAITING and says
@@ -1412,7 +1412,11 @@ int main(int argc, char** argv) {
     std::size_t isolationRows = 0;
     forge::ui::Severity isolationSeverity = forge::ui::Severity::Info;
     for (const forge::ui::LogEntry& e : shell.log().entries()) {
-      if (e.source != "kernel.isolation") continue;
+      // The log SOURCE is drawn on screen (ForgeFrame.cpp: ImGui::TextColored(..., e.source)),
+      // so "kernel.isolation" was developer prose shown to a user. The prose sweep renamed it
+      // to "Modelling engine". Every assertion below is unchanged — same exactly-once count,
+      // same severity contract; only the identifier this gate looks for is corrected.
+      if (e.source != "Modelling engine") continue;
       ++isolationRows;
       isolationSeverity = e.severity;
     }
@@ -1439,7 +1443,7 @@ int main(int argc, char** argv) {
       std::size_t active = 0;
       std::size_t warned = 0;
       for (const forge::ui::LogEntry& e : isolatedShell.log().entries()) {
-        if (e.source != "kernel.isolation") continue;
+        if (e.source != "Modelling engine") continue;
         if (e.severity == forge::ui::Severity::Info) {
           ++active;
         } else {
@@ -1468,7 +1472,7 @@ int main(int argc, char** argv) {
     saveParams.setText("path", reopenPath);
     const forge::ui::DispatchResult saved = shell.run("file.save", saveParams);
     check(saved.ok() && shell.lastDocumentError().empty(), "saved the document to a real .fpart",
-          shell.lastDocumentError().empty() ? std::string(forge::ui::toString(saved.status))
+          shell.lastDocumentError().empty() ? std::string(forge::ui::machineName(saved.status))
                                             : shell.lastDocumentError());
     checkEq(shell.recentDocuments().size(), 1u, "a successful save is remembered");
     check(shell.recentDocuments().mostRecent() == reopenPath,

@@ -300,10 +300,10 @@ int main() {
     CHECK(plan.operations[0].kind == MachiningKind::Cutout);
     // A CUT names the body it takes away, because a boolean carries no dimension
     // and the name is the only useful thing the row can say.
-    CHECK(contains(plan.operations[0].detail, "takes away Hollow") == false);
-    CHECK(contains(plan.operations[0].detail, "takes away"));
+    CHECK(contains(plan.operations[0].evidence, "takes away Hollow") == false);
+    CHECK(contains(plan.operations[0].evidence, "takes away"));
     CHECK(plan.operations[1].kind == MachiningKind::Hollow);
-    CHECK(contains(plan.operations[1].detail, "2 mm thick"));
+    CHECK(contains(plan.operations[1].evidence, "2 mm thick"));
     CHECK(!plan.smallestToolKnown);   // neither statement names a tool
   }
 
@@ -352,14 +352,14 @@ int main() {
     CHECK(!plan.operations[0].through);
     CHECK_NEAR(plan.operations[0].depthMm, 8.0, 1e-12);
     CHECK_NEAR(plan.operations[0].toolDiameterMm, 6.0, 1e-12);
-    CHECK(contains(plan.operations[0].detail, "6 mm across"));
-    CHECK(contains(plan.operations[0].detail, "8 mm deep"));
+    CHECK(contains(plan.operations[0].evidence, "6 mm across"));
+    CHECK(contains(plan.operations[0].evidence, "8 mm deep"));
 
     // The through hole: the depth argument is ABSENT, which the kernel documents
     // as through. "0 mm deep" would be a hole that is not there.
     CHECK(plan.operations[1].through);
     CHECK_NEAR(plan.operations[1].depthMm, 0.0, 1e-12);
-    CHECK(contains(plan.operations[1].detail, "right through"));
+    CHECK(contains(plan.operations[1].evidence, "right through"));
     CHECK_NEAR(plan.operations[1].toolDiameterMm, 10.0, 1e-12);
 
     // The counterbore: the FIRST number is the hole and the SECOND is the
@@ -367,14 +367,14 @@ int main() {
     // section A's re-derivation exists to stop.
     CHECK(plan.operations[2].kind == MachiningKind::Counterbore);
     CHECK_NEAR(plan.operations[2].toolDiameterMm, 5.0, 1e-12);
-    CHECK(contains(plan.operations[2].detail, "5 mm through"));
-    CHECK(contains(plan.operations[2].detail, "opened to 9 mm for 4 mm"));
+    CHECK(contains(plan.operations[2].evidence, "5 mm through"));
+    CHECK(contains(plan.operations[2].evidence, "opened to 9 mm for 4 mm"));
 
     // A rounded internal corner of radius r is cut by a tool of diameter 2r.
     CHECK(plan.operations[3].kind == MachiningKind::EdgeRound);
     CHECK_NEAR(plan.operations[3].toolDiameterMm, 6.0, 1e-12);
-    CHECK(contains(plan.operations[3].detail, "3 mm radius"));
-    CHECK(contains(plan.operations[3].detail, "VERTICAL"));
+    CHECK(contains(plan.operations[3].evidence, "3 mm radius"));
+    CHECK(contains(plan.operations[3].evidence, "VERTICAL"));
     CHECK(plan.operations[4].kind == MachiningKind::EdgeBreak);
     CHECK_NEAR(plan.operations[4].toolDiameterMm, 0.0, 1e-12);
 
@@ -537,7 +537,7 @@ int main() {
       CHECK(st.state == StudyState::Stopped);
       CHECK_EQ_INT(st.blocked, 1);
       CHECK(st.setup[0].state == StudyItemState::Blocked);
-      CHECK(contains(st.setup[0].detail, "6 edges are used once"));
+      CHECK(contains(st.setup[0].evidence, "6 edges are used once"));
     }
     CHECK_EQ_INT(stopped.answered(), 0);
 
@@ -557,13 +557,13 @@ int main() {
     CHECK(geo.studies[0].state == StudyState::Answered);
     CHECK(contains(geo.studies[0].answer, "10.000, 20.000, 5.000 mm"));
     CHECK(contains(geo.studies[0].answer, "8000.000 mm3"));
-    CHECK(contains(geo.studies[0].setup[0].detail, "measured from the shape as drawn"));
+    CHECK(contains(geo.studies[0].setup[0].evidence, "measured from the shape as drawn"));
     CHECK(geo.studies[1].state == StudyState::Waiting);
     CHECK_EQ_INT(geo.studies[1].missing, 1);
     // "not set" carries the size of the answer it is holding up, from the library
     // this application already ships.
-    CHECK(contains(geo.studies[1].setup[1].detail, "no material chosen yet"));
-    CHECK(contains(geo.studies[1].setup[1].detail, "kg/m3"));
+    CHECK(contains(geo.studies[1].setup[1].evidence, "no material chosen yet"));
+    CHECK(contains(geo.studies[1].setup[1].evidence, "kg/m3"));
     CHECK(geo.studies[2].state == StudyState::Waiting);
     CHECK_EQ_INT(geo.studies[2].missing, 3);
 
@@ -578,7 +578,7 @@ int main() {
       CHECK_EQ_INT(weighed.studies[1].missing, 0);
       CHECK_EQ_STR(weighed.studies[1].answer,
                    describeMass(massPropertiesOf(*alu, 8000.0), MassUnit::Gram));
-      CHECK(contains(weighed.studies[1].setup[1].detail, alu->name));
+      CHECK(contains(weighed.studies[1].setup[1].evidence, alu->name));
       // The stress study is still waiting on three inputs no material supplies.
       CHECK(weighed.studies[2].state == StudyState::Waiting);
       CHECK_EQ_INT(weighed.studies[2].missing, 3);
@@ -589,7 +589,7 @@ int main() {
     // nobody can check.
     const StudyPlan exact = buildStudyPlan(solid, 7999.5, unassignedMaterial(), MassUnit::Gram, noPick);
     CHECK(contains(exact.studies[0].answer, "7999.500 mm3"));
-    CHECK(contains(exact.studies[0].setup[0].detail, "measured exactly"));
+    CHECK(contains(exact.studies[0].setup[0].evidence, "measured exactly"));
 
     // ── POSITIVE CONTROL: the two face inputs READ THE LIVE SELECTION ─────
     // Nothing is applied either way -- both rows stay Missing -- but "nothing
@@ -606,17 +606,17 @@ int main() {
     CHECK_EQ_INT(withPick.studies[2].missing, 3);
     CHECK_EQ_INT(withPick.studies[2].setup.size(), 4);
     CHECK(withPick.studies[2].setup[2].state == StudyItemState::Missing);
-    CHECK(contains(withPick.studies[2].setup[2].detail, "2 faces are picked"));
-    CHECK(contains(withPick.studies[2].setup[2].detail, "1250.000 mm2"));
-    CHECK(contains(withPick.studies[2].setup[3].detail, "2 faces are picked"));
-    CHECK(withPick.studies[2].setup[2].detail != geo.studies[2].setup[2].detail);
+    CHECK(contains(withPick.studies[2].setup[2].evidence, "2 faces are picked"));
+    CHECK(contains(withPick.studies[2].setup[2].evidence, "1250.000 mm2"));
+    CHECK(contains(withPick.studies[2].setup[3].evidence, "2 faces are picked"));
+    CHECK(withPick.studies[2].setup[2].evidence != geo.studies[2].setup[2].evidence);
     // One face is one face, not "1 faces".
     SelectionMeasure oneFace;
     oneFace.faces = 1;
     oneFace.area = 40.0;
     const StudyPlan single = buildStudyPlan(solid, 0.0, unassignedMaterial(), MassUnit::Gram,
                                             oneFace);
-    CHECK(contains(single.studies[2].setup[2].detail, "1 face is picked"));
+    CHECK(contains(single.studies[2].setup[2].evidence, "1 face is picked"));
 
     // Every state has a reading, and none of them is empty.
     CHECK(std::string(toString(StudyItemState::Ready)) != "");

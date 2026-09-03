@@ -331,7 +331,7 @@ int main(int argc, char** argv) {
   const forge::ui::PlanCheck verdict = frame.deliverCopilotPlan(reply);
   checkEq(static_cast<int>(verdict), static_cast<int>(forge::ui::PlanCheck::Ok),
           "the CoPilot accepted the delivered plan");
-  check(frame.copilot().hasPlan(), "a plan is on offer", forge::ui::toString(verdict));
+  check(frame.copilot().hasPlan(), "a plan is on offer", forge::ui::machineName(verdict));
 
   // ── 6. the panel draws a row per step ────────────────────────────────────
   {
@@ -606,7 +606,7 @@ int main(int argc, char** argv) {
         checkStr(refusal->commandId, "part.fillet", "the verdict names the command");
         check(refusal->constraint != forge::ui::OpConstraint::Ok,
               "the verdict names an op constraint",
-              forge::ui::toString(refusal->constraint));
+              forge::ui::machineName(refusal->constraint));
         check(!refusal->reason.empty(), "and says why", refusal->reason);
         std::printf("[copilot] refused: %s\n", refusal->display().c_str());
       }

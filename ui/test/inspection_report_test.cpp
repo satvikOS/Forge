@@ -157,7 +157,7 @@ int main() {
     // difference is zero -- and it is printed WITHOUT a sign, because a
     // difference of -1e-14% shown as "-0.0000%" reads as a shortfall.
     const InspectionCheck* vol = find(r, "Volume, measured two ways");
-    CHECK(vol != nullptr && vol->detail.find("(0.0000%)") != std::string::npos);
+    CHECK(vol != nullptr && vol->evidence.find("(0.0000%)") != std::string::npos);
   }
 
   // ── 2. A FACE THE PICTURE LOST ────────────────────────────────────────────
@@ -218,7 +218,7 @@ int main() {
     const InspectionReport r = buildInspectionReport(k, m, program);
     CHECK(stateOf(r, "The drawn shape fits the reported size") == CheckState::Fail);
     const InspectionCheck* c = find(r, "The drawn shape fits the reported size");
-    CHECK(c != nullptr && c->detail.find("0.500000 mm outside") != std::string::npos);
+    CHECK(c != nullptr && c->evidence.find("0.500000 mm outside") != std::string::npos);
   }
   {
     // A drawing that falls SHORT by more than the slack is exactly what a curved
@@ -250,7 +250,7 @@ int main() {
     CHECK(!r.clean());
     CHECK(stateOf(r, "Every feature was built") == CheckState::Fail);
     const InspectionCheck* c = find(r, "Every feature was built");
-    CHECK(c != nullptr && c->detail.find("3 asked for") != std::string::npos);
+    CHECK(c != nullptr && c->evidence.find("3 asked for") != std::string::npos);
   }
 
   // ── 6. NOTHING BUILT AT ALL ───────────────────────────────────────────────

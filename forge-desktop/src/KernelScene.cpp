@@ -752,7 +752,9 @@ forge::ui::FeatureNodeData SceneFeatureTreeSource::data(forge::ui::NodeId id) co
   if (const forge::ui::FeatureRecord* rec = recordAt(id)) {
     // THE ROW IS THE STATEMENT. Everything below is read off the record the
     // document holds -- no copy, no setter, nothing to forget to refresh.
-    d.label = rec->label.empty() ? rec->line.op : rec->label;
+    // featureDisplayName, not the raw op: this row read "FILLET" -- the opcode,
+    // shouted -- for every feature whose command did not set a label.
+    d.label = forge::ui::featureDisplayName(*rec);
     d.iconKey = rec->line.op;
     d.featureIrOp = rec->line.op;
     // A row is in error when the last rebuild named it, or when a rebuild that
