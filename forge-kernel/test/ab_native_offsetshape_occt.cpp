@@ -41,6 +41,9 @@
 #include <string>
 #include <vector>
 
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -58,6 +61,8 @@
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <BRepTools.hxx>
+#include <Geom_CylindricalSurface.hxx>
 #include <GeomAbs_JoinType.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <TopExp.hxx>
@@ -241,6 +246,87 @@ TopoDS_Shape roundedPlate(double W, double H, double T, double r) {
     return fil.Shape();
 }
 
+
+// A W x H x T plate with a through BORE whose cylindrical wall is carried as TWO
+// HALF-CYLINDER FACES meeting along two straight CO-SURFACE SEAMS, and whose cap
+// faces are split across the same seam.
+//
+// WHY THIS SHAPE. It is what a real STEP file hands the kernel constantly — a
+// solid assembled from halves — and it is simultaneously the two things family H
+// could not do:
+//
+//   * a PARTIAL-REVOLUTION quadric face. Each half of the bore spans exactly pi,
+//     not 2*pi, and its offset must stay a CYLINDER of radius r-d over the same
+//     angular range rather than being tessellated or refitted.
+//   * a MIXED planar wire. Each cap face's inner loop is no longer one full
+//     circle: it is TWO SEMICIRCULAR ARCS joined by the seam points, so the loop
+//     mixes arcs with straight runs and cannot go down the all-circle path.
+//
+// The straight seam between the two halves is the edge that gates both. It is
+// shared by two CYLINDERS, and until the cross-section ruling existed there was
+// no construction for it: the engine declined the whole solid with
+// `quadric/line_edge_not_between_two_planes`.
+//
+// ★ PROVED IN BOTH DIRECTIONS, and the numbers are the measurement, not a claim.
+//   This whole file, unchanged, compiled against the engine at 26db603e — the
+//   ONLY variable is the NativeThickSolid.cpp translation unit — runs 254 of 256
+//   assertions and FAILS exactly two:
+//       [FAIL] split-bore-grow   native offsetSolidShape produced a shape (no defer)
+//       [FAIL] split-bore-shrink native offsetSolidShape produced a shape (no defer)
+//   run_ab_all.sh ratchets this harness against AB_BASELINE_offsetshape=0, so two
+//   failures is RED. Against the engine in this commit it is 296/296.
+//   Note which assertions pass on BOTH sides: all five FIXTURE assertions. The
+//   shape really is split in both runs, so the difference is the engine and
+//   nothing else.
+//
+// ★ THE FIXTURE ASSERTS ITS OWN SHAPE. A boolean that quietly returned the
+//   UN-SPLIT solid — one full cylinder with a seam — would make this case pass
+//   for the wrong reason and prove nothing at all, so the two half-faces, their
+//   pi spans and the total face count are checked before the offset is taken.
+TopoDS_Shape splitBorePlate(double W, double H, double T, double r) {
+    const TopoDS_Shape plate = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), W, H, T).Shape();
+    const TopoDS_Shape bore  =
+        BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(W / 2, H / 2, -5.0), gp_Dir(0, 0, 1)),
+                                 r, T + 10.0).Shape();
+    const TopoDS_Shape holed = BRepAlgoAPI_Cut(plate, bore).Shape();
+    if (holed.IsNull()) return TopoDS_Shape();
+    // Split it along the plane through the bore axis and put it back together:
+    // the fuse leaves the bore as two half-cylinders and the caps and walls as
+    // coplanar pairs, which is precisely the topology under test.
+    const TopoDS_Shape lo = BRepPrimAPI_MakeBox(gp_Pnt(-5, -5, -5), W + 10, H / 2 + 5, T + 10).Shape();
+    const TopoDS_Shape hi = BRepPrimAPI_MakeBox(gp_Pnt(-5, H / 2, -5), W + 10, H / 2 + 5, T + 10).Shape();
+    const TopoDS_Shape a = BRepAlgoAPI_Common(holed, lo).Shape();
+    const TopoDS_Shape b = BRepAlgoAPI_Common(holed, hi).Shape();
+    if (a.IsNull() || b.IsNull()) return TopoDS_Shape();
+    return BRepAlgoAPI_Fuse(a, b).Shape();
+}
+
+// Assert the fixture really is split, before anything is offset.
+void checkSplitBoreFixture(const TopoDS_Shape& s, double r) {
+    int nFace = 0, nCyl = 0, nHalf = 0;
+    double uSum = 0.0;
+    for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) {
+        ++nFace;
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        Handle(Geom_CylindricalSurface) cy =
+            Handle(Geom_CylindricalSurface)::DownCast(BRep_Tool::Surface(f));
+        if (cy.IsNull()) continue;
+        ++nCyl;
+        double u1 = 0, u2 = 0, v1 = 0, v2 = 0;
+        BRepTools::UVBounds(f, u1, u2, v1, v2);
+        uSum += u2 - u1;
+        if (std::fabs((u2 - u1) - kPi) < 1.0e-9 && std::fabs(cy->Radius() - r) < 1.0e-9) ++nHalf;
+    }
+    check(nFace == 12, "split-bore fixture: 12 faces (6 box pairs + 2 bore halves ... "
+                       "got " + std::to_string(nFace) + ")");
+    check(nCyl == 2, "split-bore fixture: the bore is TWO faces, not one full cylinder "
+                     "(got " + std::to_string(nCyl) + ")");
+    check(nHalf == 2, "split-bore fixture: both bore faces are PARTIAL revolutions of "
+                      "exactly pi at radius r (got " + std::to_string(nHalf) + ")");
+    check(std::fabs(uSum - 2.0 * kPi) < 1.0e-9,
+          "split-bore fixture: the two halves together span exactly one full turn");
+}
+
 TopoDS_Shape lPrism(double A, double B, double t, double h) {
     BRepBuilderAPI_MakePolygon poly;
     poly.Add(gp_Pnt(0, 0, 0));
@@ -343,6 +429,33 @@ int main() {
             const double e = -2.0;
             runCase("rounded-plate-shrink", plate, e,
                     ((W + 2 * e) * (H + 2 * e) - (4.0 - kPi) * (r + e) * (r + e)) * (T + 2 * e));
+        }
+    }
+
+    // ---------------- CO-SURFACE SPLIT: partial-revolution bore + mixed cap wire
+    // See splitBorePlate's banner. Closed form, independent of both engines: the
+    // grown plate is (W+2d)(H+2d)(T+2d) and the bore SHRINKS to r-d over the same
+    // grown height, because a bore's outward normal points at its own axis.
+    //
+    // ★ THE MARGIN. If the bore were offset the wrong way — r+d instead of r-d,
+    //   the one plausible sign error here — the volume would read 12934.7 against
+    //   13813.524350912, 6.4% out; and if a half-cylinder were rebuilt over the
+    //   COMPLEMENTARY angular range the sew does not close at all. Neither
+    //   mistake can pass this case.
+    {
+        const double W = 40, H = 30, T = 10, r = 6, d = 0.7;
+        const TopoDS_Shape plate = splitBorePlate(W, H, T, r);
+        check(!plate.IsNull(), "split-bore fixture built");
+        if (!plate.IsNull()) {
+            checkSplitBoreFixture(plate, r);
+            runCase("split-bore-grow", plate, d,
+                    (W + 2 * d) * (H + 2 * d) * (T + 2 * d)
+                        - kPi * (r - d) * (r - d) * (T + 2 * d));
+            // THE OTHER SIGN: a shrink OPENS the bore (r+d) and closes the outside.
+            const double e = -0.7;
+            runCase("split-bore-shrink", plate, e,
+                    (W + 2 * e) * (H + 2 * e) * (T + 2 * e)
+                        - kPi * (r - e) * (r - e) * (T + 2 * e));
         }
     }
 
