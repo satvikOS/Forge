@@ -96,6 +96,7 @@ echo "[click-gate] compiling forge::ui + the desktop frame builder + the gate"
   ui/src/*.cpp \
   forge-desktop/src/KernelScene.cpp forge-desktop/src/PartFile.cpp \
   forge-desktop/src/Camera.cpp forge-desktop/src/ForgeFrame.cpp \
+  forge-desktop/src/ImGuiErrorPolicy.cpp \
   forge-desktop/test/click_gate.cpp \
   "${IMGUI_OBJS[@]}" \
   "$LIB" -L "$OCCT_PREFIX/lib" \
