@@ -1992,12 +1992,59 @@ TopoDS_Shape planarThickSolid(const TopoDS_Shape& shape, double t,
 // ordered ring of corner points each of which is the EXACT meet of three or more
 // offset planes; no loop is ever sampled or fitted.
 
+// One SEGMENT of a mixed offset loop: a straight run to `end`, or an ARC of
+// `circ` to `end`. `ccw` is the traversal sense about the loop's face normal +N,
+// which is what decides which of the two arcs of `circ` between the endpoints is
+// meant. A segment is never sampled: `circ` is the EXACT offset supporting
+// circle offsetCircle() returned, and both endpoints are EXACT vertex solves.
+struct OffSeg {
+    bool    isArc = false;
+    gp_Circ circ;                  // supporting circle when isArc
+    gp_Pnt  start;
+    gp_Pnt  end;
+    bool    ccw = true;            // arc sense about +N
+};
+
 // One boundary loop of an offset planar face.
+//
+// THREE forms, and the third is why this struct grew. `isCircle` is one full
+// circle (a drilled bore's rim); `poly` is a ring of corner points (a prismatic
+// boundary); `segs` is a MIXED profile that alternates straight runs and arcs —
+// the rounded-corner plate, the slot, and the full circle a coplanar imprint has
+// split into two arcs. A mixed profile must NOT be flattened into `poly`: the
+// chord of a rounded corner is a CHAMFER, a different solid whose volume is
+// within a fraction of a percent of the right one, so a volume self-check would
+// not see the substitution. It is carried as arcs or it is declined.
 struct OffLoop {
     bool                isCircle = false;
     gp_Circ             circ;
     std::vector<gp_Pnt> poly;      // ordered, first point NOT repeated
+    std::vector<OffSeg> segs;      // ordered mixed profile; empty unless isMixed
+    bool                isMixed = false;
 };
+
+// Signed sweep of the arc from `start` to `end` about +N, in (0, 2*pi).
+double arcSweep(const OffSeg& g, const gp_Dir& N) {
+    const gp_Pnt  C = g.circ.Location();
+    const gp_Dir  A = g.circ.Axis().Direction();
+    gp_Vec u(C, g.start), v(C, g.end);
+    const double du = u.Magnitude(), dv = v.Magnitude();
+    if (du < 1.0e-12 || dv < 1.0e-12) return 0.0;
+    u.Divide(du); v.Divide(dv);
+    double c = u.Dot(v);
+    if (c > 1.0) c = 1.0;
+    if (c < -1.0) c = -1.0;
+    double th = std::acos(c);                       // in [0, pi]
+    // Which side of the chord does the arc run? The cross product's component
+    // along the circle axis gives the sense of the SHORT arc; the requested
+    // sense (`ccw` about +N) decides whether the long arc is meant instead.
+    const double sgn = u.Crossed(v).Dot(gp_Vec(A));
+    const bool shortIsCcwAboutA = sgn > 0.0;
+    const bool axisWithN = A.Dot(gp_Vec(N)) >= 0.0;
+    const bool shortIsCcwAboutN = axisWithN ? shortIsCcwAboutA : !shortIsCcwAboutA;
+    if (shortIsCcwAboutN != g.ccw) th = 2.0 * kPi - th;
+    return th;
+}
 
 // Signed area of a loop about +N (Newell for the polygon case, exact for the
 // circle case). The SIGN is the winding, which is what the face builder needs.
@@ -2006,29 +2053,53 @@ double loopArea(const OffLoop& L, const gp_Dir& N) {
         const double a = kPi * L.circ.Radius() * L.circ.Radius();
         return (L.circ.Axis().Direction().Dot(N) >= 0.0) ? a : -a;
     }
+    // Newell over the loop's CORNERS. For a mixed profile that is the area of
+    // the polygon through the segment endpoints; each arc then contributes the
+    // circular SEGMENT between its chord and itself, added below.
+    std::vector<gp_Pnt> pts;
+    if (L.isMixed) { pts.reserve(L.segs.size()); for (const OffSeg& g : L.segs) pts.push_back(g.start); }
+    else           { pts = L.poly; }
     double nx = 0.0, ny = 0.0, nz = 0.0;
-    const std::size_t n = L.poly.size();
+    const std::size_t n = pts.size();
     for (std::size_t i = 0; i < n; ++i) {
-        const gp_Pnt& a = L.poly[i];
-        const gp_Pnt& b = L.poly[(i + 1) % n];
+        const gp_Pnt& a = pts[i];
+        const gp_Pnt& b = pts[(i + 1) % n];
         nx += (a.Y() - b.Y()) * (a.Z() + b.Z());
         ny += (a.Z() - b.Z()) * (a.X() + b.X());
         nz += (a.X() - b.X()) * (a.Y() + b.Y());
     }
-    return 0.5 * (nx * N.X() + ny * N.Y() + nz * N.Z());
+    double area = 0.5 * (nx * N.X() + ny * N.Y() + nz * N.Z());
+    if (L.isMixed) {
+        // Exact circular-segment correction, 0.5*R^2*(theta - sin theta), signed
+        // by whether the arc bulges along the traversal sense. This is what makes
+        // the area self-check in planarMixedFace able to REJECT a chord that has
+        // been substituted for an arc.
+        for (const OffSeg& g : L.segs) {
+            if (!g.isArc) continue;
+            const double R  = g.circ.Radius();
+            const double th = arcSweep(g, N);
+            if (!(R > 0.0) || !(th > 0.0)) continue;
+            const double seg = 0.5 * R * R * (th - std::sin(th));
+            area += g.ccw ? seg : -seg;
+        }
+    }
+    return area;
 }
 
 // The loop's own radius about its centroid — the scale a planarity residual has
 // to be judged against, so a 1000 mm part is not held to a 1 mm part's slack.
 double loopScale(const OffLoop& L) {
     if (L.isCircle) return L.circ.Radius();
-    if (L.poly.empty()) return 0.0;
+    std::vector<gp_Pnt> pts;
+    if (L.isMixed) { for (const OffSeg& g : L.segs) pts.push_back(g.start); }
+    else           { pts = L.poly; }
+    if (pts.empty()) return 0.0;
     double cx = 0, cy = 0, cz = 0;
-    for (const gp_Pnt& p : L.poly) { cx += p.X(); cy += p.Y(); cz += p.Z(); }
-    const double n = static_cast<double>(L.poly.size());
+    for (const gp_Pnt& p : pts) { cx += p.X(); cy += p.Y(); cz += p.Z(); }
+    const double n = static_cast<double>(pts.size());
     const gp_Pnt c(cx / n, cy / n, cz / n);
     double r = 0.0;
-    for (const gp_Pnt& p : L.poly) r = std::max(r, c.Distance(p));
+    for (const gp_Pnt& p : pts) r = std::max(r, c.Distance(p));
     return r;
 }
 
@@ -2039,6 +2110,41 @@ TopoDS_Wire loopWire(const OffLoop& L, const gp_Dir& N, bool ccwAboutN) {
         const gp_Circ c(gp_Ax2(L.circ.Location(), a, L.circ.Position().XDirection()),
                         L.circ.Radius());
         return circleWire(c);
+    }
+    if (L.isMixed) {
+        std::vector<OffSeg> segs = L.segs;
+        // Reversing a mixed profile is not std::reverse: each segment's own
+        // endpoints swap AND its arc sense flips, or the rebuilt wire would run
+        // the OTHER arc of the same circle and enclose a different area.
+        if ((loopArea(L, N) > 0.0) != ccwAboutN) {
+            std::reverse(segs.begin(), segs.end());
+            for (OffSeg& g : segs) { std::swap(g.start, g.end); g.ccw = !g.ccw; }
+        }
+        BRepBuilderAPI_MakeWire mw;
+        for (const OffSeg& g : segs) {
+            if (g.start.Distance(g.end) < 1.0e-12 && !g.isArc) continue;   // degenerate run
+            TopoDS_Edge e;
+            if (g.isArc) {
+                // Orient the supporting circle so that p1 -> p2 in ITS parametric
+                // direction is the arc actually wanted.
+                gp_Dir a = g.circ.Axis().Direction();
+                const bool axisWithN = a.Dot(gp_Vec(N)) >= 0.0;
+                if (axisWithN != g.ccw) a.Reverse();
+                const gp_Circ c(gp_Ax2(g.circ.Location(), a, g.circ.Position().XDirection()),
+                                g.circ.Radius());
+                BRepBuilderAPI_MakeEdge me(c, g.start, g.end);
+                if (!me.IsDone()) return TopoDS_Wire();
+                e = me.Edge();
+            } else {
+                BRepBuilderAPI_MakeEdge me(g.start, g.end);
+                if (!me.IsDone()) return TopoDS_Wire();
+                e = me.Edge();
+            }
+            mw.Add(e);
+            if (!mw.IsDone()) return TopoDS_Wire();
+        }
+        if (!mw.IsDone()) return TopoDS_Wire();
+        return mw.Wire();
     }
     std::vector<gp_Pnt> pts = L.poly;
     if ((loopArea(L, N) > 0.0) != ccwAboutN) std::reverse(pts.begin(), pts.end());
@@ -2066,6 +2172,18 @@ TopoDS_Face planarMixedFace(const Handle(Geom_Plane)& pl,
         if (L.isCircle)
             return dirParallel(L.circ.Axis().Direction(), N) &&
                    pln.Distance(L.circ.Location()) < slack;
+        if (L.isMixed) {
+            if (L.segs.size() < 2) return false;
+            for (const OffSeg& g : L.segs) {
+                if (pln.Distance(g.start) > slack || pln.Distance(g.end) > slack) return false;
+                // An arc must lie IN the face's plane, so its supporting circle's
+                // axis has to be the plane normal. A circle tilted out of the
+                // plane would still have both endpoints on it.
+                if (g.isArc && (!dirParallel(g.circ.Axis().Direction(), N) ||
+                                pln.Distance(g.circ.Location()) > slack)) return false;
+            }
+            return true;
+        }
         if (L.poly.size() < 3) return false;
         for (const gp_Pnt& p : L.poly)
             if (pln.Distance(p) > slack) return false;
@@ -2115,21 +2233,45 @@ std::vector<TopoDS_Vertex> orderedRingOfWire(const TopoDS_Wire& w, const TopoDS_
     return ring;
 }
 
+// Is `e` an ARC of a circle -- a circular edge that is NOT a full revolution?
+// (The basis curve, so a trimmed circle counts. Family H only.)
+bool edgeArcCircle(const TopoDS_Edge& e, gp_Circ& out) {
+    if (BRep_Tool::Degenerated(e)) return false;
+    double f = 0.0, l = 0.0;
+    Handle(Geom_Curve) c = edgeBasisCurve(e, f, l);
+    if (c.IsNull()) return false;
+    Handle(Geom_Circle) gc = Handle(Geom_Circle)::DownCast(c);
+    if (gc.IsNull()) return false;
+    const double sweep = std::fabs(l - f);
+    if (std::fabs(sweep - 2.0 * kPi) <= 1.0e-6) return false;   // that is edgeFullCircle's case
+    if (!(sweep > 1.0e-9)) return false;                        // collapsed
+    out = gc->Circ();
+    return true;
+}
+
 // A wire's shape for the mixed guard: exactly one full circle, a ring of >=3
-// straight lines, or neither (which is a defer).
-enum class LoopKind { Circle, Polygon, Neither };
+// straight lines, a MIXED profile of straight runs and arcs, or neither (a defer).
+//
+// MIXED is the rounded-corner plate, the slot, and the full bore rim that a
+// coplanar imprint has split into two arcs -- 24 of the 27 parts in family H's
+// deletion bucket. It is admitted only when EVERY edge is a line or an arc: one
+// spline anywhere and the whole wire is declined, because a profile this engine
+// cannot reproduce exactly is not one it may approximate.
+enum class LoopKind { Circle, Polygon, Mixed, Neither };
 
 LoopKind classifyWire(const TopoDS_Wire& w, gp_Circ& circOut) {
-    int nE = 0, nLine = 0, nCirc = 0;
-    gp_Circ c;
+    int nE = 0, nLine = 0, nCirc = 0, nArc = 0;
+    gp_Circ c, a;
     for (TopExp_Explorer ee(w, TopAbs_EDGE); ee.More(); ee.Next()) {
         const TopoDS_Edge e = TopoDS::Edge(ee.Current());
         ++nE;
         if (edgeIsLine(e)) ++nLine;
         else if (edgeFullCircle(e, c)) ++nCirc;
+        else if (edgeArcCircle(e, a)) ++nArc;
     }
     if (nE == 1 && nCirc == 1) { circOut = c; return LoopKind::Circle; }
     if (nE >= 3 && nLine == nE) return LoopKind::Polygon;
+    if (nE >= 2 && nArc >= 1 && (nLine + nArc) == nE) return LoopKind::Mixed;
     return LoopKind::Neither;
 }
 
@@ -2148,6 +2290,108 @@ LoopKind classifyWire(const TopoDS_Wire& w, gp_Circ& circOut) {
 bool offsetResultIsSound(const TopoDS_Shape& s) {
     try { return BRepCheck_Analyzer(s).IsValid() == Standard_True; }
     catch (...) { return false; }
+}
+
+// ---- family H: the offset of a vertex a CYLINDER helps pin ------------------
+//
+// A polyhedral corner is the meet of three offset planes and
+// projectOntoOffsetPlanes solves it exactly. A MIXED profile introduces a second
+// kind of vertex: where a straight run meets an arc. On a rounded plate that
+// point is shared by the cap plane, the side-wall plane and the corner cylinder,
+// so only TWO independent planes are available and the third constraint is
+// QUADRATIC. It is still solved in closed form, never iterated: two independent
+// offset planes give a LINE, and an offset cylinder cuts that line in at most two
+// points.
+//
+// ★ EVERY candidate is VERIFIED against EVERY incident constraint -- all planes
+//   and all cylinders, not merely the three it was built from. That is the same
+//   contract the rank-3 solve carries, and it is what rejects the case where a
+//   fourth face's offset surface does not pass through the point: such a vertex
+//   has no exact sharp-join offset and is declined rather than approximated.
+struct OffCyl {
+    gp_Pnt loc;
+    gp_Dir axis;
+    double r = 0.0;
+};
+
+double distToAxis(const gp_Pnt& x, const OffCyl& c) {
+    const gp_Vec a(c.axis);
+    gp_Vec w(c.loc, x);
+    return (w - a * w.Dot(a)).Magnitude();
+}
+
+bool solveOffsetVertexWithCyl(const std::vector<Plane>& planes,
+                              const std::vector<OffCyl>& cyls,
+                              const gp_Pnt& v0, double resTol, gp_Pnt& out) {
+    if (cyls.empty() || planes.size() < 2) return false;
+    int i0 = -1, i1 = -1;
+    for (std::size_t i = 0; i < planes.size(); ++i) {
+        if (i0 < 0) { i0 = static_cast<int>(i); continue; }
+        const gp_Vec a(planes[static_cast<std::size_t>(i0)].nx,
+                       planes[static_cast<std::size_t>(i0)].ny,
+                       planes[static_cast<std::size_t>(i0)].nz);
+        const gp_Vec b(planes[i].nx, planes[i].ny, planes[i].nz);
+        if (a.Crossed(b).Magnitude() > 1.0e-6) { i1 = static_cast<int>(i); break; }
+    }
+    if (i0 < 0 || i1 < 0) return false;                 // no two independent planes
+    const Plane& P0 = planes[static_cast<std::size_t>(i0)];
+    const Plane& P1 = planes[static_cast<std::size_t>(i1)];
+    const gp_Vec n0(P0.nx, P0.ny, P0.nz), n1(P1.nx, P1.ny, P1.nz);
+    gp_Vec dir = n0.Crossed(n1);
+    const double dn = dir.Magnitude();
+    if (dn < 1.0e-9) return false;
+    dir.Divide(dn);
+    const double a00 = n0.Dot(n0), a01 = n0.Dot(n1), a11 = n1.Dot(n1);
+    const double det = a00 * a11 - a01 * a01;
+    if (std::fabs(det) < 1.0e-12) return false;
+    const gp_Vec bv = n0 * ((P0.d * a11 - P1.d * a01) / det)
+                    + n1 * ((P1.d * a00 - P0.d * a01) / det);
+    const gp_Pnt L0(bv.X(), bv.Y(), bv.Z());
+
+    std::vector<double> roots;
+    for (const OffCyl& c : cyls) {
+        const gp_Vec a(c.axis);
+        gp_Vec w(c.loc, L0);
+        const gp_Vec wp = w   - a * w.Dot(a);
+        const gp_Vec dp = dir - a * dir.Dot(a);
+        const double A = dp.Dot(dp);
+        if (A < 1.0e-14) continue;                      // line parallel to the axis
+        const double B = 2.0 * wp.Dot(dp);
+        const double C = wp.Dot(wp) - c.r * c.r;
+        const double disc = B * B - 4.0 * A * C;
+        if (disc < 0.0) {
+            // A TANGENCY missed only by round-off is still a tangency; anything
+            // deeper is a genuine miss and contributes no candidate.
+            if (-disc > 1.0e-9 * std::max(1.0, B * B)) continue;
+            roots.push_back(-B / (2.0 * A));
+        } else {
+            const double sq = std::sqrt(disc);
+            roots.push_back((-B + sq) / (2.0 * A));
+            roots.push_back((-B - sq) / (2.0 * A));
+        }
+    }
+    if (roots.empty()) return false;
+
+    bool got = false;
+    double best = 0.0;
+    for (const double sroot : roots) {
+        const gp_Pnt x(L0.X() + sroot * dir.X(),
+                       L0.Y() + sroot * dir.Y(),
+                       L0.Z() + sroot * dir.Z());
+        bool ok = true;
+        for (const Plane& pl : planes)
+            if (std::fabs(pl.nx * x.X() + pl.ny * x.Y() + pl.nz * x.Z() - pl.d) > resTol) { ok = false; break; }
+        if (ok) {
+            for (const OffCyl& c : cyls) {
+                const double tolC = std::max(resTol, 1.0e-7 * std::max(1.0, c.r));
+                if (std::fabs(distToAxis(x, c) - c.r) > tolC) { ok = false; break; }
+            }
+        }
+        if (!ok) continue;
+        const double dd = v0.Distance(x);
+        if (!got || dd < best) { best = dd; got = true; out = x; }
+    }
+    return got;
 }
 
 // ---- planar / prismatic: offset the Hesse planes, re-meet at every vertex ----
@@ -2312,9 +2556,17 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
 
     // ---- 2. structural admissibility ---------------------------------------
     // A planar face's wire may be a single full CIRCLE (the annulus this path
-    // has always built) or a ring of straight LINES (the polygon the PLANAR
-    // path's corner solve already offsets exactly). Anything else -- an arc, a
-    // spline, a mixed line/arc profile -- is still declined, never approximated.
+    // has always built), a ring of straight LINES (the polygon the PLANAR path's
+    // corner solve already offsets exactly), or a MIXED line/arc profile. A
+    // spline anywhere is still declined, never approximated.
+    //
+    // A CURVED face may now be a PARTIAL revolution, but only if it is a
+    // CYLINDER. That restriction is not caution for its own sake: the offset of
+    // a cylindrical band is the coaxial cylinder of radius r +/- t over the SAME
+    // angular range, so MakeFace(off, u1, u2, ...) below rebuilds it with the
+    // u-range untouched and the result is exact. A partial CONE, SPHERE or TORUS
+    // has no such property here -- a partial sphere's offset band does not keep
+    // its u-range under the v re-trim -- so those stay declined.
     for (const QF& q : qf) {
         int nWires = 0;
         for (TopoDS_Iterator it(q.face); it.More(); it.Next())
@@ -2322,7 +2574,10 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
 
         if (q.kind != SK::Plane) {
             if (nWires != 1) return dfr("quadric/curved_face_has_hole");
-            if (std::fabs((q.u2 - q.u1) - 2.0 * kPi) > 1.0e-7) return dfr("quadric/curved_face_not_full_revolution");
+            if (std::fabs((q.u2 - q.u1) - 2.0 * kPi) > 1.0e-7) {
+                if (q.kind != SK::Cyl) return dfr("quadric/curved_face_not_full_revolution");
+                if (!(q.u2 - q.u1 > 1.0e-9)) return dfr("quadric/cyl_band_u_range_collapsed");
+            }
         } else {
             if (nWires < 1) return dfr("quadric/planar_face_no_wire");
             for (TopoDS_Iterator it(q.face); it.More(); it.Next()) {
@@ -2342,7 +2597,8 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
     for (int i = 1; i <= efMap.Extent(); ++i) edgeIdx.Add(efMap.FindKey(i));
     std::vector<gp_Circ> offCirc(static_cast<std::size_t>(edgeIdx.Extent()));
     std::vector<bool>    offOk(static_cast<std::size_t>(edgeIdx.Extent()), false);
-    TopTools_IndexedMapOfShape cornerVerts;   // vertices a straight corner edge ends at
+    std::vector<bool>    offIsArc(static_cast<std::size_t>(edgeIdx.Extent()), false);
+    TopTools_IndexedMapOfShape cornerVerts;   // vertices that must be SOLVED
 
     for (int i = 1; i <= efMap.Extent(); ++i) {
         const TopoDS_Edge e = TopoDS::Edge(efMap.FindKey(i));
@@ -2360,20 +2616,54 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
         QF& B = *nb[1];
 
         gp_Circ orig;
+        bool isArcEdge = false;
         if (!edgeFullCircle(e, orig)) {
             // A straight edge between two PLANES is a polyhedral corner edge: its
             // offset is pinned by the vertex solve in step 3b, not by a circle
-            // re-trim, so there is nothing to compute here. A straight edge with a
-            // curved neighbour (a tangent seam) has no closed-form offset in this
-            // machinery and is declined.
+            // re-trim, so there is nothing to compute here.
+            //
+            // A straight edge between a PLANE and a CYLINDER is the TANGENT SEAM of
+            // a fillet or a rounded corner. It is admitted, and it too needs no
+            // circle: the cylindrical band is rebuilt from its own (u,v) box and the
+            // planar face from its own loop, so the seam is implicit in both.
+            // TANGENCY IS VERIFIED, never assumed -- a plane that CUTS a cylinder
+            // meets it in an ellipse, not a line, and the offset of that seam is not
+            // the translate of this one.
             if (edgeIsLine(e)) {
-                if (A.kind != SK::Plane || B.kind != SK::Plane)
-                    return dfr("quadric/line_edge_not_between_two_planes");
+                const bool pp = (A.kind == SK::Plane && B.kind == SK::Plane);
+                bool tangentSeam = false;
+                if (!pp && ((A.kind == SK::Plane && B.kind == SK::Cyl) ||
+                            (A.kind == SK::Cyl   && B.kind == SK::Plane))) {
+                    const QF& PF = (A.kind == SK::Plane) ? A : B;
+                    const QF& CF = (A.kind == SK::Plane) ? B : A;
+                    Handle(Geom_Plane) gpl = Handle(Geom_Plane)::DownCast(PF.surf);
+                    Handle(Geom_CylindricalSurface) gcy =
+                        Handle(Geom_CylindricalSurface)::DownCast(CF.surf);
+                    if (!gpl.IsNull() && !gcy.IsNull()) {
+                        const gp_Dir pn = gpl->Position().Direction();
+                        const gp_Dir ca = gcy->Axis().Direction();
+                        if (std::fabs(pn.Dot(ca)) < 1.0e-7) {
+                            const double miss = std::fabs(gpl->Pln().Distance(gcy->Axis().Location())
+                                                          - gcy->Radius());
+                            if (miss < 1.0e-6 * std::max(1.0, gcy->Radius())) tangentSeam = true;
+                        }
+                    }
+                    if (!tangentSeam) return dfr("quadric/line_edge_plane_cyl_not_tangent");
+                }
+                if (!pp && !tangentSeam) return dfr("quadric/line_edge_not_between_two_planes");
                 for (TopExp_Explorer ev(e, TopAbs_VERTEX); ev.More(); ev.Next())
                     cornerVerts.Add(ev.Current());
                 continue;
             }
-            return dfr("quadric/edge_not_full_circle");
+            // An ARC of a circle: its supporting circle offsets by exactly the same
+            // closed form a full circle does (offsetCircle validates that both
+            // ORIGINAL surfaces really are surfaces of revolution about this axis and
+            // contain this circle). Only the TRIM differs -- the arc's two endpoints
+            // are vertex solves like any other.
+            if (!edgeArcCircle(e, orig)) return dfr("quadric/edge_not_full_circle");
+            isArcEdge = true;
+            for (TopExp_Explorer ev(e, TopAbs_VERTEX); ev.More(); ev.Next())
+                cornerVerts.Add(ev.Current());
         }
 
         gp_Circ oc;
@@ -2385,8 +2675,9 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
             if (ocWhy && *ocWhy) reasonAdd(ocWhy);
             return dfr(skPair(A.kind, B.kind));
         }
-        offCirc[static_cast<std::size_t>(i) - 1] = oc;
-        offOk[static_cast<std::size_t>(i) - 1]   = true;
+        offCirc[static_cast<std::size_t>(i) - 1]  = oc;
+        offOk[static_cast<std::size_t>(i) - 1]    = true;
+        offIsArc[static_cast<std::size_t>(i) - 1] = isArcEdge;
 
         for (QF* q : nb) {
             if (q->kind == SK::Plane) continue;
@@ -2412,22 +2703,42 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
     const double resTol = 1.0e-7 * std::max(1.0, std::fabs(dist));
     for (int i = 1; i <= vfMap.Extent(); ++i) {
         if (!cornerVerts.Contains(vfMap.FindKey(i))) continue;
-        std::vector<Plane> meet;
+        std::vector<Plane>  meet;
+        std::vector<OffCyl> cyls;
         for (TopTools_ListIteratorOfListOfShape it(vfMap.FindFromIndex(i)); it.More(); it.Next()) {
             const TopoDS_Face nf = TopoDS::Face(it.Value());
             const QF* q = qOf(nf);
             if (!q) return dfr("quadric/corner_face_not_indexed");
-            if (q->kind != SK::Plane) return dfr("quadric/corner_touches_curved_face");
-            Plane pl;
-            if (!outwardPlaneOf(nf, pl)) return dfr("quadric/corner_plane_missing");
-            pl.d += dist;                              // slide OUTWARD by signed dist
-            meet.push_back(pl);
+            if (q->kind == SK::Plane) {
+                Plane pl;
+                if (!outwardPlaneOf(nf, pl)) return dfr("quadric/corner_plane_missing");
+                pl.d += dist;                          // slide OUTWARD by signed dist
+                meet.push_back(pl);
+            } else if (q->kind == SK::Cyl) {
+                // The OFFSET cylinder, whose radius offsetSurfaceOf already moved
+                // the right way for this face's outward normal (r+t on a boss,
+                // r-t in a bore). Read it back rather than re-deriving the sign.
+                Handle(Geom_CylindricalSurface) oc =
+                    Handle(Geom_CylindricalSurface)::DownCast(q->off);
+                if (oc.IsNull()) return dfr("quadric/corner_offset_cyl_null");
+                OffCyl c;
+                c.loc  = oc->Axis().Location();
+                c.axis = oc->Axis().Direction();
+                c.r    = oc->Radius();
+                cyls.push_back(c);
+            } else {
+                return dfr("quadric/corner_touches_curved_face");
+            }
         }
         if (meet.empty()) return dfr("quadric/corner_no_incident_plane");
         gp_Pnt corner;
         const gp_Pnt v0 = BRep_Tool::Pnt(TopoDS::Vertex(vfMap.FindKey(i)));
-        if (!projectOntoOffsetPlanes(meet, v0, resTol, corner))
-            return dfr("quadric/corner_overdetermined_residual");
+        if (cyls.empty()) {
+            if (!projectOntoOffsetPlanes(meet, v0, resTol, corner))
+                return dfr("quadric/corner_overdetermined_residual");
+        } else if (!solveOffsetVertexWithCyl(meet, cyls, v0, resTol, corner)) {
+            return dfr("quadric/corner_cyl_solve_failed");
+        }
         moved[static_cast<std::size_t>(i) - 1] = corner;
         movedOk[static_cast<std::size_t>(i) - 1] = true;
     }
@@ -2446,6 +2757,7 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
             OffLoop outerL;
             std::vector<OffLoop> holeL;
             bool haveOuter = false, anyPoly = false;
+            const gp_Dir N = opl->Position().Direction();   // offset plane normal
             for (TopoDS_Iterator it(q.face); it.More(); it.Next()) {
                 if (it.Value().ShapeType() != TopAbs_WIRE) continue;
                 const TopoDS_Wire w = TopoDS::Wire(it.Value());
@@ -2459,6 +2771,64 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
                         return dfr("quadric/wire_edge_no_offset_circle");
                     L.isCircle = true;
                     L.circ = offCirc[static_cast<std::size_t>(ei) - 1];
+                } else if (classifyWire(w, ignored) == LoopKind::Mixed) {
+                    // A MIXED profile: walk the wire IN ORDER and carry each edge as
+                    // what it actually is. A straight run becomes a line between two
+                    // solved corners; an arc keeps its EXACT offset supporting circle
+                    // and is trimmed to the two solved corners.
+                    //
+                    // ★ The ORDER comes from BRepTools_WireExplorer, which also gives
+                    //   the edge's own traversal direction, and the arc SENSE is read
+                    //   from that rather than guessed: the two arcs of a circle
+                    //   between the same endpoints enclose different areas, and only
+                    //   one of them is this profile's boundary.
+                    anyPoly = true;
+                    L.isMixed = true;
+                    for (BRepTools_WireExplorer wex(w, q.face); wex.More(); wex.Next()) {
+                        const TopoDS_Edge  we = wex.Current();
+                        const TopoDS_Vertex v0 = wex.CurrentVertex();
+                        if (BRep_Tool::Degenerated(we)) return dfr("quadric/mixed_degenerate_edge");
+                        const int vi0 = vfMap.FindIndex(v0);
+                        if (vi0 == 0 || !movedOk[static_cast<std::size_t>(vi0) - 1])
+                            return dfr("quadric/mixed_vertex_not_solved");
+                        // the edge's far vertex, in the wire's traversal direction
+                        TopoDS_Vertex va, vb;
+                        TopExp::Vertices(we, va, vb, Standard_True);
+                        const TopoDS_Vertex vfar = v0.IsSame(va) ? vb : va;
+                        const int vi1 = vfMap.FindIndex(vfar);
+                        if (vi1 == 0 || !movedOk[static_cast<std::size_t>(vi1) - 1])
+                            return dfr("quadric/mixed_vertex_not_solved");
+                        OffSeg g;
+                        g.start = moved[static_cast<std::size_t>(vi0) - 1];
+                        g.end   = moved[static_cast<std::size_t>(vi1) - 1];
+                        if (!edgeIsLine(we)) {
+                            const int ei = edgeIdx.FindIndex(we);
+                            if (ei == 0 || !offOk[static_cast<std::size_t>(ei) - 1] ||
+                                !offIsArc[static_cast<std::size_t>(ei) - 1])
+                                return dfr("quadric/mixed_arc_no_offset_circle");
+                            g.isArc = true;
+                            g.circ  = offCirc[static_cast<std::size_t>(ei) - 1];
+                            // Sense: run the ORIGINAL arc's own direction. The offset
+                            // circle is coaxial with the original, so the traversal
+                            // sense about the face normal is preserved exactly.
+                            gp_Circ oc0;
+                            if (!edgeArcCircle(we, oc0)) return dfr("quadric/mixed_arc_lost");
+                            const gp_Pnt p0 = BRep_Tool::Pnt(v0), p1 = BRep_Tool::Pnt(vfar);
+                            gp_Vec r0(oc0.Location(), p0), r1(oc0.Location(), p1);
+                            const double sg = r0.Crossed(r1).Dot(gp_Vec(oc0.Axis().Direction()));
+                            const bool axisWithN = oc0.Axis().Direction().Dot(gp_Vec(N)) >= 0.0;
+                            bool shortCcwN = (sg > 0.0);
+                            if (!axisWithN) shortCcwN = !shortCcwN;
+                            // Which of the two arcs is it? Compare the edge's own
+                            // parametric sweep against pi to settle the long/short case.
+                            double f0 = 0.0, l0 = 0.0;
+                            (void)edgeBasisCurve(we, f0, l0);
+                            const bool isMajor = std::fabs(l0 - f0) > kPi;
+                            g.ccw = isMajor ? !shortCcwN : shortCcwN;
+                        }
+                        L.segs.push_back(g);
+                    }
+                    if (L.segs.size() < 2) return dfr("quadric/mixed_ring_under_2");
                 } else {
                     // A polygon loop: its offset ring is the corner solve's output,
                     // in this wire's own order.

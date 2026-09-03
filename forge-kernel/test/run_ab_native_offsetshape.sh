@@ -50,8 +50,12 @@ trap 'rm -rf "$OUT"' EXIT
 # TKOffset is linked HERE and only here: the A/B's OCCT half calls
 # BRepOffsetAPI_MakeOffsetShape on purpose. The engine under test references no
 # TKOffset symbol at all — that is the point of the exercise.
+# TKFillet is here for the A/B's FIXTURE ONLY — the rounded-plate case builds its
+# input with BRepFilletAPI_MakeFillet. The engine under test still imports zero
+# TKOffset symbols, which is what the nm check below actually proves.
 OCCT_LIBS=(-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKGeomAlgo
-           -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool)
+           -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool
+           -lTKFillet)
 
 echo "[ab-offsetshape] OCCT $OCCT_ROOT"
 if ! "$CXX" -std=c++20 -O1 -Wall -Wextra -DFORGE_NATIVE_BREP=1 \
