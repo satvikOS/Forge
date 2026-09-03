@@ -64,6 +64,8 @@
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/GuardedProcess.hpp"
+#include "forge/ui/InspectionReport.hpp"
+#include "forge/ui/Material.hpp"
 #include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
@@ -613,6 +615,85 @@ int main(int argc, char** argv) {
     ImDrawData* d = buildOneFrame(frame, 0);
     check(d != nullptr && d->TotalVtxCount > 500, "the Measure panel draws a real frame", "");
     checkEq(frame.measureFaceRowsDrawn(), 2u, "the Measure panel drew a row per picked face");
+    frame.setActiveTabAt({1, 1}, 0);
+  }
+
+  // ── 12c. THE SIX PANELS THAT STOPPED BEING EMPTY ─────────────────────────
+  //
+  // MEASURED before this: of the 50 distinct panels the eight default
+  // workspaces define, 27 fell through to drawGenericPanel and drew no content
+  // at all. Six of them now draw real, measured content, and this is the check
+  // that they REACH THE SCREEN — ui/test/panel_content_ratchet_test.cpp reads
+  // the dispatch out of the source, and source that dispatches is not the same
+  // claim as a tab a user can open and see something in.
+  //
+  // The tab coordinates are the ones defaultLayout() actually builds (path {0}
+  // is the left dock, {1,1} the right column, {1,0,1} the bottom strip). A wrong
+  // one makes panelIdsDrawn() not contain the id and this section RED — it
+  // cannot pass by accident.
+  //
+  // Every row count below has a reference that is READ, never written here: the
+  // material table is one row per library material that has a density, and the
+  // curve list cannot have more rows than there are recovered edges.
+  {
+    struct NewPanel {
+      forge::ui::WorkspaceProfile workspace;
+      std::vector<std::size_t> path;
+      std::size_t tab;
+      const char* id;
+    };
+    const std::vector<NewPanel> panels = {
+        {forge::ui::WorkspaceProfile::Part, {1, 1}, 2, "appearance"},
+        {forge::ui::WorkspaceProfile::Simulation, {0}, 1, "materials"},
+        {forge::ui::WorkspaceProfile::Surface, {0}, 1, "curve_list"},
+        {forge::ui::WorkspaceProfile::Archie, {1, 0, 1}, 1, "verify_report"},
+        {forge::ui::WorkspaceProfile::Sketch, {1, 1}, 0, "dimensions"},
+        {forge::ui::WorkspaceProfile::Manufacturing, {1, 1}, 1, "stock"},
+    };
+
+    std::size_t withDensity = 0;
+    for (const forge::ui::Material& mtl : forge::ui::materialLibrary()) {
+      if (mtl.hasDensity()) ++withDensity;
+    }
+    checkGe(withDensity, 1u, "the material library has a density to weigh with");
+
+    for (const NewPanel& p : panels) {
+      shell.setWorkspace(p.workspace);
+      frame.setActiveTabAt(p.path, p.tab);
+      ImDrawData* d = buildOneFrame(frame, 0);
+      check(d != nullptr && d->TotalVtxCount > 500, "the panel draws a real frame", p.id);
+      const std::vector<std::string>& drawn = frame.panelIdsDrawn();
+      check(std::find(drawn.begin(), drawn.end(), std::string(p.id)) != drawn.end(),
+            "activating its tab draws that panel", p.id);
+
+      const std::string id = p.id;
+      if (id == "appearance" || id == "materials") {
+        // One row per material that has a density, and the panel is NOT
+        // virtualized, so every one of them is submitted.
+        checkEq(frame.materialRowsDrawn(), withDensity,
+                "a weight row per material with a density");
+      } else if (id == "curve_list") {
+        // VIRTUALIZED: the clipper submits only what fits, so the reference is a
+        // band, not an equality. Zero would mean the panel drew nothing.
+        checkGe(frame.curveRowsDrawn(), 1u, "the curve list drew curves");
+        checkLe(frame.curveRowsDrawn(), frame.edges().size(),
+                "and never more rows than there are curves");
+      } else if (id == "verify_report") {
+        // buildInspectionReport emits nine checks for a part that built and
+        // closes, which section 12 has just proved this one does. It may emit
+        // more (a VERIFY step the document itself carries), never fewer.
+        checkGe(frame.verifyRowsDrawn(), 9u, "the verify report drew every check");
+      } else if (id == "dimensions") {
+        checkGe(frame.dimensionRowsDrawn(), 1u, "the dimension list drew numbers");
+        checkLe(frame.dimensionRowsDrawn(),
+                forge::ui::collectDrivingDimensions(frame.document().records()).size(),
+                "and never more rows than the document has numbers");
+      }
+    }
+    // Put the window back the way section 13 expects to find it: the Part
+    // workspace with its right column on Properties. A gate that leaves state
+    // behind makes the next section's failure someone else's mystery.
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
     frame.setActiveTabAt({1, 1}, 0);
   }
 

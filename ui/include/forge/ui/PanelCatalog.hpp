@@ -3,7 +3,7 @@
 // WHAT EACH PANEL IS FOR, IN THE USER'S WORDS — and whether it has content yet.
 //
 // THE DEFECT THIS EXISTS FOR, MEASURED. The eight default workspaces define 50
-// distinct panels between them. The frame builder implements 23 of them; the
+// distinct panels between them. The frame builder implemented 23 of them; the
 // other 27 fell through to a single fallback that drew this, verbatim, in a
 // shipped build:
 //
@@ -25,6 +25,14 @@
 // scans every sentence with scanUserFacingProse(), and asserts that every panel
 // the shipped layouts define has one -- so a panel added to a workspace with no
 // description turns CI red rather than shipping a blank tab.
+//
+// ── how many are still empty, and which way that number may move ───────────
+// 29 of the 50 are Live as this is written and 21 are still Planned. That figure
+// is not maintained here by hand: ui/test/panel_content_ratchet_test.cpp pins the
+// SET of empty panels by name and is red in BOTH directions — a new empty panel
+// is a regression, and a panel that gains content is progress that still fails
+// until the pin is lowered in the same commit. A pin allowed to sit above the
+// truth silently re-admits a regression it has already been lowered past.
 //
 // ── Live vs Planned is a CLAIM, and the gate checks it ─────────────────────
 // `content` says whether the application draws real content for this panel. It

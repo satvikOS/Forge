@@ -21,6 +21,7 @@
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/InspectionReport.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/PanelCatalog.hpp"
 #include "forge/ui/PartCommands.hpp"
@@ -941,31 +942,11 @@ void ForgeFrame::cancelPrompt() noexcept {
 // These four methods are what the panel drives; every one of them resolves the
 // target through the document itself rather than caching it, because undo, redo,
 // New and Open all move records out from under a cached index.
-namespace {
-
-// The `index`-th NUMBER argument of a statement, or args.size() when there is no
-// such argument. Written once and used by all four methods below AND matching
-// paramTarget() in PartCommands.cpp -- if these two disagreed the panel would
-// edit a different slot than the command it dispatches.
-std::size_t numberArgAt(const std::vector<forge::ui::IrArg>& args, std::size_t index) {
-  std::size_t seen = 0;
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    if (args[i].kind != forge::ui::IrArgKind::Number) continue;
-    if (seen == index) return i;
-    ++seen;
-  }
-  return args.size();
-}
-
-std::size_t numberArgCount(const std::vector<forge::ui::IrArg>& args) {
-  std::size_t n = 0;
-  for (const forge::ui::IrArg& a : args) {
-    if (a.kind == forge::ui::IrArgKind::Number) ++n;
-  }
-  return n;
-}
-
-}  // namespace
+//
+// "The `index`-th NUMBER argument of a statement" was written out HERE and again
+// in paramTarget() in PartCommands.cpp -- two copies of the rule that decides
+// which slot a panel is editing. Both now call forge::ui::numericArgSlot(), so
+// what this panel SHOWS and what part.edit_feature CHANGES cannot drift apart.
 
 void ForgeFrame::setEditTarget(int irId, std::size_t paramIndex) {
   const std::size_t records = partDoc_.records().size();
@@ -980,20 +961,20 @@ void ForgeFrame::setEditTarget(int irId, std::size_t paramIndex) {
   }
   editFeatureId_ = irId;
   const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
-  const std::size_t numbers = rec == nullptr ? 0 : numberArgCount(rec->line.args);
+  const std::size_t numbers = rec == nullptr ? 0 : forge::ui::numericArgCount(rec->line.args);
   editParamIndex_ = (numbers == 0 || paramIndex >= numbers) ? 0 : paramIndex;
   editValue_ = static_cast<float>(editParamValue());
 }
 
 std::size_t ForgeFrame::editParamCount() const {
   const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
-  return rec == nullptr ? 0 : numberArgCount(rec->line.args);
+  return rec == nullptr ? 0 : forge::ui::numericArgCount(rec->line.args);
 }
 
 double ForgeFrame::editParamValue() const {
   const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
   if (rec == nullptr) return 0.0;
-  const std::size_t slot = numberArgAt(rec->line.args, editParamIndex_);
+  const std::size_t slot = forge::ui::numericArgSlot(rec->line.args, editParamIndex_);
   if (slot >= rec->line.args.size()) return 0.0;
   return rec->line.args[slot].number;
 }
@@ -2176,6 +2157,19 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawTimelinePanel();
   } else if (panelId == "measure") {
     drawMeasurePanel();
+  } else if (panelId == "appearance" || panelId == "materials") {
+    // ONE panel behind both tabs. "What is this made of and what does it weigh"
+    // is the same question from the Part workspace and from the Simulation
+    // workspace, and two panels answering it would be two that drift.
+    drawMaterialPanel();
+  } else if (panelId == "curve_list") {
+    drawCurveListPanel();
+  } else if (panelId == "stock") {
+    drawStockPanel();
+  } else if (panelId == "verify_report") {
+    drawVerifyReportPanel();
+  } else if (panelId == "dimensions") {
+    drawDimensionsPanel();
   } else if (panelId == "archie_tools") {
     drawToolsPanel();
   } else if (panelId == "archie_copilot" || panelId == "archie_chat") {
@@ -3085,6 +3079,409 @@ void ForgeFrame::drawMeasurePanel() {
   } else if (s.faces > 2) {
     ImGui::TextDisabled("(distance and angle need exactly two faces)");
   }
+}
+
+
+// ── MATERIAL AND MASS ───────────────────────────────────────────────────────
+//
+// The `appearance` and `materials` tabs. Both are the same question — what is
+// this part made of and what does it weigh — asked from the Part workspace and
+// from the Simulation workspace, so they are ONE panel and not two that will
+// drift.
+//
+// EVERY NUMBER HERE IS MEASURED. The volume is the kernel's own, re-measured
+// independently off the drawn surface; the densities are the material library's;
+// each mass is the first times the second, computed by forge::ui::massTable().
+// Nothing is filled in to make the layout look complete: when the drawn surface
+// does not close there IS no volume, so there is no mass, and the panel says so
+// instead of printing a plausible number.
+//
+// The document does not yet carry a material CHOICE — nothing in the file format
+// can store one — so a single highlighted row would be an assignment the part
+// never made. The whole table is the honest answer, and it is the answer an
+// engineer actually wants at this stage: what the candidate materials weigh.
+void ForgeFrame::drawMaterialPanel() {
+  materialRowsDrawn_ = 0;
+  const forge::ui::MeshMeasure& m = modelMeasure();
+  const IrBuildReport& r = scene_.lastBuild();
+
+  ImGui::TextColored(rgb(242, 158, 38), "This part");
+  ImGui::Separator();
+  if (m.triangles == 0) {
+    ImGui::TextColored(rgb(235, 105, 95), "There is nothing to weigh yet");
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty() ? "Draw or open a part and its weight will appear here."
+                                         : why.c_str());
+    return;
+  }
+  ImGui::Text("size      %.3f x %.3f x %.3f mm", m.box.size(0), m.box.size(1), m.box.size(2));
+  ImGui::Text("area      %.3f mm2", m.area);
+  if (r.ok()) {
+    ImGui::Text("volume    %.3f mm3", r.volume);
+  }
+  if (m.watertight) {
+    ImGui::Text("as drawn  %.3f mm3", m.volume);
+    ImGui::Text("centre    %.3f  %.3f  %.3f", m.centroid[0], m.centroid[1], m.centroid[2]);
+  } else {
+    // A weight computed from a surface that does not close is a weight with no
+    // meaning. It is refused rather than printed with a caveat nobody reads.
+    ImGui::TextColored(rgb(230, 190, 90), "volume    not defined: the shape does not close");
+    ImGui::Text("          %zu open, %zu shared by more than two, %zu wound twice the same way",
+                m.boundaryEdges, m.nonManifoldEdges, m.reversedEdges);
+  }
+
+  // The kernel's exact volume is preferred when it has one; the drawn surface
+  // stands in when it does not, and the heading says which was used, because a
+  // weight whose source is unstated is a weight nobody can check.
+  const bool exact = r.ok() && r.volume > 0.0;
+  const double volume = exact ? r.volume : (m.watertight ? m.volume : 0.0);
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "What it would weigh");
+  ImGui::Separator();
+  const std::vector<forge::ui::MassRow> table = forge::ui::massTable(volume);
+  if (table.empty()) {
+    ImGui::TextWrapped("A weight needs a volume, and this shape does not have one yet.");
+    return;
+  }
+  ImGui::TextDisabled(exact ? "from the exact volume above, lightest first"
+                            : "from the volume of the shape as drawn, lightest first");
+  ImGui::Spacing();
+  if (ImGui::BeginChild("##mass_rows", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    for (std::size_t i = 0; i < table.size(); ++i) {
+      const forge::ui::MassRow& row = table[i];
+      const forge::ui::Appearance& a = row.material.appearance;
+      // ONE ID PER ROW. Twenty swatches sharing the id "##swatch" is Dear ImGui's
+      // "conflicting ID" defect, and this application has already shipped that
+      // library's own error popup once.
+      ImGui::PushID(static_cast<int>(i));
+      // The material's OWN colour, so the table reads as the shading the part
+      // would take rather than as a list of names.
+      ImGui::ColorButton("##swatch",
+                         ImVec4(static_cast<float>(a.red), static_cast<float>(a.green),
+                                static_cast<float>(a.blue), 1.0f),
+                         ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoDragDrop,
+                         ImVec2(14.0f * dpiScale_, 14.0f * dpiScale_));
+      ImGui::SameLine();
+      ImGui::Text("%-22s %9.0f kg/m3   %s", row.material.name.c_str(),
+                  row.material.densityKgPerM3,
+                  forge::ui::describeMass(row.properties, forge::ui::MassUnit::Gram).c_str());
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s\n%s\nshading: %.0f%% metal, %.0f%% rough",
+                          row.material.name.c_str(),
+                          forge::ui::describeMass(row.properties,
+                                                  forge::ui::MassUnit::Kilogram).c_str(),
+                          a.metallic * 100.0, a.roughness * 100.0);
+      }
+      ImGui::PopID();
+      ++materialRowsDrawn_;
+    }
+  }
+  ImGui::EndChild();
+}
+
+// ── THE CURVES THIS SHAPE IS BUILT FROM ─────────────────────────────────────
+//
+// The `curve_list` tab. Every row is a recovered B-rep edge with its own
+// measured length — the same edge set the viewport picks against and the Measure
+// panel reports, so picking a row here and picking the curve in the 3D view
+// produce the SAME selection through the same key vocabulary.
+//
+// The count is a LOWER BOUND and the panel says so with the evidence beside it:
+// a seam has the same face on both sides and cannot be recovered from face ids.
+// A bound printed without its evidence reads as an equality.
+void ForgeFrame::drawCurveListPanel() {
+  curveRowsDrawn_ = 0;
+  const forge::ui::EdgeSet& es = edges();
+
+  if (es.edges.empty()) {
+    ImGui::TextColored(rgb(235, 105, 95), "There are no curves to list yet");
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty() ? "Draw or open a part and its curves will appear here."
+                                         : why.c_str());
+    return;
+  }
+
+  double total = 0.0;
+  std::size_t closed = 0;
+  for (const forge::ui::MeshEdge& e : es.edges) {
+    total += e.length;
+    if (e.closed) ++closed;
+  }
+  ImGui::TextColored(rgb(130, 137, 148), "%zu curves | %zu closed | %.3f mm in total",
+                     es.size(), closed, total);
+  ImGui::TextColored(rgb(130, 137, 148), "at least this many: a curve where one face meets "
+                                         "itself cannot be told apart from the face");
+  ImGui::Separator();
+
+  const std::vector<std::size_t> picked = selectedEdgeIndices();
+  const float rowH = ImGui::GetTextLineHeightWithSpacing();
+  const std::size_t rows = es.size();
+  if (ImGui::BeginChild("##curve_rows", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    // VIRTUALIZED. A tessellated part carries thousands of recovered curves and
+    // a panel that walks all of them every frame is the cost the feature tree's
+    // clipper exists to avoid.
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(rows), rowH);
+    while (clipper.Step()) {
+      for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+        const std::size_t index = static_cast<std::size_t>(i);
+        // RE-FETCHED, never carried across the click below. edges() rebuilds and
+        // REPLACES the set when the triangle count changes, and a reference held
+        // across a button that can reach the scene is the use-after-free the tab
+        // strip and the feature tree have each already shipped once.
+        const forge::ui::EdgeSet& live = edges();
+        if (index >= live.edges.size()) break;
+        const forge::ui::MeshEdge& e = live.edges[index];
+        bool on = false;
+        for (std::size_t p : picked) {
+          if (p == index) on = true;
+        }
+        ImGui::PushID(i);
+        char row[192];
+        std::snprintf(row, sizeof(row), "%-26s %10.4f mm   %2zu seg%s   faces %u/%u",
+                      e.key().c_str(), e.length, e.segments, e.closed ? "   loop" : "       ",
+                      e.faceA, e.faceB);
+        if (ImGui::Selectable(row, on)) clickEdge(index, ImGui::GetIO().KeyShift);
+        if (ImGui::IsItemHovered()) setPreselectedEdge(index);
+        ImGui::PopID();
+        ++curveRowsDrawn_;
+      }
+    }
+    clipper.End();
+  }
+  ImGui::EndChild();
+}
+
+// ── WAS THE PART BUILT, AND IS THE PICTURE OF IT ────────────────────────────
+//
+// The `verify_report` tab. It answers with a VECTOR of observables rather than
+// one number, because a single scalar cannot validate geometry: a volume can be
+// right while the shape is wrong, and a box can be right while the volume is.
+//
+// The second instrument is the point. The modelling kernel reports its own
+// verdict on the solid it built; the triangle soup on screen is measured
+// independently, without asking the kernel whether it is happy, and the two are
+// compared. That is the only check in this application that can catch a build
+// reported as successful over geometry it did not produce.
+//
+// The arithmetic is forge::ui::buildInspectionReport(), which is asserted
+// headless against closed forms — including every one of its failures.
+void ForgeFrame::drawVerifyReportPanel() {
+  verifyRowsDrawn_ = 0;
+  const IrBuildReport& r = scene_.lastBuild();
+  const forge::ui::MeshMeasure& m = modelMeasure();
+
+  forge::ui::KernelSolidReport k;
+  k.built = r.ok();
+  k.valid = r.valid;
+  k.faceCount = r.faceCount;
+  k.edgeCount = r.edgeCount;
+  k.volumeMm3 = r.volume;
+  k.declared = r.nDeclared;
+  k.parsed = r.nParsed;
+  k.compiled = r.nCompiled;
+  k.bboxKnown = r.ok();
+  for (std::size_t a = 0; a < 3; ++a) {
+    k.bboxMin[a] = r.bboxMin[a];
+    k.bboxMax[a] = r.bboxMax[a];
+  }
+  const forge::ui::InspectionReport report =
+      forge::ui::buildInspectionReport(k, m, partDoc_.records());
+
+  if (report.failed != 0) {
+    ImGui::TextColored(rgb(235, 105, 95), "%zu of %zu checks disagree", report.failed,
+                       report.answered());
+  } else if (report.answered() == 0) {
+    ImGui::TextColored(rgb(230, 190, 90), "nothing could be checked yet");
+  } else {
+    ImGui::TextColored(rgb(120, 200, 130), "all %zu checks agree", report.answered());
+  }
+  ImGui::TextColored(rgb(130, 137, 148), "%zu could not be answered | %zu reported for reading",
+                     report.unavailable, report.informational);
+  ImGui::Separator();
+
+  if (!r.ok()) {
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.c_str());
+    ImGui::Spacing();
+  }
+
+  if (ImGui::BeginChild("##verify_rows", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    for (const forge::ui::InspectionCheck& c : report.checks) {
+      ImVec4 colour = rgb(130, 137, 148);
+      const char* mark = "-";
+      switch (c.state) {
+        case forge::ui::CheckState::Pass:
+          colour = rgb(120, 200, 130); mark = "OK"; break;
+        case forge::ui::CheckState::Fail:
+          colour = rgb(235, 105, 95); mark = "NO"; break;
+        case forge::ui::CheckState::Unavailable:
+          colour = rgb(230, 190, 90); mark = "??"; break;
+        case forge::ui::CheckState::Informational:
+          colour = rgb(120, 170, 230); mark = "=="; break;
+      }
+      ImGui::TextColored(colour, "%s", mark);
+      ImGui::SameLine();
+      ImGui::Text("%s", c.name.c_str());
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextDisabled("      %s", c.detail.c_str());
+      ImGui::PopTextWrapPos();
+      ++verifyRowsDrawn_;
+    }
+
+    // ── THE CHECKS THE USER WROTE THEMSELVES ────────────────────────────────
+    // A VERIFY step is an assertion a person put into the part on purpose, so
+    // it is listed even though this panel cannot yet say whether it held: the
+    // build report carries one verdict for the whole program, not one per step.
+    std::size_t asserted = 0;
+    for (const forge::ui::FeatureRecord& rec : partDoc_.records()) {
+      if (rec.line.op != "VERIFY") continue;
+      if (asserted == 0) {
+        ImGui::Spacing();
+        ImGui::TextColored(rgb(242, 158, 38), "Checks written into this part");
+        ImGui::Separator();
+      }
+      ImGui::BulletText("%s", rec.line.text().c_str());
+      ++asserted;
+      ++verifyRowsDrawn_;
+    }
+    if (asserted != 0) {
+      ImGui::TextDisabled("these ran with the rebuild; a step that failed would have "
+                          "stopped it above");
+    }
+  }
+  ImGui::EndChild();
+}
+
+// ── THE NUMBERS THAT DRIVE THE SHAPE ────────────────────────────────────────
+//
+// The `dimensions` tab. Every numeric argument of every step, in one list, each
+// row addressed by the SAME index part.edit_feature uses — so clicking a row
+// aims the parameter editor at exactly the number the row shows. That identity
+// is the whole reason forge::ui::collectDrivingDimensions() exists rather than a
+// second walk written here: a panel that displays one slot and rewrites another
+// is a panel that silently resizes the part.
+//
+// A step with no number contributes NO row, and the count of those steps is
+// printed, so a short list reads as a fact about the model rather than as a
+// panel that lost some.
+void ForgeFrame::drawDimensionsPanel() {
+  dimensionRowsDrawn_ = 0;
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  const std::vector<forge::ui::DimensionRow> rows = forge::ui::collectDrivingDimensions(records);
+  const std::size_t plain = forge::ui::statementsWithoutDimensions(records);
+
+  if (records.empty()) {
+    ImGui::TextColored(rgb(235, 105, 95), "This part has no steps yet");
+    ImGui::TextWrapped("Draw something and the numbers that drive it will appear here.");
+    return;
+  }
+  ImGui::TextColored(rgb(130, 137, 148), "%zu numbers over %zu steps", rows.size(),
+                     records.size());
+  if (plain != 0) {
+    ImGui::TextColored(rgb(130, 137, 148), "%zu %s no number to change", plain,
+                       plain == 1 ? "step has" : "steps have");
+  }
+  ImGui::Separator();
+  if (rows.empty()) {
+    ImGui::TextWrapped("Nothing in this part is driven by a number you can change.");
+    return;
+  }
+  ImGui::TextDisabled("pick a row, then change it in Properties");
+  ImGui::Spacing();
+
+  if (ImGui::BeginChild("##dim_rows", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    int lastId = 0;
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+      const forge::ui::DimensionRow& row = rows[i];
+      if (row.irId != lastId) {
+        lastId = row.irId;
+        const forge::ui::FeatureRecord* rec = partDoc_.featureAt(row.irId);
+        ImGui::TextColored(rgb(242, 158, 38), "%s", rec == nullptr ? row.op.c_str()
+                                                                  : rec->line.text().c_str());
+      }
+      const bool on = row.irId == editFeatureId_ && row.numberIndex == editParamIndex_;
+      ImGui::PushID(static_cast<int>(i));
+      char text[128];
+      std::snprintf(text, sizeof(text), "    %s #%zu    %.4f", row.op.c_str(),
+                    row.numberIndex + 1, row.value);
+      if (ImGui::Selectable(text, on)) {
+        // The SAME entry point the feature tree uses, so the two panels cannot
+        // aim the editor at different things.
+        setEditTarget(row.irId, row.numberIndex);
+      }
+      if (ImGui::IsItemHovered() && !row.label.empty()) {
+        ImGui::SetTooltip("%s", row.label.c_str());
+      }
+      ImGui::PopID();
+      ++dimensionRowsDrawn_;
+    }
+  }
+  ImGui::EndChild();
+}
+
+
+// ── THE BLOCK THIS PART COMES OUT OF ────────────────────────────────────────
+//
+// The `stock` tab. Two questions a shop asks before quoting anything: what
+// billet does this need, and how much of it becomes swarf. Both are arithmetic
+// over numbers this application has already measured — the part's own bounding
+// box and its volume — so both are real, and forge::ui::stockEnvelope() is
+// asserted headless against closed forms including every way it can be unknown.
+//
+// It is the SMALLEST block the part fits in and the panel says so. Real stock
+// carries a machining allowance and comes in standard sizes; this is the floor
+// those choices start from, not a claim about what anyone will order.
+void ForgeFrame::drawStockPanel() {
+  const forge::ui::MeshMeasure& m = modelMeasure();
+  const IrBuildReport& r = scene_.lastBuild();
+
+  if (m.triangles == 0) {
+    ImGui::TextColored(rgb(235, 105, 95), "There is no part to cut yet");
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty() ? "Draw or open a part and the block it needs will "
+                                           "appear here."
+                                         : why.c_str());
+    return;
+  }
+
+  // The kernel's exact volume when it has one, the drawn surface's when it does
+  // not. Which was used is printed, because a ratio whose source is unstated is
+  // a ratio nobody can check.
+  const bool exact = r.ok() && r.volume > 0.0;
+  const double volume = exact ? r.volume : (m.watertight ? m.volume : 0.0);
+  const forge::ui::StockEnvelope s = forge::ui::stockEnvelope(m.box, volume);
+
+  ImGui::TextColored(rgb(242, 158, 38), "Smallest block that holds this part");
+  ImGui::Separator();
+  ImGui::Text("block     %.3f x %.3f x %.3f mm", m.box.size(0), m.box.size(1), m.box.size(2));
+  ImGui::TextDisabled("no machining allowance: add your own before ordering");
+  if (!s.known) {
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(230, 190, 90), "How much is cut away cannot be worked out yet");
+    ImGui::TextWrapped("That needs the volume of the part as well as the size of the block, and "
+                       "this shape does not have one.");
+    return;
+  }
+
+  ImGui::Text("block     %.3f mm3", s.blockVolumeMm3);
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "What is left, and what is cut away");
+  ImGui::Separator();
+  ImGui::Text("part      %.3f mm3", s.partVolumeMm3);
+  ImGui::Text("cut away  %.3f mm3   (%.2f%% of the block)", s.removedVolumeMm3,
+              s.removedFraction * 100.0);
+  ImGui::Text("ratio     %.3f to 1  block to part", s.buyToFly);
+  ImGui::TextDisabled(exact ? "from the exact volume of the part"
+                            : "from the volume of the shape as drawn");
+
+  // A bar is worth more than the percentage beside it: the eye reads "most of
+  // this billet is swarf" from a filled fraction faster than from a number.
+  ImGui::Spacing();
+  ImGui::ProgressBar(static_cast<float>(1.0 - s.removedFraction),
+                     ImVec2(-1.0f, 14.0f * dpiScale_), "part");
+  ImGui::TextDisabled("the filled part of the bar is the block that stays");
 }
 
 // ── archie tools ────────────────────────────────────────────────────────────

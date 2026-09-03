@@ -371,6 +371,15 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   forge::ui::ToolCatalog toolCatalog() const;
   std::size_t toolRowsDrawn() const noexcept { return toolRowsDrawn_; }
 
+  // ── the four panels that stopped being empty ────────────────────────────
+  // Rows each drew on its last draw. Separate counters, one per panel, for the
+  // reason measureFaceRowsDrawn/measureEdgeRowsDrawn are separate: one counter
+  // over two reports cannot say which report was actually drawn.
+  std::size_t materialRowsDrawn() const noexcept { return materialRowsDrawn_; }
+  std::size_t curveRowsDrawn() const noexcept { return curveRowsDrawn_; }
+  std::size_t verifyRowsDrawn() const noexcept { return verifyRowsDrawn_; }
+  std::size_t dimensionRowsDrawn() const noexcept { return dimensionRowsDrawn_; }
+
   // Selection round-trip: the viewport writes a pick here, the frame turns it
   // into a typed EntityRef through SelectionService and re-flags the mesh.
   void setPreselectedFace(std::uint32_t faceId);
@@ -513,6 +522,14 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawConsolePanel();
   void drawTimelinePanel();
   void drawMeasurePanel();
+  // The four panels that stopped being empty. Each draws ONLY quantities
+  // forge::ui::InspectionReport (or MeasureModel / EdgeModel) computed, so every
+  // number on screen is one a headless gate has already asserted.
+  void drawMaterialPanel();
+  void drawCurveListPanel();
+  void drawStockPanel();
+  void drawVerifyReportPanel();
+  void drawDimensionsPanel();
   void drawToolsPanel();
   void drawCopilotPanel();
   // The work the three recorded presses stand for. Private: the ONLY caller is
@@ -783,6 +800,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
+  std::size_t materialRowsDrawn_ = 0;
+  std::size_t curveRowsDrawn_ = 0;
+  std::size_t verifyRowsDrawn_ = 0;
+  std::size_t dimensionRowsDrawn_ = 0;
 
   // ── the CoPilot ─────────────────────────────────────────────────────────
   // Owned here because it is panel state, not document state: the transcript,

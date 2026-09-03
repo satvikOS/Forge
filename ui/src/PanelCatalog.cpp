@@ -36,8 +36,9 @@ constexpr Row kRows[] = {
      "Notes, balloons and leader text placed on the drawing sheet.",
      PanelContent::Planned},
     {"appearance",
-     "The material this part is made of, what it weighs, and how it is shaded in the 3D view.",
-     PanelContent::Planned},
+     "What this part would weigh in each material it could be made from, beside the colour that "
+     "material is shaded in.",
+     PanelContent::Live},
     {"archie_chat",
      "Ask Archie for an edit in plain language and see the plan it offers before anything runs.",
      PanelContent::Live},
@@ -82,12 +83,13 @@ constexpr Row kRows[] = {
      "finer.",
      PanelContent::Planned},
     {"curve_list",
-     "The curves this surface model is built from, so you can pick one without hunting in the 3D "
+     "Every curve on this shape with its length, so you can pick one without hunting in the 3D "
      "view.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"dimensions",
-     "The dimensions driving this sketch, and which of them you can still change.",
-     PanelContent::Planned},
+     "Every number that drives the shape of this part, in one list, so you can find the one you "
+     "want to change.",
+     PanelContent::Live},
     {"feature_tree",
      "Every feature in this part, in the order it was built. Pick a row to select it, or change "
      "its number to change the shape.",
@@ -110,9 +112,9 @@ constexpr Row kRows[] = {
      "The forces, pressures and temperatures applied to this study.",
      PanelContent::Planned},
     {"materials",
-     "The material assigned to each body in this study, and the properties the solver reads from "
+     "The density of every material this part could be made from, and the weight each one gives "
      "it.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"mates",
      "The mates holding this assembly together, and how many ways each component can still move.",
      PanelContent::Planned},
@@ -166,8 +168,9 @@ constexpr Row kRows[] = {
      "Whether this sketch is fully defined, and what is still free to move if it is not.",
      PanelContent::Planned},
     {"stock",
-     "The block of raw material this part is cut from, and how much of it is left.",
-     PanelContent::Planned},
+     "The smallest block of raw material this part can be cut from, and how much of that block "
+     "is cut away.",
+     PanelContent::Live},
     {"study_tree",
      "The simulation studies set up for this part, and what each one is solving for.",
      PanelContent::Live},
@@ -182,7 +185,7 @@ constexpr Row kRows[] = {
      PanelContent::Planned},
     {"verify_report",
      "Whether the part that was built matches what was asked for, and where it does not.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"view_list",
      "The views placed on this drawing sheet, and which part each one is showing.",
      PanelContent::Planned},
