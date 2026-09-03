@@ -60,6 +60,12 @@ trap 'rm -rf "$OUT"' EXIT
 
 ENGINE=forge-kernel/src/native/brep/NativeDraftLocal.cpp
 HARNESS=forge-kernel/test/ab_native_draft_local.cpp
+# ★ THE ENGINE NOW HAS A FIRST-PARTY DEPENDENCY, AND THAT IS A REAL CHANGE.
+# NativeDraftLocal.cpp calls forge::pcurvefit to build the pcurve for a wall edge
+# on a cylinder, so every place that compiles the engine must compile the fitter
+# too. build_draft_local_probe.sh:7 still says the engine "has no first-party"
+# dependency -- that sentence is now false and is flagged, not quietly deleted.
+FITTER=forge-kernel/src/native/geom/NativePCurveFit.cpp
 
 OCCT_LIBS=(-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKGeomAlgo
            -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool)
@@ -73,7 +79,7 @@ build_one() {   # build_one <engine.cpp> <out-binary>
   "$CXX" -std=c++20 -O1 -Wall -Wextra -Wno-deprecated-declarations \
       -DFORGE_NATIVE_BREP=1 \
       -I "$INC" -I "$OCCT_INC" \
-      "$HARNESS" "$1" \
+      "$HARNESS" "$1" "$FITTER" \
       -L "$OCCT_LIB" "${OCCT_LIBS[@]}" -o "$2" 2>"$OUT/build.err"
 }
 
