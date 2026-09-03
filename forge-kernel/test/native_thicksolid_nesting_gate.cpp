@@ -175,6 +175,30 @@ int main() {
         TopTools_ListOfShape fl; fl.Append(rm);
         const TopoDS_Shape r = forge::occtoffset::makeThickSolid(src, t, fl, 1.0e-3);
         ok(r.IsNull(), "t=0.4 returns a NULL shape (honest defer)");
+
+        // ── THE DEFER MUST NAME ITSELF ──────────────────────────────────────
+        // A null shape and a null shape carrying no reason are the same value
+        // to a caller and NOT the same thing to a reader. Before 2026-09-02
+        // circlesNest returned false without recording anything, so this whole
+        // class surfaced in the 600-part corpus census as a bare
+        // `q_inner_face_null` — 28 parts, 23 of them the deletion bucket, with
+        // nothing to say which constraint failed or by how much. Assert the
+        // label, and assert the NUMBERS are in it: a reason string that cannot
+        // distinguish a genuine loop merge from a mis-signed offset radius is
+        // the defect this fixes, not the fix.
+        const std::string why = forge::occtoffset::lastThickSolidDeferReason();
+        ok(why.find("cn_hole_escapes_rim") != std::string::npos,
+           "t=0.4 defer NAMES the nesting guard (cn_hole_escapes_rim)");
+        ok(why.find("_over") != std::string::npos,
+           "t=0.4 defer CARRIES the overlap distance that decided it");
+        // NEGATIVE CONTROL: the nesting case must NOT claim this guard fired.
+        {
+            TopTools_ListOfShape fl2; fl2.Append(rm);
+            const TopoDS_Shape rn = forge::occtoffset::makeThickSolid(src, 0.2, fl2, 1.0e-3);
+            const std::string whyN = forge::occtoffset::lastThickSolidDeferReason();
+            ok(!rn.IsNull() && whyN.find("cn_hole_escapes_rim") == std::string::npos,
+               "t=0.2 (nests) does NOT report the nesting guard");
+        }
         if (!r.IsNull()) {
             // THE REGRESSION EVIDENCE. If the guard is ever removed, this line
             // prints what the engine went back to emitting, and the assertion
