@@ -569,11 +569,22 @@ default: `OCCT_DIRECT 9, OCCT_CLOSURE 14, OCCT_PHANTOM 2, TKOffset symbols 42` �
 `origin/archdisc` ledger. **A family that passes its gate becomes CAPABLE of
 being dropped; it drops nothing on its own.**
 
-### 1. The 12.6-point deficit was ONE reason, and it was not what §5 said
+### 1. The 12.6-point deficit was ONE guard, and BOTH halves were mis-diagnosed
 
 Re-measured, not inherited. At `f53deeae` all 71 parts of the gap declined on
-**the same guard**, and the earlier split into "19 closed rims + 52 topology" is
-not what the histogram says:
+**the same guard**. The 2026-09-02 note above split them 52 / 19 by what the
+drafted wall meets, and **that split is right**; what was wrong is the diagnosis
+of each half, and each is wrong in the opposite direction:
+
+* it called the 52 a defect the gate is "catching, not costing coverage". They
+  are not a defect: the native answer is OCCT's answer, status code for status
+  code (§2).
+* it called the 19 "closed rims this fix does not yet reach". They are reached —
+  they build — and the defect is the pcurve's deviation BOUND, which is a
+  different thing with a different fix (§3).
+
+Neither could be told from the defer histogram, because both read `the rebuilt
+solid is not BRepCheck-valid`:
 
 ```
 DEFER taxonomy, 565 applicable, before:
@@ -585,9 +596,8 @@ the 71, by what the drafted wall meets:
    19  cylinder          OCCT's answer is VALID
 ```
 
-Those two blocks look identical from outside the gate — both are "the rebuilt
-solid is not BRepCheck-valid" — and they are **opposite defects**. Separating
-them needed a face-level walk of both engines' output, not a count.
+Separating them needed a face-level walk of BOTH engines' output and an angle
+sweep, not a count and not a neighbour-kind label.
 
 ### 2. The larger block (52) — the engine's answer is OCCT's answer
 
