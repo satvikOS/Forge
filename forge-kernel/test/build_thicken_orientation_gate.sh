@@ -99,11 +99,44 @@ FEAT_BAK="$OUT/Features.cpp.orig"
 cp "$HDR" "$HDR_BAK"
 cp "$FEAT" "$FEAT_BAK"
 
+# ★ DELETING THE OBJECT IS WHAT FORCES A REBUILD -- `touch` IS NOT ENOUGH, AND
+#   THAT IS MEASURED, NOT ARGUED. The comment below was right about the failure
+#   mode and wrong about the remedy: touch sets the source mtime to NOW, and the
+#   object was compiled by the previous round, also NOW. A build system recompiles
+#   when the source is NEWER than the object -- EQUAL IS NOT NEWER -- so at
+#   one-second granularity make judges the object current and leaves the MUTATED
+#   object linked while the source holds the original.
+#
+#   POSITIVE CONTROL on this gate's own object (a green run cannot prove an
+#   intermittent race fixed, so the two arms were shown to differ):
+#     ARM A  touch -r "$OBJ" on header+source, then build
+#            -> build rc=0 and Features.cpp.o is NOT recompiled (mtime unchanged)
+#     ARM B  delete the object via its depfile, then build
+#            -> the object comes back; the compiler ran
+#
+#   THE MUTATION HERE TOUCHES A HEADER, so deleting one object is not sufficient
+#   in general: every TU that includes it is stale. The depfiles cmake already
+#   writes name those TUs exactly, so they drive the deletion and this stays
+#   correct if another TU starts including the header. Today it is Features.cpp
+#   alone. `cmp` above proves the SOURCE came back; it cannot prove the OBJECT was
+#   recompiled, which is the gap this closes.
+#
+#   Third gate in this repository to hit the shared-build-tree race, after #223
+#   (build_native_gate_guard_gate.sh) and #236 (run_step_unit_decline_gate.sh).
+invalidate_objs() {
+    find "$BUILD" -name 'Features.cpp.o' -delete 2>/dev/null || true
+    grep -rl 'OcctThickenBaseline.hpp' "$BUILD" --include='*.o.d' 2>/dev/null |
+        while IFS= read -r d; do rm -f "${d%.d}" "$d"; done
+    return 0
+}
+
 restore() {
     cp "$HDR_BAK" "$HDR";  cmp -s "$HDR_BAK" "$HDR"   || { echo "RESTORE FAILED: $HDR";  exit 2; }
     cp "$FEAT_BAK" "$FEAT"; cmp -s "$FEAT_BAK" "$FEAT" || { echo "RESTORE FAILED: $FEAT"; exit 2; }
-    # A cp landing in the same second as the previous build leaves cmake believing
-    # the library is current and the MUTATED object still linked. Touch forward.
+    # An ABSENT object cannot be judged current; a re-dated one can. Both are done:
+    # the delete is what makes the rebuild happen, the touch keeps the source
+    # ordering sane for anything that reads mtimes later.
+    invalidate_objs
     touch "$HDR" "$FEAT"
 }
 trap 'restore' EXIT INT TERM
