@@ -706,6 +706,34 @@ jobs:
           GATE_GUARD_BUILD: forge-kernel/build-verify
         run: bash forge-kernel/test/build_native_gate_guard_gate.sh
 
+      - name: THICKEN orientation — both engines, both branches, 2 mutations
+        # THE DEFECT IT PINS, and it is a SIGN BIT, which is the reason it needs its
+        # own gate: over the 600 gold reference solids the native thicken and OCCT's
+        # BRepOffset_MakeOffset returned the SAME geometry with OPPOSITE orientation
+        # on 600 of 600 parts — signed volume ratio p50 exactly -1.000000, area ratio
+        # exactly 1.000000, 595 of 600 identical on every other observable. Every
+        # self-check inside the thicken engine reads std::fabs(Mass()) and was blind
+        # to it, and so was the A/B's own volume comparison.
+        #
+        # WHICH ORIENTATION IS RIGHT IS NOT A HOUSE STYLE: BRepClass3d_SolidClassifier
+        # answers TopAbs_OUT for a point strictly inside the raw BRepOffset solid — it
+        # denotes the UNBOUNDED complement — and TopAbs_IN for the native one. The gate
+        # asserts both, so a future OCCT that changed convention turns this red instead
+        # of quietly making the normalisation dead code.
+        #
+        # RUNS TWICE (OCCT branch, then FORGE_THICKEN_NATIVE=1) because the orientation
+        # post-condition used to live INSIDE `#ifndef FORGE_THICKEN_DROP_NATIVE`, i.e. a
+        # build flag could delete it. --mutations proves the gate goes red when the
+        # normaliser is neutered and when the original defect is put back.
+        #
+        # Reuses build-verify, the tree two steps above already populates, rather than
+        # standing up a second one. Until this step existed the gate was on
+        # gate_registration_ratchet.sh's list of gates CI never executes.
+        env:
+          THICKEN_ORIENT_BUILD: forge-kernel/build-verify
+          JOBS: 3
+        run: bash forge-kernel/test/build_thicken_orientation_gate.sh --mutations
+
       - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
         # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,
         # so a foreign file declaring SI_UNIT($,.METRE.) was read RAW. It refused

@@ -137,6 +137,7 @@ forge-kernel/.build-gh-census/
 # test/run_thicksolid_nesting_gate.sh's binary — a gate, so it has no committed
 # artefact; it is rebuilt and rerun from source every time.
 forge-kernel/.build-thicksolid-nesting/
+forge-kernel/.build-thicken-orientation/
 # test/sarc_ring_mutation.sh's default build dir. It holds a CMake tree that is
 # deliberately built against a mutated source and then restored, so nothing in it
 # is ever a fact about the repository.

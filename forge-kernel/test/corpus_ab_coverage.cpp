@@ -189,6 +189,7 @@
 #include "forge/native/brep/NativeThickSolid.hpp"      // families G, H
 #include "forge/native/brep/NativeLoftPipe.hpp"        // families D, E, F
 #include "forge/native/brep/NativeThickenShell.hpp"    // family  I
+#include "forge/OcctThickenBaseline.hpp"               // family  I, the OCCT arm
 #include "forge/native/brep/NativeDraft.hpp"           // family  J
 #include "forge/native/brep/NativeFilling.hpp"         // family  B/C
 #include "forge/native/brep/NativeFilletChamfer.hpp"   // TKFillet
@@ -1677,9 +1678,29 @@ int main(int argc, char** argv) {
     // ═════════════════════════════════════════ THICKEN (TKOffset family I)
     // native  occtthicken::thickenShell(src, t, 1e-4)                Features.cpp:1212
     // occt    BRepOffset_MakeOffset Initialize(Skin,Arc,thick=true)  Features.cpp:1219
+    // ★ THE OCCT ARM CALLS PRODUCTION, IT DOES NOT RE-IMPLEMENT IT.
+    //
+    // What FORGE_THICKEN_DROP_NATIVE=ON deletes from Features.cpp is the WHOLE
+    // baseline block — the BRepOffset_MakeOffset call AND the normalising
+    // Reverse() that follows it — so the only faithful OCCT arm is that whole
+    // block. This arm used to be a hand-copy of the FIRST HALF of it, and the
+    // cost was a measured, reproducible, and entirely spurious result: over the
+    // 600-part reference corpus the two arms disagreed on 600 of 600 at signed
+    // volume ratio EXACTLY -1.000000, with area ratio exactly 1.000000 and 595
+    // of 600 identical on every other observable. All of that was the Reverse()
+    // this arm did not have. Calling forge::part::occtThickenBaseline — the same
+    // inline function Features.cpp calls — makes the drift structurally
+    // impossible rather than merely fixed once.
+    //
+    // NOTHING IS HIDDEN BY THE CORRECTION. The RAW, un-normalised OCCT answer is
+    // still measured, in full, and still emitted — under the family name
+    // THICKEN_RAWOCCT, below. The raw sign stays on the permanent record; it
+    // simply stops being scored as a geometric disagreement, which it never was.
     if (wanted(cfg, "THICKEN")) {
-        if (pk.anyBig.IsNull()) emit("THICKEN", false, "no_face", none, none, "");
-        else {
+        if (pk.anyBig.IsNull()) {
+            emit("THICKEN", false, "no_face", none, none, "");
+            emit("THICKEN_RAWOCCT", false, "no_face", none, none, "");
+        } else {
             const double t = 0.05 * scale;
             const TopoDS_Face f = pk.anyBig;
             char od[112];
@@ -1688,14 +1709,24 @@ int main(int argc, char** argv) {
                 return forge::occtthicken::thickenShell(f, t, 1.0e-4);
             }, true, T, NF, &forge::occtthicken::thickenLastDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
-                BRepOffset_MakeOffset mk;
-                mk.Initialize(f, t, 1.0e-4, BRepOffset_Skin,
-                              Standard_False, Standard_False, GeomAbs_Arc, Standard_True);
-                mk.MakeThickSolid();
-                if (!mk.IsDone()) return TopoDS_Shape();
-                return mk.Shape();
+                return forge::part::occtThickenBaseline(f, t, 1.0e-4);
             }, true, T, NF);
             emit("THICKEN", true, "", nat, oc, od);
+
+            // DIAGNOSTIC, not a drop option. Same native arm, against the RAW
+            // BRepOffset_MakeOffset output with the production normalisation
+            // omitted. It exists so the sign this family was famous for is still
+            // readable from the JSONL, and so the claim "the normalisation is the
+            // whole difference" is a MEASUREMENT in every run rather than a note:
+            // THICKEN and THICKEN_RAWOCCT must differ by exactly that and nothing
+            // else. Its `option` column reads `?` because it names no flag.
+            char odr[144];
+            std::snprintf(odr, sizeof odr,
+                          "skin the largest face t=%.6g (OCCT arm RAW, normalisation omitted)", t);
+            const ArmResult ocRaw = runArm([&]() -> TopoDS_Shape {
+                return forge::part::occtThickenBaselineRaw(f, t, 1.0e-4);
+            }, true, T, NF);
+            emit("THICKEN_RAWOCCT", true, "", nat, ocRaw, odr);
         }
     }
 
