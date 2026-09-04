@@ -33,8 +33,9 @@
 // description turns CI red rather than shipping a blank tab.
 //
 // ── how many are still empty, and which way that number may move ───────────
-// 33 of the 50 are Live as this is written and 17 are still Planned -- it was
-// 29/21 one merge ago, and 23/27 when this file was written. That figure
+// 39 of the 50 are Live as this is written and 11 are still Planned -- it was
+// 33/17 one change ago, 29/21 before that, and 23/27 when this file was
+// written. That figure
 // is not maintained here by hand: ui/test/panel_content_ratchet_test.cpp pins the
 // SET of empty panels by name and is red in BOTH directions — a new empty panel
 // is a regression, and a panel that gains content is progress that still fails

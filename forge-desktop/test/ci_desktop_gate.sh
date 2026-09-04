@@ -73,7 +73,14 @@ set -uo pipefail
 #    prints 67 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
 #    + file_dialog 3 + frame 16 + copilot 8 + update 7 + click 8 + assembly 4
 #    + isolation 0.
-EXPECTED_MUTATIONS=67
+# ── 2026-09-04: 73. Six more docked panels stopped being empty (Constraints,
+#    Relations, Solver, Isocline, Continuity, Tools) and frame_gate section 18
+#    brought six mutations with them, 17..22. DERIVED, not incremented:
+#      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#    prints 73 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 22 + copilot 8 + update 7 + click 8 + assembly 4
+#    + isolation 0.
+EXPECTED_MUTATIONS=73
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

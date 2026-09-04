@@ -74,20 +74,14 @@ namespace {
 // defect this file exists to report.
 const char* const kPinnedEmptyPanels[] = {
     "annotation",
-    "constraints",
-    "continuity",
     "convergence",
     "fixtures",
     "gdt",
     "interference",
-    "isocline",
     "loads",
     "post_output",
-    "relations",
     "restraints",
-    "solver_status",
     "title_block",
-    "tool_library",
     "view_list",
     "zebra_analysis",
 };

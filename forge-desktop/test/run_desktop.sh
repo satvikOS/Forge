@@ -200,7 +200,13 @@ run_gate forge_desktop_file_dialog_gate 1 2 3
 #    Operations tab answering from a stale machining plan), and this side's would
 #    drop the three file_dialog mutations. Both are kept, which is what "superset"
 #    has to mean when the two sides disagree about DIFFERENT gates.
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+# ── the six panels that stopped being empty: section 18 adds mutations 17..22.
+#    17 the three sketch panels answered from an EMPTY document; 18 from the
+#    document as it stood BEFORE the constraints were added; 19 the Isocline
+#    panel's pull-direction control changing nothing; 20 continuity answered
+#    from an empty mesh; 21 the tool list answered from a stale plan; 22 the
+#    taper the job asks for dropped on the floor.
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

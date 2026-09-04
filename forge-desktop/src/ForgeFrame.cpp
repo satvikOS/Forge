@@ -2417,6 +2417,18 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawSheetTreePanel();
   } else if (panelId == "study_tree") {
     drawStudyTreePanel();
+  } else if (panelId == "constraints") {
+    drawConstraintsPanel();
+  } else if (panelId == "relations") {
+    drawRelationsPanel();
+  } else if (panelId == "solver_status") {
+    drawSolverStatusPanel();
+  } else if (panelId == "isocline") {
+    drawIsoclinePanel();
+  } else if (panelId == "continuity") {
+    drawContinuityPanel();
+  } else if (panelId == "tool_library") {
+    drawToolLibraryPanel();
   } else if (panelId == "properties" || panelId == "operation_params") {
     drawPropertiesPanel();
   } else if (panelId == "console" || panelId == "archie_trace" || panelId == "solver_log" ||
@@ -3749,6 +3761,576 @@ void ForgeFrame::drawStudyTreePanel() {
     }
     ImGui::PopID();
   }
+}
+
+// ── THE SIX THAT STOPPED BEING EMPTY NEXT ───────────────────────────────────
+//
+// Three readings of the sketch family (forge/ui/SketchDiagnosis.hpp), two of the
+// tessellation (forge/ui/SurfaceAnalysis.hpp), and one of what the cuts call for
+// (forge/ui/ToolLibrary.hpp). Every number below is computed in forge::ui and
+// asserted headless; this file arranges it and nothing more.
+
+forge::ui::SketchDiagnosisSet ForgeFrame::sketchDiagnosis() const {
+  return forge::ui::buildSketchDiagnosis(partDoc_);
+}
+
+forge::ui::DraftReport ForgeFrame::draftReport() {
+  return forge::ui::buildDraftReport(measureMesh(), draftPull_, draftRequiredDeg_);
+}
+
+forge::ui::ContinuityReport ForgeFrame::continuityReport() {
+  return forge::ui::buildContinuityReport(measureMesh(), modelMeasure());
+}
+
+forge::ui::ToolList ForgeFrame::toolList() const {
+  return forge::ui::buildToolList(forge::ui::buildMachiningPlan(partDoc_));
+}
+
+void ForgeFrame::setRequiredDraft(double degrees) noexcept {
+  if (!(degrees >= 0.0)) degrees = 0.0;   // also catches a NaN
+  if (degrees > 45.0) degrees = 45.0;
+  draftRequiredDeg_ = degrees;
+}
+
+namespace {
+
+// The colour a constraint's state is drawn in. One place, so the three sketch
+// panels can never disagree about what red means.
+ImVec4 faultColour(forge::ui::ConstraintFault fault) {
+  switch (fault) {
+    case forge::ui::ConstraintFault::None:              return rgb(120, 200, 140);
+    case forge::ui::ConstraintFault::UnknownKind:       return rgb(235, 105, 95);
+    case forge::ui::ConstraintFault::OperandUnresolved: return rgb(235, 105, 95);
+    case forge::ui::ConstraintFault::OperandCount:      return rgb(235, 105, 95);
+    case forge::ui::ConstraintFault::Repeated:          return rgb(235, 175, 95);
+    case forge::ui::ConstraintFault::Contradicts:       return rgb(235, 175, 95);
+  }
+  return rgb(130, 137, 148);
+}
+
+ImVec4 definitionColour(forge::ui::SketchDefinition definition) {
+  switch (definition) {
+    case forge::ui::SketchDefinition::Empty: return rgb(130, 137, 148);
+    case forge::ui::SketchDefinition::Under: return rgb(235, 175, 95);
+    case forge::ui::SketchDefinition::Fully: return rgb(120, 200, 140);
+    case forge::ui::SketchDefinition::Over:  return rgb(235, 105, 95);
+  }
+  return rgb(130, 137, 148);
+}
+
+// What every sketch panel draws when the document holds no sketch at all. One
+// sentence, in the user's words, saying what would put something here.
+void drawNoSketchYet(const char* what) {
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextWrapped("No sketch has been drawn yet. Start one from the Sketch tools, put points, "
+                     "lines, circles and arcs in it, and %s appears here.", what);
+  ImGui::PopTextWrapPos();
+}
+
+}  // namespace
+
+// ── the sketch's constraints ────────────────────────────────────────────────
+//
+// WHAT IS HELD, and -- the half a user actually opens this for -- what is NOT.
+// A constraint the kernel skips is drawn in the colour of a problem, with the
+// reason beside it, because a constraint that silently holds nothing is how a
+// sketch moves when the user is sure it cannot.
+void ForgeFrame::drawConstraintsPanel() {
+  constraintRowsDrawn_ = 0;
+  const forge::ui::SketchDiagnosisSet set = sketchDiagnosis();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+  if (set.empty()) {
+    drawNoSketchYet("every constraint holding it");
+    return;
+  }
+  ImGui::TextColored(rgb(130, 137, 148), "%zu constraints over %zu sketches | %zu hold nothing",
+                     set.constraintCount(), set.sketches.size(), set.faultCount());
+
+  for (const forge::ui::SketchDiagnosis& d : set.sketches) {
+    ++constraintRowsDrawn_;
+    ImGui::PushID(d.irId);
+    if (ImGui::TreeNodeEx("##sketch", ImGuiTreeNodeFlags_DefaultOpen, "%s   on %s   %zu",
+                          d.label.c_str(), d.plane.empty() ? "its plane" : d.plane.c_str(),
+                          d.constraints.size())) {
+      if (d.constraints.empty()) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextWrapped("Nothing holds this sketch yet. Pick two things in it and add a "
+                           "constraint, and it appears here.");
+        ImGui::PopTextWrapPos();
+      }
+      for (const forge::ui::SketchConstraintRow& c : d.constraints) {
+        ++constraintRowsDrawn_;
+        ImGui::PushID(c.irId);
+        ImGui::Bullet();
+        ImGui::TextColored(faultColour(c.fault), "%-14s %s", c.name.c_str(), c.evidence.c_str());
+        if (c.fault != forge::ui::ConstraintFault::None) {
+          ImGui::SameLine();
+          ImGui::TextColored(rgb(130, 137, 148), "-- %s", forge::ui::toString(c.fault));
+        }
+        if (ImGui::IsItemHovered()) {
+          if (c.fault == forge::ui::ConstraintFault::None) {
+            ImGui::SetTooltip("%s: holds %zu of the numbers this sketch is free in.",
+                              c.name.c_str(), c.holds);
+          } else {
+            ImGui::SetTooltip("%s holds nothing: %s.", c.name.c_str(),
+                              forge::ui::toString(c.fault));
+          }
+        }
+        ImGui::PopID();
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+}
+
+// ── what moves with what ────────────────────────────────────────────────────
+//
+// Drag one thing in a sketch and a set of others follow it. That set is the
+// group of geometry reachable through the lines built on it and the constraints
+// holding it, and two groups that share nothing are independent -- which is the
+// other half of the same answer and the reason a sketch sometimes will not close.
+void ForgeFrame::drawRelationsPanel() {
+  relationRowsDrawn_ = 0;
+  const forge::ui::SketchDiagnosisSet set = sketchDiagnosis();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+  if (set.empty()) {
+    drawNoSketchYet("what moves with what");
+    return;
+  }
+
+  for (const forge::ui::SketchDiagnosis& d : set.sketches) {
+    ++relationRowsDrawn_;
+    ImGui::PushID(d.irId);
+    // The links that touch each row, gathered ONCE. Scanning every link inside
+    // the member loop is quadratic in the size of the sketch, and a sketch is
+    // the one thing in this application a user makes hundreds of rows long --
+    // which is why the feature tree beside it is virtualized.
+    std::vector<std::vector<std::size_t>> linksOf(d.geometry.size());
+    for (std::size_t li = 0; li < d.links.size(); ++li) {
+      const forge::ui::SketchLink& link = d.links[li];
+      if (link.from < linksOf.size()) linksOf[link.from].push_back(li);
+      if (link.to < linksOf.size()) linksOf[link.to].push_back(li);
+    }
+    if (ImGui::TreeNodeEx("##sketch", ImGuiTreeNodeFlags_DefaultOpen, "%s   %zu groups",
+                          d.label.c_str(), d.clusters.size())) {
+      if (d.clusters.size() > 1) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(rgb(235, 175, 95),
+                           "These groups move independently. Nothing ties them to each other, "
+                           "so dragging one leaves the rest where they are.");
+        ImGui::PopTextWrapPos();
+      }
+      for (std::size_t g = 0; g < d.clusters.size(); ++g) {
+        const forge::ui::SketchCluster& cluster = d.clusters[g];
+        ++relationRowsDrawn_;
+        ImGui::PushID(static_cast<int>(g));
+        char header[96];
+        std::snprintf(header, sizeof(header), "Group %zu   %zu things, %zu of %zu numbers held",
+                      g + 1, cluster.members.size(), cluster.held, cluster.freedoms);
+        if (ImGui::TreeNodeEx("##group", ImGuiTreeNodeFlags_DefaultOpen, "%s", header)) {
+          if (cluster.pinned) {
+            ImGui::TextColored(rgb(120, 200, 140), "pinned in place");
+          }
+          for (std::size_t m : cluster.members) {
+            if (m >= d.geometry.size()) continue;
+            const forge::ui::SketchGeometryRow& row = d.geometry[m];
+            ++relationRowsDrawn_;
+            ImGui::Bullet();
+            ImGui::Text("%-8s %-16s %s", forge::ui::sketchGeometryWord(row.kind),
+                        row.label.c_str(), row.evidence.c_str());
+            // What ties this one to the rest: the things it is built on, and
+            // the constraints that name it.
+            std::string ties;
+            for (std::size_t li : linksOf[m]) {
+              const forge::ui::SketchLink& link = d.links[li];
+              const std::size_t other = link.from == m ? link.to : link.from;
+              if (other >= d.geometry.size()) continue;
+              if (!ties.empty()) ties += ", ";
+              ties += std::string(forge::ui::toString(link.kind)) + " " +
+                      d.geometry[other].label;
+            }
+            if (!ties.empty() && ImGui::IsItemHovered()) {
+              ImGui::SetTooltip("%s: %s", row.label.c_str(), ties.c_str());
+            }
+            if (ties.empty()) {
+              ImGui::SameLine();
+              ImGui::TextColored(rgb(235, 175, 95), "nothing ties this to anything else");
+            }
+          }
+          ImGui::TreePop();
+        }
+        ImGui::PopID();
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+}
+
+// ── whether the sketch is pinned down ───────────────────────────────────────
+//
+// The one question a sketcher has. What is drawn is the count from the sketch's
+// own geometry and constraints, and the panel SAYS that is what it is: the exact
+// answer is a rank analysis the kernel does when the sketch is solved, and this
+// is what every sketcher shows before that.
+void ForgeFrame::drawSolverStatusPanel() {
+  solverRowsDrawn_ = 0;
+  const forge::ui::SketchDiagnosisSet set = sketchDiagnosis();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+  if (set.empty()) {
+    drawNoSketchYet("whether it is pinned down");
+    return;
+  }
+  ImGui::TextColored(rgb(130, 137, 148), "%zu of %zu sketches are not fully held yet",
+                     set.unresolved(), set.sketches.size());
+
+  for (const forge::ui::SketchDiagnosis& d : set.sketches) {
+    ++solverRowsDrawn_;
+    ImGui::PushID(d.irId);
+    if (ImGui::TreeNodeEx("##sketch", ImGuiTreeNodeFlags_DefaultOpen, "%s", d.label.c_str())) {
+      ImGui::TextColored(definitionColour(d.definition), "%s",
+                         forge::ui::toString(d.definition));
+      ++solverRowsDrawn_;
+      ImGui::Text("free numbers   %zu", d.freedoms);
+      ++solverRowsDrawn_;
+      ImGui::Text("held           %zu", d.held);
+      ++solverRowsDrawn_;
+      if (d.stillFree > 0) {
+        ImGui::TextColored(rgb(235, 175, 95), "still free     %d", d.stillFree);
+      } else if (d.stillFree < 0) {
+        ImGui::TextColored(rgb(235, 105, 95), "held more than needed by   %d", -d.stillFree);
+      } else {
+        ImGui::TextColored(rgb(120, 200, 140), "still free     0");
+      }
+      ++solverRowsDrawn_;
+
+      if (d.untouched > 0) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(rgb(235, 175, 95),
+                           "%zu things in this sketch are held by nothing at all:", d.untouched);
+        ImGui::PopTextWrapPos();
+        for (const forge::ui::SketchGeometryRow& row : d.geometry) {
+          if (row.freedoms == 0) continue;
+          bool touched = false;
+          for (std::size_t ci : row.constraints) {
+            if (ci < d.constraints.size() &&
+                d.constraints[ci].fault == forge::ui::ConstraintFault::None) {
+              touched = true;
+            }
+          }
+          if (touched) continue;
+          ++solverRowsDrawn_;
+          ImGui::Bullet();
+          ImGui::TextColored(rgb(235, 175, 95), "%-8s %s",
+                             forge::ui::sketchGeometryWord(row.kind), row.label.c_str());
+        }
+      }
+      if (d.faults > 0) {
+        ++solverRowsDrawn_;
+        ImGui::TextColored(rgb(235, 105, 95), "%zu constraints hold nothing -- see Constraints",
+                           d.faults);
+      }
+      if (d.clusters.size() > 1) {
+        ++solverRowsDrawn_;
+        ImGui::TextColored(rgb(235, 175, 95), "%zu groups move independently -- see Relations",
+                           d.clusters.size());
+      }
+      if (d.solvedBy != 0) {
+        ++solverRowsDrawn_;
+        ImGui::TextColored(rgb(120, 200, 140), "solved, and its shape is in use");
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+
+  ImGui::Separator();
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextDisabled("Counted from the points, radii and constraints of the sketch itself. "
+                      "Two constraints that happen to say the same thing are counted twice "
+                      "here and once when the sketch is solved.");
+  ImGui::PopTextWrapPos();
+}
+
+// ── which way each face comes out ───────────────────────────────────────────
+//
+// The pull direction and the taper the job asks for are the USER'S, and both are
+// changed here: a taper is a decision about the job and nothing in the shape can
+// make it. What is measured is every face's own angle against that direction.
+void ForgeFrame::drawIsoclinePanel() {
+  draftRowsDrawn_ = 0;
+  const forge::ui::DraftReport report = draftReport();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+  if (!report.known) {
+    ImGui::PushTextWrapPos(0.0f);
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty()
+                                 ? "There is nothing on screen to measure yet. Draw a shape, or "
+                                   "open a part, and every face is listed here with the angle it "
+                                   "makes to the direction you pull it out in."
+                                 : why.c_str());
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextDisabled("pull it out along");
+  for (forge::ui::PullAxis axis : forge::ui::allPullAxes()) {
+    ImGui::SameLine();
+    const bool on = axis == draftPull_;
+    if (on) ImGui::PushStyleColor(ImGuiCol_Button, rgb(242, 158, 38, 0.55f));
+    if (ImGui::SmallButton(forge::ui::pullAxisWord(axis))) setDraftPull(axis);
+    if (on) ImGui::PopStyleColor();
+  }
+  ImGui::TextDisabled("taper the job asks for");
+  const double kOffered[] = {0.0, 1.0, 2.0, 3.0, 5.0};
+  for (double degrees : kOffered) {
+    ImGui::SameLine();
+    char label[24];
+    std::snprintf(label, sizeof(label), "%.0f deg", degrees);
+    const bool on = std::fabs(degrees - report.requiredDeg) < 1e-9;
+    if (on) ImGui::PushStyleColor(ImGuiCol_Button, rgb(242, 158, 38, 0.55f));
+    ImGui::PushID(label);
+    if (ImGui::SmallButton(label)) setRequiredDraft(degrees);
+    ImGui::PopID();
+    if (on) ImGui::PopStyleColor();
+  }
+
+  ImGui::Separator();
+  ImGui::TextColored(report.needsAttention() == 0 ? rgb(120, 200, 140) : rgb(235, 175, 95),
+                     "%zu faces come away, %zu are shallow, %zu are square to the pull, %zu come "
+                     "out the other way", report.releasing, report.shallow, report.square,
+                     report.opposite);
+  if (report.worstKnown) {
+    ImGui::Text("least taper on this half   %.2f deg", report.worstDraftDeg);
+  }
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextDisabled("A face comes out only if every part of it does, so a curved face is "
+                      "judged by its worst part.");
+  ImGui::PopTextWrapPos();
+  if (report.area > 0.0) {
+    ImGui::Text("area square to the pull    %.1f of %.1f mm2", report.squareArea, report.area);
+  }
+  if (report.unmeasured > 0) {
+    ImGui::TextColored(rgb(235, 175, 95), "%zu faces could not be measured", report.unmeasured);
+  }
+
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+  const float rowH = ImGui::GetTextLineHeightWithSpacing();
+  const float height = std::min(rowH * 14.0f, rowH * static_cast<float>(report.faces.size()) + 4.0f);
+  if (ImGui::BeginChild("##draftlist", ImVec2(0, height), ImGuiChildFlags_None)) {
+    // VIRTUALIZED for the same reason the model browser's face list is: an
+    // imported part has thousands of faces and drawing the ones nobody can see
+    // is work done for nothing.
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(report.faces.size()), rowH);
+    while (clipper.Step()) {
+      for (int at = clipper.DisplayStart; at < clipper.DisplayEnd; ++at) {
+        const forge::ui::DraftFace& f = report.faces[static_cast<std::size_t>(at)];
+        ++draftRowsDrawn_;
+        ImGui::PushID(static_cast<int>(f.faceId));
+        bool on = false;
+        for (std::uint32_t p : picked) {
+          if (p == f.faceId) on = true;
+        }
+        char label[64];
+        std::snprintf(label, sizeof(label), "Face %u", f.faceId);
+        if (ImGui::Selectable(label, on, ImGuiSelectableFlags_AllowOverlap)) {
+          clickFace(f.faceId, ImGui::GetIO().KeyShift);
+        }
+        if (ImGui::IsItemHovered()) setPreselectedFace(f.faceId);
+        ImGui::SameLine(90.0f * dpiScale_);
+        ImVec4 colour = rgb(120, 200, 140);
+        if (f.verdict == forge::ui::DraftVerdict::Shallow) colour = rgb(235, 175, 95);
+        if (f.verdict == forge::ui::DraftVerdict::Square) colour = rgb(235, 105, 95);
+        if (f.verdict == forge::ui::DraftVerdict::Opposite) colour = rgb(130, 137, 148);
+        if (f.verdict == forge::ui::DraftVerdict::Unmeasured) {
+          ImGui::TextColored(rgb(235, 175, 95), "this face could not be measured");
+        } else if (f.uniform) {
+          ImGui::TextColored(colour, "%7.2f deg  %-24s %8.2f mm2", f.draftDeg,
+                             forge::ui::toString(f.verdict), f.area);
+        } else {
+          // A curved face faces more than one way, so one angle would be a
+          // choice. Both ends are shown, and the WORSE one is what the verdict
+          // beside them is about.
+          ImGui::TextColored(colour, "%7.2f to %6.2f deg  %-14s %8.2f mm2", f.draftDeg,
+                             f.bestDraftDeg, forge::ui::toString(f.verdict), f.area);
+        }
+        ImGui::PopID();
+      }
+    }
+    clipper.End();
+  }
+  ImGui::EndChild();
+}
+
+// ── how hard the surface breaks where two faces meet ────────────────────────
+//
+// The tolerance below which a break is no break at all is MEASURED from the
+// shape on screen -- it is the largest step the surface already takes inside one
+// face -- and the panel says what it measured, because a join finer than that
+// cannot be told from tangent by this shape however the surfaces really meet.
+void ForgeFrame::drawContinuityPanel() {
+  continuityRowsDrawn_ = 0;
+  const forge::ui::ContinuityReport report = continuityReport();
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+  if (!report.known) {
+    ImGui::PushTextWrapPos(0.0f);
+    const std::string why = forge::ui::userFacingBuildFailure(scene_.error());
+    ImGui::TextWrapped("%s", why.empty()
+                                 ? "There is nothing on screen to measure yet. Draw a shape, or "
+                                   "open a part, and every place two faces meet is listed here "
+                                   "with the angle the surface breaks through."
+                                 : why.c_str());
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextColored(report.sharp == 0 ? rgb(120, 200, 140) : rgb(130, 137, 148),
+                     "%zu joins run in smoothly, %zu break", report.smooth, report.sharp);
+  if (report.worstKnown) {
+    ImGui::Text("hardest break     %.2f deg", report.worstBreakDeg);
+  }
+  ImGui::Text("smooth run        %.1f mm of %.1f mm", report.smoothLength,
+              report.smoothLength + report.sharpLength);
+  if (report.openEdges > 0) {
+    ImGui::TextColored(rgb(235, 175, 95), "%zu edges have nothing on the other side",
+                       report.openEdges);
+  }
+  if (report.oddEdges > 0) {
+    ImGui::TextColored(rgb(235, 105, 95), "%zu edges have more than two faces on them",
+                       report.oddEdges);
+  }
+  ImGui::PushTextWrapPos(0.0f);
+  if (report.resolutionIsFloor) {
+    ImGui::TextDisabled("This shape is drawn with flat faces, so anything under %.2f deg is "
+                        "counted as no break.", report.resolutionDeg);
+  } else {
+    ImGui::TextDisabled("This shape is drawn in steps of up to %.2f deg, so a join finer than "
+                        "that cannot be told from a smooth one here.", report.resolutionDeg);
+  }
+  ImGui::PopTextWrapPos();
+
+  const std::vector<std::uint32_t> picked = selectedFaceIds();
+  const float rowH = ImGui::GetTextLineHeightWithSpacing();
+  const float height = std::min(rowH * 14.0f, rowH * static_cast<float>(report.joins.size()) + 4.0f);
+  if (ImGui::BeginChild("##joinlist", ImVec2(0, height), ImGuiChildFlags_None)) {
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(report.joins.size()), rowH);
+    while (clipper.Step()) {
+      for (int at = clipper.DisplayStart; at < clipper.DisplayEnd; ++at) {
+        const forge::ui::SurfaceJoin& j = report.joins[static_cast<std::size_t>(at)];
+        ++continuityRowsDrawn_;
+        ImGui::PushID(at);
+        bool on = false;
+        for (std::uint32_t p : picked) {
+          if (p == j.faceA || p == j.faceB) on = true;
+        }
+        char label[64];
+        std::snprintf(label, sizeof(label), "Face %u to %u", j.faceA, j.faceB);
+        if (ImGui::Selectable(label, on, ImGuiSelectableFlags_AllowOverlap)) {
+          clickFace(j.faceA, false);
+          clickFace(j.faceB, true);
+        }
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip("%.2f deg at its worst, %.2f deg at its mildest, over %.1f mm.",
+                            j.maxBreakDeg, j.minBreakDeg, j.sharedLength);
+        }
+        ImGui::SameLine(130.0f * dpiScale_);
+        const ImVec4 colour =
+            j.smoothness == forge::ui::JoinSmoothness::Smooth ? rgb(120, 200, 140)
+                                                              : rgb(235, 175, 95);
+        const char* corner = "";
+        if (j.convexKnown) corner = j.convex ? "outside corner" : "inside corner";
+        ImGui::TextColored(colour, "%7.2f deg  %-8s %8.1f mm  %s", j.maxBreakDeg,
+                           forge::ui::toString(j.smoothness), j.sharedLength, corner);
+        ImGui::PopID();
+      }
+    }
+    clipper.End();
+  }
+  ImGui::EndChild();
+}
+
+// ── the cutters this part calls for ─────────────────────────────────────────
+//
+// Every cut names the size of the tool it needs, and grouping them is a setup
+// sheet. What this CANNOT say is how many flutes a cutter has or what it is held
+// in: those belong to a workshop's own tool crib, and the panel says so rather
+// than inventing them.
+void ForgeFrame::drawToolLibraryPanel() {
+  toolLibraryRowsDrawn_ = 0;
+  const forge::ui::MachiningPlan plan = forge::ui::buildMachiningPlan(partDoc_);
+  const forge::ui::ToolList list = forge::ui::buildToolList(plan);
+
+  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+  ImGui::Separator();
+  if (!list.known) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("Nothing is cut away from this part yet, so it calls for no cutters. "
+                       "Drill a hole, round an edge or cut a pocket and the tools each one "
+                       "needs are listed here.");
+    ImGui::PopTextWrapPos();
+    return;
+  }
+
+  ImGui::TextColored(rgb(130, 137, 148), "%zu cutters over %zu cuts", list.tools.size(),
+                     plan.operations.size());
+  if (list.smallestKnown) {
+    ImGui::TextColored(rgb(235, 175, 95), "smallest cutter   %.3f mm -- this one limits the job",
+                       list.smallestMm);
+  }
+  if (list.deepestKnown) {
+    ImGui::Text("deepest reach     %.3f mm", list.deepestMm);
+  }
+  if (list.operationsWithNoCutter > 0) {
+    ImGui::Text("%zu cuts name no cutter at all", list.operationsWithNoCutter);
+  }
+
+  for (std::size_t i = 0; i < list.tools.size(); ++i) {
+    const forge::ui::RequiredTool& t = list.tools[i];
+    ++toolLibraryRowsDrawn_;
+    ImGui::PushID(static_cast<int>(i));
+    char header[128];
+    std::snprintf(header, sizeof(header), "%-22s %zu cuts", t.name.c_str(), t.uses());
+    if (ImGui::TreeNodeEx("##tool", ImGuiTreeNodeFlags_DefaultOpen, "%s", header)) {
+      if (t.depthKnown) {
+        ImGui::Text("must reach   %.3f mm", t.deepestCutMm);
+      }
+      if (t.cutsThrough) {
+        ImGui::Text("and right through the part on at least one cut");
+      }
+      if (!t.diameterKnown) {
+        ImGui::TextDisabled("this cut works at any size of cutter");
+      }
+      for (std::size_t at : t.operations) {
+        if (at >= plan.operations.size()) continue;
+        const forge::ui::MachiningOperation& o = plan.operations[at];
+        ++toolLibraryRowsDrawn_;
+        ImGui::Bullet();
+        ImGui::TextColored(rgb(130, 137, 148), "%zu. %-22s %s", o.order, o.action.c_str(),
+                           o.evidence.c_str());
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+
+  ImGui::Separator();
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextDisabled("These are the sizes this part calls for. How many flutes a cutter has, "
+                      "and what it is held in, come from your own tool list.");
+  ImGui::PopTextWrapPos();
 }
 
 void ForgeFrame::drawPropertiesPanel() {

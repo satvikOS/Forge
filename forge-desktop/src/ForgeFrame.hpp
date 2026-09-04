@@ -47,7 +47,10 @@
 #include "forge/ui/ModelTree.hpp"
 #include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PartCommands.hpp"
+#include "forge/ui/SketchDiagnosis.hpp"
 #include "forge/ui/StatusModel.hpp"
+#include "forge/ui/SurfaceAnalysis.hpp"
+#include "forge/ui/ToolLibrary.hpp"
 #include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceTrees.hpp"
@@ -415,6 +418,33 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t operationRowsDrawn() const noexcept { return operationRowsDrawn_; }
   std::size_t sheetRowsDrawn() const noexcept { return sheetRowsDrawn_; }
   std::size_t studyRowsDrawn() const noexcept { return studyRowsDrawn_; }
+
+  // ── the six that stopped being empty next ───────────────────────────────
+  // Constraints, Relations and Solver are three readings of the sketch family
+  // the document carries; Isocline and Continuity are two readings of the
+  // tessellation the viewport is already drawing; Tools is what the cuts call
+  // for. Accessors for the same reason the four above are: a gate can ask for
+  // the exact structure the panel draws and check its rows against the document
+  // or the measurement that produced them.
+  forge::ui::SketchDiagnosisSet sketchDiagnosis() const;
+  forge::ui::DraftReport draftReport();
+  forge::ui::ContinuityReport continuityReport();
+  forge::ui::ToolList toolList() const;
+  std::size_t constraintRowsDrawn() const noexcept { return constraintRowsDrawn_; }
+  std::size_t relationRowsDrawn() const noexcept { return relationRowsDrawn_; }
+  std::size_t solverRowsDrawn() const noexcept { return solverRowsDrawn_; }
+  std::size_t draftRowsDrawn() const noexcept { return draftRowsDrawn_; }
+  std::size_t continuityRowsDrawn() const noexcept { return continuityRowsDrawn_; }
+  std::size_t toolLibraryRowsDrawn() const noexcept { return toolLibraryRowsDrawn_; }
+
+  // ── the Isocline panel's two controls, reachable without a mouse ────────
+  // The pull direction and the taper the JOB asks for are the user's choices,
+  // not properties of the part, so they live here and the panel changes them.
+  // Exposed so a gate can drive them without pretending to click.
+  void setDraftPull(forge::ui::PullAxis axis) noexcept { draftPull_ = axis; }
+  forge::ui::PullAxis draftPull() const noexcept { return draftPull_; }
+  void setRequiredDraft(double degrees) noexcept;
+  double requiredDraft() const noexcept { return draftRequiredDeg_; }
   // The measurement of ONE B-rep face, memoized on the live tessellation. The
   // arithmetic is forge::ui::measureFace's -- this adds a cache and nothing
   // else, because a model browser lists every face and asking the O(triangles)
@@ -661,6 +691,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawOperationTreePanel();
   void drawSheetTreePanel();
   void drawStudyTreePanel();
+  void drawConstraintsPanel();
+  void drawRelationsPanel();
+  void drawSolverStatusPanel();
+  void drawIsoclinePanel();
+  void drawContinuityPanel();
+  void drawToolLibraryPanel();
   // ── THE ASSEMBLY PANELS ─────────────────────────────────────────────────
   // Four tabs that used to draw one apologetic sentence between them. They are
   // all fed by the SAME body inventory the kernel takes off the B-rep at build
@@ -1019,6 +1055,18 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t operationRowsDrawn_ = 0;
   std::size_t sheetRowsDrawn_ = 0;
   std::size_t studyRowsDrawn_ = 0;
+  std::size_t constraintRowsDrawn_ = 0;
+  std::size_t relationRowsDrawn_ = 0;
+  std::size_t solverRowsDrawn_ = 0;
+  std::size_t draftRowsDrawn_ = 0;
+  std::size_t continuityRowsDrawn_ = 0;
+  std::size_t toolLibraryRowsDrawn_ = 0;
+  // The Isocline panel's two choices. +Z because it is the direction this
+  // program's own extrude runs in; three degrees is a STARTING VALUE the panel
+  // shows and the user changes, and it is a requirement of the job rather than
+  // anything measured from the part.
+  forge::ui::PullAxis draftPull_ = forge::ui::PullAxis::ZPlus;
+  double draftRequiredDeg_ = 3.0;
   // Per-face measurement cache, indexed by 1-based face id and invalidated on
   // the SAME witness measureMesh() uses -- the scene's BUILD COUNT -- so a
   // rebuild can never leave a face row describing the previous body.
