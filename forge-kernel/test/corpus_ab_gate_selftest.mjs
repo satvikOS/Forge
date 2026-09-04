@@ -76,6 +76,11 @@ function row(part, family, o) {
     agree_upto_orientation: o.agree ?? false,
   };
   if (o.agree_strict !== undefined) r.agree_strict = o.agree_strict;
+  if (o.agree_equiv !== undefined) r.agree_equiv = o.agree_equiv;
+  // The harness's own evidence for a rescue, carried per arm. A fixture that
+  // sets agree_equiv without them would let the report claim a reclassification
+  // that never happened, so the fields are threaded rather than defaulted.
+  if (o.nrc !== undefined) { r.occt.nrc = o.nrc; r.occt.pdev = o.pdev ?? 0; r.occt.pang = o.pang ?? 0; }
   return r;
 }
 function runGate(name, rows) {
@@ -130,6 +135,82 @@ console.log('A(strict). agree=true but agree_strict=false is a disagreement');
   check('A11 verdict FAILs on the strict vector', f.verdict, 'FAIL');
   check('A12 counted as disagreements',           f.deficit_disagree, 10);
   check('A13 the loose column still reports 10 agreeing', f.both_ok_agree, 10);
+}
+
+// ── S. SURFACE-KIND EQUIVALENCE — the ONE relaxation, both directions ───────
+// agree_equiv is agree_strict with an exact Plane allowed to stand for a
+// surface PROVED to be that same plane. It is the term the verdict reads, so
+// two opposite failures have to be excluded: a rule that never fires (and so
+// is not the rule that was justified) and a rule that fires on everything (and
+// so is the blanket "ignore surface kind" this change exists NOT to be).
+//
+// The geometric half of that proof is in the C++ harness --selftest, where a
+// real BRepBuilderAPI_NurbsConvert of an analytic cylinder is required to keep
+// its curved wall a spline while its two flat caps reclassify. What is proved
+// HERE is that the AGGREGATOR routes the three columns correctly: which one the
+// verdict reads, which ones it reports, and that the chain holds.
+console.log('\nS. surface-kind equivalence: the verdict reads agree_equiv');
+{
+  // S(a) — FILLING's exact shape: the loose vector agrees, the strict vector
+  // does not (Plane vs BSpline), and the equivalence vector does.
+  const by = collect(runGate('S_equiv', many(10, 'FILLING',
+    { agree: true, agree_strict: false, agree_equiv: true, nrc: 1, pdev: 1.77e-15, pang: 0 })));
+  const f = by.FILLING;
+  check('S1 verdict PASSes on the equivalence vector', f.verdict, 'PASS');
+  check('S2 no failed terms',                          f.failed_terms, []);
+  check('S3 all 10 replaced',                          f.replaced, 10);
+  check('S4 the STRICT column still reports 0 agreeing', f.both_ok_agree_strict, 0);
+  check('S5 the EQUIV column reports 10',              f.both_ok_agree_equiv, 10);
+  check('S6 and 10 are attributed to the rule alone',  f.equiv_only, 10);
+  check('S7 with the reclassified face count carried', f.equiv_reclassified_faces, 10);
+  check('S8 and the measured deviation carried',       f.equiv_worst_planarity_dev, 1.77e-15);
+  check('S9 the chain is unviolated',                  f.implication_chain_violations, 0);
+}
+{
+  // S(b) — THE NEGATIVE HALF, and the one that matters. A kind mismatch the
+  // certificate did NOT rescue (a quadric replaced by a spline) reaches the
+  // aggregator as agree_equiv=false and must still FAIL. If this went green the
+  // rule would be a blanket "ignore surface kind".
+  const by = collect(runGate('S_quadric', many(10, 'THRUSECTIONS',
+    { agree: true, agree_strict: false, agree_equiv: false })));
+  const f = by.THRUSECTIONS;
+  check('S10 an UNRESCUED kind mismatch still FAILs',  f.verdict, 'FAIL');
+  check('S11 and is counted as a disagreement',        f.deficit_disagree, 10);
+  check('S12 the loose column still reports 10',       f.both_ok_agree, 10);
+  check('S13 nothing was attributed to the rule',      f.equiv_only, 0);
+  check('S14 nothing was replaced',                    f.replaced, 0);
+}
+{
+  // S(c) — the fallback. A JSONL that predates agree_equiv must fall back to
+  // agree_strict (the strongest vector that run measured), be COUNTED, and be
+  // bannered. Falling back to the LOOSE vector would silently widen the gate.
+  const by = collect(runGate('S_legacy', many(10, 'FILLING',
+    { agree: true, agree_strict: false })));
+  const f = by.FILLING;
+  check('S15 falls back to agree_strict, not to agree', f.verdict, 'FAIL');
+  check('S16 every such row is counted',                f.rows_missing_agree_equiv, 10);
+  check('S17 and the fallback is named in the report',
+        /no agree_equiv/.test(f.agreement_observables), true);
+}
+{
+  // S(d) — THE IMPLICATION CHAIN, made to fire. A row claiming agree_equiv
+  // where the loose vector already disagrees is impossible from the harness and
+  // means the harness is broken; the aggregator must SAY so rather than score
+  // it. A checker that cannot be made to fire is not a checker.
+  const by = collect(runGate('S_broken', many(10, 'PIPE',
+    { agree: false, agree_strict: false, agree_equiv: true })));
+  const f = by.PIPE;
+  check('S18 an impossible triple is detected',        f.implication_chain_violations, 10);
+  check('S19 and the offending parts are named',       f.implication_chain_violation_examples.length > 0, true);
+}
+{
+  // S(e) — and the same detector must NOT fire on a well-formed run, or S18 is
+  // proving nothing but that the check is stuck on.
+  const by = collect(runGate('S_wellformed', many(10, 'FILLING',
+    { agree: true, agree_strict: true, agree_equiv: true })));
+  check('S20 no violation on a well-formed run',
+        by.FILLING.implication_chain_violations, 0);
+  check('S21 and that run still PASSes',               by.FILLING.verdict, 'PASS');
 }
 
 // ── B. VALIDITY — an invalid OCCT answer must not inflate the VALID bar ─────
@@ -268,6 +349,13 @@ if (ci >= 0 && process.argv[ci + 1]) {
     return by;
   };
   const strict = (r) => (r.agree_strict !== undefined ? !!r.agree_strict : !!r.agree);
+  // THE TERM THE VERDICT ACTUALLY READS. R2 and R3 below mutate real rows and
+  // require the verdict to move; if they mutated `agree_strict` while the
+  // verdict read `agree_equiv`, both mutations would be UNFALSIFIABLE — the
+  // gate would sail through a broken agreement and the check would report
+  // success. So they are RE-POINTED at agree_equiv rather than left aimed at a
+  // field the verdict no longer consults.
+  const equiv = (r) => (r.agree_equiv !== undefined ? !!r.agree_equiv : strict(r));
 
   const passing = out.families.find((f) => f.verdict === 'PASS' && f.replaced > 0);
   if (!passing) {
@@ -278,9 +366,10 @@ if (ci >= 0 && process.argv[ci + 1]) {
     const mutated = real.map((r) => {
       if (done || r.family !== passing.family || !r.applicable) return r;
       if (r.native?.status !== 'OK' || r.occt?.status !== 'OK') return r;
-      if (r.occt?.valid !== 1 || r.native?.valid !== 1 || !strict(r)) return r;
+      if (r.occt?.valid !== 1 || r.native?.valid !== 1 || !equiv(r)) return r;
       done = true;
-      return { ...r, agree: false, agree_upto_orientation: false, agree_strict: false };
+      return { ...r, agree: false, agree_upto_orientation: false,
+               agree_strict: false, agree_equiv: false };
     });
     check(`R2 ${passing.family} PASSes; break ONE real part's agreement -> FAIL`,
           done ? rerun(mutated, 'R2')[passing.family].verdict : 'no-row-found', 'FAIL');
@@ -295,16 +384,52 @@ if (ci >= 0 && process.argv[ci + 1]) {
     const repaired = real.map((r) => {
       if (r.family !== addedOnly.family || !r.applicable) return r;
       if (r.occt?.valid !== 1 || r.occt?.status !== 'OK') return r;
-      if (r.native?.status === 'OK' && r.native?.valid === 1 && strict(r)) return r;
+      if (r.native?.status === 'OK' && r.native?.valid === 1 && equiv(r)) return r;
       n++;
       return { ...r,
                native: { ...r.native, status: 'OK', valid: 1 },
-               bucket: 'BOTH_OK', agree: true, agree_upto_orientation: true, agree_strict: true };
+               bucket: 'BOTH_OK', agree: true, agree_upto_orientation: true,
+               agree_strict: true, agree_equiv: true };
     });
     const after = rerun(repaired, 'R3')[addedOnly.family];
     check(`R3 ${addedOnly.family} fails only on added terms; repair its ${n} offending ` +
           `real row(s) -> PASS`, after.verdict, 'PASS');
   }
+
+  // ── R4/R5/R6: THE SURFACE-KIND EQUIVALENCE RULE, ON THE REAL CORPUS ──────
+  // R4 is the mutation that isolates the rule itself. R2 above breaks a row's
+  // agreement outright; R4 withdraws ONLY the equivalence, leaving `agree` and
+  // `agree_strict` exactly as the harness emitted them, which is precisely the
+  // gate as it stood before this change. A family that passes BECAUSE of the
+  // rule must then fail. That makes R4 an ATTRIBUTION, not just another way of
+  // breaking a row: it says the rule is what moved the verdict.
+  const rescued = out.families.find((f) => f.verdict === 'PASS' && f.equiv_only > 0);
+  if (!rescued) {
+    console.log('  --   R4 SKIPPED: no family on this run passes BECAUSE of the plane rule,');
+    console.log('       so there is nothing for the rule alone to break. Reported, not omitted.');
+  } else {
+    const noEquiv = real.map((r) => (r.family === rescued.family && r.agree_equiv !== undefined
+      ? { ...r, agree_equiv: strict(r) }
+      : r));
+    const after4 = rerun(noEquiv, 'R4')[rescued.family];
+    check(`R4 ${rescued.family} PASSes via the plane rule; withdraw the rule -> FAIL`,
+          after4.verdict, 'FAIL');
+    check(`R5 ${rescued.family}'s ${rescued.equiv_only} rescue(s) each moved a real face`,
+          rescued.equiv_reclassified_faces >= rescued.equiv_only, true);
+    console.log(`  --   ${rescued.family}: ${rescued.equiv_only} pair(s) rescued, ` +
+                `${rescued.equiv_reclassified_faces} face(s) reclassified, worst measured ` +
+                `deviation from the plane ${rescued.equiv_worst_planarity_dev.toExponential(3)} mm, ` +
+                `worst normal swing ${rescued.equiv_worst_normal_swing_rad.toExponential(3)} rad`);
+  }
+
+  // R6: the implication chain agree_strict => agree_equiv => agree, over EVERY
+  // ROW of the real run. This is a far stronger statement than any fixture: a
+  // violation means the harness is emitting an inconsistent triple, and then no
+  // verdict on the run is trustworthy.
+  let chain = 0;
+  for (const f of out.families) chain += f.implication_chain_violations || 0;
+  check(`R6 agree_strict => agree_equiv => agree, over all ${out.families.length} real families`,
+        chain, 0);
 }
 
 rmSync(TMP, { recursive: true, force: true });

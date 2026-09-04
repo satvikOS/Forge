@@ -1,0 +1,356 @@
+[psce] OCCT /opt/homebrew/opt/opencascade
+[psce] planar_surface_certificate.hpp compiles clean under -Werror
+
+=== plane_spline_consumer_equivalence — is an exact Plane a faithful replacement for a planar BSpline? ===
+OCCT 7.9, built Sep  3 2026 21:30:42
+
+══════════════════════════════════════════════════════════════════════
+CASE: square
+══════════════════════════════════════════════════════════════════════
+  [ ok ] square: fixture built                                      
+  [ ok ] square: both arms returned a cap                           
+  [ ok ] square: reproduces the Plane-vs-BSpline mismatch           native=Plane occt=BSpline
+  cert native kind=Plane     planar=1 devMax=0.000000e+00 angMax=0.000000e+00 nsamp=121 n=(+0.000000000000,+0.000000000000,+1.000000000000) d=-10.000000000000
+  cert occt   kind=BSpline   planar=1 devMax=1.776357e-15 angMax=0.000000e+00 nsamp=121 n=(-0.000000000000,-0.000000000000,+1.000000000000) d=-10.000000000000
+  |dn|=3.094837e-18  |dd|=1.776357e-15  worst plane invariant 2.842171e-14 (tolLen=1.732e-05, lenScale=17.3205)
+  [ ok ] square: OCCT spline certifies planar                       
+  [ ok ] square: certifies as THE SAME plane (invariants)           
+  C1 face      nat area=100 com=(5,5,10) | occ area=100 com=(5,5,10) | worst 1.091e-15 (inertia)
+  C1 face      exact area 100 ; native err 1.421e-14 ; occt err 0.000e+00
+  C1 solid     nat vol=1000 valid=1 f/e/v/sh/so=6/12/8/1/1 kinds=Planex2 SurfExtrx4
+  C1 solid     occ vol=1000 valid=1 f/e/v/sh/so=6/12/8/1/1 kinds=Planex1 BSplinex1 SurfExtrx4
+  C1 solid     worst 2.183e-16 (inertia)
+  [ ok ] square: both caps close a VALID single solid               
+  [ ok ] square: C1 mass properties agree to 1e-9                   
+  C2 Cut      nat vol=784                valid=1 f=9   | occ vol=784.000003657      valid=1 f=9   | worst 1.123e-08 (inertia) kindsEq=0
+  [ ok ] square: boolean Cut valid on both arms                     
+  [ ok ] square: boolean Cut agrees to 1e-7                         
+  C2 Common   nat vol=216                valid=1 f=6   | occ vol=216                valid=1 f=6   | worst 2.807e-15 (inertia) kindsEq=0
+  [ ok ] square: boolean Common valid on both arms                  
+  [ ok ] square: boolean Common agrees to 1e-7                      
+  C2 Fuse     nat vol=1784               valid=1 f=12  | occ vol=1784.0000072       valid=1 f=12  | worst 7.317e-09 (area) kindsEq=0
+  [ ok ] square: boolean Fuse valid on both arms                    
+  [ ok ] square: boolean Fuse agrees to 1e-7                        
+  C2 closed-form residual |Cut+Common-A|/A   native 2.27373675443232064e-16   occt 3.65714322470012122e-09
+  C2 closed-form residual |Fuse+Common-A-B|/A native 6.82121026329696193e-16   occt 7.20000093679118401e-09
+  [ ok ] square: the plane arm is NO FURTHER from the closed form than the spline arm native 6.821210e-16 vs occt 7.200001e-09 (ratio 0.0000)
+  [ ok ] square: where the walls are exact, the PLANE arm is exact and the SPLINE arm is not plane 6.8212e-16, spline 7.2000e-09, ratio 1.06e+07
+  C3 offset    nat vol=-2343.739416     valid=1 f=26  kinds=Planex6 Cylinderx12 Spherex8
+  C3 offset    occ vol=-2343.739416     valid=1 f=26  kinds=Planex6 Cylinderx12 Spherex8
+  C3 offset    worst 1.075e-15 (inertia) kindsEq=1
+  [ ok ] square: C3 offset agrees to 1e-7                           
+
+
+
+
+  [ ok ] square: C4 STEP round-trips on both arms                   
+  C4 STEP      nat bytes=15666   splines=0   vol=1000 valid=1 kinds=Planex2 SurfExtrx4
+  C4 STEP      occ bytes=16879   splines=1   vol=1000 valid=1 kinds=Planex1 BSplinex1 SurfExtrx4
+  C4 STEP      worst 3.929e-15 (inertia) kindsEq=0
+  [ ok ] square: C4 round-tripped vectors agree to 1e-9             
+  [ ok ] square: C4 native STEP carries NO B_SPLINE_SURFACE         
+  [ ok ] square: C4 OCCT STEP DOES carry one                        
+  C5 mesh      defl=0.01732  nat tris=12     nodes=24     meshvol=1000 (err 1.137e-13)
+  C5 mesh                    occ tris=18     nodes=27     meshvol=1000 (err 2.274e-13)
+  [ ok ] square: C5 both arms tessellate                            
+  [ ok ] square: C5 mesh volume error < 1e-6 relative on both       
+  C6 repo      representation test (`GetType()==GeomAbs_Plane`, 6 sites): native ACCEPT, occt REJECT
+  C6 repo      sampling test (NativeFilletChamfer.cpp:137): native ACCEPT, occt ACCEPT
+  C6 repo      DirectModeling feature label: native "Boss/planar", occt "Blend/freeform"
+  [ ok ] square: NO repo predicate accepts the OCCT spline and refuses the native plane 
+  [ ok ] square: the representation test ACCEPTS native and REFUSES the OCCT spline 
+  [ ok ] square: the SAMPLING test accepts both — which is the corrected predicate 
+
+══════════════════════════════════════════════════════════════════════
+CASE: square_tilt
+══════════════════════════════════════════════════════════════════════
+  [ ok ] square_tilt: fixture built                                 
+  [ ok ] square_tilt: both arms returned a cap                      
+  [ ok ] square_tilt: reproduces the Plane-vs-BSpline mismatch      native=Plane occt=BSpline
+  cert native kind=Plane     planar=1 devMax=1.065814e-14 angMax=0.000000e+00 nsamp=121 n=(+0.455530695206,-0.455530695206,+0.764842187284) d=-10.000000000000
+  cert occt   kind=BSpline   planar=1 devMax=2.540190e-13 angMax=1.490116e-08 nsamp=121 n=(+0.455530695206,-0.455530695206,+0.764842187284) d=-10.000000000000
+  |dn|=6.939560e-15  |dd|=5.506706e-14  worst plane invariant 1.094236e-12 (tolLen=2.654e-05, lenScale=26.5439)
+  [ ok ] square_tilt: OCCT spline certifies planar                  
+  [ ok ] square_tilt: certifies as THE SAME plane (invariants)      
+  C1 face      nat area=100 com=(9.55530695,0.444693048,7.64842187) | occ area=100 com=(9.55530695,0.444693048,7.64842187) | worst 1.102e-14 (inertia)
+  C1 face      exact area 100 ; native err 1.421e-14 ; occt err 6.253e-13
+  C1 solid     nat vol=1000 valid=1 f/e/v/sh/so=6/12/8/1/1 kinds=Planex2 SurfExtrx4
+  C1 solid     occ vol=1000 valid=1 f/e/v/sh/so=6/12/8/1/1 kinds=Planex1 BSplinex1 SurfExtrx4
+  C1 solid     worst 1.965e-15 (inertia)
+  [ ok ] square_tilt: both caps close a VALID single solid          
+  [ ok ] square_tilt: C1 mass properties agree to 1e-9              
+  C2 Cut      nat vol=698.012009422      valid=1 f=10  | occ vol=698.012009422      valid=1 f=10  | worst 6.089e-15 (inertia) kindsEq=0
+  [ ok ] square_tilt: boolean Cut valid on both arms                
+  [ ok ] square_tilt: boolean Cut agrees to 1e-7                    
+  C2 Common   nat vol=301.987990551      valid=1 f=7   | occ vol=301.987990551      valid=1 f=7   | worst 1.338e-14 (inertia) kindsEq=0
+  [ ok ] square_tilt: boolean Common valid on both arms             
+  [ ok ] square_tilt: boolean Common agrees to 1e-7                 
+  C2 Fuse     nat vol=4248.53039069      valid=1 f=13  | occ vol=4248.53039069      valid=1 f=13  | worst 1.083e-15 (inertia) kindsEq=0
+  [ ok ] square_tilt: boolean Fuse valid on both arms               
+  [ ok ] square_tilt: boolean Fuse agrees to 1e-7                   
+  C2 closed-form residual |Cut+Common-A|/A   native 2.64080881606787456e-11   occt 2.64078607870033142e-11
+  C2 closed-form residual |Fuse+Common-A-B|/A native 1.14451313493191271e-09   occt 1.14451177068986060e-09
+  [ ok ] square_tilt: the plane arm is NO FURTHER from the closed form than the spline arm native 1.144513e-09 vs occt 1.144512e-09 (ratio 1.0000)
+  C3 offset    nat vol=-3335.02486      valid=1 f=26  kinds=Planex2 Spherex8 BSplinex12 OffsetSurfx4
+  C3 offset    occ vol=-3335.02486      valid=1 f=26  kinds=Planex2 Spherex8 BSplinex12 OffsetSurfx4
+  C3 offset    worst 8.595e-13 (inertia) kindsEq=1
+  [ ok ] square_tilt: C3 offset agrees to 1e-7                      
+
+
+
+
+  [ ok ] square_tilt: C4 STEP round-trips on both arms              
+  C4 STEP      nat bytes=17570   splines=0   vol=1000 valid=1 kinds=Planex2 SurfExtrx4
+  C4 STEP      occ bytes=19135   splines=1   vol=1000 valid=1 kinds=Planex1 BSplinex1 SurfExtrx4
+  C4 STEP      worst 1.054e-13 (inertia) kindsEq=0
+  [ ok ] square_tilt: C4 round-tripped vectors agree to 1e-9        
+  [ ok ] square_tilt: C4 native STEP carries NO B_SPLINE_SURFACE    
+  [ ok ] square_tilt: C4 OCCT STEP DOES carry one                   
+  C5 mesh      defl=0.02654  nat tris=12     nodes=24     meshvol=1000 (err 1.137e-13)
+  C5 mesh                    occ tris=20     nodes=28     meshvol=1000 (err 1.137e-12)
+  [ ok ] square_tilt: C5 both arms tessellate                       
+  [ ok ] square_tilt: C5 mesh volume error < 1e-6 relative on both  
+  C6 repo      representation test (`GetType()==GeomAbs_Plane`, 6 sites): native ACCEPT, occt REJECT
+  C6 repo      sampling test (NativeFilletChamfer.cpp:137): native ACCEPT, occt ACCEPT
+  C6 repo      DirectModeling feature label: native "Boss/planar", occt "Blend/freeform"
+  [ ok ] square_tilt: NO repo predicate accepts the OCCT spline and refuses the native plane 
+  [ ok ] square_tilt: the representation test ACCEPTS native and REFUSES the OCCT spline 
+  [ ok ] square_tilt: the SAMPLING test accepts both — which is the corrected predicate 
+
+══════════════════════════════════════════════════════════════════════
+CASE: hexagon
+══════════════════════════════════════════════════════════════════════
+  [ ok ] hexagon: fixture built                                     
+  [ ok ] hexagon: both arms returned a cap                          
+  [ ok ] hexagon: reproduces the Plane-vs-BSpline mismatch          native=Plane occt=BSpline
+  cert native kind=Plane     planar=1 devMax=0.000000e+00 angMax=0.000000e+00 nsamp=121 n=(+0.000000000000,+0.000000000000,+1.000000000000) d=-8.000000000000
+  cert occt   kind=BSpline   planar=1 devMax=3.552714e-15 angMax=0.000000e+00 nsamp=121 n=(-0.000000000000,-0.000000000000,+1.000000000000) d=-8.000000000000
+  |dn|=3.434342e-18  |dd|=8.881784e-16  worst plane invariant 1.421085e-14 (tolLen=1.778e-05, lenScale=17.7764)
+  [ ok ] hexagon: OCCT spline certifies planar                      
+  [ ok ] hexagon: certifies as THE SAME plane (invariants)          
+  C1 face      nat area=93.5307436087 com=(5.86208383e-18,-7.81611178e-18,8) | occ area=93.5307436087 com=(-2.00499265e-14,-6.08532781e-15,8) | worst 7.293e-15 (inertia)
+  C1 face      exact area 93.5307436087 ; native err 0.000e+00 ; occt err 3.411e-13
+  C1 solid     nat vol=748.24594887 valid=1 f/e/v/sh/so=8/18/12/1/1 kinds=Planex2 SurfExtrx6
+  C1 solid     occ vol=748.24594887 valid=1 f/e/v/sh/so=8/18/12/1/1 kinds=Planex1 BSplinex1 SurfExtrx6
+  C1 solid     worst 7.179e-16 (area)
+  [ ok ] hexagon: both caps close a VALID single solid              
+  [ ok ] hexagon: C1 mass properties agree to 1e-9                  
+  C2 Cut      nat vol=571.659904936      valid=1 f=11  | occ vol=571.659904936      valid=1 f=11  | worst 2.228e-15 (inertia) kindsEq=0
+  [ ok ] hexagon: boolean Cut valid on both arms                    
+  [ ok ] hexagon: boolean Cut agrees to 1e-7                        
+  C2 Common   nat vol=176.586043933      valid=1 f=7   | occ vol=176.586043933      valid=1 f=7   | worst 1.813e-15 (inertia) kindsEq=0
+  [ ok ] hexagon: boolean Common valid on both arms                 
+  [ ok ] hexagon: boolean Common agrees to 1e-7                     
+  C2 Fuse     nat vol=1569.3211717       valid=1 f=14  | occ vol=1569.3211717       valid=1 f=14  | worst 7.640e-16 (area) kindsEq=0
+  [ ok ] hexagon: boolean Fuse valid on both arms                   
+  [ ok ] hexagon: boolean Fuse agrees to 1e-7                       
+  C2 closed-form residual |Cut+Common-A|/A   native 1.51937792504380360e-16   occt 3.03875585008760572e-16
+  C2 closed-form residual |Fuse+Common-A-B|/A native 2.14814771346300343e-09   occt 2.14814756152520996e-09
+  [ ok ] hexagon: the plane arm is NO FURTHER from the closed form than the spline arm native 2.148148e-09 vs occt 2.148148e-09 (ratio 1.0000)
+  C3 offset    nat vol=-1874.376827     valid=1 f=38  kinds=Planex3 Cylinderx2 Spherex12 BSplinex16 OffsetSurfx5
+  C3 offset    occ vol=-1874.376827     valid=1 f=38  kinds=Planex3 Cylinderx2 Spherex12 BSplinex16 OffsetSurfx5
+  C3 offset    worst 2.226e-11 (inertia) kindsEq=1
+  [ ok ] hexagon: C3 offset agrees to 1e-7                          
+
+
+
+
+  [ ok ] hexagon: C4 STEP round-trips on both arms                  
+  C4 STEP      nat bytes=23371   splines=0   vol=748.24594887 valid=1 kinds=Planex2 SurfExtrx6
+  C4 STEP      occ bytes=25025   splines=1   vol=748.24594887 valid=1 kinds=Planex1 BSplinex1 SurfExtrx6
+  C4 STEP      worst 1.926e-14 (area) kindsEq=0
+  [ ok ] hexagon: C4 round-tripped vectors agree to 1e-9            
+  [ ok ] hexagon: C4 native STEP carries NO B_SPLINE_SURFACE        
+  [ ok ] hexagon: C4 OCCT STEP DOES carry one                       
+  C5 mesh      defl=0.01778  nat tris=20     nodes=36     meshvol=748.2459489 (err 0.000e+00)
+  C5 mesh                    occ tris=28     nodes=40     meshvol=748.2459489 (err 2.274e-13)
+  [ ok ] hexagon: C5 both arms tessellate                           
+  [ ok ] hexagon: C5 mesh volume error < 1e-6 relative on both      
+  C6 repo      representation test (`GetType()==GeomAbs_Plane`, 6 sites): native ACCEPT, occt REJECT
+  C6 repo      sampling test (NativeFilletChamfer.cpp:137): native ACCEPT, occt ACCEPT
+  C6 repo      DirectModeling feature label: native "Boss/planar", occt "Blend/freeform"
+  [ ok ] hexagon: NO repo predicate accepts the OCCT spline and refuses the native plane 
+  [ ok ] hexagon: the representation test ACCEPTS native and REFUSES the OCCT spline 
+  [ ok ] hexagon: the SAMPLING test accepts both — which is the corrected predicate 
+
+══════════════════════════════════════════════════════════════════════
+CASE: L_nonconvex
+══════════════════════════════════════════════════════════════════════
+  [ ok ] L_nonconvex: fixture built                                 
+  [ ok ] L_nonconvex: both arms returned a cap                      
+  [ ok ] L_nonconvex: reproduces the Plane-vs-BSpline mismatch      native=Plane occt=BSpline
+  cert native kind=Plane     planar=1 devMax=1.243450e-14 angMax=0.000000e+00 nsamp=121 n=(+0.854669800118,-0.114841542289,+0.506311122661) d=-9.000000000000
+  cert occt   kind=BSpline   planar=1 devMax=9.148238e-13 angMax=1.490116e-08 nsamp=121 n=(+0.854669800118,-0.114841542289,+0.506311122661) d=-9.000000000000
+  |dn|=4.087841e-14  |dd|=2.096101e-13  worst plane invariant 3.765876e-12 (tolLen=2.763e-05, lenScale=27.6251)
+  [ ok ] L_nonconvex: OCCT spline certifies planar                  
+  [ ok ] L_nonconvex: certifies as THE SAME plane (invariants)      
+  C1 face      nat area=80 com=(9.33875933,4.78691055,3.09726678) | occ area=80 com=(9.33875933,4.78691055,3.09726678) | worst 1.061e-14 (inertia)
+  C1 face      exact area 80 ; native err 1.421e-14 ; occt err 5.684e-14
+  C1 solid     nat vol=720 valid=1 f/e/v/sh/so=8/18/12/1/1 kinds=Planex2 SurfExtrx6
+  C1 solid     occ vol=720 valid=1 f/e/v/sh/so=8/18/12/1/1 kinds=Planex1 BSplinex1 SurfExtrx6
+  C1 solid     worst 3.105e-15 (inertia)
+  [ ok ] L_nonconvex: both caps close a VALID single solid          
+  [ ok ] L_nonconvex: C1 mass properties agree to 1e-9              
+  C2 Cut      nat vol=588.425185869      valid=1 f=13  | occ vol=588.425185869      valid=1 f=13  | worst 7.463e-15 (inertia) kindsEq=0
+  [ ok ] L_nonconvex: boolean Cut valid on both arms                
+  [ ok ] L_nonconvex: boolean Cut agrees to 1e-7                    
+  C2 Common   nat vol=131.574819036      valid=1 f=9   | occ vol=131.574819036      valid=1 f=9   | worst 1.352e-14 (inertia) kindsEq=0
+  [ ok ] L_nonconvex: boolean Common valid on both arms             
+  [ ok ] L_nonconvex: boolean Common agrees to 1e-7                 
+  C2 Fuse     nat vol=4433.77075148      valid=1 f=16  | occ vol=4433.77075148      valid=1 f=16  | worst 1.375e-15 (inertia) kindsEq=0
+  [ ok ] L_nonconvex: boolean Fuse valid on both arms               
+  [ ok ] L_nonconvex: boolean Fuse agrees to 1e-7                   
+  C2 closed-form residual |Cut+Common-A|/A   native 6.81229389935348831e-09   occt 6.81229153087768728e-09
+  C2 closed-form residual |Fuse+Common-A-B|/A native 5.97624124212517210e-08   occt 5.97624105264709670e-08
+  [ ok ] L_nonconvex: the plane arm is NO FURTHER from the closed form than the spline arm native 5.976241e-08 vs occt 5.976241e-08 (ratio 1.0000)
+  C3 offset    nat vol=-3214.114763     valid=1 f=35  kinds=Planex2 Spherex10 BSplinex17 OffsetSurfx6
+  C3 offset    occ vol=-3214.114768     valid=1 f=35  kinds=Planex2 Spherex10 BSplinex17 OffsetSurfx6
+  C3 offset    worst 3.527e-09 (area) kindsEq=1
+  [ ok ] L_nonconvex: C3 offset agrees to 1e-7                      
+
+
+
+
+  [ ok ] L_nonconvex: C4 STEP round-trips on both arms              
+  C4 STEP      nat bytes=25531   splines=0   vol=720 valid=1 kinds=Planex2 SurfExtrx6
+  C4 STEP      occ bytes=27198   splines=1   vol=720 valid=1 kinds=Planex1 BSplinex1 SurfExtrx6
+  C4 STEP      worst 8.184e-14 (inertia) kindsEq=0
+  [ ok ] L_nonconvex: C4 round-tripped vectors agree to 1e-9        
+  [ ok ] L_nonconvex: C4 native STEP carries NO B_SPLINE_SURFACE    
+  [ ok ] L_nonconvex: C4 OCCT STEP DOES carry one                   
+  C5 mesh      defl=0.02763  nat tris=20     nodes=36     meshvol=720 (err 1.137e-13)
+  C5 mesh                    occ tris=20     nodes=36     meshvol=720 (err 1.137e-13)
+  [ ok ] L_nonconvex: C5 both arms tessellate                       
+  [ ok ] L_nonconvex: C5 mesh volume error < 1e-6 relative on both  
+  C6 repo      representation test (`GetType()==GeomAbs_Plane`, 6 sites): native ACCEPT, occt REJECT
+  C6 repo      sampling test (NativeFilletChamfer.cpp:137): native ACCEPT, occt ACCEPT
+  C6 repo      DirectModeling feature label: native "Boss/planar", occt "Blend/freeform"
+  [ ok ] L_nonconvex: NO repo predicate accepts the OCCT spline and refuses the native plane 
+  [ ok ] L_nonconvex: the representation test ACCEPTS native and REFUSES the OCCT spline 
+  [ ok ] L_nonconvex: the SAMPLING test accepts both — which is the corrected predicate 
+
+══════════════════════════════════════════════════════════════════════
+CASE: polygon24
+══════════════════════════════════════════════════════════════════════
+  [ ok ] polygon24: fixture built                                   
+  [ ok ] polygon24: both arms returned a cap                        
+  [ ok ] polygon24: reproduces the Plane-vs-BSpline mismatch        native=Plane occt=BSpline
+  cert native kind=Plane     planar=1 devMax=0.000000e+00 angMax=0.000000e+00 nsamp=121 n=(+0.000000000000,+0.000000000000,+1.000000000000) d=-5.000000000000
+  cert occt   kind=BSpline   planar=1 devMax=8.881784e-16 angMax=0.000000e+00 nsamp=121 n=(-0.000000000000,-0.000000000000,+1.000000000000) d=-5.000000000000
+  |dn|=7.150701e-19  |dd|=0.000000e+00  worst plane invariant 3.574830e-18 (tolLen=2.042e-05, lenScale=20.4206)
+  [ ok ] polygon24: OCCT spline certifies planar                    
+  [ ok ] polygon24: certifies as THE SAME plane (invariants)        
+  C1 face      nat area=152.18559852 com=(-1.15351942e-16,-1.78906485e-16,5) | occ area=152.18559852 com=(2.91495322e-13,3.11074799e-13,5) | worst 4.565e-14 (inertia)
+  C1 face      exact area 152.18559852 ; native err 2.842e-14 ; occt err 7.390e-13
+  C1 solid     nat vol=760.927992601 valid=1 f/e/v/sh/so=26/72/48/1/1 kinds=Planex2 SurfExtrx24
+  C1 solid     occ vol=760.927992601 valid=1 f/e/v/sh/so=26/72/48/1/1 kinds=Planex1 BSplinex1 SurfExtrx24
+  C1 solid     worst 4.540e-15 (inertia)
+  [ ok ] polygon24: both caps close a VALID single solid            
+  [ ok ] polygon24: C1 mass properties agree to 1e-9                
+  C2 Cut      nat vol=582.882910544      valid=1 f=29  | occ vol=582.882910544      valid=1 f=29  | worst 4.898e-15 (inertia) kindsEq=0
+  [ ok ] polygon24: boolean Cut valid on both arms                  
+  [ ok ] polygon24: boolean Cut agrees to 1e-7                      
+  C2 Common   nat vol=178.04508121       valid=1 f=12  | occ vol=178.04508121       valid=1 f=12  | worst 7.509e-15 (inertia) kindsEq=0
+  [ ok ] polygon24: boolean Common valid on both arms               
+  [ ok ] polygon24: boolean Common agrees to 1e-7                   
+  C2 Fuse     nat vol=1562.88291296      valid=1 f=32  | occ vol=1562.88291296      valid=1 f=32  | worst 2.708e-15 (inertia) kindsEq=0
+  [ ok ] polygon24: boolean Fuse valid on both arms                 
+  [ ok ] polygon24: boolean Fuse agrees to 1e-7                     
+  C2 closed-form residual |Cut+Common-A|/A   native 1.11347312826506370e-09   occt 1.11347193302095210e-09
+  C2 closed-form residual |Fuse+Common-A-B|/A native 2.06225371993146562e-09   occt 2.06225476577006091e-09
+  [ ok ] polygon24: the plane arm is NO FURTHER from the closed form than the spline arm native 2.062254e-09 vs occt 2.062255e-09 (ratio 1.0000)
+  C3 offset    nat vol=-2218.705244     valid=1 f=146 kinds=Planex2 Spherex48 BSplinex72 OffsetSurfx24
+  C3 offset    occ vol=-2218.705244     valid=1 f=146 kinds=Planex2 Spherex48 BSplinex72 OffsetSurfx24
+  C3 offset    worst 2.352e-13 (inertia) kindsEq=1
+  [ ok ] polygon24: C3 offset agrees to 1e-7                        
+
+
+
+
+  [ ok ] polygon24: C4 STEP round-trips on both arms                
+  C4 STEP      nat bytes=92138   splines=0   vol=760.927992601 valid=1 kinds=Planex2 SurfExtrx24
+  C4 STEP      occ bytes=95266   splines=1   vol=760.927992601 valid=1 kinds=Planex1 BSplinex1 SurfExtrx24
+  C4 STEP      worst 2.540e-14 (area) kindsEq=0
+  [ ok ] polygon24: C4 round-tripped vectors agree to 1e-9          
+  [ ok ] polygon24: C4 native STEP carries NO B_SPLINE_SURFACE      
+  [ ok ] polygon24: C4 OCCT STEP DOES carry one                     
+  C5 mesh      defl=0.02042  nat tris=92     nodes=144    meshvol=760.9279926 (err 1.137e-13)
+  C5 mesh                    occ tris=100    nodes=148    meshvol=760.9279926 (err 2.274e-13)
+  [ ok ] polygon24: C5 both arms tessellate                         
+  [ ok ] polygon24: C5 mesh volume error < 1e-6 relative on both    
+  C6 repo      representation test (`GetType()==GeomAbs_Plane`, 6 sites): native ACCEPT, occt REJECT
+  C6 repo      sampling test (NativeFilletChamfer.cpp:137): native ACCEPT, occt ACCEPT
+  C6 repo      DirectModeling feature label: native "Boss/planar", occt "Blend/freeform"
+  [ ok ] polygon24: NO repo predicate accepts the OCCT spline and refuses the native plane 
+  [ ok ] polygon24: the representation test ACCEPTS native and REFUSES the OCCT spline 
+  [ ok ] polygon24: the SAMPLING test accepts both — which is the corrected predicate 
+
+--- 7. negative controls: NurbsConvert of each quadric must NOT certify ---
+  [ ok ] NurbsConvert: every curved face REFUSED by the certificate cylinder r5 h10: curved faces 1 (spline-kind 1), certified planar 0, max dev 5.452, max ang 1.277 rad
+  [ ok ] NurbsConvert: the curved faces really did become splines   cylinder r5 h10
+  [ ok ] NurbsConvert: every curved face REFUSED by the certificate sphere r5: curved faces 1 (spline-kind 1), certified planar 0, max dev 5.06, max ang 1.505 rad
+  [ ok ] NurbsConvert: the curved faces really did become splines   sphere r5
+  [ ok ] NurbsConvert: every curved face REFUSED by the certificate cone r5->r2 h10: curved faces 1 (spline-kind 1), certified planar 0, max dev 5.513, max ang 1.278 rad
+  [ ok ] NurbsConvert: the curved faces really did become splines   cone r5->r2 h10
+  [ ok ] NurbsConvert: every curved face REFUSED by the certificate torus R8 r3: curved faces 1 (spline-kind 1), certified planar 0, max dev 11.75, max ang 1.487 rad
+  [ ok ] NurbsConvert: the curved faces really did become splines   torus R8 r3
+
+--- 7b. a planar spline translated 0.5mm: planar, but NOT the same plane ---
+  translated  planar=1 d=-10.500000000  (native d=-10.000000000, delta=0.5)
+  [ ok ] translated spline still certifies PLANAR                   
+  [ ok ] but its plane offset d differs by the translation          
+  [ ok ] so a (n,d)-comparing rule REJECTS it                       
+
+--- 7c. resolution: a MakeFilling patch bulged off its plane (tolLen=1.732e-05, tolAng=1e-6 rad) ---
+  bulge 1e-07     devMax=1.481806e-08 angMax=0.000000e+00 -> planar=1
+  [ ok ] certificate verdict == its own printed thresholds          bulge 1e-07
+  bulge 1e-06     devMax=1.481806e-07 angMax=9.305772e-08 -> planar=1
+  [ ok ] certificate verdict == its own printed thresholds          bulge 1e-06
+  bulge 1e-05     devMax=1.481806e-06 angMax=9.317695e-07 -> planar=1
+  [ ok ] certificate verdict == its own printed thresholds          bulge 1e-05
+  bulge 3e-05     devMax=2.068468e-05 angMax=8.296053e-06 -> planar=0
+  [ ok ] certificate verdict == its own printed thresholds          bulge 3e-05
+  bulge 0.0001    devMax=6.894894e-05 angMax=2.765353e-05 -> planar=0
+  [ ok ] certificate verdict == its own printed thresholds          bulge 0.0001
+  [ ok ] a >=1e-4mm bulge is REFUSED                                bulge 0.0001 mm, devMax 6.895e-05
+  bulge 0.001     devMax=7.129856e-04 angMax=2.691047e-04 -> planar=0
+  [ ok ] certificate verdict == its own printed thresholds          bulge 0.001
+  [ ok ] a >=1e-4mm bulge is REFUSED                                bulge 0.001 mm, devMax 0.000713
+  bulge 0.01      devMax=7.080717e-03 angMax=2.682699e-03 -> planar=0
+  [ ok ] certificate verdict == its own printed thresholds          bulge 0.01
+  [ ok ] a >=1e-4mm bulge is REFUSED                                bulge 0.01 mm, devMax 0.007081
+  bulge 0.1       devMax=7.156552e-02 angMax=2.643394e-02 -> planar=0
+  [ ok ] certificate verdict == its own printed thresholds          bulge 0.1
+  [ ok ] a >=1e-4mm bulge is REFUSED                                bulge 0.1 mm, devMax 0.07157
+  bulge 1         devMax=7.156499e-01 angMax=2.585003e-01 -> planar=0
+  [ ok ] certificate verdict == its own printed thresholds          bulge 1
+  [ ok ] a >=1e-4mm bulge is REFUSED                                bulge 1 mm, devMax 0.7156
+  MEASURED RESOLUTION: largest bulge accepted 1e-05 mm, smallest refused 3e-05 mm (part diagonal 17.32 mm)
+  [ ok ] the accept/refuse boundary is bracketed by the sweep       
+
+--- 8. summary: worst consumer disagreement per boundary shape ---
+  case          occ devMax   occ angMax   worst cons  term      STEP +B   mesh tris nat/occ
+  square        1.7764e-15   0.0000e+00   1.1230e-08  inertia   1213      12/18
+  square_tilt   2.5402e-13   1.4901e-08   8.5949e-13  inertia   1565      12/20
+  hexagon       3.5527e-15   0.0000e+00   2.2256e-11  inertia   1654      20/28
+  L_nonconvex   9.1482e-13   1.4901e-08   3.5274e-09  area      1667      20/20
+  polygon24     8.8818e-16   0.0000e+00   2.3517e-13  inertia   3128      92/100
+
+  ACROSS ALL 5 BOUNDARY SHAPES: worst consumer disagreement 1.1230e-08,
+  worst OCCT-spline planarity deviation 9.1482e-13, worst normal swing 1.4901e-08 rad
+  [ ok ] no consumer disagrees by more than 1e-7 on any boundary shape 
+  [ ok ] every real OCCT spline is planar to better than 1e-11 mm   
+  [ ok ] every real OCCT spline's normals swing less than 1e-7 rad  
+  boolean closed-form residual, worst over the five shapes: native 5.9762e-08, occt 5.9762e-08
+  [ ok ] across every shape the PLANE arm is no further from the closed form 
+
+  THE ONLY CONSUMER THAT DISTINGUISHES THEM IS THIS REPO'S OWN
+  `GetType() == GeomAbs_Plane` TEST, and it distinguishes them in the
+  direction that makes the substitution SAFE: on 5 of 5 shapes it accepts
+  the native plane and REFUSES the OCCT spline; on 0 it does the reverse.
+  The sampling predicate NativeFilletChamfer.cpp:137 already uses accepts
+  both on 5 of 5.
+  [ ok ] no shape has a repo predicate that accepts OCCT and refuses native 
+
+PASS: 0 check(s) red of 152
+[psce] PASS
