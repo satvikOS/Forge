@@ -26,7 +26,7 @@
 // solid and more than t from every retained boundary face, so the cavity
 // { p in int(S) : d(p, dS \ F) > t } contains it and the correct result is at
 // most vol(S) - (4/3)pi(20 - t)^3. At the derivation's own wall that bound is
-// 54922 against the 87583 OCCT returns.
+// 54897.8 against the 87582.6 OCCT returns -- the gate prints both.
 //
 // A GATE THAT ONLY EVER SHOWS OCCT FAILING IS A RIGGED GATE, so the positive
 // control comes first: the SAME cylinder with an UNSPLIT top hollows correctly
