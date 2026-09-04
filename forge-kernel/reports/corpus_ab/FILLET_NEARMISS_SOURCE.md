@@ -220,7 +220,10 @@ The same experiment run *on the corpus parts* — rewrite only their spelling wi
 (`fillet_nearmiss_sweptcheck_58.jsonl`, every row `process_rc_139`), while working on a
 synthetic box and on the synthetic prism above. It is given its own process (`--sweptcheck`)
 for exactly that reason, and its crash is recorded as data rather than taking the row with
-it. This is the fourth OCCT engine this programme has measured dying on this corpus.
+it. It is not the first OCCT routine measured dying on this corpus — `FILLET_RIM_ATTRIBUTION.md`
+§8 records `BRepOffsetAPI_MakeThickSolid` crashing on a *different* part in two runs of the
+same binary, and OFFSETSHAPE's OCCT arm crashing on 66 parts of the committed baseline.
+What is new here is that this one is deterministic: 58 of 58, every time.
 
 ---
 
@@ -237,8 +240,8 @@ An integration error scales with **what is integrated**; a geometric error scale
 | \|dV\| / part volume | 2.158e-6 … 4.999e-6 (p50 3.015e-6) — a **2.32×** spread |
 | \|dV\| / closed form | 6.497e-4 … 7.640e-4 (p50 7.211e-4) — a **1.18×** spread |
 
-Normalising by the **operation** collapses the spread to ±8% of its median. Normalising
-by the **part** does not. The error is a fixed fraction of the blend, not of the body it
+Normalising by the **operation** collapses the spread to −10%/+6% of its median.
+Normalising by the **part** does not (−28%/+66%). The error is a fixed fraction of the blend, not of the body it
 is cut from — which is what a geometric difference in the blend looks like, and is not
 what integration error looks like.
 
@@ -277,10 +280,12 @@ Measured, on the same 311 valid pairs, `|ΔV_native − ΔV_occt| / max(|ΔV_nat
 | the **58** the whole-part metric already flags | 6.50e-4 | 7.21e-4 | 7.64e-4 | **58 of 58** — by 650× to 764× |
 | the **253** it passes | 0 | **1.65e-13** | **3.6e-12** | **0 of 253** |
 
-The proposed metric returns **exactly the same verdict on every one of the 311 parts**,
-with the flagged population sitting 650–764× over the bound instead of 2–5× and the
-passing population sitting **six orders of magnitude under it** instead of one. It buys
-no number and moves no part; it only stops throwing away 200× of the signal. It is stated
+The proposed metric returns **exactly the same verdict on every one of the 311 parts**.
+The flagged population moves from **2–5× over the bound to 650–764× over it**; the passing
+population — which a sharper instrument could have put at risk — still sits **six orders
+of magnitude under it** (it sits nine orders under the whole-part metric, so the sharpening
+does cost it three, and it has six left). It buys no number and moves no part; it only
+stops throwing away 230× of the signal. It is stated
 here rather than made here: the A/B comparator is shared by ten families and PR #224 is
 already open against it.
 
