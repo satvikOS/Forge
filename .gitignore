@@ -104,6 +104,11 @@ forge-kernel/build-desktop-ui/
 # The node-free kernel core the C++ desktop app links, and the app's own build
 # tree. `build/` above only matches a directory literally named build.
 forge-kernel/build-app/
+# The desktop app's build tree at the repo root. forge-desktop/README.md and
+# forge-desktop/CMakeLists.txt both spell `-B build-app`, so following the
+# documented build produces this directory in every checkout; without this line
+# the very next `git status` offers a 300 MB build tree for commit.
+/build-app/
 forge-kernel/test/native/gdt/fcf_evaluator_test.cpp
 # Object cache + run outputs of test/build_corpus_ab_coverage.sh (the corpus A/B
 # coverage gate). The .a and the per-run JSONL are regenerable from the scripts;
@@ -132,6 +137,7 @@ forge-kernel/.build-gh-census/
 # test/run_thicksolid_nesting_gate.sh's binary — a gate, so it has no committed
 # artefact; it is rebuilt and rerun from source every time.
 forge-kernel/.build-thicksolid-nesting/
+forge-kernel/.build-thicken-orientation/
 # test/sarc_ring_mutation.sh's default build dir. It holds a CMake tree that is
 # deliberately built against a mutated source and then restored, so nothing in it
 # is ever a fact about the repository.

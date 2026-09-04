@@ -18,8 +18,10 @@
 // The kernel. These are the ONLY forge-kernel/OCCT includes in the whole desktop
 // application; see KernelScene.hpp for why that is deliberate.
 #include "forge/Booleans.hpp"
+#include "forge/BodyInventory.hpp"
 #include "forge/Tessellate.hpp"
 #include "forge/ft/FeatureTree.hpp"
+
 
 namespace forge::desktop {
 namespace {
@@ -72,6 +74,67 @@ std::string workerSnippet(const std::string& s) {
   }
   if (s.size() > n) out += "...";
   return out;
+}
+
+// ── the body inventory, as the panels read it ───────────────────────────────
+// The kernel answers in forge::BodyInventory; the build report carries the same
+// facts in a form that has no OCCT type in it, because the frame builder that
+// draws the panels must stay compilable without a kernel. This is the ONE place
+// the two are put side by side, so a field added to one and forgotten in the
+// other is a compile error here rather than a column of zeroes in a panel.
+forge::BodyInventoryOptions inventoryOptions() {
+  forge::BodyInventoryOptions options;
+  // Left at the kernel's defaults on purpose: the numbers that bound this work
+  // are stated once, in BodyInventory.hpp, beside the reasoning for them.
+  return options;
+}
+
+void installInventory(const forge::BodyInventory& inventory, IrBuildReport& report) {
+  report.bodiesAnalysed = inventory.analysed;
+  report.pairsEvaluated = inventory.pairsEvaluated;
+  report.pairsTruncated = inventory.pairsTruncated;
+  report.bodyOfFace = inventory.bodyOfFace;
+  report.bodies.clear();
+  report.bodies.reserve(inventory.bodies.size());
+  for (const forge::SolidBody& in : inventory.bodies) {
+    SceneBody body;
+    body.volume = in.volume;
+    body.area = in.area;
+    for (int i = 0; i < 3; ++i) {
+      body.centroid[i] = in.centroid[i];
+      body.bboxMin[i] = in.bboxMin[i];
+      body.bboxMax[i] = in.bboxMax[i];
+    }
+    body.faceCount = in.faceCount;
+    report.bodies.push_back(body);
+  }
+  report.bodyPairs.clear();
+  report.bodyPairs.reserve(inventory.pairs.size());
+  for (const forge::SolidBodyPair& in : inventory.pairs) {
+    SceneBodyPair pair;
+    pair.a = in.a;
+    pair.b = in.b;
+    pair.gap = in.gap;
+    pair.overlapVolume = in.overlapVolume;
+    report.bodyPairs.push_back(pair);
+  }
+  report.alignments.clear();
+  report.alignments.reserve(inventory.alignments.size());
+  for (const forge::SolidBodyAlignment& in : inventory.alignments) {
+    SceneBodyAlignment al;
+    al.kind = in.kind == forge::BodyAlignmentKind::Concentric ? BodyAlignment::Concentric
+                                                              : BodyAlignment::Coplanar;
+    al.a = in.a;
+    al.b = in.b;
+    al.faceA = in.faceA;
+    al.faceB = in.faceB;
+    al.deviation = in.deviation;
+    for (int i = 0; i < 3; ++i) {
+      al.point[i] = in.point[i];
+      al.direction[i] = in.direction[i];
+    }
+    report.alignments.push_back(al);
+  }
 }
 
 }  // namespace
@@ -199,6 +262,17 @@ bool KernelScene::buildInProcess(const std::string& program) {
     report_.bboxMax[i] = res.bboxMax[i];
   }
 
+  // ---- the body inventory -------------------------------------------------
+  // Taken from the B-REP, which is the only place the exact answer lives, and
+  // taken HERE rather than in a panel because this is the one translation unit
+  // that is allowed to see the kernel.
+  //
+  // It CANNOT fail the build. A model whose bodies could not be walked is still
+  // a model the user wants on screen; the inventory simply reports that it was
+  // not taken (bodiesAnalysed stays false) and the panels say so rather than
+  // showing an empty parts list for a part that plainly has bodies.
+  installInventory(forge::bodyInventory(res.handle, inventoryOptions()), report_);
+
   // ---- tessellate ---------------------------------------------------------
   forge::Mesh mesh;
   try {
@@ -230,9 +304,7 @@ bool KernelScene::buildInProcess(const std::string& program) {
     return false;
   }
 
-  vertices_ = std::move(next);
-  faceCount_ = faces;
-  computeBounds();
+  installGeometry(std::move(next), faces);
   report_.tessellated = true;
   report_.triangles = triangleCount();
   built_ = true;
@@ -410,9 +482,7 @@ bool KernelScene::buildIsolated(const std::string& program, bool& fellBack) {
   std::uint32_t faces = 0;
   for (const SceneVertex& v : next) faces = std::max(faces, v.faceId);
 
-  vertices_ = std::move(next);
-  faceCount_ = faces;
-  computeBounds();
+  installGeometry(std::move(next), faces);
   report_.triangles = triangleCount();
   built_ = true;
   error_.clear();
@@ -497,6 +567,12 @@ bool KernelScene::decodeWorkerPayload(const std::string& payload, IrBuildReport&
       report.nCompiled = static_cast<std::size_t>(u0);
     } else if (key == "triangles" && std::sscanf(val, "%llu", &u0) == 1) {
       report.triangles = static_cast<std::size_t>(u0);
+    } else if (key == "bodiesAnalysed" && std::sscanf(val, "%d", &i0) == 1) {
+      report.bodiesAnalysed = i0 != 0;
+    } else if (key == "pairsEvaluated" && std::sscanf(val, "%llu", &u0) == 1) {
+      report.pairsEvaluated = static_cast<std::size_t>(u0);
+    } else if (key == "pairsTruncated" && std::sscanf(val, "%d", &i0) == 1) {
+      report.pairsTruncated = i0 != 0;
     } else if (key == "errorBytes" && std::sscanf(val, "%llu", &u0) == 1) {
       errorBytes = static_cast<std::size_t>(u0);
       sawErrorBytes = true;
@@ -525,6 +601,106 @@ bool KernelScene::decodeWorkerPayload(const std::string& payload, IrBuildReport&
     return false;
   }
   backend = line.substr(8);
+
+  // ── the body inventory's tables ────────────────────────────────────────
+  // Read in the order the worker writes them and COUNT-CHECKED, so a truncated
+  // block is a named diagnosis rather than a parts list that is quietly one
+  // body short. Every failure here refuses the whole payload: a half-read
+  // inventory drawn beside a complete mesh is the shape of defect that looks
+  // like a kernel bug and is not one.
+  {
+    unsigned long long n = 0;
+    if (!workerReadLine(payload, pos, line) || line.rfind("bodies ", 0) != 0 ||
+        std::sscanf(line.c_str() + 7, "%llu", &n) != 1) {
+      error = "the kernel worker did not declare how many bodies it built";
+      return false;
+    }
+    report.bodies.resize(static_cast<std::size_t>(n));
+    for (std::size_t i = 0; i < report.bodies.size(); ++i) {
+      SceneBody& b = report.bodies[i];
+      unsigned int fc = 0;
+      if (!workerReadLine(payload, pos, line) || line.rfind("body ", 0) != 0 ||
+          std::sscanf(line.c_str() + 5, "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %u",
+                      &b.volume, &b.area, &b.centroid[0], &b.centroid[1], &b.centroid[2],
+                      &b.bboxMin[0], &b.bboxMin[1], &b.bboxMin[2], &b.bboxMax[0], &b.bboxMax[1],
+                      &b.bboxMax[2], &fc) != 12) {
+        error = "the kernel worker's description of body " + std::to_string(i + 1) +
+                " could not be read";
+        return false;
+      }
+      b.faceCount = fc;
+    }
+
+    if (!workerReadLine(payload, pos, line) || line.rfind("bodyPairs ", 0) != 0 ||
+        std::sscanf(line.c_str() + 10, "%llu", &n) != 1) {
+      error = "the kernel worker did not declare how many body pairs it measured";
+      return false;
+    }
+    report.bodyPairs.resize(static_cast<std::size_t>(n));
+    for (std::size_t i = 0; i < report.bodyPairs.size(); ++i) {
+      SceneBodyPair& q = report.bodyPairs[i];
+      if (!workerReadLine(payload, pos, line) || line.rfind("bodyPair ", 0) != 0 ||
+          std::sscanf(line.c_str() + 9, "%u %u %lf %lf", &q.a, &q.b, &q.gap, &q.overlapVolume) !=
+              4) {
+        error = "the kernel worker's measurement of body pair " + std::to_string(i + 1) +
+                " could not be read";
+        return false;
+      }
+    }
+
+    if (!workerReadLine(payload, pos, line) || line.rfind("alignments ", 0) != 0 ||
+        std::sscanf(line.c_str() + 11, "%llu", &n) != 1) {
+      error = "the kernel worker did not declare how many alignments it found";
+      return false;
+    }
+    report.alignments.resize(static_cast<std::size_t>(n));
+    for (std::size_t i = 0; i < report.alignments.size(); ++i) {
+      SceneBodyAlignment& a = report.alignments[i];
+      int kind = 0;
+      if (!workerReadLine(payload, pos, line) || line.rfind("alignment ", 0) != 0 ||
+          std::sscanf(line.c_str() + 10, "%d %u %u %u %u %lf %lf %lf %lf %lf %lf %lf", &kind, &a.a,
+                      &a.b, &a.faceA, &a.faceB, &a.deviation, &a.point[0], &a.point[1],
+                      &a.point[2], &a.direction[0], &a.direction[1], &a.direction[2]) != 12) {
+        error = "the kernel worker's alignment " + std::to_string(i + 1) + " could not be read";
+        return false;
+      }
+      // An unknown kind is REFUSED rather than defaulted: silently calling an
+      // alignment concentric because its number was not recognised would put a
+      // wrong word in front of a user.
+      if (kind != static_cast<int>(BodyAlignment::Concentric) &&
+          kind != static_cast<int>(BodyAlignment::Coplanar)) {
+        error = "the kernel worker named an alignment this build does not know";
+        return false;
+      }
+      a.kind = static_cast<BodyAlignment>(kind);
+    }
+
+    if (!workerReadLine(payload, pos, line) || line.rfind("faceBodies ", 0) != 0 ||
+        std::sscanf(line.c_str() + 11, "%llu", &n) != 1) {
+      error = "the kernel worker did not declare its face-to-body map";
+      return false;
+    }
+    report.bodyOfFace.clear();
+    report.bodyOfFace.reserve(static_cast<std::size_t>(n));
+    if (n > 0) {
+      if (!workerReadLine(payload, pos, line)) {
+        error = "the kernel worker declared a face-to-body map and sent none";
+        return false;
+      }
+      const char* cursor = line.c_str();
+      for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
+        unsigned int owner = 0;
+        int consumed = 0;
+        if (std::sscanf(cursor, "%u%n", &owner, &consumed) != 1) {
+          error = "the kernel worker's face-to-body map ended after " + std::to_string(i) +
+                  " of " + std::to_string(n) + " entries";
+          return false;
+        }
+        cursor += consumed;
+        report.bodyOfFace.push_back(owner);
+      }
+    }
+  }
 
   if (!workerReadLine(payload, pos, line) || line.rfind("VERTICES ", 0) != 0) {
     error = "the kernel worker did not declare its vertex count";
@@ -625,11 +801,16 @@ bool KernelScene::deindex(const forge::Mesh& mesh, std::vector<SceneVertex>& out
 
 void KernelScene::computeBounds() {
   bounds_ = Bounds{};
-  if (vertices_.empty()) return;
-  bounds_.min[0] = bounds_.max[0] = vertices_[0].px;
-  bounds_.min[1] = bounds_.max[1] = vertices_[0].py;
-  bounds_.min[2] = bounds_.max[2] = vertices_[0].pz;
-  for (const SceneVertex& v : vertices_) {
+  // The bounds are what the camera FITS, so they are taken over what is drawn.
+  // With every body hidden there is nothing to fit and the whole model is used
+  // instead: a camera that jumps to the origin the moment the last checkbox is
+  // cleared looks exactly like a crash.
+  const std::vector<SceneVertex>& source = vertices().empty() ? allVertices_ : vertices();
+  if (source.empty()) return;
+  bounds_.min[0] = bounds_.max[0] = source[0].px;
+  bounds_.min[1] = bounds_.max[1] = source[0].py;
+  bounds_.min[2] = bounds_.max[2] = source[0].pz;
+  for (const SceneVertex& v : source) {
     const float p[3] = {v.px, v.py, v.pz};
     for (int i = 0; i < 3; ++i) {
       bounds_.min[i] = std::min(bounds_.min[i], p[i]);
@@ -644,11 +825,15 @@ void KernelScene::computeBounds() {
 PickResult KernelScene::pick(const float origin[3], const float direction[3]) const {
   PickResult best;
   float bestT = 0.0f;
-  const std::size_t tris = triangleCount();
+  // A HIDDEN BODY CANNOT BE PICKED. vertices() is the drawn stream, so a ray
+  // passes straight through a body the user has switched off -- which is the
+  // only reading of "hidden" that does not surprise somebody.
+  const std::vector<SceneVertex>& drawn = vertices();
+  const std::size_t tris = drawn.size() / 3;
   for (std::size_t t = 0; t < tris; ++t) {
-    const SceneVertex& a = vertices_[t * 3 + 0];
-    const SceneVertex& b = vertices_[t * 3 + 1];
-    const SceneVertex& c = vertices_[t * 3 + 2];
+    const SceneVertex& a = drawn[t * 3 + 0];
+    const SceneVertex& b = drawn[t * 3 + 1];
+    const SceneVertex& c = drawn[t * 3 + 2];
     const float e1[3] = {b.px - a.px, b.py - a.py, b.pz - a.pz};
     const float e2[3] = {c.px - a.px, c.py - a.py, c.pz - a.pz};
     const float pv[3] = {direction[1] * e2[2] - direction[2] * e2[1],
@@ -678,7 +863,10 @@ PickResult KernelScene::pick(const float origin[3], const float direction[3]) co
 
 std::size_t KernelScene::applySelection(const std::vector<std::uint32_t>& selectedFaceIds) {
   std::size_t changed = 0;
-  for (SceneVertex& v : vertices_) {
+  // The MASTER stream is flagged, not the drawn one: a face selected while its
+  // body is hidden must still be selected when the body comes back, and the
+  // alternative -- flagging only what is visible -- silently drops the flag.
+  for (SceneVertex& v : allVertices_) {
     const bool sel = std::find(selectedFaceIds.begin(), selectedFaceIds.end(), v.faceId) !=
                      selectedFaceIds.end();
     const std::uint32_t want = sel ? (v.flags | 1u) : (v.flags & ~1u);
@@ -687,7 +875,81 @@ std::size_t KernelScene::applySelection(const std::vector<std::uint32_t>& select
       ++changed;
     }
   }
+  // Only when something actually moved, and only when a subset is being drawn:
+  // with nothing hidden the drawn stream IS the master and there is nothing to
+  // copy. This is why the re-derivation is not a per-frame cost.
+  if (changed > 0 && anyHidden_) rebuildVisible();
   return changed;
+}
+
+// ── installing new geometry ─────────────────────────────────────────────────
+// ONE place that replaces the vertex stream, so a build path cannot forget to
+// reset the visibility with it. Visibility IS reset on purpose: body 2 of the
+// next build is not necessarily the same body 2, and carrying a hide across an
+// edit would hide the wrong thing without saying so.
+void KernelScene::installGeometry(std::vector<SceneVertex> stream, std::uint32_t faces) {
+  allVertices_ = std::move(stream);
+  faceCount_ = faces;
+  bodyHidden_.assign(report_.bodies.size() + 1, false);
+  anyHidden_ = false;
+  visible_.clear();
+  visible_.shrink_to_fit();
+  computeBounds();
+}
+
+// Re-derives the drawn stream from the master. A triangle belongs to the body
+// its faceId belongs to -- the SAME id picking resolves and the SAME map the
+// inventory built -- so nothing here needs a second notion of which body a
+// triangle is part of. A triangle whose face names no body is always drawn:
+// dropping geometry because the inventory could not classify it would silently
+// delete part of the user's model from the picture.
+void KernelScene::rebuildVisible() {
+  visible_.clear();
+  if (!anyHidden_) return;
+  visible_.reserve(allVertices_.size());
+  const std::size_t tris = allVertices_.size() / 3;
+  for (std::size_t t = 0; t < tris; ++t) {
+    const std::uint32_t body = report_.bodyForFace(allVertices_[t * 3].faceId);
+    if (body != 0 && body < bodyHidden_.size() && bodyHidden_[body]) continue;
+    visible_.push_back(allVertices_[t * 3 + 0]);
+    visible_.push_back(allVertices_[t * 3 + 1]);
+    visible_.push_back(allVertices_[t * 3 + 2]);
+  }
+}
+
+bool KernelScene::setBodyVisible(std::uint32_t bodyIndex, bool visible) {
+  if (bodyIndex == 0 || bodyIndex >= bodyHidden_.size()) return false;
+  if (bodyHidden_[bodyIndex] == !visible) return false;
+  bodyHidden_[bodyIndex] = !visible;
+  anyHidden_ = false;
+  for (std::size_t i = 1; i < bodyHidden_.size(); ++i) {
+    if (bodyHidden_[i]) anyHidden_ = true;
+  }
+  rebuildVisible();
+  computeBounds();
+  return true;
+}
+
+bool KernelScene::bodyVisible(std::uint32_t bodyIndex) const noexcept {
+  if (bodyIndex == 0 || bodyIndex >= bodyHidden_.size()) return true;
+  return !bodyHidden_[bodyIndex];
+}
+
+void KernelScene::showAllBodies() {
+  if (!anyHidden_) return;
+  std::fill(bodyHidden_.begin(), bodyHidden_.end(), false);
+  anyHidden_ = false;
+  visible_.clear();
+  visible_.shrink_to_fit();
+  computeBounds();
+}
+
+std::size_t KernelScene::hiddenBodyCount() const noexcept {
+  std::size_t n = 0;
+  for (std::size_t i = 1; i < bodyHidden_.size(); ++i) {
+    if (bodyHidden_[i]) ++n;
+  }
+  return n;
 }
 
 // ── SceneFeatureTreeSource ────────────────────────────────────────

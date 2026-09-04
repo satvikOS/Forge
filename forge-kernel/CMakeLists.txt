@@ -268,6 +268,26 @@ set(OCCT_LIBS
 #   38 parts still get an answer today and would throw under the drop, so Law 9 holds
 #   and FORGE_OFFSETSHAPE_DROP_NATIVE stays OFF.
 #
+# ★★ 2026-09-03 — THE GATE NOW MEASURES REPLACEABILITY, NOT COVERAGE ALONE, AND
+#   NO OPTION MOVED. The two paragraphs above and note [1] below all record the same
+#   defect from different sides: the verdict was `natOk >= occtOk`, a count of WHETHER
+#   EACH ARM RETURNED A SHAPE, so a family could FAIL while being asked to reproduce
+#   BRepCheck-invalid geometry (H: 33 of 38; G: 133 of 133) and PASS while computing a
+#   DIFFERENT OPERATION (E and F read 599/600 vs 600/600 and agree on 0 of 599, at a
+#   constant volume ratio 2/(1+cos30)=1.071797). `test/corpus_ab_aggregate.mjs` now
+#   requires FIVE terms, of which term 1 is the coverage line above, kept verbatim:
+#       1 coverage       natOk >= occtOk                        (unchanged)
+#       2 validity       native OK-and-valid >= OCCT OK-and-valid
+#       3 agreement      0 disagreeing pairs among parts where BOTH arms are valid
+#       4 replaceability 0 deficit against the VALID bar
+#       5 sanity         no native COM >1000x its own diagonal outside its own bbox
+#   Terms 2-5 are ADDITIONS, so no family can pass that would not have passed before —
+#   asserted, not claimed, by test/corpus_ab_gate_selftest.mjs check M, in CI.
+#   ★ THE COVERAGE BAR IS NOT LOWERED. The valid bar is reported BESIDE it, never
+#   instead of it, precisely so that H's "bar of 38 is really a bar of 5" stays an
+#   explicit decision about this ledger and never a side effect of an aggregator.
+#   NOTHING BELOW THIS LINE CHANGED: every option's default is exactly as it was.
+#   Method and the BEFORE/AFTER tables: reports/CORPUS_AB_COVERAGE.md §2.9, §2.10, §3.5.
 # ★ RE-MEASURED AGAIN AT 26db603e, AFTER THE CYLINDER-CYLINDER RULING INCREMENT, AND
 #   THE COVERAGE NUMBER DID NOT MOVE: native 24/600 = 4.0% BEFORE and 24/600 = 4.0%
 #   AFTER, against the same OCCT 38/600 = 6.3%, same harness, same 600 parts, full
@@ -1715,6 +1735,7 @@ set(FORGE_KERNEL_SOURCES
     src/AssemblySolver.cpp
     src/AssemblyHierarchy.cpp
     src/InterferenceDetection.cpp
+    src/BodyInventory.cpp
     src/MotionStudy.cpp
     src/MultibodyDynamics.cpp
     src/Drawings.cpp

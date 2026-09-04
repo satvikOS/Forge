@@ -3994,3 +3994,134 @@ succeed on those same parts; only that the incumbent fails on them.
 `CMakeLists.txt:1170` removes TKOffset only when **all nine** families compile out and seven still
 fail their flip gate. **"11" must never be quoted as progress** — it is reachable only with
 `FORGE_DRAFT_DROP_NATIVE=ON`, which deletes 497 draft parts.
+
+---
+
+## 2026-09-03 — three PRs unblocked, and two of them shared one cause
+
+**The click gate hand-lists desktop translation units while globbing `ui/src/*.cpp`.** That asymmetry
+failed **two** open PRs on the same day. #217 added `FileDialog.cpp` and called it from
+`ForgeFrame.cpp`; #218 added `ImGuiErrorPolicy.cpp` and called it from `ForgeFrame::build`. Each
+surfaced as an undefined-symbol dump that **names the symbol but not the cause** — the reader is told
+`forge::desktop::fileDialogPolicyFor(...)` is missing, not that a list needs a line.
+
+**The list cannot simply become a glob**, which is why it was hand-written in the first place:
+`main.cpp` and `kernel_worker_main.cpp` each define `main()` and would collide with the gate's own,
+`PlatformSDL2.cpp` needs SDL2, and `ViewportRenderer.cpp` needs a GL context a headless ASAN frame
+does not have. So the include list is now paired with an explicit **`DESKTOP_SKIP`** list carrying
+*the reason each file cannot link here*, and a guard requires every `forge-desktop/src/*.cpp` to
+appear in **exactly one** of the two. Proved in both directions: 5 linked + 6 skipped covers all 11
+sources, and an unclassified probe file makes the guard name it and exit 3.
+
+**A gate that matches member NAMES can be right about the name and wrong about the field.** The prose
+gate flagged `TextColored` and `BulletText` being handed `.detail`. `detail` is on its internal list
+because `DispatchResult::detail` and `ActivityLogEntry::detail` carry the program's own description of
+a failure, drawable only in the Console. But `SketchEntity::detail` held *user-facing operands* —
+"at 0, 0 mm", "centre Point A, radius 12 mm". **The honest fix was to rename the field to `operands`,
+not to carve the gate open.** Evidence that nothing was weakened: **8894 checks before and after,
+failures 2 → 0**, and the full suite reports ALL 35 UI GATES PASS.
+
+★ `model_tree_test.cpp` reached that field through `g.entities[0]` without ever naming the type, so a
+grep for `SketchEntity` did not find it and the rename broke four assertions. **A rename's blast
+radius is not found by grepping the type name.**
+
+★ **Read WHICH STEP failed before diagnosing a job.** #219's red job showed exactly one `FAIL` line,
+and that line was an explicitly-labelled *expected* negative control. The actual failure was a
+different step — "Archie op vocabulary is still what the sources imply" — the merge tax: the
+vocabulary records a sha256 of `ForgeFrame.cpp`. Regenerating (vocabulary first, then the constraint
+table) produced a **four-line diff, all sha/bytes**, with `bytes` moving 200209 → 200215: exactly the
++6 from `.detail` → `.operands` at three call sites. Command surface unchanged at 84/53/57/3.
+
+★ **A stale local artefact fabricates a crash.** The click gate run locally against a
+`libforge_kernel_core.dylib` built 2026-08-29, while `forge-kernel/src/ft/` had changed 2026-09-03,
+gave an ASAN SEGV in `std::vector<forge::ft::Point3>::__destroy_vector`. Pure ABI mismatch. **Check an
+artefact's mtime against its sources before believing its stack trace** — the *link* success was
+still valid evidence, and that was the thing under test.
+
+**`EXPECTED_MUTATIONS` was contested at a fourth merge, and neither side was right.** This branch
+derived 52 (frame 12 + assembly 4); `archdisc` derived 50 (frame 14, no assembly gate). Both were
+correct on their own tree and both are wrong on the merged one. Measured on the merged tree: **54** =
+ir_pipeline 0 + document 8 + file_exchange 5 + frame 14 + copilot 8 + update 7 + click 8 + assembly 4
++ isolation 0. **Taking either side would have silently dropped real mutations.** Re-derive it at
+every merge; never carry a side across. (bash uses the LAST assignment, so leaving both is worse than
+picking wrong.)
+
+**Ledger, unchanged:** `occt_closure_count.sh` reports **OCCT_CLOSURE = 14, ZERO of 14 dropped**.
+Re-verified structurally this tick: **all nine family options still default OFF on `origin/archdisc`**,
+and `CMakeLists.txt` releases TKOffset only when **all nine** are ON — so the number cannot have moved.
+No binary was rebuilt for this check, and that is stated rather than implied. **"11" must never be
+quoted as progress.**
+
+---
+
+## 2026-09-03 — the flip gate was measuring the wrong thing, and the instruments crash
+
+**THE VERDICT WAS ONE LINE, AND THE FILE SAID SO.** `forge-kernel/test/corpus_ab_aggregate.mjs` decided
+every family with
+
+```js
+const natOk = f.BOTH_OK + f.NATIVE_ONLY; const occtOk = f.BOTH_OK + f.OCCT_ONLY;
+const pass = natOk >= occtOk;
+```
+
+while its own prose admitted `agree` was computed and **"THE VERDICT DOES NOT READ IT"**. Validity was
+likewise reported and unread. Same 600 parts, same 7,796 rows, aggregated twice: **five of ten drop
+options PASSED on coverage; ZERO of ten pass on replaceability.** MAKEOFFSET, PIPE, PIPESHELL, FILLING
+and THICKEN all flip. Not a regression — the geometry was always this way and the verdict could not
+see it. **"A, C, E, I pass their flip gate" is retired.**
+
+**THE DISAGREEMENTS ARE FIVE CLASSES, EACH WITH A CLOSED FORM OR A COUNT.**
+- *Different operation* — PIPE and PIPESHELL differ on **600/600** at volume ratio 1.071797, and
+  **2/(1+cos 30°) = 1.071797** exactly. Face counts differ on 505/600.
+- *Different orientation* — THICKEN differs on **600/600** by signed volume **exactly −1.000000**, area
+  ratio exactly 1.000000, 595/600 agreeing up to orientation. One sign bit — and still not
+  boolean-interchangeable.
+- *Different representation* — FILLING **407/407** and THRUSECTIONS **498/498** match on volume, area,
+  COM, all six bbox bounds **and every f/e/v/shell/solid count**, differing only as native `Plane` vs
+  OCCT `BSplineSurface` on the same face with the same four line edges. **The native answer is arguably
+  the better one**; the gate judges interchangeability, not correctness, and prints both readings.
+- *Different decomposition* — MAKEOFFSET **285/285** differ in edge count at wire-length ratio p50
+  0.999956.
+- *Numerical margin* — FILLET's 58 sit at 2–5e-6 against a 1e-6 bound. **No tolerance was widened.**
+
+**AND THE BAR IS MOSTLY INVALID.** THICKSOLID: 132 OCCT answers, **132 BRepCheck-invalid**, valid bar
+**zero**. OFFSETSHAPE: 38 answers, **33 invalid**, valid bar 5 — and native's 24 answers are all valid
+yet reproduce **none** of those 5, because it declines on exactly those parts. DRAFT 52 of 497 invalid;
+FILLET 91 of its own 403.
+
+**THE GROUND TRUTH CRASHES, AND SO DOES THE INSTRUMENT THAT JUDGES IT.** A census of 232 crash reports
+from one day, counted by **faulting address** rather than process name, shows OCCT faulting at **five
+distinct sites**:
+
+```
+  67  0x30  libTKTopAlgo   BRepCheck_Analyzer / BRepCheck_Solid::Minimum   <- the validity checker
+  48  0x60  libTKBRep      BRep_Tool::CurveOnSurface (the offset engine)
+  28  0x78  libTKMath      ShapeCustom::SweptToElementary
+   2  0x70  libTKG3d
+   2  0x10  libTKG2d
+```
+
+**The most frequent OCCT crash is the validity checker itself** — 67 of 145 OCCT faults. Every
+"N of M are BRepCheck-invalid" figure above therefore has a true denominator of *"shapes the checker
+survived"*, and any validity term used as a merge criterion needs a crash-safe call path. Separately,
+`ShapeCustom::SweptToElementary` — the natural API for asking *"is this BSplineSurface really a
+plane?"*, which is exactly the FILLING/THRUSECTIONS question — **crashes on this corpus**, so that
+equivalence must be decided without it. And THICKSOLID's bar is not even stable: `ho317` returned OK,
+then `CRASH signal 11`, then OK five times running.
+
+**METHOD NOTES WORTH KEEPING.** Term 1 of the new verdict is the original line **verbatim**, so the new
+verdict is a strict subset of the old — it can only remove passes, and a check enforces
+`verdict==PASS ⇒ coverage_only_verdict==PASS` over fixtures and every real run. The coverage bar is
+never lowered; the valid bar prints beside it. The harness change was proved **inert**: 7,781 of 7,796
+rows byte-identical, the 14 differing only in already-documented summation noise. All three committed
+summaries **regenerate byte-identically** from the committed raw rows, so a reviewer can reproduce every
+number rather than trust it. **A threshold must be measured, not chosen**: the first centroid-sanity
+term fired on 12 of 61 *valid* THICKEN rows because a full cylinder's vertex-derived bbox is a line —
+a term that reds a valid cylinder is a wrong gate, not a stricter one.
+
+**LEDGER, UNCHANGED AND STATED PLAINLY:** `occt_closure_count.sh` reports **OCCT_DIRECT 9,
+OCCT_CLOSURE 14, OCCT_PHANTOM 2 — zero of fourteen toolkits dropped.** All nine family options remain
+default OFF; `CMakeLists.txt` releases TKOffset only when all nine are ON, and flipping them today
+would delete an answer on **233 of 600 parts (38.8%)** while shifting every sweep's volume by 5.5–9.8%.
+Nothing in this work moved that number, and nothing should until a family is replaceable rather than
+merely covering.
