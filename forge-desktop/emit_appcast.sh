@@ -23,9 +23,17 @@
 #   * nothing per-release has to be baked into the app;
 #   * it is not api.github.com, so it does not carry the 60-requests-an-hour
 #     unauthenticated rate limit that shipped updaters hit from behind a NAT;
-#   * a DRAFT release is invisible to every installed copy. The release workflow
-#     creates releases as drafts, so the human "press Publish" step is already
-#     the gate on auto-update. Nothing may be added that bypasses it.
+#   * a DRAFT release is invisible to every installed copy, and so is a
+#     PRERELEASE.
+#
+#     ★ CHANGED 2026-09-03. This used to add that the workflow creates every
+#     release as a draft, so the human "press Publish" step was already the gate
+#     on auto-update and nothing may be added that bypasses it. A green build on
+#     archdisc now publishes directly, because that gate had never been opened
+#     once: zero tags existed and /releases/latest had answered 404 for the whole
+#     life of the project. The gate is now the merge, not a later click; the
+#     pushed-tag path still produces a draft for a human who wants one. See
+#     Manifest.hpp for the full note.
 #
 #     MEASURED 2026-08-30, not taken from documentation. This repository has
 #     exactly one release, v0.1.0-alpha.0, and it is a DRAFT:
@@ -61,7 +69,7 @@ while [ $# -gt 0 ]; do
     --out)        shift; [ $# -gt 0 ] || die "--out needs a value";        OUT="$1" ;;
     --min-macos)  shift; [ $# -gt 0 ] || die "--min-macos needs a value";  MIN_MACOS="$1" ;;
     --repo)       shift; [ $# -gt 0 ] || die "--repo needs a value";       REPO="$1" ;;
-    -h|--help)    sed -n '2,46p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,54p' "$0"; exit 0 ;;
     *)            die "unknown argument: $1" ;;
   esac
   shift
