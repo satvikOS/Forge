@@ -1,0 +1,567 @@
+{
+  "generated_from": "/private/tmp/claude-501/-Users-account-clawteam1/8e894a02-52d3-4e26-a3a3-5c26cd2b228c/scratchpad/AFTER600/results.jsonl",
+  "parts": 600,
+  "rows": 7796,
+  "part_errors": 0,
+  "malformed": 0,
+  "families": [
+    {
+      "family": "FILLET",
+      "option": "FORGE_FILLET_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 402,
+      "native_only": 1,
+      "occt_only": 59,
+      "neither": 138,
+      "native_rate": 0.6716666666666666,
+      "occt_rate": 0.7683333333333333,
+      "delta": -0.09666666666666666,
+      "ci95": [
+        -0.12075893313754282,
+        -0.0725744001957905
+      ],
+      "mcnemar_p": 1.0581813203458438e-16,
+      "verdict": "FAIL",
+      "underpowered": false,
+      "discordant": 60,
+      "deficit_parts": 59,
+      "both_ok_agree": 253,
+      "both_ok_agree_upto_orientation": 253,
+      "both_ok_disagree": 149,
+      "native_status": {
+        "DEFER": 197,
+        "OK": 403
+      },
+      "occt_status": {
+        "THREW": 116,
+        "OK": 461,
+        "DEFER": 23
+      },
+      "native_valid": 312,
+      "occt_valid": 455,
+      "occt_only_examples": [
+        "ho1005",
+        "ho1034",
+        "ho1043",
+        "ho1051",
+        "ho1058",
+        "ho1080",
+        "ho1087",
+        "ho1094",
+        "ho1119",
+        "ho1134",
+        "ho1149",
+        "ho1157"
+      ]
+    },
+    {
+      "family": "MAKEOFFSET",
+      "option": "FORGE_OFFSET_DROP_MAKEOFFSET",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 594,
+      "native_only": 6,
+      "occt_only": 0,
+      "neither": 0,
+      "native_rate": 1,
+      "occt_rate": 0.99,
+      "delta": 0.01,
+      "ci95": [
+        0.002038442363456759,
+        0.01796155763654324
+      ],
+      "mcnemar_p": 0.03125000000000004,
+      "verdict": "PASS",
+      "underpowered": false,
+      "discordant": 6,
+      "deficit_parts": 0,
+      "both_ok_agree": 309,
+      "both_ok_agree_upto_orientation": 309,
+      "both_ok_disagree": 285,
+      "native_status": {
+        "OK": 600
+      },
+      "occt_status": {
+        "OK": 594,
+        "TIMEOUT": 5,
+        "DEFER": 1
+      },
+      "native_valid": 600,
+      "occt_valid": 594,
+      "occt_only_examples": []
+    },
+    {
+      "family": "THICKSOLID",
+      "option": "FORGE_THICKSOLID_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 0,
+      "native_only": 0,
+      "occt_only": 132,
+      "neither": 468,
+      "native_rate": 0,
+      "occt_rate": 0.22,
+      "delta": -0.22,
+      "ci95": [
+        -0.25314660766956404,
+        -0.186853392330436
+      ],
+      "mcnemar_p": 3.673419846319684e-40,
+      "verdict": "FAIL",
+      "underpowered": false,
+      "discordant": 132,
+      "deficit_parts": 132,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 0,
+      "both_ok_disagree": 0,
+      "native_status": {
+        "DEFER": 600
+      },
+      "occt_status": {
+        "DEFER": 467,
+        "OK": 132,
+        "CRASH": 1
+      },
+      "native_valid": 0,
+      "occt_valid": 0,
+      "occt_only_examples": [
+        "ho10",
+        "ho1008",
+        "ho1017",
+        "ho102",
+        "ho1024",
+        "ho1030",
+        "ho1041",
+        "ho107",
+        "ho1082",
+        "ho1089",
+        "ho1097",
+        "ho1104"
+      ]
+    },
+    {
+      "family": "OFFSETSHAPE",
+      "option": "FORGE_OFFSETSHAPE_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 0,
+      "native_only": 24,
+      "occt_only": 38,
+      "neither": 538,
+      "native_rate": 0.04,
+      "occt_rate": 0.06333333333333334,
+      "delta": -0.023333333333333334,
+      "ci95": [
+        -0.048987241273306004,
+        0.0023205746066393314
+      ],
+      "mcnemar_p": 0.097954440519501,
+      "verdict": "FAIL",
+      "underpowered": true,
+      "discordant": 62,
+      "deficit_parts": 38,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 0,
+      "both_ok_disagree": 0,
+      "native_status": {
+        "DEFER": 576,
+        "OK": 24
+      },
+      "occt_status": {
+        "DEFER": 490,
+        "OK": 38,
+        "CRASH": 66,
+        "THREW": 6
+      },
+      "native_valid": 24,
+      "occt_valid": 5,
+      "occt_only_examples": [
+        "ho10",
+        "ho1055",
+        "ho1097",
+        "ho111",
+        "ho1129",
+        "ho1155",
+        "ho1160",
+        "ho119",
+        "ho1342",
+        "ho137",
+        "ho14",
+        "ho156"
+      ]
+    },
+    {
+      "family": "THRUSECTIONS",
+      "option": "FORGE_THRUSECTIONS_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 498,
+      "native_only": 0,
+      "occt_only": 69,
+      "neither": 33,
+      "native_rate": 0.83,
+      "occt_rate": 0.945,
+      "delta": -0.115,
+      "ci95": [
+        -0.14052707190415697,
+        -0.08947292809584304
+      ],
+      "mcnemar_p": 3.3881317890171987e-21,
+      "verdict": "FAIL",
+      "underpowered": false,
+      "discordant": 69,
+      "deficit_parts": 69,
+      "both_ok_agree": 498,
+      "both_ok_agree_upto_orientation": 498,
+      "both_ok_disagree": 0,
+      "native_status": {
+        "OK": 498,
+        "DEFER": 102
+      },
+      "occt_status": {
+        "OK": 567,
+        "DEFER": 33
+      },
+      "native_valid": 498,
+      "occt_valid": 567,
+      "occt_only_examples": [
+        "ho1005",
+        "ho1011",
+        "ho1014",
+        "ho1032",
+        "ho104",
+        "ho1043",
+        "ho1080",
+        "ho1092",
+        "ho1094",
+        "ho1134",
+        "ho1149",
+        "ho1155"
+      ]
+    },
+    {
+      "family": "PIPE",
+      "option": "FORGE_PIPE_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 600,
+      "native_only": 0,
+      "occt_only": 0,
+      "neither": 0,
+      "native_rate": 1,
+      "occt_rate": 1,
+      "delta": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "mcnemar_p": 1,
+      "verdict": "PASS",
+      "underpowered": false,
+      "discordant": 0,
+      "deficit_parts": 0,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 0,
+      "both_ok_disagree": 600,
+      "native_status": {
+        "OK": 600
+      },
+      "occt_status": {
+        "OK": 600
+      },
+      "native_valid": 600,
+      "occt_valid": 600,
+      "occt_only_examples": []
+    },
+    {
+      "family": "PIPESHELL",
+      "option": "FORGE_PIPESHELL_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 600,
+      "native_only": 0,
+      "occt_only": 0,
+      "neither": 0,
+      "native_rate": 1,
+      "occt_rate": 1,
+      "delta": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "mcnemar_p": 1,
+      "verdict": "PASS",
+      "underpowered": false,
+      "discordant": 0,
+      "deficit_parts": 0,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 0,
+      "both_ok_disagree": 600,
+      "native_status": {
+        "OK": 600
+      },
+      "occt_status": {
+        "OK": 600
+      },
+      "native_valid": 600,
+      "occt_valid": 600,
+      "occt_only_examples": []
+    },
+    {
+      "family": "FILLING",
+      "option": "FORGE_FILLING_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 407,
+      "native_only": 0,
+      "occt_only": 0,
+      "neither": 193,
+      "native_rate": 0.6783333333333333,
+      "occt_rate": 0.6783333333333333,
+      "delta": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "mcnemar_p": 1,
+      "verdict": "PASS",
+      "underpowered": false,
+      "discordant": 0,
+      "deficit_parts": 0,
+      "both_ok_agree": 407,
+      "both_ok_agree_upto_orientation": 407,
+      "both_ok_disagree": 0,
+      "native_status": {
+        "OK": 407,
+        "DEFER": 193
+      },
+      "occt_status": {
+        "OK": 407,
+        "THREW": 154,
+        "DEFER": 39
+      },
+      "native_valid": 407,
+      "occt_valid": 407,
+      "occt_only_examples": []
+    },
+    {
+      "family": "THICKEN",
+      "option": "FORGE_THICKEN_DROP_NATIVE",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 600,
+      "native_only": 0,
+      "occt_only": 0,
+      "neither": 0,
+      "native_rate": 1,
+      "occt_rate": 1,
+      "delta": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "mcnemar_p": 1,
+      "verdict": "PASS",
+      "underpowered": false,
+      "discordant": 0,
+      "deficit_parts": 0,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 595,
+      "both_ok_disagree": 600,
+      "native_status": {
+        "OK": 600
+      },
+      "occt_status": {
+        "OK": 600
+      },
+      "native_valid": 600,
+      "occt_valid": 600,
+      "occt_only_examples": []
+    },
+    {
+      "family": "DRAFT",
+      "option": "FORGE_DRAFT_DROP_NATIVE",
+      "N": 565,
+      "not_applicable": 35,
+      "na_reasons": {
+        "no_planar_side_wall": 35
+      },
+      "both_ok": 0,
+      "native_only": 0,
+      "occt_only": 497,
+      "neither": 68,
+      "native_rate": 0,
+      "occt_rate": 0.879646017699115,
+      "delta": -0.879646017699115,
+      "ci95": [
+        -0.9064757321409959,
+        -0.8528163032572341
+      ],
+      "mcnemar_p": 4.887898181599562e-150,
+      "verdict": "FAIL",
+      "underpowered": false,
+      "discordant": 497,
+      "deficit_parts": 497,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 0,
+      "both_ok_disagree": 0,
+      "native_status": {
+        "DEFER": 565
+      },
+      "occt_status": {
+        "THREW": 66,
+        "OK": 497,
+        "DEFER": 2
+      },
+      "native_valid": 0,
+      "occt_valid": 445,
+      "occt_only_examples": [
+        "ho1",
+        "ho10",
+        "ho1001",
+        "ho1002",
+        "ho1005",
+        "ho1008",
+        "ho1010",
+        "ho1011",
+        "ho1014",
+        "ho1017",
+        "ho1019",
+        "ho102"
+      ]
+    },
+    {
+      "family": "PIPESHELL_RC",
+      "option": "?",
+      "N": 600,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 598,
+      "native_only": 2,
+      "occt_only": 0,
+      "neither": 0,
+      "native_rate": 1,
+      "occt_rate": 0.9966666666666667,
+      "delta": 0.0033333333333333335,
+      "ci95": [
+        -0.0012787249361903169,
+        0.007945391602856984
+      ],
+      "mcnemar_p": 0.5000000000000004,
+      "verdict": "PASS",
+      "underpowered": true,
+      "discordant": 2,
+      "deficit_parts": 0,
+      "both_ok_agree": 325,
+      "both_ok_agree_upto_orientation": 325,
+      "both_ok_disagree": 273,
+      "native_status": {
+        "OK": 600
+      },
+      "occt_status": {
+        "OK": 598,
+        "THREW": 2
+      },
+      "native_valid": 600,
+      "occt_valid": 567,
+      "occt_only_examples": []
+    },
+    {
+      "family": "PIPESHELL_XOR",
+      "option": "?",
+      "N": 598,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 14,
+      "native_only": 6,
+      "occt_only": 572,
+      "neither": 6,
+      "native_rate": 0.033444816053511704,
+      "occt_rate": 0.979933110367893,
+      "delta": -0.9464882943143813,
+      "ci95": [
+        -0.9678021262423796,
+        -0.925174462386383
+      ],
+      "mcnemar_p": 1.030822563622841e-160,
+      "verdict": "FAIL",
+      "underpowered": false,
+      "discordant": 578,
+      "deficit_parts": 572,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 0,
+      "both_ok_disagree": 14,
+      "native_status": {
+        "EMPTY": 577,
+        "OK": 20,
+        "TIMEOUT": 1
+      },
+      "occt_status": {
+        "OK": 586,
+        "DEFER": 1,
+        "EMPTY": 11
+      },
+      "native_valid": 580,
+      "occt_valid": 595,
+      "occt_only_examples": [
+        "ho0",
+        "ho1",
+        "ho10",
+        "ho1001",
+        "ho1002",
+        "ho1005",
+        "ho1008",
+        "ho1010",
+        "ho1011",
+        "ho1014",
+        "ho1017",
+        "ho1019"
+      ]
+    },
+    {
+      "family": "PIPESHELL_XOR_POS",
+      "option": "?",
+      "N": 598,
+      "not_applicable": 0,
+      "na_reasons": {},
+      "both_ok": 0,
+      "native_only": 0,
+      "occt_only": 0,
+      "neither": 598,
+      "native_rate": 0,
+      "occt_rate": 0,
+      "delta": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "mcnemar_p": 1,
+      "verdict": "PASS",
+      "underpowered": false,
+      "discordant": 0,
+      "deficit_parts": 0,
+      "both_ok_agree": 0,
+      "both_ok_agree_upto_orientation": 0,
+      "both_ok_disagree": 0,
+      "native_status": {
+        "EMPTY": 598
+      },
+      "occt_status": {
+        "NOTRUN": 598
+      },
+      "native_valid": 598,
+      "occt_valid": 0,
+      "occt_only_examples": []
+    }
+  ]
+}

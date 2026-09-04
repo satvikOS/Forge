@@ -4051,3 +4051,77 @@ Re-verified structurally this tick: **all nine family options still default OFF 
 and `CMakeLists.txt` releases TKOffset only when **all nine** are ON — so the number cannot have moved.
 No binary was rebuilt for this check, and that is stated rather than implied. **"11" must never be
 quoted as progress.**
+
+---
+
+## 2026-09-03 — the flip gate was measuring the wrong thing, and the instruments crash
+
+**THE VERDICT WAS ONE LINE, AND THE FILE SAID SO.** `forge-kernel/test/corpus_ab_aggregate.mjs` decided
+every family with
+
+```js
+const natOk = f.BOTH_OK + f.NATIVE_ONLY; const occtOk = f.BOTH_OK + f.OCCT_ONLY;
+const pass = natOk >= occtOk;
+```
+
+while its own prose admitted `agree` was computed and **"THE VERDICT DOES NOT READ IT"**. Validity was
+likewise reported and unread. Same 600 parts, same 7,796 rows, aggregated twice: **five of ten drop
+options PASSED on coverage; ZERO of ten pass on replaceability.** MAKEOFFSET, PIPE, PIPESHELL, FILLING
+and THICKEN all flip. Not a regression — the geometry was always this way and the verdict could not
+see it. **"A, C, E, I pass their flip gate" is retired.**
+
+**THE DISAGREEMENTS ARE FIVE CLASSES, EACH WITH A CLOSED FORM OR A COUNT.**
+- *Different operation* — PIPE and PIPESHELL differ on **600/600** at volume ratio 1.071797, and
+  **2/(1+cos 30°) = 1.071797** exactly. Face counts differ on 505/600.
+- *Different orientation* — THICKEN differs on **600/600** by signed volume **exactly −1.000000**, area
+  ratio exactly 1.000000, 595/600 agreeing up to orientation. One sign bit — and still not
+  boolean-interchangeable.
+- *Different representation* — FILLING **407/407** and THRUSECTIONS **498/498** match on volume, area,
+  COM, all six bbox bounds **and every f/e/v/shell/solid count**, differing only as native `Plane` vs
+  OCCT `BSplineSurface` on the same face with the same four line edges. **The native answer is arguably
+  the better one**; the gate judges interchangeability, not correctness, and prints both readings.
+- *Different decomposition* — MAKEOFFSET **285/285** differ in edge count at wire-length ratio p50
+  0.999956.
+- *Numerical margin* — FILLET's 58 sit at 2–5e-6 against a 1e-6 bound. **No tolerance was widened.**
+
+**AND THE BAR IS MOSTLY INVALID.** THICKSOLID: 132 OCCT answers, **132 BRepCheck-invalid**, valid bar
+**zero**. OFFSETSHAPE: 38 answers, **33 invalid**, valid bar 5 — and native's 24 answers are all valid
+yet reproduce **none** of those 5, because it declines on exactly those parts. DRAFT 52 of 497 invalid;
+FILLET 91 of its own 403.
+
+**THE GROUND TRUTH CRASHES, AND SO DOES THE INSTRUMENT THAT JUDGES IT.** A census of 232 crash reports
+from one day, counted by **faulting address** rather than process name, shows OCCT faulting at **five
+distinct sites**:
+
+```
+  67  0x30  libTKTopAlgo   BRepCheck_Analyzer / BRepCheck_Solid::Minimum   <- the validity checker
+  48  0x60  libTKBRep      BRep_Tool::CurveOnSurface (the offset engine)
+  28  0x78  libTKMath      ShapeCustom::SweptToElementary
+   2  0x70  libTKG3d
+   2  0x10  libTKG2d
+```
+
+**The most frequent OCCT crash is the validity checker itself** — 67 of 145 OCCT faults. Every
+"N of M are BRepCheck-invalid" figure above therefore has a true denominator of *"shapes the checker
+survived"*, and any validity term used as a merge criterion needs a crash-safe call path. Separately,
+`ShapeCustom::SweptToElementary` — the natural API for asking *"is this BSplineSurface really a
+plane?"*, which is exactly the FILLING/THRUSECTIONS question — **crashes on this corpus**, so that
+equivalence must be decided without it. And THICKSOLID's bar is not even stable: `ho317` returned OK,
+then `CRASH signal 11`, then OK five times running.
+
+**METHOD NOTES WORTH KEEPING.** Term 1 of the new verdict is the original line **verbatim**, so the new
+verdict is a strict subset of the old — it can only remove passes, and a check enforces
+`verdict==PASS ⇒ coverage_only_verdict==PASS` over fixtures and every real run. The coverage bar is
+never lowered; the valid bar prints beside it. The harness change was proved **inert**: 7,781 of 7,796
+rows byte-identical, the 14 differing only in already-documented summation noise. All three committed
+summaries **regenerate byte-identically** from the committed raw rows, so a reviewer can reproduce every
+number rather than trust it. **A threshold must be measured, not chosen**: the first centroid-sanity
+term fired on 12 of 61 *valid* THICKEN rows because a full cylinder's vertex-derived bbox is a line —
+a term that reds a valid cylinder is a wrong gate, not a stricter one.
+
+**LEDGER, UNCHANGED AND STATED PLAINLY:** `occt_closure_count.sh` reports **OCCT_DIRECT 9,
+OCCT_CLOSURE 14, OCCT_PHANTOM 2 — zero of fourteen toolkits dropped.** All nine family options remain
+default OFF; `CMakeLists.txt` releases TKOffset only when all nine are ON, and flipping them today
+would delete an answer on **233 of 600 parts (38.8%)** while shifting every sweep's volume by 5.5–9.8%.
+Nothing in this work moved that number, and nothing should until a family is replaceable rather than
+merely covering.

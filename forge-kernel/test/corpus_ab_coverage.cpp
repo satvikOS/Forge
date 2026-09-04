@@ -41,13 +41,18 @@
 //   down and flatter the native side. Validity is measured and reported
 //   SEPARATELY, per arm, so the gate can be read both ways.
 //
-// AND, FOR FREE, AN AGREEMENT CHECK. In the BOTH_OK bucket the two shapes are
-//   compared on a VECTOR of observables — volume, area, centre of mass (3),
-//   bounding box (6), face/edge/vertex/shell/solid counts — never on volume
-//   alone (this repo has four measured cases where a wrong solid matched the
-//   right volume; in one of them no single observable caught it). Disagreement
-//   there is a CORRECTNESS finding, not a coverage one, and is reported in its
-//   own column so it cannot be mistaken for either.
+// AND AN AGREEMENT CHECK, WHICH THE FLIP GATE NOW READS. In the BOTH_OK bucket
+//   the two shapes are compared on a VECTOR of observables — volume, area,
+//   centre of mass (3), bounding box (6), face/edge/vertex/shell/solid counts,
+//   AND the faces and edges binned BY SURFACE / CURVE KIND (`agree_strict`,
+//   emitted alongside the unchanged `agree`) — never on volume alone (this repo
+//   has four measured cases where a wrong solid matched the right volume; in one
+//   of them no single scalar observable caught it). The kind histograms exist
+//   because counts are blind to the substitution these engines actually make:
+//   swapping an analytic quadric for a spline or a tessellation keeps the face
+//   count and changes every face's TYPE. Coverage parity with zero agreement is
+//   not equivalence, and until `agree_strict` the verdict could not say so —
+//   families E and F measured 599/600 vs 600/600 while agreeing on 0 of 599.
 //
 // CRASH / HANG CONTAINMENT. Every arm runs in a FORKED CHILD that writes a
 //   fixed-size POD back over a pipe and _exit()s. A SIGSEGV or an infinite loop
@@ -126,6 +131,7 @@
 
 // ── OCCT: topology / geometry ───────────────────────────────────────────────
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -174,8 +180,10 @@
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>     // OFFSETSHAPE  (family H)
 #include <BRepOffset_MakeOffset.hxx>             // THICKEN      (family I)
 #include <BRepOffset_Mode.hxx>
+#include <GeomAbs_CurveType.hxx>
 #include <GeomAbs_JoinType.hxx>
 #include <GeomAbs_Shape.hxx>
+#include <GeomAbs_SurfaceType.hxx>
 
 // ── the native engines under test ───────────────────────────────────────────
 #include "forge/native/brep/NativeThickSolid.hpp"      // families G, H
@@ -185,6 +193,7 @@
 #include "forge/native/brep/NativeFilling.hpp"         // family  B/C
 #include "forge/native/brep/NativeFilletChamfer.hpp"   // TKFillet
 #include "forge/native/geom/PolygonOffset2D.hpp"       // family  A
+#include "forge/OcctPrimBuilder.hpp"                    // selftest: an ANALYTIC cylinder
 
 namespace {
 
@@ -210,8 +219,27 @@ struct ArmResult {
     double volume   = 0.0, area = 0.0, length = 0.0;
     double com[3]   = {0, 0, 0};
     double bb[6]    = {0, 0, 0, 0, 0, 0};   // vertex-derived, not Bnd_Box
+    // TOPOLOGY BY SURFACE / CURVE KIND, not just by count. `nfaces` alone
+    // cannot tell a 6-plane box from a 6-face body with a cylindrical wall, and
+    // the OFFSETSHAPE and THICKSOLID arms differ exactly there: an engine that
+    // linearises a quadric keeps the face count and changes every face's TYPE.
+    // Counts by kind cost one extra pass over maps this function already builds
+    // and turn that substitution from invisible into a hard mismatch.
+    // Indexed by GeomAbs_SurfaceType (0..10) and GeomAbs_CurveType (0..8); the
+    // last bin of each is the enum's own "Other", which also absorbs a face or
+    // edge whose adaptor throws, so the histograms always sum to nfaces/nedges.
+    int    fkind[11] = {0};
+    int    ekind[9]  = {0};
     char   note[192] = {0};
 };
+
+// The two enums are compile-time width-checked, because a new OCCT release that
+// grows either one would silently start folding a new kind into "Other" — which
+// is a WIDENING of the comparison, and this file is not allowed to widen.
+static_assert(static_cast<int>(GeomAbs_OtherSurface) == 10,
+              "GeomAbs_SurfaceType grew: widen ArmResult::fkind before building");
+static_assert(static_cast<int>(GeomAbs_OtherCurve) == 8,
+              "GeomAbs_CurveType grew: widen ArmResult::ekind before building");
 
 const char* statusName(int s) {
     switch (s) {
@@ -231,8 +259,33 @@ const char* statusName(int s) {
 // see (the same choice ab_native_thicken_occt.cpp makes and states).
 void measure(const TopoDS_Shape& s, ArmResult& r) {
     TopTools_IndexedMapOfShape m;
-    TopExp::MapShapes(s, TopAbs_FACE, m);   r.nfaces  = m.Extent(); m.Clear();
-    TopExp::MapShapes(s, TopAbs_EDGE, m);   r.nedges  = m.Extent(); m.Clear();
+    TopExp::MapShapes(s, TopAbs_FACE, m);   r.nfaces  = m.Extent();
+    // Kinds are read off the SAME indexed map the count came from, never a fresh
+    // TopExp_Explorer: an explorer visits a shared face once per use and the map
+    // deduplicates, so the two disagree on any shape with a shared face and the
+    // histogram would not sum to the count it is reported beside. Assertions at
+    // the end of this function require the sums to match, so that cannot drift.
+    for (int i = 1; i <= m.Extent(); ++i) {
+        int k = static_cast<int>(GeomAbs_OtherSurface);
+        try {
+            BRepAdaptor_Surface ad(TopoDS::Face(m(i)), Standard_False);
+            const int t = static_cast<int>(ad.GetType());
+            if (t >= 0 && t <= static_cast<int>(GeomAbs_OtherSurface)) k = t;
+        } catch (...) { /* no surface / adaptor threw: it counts as Other, never dropped */ }
+        r.fkind[k]++;
+    }
+    m.Clear();
+    TopExp::MapShapes(s, TopAbs_EDGE, m);   r.nedges  = m.Extent();
+    for (int i = 1; i <= m.Extent(); ++i) {
+        int k = static_cast<int>(GeomAbs_OtherCurve);
+        try {
+            BRepAdaptor_Curve ad(TopoDS::Edge(m(i)));
+            const int t = static_cast<int>(ad.GetType());
+            if (t >= 0 && t <= static_cast<int>(GeomAbs_OtherCurve)) k = t;
+        } catch (...) { /* degenerate edge with no 3D curve: Other, never dropped */ }
+        r.ekind[k]++;
+    }
+    m.Clear();
     TopExp::MapShapes(s, TopAbs_VERTEX, m); r.nverts  = m.Extent(); m.Clear();
     TopExp::MapShapes(s, TopAbs_SHELL, m);  r.nshells = m.Extent(); m.Clear();
     TopExp::MapShapes(s, TopAbs_SOLID, m);  r.nsolids = m.Extent(); m.Clear();
@@ -283,6 +336,18 @@ void measure(const TopoDS_Shape& s, ArmResult& r) {
     }
     try { BRepCheck_Analyzer an(s); r.valid = an.IsValid() ? 1 : 0; }
     catch (...) { r.valid = -1; }
+
+    // A histogram that does not sum to the count beside it is a silently
+    // WEAKENED comparison (a face that fell out of every bin can never
+    // mismatch), so it is a hard error here rather than a quiet zero.
+    int fs = 0, es = 0;
+    for (int i = 0; i < 11; ++i) fs += r.fkind[i];
+    for (int i = 0; i < 9;  ++i) es += r.ekind[i];
+    if (fs != r.nfaces || es != r.nedges) {
+        std::fprintf(stderr, "FATAL: kind histogram lost topology (faces %d vs %d, edges %d vs %d)\n",
+                     fs, r.nfaces, es, r.nedges);
+        std::abort();
+    }
 }
 
 // ───────────────────────────────────────────────────────────── the arm runner
@@ -772,14 +837,19 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
 
 // ─────────────────────────────────────────────────────────────── JSON output
 void emitArm(std::string& out, const char* key, const ArmResult& r) {
-    char buf[768];
+    char buf[1280];
     std::snprintf(buf, sizeof buf,
         "\"%s\":{\"status\":\"%s\",\"valid\":%d,\"f\":%d,\"e\":%d,\"v\":%d,\"sh\":%d,\"so\":%d,"
         "\"vol\":%.10g,\"area\":%.10g,\"len\":%.10g,"
-        "\"com\":[%.10g,%.10g,%.10g],\"bb\":[%.10g,%.10g,%.10g,%.10g,%.10g,%.10g],\"note\":\"",
+        "\"com\":[%.10g,%.10g,%.10g],\"bb\":[%.10g,%.10g,%.10g,%.10g,%.10g,%.10g],"
+        "\"fk\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d],\"ek\":[%d,%d,%d,%d,%d,%d,%d,%d,%d],\"note\":\"",
         key, statusName(r.status), r.valid, r.nfaces, r.nedges, r.nverts, r.nshells, r.nsolids,
         r.volume, r.area, r.length, r.com[0], r.com[1], r.com[2],
-        r.bb[0], r.bb[1], r.bb[2], r.bb[3], r.bb[4], r.bb[5]);
+        r.bb[0], r.bb[1], r.bb[2], r.bb[3], r.bb[4], r.bb[5],
+        r.fkind[0], r.fkind[1], r.fkind[2], r.fkind[3], r.fkind[4], r.fkind[5],
+        r.fkind[6], r.fkind[7], r.fkind[8], r.fkind[9], r.fkind[10],
+        r.ekind[0], r.ekind[1], r.ekind[2], r.ekind[3], r.ekind[4],
+        r.ekind[5], r.ekind[6], r.ekind[7], r.ekind[8]);
     out += buf;
     for (const char* p = r.note; *p; ++p) {
         if (*p == '"' || *p == '\\') { out += '\\'; out += *p; }
@@ -814,6 +884,32 @@ bool agree(const ArmResult& a, const ArmResult& b, double diag, bool signedVolum
     if (a.nfaces != b.nfaces || a.nedges != b.nedges || a.nverts != b.nverts ||
         a.nshells != b.nshells || a.nsolids != b.nsolids) return false;
     return true;
+}
+
+// ── THE AGREEMENT TERM THE FLIP GATE READS ──────────────────────────────────
+// `agree` above is left exactly as it was, byte for byte, because reports
+// already in reports/corpus_ab/ quote it and redefining a published number in
+// place is how a ledger stops being comparable. `agree_strict` is ADDITIVE and
+// is `agree` AND the surface/curve-kind histograms. It can only ever be a
+// SUBSET of `agree` — never a superset — which is the direction this file is
+// allowed to move in.
+//
+// WHY KINDS. Volume has passed here while the geometry was wrong four separate
+// times, and in one of them no single scalar observable caught it. Face and
+// edge COUNTS close some of that, but they are blind to the substitution these
+// engines actually make: replacing an analytic quadric with a tessellation or a
+// B-spline keeps the count and changes the kind. A cylinder-walled body and a
+// planar-walled body with the same face count, the same volume to 1e-6 and the
+// same bounding box are DIFFERENT SOLIDS, and until this predicate existed the
+// A/B called them equal.
+bool agreeKinds(const ArmResult& a, const ArmResult& b) {
+    for (int i = 0; i < 11; ++i) if (a.fkind[i] != b.fkind[i]) return false;
+    for (int i = 0; i < 9;  ++i) if (a.ekind[i] != b.ekind[i]) return false;
+    return true;
+}
+
+bool agreeStrict(const ArmResult& a, const ArmResult& b, double diag) {
+    return agree(a, b, diag, true) && agreeKinds(a, b);
 }
 
 const char* bucketOf(const ArmResult& nat, const ArmResult& oc) {
@@ -1018,7 +1114,85 @@ int selftest(const Cfg& cfg) {
                                             gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 1.0e-6);
     }, true, CT, false).status);
 
-    std::printf("%s: self-test, %d check(s) red of 15\n", bad ? "FAIL" : "PASS", bad);
+    // ─────────────────────────────────────────────────────────────────────
+    // OBSERVABLE-VECTOR CONTROLS — the positive control for the AGREEMENT term
+    // the flip gate now reads.
+    //
+    // agreeStrict() is a REQUIREMENT the gate must clear, so the failure mode
+    // that matters is the silent one: a predicate that can never say `false`
+    // passes every family and looks exactly like agreement. Two things are
+    // therefore proved here, not assumed.
+    //   (a) THE INSTRUMENT READS KINDS AT ALL. A histogram that binned every
+    //       face into "Other" would make agreeKinds() vacuously true. A box and
+    //       an analytic cylinder are measured and required to land in DIFFERENT,
+    //       NAMED bins (6 planes; 2 planes + 1 cylinder).
+    //   (b) THE PREDICATE CAN RETURN FALSE where the old one returned true. Two
+    //       ArmResults identical in every scalar the old `agree` compares —
+    //       volume, area, centre of mass, all six bbox bounds, and every
+    //       face/edge/vertex/shell/solid COUNT — but with one face moved from
+    //       the plane bin to the B-spline bin. That is precisely the
+    //       quadric-to-spline substitution these engines make. Old vector: EQUAL.
+    //       New vector: DIFFERENT.
+    // And agreeStrict() is required to IMPLY agree() on every case, because a
+    // "stricter" predicate that accepts something the old one rejected is not
+    // stricter.
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        auto vcheck = [&](const char* what, bool got, bool want) {
+            const bool okv = (got == want);
+            std::printf("  %-40s got %-5s want %-5s  %s\n", what, got ? "true" : "false",
+                        want ? "true" : "false", okv ? "ok" : "MISMATCH");
+            if (!okv) ++bad;
+        };
+
+        ArmResult mbox, mcyl;
+        measure(box, mbox);
+        const TopoDS_Solid cyl = forge::occtCylinderSolid(5.0, 10.0);
+        if (cyl.IsNull()) {
+            std::printf("  observable-vector control: NO CYLINDER — instrument unproved\n");
+            ++bad;
+        } else {
+            measure(cyl, mcyl);
+            vcheck("box faces are all planes",
+                   mbox.fkind[GeomAbs_Plane] == mbox.nfaces && mbox.nfaces > 0, true);
+            vcheck("cylinder has a CYLINDER-kind face",
+                   mcyl.fkind[GeomAbs_Cylinder] >= 1, true);
+            vcheck("cylinder has a CIRCLE-kind edge",
+                   mcyl.ekind[GeomAbs_Circle] >= 1, true);
+            vcheck("kinds are not all binned as Other",
+                   mbox.fkind[GeomAbs_OtherSurface] == 0 &&
+                   mcyl.fkind[GeomAbs_OtherSurface] == 0, true);
+            vcheck("histograms sum to the counts beside them",
+                   mcyl.fkind[GeomAbs_Plane] + mcyl.fkind[GeomAbs_Cylinder] +
+                   mcyl.fkind[GeomAbs_OtherSurface] == mcyl.nfaces, true);
+        }
+
+        // (b) the substitution the OLD vector cannot see.
+        ArmResult a, b;
+        a.status = b.status = ARM_OK;
+        a.nfaces = b.nfaces = 6;  a.nedges = b.nedges = 12; a.nverts = b.nverts = 8;
+        a.nshells = b.nshells = 1; a.nsolids = b.nsolids = 1;
+        a.volume = b.volume = 1000.0; a.area = b.area = 600.0;
+        for (int i = 0; i < 3; ++i) a.com[i] = b.com[i] = 5.0;
+        for (int i = 0; i < 3; ++i) { a.bb[i] = b.bb[i] = 0.0; a.bb[i + 3] = b.bb[i + 3] = 10.0; }
+        a.fkind[GeomAbs_Plane] = 6;
+        b.fkind[GeomAbs_Plane] = 5; b.fkind[GeomAbs_BSplineSurface] = 1;
+        a.ekind[GeomAbs_Line] = 12; b.ekind[GeomAbs_Line] = 12;
+        vcheck("OLD vector calls quadric->spline EQUAL", agree(a, b, 17.32, true), true);
+        vcheck("NEW vector calls quadric->spline DIFFERENT", agreeStrict(a, b, 17.32), false);
+        // an edge-kind-only substitution, same test in the other histogram
+        ArmResult c = a;
+        c.ekind[GeomAbs_Line] = 11; c.ekind[GeomAbs_BSplineCurve] = 1;
+        vcheck("OLD vector calls line->spline EQUAL", agree(a, c, 17.32, true), true);
+        vcheck("NEW vector calls line->spline DIFFERENT", agreeStrict(a, c, 17.32), false);
+        // identity must still agree, or the term is not a test, it is a refusal
+        vcheck("identical results still agree (strict)", agreeStrict(a, a, 17.32), true);
+        // strict must IMPLY loose on every case above
+        vcheck("strict implies loose (a,b)", !agreeStrict(a, b, 17.32) || agree(a, b, 17.32, true), true);
+        vcheck("strict implies loose (a,c)", !agreeStrict(a, c, 17.32) || agree(a, c, 17.32, true), true);
+    }
+
+    std::printf("%s: self-test, %d check(s) red of 27\n", bad ? "FAIL" : "PASS", bad);
     return bad ? 1 : 0;
 }
 
@@ -1122,15 +1296,18 @@ int main(int argc, char** argv) {
         if (applicable) {
             emitArm(line, "native", nat); line += ",";
             emitArm(line, "occt", oc);    line += ",";
-            char tail[192];
+            char tail[256];
             std::snprintf(tail, sizeof tail,
-                          "\"bucket\":\"%s\",\"agree\":%s,\"agree_upto_orientation\":%s}",
+                          "\"bucket\":\"%s\",\"agree\":%s,\"agree_upto_orientation\":%s,"
+                          "\"agree_strict\":%s}",
                           bucketOf(nat, oc),
                           agree(nat, oc, part.diag, true) ? "true" : "false",
-                          agree(nat, oc, part.diag, false) ? "true" : "false");
+                          agree(nat, oc, part.diag, false) ? "true" : "false",
+                          agreeStrict(nat, oc, part.diag) ? "true" : "false");
             line += tail;
         } else {
-            line += "\"bucket\":\"NOT_APPLICABLE\",\"agree\":false,\"agree_upto_orientation\":false}";
+            line += "\"bucket\":\"NOT_APPLICABLE\",\"agree\":false,"
+                    "\"agree_upto_orientation\":false,\"agree_strict\":false}";
         }
         line += "\n";
         std::fputs(line.c_str(), stdout);

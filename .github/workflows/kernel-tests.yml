@@ -167,7 +167,27 @@ jobs:
         # file matches the RUNNING code; this proves it matches the SOURCE TEXT, which
         # is the half that catches a kernel-header signature change nothing in ui/
         # would notice. Stdlib-only Python, no install step.
-        run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
+        #
+        # ★ AND NO CONFLICT MARKER IS EITHER. A DRIFT CHECK PROVES SELF-CONSISTENCY,
+        #   NOT CORRECTNESS -- measured 2026-09-03, not supposed. A resolution left
+        #   <<<<<<< / >>>>>>> in forge-kernel/CMakeLists.txt; regenerating recorded
+        #   THAT file's hash and BOTH --check gates reported OK. The gate that exists
+        #   to notice a source moving cannot notice the source being a BROKEN MERGE,
+        #   because a conflicted file is perfectly self-consistent with a hash of
+        #   itself. On a file nothing parses strictly, that ships. Scanned FIRST, so
+        #   a green --check is never the last word.
+        #   ONLY git's LABELLED prefixes are matched. A bare `=======` line is a
+        #   markdown setext H1 underline, and a gate that reds a valid document is
+        #   not a stricter gate, it is a WRONG one -- the same correction this change
+        #   set already had to make once, to its centroid-sanity threshold. A
+        #   conflict always writes both prefixes, so either alone is sufficient.
+        run: |
+          if git grep -nE '^(<<<<<<< |>>>>>>> )' -- . ; then
+            echo "::error::conflict markers are committed -- this tree is a broken merge"
+            exit 1
+          fi
+          echo "no conflict markers in the tree"
+          python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
       - name: op-constraint bridge (drift check + 9 mutations)
         # The bridge is the vocabulary made ENFORCEABLE: it accepts or refuses a
         # proposed op plan against the user-invocable ops. run_ui.sh above already
@@ -802,6 +822,24 @@ jobs:
         # FALLS without the baseline being lowered in the same commit. All seven run in
         # about 93 seconds on this runner, which already has OCCT installed.
         run: bash forge-kernel/test/run_ab_all.sh
+      - name: corpus A/B flip-gate terms (each added term is driven to FAIL and back)
+        # THE GATE THAT DECIDES WHETHER OCCT MAY BE DROPPED, tested. Until
+        # 2026-09-03 the per-family verdict was one line -- `natOk >= occtOk` --
+        # which counts only whether each arm RETURNED a shape. Measured on the
+        # same 600-part corpus: OFFSETSHAPE was asked to clear a bar of 38 OCCT
+        # answers of which 33 fail BRepCheck; THICKSOLID a bar of 133 of which
+        # ALL 133 fail it; and PIPE/PIPESHELL read one part from parity while
+        # agreeing with OCCT on ZERO of 599 parts. Validity, agreement,
+        # replaceability and centroid-sanity terms were added.
+        #
+        # AN ADDED TERM THAT CANNOT FAIL IS INDISTINGUISHABLE FROM ONE THAT IS
+        # NOT THERE. This drives each term to FAIL on a fixture built for it and
+        # then to PASS with the one offending field changed -- a term stuck at
+        # FAIL is as useless as one stuck at PASS -- and asserts the direction of
+        # the whole change: verdict PASS must imply the OLD coverage-only verdict
+        # was PASS, so the gate can only ever have got stricter. Pure node, no
+        # build, ~2s; it rides this job because this is where the A/B lives.
+        run: node forge-kernel/test/corpus_ab_gate_selftest.mjs
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
         # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
