@@ -4327,3 +4327,56 @@ assistant answer verbatim in the user prompt. This is the same defect one level 
 answer in the prompt, but the *vocabulary* in the prompt, in 100% of rows. **A corpus can be 100%
 legal, fully covered across all 53 ops, and still teach copying rather than knowing. Check what the
 model must SUPPLY, not just what the corpus CONTAINS.**
+
+## 2026-09-04 — the FILLET/CHAMFER deficit decomposed; and it does not move closure
+
+Measured on a full 600-part corpus run at `0e1efdcd` (1200 rows, 0 error rows, gate self-test PASS,
+`build_stamp.git_head == kernel_head_at_run`, 0 dirty files). Positive control: the run reproduced
+#242's pre-registered numbers exactly, so the binary matches the tree.
+
+**First, a correction to how we have been stating the deficit.** "Parts where OCCT succeeds and
+native DEFERS" is true for CHAMFER (171/171) but NOT for FILLET:
+
+| family | deficit | native DEFER | native invalid | native VALID but disagrees |
+|---|---:|---:|---:|---:|
+| FILLET | 202 | **144** | 0 | **58** |
+| CHAMFER | 171 | **171** | 0 | 0 |
+
+Both tables below sum to the deficit **exactly, with no remainder**.
+
+**FILLET 202** — hole-wire clearance 69 · *disagreement (not a defer) 58* · ring clearance 37 ·
+face A non-planar 14 · face B non-planar 9 · extent unmeasurable 7 · non-straight outer boundary 6 ·
+vertex not trihedral 2.
+
+**CHAMFER 171** — end face not a straight-boundary corner 67 · hole-wire clearance 59 · ring
+clearance 16 · face B non-planar 8 · face A non-planar 7 · extent unmeasurable 7 · non-straight
+outer boundary 6 · vertex not trihedral 1.
+
+The two families are the **same parts class-for-class**. The one off-diagonal cell is
+`FILLET DISAGREE(58) → CHAMFER ENDFACE(58)`: one geometry class seen twice.
+
+**The 58 are probably the instrument, not the engine.** Counts, bbox (bit-identical) and COM all
+agree; only volume (2.2–5.0e-6 relative) and area (4.5–6.3e-6) differ. Native emits exact
+**Torus×4 + Cylinder×8**; OCCT emits **BSpline×8**. If native is the correct arm the true FILLET
+capability deficit is **144, not 202**. **This is being adjudicated against an independent closed
+form — neither arm may be its own judge — and until that returns the deficit stays stated as 202.**
+
+**Tractable:** CHAMFER's 67 end-face parts are a pure code gap — FILLET answers them through
+`filletTangentRim`; CHAMFER has no rim path at all. The chamfer rim is strictly simpler (a Plane per
+line segment where the fillet uses a cylinder, a Cone per arc where it uses a torus). Implementation
+is under way. Hole-wire clearance (69/59) is also bounded but is two pieces, not one: OCCT's answer
+there is a blend **split into two by the bore**, which `retrimAdjacentFace` cannot express.
+
+**Deep, and not to be budgeted as a sprint:** the non-planar-face classes (23 FILLET / 15 CHAMFER)
+are 157–181-face organic parts with B-spline outer rings and B-spline/cylindrical end faces; they
+need uv-space retrim of a cylindrical face, spline-boundary retrim, and blend termination against a
+B-spline end face. The last two are the general problem.
+
+★★★**AND THE PART THAT MATTERS MOST: NONE OF THIS MOVES CLOSURE.** The flip gate is
+**`deficit == 0`, not "deficit small"**. Even if the CHAMFER rim and both hole-clearance classes
+landed perfectly, FILLET's defers would fall 144 → 75 and CHAMFER's 171 → 45 — **both rows still
+fail, `TKFillet` still cannot go, and `TKOffset` has to go in the same step regardless.**
+**OCCT_CLOSURE stays 14.** This is the honest answer to "why has closure still not dropped": the
+remaining work is not a long tail of small fixes, it is ~23–38 parts per family of genuine spline
+blending, behind an all-or-nothing gate, on the second member of a pair that must be removed
+together.
