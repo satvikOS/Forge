@@ -73,6 +73,13 @@ flatter the native side — the harness would be marking its own homework. Valid
 is measured for both arms and reported in its own column, so the gate can be read
 either way from the same run.
 
+**That last sentence was true of the *report* and false of the *verdict* until
+2026-09-03.** The validity column existed and nothing read it; the coverage bar
+counted every OCCT answer including the invalid ones, and three families were being
+asked to reproduce solids that fail `BRepCheck`. §2.9 is what the verdict reads now.
+The success predicate itself is unchanged — validity is still not part of "success",
+for exactly the reason above.
+
 ### 2.3 Derivation — the input distribution, stated in full
 
 A coverage number is only as honest as the distribution it was measured over, so the
@@ -159,6 +166,111 @@ interval is not a result, and the concordant pairs carry no information about wh
 engine is better — including them (a two-proportion z) would understate the
 uncertainty. When the CI straddles zero the table says so next to the verdict:
 "not significantly worse" is not "not worse".
+
+### 2.9 The verdict: replaceability, not coverage (2026-09-03)
+
+Until 2026-09-03 the per-family verdict was one line in `corpus_ab_aggregate.mjs`:
+
+```js
+const pass = natOk >= occtOk;        // natOk  = both + nat only
+                                     // occtOk = both + OCCT only
+```
+
+It asks only **whether each arm returned a shape**. Three facts measured on this
+same corpus say that is not the question the drop options are asking:
+
+| | measured | what the coverage line did with it |
+|---|---|---|
+| **H OFFSETSHAPE** | OCCT answers on 38/600; **33 of those 38 fail `BRepCheck`** | set the native arm a bar of 38 |
+| **G THICKSOLID** | OCCT answers on 133/600; **all 133 fail `BRepCheck`** (§4 of `reports/corpus_ab/THICKSOLID_ATTRIBUTION.md`, on a corpus whose 600 source solids are all valid, six of them with more volume than the body they hollowed) | set the native arm a bar of 133 |
+| **E PIPE / F PIPESHELL** | 599/600 vs 600/600 — "one part from parity" — while **agreeing on 0 of 599**, at a constant volume ratio 2/(1+cos 30°) = 1.071797 | read as near-passing |
+
+So a family could **fail** while being asked to reproduce invalid geometry, and
+**pass** while computing a different operation. The verdict is now a conjunction of
+five terms:
+
+| term | assertion |
+|---|---|
+| 1 **coverage** | `natOk >= occtOk` — **the original line, verbatim and still binding** |
+| 2 **validity** | native OK-and-`BRepCheck`-valid >= OCCT OK-and-valid |
+| 3 **agreement** | of the parts where **both** arms return a **valid** shape, the number whose observable vectors **disagree** must be 0 |
+| 4 **replaceability** | the deficit against the **valid** bar must be 0: every part where OCCT returns a valid shape is reproduced by a native shape that is itself valid **and** agrees |
+| 5 **sanity** | the native arm returns no shape whose centre of mass lies more than 1000x its own diagonal outside its own bounding box |
+
+**Every term is an addition; term 1 is untouched.** A family can therefore never
+pass this gate that would not also have passed the old one, and that direction is
+asserted mechanically rather than claimed — see §2.10.
+
+**Term 5, and why its threshold is 1000x and not "outside the bbox".** A part 50 mm
+across with a centre of mass at 1e33 is a wrong-code-path signature this repo has hit
+twice — `FeatureTreeCompiler`'s test-only setter (mass properties 85.2% low, COM 1e34)
+and the separately-filed `boss_on_plate` defect (COM 2e33, **volume exact**) — and both
+times a volume check saw nothing. The first version of this term simply asked whether
+the COM was outside the bbox, and **it fired on 12 of 61 real THICKEN rows and 1 of 45
+real FILLING rows**. Those are not defects. `bb` is VERTEX-derived (deliberately, so
+`Bnd_Box`'s tolerance inflation cannot blur a disagreement) and a curved face bulges
+past its own vertex hull — a full cylinder's only vertices lie on its seam, so its
+vertex bbox is a **line** and its centroid is legitimately outside it. A term that reds
+a valid cylinder is not a stricter gate, it is a wrong one. The gate term is therefore
+three orders clear of any curvature bulge and still ~28 orders inside the fingerprint;
+the tight count is kept as **reporting only**, under a name that says so. Both
+behaviours are fixtures (E1-E5 fire it, E6-E8 prove it does not fire on curvature).
+
+**The valid bar is reported, never silently substituted.** Term 1 still measures the
+native arm against *all* of OCCT's answers, invalid ones included, because dropping
+the invalid ones would *lower* the bar and this change is not permitted to lower
+anything. The corrected bar (`occt_ok_valid`) is printed **beside** the coverage bar
+in its own table, with the invalid count spelled out, so that H's bar of 38 can be
+seen to be a bar of 5 — and acted on as a deliberate decision about the ledger
+rather than as a side effect of the aggregator.
+
+**What "agree" means.** `agree_strict` from the harness: volume, area, centre of
+mass, all six bbox bounds, face/edge/vertex/shell/solid counts, **and the faces and
+edges binned by surface / curve kind** (`GeomAbs_SurfaceType` / `GeomAbs_CurveType`,
+emitted as `fk[11]` / `ek[9]`). Volume alone has ratified a wrong solid four times in
+this repo, and in one of them no single scalar observable caught it. Counts alone are
+blind to the substitution these engines actually make: replacing an analytic quadric
+with a spline or a tessellation **keeps the face count and changes every face's
+type**. The histograms are read off the same `TopTools_IndexedMapOfShape` the counts
+come from and are asserted to sum to them, so a face cannot fall out of every bin and
+silently become unable to mismatch. `agree` itself is unchanged, byte for byte,
+because reports already in `reports/corpus_ab/` quote it; `agree_strict` is additive
+and can only ever be a subset of it.
+
+A JSONL produced before `agree_strict` existed falls back to `agree` — the strongest
+vector that run actually measured — and every such row is counted and the table
+carries a banner saying so. The fallback is never silent.
+
+### 2.10 The gate's own positive control
+
+`test/corpus_ab_gate_selftest.mjs` — an added term that cannot fail is
+indistinguishable from one that is not there. It invokes the aggregator **as a
+subprocess** on real JSONL (nothing re-implements the gate) and:
+
+- drives **each** of the four added terms to `FAIL` on a fixture built for it, then to `PASS` on
+  the same fixture with the one offending field changed — a term stuck at `FAIL` is
+  as useless as one stuck at `PASS`, and only the pair distinguishes them;
+- proves the gate reads `agree_strict` and not `agree`: a pair the loose vector calls
+  equal and the strict vector calls different is scored as a disagreement;
+- proves an invalid OCCT answer is **reported as invalid, not discarded** — the
+  coverage bar still counts it, the valid bar does not;
+- asserts the direction of the whole change (**check M**): over every fixture, and
+  over any real `results.jsonl` passed with `--corpus`, `verdict == PASS` must imply
+  `coverage_only_verdict == PASS`. If a family ever passes the new gate that would
+  have failed the old one, this goes red;
+- with `--corpus`, **mutates real rows**: breaking one real part's agreement in a
+  passing family must flip it to `FAIL` (R2), and repairing every offending real row
+  of a family that fails only on the added terms must flip it to `PASS` (R3).
+
+It runs in CI (`kernel-tests.yml`, job `kernel`, ~2 s, no build) and
+`run_corpus_ab_coverage.sh` runs it **before** aggregating — a verdict table produced
+by an untested gate is worse than no table — and again with `--corpus` on the rows
+just measured, exiting 5 if either is red. The harness's own `--selftest` gained
+matching controls on the C++ side: a box and an analytic cylinder must land in
+different, named kind bins (a histogram that binned everything as "Other" would make
+the kind comparison vacuously true), and two `ArmResult`s identical in every scalar
+the old vector compares but with one face moved from the plane bin to the B-spline
+bin must be `agree == true` and `agree_strict == false`.
 
 ---
 
@@ -640,6 +752,56 @@ observation worth a controlled A/B between those two commits, not as a result.
 > **57.3%**, above both recorded numbers, and every one of its 344 successes moves
 > exactly the closed-form volume (`|dV|/(1-pi/4)R^2 L = 1.000000`, min = max, 344/344).
 > `reports/corpus_ab/FILLET_ATTRIBUTION.md`.
+
+---
+
+### 3.5 BEFORE / AFTER under the five terms (2026-09-03)
+
+Full detail, with the failure-class decomposition and the proofs, is in
+`reports/corpus_ab/FLIP_GATE_REPLACEABILITY_2026-09-03.md`. Both columns below come from
+**one** corpus run at `9f309b52` (600 parts, 7,796 rows, 0 part-level failures) aggregated
+twice: BEFORE with `corpus_ab_aggregate.mjs` exactly as it stands at `26db603e`, AFTER
+with the five terms. **The denominators are not merely comparable, they are the same
+rows.** A clean-tree BEFORE run at `26db603e` reproduces the BEFORE column family for
+family.
+
+| option | N | nat % | occt % | BEFORE (coverage only) | AFTER (five terms) | failing terms |
+|---|---:|---:|---:|---|---|---|
+| `FORGE_FILLET_DROP_NATIVE` | 600 | 67.2% | 76.8% | FAIL | **FAIL** | coverage, validity, agreement, replaceability |
+| `FORGE_OFFSET_DROP_MAKEOFFSET` | 600 | 100.0% | 99.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_THICKSOLID_DROP_NATIVE` | 600 | 0.0% | 22.0% | FAIL | **FAIL** | coverage |
+| `FORGE_OFFSETSHAPE_DROP_NATIVE` | 600 | 4.0% | 6.3% | FAIL | **FAIL** | coverage, replaceability |
+| `FORGE_THRUSECTIONS_DROP_NATIVE` | 600 | 83.0% | 94.5% | FAIL | **FAIL** | coverage, validity, agreement, replaceability |
+| `FORGE_PIPE_DROP_NATIVE` | 600 | 100.0% | 100.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_PIPESHELL_DROP_NATIVE` | 600 | 100.0% | 100.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_FILLING_DROP_NATIVE` | 600 | 67.8% | 67.8% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_THICKEN_DROP_NATIVE` | 600 | 100.0% | 100.0% | PASS | **FAIL** | agreement, replaceability |
+| `FORGE_DRAFT_DROP_NATIVE` | 565 | 0.0% | 88.0% | FAIL | **FAIL** | coverage, validity, replaceability |
+
+**Five of the ten drop options passed the coverage gate; none passes the five-term gate.**
+The four that changed are not marginal: PIPE and PIPESHELL differ from OCCT on 600 of 600
+parts at a constant volume ratio 2/(1+cos 30°); THICKEN differs on 600 of 600 by exactly
+one sign bit on the solid (595 agree up to orientation); FILLING and MAKEOFFSET differ on
+407 of 407 and 285 of 594 respectively. **That is the finding, and it is not a
+regression** — the geometry was always like this and the verdict could not see it.
+
+And the bar the failing families are held to is not what it looked like either:
+
+| option | OCCT ok | of which INVALID | valid bar | native ok | native ok+valid | deficit vs the valid bar |
+|---|---:|---:|---:|---:|---:|---:|
+| `FORGE_THICKSOLID_DROP_NATIVE` | 132 | **132** | **0** | 0 | 0 | 0 |
+| `FORGE_OFFSETSHAPE_DROP_NATIVE` | 38 | **33** | **5** | 24 | 24 | 5 |
+| `FORGE_DRAFT_DROP_NATIVE` | 497 | 52 | 445 | 0 | 0 | 445 |
+| `FORGE_FILLET_DROP_NATIVE` | 461 | 6 | 455 | 403 | 312 | 202 |
+
+THICKSOLID's entire 132-answer baseline fails `BRepCheck`, so its valid bar is zero — and
+its coverage bar is not even stable run to run: `MakeThickSolidByJoin` returned `OK` on
+`ho317` in one 600-part run and SIGSEGV'd on it in the next, with the same binary
+returning `OK` five times out of five on re-run. OFFSETSHAPE's 24 native answers are all
+valid and comfortably exceed its valid bar of 5, yet it reproduces **none** of those 5,
+because it declines on exactly those parts. **Neither observation is a licence to flip an
+option**, and none was flipped: the coverage bar is still term 1 and both families still
+fail it.
 
 ---
 

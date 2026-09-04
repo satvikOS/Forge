@@ -352,6 +352,55 @@ int main(int argc, char** argv) {
 
     const double closedForm = planarBigArea * (2.0 * len);
 
+    // ── FAMILY F, and the OFFSET TERM this probe used to lack ────────────────
+    // Until now this file declared itself "out of scope for family F", because
+    // the harness feeds PIPESHELL the profile's OUTER WIRE where PIPE gets the
+    // FACE, and `closedForm` above is built from the face area.  That is only
+    // half the reason.  The other half is that the spine starts at the FACE
+    // centroid, which for a holed face is NOT the swept region's centroid, and
+    // the mitre closed form carries an offset term when the two differ:
+    //
+    //     V = A * [ (L1 + L2) - 2 (rbar . d2) / (1 + cos theta) ]              (*)
+    //
+    // with rbar = (swept region centroid) - (spine start), in the section plane
+    // and d2 the second leg's unit direction.  DERIVED and MEASURED in
+    // test/ab_pipe_sweep_law.cpp (section 3, 4/4 offsets at 1e-16, and the
+    // uncorrected form fitting 1/4 as the negative direction).  Note the offset
+    // coefficient is the SAME 2/(1+cos theta) that separates the two arms.
+    //
+    // With (*) the closed form applies to family F on EVERY part, holed or not,
+    // and the family's 1.0554-1.0975 ratio spread becomes a prediction rather
+    // than an unexplained observation:
+    //
+    //     native_vol / occt_vol = K * (1 - (rbar . d2) / (L * (1 + cos theta))),
+    //     K = 2 / (1 + cos theta).
+    //
+    // Everything below is pure OCCT on the SAME face pick and the SAME spine.
+    double outerArea = -1.0, rbarDotD2 = 0.0, closedFormF = -1.0, ratioPredF = -1.0;
+    int outerOK = 0;
+    {
+        const gp_Dir d2 = gp_Dir(gp_Vec(n) * std::cos(30.0 * kPi / 180.0) +
+                                 gp_Vec(turnDir) * std::sin(30.0 * kPi / 180.0));
+        const TopoDS_Wire ow = BRepTools::OuterWire(planarBig);
+        if (!ow.IsNull()) {
+            BRepBuilderAPI_MakeFace mf(planarBigPln, ow);
+            if (mf.IsDone()) {
+                const TopoDS_Face of = mf.Face();
+                const double a = faceArea(of);
+                if (a > 0.0) {
+                    const gp_Pnt oc2 = faceCentroid(of);
+                    outerArea = a;
+                    rbarDotD2 = gp_Vec(origin, oc2).Dot(gp_Vec(d2));
+                    const double c30 = std::cos(30.0 * kPi / 180.0);
+                    closedFormF = a * (2.0 * len - 2.0 * rbarDotD2 / (1.0 + c30));
+                    ratioPredF = (2.0 / (1.0 + c30)) *
+                                 (1.0 - rbarDotD2 / (len * (1.0 + c30)));
+                    outerOK = 1;
+                }
+            }
+        }
+    }
+
     // OCCT's own arm, re-run here so this file is self-contained evidence.
     const TopoDS_Shape oc = occtPipe(spine, planarBig);
     const double ocVol = volumeOf(oc);
@@ -386,10 +435,13 @@ int main(int argc, char** argv) {
         "\"section_reach_along_turn\":%.10g,\"fold_limit\":%.10g,\"fold_free\":%s,"
         "\"occt_vol\":%.10g,\"occt_valid\":%d,\"occt_rel_closed_form\":%.10g,"
         "\"first_leg_only\":%.10g,\"occt_rel_first_leg\":%.10g,"
-        "\"transformed_form\":%.10g,\"occt_rel_transformed\":%.10g}\n",
+        "\"transformed_form\":%.10g,\"occt_rel_transformed\":%.10g,"
+        "\"outer_ok\":%d,\"outer_area\":%.10g,\"rbar_dot_d2\":%.10g,"
+        "\"closed_form_F\":%.10g,\"ratio_pred_F\":%.10g}\n",
         partName.c_str(), diag, planarBigArea, len, 2.0 * len, closedForm,
         reach, foldLimit, foldFree ? "true" : "false",
         ocVol, ocValid, ocRel, firstLegOnly, ocRelFirstLeg,
-        transformedForm, ocRelTransformed);
+        transformedForm, ocRelTransformed,
+        outerOK, outerArea, rbarDotD2, closedFormF, ratioPredF);
     return 0;
 }

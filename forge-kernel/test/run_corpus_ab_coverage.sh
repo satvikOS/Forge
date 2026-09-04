@@ -34,8 +34,10 @@
 #     OUTDIR  where results land (default forge-kernel/.build-corpus-ab/run-<ts>)
 #   env: CORPUS=<dir> FAMILIES=A,B ARM_TIMEOUT=20 PART_TIMEOUT=300 OFFSET=0
 #
-# Writes OUTDIR/{results.jsonl, manifest.json, summary.md, summary.json, run.log}
-# and prints summary.md. Exit 0 iff every sampled part was attempted.
+# Writes OUTDIR/{results.jsonl, manifest.json, summary.md, summary.json, run.log,
+# gate_selftest.log} and prints summary.md. Exit 0 iff every sampled part was
+# attempted AND the flip gate's own self-test is green (exit 5 if it is not: a
+# verdict table produced by an untested gate is worse than no table).
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 KERNEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -221,6 +223,33 @@ if [ -z "$NODE" ]; then
   echo "[corpus-ab] node not found — results are in $RESULTS; aggregate with test/corpus_ab_aggregate.mjs" >&2
   exit 0
 fi
+
+# ── THE GATE'S OWN VERDICT IS TESTED BEFORE IT IS APPLIED ───────────────────
+# corpus_ab_aggregate.mjs decides whether a native engine may replace OCCT, on
+# five terms: coverage, validity, agreement, replaceability, sanity. Four of
+# those were added on 2026-09-03 and an added term that cannot fail is indistinguishable
+# from one that is not there. The self-test drives every term to FAIL on a
+# fixture built for it and then back to PASS with the one offending field
+# changed, and asserts that a PASS under the new gate implies a PASS under the
+# old coverage-only one — the direction this change is allowed to move in.
+# It costs about two seconds and it runs BEFORE the numbers are aggregated,
+# because a table produced by a broken gate is worse than no table.
+if ! "$NODE" "$KERNEL/test/corpus_ab_gate_selftest.mjs" >> "$LOG" 2>&1; then
+  echo "FATAL: the flip gate's own self-test is RED — refusing to aggregate a" >&2
+  echo "       verdict table from a gate that is not known to work. See $LOG." >&2
+  exit 5
+fi
+
 "$NODE" "$KERNEL/test/corpus_ab_aggregate.mjs" "$RESULTS" \
   --json "$OUTDIR/summary.json" --md "$OUTDIR/summary.md"
+
+# And the same monotonicity check over the rows just measured, not only over
+# fixtures: no family may pass the new gate that would have failed the old one.
+if ! "$NODE" "$KERNEL/test/corpus_ab_gate_selftest.mjs" --corpus "$RESULTS" \
+      > "$OUTDIR/gate_selftest.log" 2>&1; then
+  echo "FATAL: a family passes the new gate that the coverage-only gate failed." >&2
+  echo "       That is the one direction this change is not allowed to move in." >&2
+  echo "       See $OUTDIR/gate_selftest.log." >&2
+  exit 5
+fi
 exit 0

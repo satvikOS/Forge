@@ -167,7 +167,27 @@ jobs:
         # file matches the RUNNING code; this proves it matches the SOURCE TEXT, which
         # is the half that catches a kernel-header signature change nothing in ui/
         # would notice. Stdlib-only Python, no install step.
-        run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
+        #
+        # ★ AND NO CONFLICT MARKER IS EITHER. A DRIFT CHECK PROVES SELF-CONSISTENCY,
+        #   NOT CORRECTNESS -- measured 2026-09-03, not supposed. A resolution left
+        #   <<<<<<< / >>>>>>> in forge-kernel/CMakeLists.txt; regenerating recorded
+        #   THAT file's hash and BOTH --check gates reported OK. The gate that exists
+        #   to notice a source moving cannot notice the source being a BROKEN MERGE,
+        #   because a conflicted file is perfectly self-consistent with a hash of
+        #   itself. On a file nothing parses strictly, that ships. Scanned FIRST, so
+        #   a green --check is never the last word.
+        #   ONLY git's LABELLED prefixes are matched. A bare `=======` line is a
+        #   markdown setext H1 underline, and a gate that reds a valid document is
+        #   not a stricter gate, it is a WRONG one -- the same correction this change
+        #   set already had to make once, to its centroid-sanity threshold. A
+        #   conflict always writes both prefixes, so either alone is sufficient.
+        run: |
+          if git grep -nE '^(<<<<<<< |>>>>>>> )' -- . ; then
+            echo "::error::conflict markers are committed -- this tree is a broken merge"
+            exit 1
+          fi
+          echo "no conflict markers in the tree"
+          python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
       - name: op-constraint bridge (drift check + 9 mutations)
         # The bridge is the vocabulary made ENFORCEABLE: it accepts or refuses a
         # proposed op plan against the user-invocable ops. run_ui.sh above already
@@ -227,6 +247,26 @@ jobs:
         # of ordinary words naming the program's own machinery. 8 puts that exact
         # defect back.
         run: bash ui/test/run_user_prose_gate.sh --mutations
+      - name: how many docked tabs still show nothing (prove the pin can fail)
+        # THE MEASUREMENT, on the merge base of the change that added this: the
+        # eight default workspaces define 50 distinct panels and 27 of them drew
+        # no content at all. Nothing in the repository counted that, so it could
+        # have grown by one on any pull request and no check would have moved.
+        #
+        # run_ui.sh above already runs ui/test/panel_content_ratchet_test.cpp --
+        # it globs ui/test/*_test.cpp -- so this step is the half a clean pass
+        # cannot give. Five mutations in the REAL sources (a new empty tab, a
+        # pinned tab that gained content, a tab that LOST its dispatch, a
+        # catalogue that declares a panel finished without one line of it being
+        # written, and a pin padded above the truth) must each turn it red, and a
+        # sixth edit that names no panel at all must leave it green -- without
+        # that control the five would pass over a gate that reacts to any edit.
+        #
+        # The ratchet is red in BOTH directions on purpose: a panel gaining
+        # content is progress and still fails, demanding the pin be lowered in
+        # the same commit, because a pin left above the truth silently re-admits
+        # a regression it has already been lowered past.
+        run: bash ui/test/run_panel_ratchet_gate.sh --mutations
       - name: what the Model and Sketch tabs SHOW (prove the model-tree gate can fail)
         # run_ui.sh above already runs ui/test/model_tree_test.cpp -- it globs
         # ui/test/*_test.cpp -- so this step is the half a clean pass cannot give.
@@ -558,6 +598,38 @@ jobs:
         run: |
           bash forge-kernel/scripts/occt_closure_count.sh \
             --assert-closure 14 --assert-direct 9
+      # ── AND THE GATE THAT WAS WRITTEN FOR THIS AND NEVER CALLED ────────────────
+      # The comment above states the hole and does not close it: PHANTOM is still
+      # unguarded, and forge-kernel/scripts/tkoffset_ledger_gate.sh -- which carries
+      # exactly the right ceilings -- appears in this file ONLY inside that comment.
+      # Its own header records why it exists: a family-E wiring change silently took
+      # OCCT_PHANTOM 2 -> 3, invisible on macOS because the addon links
+      # `-undefined dynamic_lookup`, and a hard link failure on Linux. It ends
+      # "This gate makes that check cheap enough to run every time." It was then run
+      # zero times.
+      #
+      # ★ WHY AN UNGUARDED PHANTOM MATTERS MORE THAN IT SOUNDS. A phantom is a
+      #   library the binary CALLS but does not LINK. Deleting a -l flag therefore
+      #   *improves* OCCT_DIRECT while changing nothing that loads: measured on this
+      #   tree, removing -lTKG3d yields a working binary with 147 masked symbols,
+      #   CLOSURE still 14, and a GREEN build under the assertion above. The ceiling
+      #   below is what makes that accounting visible.
+      #
+      # ★ PURELY ADDITIVE. This lowers nothing, flips no option and widens no
+      #   tolerance; --assert-closure 14 / --assert-direct 9 above are untouched. The
+      #   ceilings are the gate's own already-measured values, not new numbers -- a
+      #   per-toolkit called-symbol census belongs in a follow-up, taken from ONE
+      #   pinned binary, because two independent censuses of this tree disagreed on
+      #   TKTopAlgo (110 vs 106) and TKMath (32 vs 31) and a ceiling must not be set
+      #   from a contested number.
+      #
+      # ★ WHEN A TOOLKIT IS GENUINELY RETIRED, LOWER THE NUMBER IN THE SAME COMMIT.
+      #   Never raise one to make a build pass.
+      - name: OCCT ledger gate — closure, PHANTOM and TKOffset symbols
+        run: |
+          bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
+            forge-kernel/build/Release/forge-kernel.node \
+            --max-closure 14 --max-phantom 2 --max-tkoffset 42
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Coherence + logic scorer (random scenes each run)
@@ -633,6 +705,34 @@ jobs:
         env:
           GATE_GUARD_BUILD: forge-kernel/build-verify
         run: bash forge-kernel/test/build_native_gate_guard_gate.sh
+
+      - name: THICKEN orientation — both engines, both branches, 2 mutations
+        # THE DEFECT IT PINS, and it is a SIGN BIT, which is the reason it needs its
+        # own gate: over the 600 gold reference solids the native thicken and OCCT's
+        # BRepOffset_MakeOffset returned the SAME geometry with OPPOSITE orientation
+        # on 600 of 600 parts — signed volume ratio p50 exactly -1.000000, area ratio
+        # exactly 1.000000, 595 of 600 identical on every other observable. Every
+        # self-check inside the thicken engine reads std::fabs(Mass()) and was blind
+        # to it, and so was the A/B's own volume comparison.
+        #
+        # WHICH ORIENTATION IS RIGHT IS NOT A HOUSE STYLE: BRepClass3d_SolidClassifier
+        # answers TopAbs_OUT for a point strictly inside the raw BRepOffset solid — it
+        # denotes the UNBOUNDED complement — and TopAbs_IN for the native one. The gate
+        # asserts both, so a future OCCT that changed convention turns this red instead
+        # of quietly making the normalisation dead code.
+        #
+        # RUNS TWICE (OCCT branch, then FORGE_THICKEN_NATIVE=1) because the orientation
+        # post-condition used to live INSIDE `#ifndef FORGE_THICKEN_DROP_NATIVE`, i.e. a
+        # build flag could delete it. --mutations proves the gate goes red when the
+        # normaliser is neutered and when the original defect is put back.
+        #
+        # Reuses build-verify, the tree two steps above already populates, rather than
+        # standing up a second one. Until this step existed the gate was on
+        # gate_registration_ratchet.sh's list of gates CI never executes.
+        env:
+          THICKEN_ORIENT_BUILD: forge-kernel/build-verify
+          JOBS: 3
+        run: bash forge-kernel/test/build_thicken_orientation_gate.sh --mutations
 
       - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
         # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,
@@ -798,6 +898,24 @@ jobs:
         # one on the ellipse itself (semi-major r/|c| -> r, the circle), each of
         # which must turn the gate red. Seconds, on a runner that already has OCCT.
         run: bash forge-kernel/test/run_pcurve_fit_gate.sh --mutations
+      - name: corpus A/B flip-gate terms (each added term is driven to FAIL and back)
+        # THE GATE THAT DECIDES WHETHER OCCT MAY BE DROPPED, tested. Until
+        # 2026-09-03 the per-family verdict was one line -- `natOk >= occtOk` --
+        # which counts only whether each arm RETURNED a shape. Measured on the
+        # same 600-part corpus: OFFSETSHAPE was asked to clear a bar of 38 OCCT
+        # answers of which 33 fail BRepCheck; THICKSOLID a bar of 133 of which
+        # ALL 133 fail it; and PIPE/PIPESHELL read one part from parity while
+        # agreeing with OCCT on ZERO of 599 parts. Validity, agreement,
+        # replaceability and centroid-sanity terms were added.
+        #
+        # AN ADDED TERM THAT CANNOT FAIL IS INDISTINGUISHABLE FROM ONE THAT IS
+        # NOT THERE. This drives each term to FAIL on a fixture built for it and
+        # then to PASS with the one offending field changed -- a term stuck at
+        # FAIL is as useless as one stuck at PASS -- and asserts the direction of
+        # the whole change: verdict PASS must imply the OLD coverage-only verdict
+        # was PASS, so the gate can only ever have got stricter. Pure node, no
+        # build, ~2s; it rides this job because this is where the A/B lives.
+        run: node forge-kernel/test/corpus_ab_gate_selftest.mjs
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
         # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
