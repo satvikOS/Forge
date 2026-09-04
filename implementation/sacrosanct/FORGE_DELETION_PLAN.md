@@ -1178,3 +1178,267 @@ the JS tool surface never covered.** The next tranche is still
 not blocked on Apple — thirteen of fourteen blockers need no credential — and the cheapest real
 progress left is **B13**: eight files of a self-declared *dead pre-OCCT kernel*, pinned by five
 named JS importers, needing no C++ and waiting on no oracle.
+
+---
+
+# 11. FOURTH PASS — 2026-09-04. The JS app breaks NO gate; 21 files retired; 181 proven unreachable and KEPT
+
+## 11.0 Provenance
+
+| | |
+|---|---|
+| Tree | a dedicated worktree created from `origin/archdisc`, nothing else in it |
+| Commit | `4598f85b` — *"Merge pull request #224 from satvikOS/work/flip-gate-replaceability"* |
+| Date | 2026-09-04 |
+| Method | `git ls-tree -r origin/archdisc` for membership (the shared checkout was never read), `git cat-file --batch` newline counts for LOC, and — this is what is new — **the gates were RUN with `frontend/`, `e2e/` and `electron/` physically absent from the tree** |
+
+**Every number in §11 that describes a gate is the output of running it, not a reading of it.**
+
+---
+
+## 11.1 THE MEASUREMENT THIS PASS ADDS: the JS trees were REMOVED and the gates were run
+
+Three passes established what CI *reads*. None of them established what CI *needs*. This pass
+moved `frontend/`, `e2e/` and `electron/` out of the worktree — 1,538 tracked files, 486,085 LOC,
+the entire JS application — and ran every gate that can run without OCCT:
+
+```
+$ mv frontend .audit_hidden_frontend; mv e2e .audit_hidden_e2e; mv electron .audit_hidden_electron
+
+$ bash ui/test/run_ui.sh
+  [user_facing_text] 11474 checks, 0 failures — PASS
+  [ui] ALL 38 UI GATES PASS (forge::ui — headless, no ImGui, no GPU, no display)      rc=0
+
+$ bash forge-desktop/test/run_syntax_gate.sh
+  [syntax] GREEN -- all 18 forge-desktop translation units type-check (-Wall -Wextra -Werror)
+
+$ node forge-kernel/test/cadscore_v2_selftest.mjs
+  ForgeCADScore v2 self-test: 20/20 canonical-formula checks PASS                     rc=0
+$ node forge-kernel/test/mechanism_axis_selftest.mjs
+  ForgeCADScore mechanism-axis self-test: 39/39 checks PASS                           rc=0
+$ node forge-kernel/test/corpus_ab_gate_selftest.mjs
+  PASS: corpus_ab_gate_selftest, 0 check(s) red                                       rc=0
+
+$ python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
+  [op-vocabulary] OK -- ... (53 ops, 84 commands, 8 sources)                          rc=0
+$ python3 implementation/sacrosanct/tools/gen_op_constraint_table.py --check
+  [op-table] OK -- ArchieOpVocabulary.hpp matches ... (53 allowed ops, sha 20ada8b71885)  rc=0
+$ git grep -nE '^(<<<<<<< |>>>>>>> )' -- .          (no output — clean)
+```
+
+The two trees were then moved back and `git status --porcelain` printed **0 lines**, so the
+experiment left nothing behind.
+
+**Positive control that the harness was actually looking:** the same `run_ui.sh` and the same
+prose gate are the ones that were red on this branch's ancestors for a missing panel and for
+leaked developer prose. They are not gates that pass on an empty tree — `run_ui.sh` verifies its
+own gate COUNT (38) and `run_ui_contract_test.sh` exists precisely because `ONLY=<typo>` used to
+exit 0 having run nothing.
+
+**What this does NOT cover, stated rather than glossed:** the `native`, `kernel`, `desktop`,
+`simulation`, `retrieval`, `desktop_update` and `s0_conformance` jobs were not run — they need
+OCCT, SDL2/Vulkan or a 45-minute cold build. For those, §11.2's static result stands instead, and
+it is unambiguous: **their sources contain zero references to any JS path** other than nine
+comments, listed in full below.
+
+---
+
+## 11.2 WHAT CI ACTUALLY RUNS — the complete list, and the paths it never touches
+
+`origin/archdisc` carries exactly **three** workflow files: `kernel-tests.yml` (9 jobs),
+`gate-registration.yml`, `desktop-release.yml`.
+
+```
+$ grep -rniE 'frontend|e2e/|electron|playwright|vite|npm run build|vercel' .github/workflows/
+kernel-tests.yml:5,8,10,20,104     <- five COMMENT lines, describing the pipeline that was removed
+```
+
+**Five matches, all comments, all in one file. No workflow step names `frontend/`, `e2e/`,
+`electron/`, playwright or vite.** Every executable line in the three workflows was extracted and
+read; the complete set of JS the CI runs is:
+
+| Job | JS it runs |
+|---|---|
+| `scoring` | `cadscore_v2_selftest.mjs`, `mechanism_axis_selftest.mjs` |
+| `kernel` | `npm install --ignore-scripts`, `npm run forge:kernel` (cmake-js → the `.node`), `npm run forge:kernel:test` (26 chained `node` invocations), `npm run forge:coherence`, `native_binding_smoke.js`, `fea_tet4_convergence.mjs`, `corpus_ab_gate_selftest.mjs`, and `fea_nafems_gate.mjs` via `fea_nafems_ratchet.sh` |
+| every other job | **none** — pure C++, CMake, shell or Python |
+
+`--ignore-scripts` is load-bearing and had not been noticed: root `package.json`'s `install`
+script is `npm install --prefix frontend`, so CI's install **never enters `frontend/`**, while a
+developer's bare `npm install` does. That is the single dependency `frontend/` still has on the
+build, and it is one line.
+
+**CORRECTION TO §4.2 (and to B7, which rests on it).** §4.2 states that the default branch
+*"additionally runs `npm test` → `brand-guard.test.mjs`, `deps-allowlist.test.mjs`,
+`bridge-prompt-contract.test.mjs`"* and B7 says of the bridge contract test *"it is one of the
+three files that are the whole of the default branch's `npm test`"*. **Re-measured on
+`4598f85b`: no workflow on the default branch runs `npm test`, `npm run forge:bridge:test` or
+`npm run forge:unit`.** The `guards` job that ran them went with `build-app.yml` at `50c512e4`
+(2026-08-28) — the same commit §10.3 caught. §10.3 struck four claims about that commit and did
+not strike this one, which is the same failure mode it named: *a command run to confirm one
+expectation will not volunteer the other half of its own answer.* The three guards are still
+green (run below) — they are simply not a CI dependency, so **B7's stated ordering constraint no
+longer exists.**
+
+### The nine JS references in the C++ / gate trees, in full
+
+```
+$ git grep -nIE "(frontend/src|e2e/|electron/)" -- ui/ forge-desktop/ simulation/ retrieval/ \
+      orchestration/ forge-kernel/src forge-kernel/include forge-kernel/CMakeLists.txt \
+      forge-kernel/scripts forge-kernel/cmake third_party/
+forge-kernel/include/forge/Drawings.hpp:21                     // comment
+forge-kernel/include/forge/native/composites/Composites.hpp:49 // comment
+forge-kernel/include/forge/native/gdt/FcfEvaluator.hpp:11      // comment
+forge-kernel/include/forge/native/gdt/Gdt.hpp:7,12             // comment
+forge-kernel/include/forge/native/materials/Materials.hpp:56   // comment
+forge-kernel/src/Airfoil.cpp:164                               // comment
+forge-kernel/src/Features.cpp:1109                             // comment
+forge-kernel/src/native/gdt/FcfEvaluator.cpp:11                // comment
+```
+
+**All nine are comments.** No `#include`, no CMake source entry, no shell invocation. One further
+hit exists and is not a dependency either: `forge-kernel/test/native/storage/storage_governor_test.cpp:498`
+passes the STRING LITERAL `"frontend/.gitignore:3:build/"` to a scanner; the literal is inline, so
+the file it names could be deleted without the test noticing.
+
+### The merge-tax hash chain contains no JS
+
+`gen_archie_op_vocabulary.py`'s `SOURCES` dict names seven files — `FeatureTree.hpp`,
+`FeatureTreeCompiler.cpp`, `forge-kernel/CMakeLists.txt`, `ui/src/FeatureIr.cpp`,
+`ui/src/PartCommands.cpp`, `ui/src/ForgeShell.cpp`, `forge-desktop/src/ForgeFrame.cpp`. **Not one
+is JavaScript.** Deleting any JS in this repository cannot move
+`archie_op_vocabulary.json` or `ArchieOpVocabulary.hpp`. Both `--check` gates were run with the
+whole JS app absent and both reported OK (§11.1).
+
+---
+
+## 11.3 THE CI-EXECUTED JS CLOSURE TOUCHES **ZERO** frontend FILES — traced, then proved by removal
+
+The 32 JS entry points CI executes were traced transitively through `require()`,
+`import … from`, dynamic `import()` and `path.resolve/join` string-literal assembly. The closure
+is **33 files, all under `forge-kernel/test/`, plus 34 `frontend/src` files reached through ONE
+edge**: `cadscore_harness.mjs:1981`, `const { dispatchSequence } = await import(BRIDGE_PATH)`,
+where `BRIDGE_PATH` is `frontend/src/ai/ForgeToolBridge.js`.
+
+**That edge is not taken by either CI entry point.** Proved by execution, not by reading:
+`cadscore_v2_selftest.mjs` and `mechanism_axis_selftest.mjs` were run with `frontend/` absent and
+both passed, 20/20 and 39/39 (§11.1). Line 1981 sits inside a function neither self-test calls;
+line 2483's `readFileSync` of `ForgeRunner.js` is guarded and prints *"not found (could not read
+source)"*.
+
+**Twenty `forge-kernel/test` files do resolve a `frontend/` path at runtime** —
+`_gen_complex_batch`, `assembly_explode_smoke`, `cadgen_mm_pipeline`, `cadgen_selfcorrect`,
+`cadgenbench_eval`, `cadscore_harness`, `chunk3_bridge_verbs_test`, `context_verbs_test`,
+`drawings_extra_smoke`, `drawings_smoke`, `flagship_sequence_oracle`, `flagship_verify`,
+`ge9x_cae_in_motion`, `heal_verbs_chunk4_test`, `ladder_probe`, `pdm_fs_smoke`, `perf_smoke`,
+`simulate_verbs_test`, `turbofan_cae_suite`, `verify_gdt_assembly_bridge` — and **none of the
+twenty is invoked by CI.** They are hand-run harnesses. So the correct statement is narrow and
+worth stating exactly: *deleting `frontend/` would break twenty hand-run kernel harnesses and
+zero CI steps.*
+
+---
+
+## 11.4 What was retired this pass, and the citation for each
+
+**21 files, 6,719 LOC** — `frontend/src/{systems,tools,utils,services,contexts,config}`. Not a
+migration and no C++ owner is cited, because **no behaviour is being replaced: this code cannot
+run.** These are a different product era from Forge MCAD — a Blender/Cinema-4D-style
+direct-content-creation editor — and they say so themselves:
+
+| File | Its own header |
+|---|---|
+| `systems/MeshEditor.js` | *"IMAX/AAA Quality Mesh Editing System"* |
+| `systems/SculptEngine.js` | *"IMAX/AAA Quality Sculpting System"* |
+| `systems/RiggingSystem.js` | *"Armature creation, bone editing, weight painting, IK/FK"* |
+| `systems/VFXSystem.js` | *"Post-processing effects, compositor nodes, motion blur, DOF, color grading"* |
+| `systems/PhysicsEngine.js` | *"Note: For production use, integrate Ammo.js or Cannon.js"* |
+| `systems/SceneUnitsSystem.js` | *"Default settings matching Blender/Cinema 4D"* |
+| `services/sketchfabApi.js` | calls a Sketchfab backend at `/api` that this repository does not contain |
+
+**Three independent instruments, all agreeing, each with a positive control:**
+
+1. **Not in the application.** The Vite entry graph, computed from `frontend/index.html` →
+   `src/main.jsx` and followed through `import` / `export … from` / `require` / dynamic
+   `import()`, has **560 nodes, of which 554 are `frontend/src` JS files out of 1,090 tracked**.
+   None of the 21 is in it (intersection measured: **0**; positive control: `main.jsx` is).
+   `frontend/vite.config.js` declares no alias and no second `rollupOptions.input`, and
+   `git grep 'import.meta.glob\|require.context'` returns **zero hits in code** — the only three
+   matches in the repository are prose in this very document and in
+   `forge_deletion_inventory.py`. So Vite's directory-pulling form cannot reach them either.
+2. **Not named by anything.** Every tracked text file tokenised once; each candidate looked up by
+   BOTH basename-with-extension and stem. Zero hits across `e2e/`, `docs/`, the C++ trees,
+   `package.json` and the workflows.
+3. **Not imported by anything.** `(from|import|require)[^;]*['"][^'"]*/<stem>(\.js|\.jsx|\.mjs)?['"]`
+   over the whole repository: zero live importers.
+
+**The cascade is inside the commit, not left behind.** `config/renderConfig.js`,
+`systems/FileExport.js` and `utils/addPrimitive.js` each had exactly one referrer set and every
+member of it is in the same commit (`TextureStreamingSystem` → `renderConfig`; the two
+`*Tools.js` → `addPrimitive`; `foundation/GLTFExport` → `FileExport`). They go with it rather
+than becoming a second orphan generation.
+
+**What was flagged and DROPPED from the change, because the instrument that flagged it is blind
+there.** Six `frontend/src/styles/*.css` files were in the zero-reference set. The independent
+`git grep -w` pass disagreed on one: `workbench.css` contains `workbench-switcher` — as a **CSS
+CLASS**, not an import. A class name is not a module edge, and this instrument has no model of
+CSS reachability at all, so **all six CSS files stay.** A file whose only evidence is an
+instrument's blind spot is not proven dead.
+
+**`frontend/src/systems/ToolSystem.js` STAYS** — it has a live referrer outside the set. That is
+the positive control for the cascade: the loop terminated on a real edge rather than consuming
+the directory.
+
+**Gates, before and after, same tree, same commands, all green both times:** the three frontend
+guards (`brand-guard` → *"live tree is monochrome"*; `deps-allowlist` → *"18 deps, all on the
+reviewed allowlist"*; `bridge-prompt-contract` → *"102 prompt ids ⊆ 164 bridge verbs"*),
+`run_ui.sh` (38/38), `run_syntax_gate.sh` (18 TUs), and both generator `--check` gates. The Vite
+entry graph was **re-derived after the deletion and is identical**.
+
+---
+
+## 11.5 PROVEN UNREACHABLE AND DELIBERATELY KEPT — 181 files
+
+The same three instruments found more than was removed. Everything below is **unreachable by
+measurement and stays anyway**, because this document's own retirement bar (§10.1) is *"verified
+by execution or by a named, present replacement — never by extension, and never by 'nothing
+calls it'"*, and these clear only the last of those.
+
+| Group | Files | LOC | Why it stays |
+|---|---:|---:|---|
+| `frontend/src/foundation/**` orphans + `kernel/forge/PhysicsViewer.js` | **36** | 6,413 | Unique engineering content with **no counterpart in the tree**. A substring census over `forge-kernel/{src,include}`, `ui/src`, `forge-desktop/src` returns **0** files for `IKChain`, `honeycomb` and `3MF`, so deleting `IKChain.js` (damped-least-squares IK), `HoneycombPanel.js` and `MeshThreeMF.js` would delete the repository's only statement of those. `ModalAnalysis.js` (454 lines), `PotentialFlow.js`, `SpatialMechanism.js`, `TurbineStage.js`/`CompressorStage.js` (mean-line analysis), `VesselGeometry.js` (ASME ellipsoidal head) are the same shape. **This is the B7 population and it needs a C++ owner, not a reachability fact.** |
+| `frontend/src/ai/MechVisionPerception.js` + `ai/autonomous/**` | **7** | 607 | The JS autonomous-agent loop — `AutonomousLoop`, `SelfDirector`, `SelfCritic`, `SkillLibrary`, `Perception`, `ParityObjective`. `forge::ui::ArchieCopilot` is a **copilot** (submit / deliver / apply), not a self-directing loop; it is not a named replacement for this, and no other design record of it exists. |
+| `forge-kernel/test/**` JS with zero textual reference | **138** | — | **B4, unchanged.** The instrument reproduces §9.3 exactly. They are runnable today against the `.node` and are the only written record of what the C++ solvers must return. |
+| `frontend/**/__tests__/*.test.mjs` with zero textual reference | **46** | — | **Reached by a runner GLOB, not by name** — `npm run forge:unit` is `node --test frontend/src/kernel/forge/__tests__/*.test.mjs`. Unreferenced by name, alive by construction. Deleting any of them is weakening a test. |
+| `frontend/src/styles/*.css` | 6 | — | §11.4 — the flagging instrument has no model of CSS reachability. |
+| all 331 zero-reference `e2e/**` files | 331 | — | `playwright.config.js` `testDir: './e2e'` is a **glob**. Every spec is runner-reached. |
+
+**The 43-file figure in ZERO_JS_MIGRATION_MANIFEST §5.3 does not reproduce; the population is
+larger.** Restricting to *not in the Vite entry graph* AND *zero textual reference* AND *not a
+test* gives **64** files, of which 21 are retired here and 43 are kept above. §5.3's method
+(token census alone, over all 1,766 JS files) is a strictly weaker filter than this one, so the
+difference is a change of instrument, not a change in the tree; recorded so the next pass does
+not read 43 as a target.
+
+---
+
+## 11.6 Corrections to the record
+
+| Where | Said | Measured at `4598f85b` |
+|---|---|---|
+| §4.2, B7 | the default branch *"additionally runs `npm test`"* → the three frontend guards, and `npm run forge:bridge:test` | **No workflow runs any of them.** The `guards` job left with `build-app.yml` at `50c512e4`. B7's ordering constraint is void |
+| §4.2 | `npm run forge:kernel:test` is *"25 chained `node` invocations"* | **26** |
+| §4.5 | *"41 of 241 JS test files are reachable"* | the zero-**textual-reference** population is **138 of 244** today; the two figures use different instruments and neither is wrong — say which |
+| §3 (inventory) | F1 `frontend/src/forge-v4` = 605 files / 250,558 LOC; candidate total 1,802 files / 543,858 LOC | **604 / 250,078** after §10.1's retirement; candidate total **1,804 files / 545,429 LOC** on this ref (the totals moved *up* because `forge-kernel/test` JS grew 241 → 244 and `e2e/forge` was re-counted at 246) |
+| §10.5 B5 | *"445 function-valued `contextBridge` keys"* | **still not reproducible** — ZERO_JS_MIGRATION_MANIFEST §7.8 already recorded that the quoted command yields 196 / 311 / 560 and never 445. B5's denominator remains undefined; do not compute a coverage percentage from it |
+| — | *(not measured before)* | **No `vercel.json` and no `.vercel/` exist in the repository**, but `vercel-build` scripts exist in BOTH `package.json` files. A Vercel project can be linked entirely in dashboard settings, so **the repository cannot prove the frontend is not being served.** That is the one dependence question §11 could not answer from the tree, and it is the reason `frontend/` is not proposed for bulk deletion here |
+
+---
+
+## 11.7 The one-line answer, fourth pass
+
+**The JS application breaks NO CI job — that is now proved by REMOVING it and running the gates,
+not by reading the workflows — and the only build dependency left is one line
+(`package.json`'s `install` script) plus twenty hand-run kernel harnesses; but 43 of the 64
+provably unreachable frontend modules are unique engineering and agent content with no
+counterpart anywhere in the tree, so 21 were retired and 43 were kept, and the bar that keeps
+them is this document's own: never by "nothing calls it".**
