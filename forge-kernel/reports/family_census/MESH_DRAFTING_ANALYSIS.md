@@ -572,7 +572,7 @@ command at all:
 | native mesh modules with zero production callers | 18 of 22 entry points, ~10k LOC | days each, after `MESH` |
 | drafting engine bound only to a JS layer marked for deletion | 9 functions, 1,366 LOC of kernel | days each, after `DRAWING` |
 | analysis evaluators bound only to JS, or to nothing | `analyseDraft`, `zebraStripes`, `curvatureComb`, `continuityCheck`, `gaussianAndMeanCurvature`, `analyzeWallThickness`, `detectInterference`, `hausdorffDistance`, `voxelIoU`, `PrimitiveFit` | days each |
-| desktop panels that are `drawGenericPanel` | ≥5 in the Drawing workspace alone, plus `interference`, `zebra_analysis`, `continuity`, `isocline`, `dimensions` | weeks |
+| desktop panels that are `drawGenericPanel` | 4 in the Drawing workspace (`view_list`, `annotation`, `gdt`, `title_block`), plus `interference`, `zebra_analysis`, `continuity`, `isocline`. `dimensions` was on this list and now draws real content; 21 of 50 remain, pinned by `ui/test/panel_content_ratchet_test.cpp` | weeks |
 
 ## 5.2 Value kinds — the summary
 

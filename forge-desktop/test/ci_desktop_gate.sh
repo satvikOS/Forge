@@ -62,15 +62,18 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-# ── 2026-09-03: 48 -> 61, MEASURED at the merge. This branch derived 53 (its
-#    file-dialog gate, 3 mutations); archdisc derived 58 (its imgui-recovery
-#    gate, 8). Both were right on their OWN tree and both are wrong here: the
-#    merged tree runs BOTH gates. Taking a side would have dropped real
-#    mutations, so this is derived, never carried across:
+# ── 2026-09-03, THE EIGHTH: 67, and BOTH sides were wrong AGAIN. This side had
+#    63 (it runs frame_gate 1..16 but not the assembly gate); archdisc had 65
+#    (it runs the assembly gate but only frame_gate 1..14). run_desktop.sh
+#    auto-merged CORRECTLY and now carries both, so neither committed constant
+#    describes the tree: 63 + 4 (assembly) = 65 + 2 (frame 15, 16) = 67.
+#    That both parents were individually right one commit earlier, and both wrong
+#    here, is the entire argument for deriving rather than inheriting:
 #      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-#    prints 61 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
-#    + file_dialog 3 + frame 14 + copilot 8 + update 7 + click 8 + isolation 0.
-EXPECTED_MUTATIONS=61
+#    prints 67 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 16 + copilot 8 + update 7 + click 8 + assembly 4
+#    + isolation 0.
+EXPECTED_MUTATIONS=67
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

@@ -50,9 +50,9 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. FIFTY-SIX
-#                       defects (8 imgui_recovery + 8 document + 5 file_exchange +
-#                       12 frame + 8 copilot + 7 update + 8 click) are
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. The defects
+#                       (imgui_recovery + document + file_exchange + frame +
+#                       copilot + update + click) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -193,7 +193,14 @@ run_gate forge_desktop_file_dialog_gate 1 2 3
 # ── MERGE: HEAD had frame_gate 1..12, archdisc 1..14. Taking the SUPERSET; the
 #    tree work added mutations 13 and 14, and keeping HEAD's line would have
 #    silently dropped them while the suite still reported green.
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+# ── MERGE AGAIN, the SAME hazard one turn later: this side had frame_gate 1..16
+#    and archdisc had 1..14, while archdisc alone had the whole file_dialog gate.
+#    Taking EITHER line whole loses real coverage -- archdisc's would drop
+#    mutations 15 and 16 (the Assembly tab built from an empty document, and the
+#    Operations tab answering from a stale machining plan), and this side's would
+#    drop the three file_dialog mutations. Both are kept, which is what "superset"
+#    has to mean when the two sides disagree about DIFFERENT gates.
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and
@@ -214,6 +221,15 @@ run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
 # one STAYS GREEN, -fsanitize=address is not reaching the binary and this gate's
 # memory-safety half is silent.
 run_gate forge_desktop_click_gate 1 2 3 4 5 6 7 8
+
+# THE ASSEMBLY GATE. The four assembly panels -- Components, Mates, Contacts and
+# BOM -- against real multi-body models, with every reference computed from the
+# models' own dimensions rather than copied from a previous run. It also builds
+# one model BOTH WAYS, in process and through the CMake-built forge_kernel_worker
+# it finds beside itself, because the shipped app always runs the kernel out of
+# process: an inventory that does not cross that boundary is one no user sees.
+# It REFUSES to run without that worker rather than skipping the comparison.
+run_gate forge_desktop_assembly_gate 1 2 3 4
 
 # The CRASH-ISOLATION gate, with NO mutation list here on purpose. Its proof
 # needs six mutations injected into a COPY of the production sources and two
