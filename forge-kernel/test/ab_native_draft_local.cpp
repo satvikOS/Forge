@@ -52,6 +52,10 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
+#include <Geom2d_Curve.hxx>
+#include <Geom_Curve.hxx>
+#include <Geom_Surface.hxx>
+#include <gp_Pnt2d.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -251,6 +255,40 @@ TopoDS_Shape boxWithThroughHole(double lx, double ly, double lz,
         BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(cx, cy, -1.0), gp_Dir(0, 0, 1)),
                                  r, lz + 2.0).Shape();
     return BRepAlgoAPI_Cut(box, cyl).Shape();
+}
+
+// THE PCURVE'S OWN ERROR BAR, MEASURED, AGAINST THE ONLY YARDSTICK BRepCheck
+// USES. A fitted pcurve is an approximation by construction, so the question is
+// never "is it exact" but "is it inside the tolerance the EDGE advertises" —
+// that is the number BRepCheck_Edge compares against, and an engine that bounds
+// its fit by anything else (the model's size, say) is measuring the wrong thing.
+// Returns the worst |C3(t) - S(C2(t))| over every edge/face pair that carries
+// both representations, and reports the tolerance of the edge that produced it.
+double worstPCurveDeviation(const TopoDS_Shape& s, double& atEdgeTol) {
+    double worst = 0.0;
+    atEdgeTol = 0.0;
+    for (TopExp_Explorer fe(s, TopAbs_FACE); fe.More(); fe.Next()) {
+        const TopoDS_Face f = TopoDS::Face(fe.Current());
+        const Handle(Geom_Surface) su = BRep_Tool::Surface(f);
+        if (su.IsNull()) continue;
+        for (TopExp_Explorer ee(f, TopAbs_EDGE); ee.More(); ee.Next()) {
+            const TopoDS_Edge e = TopoDS::Edge(ee.Current());
+            double a0 = 0.0, a1 = 0.0, b0 = 0.0, b1 = 0.0;
+            const Handle(Geom_Curve)   c3 = BRep_Tool::Curve(e, a0, a1);
+            const Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, f, b0, b1);
+            if (c3.IsNull() || pc.IsNull()) continue;
+            for (int k = 0; k <= 800; ++k) {
+                const double t = a0 + (a1 - a0) * double(k) / 800.0;
+                gp_Pnt2d q;
+                gp_Pnt   P3;
+                try { q = pc->Value(t); P3 = c3->Value(t); }
+                catch (const Standard_Failure&) { continue; }
+                const double d = P3.Distance(su->Value(q.X(), q.Y()));
+                if (d > worst) { worst = d; atEdgeTol = BRep_Tool::Tolerance(e); }
+            }
+        }
+    }
+    return worst;
 }
 
 // ------------------------------------------------------------------ the cases
@@ -665,6 +703,58 @@ void runAll() {
         ok(!f.First().IsNull(), "case(f) : the +X wall was found");
         abCase("case(f) drafted wall with a bore wholly inside it", part, f, zUp,
                5.0 * kPi / 180.0, nz0);
+
+        // ── AND THE SAME SHAPE AT THE CORPUS'S OWN SCALE ────────────────────
+        // ★ THE SCALE IS THE FIXTURE. Case (f) above is 20 x 20 x 10 with a 3 mm
+        // bore and it CANNOT catch the defect this case exists for: measured, its
+        // fitted pcurve deviates 3.43e-08 against an edge tolerance of 1e-06, a
+        // 29x margin, so it passes whatever bound the fit is given. The corpus
+        // parts are 172 mm to 302 mm across with bores of 15-20 mm, and there the
+        // SAME construction deviated 8.67e-06 to 1.57e-05 against the SAME 1e-06
+        // edge tolerance — because the fit was bounded by 1e-7 * extent, which
+        // grows with the model while the edge's tolerance does not.
+        //
+        // So this fixture is case (f) rebuilt at 200 x 200 x 150 with a 17 mm
+        // bore at 3 degrees, and it reproduces the corpus defect EXACTLY:
+        // measured on the unfixed engine it declines 'the rebuilt solid is not
+        // BRepCheck-valid', with the edge reading InvalidCurveOnSurface +
+        // InvalidSameParameterFlag in its cylindrical face and that face
+        // UnorientableShape. With the bound taken from the edge instead of the
+        // model it builds, agrees with OCCT on the whole vector, and the same
+        // pcurve deviates 5.69e-08.
+        //
+        // A FIXTURE THAT CANNOT REPRODUCE THE DEFECT IS NOT A CONTROL FOR IT,
+        // however close its construction looks. That is why this case is added
+        // beside (f) rather than (f) being rescaled: the small one is what proves
+        // the engine works where the fit is easy, and deleting it would trade
+        // one kind of evidence for another.
+        const double Lg = 200.0, Wg = 200.0, Hg = 150.0, rg = 17.0;
+        const TopoDS_Shape boxg = BRepPrimAPI_MakeBox(Lg, Wg, Hg).Shape();
+        const TopoDS_Shape boreg =
+            BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(-1.0, Wg * 0.5, Hg * 0.5), gp_Dir(1, 0, 0)),
+                                     rg, Lg + 2.0).Shape();
+        const TopoDS_Shape partg = BRepAlgoAPI_Cut(boxg, boreg).Shape();
+        TopTools_ListOfShape fg;
+        fg.Append(faceTowards(partg, gp_Dir(1, 0, 0)));
+        ok(!fg.First().IsNull(), "case(g) : the +X wall was found");
+        abCase("case(g) closed rim AT CORPUS SCALE (200x200x150, r=17, 3deg)",
+               partg, fg, zUp, 3.0 * kPi / 180.0, nz0);
+
+        // The defect NAMED, not only its BRepCheck symptom. abCase already fails
+        // if the solid is rejected; this says WHICH quantity was out of bounds,
+        // so a future regression reads as "the pcurve missed the edge's
+        // tolerance by X" instead of "something is invalid".
+        const TopoDS_Shape natg = forge::occtdraftlocal::draftFacesLocal(
+            partg, fg, zUp, 3.0 * kPi / 180.0, nz0);
+        if (!natg.IsNull()) {
+            double etol = 0.0;
+            const double dev = worstPCurveDeviation(natg, etol);
+            std::printf("  [measure] case(g) worst pcurve deviation %.6g against edge "
+                        "tolerance %.6g\n", dev, etol);
+            ok(etol > 0.0, "case(g) : an edge tolerance was actually read");
+            ok(dev <= etol,
+               "case(g) : every fitted pcurve is inside its OWN edge's tolerance");
+        }
     }
 }
 
