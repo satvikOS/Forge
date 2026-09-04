@@ -135,13 +135,40 @@
 //
 //     THICKEN   native 600/600   OCCT 600/600   deletion bucket 0   PASS
 //
-// Before path D that read 577/600 against 600/600 with a 23-part bucket. Note what
-// the coverage number does NOT say: 0 of the 600 both-OK pairs agree on the full
-// observable vector, because OCCT returns this solid NEGATIVELY oriented and this
-// engine normalises it (595 agree up to |volume|). Of the 5 that differ beyond
-// orientation, all 5 are path-C parts on which OCCT splits the cylindrical wall into
-// extra faces — native 4/6/4 against OCCT 6/13/8 — with volume and area bit-identical.
-// Those 5 predate path D and are unchanged by it.
+// Before path D that read 577/600 against 600/600 with a 23-part bucket.
+//
+// ═══════════════════════════════════════════════════════════════════════════
+// AGREEMENT, AND THE SIGN BIT THAT USED TO DOMINATE IT
+// ═══════════════════════════════════════════════════════════════════════════
+// This engine returns a POSITIVELY ORIENTED solid; BRepOffset_MakeOffset returns
+// the same geometry NEGATIVELY oriented. Measured over the same 600 parts:
+//
+//     native signed volume            POSITIVE on 600/600
+//     raw BRepOffset signed volume    NEGATIVE on 600/600
+//     signed ratio native/occt        p50 exactly -1.000000
+//     area ratio                      p50 exactly  1.000000
+//
+// For a while the A/B read that as 0 of 600 agreeing on the full observable vector.
+// It was not a geometric disagreement: production's OCCT path had ALWAYS normalised
+// the sign, and the A/B's OCCT arm was a hand-copy of only the FIRST HALF of the
+// block FORGE_THICKEN_DROP_NATIVE deletes. The arm now calls
+// forge::part::occtThickenBaseline — the very function Features.cpp calls — and the
+// raw sign is still measured every run under the diagnostic family THICKEN_RAWOCCT.
+// See forge/OcctThickenBaseline.hpp for why POSITIVE is the correct convention
+// (OCCT's own BRepClass3d_SolidClassifier calls the raw solid's interior OUT) and
+// forge-kernel/test/thicken_orientation_gate.cpp for the two-directional gate.
+//
+// WHAT REMAINS is 5 parts that differ beyond orientation: all 5 are path-C parts on
+// which OCCT splits the cylindrical wall into extra faces — native 4/6/4 against
+// OCCT 6/13/8 — with volume and area bit-identical. Those 5 predate path D, are
+// unchanged by it, and are unchanged by the orientation work.
+//
+// ★ THIS ENGINE'S ORIENTATION IS A POST-CONDITION, NOT AN ACCIDENT. thickenShell
+//   normalises and then ASSERTS a positive volume before returning. Until that
+//   wrapper existed the guarantee held on only two of the four paths: A inherited
+//   it from OcctPrimBuilder's sew and D normalised in place, while B (folded fuse)
+//   and C (full-rectangle cylinder) ended on std::fabs(Mass()) and were blind to
+//   the sign they were carrying.
 
 #ifndef FORGE_NATIVE_BREP_NATIVETHICKENSHELL_HPP
 #define FORGE_NATIVE_BREP_NATIVETHICKENSHELL_HPP

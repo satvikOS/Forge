@@ -90,11 +90,13 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
-#ifndef FORGE_THICKEN_DROP_NATIVE
-// TKOffset family I header — referenced ONLY by the OCCT baseline path in
-// thickenSurface, compiled out under -DFORGE_THICKEN_DROP_NATIVE.
-#include <BRepOffset_MakeOffset.hxx>
-#endif
+// The OCCT thicken baseline (the WHOLE block FORGE_THICKEN_DROP_NATIVE deletes,
+// call AND normalisation) and the orientation post-condition BOTH engines are held
+// to. Defined in a header so the corpus A/B calls the SAME code this does instead
+// of re-implementing half of it — see the banner there for the measurement that
+// forced it. The header's own #ifndef keeps the TKOffset reference out of a drop
+// build, so this include is unconditional and the post-condition survives the flag.
+#include "forge/OcctThickenBaseline.hpp"
 #include <BRepOffset.hxx>
 #include <BRepOffset_Mode.hxx>                  // BRepOffset_Skin
 #include <BRepBuilderAPI_MakeSolid.hxx>         // wrap the OCCT offset shell into a solid
@@ -1279,54 +1281,56 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
     if (side < 0) offset = -std::abs(thickness);
     else if (side > 0) offset = std::abs(thickness);
 
+    TopoDS_Shape out;
+
 #ifdef FORGE_NATIVE_BREP
     // TKOffset family I — TKOffset-free thicken on the OCCT shell itself.
     // See NativeThickenShell.hpp; a defer returns a null shape and falls through.
-    if (::forge::occtthicken::thickenNativeEnabled()) {
-        const TopoDS_Shape nat = ::forge::occtthicken::thickenShell(src, offset, tol);
-        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
-    }
+    if (::forge::occtthicken::thickenNativeEnabled())
+        out = ::forge::occtthicken::thickenShell(src, offset, tol);
 #endif
+
+    if (out.IsNull()) {
 #ifndef FORGE_THICKEN_DROP_NATIVE
-    BRepOffset_MakeOffset mk;
-    mk.Initialize(src, offset, tol, BRepOffset_Skin,
-                  /*Intersection*/ Standard_False,
-                  /*SelfInter*/ Standard_False,
-                  GeomAbs_Arc,
-                  /*makeThickSolid*/ Standard_True);
-    mk.MakeThickSolid();
-    if (!mk.IsDone()) {
-        throw std::runtime_error("forge.part.thickenSurface: offset build failed "
-                                 "(surface may be non-manifold or self-intersecting)");
-    }
-    // BRepOffset_MakeOffset hands back a NEGATIVELY ORIENTED solid here. MEASURED, not
-    // suspected: the corpus A/B ran this exact call against the native engine over 600
-    // reference parts, and every one of the 407 shared successes disagreed on SIGNED
-    // volume while agreeing on |volume| with face, edge, vertex, area, centre of mass and
-    // bounding box all identical -- e.g. native +114690.606 against this -114690.606.
-    // Registering it unmodified put a reversed solid into the ShapeRegistry.
-    //
-    // Normalising is the convention the rest of the kernel already keeps, at six sites:
-    // OcctPrimBuilder.cpp:76,106,315 and NativeOcctBridge.cpp:120,296,695 all do exactly
-    // this. It matters to a real consumer: SheetMetalExtended.cpp:327 isDownstream()
-    // tests `Mass() <= kEps`, which a NEGATIVE volume PASSES, silently dropping a good
-    // solid into the bounding-box-centre fallback and answering from the wrong geometry.
-    TopoDS_Shape out = mk.Shape();
-    {
-        GProp_GProps vp;
-        BRepGProp::VolumeProperties(out, vp);
-        if (vp.Mass() < 0.0) out.Reverse();
-    }
-    return ShapeRegistry::instance().add(out);
+        // THE OCCT BASELINE. One call, defined once, in OcctThickenBaseline.hpp, so
+        // the 600-part corpus A/B measures THIS and not a hand-copy of it. Its own
+        // banner carries the measurement and the four independent reasons the
+        // positive orientation is the correct one rather than a house style.
+        out = ::forge::part::occtThickenBaseline(src, offset, tol);
 #else
-    // The engine NAMES why it declined; passing that through is the difference
-    // between "thicken failed" and a message a caller can act on.
-    throw std::runtime_error(
-        std::string("forge.part.thickenSurface: the native thicken declined this "
-                    "input (") + ::forge::occtthicken::thickenLastDeferReason() +
-        ") and the OCCT BRepOffset_MakeOffset fallback is compiled out "
-        "(FORGE_THICKEN_DROP_NATIVE=ON)");
+        // The engine NAMES why it declined; passing that through is the difference
+        // between "thicken failed" and a message a caller can act on.
+        throw std::runtime_error(
+            std::string("forge.part.thickenSurface: the native thicken declined this "
+                        "input (") + ::forge::occtthicken::thickenLastDeferReason() +
+            ") and the OCCT BRepOffset_MakeOffset fallback is compiled out "
+            "(FORGE_THICKEN_DROP_NATIVE=ON)");
 #endif
+    }
+
+    // ONE ORIENTATION POST-CONDITION, FOR WHICHEVER ENGINE ANSWERED — and the reason
+    // it is HERE and not inside either branch.
+    //
+    // It used to live inside the `#ifndef FORGE_THICKEN_DROP_NATIVE` block, which
+    // meant the guarantee a caller received depended on a BUILD FLAG: with the drop
+    // ON, thickenSurface had no orientation post-condition at all, and the native
+    // engine's positive result was incidental (path A inherits it from
+    // OcctPrimBuilder's sew; the folded and full-rectangle-cylinder paths only ever
+    // took std::fabs(Mass()) and never normalised). A post-condition a flag can
+    // delete is not a post-condition. The native engine now asserts its own
+    // orientation too — the two together are belt and braces, on purpose, because
+    // this is a SIGN BIT that every |volume| check in the tree is blind to.
+    //
+    // POSITIVE is not a house style. BRepClass3d_SolidClassifier answers TopAbs_IN
+    // for an interior point of the positively-oriented solid and TopAbs_OUT for the
+    // same point against the raw negatively-oriented one: the raw solid denotes the
+    // UNBOUNDED complement. It also matters to a real consumer —
+    // SheetMetalExtended.cpp:327 isDownstream() tests `Mass() <= kEps`, which a
+    // NEGATIVE volume PASSES, silently dropping a good solid into the
+    // bounding-box-centre fallback and answering from the wrong geometry.
+    // forge-kernel/test/thicken_orientation_gate.cpp pins all of this, both
+    // directions, for BOTH engines.
+    return ShapeRegistry::instance().add(::forge::part::orientedPositiveSolid(out));
 }
 
 // ============================================================ offsetSolid
