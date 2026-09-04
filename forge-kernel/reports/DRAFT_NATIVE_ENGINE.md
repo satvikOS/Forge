@@ -740,24 +740,37 @@ dFaces = dEdges = dVertices = dWires = 0   on 52 of 52
 ```
 
 **OCCT does not recompute anything.** It emits a solid with the input's exact
-topology and a self-intersecting wall, which is the same solid the native engine
-emits and then refuses to return. The offending sub-shape is, on all 52, ONE face:
-always a **plane**, always the drafted wall itself, carrying **5 to 9 wires** —
-one outer boundary and 4 to 8 islands.
+topology and a self-intersecting face, which is the same solid the native engine
+emits and then refuses to return.
 
-So the two failure classes are real geometric events, and neither is a capability
-gap against this incumbent:
+**AND IT IS NOT THE DRAFTED WALL.** The first draft of this paragraph said the
+offending face was "the drafted wall itself" and that was an assumption, not a
+measurement; measured, it is false on 52 of 52. The offending sub-shape is, on all
+52, ONE face, and it is always a **plane whose OUTWARD normal is exactly +Z** — the
+**TOP CAP** — carrying **5 to 9 wires**, one outer boundary and 4 to 8 islands. The
+drafted wall itself has **ONE wire** on every one of the 52 (min 1, median 1, max 1)
+and its outward normal is horizontal on every one (37 x -Y, 8 x +Y, 6 x -X, 1 x +X).
 
-* **38 parts — `IntersectingWires`.** The moved outer boundary of the wall now
-  crosses one of the wall's own island wires.
-* **14 parts — `SelfIntersectingWire` + `UnorientableShape`.** One wire of the
-  wall crosses itself after the move. `ho1024`, diagnosed in the section above, is
-  one of these fourteen and the diagnosis of the GEOMETRY was right; what was
-  wrong was the inference that OCCT does something different.
+That is the mechanism, and it is a cleaner one than "the wall cuts a feature".
+With +Z pull and the neutral plane at z-min the wall leans INWARD as height rises,
+so the edge it shares with the top cap moves inward by `height * tan(3 deg)` —
+**2.16 mm to 5.07 mm, median 4.18 mm**, on parts 96.8 mm to 258.3 mm across. The
+top cap is the face that loses the most, and it is the face carrying the islands.
+
+So the two failure classes are real geometric events on that cap, and neither is a
+capability gap against this incumbent:
+
+* **38 parts — `IntersectingWires`.** The cap's moved outer boundary now crosses
+  one of the cap's own island wires.
+* **14 parts — `SelfIntersectingWire` + `UnorientableShape`.** One wire of the cap
+  crosses itself after the move. `ho1024`, diagnosed in the section above, is one of
+  these fourteen; the diagnosis of the GEOMETRY was right and it even named the
+  right arc, but it attributed the face to the wall and inferred that OCCT does
+  something different. Both of those are wrong.
 
 **THE CAPABILITY, NAMED.** To make these 52 *valid* — better than the incumbent,
-not equal to it — an engine needs a **2-D boundary arrangement on the wall face**:
-intersect the moved outer boundary against the island wires in the face's own
+not equal to it — an engine needs a **2-D boundary arrangement on the CAP face**:
+intersect its moved outer boundary against its island wires in that face's own
 (u, v), split at the crossings, discard the parts that fall outside, and re-emit
 the face with a **different wire, edge and vertex count**. `NativeDraftLocal`
 asserts equal counts by construction, so it cannot; and OCCT's

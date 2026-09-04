@@ -452,7 +452,11 @@ set(OCCT_LIBS
 #   own answer is BRepCheck-INVALID on all 52, the BRepCheck status codes are
 #   identical part for part, and OCCT's answer has the input's exact face, edge,
 #   vertex and wire counts (dF=dE=dV=dW=0 on 52 of 52), so it is not recomputing
-#   any topology either. The native engine declines because its gate is stricter
+#   any topology either. The offending face is, on all 52, the TOP CAP (outward
+#   normal exactly +Z, 5 to 9 wires) and never the drafted wall, which carries ONE
+#   wire on every one of them: the wall leans inward as height rises, so the cap's
+#   boundary moves in by height*tan(3deg) = 2.16 to 5.07 mm and crosses one of the
+#   cap's own islands. The native engine declines because its gate is stricter
 #   than its incumbent, which is a SIXTH disagreement class beside PR #224's five.
 #   That decision is NOT taken here and the gate stays ON: relaxing a check to
 #   gain 52 parts is weakening an assertion to obtain a number. Full derivation
