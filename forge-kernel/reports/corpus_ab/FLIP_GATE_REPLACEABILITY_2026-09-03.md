@@ -197,7 +197,25 @@ everything as "Other" would make the comparison vacuously true — and two `ArmR
 identical in every scalar the old vector compares, with one face moved from the plane bin
 to the B-spline bin, must be `agree == true` and `agree_strict == false`.
 
-### 5.1 Term 5's threshold was measured, not chosen
+### 5.1 The driver's own guard was made to fire
+
+`run_corpus_ab_coverage.sh` runs the self-test BEFORE aggregating and exits 5 if it is
+red — a verdict table produced by an untested gate is worse than no table. That branch
+is itself a guard that had never been seen to fire, so it was made to, **in both
+directions**, at HEAD:
+
+```
+selftest replaced by `process.exit(1)`   driver exit 5, "FATAL: the flip gate's own
+                                         self-test is RED", and NO summary.md written
+selftest restored (byte-identical, from  driver exit 0, summary.md AND
+a BACKUP FILE, not `git checkout --`)    gate_selftest.log written
+```
+
+The restore is from a backup file rather than from git because `git checkout --` on an
+unstaged tree reverts the whole edit, which has cost a rewrite in this repo before;
+`cmp` confirms the restored file is byte-identical and the working tree is clean.
+
+### 5.2 Term 5's threshold was measured, not chosen
 
 The first version of term 5 simply asked whether the centre of mass was outside the
 bounding box. **It fired on 12 of 61 real THICKEN rows and 1 of 45 real FILLING rows.**
