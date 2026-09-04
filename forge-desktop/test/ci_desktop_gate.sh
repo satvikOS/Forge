@@ -70,10 +70,14 @@ set -uo pipefail
 #    That both parents were individually right one commit earlier, and both wrong
 #    here, is the entire argument for deriving rather than inheriting:
 #      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-#    prints 67 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
-#    + file_dialog 3 + frame 16 + copilot 8 + update 7 + click 8 + assembly 4
+#    prints 71 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 16 + copilot 8 + update 7 + click 12 + assembly 4
 #    + isolation 0.
-EXPECTED_MUTATIONS=67
+#    (click went 8 -> 12 with the viewport drag handles and the viewport body
+#    pick: 9 the arrow pressed 60 px off where the app PUBLISHED it, 10 the body
+#    never selected so the handles are not up, 11 a drag with zero net motion,
+#    12 the pick filter left on `face` so the body branch never runs.)
+EXPECTED_MUTATIONS=71
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

@@ -55,6 +55,19 @@
 //   7  no frame is drawn after a command runs   -> the redraw the historical
 //                                                 use-after-free broke goes unchecked
 //   8  the camera pull path never runs          -> view.* is a counter nobody reads
+//   9  the arrow is pressed 60 px off where the app PUBLISHED it -> the draw and
+//      the hit test do not share a projection, which is the classic gizmo defect
+//  10  the body is never selected before the gesture -> the handles must NOT be
+//      up, so every claim below about grabbing one is vacuous
+//      (the first draft of 10 skipped the frames AFTER the release and STAYED
+//      GREEN, because the deferral is WITHIN one frame: build() dispatches the
+//      emission at the end of the same frame whose draw recorded it. A mutation
+//      that stays green is the gate telling its author the check was not the one
+//      they thought it was, and it is why that first draft is not in the tree.)
+//  11  the pointer returns to the grab pixel before release -> the net motion is
+//      zero, part.move refuses it, and every claim about a recorded feature dies
+//  12  the pick filter is left on `face` for the viewport body pick -> the click
+//      travels the branch that was always there and selects a face, not a body
 //
 // The list above is the UNION of the two sides this merge joined, and neither
 // side was complete. This branch documented 6 and 7 and predated 8; the base
@@ -64,8 +77,14 @@
 // here said 459 and 482, and had gone stale by standing still). Taking either
 // side whole would have left a reader counting this list and concluding that
 // mutations run_desktop.sh really injects go into a gate that ignores them.
-// It is 1..8 now, with no gap.
+// It is 1..12 now, with no gap. 9 to 12 arrived with the viewport drag handles:
+// 9 and 11 target the gesture itself, 10 targets the selection precondition the
+// handles are driven by, and 12 targets the viewport BODY pick that makes the
+// handles reachable without going to the feature tree.
 #include <cfloat>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -589,11 +608,21 @@ int main(int argc, char** argv) {
     const float wholeBody = frame.camera().distance();
 
     forge::ui::EntityRef faceRef;
-    // The REAL body id this frame is showing. An empty one would be rejected by
-    // SelectionService::add (EntityRef::valid() requires a body), and a rejected
-    // add would leave the selection empty and make every check below vacuous --
-    // so the add is ASSERTED rather than assumed.
-    faceRef.bodyId = frame.treeSource().rootId();
+    // ★ THE BODY ID THIS APPLICATION ACTUALLY STAMPS, which is a DOCUMENT NODE
+    // name. This line used to read `faceRef.bodyId = frame.treeSource().rootId()`
+    // -- and forge::ui::NodeId is a std::uint64_t while EntityRef::bodyId is a
+    // std::string, so it bound std::string::operator=(char) and produced the
+    // one-character string "\x01". ForgeFrame's own PickScene was built from the
+    // same expression, so the gate and the app agreed on a value NO REAL PICK
+    // EVER CARRIES: every ref clickFace, clickEdge and clickFeature produce
+    // holds a node name, selectionBounds' body check refused all of them, and
+    // `view.selection` silently framed nothing while this gate stayed green
+    // because it fed the app the app's own wrong value. Read from the document.
+    const std::vector<forge::ui::FeatureRecord>& fitRecs = frame.document().records();
+    check(!fitRecs.empty(), "the document has a feature to name the body with", "");
+    faceRef.bodyId = fitRecs.empty() ? std::string()
+                                     : frame.document().nodeFor(fitRecs.back().irId);
+    check(!faceRef.bodyId.empty(), "the body carries a document node name", "");
     faceRef.kind = forge::ui::EntityKind::Face;
     faceRef.persistentName = "face@1";
     check(shell.selection().add(faceRef), "a face reference was selectable for view.selection", "");
@@ -602,15 +631,437 @@ int main(int argc, char** argv) {
     if (g_mutation != 8) step(frame);
     checkEq(frame.selectionFitsApplied(), shell.document().selectionFitCount,
             "the frame applied every selection-fit the shell requested", "");
-    // A single face is a subset of the body, so framing it cannot need MORE
-    // distance than framing the whole thing. Stated as <= rather than < ON
-    // PURPOSE: this gate does not get to assume the demo body HAS a face 1, and
-    // a strict inequality would be asserting the fixture rather than the code.
-    // The unconditional claim is the watermark equality above.
-    check(frame.camera().distance() <= wholeBody + 1e-3f,
-          "view.selection framed no wider than view.fit", "");
+    // STRICTLY closer, now that the ref resolves: one face of a 60-plus-face
+    // body is a proper subset of it, so framing it must need LESS distance than
+    // framing the whole thing. The old `<=` passed against the defect above --
+    // a refused fit leaves the camera exactly where view.fit put it.
+    check(frame.camera().distance() < wholeBody,
+          "view.selection framed CLOSER than view.fit",
+          std::to_string(frame.camera().distance()) + " vs " + std::to_string(wholeBody));
     check(frame.camera().distance() > 0.0f, "view.selection left a usable distance", "");
+
+    // ...and the other direction: a ref naming a body this scene is NOT showing
+    // must be REFUSED, not framed. Framing the wrong body is worse than
+    // refusing, and without this the fix above could be "stop checking the id".
     shell.selection().clearSelection();
+    frame.invoke("view.fit");
+    if (g_mutation != 8) step(frame);
+    const float refitted = frame.camera().distance();
+    forge::ui::EntityRef alienRef = faceRef;
+    alienRef.bodyId = "body.not_on_screen";
+    check(shell.selection().add(alienRef), "a ref for another body was selectable", "");
+    frame.invoke("view.selection");
+    if (g_mutation != 8) step(frame);
+    check(frame.camera().distance() == refitted,
+          "view.selection REFUSED a ref belonging to another body", "");
+    shell.selection().clearSelection();
+  }
+
+
+  // ══ ★ DIRECT MANIPULATION — THE VIEWPORT DRAG HANDLES ═══════════════════
+  //
+  // WHAT WAS NOT COVERED, AND WHY IT MATTERS. forge::ui::Manipulator is proved
+  // ray-for-ray by ui/test/manipulator_test.cpp, and its own header says "the
+  // desktop click gate asserts the agreement on the real Camera". It did not:
+  // before this block, `Manipulator` appeared nowhere in forge-desktop at all,
+  // so 671 lines of gated arithmetic were compiled into the shipped application
+  // and called by nothing. A library the app does not call is not a feature, and
+  // a gate that only exercises the library cannot tell the difference.
+  //
+  // This is the whole gesture, end to end, in the real frame: hover a handle,
+  // press it, drag it, release it, and follow what comes out all the way into
+  // the KERNEL'S OWN GEOMETRY. Nothing here asserts a counter -- the counters
+  // are read only to say WHICH handle was grabbed. What is asserted is a VECTOR
+  // OF OBSERVABLES on the rebuilt solid: the bounding box moved by the distance
+  // the handle displayed, and the VOLUME DID NOT CHANGE, because a rigid motion
+  // cannot change it and volume alone could not tell a correct move from a
+  // rebuild into something else entirely.
+  {
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+    // A KNOWN DOCUMENT. The sweep above invoked all 84 commands, including
+    // file.new, edit.delete and every primitive, so the document it leaves
+    // behind is whatever the last of them made -- and a gesture measured
+    // against an arbitrary leftover measures nothing anybody can reproduce.
+    // file.new is the application's own path back to the seeded starter part.
+    frame.invoke("file.new");
+    pointerTo(-FLT_MAX, -FLT_MAX);
+    step(frame);
+    step(frame);
+    std::printf("[gate] handles: document rebuilt, volume %.3f, %s\n",
+                scene.lastBuild().volume,
+                scene.lastBuild().error.empty() ? "no build error"
+                                                : scene.lastBuild().error.c_str());
+
+    // The body node the APPLICATION stamps on every ref it makes. Read from the
+    // document rather than spelled here: a literal would let this gate keep
+    // passing against a body the app has stopped naming.
+    const std::vector<forge::ui::FeatureRecord>& recs = frame.document().records();
+    check(!recs.empty(), "the demo document has a feature to select", "");
+    const std::string bodyNode = recs.empty() ? std::string()
+                                              : frame.document().nodeFor(recs.back().irId);
+    check(!bodyNode.empty(), "the last feature is bound to a document node", "");
+
+    // ── 1. THE NEGATIVE CASES COME FIRST ──────────────────────────────────
+    // A gizmo that is always up is not a gizmo, it is decoration. It must be
+    // absent with nothing picked, and absent on SUB-TOPOLOGY: part.move and
+    // part.rotate declare exactly(Body, 1), so offering a handle over a face
+    // selection would be offering a gesture the registry then refuses.
+    shell.selection().setFilter(forge::ui::EntityKind::Any);
+    shell.selection().clearSelection();
+    step(frame);
+    check(!frame.handlesVisible(), "no drag handles with an empty selection", "");
+    checkEq(frame.handleHits().size(), std::size_t{0}, "and none published", "");
+
+    forge::ui::EntityRef faceRef;
+    faceRef.bodyId = bodyNode;
+    faceRef.kind = forge::ui::EntityKind::Face;
+    faceRef.persistentName = "face@1";
+    check(shell.selection().add(faceRef), "a face reference was selectable", "");
+    step(frame);
+    check(!frame.handlesVisible(), "no drag handles on a FACE selection", "");
+
+    // ── 2. THE BODY IS PICKED BY CLICKING THE PART ────────────────────────
+    // ★ The filter has always offered `body`, and until this change choosing it
+    // left the viewport unable to pick ANYTHING: the ray hit went down the face
+    // branch, clickFace built a Face ref, and accepts(Face) refused it under a
+    // Body filter. THIRTEEN registry commands declare a Body signature and the
+    // only way to satisfy one was to find the right row in the feature tree.
+    //
+    // The click lands in the MIDDLE of the viewport, where a fitted body is, so
+    // this is the gesture and not a constructed reference.
+    shell.selection().clearSelection();
+    frame.invoke("view.iso");
+    step(frame);
+    frame.invoke("view.fit");
+    step(frame);
+    step(frame);
+    // FINDING A PIXEL THAT IS ON THE PART is a FIXTURE question, not the claim.
+    // The viewport centre is not it: the starter part is not convex, and the
+    // ray through the middle of a fitted plate can pass through a hole. So a
+    // coarse grid is walked with the FACE filter until the app's own
+    // preselection says the cursor is over geometry, and THAT pixel is the one
+    // the body pick is then asserted at. The scan finding nothing is itself a
+    // failure below -- it is not allowed to quietly skip the test.
+    const forge::desktop::ViewportRequest& vpMid = frame.viewport();
+    const float vx = static_cast<float>(vpMid.x);
+    const float vy = static_cast<float>(vpMid.y);
+    const float vw = static_cast<float>(vpMid.width);
+    const float vh = static_cast<float>(vpMid.height);
+    float onPartX = 0.0f;
+    float onPartY = 0.0f;
+    bool foundOnPart = false;
+    shell.selection().setFilter(forge::ui::EntityKind::Face);
+    for (int gy = 1; gy <= 5 && !foundOnPart; ++gy) {
+      for (int gx = 1; gx <= 5 && !foundOnPart; ++gx) {
+        const float px = vx + vw * static_cast<float>(gx) / 6.0f;
+        const float py = vy + vh * static_cast<float>(gy) / 6.0f;
+        pointerTo(px, py);
+        step(frame);
+        if (frame.viewport().hoverFace != 0) {
+          onPartX = px;
+          onPartY = py;
+          foundOnPart = true;
+        }
+      }
+    }
+    check(foundOnPart, "a viewport pixel over the part was found by hovering", "");
+    shell.selection().clearSelection();
+    // MUTATION 12: leave the filter on FACE. The same click then travels the
+    // face branch and selects a Face, so every check below that the pick is a
+    // BODY goes red -- which is what proves those checks are about the body
+    // branch and are not satisfied by the face path that was always there.
+    if (g_mutation != 12) shell.selection().setFilter(forge::ui::EntityKind::Body);
+    std::printf("[gate] handles: viewport %dx%d, a pixel over the part at %.0f,%.0f\n",
+                vpMid.width, vpMid.height, static_cast<double>(onPartX),
+                static_cast<double>(onPartY));
+    pointerTo(onPartX, onPartY);
+    step(frame);
+    check(shell.selection().preselection().has_value(),
+          "hovering the part under the body filter PRESELECTS the body", "");
+    leftButton(true);
+    step(frame);
+    leftButton(false);
+    step(frame);
+    checkEq(shell.selection().count(), std::size_t{1},
+            "clicking the part under the body filter picked ONE entity", "");
+    check(shell.selection().count() == 1 &&
+              shell.selection().selection().front().kind == forge::ui::EntityKind::Body,
+          "and what it picked is a BODY", "");
+    // The viewport route and the feature-tree route must produce the IDENTICAL
+    // ref, or toggle() would add a duplicate where it should remove one and
+    // part.move's exactly(Body, 1) would refuse a selection that looks like one
+    // body. Compared field by field against the ref the tree route builds.
+    forge::ui::EntityRef treeRef;
+    treeRef.bodyId = bodyNode;
+    treeRef.kind = forge::ui::EntityKind::Body;
+    treeRef.persistentName = "feature@" + std::to_string(recs.back().irId);
+    check(shell.selection().count() == 1 &&
+              shell.selection().selection().front().bodyId == treeRef.bodyId &&
+              shell.selection().selection().front().persistentName == treeRef.persistentName,
+          "and it is the SAME ref the feature tree produces",
+          shell.selection().count() == 1
+              ? shell.selection().selection().front().persistentName + " / " +
+                    shell.selection().selection().front().bodyId
+              : std::string("nothing selected"));
+    step(frame);
+    check(frame.handlesVisible(), "a viewport body pick alone put the drag handles up", "");
+    shell.selection().setFilter(forge::ui::EntityKind::Any);
+
+    shell.selection().clearSelection();
+    forge::ui::EntityRef bodyRef = treeRef;
+    // MUTATION 10: never select the body. The handles are SELECTION-DRIVEN --
+    // they are up exactly when the live selection is one body -- so this must
+    // leave the viewport with nothing to grab and every check below it red.
+    if (g_mutation != 10) {
+      check(shell.selection().add(bodyRef), "a body reference was selectable", "");
+    }
+    // ISOMETRIC on purpose: it is the one standard view in which none of the
+    // three axes is seen end-on, so every arrow and every ring has real screen
+    // extent and "the handle is where the app said it is" is a fair question.
+    frame.invoke("view.iso");
+    step(frame);
+    frame.invoke("view.fit");
+    step(frame);
+    step(frame);
+    check(frame.handlesVisible(), "one body selected put the drag handles up", "");
+    checkEq(frame.handleHits().size(), std::size_t{6},
+            "three translate arrows and three rotate rings were published", "");
+
+    // Every published handle must be INSIDE the viewport the app reported. A
+    // handle drawn off-panel is one no pointer can reach.
+    const forge::desktop::ViewportRequest& vp = frame.viewport();
+    std::size_t inside = 0;
+    for (const forge::desktop::HandleHit& hh : frame.handleHits()) {
+      if (hh.x >= static_cast<float>(vp.x) &&
+          hh.x <= static_cast<float>(vp.x + vp.width) &&
+          hh.y >= static_cast<float>(vp.y) &&
+          hh.y <= static_cast<float>(vp.y + vp.height)) {
+        ++inside;
+      }
+    }
+    checkEq(inside, frame.handleHits().size(), "every published handle is inside the viewport",
+            "");
+
+    // ── 3. THE TRANSLATE DRAG, FOLLOWED INTO THE SOLID ────────────────────
+    forge::desktop::HandleHit grab;
+    bool haveGrab = false;
+    for (const forge::desktop::HandleHit& hh : frame.handleHits()) {
+      if (hh.mode == forge::ui::ManipulatorMode::Translate &&
+          hh.axis == forge::ui::HandleAxis::X) {
+        grab = hh;
+        haveGrab = true;
+      }
+    }
+    check(haveGrab, "the X translate arrow was published with a grab point", "");
+
+    const forge::desktop::Bounds before = scene.bounds();
+    const double volBefore = scene.lastBuild().volume;
+    const std::size_t featuresBefore = frame.document().records().size();
+    const std::size_t undoBefore = shell.document().undoDepth;
+    check(before.valid, "the body has a bounding box before the drag", "");
+
+    if (haveGrab) {
+      // MUTATION 9: press 60 px away from where the app published the handle.
+      // If the gizmo is grabbable anywhere but where it is DRAWN, this stays
+      // green -- which is the classic gizmo defect and the reason the draw and
+      // the hit test are required to share one projection.
+      const float offset = (g_mutation == 9) ? 60.0f : 0.0f;
+      pointerTo(grab.x + offset, grab.y + offset);
+      step(frame);
+      leftButton(true);
+      step(frame);
+      check(frame.handleDragging() || g_mutation == 9, "pressing the arrow began a drag", "");
+      // ★ THE HANDLE TOOK THE POINTER. A press on a gizmo that also reached the
+      // pick engine would replace the body selection with the face BEHIND the
+      // handle -- and the gizmo would vanish under the user's own cursor, mid
+      // gesture. The selection must still be the ONE body.
+      checkEq(shell.selection().count(), std::size_t{1},
+              "the press on the handle did not also pick a face", "");
+      check(shell.selection().count() == 1 &&
+                shell.selection().selection().front().kind == forge::ui::EntityKind::Body,
+            "and what is selected is still the body", "");
+
+      // Drag along the screen vector from the pivot to the tip, which is the
+      // direction that axis actually runs on screen.
+      pointerTo(grab.x + offset + 90.0f, grab.y + offset + 24.0f);
+      step(frame);
+      // ...and the drag SURVIVES the pointer leaving the viewport. A gesture
+      // that is abandoned because the cursor crossed a panel edge is a gesture
+      // that loses a user's work for a reason they cannot see; the drag branch
+      // is checked before the hover test precisely so this holds.
+      pointerTo(static_cast<float>(vp.x) - 40.0f, static_cast<float>(vp.y) - 40.0f);
+      step(frame);
+      check(frame.handleDragging() || g_mutation == 9,
+            "the drag survived the pointer leaving the viewport", "");
+      pointerTo(grab.x + offset + 90.0f, grab.y + offset + 24.0f);
+      step(frame);
+      // MUTATION 11: put the pointer back where it was grabbed, so the net
+      // motion is zero. part.move refuses a zero and the drag must record
+      // NOTHING -- so every assertion below about a new feature goes red, which
+      // is what proves they are assertions about MOTION and not about a click.
+      if (g_mutation == 11) {
+        pointerTo(grab.x + offset, grab.y + offset);
+        step(frame);
+      }
+      const double shown = frame.handleTranslation();
+      check(std::fabs(shown) > 1e-6 || g_mutation == 9 || g_mutation == 11,
+            "the drag showed a live distance", std::to_string(shown));
+
+      leftButton(false);
+      step(frame);
+      // MUTATION 10: never step the frame after the release. The emission is
+      // DEFERRED past the dock walk on purpose -- part.move rebuilds the
+      // document, the feature tree and the scene the walk is holding references
+      // into -- so without this frame the command is never dispatched and the
+      // document never changes.
+      if (g_mutation != 10) step(frame);
+      if (g_mutation != 10) step(frame);
+
+      checkEq(frame.handleEmissions(), std::size_t{1}, "the finished drag emitted once", "");
+      // The gesture is dispatched by build() AFTER the dock walk has returned,
+      // for the same reason the tab click and the empty state's buttons are:
+      // part.move rebuilds the document, the feature tree and the scene the walk
+      // is still holding references into. These are the two instruments that
+      // caught the historical use-after-free.
+      checkEq(frame.layoutReseatsDuringWalk(), std::size_t{0},
+              "the drag did not re-seat the layout mid-walk", "");
+      check(!frame.syncSceneToDocument(),
+            "the viewport matches the document after the drag", "");
+      checkEq(frame.document().records().size(), featuresBefore + 1,
+              "the drag recorded ONE feature", "");
+      check(frame.document().irProgram().find("TRANSLATE") != std::string::npos,
+            "and the feature it recorded is a TRANSLATE", "");
+      checkEq(shell.document().undoDepth, undoBefore + 1,
+              "ONE undo step per gesture, not one per mouse move", "");
+
+      // ★ THE GEOMETRY. The bounding box moved by the distance the handle
+      // displayed, and the volume did not move at all.
+      const forge::desktop::Bounds after = scene.bounds();
+      check(after.valid, "the body still has a bounding box after the drag", "");
+      const double dx = static_cast<double>(after.min[0]) - static_cast<double>(before.min[0]);
+      check(std::fabs(dx - shown) < 0.05,
+            "the solid moved by the distance the handle showed",
+            std::to_string(dx) + " vs " + std::to_string(shown));
+      const double dy = static_cast<double>(after.min[1]) - static_cast<double>(before.min[1]);
+      const double dz = static_cast<double>(after.min[2]) - static_cast<double>(before.min[2]);
+      check(std::fabs(dy) < 1e-3 && std::fabs(dz) < 1e-3,
+            "and it moved along X ONLY", std::to_string(dy) + ", " + std::to_string(dz));
+      const double volAfter = scene.lastBuild().volume;
+      check(volBefore > 0.0 && std::fabs(volAfter - volBefore) < 1e-6 * volBefore + 1e-9,
+            "a rigid move did not change the volume",
+            std::to_string(volBefore) + " -> " + std::to_string(volAfter));
+
+      // ── 4. UNDO PUTS IT BACK, IN ONE STEP ───────────────────────────────
+      frame.invoke("edit.undo");
+      step(frame);
+      step(frame);
+      checkEq(frame.document().records().size(), featuresBefore,
+              "one undo removed the whole gesture", "");
+      const forge::desktop::Bounds undone = scene.bounds();
+      check(std::fabs(static_cast<double>(undone.min[0]) -
+                      static_cast<double>(before.min[0])) < 1e-3,
+            "and the solid went back where it was", "");
+    }
+
+    // ── 5. THE ROTATE RING ────────────────────────────────────────────────
+    // The second half of placement, and it is not the same gesture with a
+    // different name: the ring solves a ray/PLANE intersection where the arrow
+    // solves a ray/LINE one, and it emits a different command with a different
+    // schema (an angle, an axis triple and the pivot).
+    if (g_mutation == 0) {
+      shell.selection().clearSelection();
+      check(shell.selection().add(bodyRef), "the body is selectable again for the ring", "");
+      frame.invoke("view.iso");
+      step(frame);
+      frame.invoke("view.fit");
+      step(frame);
+      step(frame);
+      check(frame.handlesVisible(), "the handles came back up for the ring", "");
+
+      forge::desktop::HandleHit ring;
+      bool haveRing = false;
+      for (const forge::desktop::HandleHit& hh : frame.handleHits()) {
+        if (hh.mode == forge::ui::ManipulatorMode::Rotate &&
+            hh.axis == forge::ui::HandleAxis::Z) {
+          ring = hh;
+          haveRing = true;
+        }
+      }
+      check(haveRing, "the Z rotate ring was published with a grab point", "");
+
+      if (haveRing) {
+        const std::size_t recsBefore = frame.document().records().size();
+        const double volBeforeTurn = scene.lastBuild().volume;
+        const forge::desktop::Bounds boxBeforeTurn = scene.bounds();
+        pointerTo(ring.x, ring.y);
+        step(frame);
+        leftButton(true);
+        step(frame);
+        check(frame.handleDragging(), "pressing the ring began a drag", "");
+        pointerTo(ring.x - 70.0f, ring.y + 70.0f);
+        step(frame);
+        const double turned = frame.handleRotationDegrees();
+        check(std::fabs(turned) > 1e-6, "the ring showed a live angle", std::to_string(turned));
+        leftButton(false);
+        step(frame);
+        step(frame);
+
+        checkEq(frame.document().records().size(), recsBefore + 1,
+                "the ring drag recorded ONE feature", "");
+        check(frame.document().irProgram().find("ROTATE") != std::string::npos,
+              "and the feature it recorded is a ROTATE", "");
+        const double volAfterTurn = scene.lastBuild().volume;
+        check(volBeforeTurn > 0.0 &&
+                  std::fabs(volAfterTurn - volBeforeTurn) < 1e-6 * volBeforeTurn + 1e-9,
+              "a rotation did not change the volume either",
+              std::to_string(volBeforeTurn) + " -> " + std::to_string(volAfterTurn));
+        // A rotation about Z through the body's own centre cannot leave the
+        // bounding box identical unless nothing happened -- the box is the
+        // observable that separates "turned" from "rebuilt unchanged", exactly
+        // as the volume is the one that separates "moved" from "remade".
+        const forge::desktop::Bounds boxAfterTurn = scene.bounds();
+        const double bx = std::fabs(static_cast<double>(boxAfterTurn.max[0]) -
+                                    static_cast<double>(boxBeforeTurn.max[0]));
+        const double by = std::fabs(static_cast<double>(boxAfterTurn.max[1]) -
+                                    static_cast<double>(boxBeforeTurn.max[1]));
+        check(bx > 1e-3 || by > 1e-3, "and the bounding box turned with it",
+              std::to_string(bx) + ", " + std::to_string(by));
+
+        frame.invoke("edit.undo");
+        step(frame);
+        step(frame);
+        checkEq(frame.document().records().size(), recsBefore,
+                "one undo removed the whole ring gesture", "");
+      }
+
+      // ── 6. A DRAG THAT MOVED NOTHING RECORDS NOTHING ──────────────────
+      // A no-op statement in a feature tree is worse than no statement: it is a
+      // row a user has to read and cannot explain.
+      shell.selection().clearSelection();
+      check(shell.selection().add(bodyRef), "the body is selectable for the null drag", "");
+      step(frame);
+      step(frame);
+      if (frame.handlesVisible() && !frame.handleHits().empty()) {
+        const forge::desktop::HandleHit h0 = frame.handleHits().front();
+        const std::size_t emissionsBefore = frame.handleEmissions();
+        const std::size_t recsBefore = frame.document().records().size();
+        pointerTo(h0.x, h0.y);
+        step(frame);
+        leftButton(true);
+        step(frame);
+        leftButton(false);
+        step(frame);
+        step(frame);
+        checkEq(frame.handleEmissions(), emissionsBefore,
+                "a press-and-release that moved nothing emitted nothing", "");
+        checkEq(frame.document().records().size(), recsBefore,
+                "and recorded no feature", "");
+      }
+    }
+
+    shell.selection().clearSelection();
+    pointerTo(-FLT_MAX, -FLT_MAX);
+    step(frame);
   }
 
   // ── coverage: what was clicked is what the model said was there ──────────

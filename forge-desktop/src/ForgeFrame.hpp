@@ -43,6 +43,7 @@
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/Manipulator.hpp"
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
 #include "forge/ui/Onboarding.hpp"
@@ -74,6 +75,23 @@ struct ViewportRequest {
   // and a view that jumps every time a checkbox is clicked is unusable.
   bool visibilityDirty = false;
   bool wireframe = false;
+};
+
+// Where one VIEWPORT DRAG HANDLE was drawn, in the same screen coordinates ImGui
+// was given. Recorded per handle, per frame, for the same reason TabHit is: the
+// handles are not widgets, so nothing outside this class can re-derive where
+// they are without re-implementing the gizmo's projection -- and a headless gate
+// that re-implemented it would be asserting against its own copy of the
+// arithmetic rather than against the app's.
+//
+// The point recorded is the point the HIT TEST answers for: the projected arrow
+// TIP for a translate handle, and the ring sample FARTHEST from the projected
+// pivot for a rotate handle (the one with the most screen extent, so it is the
+// one a pointer can actually reach when the ring is seen near edge-on).
+struct HandleHit {
+  forge::ui::ManipulatorMode mode = forge::ui::ManipulatorMode::Off;
+  forge::ui::HandleAxis axis = forge::ui::HandleAxis::None;
+  float x = 0.0f, y = 0.0f;
 };
 
 // Where one dock TAB BUTTON was drawn, in the same screen coordinates ImGui was
@@ -276,6 +294,25 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   const std::vector<TabHit>& tabHits() const noexcept { return tabHits_; }
   // Every splitter grip this frame drew.
   const std::vector<SplitterHit>& splitterHits() const noexcept { return splitterHits_; }
+  // ── the viewport drag handles ───────────────────────────────────────────
+  // Every gizmo handle this frame drew, with the pixel a pointer must be put on
+  // to grab it. Empty whenever the gizmo is not up.
+  const std::vector<HandleHit>& handleHits() const noexcept { return handleHits_; }
+  // Is the gizmo on screen this frame? It is up exactly when the live selection
+  // is ONE body that resolves against the mesh on screen.
+  bool handlesVisible() const noexcept { return handlesVisible_; }
+  // Is a handle being dragged right now?
+  bool handleDragging() const noexcept {
+    return moveHandles_.dragging() || turnHandles_.dragging();
+  }
+  // How many finished handle drags this builder has turned into a dispatched
+  // command. "Dragging a handle edits the document" is a claim about a number,
+  // so the number is kept.
+  std::size_t handleEmissions() const noexcept { return handleEmissions_; }
+  // The live value of the drag in flight: millimetres along the axis for a
+  // translate handle, degrees about it for a rotate handle. Zero when idle.
+  double handleTranslation() const noexcept { return moveHandles_.translation(); }
+  double handleRotationDegrees() const noexcept { return turnHandles_.rotationDegrees(); }
   // ── THE DOCK-WALK INVARIANT ─────────────────────────────────────────────
   // How many times in this frame builder's WHOLE LIFETIME the DockLayout was
   // re-seated while the draw was still walking it. A lifetime total, not a
@@ -486,6 +523,26 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // filter is the status strip's existing control; before this it could only
   // REFUSE picks, because nothing ever offered it an Edge.
   bool edgePickMode() const;
+  // The status strip's filter set to `body`. It is a THIRD viewport pick mode,
+  // not a variant of the face one: the ray still strikes a face, but what the
+  // click NAMES is the solid that face belongs to.
+  bool bodyPickMode() const;
+  // The ONE body reference this viewport can produce, built exactly as
+  // clickFeature builds it for the same solid -- same bodyId, same
+  // persistentName -- so picking the part in the viewport and picking its row
+  // in the feature tree produce the IDENTICAL ref. Two spellings of one
+  // selection would make `toggle` add a duplicate instead of removing it, and
+  // would make part.move's exactly(Body, 1) signature refuse a selection that
+  // looks like one body. False when the document has no solid to name.
+  bool activeBodyRef(forge::ui::EntityRef& out) const;
+  void setPreselectedBody(bool under);
+  void clickBody(bool under, bool additive);
+  // Which faces the VIEWPORT should light. Not selectedFaceIds(): that one
+  // answers the Measure panel, and a Body selection names no face at all -- so
+  // the two questions have different answers and must not share a function. A
+  // selected body lights ALL of its faces, which is how a user sees that the
+  // thing they are about to drag is the thing they picked.
+  std::vector<std::uint32_t> highlightFaceIds() const;
 
   // ── the feature PARAMETER editor ────────────────────────────────────────
   // Which statement, and which of its NUMBER arguments, the Properties panel is
@@ -751,6 +808,23 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawEdgePolyline(const forge::ui::MeshEdge& edge, float x, float y, float w, float h,
                         std::uint32_t colour, float thickness);
 
+  // ── THE VIEWPORT DRAG HANDLES (forge::ui::Manipulator, wired) ───────────
+  // The gizmo's target: the pivot, the arm length and the box the ghost is drawn
+  // from. False when the live selection is not exactly ONE body that resolves
+  // against the mesh currently on screen -- which is the only state in which
+  // "drag this" has an unambiguous meaning.
+  bool manipulatorTarget(double pivot[3], double& armLength, forge::ui::MeasureBox& box);
+  // Hover, grab, drag and release, in that order, over the SAME projection the
+  // renderer uploads. Returns true when the gizmo has taken the pointer, which
+  // is what stops the same click from also picking a face behind the handle and
+  // what stops a mid-drag camera gesture from fighting the drag.
+  bool updateManipulator(float x, float y, float w, float h, bool hovered);
+  // Draws what updateManipulator hit-tested: the three arrows, the three rings,
+  // and -- while a drag is in flight -- the moved bounding box and the live
+  // value. Every point comes from Manipulator::axisTip / ringPoint through
+  // ViewportProjection::project, so what is drawn IS what is grabbable.
+  void drawManipulator(float x, float y, float w, float h);
+
   forge::ui::ForgeShell& shell_;
   KernelScene& scene_;
 
@@ -794,6 +868,34 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // the other.
   std::size_t viewsApplied_ = 0;
   std::size_t selectionFitsApplied_ = 0;
+
+  // ── the viewport drag handles ───────────────────────────────────────────
+  // TWO manipulators rather than one with a mode, and that is not a style
+  // choice. Manipulator::setMode() CANCELS any drag in flight, so a single
+  // instance hit-tested for arrows and then for rings would cancel its own drag
+  // twice per frame; and the arrow tip and the ring sit at the same radius when
+  // they share a size, so a pick at the tip is ambiguous. Two instances give the
+  // rings a LARGER radius than the arms, which is the separation every CAD
+  // triad draws, and neither ever changes mode.
+  forge::ui::Manipulator moveHandles_;
+  forge::ui::Manipulator turnHandles_;
+  // The ONE projection both the draw and the hit test go through -- built from
+  // the SAME matrix Camera::viewProj() hands the renderer, so a handle can never
+  // be drawn where the hit test does not look.
+  forge::ui::ViewportProjection handleView_;
+  bool handlesVisible_ = false;
+  std::vector<HandleHit> handleHits_;
+  // The selection's box, kept so the drag can draw the moved ghost without
+  // re-resolving the selection every frame.
+  forge::ui::MeasureBox handleBox_{};
+  std::size_t handleEmissions_ = 0;
+  // What a finished drag asks for, DEFERRED past the dock walk exactly like
+  // pendingInvokeId_ below: the viewport is drawn inside drawNode()'s recursion,
+  // and part.move / part.rotate rebuild the document, the feature tree and the
+  // scene the walk is still holding references into.
+  bool pendingHandleDispatch_ = false;
+  std::string handleCommand_;
+  forge::ui::CommandParams handleParams_;
 
   // ── Measure panel cache, and the witness that MUST be the build count ────
   //
