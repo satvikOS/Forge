@@ -126,6 +126,7 @@
 
 // ── OCCT: topology / geometry ───────────────────────────────────────────────
 #include <BRepAdaptor_Curve.hxx>
+#include <GCPnts_QuasiUniformDeflection.hxx>   // family A curve-dump sampler
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -632,6 +633,76 @@ void moReasonAdd(const char* label) {
 // after a call that succeeded, exactly like occtloft::lastDeferReason.
 const char* makeOffsetDeferReason() { return g_moReason; }
 
+// ── INVESTIGATION HOOK for family A's DECOMPOSITION difference ──────────────
+// OFF unless FORGE_MO_DUMP is set in the environment. Writes to stderr only; no
+// predicate, branch, tolerance or engine argument depends on it, and nothing in
+// the harness reads it back. It is the same device the MOLOOP/MOPT hook below
+// already is, widened from "the ring the native engine was given" to "what each
+// arm ANSWERED, and what the source wire was".
+//
+// WHY IT EXISTS. Family A's 285 disagreeing pairs were on record as differing in
+// EDGE COUNT at a wire-length ratio of p50 0.999956, and were filed as "mostly
+// the same wire cut into different edges". An edge count cannot say that. Two
+// wires describe the same curve or they do not, and deciding it needs both
+// arms' answers sampled by ONE instrument at ONE budget in ONE frame — which is
+// exactly what this prints:
+//   MODUMP <tag> part=<id> wire=<i> n=<pts> edges=<k> kinds=<hist> defl=<d>
+//   MOP <x> <y> <z>       (the face's own plane frame; z printed as evidence)
+// tag is SRC (the wire both arms were handed), NAT or OCC.
+const char* g_moPart = "";
+double      g_moDumpDefl = 0.0;   // set once per part from the part diagonal
+
+void moDumpWires(const char* tag, const TopoDS_Shape& s, const gp_Trsf& toLocal,
+                 double defl) {
+    if (!std::getenv("FORGE_MO_DUMP") || s.IsNull() || !(defl > 0.0)) return;
+    static const char* kKind[9] = {"Line", "Circle", "Ellipse", "Hyperbola", "Parabola",
+                                   "Bezier", "BSpline", "Offset", "Other"};
+    int iw = 0;
+    for (TopExp_Explorer wx(s, TopAbs_WIRE); wx.More(); wx.Next(), ++iw) {
+        const TopoDS_Wire w = TopoDS::Wire(wx.Current());
+        std::vector<gp_Pnt> pts;
+        int nEdge = 0;
+        int kinds[9] = {0};
+        for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) {
+            const TopoDS_Edge e = ex.Current();
+            BRepAdaptor_Curve ad;
+            try { ad.Initialize(e); } catch (...) { continue; }
+            ++nEdge;
+            const int kt = static_cast<int>(ad.GetType());
+            if (kt >= 0 && kt < 9) ++kinds[kt];
+            GCPnts_QuasiUniformDeflection sam;
+            try { sam.Initialize(ad, defl); } catch (...) { continue; }
+            if (!sam.IsDone() || sam.NbPoints() < 2) continue;
+            const int n = sam.NbPoints();
+            const bool rev = (e.Orientation() == TopAbs_REVERSED);
+            for (int i = 1; i <= n; ++i) {
+                gp_Pnt p = sam.Value(rev ? (n + 1 - i) : i);
+                p.Transform(toLocal);
+                if (!pts.empty()) {
+                    const gp_Pnt& b = pts.back();
+                    if (std::fabs(b.X() - p.X()) < 1e-9 && std::fabs(b.Y() - p.Y()) < 1e-9)
+                        continue;
+                }
+                pts.push_back(p);
+            }
+        }
+        char hist[160];
+        hist[0] = '\0';
+        for (int i = 0; i < 9; ++i) {
+            if (!kinds[i]) continue;
+            char one[40];
+            std::snprintf(one, sizeof one, "%s%s:%d", hist[0] ? "|" : "", kKind[i], kinds[i]);
+            const std::size_t room = sizeof hist - std::strlen(hist) - 1;
+            std::strncat(hist, one, room);
+        }
+        std::fprintf(stderr,
+                     "MODUMP %s part=%s wire=%d n=%zu edges=%d kinds=%s defl=%.10g\n",
+                     tag, g_moPart, iw, pts.size(), nEdge, hist[0] ? hist : "-", defl);
+        for (const gp_Pnt& p : pts)
+            std::fprintf(stderr, "MOP %.17g %.17g %.17g\n", p.X(), p.Y(), p.Z());
+    }
+}
+
 // Family A's native path, replicated from src/Cam.cpp:257 tryNativeInwardOffset
 // (that function is in an anonymous namespace and cannot be linked). The wire
 // walk, the inward-sign rule and the default OffsetOptions are copied from that
@@ -762,12 +833,18 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
         std::snprintf(b, sizeof b, "no_wire_from_%zu_loops", res.loops.size());
         MO_DEFER(b);
     }
-    if (outWires.size() == 1) return outWires.front();
-    TopoDS_Compound comp;
-    BRep_Builder bb;
-    bb.MakeCompound(comp);
-    for (const TopoDS_Wire& w : outWires) bb.Add(comp, w);
-    return comp;
+    TopoDS_Shape out;
+    if (outWires.size() == 1) {
+        out = outWires.front();
+    } else {
+        TopoDS_Compound comp;
+        BRep_Builder bb;
+        bb.MakeCompound(comp);
+        for (const TopoDS_Wire& w : outWires) bb.Add(comp, w);
+        out = comp;
+    }
+    moDumpWires("NAT", out, toLocal, g_moDumpDefl);
+    return out;
 }
 
 // ─────────────────────────────────────────────────────────────── JSON output
@@ -1183,6 +1260,14 @@ int main(int argc, char** argv) {
                 const gp_Pln pl = pk.planarBigPln;
                 char od[112];
                 std::snprintf(od, sizeof od, "inward wire offset d=%.6g", d);
+                // FORGE_MO_DUMP hook only (see moDumpWires): one frame, one
+                // sampler, one budget for the source wire and both answers.
+                // Every statement below is inert with the variable unset.
+                g_moPart = partName.c_str();
+                g_moDumpDefl = 1.0e-5 * part.diag;
+                gp_Trsf moToLocal;
+                moToLocal.SetTransformation(gp_Ax3(pl.Location(), pl.Axis().Direction()));
+                moDumpWires("SRC", w, moToLocal, g_moDumpDefl);
                 const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                     return nativeInwardOffset(w, d, pl);
                 }, false, T, NF, &makeOffsetDeferReason);
@@ -1191,7 +1276,9 @@ int main(int argc, char** argv) {
                     off.Init(GeomAbs_Arc);
                     off.Perform(-d);
                     if (!off.IsDone()) return TopoDS_Shape();
-                    return off.Shape();
+                    const TopoDS_Shape sh = off.Shape();
+                    moDumpWires("OCC", sh, moToLocal, g_moDumpDefl);
+                    return sh;
                 }, false, T, NF);
                 emit("MAKEOFFSET", true, "", nat, oc, od);
             }
