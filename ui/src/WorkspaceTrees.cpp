@@ -384,6 +384,11 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
       o.through = true;
       o.depthMm = cdepth;
       o.toolDiameterMm = dia > 0.0 ? dia : 0.0;
+      // The counterbore itself is a SECOND, larger cutter, and its diameter is
+      // the statement's own second number. A setup listing only the pilot drill
+      // is a setup a machinist cannot run.
+      o.secondToolDiameterMm = cdia > 0.0 ? cdia : 0.0;
+      o.secondToolKnown = cdia > 0.0;
       o.action = "Drill and counterbore";
       o.evidence = mm(dia) + " through, opened to " + mm(cdia) + " for " + mm(cdepth);
       ++plan.holes;
@@ -450,6 +455,14 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
     if (o.toolDiameterMm > 0.0 &&
         (!plan.smallestToolKnown || o.toolDiameterMm < plan.smallestToolMm)) {
       plan.smallestToolMm = o.toolDiameterMm;
+      plan.smallestToolKnown = true;
+    }
+    // The second cutter counts too. It is never the smaller of the two on a
+    // counterbore, and a rule that relied on that would be a rule resting on one
+    // op's argument order.
+    if (o.secondToolKnown && o.secondToolDiameterMm > 0.0 &&
+        (!plan.smallestToolKnown || o.secondToolDiameterMm < plan.smallestToolMm)) {
+      plan.smallestToolMm = o.secondToolDiameterMm;
       plan.smallestToolKnown = true;
     }
     plan.operations.push_back(std::move(o));
