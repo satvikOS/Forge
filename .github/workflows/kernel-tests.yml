@@ -227,6 +227,26 @@ jobs:
         # of ordinary words naming the program's own machinery. 8 puts that exact
         # defect back.
         run: bash ui/test/run_user_prose_gate.sh --mutations
+      - name: how many docked tabs still show nothing (prove the pin can fail)
+        # THE MEASUREMENT, on the merge base of the change that added this: the
+        # eight default workspaces define 50 distinct panels and 27 of them drew
+        # no content at all. Nothing in the repository counted that, so it could
+        # have grown by one on any pull request and no check would have moved.
+        #
+        # run_ui.sh above already runs ui/test/panel_content_ratchet_test.cpp --
+        # it globs ui/test/*_test.cpp -- so this step is the half a clean pass
+        # cannot give. Five mutations in the REAL sources (a new empty tab, a
+        # pinned tab that gained content, a tab that LOST its dispatch, a
+        # catalogue that declares a panel finished without one line of it being
+        # written, and a pin padded above the truth) must each turn it red, and a
+        # sixth edit that names no panel at all must leave it green -- without
+        # that control the five would pass over a gate that reacts to any edit.
+        #
+        # The ratchet is red in BOTH directions on purpose: a panel gaining
+        # content is progress and still fails, demanding the pin be lowered in
+        # the same commit, because a pin left above the truth silently re-admits
+        # a regression it has already been lowered past.
+        run: bash ui/test/run_panel_ratchet_gate.sh --mutations
       - name: what the Model and Sketch tabs SHOW (prove the model-tree gate can fail)
         # run_ui.sh above already runs ui/test/model_tree_test.cpp -- it globs
         # ui/test/*_test.cpp -- so this step is the half a clean pass cannot give.

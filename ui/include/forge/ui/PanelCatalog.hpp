@@ -32,6 +32,15 @@
 // the shipped layouts define has one -- so a panel added to a workspace with no
 // description turns CI red rather than shipping a blank tab.
 //
+// ── how many are still empty, and which way that number may move ───────────
+// 33 of the 50 are Live as this is written and 17 are still Planned -- it was
+// 29/21 one merge ago, and 23/27 when this file was written. That figure
+// is not maintained here by hand: ui/test/panel_content_ratchet_test.cpp pins the
+// SET of empty panels by name and is red in BOTH directions — a new empty panel
+// is a regression, and a panel that gains content is progress that still fails
+// until the pin is lowered in the same commit. A pin allowed to sit above the
+// truth silently re-admits a regression it has already been lowered past.
+//
 // ── Live vs Planned is a CLAIM, and the gate checks it ─────────────────────
 // `content` says whether the application draws real content for this panel. It
 // is not documentation: ui/test/user_facing_text_test.cpp reads the frame
