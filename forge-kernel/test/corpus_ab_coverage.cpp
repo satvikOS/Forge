@@ -1059,6 +1059,20 @@ bool agreeEquivKinds(const ArmResult& a, const ArmResult& b, double diag) {
 }
 
 bool agreeEquiv(const ArmResult& a, const ArmResult& b, double diag) {
+    // agree_strict SHORT-CIRCUITS, so agree_equiv is a SUPERSET of it BY
+    // CONSTRUCTION rather than by inspection. Without this line the implication
+    // is not merely unproved, it is FALSE: two arms can have the SAME raw kind
+    // histogram (so agree_strict holds) and DIFFERENT effective ones — arm A's
+    // B-spline face certifying planar where arm B's does not — which makes
+    // agreeEquivKinds false. That pair would then be scored as agreeing on the
+    // stricter vector and DISAGREEING on the looser one, and the whole chain
+    // this file advertises would be a claim rather than a fact.
+    //
+    // It is not a widening. Everything this line admits is exactly what
+    // agree_strict — the term the gate read before this change — already
+    // admitted, so the short circuit cannot let anything through that the
+    // incumbent gate rejected.
+    if (agreeStrict(a, b, diag)) return true;
     return agree(a, b, diag, true) && agreeEquivKinds(a, b, diag);
 }
 
@@ -1479,7 +1493,22 @@ int selftest(const Cfg& cfg) {
             // A planar spline on a DIFFERENT plane: the histograms match after
             // reclassification and the moments do not. Without the moments this
             // would pass, so this control is what makes them load-bearing.
+            // A GENUINE Plane-vs-spline PAIR, or the control proves nothing.
+            // With identical RAW histograms agreeStrict already holds and the
+            // short circuit above answers before the moments are ever read —
+            // measured, not supposed: written the other way this control
+            // reported "EQUIV says the same" and would have passed a DIFFERENT
+            // PLANE. So one arm carries a real Plane where the other carries a
+            // spline that certified planar, which is exactly the corpus's own
+            // FILLING shape and the only situation in which the moments decide
+            // anything.
             ArmResult d2 = a2, e2 = a2;
+            d2.fkind[GeomAbs_Plane] = 6; d2.fkind[GeomAbs_BSplineSurface] = 0;
+            e2.fkind[GeomAbs_Plane] = 5; e2.fkind[GeomAbs_BSplineSurface] = 1;
+            d2.efk[GeomAbs_Plane] = e2.efk[GeomAbs_Plane] = 6;
+            d2.efk[GeomAbs_BSplineSurface] = e2.efk[GeomAbs_BSplineSurface] = 0;
+            vcheck("the moments control IS a Plane-vs-spline pair (strict disagrees)",
+                   agreeStrict(d2, e2, 17.32), false);
             d2.nplanar = e2.nplanar = 1;
             const double nz[3] = {0.0, 0.0, 1.0};
             forge::planarcert::invariants(nz, -10.0, d2.planeInv);
@@ -1504,10 +1533,34 @@ int selftest(const Cfg& cfg) {
             forge::planarcert::invariants(tilt2,  10.0, g2.planeInv);
             vcheck("a normal straddling the canonicalisation threshold still matches",
                    agreeEquiv(f2, g2, 17.32), true);
+
+            // THE CHAIN, WHERE IT WOULD OTHERWISE BREAK. Two arms with the SAME
+            // RAW kind histogram and DIFFERENT effective ones — one arm's spline
+            // certified planar, the other's not. agree_strict is TRUE (the raw
+            // histograms match), and without the short circuit in agreeEquiv the
+            // relaxed term would say FALSE: the stricter vector agreeing where
+            // the looser one disagrees. This is the case that makes
+            // `agree_strict => agree_equiv` a fact rather than a hope, and it
+            // cannot be found by inspecting real data that happens not to
+            // contain it.
+            ArmResult h2 = a2, i2 = a2;
+            h2.fkind[GeomAbs_Plane] = i2.fkind[GeomAbs_Plane] = 5;
+            h2.fkind[GeomAbs_BSplineSurface] = i2.fkind[GeomAbs_BSplineSurface] = 1;
+            h2.efk[GeomAbs_Plane] = 6;                    // its spline certified planar
+            h2.efk[GeomAbs_BSplineSurface] = 0;
+            i2.efk[GeomAbs_Plane] = 5;                    // the other arm's did not
+            i2.efk[GeomAbs_BSplineSurface] = 1;
+            h2.nplanar = 6; i2.nplanar = 5;
+            vcheck("same RAW kinds, different EFFECTIVE kinds: STRICT says the same",
+                   agreeStrict(h2, i2, 17.32), true);
+            vcheck("the kind term alone would disagree",
+                   agreeEquivKinds(h2, i2, 17.32), false);
+            vcheck("but the CHAIN holds: strict implies equiv, by construction",
+                   agreeEquiv(h2, i2, 17.32), true);
         }
     }
 
-    std::printf("%s: self-test, %d check(s) red of 57\n", bad ? "FAIL" : "PASS", bad);
+    std::printf("%s: self-test, %d check(s) red of 61\n", bad ? "FAIL" : "PASS", bad);
     return bad ? 1 : 0;
 }
 
