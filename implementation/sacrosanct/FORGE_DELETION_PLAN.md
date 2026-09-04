@@ -1181,7 +1181,7 @@ named JS importers, needing no C++ and waiting on no oracle.
 
 ---
 
-# 11. FOURTH PASS — 2026-09-04. The JS app breaks NO gate; 21 files retired; 181 proven unreachable and KEPT
+# 11. FOURTH PASS — 2026-09-04. The JS app breaks NO gate; 21 files retired; 564 proven unreachable and KEPT
 
 ## 11.0 Provenance
 
@@ -1396,7 +1396,7 @@ entry graph was **re-derived after the deletion and is identical**.
 
 ---
 
-## 11.5 PROVEN UNREACHABLE AND DELIBERATELY KEPT — 181 files
+## 11.5 PROVEN UNREACHABLE AND DELIBERATELY KEPT — 564 files (36 + 7 + 138 + 46 + 6 + 331)
 
 The same three instruments found more than was removed. Everything below is **unreachable by
 measurement and stays anyway**, because this document's own retirement bar (§10.1) is *"verified
@@ -1428,7 +1428,7 @@ not read 43 as a target.
 | §4.2, B7 | the default branch *"additionally runs `npm test`"* → the three frontend guards, and `npm run forge:bridge:test` | **No workflow runs any of them.** The `guards` job left with `build-app.yml` at `50c512e4`. B7's ordering constraint is void |
 | §4.2 | `npm run forge:kernel:test` is *"25 chained `node` invocations"* | **26** |
 | §4.5 | *"41 of 241 JS test files are reachable"* | the zero-**textual-reference** population is **138 of 244** today; the two figures use different instruments and neither is wrong — say which |
-| §3 (inventory) | F1 `frontend/src/forge-v4` = 605 files / 250,558 LOC; candidate total 1,802 files / 543,858 LOC | **604 / 250,078** after §10.1's retirement; candidate total **1,804 files / 545,429 LOC** on this ref (the totals moved *up* because `forge-kernel/test` JS grew 241 → 244 and `e2e/forge` was re-counted at 246) |
+| §3 (inventory) | F1 `frontend/src/forge-v4` = 605 files / 250,558 LOC; candidate total 1,802 files / 543,858 LOC | **604 / 250,078** after §10.1's retirement; candidate total **1,804 files / 545,429 LOC** on this ref (per-group at `4598f85b`: F1 604, F2 239, F3 171, F4 34, F5 81, F6 160, F7 **246**, F8 3, F9 5, F10 **244**, F11 11, F12 3, F13 2, plus F14 `tools/push-210-smoke.mjs` which §3 does not list. The net +2 files is not decomposed against §3 here because §3's own per-group figures were taken on a different ref; the per-group numbers above are the ones to compare against, not the total) |
 | §10.5 B5 | *"445 function-valued `contextBridge` keys"* | **still not reproducible** — ZERO_JS_MIGRATION_MANIFEST §7.8 already recorded that the quoted command yields 196 / 311 / 560 and never 445. B5's denominator remains undefined; do not compute a coverage percentage from it |
 | — | *(not measured before)* | **No `vercel.json` and no `.vercel/` exist in the repository**, but `vercel-build` scripts exist in BOTH `package.json` files. A Vercel project can be linked entirely in dashboard settings, so **the repository cannot prove the frontend is not being served.** That is the one dependence question §11 could not answer from the tree, and it is the reason `frontend/` is not proposed for bulk deletion here |
 
