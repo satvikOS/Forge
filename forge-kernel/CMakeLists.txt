@@ -650,7 +650,7 @@ set(OCCT_LIBS
 #       fillet 4 VERTICAL edges  R=3  -> 5922.743338823   F=10 E=24  valid
 #       chamfer ALL 12 box edges d=2  -> 5562.666666667   F=26 E=48  valid
 #   plus L- and T-prisms with reflex corners and a non-90-degree reflex chevron:
-#       forge-kernel/test/run_ab_native_fillet_concave.sh  (66/66 assertions)
+#       forge-kernel/test/run_ab_native_fillet_concave.sh  (189/189 assertions)
 #   And the drop configuration BUILDS AND LINKS: `cmake -DFORGE_FILLET_DROP_NATIVE=ON`
 #   produced libforge_kernel_core.dylib with ZERO TKFillet link records AND — the check
 #   that matters for the Linux strict-link CI, since macOS can load a dylib with
@@ -689,7 +689,16 @@ set(OCCT_LIBS
 #
 #           family    native%  OCCT%   parts DELETED   agree(both)   McNemar p
 #           FILLET      52.0    76.8      150/600      253/311       1.1e-43
-#           CHAMFER     42.2    72.0      179/600      253/253       2.6e-54
+#           CHAMFER     52.0    72.0      120/600      253/312       1.5e-36
+#
+#         ★ THE CHAMFER ROW MOVED AGAIN ON 2026-09-04, AFTER the clearance guard, when
+#           the TANGENT RIM was extended to CHAMFER (chamferTangentRim /
+#           tangentRim(RimKind::Chamfer)). It read 42.2 / 179 deleted / 253 agree
+#           immediately below; 59 of the 67 parts in its largest defer class ("end face
+#           is not a straight-boundary corner") now build. The remaining 8 of that class
+#           are refused by the offset-ring-vs-hole topology guard and stay refused —
+#           they are the parts whose cap hole lies nearer the rim than the setback.
+#           Native coverage 253 -> 312, native INVALID still 0 of 312.
 #
 #         ★ THESE NUMBERS MOVED ON 2026-09-04 AND THEY MOVED THE WRONG WAY ON PURPOSE.
 #           The row above used to read FILLET 67.2 / 59 deleted and CHAMFER 57.3 / 104
@@ -703,16 +712,33 @@ set(OCCT_LIBS
 #           bar is 202 (FILLET) and 171 (CHAMFER) BEFORE AND AFTER — the 91 answers
 #           deleted here were never usable, and all 91 are re-answered by the OCCT
 #           fallback for FILLET (91/91, all BRepCheck-valid) and 75 of 91 for CHAMFER.
-#         ★ THE UNMEASURED HALF WAS THE WORSE HALF. Chamfer deletes 179 parts where
-#           fillet deletes 150 — 1.19x — so reading the FILLET row alone UNDERSTATED this
-#           option's cost. The native chamfer's coverage is a strict SUBSET of the native
-#           fillet's: 253 parts build on both, 59 build on fillet only, and ZERO build on
-#           chamfer only.
-#         ★ WHERE IT ANSWERS, THE NATIVE CHAMFER IS EXACT AND NOW ALWAYS VALID. 0 valid
-#           pairs disagree on the full observable vector (against 58 for FILLET), and
-#           since the clearance guard 0 of its 253 answers fail BRepCheck (was 91 of
-#           344 — the SAME 91 parts FILLET's engine failed, which is what identified the
-#           cause as shared retrim machinery rather than either blend).
+#         ★ THE UNMEASURED HALF WAS THE WORSE HALF, AND IT NO LONGER IS. When CHAMFER
+#           was first measured it deleted 179 parts where fillet deleted 150 — 1.19x —
+#           so reading the FILLET row alone UNDERSTATED this option's cost, and the
+#           native chamfer's coverage was a strict SUBSET of the native fillet's (253 on
+#           both, 59 fillet-only, ZERO chamfer-only). Since the rim path was extended to
+#           chamfer the two are the SAME SET: 312 parts build on both, ZERO on either
+#           alone (symmetric difference 0 over 600). That is the expected shape, because
+#           the rim's scope conditions are now literally shared code — one
+#           buildRimContext, one assembly routine, one `kind`.
+#         ★ WHERE IT ANSWERS, THE NATIVE CHAMFER IS EXACT AND ALWAYS VALID: 0 of its
+#           312 answers fail BRepCheck (was 91 of 344 before the clearance guard — the
+#           SAME 91 parts FILLET's engine failed, which is what identified the cause as
+#           shared retrim machinery rather than either blend).
+#           ★ AND 59 VALID PAIRS NOW DISAGREE WITH OCCT, up from 0, which is NOT a
+#             defect and is the SAME signature FILLET's rim path already carries on its
+#             own 58. It is OCCT approximating, not this engine drifting. On all 59:
+#             the face/edge/vertex/shell/solid counts and all six bbox bounds match OCCT
+#             EXACTLY; OCCT emits BSpline patches where the native rim emits exact
+#             Geom_ConicalSurface ones (59/59, because the corpus's walls arrive from
+#             STEP as Geom_SurfaceOfLinearExtrusion and OCCT's ChFi3d approximates on
+#             those); the volume gap is 9.2e-4 to 3.5e-3 relative, median 2.1e-3, with
+#             the native answer removing MORE material on 59 of 59. The native volume
+#             agrees with an INDEPENDENT Pappus closed form to 1e-6 or the engine defers,
+#             and on EXACTLY-built rounded-rectangle prisms — where OCCT does not have to
+#             approximate — native and OCCT match on the FULL vector including the
+#             face-KIND census (Cone:4 Cyl:4 Plane:10), which is what the RIMCHAM cases
+#             in test/ab_native_fillet_concave_occt.cpp pin. The exact arm is this one.
 #         ★ The 179-part deletion is attributable, per part, from the row's `note`:
 #           67 "end face is not a straight-boundary corner", 59 setback reaches a hole,
 #           16 setback reaches a non-adjacent ring segment, 13 "adjacent face A is not
