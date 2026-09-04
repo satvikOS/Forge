@@ -1715,6 +1715,7 @@ set(FORGE_KERNEL_SOURCES
     src/AssemblySolver.cpp
     src/AssemblyHierarchy.cpp
     src/InterferenceDetection.cpp
+    src/BodyInventory.cpp
     src/MotionStudy.cpp
     src/MultibodyDynamics.cpp
     src/Drawings.cpp

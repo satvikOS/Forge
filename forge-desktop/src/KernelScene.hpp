@@ -95,6 +95,68 @@ struct Bounds {
   float radius() const;  // half the diagonal; 0 when !valid
 };
 
+// ── THE SOLID BODIES A DOCUMENT BUILDS ──────────────────────────────────────
+//
+// A Forge document is ONE feature-IR program, and that program can build MORE
+// THAN ONE separate solid. MEASURED on this kernel, not assumed:
+//
+//   FUSE of two boxes 60 mm apart      -> a compound of 2 solids (8000 + 1000 mm^3)
+//   PATTERN(LINEAR, 4) of a spaced box -> 4 solids
+//   FUSE of two boxes that MEET over a face -> 1 solid, because that is a real
+//                                              union and not two things any more
+//   a bar CUT through the middle       -> 2 solids, 10.000 mm apart
+//
+// So "how many separate pieces is this" is a question the geometry can already
+// answer, and these records are that answer. Every number here is read off the B-REP: the
+// volume and the area from the kernel's own integrators, the gap between two
+// bodies from its exact distance solver. NONE of it is measured on the display
+// mesh -- a tessellated volume is wrong in the fourth digit for any curved body,
+// and a parts list that quotes a wrong mass is worse than one that quotes none.
+struct SceneBody {
+  double volume = 0.0;  // mm^3
+  double area = 0.0;    // mm^2
+  double centroid[3] = {0.0, 0.0, 0.0};
+  double bboxMin[3] = {0.0, 0.0, 0.0};
+  double bboxMax[3] = {0.0, 0.0, 0.0};
+  std::uint32_t faceCount = 0;
+
+  double sizeX() const noexcept { return bboxMax[0] - bboxMin[0]; }
+  double sizeY() const noexcept { return bboxMax[1] - bboxMin[1]; }
+  double sizeZ() const noexcept { return bboxMax[2] - bboxMin[2]; }
+};
+
+// Two bodies and the EXACT distance between them. `gap == 0` means they meet:
+// the kernel's distance solver returned zero, which is contact, not "close".
+// `overlapVolume > 0` means they occupy the same space, which is interference.
+struct SceneBodyPair {
+  std::uint32_t a = 0;  // 1-based body index; always a < b
+  std::uint32_t b = 0;
+  double gap = 0.0;            // mm
+  double overlapVolume = 0.0;  // mm^3 of material the two share
+  bool touching() const noexcept { return gap <= 1e-7 && overlapVolume <= 0.0; }
+  bool interfering() const noexcept { return overlapVolume > 0.0; }
+};
+
+// How two bodies LINE UP, measured off their faces. This is geometry, not a
+// stored constraint: nothing in a Forge document authors one of these, and the
+// panel that shows them says so.
+enum class BodyAlignment : std::uint8_t {
+  Concentric = 0,  // two round faces turning about ONE axis
+  Coplanar = 1,    // two flat faces lying in ONE plane
+};
+
+struct SceneBodyAlignment {
+  BodyAlignment kind = BodyAlignment::Concentric;
+  std::uint32_t a = 0;  // 1-based body index; always a < b
+  std::uint32_t b = 0;
+  std::uint32_t faceA = 0;  // 1-based face id, the same id picking resolves to
+  std::uint32_t faceB = 0;
+  double deviation = 0.0;         // mm -- how far off the alignment actually is
+  double point[3] = {0.0, 0.0, 0.0};      // a point on the shared axis / plane
+  double direction[3] = {0.0, 0.0, 1.0};  // the axis, or the plane's normal
+};
+
+
 // What the LAST document rebuild did — the reconciliation the app shows instead
 // of a silent empty viewport. It carries a VECTOR of observables, never volume
 // alone: a wrong solid reproducing a right volume to ten significant figures has
@@ -118,7 +180,31 @@ struct IrBuildReport {
   std::size_t nParsed = 0;
   std::size_t nCompiled = 0;
   std::size_t triangles = 0;
+
+  // ── the body inventory ──────────────────────────────────────────────────
+  // The separate solids this program built, in the order the kernel walks them,
+  // and how they relate. `bodiesAnalysed` is FALSE when the inventory could not
+  // be taken at all -- a faceted result carries no analytic solids to walk -- and
+  // that is a different fact from "there are no bodies". A panel that showed an
+  // empty list for both would be telling the user something untrue.
+  bool bodiesAnalysed = false;
+  std::vector<SceneBody> bodies;
+  std::vector<SceneBodyPair> bodyPairs;
+  std::vector<SceneBodyAlignment> alignments;
+  // Indexed by 1-based face id; entry 0 is unused and always 0. The value is the
+  // 1-based body the face belongs to, so a triangle's faceId -- the one picking
+  // already resolves -- names a body without a second mapping existing anywhere.
+  std::vector<std::uint32_t> bodyOfFace;
+  // How many body pairs were measured exactly, and whether the kernel's own cap
+  // on that work stopped the walk short of all of them.
+  std::size_t pairsEvaluated = 0;
+  bool pairsTruncated = false;
+
   bool ok() const noexcept { return parsed && compiled && tessellated && error.empty(); }
+  // The body a face belongs to, or 0 when the id names no face of this build.
+  std::uint32_t bodyForFace(std::uint32_t faceId) const noexcept {
+    return faceId < bodyOfFace.size() ? bodyOfFace[faceId] : 0u;
+  }
 };
 
 // The result of a viewport pick: which triangle the ray hit and which face it
@@ -233,8 +319,13 @@ class KernelScene {
   const std::string& error() const noexcept { return error_; }
   const std::string& backend() const noexcept { return backend_; }
 
-  const std::vector<SceneVertex>& vertices() const noexcept { return vertices_; }
-  std::size_t triangleCount() const noexcept { return vertices_.size() / 3; }
+  // What the viewport draws: the whole de-indexed stream, or the visible part of
+  // it once a body has been hidden. There is no second copy in the common case --
+  // with nothing hidden this IS the master buffer.
+  const std::vector<SceneVertex>& vertices() const noexcept {
+    return anyHidden_ ? visible_ : allVertices_;
+  }
+  std::size_t triangleCount() const noexcept { return vertices().size() / 3; }
   const Bounds& bounds() const noexcept { return bounds_; }
   std::uint32_t faceCount() const noexcept { return faceCount_; }
 
@@ -251,6 +342,29 @@ class KernelScene {
   // the viewport's vertex buffer can be re-uploaded without re-tessellating.
   // Returns the number of vertices whose flags changed.
   std::size_t applySelection(const std::vector<std::uint32_t>& selectedFaceIds);
+
+  // ── showing and hiding whole bodies ─────────────────────────────────────
+  //
+  // Hiding is NOT destructive and it is not a second copy of the geometry: the
+  // whole de-indexed stream is kept in one buffer and vertices() hands back the
+  // VISIBLE part of it, so showing a body again costs no rebuild and no kernel
+  // call. A hidden body is genuinely gone from what the viewport draws, from
+  // what a picking ray can hit, and from what the Measure panel adds up --
+  // which is the only definition of "hidden" that does not lie to somebody.
+  //
+  // `bodyIndex` is 1-based, matching lastBuild().bodies. Visibility is RESET by
+  // every rebuild, on purpose: body 2 of the next build is not necessarily the
+  // same body 2, and silently carrying a hide across an edit would hide the
+  // wrong thing.
+  bool setBodyVisible(std::uint32_t bodyIndex, bool visible);
+  bool bodyVisible(std::uint32_t bodyIndex) const noexcept;
+  void showAllBodies();
+  std::size_t hiddenBodyCount() const noexcept;
+  // Triangles the model HAS, visible or not. triangleCount() is what is drawn.
+  std::size_t totalTriangleCount() const noexcept { return allVertices_.size() / 3; }
+  // How many bodies the last build produced. 0 when the inventory could not be
+  // taken, which lastBuild().bodiesAnalysed tells apart from "no bodies".
+  std::size_t bodyCount() const noexcept { return report_.bodies.size(); }
 
  private:
   void computeBounds();
@@ -281,12 +395,27 @@ class KernelScene {
   bool deindex(const forge::Mesh& mesh, std::vector<SceneVertex>& out,
                std::uint32_t& faceCount, std::string& error) const;
 
+  // The ONE place new geometry is installed (it resets visibility with it), and
+  // the derivation of the drawn subset from the master.
+  void installGeometry(std::vector<SceneVertex> stream, std::uint32_t faces);
+  void rebuildVisible();
+
   bool built_ = false;
   IrBuildReport report_;
   std::size_t builds_ = 0;
   std::string error_;
   std::string backend_ = "unknown";
-  std::vector<SceneVertex> vertices_;
+  // The WHOLE de-indexed stream, every body. `vertices_` is the visible subset
+  // and is what the viewport uploads, what pick() intersects and what
+  // applySelection() flags -- so hiding a body removes it from all three at once
+  // rather than from the picture only.
+  std::vector<SceneVertex> allVertices_;
+  // Indexed by 1-based body; entry 0 is unused. Empty means everything is shown.
+  std::vector<bool> bodyHidden_;
+  bool anyHidden_ = false;
+  // Built ONLY while something is hidden, so the ordinary case pays neither the
+  // memory nor the copy.
+  std::vector<SceneVertex> visible_;
   Bounds bounds_;
   std::uint32_t faceCount_ = 0;
   std::string documentLabel_ = "untitled.fpart";
