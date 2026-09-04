@@ -782,6 +782,28 @@ jobs:
         # FALLS without the baseline being lowered in the same commit. All seven run in
         # about 93 seconds on this runner, which already has OCCT installed.
         run: bash forge-kernel/test/run_ab_all.sh
+      - name: corpus A/B harness builds, and its 20 controls are green
+        # A FILE NOTHING COMPILES CANNOT BREAK. test/corpus_ab_coverage.cpp is the
+        # binary every FORGE_*_DROP_* flip gate's coverage number comes from, and
+        # until this step nothing in CI compiled it -- this repo has already shipped
+        # two defects into forge-desktop for exactly that reason. The build script
+        # runs `--selftest` itself and exits non-zero if it is red, so this one line
+        # is both the compile gate and the control gate.
+        #
+        # The 20 controls are not decoration. Five prove the crash/hang containment
+        # FIRES (a containment that swallowed everything would look like a clean
+        # run); ten prove each native engine returns OK on an input its own header
+        # calls in scope, so a family's corpus ZERO is never silently a MIS-WIRED
+        # ARM; and five prove the direction observable reads BELOW the source on an
+        # inward offset and ABOVE it on an outward one -- that last group went red
+        # the first time it ran and was right to, see
+        # reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md section 6.
+        #
+        # 33 seconds cold at JOBS=4 on the measuring machine, 156 translation units.
+        # It rides this job because this is where the live-OCCT A/B work already is
+        # and the runner already has OCCT installed. It does NOT run the corpus:
+        # 600 parts is ~4 minutes for one family and there is no corpus in CI.
+        run: JOBS=4 bash forge-kernel/test/build_corpus_ab_coverage.sh
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
         # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
