@@ -1273,7 +1273,24 @@ int selftest(const Cfg& cfg) {
         // behaviour change in with it. WHEN THIS CHECK GOES RED THE DEFECT HAS
         // BEEN FIXED: replace it with `aCw < aSrc` and update
         // reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md.
-        chk("PIN: CW frame offsets OUT", std::fabs(aCw - 143.13761) < 1e-3, aCw, 143.13761);
+        const bool pinHeld = std::fabs(aCw - 143.13761) < 1e-3;
+        chk("PIN: CW frame offsets OUT", pinHeld, aCw, 143.13761);
+        // A RATCHET IS ONLY USEFUL IF THE PERSON IT STOPS CAN READ IT. This pin is
+        // GREEN on the tree as it stands (it records what the code does today) and
+        // goes RED the moment the defect is fixed, in the same idiom as this repo's
+        // other ratchets: red if a count rises, red if it falls without the
+        // baseline moving in the same commit. Printed here rather than left in a
+        // source comment so the CI log itself says what to do.
+        if (!pinHeld) {
+            std::printf("      ^ EXPECTED TO GO RED WHEN THE DEFECT IS FIXED — this pin records\n"
+                        "        the CURRENT behaviour of src/Cam.cpp:295-296, not a property\n"
+                        "        anyone wants. %s\n"
+                        "        If it now reads BELOW %.6g the winding rule was fixed: replace\n"
+                        "        this check with `aCw < aSrc` IN THE SAME COMMIT and update\n"
+                        "        reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md.\n",
+                        aCw < aSrc ? "It now offsets INWARD." : "It changed to something else.",
+                        aSrc);
+        }
     }
 
     std::printf("%s: self-test, %d check(s) red of 20\n", bad ? "FAIL" : "PASS", bad);
