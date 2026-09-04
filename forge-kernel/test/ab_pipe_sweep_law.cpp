@@ -83,6 +83,7 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_TransitionMode.hxx>
+#include <BRepTools.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
@@ -549,12 +550,20 @@ int main() {
         std::printf("   %-6s %-7s | %-14s %-14s %-10s | %-13s %-13s\n",
                     "hole r", "hole x", "native", "closed form (*)", "rel",
                     "nat/occt", "K*(1-r.d2/L(1+c))");
-        for (double hr : {0.0, 2.0, 3.5}) {
-            for (double hx : {0.0, 3.0}) {
+        // hx + hr < S/2 on every row: a hole that pokes THROUGH the wall makes an
+        // invalid face, and BRepGProp will still hand back an area for it -- the
+        // exact trap reports/corpus_ab/pipeshell_defer_audit/README.md tabulates.
+        for (double hr : {0.0, 1.5, 3.0}) {
+            for (double hx : {0.0, 1.8}) {
                 if (hr == 0.0 && hx != 0.0) continue;   // no hole: x is meaningless
                 const TopoDS_Face holed =
                     (hr == 0.0) ? faceOf(squareWire(S, 0, 0)) : squareWithHole(S, hr, hx, 0.0);
                 if (holed.IsNull()) continue;
+                if (BRepCheck_Analyzer(holed).IsValid() != Standard_True) {
+                    check(false, "FIXTURE: the holed face must be BRepCheck-VALID "
+                                 "(hole inside the wall)");
+                    continue;
+                }
                 GProp_GProps gp;
                 BRepGProp::SurfaceProperties(holed, gp);
                 const gp_Pnt fc = gp.CentreOfMass();      // spine start, as the corpus does
@@ -583,7 +592,7 @@ int main() {
         // The independent corroboration: a SECOND engine, asked for the same
         // operation, must land on the same number.  Without this the closed form
         // is only being checked against the engine it was derived for.
-        const TopoDS_Face holed = squareWithHole(S, 3.0, 3.0, 0.0);
+        const TopoDS_Face holed = squareWithHole(S, 3.0, 1.8, 0.0);
         GProp_GProps gp;
         BRepGProp::SurfaceProperties(holed, gp);
         const gp_Pnt fc = gp.CentreOfMass();
@@ -594,7 +603,7 @@ int main() {
         const double vNat = volumeOf(nativePipeShell(sp, outer));
         const double vRc  = volumeOf(occtPipeShell(sp, outer, true));
         const double vTr  = volumeOf(occtPipeShell(sp, outer, false));
-        std::printf("   corroboration on r=3 x=3: native %.6f  OCCT(RightCorner) %.6f  "
+        std::printf("   corroboration on r=3 x=1.8: native %.6f  OCCT(RightCorner) %.6f  "
                     "closed form %.6f\n", vNat, vRc, closed);
         check(vRc > 0 && relDiff(vRc, closed) < 1e-6 && relDiff(vNat, closed) < 1e-6,
               "OCCT(RightCorner) -- a SECOND, independent engine asked for the mitre -- "
@@ -604,6 +613,96 @@ int main() {
               "and OCCT(Transformed) still obeys A*(L1+L2*cos theta) EXACTLY here, "
               "offset and all -- so family F's spread is the MITRE's offset term, "
               "NOT a wobble in OCCT's default arm");
+    }
+
+    // ══════════════════════════════════════════════════════════════════ 8
+    // THE GATE.  Section 6 measured that family E's OCCT arm cannot be
+    // configured to the mitre -- all six GeomFill_Trihedron modes of
+    // BRepOffsetAPI_MakePipe return the translation law, bit for bit.  So the
+    // flip gate for family E cannot be repaired the way family F's was, by
+    // adding SetTransitionMode(RightCorner) to the existing call.  It needs a
+    // REFERENCE SOLID for the mitre that is built with OCCT and no forge
+    // symbol, and MakePipeShell(RightCorner) is one -- provided it can carry a
+    // face WITH HOLES, which family E's profile always may.
+    //
+    // Two candidate constructions, and the point of this section is that one of
+    // them does not work and is measured rather than assumed:
+    //   (a) hand MakePipeShell the FACE;
+    //   (b) sweep the OUTER wire and CUT one shell per inner wire.
+    // (b) is legitimate because the mitre map is a boolean homomorphism (an
+    // affine station map, an extrusion and a slab clip each commute with union,
+    // intersection and difference -- NativeLoftPipe.hpp, "ARC CHAIN").
+    //
+    // The oracle is (*) with rbar = 0, because the spine starts at the FACE
+    // centroid and the face IS the swept region for family E:
+    //     V = A_face * (L1 + L2),   exactly.
+    std::printf("\n-- 8. THE GATE: an OCCT-ONLY mitre reference for family E --\n");
+    {
+        const double th = 30.0;
+        const double r = 3.0, hx = 1.8;   // hx + r < S/2: the hole is INSIDE the wall
+        const TopoDS_Face holed = squareWithHole(S, r, hx, 0.0);
+        check(!holed.IsNull() && BRepCheck_Analyzer(holed).IsValid() == Standard_True,
+              "FIXTURE: the holed face is BRepCheck-VALID -- BRepGProp returns an area "
+              "for a face that bounds nothing, so without this the oracle would check a "
+              "wrong answer against a wrong expectation and agree");
+        GProp_GProps gp;
+        BRepGProp::SurfaceProperties(holed, gp);
+        const gp_Pnt fc = gp.CentreOfMass();
+        const double aFace = gp.Mass();
+        const TopoDS_Wire sp = twoLegSpine(fc, nz, L, L, th);
+        const double oracle = aFace * (L + L);      // rbar == 0 by construction
+
+        // (a) MakePipeShell handed the FACE.
+        double vFaceProfile = -1.0;
+        try {
+            BRepOffsetAPI_MakePipeShell mk(sp);
+            mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+            mk.Add(holed);
+            mk.Build();
+            if (mk.IsDone()) { mk.MakeSolid(); vFaceProfile = volumeOf(mk.Shape()); }
+        } catch (...) { vFaceProfile = -1.0; }
+
+        // (b) OUTER shell CUT by one shell per inner wire.
+        TopoDS_Shape ref;
+        {
+            const TopoDS_Wire ow = BRepTools::OuterWire(holed);
+            ref = occtPipeShell(sp, ow, true);
+            for (TopExp_Explorer wx(holed, TopAbs_WIRE); wx.More() && !ref.IsNull(); wx.Next()) {
+                const TopoDS_Wire w = TopoDS::Wire(wx.Current());
+                if (w.IsSame(ow)) continue;
+                const TopoDS_Shape tube = occtPipeShell(sp, w, true);
+                if (tube.IsNull()) { ref.Nullify(); break; }
+                try { ref = BRepAlgoAPI_Cut(ref, tube).Shape(); }
+                catch (...) { ref.Nullify(); }
+            }
+        }
+        const double vRef = volumeOf(ref);
+        const double vNat = volumeOf(nativePipe(sp, holed));
+        const double vOcc = volumeOf(occtPipe(sp, holed));
+        std::printf("   A_face %.6f   oracle A_face*(L1+L2) %.6f\n", aFace, oracle);
+        std::printf("   (a) MakePipeShell(RC) given the FACE      %.6f  rel %.3e\n",
+                    vFaceProfile, vFaceProfile > 0 ? relDiff(vFaceProfile, oracle) : -1.0);
+        std::printf("   (b) OUTER shell CUT by the hole shell     %.6f  rel %.3e  valid %d\n",
+                    vRef, vRef > 0 ? relDiff(vRef, oracle) : -1.0, validOf(ref));
+        std::printf("   native pipe(face)                         %.6f  rel %.3e  valid %d\n",
+                    vNat, vNat > 0 ? relDiff(vNat, oracle) : -1.0, validOf(nativePipe(sp, holed)));
+        std::printf("   OCCT MakePipe (the arm the gate compares) %.6f  rel %.3e\n",
+                    vOcc, vOcc > 0 ? relDiff(vOcc, oracle) : -1.0);
+        check(vRef > 0 && relDiff(vRef, oracle) < 1e-6,
+              "construction (b) -- OUTER MakePipeShell(RightCorner) CUT by one shell per "
+              "inner wire -- reproduces the mitre on a HOLED face, in pure OCCT, with no "
+              "forge symbol: a usable reference arm for family E's gate");
+        check(vNat > 0 && relDiff(vNat, oracle) < 1e-6,
+              "and native agrees with it, so the proposed gate would score AGREE where "
+              "today's gate scores DISAGREE on every part");
+        check(!(vFaceProfile > 0 && relDiff(vFaceProfile, oracle) < 1e-6),
+              "NEGATIVE DIRECTION: construction (a), handing MakePipeShell the FACE, does "
+              "NOT give the mitre of the holed region -- so (b) is doing real work and the "
+              "hole cut is not decoration");
+        check(vOcc > 0 && relDiff(vOcc, oracle) > 1e-2,
+              "NEGATIVE DIRECTION: the arm the gate uses TODAY misses the same oracle by " +
+                  std::to_string(relDiff(vOcc, oracle)) + ", so the reference and the "
+              "incumbent are not the same shape and the change is not a no-op");
     }
 
     std::printf("\n== ab_pipe_sweep_law: %d passed, %d failed ==\n", gPass, gFail);
