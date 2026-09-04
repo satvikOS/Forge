@@ -574,9 +574,18 @@ int main() {
                             " alone at R=6 still BUILDS (got: " +
                             (r.ok ? std::string("ok") : r.reason) + ")");
             }
-            deferCase("CO-MOVING pair (two opposite edges of a 10 mm face, R=6 each)",
+            // TWO REGIMES, and each trips a DIFFERENT branch of the topological test —
+            // both are controlled, because a branch never seen to fire is not a guard.
+            //   R=6   the two transverse corner clips on the 20x10 end face OVERLAP ->
+            //         the rebuilt ring SELF-INTERSECTS  (BRepCheck_Analyzer)
+            //   R=5   exactly half the 10 mm face: the front face collapses to zero
+            //         area, winding 400 -> -1.1e-13  -> INSIDE OUT  (winding sign)
+            deferCase("CO-MOVING pair, SELF-INTERSECTION regime (R=6 on a 10 mm face)",
                       box, {lo, hi}, 6.0, true,
-                      "bound the same face and their setbacks meet", OcctExpect::Declines);
+                      "folds that face through itself", OcctExpect::Declines);
+            deferCase("CO-MOVING pair, INVERSION regime (R=5, exactly half the face)",
+                      box, {lo, hi}, 5.0, true,
+                      "turns that face inside out", OcctExpect::Declines);
             // And the SAME pair at a radius that genuinely fits (6+6 > 10, but 2+2 < 10)
             // must still build — the pair test is a clearance test, not a ban on pairs.
             std::vector<forge::occtfillet::FilletSpec> two(2);

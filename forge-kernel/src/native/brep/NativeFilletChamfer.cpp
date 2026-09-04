@@ -645,19 +645,6 @@ double edgeToNonAdjacentRing(const TopoDS_Face& f, const TopoDS_Edge& edge) {
     return best;
 }
 
-// Do two edges meet at a vertex? Topological (TopoDS IsSame), because that is the
-// relation the ring rebuild uses: a shared corner is dragged by the corner machinery,
-// two edges that share nothing move independently.
-bool edgesShareVertex(const TopoDS_Edge& a, const TopoDS_Edge& b) {
-    TopTools_IndexedMapOfShape va, vb;
-    TopExp::MapShapes(a, TopAbs_VERTEX, va);
-    TopExp::MapShapes(b, TopAbs_VERTEX, vb);
-    for (int i = 1; i <= va.Extent(); ++i)
-        for (int j = 1; j <= vb.Extent(); ++j)
-            if (va(i).IsSame(vb(j))) return true;
-    return false;
-}
-
 // The MINIMUM-CLEARANCE half of the setback test, on ONE adjacent face.
 //
 // ★ MEASURED 2026-09-04 over the whole 600-part corpus A/B, and this is the defect
@@ -1375,37 +1362,6 @@ Result blendBatch(const TopoDS_Shape& shape, const std::vector<BReq>& reqs) {
         if (!setbackFitsFaces(s.c, s.q, s.q, why)) return defer(why);
         sp.push_back(s);
     }
-    // ★ CO-MOVING RING SEGMENTS — the pair test setbackFitsFaces structurally cannot do.
-    //   That routine measures the ORIGINAL edge against the ORIGINAL ring, which is
-    //   exactly right for the SEQUENTIAL path: makeFillet applies specs one at a time and
-    //   filletOneEdge re-measures against the already-retrimmed `work` shape, so the
-    //   second edge sees the first one's move.
-    //   It is NOT right here. blendBatch rebuilds each touched face ONCE (step 4 below)
-    //   and moves EVERY corner on it, so two selected edges bounding the SAME face travel
-    //   TOWARD EACH OTHER. Two 6 mm setbacks on a 10 mm-wide face each pass their own
-    //   10 > 6 test and still close that face to −2 mm — an inverted ring the per-edge
-    //   test cannot see, because neither edge is individually too big.
-    //   The clearance a PAIR owes is the SUM of the two setbacks, and it is owed only
-    //   between edges that bound a COMMON adjacent face and share NO vertex: a shared
-    //   vertex is a corner the corner-aware machinery already resolves, and edges with no
-    //   common face do not meet on any ring.
-    for (std::size_t i = 0; i + 1 < sp.size(); ++i) {
-        for (std::size_t j = i + 1; j < sp.size(); ++j) {
-            const BSpec& a = sp[i];
-            const BSpec& b = sp[j];
-            if (a.c.edge.IsNull() || b.c.edge.IsNull()) continue;
-            if (edgesShareVertex(a.c.edge, b.c.edge)) continue;
-            const bool commonFace =
-                a.c.A.IsSame(b.c.A) || a.c.A.IsSame(b.c.B) ||
-                a.c.B.IsSame(b.c.A) || a.c.B.IsSame(b.c.B);
-            if (!commonFace) continue;
-            const double d = minDistToEdge(a.c.edge, b.c.edge);
-            if (d >= 0.0 && d <= a.q + b.q + kTol)
-                return defer("two blended edges bound the same face and their setbacks "
-                             "meet on it — the simultaneous retrim would fold that face "
-                             "through itself — deferring");
-        }
-    }
     // Equal setback is required by the corner formulae (a mixed-radius corner is a
     // different, unauthored surface) — defer rather than approximate.
     for (std::size_t i = 1; i < sp.size(); ++i) {
@@ -1614,8 +1570,50 @@ Result blendBatch(const TopoDS_Shape& shape, const std::vector<BReq>& reqs) {
                 out.push_back(a); out.push_back(b);
             }
         }
+        // ★ THE CO-MOVING TEST, and it is TOPOLOGICAL because the analytic one is
+        //   WRONG. blendBatch rebuilds each touched face ONCE and moves EVERY corner on
+        //   it, so two selected edges bounding the same face travel TOWARD EACH OTHER and
+        //   neither is individually too big. The obvious predicate for that pair is
+        //   "min distance between the two edges > the sum of their setbacks" — and it is
+        //   measured WRONG IN BOTH DIRECTIONS (probe over 4,584 random convex rings,
+        //   modelling this exact rebuild):
+        //     FALSE NEGATIVE  d=11.264906 against 2q=9.011925 — the predicate calls it
+        //                     safe and the rebuilt ring FOLDS. The retrimmed lines are
+        //                     re-intersected with their NEIGHBOURS (offsetLine +
+        //                     lineIsect above), so they extend past the original segment
+        //                     ends; a FINITE-SEGMENT distance therefore OVERESTIMATES the
+        //                     clearance whenever the two edges are not parallel, and the
+        //                     fold happens outside the span it measured.
+        //     FALSE POSITIVE  d=3.979817 against 2q=4.059414 — it defers a batch whose
+        //                     ring is fine, because two edges separated by a SHORT third
+        //                     edge are close without ever meeting once offset.
+        //   So the guard is the observable itself, on the thing actually built. Two modes,
+        //   and BOTH are needed:
+        //     (a) INVERSION. planarFaceFromSegs re-orients a ring whose winding disagrees
+        //         with outN, so a ring that turned inside out comes back BRepCheck-VALID
+        //         with a plausible area — this repo's standing failure mode. Caught by
+        //         comparing the new ring's winding sign against the OLD ring's, BEFORE
+        //         that reorientation can hide it.
+        //     (b) SELF-INTERSECTION. Caught by BRepCheck_Analyzer on the rebuilt face —
+        //         the same observable, and the same idiom, the rim path already uses for
+        //         its own hole case above.
+        {
+            std::vector<gp_Pnt> oldPts, newPts;
+            oldPts.reserve(segs.size()); newPts.reserve(out.size());
+            for (const RingSeg& sg : segs) oldPts.push_back(sg.p);
+            for (const RingSeg& sg : out)  newPts.push_back(sg.p);
+            if (newPts.size() < 3) return defer("the simultaneous retrim collapsed a face ring");
+            const double wOld = ringNormal(oldPts).Dot(gp_Vec(fN));
+            const double wNew = ringNormal(newPts).Dot(gp_Vec(fN));
+            if (!(wOld * wNew > 0.0))
+                return defer("two blended edges meet on a face they share — the "
+                             "simultaneous retrim turns that face inside out — deferring");
+        }
         const TopoDS_Face nf = planarFaceFromSegs(out, fpln, fN, innerWires(F));
         if (nf.IsNull()) return defer("could not rebuild a retrimmed face");
+        if (BRepCheck_Analyzer(nf).IsValid() != Standard_True)
+            return defer("two blended edges meet on a face they share — the "
+                         "simultaneous retrim folds that face through itself — deferring");
         faces.push_back(nf);
     }
 
