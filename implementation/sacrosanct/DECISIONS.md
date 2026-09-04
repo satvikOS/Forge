@@ -4282,3 +4282,48 @@ installed; the shipped dylib carries both new guard strings, the worker answers
 `FORGE-WORKER-RESULT 1`, the bundle launches. Rollback `/Applications/Forge.app.prev-20260904-1142`.
 **OCCT_CLOSURE re-measured after the base move: 14, unchanged** — as predicted, `BRepExtrema` is
 TKTopAlgo and already a direct dep. Zero of 14 dropped; the pair {TKOffset, TKFillet} still gates it.
+
+## 2026-09-04 — the vocabulary corpus teaches copying, not knowing
+
+**Measured, and it is a total disjunction on the one cue the corpus exists to teach:**
+
+```
+vocab_legal_v3/train.jsonl   38,000 rows — system prompt lists the 53 legal ops:  38,000  (100.0%)
+holdout_enlarged_600.jsonl      600 rows — system prompt lists the 53 legal ops:       0  (  0.0%)
+```
+
+Training says *"The ONLY ops a user can invoke are: BLEND, BOX, CAP, …"* in **every** row. The
+benchmark says *"reverse-engineer this face census"* and names **no ops at all**. The model was
+never required to memorise the vocabulary — it could read it out of the context window every time —
+and at evaluation the context does not contain it.
+
+**The failure this produces is exactly the observed one.** First 15 e600 tasks under v5: 15/15 fail
+to compile, **100% on invented ops** — `CYLINDRICAL_BORE` (10), `CYLINDRICAL BORE` (2), `CYLINDER`
+(2), `extrudeSphere` (1). Pre-registered P1 said the unknown-op share of compile failures would fall
+from ~100% to **<20%**. On this evidence **P1 is failing**, and `CYLINDER` is the same token that
+made v8 score 0/600.
+
+**The tasks also differ, not just the cue.** Training: "Build this part in Forge" from a text
+description. Benchmark: reverse-engineer a solid from a kernel-measured face census. Same output
+grammar, different input modality.
+
+**Decision — stop the full run and buy the answer instead.** e600 was emitting at 2.7 min/task, so
+the remaining 585 would take ~27 hours to confirm a number already visible at 15/15. The partial
+data is preserved (`reports/vocab_v5_partial/`) and reported as what it is: a prefix, and the
+holdout is sorted hardest-first, so it is a hard sample. Running in its place is a controlled A/B on
+a **stride** sample of 20 tasks, identical in every field except the system prompt, which in arm B
+gains the one sentence naming the 53 ops. Positive control recorded before launch: the arms differ
+in exactly one field, `system`, 0/20 vs 20/20.
+
+**What each outcome would mean, written down before the result:**
+- **Arm B collapses the invented-op rate** → the vocabulary was never internalised, and the fix is a
+  corpus that withholds the op list from a large fraction of rows.
+- **Arm B fails too** → the binding constraint is the TASK mismatch (census → tree), not the
+  vocabulary cue, and a corpus of census-derived rows is what is missing. **Do not build v6 until
+  this comes back** — the two diagnoses call for different corpora.
+
+**The shape is one already in the ledger:** MM-CAD was unusable because all 33,816 rows carried the
+assistant answer verbatim in the user prompt. This is the same defect one level down — not the
+answer in the prompt, but the *vocabulary* in the prompt, in 100% of rows. **A corpus can be 100%
+legal, fully covered across all 53 ops, and still teach copying rather than knowing. Check what the
+model must SUPPLY, not just what the corpus CONTAINS.**
