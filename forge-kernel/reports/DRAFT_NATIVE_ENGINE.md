@@ -7,6 +7,13 @@ Nothing here is quoted from another report without being re-derived.
 
 ---
 
+> ★ **THE NUMBERS IN SECTIONS 0-5 ARE HISTORY, NOT THE CURRENT STATE.** This file
+> is written forward, oldest first, and each dated section supersedes the one above
+> it. The live figure is at the bottom: the PRODUCTION CHAIN covers **445/565 =
+> 78.8 %** against OCCT's 497/565 = 88.0 %, measured 2026-09-03. The 65.8 % in the
+> table immediately below and the 75.4 % in the 2026-09-02 section are both earlier
+> readings of the same quantity. Quote the bottom of the file, not the top.
+
 ## 0. Headline
 
 | | before | after |
