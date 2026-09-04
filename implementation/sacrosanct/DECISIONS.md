@@ -4163,3 +4163,86 @@ where a status label absorbed the endpoint beside it: two quantities treated as 
 no BRepFilletAPI/ChFi3d symbol, and the native chamfer path REFUSES on decline rather than faking
 (`Features.cpp:2047`). **Action: add CHAMFER as the eleventh A/B family, built exactly as the
 other ten are. Do not flip `FORGE_FILLET_DROP_NATIVE` before it reports.**
+
+---
+
+## 2026-09-04 — The corpus taught a third of the product, and three gates could not fail
+
+**Four findings, each measured, each with the instrument named. Two of them retract things
+this programme believed.**
+
+### 1. The training corpus covered 18 of the 53 ops a user can invoke
+
+`data/forge/vocab_legal_v2` is 100% vocabulary-LEGAL — `tools/archie_vocab/validate_corpus.py`
+returns `rows=40000 legal=40000 illegal=0, VERDICT PASS`. It is also **18 of 53 ops**, measured
+over 8,000 sampled rows. The 35 it never shows include **BOX, CYL, CONE, SPHERE, TORUS, PRISM,
+TUBE, SWEEP, THICKEN and SECTION**.
+
+★**That is not a theoretical gap; it is the whole of a measured failure.** The adapter trained on
+that corpus, `adapters/archie-30b-vocab-legal-v8`, scored **`kernel-GATE PASSED 0/600 (0.0%)`** on
+the e600 held-out set (`logs/eval_vocab_legal_v8_e600.log`), and every failing line names the same
+cause: `unknown op 'bore'` / `'CYLINDER'` / `'cylinder'` / `'CUBOID'`. The model needed a cylinder
+or a box, had never been shown `CYL` or `BOX`, and fell back to a base-model prior `forge::ui`
+cannot execute. The corpus's own system prompt advertises only those 18, so the omission was
+taught twice.
+
+★★**THE DECISION THIS FORCES: LEGALITY AND COVERAGE ARE DIFFERENT PROPERTIES, AND ONLY ONE WAS
+EVER CHECKED.** Every training launch verified legality. No launch ever measured coverage. A
+corpus can be 100% legal and still teach a third of the product, and in-distribution it will look
+excellent the whole time — v8 is the proof that in-distribution success and 0/600 on real tasks
+coexist. **Both are now required: an in-distribution split AND a real-task set.**
+
+★**The generator diagnosed itself.** `gen_corpus.py` today prints
+`ZERO COVERAGE for BOX, CAP, ... -- refusing to write` and emits nothing, because the vocabulary
+grew 18 → 28 → 53 under a walk whose builders were written for the 18-op era (the snapshots
+`archie_op_vocabulary.json.18op-20260831` and `.28op-20260902` sit beside the live file). **An
+honest refusal that names the missing set turned a standing mystery into a scoped task.**
+
+**Resolved:** `data/forge/vocab_legal_v3` covers **53/53, missing none** (CYL 4,762, BOX 5,040),
+validator `rows=40000 legal=40000 illegal=0 PASS`, train/valid prompt overlap 0, and **0 of 40,000
+prompts leak a `%id`** into the question — a defect the rebuild also found and fixed. `v2` is
+byte-identical and kept. Training moved to v3; the evaluation is **pre-registered** in
+`scripts/eval_vocab_v5_e600.sh` so it can contradict us.
+
+### 2. A launch defect of ours: 43.9% of training rows were silently truncated
+
+The first v3-era run used `--max-seq-length 512`, carried over from the MMCAD *vision* script where
+rows are short. On this corpus that truncated **43.9% of rows** (p50 471, p90 913, max 1413), and
+mlx_vlm's SFT trainer **truncates rather than skips** (`trainer/sft_trainer.py:222`,
+`max_len = min(max(lengths), max_seq_length)`). With `--train-on-completions` the span being cut is
+exactly the assistant's IR program. **The "loss is dropping" reading taken from those iterations is
+retracted** — it was computed on mangled targets. **Measure a corpus's length profile before setting
+the cap.**
+
+### 3. Three gates shared a build tree and could not fail; the third was found by predicting it
+
+#223 fixed `build_native_gate_guard_gate.sh` and protected only its own two objects. #236 found the
+same race in `run_step_unit_decline_gate.sh`, and #239 in `build_thicken_orientation_gate.sh` —
+located by sweeping for the pattern (a real `touch`, a persistent build tree, no object deletion)
+rather than waiting for it to fire.
+
+★**`touch` is not enough, and that is measured, not argued.** It sets the source mtime to NOW while
+the object was compiled by the previous round, also NOW; a build system recompiles when the source
+is **NEWER**, and **equal is not newer**. Positive control, because a green run cannot prove an
+intermittent race fixed: `touch -r "$OBJ"` on the source → build `rc=0` and the object is **NOT**
+recompiled; delete the object → the compiler runs. ★**The comparison is SOURCE vs OBJECT, not source
+vs library** — comparing against the library at minute granularity reported "recompiled" and hid it.
+★A **header** mutation invalidates every including TU, so deletion is driven off cmake's own `*.o.d`
+depfiles. ★`cmp` proves the SOURCE came back; it can never prove the OBJECT recompiled.
+
+### 4. Three times a harness accused the kernel and was itself wrong
+
+#225: THICKEN's "600/600 orientation flip at signed volume exactly −1.000000" — repeated here as a
+measured fact — **was the A/B measuring half the block the flag deletes.** Native was right;
+corrected, agreement is **0/600 → 595/600**. #230's RED was the step-unit gate's own skipped
+rebuild, on a branch whose 27 files touched nothing named `step*`. And the flip gate had earlier
+decided ten families on coverage while computing an agreement term its own comment said the verdict
+never read.
+
+★★**THE STANDING RULE THIS ESTABLISHES: before believing a gate's verdict about its subject, check
+that the gate measures the WHOLE subject, and that the step which failed is the measurement rather
+than the thing measured.** The same shape retired several other beliefs the same day: MAKEOFFSET's
+285 disagreements are two classes and **neither is an edge partition** (38 are the two arms offsetting
+in OPPOSITE directions); DRAFT's other 52 are **not** a topology change; THICKSOLID's invalid bar is
+**133**; and FILLET's 58 near-misses are a **real geometric difference, not a tolerance** — so
+declining to widen was right.
