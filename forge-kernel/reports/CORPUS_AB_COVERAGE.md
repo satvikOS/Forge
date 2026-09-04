@@ -549,7 +549,13 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > native % 42.2 -> 52.0, OCCT-only 179 -> 120, native INVALID still 0 of 312. The
 > remaining 8 of that class are refused by the offset-ring-vs-hole topology guard and
 > stay refused — their cap hole lies nearer the rim than the setback, so the offset ring
-> would cross an inner wire. **The deficit against the VALID bar does NOT move (171),**
+> would cross an inner wire. **Those 8 are a real, named capability gap and not a shared
+> limitation:** OCCT's CHAMFER answers all 8 and all 8 answers are BRepCheck-valid
+> (`ho1077 ho1168 ho1230 ho293 ho379 ho512 ho714 ho762`), while OCCT's FILLET declines
+> all 8 — which is why the FILLET rim never had to face them. Left as a defer because
+> the only body this engine can build there today has an `IntersectingWires` cap;
+> closing it needs the cap's INNER wires trimmed against the bevel rather than
+> re-attached verbatim. **The deficit against the VALID bar does NOT move (171),**
 > because `replaced` requires agreement with OCCT and all 59 land in the same
 > disagreement class FILLET's rim path already occupies with its own 58 — see the note
 > below. FILLET is unchanged by that commit (312/312/0, deficit 202), which is the

@@ -698,6 +698,14 @@ set(OCCT_LIBS
 #           is not a straight-boundary corner") now build. The remaining 8 of that class
 #           are refused by the offset-ring-vs-hole topology guard and stay refused —
 #           they are the parts whose cap hole lies nearer the rim than the setback.
+#           ★ AND THOSE 8 ARE A REAL, NAMED CAPABILITY GAP, not a shared limitation:
+#             OCCT's CHAMFER answers all 8 and all 8 of its answers are BRepCheck-valid
+#             (ho1077 ho1168 ho1230 ho293 ho379 ho512 ho714 ho762). OCCT's FILLET
+#             declines all 8, which is why the FILLET rim never had to face them — the
+#             gap is chamfer-specific. It is left as a defer because the only thing this
+#             engine can build there today is an IntersectingWires cap, and a wrong body
+#             is far worse than a defer; closing it needs the cap's INNER wires trimmed
+#             against the bevel instead of re-attached verbatim.
 #           Native coverage 253 -> 312, native INVALID still 0 of 312.
 #
 #         ★ THESE NUMBERS MOVED ON 2026-09-04 AND THEY MOVED THE WRONG WAY ON PURPOSE.
