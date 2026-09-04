@@ -1,0 +1,7 @@
+  C1 same face reads distance 0                  ok     maxdist=0 over 81 samples
+  C2 displaced face reads the displacement       ok     maxdist=0.25 (want 0.25)
+  C3 cylinder volume vs pi r^2 h                 ok     fixed rel=1.28e-16  gk rel=2.44e-15  gk_err=1.2e-15
+  C4 box edge: both arms remove (1-pi/4)R^2 L    ok     native dV/closed=1.000000000  occt dV/closed=1.000000000
+  C5 the two spellings are the same geometry     ok     |dV|/V = 1.25e-16
+  C6 JSON strings truncate on a char boundary    ok     cut=159 (want 159) whole=162 (want 162)
+PASS: 0 control(s) failed
