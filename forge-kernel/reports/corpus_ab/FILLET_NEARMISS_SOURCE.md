@@ -268,10 +268,21 @@ of the blend to the body. Measured on these 58:
 So the harness's 1e-6 whole-part bound is, in the operation's own terms, a bound of
 1.5e-4 to 3.5e-4 on what the operation actually produced. **Scoring the operation's own
 output — `V_in − V_out`, which both arms can be compared on directly and which has no
-dilution — makes the instrument roughly 230× sharper at the same nominal tolerance.** On
-this population it would flag the same 58 at 7.2e-4 instead of 3.0e-6, i.e. more clearly,
-never fewer. It is a strictly stricter change, and it is stated here rather than made
-here: the A/B comparator is shared by ten families and PR #224 is already open against it.
+dilution — makes the instrument roughly 230× sharper at the same nominal tolerance.**
+
+Measured, on the same 311 valid pairs, `|ΔV_native − ΔV_occt| / max(|ΔV_native|, |ΔV_occt|)`:
+
+| | min | p50 | max | crosses 1e-6 |
+|---|---|---|---|---|
+| the **58** the whole-part metric already flags | 6.50e-4 | 7.21e-4 | 7.64e-4 | **58 of 58** — by 650× to 764× |
+| the **253** it passes | 0 | **1.65e-13** | **3.6e-12** | **0 of 253** |
+
+The proposed metric returns **exactly the same verdict on every one of the 311 parts**,
+with the flagged population sitting 650–764× over the bound instead of 2–5× and the
+passing population sitting **six orders of magnitude under it** instead of one. It buys
+no number and moves no part; it only stops throwing away 200× of the signal. It is stated
+here rather than made here: the A/B comparator is shared by ten families and PR #224 is
+already open against it.
 
 Three things this measurement does **not** license:
 
