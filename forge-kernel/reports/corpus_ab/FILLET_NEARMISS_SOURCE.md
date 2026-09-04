@@ -10,7 +10,7 @@ part for part:
 
 | the three candidate causes | verdict | the measurement that settles it |
 |---|---|---|
-| (b) accumulated error in the volume integration | **refuted** | the harness's fixed-order integrator agrees with OCCT's adaptive Gauss and Gauss–Kronrod integrators to **≤ 2.83e-9** on the worst part and **1.4e-10** at the median — 760× smaller than the *smallest* disagreement it is asked to explain |
+| (b) accumulated error in the volume integration | **refuted** | the harness's fixed-order integrator agrees with OCCT's adaptive Gauss and Gauss–Kronrod integrators to **≤ 2.825e-9** on the worst part and **1.40e-10** at the median — **766× smaller** than the *smallest* disagreement it is asked to explain |
 | (c) a different but equally valid representation feeding the integrator | **refuted as the cause of the number**, confirmed as the cause of the *cause* | the 8 walls the native arm re-spells from `SurfaceOfLinearExtrusion` to `Plane`/`Cylinder` are the **same surfaces to 1.59e-14** over 464 sampled face pairs, and contribute **0.000000** to the volume gap |
 | (a) a genuine geometric difference in the fillet surface | **CONFIRMED** | 100.0% of the whole-solid gap is the blend (ratio 1.00000 min/median/max, 58/58); against a closed form read off the input's own cap ring the native arm removes **1.000000× 58/58** and OCCT removes **0.999236–0.999350×**; OCCT's blend face departs from the exact radius-R rolling-ball surface by up to **0.00288 R** where the native arm's departs by **1.4e-14** |
 
@@ -77,19 +77,24 @@ actually reached: `VolumeProperties(S, P, Eps)` (adaptive Gauss) and
 | native | 1.77e-16 … **1.14e-15** | 0 … 4.88e-16 |
 | OCCT | 5.30e-16 … **2.83e-9** (p50 1.40e-10) | 0 … 2.83e-9 |
 
-The quantity to be explained is 2.16e-6 to 5.00e-6. The **largest** disagreement any
-integrator has with any other, on any of the 58, is **2.83e-9 — 763× smaller than the
-smallest gap**, and 1.4e-10 at the median. Two integrators of different families cannot
+The quantity to be explained is 2.164e-6 to 5.00e-6. The **largest** disagreement any
+integrator has with any other, on any of the 58, is **2.825e-9 — 766× smaller than the
+smallest gap** — and 1.40e-10 at the median. Two integrators of different families cannot
 both be wrong by 3e-6 and agree with each other to 1e-10.
 
 Two further facts point the same way, and neither is compatible with accumulated
 floating-point error:
 
-* the **253 valid pairs that agree** have volumes that are **bit-identical**, 253/253
-  — the integrator is not noisy, it is deterministic and exact to the last bit when the
-  two shapes are the same;
+* the **253 valid pairs that agree** do so to **≤ 2.06e-15 relative** — median **1.17e-16**,
+  and **121 of the 253 bit-identical**. When the two arms build the same solid this
+  integrator reproduces it to the last bit or the one before it, which is nine orders of
+  magnitude below the gap under study;
 * the two full 600-part runs of this probe, from two builds, produced
   **0 volume mismatches over 600 parts**.
+
+  *(An earlier draft of this line said "bit-identical, 253/253". That came from reading
+  the A/B's JSONL, which prints volumes at `%.10g`; at ten significant figures 253 of 253
+  look identical and only 121 are. Corrected against the probe's own `%.17g` output.)*
 
 ---
 
@@ -102,7 +107,7 @@ hypothesis (c) names, and on the **walls** it is worth nothing at all:
 
 | matched face pair, native vs OCCT | count | sampled surface distance | volume contribution difference |
 |---|---:|---|---|
-| `Cylinder` vs `SurfExtr`, `Plane` vs `SurfExtr` | 464 pairs over the 58 parts | 0 … **1.589e-14** (p50 7.105e-15) | 0 to 4e-13 — i.e. **nothing** |
+| `Cylinder` vs `SurfExtr`, `Plane` vs `SurfExtr` | 464 pairs over the 58 parts | 0 … **1.589e-14** (p50 7.105e-15) | p50 5.68e-14, max **1.98e-9** — **6.8e-9 of the smallest whole-solid gap** |
 
 On a part with a 278 mm diagonal, 1.6e-14 mm is 5.7e-17 relative. The canonicalisation is
 exact. **No part of the 2–5e-6 lives in the walls.**
