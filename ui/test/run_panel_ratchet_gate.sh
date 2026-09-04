@@ -115,20 +115,34 @@ open(p,'w').write(s.replace(old,new,1))
 PY
        ;;
     2) # A pinned empty panel GAINS content: dispatched and declared Live.
-       python3 - "$tree/$FRAME" "$tree/$CAT" <<'PY'
-import sys
-fp,cp=sys.argv[1],sys.argv[2]
+       python3 - "$tree/$FRAME" "$tree/$CAT" "$tree/$PIN" <<'PY'
+import sys, re
+fp,cp,pp=sys.argv[1],sys.argv[2],sys.argv[3]
+# ── DO NOT HARD-CODE A PANEL NAME ──────────────────────────────────────────
+# This named "mates", and stopped applying the moment that panel was
+# IMPLEMENTED: the anchor still matched the dispatch, the catalogue row was
+# already Live, so the "mutation" changed nothing and the harness reported the
+# check as unfalsifiable -- accusing the branch that did the work. The same
+# lesson ui/test/run_user_prose_gate.sh learned (archdisc a7789601).
+#
+# The id is taken from THE PIN, which is by construction the set of panels this
+# gate has MEASURED as empty and which appear in a shipped workspace. Whichever
+# panel is implemented next, this still selects one that is genuinely empty.
+pin=open(pp).read()
+block=re.search(r'kPinnedEmptyPanels\[\] = \{(.*?)\};', pin, re.S)
+assert block, "cannot find kPinnedEmptyPanels"
+ids=re.findall(r'"([a-z_]+)"', block.group(1))
+assert ids, "the pin is EMPTY -- if no panel is empty this mutation needs rethinking, not deleting"
+pid=ids[0]
 s=open(fp).read()
 old='  } else if (panelId == "curve_list") {'
-new='  } else if (panelId == "mates") {\n    drawCurveListPanel();\n  } else if (panelId == "curve_list") {'
+new='  } else if (panelId == "%s") {\n    drawCurveListPanel();\n  } else if (panelId == "curve_list") {' % pid
 assert old in s, "mutation 2 frame anchor missing"
 open(fp,'w').write(s.replace(old,new,1))
 c=open(cp).read()
-old2='''    {"mates",
-     "The mates holding this assembly together, and how many ways each component can still move.",
-     PanelContent::Planned},'''
-assert old2 in c, "mutation 2 catalogue anchor missing"
-open(cp,'w').write(c.replace(old2, old2.replace("PanelContent::Planned","PanelContent::Live"),1))
+row=re.search(r'\{"%s",\n(?:[^\n]*\n)*?\s*PanelContent::Planned\},' % pid, c)
+assert row, "pinned panel %s is not a Planned catalogue row" % pid
+open(cp,'w').write(c.replace(row.group(0), row.group(0).replace("PanelContent::Planned","PanelContent::Live"),1))
 PY
        ;;
     3) # A panel that HAD content loses its dispatch: content going backwards.
@@ -143,15 +157,22 @@ PY
     4) # THE ONE-WORD LOOPHOLE: the catalogue declares a panel finished while the
        # frame builder still draws nothing for it. If this stayed green the pin
        # could be lowered by editing a sentence.
-       python3 - "$tree/$CAT" <<'PY'
-import sys
-p=sys.argv[1]; s=open(p).read()
-old='''    {"bom",
-     "The parts list for this assembly: what goes into it, how many of each, and what they are "
-     "made of.",
-     PanelContent::Planned},'''
-assert old in s, "mutation 4 anchor missing"
-open(p,'w').write(s.replace(old, old.replace("PanelContent::Planned","PanelContent::Live"),1))
+       python3 - "$tree/$CAT" "$tree/$PIN" <<'PY'
+import sys, re
+cp,pp=sys.argv[1],sys.argv[2]
+# Same rule as mutation 2: this named "bom", and was disarmed the moment that
+# panel became Live -- the anchor no longer matched, so nothing was mutated and
+# the loophole went untested. Select from the pin instead.
+pin=open(pp).read()
+block=re.search(r'kPinnedEmptyPanels\[\] = \{(.*?)\};', pin, re.S)
+assert block, "cannot find kPinnedEmptyPanels"
+ids=re.findall(r'"([a-z_]+)"', block.group(1))
+assert ids, "the pin is EMPTY -- if no panel is empty this mutation needs rethinking, not deleting"
+pid=ids[0]
+s=open(cp).read()
+row=re.search(r'\{"%s",\n(?:[^\n]*\n)*?\s*PanelContent::Planned\},' % pid, s)
+assert row, "pinned panel %s is not a Planned catalogue row" % pid
+open(cp,'w').write(s.replace(row.group(0), row.group(0).replace("PanelContent::Planned","PanelContent::Live"),1))
 PY
        ;;
     5) # THE PIN PADDED with a panel that is not empty. A pin allowed to sit
