@@ -226,7 +226,7 @@ run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
 # first. Mutation 3 is its positive control for the sanitizer itself -- if that
 # one STAYS GREEN, -fsanitize=address is not reaching the binary and this gate's
 # memory-safety half is silent.
-run_gate forge_desktop_click_gate 1 2 3 4 5 6 7 8
+run_gate forge_desktop_click_gate 1 2 3 4 5 6 7 8 9 10 11 12
 
 # THE ASSEMBLY GATE. The four assembly panels -- Components, Mates, Contacts and
 # BOM -- against real multi-body models, with every reference computed from the

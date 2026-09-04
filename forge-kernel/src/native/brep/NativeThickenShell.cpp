@@ -1044,7 +1044,12 @@ const char* thickenLastDeferReason() {
     return deferSlot().c_str();
 }
 
-TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
+// The four paths, unchanged. Wrapped in the anonymous namespace so the PUBLIC
+// thickenShell below is the ONE exit every path leaves through, and the
+// orientation post-condition cannot be bypassed by adding a fifth path.
+namespace {
+
+TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
     deferSlot().clear();
     if (shell.IsNull()) return defer("input shape is null");
     if (!std::isfinite(t) || std::fabs(t) < 1.0e-12) return defer("thickness is zero or not finite");
@@ -1260,6 +1265,54 @@ TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
         return defer("volume below the max-prism bound: the fuse lost a plate");
     if (vol > sumParts + slack)
         return defer("volume above the sum-of-parts bound: the fuse double-counted");
+    return out;
+}
+
+}  // namespace (anonymous) — the four paths
+
+// ═══════════════════════════════════════════════════════════════════════════
+// THE ENGINE'S ORIENTATION POST-CONDITION
+// ═══════════════════════════════════════════════════════════════════════════
+// This engine's contract is a POSITIVELY ORIENTED solid: outward shell normals,
+// BRepGProp::VolumeProperties mass > 0, BRepClass3d_SolidClassifier answering
+// TopAbs_IN for an interior point. Until this wrapper existed the contract was
+// stated nowhere and held only by accident on two of the four paths:
+//
+//   path A (coplanar prism)      normalised — but only INSIDE OcctPrimBuilder's
+//                                sewSweptToSolid (OcctPrimBuilder.cpp:312-315),
+//                                three call levels away and easy to lose.
+//   path B (folded fuse)         NOT normalised. Its final self-check reads
+//                                std::fabs(p.Mass()), which is blind to the sign.
+//   path C (full-rect cylinder)  NOT normalised. Same: std::fabs(vp.Mass()).
+//   path D (trimmed cylinder)    normalised in-place at its own tail.
+//
+// A sign bit that every |volume| check in the file is blind to is exactly the
+// defect class this repository has been bitten by four times, so the engine now
+// states its post-condition once and ENFORCES it, rather than leaving it to
+// whichever OCCT boolean happened to orient the result.
+//
+// This does NOT change what the engine returns on the 600-part reference corpus:
+// native was ALREADY positive on 600 of 600 there (measured). It closes the two
+// paths the corpus does not reach and makes the guarantee checkable — see
+// forge-kernel/test/thicken_orientation_gate.cpp, which asserts it in both
+// directions, and OcctThickenBaseline.hpp for why POSITIVE is the correct
+// convention rather than a house style.
+TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
+    TopoDS_Shape out = thickenShellImpl(shell, t, tol);
+    if (out.IsNull()) return out;          // the impl already NAMED the reason
+
+    GProp_GProps vp;
+    BRepGProp::VolumeProperties(out, vp);
+    if (vp.Mass() < 0.0) {
+        out.Reverse();
+        BRepGProp::VolumeProperties(out, vp);
+    }
+    // DEFER rather than ship: a body that is not positively oriented after a
+    // Reverse() has zero or non-finite volume, which is not a solid this engine
+    // is allowed to hand back under the name "thicken".
+    if (!(vp.Mass() > 0.0))
+        return defer("the thickened body has non-positive volume after orientation "
+                     "normalisation");
     return out;
 }
 

@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -331,7 +332,28 @@ bool ForgeFrame::applyPendingSelectionFit() {
   // No VertexSet is cached by this builder yet, so a Vertex ref resolves to
   // nothing. That is REPORTED through the unresolved count below rather than
   // being silently folded into "empty selection".
-  scene.bodyId = treeSource_.rootId();
+  //
+  // ★ MEASURED DEFECT, fixed here. This line read
+  //
+  //     scene.bodyId = treeSource_.rootId();
+  //
+  // and it COMPILED, warning-clean under -Wall -Wextra -Werror, because
+  // forge::ui::NodeId is a std::uint64_t and PickScene::bodyId is a std::string:
+  // the assignment binds std::string::operator=(char) through an integral
+  // conversion, so the root node id 1 became the ONE-CHARACTER string "\x01".
+  // Every ref this application produces carries a DOCUMENT NODE name in bodyId
+  // (clickFace, clickEdge and clickFeature all set it from activeBodyNode() or
+  // from PartDocument::nodeFor), so selectionBounds' body check compared
+  // "body.bracket" against "\x01", found them different, and counted EVERY
+  // picked entity unresolved. `view.selection` therefore refused every real
+  // selection with "the N picked item(s) are not on the part that is on screen"
+  // and the camera never moved -- for faces, edges and bodies alike.
+  //
+  // It is the node the refs are actually stamped with, and NOT the empty string:
+  // an empty scene id disables the body check altogether, which would frame a
+  // ref belonging to some other body rather than refusing it, and framing the
+  // wrong body is worse than refusing.
+  scene.bodyId = activeBodyNode();
 
   const forge::ui::FramingBounds b = forge::ui::selectionBounds(scene, refs);
   if (!b.usable()) {
@@ -756,6 +778,19 @@ void ForgeFrame::invoke(const std::string& id) {
       }
     }
   }
+  // ── the numbers a DRAG produced ─────────────────────────────────────────
+  // Read through the command's OWN schema rather than copied by hand, so a
+  // parameter the gizmo does not carry is left to its default and one it does
+  // carry cannot be mis-spelled into silence.
+  if (d != nullptr && !handleCommand_.empty() && handleCommand_ == id) {
+    for (const forge::ui::ParamSpec& p : d->schema) {
+      if (p.type != forge::ui::ParamType::Number) continue;
+      if (const std::optional<double> v = handleParams_.number(p.name)) {
+        overrides.setNumber(p.name, *v);
+      }
+    }
+  }
+
   // ── the path the user CHOSE IN A PANEL ──────────────────────────────────
   // The same shape as the prompt above, one line lower, and that is the point:
   // a path picked with a mouse and a path typed by hand become the same
@@ -1452,13 +1487,104 @@ std::vector<std::uint32_t> ForgeFrame::selectedFaceIds() const {
   return ids;
 }
 
+std::vector<std::uint32_t> ForgeFrame::highlightFaceIds() const {
+  std::vector<std::uint32_t> ids = selectedFaceIds();
+  bool wholeBody = false;
+  for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
+    if (r.kind == forge::ui::EntityKind::Body) wholeBody = true;
+  }
+  if (!wholeBody) return ids;
+  // A selected body lights every face it has. Without this a body selection
+  // highlighted NOTHING -- the viewport looked exactly as it does with an empty
+  // selection while the status strip said one entity was picked, and the only
+  // way to tell was to read the strip.
+  const std::uint32_t faces = scene_.faceCount();
+  ids.clear();
+  ids.reserve(faces);
+  for (std::uint32_t f = 1; f <= faces; ++f) ids.push_back(f);
+  return ids;
+}
+
 void ForgeFrame::syncSelectionToScene() {
-  if (scene_.applySelection(selectedFaceIds()) > 0) viewportRequest_.selectionDirty = true;
+  if (scene_.applySelection(highlightFaceIds()) > 0) viewportRequest_.selectionDirty = true;
 }
 
 // ── edge selection ──────────────────────────────────────────────────────────
 bool ForgeFrame::edgePickMode() const {
   return shell_.selection().filter() == forge::ui::EntityKind::Edge;
+}
+
+// ── PICKING THE BODY IN THE VIEWPORT ────────────────────────────────────────
+//
+// ★ MEASURED DEFECT, closed here. The status strip has always offered SEVEN
+// values in its pick filter -- any, face, edge, vertex, body, sketch, feature --
+// and the viewport could produce exactly TWO kinds of reference: Face and Edge.
+// Choosing `body` therefore left the application unable to pick ANYTHING: every
+// ray hit went down the face branch, clickFace built a Face ref, and
+// SelectionService::accepts(Face) refused it under a Body filter, so every click
+// printed "The pick filter is not set to face, so this face was not picked" and
+// nothing was ever selected. THIRTEEN registry commands declare a Body signature
+// -- part.move, part.rotate, the three patterns, part.mirror, the three
+// booleans, part.heal, part.verify, part.fold_flange and part.section_curve --
+// and the ONLY way to satisfy any of them was to find the right row in the
+// feature tree. A CAD user selects a body by clicking the body.
+bool ForgeFrame::bodyPickMode() const {
+  return shell_.selection().filter() == forge::ui::EntityKind::Body;
+}
+
+bool ForgeFrame::activeBodyRef(forge::ui::EntityRef& out) const {
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  if (records.empty()) return false;
+  const int irId = records.back().irId;
+  if (forge::ui::entityKindFor(partDoc_.kindOf(irId)) != forge::ui::EntityKind::Body) {
+    return false;
+  }
+  const std::string node = partDoc_.nodeFor(irId);
+  if (node.empty()) return false;
+  out = forge::ui::EntityRef{};
+  out.bodyId = node;
+  out.kind = forge::ui::EntityKind::Body;
+  // The SAME spelling clickFeature uses. See the header: two spellings of one
+  // selection make toggle() add where it should remove.
+  out.persistentName = "feature@" + std::to_string(irId);
+  return true;
+}
+
+void ForgeFrame::setPreselectedBody(bool under) {
+  // No single face lights up for a body hover: the body is the thing under the
+  // cursor, and lighting one of its faces would say the opposite.
+  hoverFace_ = 0;
+  hoverEdge_ = forge::ui::kNoEdge;
+  forge::ui::EntityRef ref;
+  if (!under || !activeBodyRef(ref)) {
+    shell_.selection().clearPreselection();
+    return;
+  }
+  shell_.selection().setPreselection(ref);
+}
+
+void ForgeFrame::clickBody(bool under, bool additive) {
+  forge::ui::EntityRef ref;
+  if (!under || !activeBodyRef(ref)) {
+    if (!additive) {
+      shell_.selection().clearSelection();
+      syncSelectionToScene();
+      note("Selection cleared");
+    }
+    return;
+  }
+  if (!shell_.selection().accepts(ref.kind)) {
+    note("The pick filter is not set to body, so this body was not picked");
+    return;
+  }
+  if (additive) {
+    shell_.selection().toggle(ref);
+  } else {
+    shell_.selection().replaceWith({ref});
+  }
+  shell_.selection().setFocus(ref);
+  syncSelectionToScene();
+  note("Picked the body  (" + std::to_string(shell_.selection().count()) + " picked in all)");
 }
 
 const forge::ui::EdgeSet& ForgeFrame::edges() {
@@ -1788,6 +1914,20 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingPromptSubmit_ = false;
     submitPrompt();
   }
+  // A FINISHED HANDLE DRAG. Same deferral, same reason: the gizmo lives in the
+  // viewport, the viewport is a docked panel, and part.move / part.rotate
+  // rebuild the document and the feature tree the walk was indexing. The flag
+  // is cleared BEFORE the dispatch; handleCommand_ is NOT, because invoke()
+  // reads it (and handleParams_) as the override for exactly this command --
+  // the same mechanism promptCommand_/promptFields_ and dialogCommand_/
+  // dialogPath_ already use, so a value from a DRAG and a value typed by hand
+  // travel one route into CommandParams and there is no second dispatch path.
+  if (pendingHandleDispatch_) {
+    pendingHandleDispatch_ = false;
+    const std::string id = handleCommand_;
+    invoke(id);
+    handleCommand_.clear();
+  }
   // A command asked for from inside a docked panel — the empty state's buttons.
   // Cleared BEFORE the dispatch, so a handler that somehow records another one
   // is honoured on the next frame instead of being wiped by this line.
@@ -2076,12 +2216,17 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
           "What a viewport click picks.\n"
           "face  — the default; feeds Hole, Shell, Counterbore\n"
           "edge  — feeds Edge Fillet, Edge Chamfer, Variable Fillet\n"
+          "body  — feeds Move, Rotate, the patterns, Mirror and the booleans, "
+          "and puts the drag handles on the part\n"
           "The filter also REFUSES a pick of any other kind, so a command can "
           "never run on the wrong topology.");
     }
     if (edgePickMode()) {
       ImGui::SameLine();
       ImGui::TextColored(rgb(90, 184, 242), "edge pick");
+    } else if (bodyPickMode()) {
+      ImGui::SameLine();
+      ImGui::TextColored(rgb(90, 184, 242), "body pick");
     }
 
     // ── THE STRIP IS A VALUE ──────────────────────────────────────────────
@@ -2509,6 +2654,13 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
   const bool hovered = ImGui::IsItemHovered();
   const ImVec2 mouse = ImGui::GetIO().MousePos;
 
+  // ── the drag handles get the pointer FIRST ────────────────────────────────
+  // Before navigation and before picking, because a click that grabs a handle
+  // must not also orbit the camera and must not also select the face behind the
+  // handle. `handlesOwnPointer` is true whenever the cursor is on a handle or a
+  // drag is in flight, and it is what silences the two below.
+  const bool handlesOwnPointer = updateManipulator(origin.x, origin.y, w, h, hovered);
+
   // ── navigation: the four profiles' drag verbs ─────────────────────────────
   NavInput nav;
   nav.left = ImGui::IsMouseDown(ImGuiMouseButton_Left);
@@ -2517,7 +2669,8 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
   nav.shift = ImGui::GetIO().KeyShift;
   nav.ctrl = ImGui::GetIO().KeyCtrl;
   nav.alt = ImGui::GetIO().KeyAlt;
-  const NavVerb verb = navVerbFor(shell_.inputProfile(), nav);
+  const NavVerb verb =
+      handlesOwnPointer ? NavVerb::None : navVerbFor(shell_.inputProfile(), nav);
 
   if (hovered || verb != NavVerb::None) {
     const ImVec2 d = ImGui::GetIO().MouseDelta;
@@ -2541,7 +2694,7 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
   // WHAT is picked follows the status strip's selection FILTER. Before edges
   // existed that control could only refuse: choosing "edge" left every ray hit
   // rejected by clickFace's accepts(Face) and the app unable to pick anything.
-  if (hovered && verb == NavVerb::None && scene_.built()) {
+  if (hovered && verb == NavVerb::None && !handlesOwnPointer && scene_.built()) {
     float ro[3], rd[3];
     camera_.ray(mouse.x - origin.x, mouse.y - origin.y, w, h, ro, rd);
     if (edgePickMode()) {
@@ -2562,6 +2715,14 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
         clickEdge(p.hit() ? p.index : forge::ui::kNoEdge,
                   ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
       }
+    } else if (bodyPickMode()) {
+      // The ray still strikes a FACE -- that is what the triangle soup can
+      // answer -- but what the click NAMES is the solid that face belongs to.
+      const PickResult pick = scene_.pick(ro, rd);
+      setPreselectedBody(pick.hit());
+      if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        clickBody(pick.hit(), ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
+      }
     } else {
       const PickResult pick = scene_.pick(ro, rd);
       setPreselectedFace(pick.faceId);
@@ -2569,9 +2730,12 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
         clickFace(pick.faceId, ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
       }
     }
-  } else if (!hovered && (hoverFace_ != 0 || hoverEdge_ != forge::ui::kNoEdge)) {
+  } else if (!hovered && (hoverFace_ != 0 || hoverEdge_ != forge::ui::kNoEdge ||
+                          shell_.selection().preselection().has_value())) {
     if (edgePickMode()) {
       setPreselectedEdge(forge::ui::kNoEdge);
+    } else if (bodyPickMode()) {
+      setPreselectedBody(false);
     } else {
       setPreselectedFace(0);
     }
@@ -2579,6 +2743,9 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
   viewportRequest_.hoverFace = hoverFace_;
 
   drawViewportOverlays(origin.x, origin.y, w, h);
+  // AFTER the overlays and over them: a handle the triad or the camera readout
+  // is drawn on top of is a handle a user cannot see to grab.
+  drawManipulator(origin.x, origin.y, w, h);
   // AFTER the overlays: the empty state is the only thing worth reading when
   // there is no geometry, so it sits on top of the triad and the camera readout
   // rather than under them.
@@ -2614,6 +2781,356 @@ void ForgeFrame::drawEdgePolyline(const forge::ui::MeshEdge& edge, float x, floa
     if (!project(&edge.points[s], a)) continue;
     if (!project(&edge.points[s + 3], b)) continue;
     dl->AddLine(a, b, colour, thickness);
+  }
+}
+
+
+// ── THE VIEWPORT DRAG HANDLES ───────────────────────────────────────────────
+//
+// WHAT THIS CLOSES, MEASURED. forge::ui::Manipulator (Manipulator.hpp/.cpp, 671
+// lines, proved ray-for-ray by ui/test/manipulator_test.cpp) was compiled into
+// this application by the forge_ui glob and CALLED BY NOTHING: `git grep -n
+// Manipulator -- forge-desktop/src` returned no line. Its own header says the
+// desktop click gate asserts the agreement between its reference camera and the
+// real one; that gate did not mention it either. So the application had NO
+// direct manipulation of any kind -- not a translate arrow, not a rotate ring,
+// nothing in the viewport that could be dragged -- and the two commands that
+// place a body, part.move (TRANSLATE) and part.rotate (ROTATE), were reachable
+// only by picking a body row in the feature tree and TYPING six numbers into a
+// parameter prompt. No CAD system asks a user to type a distance to move a part.
+//
+// Everything below is wiring. The arithmetic is not repeated here: the pivot,
+// the arm, the ring, the hit test, the world-space drag solution and the
+// emitted CommandParams all come from forge::ui, and the ONE thing this file
+// adds is the projection, which is the SAME matrix Camera::viewProj() hands the
+// renderer. That is deliberate -- a gizmo drawn through a second projection is a
+// gizmo drawn where the hit test does not look.
+
+bool ForgeFrame::manipulatorTarget(double pivot[3], double& armLength,
+                                   forge::ui::MeasureBox& box) {
+  armLength = 0.0;
+  box = forge::ui::MeasureBox{};
+  if (!scene_.built()) return false;
+
+  // EXACTLY ONE BODY. Not "at least one": part.move and part.rotate both declare
+  // SelectionSignature::exactly(EntityKind::Body, 1), so a gizmo offered on two
+  // bodies would be a handle whose command the registry refuses -- which is the
+  // "the button did nothing" failure a shared enabled-predicate exists to
+  // prevent. A face or an edge selection puts no gizmo up either: those pick
+  // sub-topology, and moving a body because one of its faces is lit is not what
+  // anybody means.
+  const std::vector<forge::ui::EntityRef>& refs = shell_.selection().selection();
+  if (refs.size() != 1 || refs[0].kind != forge::ui::EntityKind::Body) return false;
+
+  const forge::ui::MeasureMesh& mesh = measureMesh();
+  if (mesh.empty()) return false;
+
+  forge::ui::PickScene scene;
+  scene.mesh = &mesh;
+  // NO EdgeSet on purpose: a Body ref resolves through the triangle soup alone,
+  // and calling edges() here would derive the whole edge set every frame for a
+  // user who has not asked for an edge.
+  // activeBodyNode(), for the reason spelled out in applyPendingSelectionFit:
+  // NodeId is an integer and bodyId is a string, so the tree's root id silently
+  // becomes a one-character string that matches no ref this app ever produces.
+  scene.bodyId = activeBodyNode();
+  const forge::ui::FramingBounds b = forge::ui::selectionBounds(scene, refs);
+  if (!b.usable()) return false;
+
+  box = b.box;
+  box.centre(pivot);
+  // The arm is a fraction of the HALF DIAGONAL, so a long thin part gets a
+  // gizmo it can be seen against rather than one that vanishes inside it. The
+  // rings are drawn larger still (see updateManipulator) so the arrow tip never
+  // lands on a ring and makes the pick ambiguous.
+  armLength = 0.62 * 0.5 * box.diagonal();
+  if (!(armLength > 1e-6)) return false;
+  return true;
+}
+
+bool ForgeFrame::updateManipulator(float x, float y, float w, float h, bool hovered) {
+  handleHits_.clear();
+  handlesVisible_ = false;
+
+  // A drag ALREADY IN FLIGHT owns the pointer whatever the selection now says.
+  // Recomputing the pivot mid-drag would move the thing the drag is measured
+  // from, which turns a steady gesture into a runaway.
+  const bool dragging = moveHandles_.dragging() || turnHandles_.dragging();
+
+  double pivot[3] = {0.0, 0.0, 0.0};
+  double arm = 0.0;
+  forge::ui::MeasureBox box{};
+  if (!dragging) {
+    if (!manipulatorTarget(pivot, arm, box)) {
+      moveHandles_.setMode(forge::ui::ManipulatorMode::Off);
+      turnHandles_.setMode(forge::ui::ManipulatorMode::Off);
+      return false;
+    }
+    handleBox_ = box;
+    moveHandles_.setMode(forge::ui::ManipulatorMode::Translate);
+    turnHandles_.setMode(forge::ui::ManipulatorMode::Rotate);
+    moveHandles_.setPivot(pivot);
+    turnHandles_.setPivot(pivot);
+    moveHandles_.setSize(arm);
+    turnHandles_.setSize(arm * 1.45);
+  }
+
+  float vp[16];
+  camera_.viewProj(vp);
+  if (!handleView_.set(vp, static_cast<double>(x), static_cast<double>(y),
+                       static_cast<double>(w), static_cast<double>(h))) {
+    // A camera whose view-projection does not invert cannot be dragged through.
+    // Refuse rather than solve a singular system: a handle that answers a
+    // degenerate matrix answers a number nobody can predict.
+    moveHandles_.cancel();
+    turnHandles_.cancel();
+    return false;
+  }
+  handlesVisible_ = true;
+
+  // WHERE EACH HANDLE IS, recorded from the SAME geometry the hit test walks.
+  const forge::ui::HandleAxis axes[3] = {forge::ui::HandleAxis::X, forge::ui::HandleAxis::Y,
+                                         forge::ui::HandleAxis::Z};
+  double centre2[2] = {0.0, 0.0};
+  const bool centreOk = handleView_.project(moveHandles_.pivot(), centre2);
+  for (int k = 0; k < 3; ++k) {
+    double tip[3], s[2];
+    if (moveHandles_.axisTip(axes[k], tip) && handleView_.project(tip, s)) {
+      HandleHit hit;
+      hit.mode = forge::ui::ManipulatorMode::Translate;
+      hit.axis = axes[k];
+      hit.x = static_cast<float>(s[0]);
+      hit.y = static_cast<float>(s[1]);
+      handleHits_.push_back(hit);
+    }
+    // The ring sample FARTHEST from the projected pivot: a ring seen near
+    // edge-on projects to a sliver, and its point 0 can land on top of the
+    // centre. The far point is the one with screen extent, so it is the one a
+    // pointer can reach and the one worth publishing.
+    if (!centreOk) continue;
+    double best2 = -1.0;
+    HandleHit far;
+    far.mode = forge::ui::ManipulatorMode::Rotate;
+    far.axis = axes[k];
+    bool haveFar = false;
+    for (int i = 0; i < forge::ui::kManipulatorRingSegments; ++i) {
+      double rp[3], rs[2];
+      if (!turnHandles_.ringPoint(axes[k], i, rp)) break;
+      if (!handleView_.project(rp, rs)) continue;
+      const double dx = rs[0] - centre2[0];
+      const double dy = rs[1] - centre2[1];
+      const double d2 = dx * dx + dy * dy;
+      if (d2 > best2) {
+        best2 = d2;
+        far.x = static_cast<float>(rs[0]);
+        far.y = static_cast<float>(rs[1]);
+        haveFar = true;
+      }
+    }
+    if (haveFar) handleHits_.push_back(far);
+  }
+
+  const ImGuiIO& io = ImGui::GetIO();
+  const double mx = static_cast<double>(io.MousePos.x);
+  const double my = static_cast<double>(io.MousePos.y);
+  // SNAP WHILE SHIFT IS HELD, applied to the RESULT and not to the cursor, so
+  // the handle keeps tracking smoothly while the value that lands in the
+  // history is on the grid. 1 mm and 15 degrees are the increments a mechanical
+  // part is actually dimensioned in.
+  const double tSnap = io.KeyShift ? 1.0 : 0.0;
+  const double rSnap = io.KeyShift ? 15.0 : 0.0;
+  moveHandles_.setSnap(tSnap, 0.0);
+  turnHandles_.setSnap(0.0, rSnap);
+
+  if (dragging) {
+    forge::ui::Manipulator& g = moveHandles_.dragging() ? moveHandles_ : turnHandles_;
+    g.dragTo(handleView_, mx, my);
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+      const forge::ui::ManipulatorEmission e = g.release();
+      if (e.valid) {
+        // DEFERRED, never dispatched here: this runs inside drawNode()'s
+        // recursion and part.move rebuilds the document, the feature tree and
+        // the scene the walk still holds references into. build() dispatches it
+        // once the walk has returned, on the same one-slot deferral the empty
+        // state's buttons use.
+        handleCommand_ = e.commandId;
+        handleParams_ = e.params;
+        pendingHandleDispatch_ = true;
+        ++handleEmissions_;
+      } else {
+        // A drag that moved nothing records nothing. Saying so is not noise:
+        // the alternative is a gesture that looks like it worked and left no
+        // feature behind.
+        note("The handle was released without moving, so nothing was changed");
+      }
+    }
+    return true;
+  }
+
+  const double tol = 9.0 * static_cast<double>(dpiScale_);
+  moveHandles_.clearHover();
+  turnHandles_.clearHover();
+  forge::ui::ManipulatorHandle handle = moveHandles_.hitTest(handleView_, mx, my, tol);
+  forge::ui::Manipulator* owner = &moveHandles_;
+  if (!handle.valid()) {
+    handle = turnHandles_.hitTest(handleView_, mx, my, tol);
+    owner = &turnHandles_;
+  }
+  if (!handle.valid() || !hovered) return false;
+
+  owner->setHover(handle);
+  // Alt+LMB ORBITS in the Blender profile. A gizmo that swallowed that chord
+  // would take a navigation gesture away from the one profile whose users
+  // reach for it by habit, so the grab requires a PLAIN left button.
+  if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.KeyAlt) {
+    owner->begin(handleView_, handle, mx, my);
+  }
+  return true;
+}
+
+void ForgeFrame::drawManipulator(float x, float y, float w, float h) {
+  if (!handlesVisible_) return;
+  ImDrawList* dl = ImGui::GetWindowDrawList();
+
+  const ImU32 axisCols[3] = {ImGui::GetColorU32(rgb(232, 92, 84)),
+                             ImGui::GetColorU32(rgb(122, 196, 108)),
+                             ImGui::GetColorU32(rgb(96, 156, 240))};
+  const ImU32 live = ImGui::GetColorU32(rgb(255, 214, 92));
+  const char* axisNames[3] = {"X", "Y", "Z"};
+  const forge::ui::HandleAxis axes[3] = {forge::ui::HandleAxis::X, forge::ui::HandleAxis::Y,
+                                         forge::ui::HandleAxis::Z};
+
+  const auto project = [this](const double* p, ImVec2& out) {
+    double s[2];
+    if (!handleView_.project(p, s)) return false;
+    out = ImVec2(static_cast<float>(s[0]), static_cast<float>(s[1]));
+    return true;
+  };
+
+  const forge::ui::ManipulatorHandle activeMove =
+      moveHandles_.dragging() ? moveHandles_.active() : moveHandles_.hover();
+  const forge::ui::ManipulatorHandle activeTurn =
+      turnHandles_.dragging() ? turnHandles_.active() : turnHandles_.hover();
+
+  ImVec2 centre;
+  const bool centreOk = project(moveHandles_.pivot(), centre);
+
+  // ── the three rotate rings, drawn as the SAME 48 chords the hit test walks ─
+  for (int k = 0; k < 3; ++k) {
+    const bool lit = activeTurn.axis == axes[k];
+    const float thick = (lit ? 3.0f : 1.6f) * dpiScale_;
+    const ImU32 col = lit ? live : axisCols[k];
+    ImVec2 prev;
+    bool havePrev = false;
+    for (int i = 0; i <= forge::ui::kManipulatorRingSegments; ++i) {
+      double rp[3];
+      if (!turnHandles_.ringPoint(axes[k], i % forge::ui::kManipulatorRingSegments, rp)) break;
+      ImVec2 s;
+      if (!project(rp, s)) { havePrev = false; continue; }
+      if (havePrev) dl->AddLine(prev, s, col, thick);
+      prev = s;
+      havePrev = true;
+    }
+  }
+
+  // ── the three translate arrows ────────────────────────────────────────────
+  if (centreOk) {
+    for (int k = 0; k < 3; ++k) {
+      double tip[3];
+      ImVec2 t;
+      if (!moveHandles_.axisTip(axes[k], tip) || !project(tip, t)) continue;
+      const bool lit = activeMove.axis == axes[k];
+      const ImU32 col = lit ? live : axisCols[k];
+      dl->AddLine(centre, t, col, (lit ? 3.4f : 2.2f) * dpiScale_);
+      // The head is drawn in SCREEN space so it stays the same size at any zoom.
+      const float dx = t.x - centre.x;
+      const float dy = t.y - centre.y;
+      const float len = std::sqrt(dx * dx + dy * dy);
+      if (len > 1.0f) {
+        const float ux = dx / len;
+        const float uy = dy / len;
+        const float head = 11.0f * dpiScale_;
+        const ImVec2 base(t.x - ux * head, t.y - uy * head);
+        dl->AddTriangleFilled(t, ImVec2(base.x - uy * head * 0.42f, base.y + ux * head * 0.42f),
+                              ImVec2(base.x + uy * head * 0.42f, base.y - ux * head * 0.42f), col);
+      }
+      dl->AddText(ImVec2(t.x + 6.0f * dpiScale_, t.y - 7.0f * dpiScale_), col, axisNames[k]);
+    }
+    dl->AddCircleFilled(centre, 3.5f * dpiScale_, ImGui::GetColorU32(rgb(226, 229, 234)));
+  }
+
+  // ── the drag in flight: the moved box, and the value ──────────────────────
+  const bool movingNow = moveHandles_.dragging();
+  const bool turningNow = turnHandles_.dragging();
+  if ((movingNow || turningNow) && handleBox_.valid) {
+    double off[3] = {0.0, 0.0, 0.0};
+    double axis[3] = {0.0, 0.0, 1.0};
+    double c = 1.0, s = 0.0;
+    if (movingNow) {
+      moveHandles_.previewOffset(off);
+    } else {
+      forge::ui::Manipulator::axisVector(turnHandles_.active().axis, axis);
+      const double r = turnHandles_.rotationDegrees() * 0.017453292519943295;
+      c = std::cos(r);
+      s = std::sin(r);
+    }
+    const double* pv = turnHandles_.pivot();
+    ImVec2 corner[8];
+    bool ok[8];
+    for (int i = 0; i < 8; ++i) {
+      double p[3] = {(i & 1) ? handleBox_.max[0] : handleBox_.min[0],
+                     (i & 2) ? handleBox_.max[1] : handleBox_.min[1],
+                     (i & 4) ? handleBox_.max[2] : handleBox_.min[2]};
+      if (movingNow) {
+        for (int a = 0; a < 3; ++a) p[a] += off[a];
+      } else {
+        // Rodrigues about the ring's axis through the pivot -- the same rigid
+        // motion ROTATE(%body, angle, ax, ay, az, ox, oy, oz) applies, so the
+        // ghost is a preview of the statement and not an approximation of it.
+        const double v[3] = {p[0] - pv[0], p[1] - pv[1], p[2] - pv[2]};
+        const double d = v[0] * axis[0] + v[1] * axis[1] + v[2] * axis[2];
+        const double cr[3] = {axis[1] * v[2] - axis[2] * v[1], axis[2] * v[0] - axis[0] * v[2],
+                              axis[0] * v[1] - axis[1] * v[0]};
+        for (int a = 0; a < 3; ++a) {
+          p[a] = pv[a] + v[a] * c + cr[a] * s + axis[a] * d * (1.0 - c);
+        }
+      }
+      ok[i] = project(p, corner[i]);
+    }
+    const int edgesIdx[12][2] = {{0, 1}, {2, 3}, {4, 5}, {6, 7}, {0, 2}, {1, 3},
+                                 {4, 6}, {5, 7}, {0, 4}, {1, 5}, {2, 6}, {3, 7}};
+    for (const auto& e : edgesIdx) {
+      if (ok[e[0]] && ok[e[1]]) dl->AddLine(corner[e[0]], corner[e[1]], live, 1.3f * dpiScale_);
+    }
+
+    char hud[96];
+    if (movingNow) {
+      std::snprintf(hud, sizeof(hud), "%s  %+.3f mm",
+                    forge::ui::toString(moveHandles_.active().axis),
+                    moveHandles_.translation());
+    } else {
+      std::snprintf(hud, sizeof(hud), "%s  %+.2f deg",
+                    forge::ui::toString(turnHandles_.active().axis),
+                    turnHandles_.rotationDegrees());
+    }
+    const ImVec2 m = ImGui::GetIO().MousePos;
+    const ImVec2 ts = ImGui::CalcTextSize(hud);
+    dl->AddRectFilled(ImVec2(m.x + 14, m.y - 30), ImVec2(m.x + 22 + ts.x, m.y - 26 + ts.y),
+                      ImGui::GetColorU32(ImVec4(0.20f, 0.16f, 0.04f, 0.92f)), 3.0f);
+    dl->AddText(ImVec2(m.x + 18, m.y - 28), live, hud);
+  } else {
+    // A gesture nobody knows about is a gesture nobody makes. One line, only
+    // while the handles are up and nothing is being dragged, along the bottom
+    // of the viewport where neither the triad nor the camera readout sits.
+    const char* hint =
+        "Drag an arrow to move this body, a ring to turn it. Hold Shift to snap to 1 mm "
+        "and 15 degrees.";
+    const ImVec2 ts = ImGui::CalcTextSize(hint);
+    const ImVec2 at(x + 0.5f * (w - ts.x), y + h - ts.y - 14.0f * dpiScale_);
+    dl->AddRectFilled(ImVec2(at.x - 8.0f, at.y - 4.0f),
+                      ImVec2(at.x + ts.x + 8.0f, at.y + ts.y + 4.0f),
+                      ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.45f)), 3.0f);
+    dl->AddText(at, ImGui::GetColorU32(rgb(198, 204, 214)), hint);
   }
 }
 
