@@ -220,7 +220,7 @@ set(OCCT_LIBS
 # OCCT baseline" (reports/TKOFFSET_DECOMPOSITION.md §5 step 6). That is a COVERAGE
 # measurement, and until 2026-08-29 no harness in this tree made it. It now exists:
 #
-#     forge-kernel/test/corpus_ab_coverage.cpp     the paired A/B, 10 families
+#     forge-kernel/test/corpus_ab_coverage.cpp     the paired A/B, 11 families
 #     forge-kernel/test/run_corpus_ab_coverage.sh  the driver
 #     forge-kernel/reports/CORPUS_AB_COVERAGE.md   method, limits, and how to run it
 #     forge-kernel/reports/corpus_ab/              the committed baseline + raw rows
@@ -636,9 +636,41 @@ set(OCCT_LIBS
 #     (b) A vertex where a concave blend meets another blend, and any vertex with exactly
 #         TWO blended edges (the two-edge corner surface). OCCT serves both.
 #     (c) The variable-radius law fillet's remaining gaps (NativeVariableFillet).
-#     (d) No corpus A/B has been run. Three shapes are not a corpus; the flip gate is
-#         "native success rate >= the measured OCCT baseline over the corpus", the same
-#         gate families D/F/G/H are held to.
+#     (d) THE CORPUS A/B HAS NOW BEEN RUN, ON BOTH HALVES, AND BOTH HALVES FAIL.
+#         This bullet used to read "No corpus A/B has been run." That stopped being true
+#         for BRepFilletAPI_MakeFillet on 2026-08-29 (the FILLET row of the table at
+#         :233) and for BRepFilletAPI_MakeChamfer on 2026-09-04, when CHAMFER was added
+#         as the eleventh family — until then the gate for THIS option was measured on
+#         HALF of what the option drops, because the option drops a TOOLKIT and TKFillet
+#         holds TWO called classes (11 symbols: MakeFillet 5 + MakeChamfer 5 +
+#         ChFi3d_Builder 1, reports/OCCT_TOOLKIT_SYMBOL_CENSUS_2026-09-04.md).
+#
+#         MEASURED over ALL 600 gold reference solids, both families in ONE run, 0
+#         part-level errors. The FILLET row reproduces the committed rim-attribution
+#         baseline (reports/CORPUS_AB_COVERAGE.md §3.4) EXACTLY, which is what makes the
+#         CHAMFER row in the same run readable:
+#
+#           family    native%  OCCT%   parts DELETED   agree(both)   McNemar p
+#           FILLET      67.2    76.8       59/600      253/402       1.1e-16
+#           CHAMFER     57.3    72.0      104/600      253/328       5.5e-17
+#
+#         ★ THE UNMEASURED HALF WAS THE WORSE HALF. Chamfer deletes 104 parts where
+#           fillet deletes 59 — 1.76x — so reading the FILLET row alone UNDERSTATED this
+#           option's cost. The native chamfer's coverage is a strict SUBSET of the native
+#           fillet's: 344 parts build on both, 59 build on fillet only, and ZERO build on
+#           chamfer only.
+#         ★ WHERE IT ANSWERS AND IS VALID, THE NATIVE CHAMFER IS EXACT. 0 valid pairs
+#           disagree on the full observable vector (against 58 for FILLET), so this
+#           family fails on COVERAGE and VALIDITY, not on correctness. 91 of its own 344
+#           answers fail BRepCheck — the SAME 91 parts FILLET's engine fails, so that is
+#           shared retrim/sew machinery, not either blend.
+#         ★ The 104-part deletion is attributable, per part, from the row's `note`:
+#           67 "end face is not a straight-boundary corner", 13 "adjacent face A is not
+#           planar", 10 "adjacent face B is not planar", 6 non-straight outer boundary,
+#           7 extent not measurable, 1 non-simple corner.
+#
+#         BOTH rows must clear the gate before this flag may flip. A PASS on one of them
+#         is not a PASS for the option, and today NEITHER passes.
 #
 #   ★ AND IT IS WORTH ZERO CLOSURE ON ITS OWN. Measured: the drop takes the DIRECT link
 #     records 11 -> 10, but libTKOffset itself DT_NEEDs TKFillet, so TKFillet still LOADS
