@@ -164,8 +164,9 @@ trimmed. Sampling each arm's blend faces:
 | native's blend, same reading | 2.08e-16 | 3.41e-16 | 5.40e-16 | — |
 
 OCCT's blend face is up to **0.29% of R** away from the surface a rolling ball of radius
-R sweeps, and its curvature is off by up to 2.4%. That is eleven orders of magnitude
-above any floating-point scale. **The two arms bound different solids.**
+R sweeps, and its curvature is off by up to 2.4%. That is **9.6e11 times** the native
+arm's reading on the same measurement (0.01356 against 1.42e-14) and far above any
+floating-point scale. **The two arms bound different solids.**
 
 ---
 
