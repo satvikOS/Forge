@@ -882,6 +882,22 @@ jobs:
         # FALLS without the baseline being lowered in the same commit. All seven run in
         # about 93 seconds on this runner, which already has OCCT installed.
         run: bash forge-kernel/test/run_ab_all.sh
+      - name: native pcurve fit + the plane/cylinder section (6 negative controls)
+        # ★ NEITHER OF THESE GATES HAS EVER RUN ANYWHERE. run_pcurve_fit_gate.sh was
+        # in no workflow, and test/pcurve_geometry_gate.cpp -- the only check in the
+        # tree over cylinderPCurve itself -- was named by no script, no CMake target
+        # and no workflow at all. Both are green and always were; they were simply
+        # unreachable, which is the same state as not existing. The same sentence
+        # the A/B step above is written under applies to them: a gate that cannot
+        # build is a gate that cannot fail, and this repository has already shipped
+        # a defect for exactly that reason.
+        #
+        # It covers the code the DRAFT family's remaining coverage runs through:
+        # the exact plane/cylinder section and the 2-D least-squares B-spline that
+        # fits its pcurve. Six negative controls, five on the spline numerics and
+        # one on the ellipse itself (semi-major r/|c| -> r, the circle), each of
+        # which must turn the gate red. Seconds, on a runner that already has OCCT.
+        run: bash forge-kernel/test/run_pcurve_fit_gate.sh --mutations
       - name: corpus A/B harness builds, and its 32 controls are green
         # ★ RETRACTION, MEASURED ON THIS RUNNER. This step was added claiming that
         #   "nothing in CI compiled test/corpus_ab_coverage.cpp". THAT WAS WRONG and

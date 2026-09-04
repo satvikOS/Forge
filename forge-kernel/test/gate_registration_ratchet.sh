@@ -21,11 +21,14 @@
 # be noise, not a gate. But most are investigations — *_census, *_probe, *_diag —
 # written to answer one question, and an investigation that answered its question
 # need not run for ever. The class that matters is the one whose own NAME claims
-# it guards something: *_gate. Of 13 such scripts, NINE do not run.
+# it guards something: *_gate. Of 13 such scripts, NINE did not run when this was
+# written; the ALLOW list below is the live count and this sentence is history.
 #
-# So this pins them. The count may FALL (wire one up) but never RISE. One more
-# unwired gate turns this red on the PR that introduces it — which is precisely
-# the case nothing in this repository caught before.
+# So this pins whatever is in ALLOW. The count may FALL (wire one up) but never
+# RISE. One more unwired gate turns this red on the PR that introduces it — which
+# is precisely the case nothing in this repository caught before. THE COUNT IS NOT
+# TYPED ANYWHERE: PINNED is derived from ALLOW, because a number written beside a
+# list is only true on the day it is written.
 #
 # ★ IT HAS ALREADY FALLEN ONCE, which is the point: build_thicken_orientation_gate
 #   was wired into .github/workflows/kernel-tests.yml (the OCCT kernel smoke job,
@@ -40,8 +43,14 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 
 # The known-unregistered gates, each with the reason it is not wired.
 # REMOVE an entry when you wire the gate up. Do NOT add one without a reason.
+#
+# ★ run_pcurve_fit_gate LEFT THIS LIST on 2026-09-03 and the ratchet is what said
+#   so — it went RED ON THE IMPROVEMENT, which is the half of a ratchet nobody
+#   writes and this one has. It is now run by kernel-tests.yml beside
+#   run_ab_all.sh, and it in turn runs test/pcurve_geometry_gate.cpp, which no
+#   script, no CMake target and no workflow named AT ALL. The count is lowered in
+#   the same commit that wires it, which is this file's own rule.
 ALLOW="\
-run_pcurve_fit_gate
 run_pipe_drop_gate
 run_pipeshell_guided_gate
 run_thicksolid_nesting_gate

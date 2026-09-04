@@ -449,6 +449,43 @@ set(OCCT_LIBS
 #   guide list, so the 99.8% is measured on inputs the call sites do not produce.
 #   test/run_pipeshell_guided_gate.sh measures that half.
 #
+# ★★ THE DRAFT ROW'S 0.0% IS A HARNESS ARTEFACT AND ALWAYS WAS. The table above
+#   scores DRAFT by calling ONE engine; src/Features.cpp CHAINS TWO, occtdraft::
+#   draftFaces then occtdraftlocal::draftFacesLocal, and ships the first non-null
+#   answer. The row measures only the first, which declines all 565 applicable
+#   parts, so "0.0%" is a true statement about a call production does not make.
+#   The PRODUCTION CHAIN was measured on the same 600 parts by
+#   test/run_draft_local_probe.sh, which now calls both links in production's
+#   order and has a control in each direction for the composition:
+#     BEFORE 2026-09-03    426/565 = 75.4%    against OCCT's 497/565 = 88.0%
+#     AFTER  2026-09-03    445/565 = 78.8%    against OCCT's 497/565 = 88.0%
+#   paired, gained 19, lost 0, built-but-disagreed 0. Link 1 answers 0 of 565
+#   (375 decline on a multi-wire face, 190 on a non-planar one), so the chain
+#   number IS the second engine's — measured, not inferred. Coverage here is
+#   AGREEMENT with OCCT on the full observable vector, never "did not defer".
+#   ★ THE ROW ABOVE IS LEFT AS WRITTEN because it is the f71ed98b measurement and
+#   a historical fact, exactly as the OFFSETSHAPE row is. Anyone costing family J
+#   from "0.0 versus 88.0" is costing 88 points of work that is 9 points of work.
+#   ★ AND THE GATE STILL FAILS: 78.8% < 88.0%, a rate comparison. The remaining
+#   52 parts are ONE decision and not one engine — with the validity gate
+#   bypassed all 52 build and all 52 agree with OCCT on the whole vector, OCCT's
+#   own answer is BRepCheck-INVALID on all 52, the BRepCheck status codes are
+#   identical part for part, and OCCT's answer has the input's exact face, edge,
+#   vertex and wire counts (dF=dE=dV=dW=0 on 52 of 52), so it is not recomputing
+#   any topology either. The offending face is, on all 52, the TOP CAP (outward
+#   normal exactly +Z, 5 to 9 wires) and never the drafted wall, which carries ONE
+#   wire on every one of them: the wall leans inward as height rises, so the cap's
+#   boundary moves in by height*tan(3deg) = 2.16 to 5.07 mm and crosses one of the
+#   cap's own islands. The native engine declines because its gate is stricter
+#   than its incumbent, which is a SIXTH disagreement class beside PR #224's five.
+#   That decision is NOT taken here and the gate stays ON: relaxing a check to
+#   gain 52 parts is weakening an assertion to obtain a number. Full derivation
+#   in reports/DRAFT_NATIVE_ENGINE.md, section dated 2026-09-03.
+#   ★ Two NATIVE-ONLY WINS also exist on this family and no row has ever shown
+#   them: ho296 and ho857, where OCCT fails to build from a valid input and the
+#   native engine returns a BRepCheck-VALID solid. The deletion bucket is not
+#   one-directional.
+#
 # ★ "THE NEXT BOUNDED TARGET" IS MEASURED AND IT IS NOT BOUNDED. Corrected
 #   2026-08-31 at 32ee7485 by test/thicken_cylpatch_probe.cpp, which links no
 #   forge object and asks only what OCCT's own answer IS on those 23 parts —

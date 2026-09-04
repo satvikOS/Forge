@@ -72,15 +72,25 @@ PROBE_OBJ="$OBJDIR/obj/draft_local_probe.o"
 # silently absorb the next new dependency and retire the loud link failure that
 # is the only thing telling us the engine's surface moved.
 FITTER_OBJ="$OBJDIR/obj/NativePCurveFit.o"
-compile src/native/brep/NativeDraftLocal.cpp "$ENGINE_OBJ" || exit 1
-compile src/native/geom/NativePCurveFit.cpp  "$FITTER_OBJ" || exit 1
-compile test/draft_local_probe.cpp           "$PROBE_OBJ"  || exit 1
+# THE PRODUCTION CHAIN'S FIRST LINK, and its own one dependency. src/Features.cpp
+# runs occtdraft::draftFaces BEFORE occtdraftlocal::draftFacesLocal, so a probe
+# linked against only the second engine cannot report what the shipped chain
+# covers. Enumerated for the same reason as the fitter: a NEW dependency must
+# still fail the link loud rather than be absorbed by a glob.
+ARRANGE_OBJ="$OBJDIR/obj/NativeDraft.o"
+HEAL_OBJ="$OBJDIR/obj/NativeShapeHeal.o"
+compile src/native/brep/NativeDraftLocal.cpp "$ENGINE_OBJ"  || exit 1
+compile src/native/geom/NativePCurveFit.cpp  "$FITTER_OBJ"  || exit 1
+compile src/native/brep/NativeDraft.cpp      "$ARRANGE_OBJ" || exit 1
+compile src/native/brep/NativeShapeHeal.cpp  "$HEAL_OBJ"    || exit 1
+compile test/draft_local_probe.cpp           "$PROBE_OBJ"   || exit 1
 
 OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo \
            -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing -lTKFillet -lTKOffset \
            -lTKDESTEP -lTKXSBase"
 # shellcheck disable=SC2086
-if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" "$ENGINE_OBJ" "$FITTER_OBJ" "$PROBE_OBJ" \
+if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" "$ENGINE_OBJ" "$FITTER_OBJ" \
+     "$ARRANGE_OBJ" "$HEAL_OBJ" "$PROBE_OBJ" \
      -L "$OCCT_LIB" -Wl,-rpath,"$OCCT_LIB" $OCCT_LIBS -o "$OUT" 2> "$OBJDIR/link.err"; then
   echo "[draft-local-probe] LINK FAILED:" >&2
   tail -40 "$OBJDIR/link.err" >&2

@@ -1128,11 +1128,45 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     uNear = oldPc->Value(oa).X();
                 }
 
+                // ── THE BOUND IS THE EDGE'S OWN TOLERANCE, NOT THE MODEL'S SIZE ──
+                // This fit was bounded by `resTol` = 1e-7 * extent, a MODEL-SCALE
+                // residual. That is the wrong yardstick for a pcurve: BRepCheck
+                // does not compare a pcurve against how big the part is, it
+                // compares it against the tolerance THIS EDGE advertises, and on
+                // the 600-part corpus the two differ by 17x to 30x — resTol
+                // 1.72e-05 .. 3.02e-05 against an edge tolerance of exactly
+                // 1e-06 on every one of them. cylinderPCurve's adaptive loop
+                // stops at the FIRST span count that meets the bound it is
+                // given, so a bound 17x too loose stops it one doubling early
+                // and ships a pcurve the edge's own tolerance does not cover.
+                //
+                // MEASURED, all 19 of the corpus parts this engine still owed
+                // OCCT and one fixture: the identical triple every time — the
+                // edge InvalidCurveOnSurface + InvalidSameParameterFlag in its
+                // cylindrical face, that face UnorientableShape, the solid
+                // rejected — with the deviation between 8.67e-06 and 1.57e-05,
+                // ALWAYS at t = pi, the far side of the loop from the two
+                // clamped ends. Nothing else about the solid was wrong: volume,
+                // area, centre of mass, all six bbox bounds and every topology
+                // count already agreed with OCCT to 1e-6.
+                //
+                // The tolerance the edge WILL advertise is not a guess. MakeEdge
+                // below stamps max(tol, tol(oldE)); the UpdateEdge that attaches
+                // this pcurve in step 7 raises it to max(tol, tol(cylFace)); and
+                // BRep_Builder only ever RAISES a tolerance. So the largest of
+                // those three is what BRepCheck will hold the pcurve to, and it
+                // is what the fit has to beat. min() with resTol keeps the old
+                // bound wherever it was ALREADY the tighter of the two, so this
+                // can only tighten and never loosen.
+                const double edgeTol =
+                    std::max(std::max(tol, BRep_Tool::Tolerance(oldE)),
+                             BRep_Tool::Tolerance(cylFace));
+                const double pcTol = std::min(resTol, edgeTol);
                 const forge::pcurvefit::PCurveFit fit =
-                    forge::pcurvefit::cylinderPCurve(secCurve, t0, t1, cylAx, radius, resTol, uNear);
+                    forge::pcurvefit::cylinderPCurve(secCurve, t0, t1, cylAx, radius, pcTol, uNear);
                 if (fit.curve.IsNull())
                     return defer("the pcurve on the cylinder could not be built: " + fit.defer);
-                if (!(fit.maxDev3d >= 0.0) || fit.maxDev3d > resTol)
+                if (!(fit.maxDev3d >= 0.0) || fit.maxDev3d > pcTol)
                     return defer("the fitted pcurve exceeds the declared deviation bound");
 
                 bb.MakeEdge(ne, secCurve, std::max(tol, BRep_Tool::Tolerance(oldE)));

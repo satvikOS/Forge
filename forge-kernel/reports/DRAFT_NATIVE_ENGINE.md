@@ -7,6 +7,13 @@ Nothing here is quoted from another report without being re-derived.
 
 ---
 
+> ★ **THE NUMBERS IN SECTIONS 0-5 ARE HISTORY, NOT THE CURRENT STATE.** This file
+> is written forward, oldest first, and each dated section supersedes the one above
+> it. The live figure is at the bottom: the PRODUCTION CHAIN covers **445/565 =
+> 78.8 %** against OCCT's 497/565 = 88.0 %, measured 2026-09-03. The 65.8 % in the
+> table immediately below and the 75.4 % in the 2026-09-02 section are both earlier
+> readings of the same quantity. Quote the bottom of the file, not the top.
+
 ## 0. Headline
 
 | | before | after |
@@ -534,3 +541,280 @@ counts, so it CANNOT represent a wall that has begun to cut a feature. OCCT
 drafts these by recomputing the intersection topology. **The validity gate is
 catching a real defect here, not costing coverage** — the distinction
 `run_draft_local_validity_diag.sh` exists to make, answered for this block.
+
+
+---
+
+## 2026-09-03 — the 19 cylinder parts were ONE bound; and the 52 are NOT what the section above says they are
+
+Two results. The first closes the tractable half of the remaining gap. The second
+**refutes the characterisation of the other half written on 2026-09-02**, and the
+refutation is the more important of the two, because a backlog item scheduled
+against a wrong cause is work nobody needs.
+
+### 0. Headline — the PRODUCTION CHAIN, paired, over the same 565
+
+`test/run_draft_local_probe.sh`, all 600 parts, same corpus, same sideWall pick,
+same DRAFT arguments, scored the same way (a part counts only if the answer
+AGREES WITH OCCT on the whole observable vector).
+
+```
+                              BEFORE            AFTER
+OCCT built                    497/565 = 88.0%   497/565 = 88.0%
+local engine agrees           426/565 = 75.4%   445/565 = 78.8%
+PRODUCTION CHAIN agrees       426/565 = 75.4%   445/565 = 78.8%
+paired: gained 19, lost 0, built-but-disagreed 0
+```
+
+BEFORE `4370af80` (instrument only, engine untouched), AFTER `9a959f1a`, both
+built from a tree with `dirty_files_in_src_include_test 0`. Raw rows:
+`reports/corpus_ab/draft_local_probe_before_edgetol.jsonl.gz` and
+`reports/corpus_ab/draft_local_probe.jsonl.gz`.
+
+The 19 gained are exactly the 19 the gap consisted of:
+`ho1014 ho1178 ho1209 ho1234 ho1243 ho1278 ho1295 ho1335 ho633 ho710 ho734
+ho741 ho749 ho805 ho884 ho898 ho921 ho958 ho982`.
+
+**Two NATIVE-ONLY WINS now exist and this report has been claiming zero.**
+`ho296` and `ho857`: OCCT's `BRepOffsetAPI_DraftAngle` fails to build from a
+BRepCheck-valid input and the native engine returns a BRepCheck-VALID solid. They
+arrived with the wall/cylinder meet in `f1230487` and were never counted. §4's
+"native-only wins (OCCT cannot) 0" is superseded — it is 2. They are not coverage
+under this probe's own rule (a part with no OCCT answer cannot AGREE with one),
+so they are reported and not added to any percentage.
+
+### 1. The instrument was wrong first, and it flattered nothing — it hid 75 points
+
+`src/Features.cpp`'s `forge::part::draftFaces` runs **two** native engines in
+order and ships the first non-null answer: `occtdraft::draftFaces` (the plane
+arrangement) then `occtdraftlocal::draftFacesLocal`. Every DRAFT number in this
+programme, including `CMakeLists.txt`'s coverage table row of **0.0 %**, was
+measured by calling ONE of them. `draft_local_probe.cpp` now calls both, in
+production's order, and reports the chain beside the local engine rather than
+instead of it, so every row this probe has ever written stays comparable.
+
+Measured on all 565: **link 1 answers 0 of them.** 375 decline on `a face of the
+solid carries more than one wire (a hole)` and 190 on `a face of the solid is not
+a plane`. So the chain number and the local number are the same number — but that
+is now a MEASUREMENT and not an inference, and the chain has a control in both
+directions (`--selftest`): link 1 must answer a cube, and on a bored plate link 1
+must decline BY NAME and link 2 must be the engine that answers.
+
+### 2. What BRepCheck actually said — and the two hours spent not asking it
+
+All 19 build. With `FORGE_DRAFT_LOCAL_SKIP_VALIDITY=1` all 19 agree with OCCT on
+volume, area, centre of mass, all six bbox bounds, face/edge/vertex/shell counts,
+Euler and genus — and disagree on exactly one observable, `validity`.
+
+Walking `BRepCheck_Analyzer` per sub-shape gives, on every one of the 19:
+
+```
+  FACE#nn : UnorientableShape      surf=cylinder  wires=2  orient=REV
+```
+
+and nothing else. That is a **consequence**, and reading it as the defect cost
+real time: the face's wire imbrication was reproduced by hand
+(`BRepTopAdaptor_FClass2d::PerformInfinitePoint` on each wire, on a face carrying
+that wire alone) and came back **identical between the input face and the drafted
+one** — wire 1 IN, wire 2 OUT, both ways.
+
+The answer was in the statuses that walk did not read. `BRepCheck_Result::Status()`
+is a sub-shape's OWN verdict; a defect that exists only RELATIVE to a parent is
+recorded per CONTEXT and is invisible to it. Iterating
+`InitContextIterator / StatusOnShape` gives, on all 19:
+
+```
+  EDGE#nn in FACE : InvalidCurveOnSurface
+  EDGE#nn in FACE : InvalidSameParameterFlag
+  FACE#nn         : UnorientableShape          <- the only one Status() shows
+```
+
+> **A STATUS THAT ONLY EXISTS IN CONTEXT IS INVISIBLE TO A WALK OVER OWN
+> STATUSES.** The face-level verdict named a property of the FACE and the cause
+> was a property of an EDGE ON that face. Every diagnostic in this tree that
+> reads `BRepCheck_Result::Status()` alone is reading two thirds of nothing.
+
+### 3. The cause — the bound was the model's size, not the edge's tolerance
+
+`cylinderPCurve`'s adaptive loop stops at the first span count that meets the
+bound **it is given**, and it was given `resTol = 1e-7 * extent`: a MODEL-SCALE
+residual. BRepCheck does not compare a pcurve against how big the part is. It
+compares it against the tolerance the EDGE advertises.
+
+Measured, per part, with the gate bypassed — the deviation is
+`max |C3(t) - S_cyl(C2(t))|` over 2001 samples of the offending edge:
+
+| | min | max |
+|---|---:|---:|
+| the engine's bound, `1e-7 * extent` | 1.72e-05 | 3.02e-05 |
+| the edge's own tolerance | **1e-06** | **1e-06** |
+| the fitted pcurve's actual deviation | 8.67e-06 | 1.57e-05 |
+| deviation / tolerance | **8.67x** | **15.7x** |
+
+All 19 have an edge tolerance of exactly 1e-06, all 19 peak **at t = pi** — the
+far side of the closed loop from the two clamped ends, which is where a
+least-squares fit is weakest — and all 19 carry `sameParameter = 1`,
+`sameRange = 1`, so the flags were right and only the geometry under them was not.
+
+### 4. The fix, and what it costs
+
+```cpp
+const double edgeTol = std::max(std::max(tol, BRep_Tool::Tolerance(oldE)),
+                                BRep_Tool::Tolerance(cylFace));
+const double pcTol   = std::min(resTol, edgeTol);
+```
+
+That `max` is not a guess. `BRep_Builder::MakeEdge` stamps
+`max(tol, tol(oldE))`; the `UpdateEdge` in step 7 that attaches this pcurve
+raises it to `max(tol, tol(cylFace))`; and `BRep_Builder` only ever RAISES a
+tolerance. So the largest of the three is what BRepCheck will hold the pcurve to.
+`min()` with `resTol` keeps the old bound wherever it was ALREADY the tighter of
+the two, so the change can only tighten and never loosen — which is why nothing
+regressed (`lost 0`).
+
+The cost is one span doubling. On `ho1014`'s own geometry (cylinder r = 16.9,
+wall normal +X tilted 3 degrees), `cylinderPCurve` at each bound:
+
+```
+tol=1.72e-05  ->  8 spans, 13 poles, degree 5, maxDev3d 8.65e-06   <- what shipped
+tol=1.0e-06   -> 16 spans, 21 poles, degree 5, maxDev3d 1.15e-07
+tol=1.0e-07   -> 32 spans, 37 poles, degree 5, maxDev3d 1.71e-09
+```
+
+8.65e-06 against the 8.67e-06 measured on the part itself: the closed-form
+reproduction of the defect, from the fitter alone with no B-rep around it.
+
+### 5. THE SCALE IS THE FIXTURE
+
+`case(f)` — the closed rim, 20 x 20 x 10 with a 3 mm bore — **cannot catch this
+defect and never could.** Measured: its fitted pcurve deviates **3.43e-08**
+against the same 1e-06 edge tolerance, a 29x margin, so it passes whatever bound
+the fit is given. The defect only appears once `1e-7 * extent` exceeds the edge
+tolerance, i.e. above about 10 mm of extent, and the corpus parts are 172 mm to
+302 mm across.
+
+`case(g)` is `case(f)` rebuilt at **200 x 200 x 150 with a 17 mm bore at 3
+degrees**, the corpus's own scale. On the unfixed engine it declines `the rebuilt
+solid is not BRepCheck-valid`; fixed, it builds, matches OCCT on the whole vector,
+and the same pcurve deviates 5.69e-08. It also asserts the defect **by name** and
+not only by its symptom: `worstPCurveDeviation()` measures every edge/face pcurve
+against THAT EDGE's own tolerance and prints the number.
+
+`case(f)` is KEPT, not rescaled. It is what proves the engine works where the fit
+is easy, and rescaling it would have traded one kind of evidence for another.
+
+Mutation 13 reverts the bound to `resTol` and must turn the A/B red; measured, it
+does, on case(g). Mutation 9's `sed` anchor moved with the call and was
+re-pointed, never dropped — `mutate` aborts on a stale anchor precisely because
+one would take that mutant AND every later one silently out of the run.
+
+`bash forge-kernel/test/run_ab_native_draft_local.sh --mutations`:
+**280 assertions passed, 0 failed. 13 of 13 mutations red, 0 stayed green.**
+Engine object file: TKOffset 0, TKGeomBase 0, TKGeomAlgo 0.
+
+### 6. ★ THE 52 ARE NOT A TOPOLOGY CHANGE — the 2026-09-02 note is REFUTED
+
+The section above says of the remaining 52:
+
+> The 52 are the harder half and are **out of this engine's stated design**, not a
+> missing predicate. ... The engine "changes geometry and never topology" and
+> asserts equal face/edge/vertex counts, so it CANNOT represent a wall that has
+> begun to cut a feature. OCCT drafts these by recomputing the intersection
+> topology. **The validity gate is catching a real defect here, not costing
+> coverage.**
+
+**Every load-bearing clause of that is false, and each one is refuted by its own
+measurement.**
+
+Re-run of all 52 with `FORGE_DRAFT_LOCAL_SKIP_VALIDITY=1`, at `9a959f1a`:
+
+```
+built                                     52 / 52
+AGREE with OCCT on the full vector        52 / 52   (diff empty on every one)
+OCCT itself drafted                       52 / 52
+inputs that were already invalid           0 / 52
+native BRepCheck statuses                 38 x IntersectingWires
+                                          14 x SelfIntersectingWire + UnorientableShape
+OCCT   BRepCheck statuses                 IDENTICAL, part for part, all 52
+OCCT's own answer is BRepCheck-valid       0 / 52
+```
+
+And the claim that OCCT "recomputes the intersection topology" was measured
+directly — OCCT's drafted solid against its own input, for all 52:
+
+```
+dFaces = dEdges = dVertices = dWires = 0   on 52 of 52
+```
+
+**OCCT does not recompute anything.** It emits a solid with the input's exact
+topology and a self-intersecting face, which is the same solid the native engine
+emits and then refuses to return.
+
+**AND IT IS NOT THE DRAFTED WALL.** The first draft of this paragraph said the
+offending face was "the drafted wall itself" and that was an assumption, not a
+measurement; measured, it is false on 52 of 52. The offending sub-shape is, on all
+52, ONE face, and it is always a **plane whose OUTWARD normal is exactly +Z** — the
+**TOP CAP** — carrying **5 to 9 wires**, one outer boundary and 4 to 8 islands. The
+drafted wall itself has **ONE wire** on every one of the 52 (min 1, median 1, max 1)
+and its outward normal is horizontal on every one (37 x -Y, 8 x +Y, 6 x -X, 1 x +X).
+
+That is the mechanism, and it is a cleaner one than "the wall cuts a feature".
+With +Z pull and the neutral plane at z-min the wall leans INWARD as height rises,
+so the edge it shares with the top cap moves inward by `height * tan(3 deg)` —
+**2.16 mm to 5.07 mm, median 4.18 mm**, on parts 96.8 mm to 258.3 mm across. The
+top cap is the face that loses the most, and it is the face carrying the islands.
+
+So the two failure classes are real geometric events on that cap, and neither is a
+capability gap against this incumbent:
+
+* **38 parts — `IntersectingWires`.** The cap's moved outer boundary now crosses
+  one of the cap's own island wires.
+* **14 parts — `SelfIntersectingWire` + `UnorientableShape`.** One wire of the cap
+  crosses itself after the move. `ho1024`, diagnosed in the section above, is one of
+  these fourteen; the diagnosis of the GEOMETRY was right and it even named the
+  right arc, but it attributed the face to the wall and inferred that OCCT does
+  something different. Both of those are wrong.
+
+**THE CAPABILITY, NAMED.** To make these 52 *valid* — better than the incumbent,
+not equal to it — an engine needs a **2-D boundary arrangement on the CAP face**:
+intersect its moved outer boundary against its island wires in that face's own
+(u, v), split at the crossings, discard the parts that fall outside, and re-emit
+the face with a **different wire, edge and vertex count**. `NativeDraftLocal`
+asserts equal counts by construction, so it cannot; and OCCT's
+`BRepOffsetAPI_DraftAngle` does not do it either. Nobody in this tree has that
+capability and nothing is owed to OCCT for it.
+
+**To reach OCCT PARITY on these 52 costs no capability at all.** It is one
+decision: whether `draftFacesLocal` may return a solid carrying the same defect
+its own incumbent's answer carries. **This branch does not take that decision and
+the gate stays ON.** Relaxing a check to gain 52 parts is weakening an assertion
+to obtain a number, and a coverage figure is not a reason to remove one. What the
+measurement settles is only what the decision is worth and what it is about:
+**52/565 = 9.2 points, and it is a policy question, not an engineering one.**
+
+For the flip-gate ledger this is a distinct disagreement class from the five in
+PR #224 — not DIFFERENT OPERATION, ORIENTATION, REPRESENTATION, DECOMPOSITION or
+NUMERICAL MARGIN, but **STRICTER THAN THE INCUMBENT**: the two engines produce
+the same solid and only one of them is willing to return it.
+
+Note what this costs *today*: nothing. With the OCCT fallback compiled in,
+`draftFacesLocal` returning null falls through to `BRepOffsetAPI_DraftAngle`,
+which returns the same invalid solid. The 9.2 points are only spent under
+`FORGE_DRAFT_DROP_NATIVE=ON`, where the op would throw instead.
+
+### 7. What this section does NOT claim
+
+* **It does not move OCCT_CLOSURE.** Nothing here touches a link record. TKOffset
+  leaves at 42/42 symbols across nine families or not at all.
+* **It does not reach parity.** 445 of OCCT's 497. The remaining 52 are §6.
+* **Solve 3 (line versus quadric) is still unreached** and still not claimed as
+  proved. The path census is unchanged: every moved vertex on every part is
+  reached by the rank-3 plane meet.
+* **`agrees` on the 52 includes "both invalid".** The probe's vector compares
+  validity as an observable, so two solids that are both BRepCheck-invalid agree
+  on that term. That is stated rather than hidden: the other fifteen observables
+  agree to 1e-6 and the BRepCheck status CODES are identical part for part, which
+  is the stronger statement and is what §6 rests on.
+* **The corpus is one distribution.** 600 gold-reference STEP parts, one drafted
+  wall picked by largest vertical planar area, +Z pull, 3 degrees, neutral plane at
+  z-min. Nothing here measures multi-wall drafts or non-vertical walls.

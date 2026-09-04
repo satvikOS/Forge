@@ -23,9 +23,11 @@
 # BRepOffsetAPI_DraftAngle. The zero-import claim is about the ENGINE's object
 # file, which is compiled separately below, and with -Werror.
 #
-# --mutations additionally proves the harness CAN fail: EIGHT defects are injected
-# into a COPY of the engine and each must turn the A/B red. A gate that cannot
-# fail is not a gate.
+# --mutations additionally proves the harness CAN fail: a defect is injected into
+# a COPY of the engine for each `mutate` call below and every one must turn the
+# A/B red. A gate that cannot fail is not a gate. The COUNT is printed from
+# MUT_TOTAL, which the loop increments — it is never typed in this comment,
+# because a hard-coded count beside a list is a number that goes stale silently.
 #
 # OCCT root is the brew default; override with OCCT_ROOT= (matches CMakeLists).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -240,7 +242,7 @@ mutate 8 "anchor root displaced" \
 #    Closed2d = NotClosed, the solid rejected. That defect is why case(e) was a
 #    defer control for as long as it was, so it gets a mutant of its own.
 mutate 9 "cylinder pcurve put back on the default 2*pi branch" \
-  's/radius, resTol, uNear);/radius, resTol, 0.0);/'
+  's/radius, pcTol, uNear);/radius, pcTol, 0.0);/'
 
 # 10. THE CLOSED RIM'S SPAN. A bore lying wholly inside the drafted wall meets it
 #     in ONE closed edge, so both endpoints project to the same parameter and the
@@ -261,6 +263,17 @@ mutate 11 "closed rim not reversed to match the old edge's sense" \
 #     from the seam edges it must meet.
 mutate 12 "branch anchored on the old pcurve midpoint instead of its start" \
   's/uNear = oldPc->Value(oa).X();/uNear = oldPc->Value(0.5 * (oa + ob)).X();/'
+
+# 13. THE PCURVE'S DEVIATION BOUND. The fit is bounded by the tolerance the EDGE
+#     advertises; put it back to resTol = 1e-7 * extent, the MODEL-SCALE residual
+#     it shipped with, and the adaptive loop stops one span doubling early. On
+#     case(g) — the corpus-scale closed rim — that is 17x too loose: measured
+#     8.67e-06 to 1.57e-05 of deviation against an edge tolerance of 1e-06 on all
+#     19 corpus parts it cost, always at t = pi. Case (f) at 20 x 20 x 10 does NOT
+#     turn red on this mutant (its deviation is 3.43e-08 either way), which is
+#     precisely why case(g) had to be added at the corpus's own scale.
+mutate 13 "pcurve fit bounded by the model's extent instead of the edge's tolerance" \
+  's/const double pcTol = std::min(resTol, edgeTol);/const double pcTol = resTol; (void)edgeTol;/'
 
 echo "[ab-draft-local] $MUT_TOTAL mutation(s) run, $MUT_BAD stayed green"
 if [ "$MUT_BAD" -ne 0 ]; then
