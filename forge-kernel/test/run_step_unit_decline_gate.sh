@@ -30,6 +30,25 @@ if ! grep -q "deferring to the foreign reader" "$SRC"; then
 fi
 echo "      ok"
 
+# ★ DELETING THE OBJECT IS WHAT FORCES A REBUILD -- `touch` IS NOT ENOUGH.
+#   MEASURED on PR #230, run 33837646872 (2026-09-04): [0/4] confirmed the decline
+#   was PRESENT in the source, [2/4] passed 7 checks 0 failures, [3/4] caught the
+#   mutation -- and [4/4] then failed with "StepAnalytic ACCEPTED a metre file",
+#   which is THE MUTATION'S OWN EFFECT surviving the revert. The branch was
+#   innocent: its 27 files touched nothing named step*, and this script,
+#   StepAnalytic.cpp and StepRead.cpp were byte-identical to archdisc.
+#   WHY THE EXISTING `touch` DID NOT COVER IT: touch sets the source mtime to NOW,
+#   and the library had just been built by the mutation round, also NOW. A build
+#   system recompiles when the source is NEWER than the target; EQUAL IS NOT NEWER,
+#   so at one-second granularity cmake judged the object current and skipped the
+#   compile. An ABSENT object cannot be judged current, which is why this deletes
+#   rather than re-dates. Same root cause and same fix as #223 for
+#   build_native_gate_guard_gate.sh -- that PR protected only its own two objects,
+#   and this is the second gate to hit it.
+invalidate_obj() {
+  find "$BUILD" -name 'StepAnalytic.cpp.o' -delete 2>/dev/null || true
+}
+
 build_lib() {
   if [ ! -f "$BUILD/CMakeCache.txt" ]; then
     cmake -S forge-kernel -B "$BUILD" -DCMAKE_BUILD_TYPE=Release \
@@ -55,7 +74,9 @@ link_gate() {
 
 echo "[1/4] build"
 # Same reason as restore(): a previous run may have left source and library with
-# the same mtime, which cmake reads as "up to date".
+# the same mtime, which cmake reads as "up to date". The object is removed as well,
+# because an equal mtime is not a newer one and only absence is unambiguous.
+invalidate_obj
 touch "$SRC"
 build_lib || exit 2
 link_gate || exit 2
@@ -74,6 +95,7 @@ restore() {
   #   shared an mtime to the second, cmake judged the library current, skipped the
   #   compile, and left the MUTATED code linked while the source held the fix --
   #   the clean re-run then failed for a reason no diff could show.
+  invalidate_obj
   touch "$SRC"
   build_lib >/dev/null 2>&1 || true
 }
@@ -107,6 +129,16 @@ echo "      caught (exit $m)"
 
 echo "[4/4] rebuild clean and re-run (the mutation must leave no residue)"
 build_lib && link_gate || exit 2
+# ★ PROVE THE RECOMPILE HAPPENED, rather than assuming it. restore() DELETED this
+#   object, so its reappearance is positive evidence the compiler ran on the
+#   restored source. Elapsed time is NOT usable evidence here: the passing run is
+#   as fast as the skipping one, so a duration cannot discriminate between them.
+if ! find "$BUILD" -name 'StepAnalytic.cpp.o' | grep -q .; then
+  echo "[step-unit] RED — StepAnalytic.cpp.o did not come back after restore()."
+  echo "        The rebuild was skipped, so whatever [4/4] reports below describes"
+  echo "        a STALE object, not this tree. Fix the rebuild, not the invariant."
+  exit 1
+fi
 OUT2=$(/tmp/step_unit_gate 2>&1); rc2=$?
 if [ "$rc2" -ne 0 ]; then
   echo "[step-unit] RED — the tree did not come back clean:"; echo "$OUT2" | sed 's/^/      /'; exit 1

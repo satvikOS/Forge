@@ -1,0 +1,21 @@
+  K1 measured                                              ok
+  K1 MC source volume == 8000 (within 4 SE)                ok
+  K1 MC hollow volume == 1844 (within 4 SE)                ok
+  K1 source has 0 handles                                  ok
+  K1 cavity has 1 component                                ok
+  K1 cavity has 0 handles                                  ok
+  K2 measured                                              ok
+  K2 source with one through hole reads 1 handle           ok
+  K3 measured                                              ok
+  K3 source with two through holes reads 2 handles         ok
+  K3 cavity LOSES a handle (holes merge)                   ok
+  K4 measured                                              ok
+  K4 far-apart holes: source 2 handles                     ok
+  K4 far-apart holes: cavity KEEPS both handles            ok
+  K4b cylinder measured                                    ok
+  K4b MC source volume == pi*R^2*H (within 4 SE)           ok
+  K4b MC hollow volume == pi*(3000-81*29) (within 5 SE)    ok
+  K5 thin plate measured                                   ok
+  K5 tessellated area is exact                             ok
+  K5 MC source volume == 120000 (within 4 SE)              ok
+SELFTEST: all controls pass
