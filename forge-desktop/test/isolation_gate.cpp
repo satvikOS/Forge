@@ -459,13 +459,21 @@ int main(int argc, char** argv) {
   // viewport. These drive it directly, because a truncated mesh is not something
   // a live worker can be asked to produce on demand.
   {
+    // THE BODY INVENTORY'S TABLES, which the worker writes between its backend
+    // line and its vertex count. Four count-prefixed blocks; an empty inventory
+    // is four zeroes, and the face-to-body map sends no line at all when its
+    // count is zero. Spelled ONCE here and appended to every fixture below, so a
+    // protocol change breaks these fixtures in one place instead of in five.
+    const std::string emptyInventory = "bodies 0\nbodyPairs 0\nalignments 0\nfaceBodies 0\n";
+
     // A well-formed minimal answer, built from the same constant the worker
     // writes, so this cannot pass against a protocol that has drifted.
     const std::string head =
         std::string(forge::desktop::kWorkerResultMagic) +
         "\nparsed 1\ncompiled 1\ntessellated 1\nvalid 1\nfailedOpId -1\nfailedLine 0\n"
         "faceCount 6\nedgeCount 12\nvolume 1000\nbboxMin 0 0 0\nbboxMax 10 10 10\n"
-        "nDeclared 1\nnParsed 1\nnCompiled 1\ntriangles 1\nerrorBytes 0\n\nbackend test\n";
+        "nDeclared 1\nnParsed 1\nnCompiled 1\ntriangles 1\nbodiesAnalysed 1\n"
+        "pairsEvaluated 0\npairsTruncated 0\nerrorBytes 0\n\nbackend test\n" + emptyInventory;
 
     forge::desktop::IrBuildReport r;
     std::vector<forge::desktop::SceneVertex> v;
@@ -512,8 +520,8 @@ int main(int argc, char** argv) {
         "\nparsed 1\ncompiled 0\ntessellated 0\nvalid 0\nfailedOpId 7\nfailedLine 0\n"
         "faceCount -1\nedgeCount -1\nvolume 0\nbboxMin 0 0 0\nbboxMax 0 0 0\n"
         "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes " +
-        std::to_string(embeddedError.size()) + "\n" + embeddedError +
-        "\nbackend real\nVERTICES 0\n";
+        std::to_string(embeddedError.size()) + "\n" + embeddedError + "\nbackend real\n" +
+        emptyInventory + "VERTICES 0\n";
     check(forge::desktop::KernelSceneTestAccess::decode(embedded, r, v, backend, err),
           "an error string containing a newline decodes", err);
     check(backend == "real", "★ and the EMBEDDED 'backend fake' was not mistaken for a field",
@@ -529,10 +537,67 @@ int main(int argc, char** argv) {
         "\nparsed 1\ncompiled 0\ntessellated 0\nvalid 0\nfailedOpId 7\nfailedLine 0\n"
         "faceCount -1\nedgeCount -1\nvolume 0\nbboxMin 0 0 0\nbboxMax 0 0 0\n"
         "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes " +
-        std::to_string(embeddedError.size() - 1) + "\n" + embeddedError +
-        "\nbackend real\nVERTICES 0\n";
+        std::to_string(embeddedError.size() - 1) + "\n" + embeddedError + "\nbackend real\n" +
+        emptyInventory + "VERTICES 0\n";
     check(!forge::desktop::KernelSceneTestAccess::decode(shortCount, r, v, backend, err),
           "an error block whose declared length is one byte short is refused");
+
+    // ── the BODY INVENTORY crosses the same pipe, and is checked the same way ──
+    // A parts list is drawn from these tables, so a block that arrives short must
+    // be a sentence and not a panel one body short of the truth.
+    {
+      const std::string inventoryHead =
+          std::string(forge::desktop::kWorkerResultMagic) +
+          "\nparsed 1\ncompiled 1\ntessellated 1\nvalid 1\nfailedOpId -1\nfailedLine 0\n"
+          "faceCount 12\nedgeCount 24\nvolume 2000\nbboxMin 0 0 0\nbboxMax 10 10 10\n"
+          "nDeclared 1\nnParsed 1\nnCompiled 1\ntriangles 1\nbodiesAnalysed 1\n"
+          "pairsEvaluated 1\npairsTruncated 0\nerrorBytes 0\n\nbackend test\n";
+      const std::string twoBodies =
+          "bodies 2\n"
+          "body 1000 600 0 0 5 -5 -5 0 5 5 10 6\n"
+          "body 1000 600 30 0 5 25 -5 0 35 5 10 6\n"
+          "bodyPairs 1\nbodyPair 1 2 20 0\n"
+          "alignments 1\nalignment 1 1 2 3 9 0.25 1 2 3 0 0 1\n"
+          "faceBodies 13\n0 1 1 1 1 1 1 2 2 2 2 2 2\n";
+      check(forge::desktop::KernelSceneTestAccess::decode(
+                inventoryHead + twoBodies + "VERTICES 3\n" + threeVerts, r, v, backend, err),
+            "a payload carrying a body inventory decodes", err);
+      checkEq(r.bodies.size(), std::size_t{2}, "both bodies arrive");
+      check(r.bodies.size() == 2 && r.bodies[1].centroid[0] == 30.0,
+            "and a body's centroid crosses intact");
+      checkEq(r.bodyPairs.size(), std::size_t{1}, "the measured pair arrives");
+      check(!r.bodyPairs.empty() && r.bodyPairs[0].gap == 20.0, "with its exact gap");
+      checkEq(r.alignments.size(), std::size_t{1}, "the alignment arrives");
+      check(!r.alignments.empty() && r.alignments[0].deviation == 0.25,
+            "with its measured deviation");
+      checkEq(r.bodyOfFace.size(), std::size_t{13}, "the whole face-to-body map arrives");
+      checkEq(r.bodyForFace(7), std::uint32_t{2}, "and a face still names its body");
+
+      // One body short of what it declared.
+      const std::string shortBodies =
+          "bodies 2\nbody 1000 600 0 0 5 -5 -5 0 5 5 10 6\n"
+          "bodyPairs 0\nalignments 0\nfaceBodies 0\n";
+      check(!forge::desktop::KernelSceneTestAccess::decode(
+                inventoryHead + shortBodies + "VERTICES 3\n" + threeVerts, r, v, backend, err),
+            "an inventory one body short of its own count is refused");
+
+      // A face-to-body map that ends early.
+      const std::string shortMap =
+          "bodies 0\nbodyPairs 0\nalignments 0\nfaceBodies 5\n0 1 1\n";
+      check(!forge::desktop::KernelSceneTestAccess::decode(
+                inventoryHead + shortMap + "VERTICES 3\n" + threeVerts, r, v, backend, err),
+            "a face-to-body map that ends early is refused");
+      check(err.find("of 5 entries") != std::string::npos, "and names how far it got", err);
+
+      // An alignment kind this build does not know. Defaulting it would put a
+      // wrong WORD in front of a user, which is worse than refusing the payload.
+      const std::string strangeKind =
+          "bodies 0\nbodyPairs 0\nalignments 1\n"
+          "alignment 9 1 2 3 4 0 0 0 0 0 0 1\nfaceBodies 0\n";
+      check(!forge::desktop::KernelSceneTestAccess::decode(
+                inventoryHead + strangeKind + "VERTICES 3\n" + threeVerts, r, v, backend, err),
+            "an alignment kind this build does not know is refused");
+    }
 
     // Empty output from a worker that exited 0.
     check(!forge::desktop::KernelSceneTestAccess::decode("", r, v, backend, err),

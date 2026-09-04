@@ -62,15 +62,17 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-# ── 2026-09-03: 48 -> 61, MEASURED at the merge. This branch derived 53 (its
-#    file-dialog gate, 3 mutations); archdisc derived 58 (its imgui-recovery
-#    gate, 8). Both were right on their OWN tree and both are wrong here: the
-#    merged tree runs BOTH gates. Taking a side would have dropped real
-#    mutations, so this is derived, never carried across:
+# ── 2026-09-03: 65, MEASURED at the merge -- the SEVENTH time neither side was
+#    right. This branch derived 54 (its assembly gate, 4 mutations); archdisc
+#    derived 61 (the file-dialog gate's 3 and the imgui-recovery gate's 8). Both
+#    were correct on their OWN tree; the merged tree runs ALL of them.
 #      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-#    prints 61 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
-#    + file_dialog 3 + frame 14 + copilot 8 + update 7 + click 8 + isolation 0.
-EXPECTED_MUTATIONS=61
+#    prints 65 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 14 + copilot 8 + update 7 + click 8 + assembly 4
+#    + isolation 0.
+#    ★ Re-derive here at EVERY merge. Carrying a side across has been wrong
+#      seven times running, and each time it would have DROPPED real mutations.
+EXPECTED_MUTATIONS=65
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it
