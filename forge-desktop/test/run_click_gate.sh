@@ -169,7 +169,10 @@ BAD=0
 if [ $rc -eq 0 ]; then
   echo
   echo "[click-gate] mutation proof (each injected defect must turn the gate red):"
-  for m in 1 2 3 4 5 6 7; do
+  # 8 was RUN by run_desktop.sh and NOT by this script -- the one place the click
+  # gate runs in CI -- so its proof travelled only through the expensive suite.
+  # 9 to 12 are the viewport drag handles and the body pick. All twelve, no gap.
+  for m in 1 2 3 4 5 6 7 8 9 10 11 12; do
     "$BIN" --mutate "$m" > "$WORK/mut$m.log" 2>&1
     mrc=$?
     if [ "$mrc" -eq 0 ]; then
