@@ -1,0 +1,1318 @@
+{
+ "purpose": "PINNED PRE-FIX BASELINE for the minimum-clearance half of setbackFitsFaces. `valid` is the exact set of parts the engine ANSWERED and BRepCheck accepted BEFORE the guard; `invalid` is the exact set it ANSWERED and BRepCheck REJECTED, each tagged with the BRepCheck class PR #241 measured for it. The gate requires every `valid` part to still be answered (the guard may not over-fire) and every `invalid` part to now DEFER with the reason its class demands (the guard must fire, and for the right reason).",
+ "measured_utc": "2026-09-04T14:08:16Z",
+ "measured_at_head": "b8c427bb1c425b80b6c19ad2b14a36aade3f5f52",
+ "corpus": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+ "corpus_parts": 600,
+ "op": "corpus_ab_coverage FILLET/CHAMFER: longest LINE edge, argument 0.05 * min bbox extent",
+ "brepcheck_class_source": "forge-kernel/reports/corpus_ab/brepcheck_status_probe_fillet_403.jsonl.gz (PR #241)",
+ "families": {
+  "FILLET": {
+   "native_ok_before": 403,
+   "valid": [
+    "ho1",
+    "ho10",
+    "ho1001",
+    "ho1002",
+    "ho1008",
+    "ho1010",
+    "ho1011",
+    "ho1017",
+    "ho1019",
+    "ho1025",
+    "ho103",
+    "ho1031",
+    "ho1032",
+    "ho1039",
+    "ho104",
+    "ho1047",
+    "ho1054",
+    "ho1055",
+    "ho1060",
+    "ho1066",
+    "ho1067",
+    "ho1076",
+    "ho108",
+    "ho1083",
+    "ho1089",
+    "ho1091",
+    "ho1092",
+    "ho1097",
+    "ho1098",
+    "ho1099",
+    "ho1105",
+    "ho1114",
+    "ho1123",
+    "ho1124",
+    "ho1129",
+    "ho1130",
+    "ho1131",
+    "ho1138",
+    "ho1139",
+    "ho1145",
+    "ho115",
+    "ho1152",
+    "ho1153",
+    "ho1162",
+    "ho1166",
+    "ho1167",
+    "ho1173",
+    "ho1174",
+    "ho1180",
+    "ho1187",
+    "ho1189",
+    "ho119",
+    "ho1197",
+    "ho12",
+    "ho120",
+    "ho1203",
+    "ho1212",
+    "ho1218",
+    "ho1219",
+    "ho1229",
+    "ho1237",
+    "ho1253",
+    "ho1255",
+    "ho1260",
+    "ho1266",
+    "ho1267",
+    "ho1268",
+    "ho1281",
+    "ho1282",
+    "ho1291",
+    "ho1298",
+    "ho1299",
+    "ho1308",
+    "ho1316",
+    "ho132",
+    "ho1330",
+    "ho1331",
+    "ho1338",
+    "ho1339",
+    "ho1348",
+    "ho1349",
+    "ho1355",
+    "ho1363",
+    "ho138",
+    "ho143",
+    "ho147",
+    "ho148",
+    "ho153",
+    "ho155",
+    "ho160",
+    "ho162",
+    "ho168",
+    "ho17",
+    "ho172",
+    "ho173",
+    "ho178",
+    "ho179",
+    "ho18",
+    "ho183",
+    "ho184",
+    "ho189",
+    "ho190",
+    "ho191",
+    "ho196",
+    "ho197",
+    "ho2",
+    "ho203",
+    "ho209",
+    "ho210",
+    "ho215",
+    "ho216",
+    "ho220",
+    "ho221",
+    "ho226",
+    "ho23",
+    "ho233",
+    "ho240",
+    "ho245",
+    "ho246",
+    "ho25",
+    "ho252",
+    "ho253",
+    "ho254",
+    "ho260",
+    "ho265",
+    "ho268",
+    "ho273",
+    "ho274",
+    "ho275",
+    "ho279",
+    "ho281",
+    "ho285",
+    "ho286",
+    "ho292",
+    "ho298",
+    "ho305",
+    "ho31",
+    "ho310",
+    "ho311",
+    "ho317",
+    "ho318",
+    "ho323",
+    "ho324",
+    "ho325",
+    "ho330",
+    "ho331",
+    "ho335",
+    "ho339",
+    "ho340",
+    "ho341",
+    "ho345",
+    "ho346",
+    "ho352",
+    "ho357",
+    "ho358",
+    "ho363",
+    "ho364",
+    "ho370",
+    "ho377",
+    "ho378",
+    "ho38",
+    "ho385",
+    "ho390",
+    "ho392",
+    "ho397",
+    "ho400",
+    "ho401",
+    "ho402",
+    "ho406",
+    "ho407",
+    "ho413",
+    "ho414",
+    "ho417",
+    "ho418",
+    "ho424",
+    "ho429",
+    "ho43",
+    "ho430",
+    "ho435",
+    "ho440",
+    "ho441",
+    "ho447",
+    "ho450",
+    "ho451",
+    "ho456",
+    "ho461",
+    "ho462",
+    "ho467",
+    "ho468",
+    "ho469",
+    "ho475",
+    "ho482",
+    "ho486",
+    "ho487",
+    "ho488",
+    "ho492",
+    "ho497",
+    "ho498",
+    "ho50",
+    "ho503",
+    "ho504",
+    "ho505",
+    "ho511",
+    "ho515",
+    "ho524",
+    "ho528",
+    "ho533",
+    "ho534",
+    "ho535",
+    "ho539",
+    "ho541",
+    "ho547",
+    "ho549",
+    "ho550",
+    "ho559",
+    "ho56",
+    "ho560",
+    "ho561",
+    "ho566",
+    "ho57",
+    "ho571",
+    "ho573",
+    "ho579",
+    "ho585",
+    "ho591",
+    "ho597",
+    "ho598",
+    "ho599",
+    "ho6",
+    "ho606",
+    "ho607",
+    "ho61",
+    "ho611",
+    "ho613",
+    "ho619",
+    "ho62",
+    "ho621",
+    "ho628",
+    "ho629",
+    "ho636",
+    "ho637",
+    "ho645",
+    "ho646",
+    "ho654",
+    "ho661",
+    "ho662",
+    "ho669",
+    "ho677",
+    "ho68",
+    "ho683",
+    "ho696",
+    "ho7",
+    "ho706",
+    "ho719",
+    "ho72",
+    "ho721",
+    "ho728",
+    "ho730",
+    "ho737",
+    "ho745",
+    "ho752",
+    "ho753",
+    "ho761",
+    "ho770",
+    "ho777",
+    "ho78",
+    "ho783",
+    "ho784",
+    "ho793",
+    "ho800",
+    "ho810",
+    "ho815",
+    "ho816",
+    "ho824",
+    "ho825",
+    "ho83",
+    "ho831",
+    "ho839",
+    "ho841",
+    "ho842",
+    "ho851",
+    "ho859",
+    "ho860",
+    "ho866",
+    "ho868",
+    "ho874",
+    "ho875",
+    "ho888",
+    "ho89",
+    "ho893",
+    "ho894",
+    "ho90",
+    "ho902",
+    "ho908",
+    "ho91",
+    "ho918",
+    "ho925",
+    "ho926",
+    "ho932",
+    "ho933",
+    "ho939",
+    "ho940",
+    "ho945",
+    "ho946",
+    "ho956",
+    "ho962",
+    "ho963",
+    "ho97",
+    "ho978",
+    "ho986",
+    "ho993",
+    "ho994"
+   ],
+   "invalid": [
+    {
+     "part": "ho102",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1024",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1030",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1046",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho107",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1082",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1104",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1112",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1122",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1137",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1160",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1196",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1205",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1224",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1238",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho124",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1245",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho125",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1254",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1272",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1274",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1290",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1306",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1322",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1323",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1346",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho137",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho142",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho167",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho195",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho208",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho219",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho239",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho267",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho291",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho304",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho32",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho334",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho37",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho372",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho384",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho412",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho423",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho44",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho445",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho49",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho491",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho509",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho517",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho522",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho55",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho554",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho555",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho572",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho577",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho59",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho612",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho627",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho653",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho66",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho660",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho668",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho676",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho682",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho690",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho697",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho704",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho713",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho73",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho738",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho744",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho760",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho768",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho769",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho77",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho792",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho799",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho809",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho82",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho830",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho849",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho867",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho881",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho901",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho910",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho917",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho954",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho955",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho969",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho970",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho977",
+     "brepcheck_class": "IntersectingWires"
+    }
+   ]
+  },
+  "CHAMFER": {
+   "native_ok_before": 344,
+   "valid": [
+    "ho1",
+    "ho10",
+    "ho1001",
+    "ho1002",
+    "ho1008",
+    "ho1010",
+    "ho1017",
+    "ho1019",
+    "ho1025",
+    "ho103",
+    "ho1031",
+    "ho1039",
+    "ho1047",
+    "ho1054",
+    "ho1060",
+    "ho1066",
+    "ho1067",
+    "ho1076",
+    "ho108",
+    "ho1083",
+    "ho1089",
+    "ho1091",
+    "ho1097",
+    "ho1098",
+    "ho1105",
+    "ho1114",
+    "ho1123",
+    "ho1129",
+    "ho1130",
+    "ho1138",
+    "ho1145",
+    "ho115",
+    "ho1152",
+    "ho1153",
+    "ho1162",
+    "ho1166",
+    "ho1167",
+    "ho1173",
+    "ho1174",
+    "ho1180",
+    "ho1187",
+    "ho1189",
+    "ho119",
+    "ho12",
+    "ho120",
+    "ho1203",
+    "ho1212",
+    "ho1218",
+    "ho1229",
+    "ho1237",
+    "ho1253",
+    "ho1260",
+    "ho1266",
+    "ho1267",
+    "ho1281",
+    "ho1282",
+    "ho1291",
+    "ho1298",
+    "ho1299",
+    "ho1308",
+    "ho1316",
+    "ho132",
+    "ho1330",
+    "ho1331",
+    "ho1338",
+    "ho1339",
+    "ho1348",
+    "ho1355",
+    "ho1363",
+    "ho138",
+    "ho143",
+    "ho147",
+    "ho148",
+    "ho153",
+    "ho155",
+    "ho160",
+    "ho162",
+    "ho168",
+    "ho17",
+    "ho172",
+    "ho173",
+    "ho178",
+    "ho179",
+    "ho18",
+    "ho183",
+    "ho184",
+    "ho189",
+    "ho190",
+    "ho196",
+    "ho203",
+    "ho209",
+    "ho215",
+    "ho220",
+    "ho226",
+    "ho23",
+    "ho233",
+    "ho240",
+    "ho245",
+    "ho246",
+    "ho25",
+    "ho252",
+    "ho253",
+    "ho260",
+    "ho265",
+    "ho273",
+    "ho274",
+    "ho279",
+    "ho281",
+    "ho285",
+    "ho286",
+    "ho292",
+    "ho298",
+    "ho305",
+    "ho31",
+    "ho310",
+    "ho311",
+    "ho317",
+    "ho318",
+    "ho323",
+    "ho324",
+    "ho330",
+    "ho335",
+    "ho339",
+    "ho340",
+    "ho345",
+    "ho346",
+    "ho352",
+    "ho357",
+    "ho358",
+    "ho363",
+    "ho364",
+    "ho370",
+    "ho377",
+    "ho378",
+    "ho38",
+    "ho390",
+    "ho392",
+    "ho397",
+    "ho400",
+    "ho401",
+    "ho406",
+    "ho407",
+    "ho413",
+    "ho417",
+    "ho418",
+    "ho429",
+    "ho43",
+    "ho435",
+    "ho440",
+    "ho447",
+    "ho450",
+    "ho451",
+    "ho456",
+    "ho461",
+    "ho462",
+    "ho467",
+    "ho468",
+    "ho475",
+    "ho482",
+    "ho486",
+    "ho487",
+    "ho492",
+    "ho497",
+    "ho498",
+    "ho50",
+    "ho503",
+    "ho504",
+    "ho511",
+    "ho515",
+    "ho524",
+    "ho528",
+    "ho533",
+    "ho534",
+    "ho539",
+    "ho541",
+    "ho547",
+    "ho549",
+    "ho559",
+    "ho56",
+    "ho560",
+    "ho566",
+    "ho571",
+    "ho579",
+    "ho585",
+    "ho591",
+    "ho597",
+    "ho598",
+    "ho6",
+    "ho606",
+    "ho61",
+    "ho611",
+    "ho619",
+    "ho621",
+    "ho628",
+    "ho636",
+    "ho637",
+    "ho645",
+    "ho654",
+    "ho661",
+    "ho669",
+    "ho677",
+    "ho68",
+    "ho683",
+    "ho696",
+    "ho706",
+    "ho719",
+    "ho72",
+    "ho721",
+    "ho728",
+    "ho730",
+    "ho737",
+    "ho745",
+    "ho752",
+    "ho753",
+    "ho761",
+    "ho777",
+    "ho78",
+    "ho783",
+    "ho784",
+    "ho793",
+    "ho800",
+    "ho815",
+    "ho816",
+    "ho824",
+    "ho83",
+    "ho831",
+    "ho839",
+    "ho841",
+    "ho851",
+    "ho859",
+    "ho866",
+    "ho874",
+    "ho875",
+    "ho888",
+    "ho89",
+    "ho893",
+    "ho894",
+    "ho90",
+    "ho902",
+    "ho908",
+    "ho918",
+    "ho925",
+    "ho932",
+    "ho939",
+    "ho940",
+    "ho945",
+    "ho946",
+    "ho962",
+    "ho97",
+    "ho978",
+    "ho986",
+    "ho993",
+    "ho994"
+   ],
+   "invalid": [
+    {
+     "part": "ho102",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1024",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1030",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1046",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho107",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1082",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1104",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1112",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1122",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1137",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1160",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1196",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1205",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1224",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1238",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho124",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1245",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho125",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1254",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1272",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1274",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1290",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1306",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1322",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho1323",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho1346",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho137",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho142",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho167",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho195",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho208",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho219",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho239",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho267",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho291",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho304",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho32",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho334",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho37",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho372",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho384",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho412",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho423",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho44",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho445",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho49",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho491",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho509",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho517",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho522",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho55",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho554",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho555",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho572",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho577",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho59",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho612",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho627",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho653",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho66",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho660",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho668",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho676",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho682",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho690",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho697",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho704",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho713",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho73",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho738",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho744",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho760",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho768",
+     "brepcheck_class": "SelfIntersecting"
+    },
+    {
+     "part": "ho769",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho77",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho792",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho799",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho809",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho82",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho830",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho849",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho867",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho881",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho901",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho910",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho917",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho954",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho955",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho969",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho970",
+     "brepcheck_class": "IntersectingWires"
+    },
+    {
+     "part": "ho977",
+     "brepcheck_class": "IntersectingWires"
+    }
+   ]
+  }
+ }
+}

@@ -529,6 +529,18 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
 > |---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
 > | FILLET (rim) | 600 | 402 | 1 | **59** | 138 | 67.2% | 76.8% | -9.7% [-12.1, -7.3] | 1.1e-16 | FAIL |
+
+> **⚠ SUPERSEDED FOR FILLET/CHAMFER 2026-09-04 — 67.2% became 52.0% and 91 BRepCheck-invalid
+> answers became 0.** The row above is the run at `9f309b52` and is kept as that run's
+> record, not rewritten. The minimum-clearance half of `setbackFitsFaces` now DEFERS the 91
+> parts on which the engine returned a `BRepCheck`-INVALID solid whose volume, area and
+> shell/solid counts all matched OCCT, so native coverage falls 403 -> 312 (FILLET) and
+> 344 -> 253 (CHAMFER) while native INVALID falls 91 -> 0 in both. **COVERAGE DROPS,
+> VALIDITY RISES — a refusal, not a repair, and the option's gate gets harder.** The
+> deficit against the VALID bar is unchanged at 202 (FILLET) / 171 (CHAMFER): the deleted
+> answers were never usable. Current table and both jsonl.gz in
+> `reports/corpus_ab/setback_clearance_ab_{before,after}_600.*`; the guard is proved in
+> both directions by `test/setback_clearance_gate.mjs`.
 >
 > Every part moved in exactly one of two ways: 58 `OCCT_ONLY -> BOTH_OK`, 1
 > `NEITHER -> NATIVE_ONLY`; the other 541 did not move. All 59 are BRepCheck-VALID and
@@ -874,6 +886,15 @@ And the bar the failing families are held to is not what it looked like either:
 | `FORGE_OFFSETSHAPE_DROP_NATIVE` | 38 | **33** | **5** | 24 | 24 | 5 |
 | `FORGE_DRAFT_DROP_NATIVE` | 497 | 52 | 445 | 0 | 0 | 445 |
 | `FORGE_FILLET_DROP_NATIVE` | 461 | 6 | 455 | 403 | 312 | 202 |
+
+> **⚠ THE FILLET ROWS OF BOTH TABLES ARE SUPERSEDED, 2026-09-04.** They are the run at
+> `9f309b52` and stay as its record. Since the minimum-clearance setback guard the FILLET
+> row reads `600 | 52.0% | 76.8% | FAIL | FAIL | coverage, validity, agreement,
+> replaceability` and the replaceability row reads `461 | 6 | 455 | 312 | 312 | 202` —
+> native ok 403 -> 312, native INVALID 91 -> 0, and **the deficit against the valid bar
+> unchanged at 202**, because every answer the guard deletes was one `BRepCheck` rejected.
+> The verdict and every failing term are the same before and after; nothing was flipped.
+> CHAMFER moves the same way (344 -> 253 answered, 91 -> 0 invalid, deficit 171 unchanged).
 
 THICKSOLID's entire 132-answer baseline fails `BRepCheck`, so its valid bar is zero — and
 its coverage bar is not even stable run to run: `MakeThickSolidByJoin` returned `OK` on

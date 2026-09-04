@@ -1193,6 +1193,24 @@ void chamferReasonSet(const std::string& why) {
 }
 const char* chamferDeferReason() { return g_chamferReason; }
 
+// -- DEFER-REASON CHANNEL for FILLET (behaviour-neutral) ---------------------
+// The IDENTICAL device, for the identical reason, on the other half of the same
+// option. It was missing here only because the FILLET row predates the CHAMFER
+// row, and its absence made one specific question unanswerable: when the FILLET
+// row's native count moves, WHICH documented scope limit moved it. A bare null
+// shape cannot say, and attributing a coverage delta by re-deriving it from the
+// geometry is exactly the sort of reasoning this harness exists to replace.
+// Same contract as the chamfer channel above: written on the way out of a
+// DECLINE, read by runArm ONLY on a DEFER, only to fill `note`. It changes no
+// status, no bucket, no argument, and no engine sees it.
+thread_local char g_filletReason[192] = {0};
+void filletReasonClear() { g_filletReason[0] = '\0'; }
+void filletReasonSet(const std::string& why) {
+    std::snprintf(g_filletReason, sizeof g_filletReason, "refused:%s",
+                  why.empty() ? "no reason given" : why.c_str());
+}
+const char* filletDeferReason() { return g_filletReason; }
+
 // ─────────────────────────────────────────────────────────────── JSON output
 void emitArm(std::string& out, const char* key, const ArmResult& r) {
     char buf[2048];
@@ -2125,12 +2143,14 @@ int main(int argc, char** argv) {
             char od[112];
             std::snprintf(od, sizeof od, "fillet r=%.6g on the longest line edge", r);
             const ArmResult nat = runArm([&]() -> TopoDS_Shape {
+                filletReasonClear();
                 std::vector<forge::occtfillet::FilletSpec> sp(1);
                 sp[0].edge = e;
                 sp[0].radius = r;
                 const forge::occtfillet::Result res = forge::occtfillet::makeFillet(src, sp);
-                return res.ok ? res.shape : TopoDS_Shape();
-            }, true, T, NF);
+                if (!res.ok) { filletReasonSet(res.reason); return TopoDS_Shape(); }
+                return res.shape;
+            }, true, T, NF, &filletDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                 BRepFilletAPI_MakeFillet mk(src);
                 mk.Add(r, e);

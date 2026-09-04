@@ -688,23 +688,44 @@ set(OCCT_LIBS
 #         CHAMFER row in the same run readable:
 #
 #           family    native%  OCCT%   parts DELETED   agree(both)   McNemar p
-#           FILLET      67.2    76.8       59/600      253/402       1.1e-16
-#           CHAMFER     57.3    72.0      104/600      253/328       5.5e-17
+#           FILLET      52.0    76.8      150/600      253/311       1.1e-43
+#           CHAMFER     42.2    72.0      179/600      253/253       2.6e-54
 #
-#         ★ THE UNMEASURED HALF WAS THE WORSE HALF. Chamfer deletes 104 parts where
-#           fillet deletes 59 — 1.76x — so reading the FILLET row alone UNDERSTATED this
+#         ★ THESE NUMBERS MOVED ON 2026-09-04 AND THEY MOVED THE WRONG WAY ON PURPOSE.
+#           The row above used to read FILLET 67.2 / 59 deleted and CHAMFER 57.3 / 104
+#           deleted. The minimum-clearance half of setbackFitsFaces
+#           (NativeFilletChamfer.cpp) now DEFERS the 91 parts on which both engines used
+#           to return a BRepCheck-INVALID solid, so native coverage falls 403 -> 312
+#           (FILLET) and 344 -> 253 (CHAMFER) and native INVALID falls 91 -> 0 in both.
+#           COVERAGE DROPS, VALIDITY RISES; it is a refusal, not a repair, and it makes
+#           this option's gate HARDER, never easier. What did NOT move is the number a
+#           caller could actually rely on: the replaceability deficit against the VALID
+#           bar is 202 (FILLET) and 171 (CHAMFER) BEFORE AND AFTER — the 91 answers
+#           deleted here were never usable, and all 91 are re-answered by the OCCT
+#           fallback for FILLET (91/91, all BRepCheck-valid) and 75 of 91 for CHAMFER.
+#         ★ THE UNMEASURED HALF WAS THE WORSE HALF. Chamfer deletes 179 parts where
+#           fillet deletes 150 — 1.19x — so reading the FILLET row alone UNDERSTATED this
 #           option's cost. The native chamfer's coverage is a strict SUBSET of the native
-#           fillet's: 344 parts build on both, 59 build on fillet only, and ZERO build on
+#           fillet's: 253 parts build on both, 59 build on fillet only, and ZERO build on
 #           chamfer only.
-#         ★ WHERE IT ANSWERS AND IS VALID, THE NATIVE CHAMFER IS EXACT. 0 valid pairs
-#           disagree on the full observable vector (against 58 for FILLET), so this
-#           family fails on COVERAGE and VALIDITY, not on correctness. 91 of its own 344
-#           answers fail BRepCheck — the SAME 91 parts FILLET's engine fails, so that is
-#           shared retrim/sew machinery, not either blend.
-#         ★ The 104-part deletion is attributable, per part, from the row's `note`:
-#           67 "end face is not a straight-boundary corner", 13 "adjacent face A is not
-#           planar", 10 "adjacent face B is not planar", 6 non-straight outer boundary,
-#           7 extent not measurable, 1 non-simple corner.
+#         ★ WHERE IT ANSWERS, THE NATIVE CHAMFER IS EXACT AND NOW ALWAYS VALID. 0 valid
+#           pairs disagree on the full observable vector (against 58 for FILLET), and
+#           since the clearance guard 0 of its 253 answers fail BRepCheck (was 91 of
+#           344 — the SAME 91 parts FILLET's engine failed, which is what identified the
+#           cause as shared retrim machinery rather than either blend).
+#         ★ The 179-part deletion is attributable, per part, from the row's `note`:
+#           67 "end face is not a straight-boundary corner", 59 setback reaches a hole,
+#           16 setback reaches a non-adjacent ring segment, 13 "adjacent face A is not
+#           planar", 10 "adjacent face B is not planar", 7 extent not measurable,
+#           6 non-straight outer boundary, 1 non-simple corner.
+#           FILLET's 150: 69 setback reaches a hole, 37 setback reaches a non-adjacent
+#           ring segment, 18 face A not planar, 11 face B not planar, 7 extent not
+#           measurable, 6 non-straight outer boundary, 2 non-simple corner. (37, not 22:
+#           15 parts that already declined for "non-straight outer boundary" now decline
+#           EARLIER, at the clearance test — a re-attribution, not a new deletion.)
+#         ★ Evidence: reports/corpus_ab/setback_clearance_ab_{before,after}_600.jsonl.gz
+#           and the bidirectional gate test/setback_clearance_gate.mjs (12 checks, 6/6
+#           mutations proved to turn it red).
 #
 #         BOTH rows must clear the gate before this flag may flip. A PASS on one of them
 #         is not a PASS for the option, and today NEITHER passes.
