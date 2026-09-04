@@ -88,6 +88,13 @@
 // checked for zero TKOffset imports by run_ab_native_draft_local.sh.
 #include <BRepOffsetAPI_DraftAngle.hxx>
 
+// THE PRODUCTION CHAIN'S FIRST LINK. src/Features.cpp's
+// forge::part::draftFaces runs occtdraft::draftFaces BEFORE
+// occtdraftlocal::draftFacesLocal and takes the first non-null answer, so a
+// probe that calls only the second one cannot report what the shipped chain
+// covers -- which is the whole reason the corpus A/B's DRAFT row reads 0.0%
+// while production reaches 75.4%. Both links are called here, in that order.
+#include "forge/native/brep/NativeDraft.hpp"
 #include "forge/native/brep/NativeDraftLocal.hpp"
 
 namespace {
@@ -401,6 +408,69 @@ int selftest() {
         }
     }
 
+    // THE CHAIN'S COMPOSITION, both directions. The row's chain_* fields are only
+    // readable if BOTH links are really reachable, and a chain wired to call one
+    // engine twice — or to call the second one never — would report a plausible
+    // number and would look exactly like this one from outside.
+    //   forward : a CUBE is a closed single-wire polyhedron, so LINK 1 must
+    //             answer and the chain must take ITS shape, not link 2's.
+    //   reverse : a plate with a BORE violates link 1's whole-shape guard, so
+    //             link 1 must decline BY NAME and link 2 must be the one that
+    //             answers — which is what every one of the 565 corpus parts does.
+    {
+        const double L = 10.0, alpha = 5.0 * kPi / 180.0;
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(L, L, L).Shape();
+        TopTools_ListOfShape sides;
+        for (TopExp_Explorer ex(box, TopAbs_FACE); ex.More(); ex.Next()) {
+            gp_Pln pl;
+            const TopoDS_Face f = TopoDS::Face(ex.Current());
+            if (planeOf(f, pl) && std::fabs(pl.Axis().Direction().Z()) < 0.1) sides.Append(f);
+        }
+        const TopoDS_Shape link1 =
+            forge::occtdraft::draftFaces(box, sides, zUp, alpha, nz0);
+        const std::string  w1 = forge::occtdraft::draftLastDeferReason();
+
+        const TopoDS_Shape plate = BRepPrimAPI_MakeBox(20.0, 20.0, 10.0).Shape();
+        const TopoDS_Shape bore =
+            BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(10.0, 10.0, -1.0), gp_Dir(0, 0, 1)),
+                                     3.0, 12.0).Shape();
+        TopoDS_Shape bored;
+        try { bored = BRepAlgoAPI_Cut(plate, bore).Shape(); } catch (...) {}
+        if (bored.IsNull()) { std::printf("  selftest: bored cut failed\n"); return 1; }
+        TopoDS_Face wall; double bestX = -1.0e300;
+        for (TopExp_Explorer ex(bored, TopAbs_FACE); ex.More(); ex.Next()) {
+            gp_Pln pl;
+            const TopoDS_Face f = TopoDS::Face(ex.Current());
+            if (!planeOf(f, pl) || pl.Axis().Direction().X() < 0.9) continue;
+            if (pl.Location().X() > bestX) { bestX = pl.Location().X(); wall = f; }
+        }
+        if (wall.IsNull()) { std::printf("  selftest: no +X wall on the bored plate\n"); return 1; }
+        TopTools_ListOfShape fs; fs.Append(wall);
+        const TopoDS_Shape link1b =
+            forge::occtdraft::draftFaces(bored, fs, zUp, 5.0 * kPi / 180.0, nz0);
+        const std::string  w1b = forge::occtdraft::draftLastDeferReason();
+        const TopoDS_Shape link2b =
+            forge::occtdraftlocal::draftFacesLocal(bored, fs, zUp, 5.0 * kPi / 180.0, nz0);
+
+        if (link1.IsNull() || !w1.empty()) {
+            std::printf("  CHAIN CONTROL FAILED (forward): link 1 declined a cube: '%s'\n",
+                        w1.c_str());
+            bad = 1;
+        } else if (!link1b.IsNull() || w1b.empty()) {
+            std::printf("  CHAIN CONTROL FAILED (reverse): link 1 did not decline a bored "
+                        "plate (null=%d why='%s')\n", link1b.IsNull() ? 1 : 0, w1b.c_str());
+            bad = 1;
+        } else if (link2b.IsNull()) {
+            std::printf("  CHAIN CONTROL FAILED (reverse): link 2 declined the bored plate "
+                        "link 1 handed on: '%s'\n",
+                        forge::occtdraftlocal::draftLocalLastDeferReason());
+            bad = 1;
+        } else {
+            std::printf("  chain control: link 1 answers the cube; on a bored plate link 1 "
+                        "declines '%s' and link 2 answers\n", w1b.c_str());
+        }
+    }
+
     // NEGATIVE: the decline path the block above used to cover. A SPHERE is not a
     // cylinder, so the section is not an ellipse this engine can write in closed
     // form, and it MUST still decline -- and still SAY why. Without this the
@@ -537,6 +607,32 @@ int main(int argc, char** argv) {
     bool inValid = false;
     try { inValid = BRepCheck_Analyzer(shape).IsValid() == Standard_True; } catch (...) {}
 
+    // ── THE PRODUCTION CHAIN ────────────────────────────────────────────────
+    // src/Features.cpp's forge::part::draftFaces runs TWO native engines in this
+    // order and ships the FIRST non-null answer:
+    //     1. occtdraft::draftFaces        — the plane-arrangement engine
+    //     2. occtdraftlocal::draftFacesLocal — the local incident rebuild above
+    // The corpus A/B harness calls ONE of them, which is why the CMakeLists
+    // coverage table reads 0.0 % for DRAFT while the shipped chain covers far
+    // more. `status`/`reason`/`agrees` below keep their EXISTING meaning — the
+    // LOCAL engine alone, so every row this probe has ever written stays
+    // comparable — and the chain is reported in ADDED fields beside them.
+    TopoDS_Shape arr;
+    std::string  arrWhy;
+    bool         arrThrew = false;
+    try {
+        arr = forge::occtdraft::draftFaces(shape, faces, pull, ang, neutral);
+        const char* r = forge::occtdraft::draftLastDeferReason();
+        arrWhy = r ? r : "";
+    } catch (const Standard_Failure& e) {
+        arrThrew = true; arrWhy = e.GetMessageString() ? e.GetMessageString() : "Standard_Failure";
+    } catch (const std::exception& e) {
+        arrThrew = true; arrWhy = e.what();
+    } catch (...) { arrThrew = true; arrWhy = "unknown throw"; }
+    const TopoDS_Shape chain      = !arr.IsNull() ? arr : nat;
+    const char*        chainWhich = !arr.IsNull() ? "arrangement"
+                                                  : (!nat.IsNull() ? "local" : "none");
+
     TopoDS_Shape occt;
     const bool occtOk = occtDraft(shape, faces, pull, ang, neutral, occt);
 
@@ -550,10 +646,19 @@ int main(int argc, char** argv) {
     // right answer's shape.
     const bool agrees = !nat.IsNull() && occtOk && diff.empty();
 
+    // The same bar for the CHAIN's answer, scored the same way against the same
+    // reference. A chain answer that BUILT but disagrees is not coverage either.
+    const Obs c = observe(chain);
+    std::string cdiff;
+    if (!chain.IsNull() && occtOk) cdiff = disagreements(c, b, scale);
+    const bool chainAgrees = !chain.IsNull() && occtOk && cdiff.empty();
+
     std::printf("{\"part\":\"%s\",\"applicable\":true,\"status\":\"%s\",\"reason\":\"%s\","
                 "\"occt_ok\":%s,\"agrees\":%s,\"diff\":\"%s\","
                 "\"nat_vol\":%.10g,\"occt_vol\":%.10g,\"nat_valid\":%s,\"occt_valid\":%s,"
                 "\"in_valid\":%s,\"wall_neighbours\":\"%s\","
+                "\"chain_engine\":\"%s\",\"chain_agrees\":%s,\"chain_diff\":\"%s\","
+                "\"arr_reason\":\"%s\",\"arr_threw\":%s,"
                 "\"nat_bc\":\"%s\",\"occt_bc\":\"%s\","
                 "\"nfaces\":%d,\"nplanar\":%d,\"nmultiwire\":%d,\"scale\":%.6g,"
                 "\"moved_verts\":%d,\"solve_plane\":%d,\"solve_anchor\":%d,\"solve_quadric\":%d,"
@@ -568,6 +673,8 @@ int main(int argc, char** argv) {
                 a.vol, b.vol,
                 a.valid ? "true" : "false", b.valid ? "true" : "false",
                 inValid ? "true" : "false", jesc(nbKinds.c_str()).c_str(),
+                chainWhich, chainAgrees ? "true" : "false", jesc(cdiff.c_str()).c_str(),
+                jesc(arrWhy.c_str()).c_str(), arrThrew ? "true" : "false",
                 brepCheckStatuses(nat).c_str(), brepCheckStatuses(occt).c_str(),
                 nFaces, nPlanar, nMultiWire, scale,
                 st.movedVertices, st.solvedByPlaneMeet, st.solvedByAnchor, st.solvedByQuadric,
