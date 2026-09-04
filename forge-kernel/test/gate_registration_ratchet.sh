@@ -23,9 +23,14 @@
 # need not run for ever. The class that matters is the one whose own NAME claims
 # it guards something: *_gate. Of 13 such scripts, NINE do not run.
 #
-# So this pins the nine. The count may FALL (wire one up) but never RISE. A tenth
+# So this pins them. The count may FALL (wire one up) but never RISE. One more
 # unwired gate turns this red on the PR that introduces it — which is precisely
 # the case nothing in this repository caught before.
+#
+# ★ IT HAS ALREADY FALLEN ONCE, which is the point: build_thicken_orientation_gate
+#   was wired into .github/workflows/kernel-tests.yml (the OCCT kernel smoke job,
+#   beside the native gate guard, reusing build-verify) and removed from this list
+#   in the same change. Nine became eight.
 #
 # ★ IT IS RED IN BOTH DIRECTIONS. If an allowlisted gate becomes reachable, that
 #   is PROGRESS and this still goes red, telling you to remove it from the list.
@@ -33,7 +38,7 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 
-# The nine known-unregistered gates, each with the reason it is not wired.
+# The known-unregistered gates, each with the reason it is not wired.
 # REMOVE an entry when you wire the gate up. Do NOT add one without a reason.
 ALLOW="\
 run_pcurve_fit_gate
@@ -43,8 +48,7 @@ run_thicksolid_nesting_gate
 run_thrusections_xlate_label_gate
 build_hlr_import_gate
 build_import_surfaces_gate
-build_kernel_correctness_gate
-build_thicken_orientation_gate"
+build_kernel_correctness_gate"
 
 reachable() {   # reachable <basename>
   local b="$1"

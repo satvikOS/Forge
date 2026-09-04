@@ -295,7 +295,7 @@ benchmarks*, not "unimportant"). *Cost* = to reach user-invocable capability, af
 | K8 | In-context / top-down design | **NO** | no | no | ASSEMBLY | ZERO | months |
 | | **L · DRAWING / DRAFTING** | | | | | | |
 | L1 | 3D→2D view projection (base/aux/section+hatch/detail/broken/perspective) | **YES** — `Drawings.cpp` 1366 L, native HLR, TKHLR dropped | **NO** | no | **DRAWING** (`ProjectedView`/`View2D` already exist as C++ types) | ZERO — Drawing2CAD runs the **other** direction | weeks |
-| L2 | Dimensioning / annotation | JS composer ~4250 L, marked **UNMAPPED** in the migration manifest; **5 of 8 Drawing-workspace panels are `drawGenericPanel` placeholders** | no | no | DRAWING | ZERO | weeks |
+| L2 | Dimensioning / annotation | JS composer ~4250 L, marked **UNMAPPED** in the migration manifest; **4 of 8 Drawing-workspace panels are `drawGenericPanel` placeholders** (was 5; `dimensions` is a Sketch-workspace panel and now draws real content) | no | no | DRAWING | ZERO | weeks |
 | L3 | DXF / SVG output | **YES** — both, in `Drawings.cpp` | no | no | DRAWING | ZERO | days |
 | L4 | ★ 2D→3D (`DXFPROFILE`) | `forge::dxf::parse`, 136 L, 4 entity types, no `DIMENSION`/`TEXT`/`BLOCK`; **no path from a `Document` to a `PROFILE`** | **NO** | no | ★ **none** — it yields `PROFILE` | MED | **days** |
 | | **M · PMI / GD&T** | | | | | | |

@@ -30,7 +30,7 @@ struct Row {
 //   * for a Planned panel, say what it WILL show -- "not finished" is not an
 //     answer to "what is this tab".
 //
-// ── LIVE IS A CLAIM, AND IT WAS FALSE FOR FOUR OF THESE ────────────────────
+// ── LIVE IS A CLAIM, AND IT WAS FALSE FOR FOUR OF THESE, TWICE ─────────────
 // assembly_tree, operation_tree, study_tree and sheet_tree were all marked Live,
 // and all four were: the frame builder dispatched them, together with
 // feature_tree, model_browser and sketch_tree, to ONE function that draws the
@@ -38,11 +38,17 @@ struct Row {
 // could measure -- something was drawn -- while showing a user the build history
 // under a name that promised the components of an assembly.
 //
-// Nothing in this application holds an assembly, a machining setup, a simulation
-// study or a drawing sheet: there is no such data to query, so there is no
-// honest content to draw. They are Planned, which is what they are, and the
-// frame builder no longer pretends otherwise. Model and Sketch stayed Live
-// because they became real (see ModelTree.hpp).
+// They were then marked Planned, with the reason written here that "nothing in
+// this application holds an assembly, a machining setup, a simulation study or a
+// drawing sheet: there is no such data to query". That was the SECOND false
+// claim, and it is the one that left four workspace tabs drawing nothing at all.
+// There is no second document holding those things and there does not need to
+// be: an assembly is the bodies this program builds and how they nest, a
+// machining setup is the statements that take material away, a drawing sheet is
+// the standard sheet and scale this part's measured size needs, and a study is a
+// question plus the inputs it is waiting for. All four are readings of the part
+// document that already exists -- see forge/ui/WorkspaceTrees.hpp -- and all four
+// are Live because all four are now written.
 //
 // Sorted by id so the table reads as a list and a missing entry is visible.
 constexpr Row kRows[] = {
@@ -50,8 +56,9 @@ constexpr Row kRows[] = {
      "Notes, balloons and leader text placed on the drawing sheet.",
      PanelContent::Planned},
     {"appearance",
-     "The material this part is made of, what it weighs, and how it is shaded in the 3D view.",
-     PanelContent::Planned},
+     "What this part would weigh in each material it could be made from, beside the colour that "
+     "material is shaded in.",
+     PanelContent::Live},
     {"archie_chat",
      "Ask Archie for an edit in plain language and see the plan it offers before anything runs.",
      PanelContent::Live},
@@ -70,7 +77,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"assembly_tree",
      "The components in this assembly and how they are nested.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"bom",
      "The parts list for this model: every separate body in it, how many of each, and how much "
      "material each one takes.",
@@ -97,12 +104,13 @@ constexpr Row kRows[] = {
      "finer.",
      PanelContent::Planned},
     {"curve_list",
-     "The curves this surface model is built from, so you can pick one without hunting in the 3D "
+     "Every curve on this shape with its length, so you can pick one without hunting in the 3D "
      "view.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"dimensions",
-     "The dimensions driving this sketch, and which of them you can still change.",
-     PanelContent::Planned},
+     "Every number that drives the shape of this part, in one list, so you can find the one you "
+     "want to change.",
+     PanelContent::Live},
     {"feature_tree",
      "Every feature in this part, in the order it was built. Pick a row to select it, or change "
      "its number to change the shape.",
@@ -125,9 +133,9 @@ constexpr Row kRows[] = {
      "The forces, pressures and temperatures applied to this study.",
      PanelContent::Planned},
     {"materials",
-     "The material assigned to each body in this study, and the properties the solver reads from "
+     "The density of every material this part could be made from, and the weight each one gives "
      "it.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"mates",
      "Where the bodies of this model line up: which of them turn about one axis, which sit flush "
      "on one plane, and how far off each one is.",
@@ -146,7 +154,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"operation_tree",
      "The machining operations for this part, in the order the machine will run them.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"post_output",
      "The machine code produced for this setup, ready to read before you send it to the machine.",
      PanelContent::Planned},
@@ -167,7 +175,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"sheet_tree",
      "The sheets in this drawing and the views on each one.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"simulation_log",
      "What the machining simulation did, step by step, and anything it stopped on.",
      PanelContent::Live},
@@ -182,11 +190,12 @@ constexpr Row kRows[] = {
      "Whether this sketch is fully defined, and what is still free to move if it is not.",
      PanelContent::Planned},
     {"stock",
-     "The block of raw material this part is cut from, and how much of it is left.",
-     PanelContent::Planned},
+     "The smallest block of raw material this part can be cut from, and how much of that block "
+     "is cut away.",
+     PanelContent::Live},
     {"study_tree",
      "The simulation studies set up for this part, and what each one is solving for.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"timeline",
      "The history of this part as a strip you can roll back through to see how it was built.",
      PanelContent::Live},
@@ -198,7 +207,7 @@ constexpr Row kRows[] = {
      PanelContent::Planned},
     {"verify_report",
      "Whether the part that was built matches what was asked for, and where it does not.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"view_list",
      "The views placed on this drawing sheet, and which part each one is showing.",
      PanelContent::Planned},

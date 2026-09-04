@@ -11,6 +11,7 @@
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
+#include "forge/ui/InspectionReport.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
 
@@ -564,19 +565,19 @@ ParamTarget paramTarget(const PartDocument& doc, const CommandContext& ctx) {
   const double index = num(ctx, "index", 0.0);
   if (!wholeCount(index) || index < 0.0) return t;
 
+  // ONE resolver for "the nth NUMERIC argument", shared with the panel that
+  // shows the number this command changes. It was written out twice -- here and
+  // in the frame builder -- and two copies of the rule that decides WHICH SLOT
+  // is being edited is how a panel comes to display one number and rewrite
+  // another. numericArgSlot() answers args.size() when there is no such
+  // argument, which is this function's "not editable".
   const std::vector<IrArg>& args = recs[static_cast<std::size_t>(irId) - 1].line.args;
-  std::size_t numbersSeen = 0;
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    if (args[i].kind != IrArgKind::Number) continue;
-    if (numbersSeen == static_cast<std::size_t>(index)) {
-      t.ok = true;
-      t.irId = irId;
-      t.argIndex = i;
-      return t;
-    }
-    ++numbersSeen;
-  }
-  return t;  // that statement has no such numeric parameter: not editable
+  const std::size_t slot = numericArgSlot(args, static_cast<std::size_t>(index));
+  if (slot >= args.size()) return t;  // that statement has no such numeric parameter
+  t.ok = true;
+  t.irId = irId;
+  t.argIndex = slot;
+  return t;
 }
 
 // The FAIL-CLOSED read of a selection-derived value list. solidTarget() already

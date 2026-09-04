@@ -75,6 +75,13 @@
 //     OFFSETSHAPE   grow the whole solid by 0.02 * min extent
 //     THRUSECTIONS  loft the outer wires of the two largest planar faces that
 //                   do NOT share a plane (a coplanar pair is a degenerate loft)
+//     PIPE_RC       the SAME native arm as PIPE, against an OCCT MITRE
+//                   REFERENCE (MakePipeShell(RightCorner) on the outer wire,
+//                   CUT by one such shell per inner wire).  Family E's OCCT arm
+//                   has no transition mode and none of its six
+//                   GeomFill_Trihedron modes gives the mitre, so unlike
+//                   PIPESHELL_RC the reference has to be BUILT.  See the block
+//                   at the PIPE_RC emit for the derivation and its controls.
 //     PIPE          sweep the largest planar FACE along a 2-leg polyline that
 //                   starts at that face's centroid, runs along its normal for
 //                   0.5*diag, then turns 30 degrees for another 0.5*diag
@@ -189,6 +196,7 @@
 #include "forge/native/brep/NativeThickSolid.hpp"      // families G, H
 #include "forge/native/brep/NativeLoftPipe.hpp"        // families D, E, F
 #include "forge/native/brep/NativeThickenShell.hpp"    // family  I
+#include "forge/OcctThickenBaseline.hpp"               // family  I, the OCCT arm
 #include "forge/native/brep/NativeDraft.hpp"           // family  J
 #include "forge/native/brep/NativeFilling.hpp"         // family  B/C
 #include "forge/native/brep/NativeFilletChamfer.hpp"   // TKFillet
@@ -1847,7 +1855,7 @@ int main(int argc, char** argv) {
     // occt    BRepOffsetAPI_MakePipe(spine, profileFace); Build    Features.cpp:700
     // native  occtloft::pipeShell(spine, profileWire, {}, true)    Features.cpp
     // occt    MakePipeShell(spine); Add(w); Build; MakeSolid       Features.cpp:730
-    if (wanted(cfg, "PIPE") || wanted(cfg, "PIPESHELL")) {
+    if (wanted(cfg, "PIPE") || wanted(cfg, "PIPE_RC") || wanted(cfg, "PIPESHELL")) {
         TopoDS_Wire spine, prof;
         bool haveInput = false;
         if (!pk.planarBig.IsNull()) {
@@ -1878,6 +1886,90 @@ int main(int argc, char** argv) {
                     std::string("sweep the largest planar face along a 2-leg spine "
                                 "on its normal; ") + faceWireCensus(pk.planarBig);
                 emit("PIPE", true, "", nat, oc, opd.c_str());
+            }
+        }
+
+        // ── PIPE_RC — the same native arm against an OCCT MITRE REFERENCE ────
+        //
+        // WHY THIS ROW EXISTS.  The PIPE row above compares two arms that
+        // compute DIFFERENT OPERATIONS, and it does so on 100% of the corpus:
+        // native encloses A*(L1+L2) on 599/599 and OCCT's MakePipe encloses
+        // A*(L1+L2*cos 30) on 600/600, a ratio of exactly 2/(1+cos 30) =
+        // 1.0717967697 (reports/TKOFFSET_EF_PARITY_AND_THE_WRONG_GATE.md §5).
+        // Family F repaired the same defect by adding ONE line to its OCCT arm,
+        // SetTransitionMode(RightCorner) — the PIPESHELL_RC row.  Family E
+        // cannot: BRepOffsetAPI_MakePipe has no transition mode, and MEASURED
+        // (test/ab_pipe_sweep_law.cpp §6) all SIX GeomFill_Trihedron modes —
+        // CorrectedFrenet, Fixed, Frenet, ConstantNormal, Darboux,
+        // DiscreteTrihedron — return 9330.127019 on the probe's fixture, bit for
+        // bit the translation law, and NONE returns the mitre.  So the mitre has
+        // to be built rather than requested.
+        //
+        // THE REFERENCE, and why it is legitimate.  Sweep the profile's OUTER
+        // wire with MakePipeShell(RightCorner) and CUT one such shell per INNER
+        // wire.  The mitre map is a boolean homomorphism — an affine per-leg
+        // station map, an extrusion and a slab clip each commute with union,
+        // intersection and difference (NativeLoftPipe.hpp, "ARC CHAIN") — so the
+        // mitred sweep of a holed face IS the mitred sweep of its outer region
+        // minus the mitred sweeps of its holes.  PURE OCCT: MakePipeShell and
+        // BRepAlgoAPI_Cut, no forge symbol, so this arm cannot be an artefact of
+        // the engine it judges.
+        //
+        // PROVED BOTH DIRECTIONS before it is used here, in
+        // test/ab_pipe_sweep_law.cpp §8, on a 10x10 face with an off-centre
+        // circular hole where the closed form is exact because the spine starts
+        // at the FACE centroid and so the offset term of
+        //     V = A * [ (L1+L2) - 2 (rbar . d2) / (1 + cos theta) ]
+        // vanishes identically:
+        //   POSITIVE  the reference reads A_face*(L1+L2) to 2.7e-12, and native
+        //             reads the same number to 1.7e-11;
+        //   NEGATIVE  handing MakePipeShell the FACE instead of doing the hole
+        //             cut returns NOTHING, so the cut is load-bearing;
+        //   NEGATIVE  the arm the gate uses TODAY misses that oracle by 6.699e-2,
+        //             so this row is not a restatement of the PIPE row.
+        //
+        // The PIPE row is UNTOUCHED and still mirrors the production call site
+        // (src/Features.cpp:700) verbatim.  This row is added beside it, so the
+        // verdict that families E and F are two different operations is still on
+        // the record and is not quietly replaced by a favourable comparison.
+        if (wanted(cfg, "PIPE_RC")) {
+            if (!haveInput) emit("PIPE_RC", false, "no_planar_face_or_spine", none, none, "");
+            else {
+                const TopoDS_Face pf = pk.planarBig;
+                const TopoDS_Wire sp = spine;
+                const ArmResult nat = runArm([&]() -> TopoDS_Shape {
+                    return forge::occtloft::pipe(sp, pf, 1.0e-6);
+                }, true, T, NF, &forge::occtloft::lastDeferReason);
+                const ArmResult oc = runArm([&]() -> TopoDS_Shape {
+                    const TopoDS_Wire ow = BRepTools::OuterWire(pf);
+                    if (ow.IsNull()) return TopoDS_Shape();
+                    auto mitreShell = [&](const TopoDS_Wire& w) -> TopoDS_Shape {
+                        BRepOffsetAPI_MakePipeShell mk(sp);
+                        mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+                        mk.Add(w);
+                        mk.Build();
+                        if (!mk.IsDone()) return TopoDS_Shape();
+                        mk.MakeSolid();
+                        return mk.Shape();
+                    };
+                    TopoDS_Shape ref = mitreShell(ow);
+                    if (ref.IsNull()) return TopoDS_Shape();
+                    for (TopExp_Explorer wx(pf, TopAbs_WIRE); wx.More(); wx.Next()) {
+                        const TopoDS_Wire w = TopoDS::Wire(wx.Current());
+                        if (w.IsSame(ow)) continue;
+                        const TopoDS_Shape tube = mitreShell(w);
+                        // A hole the reference cannot sweep must DEFER, never be
+                        // silently left uncut: an uncut hole would inflate the
+                        // reference and be scored as a native disagreement.
+                        if (tube.IsNull()) return TopoDS_Shape();
+                        ref = BRepAlgoAPI_Cut(ref, tube).Shape();
+                        if (ref.IsNull()) return TopoDS_Shape();
+                    }
+                    return ref;
+                }, true, T, NF);
+                emit("PIPE_RC", true, "", nat, oc,
+                     "same native arm; OCCT reference = MakePipeShell(RightCorner) on the "
+                     "outer wire CUT by one such shell per inner wire");
             }
         }
         if (wanted(cfg, "PIPESHELL")) {
@@ -2047,9 +2139,29 @@ int main(int argc, char** argv) {
     // ═════════════════════════════════════════ THICKEN (TKOffset family I)
     // native  occtthicken::thickenShell(src, t, 1e-4)                Features.cpp:1212
     // occt    BRepOffset_MakeOffset Initialize(Skin,Arc,thick=true)  Features.cpp:1219
+    // ★ THE OCCT ARM CALLS PRODUCTION, IT DOES NOT RE-IMPLEMENT IT.
+    //
+    // What FORGE_THICKEN_DROP_NATIVE=ON deletes from Features.cpp is the WHOLE
+    // baseline block — the BRepOffset_MakeOffset call AND the normalising
+    // Reverse() that follows it — so the only faithful OCCT arm is that whole
+    // block. This arm used to be a hand-copy of the FIRST HALF of it, and the
+    // cost was a measured, reproducible, and entirely spurious result: over the
+    // 600-part reference corpus the two arms disagreed on 600 of 600 at signed
+    // volume ratio EXACTLY -1.000000, with area ratio exactly 1.000000 and 595
+    // of 600 identical on every other observable. All of that was the Reverse()
+    // this arm did not have. Calling forge::part::occtThickenBaseline — the same
+    // inline function Features.cpp calls — makes the drift structurally
+    // impossible rather than merely fixed once.
+    //
+    // NOTHING IS HIDDEN BY THE CORRECTION. The RAW, un-normalised OCCT answer is
+    // still measured, in full, and still emitted — under the family name
+    // THICKEN_RAWOCCT, below. The raw sign stays on the permanent record; it
+    // simply stops being scored as a geometric disagreement, which it never was.
     if (wanted(cfg, "THICKEN")) {
-        if (pk.anyBig.IsNull()) emit("THICKEN", false, "no_face", none, none, "");
-        else {
+        if (pk.anyBig.IsNull()) {
+            emit("THICKEN", false, "no_face", none, none, "");
+            emit("THICKEN_RAWOCCT", false, "no_face", none, none, "");
+        } else {
             const double t = 0.05 * scale;
             const TopoDS_Face f = pk.anyBig;
             char od[112];
@@ -2058,14 +2170,24 @@ int main(int argc, char** argv) {
                 return forge::occtthicken::thickenShell(f, t, 1.0e-4);
             }, true, T, NF, &forge::occtthicken::thickenLastDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
-                BRepOffset_MakeOffset mk;
-                mk.Initialize(f, t, 1.0e-4, BRepOffset_Skin,
-                              Standard_False, Standard_False, GeomAbs_Arc, Standard_True);
-                mk.MakeThickSolid();
-                if (!mk.IsDone()) return TopoDS_Shape();
-                return mk.Shape();
+                return forge::part::occtThickenBaseline(f, t, 1.0e-4);
             }, true, T, NF);
             emit("THICKEN", true, "", nat, oc, od);
+
+            // DIAGNOSTIC, not a drop option. Same native arm, against the RAW
+            // BRepOffset_MakeOffset output with the production normalisation
+            // omitted. It exists so the sign this family was famous for is still
+            // readable from the JSONL, and so the claim "the normalisation is the
+            // whole difference" is a MEASUREMENT in every run rather than a note:
+            // THICKEN and THICKEN_RAWOCCT must differ by exactly that and nothing
+            // else. Its `option` column reads `?` because it names no flag.
+            char odr[144];
+            std::snprintf(odr, sizeof odr,
+                          "skin the largest face t=%.6g (OCCT arm RAW, normalisation omitted)", t);
+            const ArmResult ocRaw = runArm([&]() -> TopoDS_Shape {
+                return forge::part::occtThickenBaselineRaw(f, t, 1.0e-4);
+            }, true, T, NF);
+            emit("THICKEN_RAWOCCT", true, "", nat, ocRaw, odr);
         }
     }
 

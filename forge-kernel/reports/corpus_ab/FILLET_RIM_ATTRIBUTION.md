@@ -199,9 +199,20 @@ Every part moved in exactly one of two ways, and no part moved in any other:
 * The two arms' **total** volumes agree to **2.2e-6 - 5.0e-6** relative. That residual
   is OCCT's approximation of the blend on STEP extrusion surfaces (§2), of the same
   size and sign as the 7e-4 seen on the removed volume itself. It is larger than the
-  A/B comparator's 1e-9 tolerance, so the harness records those 58 as *disagreeing on
+  A/B comparator's tolerance, so the harness records those 58 as *disagreeing on
   the full observable vector* — the disagreement is OCCT's approximation against the
   native arm's exact answer, in that direction.
+  **Corrected 2026-09-04:** this line previously named that tolerance as `1e-9`. It is
+  `close_(a, b, scale) = |a-b| <= 1e-6 * max(1, |scale|)` — **1e-6 relative**
+  (`test/corpus_ab_coverage.cpp`), three orders of magnitude looser than stated, which
+  is the difference between "obviously over the bound" and "2-5x over it". And the
+  attribution in this bullet, which was an inference from two populations behaving
+  differently, is now a controlled measurement: see
+  **`reports/corpus_ab/FILLET_NEARMISS_SOURCE.md`**, which holds the geometry fixed and
+  varies only the spelling with OCCT on both sides, and reports that the harness's
+  volume integrator is converged to 2.8e-9 on both arms, that 100.0% of the gap is the
+  blend, and that OCCT's blend face sits up to 0.29% of R off the exact rolling-ball
+  surface.
 * All 59 are a **4-line, 4-arc** rim — the population §2 characterises.
 
 ---
