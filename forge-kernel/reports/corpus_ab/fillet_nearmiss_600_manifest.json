@@ -1,0 +1,20 @@
+{
+  "generated_utc": "20260904T015531Z",
+  "corpus_dir": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+  "corpus_total": 600,
+  "sampling": "stride over the LC_ALL=C sorted list (NOT a prefix)",
+  "stride": 1,
+  "requested_n": 600,
+  "realised_n": 600,
+  "grid": 12,
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/fillet-nearmiss-probe/forge-kernel/.build-corpus-ab/fillet_nearmiss_probe",
+  "kernel_head_at_run": "c5e14000ed94276c7d8996bb8a793a63bdb11263",
+  "build_stamp": {
+  "built_utc": "2026-09-04T01:55:31Z",
+  "git_head": "c5e14000ed94276c7d8996bb8a793a63bdb11263",
+  "dirty_files_in_src_include_test": 0,
+  "flags": "-std=c++20 -O2 -DFORGE_NATIVE_BREP",
+  "occt_root": "/opt/homebrew/opt/opencascade",
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/fillet-nearmiss-probe/forge-kernel/.build-corpus-ab/fillet_nearmiss_probe"
+}
+}

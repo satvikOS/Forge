@@ -1,0 +1,39 @@
+rows 600   errors 0   both-arms-built 402
+
+both valid 311   volume-disagreeing (>1e-6 rel) 58   agreeing 253
+  disagreeing volume ratio native/occt: min 0.999995  p50 0.999997  max 0.999998  n=58
+
+1. IS THE INTEGRATOR CONVERGED?  |v_fixed - v_gk| / v, per arm, over the disagreeing parts
+   input   fixed-vs-GK      min 7.262e-16  p50 1.356e-15  max 1.943e-15  n=58
+           fixed-vs-adaptive min 0.000e+0  p50 1.287e-16  max 4.962e-16  n=58
+   native  fixed-vs-GK      min 1.768e-16  p50 7.334e-16  max 1.138e-15  n=58
+           fixed-vs-adaptive min 0.000e+0  p50 1.240e-16  max 4.877e-16  n=58
+   occt    fixed-vs-GK      min 5.304e-16  p50 1.395e-10  max 2.825e-9  n=58
+           fixed-vs-adaptive min 0.000e+0  p50 1.394e-10  max 2.826e-9  n=58
+   (the two arms differ by 2-5e-6; if EITHER of these is smaller than that, the
+    integrator is converged and the difference is not integration error)
+
+2. AGAINST THE CLOSED FORM READ OFF THE INPUT'S OWN CAP RING (58 of 58 have a G1 rim)
+   native removed / closed form  min 1.00000  p50 1.00000  max 1.00000  n=58
+   occt   removed / closed form  min 0.999236  p50 0.999278  max 0.999350  n=58
+   1 - occt/closed               min 0.000649721  p50 0.000721073  max 0.000764018  n=58
+   ring: lines 4  arcs 4  worst tangent 2.449e-16
+
+3. WHERE THE DIFFERENCE SITS
+   whole-solid volume gap  V_occt - V_native   min 0.291733  p50 1.06462  max 2.76736  n=58
+   blend gap  removed_native - removed_occt    min 0.291733  p50 1.06462  max 2.76736  n=58
+   ratio (they are the same quantity iff 1)    min 1.00000  p50 1.00000  max 1.00000  n=58
+   native-vs-OCCT surface distance on the RE-SPELLED WALLS  min 0.000e+0  p50 7.105e-15  max 1.589e-14  n=464
+   OCCT blend vs the exact radius-R rolling-ball surface    min 0.00609830  p50 0.00926646  max 0.0135631  n=58
+   ...in multiples of R                                     min 0.00218852  p50 0.00264125  max 0.00288406  n=58
+   native blend vs the same surface (0 by construction)     min 5.329e-15  p50 7.550e-15  max 1.421e-14  n=58
+   OCCT blend curvature miss  max | |k|R - 1 |              min 0.0196090  p50 0.0226321  max 0.0243683  n=58
+   native blend curvature miss                              min 2.080e-16  p50 3.414e-16  max 5.396e-16  n=58
+
+4. THE ERROR AGAINST PART SIZE  (an integration error scales with what is INTEGRATED;
+   a geometric error scales with the OPERATION)
+   corr( |dV| , part volume )        0.8873
+   corr( |dV| , part diagonal )      0.7175
+   corr( |dV| , closed form (blend)) 0.9971
+   |dV| / part volume                min 2.158e-6  p50 3.015e-6  max 4.999e-6  n=58
+   |dV| / closed form                min 0.000649721  p50 0.000721073  max 0.000764018  n=58
