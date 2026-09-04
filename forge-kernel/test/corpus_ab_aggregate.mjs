@@ -399,14 +399,26 @@ for (const r of rows) {
   }
 }
 
-const order = ['FILLET', 'MAKEOFFSET', 'THICKSOLID', 'OFFSETSHAPE', 'THRUSECTIONS',
+// CHAMFER sits beside FILLET, not at the end: they are the two halves of ONE
+// option. FORGE_FILLET_DROP_NATIVE deletes BRepFilletAPI_MakeFillet AND
+// BRepFilletAPI_MakeChamfer — both TKFillet, both behind that one macro
+// (src/Features.cpp:69-75 and :2040-2147) — so reading the FILLET row alone is
+// reading half the seam. Ordering them adjacently is what makes the two rows get
+// read together.
+const order = ['FILLET', 'CHAMFER', 'MAKEOFFSET', 'THICKSOLID', 'OFFSETSHAPE', 'THRUSECTIONS',
                'PIPE', 'PIPESHELL', 'FILLING', 'THICKEN', 'DRAFT'];
 const famList = [...fams.values()].sort(
   (a, b) => (order.indexOf(a.family) + 1000 * (order.indexOf(a.family) < 0)) -
             (order.indexOf(b.family) + 1000 * (order.indexOf(b.family) < 0)));
 
+// ★ TWO FAMILIES SHARE ONE OPTION. FILLET and CHAMFER both map to
+// FORGE_FILLET_DROP_NATIVE, because that flag drops the TOOLKIT (TKFillet) and
+// not a class. BOTH rows must clear the gate before the flag may flip: a PASS on
+// one of them is not a PASS for the option, and this is the only entry in the
+// table where the option column is not a unique key.
 const OPTION = {
   FILLET:       'FORGE_FILLET_DROP_NATIVE',
+  CHAMFER:      'FORGE_FILLET_DROP_NATIVE',
   MAKEOFFSET:   'FORGE_OFFSET_DROP_MAKEOFFSET',
   THICKSOLID:   'FORGE_THICKSOLID_DROP_NATIVE',
   OFFSETSHAPE:  'FORGE_OFFSETSHAPE_DROP_NATIVE',
