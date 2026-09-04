@@ -783,26 +783,40 @@ jobs:
         # about 93 seconds on this runner, which already has OCCT installed.
         run: bash forge-kernel/test/run_ab_all.sh
       - name: corpus A/B harness builds, and its 20 controls are green
-        # A FILE NOTHING COMPILES CANNOT BREAK. test/corpus_ab_coverage.cpp is the
-        # binary every FORGE_*_DROP_* flip gate's coverage number comes from, and
-        # until this step nothing in CI compiled it -- this repo has already shipped
-        # two defects into forge-desktop for exactly that reason. The build script
-        # runs `--selftest` itself and exits non-zero if it is red, so this one line
-        # is both the compile gate and the control gate.
+        # ★ RETRACTION, MEASURED ON THIS RUNNER. This step was added claiming that
+        #   "nothing in CI compiled test/corpus_ab_coverage.cpp". THAT WAS WRONG and
+        #   the step's own first run refuted it: it printed
+        #   "compiled 0 of 156 translation unit(s), reused 156" in 19 s, because the
+        #   step above it already built the archive —
+        #   run_ab_all.sh runs `thicksolid_mixed`, whose builder
+        #   (test/build_thicksolid_mixed_closedform.sh:35) calls
+        #   build_corpus_ab_coverage.sh when $OBJDIR/libforge_native_ab.a is absent.
+        #   The harness WAS compiled and its --selftest WAS run. Verify a claimed
+        #   absence before briefing on it.
         #
-        # The 20 controls are not decoration. Five prove the crash/hang containment
-        # FIRES (a containment that swallowed everything would look like a clean
-        # run); ten prove each native engine returns OK on an input its own header
-        # calls in scope, so a family's corpus ZERO is never silently a MIS-WIRED
-        # ARM; and five prove the direction observable reads BELOW the source on an
-        # inward offset and ABOVE it on an outward one -- that last group went red
+        # WHY THE STEP STAYS ANYWAY. That coverage is INCIDENTAL, SILENT and
+        # CONDITIONAL: it is a `>/dev/null ||` inside another gate's builder, it
+        # fires only when the archive happens to be missing, and nothing anywhere
+        # names this binary or its controls as a gate. The day
+        # build_thicksolid_mixed_closedform.sh stops needing that archive, the only
+        # thing compiling the binary every FORGE_*_DROP_* coverage number comes from
+        # disappears and no step goes red. This makes it explicit and named, and it
+        # costs 19 s because the objects are already warm — 33 s cold at JOBS=4 on
+        # the measuring machine, against a job that took 34.5 min of its 75 min
+        # budget on the last green archdisc run.
+        #
+        # The build script runs `--selftest` itself and exits non-zero if it is red,
+        # so this one line is both the compile gate and the control gate. The 20
+        # controls are not decoration: five prove the crash/hang containment FIRES,
+        # ten prove each native engine returns OK on an input its own header calls
+        # in scope (so a family's corpus ZERO is never silently a MIS-WIRED ARM),
+        # and five prove the direction observable reads BELOW the source on an
+        # inward offset and ABOVE it on an outward one — that last group went red
         # the first time it ran and was right to, see
         # reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md section 6.
         #
-        # 33 seconds cold at JOBS=4 on the measuring machine, 156 translation units.
-        # It rides this job because this is where the live-OCCT A/B work already is
-        # and the runner already has OCCT installed. It does NOT run the corpus:
-        # 600 parts is ~4 minutes for one family and there is no corpus in CI.
+        # It does NOT run the corpus: 600 parts is ~4 minutes for one family and
+        # there is no corpus in CI.
         run: JOBS=4 bash forge-kernel/test/build_corpus_ab_coverage.sh
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
