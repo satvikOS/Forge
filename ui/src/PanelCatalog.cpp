@@ -79,12 +79,13 @@ constexpr Row kRows[] = {
      "The components in this assembly and how they are nested.",
      PanelContent::Live},
     {"bom",
-     "The parts list for this assembly: what goes into it, how many of each, and what they are "
-     "made of.",
-     PanelContent::Planned},
+     "The parts list for this model: every separate body in it, how many of each, and how much "
+     "material each one takes.",
+     PanelContent::Live},
     {"component_filter",
-     "Show and hide components in a large assembly without deleting anything.",
-     PanelContent::Planned},
+     "Show and hide the bodies of a model without deleting anything, and pick one out of a "
+     "crowded view.",
+     PanelContent::Live},
     {"console",
      "A running record of every command that ran, with the technical detail behind any failure.",
      PanelContent::Live},
@@ -92,9 +93,9 @@ constexpr Row kRows[] = {
      "The constraints holding this sketch together, and which of them conflict.",
      PanelContent::Planned},
     {"contacts",
-     "Where the parts in this study touch, and whether they are bonded, free to slide, or free to "
-     "separate.",
-     PanelContent::Planned},
+     "Which bodies of this model touch each other, which overlap, and exactly how far apart the "
+     "nearest of the others are.",
+     PanelContent::Live},
     {"continuity",
      "How smoothly neighbouring surfaces meet, so you can find the joins a customer would see.",
      PanelContent::Planned},
@@ -136,8 +137,9 @@ constexpr Row kRows[] = {
      "it.",
      PanelContent::Live},
     {"mates",
-     "The mates holding this assembly together, and how many ways each component can still move.",
-     PanelContent::Planned},
+     "Where the bodies of this model line up: which of them turn about one axis, which sit flush "
+     "on one plane, and how far off each one is.",
+     PanelContent::Live},
     {"measure",
      "Size, area, volume and centre of the part, and the distance or angle between whatever you "
      "have picked.",

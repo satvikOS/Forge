@@ -101,11 +101,56 @@ void emitHeader(const forge::desktop::IrBuildReport& r, const std::string& backe
   std::printf("nParsed %zu\n", r.nParsed);
   std::printf("nCompiled %zu\n", r.nCompiled);
   std::printf("triangles %zu\n", r.triangles);
+  // ── the body inventory's scalars ────────────────────────────────────────
+  // Sent because the PARENT is where the assembly panels are drawn and the
+  // CHILD is where the B-rep exists. Without these three lines a user running
+  // the shipped application -- which always runs the kernel out of process --
+  // would see an empty parts list for a model that plainly has parts, and the
+  // panels would be honest about nothing at all.
+  std::printf("bodiesAnalysed %d\n", r.bodiesAnalysed ? 1 : 0);
+  std::printf("pairsEvaluated %zu\n", r.pairsEvaluated);
+  std::printf("pairsTruncated %d\n", r.pairsTruncated ? 1 : 0);
   // The error is LAST and length-prefixed, so a newline inside it cannot be read
   // as the start of another field.
   std::printf("errorBytes %zu\n", r.error.size());
   std::fwrite(r.error.data(), 1, r.error.size(), stdout);
   std::printf("\nbackend %s\n", backend.c_str());
+
+  // ── the body inventory's tables ─────────────────────────────────────────
+  // Each block is COUNT-PREFIXED and fixed-shape, for the same reason the
+  // vertex stream is: a reader that knows how many records to expect cannot
+  // desynchronise, and a truncated block is a diagnosis rather than a
+  // half-filled panel. %.17g round-trips a double exactly, so a volume the
+  // parent prints is the volume the kernel measured and not a re-rounding
+  // of it.
+  std::printf("bodies %zu\n", r.bodies.size());
+  for (const forge::desktop::SceneBody& b : r.bodies) {
+    std::printf("body %.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g %.17g %u\n",
+                b.volume, b.area, b.centroid[0], b.centroid[1], b.centroid[2], b.bboxMin[0],
+                b.bboxMin[1], b.bboxMin[2], b.bboxMax[0], b.bboxMax[1], b.bboxMax[2],
+                b.faceCount);
+  }
+  std::printf("bodyPairs %zu\n", r.bodyPairs.size());
+  for (const forge::desktop::SceneBodyPair& q : r.bodyPairs) {
+    std::printf("bodyPair %u %u %.17g %.17g\n", q.a, q.b, q.gap, q.overlapVolume);
+  }
+  std::printf("alignments %zu\n", r.alignments.size());
+  for (const forge::desktop::SceneBodyAlignment& a : r.alignments) {
+    std::printf("alignment %d %u %u %u %u %.17g %.17g %.17g %.17g %.17g %.17g %.17g\n",
+                static_cast<int>(a.kind), a.a, a.b, a.faceA, a.faceB, a.deviation, a.point[0],
+                a.point[1], a.point[2], a.direction[0], a.direction[1], a.direction[2]);
+  }
+  // One line of counts, index 0 first. A face carries the body it belongs to and
+  // nothing else, so the whole map is small enough to send whole -- which is
+  // what keeps "which body is this triangle" a lookup rather than a second
+  // derivation that could disagree with the child's.
+  std::printf("faceBodies %zu\n", r.bodyOfFace.size());
+  if (!r.bodyOfFace.empty()) {
+    for (std::size_t i = 0; i < r.bodyOfFace.size(); ++i) {
+      std::printf("%s%u", i == 0 ? "" : " ", r.bodyOfFace[i]);
+    }
+    std::printf("\n");
+  }
 }
 
 }  // namespace

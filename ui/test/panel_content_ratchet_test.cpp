@@ -74,10 +74,7 @@ namespace {
 // defect this file exists to report.
 const char* const kPinnedEmptyPanels[] = {
     "annotation",
-    "bom",
-    "component_filter",
     "constraints",
-    "contacts",
     "continuity",
     "convergence",
     "fixtures",
@@ -85,7 +82,6 @@ const char* const kPinnedEmptyPanels[] = {
     "interference",
     "isocline",
     "loads",
-    "mates",
     "post_output",
     "relations",
     "restraints",
