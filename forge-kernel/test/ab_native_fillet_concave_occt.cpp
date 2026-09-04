@@ -73,10 +73,12 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -301,6 +303,35 @@ double chamferDelta(const Poly& p, std::size_t i, double d) {
     return (convex ? -1.0 : 1.0) * area * p.h;
 }
 
+// Faces binned by SURFACE KIND. This is the observable that separates a CHAMFER rim
+// from a FILLET rim: both remove a band from the same cap, both leave 18 faces, and
+// a volume or an area can be matched by the wrong surface. `Cone:4` vs `Torus:4` is
+// what says which operation actually ran.
+std::string faceKinds(const TopoDS_Shape& s) {
+    std::map<std::string, int> k;
+    // The SAME map `measure()` counts faces with, not a TopExp_Explorer: an explorer
+    // visits a face once per containing shell, so a census taken with it could
+    // disagree with the nFace assertion sitting next to it.
+    TopTools_IndexedMapOfShape mf;
+    TopExp::MapShapes(s, TopAbs_FACE, mf);
+    for (int i = 1; i <= mf.Extent(); ++i) {
+        const char* n = "other";
+        switch (BRepAdaptor_Surface(TopoDS::Face(mf.FindKey(i))).GetType()) {
+            case GeomAbs_Plane:    n = "Plane"; break;
+            case GeomAbs_Cylinder: n = "Cyl";   break;
+            case GeomAbs_Cone:     n = "Cone";  break;
+            case GeomAbs_Sphere:   n = "Sph";   break;
+            case GeomAbs_Torus:    n = "Torus"; break;
+            default: break;
+        }
+        k[n]++;
+    }
+    std::string out;
+    for (const auto& p : k) out += p.first + ":" + std::to_string(p.second) + " ";
+    if (!out.empty()) out.pop_back();
+    return out;
+}
+
 std::vector<TopoDS_Edge> allEdges(const TopoDS_Shape& s) {
     TopTools_IndexedMapOfShape m;
     TopExp::MapShapes(s, TopAbs_EDGE, m);
@@ -412,12 +443,24 @@ void deferCase(const std::string& name, const TopoDS_Shape& shape,
     check(!nr.ok && nr.reason.find(reasonSubstr) != std::string::npos,
           name + ": deferral names \"" + reasonSubstr + "\"");
 
+    // The OCCT arm must run the SAME OPERATION the native arm just declined: a
+    // chamfer control measured against BRepFilletAPI_MakeFillet would record what
+    // OCCT does to a DIFFERENT request, which is not a capability gap at all.
+    // (Every call site was `fillet == true` when this dispatch was added, so no
+    // existing expectation moves; the chamfer controls below are the first users.)
     bool oOk = false;
     try {
-        BRepFilletAPI_MakeFillet mk(shape);
-        for (const TopoDS_Edge& e : es) mk.Add(R, e);
-        mk.Build();
-        if (mk.IsDone()) { const TopoDS_Shape s = mk.Shape(); oOk = !s.IsNull(); }
+        if (fillet) {
+            BRepFilletAPI_MakeFillet mk(shape);
+            for (const TopoDS_Edge& e : es) mk.Add(R, e);
+            mk.Build();
+            if (mk.IsDone()) { const TopoDS_Shape s = mk.Shape(); oOk = !s.IsNull(); }
+        } else {
+            BRepFilletAPI_MakeChamfer mk(shape);
+            for (const TopoDS_Edge& e : es) mk.Add(R, e);
+            mk.Build();
+            if (mk.IsDone()) { const TopoDS_Shape s = mk.Shape(); oOk = !s.IsNull(); }
+        }
     } catch (...) { oOk = false; }
     if (occtShould == OcctExpect::Declines)
         check(!oOk, name + ": OCCT ALSO declines this input");
@@ -904,9 +947,298 @@ int main() {
         }
         if (!pick.IsNull())
             deferCase("RIM wall shallower than R", prism, {pick}, 3.0, true,
-                      "shallower than the fillet radius", OcctExpect::Declines);
+                      "shallower than the blend setback", OcctExpect::Declines);
         else
             check(false, "rim defer control: could not locate a shallow-wall rim edge");
+    }
+
+    // ---- TANGENT RIM, CHAMFER: the other half of the same seam ----------------
+    //
+    // ★ MEASURED 2026-09-04 over the same 600-part corpus A/B that motivated the
+    //   FILLET rim above. CHAMFER's single largest remaining defer class is "end
+    //   face is not a straight-boundary corner", n=67 of 347 defers, and those 67
+    //   are the SAME rounded-rectangle plates the FILLET rim path answers — one
+    //   adjacent face is the flat cap with an 8-segment ring (4 lines + 4 arcs),
+    //   the other a flat wall, and the face at each END of the picked edge is the
+    //   corner CYLINDER (a SurfOfExtrusion, flatness deviation 2.07-4.42 mm), not a
+    //   plane. The per-edge guard fires for exactly the right reason and the right
+    //   answer is the propagated rim.
+    //
+    //   WHAT THIS PINS, and why the volume alone could not: the chamfer rim and the
+    //   fillet rim remove a band from the SAME cap, leave the SAME 18 faces, and
+    //   agree on the SAME closed-form structure. What separates them is the SURFACE
+    //   KIND — 4 CONE patches where the fillet has 4 TORUS patches, 4 PLANE bevels
+    //   where it has 4 CYLINDERS — so the face-kind census is asserted beside the
+    //   metrics. A rim built with the wrong patch would still sew, still close, and
+    //   still hit a volume that a loose tolerance would accept.
+    {
+        struct RimCase { double W, H, rho, h, d; const char* tag; };
+        const RimCase cases[] = {
+            { 60.0, 40.0,  8.0, 15.0, 3.0, "RIMCHAM 60x40 rho=8 h=15 d=3" },
+            {100.0, 70.0, 20.0, 30.0, 5.0, "RIMCHAM 100x70 rho=20 h=30 d=5" },
+            { 60.0, 40.0,  8.0, 15.0, 1.5, "RIMCHAM 60x40 rho=8 h=15 d=1.5" },
+        };
+        for (const RimCase& rc : cases) {
+            std::printf("[rim-chamfer] %s\n", rc.tag);
+            const TopoDS_Shape prism = roundedRectPrism(rc.W, rc.H, rc.rho, rc.h);
+            check(!prism.IsNull(), std::string(rc.tag) + ": the input prism builds");
+            if (prism.IsNull()) continue;
+            // the SAME pick rule the corpus A/B uses: the longest straight top-rim edge
+            TopoDS_Edge pick; double best = 0.0;
+            for (const TopoDS_Edge& e : allEdges(prism)) {
+                BRepAdaptor_Curve c(e);
+                if (c.GetType() != GeomAbs_Line) continue;
+                const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+                if (std::fabs(mid.Z() - rc.h) > 1e-9) continue;
+                GProp_GProps g; BRepGProp::LinearProperties(e, g);
+                if (g.Mass() > best) { best = g.Mass(); pick = e; }
+            }
+            check(!pick.IsNull(), std::string(rc.tag) + ": a top-rim straight edge exists");
+            if (pick.IsNull()) continue;
+
+            std::vector<forge::occtfillet::ChamferSpec> sp(1);
+            sp[0].edge = pick; sp[0].dist = rc.d; sp[0].dist2 = 0.0;
+            const forge::occtfillet::Result nr = forge::occtfillet::makeChamfer(prism, sp);
+            check(nr.ok, std::string(rc.tag) + ": engine builds (got: " +
+                         (nr.ok ? std::string("ok") : nr.reason) + ")");
+            if (!nr.ok) continue;
+            check(nr.reason.find("rim chamfer") != std::string::npos,
+                  std::string(rc.tag) + ": answered by the RIM path, named as such");
+
+            // INDEPENDENT closed form, from the profile alone and sharing no code
+            // with the engine:
+            //   4 straight runs   d^2/2 * L
+            // + 4 quarter corners theta * 1/2 [ rho^2 d - (rho^3 - (rho-d)^3)/3 ]
+            const double lineL = 2.0 * (rc.W - 2.0 * rc.rho) + 2.0 * (rc.H - 2.0 * rc.rho);
+            const double aa    = rc.rho - rc.d;
+            const double corner = 4.0 * (0.5 * kPi) * 0.5 *
+                (rc.rho * rc.rho * rc.d - (rc.rho * rc.rho * rc.rho - aa * aa * aa) / 3.0);
+            const double want = 0.5 * rc.d * rc.d * lineL + corner;
+
+            const Metrics m0 = measure(prism), m1 = measure(nr.shape);
+            check(relClose(m0.vol - m1.vol, want, 1e-9),
+                  std::string(rc.tag) + ": removes exactly the CHAMFER rim closed form");
+            // ★ The closed form must not merely be satisfiable by the fillet answer.
+            //   Asserting they DIFFER is what stops the chamfer row from being green
+            //   because the engine quietly ran the blend it already knew how to run.
+            const double filletWant = (1.0 - kPi / 4.0) * rc.d * rc.d * lineL +
+                4.0 * (0.5 * kPi) * (rc.d * rc.d * (2.0 * rc.rho - rc.d) * 0.5
+                    - rc.d * rc.d * rc.d / 3.0 - aa * kPi * rc.d * rc.d * 0.25);
+            check(!relClose(want, filletWant, 1e-3),
+                  std::string(rc.tag) + ": the chamfer closed form is DISTINCT from the fillet one");
+            check(m1.nFace == m0.nFace + 8,
+                  std::string(rc.tag) + ": 10 faces -> 18 (4 bevel + 4 cone patches added)");
+            // THE KIND CENSUS — see the note above. Plane 6 -> 10 (4 flat bevels),
+            // Cyl 4 unchanged (the corner walls, pulled back), Cone 0 -> 4.
+            check(faceKinds(nr.shape) == "Cone:4 Cyl:4 Plane:10",
+                  std::string(rc.tag) + ": faces by KIND are Cone:4 Cyl:4 Plane:10 (got " +
+                  faceKinds(nr.shape) + ")");
+            check(faceKinds(nr.shape).find("Torus") == std::string::npos,
+                  std::string(rc.tag) + ": NO torus patch — this is a chamfer, not a fillet");
+            check(m1.valid && m1.closedShells && m1.nShell == 1,
+                  std::string(rc.tag) + ": native is ONE closed valid shell");
+            check(m1.genus2 == 0, std::string(rc.tag) + ": native genus 0");
+
+            TopoDS_Shape occtOut;
+            try {
+                BRepFilletAPI_MakeChamfer mk(prism);
+                mk.Add(rc.d, pick);
+                mk.Build();
+                if (mk.IsDone()) occtOut = mk.Shape();
+            } catch (...) {}
+            check(!occtOut.IsNull(), std::string(rc.tag) + ": OCCT propagates the same request");
+            if (!occtOut.IsNull()) {
+                check(sameMetrics(m1, measure(occtOut), rc.tag),
+                      std::string(rc.tag) + ": native == OCCT on the full observable vector");
+                check(faceKinds(nr.shape) == faceKinds(occtOut),
+                      std::string(rc.tag) + ": native == OCCT on the face-KIND census (got " +
+                      faceKinds(nr.shape) + " vs " + faceKinds(occtOut) + ")");
+            }
+        }
+    }
+
+    // ---- RIM CHAMFER defer controls -------------------------------------------
+    // Same contract as the fillet rim's: the path must not fire outside its stated
+    // scope, and must never substitute itself for a request the per-edge path serves.
+    {
+        // (a) a PLAIN BOX lid — a POLYGON rim, not a propagating contour. The
+        //     per-edge chamfer already answers it and must keep answering it.
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(30.0, 20.0, 10.0).Shape();
+        TopoDS_Edge top; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(box)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+            if (std::fabs(mid.Z() - 10.0) > 1e-9) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); top = e; }
+        }
+        std::printf("[rim-chamfer-defer] a plain box lid is a POLYGON rim\n");
+        std::vector<forge::occtfillet::ChamferSpec> sp(1);
+        sp[0].edge = top; sp[0].dist = 2.0; sp[0].dist2 = 0.0;
+        const forge::occtfillet::Result nr = forge::occtfillet::makeChamfer(box, sp);
+        check(nr.ok, "BOX LID chamfer: the per-edge path still answers it");
+        check(nr.ok && nr.reason.find("rim chamfer") == std::string::npos,
+              "BOX LID chamfer: the RIM path did not substitute itself for the per-edge answer");
+        if (nr.ok) {
+            const double moved = 0.5 * 2.0 * 2.0 * best;
+            check(relClose(measure(box).vol - measure(nr.shape).vol, moved, 1e-9),
+                  "BOX LID chamfer: still removes exactly the ONE-EDGE closed form");
+        }
+    }
+    {
+        // (b) rho <= d: the inward offset would invert the corner arc.
+        //     MEASURED 2026-09-04: OCCT's chamfer RETURNS a shape here and that shape
+        //     is BRepCheck-INVALID (volume 35273.13 on a 35175.93 input — it ADDS
+        //     material). So this is not a capability we are giving up: it is one
+        //     where declining is the better answer, and OcctExpect::Succeeds records
+        //     that OCCT answers at all rather than that its answer is usable.
+        const TopoDS_Shape prism = roundedRectPrism(60.0, 40.0, 2.5, 15.0);
+        TopoDS_Edge pick; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(prism)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+            if (std::fabs(mid.Z() - 15.0) > 1e-9) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); pick = e; }
+        }
+        if (!pick.IsNull()) {
+            deferCase("RIMCHAM rho <= d (the corner would invert)", prism, {pick}, 3.0, false,
+                      "corner radius is not larger", OcctExpect::Succeeds);
+            TopoDS_Shape oc;
+            try {
+                BRepFilletAPI_MakeChamfer mk(prism);
+                mk.Add(3.0, pick); mk.Build();
+                if (mk.IsDone()) oc = mk.Shape();
+            } catch (...) {}
+            check(!oc.IsNull() && !measure(oc).valid,
+                  "RIMCHAM rho <= d: OCCT's own answer here is BRepCheck-INVALID "
+                  "(declining is the better answer, not a lost capability)");
+        } else {
+            check(false, "rim-chamfer defer control: could not locate a top-rim edge");
+        }
+    }
+    {
+        // (c) a wall shallower than d: the pull-back would run off the bottom.
+        //     OCCT declines this too.
+        const TopoDS_Shape prism = roundedRectPrism(60.0, 40.0, 8.0, 2.0);
+        TopoDS_Edge pick; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(prism)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+            if (std::fabs(mid.Z() - 2.0) > 1e-9) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); pick = e; }
+        }
+        if (!pick.IsNull())
+            deferCase("RIMCHAM wall shallower than d", prism, {pick}, 3.0, false,
+                      "shallower than the blend setback", OcctExpect::Declines);
+        else
+            check(false, "rim-chamfer defer control: could not locate a shallow-wall rim edge");
+    }
+    {
+        // (d) A HOLE CLOSER TO THE RIM THAN d — the topological defect neither the
+        //     volume nor the cap-area identity can see, because both are computed as
+        //     (outer region) minus (hole regions), the same subtraction whether or
+        //     not the regions overlap. MEASURED: OCCT's chamfer declines it as well.
+        const double d = 3.0, rho = 8.0, W = 60.0, H = 40.0, hgt = 15.0, holeR = 4.0;
+        const double holeY = H * 0.5 - (holeR + 0.5 * d);   // hole edge 0.5d from the rim
+        const TopoDS_Shape prism = roundedRectPrism(W, H, rho, hgt, holeY, holeR);
+        check(!prism.IsNull(), "RIMCHAM hole-inside-band: the holed prism builds");
+        if (!prism.IsNull()) {
+            TopoDS_Edge pick; double best = 0.0;
+            for (const TopoDS_Edge& e : allEdges(prism)) {
+                BRepAdaptor_Curve c(e);
+                if (c.GetType() != GeomAbs_Line) continue;
+                const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+                if (std::fabs(mid.Z() - hgt) > 1e-9) continue;
+                GProp_GProps g; BRepGProp::LinearProperties(e, g);
+                if (g.Mass() > best) { best = g.Mass(); pick = e; }
+            }
+            if (!pick.IsNull())
+                deferCase("RIMCHAM a hole lies inside the blend band", prism, {pick}, d, false,
+                          "runs into a hole", OcctExpect::Declines);
+            else
+                check(false, "rim-chamfer defer control: could not locate a rim edge on the holed prism");
+        }
+    }
+    {
+        // (e) THE SAME PRISM with the hole moved out to 1.5d — the guard must be a
+        //     clearance test, not a blanket refusal of holed caps.
+        const double d = 3.0, rho = 8.0, W = 60.0, H = 40.0, hgt = 15.0, holeR = 4.0;
+        const double holeY = H * 0.5 - (holeR + 1.5 * d);
+        const TopoDS_Shape prism = roundedRectPrism(W, H, rho, hgt, holeY, holeR);
+        check(!prism.IsNull(), "RIMCHAM hole-clear-of-band: the holed prism builds");
+        if (!prism.IsNull()) {
+            TopoDS_Edge pick; double best = 0.0;
+            for (const TopoDS_Edge& e : allEdges(prism)) {
+                BRepAdaptor_Curve c(e);
+                if (c.GetType() != GeomAbs_Line) continue;
+                const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+                if (std::fabs(mid.Z() - hgt) > 1e-9) continue;
+                GProp_GProps g; BRepGProp::LinearProperties(e, g);
+                if (g.Mass() > best) { best = g.Mass(); pick = e; }
+            }
+            std::printf("[rim-chamfer] holed prism, hole edge 1.5d clear of the rim\n");
+            std::vector<forge::occtfillet::ChamferSpec> sp(1);
+            sp[0].edge = pick; sp[0].dist = d; sp[0].dist2 = 0.0;
+            const forge::occtfillet::Result nr = forge::occtfillet::makeChamfer(prism, sp);
+            check(nr.ok, std::string("RIMCHAM hole-clear-of-band: engine builds (got: ") +
+                         (nr.ok ? std::string("ok") : nr.reason) + ")");
+            if (nr.ok) {
+                const double lineL = 2.0 * (W - 2.0 * rho) + 2.0 * (H - 2.0 * rho);
+                const double aa = rho - d;
+                const double want = 0.5 * d * d * lineL + 4.0 * (0.5 * kPi) * 0.5 *
+                    (rho * rho * d - (rho * rho * rho - aa * aa * aa) / 3.0);
+                const Metrics m0 = measure(prism), m1 = measure(nr.shape);
+                check(relClose(m0.vol - m1.vol, want, 1e-9),
+                      "RIMCHAM hole-clear-of-band: removes exactly the rim closed form");
+                check(m1.valid, "RIMCHAM hole-clear-of-band: native is BRepCheck-VALID");
+                TopoDS_Shape occtOut;
+                try {
+                    BRepFilletAPI_MakeChamfer mk(prism);
+                    mk.Add(d, pick); mk.Build();
+                    if (mk.IsDone()) occtOut = mk.Shape();
+                } catch (...) {}
+                check(!occtOut.IsNull(), "RIMCHAM hole-clear-of-band: OCCT builds it too");
+                if (!occtOut.IsNull())
+                    check(sameMetrics(m1, measure(occtOut), "RIMCHAM hole-clear-of-band"),
+                          "RIMCHAM hole-clear-of-band: native == OCCT on the full observable vector");
+            }
+        }
+    }
+    {
+        // (f) AN ASYMMETRIC CHAMFER — a DECLARED scope limit, pinned so it stays
+        //     visible. buildRimContext resolves ONE setback: its offset ring, its
+        //     wall-depth guard and its band-clearance guard are all written against
+        //     that one number. Serving dA != dB off it would build a body whose bevel
+        //     is not the requested bevel, and a wrong body is far worse than a defer.
+        const TopoDS_Shape prism = roundedRectPrism(60.0, 40.0, 8.0, 15.0);
+        TopoDS_Edge pick; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(prism)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+            if (std::fabs(mid.Z() - 15.0) > 1e-9) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); pick = e; }
+        }
+        std::printf("[rim-chamfer-defer] an ASYMMETRIC chamfer is out of the rim's scope\n");
+        std::vector<forge::occtfillet::ChamferSpec> sp(1);
+        sp[0].edge = pick; sp[0].dist = 3.0; sp[0].dist2 = 2.0;
+        const forge::occtfillet::Result nr = forge::occtfillet::makeChamfer(prism, sp);
+        check(!nr.ok, "RIMCHAM asymmetric: engine DEFERS");
+        check(!nr.ok && nr.reason.find("asymmetric chamfer is not a single-setback rim")
+                            != std::string::npos,
+              "RIMCHAM asymmetric: the deferral names the scope limit");
+        // and the SYMMETRIC request on the same edge still builds, so (f) is a
+        // statement about the argument and not about the shape.
+        sp[0].dist2 = 0.0;
+        const forge::occtfillet::Result sym = forge::occtfillet::makeChamfer(prism, sp);
+        check(sym.ok && sym.reason.find("rim chamfer") != std::string::npos,
+              "RIMCHAM asymmetric: the SYMMETRIC request on the same edge still builds by the rim");
     }
 
     std::printf("\n=== %d/%d assertions passed ===\n", g_pass, g_total);
