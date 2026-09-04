@@ -11,7 +11,7 @@ part for part:
 | the three candidate causes | verdict | the measurement that settles it |
 |---|---|---|
 | (b) accumulated error in the volume integration | **refuted** | the harness's fixed-order integrator agrees with OCCT's adaptive Gauss and Gauss–Kronrod integrators to **≤ 2.825e-9** on the worst part and **1.40e-10** at the median — **766× smaller** than the *smallest* disagreement it is asked to explain |
-| (c) a different but equally valid representation feeding the integrator | **refuted as the cause of the number**, confirmed as the cause of the *cause* | the 8 walls the native arm re-spells from `SurfaceOfLinearExtrusion` to `Plane`/`Cylinder` are the **same surfaces to 1.59e-14** over 464 sampled face pairs, and contribute **0.000000** to the volume gap |
+| (c) a different but equally valid representation feeding the integrator | **refuted as the cause of the number**, confirmed as the cause of the *cause* | the 8 walls the native arm re-spells from `SurfaceOfLinearExtrusion` to `Plane`/`Cylinder` are the **same surfaces to 1.59e-14** over 464 sampled face pairs, and contribute at most **1.98e-9** to the volume gap — 6.8e-9 of the smallest gap they would have to explain |
 | (a) a genuine geometric difference in the fillet surface | **CONFIRMED** | 100.0% of the whole-solid gap is the blend (ratio 1.00000 min/median/max, 58/58); against a closed form read off the input's own cap ring the native arm removes **1.000000× 58/58** and OCCT removes **0.999236–0.999350×**; OCCT's blend face departs from the exact radius-R rolling-ball surface by up to **0.00288 R** where the native arm's departs by **1.4e-14** |
 
 And the cause of *that*, isolated in a from-scratch controlled experiment with **OCCT on
@@ -75,7 +75,7 @@ actually reached: `VolumeProperties(S, P, Eps)` (adaptive Gauss) and
 |---|---|---|
 | the input | 7.26e-16 … **1.94e-15** | 0 … 4.96e-16 |
 | native | 1.77e-16 … **1.14e-15** | 0 … 4.88e-16 |
-| OCCT | 5.30e-16 … **2.83e-9** (p50 1.40e-10) | 0 … 2.83e-9 |
+| OCCT | 5.30e-16 … **2.825e-9** (p50 1.395e-10) | 0 … 2.826e-9 |
 
 The quantity to be explained is 2.164e-6 to 5.00e-6. The **largest** disagreement any
 integrator has with any other, on any of the 58, is **2.825e-9 — 766× smaller than the
