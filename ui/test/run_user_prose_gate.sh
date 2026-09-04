@@ -153,23 +153,30 @@ PY
        ;;
     4) # a promise the frame builder does not keep
        python3 - "$tree/$CAT" <<'PY'
-import sys
+import sys, re
 p=sys.argv[1]; s=open(p).read()
-old='''    {"mates",
-     "The mates holding this assembly together, and how many ways each component can still move.",
-     PanelContent::Planned},'''
+# DO NOT HARD-CODE A PANEL NAME. This named "mates", and silently stopped
+# applying the moment that panel was IMPLEMENTED: the anchor vanished, python
+# raised "mutation 4 anchor missing", and the harness reported the check as
+# UNFALSIFIABLE -- accusing the branch that did the work. Selecting whatever is
+# still Planned keeps the SAME property under test.
+m=re.search(r'\{"[a-z_]+",\n(?:[^\n]*\n)*?\s*PanelContent::Planned\},', s)
+assert m, "no PanelContent::Planned row left -- if every panel is Live this needs rethinking, not deleting"
+old=m.group(0)
 new=old.replace("PanelContent::Planned","PanelContent::Live")
-assert old in s, "mutation 4 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
        ;;
     5) # a C++ name inside a sentence a user reads
        python3 - "$tree/$CAT" <<'PY'
-import sys
+import sys, re
 p=sys.argv[1]; s=open(p).read()
-old='"The mates holding this assembly together, and how many ways each component can still move."'
-new='"The mates held by forge::ui::DockLayout for this assembly."'
-assert old in s, "mutation 5 anchor missing"
+# Same lesson as mutation 4: a specific panel's wording changes whenever that
+# panel is implemented or reworded, and the mutation then silently no-ops.
+m=re.search(r'\{"[a-z_]+",\n\s*("(?:[^"\\\\]|\\\\.)*")', s)
+assert m, "no panel description string found to inject a C++ name into"
+old=m.group(1)
+new='"The panel held by forge::ui::DockLayout for this document."' 
 open(p,'w').write(s.replace(old,new,1))
 PY
        ;;

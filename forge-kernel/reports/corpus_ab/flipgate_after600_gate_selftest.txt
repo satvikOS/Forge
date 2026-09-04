@@ -1,0 +1,68 @@
+corpus_ab_gate_selftest — driving each added term to FAIL and back to PASS
+
+A. a family that passes COVERAGE and disagrees on every part (E/F)
+  ok   A1 old gate (coverage only) would PASS   got "PASS"
+  ok   A2 new verdict FAILs   got "FAIL"
+  ok   A3 and names the terms   got ["agreement","replaceability"]
+  ok   A4 all 10 valid pairs counted as disagreeing   got 10
+  ok   A5 valid bar is the full 10   got 10
+  ok   A6 nothing was replaced   got 0
+A(+). the same fixture, agreeing
+  ok   A7 verdict PASSes   got "PASS"
+  ok   A8 no failed terms   got []
+  ok   A9 all 10 replaced   got 10
+  ok   A10 deficit 0   got 0
+A(strict). agree=true but agree_strict=false is a disagreement
+  ok   A11 verdict FAILs on the strict vector   got "FAIL"
+  ok   A12 counted as disagreements   got 10
+  ok   A13 the loose column still reports 10 agreeing   got 10
+
+B. every OCCT answer is BRepCheck-INVALID (THICKSOLID)
+  ok   B1 OCCT returned 10 shapes   got 10
+  ok   B2 all 10 reported INVALID, not dropped   got 10
+  ok   B3 the VALID bar is 0   got 0
+  ok   B4 deficit against the valid bar is 0   got 0
+  ok   B5 the COVERAGE bar is NOT lowered — term 1 still fails   got "FAIL"
+  ok   B6 so the verdict still FAILs, on coverage   got ["coverage"]
+  ok   B7 and the row is labelled vacuous   got true
+B(mixed). 10 OCCT answers, 7 invalid; native reproduces the 3 valid ones
+  ok   B8 coverage bar still counts all 10   got 10
+  ok   B9 valid bar is 3   got 3
+  ok   B10 all 3 replaced, deficit 0   got [3,0]
+  ok   B11 replaceability term PASSes   got true
+  ok   B12 but coverage still FAILs (3 < 10) — the bar was not lowered   got "FAIL"
+  ok   B13 verdict FAILs on coverage alone   got ["coverage"]
+
+C. native answers on every part, and every answer is INVALID
+  ok   C1 old gate would PASS (10 >= 10)   got "PASS"
+  ok   C2 new verdict FAILs   got "FAIL"
+  ok   C3 on validity and replaceability   got ["validity","replaceability"]
+  ok   C4 all 10 in the native-invalid deficit   got 10
+
+D. a JSONL with no agree_strict field falls back, loudly
+  ok   D1 every row counted as missing the field   got 10
+  ok   D2 the observable set is labelled LEGACY   got true
+  ok   D3 and the fallback uses the strongest vector that run measured   got 0
+
+E. a centre of mass 1e33 on a 10 mm part
+  ok   E1 old gate would PASS (10 >= 10)   got "PASS"
+  ok   E2 new verdict FAILs   got "FAIL"
+  ok   E3 on sanity   got true
+  ok   E4 all 10 native answers fingerprinted   got 10
+  ok   E5 OCCT arm is clean   got 0
+E(-). a centroid one diagonal outside a VERTEX bbox is curvature, not a defect
+  ok   E6 not counted as a fingerprint   got 0
+  ok   E7 but reported as a bulge   got 10
+  ok   E8 and the sanity term still PASSes   got true
+
+M. the added terms can only remove PASSes, never create them
+  ok   M1 over 9 fixture families: PASS implies old-PASS   got 0
+
+R. the same check over a real run: /private/tmp/claude-501/-Users-account-clawteam1/8e894a02-52d3-4e26-a3a3-5c26cd2b228c/scratchpad/AFTER600/results.jsonl
+  ok   R1 over 13 real families: PASS implies old-PASS   got 0
+  --   6 of 13 families changed status under the added terms (all in the FAIL direction, by R1)
+  --   R2 SKIPPED: no family passes the new gate on this run, so there is
+       no PASS to break. Reported, not silently omitted.
+  ok   R3 MAKEOFFSET fails only on added terms; repair its 285 offending real row(s) -> PASS   got "PASS"
+
+PASS: corpus_ab_gate_selftest, 0 check(s) red

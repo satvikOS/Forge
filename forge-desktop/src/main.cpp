@@ -733,6 +733,13 @@ int main(int argc, char** argv) {
       float c[3] = {0.0f, 0.0f, 0.0f};
       scene.bounds().centre(c);
       frame.camera().frame(c, scene.bounds().radius());
+    } else if (req.visibilityDirty) {
+      // A body was shown or hidden. The triangle count moved, so the buffer is
+      // resized and the device is drained exactly as above -- but the camera is
+      // LEFT WHERE THE USER PUT IT. Hiding one body of six is not opening a new
+      // part, and a view that jumps on every checkbox is unusable.
+      vkDeviceWaitIdle(g_device);
+      viewport.uploadVertices(scene.vertices());
     } else if (req.selectionDirty) {
       viewport.uploadVertices(scene.vertices());
     }

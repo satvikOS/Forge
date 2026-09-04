@@ -88,7 +88,16 @@ matters.** The FAIL for E and F is decided by a *single* discordant pair: McNema
 **p = 1.0000**, and the 95% CI on the difference, **[-0.5%, +0.2%]**, straddles zero. On
 its own terms the A/B cannot distinguish the two arms at n=600. Meanwhile the agree
 column — which the verdict does not read — says they differ on **every one of the 599
-parts they both build**. The one number the gate is confident about is the one that is
+parts they both build**.
+
+> **UPDATE 2026-09-03 — the verdict reads it now.** This paragraph was true when it
+> was written and is no longer a description of the gate. `test/corpus_ab_aggregate.mjs`
+> gained validity, agreement, replaceability and centroid-sanity terms; the coverage
+> line is kept verbatim as term 1, so the gate only got stricter, and that direction is
+> asserted in CI by `test/corpus_ab_gate_selftest.mjs` check M. E and F now fail on
+> `agreement, replaceability` as well as on the one-part coverage gap. Method:
+> `reports/CORPUS_AB_COVERAGE.md` §2.9-§2.10. **No option was flipped and no ledger row
+> moved.** Everything else in this report stands as measured. The one number the gate is confident about is the one that is
 not true, and the number it is not confident about is the one it acts on.
 
 The `agree` column is new in this change set (`test/corpus_ab_aggregate.mjs`); the

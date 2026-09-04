@@ -1,0 +1,13 @@
+INPUTS
+  A elementary spelling  Plane:6 Cylinder:4  vol=116291.680263507908
+  B extrusion  spelling  Plane:2 SurfExtr:8  vol=116291.680263507922
+  identity: |dV|/V = 1.25e-16   |dA|/A = 1.22e-16
+  face pairing: 10 pairs, 0 unmatched, worst sampled surface distance 3.55e-15
+  SAME GEOMETRY: yes
+  A elementary: cap ring 4 lines 4 arcs, closed form 802.728900171
+     OCCT removed 802.728900171   removed/closed = 1.000000000000   (1 - that) = 2.176e-14
+     result Plane:6 Cylinder:8 Torus:4  valid=1  v_fixed=115488.951363337 v_gk=115488.951363337 (gk_err 5.4e-12)
+  B extrusion : cap ring 4 lines 4 arcs, closed form 802.728900171
+     OCCT removed 802.350484828   removed/closed = 0.999528588864   (1 - that) = 4.714e-04
+     result Plane:2 BSpline:8 SurfExtr:8  valid=1  v_fixed=115489.329778679 v_gk=115489.329778679 (gk_err 4.1e-11)
+experiment well-formed

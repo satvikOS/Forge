@@ -1,0 +1,100 @@
+[ab-pipe-law] OCCT /opt/homebrew/opt/opencascade
+== ab_pipe_sweep_law: where 2/(1+cos30) enters, and which arm is a sweep ==
+
+-- 0. ORACLE CONTROL: the section probe on a right prism --
+  [PASS] section probe on a straight prism reads the profile area (100.000000 vs 100.000000)
+  [PASS] NEGATIVE CONTROL: a box of the SAME volume has a different extent, so equal volume alone is not read as agreement
+
+-- 1. THE TWO SWEEP LAWS, over 5 turn angles x 3 leg ratios --
+   theta   L2/L1   | native         A*(L1+L2)      | occt           A*(L1+L2cos)   | ratio
+   0.0     0.50    | 7500.000000    7500.000000    | 7500.000000    7500.000000    | 1.0000000000
+   0.0     1.00    | 10000.000000   10000.000000   | 10000.000000   10000.000000   | 1.0000000000
+   0.0     2.00    | 15000.000000   15000.000000   | 15000.000000   15000.000000   | 1.0000000000
+   15.0    0.50    | 7500.000000    7500.000000    | 7414.814566    7414.814566    | 1.0114885455
+   15.0    1.00    | 10000.000000   10000.000000   | 9829.629131    9829.629131    | 1.0173323801
+   15.0    2.00    | 15000.000000   15000.000000   | 14659.258263   14659.258263   | 1.0232441322
+   30.0    0.50    | 7500.000000    7500.000000    | 7165.063509    7165.063509    | 1.0467457811
+   30.0    1.00    | 10000.000000   10000.000000   | 9330.127019    9330.127019    | 1.0717967697
+   30.0    2.00    | 15000.000000   15000.000000   | 13660.254038   13660.254038   | 1.0980762114
+   45.0    0.50    | 7500.000000    7500.000000    | 6767.766953    6767.766953    | 1.1081941876
+   45.0    1.00    | 10000.000000   10000.000000   | 8535.533906    8535.533906    | 1.1715728753
+   45.0    2.00    | 15000.000000   15000.000000   | 12071.067812   12071.067812   | 1.2426406871
+   60.0    0.50    | 7500.000000    7500.000000    | 6250.000000    6250.000000    | 1.2000000000
+   60.0    1.00    | 10000.000000   10000.000000   | 7500.000000    7500.000000    | 1.3333333333
+   60.0    2.00    | 15000.000000   15000.000000   | 10000.000000   10000.000000   | 1.5000000000
+  [PASS] native MakePipe encloses A*(L1+L2) -- the MITRE -- on 15/15 cases
+  [PASS] OCCT  MakePipe encloses A*(L1+L2*cos theta) -- a TRANSLATION -- on 15/15 cases
+
+-- 2. THE CONSTANT, and its POSITIVE CONTROL at theta = 0 --
+   ratio at theta=30, L1=L2 : 1.071796769724   2/(1+cos30) = 1.071796769724
+  [PASS] native/occt at the corpus spine is EXACTLY 2/(1+cos 30 deg) = 1.0717967697
+  [PASS] POSITIVE CONTROL: on a STRAIGHT spine the two arms AGREE exactly (ratio 1.000000)
+
+-- 3. Q3: the mitre closed form carries an OFFSET term, in 2/(1+cos) --
+   offset   native          A*[2L-2r.d2/(1+c)] rel         A*(L1+L2)       rel(uncorrected)
+   0.0      10000.000000    10000.000000    1.819e-16   10000.000000    1.819e-16
+   3.0      9839.230485     9839.230485     1.849e-16   10000.000000    1.608e-02
+   12.0     9356.921938     9356.921938     0.000e+00   10000.000000    6.431e-02
+   40.0     7856.406461     7856.406461     1.158e-16   10000.000000    2.144e-01
+  [PASS] the OFFSET-CORRECTED mitre form V = A*[(L1+L2) - 2(rbar.d2)/(1+cos theta)] fits on 4/4 offsets
+  [PASS] NEGATIVE DIRECTION: the uncorrected form A*(L1+L2) fits on 1/4 -- only at offset 0, so the offset term is doing real work and the banner's 'centroid ON the spine start' hypothesis is load-bearing
+  [PASS] the TRANSLATION law A*(L1+L2*cos theta) is by contrast OFFSET-INDEPENDENT (4/4)
+
+-- 4. WHICH ARM IS A SWEEP: cross-section PERPENDICULAR to leg 2 --
+   profile area A = 100.000000
+   native  perpendicular section on leg 2 = 100.000000   (A      = 100.000000)
+   occt    perpendicular section on leg 2 = 86.602540   (A*cos  = 86.602540)
+  [PASS] NATIVE presents the PROFILE perpendicular to leg 2 -- it is a sweep
+  [PASS] OCCT presents A*cos(theta) perpendicular to leg 2 -- the section is translated, not swept, so the solid is NOT of constant cross-section
+
+-- 5. THE TRANSLATION LAW IS NOT A SWEEP: degeneracy and non-monotonicity --
+   theta=90  occt vol 5000.000000 (A*L1 = 5000.000000)  extent along leg2 60.0000  valid=0
+   theta=90  nat  vol 10000.000000 (A*2L = 10000.000000)  extent along leg2 55.0000  valid=1
+  [PASS] at theta=90 OCCT encloses ONLY leg 1's volume while its extent along leg 2 is 60.000000 -- material reported and not enclosed
+  [PASS] at theta=90 native still encloses A*(L1+L2)
+   theta=120, growing leg 2:
+     L2 = 20   occt 4000.0000   native 7000.0000
+     L2 = 40   occt 3000.0000   native 9000.0000
+     L2 = 60   occt 2000.0000   native 11000.0000
+  [PASS] OCCT's enclosed volume DECREASES as leg 2 is lengthened at theta=120 -- a sweep cannot lose volume when spine is added
+  [PASS] native's enclosed volume increases monotonically with leg 2
+
+-- 6. Q1: does ANY GeomFill_Trihedron mode of MakePipe give the mitre? --
+   mode                 volume         rel(mitre)   rel(trans)   valid
+   CorrectedFrenet      9330.127019    6.699e-02    1.950e-16    1
+   Fixed                9330.127019    6.699e-02    1.950e-16    1
+   Frenet               9330.127019    6.699e-02    1.950e-16    1
+   ConstantNormal       9330.127019    6.699e-02    1.950e-16    1
+   Darboux              9330.127019    6.699e-02    1.950e-16    1
+   DiscreteTrihedron    9330.127019    6.699e-02    1.950e-16    1
+   (default 2-arg ctor is GeomFill_IsCorrectedFrenet -- BRepFill_Pipe.hxx:53-57)
+  [PASS] NO GeomFill_Trihedron mode of BRepOffsetAPI_MakePipe reproduces the mitre (0 of 6) -- family E's OCCT arm CANNOT be configured to the operation native computes, unlike family F's RightCorner
+   family F control: MakePipeShell(Transformed) 9330.127019   (RightCorner) 10000.000000   mitre 10000.000000
+  [PASS] CONTROL: family F's MakePipeShell(RightCorner) DOES reproduce the mitre, so the asymmetry is real and is a property of the two OCCT APIs
+
+-- 7. Q2: family F's SPREAD is (*)'s offset term, on a HOLED face --
+   hole r hole x  | native         closed form (*) rel        | nat/occt      K*(1-r.d2/L(1+c))
+   0.0    0.0     | 10000.000000   10000.000000   1.819e-16  | 1.0717967697  1.0717967697 
+   1.5    0.0     | 10000.000000   10000.000000   1.819e-16  | 1.0717967697  1.0717967697 
+   1.5    1.8     | 9992.662894    9992.662894    0.000e+00  | 1.0710103811  1.0710103811 
+   3.0    0.0     | 10000.000000   10000.000000   1.819e-16  | 1.0717967697  1.0717967697 
+   3.0    1.8     | 9961.974692    9961.974692    0.000e+00  | 1.0677212295  1.0677212295 
+  [PASS] (*) predicts native PIPESHELL on a holed face to 1e-6 on 5/5 cases -- so the closed form IS in scope for family F once the offset term is carried, and the spread is a property of the INPUT, not a defect in either arm
+   corroboration on r=3 x=1.8: native 9961.974692  OCCT(RightCorner) 9961.974692  closed form 9961.974692
+  [PASS] OCCT(RightCorner) -- a SECOND, independent engine asked for the mitre -- lands on the same closed form, so (*) is not being checked against only the engine it was derived for
+  [PASS] and OCCT(Transformed) still obeys A*(L1+L2*cos theta) EXACTLY here, offset and all -- so family F's spread is the MITRE's offset term, NOT a wobble in OCCT's default arm
+
+-- 8. THE GATE: an OCCT-ONLY mitre reference for family E --
+  [PASS] FIXTURE: the holed face is BRepCheck-VALID -- BRepGProp returns an area for a face that bounds nothing, so without this the oracle would check a wrong answer against a wrong expectation and agree
+   A_face 71.725666   oracle A_face*(L1+L2) 7172.566612
+   (a) MakePipeShell(RC) given the FACE      -1.000000  rel -1.000e+00
+   (b) OUTER shell CUT by the hole shell     7172.566612  rel 2.716e-12  valid 1
+   native pipe(face)                         7172.566612  rel 1.665e-11  valid 1
+   OCCT MakePipe (the arm the gate compares) 6692.095754  rel 6.699e-02
+  [PASS] construction (b) -- OUTER MakePipeShell(RightCorner) CUT by one shell per inner wire -- reproduces the mitre on a HOLED face, in pure OCCT, with no forge symbol: a usable reference arm for family E's gate
+  [PASS] and native agrees with it, so the proposed gate would score AGREE where today's gate scores DISAGREE on every part
+  [PASS] NEGATIVE DIRECTION: construction (a), handing MakePipeShell the FACE, does NOT give the mitre of the holed region -- so (b) is doing real work and the hole cut is not decoration
+  [PASS] NEGATIVE DIRECTION: the arm the gate uses TODAY misses the same oracle by 0.066987, so the reference and the incumbent are not the same shape and the change is not a no-op
+
+== ab_pipe_sweep_law: 25 passed, 0 failed ==
+[ab-pipe-law] PASS

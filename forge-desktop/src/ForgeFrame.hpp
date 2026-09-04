@@ -50,6 +50,7 @@
 #include "forge/ui/StatusModel.hpp"
 #include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
+#include "forge/ui/WorkspaceTrees.hpp"
 
 struct ImDrawList;
 
@@ -67,6 +68,11 @@ struct ViewportRequest {
   // because a growing buffer is destroyed and recreated, unlike a selection
   // re-upload which only rewrites bytes already mapped.
   bool geometryDirty = false;
+  // A BODY WAS SHOWN OR HIDDEN. The triangle count changed, so the host must
+  // drain the device and re-upload exactly as a rebuild makes it -- but it must
+  // NOT re-frame the camera. Hiding one body of six is not opening a new part,
+  // and a view that jumps every time a checkbox is clicked is unusable.
+  bool visibilityDirty = false;
   bool wireframe = false;
 };
 
@@ -391,6 +397,24 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t modelRowsDrawn() const noexcept { return modelRowsDrawn_; }
   std::size_t modelFaceRowsDrawn() const noexcept { return modelFaceRowsDrawn_; }
   std::size_t sketchRowsDrawn() const noexcept { return sketchRowsDrawn_; }
+
+  // ── the other four readings of the same document ────────────────────────
+  // Assembly, Operations, Sheets and Studies. Accessors for the same reason the
+  // two above are: a gate can ask for the exact structure the panel draws and
+  // check its rows against the document or the measurement that produced them,
+  // which is the only thing that keeps "this tab shows the components" true.
+  //
+  // The last two take a MEASUREMENT rather than the document, so they are
+  // non-const: the first call is what builds the triangle-soup measurement they
+  // read, exactly as modelMeasure() is.
+  forge::ui::AssemblyTree assemblyTree() const;
+  forge::ui::MachiningPlan machiningPlan() const;
+  forge::ui::DrawingSheetSet drawingSheets();
+  forge::ui::StudyPlan studyPlan();
+  std::size_t assemblyRowsDrawn() const noexcept { return assemblyRowsDrawn_; }
+  std::size_t operationRowsDrawn() const noexcept { return operationRowsDrawn_; }
+  std::size_t sheetRowsDrawn() const noexcept { return sheetRowsDrawn_; }
+  std::size_t studyRowsDrawn() const noexcept { return studyRowsDrawn_; }
   // The measurement of ONE B-rep face, memoized on the live tessellation. The
   // arithmetic is forge::ui::measureFace's -- this adds a cache and nothing
   // else, because a model browser lists every face and asking the O(triangles)
@@ -400,6 +424,39 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // ── the Archie Tools panel's data ───────────────────────────────────────
   forge::ui::ToolCatalog toolCatalog() const;
   std::size_t toolRowsDrawn() const noexcept { return toolRowsDrawn_; }
+
+  // ── the four panels that stopped being empty ────────────────────────────
+  // Rows each drew on its last draw. Separate counters, one per panel, for the
+  // reason measureFaceRowsDrawn/measureEdgeRowsDrawn are separate: one counter
+  // over two reports cannot say which report was actually drawn.
+  std::size_t materialRowsDrawn() const noexcept { return materialRowsDrawn_; }
+  std::size_t curveRowsDrawn() const noexcept { return curveRowsDrawn_; }
+  std::size_t verifyRowsDrawn() const noexcept { return verifyRowsDrawn_; }
+  std::size_t dimensionRowsDrawn() const noexcept { return dimensionRowsDrawn_; }
+  // ── the assembly panels' row counts ─────────────────────────────────────
+  // One counter per panel, reset at the top of each draw. A gate asserts that a
+  // panel given a real multi-body model draws a row per thing the kernel
+  // measured -- which is the difference between "the tab opened" and "the tab
+  // showed the user their model".
+  std::size_t bomRowsDrawn() const noexcept { return bomRowsDrawn_; }
+  std::size_t contactRowsDrawn() const noexcept { return contactRowsDrawn_; }
+  std::size_t componentRowsDrawn() const noexcept { return componentRowsDrawn_; }
+  std::size_t mateRowsDrawn() const noexcept { return mateRowsDrawn_; }
+  // The text the Components panel is filtering its list by. Exposed so a gate
+  // can drive the filter without pretending to type.
+  void setComponentFilterText(const std::string& text);
+  const char* componentFilterText() const noexcept { return componentQuery_; }
+
+  // ── the Components panel's controls, reachable without a mouse ──────────
+  // For a host, a macro and the gate. The checkbox, the two buttons and the
+  // per-row "Only" call THESE, so a caller drives the SHIPPING path -- including
+  // the latch that tells the host to re-upload the vertex stream -- rather than
+  // a private one beside it. Calling the scene directly would hide a body and
+  // leave the viewport drawing it until something else happened to redraw.
+  bool showBody(std::uint32_t bodyIndex, bool visible);
+  void showEveryBody();
+  void showOnlyBody(std::uint32_t bodyIndex);
+  void hideEveryBody();
 
   // Selection round-trip: the viewport writes a pick here, the frame turns it
   // into a typed EntityRef through SelectionService and re-flags the mesh.
@@ -585,7 +642,47 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawConsolePanel();
   void drawTimelinePanel();
   void drawMeasurePanel();
+  // The four panels that stopped being empty. Each draws ONLY quantities
+  // forge::ui::InspectionReport (or MeasureModel / EdgeModel) computed, so every
+  // number on screen is one a headless gate has already asserted.
+  void drawMaterialPanel();
+  void drawCurveListPanel();
+  void drawStockPanel();
+  void drawVerifyReportPanel();
+  void drawDimensionsPanel();
   void drawToolsPanel();
+  // ── THE FOUR TREE TABS THAT DREW NOTHING AT ALL ─────────────────────────
+  // Assembly, Operations, Sheets and Studies each named a tab, said in one
+  // sentence what it would show, and stopped. Each now draws a DIFFERENT
+  // reading of the live document, computed by forge::ui::WorkspaceTrees so
+  // every row and every number is one a headless gate has already asserted --
+  // ui/test/workspace_trees_test.cpp -- rather than one this file invented.
+  void drawAssemblyTreePanel();
+  void drawOperationTreePanel();
+  void drawSheetTreePanel();
+  void drawStudyTreePanel();
+  // ── THE ASSEMBLY PANELS ─────────────────────────────────────────────────
+  // Four tabs that used to draw one apologetic sentence between them. They are
+  // all fed by the SAME body inventory the kernel takes off the B-rep at build
+  // time (KernelScene.hpp, SceneBody / SceneBodyPair / SceneBodyAlignment), so
+  // no two of them can disagree about how many bodies there are or how far
+  // apart they sit -- and none of them computes geometry of its own.
+  void drawBomPanel();
+  void drawContactsPanel();
+  void drawComponentFilterPanel();
+  void drawMatesPanel();
+  // What the four of them say when there is no inventory to show: either the
+  // model has not built, or it built something with no solid bodies in it.
+  // Returns true when it drew such a state and the caller must stop. ONE
+  // function, because four tabs that answer the same question four different
+  // ways is how a user learns to distrust all four.
+  bool drawAssemblyEmptyState();
+  // Puts every face of one body into the live selection, so a row in a list
+  // lights the body up in the 3D view. Goes through the same SelectionService
+  // a viewport click goes through -- there is no second way to select.
+  void selectBody(std::uint32_t bodyIndex);
+  // "Body 3". One spelling, used by all four panels and by the gate.
+  static std::string bodyLabel(std::uint32_t bodyIndex);
   void drawCopilotPanel();
   // The work the three recorded presses stand for. Private: the ONLY caller is
   // build(), after the walk.
@@ -682,6 +779,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::string documentName_ = "untitled";
   bool documentDirty_ = false;
   bool geometryDirty_ = false;            // latched for the host's re-upload
+  // Latched the same way, and kept SEPARATE from geometryDirty_ on purpose: the
+  // host re-frames the camera on a rebuild and must not re-frame it when a body
+  // is merely hidden.
+  bool visibilityDirty_ = false;
   std::size_t rebuilds_ = 0;
   std::string rebuildError_;
   // The shell's fitCount as of the last fit this builder actually applied. The
@@ -900,9 +1001,24 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
+  std::size_t materialRowsDrawn_ = 0;
+  std::size_t curveRowsDrawn_ = 0;
+  std::size_t verifyRowsDrawn_ = 0;
+  std::size_t dimensionRowsDrawn_ = 0;
+  std::size_t bomRowsDrawn_ = 0;
+  std::size_t contactRowsDrawn_ = 0;
+  std::size_t componentRowsDrawn_ = 0;
+  std::size_t mateRowsDrawn_ = 0;
+  // The Components panel's list filter. A fixed buffer because that is what an
+  // input box writes into.
+  char componentQuery_[64] = {0};
   std::size_t modelRowsDrawn_ = 0;
   std::size_t modelFaceRowsDrawn_ = 0;
   std::size_t sketchRowsDrawn_ = 0;
+  std::size_t assemblyRowsDrawn_ = 0;
+  std::size_t operationRowsDrawn_ = 0;
+  std::size_t sheetRowsDrawn_ = 0;
+  std::size_t studyRowsDrawn_ = 0;
   // Per-face measurement cache, indexed by 1-based face id and invalidated on
   // the SAME witness measureMesh() uses -- the scene's BUILD COUNT -- so a
   // rebuild can never leave a face row describing the previous body.

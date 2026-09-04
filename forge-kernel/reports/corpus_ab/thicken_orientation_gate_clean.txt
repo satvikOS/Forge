@@ -1,0 +1,50 @@
+== pass 1/2: production takes the OCCT baseline branch ==
+[thicken-orientation] thicken must register a POSITIVELY ORIENTED solid, from either engine
+  ok    RAW BRepOffset_MakeOffset volume is NEGATIVE                -8000.000000
+  ok    RAW |volume| is area*thickness (geometry is RIGHT)          -0.000000
+  ok    RAW solid classifies its own interior as OUT (wrong)        OUT
+  ok    BASELINE occtThickenBaseline volume is POSITIVE             +8000.000000
+  ok    BASELINE classifies its interior as IN                      IN
+  ok    |volume| UNCHANGED by the normalisation                     +0.000000
+  ok    NATIVE thickenShell volume is POSITIVE                      +8000.000000
+  ok    NATIVE classifies its interior as IN                        IN
+  ok    NATIVE volume is area*thickness                             -0.000000
+  ok    NATIVE / BASELINE SIGNED volume ratio is +1 (was -1)        +1.000000
+  ----  production branch under test: OCCT baseline
+  ok    PRODUCTION thickenSurface volume is POSITIVE                +8000.000000
+  ok    PRODUCTION classifies its interior as IN                    IN
+  ok    PRODUCTION volume is area*thickness (geometry intact)       -0.000000
+  ----  negative controls: the same predicates on a REVERSED good solid
+  ok    NEG signed volume of a reversed good solid is NEGATIVE      -8000.000000
+  ok    NEG the classifier calls the reversed solid's interior OUT  OUT
+  ok    NEG isPositivelyOrientedSolid says NO to it                 +0.000000
+  ok    NEG orientedPositiveSolid REPAIRS it (the normaliser is not a no-op)  +8000.000000
+  ok    NEG the repair changed the SIGN and nothing else            -0.000000
+  ok    NEG isPositivelyOrientedSolid says YES to the repair        +1.000000
+[thicken-orientation] 19 checks, 0 failed — PASS
+
+== pass 2/2: production takes the NATIVE branch (FORGE_THICKEN_NATIVE=1) ==
+[thicken-orientation] thicken must register a POSITIVELY ORIENTED solid, from either engine
+  ok    RAW BRepOffset_MakeOffset volume is NEGATIVE                -8000.000000
+  ok    RAW |volume| is area*thickness (geometry is RIGHT)          -0.000000
+  ok    RAW solid classifies its own interior as OUT (wrong)        OUT
+  ok    BASELINE occtThickenBaseline volume is POSITIVE             +8000.000000
+  ok    BASELINE classifies its interior as IN                      IN
+  ok    |volume| UNCHANGED by the normalisation                     +0.000000
+  ok    NATIVE thickenShell volume is POSITIVE                      +8000.000000
+  ok    NATIVE classifies its interior as IN                        IN
+  ok    NATIVE volume is area*thickness                             -0.000000
+  ok    NATIVE / BASELINE SIGNED volume ratio is +1 (was -1)        +1.000000
+  ----  production branch under test: NATIVE (FORGE_THICKEN_NATIVE=1)
+  ok    PRODUCTION thickenSurface volume is POSITIVE                +8000.000000
+  ok    PRODUCTION classifies its interior as IN                    IN
+  ok    PRODUCTION volume is area*thickness (geometry intact)       -0.000000
+  ----  negative controls: the same predicates on a REVERSED good solid
+  ok    NEG signed volume of a reversed good solid is NEGATIVE      -8000.000000
+  ok    NEG the classifier calls the reversed solid's interior OUT  OUT
+  ok    NEG isPositivelyOrientedSolid says NO to it                 +0.000000
+  ok    NEG orientedPositiveSolid REPAIRS it (the normaliser is not a no-op)  +8000.000000
+  ok    NEG the repair changed the SIGN and nothing else            -0.000000
+  ok    NEG isPositivelyOrientedSolid says YES to the repair        +1.000000
+[thicken-orientation] 19 checks, 0 failed — PASS
+[thicken-orientation] CLEAN PASS (both branches)
