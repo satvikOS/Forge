@@ -542,6 +542,19 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > `reports/corpus_ab/setback_clearance_ab_{before,after}_600.*`; the guard is proved in
 > both directions by `test/setback_clearance_gate.mjs`.
 >
+> **⚠ AND THE CHAMFER HALF MOVED AGAIN LATER THE SAME DAY — 253 became 312.** The
+> tangent rim was extended to CHAMFER (`chamferTangentRim` /
+> `tangentRim(RimKind::Chamfer)`), so 59 of the 67 parts in that family's largest defer
+> class (`end face is not a straight-boundary corner`) now build: native ok 253 -> 312,
+> native % 42.2 -> 52.0, OCCT-only 179 -> 120, native INVALID still 0 of 312. The
+> remaining 8 of that class are refused by the offset-ring-vs-hole topology guard and
+> stay refused — their cap hole lies nearer the rim than the setback, so the offset ring
+> would cross an inner wire. **The deficit against the VALID bar does NOT move (171),**
+> because `replaced` requires agreement with OCCT and all 59 land in the same
+> disagreement class FILLET's rim path already occupies with its own 58 — see the note
+> below. FILLET is unchanged by that commit (312/312/0, deficit 202), which is the
+> regression control on the shared-helper refactor.
+>
 > Every part moved in exactly one of two ways: 58 `OCCT_ONLY -> BOTH_OK`, 1
 > `NEITHER -> NATIVE_ONLY`; the other 541 did not move. All 59 are BRepCheck-VALID and
 > their removed volume equals an INDEPENDENT closed form (Pappus on the corner sections)
@@ -895,6 +908,27 @@ And the bar the failing families are held to is not what it looked like either:
 > unchanged at 202**, because every answer the guard deletes was one `BRepCheck` rejected.
 > The verdict and every failing term are the same before and after; nothing was flipped.
 > CHAMFER moves the same way (344 -> 253 answered, 91 -> 0 invalid, deficit 171 unchanged).
+>
+> **⚠ THAT CHAMFER SENTENCE IS ITSELF SUPERSEDED, later on 2026-09-04:** the tangent rim
+> was extended to CHAMFER and its answered count went 253 -> **312** (native % 52.0,
+> OCCT-only 120, still 0 invalid of 312, deficit still 171). The native chamfer and the
+> native fillet now answer **exactly the same 312 parts** — symmetric difference 0 over
+> 600 — which is the expected shape once the rim's scope conditions are shared code
+> rather than two copies of the same guards.
+>
+> **AND CHAMFER'S `agree` TERM WENT 253/253 -> 253/312, WHICH IS OCCT APPROXIMATING AND
+> NOT THIS ENGINE DRIFTING.** It is the same signature the FILLET rim already carries on
+> its own 58 valid-pair disagreements. Measured on all 59: the face/edge/vertex/shell/
+> solid counts and all six bbox bounds match OCCT **exactly**; OCCT emits BSpline patches
+> where the native rim emits exact `Geom_ConicalSurface` ones (59/59, because the corpus's
+> walls arrive from STEP as `Geom_SurfaceOfLinearExtrusion` and OCCT's ChFi3d approximates
+> on those); the volume gap is 9.2e-4 to 3.5e-3 relative, median 2.1e-3, with the native
+> answer removing MORE material on 59 of 59 — one-sided, which is an approximation's
+> fingerprint and not a random defect's. The native volume must agree with an INDEPENDENT
+> Pappus closed form to 1e-6 or the engine defers, and on EXACTLY-built rounded-rectangle
+> prisms — where OCCT need not approximate — native and OCCT match on the FULL vector
+> including the face-KIND census (`Cone:4 Cyl:4 Plane:10`). The exact arm is the native
+> one; the `RIMCHAM` cases in `test/ab_native_fillet_concave_occt.cpp` pin it.
 
 THICKSOLID's entire 132-answer baseline fails `BRepCheck`, so its valid bar is zero — and
 its coverage bar is not even stable run to run: `MakeThickSolidByJoin` returned `OK` on
