@@ -212,8 +212,84 @@ struct ArmResult {
     double volume   = 0.0, area = 0.0, length = 0.0;
     double com[3]   = {0, 0, 0};
     double bb[6]    = {0, 0, 0, 0, 0, 0};   // vertex-derived, not Bnd_Box
+    // NET AREA ENCLOSED by the result's closed wires, |0.5 sum p_i x p_(i+1)|,
+    // summed as VECTORS so a hole subtracts. Filled ONLY for a wire-only result
+    // (nfaces == 0), which among the ten families is MAKEOFFSET alone; 0 means
+    // "not measured", never "zero area". Reported, NEVER compared: `agree` is
+    // byte-for-byte the function it always was.
+    //
+    // WHY IT EXISTS. Family A's 285 disagreeing pairs were filed as one class,
+    // "a different topological decomposition". 38 of them are not that: the two
+    // arms offset the wire in OPPOSITE DIRECTIONS (Hausdorff 3.21-11.40 mm, p50
+    // 5.41, against a max of 9.7e-3 mm across every same-direction pair). The
+    // native path signs the offset by the loop's own winding to always move
+    // INWARD (src/Cam.cpp:242-246, deliberately); OCCT's Perform(-d) follows the
+    // wire's topological orientation and grows it when that winding is reversed.
+    // Nothing in the observable vector could see the difference between "the
+    // same wire cut into different edges" and "the offset went the other way",
+    // and one column makes it a fact instead of a 16 MB dump. See
+    // reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md.
+    double encArea  = 0.0;
     char   note[192] = {0};
 };
+
+// Net area enclosed by every closed wire of `s`. The VECTOR area
+// A = 0.5 * sum_i (p_i x p_(i+1)) of a closed loop is translation-invariant and
+// frame-independent, so no plane frame has to be chosen and no sign convention
+// has to be agreed; summing the vectors over the loops before taking the
+// magnitude makes a correctly-oriented hole subtract. Curved edges are sampled
+// with the kernel's own nativeQuasiUniformDeflectionParams at 1e-4 of the
+// wire's own extent, which is four orders below the smallest difference this
+// observable exists to see.
+double enclosedArea(const TopoDS_Shape& s) {
+    double lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+    bool first = true;
+    for (TopExp_Explorer vx(s, TopAbs_VERTEX); vx.More(); vx.Next()) {
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()));
+        const double c[3] = {p.X(), p.Y(), p.Z()};
+        for (int i = 0; i < 3; ++i) {
+            if (first) { lo[i] = hi[i] = c[i]; }
+            else { lo[i] = std::min(lo[i], c[i]); hi[i] = std::max(hi[i], c[i]); }
+        }
+        first = false;
+    }
+    if (first) return 0.0;
+    const double ext = std::sqrt((hi[0] - lo[0]) * (hi[0] - lo[0]) +
+                                 (hi[1] - lo[1]) * (hi[1] - lo[1]) +
+                                 (hi[2] - lo[2]) * (hi[2] - lo[2]));
+    const double defl = std::max(1.0e-9, 1.0e-4 * ext);
+    double ax = 0.0, ay = 0.0, az = 0.0;
+    for (TopExp_Explorer wx(s, TopAbs_WIRE); wx.More(); wx.Next()) {
+        std::vector<gp_Pnt> pts;
+        for (BRepTools_WireExplorer ex(TopoDS::Wire(wx.Current())); ex.More(); ex.Next()) {
+            const TopoDS_Edge e = ex.Current();
+            BRepAdaptor_Curve ad;
+            try { ad.Initialize(e); } catch (...) { continue; }
+            std::vector<double> ps;
+            try { forge::nativeQuasiUniformDeflectionParams(ad, defl, ps); } catch (...) { continue; }
+            if (ps.size() < 2) continue;
+            const int n = static_cast<int>(ps.size());
+            const bool rev = (e.Orientation() == TopAbs_REVERSED);
+            for (int i = 1; i <= n; ++i) {
+                const int idx = rev ? (n - i + 1) : i;
+                gp_Pnt p;
+                try { p = ad.Value(ps[static_cast<std::size_t>(idx) - 1]); } catch (...) { continue; }
+                if (!pts.empty() && pts.back().Distance(p) < 1e-12) continue;
+                pts.push_back(p);
+            }
+        }
+        if (pts.size() >= 2 && pts.front().Distance(pts.back()) < 1e-12) pts.pop_back();
+        if (pts.size() < 3) continue;
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            const gp_Pnt& a = pts[i];
+            const gp_Pnt& b = pts[(i + 1) % pts.size()];
+            ax += a.Y() * b.Z() - a.Z() * b.Y();
+            ay += a.Z() * b.X() - a.X() * b.Z();
+            az += a.X() * b.Y() - a.Y() * b.X();
+        }
+    }
+    return 0.5 * std::sqrt(ax * ax + ay * ay + az * az);
+}
 
 const char* statusName(int s) {
     switch (s) {
@@ -283,6 +359,12 @@ void measure(const TopoDS_Shape& s, ArmResult& r) {
             r.com[0] = c.X(); r.com[1] = c.Y(); r.com[2] = c.Z();
         } catch (...) {}
     }
+    // Wire-only results (family A): the net area the wires enclose. Guarded on
+    // nfaces == 0 so no other family pays for a sampler it does not read.
+    if (r.nfaces == 0 && r.nedges > 0) {
+        try { r.encArea = enclosedArea(s); } catch (...) { r.encArea = 0.0; }
+    }
+
     try { BRepCheck_Analyzer an(s); r.valid = an.IsValid() ? 1 : 0; }
     catch (...) { r.valid = -1; }
 }
@@ -879,10 +961,10 @@ void emitArm(std::string& out, const char* key, const ArmResult& r) {
     char buf[768];
     std::snprintf(buf, sizeof buf,
         "\"%s\":{\"status\":\"%s\",\"valid\":%d,\"f\":%d,\"e\":%d,\"v\":%d,\"sh\":%d,\"so\":%d,"
-        "\"vol\":%.10g,\"area\":%.10g,\"len\":%.10g,"
+        "\"vol\":%.10g,\"area\":%.10g,\"len\":%.10g,\"enc_area\":%.10g,"
         "\"com\":[%.10g,%.10g,%.10g],\"bb\":[%.10g,%.10g,%.10g,%.10g,%.10g,%.10g],\"note\":\"",
         key, statusName(r.status), r.valid, r.nfaces, r.nedges, r.nverts, r.nshells, r.nsolids,
-        r.volume, r.area, r.length, r.com[0], r.com[1], r.com[2],
+        r.volume, r.area, r.length, r.encArea, r.com[0], r.com[1], r.com[2],
         r.bb[0], r.bb[1], r.bb[2], r.bb[3], r.bb[4], r.bb[5]);
     out += buf;
     for (const char* p = r.note; *p; ++p) {
@@ -1122,7 +1204,79 @@ int selftest(const Cfg& cfg) {
                                             gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 1.0e-6);
     }, true, CT, false).status);
 
-    std::printf("%s: self-test, %d check(s) red of 15\n", bad ? "FAIL" : "PASS", bad);
+    // ─────────────────────────────────────────────────────────────────────
+    // THE DIRECTION OBSERVABLE, PROVED IN BOTH DIRECTIONS — and one DEFECT it
+    // found the first time it was run.
+    //
+    // `enc_area` exists to separate "the same wire cut into different edges"
+    // from "the offset went the other way". An observable that reported the
+    // same number for both would be worse than none, so it is made to read
+    // BELOW the source on an inward offset and ABOVE it on an outward one,
+    // here, on the two real engines, before any corpus number exists.
+    //
+    // The source is the 10 mm control square w0 (enclosed area 100). Offset
+    // inward by 1 mm it is an 8 mm square (64); offset outward by 1 mm with Arc
+    // joins it is 100 + 4*10*1 + pi*1^2 = 143.1376.
+    {
+        auto encOf = [&](const TopoDS_Shape& sh) {
+            return sh.IsNull() ? -1.0 : enclosedArea(sh);
+        };
+        auto occtOffset = [&](double dd) {
+            try {
+                BRepOffsetAPI_MakeOffset off(w0, GeomAbs_Arc);
+                off.Init(GeomAbs_Arc);
+                off.Perform(dd);
+                if (off.IsDone()) return encOf(off.Shape());
+            } catch (...) { }
+            return -1.0;
+        };
+        const double aSrc = encOf(w0);
+        // +Z frame: w0 presents CCW to the engine, which is what all 594 of the
+        // corpus's outer wires do.
+        const double aIn = encOf(nativeInwardOffset(w0, 1.0,
+                                 gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1))));
+        double aOut = occtOffset(1.0);
+        if (aOut > 0.0 && aOut < aSrc) aOut = occtOffset(-1.0);   // OCCT's sign follows the winding
+        // -Z frame: the SAME wire presents CW. See the pin below.
+        const double aCw = encOf(nativeInwardOffset(w0, 1.0,
+                                 gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, -1))));
+
+        auto chk = [&](const char* what, bool okv, double got, double want) {
+            std::printf("  %-30s %-13.6g %-13.6g  %s\n", what, got, want, okv ? "ok" : "MISMATCH");
+            if (!okv) ++bad;
+        };
+        chk("enc_area source square", std::fabs(aSrc - 100.0) < 1e-6, aSrc, 100.0);
+        chk("enc_area inward  < source", aIn > 0.0 && aIn < aSrc, aIn, aSrc);
+        chk("enc_area outward > source", aOut > aSrc, aOut, aSrc);
+        // NOT VACUOUS: if the two offsets read the same number the two checks
+        // above could both pass on a constant.
+        chk("inward and outward differ", aOut - aIn > 1.0, aOut - aIn, 1.0);
+
+        // ── PINNED DEFECT, not a passing property ──────────────────────────
+        // src/Cam.cpp:295-296 signs the offset by the loop's winding —
+        //     const double signedDist = loop.isCCW() ? -offsetMm : offsetMm;
+        // — and says in its own comment that this makes it "ALWAYS move inward
+        // (into the closed wire) regardless of the wire's winding". It does
+        // not. PolygonOffset2D::offsetLoop's d is NOT winding-relative:
+        // measured directly on a CW 10 mm square, d=+1 gives |area| 143.1376
+        // (GREW) and d=-1 gives 64.0 (shrank) — the same answers as for the CCW
+        // square, so the header's "a CW hole is the mirror" does not describe
+        // the code. A wire that presents CW therefore offsets OUTWARD under a
+        // function named inwardOffset.
+        //
+        // THE CORPUS CANNOT SEE THIS: all 594 outer wires present CCW in their
+        // face's plane frame, so the branch is never taken over 600 parts. Only
+        // this control, run in the -Z frame, reaches it. It is PINNED rather
+        // than fixed because the fix is a one-line change to the shipped
+        // src/Cam.cpp on the FORGE_OFFSET_DROP_MAKEOFFSET seam (drop
+        // `loop.isCCW() ?`), and a measurement change must not smuggle a kernel
+        // behaviour change in with it. WHEN THIS CHECK GOES RED THE DEFECT HAS
+        // BEEN FIXED: replace it with `aCw < aSrc` and update
+        // reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md.
+        chk("PIN: CW frame offsets OUT", std::fabs(aCw - 143.13761) < 1e-3, aCw, 143.13761);
+    }
+
+    std::printf("%s: self-test, %d check(s) red of 20\n", bad ? "FAIL" : "PASS", bad);
     return bad ? 1 : 0;
 }
 
@@ -1286,7 +1440,9 @@ int main(int argc, char** argv) {
                 const double d = 0.05 * std::sqrt(pk.planarBigArea);
                 const gp_Pln pl = pk.planarBigPln;
                 char od[112];
-                std::snprintf(od, sizeof od, "inward wire offset d=%.6g", d);
+                std::snprintf(od, sizeof od,
+                              "inward wire offset d=%.6g src_enc_area=%.10g",
+                              d, enclosedArea(w));
                 // FORGE_MO_DUMP hook only (see moDumpWires): one frame, one
                 // sampler, one budget for the source wire and both answers.
                 // Every statement below is inert with the variable unset.
