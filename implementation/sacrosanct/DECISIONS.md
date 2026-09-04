@@ -4246,3 +4246,39 @@ than the thing measured.** The same shape retired several other beliefs the same
 in OPPOSITE directions); DRAFT's other 52 are **not** a topology change; THICKSOLID's invalid bar is
 **133**; and FILLET's 58 near-misses are a **real geometric difference, not a tolerance** — so
 declining to widen was right.
+
+## 2026-09-04 — the v5 evaluation blocker was self-inflicted; the invariant was backwards
+
+**Claimed yesterday and recorded as measured:** every adapter holds 1024 tensors of which 480 are
+LoRA; `adapter_config.json` lists the 240 LoRA modules, so **544 are silently ignored at load**, and
+110 of them changed during v5 training. On that basis I declared the evaluation blocked, refused to
+produce a number, and put a question mark on the published v3 result.
+
+**That claim is false.** `mlx_vlm/trainer/utils.py:346` calls `model.load_weights(..., strict=False)`
+on the WHOLE model after the LoRA layers are installed, so a non-LoRA tensor is applied iff its name
+matches an existing parameter. Measured on the live model — load v3, read the tensor back:
+`vision_tower.blocks.25.mlp.linear_fc2.weight` equals the ADAPTER exactly (max|d| 0) and differs from
+base by the full 4.37e-3. All 544 land. v3's result stands; v5 was never blocked.
+
+**The real defect was in our own `expert_lora_patch.verify()`**, and it was backwards: it passed the
+784-key config that CRASHES the loader and refused the 240-key config that works. Cause:
+`keys_from_weights()` stripped `.lora_[ab]` off every tensor name, so the norms and the whole vision
+tower (544) were counted as LoRA module paths.
+
+**Decision — fix the invariant, do not relax it.** LoRA-only key derivation; `verify(base_dir=...)`
+checks the two tensor classes on the instrument that governs each. The v4a protection (a LoRA tensor
+whose module is never built IS dropped — 72 expert tensors lost) is unchanged in both directions; a
+new check covers the class that had none. Gate: `scripts/test_expert_lora_verify.py`, 10 checks,
+three mutations each refused with its own diagnosis. The evaluator now refuses an adapter whose
+tensors cannot all land, proved against a synthetic bad adapter.
+
+**Rule taken from it:** a measured fact multiplied by an unmeasured premise yields an unmeasured
+conclusion. The measurement ("110 tensors changed") was right; the premise about load behaviour was
+never checked, and the product was a blocker that cost a night. Loading the model and reading the
+tensor back took four minutes.
+
+**Also this tick:** #242 merged (`0e1efdcd`, 27 today). App rebuilt from the merged HEAD and
+installed; the shipped dylib carries both new guard strings, the worker answers
+`FORGE-WORKER-RESULT 1`, the bundle launches. Rollback `/Applications/Forge.app.prev-20260904-1142`.
+**OCCT_CLOSURE re-measured after the base move: 14, unchanged** — as predicted, `BRepExtrema` is
+TKTopAlgo and already a direct dep. Zero of 14 dropped; the pair {TKOffset, TKFillet} still gates it.
