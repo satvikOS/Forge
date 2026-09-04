@@ -126,6 +126,16 @@ void checkGe(const A& got, const B& floor, const char* what) {
   }
 }
 
+// A tolerance is an ARGUMENT here, never a house default: every caller states
+// the one its own arithmetic earns.
+void checkNear(double got, double want, double tol, const char* what) {
+  ++g_checks;
+  if (!(std::fabs(got - want) <= tol)) {
+    ++g_failures;
+    std::printf("  FAIL  %-52s  got %.9g want %.9g (tol %.3g)\n", what, got, want, tol);
+  }
+}
+
 template <typename A, typename B>
 void checkLe(const A& got, const B& ceiling, const char* what) {
   ++g_checks;
@@ -1612,6 +1622,317 @@ int main(int argc, char** argv) {
     checkEq(shell.selection().count(), 0u,
             "a statement click obeys the selection filter instead of overriding it");
     shell.selection().setFilter(forge::ui::EntityKind::Any);
+  }
+
+  // ── 18. THE SIX THAT STOPPED BEING EMPTY NEXT ────────────────────────────
+  //
+  // THE DEFECT: six more docked tabs -- Constraints, Relations, Solver,
+  // Isocline, Continuity and Tools -- had a name, a sentence, and nothing at
+  // all. Three are readings of the sketch family the document already carries,
+  // two of the tessellation the viewport is already drawing, and one of what the
+  // cuts already call for.
+  //
+  // ui/test/sketch_diagnosis_test.cpp, ui/test/surface_analysis_test.cpp and
+  // ui/test/tool_library_test.cpp assert the ARITHMETIC of all six, headless.
+  // What THIS section adds is the half those gates cannot give: that the frame
+  // builder dispatches each tab to its OWN panel, that each panel puts rows on
+  // screen for the REAL document and the REAL kernel body, and that the two
+  // controls the Isocline panel owns actually reach the measurement.
+  //
+  // THE SKETCH IS DRAWN THROUGH THE ONE REGISTRY, statement by statement, the
+  // way a user would: a new sketch, two points, a line on them, a constraint,
+  // and a dimension. A gate that hand-built a document would be asserting
+  // against its own idea of what the Sketch tools emit.
+  //
+  // MUTATION 17 answers the three sketch panels from an EMPTY document -- the
+  //   shape of a panel built from the wrong source.
+  // MUTATION 18 answers them from the document as it stood BEFORE the
+  //   constraints were added, which is the stale-panel defect.
+  // MUTATION 19 ignores the panel's chosen pull direction, which is a control
+  //   the user can see moving that changes nothing.
+  // MUTATION 20 answers the continuity report from an empty mesh.
+  // MUTATION 21 answers the tool list from the plan as it stood before an edit.
+  // MUTATION 22 drops the taper the job asks for on the floor.
+  {
+    // ── the sketch panels, on a document with no sketch in it ──────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Sketch);
+    frame.setActiveTabAt({0}, 1);          // left column: sketch_tree, constraints
+    buildOneFrame(frame, 0);
+    check(frame.sketchDiagnosis().empty(),
+          "the starting part holds no sketch, so there is nothing to diagnose", "");
+    checkEq(frame.constraintRowsDrawn(), 0u,
+            "and the Constraints tab draws no rows it does not have");
+
+    // ── draw one, through the commands a user would use ────────────────────
+    const std::size_t beforeSketch = frame.document().records().size();
+    frame.invoke("part.sketch_new");
+    checkEq(frame.document().records().size(), beforeSketch + 1,
+            "New Sketch added a step through the one registry");
+    int sketchId = 0;
+    if (frame.document().records().size() > beforeSketch) {
+      sketchId = frame.document().records().back().irId;
+      check(frame.document().records().back().line.op == "SKETCH",
+            "and the step it added opens a sketch",
+            frame.document().records().back().line.op);
+    }
+    checkGe(sketchId, 1, "the sketch has an id the rest of this section can name");
+
+    // Two points in it. Each needs the sketch selected, which is the same
+    // statement click the tree makes.
+    frame.clickFeature(sketchId, false);
+    frame.invoke("part.sketch_entity_point");
+    const int p0 = frame.document().records().empty() ? 0 : frame.document().records().back().irId;
+    frame.clickFeature(sketchId, false);
+    frame.invoke("part.sketch_entity_point");
+    const int p1 = frame.document().records().empty() ? 0 : frame.document().records().back().irId;
+    check(p0 != 0 && p1 != 0 && p0 != p1, "two points went into the sketch",
+          std::to_string(p0) + " and " + std::to_string(p1));
+    // Move the second one, through the SAME parameter edit the Properties panel
+    // uses, so the two are not on top of each other.
+    frame.setEditTarget(p1, 0);
+    check(frame.applyFeatureEdit(40.0), "the second point was moved through the one registry", "");
+
+    // A line on the two of them.
+    frame.clickFeature(p0, false);
+    frame.clickFeature(p1, true);
+    frame.invoke("part.sketch_entity_line");
+    const int l0 = frame.document().records().empty() ? 0 : frame.document().records().back().irId;
+    check(l0 != 0 && l0 != p1, "a line was drawn on the two points", std::to_string(l0));
+
+    // Before any constraint: the panels must already have real rows, and the
+    // Solver must say the sketch is loose.
+    buildOneFrame(frame, 0);
+    const forge::ui::SketchDiagnosisSet loose = frame.sketchDiagnosis();
+    checkEq(loose.sketches.size(), 1u, "the diagnosis found the sketch that was drawn");
+    if (!loose.sketches.empty()) {
+      const forge::ui::SketchDiagnosis& d = loose.sketches.front();
+      checkEq(d.geometry.size(), 3u, "and the three things drawn in it");
+      checkEq(d.freedoms, 4u, "two points are four free numbers");
+      checkEq(d.held, 0u, "and nothing holds any of them yet");
+      check(d.definition == forge::ui::SketchDefinition::Under,
+            "so the sketch is not pinned down", forge::ui::toString(d.definition));
+      checkEq(d.untouched, 2u, "and both points are held by nothing at all");
+    }
+
+    // ── the constraints, through the commands ──────────────────────────────
+    frame.clickFeature(l0, false);
+    frame.invoke("part.sketch_constrain_single");   // HORIZ, the schema's default
+    const int cHoriz = frame.document().records().empty()
+                           ? 0 : frame.document().records().back().irId;
+    frame.clickFeature(p0, false);
+    frame.clickFeature(p1, true);
+    frame.invoke("part.sketch_constrain");          // COINC, the schema's default
+    const int cPair = frame.document().records().empty()
+                          ? 0 : frame.document().records().back().irId;
+    check(cHoriz != 0 && cPair != 0 && cHoriz != cPair, "two constraints were added",
+          std::to_string(cHoriz) + " and " + std::to_string(cPair));
+
+    // ── all three sketch panels draw, and draw DIFFERENT things ────────────
+    const forge::ui::PartDocument emptyDocument;
+    const forge::ui::SketchDiagnosisSet held =
+        g_mutation == 17 ? forge::ui::buildSketchDiagnosis(emptyDocument)
+                         : (g_mutation == 18 ? loose : frame.sketchDiagnosis());
+    checkEq(held.sketches.size(), 1u, "the sketch is still one sketch");
+    if (!held.sketches.empty()) {
+      const forge::ui::SketchDiagnosis& d = held.sketches.front();
+      checkEq(d.constraints.size(), 2u, "and both constraints are listed against it");
+      // HORIZ on a line holds one number; a coincidence holds two.
+      checkEq(d.held, 3u, "which between them hold three of its four free numbers");
+      checkEq(d.stillFree, 1, "leaving one still free");
+      checkEq(d.faults, 0u, "and neither of them holds nothing");
+      checkEq(d.untouched, 0u, "nothing in the sketch is untouched now");
+      // THE CENSUS IS TOTAL, re-derived here rather than trusted: the freedoms
+      // are the sum over the geometry and the held is the sum over the sound
+      // constraints.
+      std::size_t freedoms = 0;
+      for (const forge::ui::SketchGeometryRow& g : d.geometry) freedoms += g.freedoms;
+      checkEq(freedoms, d.freedoms, "the free numbers are the sum over what is drawn");
+      std::size_t sum = 0;
+      for (const forge::ui::SketchConstraintRow& c : d.constraints) sum += c.holds;
+      checkEq(sum, d.held, "and the held is the sum over the constraints that hold something");
+      // Everything is tied to everything: one group, so dragging any of it moves
+      // all of it.
+      checkEq(d.clusters.size(), 1u, "the whole sketch is one group that moves together");
+    }
+
+    // Each tab is activated and the panel behind it is asserted to have been
+    // DRAWN, by name. Without that, a wrong path would show up as a row count of
+    // zero and read as a panel that draws nothing -- which is the exact defect
+    // this section exists to catch, reported against the wrong cause.
+    const auto drewPanel = [&frame](const char* id) {
+      const std::vector<std::string>& drawn = frame.panelIdsDrawn();
+      return std::find(drawn.begin(), drawn.end(), std::string(id)) != drawn.end();
+    };
+    frame.setActiveTabAt({0}, 1);
+    buildOneFrame(frame, 0);
+    check(drewPanel("constraints"), "activating its tab draws the Constraints panel", "");
+    checkGe(frame.constraintRowsDrawn(), 3u, "the Constraints tab drew rows of its own");
+    // The right column is Dimensions, Properties, Relations.
+    frame.setActiveTabAt({1, 1}, 2);
+    buildOneFrame(frame, 0);
+    check(drewPanel("relations"), "activating its tab draws the Relations panel", "");
+    checkGe(frame.relationRowsDrawn(), 4u, "the Relations tab drew rows of its own");
+    // The bottom strip is Solver, Console.
+    frame.setActiveTabAt({1, 0, 1}, 0);
+    buildOneFrame(frame, 0);
+    check(drewPanel("solver_status"), "activating its tab draws the Solver panel", "");
+    checkGe(frame.solverRowsDrawn(), 4u, "the Solver tab drew rows of its own");
+
+    // ── THE POSITIVE CONTROL: A REPEAT HOLDS NOTHING ───────────────────────
+    // The same coincidence again, over the same two points, through the same
+    // command. A count that simply added it would report the sketch as held
+    // more than it has to give; the held must not move at all, and the repeat
+    // must be NAMED.
+    frame.clickFeature(p0, false);
+    frame.clickFeature(p1, true);
+    frame.invoke("part.sketch_constrain");
+    buildOneFrame(frame, 0);
+    const forge::ui::SketchDiagnosisSet repeated =
+        g_mutation == 18 ? loose : frame.sketchDiagnosis();
+    if (!repeated.sketches.empty()) {
+      const forge::ui::SketchDiagnosis& d = repeated.sketches.front();
+      checkEq(d.constraints.size(), 3u, "the repeat is listed");
+      checkEq(d.held, 3u, "and holds nothing the first one did not");
+      checkEq(d.faults, 1u, "so it is named as holding nothing");
+      checkEq(repeated.faultCount(), 1u, "and counted once over the whole document");
+    }
+
+    // ── the surface panels, against the REAL kernel body ───────────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Surface);
+    // The right column is Continuity, Properties, Isocline.
+    frame.setActiveTabAt({1, 1}, 2);
+    buildOneFrame(frame, 0);
+    check(drewPanel("isocline"), "activating its tab draws the Isocline panel", "");
+    checkGe(frame.draftRowsDrawn(), 1u, "the Isocline tab drew a row per face");
+
+    frame.setDraftPull(forge::ui::PullAxis::ZPlus);
+    frame.setRequiredDraft(3.0);
+    const forge::ui::DraftReport alongZ = frame.draftReport();
+    check(alongZ.known, "there is a body on screen to measure", "");
+    checkEq(alongZ.faces.size(), static_cast<std::size_t>(scene.faceCount()),
+            "every face of the body is in the list, and nothing else is");
+    // THE CENSUS IS TOTAL.
+    checkEq(alongZ.releasing + alongZ.shallow + alongZ.square + alongZ.opposite +
+                alongZ.unmeasured,
+            alongZ.faces.size(), "every face is in exactly one bucket");
+    // The starting part is a plate: its top comes straight off, its bottom is on
+    // the other half, and every wall, the bore and the corner fillets run
+    // exactly along the pull.
+    checkGe(alongZ.releasing, 1u, "the top of the plate comes away");
+    checkGe(alongZ.opposite, 1u, "and its underside comes out the other way");
+    checkGe(alongZ.square, 1u, "while its walls are square to the pull");
+    checkNear(alongZ.requiredDeg, 3.0, 1e-9, "the taper the panel asks for reaches the reading");
+
+    // THE CONTROL: turn the part on its side and every verdict has to move.
+    // Nothing that measured against a fixed direction survives this.
+    frame.setDraftPull(forge::ui::PullAxis::XPlus);
+    buildOneFrame(frame, 0);
+    const forge::ui::DraftReport alongX =
+        g_mutation == 19 ? alongZ : frame.draftReport();
+    checkEq(alongX.faces.size(), alongZ.faces.size(), "the same faces are measured");
+    check(alongX.square != alongZ.square,
+          "pulling it a different way squares a different set of faces",
+          std::to_string(alongZ.square) + " along Z vs " + std::to_string(alongX.square) +
+              " along X");
+    // The plate's top and bottom were the two that came off along Z; across X
+    // they are square to the pull instead.
+    checkGe(alongX.square, 1u, "and something is square to the new direction");
+    frame.setDraftPull(forge::ui::PullAxis::ZPlus);
+
+    // THE SECOND CONTROL: the taper the job asks for is the USER'S number, and
+    // it must reach the reading. A panel whose control changed nothing would be
+    // the same defect as a tab that draws nothing.
+    frame.setRequiredDraft(7.5);
+    buildOneFrame(frame, 0);
+    checkNear(frame.draftReport().requiredDeg, g_mutation == 22 ? 3.0 : 7.5, 1e-9,
+              "the taper control reaches the reading");
+    // and it is a requirement, not a measurement: it is clamped to something a
+    // person could mean rather than passed through.
+    frame.setRequiredDraft(-9.0);
+    checkNear(frame.requiredDraft(), 0.0, 1e-9, "a negative taper is not a taper");
+    frame.setRequiredDraft(3.0);
+
+    // ── continuity, on the same body ───────────────────────────────────────
+    frame.setActiveTabAt({1, 1}, 0);
+    buildOneFrame(frame, 0);
+    check(drewPanel("continuity"), "activating its tab draws the Continuity panel", "");
+    checkGe(frame.continuityRowsDrawn(), 1u, "the Continuity tab drew a row per join");
+
+    const forge::ui::MeasureMesh nothing;
+    const forge::ui::ContinuityReport joins =
+        g_mutation == 20
+            ? forge::ui::buildContinuityReport(nothing, forge::ui::measureMesh(nothing))
+            : frame.continuityReport();
+    check(joins.known, "there is a body on screen whose joins can be measured", "");
+    checkGe(joins.joins.size(), 1u, "the body has faces that meet each other");
+    checkEq(joins.smooth + joins.sharp, joins.joins.size(),
+            "every join either runs in or breaks, and never both");
+    check(joins.worstKnown, "and the hardest break is a real number", "");
+    // The plate has square corners, so SOMETHING breaks hard.
+    check(joins.worstBreakDeg > 45.0, "the plate's own corners break hard",
+          std::to_string(joins.worstBreakDeg));
+    // The tolerance is MEASURED from this shape, not chosen: the part carries a
+    // bore and rounded corners, so it is drawn in steps and the reading says so.
+    check(!joins.resolutionIsFloor,
+          "the break tolerance was measured from the shape's own steps rather than assumed",
+          std::to_string(joins.resolutionDeg));
+    check(joins.resolutionDeg > forge::ui::kMeasureAngleTolerance,
+          "and that measurement is coarser than the floor it would fall back to",
+          std::to_string(joins.resolutionDeg));
+    for (const forge::ui::SurfaceJoin& j : joins.joins) {
+      check(j.faceA < j.faceB, "a pair of faces is listed once, smaller id first",
+            std::to_string(j.faceA) + " to " + std::to_string(j.faceB));
+      check(j.sharedLength > 0.0, "and the join has a real length",
+            std::to_string(j.sharedLength));
+    }
+
+    // ── the tools the cuts call for ────────────────────────────────────────
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Manufacturing);
+    frame.setActiveTabAt({0}, 1);          // left column: operation_tree, tool_library
+    buildOneFrame(frame, 0);
+    check(drewPanel("tool_library"), "activating its tab draws the Tools panel", "");
+    checkGe(frame.toolLibraryRowsDrawn(), 1u, "the Tools tab drew rows of its own");
+
+    const forge::ui::ToolList tools = frame.toolList();
+    check(tools.known, "the starting part has something to cut", "");
+    checkGe(tools.tools.size(), 1u, "and something to cut it with");
+    // The subject is READ from the document: whichever step is the fillet, and
+    // whatever its radius currently is.
+    int filletStatement = 0;
+    double filletRadius = 0.0;
+    for (const forge::ui::FeatureRecord& r : frame.document().records()) {
+      if (r.line.op != "FILLET" || filletStatement != 0) continue;
+      for (const forge::ui::IrArg& a : r.line.args) {
+        if (a.kind != forge::ui::IrArgKind::Number) continue;
+        filletStatement = r.irId;
+        filletRadius = a.number;
+        break;
+      }
+    }
+    checkGe(filletStatement, 1, "the document holds a fillet");
+    // An internal corner of radius r is cut by a tool of diameter 2r, and that
+    // is the tool the whole job is limited by.
+    check(tools.smallestKnown, "the list names the cutter that limits the job", "");
+    checkNear(tools.smallestMm, 2.0 * filletRadius, 1e-9,
+              "and it is twice the fillet's own radius");
+
+    // THE POSITIVE CONTROL: grow the fillet and the cutter it calls for grows
+    // with it. Nothing that printed a constant survives this.
+    const double edited = filletRadius + 2.0;
+    frame.setEditTarget(filletStatement, 0);
+    check(frame.applyFeatureEdit(edited), "the fillet was edited through the one registry", "");
+    buildOneFrame(frame, 0);
+    const forge::ui::ToolList afterEdit = g_mutation == 21 ? tools : frame.toolList();
+    checkNear(afterEdit.smallestMm, 2.0 * edited, 1e-9,
+              "and the Tools tab now calls for a bigger cutter");
+    frame.setEditTarget(filletStatement, 0);
+    check(frame.applyFeatureEdit(filletRadius), "and the edit is reversible", "");
+    buildOneFrame(frame, 0);
+
+    // Put the workspace back, so anything after this sees what it expects.
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+    frame.setActiveTabAt({0}, 0);
+    buildOneFrame(frame, 0);
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

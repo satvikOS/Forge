@@ -201,6 +201,13 @@ struct MachiningOperation {
   // another body says nothing at all about a tool, and a chamfer can be cut with
   // any size of chamfer mill.
   double toolDiameterMm = 0.0;
+  // A SECOND cutter the same statement calls for. Exactly one op needs it: a
+  // counterbore is a pilot drill AND a larger flat-bottomed cutter, and its two
+  // diameters are two separate arguments of the same statement. Reporting only
+  // the pilot would put half a setup in front of a machinist. 0, and
+  // `secondToolKnown` false, for every other op.
+  double secondToolDiameterMm = 0.0;
+  bool secondToolKnown = false;
   double depthMm = 0.0;
   bool through = false;       // a HOLE whose depth argument is absent or <= 0
 };

@@ -91,14 +91,14 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"constraints",
      "The constraints holding this sketch together, and which of them conflict.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"contacts",
      "Which bodies of this model touch each other, which overlap, and exactly how far apart the "
      "nearest of the others are.",
      PanelContent::Live},
     {"continuity",
      "How smoothly neighbouring surfaces meet, so you can find the joins a customer would see.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"convergence",
      "Whether the study's answer has settled, and how much it is still moving as the mesh gets "
      "finer.",
@@ -128,7 +128,7 @@ constexpr Row kRows[] = {
     {"isocline",
      "Where a surface tips past a chosen angle, so you can check a part will release from its "
      "mould.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"loads",
      "The forces, pressures and temperatures applied to this study.",
      PanelContent::Planned},
@@ -165,7 +165,7 @@ constexpr Row kRows[] = {
     {"relations",
      "How the entities in this sketch depend on each other, so you can see what will move when "
      "you drag one.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"restraints",
      "Where this study is held still: the faces that are fixed, pinned or supported.",
      PanelContent::Planned},
@@ -188,7 +188,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"solver_status",
      "Whether this sketch is fully defined, and what is still free to move if it is not.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"stock",
      "The smallest block of raw material this part can be cut from, and how much of that block "
      "is cut away.",
@@ -203,8 +203,9 @@ constexpr Row kRows[] = {
      "The title block of this drawing: part number, revision, material, scale and who signed it.",
      PanelContent::Planned},
     {"tool_library",
-     "The cutting tools available for this setup, with their diameters, flute counts and holders.",
-     PanelContent::Planned},
+     "The cutting tools this part calls for: the size each cut needs, how deep it has to reach, "
+     "and which cuts share one tool.",
+     PanelContent::Live},
     {"verify_report",
      "Whether the part that was built matches what was asked for, and where it does not.",
      PanelContent::Live},
