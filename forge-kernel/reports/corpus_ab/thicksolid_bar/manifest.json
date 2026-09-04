@@ -16,17 +16,35 @@
     "input_census": "test/thicksolid_input_census.cpp (pre-existing)",
     "fixture_gate": "test/thicksolid_bar_fixture_gate.cpp, ratcheted by test/run_ab_all.sh"
   },
-  "oracle_settings": { "mc_samples": 300000, "voxels_per_wall": 3, "voxel_cap": 40000000,
-                       "mesh_deflection": "min(wall/12, diag*1e-3)", "angular_deflection": 0.3 },
+  "oracle_settings": {
+    "mc_samples": 300000,
+    "voxels_per_wall": 3,
+    "voxel_cap": 40000000,
+    "mesh_deflection": "min(wall/12, diag*1e-3)",
+    "angular_deflection": 0.3
+  },
   "headline": {
-    "occt_built": 133, "native_built": 0, "of_the_133_brepcheck_valid": 0,
-    "open_shell": 123, "self_intersecting": 94, "both": 84,
-    "volume_ge_source": 6, "non_manifold": 0, "identity_return": 0, "no_structural_fault": 0,
-    "still_invalid_after_ShapeFix": 116, "valid_after_ShapeFix_but_still_open": 17,
+    "occt_built": 133,
+    "native_built": 0,
+    "of_the_133_brepcheck_valid": 0,
+    "open_shell": 123,
+    "self_intersecting": 94,
+    "both": 84,
+    "volume_ge_source": 6,
+    "non_manifold": 0,
+    "identity_return": 0,
+    "no_structural_fault": 0,
+    "still_invalid_after_ShapeFix": 116,
+    "valid_after_ShapeFix_but_still_open": 17,
     "correct_answer_topology_preserving_single_lump_all_analytic": 31,
     "of_the_133_needing_a_topology_change": 102,
     "usable_at_wall_over_128": 7,
-    "crash_rate_ho317": "14/100", "crash_rate_ho377": "19/100", "crash_rate_ho153_at_half_wall": "14/100",
-    "full_600_passes": 8, "parts_changing_verdict_across_those_passes": 1
+    "crash_rate_ho317": "51/400 pooled (12.8%, 95% CI 9.5-16.0)",
+    "crash_rate_ho377": "89/400 pooled (22.2%, 95% CI 18.2-26.3)",
+    "crash_rate_ho153_at_half_wall": "14/100 (14.0%)",
+    "full_600_passes": 8,
+    "parts_changing_verdict_across_those_passes": 1,
+    "bar_parts_that_are_nondeterministic": "2 of 133, measured over 133 parts x 20 fresh runs (2660 evaluations, 3 crashes)",
+    "crash_site": "BRepCheck_Analyzer::IsValid(), after volume/area/topology already succeeded on the same shape"
   }
 }

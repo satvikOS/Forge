@@ -19,7 +19,7 @@ the same 600 gold reference solids and the same derived operation
 |---|---|
 | How many of the invalid answers are invalid in a way that MATTERS? | **133 of 133.** 123 open shells, 94 self-intersecting, 84 both, 6 enclosing more volume than the body they hollowed, **0** with no structural fault. Not one tolerance- or flag-level `BRepCheck` status appears anywhere in the corpus. |
 | What is the largest set for which a CORRECT answer is achievable, and what would it take? | **31 of 600** — and all 31 are inside the current 133. Every one of them needs the same missing capability: **offsetting a planar region with a real 2-D boolean, so boundary loops may merge and faces may vanish.** 24 of the 31 additionally need trimmed partial-revolution quadrics and arc edges. The other 102 of the 133 need a **topology-changing 3-D erosion**, which is not a bounded increment. |
-| Quantify the crash. | At the derived wall the bar is **stable across 8 full 600-part passes with 1 verdict change** (`ho377`, once) — but that is 8 samples of an event whose per-part rate is 14–20%: repeated 100× on one part, `ho317` crashes **14/100** and `ho377` **19/100**, same binary, same input. Every crash is a `SIGSEGV` while **measuring** a shape `MakeThickSolidByJoin` had already returned with `IsDone()` true. |
+| Quantify the crash. | **2 of the 133 move** — `ho317` and `ho377` — measured over all 133 parts × 20 fresh runs; the other 131 are bit-stable. Those two are 8 samples' worth of an event whose per-part rate is 13–22%: pooled over 400 runs each, `ho317` crashes **51/400 (12.8%)** and `ho377` **89/400 (22.2%)**, same binary, same input. The `SIGSEGV` is inside **`BRepCheck_Analyzer::IsValid()`**, on the shape OCCT's own thicksolid engine had just returned with `IsDone()` true — and that call is inside the flip gate, at `test/corpus_ab_coverage.cpp:284`. |
 
 ---
 
@@ -302,22 +302,35 @@ bar is not thick-wall degeneracy.
 | `test/run_corpus_ab_coverage.sh` with `FAMILIES=THICKSOLID` | 4 | **0** |
 | `test/thicksolid_bar_census.cpp` at the derived wall | 4 | **1** (`ho377`, `OK → CRASH_sig11` once) |
 
+**Machine state, stated because a race is being measured:** a 14-core Apple
+Silicon Mac running other agents' full ten-family A/B suites concurrently for
+most of the session. That is the same condition
+`reports/corpus_ab/FILLET_RIM_ATTRIBUTION.md` §8 recorded its own observations
+under. A ten-family repetition was started as a third instrument and **stopped
+part-way rather than completed** — with three A/B suites sharing the machine the
+20-second arm deadline becomes its own confound, and the eight dedicated passes
+below plus §4.2b already answer the question.
+
 Across the four A/B passes the OCCT arm was byte-identical on all 600 parts. In
 the four census passes, **36 parts' volumes differ between passes** — at the 1e-15
 relative level, i.e. summation-order noise, exactly the effect
 `THICKSOLID_ATTRIBUTION.md` §1 already recorded for the centre of mass.
 
-### 4.2 Single-part repetition: the rate is 14–20%, and eight passes was simply too few
+### 4.2 Single-part repetition: the rate is 13–22%, and eight passes was simply too few
 
 Eight whole-corpus passes is eight samples of a rare event. Repeating **one part
-100 times** in fresh processes, same binary, same input, quiet-ish 14-core
-machine:
+in a fresh process, 100 times per block**, same binary, same input, on a 14-core
+machine also running other jobs:
 
-| part | wall | crashes / 100 | where |
-|---|---|---:|---|
-| `ho317` | derived `t` | **14** | inside the measurement of the returned shape |
-| `ho377` | derived `t` | **19** | inside the measurement of the returned shape |
-| `ho153` | `t/2` | **14** | inside the measurement of the returned shape |
+| part | wall | blocks of 100 | pooled | 95% CI |
+|---|---|---|---:|---|
+| `ho317` | derived `t` | 11, 14, 16, 10 | **51 / 400 = 12.8%** | 9.5–16.0% |
+| `ho377` | derived `t` | 20, 19, 24, 26 | **89 / 400 = 22.2%** | 18.2–26.3% |
+| `ho153` | `t/2` | 14 | **14 / 100 = 14.0%** | 7.2–20.8% |
+
+The four blocks per part were taken with three successive builds of the probe
+(the differences are added diagnostics, not changed calls), so the spread across
+blocks is the event's own variance and machine load, not a change of instrument.
 
 `ho317` and `ho377` are exactly the two parts
 `reports/corpus_ab/FILLET_RIM_ATTRIBUTION.md` §8 recorded crashing in the
@@ -328,14 +341,51 @@ per-part rate are the same fact seen at two sample sizes**, and the smaller numb
 is the one that matters: the bar for this family contains parts that answer
 differently on 1 run in 7.
 
-### 4.3 What crashes, precisely
+### 4.2b How much of the bar moves: exactly two parts of the 133
 
-In every observed crash the child had already written `IsDone = 1` **and** the
-wall value for that step before dying. The `SIGSEGV` is therefore **not** in
-`BRepOffsetAPI_MakeThickSolid`: it is in the measurement of a shape that
-`MakeThickSolidByJoin` had just returned with `IsDone()` true — `BRepGProp`,
-the topology maps, or `BRepCheck_Analyzer` on it. A gate whose baseline is 133
-shapes that OCCT itself cannot always measure is a gate whose bar is not defined.
+Breadth, rather than depth: **all 133 parts the gate counts, 20 fresh runs each,
+2660 evaluations.**
+
+| | |
+|---|---:|
+| parts that crashed at least once | **2** — `ho317` and `ho377` |
+| parts whose verdict differed across the 20 passes | **2** |
+| total crashes | 3 / 2660 runs (0.11%) |
+| P(a whole 133-part pass shows no crash at all), from those rates | **0.855** |
+
+So the instability is **not** diffuse: **1.5% of the bar is nondeterministic and
+the rest is bit-stable**, and the two parts are exactly the two
+`FILLET_RIM_ATTRIBUTION.md` §8 named. The 0.855 is the whole reconciliation
+between §4.1 and §4.2 — eight passes at that rate are expected to show about one
+crash, and showed one.
+
+### 4.3 What crashes, precisely — `BRepCheck_Analyzer::IsValid()`
+
+The probe streams a marker before each measurement step, so the fault is
+attributed rather than inferred. Over 200 further runs with the finer markers in
+place:
+
+| part | runs | crashes | last marker written |
+|---|---:|---:|---|
+| `ho317` | 100 | 10 | `obs_check` |
+| `ho377` | 100 | 26 | `obs_check` |
+
+`obs_check` is written immediately before `BRepCheck_Analyzer(s).IsValid()` and
+after the volume, the area and every topology map have already been computed and
+survived. So:
+
+* the `SIGSEGV` is **not** in `BRepOffsetAPI_MakeThickSolid` — the child had
+  already written `IsDone = 1` and the shape's volume, area and five topology
+  counts before dying;
+* it is in **OCCT's own validity checker, on the shape OCCT's own thicksolid
+  engine had just produced**.
+
+**That path is inside the flip gate.** `test/corpus_ab_coverage.cpp:284` runs
+`BRepCheck_Analyzer an(s); r.valid = an.IsValid() ? 1 : 0;` on every arm result,
+inside the arm's forked child — which is exactly the `OK -> CRASH` transition
+`reports/corpus_ab/FILLET_RIM_ATTRIBUTION.md` §8 recorded and could not explain.
+A gate whose baseline is 133 shapes that OCCT itself cannot always finish
+checking is a gate whose bar is not defined.
 
 `ho153` also returns **six distinct volumes across 86 successful runs** at `t/2`
 (span 1.16e-9 on 1.2e6), so the same input does not always produce the same
@@ -428,7 +478,8 @@ over three runs.
 | wall sweep `t … t/128`, 600 parts | `reports/corpus_ab/thicksolid_bar/sweep_600.jsonl.gz` |
 | independent erosion oracle, 600 parts (MC volume + voxel Betti numbers) | `reports/corpus_ab/thicksolid_bar/truth_oracle_600.jsonl.gz` |
 | input census (face/edge/wire classes), 600 parts | `reports/corpus_ab/thicksolid_bar/input_census_600.jsonl.gz` |
-| 100-run repetition of `ho317`, `ho377`, `ho153` | `reports/corpus_ab/thicksolid_bar/crash_reps.jsonl.gz` |
+| 100-run repetition blocks for `ho317`, `ho377`, `ho153` (900 rows) | `reports/corpus_ab/thicksolid_bar/crash_reps.jsonl.gz` |
+| all 133 bar parts × 20 fresh runs (2660 rows) | `reports/corpus_ab/thicksolid_bar/built133_x20.jsonl.gz` |
 | four `FAMILIES=THICKSOLID` A/B passes (bucket summaries) | `reports/corpus_ab/thicksolid_bar/ab_rep_summaries.txt` |
 | provenance (HEAD, corpus, OCCT version, settings) | `reports/corpus_ab/thicksolid_bar/manifest.json` |
 | the two control logs, as run | `reports/corpus_ab/thicksolid_bar/{census,truth_oracle}_selftest.txt` |
