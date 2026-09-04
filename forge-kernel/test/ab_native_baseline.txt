@@ -41,3 +41,12 @@ AB_BASELINE_thicken=0
 # case E is mutation-proved (else if (uniq.size() == 2) -> else if (false) makes it
 # fail and nothing else move).
 AB_BASELINE_thicksolid_mixed=0
+# thicksolid_bar_fixture: the corpus-free half of reports/corpus_ab/
+# THICKSOLID_HONEST_BAR.md. 76 assertions over six fixtures. It is NOT a
+# "does OCCT fail" gate: 12 of the 76 are the positive controls (a plain cylinder
+# hollows to its closed form at five walls; a bolt-circle hub whose holes clear
+# the rim builds a closed valid non-identity hollow) and one is a correct
+# DECLINE, so a rigged fixture set would show up as a red control. Mutation-
+# proved: making splitTopCylinder return the unsplit cylinder turns 22 of them
+# red and nothing else moves.
+AB_BASELINE_thicksolid_bar_fixture=0

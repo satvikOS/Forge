@@ -1,0 +1,50 @@
+{
+  "generated_utc": "2026-09-04T01:54:10Z",
+  "branch": "work/thicksolid-honest-bar",
+  "base_commit": "b304787bca530a01e016b0f9779d2397f8008ac9",
+  "head_at_measurement": "ac0ca610c7606e98b72636ac3959d85ca97ff1d6",
+  "corpus_dir": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+  "corpus_parts": 600,
+  "sampling": "none - every part, LC_ALL=C sorted",
+  "derived_operation": "remove the largest PLANAR face (ties on the centroid, lexicographic); wall = 0.05 * min bbox extent from VERTICES, or 0.05 * 0.05 * diag when that extent is ~0 - mirrored line for line from test/corpus_ab_coverage.cpp",
+  "occt_call": "BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin(src, {rm}, -wall, 1e-3) - the exact call test/corpus_ab_coverage.cpp:1221 makes",
+  "occt_version": "7.9.3 (/opt/homebrew/Cellar/opencascade/7.9.3)",
+  "platform": "macOS 26.6.2 arm64, 14 cores",
+  "instruments": {
+    "census": "test/thicksolid_bar_census.cpp (OCCT only, no forge source); controls in .build-corpus-ab/bar_census_selftest.log",
+    "truth_oracle": "test/thicksolid_truth_oracle.cpp (no offset engine at all); controls in .build-corpus-ab/truth_oracle_selftest.log",
+    "input_census": "test/thicksolid_input_census.cpp (pre-existing)",
+    "fixture_gate": "test/thicksolid_bar_fixture_gate.cpp, ratcheted by test/run_ab_all.sh"
+  },
+  "oracle_settings": {
+    "mc_samples": 300000,
+    "voxels_per_wall": 3,
+    "voxel_cap": 40000000,
+    "mesh_deflection": "min(wall/12, diag*1e-3)",
+    "angular_deflection": 0.3
+  },
+  "headline": {
+    "occt_built": 133,
+    "native_built": 0,
+    "of_the_133_brepcheck_valid": 0,
+    "open_shell": 123,
+    "self_intersecting": 94,
+    "both": 84,
+    "volume_ge_source": 6,
+    "non_manifold": 0,
+    "identity_return": 0,
+    "no_structural_fault": 0,
+    "still_invalid_after_ShapeFix": 116,
+    "valid_after_ShapeFix_but_still_open": 17,
+    "correct_answer_topology_preserving_single_lump_all_analytic": 31,
+    "of_the_133_needing_a_topology_change": 102,
+    "usable_at_wall_over_128": 7,
+    "crash_rate_ho317": "51/400 pooled (12.8%, 95% CI 9.5-16.0)",
+    "crash_rate_ho377": "89/400 pooled (22.2%, 95% CI 18.2-26.3)",
+    "crash_rate_ho153_at_half_wall": "14/100 (14.0%)",
+    "full_600_passes": 8,
+    "parts_changing_verdict_across_those_passes": 1,
+    "bar_parts_that_are_nondeterministic": "2 of 133, measured over 133 parts x 20 fresh runs (2660 evaluations, 3 crashes)",
+    "crash_site": "BRepCheck_Analyzer::IsValid(), after volume/area/topology already succeeded on the same shape"
+  }
+}

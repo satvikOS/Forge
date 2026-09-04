@@ -34,7 +34,15 @@ BASE="${AB_BASELINE_FILE:-$HERE/ab_native_baseline.txt}"
 # solid on 133 of its 133 successes for this operation, so it is not a valid
 # oracle here. It is ratcheted in this list because it is a live-OCCT gate with
 # the same build-and-link failure mode the rest of this file exists to catch.
-HARNESSES="draft draft_local filling loftpipe offsetshape sweep fillet_concave thicken thicksolid_mixed"
+#
+# thicksolid_bar_fixture is not a native-vs-OCCT A/B either: it pins what the
+# THICKSOLID flip gate's SUCCESS PREDICATE counts. reports/corpus_ab/
+# THICKSOLID_HONEST_BAR.md measures that predicate accepting 133 answers of which
+# 0 are usable, over a 600-part corpus that is not in this repository; this gate
+# is the corpus-free part of that finding, on six-face fixtures. Ratcheted here
+# for the same reason as thicksolid_mixed — a live-OCCT gate that stops linking
+# stops asserting and says nothing.
+HARNESSES="draft draft_local filling loftpipe offsetshape sweep fillet_concave thicken thicksolid_mixed thicksolid_bar_fixture"
 rc=0
 for t in $HARNESSES; do
   f="forge-kernel/test/run_ab_native_$t.sh"

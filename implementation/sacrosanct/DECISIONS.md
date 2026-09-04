@@ -4125,3 +4125,41 @@ default OFF; `CMakeLists.txt` releases TKOffset only when all nine are ON, and f
 would delete an answer on **233 of 600 parts (38.8%)** while shifting every sweep's volume by 5.5–9.8%.
 Nothing in this work moved that number, and nothing should until a family is replaceable rather than
 merely covering.
+
+---
+
+## 2026-09-04 — The OCCT closure census, from one binary; and the seam measured on half of what it drops
+
+**Decision: set every closure figure from `reports/OCCT_TOOLKIT_SYMBOL_CENSUS_2026-09-04.md`
+and from nothing else.** Two earlier censuses disagreed (TKTopAlgo 110 vs 106, TKMath 32 vs 31)
+and a ceiling must never be set from a contested number. The census is one measurement of one
+binary — the `forge-kernel.node` CI built on #232, preserved before its worktree was reaped.
+
+**It is self-checking.** `called` equals `uniquely attributed` on all fourteen rows and the rows
+sum to the distinct total (541). Every OCCT symbol this binary calls is exported by exactly one
+closure member, so no attribution judgement was required and none was made.
+
+- **TKTopAlgo = 110. TKMath = 32.** Both contested figures settled.
+- **TKBO = 32, correcting the 59 carried in the running notes** — that number came from a
+  different arm and was never re-measured on one binary. It is retracted.
+- TKGeomBase, TKGeomAlgo, TKPrim, TKBool call **ZERO** symbols: pure free riders, present only
+  because `libTKOffset` DT_NEEDs them.
+- The bottom six sum to **exactly 444 of 541**, confirming the architecture-floor arithmetic.
+
+**The finding that changes what to do next.** The pair {TKOffset, TKFillet} — the only unit that
+moves CLOSURE 14 -> 11 — is 53 symbols in **twelve OCCT classes**. Nine are exactly the A/B
+families the current programme is working, which is independent evidence the effort is aimed
+correctly. **One, `BRepFilletAPI_MakeChamfer` (5 symbols), is covered by no A/B family at all.**
+
+★`FORGE_FILLET_DROP_NATIVE` guards BOTH MakeFillet and MakeChamfer (`src/Features.cpp:70-76`,
+`:2040-2147`) — correctly, since both live in TKFillet. But the harness includes only
+`BRepFilletAPI_MakeFillet.hxx` (`test/corpus_ab_coverage.cpp:179`) and its family list has ten
+entries, none of them CHAMFER. **The seam that would drop TKFillet is measured on half of what
+it drops**, so even a perfect FILLET result cannot justify the flip. Same shape as the defect
+where a status label absorbed the endpoint beside it: two quantities treated as one.
+
+**This is a measurement gap, not a missing capability.** `src/native/brep/NativeFilletChamfer.cpp`
+(118 KB, "ROUTINE R3 of the OCCT-zero drop plan") already re-implements both classes referencing
+no BRepFilletAPI/ChFi3d symbol, and the native chamfer path REFUSES on decline rather than faking
+(`Features.cpp:2047`). **Action: add CHAMFER as the eleventh A/B family, built exactly as the
+other ten are. Do not flip `FORGE_FILLET_DROP_NATIVE` before it reports.**

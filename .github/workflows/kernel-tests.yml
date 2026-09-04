@@ -898,6 +898,47 @@ jobs:
         # one on the ellipse itself (semi-major r/|c| -> r, the circle), each of
         # which must turn the gate red. Seconds, on a runner that already has OCCT.
         run: bash forge-kernel/test/run_pcurve_fit_gate.sh --mutations
+      - name: corpus A/B harness builds, and its 32 controls are green
+        # ★ RETRACTION, MEASURED ON THIS RUNNER. This step was added claiming that
+        #   "nothing in CI compiled test/corpus_ab_coverage.cpp". THAT WAS WRONG and
+        #   the step's own first run refuted it: it printed
+        #   "compiled 0 of 156 translation unit(s), reused 156" in 19 s, because the
+        #   step above it already built the archive —
+        #   run_ab_all.sh runs `thicksolid_mixed`, whose builder
+        #   (test/build_thicksolid_mixed_closedform.sh:35) calls
+        #   build_corpus_ab_coverage.sh when $OBJDIR/libforge_native_ab.a is absent.
+        #   The harness WAS compiled and its --selftest WAS run. Verify a claimed
+        #   absence before briefing on it.
+        #
+        # WHY THE STEP STAYS ANYWAY. That coverage is INCIDENTAL, SILENT and
+        # CONDITIONAL: it is a `>/dev/null ||` inside another gate's builder, it
+        # fires only when the archive happens to be missing, and nothing anywhere
+        # names this binary or its controls as a gate. The day
+        # build_thicksolid_mixed_closedform.sh stops needing that archive, the only
+        # thing compiling the binary every FORGE_*_DROP_* coverage number comes from
+        # disappears and no step goes red. This makes it explicit and named, and it
+        # costs 19 s because the objects are already warm — 33 s cold at JOBS=4 on
+        # the measuring machine, against a job that took 34.5 min of its 75 min
+        # budget on the last green archdisc run.
+        #
+        # The build script runs `--selftest` itself and exits non-zero if it is red,
+        # so this one line is both the compile gate and the control gate. The 32
+        # controls are not decoration: five prove the crash/hang containment FIRES,
+        # ten prove each native engine returns OK on an input its own header calls
+        # in scope (so a family's corpus ZERO is never silently a MIS-WIRED ARM),
+        # and five prove the direction observable reads BELOW the source on an
+        # inward offset and ABOVE it on an outward one — that last group went red
+        # the first time it ran and was right to, see
+        # reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md section 6.
+        # The remaining twelve came in with the surface-kind observable: five
+        # prove the kind histograms land in DIFFERENT, NAMED bins rather than
+        # binning everything as "Other" (which would make the term vacuous), and
+        # seven prove the strict predicate returns FALSE where the old one
+        # returned true, and still implies it on every case.
+        #
+        # It does NOT run the corpus: 600 parts is ~4 minutes for one family and
+        # there is no corpus in CI.
+        run: JOBS=4 bash forge-kernel/test/build_corpus_ab_coverage.sh
       - name: corpus A/B flip-gate terms (each added term is driven to FAIL and back)
         # THE GATE THAT DECIDES WHETHER OCCT MAY BE DROPPED, tested. Until
         # 2026-09-03 the per-family verdict was one line -- `natOk >= occtOk` --
