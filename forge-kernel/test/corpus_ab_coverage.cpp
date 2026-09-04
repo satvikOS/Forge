@@ -194,6 +194,13 @@
 #include "forge/native/brep/NativeFilletChamfer.hpp"   // TKFillet
 #include "forge/native/geom/PolygonOffset2D.hpp"       // family  A
 #include "forge/OcctPrimBuilder.hpp"                    // selftest: an ANALYTIC cylinder
+#include <BRepBuilderAPI_NurbsConvert.hxx>              // selftest: a REAL quadric->spline
+
+// The SURFACE-KIND EQUIVALENCE predicate, shared verbatim with
+// test/plane_spline_consumer_equivalence.cpp — one implementation, so the
+// consumer experiment that justifies the rule and the gate that applies it
+// cannot drift apart.
+#include "planar_surface_certificate.hpp"
 
 namespace {
 
@@ -230,8 +237,44 @@ struct ArmResult {
     // edge whose adaptor throws, so the histograms always sum to nfaces/nedges.
     int    fkind[11] = {0};
     int    ekind[9]  = {0};
+    // ── SURFACE-KIND EQUIVALENCE (see planar_surface_certificate.hpp) ───────
+    // `efk` is `fkind` with ONE substitution applied: a face whose surface is
+    // not a Geom_Plane but which is PROVED, by sampling its own geometry, to be
+    // planar to the harness's own 1e-6-relative tolerance is counted in the
+    // Plane bin instead. Nothing else moves. A quadric approximated by a spline
+    // is not planar and therefore cannot move, which is the whole safety
+    // property and is proved on real BRepBuilderAPI_NurbsConvert output in
+    // --selftest rather than argued here.
+    //
+    // The plane MOMENTS exist because "both sides have a planar face" is not
+    // the question — "both sides have THE SAME plane" is. The arms run in
+    // separate forked processes and only this POD comes back, so the planes
+    // themselves cannot be compared face to face; their canonical (nx,ny,nz,d)
+    // are accumulated as first and second power sums, which are order
+    // independent and are compared with the same close_() the rest of the
+    // vector uses. This is a FINGERPRINT, not a proof of multiset equality —
+    // and it sits BEHIND the full vector (volume, area, com, six bbox bounds,
+    // five counts, the edge-kind histogram), any of which a genuinely different
+    // plane must also survive.
+    int    efk[11]   = {0};
+    int    nplanar   = 0;    // faces certified planar (Plane-kind ones included)
+    int    nreclass  = 0;    // of those, how many were NOT Plane-kind
+    // The SIGN-INVARIANT moments, never the canonical (n, d) themselves: the
+    // canonical form has a sign threshold in it and two identical planes either
+    // side of that threshold would read as different. See
+    // planar_surface_certificate.hpp, invariants().
+    double planeInv[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    double planeDevMax  = 0.0;            // worst deviation among RECLASSIFIED faces
+    double planeAngMax  = 0.0;            // worst normal swing among them
     char   note[192] = {0};
 };
+
+// The POD travels over a pipe as ONE write() from a child that has already
+// _exit()ed by the time the parent reads, so the parent's single read() gets
+// all of it as long as it fits the pipe's buffer (64 KiB on this platform).
+// This bound is asserted rather than assumed because a struct that outgrew it
+// would report every arm as ARM_CRASH — a silent, total measurement failure.
+static_assert(sizeof(ArmResult) < 16384, "ArmResult outgrew the pipe transport");
 
 // The two enums are compile-time width-checked, because a new OCCT release that
 // grows either one would silently start folding a new kind into "Other" — which
@@ -337,15 +380,71 @@ void measure(const TopoDS_Shape& s, ArmResult& r) {
     try { BRepCheck_Analyzer an(s); r.valid = an.IsValid() ? 1 : 0; }
     catch (...) { r.valid = -1; }
 
+    // ── the SURFACE-KIND EQUIVALENCE pass ───────────────────────────────────
+    // Runs LAST because it needs `bb`: the tolerance is 1e-6 x the shape's own
+    // diagonal, which is exactly what close_() applies to every length in the
+    // comparison vector. The scale is the SHAPE's, not the part's, because a
+    // certificate is a property of the face being certified; the two arms'
+    // diagonals must already agree to 1e-6 for `agree` to hold at all, so the
+    // two arms cannot be certified against materially different tolerances.
+    {
+        const double dx = r.bb[3] - r.bb[0], dy = r.bb[4] - r.bb[1], dz = r.bb[5] - r.bb[2];
+        const double shapeDiag = std::sqrt(dx * dx + dy * dy + dz * dz);
+        const double tolLen = 1.0e-6 * std::max(1.0, shapeDiag);
+        // 1e-6 rad. MEASURED, not chosen: over five real MakeFilling boundary
+        // shapes the worst normal swing of a genuinely planar OCCT spline is
+        // 1.490e-08 rad, and the smallest off-plane bulge the sweep refuses
+        // swings 8.296e-06 rad. See test/plane_spline_consumer_equivalence.cpp
+        // sections 7c and 8, which assert both of those numbers.
+        const double tolAng = 1.0e-6;
+        TopTools_IndexedMapOfShape fm;
+        TopExp::MapShapes(s, TopAbs_FACE, fm);
+        for (int i = 1; i <= fm.Extent(); ++i) {
+            const TopoDS_Face f = TopoDS::Face(fm(i));
+            int raw = static_cast<int>(GeomAbs_OtherSurface);
+            try {
+                BRepAdaptor_Surface ad(f, Standard_False);
+                const int t = static_cast<int>(ad.GetType());
+                if (t >= 0 && t <= static_cast<int>(GeomAbs_OtherSurface)) raw = t;
+            } catch (...) {}
+            forge::planarcert::PlanarCert c;
+            try { c = forge::planarcert::certify(f, tolLen, tolAng); } catch (...) {}
+            const bool isPlaneKind = (raw == static_cast<int>(GeomAbs_Plane));
+            // A Plane-kind face is planar BY CONSTRUCTION. If the sampler could
+            // not certify it (a pathological UV range), it still stays in the
+            // Plane bin — refusing to certify must never MOVE a face, only ever
+            // fail to move one.
+            const bool planar = isPlaneKind || c.planar;
+            const int eff = planar ? static_cast<int>(GeomAbs_Plane) : raw;
+            r.efk[eff]++;
+            if (planar && c.sampled) {
+                ++r.nplanar;
+                double inv[10];
+                forge::planarcert::invariants(c.n, c.d, inv);
+                for (int k = 0; k < 10; ++k) r.planeInv[k] += inv[k];
+                if (!isPlaneKind) {
+                    ++r.nreclass;
+                    r.planeDevMax = std::max(r.planeDevMax, c.devMax);
+                    r.planeAngMax = std::max(r.planeAngMax, c.angMax);
+                }
+            } else if (planar) {
+                // Plane-kind but unsampled: counted in the bin, deliberately NOT
+                // counted in the moments, because no (n,d) was measured for it.
+                // Both arms apply the same rule, and `nplanar` is compared, so a
+                // one-sided omission cannot pass unnoticed.
+            }
+        }
+    }
+
     // A histogram that does not sum to the count beside it is a silently
     // WEAKENED comparison (a face that fell out of every bin can never
     // mismatch), so it is a hard error here rather than a quiet zero.
-    int fs = 0, es = 0;
-    for (int i = 0; i < 11; ++i) fs += r.fkind[i];
+    int fs = 0, es = 0, efs = 0;
+    for (int i = 0; i < 11; ++i) { fs += r.fkind[i]; efs += r.efk[i]; }
     for (int i = 0; i < 9;  ++i) es += r.ekind[i];
-    if (fs != r.nfaces || es != r.nedges) {
-        std::fprintf(stderr, "FATAL: kind histogram lost topology (faces %d vs %d, edges %d vs %d)\n",
-                     fs, r.nfaces, es, r.nedges);
+    if (fs != r.nfaces || es != r.nedges || efs != r.nfaces) {
+        std::fprintf(stderr, "FATAL: kind histogram lost topology (faces %d vs %d, eff %d, "
+                     "edges %d vs %d)\n", fs, r.nfaces, efs, r.nedges);
         std::abort();
     }
 }
@@ -837,19 +936,24 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
 
 // ─────────────────────────────────────────────────────────────── JSON output
 void emitArm(std::string& out, const char* key, const ArmResult& r) {
-    char buf[1280];
+    char buf[2048];
     std::snprintf(buf, sizeof buf,
         "\"%s\":{\"status\":\"%s\",\"valid\":%d,\"f\":%d,\"e\":%d,\"v\":%d,\"sh\":%d,\"so\":%d,"
         "\"vol\":%.10g,\"area\":%.10g,\"len\":%.10g,"
         "\"com\":[%.10g,%.10g,%.10g],\"bb\":[%.10g,%.10g,%.10g,%.10g,%.10g,%.10g],"
-        "\"fk\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d],\"ek\":[%d,%d,%d,%d,%d,%d,%d,%d,%d],\"note\":\"",
+        "\"fk\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d],\"ek\":[%d,%d,%d,%d,%d,%d,%d,%d,%d],"
+        "\"efk\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d],"
+        "\"npl\":%d,\"nrc\":%d,\"pdev\":%.10g,\"pang\":%.10g,\"note\":\"",
         key, statusName(r.status), r.valid, r.nfaces, r.nedges, r.nverts, r.nshells, r.nsolids,
         r.volume, r.area, r.length, r.com[0], r.com[1], r.com[2],
         r.bb[0], r.bb[1], r.bb[2], r.bb[3], r.bb[4], r.bb[5],
         r.fkind[0], r.fkind[1], r.fkind[2], r.fkind[3], r.fkind[4], r.fkind[5],
         r.fkind[6], r.fkind[7], r.fkind[8], r.fkind[9], r.fkind[10],
         r.ekind[0], r.ekind[1], r.ekind[2], r.ekind[3], r.ekind[4],
-        r.ekind[5], r.ekind[6], r.ekind[7], r.ekind[8]);
+        r.ekind[5], r.ekind[6], r.ekind[7], r.ekind[8],
+        r.efk[0], r.efk[1], r.efk[2], r.efk[3], r.efk[4], r.efk[5],
+        r.efk[6], r.efk[7], r.efk[8], r.efk[9], r.efk[10],
+        r.nplanar, r.nreclass, r.planeDevMax, r.planeAngMax);
     out += buf;
     for (const char* p = r.note; *p; ++p) {
         if (*p == '"' || *p == '\\') { out += '\\'; out += *p; }
@@ -910,6 +1014,52 @@ bool agreeKinds(const ArmResult& a, const ArmResult& b) {
 
 bool agreeStrict(const ArmResult& a, const ArmResult& b, double diag) {
     return agree(a, b, diag, true) && agreeKinds(a, b);
+}
+
+// ── THE SURFACE-KIND EQUIVALENCE TERM ───────────────────────────────────────
+// `agree_equiv` is `agree_strict` with EXACTLY ONE relaxation: an exact Plane
+// may stand for a spline (or any other surface kind) that is PROVED to be that
+// same plane to the harness's own tolerance. Everything else is untouched —
+// including the EDGE-kind histogram, which is still compared bin for bin,
+// because this rule is about surfaces and a Line replaced by a Bezier is a
+// different question that this change deliberately does not answer.
+//
+// THE IMPLICATION CHAIN IS ASSERTED, NOT ASSUMED (see --selftest):
+//
+//     agree_strict  =>  agree_equiv  =>  agree
+//
+// so the gate that reads agree_equiv is still strictly stronger than the
+// `agree` that origin/archdisc's aggregator reads, and strictly weaker than
+// agree_strict. All three are emitted per row and all three are reported, so
+// nothing is hidden behind the one the verdict happens to use.
+//
+// WHY THIS IS NOT "IGNORE SURFACE KIND". A blanket rule would forgive the
+// cylinder->spline and sphere->spline substitutions the kind histogram was
+// added to catch. This one cannot: those splines are not planar, and
+// --selftest proves it on the output of BRepBuilderAPI_NurbsConvert applied to
+// a real analytic cylinder rather than on a hand-written fixture. It also
+// cannot forgive a spline that is planar but is a DIFFERENT plane, because the
+// canonical plane moments are compared and not merely the histogram.
+bool agreeEquivKinds(const ArmResult& a, const ArmResult& b, double diag) {
+    for (int i = 0; i < 11; ++i) if (a.efk[i] != b.efk[i]) return false;
+    for (int i = 0; i < 9;  ++i) if (a.ekind[i] != b.ekind[i]) return false;
+    if (a.nplanar != b.nplanar) return false;
+    // Each moment is compared at the SCALE OF ITS OWN UNITS, so a length-squared
+    // term is not held to a dimensionless term's tolerance: indices 0-5 are
+    // products of unit-normal components (dimensionless), 6 is d^2 (a length
+    // squared) and 7-9 are d times a normal component (a length).
+    const double nScale = std::max(1.0, static_cast<double>(a.nplanar));
+    const double L      = std::max(1.0, std::fabs(diag));
+    for (int k = 0; k < 6; ++k)
+        if (!close_(a.planeInv[k], b.planeInv[k], nScale)) return false;
+    if (!close_(a.planeInv[6], b.planeInv[6], nScale * L * L)) return false;
+    for (int k = 7; k < 10; ++k)
+        if (!close_(a.planeInv[k], b.planeInv[k], nScale * L)) return false;
+    return true;
+}
+
+bool agreeEquiv(const ArmResult& a, const ArmResult& b, double diag) {
+    return agree(a, b, diag, true) && agreeEquivKinds(a, b, diag);
 }
 
 const char* bucketOf(const ArmResult& nat, const ArmResult& oc) {
@@ -1190,9 +1340,174 @@ int selftest(const Cfg& cfg) {
         // strict must IMPLY loose on every case above
         vcheck("strict implies loose (a,b)", !agreeStrict(a, b, 17.32) || agree(a, b, 17.32, true), true);
         vcheck("strict implies loose (a,c)", !agreeStrict(a, c, 17.32) || agree(a, c, 17.32, true), true);
+
+        // ─────────────────────────────────────────────────────────────────
+        // SURFACE-KIND EQUIVALENCE CONTROLS.
+        //
+        // agree_equiv is the ONE relaxation this harness makes to the kind
+        // comparison, so the failure mode that matters is a rule that forgives
+        // more than it was proved to. Four things are required, and the two
+        // that matter are measured on REAL GEOMETRY produced by the real
+        // engines, not on hand-built ArmResults:
+        //   (P) a real BRepOffsetAPI_MakeFilling patch over a planar boundary
+        //       against the native exact plane: agree_strict FALSE (they ARE
+        //       different B-Rep) and agree_equiv TRUE.
+        //   (N) a real BRepBuilderAPI_NurbsConvert of an ANALYTIC CYLINDER
+        //       against that cylinder: agree_strict FALSE and agree_equiv
+        //       ALSO FALSE. This is the substitution the kind histogram exists
+        //       to catch and the rule is not permitted to forgive it.
+        //   (I) the implication chain, on every fixture in this block.
+        //   (V) the rule is not vacuous in either direction: (P) proves it can
+        //       say true where strict says false, (N) proves it can still say
+        //       false.
+        // ─────────────────────────────────────────────────────────────────
+        {
+            // (P) the real pair.
+            const TopoDS_Solid pbox = forge::occtBoxSolid(10.0, 10.0, 10.0);
+            TopoDS_Face ptop;
+            double bestZ = -1e300;
+            for (TopExp_Explorer ex(pbox, TopAbs_FACE); ex.More(); ex.Next()) {
+                const TopoDS_Face f = TopoDS::Face(ex.Current());
+                GProp_GProps g; BRepGProp::SurfaceProperties(f, g);
+                if (g.CentreOfMass().Z() > bestZ) { bestZ = g.CentreOfMass().Z(); ptop = f; }
+            }
+            TopoDS_Shape natCap, occCap;
+            if (!ptop.IsNull()) {
+                const TopoDS_Wire w = BRepTools::OuterWire(ptop);
+                if (!w.IsNull()) {
+                    natCap = forge::occtfill::fillC0Boundary(w, 1.0e-6 * 17.32);
+                    BRepOffsetAPI_MakeFilling fl;
+                    for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next())
+                        fl.Add(TopoDS::Edge(ex.Current()), GeomAbs_C0);
+                    fl.Build();
+                    if (fl.IsDone()) occCap = fl.Shape();
+                }
+            }
+            if (natCap.IsNull() || occCap.IsNull()) {
+                std::printf("  equivalence control: NO REAL FILLING PAIR — rule unproved\n");
+                ++bad;
+            } else {
+                ArmResult pn, po;
+                pn.status = po.status = ARM_OK;
+                measure(natCap, pn); measure(occCap, po);
+                vcheck("real filling pair: native face IS a Plane",
+                       pn.fkind[GeomAbs_Plane] == 1 && pn.nfaces == 1, true);
+                vcheck("real filling pair: OCCT face IS a BSpline",
+                       po.fkind[GeomAbs_BSplineSurface] == 1 && po.nfaces == 1, true);
+                vcheck("real filling pair: STRICT says DIFFERENT",
+                       agreeStrict(pn, po, 17.32), false);
+                vcheck("real filling pair: EQUIV says the same plane",
+                       agreeEquiv(pn, po, 17.32), true);
+                vcheck("real filling pair: the OCCT face was RECLASSIFIED",
+                       po.nreclass == 1 && po.efk[GeomAbs_Plane] == 1, true);
+                vcheck("real filling pair: equiv implies loose",
+                       !agreeEquiv(pn, po, 17.32) || agree(pn, po, 17.32, true), true);
+            }
+
+            // (N) the real quadric->spline. Note this control is expected to
+            //     fail the SCALAR vector too (NurbsConvert perturbs area);
+            //     what it proves is that the KIND term does not rescue it, so
+            //     the kind predicates are checked directly as well.
+            const TopoDS_Solid cy = forge::occtCylinderSolid(5.0, 10.0);
+            TopoDS_Shape cyNurbs;
+            if (!cy.IsNull()) {
+                try { BRepBuilderAPI_NurbsConvert nc(cy, Standard_True); cyNurbs = nc.Shape(); }
+                catch (...) {}
+            }
+            if (cyNurbs.IsNull()) {
+                std::printf("  equivalence control: NO NURBS CYLINDER — rule unproved\n");
+                ++bad;
+            } else {
+                ArmResult qa, qb;
+                qa.status = qb.status = ARM_OK;
+                measure(cy, qa); measure(cyNurbs, qb);
+                vcheck("nurbs cylinder: the analytic arm HAS a Cylinder face",
+                       qa.fkind[GeomAbs_Cylinder] >= 1, true);
+                vcheck("nurbs cylinder: the converted arm has NO Cylinder face",
+                       qb.fkind[GeomAbs_Cylinder] == 0, true);
+                vcheck("nurbs cylinder: the wall did become a spline",
+                       qb.fkind[GeomAbs_BSplineSurface] >= 1, true);
+                vcheck("nurbs cylinder: STRICT says DIFFERENT",
+                       agreeStrict(qa, qb, 14.14), false);
+                vcheck("nurbs cylinder: EQUIV STILL says DIFFERENT",
+                       agreeEquiv(qa, qb, 14.14), false);
+                vcheck("nurbs cylinder: the kind term alone still rejects it",
+                       agreeEquivKinds(qa, qb, 14.14), false);
+                // THE SHARPEST CONTROL IN THIS FILE. NurbsConvert turns ALL
+                // THREE faces of the cylinder into B-splines — the two flat
+                // caps as well as the curved wall. A rule that forgave surface
+                // kind wholesale would move all three into the Plane bin; a
+                // rule that refused everything would move none. The correct
+                // answer moves EXACTLY THE TWO FLAT ONES and leaves the wall a
+                // spline, and it is asserted face for face, in one shape, by
+                // number.
+                std::printf("    nurbs cylinder: raw fk Plane=%d Cyl=%d BSpl=%d "
+                            "| eff Plane=%d BSpl=%d | reclassified %d\n",
+                            qb.fkind[GeomAbs_Plane], qb.fkind[GeomAbs_Cylinder],
+                            qb.fkind[GeomAbs_BSplineSurface],
+                            qb.efk[GeomAbs_Plane], qb.efk[GeomAbs_BSplineSurface],
+                            qb.nreclass);
+                vcheck("nurbs cylinder: all 3 faces became splines",
+                       qb.fkind[GeomAbs_BSplineSurface] == 3 && qb.nfaces == 3, true);
+                vcheck("nurbs cylinder: the CURVED wall stayed a spline",
+                       qb.efk[GeomAbs_BSplineSurface] == 1, true);
+                vcheck("nurbs cylinder: exactly the 2 FLAT caps were reclassified",
+                       qb.nreclass == 2 && qb.efk[GeomAbs_Plane] == 2, true);
+                vcheck("nurbs cylinder: the analytic arm had exactly 2 flat caps",
+                       qa.fkind[GeomAbs_Plane] == 2, true);
+            }
+
+            // (I) the chain on the hand-built fixtures above, where the moved
+            //     face is a spline that no certificate ever saw. A synthetic
+            //     ArmResult carries efk == 0 unless set, so `b` and `c` are
+            //     completed here the way measure() would for an UNCERTIFIED
+            //     spline: the histogram simply does not move.
+            ArmResult a2 = a, b2 = b, c2 = c;
+            a2.efk[GeomAbs_Plane] = 6;  a2.nplanar = 6;
+            b2.efk[GeomAbs_Plane] = 5;  b2.efk[GeomAbs_BSplineSurface] = 1; b2.nplanar = 5;
+            c2.efk[GeomAbs_Plane] = 6;  c2.nplanar = 6;
+            vcheck("uncertified spline: EQUIV still says DIFFERENT",
+                   agreeEquiv(a2, b2, 17.32), false);
+            vcheck("an EDGE-kind swap is NOT forgiven by the surface rule",
+                   agreeEquiv(a2, c2, 17.32), false);
+            vcheck("identical results still agree (equiv)", agreeEquiv(a2, a2, 17.32), true);
+            vcheck("strict implies equiv (a2,b2)",
+                   !agreeStrict(a2, b2, 17.32) || agreeEquiv(a2, b2, 17.32), true);
+            vcheck("equiv implies loose (a2,b2)",
+                   !agreeEquiv(a2, b2, 17.32) || agree(a2, b2, 17.32, true), true);
+
+            // A planar spline on a DIFFERENT plane: the histograms match after
+            // reclassification and the moments do not. Without the moments this
+            // would pass, so this control is what makes them load-bearing.
+            ArmResult d2 = a2, e2 = a2;
+            d2.nplanar = e2.nplanar = 1;
+            const double nz[3] = {0.0, 0.0, 1.0};
+            forge::planarcert::invariants(nz, -10.0, d2.planeInv);
+            forge::planarcert::invariants(nz, -10.5, e2.planeInv);
+            vcheck("same kinds, DIFFERENT plane offset: EQUIV says DIFFERENT",
+                   agreeEquiv(d2, e2, 17.32), false);
+            forge::planarcert::invariants(nz, -10.0, e2.planeInv);
+            vcheck("same kinds, SAME plane offset: EQUIV says the same",
+                   agreeEquiv(d2, e2, 17.32), true);
+            // And the SIGN FLIP the invariants exist to absorb: the same plane
+            // with the opposite normal must read as the SAME plane, because it
+            // IS one. A canonicalising comparison can get this wrong near its
+            // own threshold; this form cannot get it wrong anywhere.
+            const double nzneg[3] = {-0.0, -0.0, -1.0};
+            forge::planarcert::invariants(nzneg, 10.0, e2.planeInv);
+            vcheck("the SAME plane with a flipped normal reads as the same",
+                   agreeEquiv(d2, e2, 17.32), true);
+            const double tilt1[3] = {6e-13, 0.0, 1.0};
+            const double tilt2[3] = {-6e-13, -0.0, -1.0};
+            ArmResult f2 = d2, g2 = d2;
+            forge::planarcert::invariants(tilt1, -10.0, f2.planeInv);
+            forge::planarcert::invariants(tilt2,  10.0, g2.planeInv);
+            vcheck("a normal straddling the canonicalisation threshold still matches",
+                   agreeEquiv(f2, g2, 17.32), true);
+        }
     }
 
-    std::printf("%s: self-test, %d check(s) red of 27\n", bad ? "FAIL" : "PASS", bad);
+    std::printf("%s: self-test, %d check(s) red of 57\n", bad ? "FAIL" : "PASS", bad);
     return bad ? 1 : 0;
 }
 
@@ -1296,18 +1611,20 @@ int main(int argc, char** argv) {
         if (applicable) {
             emitArm(line, "native", nat); line += ",";
             emitArm(line, "occt", oc);    line += ",";
-            char tail[256];
+            char tail[384];
             std::snprintf(tail, sizeof tail,
                           "\"bucket\":\"%s\",\"agree\":%s,\"agree_upto_orientation\":%s,"
-                          "\"agree_strict\":%s}",
+                          "\"agree_strict\":%s,\"agree_equiv\":%s}",
                           bucketOf(nat, oc),
                           agree(nat, oc, part.diag, true) ? "true" : "false",
                           agree(nat, oc, part.diag, false) ? "true" : "false",
-                          agreeStrict(nat, oc, part.diag) ? "true" : "false");
+                          agreeStrict(nat, oc, part.diag) ? "true" : "false",
+                          agreeEquiv(nat, oc, part.diag) ? "true" : "false");
             line += tail;
         } else {
             line += "\"bucket\":\"NOT_APPLICABLE\",\"agree\":false,"
-                    "\"agree_upto_orientation\":false,\"agree_strict\":false}";
+                    "\"agree_upto_orientation\":false,\"agree_strict\":false,"
+                    "\"agree_equiv\":false}";
         }
         line += "\n";
         std::fputs(line.c_str(), stdout);

@@ -89,14 +89,40 @@
 // 5, and act on it as a separate, deliberate decision about the ledger rather
 // than as a side effect of this aggregator.
 //
-// WHAT "AGREE" MEANS HERE. `agree_strict` from the harness: volume, area,
-// centre of mass, all six bbox bounds, face/edge/vertex/shell/solid counts, AND
-// the faces and edges binned by surface / curve kind. Volume alone has ratified
-// a wrong solid four times in this repo. Counts alone are blind to a quadric
-// replaced by a spline, which is exactly the substitution these engines make.
-// A JSONL with no `agree_strict` field (produced before this change) falls back
-// to `agree` — the strongest vector that run actually measured — and the
-// fallback is COUNTED and PRINTED, never silent.
+// WHAT "AGREE" MEANS HERE — THREE NESTED VECTORS, ALL THREE REPORTED.
+//
+//   agree         volume, area, centre of mass, all six bbox bounds and the
+//                 five face/edge/vertex/shell/solid counts. Volume alone has
+//                 ratified a wrong solid four times in this repo.
+//   agree_strict  the above PLUS faces and edges binned by surface / curve
+//                 KIND. Counts alone are blind to a quadric replaced by a
+//                 spline, which is exactly the substitution these engines make.
+//                 This is bit-identical B-Rep representation.
+//   agree_equiv   agree_strict with EXACTLY ONE relaxation: an exact Plane may
+//                 stand for a surface PROVED, by sampling its own geometry, to
+//                 be that same plane to the same 1e-6-relative tolerance every
+//                 other term uses. Nothing else moves — the EDGE-kind histogram
+//                 is still compared bin for bin. **THE VERDICT READS THIS ONE.**
+//
+// agree_strict => agree_equiv => agree, and the chain is checked on EVERY ROW;
+// a violation is bannered as a HARNESS defect rather than scored. All three
+// numbers appear on the verdict row, so the relaxation can never become
+// invisible behind the verdict it changed.
+//
+// WHY agree_equiv EXISTS, AND WHY IT IS NOT "IGNORE SURFACE KIND". The strict
+// term reds FILLING on 407 of 407 pairs that match on every scalar, every count
+// and every edge kind and differ only in native `Plane` vs OCCT
+// `BSplineSurface` over the same boundary. Measured through five consumers —
+// mass properties, booleans, offsets, STEP round-trip and tessellation, on five
+// boundary shapes (test/plane_spline_consumer_equivalence.cpp, 152 checks in
+// CI) — the worst disagreement anywhere is 1.123e-08 relative, and where the
+// arms differ at all the PLANE is the arm that satisfies the boolean closed
+// form exactly. The relaxation is certificate-backed and refuses every
+// BRepBuilderAPI_NurbsConvert quadric by eleven orders of magnitude.
+//
+// A JSONL with no `agree_equiv` falls back to `agree_strict`, and one with no
+// `agree_strict` falls back to `agree` — always the strongest vector that run
+// actually measured — and every such row is COUNTED and PRINTED, never silent.
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // usage: node corpus_ab_aggregate.mjs <results.jsonl> [--json <out.json>] [--md <out.md>]
@@ -262,6 +288,18 @@ for (const r of rows) {
       natOkValid: 0, natOkInvalid: 0, natOkUnk: 0,
       occtOkValid: 0, occtOkInvalid: 0, occtOkUnk: 0,
       agreeStrict: 0, rowsMissingStrict: 0,
+      // ── surface-kind equivalence ──────────────────────────────────────────
+      // agreeEquiv is the term the verdict reads; agreeStrict is kept beside it
+      // so the stricter number never disappears behind the looser one.
+      // equivOnly counts the pairs the rule ALONE rescued, and the two maxima
+      // are the measured evidence that it rescued them for the stated reason.
+      agreeEquiv: 0, rowsMissingEquiv: 0, equivOnly: 0,
+      equivReclassFaces: 0, equivDevMax: 0, equivAngMax: 0,
+      equivOnlyParts: [],
+      // Rows where the implication chain agree_strict => agree_equiv => agree
+      // is VIOLATED. On real data, per row — a far stronger check than any
+      // fixture, and a violation means the harness is wrong, not the engines.
+      chainViolations: 0, chainViolationParts: [],
       // the VALID bar, decomposed by why each part is not replaced
       replaced: 0, defNativeAbsent: 0, defNativeInvalid: 0, defDisagree: 0,
       deficitParts: [], disagreeParts: [],
@@ -315,9 +353,37 @@ for (const r of rows) {
   // histograms to `agree`; a JSONL produced before the harness emitted it falls
   // back to `agree`, and every such row is counted so the fallback is visible.
   const hasStrict = r.agree_strict !== undefined;
+  const hasEquiv = r.agree_equiv !== undefined;
   if (!hasStrict) f.rowsMissingStrict++;
-  const ag = hasStrict ? !!r.agree_strict : !!r.agree;
-  if (r.bucket === 'BOTH_OK' && ag) f.agreeStrict++;
+  if (!hasEquiv) f.rowsMissingEquiv++;
+  const agLoose = !!r.agree;
+  const agStrict = hasStrict ? !!r.agree_strict : agLoose;
+  // THE TERM THE VERDICT READS. agree_equiv is agree_strict with ONE
+  // relaxation: an exact Plane may stand for a surface PROVED to be that same
+  // plane to the harness's own tolerance (see planar_surface_certificate.hpp
+  // and test/plane_spline_consumer_equivalence.cpp, which measures the four
+  // consumers that decision turns on). A JSONL that predates it falls back to
+  // agree_strict — the strongest vector that run actually measured — and every
+  // such row is counted so the fallback is never silent.
+  const ag = hasEquiv ? !!r.agree_equiv : agStrict;
+  if (r.bucket === 'BOTH_OK' && agStrict) f.agreeStrict++;
+  if (r.bucket === 'BOTH_OK' && ag) f.agreeEquiv++;
+  if (r.bucket === 'BOTH_OK' && ag && !agStrict) {
+    f.equivOnly++;
+    if (f.equivOnlyParts.length < 12) f.equivOnlyParts.push(r.part);
+    // The rule's own evidence, carried per row by the harness: how many faces
+    // it moved and how far from planar the worst of them was. A rescue with
+    // nrc === 0 would mean the histograms matched for some OTHER reason and
+    // the rule is being credited for something it did not do.
+    f.equivReclassFaces += (r.occt?.nrc || 0) + (r.native?.nrc || 0);
+    f.equivDevMax = Math.max(f.equivDevMax, r.occt?.pdev || 0, r.native?.pdev || 0);
+    f.equivAngMax = Math.max(f.equivAngMax, r.occt?.pang || 0, r.native?.pang || 0);
+  }
+  // agree_strict => agree_equiv => agree, checked on EVERY row of real data.
+  if ((agStrict && !ag) || (ag && !agLoose)) {
+    f.chainViolations++;
+    if (f.chainViolationParts.length < 12) f.chainViolationParts.push(r.part);
+  }
 
   // THE VALID BAR: the parts where OCCT returned a shape that passes BRepCheck.
   // These are the only OCCT answers a caller could rely on, and they are what
@@ -425,9 +491,20 @@ for (const f of famList) {
     vacuous: bar === 0 && natOk === 0,
     both_ok_agree_strict: f.agreeStrict,
     rows_missing_agree_strict: f.rowsMissingStrict,
+    both_ok_agree_equiv: f.agreeEquiv,
+    rows_missing_agree_equiv: f.rowsMissingEquiv,
+    equiv_only: f.equivOnly,
+    equiv_only_examples: f.equivOnlyParts,
+    equiv_reclassified_faces: f.equivReclassFaces,
+    equiv_worst_planarity_dev: f.equivDevMax,
+    equiv_worst_normal_swing_rad: f.equivAngMax,
+    implication_chain_violations: f.chainViolations,
+    implication_chain_violation_examples: f.chainViolationParts,
     agreement_observables: f.rowsMissingStrict > 0
       ? 'LEGACY (no agree_strict in this JSONL: volume/area/com/bbox/counts only)'
-      : 'volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind',
+      : (f.rowsMissingEquiv > 0
+        ? 'volume, area, com, bbox(6), f/e/v/shell/solid counts, faces+edges by surface/curve kind (STRICT: no agree_equiv in this JSONL)'
+        : 'volume, area, com, bbox(6), f/e/v/shell/solid counts, edges by curve kind, faces by surface kind WITH proved-plane equivalence'),
     deficit_examples: f.deficitParts, disagree_examples: f.disagreeParts,
     // UNDERPOWERED means "the data cannot distinguish the two engines", which
     // requires there to BE discordant pairs whose split is uncertain. With zero
@@ -454,8 +531,8 @@ lines.push('');
 lines.push(`parts: ${parts.size}   rows: ${rows.length}   part-level errors: ${errs.length}` +
            (malformed ? `   malformed lines: ${malformed}` : ''));
 lines.push('');
-lines.push('| family | option | N | both | nat only | **OCCT only** | neither | nat % | occt % | **agree** | delta (95% CI) | McNemar p | coverage term | **verdict** |');
-lines.push('|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|');
+lines.push('| family | option | N | both | nat only | **OCCT only** | neither | nat % | occt % | **agree** | **strict** | **equiv** | delta (95% CI) | McNemar p | coverage term | **verdict** |');
+lines.push('|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---|---|');
 for (const s of summary) {
   // AGREE, on the headline row and not only in the detail below it. The verdict
   // is a COVERAGE comparison — it asks whether each arm returned a shape and
@@ -469,9 +546,17 @@ for (const s of summary) {
   const agr = s.both_ok > 0
     ? `${s.both_ok_agree}/${s.both_ok} (${(100 * s.both_ok_agree / s.both_ok).toFixed(1)}%)`
     : '-';
+  // THE THREE AGREEMENT COLUMNS, ORDERED LOOSE -> STRICT, WITH THE ONE THE
+  // VERDICT READS IN THE MIDDLE OF ITS OWN CHAIN. `strict` is bit-identical
+  // representation; `equiv` is strict plus the proved-plane rule. Printing all
+  // three on the verdict row is the whole guard against a relaxation becoming
+  // invisible: the gap between `strict` and `equiv` IS the rule's effect, on
+  // the same line as the verdict it changed.
+  const agrS = s.both_ok > 0 ? `${s.both_ok_agree_strict}/${s.both_ok}` : '-';
+  const agrE = s.both_ok > 0 ? `${s.both_ok_agree_equiv}/${s.both_ok}` : '-';
   lines.push(`| ${s.family} | \`${s.option}\` | ${s.N} | ${s.both_ok} | ${s.native_only} | ` +
     `**${s.occt_only}** | ${s.neither} | ${pct(s.native_rate).trim()} | ${pct(s.occt_rate).trim()} | ` +
-    `${agr} | ` +
+    `${agr} | ${agrS} | ${agrE}${s.equiv_only ? ` (+${s.equiv_only})` : ''} | ` +
     `${(100 * s.delta).toFixed(1)}% [${(100 * s.ci95[0]).toFixed(1)}, ${(100 * s.ci95[1]).toFixed(1)}] | ` +
     `${s.mcnemar_p < 1e-4 ? s.mcnemar_p.toExponential(1) : s.mcnemar_p.toFixed(4)} | ` +
     `${s.coverage_only_verdict} | ` +
@@ -485,9 +570,16 @@ lines.push('**OCCT only** is the capability the drop deletes: OCCT built a resul
 lines.push('would have accepted and the native engine declined, on the same input. Under the drop');
 lines.push('option that decline becomes a thrown error at every one of those call sites.');
 lines.push('');
-lines.push('**agree** is how many of the `both` pairs match on the full observable vector');
-lines.push('(volume, area, centre of mass, all six bbox bounds, face/edge/vertex/shell/solid');
-lines.push('counts, and faces + edges binned by surface / curve kind). **THE VERDICT NOW READS IT.**');
+lines.push('**agree / strict / equiv** are the same pairs scored on three nested vectors.');
+lines.push('`agree` = volume, area, centre of mass, all six bbox bounds and the five topology');
+lines.push('counts. `strict` = that, plus faces and edges binned by surface / curve KIND — i.e.');
+lines.push('bit-identical B-Rep representation. `equiv` = `strict`, with an exact Plane allowed');
+lines.push('to stand for a surface PROVED, by sampling its own geometry, to be that same plane');
+lines.push('to the same 1e-6-relative tolerance every other term uses. `(+n)` is how many pairs');
+lines.push('the plane rule alone rescued. **THE VERDICT READS `equiv`**, and');
+lines.push('`strict` stays on the row so the relaxation is always visible beside it.');
+lines.push('The chain `strict => equiv => agree` is checked on every row and any violation is');
+lines.push('bannered above as a harness defect. **THE VERDICT NOW READS AGREEMENT AT ALL.**');
 lines.push('It did not use to: a family could be one part from a green coverage gate and still');
 lines.push('return different geometry on every part it built — measured for E and F, which agree');
 lines.push('on 0 of 599 while reading 99.8% vs 100.0%. A LOW agree COLUMN MEANS THE TWO ARMS ARE');
@@ -533,6 +625,25 @@ lines.push('and does not shrink the bar. The threshold is 1000x and not "outside
 lines.push('because `bb` is VERTEX-derived, and a full cylinder\'s vertices lie on its seam, so');
 lines.push('its vertex bbox is a LINE and its centroid is legitimately outside it. The tight');
 lines.push('count is in the per-family detail, labelled as reporting only.');
+if (summary.some((s) => s.implication_chain_violations > 0)) {
+  lines.push('');
+  lines.push('> **THE IMPLICATION CHAIN IS BROKEN IN THIS RUN.** `agree_strict` must imply');
+  lines.push('> `agree_equiv` must imply `agree`; rows below violate it, which means the harness');
+  lines.push('> is emitting an inconsistent triple and no verdict in this table can be trusted');
+  lines.push('> until it is fixed. Rows affected: ' +
+             summary.map((s) => `${s.family}:${s.implication_chain_violations}`)
+                    .filter((x) => !x.endsWith(':0')).join(', ') + '.');
+}
+if (summary.some((s) => s.rows_missing_agree_equiv > 0 && s.rows_missing_agree_strict === 0)) {
+  lines.push('');
+  lines.push('> **This JSONL predates `agree_equiv`.** The agreement term fell back to');
+  lines.push('> `agree_strict`, which compares surface kinds bit for bit and therefore scores an');
+  lines.push('> exact Plane against a spline that IS that plane as a DISAGREEMENT. That is');
+  lines.push('> stricter, not looser, so no verdict here is overstated — but FILLING-shaped');
+  lines.push('> representation differences will read as failures. Rows affected: ' +
+             summary.map((s) => `${s.family}:${s.rows_missing_agree_equiv}`)
+                    .filter((x) => !x.endsWith(':0')).join(', ') + '.');
+}
 if (summary.some((s) => s.rows_missing_agree_strict > 0)) {
   lines.push('');
   lines.push('> **This JSONL predates `agree_strict`.** The agreement term fell back to `agree`, which');
@@ -562,11 +673,34 @@ for (const s of summary) {
   // WHAT THE VERDICT READS. Printing only the first put a "407 agree" line directly
   // above an "agreement FAIL (407 disagree)" line and read as a contradiction; it was
   // two different vectors, and they are now labelled as such on both lines.
+  // THREE NUMBERS, NAMED, AND ORDERED BY STRICTNESS. `agree` is the LOOSE
+  // vector (volume, area, com, bbox, counts) that reports in reports/corpus_ab/
+  // already quote. `agree_strict` adds the surface/curve KINDS. `agree_equiv`
+  // is agree_strict with the ONE proved-plane relaxation, and it is what the
+  // verdict reads. The strict number stays on the line for ever: a gate that
+  // reported only the number it reads would have made the relaxation invisible
+  // the moment it was made.
   lines.push(`- inside \`both\`: ${s.both_ok_agree} agree on the LOOSE vector ` +
              `(volume, area, com, bbox, f/e/v/shell/solid counts), ` +
-             `${s.both_ok_agree_strict} on the STRICT vector the verdict reads (+ surface/curve kinds), ` +
+             `${s.both_ok_agree_strict} on the STRICT vector (+ surface/curve kinds, ` +
+             `bit-identical representation), ` +
+             `${s.both_ok_agree_equiv} on the EQUIVALENCE vector the verdict reads ` +
+             `(strict, with an exact Plane allowed to stand for a surface PROVED to be ` +
+             `that same plane), ` +
              `${s.both_ok_agree_upto_orientation} agree up to solid orientation (|volume|), ` +
              `${s.both_ok_disagree} disagree on the loose vector`);
+  if (s.equiv_only > 0)
+    lines.push(`- **${s.equiv_only} pair(s) are agreement ONLY under the plane-equivalence rule** ` +
+               `— matched on every scalar, every count and every edge kind, and differed only ` +
+               `by a surface the certificate proved planar and coincident. ` +
+               `${s.equiv_reclassified_faces} face(s) reclassified in total; worst measured ` +
+               `deviation from the plane ${s.equiv_worst_planarity_dev.toExponential(3)}, ` +
+               `worst normal swing ${s.equiv_worst_normal_swing_rad.toExponential(3)} rad. ` +
+               `Examples: ${s.equiv_only_examples.slice(0, 6).join(', ')}`);
+  if (s.implication_chain_violations > 0)
+    lines.push(`- **${s.implication_chain_violations} ROW(S) VIOLATE THE IMPLICATION CHAIN** ` +
+               `agree_strict => agree_equiv => agree. That is a HARNESS defect, not an engine ` +
+               `one. Examples: ${s.implication_chain_violation_examples.join(', ')}`);
   if (s.both_ok_agree > s.both_ok_agree_strict)
     lines.push(`  - **${s.both_ok_agree - s.both_ok_agree_strict} pair(s) match on every scalar AND every ` +
                `count and are different B-Rep** — caught only by the kind histograms.`);
