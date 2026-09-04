@@ -645,6 +645,19 @@ double edgeToNonAdjacentRing(const TopoDS_Face& f, const TopoDS_Edge& edge) {
     return best;
 }
 
+// Do two edges meet at a vertex? Topological (TopoDS IsSame), because that is the
+// relation the ring rebuild uses: a shared corner is dragged by the corner machinery,
+// two edges that share nothing move independently.
+bool edgesShareVertex(const TopoDS_Edge& a, const TopoDS_Edge& b) {
+    TopTools_IndexedMapOfShape va, vb;
+    TopExp::MapShapes(a, TopAbs_VERTEX, va);
+    TopExp::MapShapes(b, TopAbs_VERTEX, vb);
+    for (int i = 1; i <= va.Extent(); ++i)
+        for (int j = 1; j <= vb.Extent(); ++j)
+            if (va(i).IsSame(vb(j))) return true;
+    return false;
+}
+
 // The MINIMUM-CLEARANCE half of the setback test, on ONE adjacent face.
 //
 // ★ MEASURED 2026-09-04 over the whole 600-part corpus A/B, and this is the defect
@@ -1361,6 +1374,37 @@ Result blendBatch(const TopoDS_Shape& shape, const std::vector<BReq>& reqs) {
         }
         if (!setbackFitsFaces(s.c, s.q, s.q, why)) return defer(why);
         sp.push_back(s);
+    }
+    // ★ CO-MOVING RING SEGMENTS — the pair test setbackFitsFaces structurally cannot do.
+    //   That routine measures the ORIGINAL edge against the ORIGINAL ring, which is
+    //   exactly right for the SEQUENTIAL path: makeFillet applies specs one at a time and
+    //   filletOneEdge re-measures against the already-retrimmed `work` shape, so the
+    //   second edge sees the first one's move.
+    //   It is NOT right here. blendBatch rebuilds each touched face ONCE (step 4 below)
+    //   and moves EVERY corner on it, so two selected edges bounding the SAME face travel
+    //   TOWARD EACH OTHER. Two 6 mm setbacks on a 10 mm-wide face each pass their own
+    //   10 > 6 test and still close that face to −2 mm — an inverted ring the per-edge
+    //   test cannot see, because neither edge is individually too big.
+    //   The clearance a PAIR owes is the SUM of the two setbacks, and it is owed only
+    //   between edges that bound a COMMON adjacent face and share NO vertex: a shared
+    //   vertex is a corner the corner-aware machinery already resolves, and edges with no
+    //   common face do not meet on any ring.
+    for (std::size_t i = 0; i + 1 < sp.size(); ++i) {
+        for (std::size_t j = i + 1; j < sp.size(); ++j) {
+            const BSpec& a = sp[i];
+            const BSpec& b = sp[j];
+            if (a.c.edge.IsNull() || b.c.edge.IsNull()) continue;
+            if (edgesShareVertex(a.c.edge, b.c.edge)) continue;
+            const bool commonFace =
+                a.c.A.IsSame(b.c.A) || a.c.A.IsSame(b.c.B) ||
+                a.c.B.IsSame(b.c.A) || a.c.B.IsSame(b.c.B);
+            if (!commonFace) continue;
+            const double d = minDistToEdge(a.c.edge, b.c.edge);
+            if (d >= 0.0 && d <= a.q + b.q + kTol)
+                return defer("two blended edges bound the same face and their setbacks "
+                             "meet on it — the simultaneous retrim would fold that face "
+                             "through itself — deferring");
+        }
     }
     // Equal setback is required by the corner formulae (a mixed-radius corner is a
     // different, unauthored surface) — defer rather than approximate.

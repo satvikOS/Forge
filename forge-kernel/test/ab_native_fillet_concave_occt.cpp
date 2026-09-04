@@ -539,6 +539,54 @@ int main() {
                   box, {es[0]}, 25.0, true,
                   "setback exceeds the adjacent face extent", OcctExpect::Declines);
     }
+    // ── CO-MOVING PAIR: the batch-path gap the per-edge guard structurally cannot see.
+    //    Two OPPOSITE edges of the 30x10 front face (z=0 and z=10, 10 mm apart), R=6.
+    //    EACH passes its own clearance test — 6 < 10 against that face and 6 < 20 against
+    //    the top/bottom — because setbackFitsFaces compares the ORIGINAL edge with the
+    //    ORIGINAL ring. But blendBatch rebuilds the front face ONCE and moves BOTH of its
+    //    horizontal boundaries inward by 6, closing a 10 mm face to -2. Only a test on the
+    //    PAIR can see it, and this is the control that proves that test fires.
+    {
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(30.0, 20.0, 10.0).Shape();
+        TopoDS_Edge lo, hi;
+        bool gotLo = false, gotHi = false;
+        for (const TopoDS_Edge& e : allEdges(box)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt p0 = c.Value(c.FirstParameter()), p1 = c.Value(c.LastParameter());
+            auto isSeg = [&](const gp_Pnt& a, const gp_Pnt& b) {
+                return (p0.Distance(a) < 1e-9 && p1.Distance(b) < 1e-9) ||
+                       (p0.Distance(b) < 1e-9 && p1.Distance(a) < 1e-9);
+            };
+            if (isSeg(gp_Pnt(0, 0, 0), gp_Pnt(30, 0, 0)))   { lo = e; gotLo = true; }
+            if (isSeg(gp_Pnt(0, 0, 10), gp_Pnt(30, 0, 10))) { hi = e; gotHi = true; }
+        }
+        check(gotLo && gotHi, "co-moving control: located both front-face edges");
+        if (gotLo && gotHi) {
+            // Each edge ALONE must still build at R=6 — otherwise the pair test below
+            // would be proving nothing but that a single setback is too large.
+            for (int which = 0; which < 2; ++which) {
+                std::vector<forge::occtfillet::FilletSpec> one(1);
+                one[0].edge = which == 0 ? lo : hi;
+                one[0].radius = 6.0;
+                const forge::occtfillet::Result r = forge::occtfillet::makeFillet(box, one);
+                check(r.ok, std::string("co-moving control: edge ") + (which == 0 ? "LO" : "HI") +
+                            " alone at R=6 still BUILDS (got: " +
+                            (r.ok ? std::string("ok") : r.reason) + ")");
+            }
+            deferCase("CO-MOVING pair (two opposite edges of a 10 mm face, R=6 each)",
+                      box, {lo, hi}, 6.0, true,
+                      "bound the same face and their setbacks meet", OcctExpect::Declines);
+            // And the SAME pair at a radius that genuinely fits (6+6 > 10, but 2+2 < 10)
+            // must still build — the pair test is a clearance test, not a ban on pairs.
+            std::vector<forge::occtfillet::FilletSpec> two(2);
+            two[0].edge = lo; two[0].radius = 2.0;
+            two[1].edge = hi; two[1].radius = 2.0;
+            const forge::occtfillet::Result ok2 = forge::occtfillet::makeFillet(box, two);
+            check(ok2.ok, std::string("co-moving control: the SAME pair at R=2 still BUILDS "
+                                      "(got: ") + (ok2.ok ? std::string("ok") : ok2.reason) + ")");
+        }
+    }
     {
         const TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(5.0, 8.0).Shape();
         TopoDS_Edge rim; bool got = false;
