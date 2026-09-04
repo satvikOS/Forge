@@ -1,0 +1,29 @@
+  C1 box has 6 planar faces                      ok
+  C1 child completed                             ok
+  C1 occt built                                  ok
+  C1 volume == 8000 - 18*18*19                   ok
+  C1 BRepCheck valid                             ok
+  C1 no free edges                               ok
+  C1 no non-manifold edges                       ok
+  C1 BOP reports no faulty                       ok
+  C1 status histogram empty                      ok
+  C1 stages reached end                          ok
+  C2 over-thick wall still reports IsDone        ok
+  C2 over-thick result is BRepCheck valid        ok
+  C2 over-thick result IS the source (6 faces)   ok
+  C2 identity return is FLAGGED                  ok
+  C2 vol_ratio is 1                              ok
+  C1b valid hollow has 1 shell                   ok
+  C1b that shell carries the Closed flag         ok
+  C2b real hollow is NOT flagged as identity     ok
+  C3 crash reported as CRASH_sig11               ok
+  C3 pre-crash record survived                   ok
+  C3 last stage is start (not end)               ok
+  C4 hang reported as TIMEOUT                    ok
+  C5 sweep completed                             ok
+  C5 w1 wall is 12                               ok
+  C5 w16 wall is 0.75                            ok
+  C5 thin wall yields a valid hollow             ok
+  C5 impossible thick wall is the identity       ok
+  C5 thin wall is not the identity               ok
+SELFTEST: all controls pass
