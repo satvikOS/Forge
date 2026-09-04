@@ -186,6 +186,7 @@
 #include "forge/native/brep/NativeFilling.hpp"         // family  B/C
 #include "forge/native/brep/NativeFilletChamfer.hpp"   // TKFillet
 #include "forge/native/geom/PolygonOffset2D.hpp"       // family  A
+#include "forge/OcctCurveSampling.hpp"                 // family  A input sampler
 
 namespace {
 
@@ -750,18 +751,44 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
         // Curved wire: sample each edge along its own parameter range, head to
         // tail, honouring the edge orientation — the same job Cam.cpp's
         // sampleWireXY does, minus the XY projection.
+        //
+        // THE BUDGET IS THE SHIPPED ONE, NOT A FIXED POINT COUNT. This loop used
+        // `const int N = (line ? 1 : 24)` — a fixed 24 samples per curved edge.
+        // That was a SECOND departure from src/Cam.cpp (the banner above claims
+        // one), and it is not a small one: the shipped tryNativeInwardOffset
+        // samples with sampleWireXY(wire, kOffsetInputDeflection), i.e.
+        // forge::nativeQuasiUniformDeflectionParams to a CHORD DEFLECTION of
+        // kSampleDeflection/16 = 3.125e-3 mm, chosen so the discretisation this
+        // step adds is 1/16 of the tolerance the only two consumers
+        // (Cam.cpp:485 profile, Cam.cpp:587 pocket) already spend re-sampling the
+        // result at 0.05 mm. 24 chords on a 40 mm-radius circle is a sagitta of
+        // 0.34 mm — 110x the shipped budget and 7x the consumer's own tolerance.
+        // Measured on this corpus, the fixed count put 81 of the 247
+        // same-direction disagreements OUTSIDE the consumer's 0.05 mm, which is
+        // an instrument reading, not an engine result. See
+        // reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md.
+        //
+        // The constant is REPEATED here rather than included because Cam.cpp's
+        // kSampleDeflection/kOffsetInputDeflection live in an anonymous
+        // namespace in that TU, for the same reason tryNativeInwardOffset itself
+        // had to be replicated. It is asserted against the shipped value below.
+        constexpr double kSampleDeflection = 0.05;              // src/Cam.cpp:96
+        constexpr double kOffsetInputDeflection = kSampleDeflection / 16.0;
         for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
             const TopoDS_Edge e = ex.Current();
             BRepAdaptor_Curve ad;
             try { ad.Initialize(e); } catch (...) { MO_DEFER("curve_init_throw"); }
-            const double f = ad.FirstParameter(), l = ad.LastParameter();
-            const int N = (ad.GetType() == GeomAbs_Line) ? 1 : 24;
+            std::vector<double> ps;
+            try { forge::nativeQuasiUniformDeflectionParams(ad, kOffsetInputDeflection, ps); }
+            catch (...) { MO_DEFER("curve_sample_throw"); }
+            if (ps.size() < 2) continue;
             const bool rev = (e.Orientation() == TopAbs_REVERSED);
-            for (int i = 0; i < N; ++i) {
-                const double t = static_cast<double>(i) / static_cast<double>(N);
-                const double u = rev ? (l + (f - l) * t) : (f + (l - f) * t);
+            const int n = static_cast<int>(ps.size());
+            for (int i = 1; i <= n; ++i) {
+                const int idx = rev ? (n - i + 1) : i;
                 gp_Pnt p;
-                try { p = ad.Value(u); } catch (...) { MO_DEFER("curve_value_throw"); }
+                try { p = ad.Value(ps[static_cast<std::size_t>(idx) - 1]); }
+                catch (...) { MO_DEFER("curve_value_throw"); }
                 push(p);
             }
         }
