@@ -941,6 +941,33 @@ jobs:
         # was PASS, so the gate can only ever have got stricter. Pure node, no
         # build, ~2s; it rides this job because this is where the A/B lives.
         run: node forge-kernel/test/corpus_ab_gate_selftest.mjs
+      - name: plane-vs-spline consumer equivalence (the rule, and its negative controls)
+        # THE MEASUREMENT BEHIND THE ONE RELAXATION THE FLIP GATE MAKES. The gate
+        # compares faces binned by surface KIND, and that term reds FILLING on 407
+        # of 407 pairs which match on volume, area, centre of mass, all six bbox
+        # bounds and every topology count and differ only in native `Plane` vs OCCT
+        # `BSplineSurface` over the same boundary. `agree_equiv` treats those as
+        # interchangeable ONLY when the spline is proved, by sampling its own
+        # geometry, to be that same plane. This binary is the evidence for that
+        # decision and the guard on it, in one run over five boundary shapes:
+        #
+        #   - the four consumers the decision turns on -- mass properties,
+        #     booleans, offsets and STEP round-trip -- must agree, and where they
+        #     do not, the PLANE arm must be the one closer to the closed form
+        #     (vol(A\B)+vol(A^B) == vol(A) exactly, for any two solids);
+        #   - BRepBuilderAPI_NurbsConvert of a cylinder, sphere, cone and torus
+        #     must be REFUSED by the certificate -- that is the quadric-to-spline
+        #     substitution the kind histogram exists to catch, and a rule that
+        #     forgave it would be the blanket "ignore surface kind" this is not;
+        #   - a planar spline translated 0.5 mm must be refused as a DIFFERENT
+        #     plane, and a MakeFilling patch bulged off its plane must be refused
+        #     at a deviation the run measures rather than assumes.
+        #
+        # A THRESHOLD IN THIS FILE IS A MEASUREMENT. Two of them were guessed at
+        # first and the run refuted both: the real OCCT spline's normals swing
+        # 1.49e-08 rad, not the "< 1e-09" first asserted. 136 checks, ~5 s, and it
+        # compiles only the two engine sources it calls.
+        run: bash forge-kernel/test/run_plane_spline_consumer_equivalence.sh
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
         # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the

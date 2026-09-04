@@ -73,11 +73,19 @@ set -uo pipefail
 #    prints 71 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
 #    + file_dialog 3 + frame 16 + copilot 8 + update 7 + click 12 + assembly 4
 #    + isolation 0.
-#    (click went 8 -> 12 with the viewport drag handles and the viewport body
-#    pick: 9 the arrow pressed 60 px off where the app PUBLISHED it, 10 the body
-#    never selected so the handles are not up, 11 a drag with zero net motion,
-#    12 the pick filter left on `face` so the body branch never runs.)
-EXPECTED_MUTATIONS=71
+# ── 2026-09-04: 77. Two independent tranches landed together. Six more docked
+#    panels stopped being empty (Constraints, Relations, Solver, Isocline,
+#    Continuity, Tools) and frame_gate section 18 brought six mutations with
+#    them, 17..22; and the viewport work took click 8 -> 12 (9 the arrow pressed
+#    60 px off where the app PUBLISHED it, 10 the body never selected so the
+#    handles are not up, 11 a drag with zero net motion, 12 the pick filter left
+#    on `face` so the body branch never runs).
+#    DERIVED, not incremented, and not summed by hand across the merge:
+#      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#    prints 77 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
+#    + file_dialog 3 + frame 22 + copilot 8 + update 7 + click 12 + assembly 4
+#    + isolation 0.
+EXPECTED_MUTATIONS=77
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it
