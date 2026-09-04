@@ -739,3 +739,19 @@ and both can be called. It proves nothing about the closure or the symbol census
    directly rather than through `part::shell` / `part::loft` / etc. A call site that
    fails to route to the engine would not show up here — `test/part_features_smoke.js`
    and the per-family A/B scripts cover that.
+6. **A `SUCCESS` in this table is `IsDone()`, and on THICKSOLID that predicate is
+   satisfied by the function's own argument.** §2.2 states the deliberate choice
+   to keep validity out of the success predicate, and that choice is still right —
+   folding validity in would let the harness mark its own homework. But the
+   THICKSOLID row's 22.2% has since been opened up part by part, and it contains
+   **zero usable answers**: of its 133, 123 have holes in their boundary, 94
+   self-intersect, 0 pass `BRepCheck`, **0 are a benign complaint**, and against an
+   independent oracle that links no offset engine the median volume error is +88%.
+   Six-face fixtures now pin the same thing without the corpus — split one flat
+   region into two coplanar faces, remove one of them, and
+   `MakeThickSolidByJoin` returns the input with `IsDone()` true and `BRepCheck`
+   VALID, which this table scores `OCCT_ONLY`. That fixture set is
+   `test/thicksolid_bar_fixture_gate.cpp`, ratcheted by `test/run_ab_all.sh`.
+   Full measurement, including what a correct answer would take and a 14–20%
+   per-part crash rate in OCCT's own measurement of its own output:
+   **`reports/corpus_ab/THICKSOLID_HONEST_BAR.md`**.
