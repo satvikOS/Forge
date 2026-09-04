@@ -71,6 +71,20 @@
 //       would fold through the far boundary. OCCT declines these too; the engine
 //       used to return a BRepCheck-VALID solid with exactly the ideal volume,
 //       which is why the guard is on face EXTENT and not on volume,
+//     * a blend whose setback fits that overall extent but is larger than the
+//       CLEARANCE from the blended edge to (a) an inner (hole) wire of an adjacent
+//       face, or (b) a segment of that face's own outer ring which the edge does not
+//       share a vertex with. The retrim re-attaches inner wires verbatim and drags
+//       only the two segments it touches, so either case leaves the rebuilt planar
+//       face with crossing wires. MEASURED 2026-09-04 over the 600-part corpus:
+//       before this deferral the engine returned a BRepCheck-INVALID solid on 91
+//       parts in BOTH families (69 FACE/IntersectingWires, 22
+//       FACE/UnorientableShape + WIRE/SelfIntersectingWire) whose volume, area and
+//       shell/solid counts all matched OCCT — the third case in this file where a
+//       correct scalar hid a wrong solid, and the second where the observable that
+//       separates them is topological rather than metric. THIS IS A REFUSAL, NOT A
+//       REPAIR: on the FILLET row native OK falls 403 -> 312 and native INVALID
+//       falls 91 -> 0; the valid answers are unchanged,
 //     * end faces not perpendicular to the edge (the fillet/end-plane section
 //       would be an ellipse, not the circular arc we build),
 //     * a vertex where more than 3 faces meet, or an affected face whose outer

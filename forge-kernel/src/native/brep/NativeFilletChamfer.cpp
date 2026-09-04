@@ -78,6 +78,7 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <BRepLib.hxx>
@@ -484,6 +485,7 @@ double solidVolume(const TopoDS_Shape& s) {
 
 // ---- the two-adjacent-faces map for a selected edge --------------------------
 struct EdgeContext {
+    TopoDS_Edge edge;          // the edge being blended (the retrim's clearance datum)
     TopoDS_Face A, B;
     gp_Pln plnA, plnB;
     gp_Dir nA, nB;             // outward normals
@@ -521,6 +523,7 @@ bool buildEdgeContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge,
     TopTools_ListIteratorOfListOfShape it(fl);
     c.A = TopoDS::Face(it.Value()); it.Next();
     c.B = TopoDS::Face(it.Value());
+    c.edge = edge;
 
     if (!planarFaceNormal(c.A, c.plnA, c.nA)) { why = "adjacent face A is not planar"; return false; }
     if (!planarFaceNormal(c.B, c.plnB, c.nB)) { why = "adjacent face B is not planar"; return false; }
@@ -591,6 +594,108 @@ double maxRingProjection(const TopoDS_Face& f, const gp_Pnt& origin, const gp_Di
     return m;
 }
 
+// Exact minimum distance from the blended edge to another sub-shape. Negative when
+// nothing could be measured (an unreadable pair is reported as "no constraint", never
+// as a zero, because a zero here would defer every blend on the corpus).
+double minDistToEdge(const TopoDS_Edge& e, const TopoDS_Shape& other) {
+    try {
+        BRepExtrema_DistShapeShape dss(e, other);
+        if (dss.IsDone() && dss.NbSolution() > 0) return dss.Value();
+    } catch (...) {}
+    return -1.0;
+}
+
+// (a) How close does the blended edge come to the NEAREST INNER (hole) wire of an
+//     adjacent face? retrimAdjacentFace re-attaches those wires VERBATIM
+//     (innerWires(f), "preserved verbatim on re-trim") while moving the outer ring
+//     inward by the setback, so a hole nearer than the setback ends up OUTSIDE the
+//     new outer ring. Negative when the face has no inner wire — unconstrained.
+double edgeToNearestHole(const TopoDS_Face& f, const TopoDS_Edge& edge) {
+    double best = -1.0;
+    for (const TopoDS_Wire& w : innerWires(f)) {
+        const double d = minDistToEdge(edge, w);
+        if (d >= 0.0 && (best < 0.0 || d < best)) best = d;
+    }
+    return best;
+}
+
+// (b) How close does the blended edge come to a segment of its OWN OUTER RING that it
+//     does NOT share a vertex with? The two segments it DOES share a vertex with are
+//     the ones the retrim drags along with it and are excluded by construction; any
+//     OTHER segment stays put, so a shift larger than that clearance folds the ring
+//     through it. Negative when the ring has no non-adjacent segment (a triangle) —
+//     unconstrained.
+double edgeToNonAdjacentRing(const TopoDS_Face& f, const TopoDS_Edge& edge) {
+    const TopoDS_Wire ow = BRepTools::OuterWire(f);
+    if (ow.IsNull()) return -1.0;
+    TopTools_IndexedMapOfShape vm;
+    TopExp::MapShapes(edge, TopAbs_VERTEX, vm);
+    double best = -1.0;
+    for (TopExp_Explorer ex(ow, TopAbs_EDGE); ex.More(); ex.Next()) {
+        const TopoDS_Edge oe = TopoDS::Edge(ex.Current());
+        if (oe.IsSame(edge)) continue;
+        bool shares = false;
+        for (TopExp_Explorer vx(oe, TopAbs_VERTEX); vx.More() && !shares; vx.Next())
+            for (int q = 1; q <= vm.Extent(); ++q)
+                if (vx.Current().IsSame(vm(q))) { shares = true; break; }
+        if (shares) continue;
+        const double d = minDistToEdge(edge, oe);
+        if (d >= 0.0 && (best < 0.0 || d < best)) best = d;
+    }
+    return best;
+}
+
+// The MINIMUM-CLEARANCE half of the setback test, on ONE adjacent face.
+//
+// ★ MEASURED 2026-09-04 over the whole 600-part corpus A/B, and this is the defect
+//   it closes. The native fillet and chamfer engines returned BRepCheck-INVALID
+//   solids on the IDENTICAL 91 parts of that corpus, in both families, with zero
+//   exceptions — and the mass properties and the shell/solid counts of those 91
+//   matched OCCT to ~1e-6, so nothing downstream could see it. BRepCheck's own
+//   verdict (PR #241, all 91 invalid + all 312 valid, both families) is a purely 2D
+//   wire-in-face rejection on ONE planar face, the face retrimAdjacentFace rebuilt:
+//     69  FACE/IntersectingWires                              1 FACE
+//     22  FACE/UnorientableShape + WIRE/SelfIntersectingWire   1 FACE + 1 WIRE
+//     312 valid controls — no status of any kind
+//   All 403 source parts are BRepCheck-clean, so the op creates the defect.
+//
+//   WHY THE TEST ABOVE CANNOT SEE IT, stated exactly because it is the whole point:
+//   maxRingProjection walks BRepTools::OuterWire only and takes a std::max over the
+//   ring's vertices. It is therefore blind twice — it never sees inner wires at all,
+//   and it MAXIMISES where the binding constraint is a MINIMUM clearance. Both
+//   filletOneEdge (s = R/tan(theta/2)) and chamferOneEdge (dA = dB = d) call it with
+//   their own setback, which is why two different blend algorithms fail on exactly
+//   the same parts.
+//
+//   THE PREDICATE. min(d_hole, d_ring) < setback separated 91/91 invalid from 0/312
+//   valid with NO exceptions on that corpus: source hole to blended edge ran
+//   0.023..0.987 of the setback on the 69 against a valid minimum of 1.009, and
+//   non-adjacent ring segment to blended edge ran 0.088..0.942 on the 22 against a
+//   valid minimum of 1.003. The alternative reading — "a neighbouring ring segment
+//   shorter than the setback" — is REFUTED: that ratio is >= 2.887 in every group.
+//
+//   THIS IS A REFUSAL, NOT A REPAIR. It does not make those 91 build; it makes the
+//   engine DECLINE them so the OCCT fallback answers instead. Coverage falls,
+//   validity rises. That is the direction this kernel is held to.
+bool retrimClearanceFits(const TopoDS_Face& f, const TopoDS_Edge& edge, double s,
+                         std::string& why) {
+    const double dHole = edgeToNearestHole(f, edge);
+    if (dHole >= 0.0 && dHole <= s + kTol) {
+        why = "blend setback reaches an inner (hole) wire of the adjacent face — the "
+              "re-trimmed outer ring would cross a hole that is re-attached verbatim "
+              "— deferring";
+        return false;
+    }
+    const double dRing = edgeToNonAdjacentRing(f, edge);
+    if (dRing >= 0.0 && dRing <= s + kTol) {
+        why = "blend setback reaches a non-adjacent segment of the adjacent face's "
+              "own outer ring — the re-trimmed ring would fold through itself — "
+              "deferring";
+        return false;
+    }
+    return true;
+}
+
 // The setback must land INSIDE both adjacent faces. When it does not, the retrimmed
 // ring folds through the face's far boundary and the sew can STILL close on a solid
 // whose volume happens to equal the idealised closed form.
@@ -618,6 +723,17 @@ bool setbackFitsFaces(const EdgeContext& c, double sA, double sB, std::string& w
         why = "blend setback exceeds the adjacent face extent (radius/distance too "
               "large for this feature) — deferring";
         return false;
+    }
+    // The extent test above is KEPT UNCHANGED: it catches a setback that runs off the
+    // far side of the face entirely, which is a different failure (the L-prism case in
+    // the note above, where the shape came back BRepCheck-VALID with the ideal volume).
+    // What it cannot catch is a setback that fits the face's OVERALL extent and still
+    // crosses something on the way — a hole, or a fold of the ring onto itself. That is
+    // the minimum-clearance test, and it is measured per face against that face's own
+    // setback.
+    if (!c.edge.IsNull()) {
+        if (!retrimClearanceFits(c.A, c.edge, sA, why)) return false;
+        if (!retrimClearanceFits(c.B, c.edge, sB, why)) return false;
     }
     return true;
 }
