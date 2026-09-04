@@ -3,9 +3,9 @@
 // WHAT EACH PANEL IS FOR, IN THE USER'S WORDS — and whether it has content yet.
 //
 // THE DEFECT THIS EXISTS FOR, MEASURED. The eight default workspaces define 50
-// distinct panels between them. The frame builder implements 23 of them; the
-// other 27 fell through to a single fallback that drew this, verbatim, in a
-// shipped build:
+// distinct panels between them. WHEN THIS FILE WAS WRITTEN the frame builder
+// implemented 23 of them and the other 27 fell through to a single fallback that
+// drew this, verbatim, in a shipped build:
 //
 //   Panel "mates" is docked and laid out by forge::ui::DockLayout, and its
 //   position, tab order and active tab persist across restart. Its content is
@@ -17,6 +17,12 @@
 // schedule. The panel was 27 tabs wide and the sentence was the same in all 27:
 // it did not even say what the panel WOULD show, so it told a user nothing at
 // all about the one thing they had asked about.
+//
+// The count is NOT maintained by hand here, and this paragraph is history rather
+// than a claim: plannedPanelCount() computes it, the gate prints it on every run,
+// and a sentence that has to be edited whenever a panel is finished is a sentence
+// that will one day be wrong. Mates was one of the four that fell through, and it
+// is one of the four the assembly workflow now draws for real.
 //
 // ── why the text lives HERE and not in the frame builder ───────────────────
 // forge-desktop is compiled by one CI step and RUN by none; ui/ is compiled and
