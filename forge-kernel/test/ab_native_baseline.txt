@@ -19,10 +19,15 @@
 # See implementation/sacrosanct/findings/PR64_CHANGED_THE_FACE_TYPE_CENSUS.md.
 AB_BASELINE_draft=0
 # draft_local: the GENERAL native draft (NativeDraftLocal.cpp) against live
-# OCCT — 213 assertions over seven cases, five of which carry BOTH a
-# non-planar face and multi-wire faces, plus an equal-VOLUME negative control
-# and an equal-TOPOLOGY one. Ratcheted here because the harness that is not in
-# this list is the harness that stops linking and says nothing.
+# OCCT. Cases carrying BOTH a non-planar face and multi-wire faces, plus an
+# equal-VOLUME negative control and an equal-TOPOLOGY one. Ratcheted here
+# because the harness that is not in this list is the harness that stops
+# linking and says nothing.
+# THE ASSERTION COUNT IS DELIBERATELY NOT WRITTEN HERE. It said "213 assertions
+# over seven cases" while the harness ran 256 and then 280, because a count
+# typed beside a description is only true on the day it is typed and nothing
+# re-derives it. What this file ratchets is the FAILURE count, which is the
+# number below; the harness prints its own assertion total.
 AB_BASELINE_draft_local=0
 AB_BASELINE_filling=0
 AB_BASELINE_loftpipe=0

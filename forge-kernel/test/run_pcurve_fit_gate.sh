@@ -2,7 +2,7 @@
 # run_pcurve_fit_gate.sh — the gate BSplineBasis.hpp names, plus the two checks that
 # a gate over THIS code specifically needs.
 #
-# Four parts:
+# Five parts:
 #   1. GUARD PROOF. NativePCurveFit.{hpp,cpp} are entirely inside #ifdef
 #      FORGE_NATIVE_BREP. A compile without that define builds an EMPTY translation
 #      unit and returns 0 for ever. This measured me twice before I noticed, so the
@@ -14,6 +14,9 @@
 #      src/native/geom/NativeNurbsConvert.cpp. The header warns that a silent second
 #      copy is how two engines start disagreeing, so the two are compared directly
 #      and a drift is a failure.
+#   3b. cylinderPCurve ON REAL GEOMETRY — test/pcurve_geometry_gate.cpp, the only
+#      check in the tree over cylinderPCurve itself. It existed and NOTHING ran
+#      it: no script, no CMake target, no workflow named the file.
 #   4. NEGATIVE CONTROLS (--mutations). Five ways to break the numerics, each of
 #      which MUST turn this red. A gate that cannot fail is not a gate.
 set -uo pipefail
@@ -113,6 +116,34 @@ PY
   fi
 fi
 
+# ── 3b. cylinderPCurve ON REAL GEOMETRY ──────────────────────────────────────
+# ★ THIS GATE EXISTED AND RAN NOWHERE. test/pcurve_geometry_gate.cpp is the only
+# check in the tree over cylinderPCurve itself — part 2 above says in its own
+# header that it does NOT touch it — and no script, no CMake target and no
+# workflow referenced the file. It compiles clean under -Werror and passes 62 of
+# 62 checks, so nothing was broken; it was simply unreachable, which is the same
+# state as not existing. A FILE NOTHING COMPILES CANNOT BREAK, and this
+# repository has already shipped a defect for exactly that reason. Wired here,
+# beside the numerics underneath it.
+if [ -d "$OCCT/include/opencascade" ]; then
+  # shellcheck disable=SC2086
+  if $CXX -std=c++20 -O1 -Wall -Wextra -Werror -DFORGE_NATIVE_BREP $INC \
+        "$ROOT/test/pcurve_geometry_gate.cpp" "$ROOT/src/native/geom/NativePCurveFit.cpp" \
+        -L"$OCCT/lib" -Wl,-rpath,"$OCCT/lib" -lTKernel -lTKMath -lTKG2d -lTKG3d \
+        -o "$WORK/pgeom" > "$WORK/pgeom_build.log" 2>&1; then
+    if "$WORK/pgeom" > "$WORK/pgeom.log" 2>&1; then
+      say "geometry: $(grep -o '[0-9]* checks, [0-9]* failed' "$WORK/pgeom.log" | tail -1)"
+    else
+      bad "pcurve_geometry_gate FAILED"; cat "$WORK/pgeom.log" >&2
+    fi
+  else
+    bad "pcurve_geometry_gate does not BUILD — its checks did not run at all"
+    head -25 "$WORK/pgeom_build.log" >&2
+  fi
+else
+  say "SKIP: OCCT not found — the geometry gate did NOT run"
+fi
+
 # ── 4. negative controls ─────────────────────────────────────────────────────
 if [ "${1:-}" = "--mutations" ]; then
   say "--- negative controls ---"
@@ -136,6 +167,35 @@ if [ "${1:-}" = "--mutations" ]; then
   mutate "findSpan returns the low bound"        's|    return mid;|    return low;|'
   mutate "cholesky accepts a non-positive pivot" 's|if (s <= 1e-14) return false;|if (s <= -1e300) return false;|'
   mutate "choleskySolve skips back-substitution" 's|for (int k = i + 1; k < m; ++k) s -= L\[k \* m + i\] \* b\[k\];|;|'
+  # AND ONE FOR THE GEOMETRY GATE JUST WIRED IN. The five above mutate
+  # BSplineBasis.hpp and are caught by the kernel-free numerics gate; none of
+  # them can prove the NEW step can fail, because that step compiles a different
+  # source against a different TU. This one mutates the ellipse itself — the
+  # section's semi-major axis is r/|c| and the mutant makes it r, which is the
+  # CIRCLE — so `the section lies on both surfaces` must go red. A gate wired in
+  # green and never shown to fail is a gate nobody has tested.
+  if [ -d "$OCCT/include/opencascade" ]; then
+    n=$((n + 1))
+    mkdir -p "$WORK/geo"
+    sed 's|const double A = radius / std::fabs(c);|const double A = radius;|' \
+      "$ROOT/src/native/geom/NativePCurveFit.cpp" > "$WORK/geo/NativePCurveFit.cpp"
+    if cmp -s "$WORK/geo/NativePCurveFit.cpp" "$ROOT/src/native/geom/NativePCurveFit.cpp"; then
+      bad "the geometry mutation changed NOTHING — stale anchor, it cannot prove anything"
+    # shellcheck disable=SC2086
+    elif ! $CXX -std=c++20 -O1 -DFORGE_NATIVE_BREP $INC \
+            "$ROOT/test/pcurve_geometry_gate.cpp" "$WORK/geo/NativePCurveFit.cpp" \
+            -L"$OCCT/lib" -Wl,-rpath,"$OCCT/lib" -lTKernel -lTKMath -lTKG2d -lTKG3d \
+            -o "$WORK/pgeom_mut" > "$WORK/pgeom_mut_build.log" 2>&1; then
+      say "  caught: plane/cylinder section semi-major r/|c| -> r (did not compile)"
+      caught=$((caught + 1))
+    elif "$WORK/pgeom_mut" > "$WORK/pgeom_mut.log" 2>&1; then
+      bad "mutation 'section semi-major r/|c| -> r' was NOT caught by the geometry gate"
+    else
+      say "  caught: plane/cylinder section semi-major r/|c| -> r"
+      caught=$((caught + 1))
+    fi
+  fi
+
   say "negative controls: $caught of $n caught"
   [ "$caught" -eq "$n" ] || fails=$((fails + 1))
 fi
