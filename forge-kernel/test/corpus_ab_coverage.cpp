@@ -70,6 +70,7 @@
 //   deterministic (no RNG); ties break on the candidate's centroid ordered
 //   lexicographically, so the same part always yields the same operation.
 //     FILLET        longest LINE edge; radius 0.05 * min bbox extent
+//     CHAMFER       the SAME edge FILLET picks; setback 0.05 * min bbox extent
 //     MAKEOFFSET    outer wire of the largest PLANAR face; inward 0.05*sqrt(area)
 //     THICKSOLID    remove the largest PLANAR face; wall 0.05 * min extent
 //     OFFSETSHAPE   grow the whole solid by 0.02 * min extent
@@ -100,6 +101,29 @@
 //   engine. So the replication here takes the wire into its OWN plane's frame,
 //   offsets, and maps back. Same engine (PolygonOffset2D::offsetLoop), same
 //   options, same inward-sign rule; different frame.
+//
+// ONE OPTION, TWO FAMILIES — why CHAMFER is a row of its own. Nine of the ten
+//   options above map one-to-one onto a family. FORGE_FILLET_DROP_NATIVE does
+//   NOT: it deletes TWO OCCT classes, not one. The per-toolkit symbol census of
+//   the pinned forge-kernel.node (reports/OCCT_TOOLKIT_SYMBOL_CENSUS_2026-09-04.md)
+//   counts TKFillet's whole contribution as ELEVEN called symbols —
+//   BRepFilletAPI_MakeFillet (5) + BRepFilletAPI_MakeChamfer (5) + ChFi3d_Builder
+//   (1) — and src/Features.cpp guards both classes behind that one macro: the
+//   include pair at :69-75 and the chamfer dispatch at :2040-2147, which is
+//   correct, because both classes live in TKFillet and the drop takes the
+//   toolkit, not a class.
+//
+//   Until this family existed the harness measured that seam on HALF of what it
+//   drops. The FILLET row alone cannot answer the flip gate for the option,
+//   because a chamfer that declines where OCCT builds is a deletion the FILLET
+//   row cannot see and the option would ship anyway. So CHAMFER is derived from
+//   the SAME edge FILLET is derived from — deliberately, so the two rows are
+//   read side by side on one input distribution and any difference between them
+//   is a difference between the ENGINES and not between two samples.
+//
+//   Its `option` column is FORGE_FILLET_DROP_NATIVE, the same string FILLET
+//   carries, because it is the same flag. Both rows must clear the gate before
+//   that flag may flip; a PASS on one of them is not a PASS for the option.
 //
 // NOT COVERED, and why — the other two of the twelve options:
 //     FORGE_SHHEAL_DROP_NATIVE and FORGE_GEOM_DROP_NATIVE both DEFAULT ON and
@@ -177,6 +201,22 @@
 
 // ── OCCT: the baseline arms, one per family ─────────────────────────────────
 #include <BRepFilletAPI_MakeFillet.hxx>          // FILLET       (TKFillet)
+#ifndef FORGE_FILLET_DROP_NATIVE
+// CHAMFER's OCCT arm, under the SAME guard convention src/Features.cpp:69-75
+// puts its own TKFillet pair behind: referenced ONLY by the OCCT baseline arm,
+// which is compiled out under -DFORGE_FILLET_DROP_NATIVE, so a drop build pulls
+// no BRepFilletAPI_MakeChamfer / ChFi3d declaration — and hence no vtable
+// reference — into this TU. Verified by nm, not assumed; see the guard note at
+// the CHAMFER emit below.
+//
+// This binary is NOT a drop build and must not be read as one (the build script
+// says so at length, and defines no FORGE_*_DROP_* macro): under the harness's
+// own flags this include is ALWAYS taken and the OCCT arm always exists. The
+// guard is here so that adding the eleventh family cannot be what makes the
+// TKFillet drop unmeasurable, which is the exact failure this family was added
+// to close.
+#include <BRepFilletAPI_MakeChamfer.hxx>         // CHAMFER      (TKFillet)
+#endif
 #include <BRepOffsetAPI_MakeOffset.hxx>          // MAKEOFFSET   (family A)
 #include <BRepOffsetAPI_MakeFilling.hxx>         // FILLING      (family B/C)
 #include <BRepOffsetAPI_DraftAngle.hxx>          // DRAFT        (family J)
@@ -1127,6 +1167,32 @@ TopoDS_Shape nativeInwardOffset(const TopoDS_Wire& wire, double offsetMm, const 
     return out;
 }
 
+// -- DEFER-REASON CHANNEL for CHAMFER (behaviour-neutral) --------------------
+// The same device family A uses above and NativeLoftPipe/NativeThickSolid/
+// NativeThickenShell expose as occt*::last*DeferReason: a buffer written on the
+// way out of a DECLINE and read by runArm ONLY on a DEFER, only to fill `note`.
+// It changes no status, no bucket and no argument.
+//
+// CHAMFER needs one because forge::occtfillet exposes no last-reason accessor:
+// its decline arrives INSIDE the returned Result (`ok == false`, `reason` set —
+// NativeFilletChamfer.hpp, "HONEST SCOPE"), and the arm has to flatten that to a
+// null TopoDS_Shape to be bucketed like every other family. Flattening it is
+// what loses the reason, so the reason is copied out here first.
+//
+// THIS IS THE POINT OF THE FAMILY, NOT A DECORATION. Under the drop the chamfer
+// call site REFUSES on decline rather than falling back (src/Features.cpp:2087
+// throws "…out of native scope and TKFillet is dropped (no OCCT fallback) —
+// refused"), so an OCCT_ONLY row here is a request the shipped kernel would
+// have thrown on. A bare null shape cannot say WHICH of the documented scope
+// limits refused it; this says so, per part, in the JSONL.
+thread_local char g_chamferReason[192] = {0};
+void chamferReasonClear() { g_chamferReason[0] = '\0'; }
+void chamferReasonSet(const std::string& why) {
+    std::snprintf(g_chamferReason, sizeof g_chamferReason, "refused:%s",
+                  why.empty() ? "no reason given" : why.c_str());
+}
+const char* chamferDeferReason() { return g_chamferReason; }
+
 // ─────────────────────────────────────────────────────────────── JSON output
 void emitArm(std::string& out, const char* key, const ArmResult& r) {
     char buf[2048];
@@ -1422,6 +1488,18 @@ int selftest(const Cfg& cfg) {
         sp[0].edge = vertEdge;
         sp[0].radius = 1.0;
         const forge::occtfillet::Result r2 = forge::occtfillet::makeFillet(box, sp);
+        return r2.ok ? r2.shape : TopoDS_Shape();
+    }, true, CT, false).status);
+
+    // The SAME box edge FILLET's control uses, and the same 1.0 mm argument, so
+    // a red here against a green FILLET is about the chamfer engine and not
+    // about the control geometry.
+    ctl("CHAMFER", vertEdge.IsNull() ? ARM_NOTRUN : runArm([&]() -> TopoDS_Shape {
+        std::vector<forge::occtfillet::ChamferSpec> sp(1);
+        sp[0].edge  = vertEdge;
+        sp[0].dist  = 1.0;
+        sp[0].dist2 = 0.0;   // symmetric, as forge::part::chamferEdges passes it
+        const forge::occtfillet::Result r2 = forge::occtfillet::makeChamfer(box, sp);
         return r2.ok ? r2.shape : TopoDS_Shape();
     }, true, CT, false).status);
 
@@ -1840,7 +1918,74 @@ int selftest(const Cfg& cfg) {
         }
     }
 
-    std::printf("%s: self-test, %d check(s) red of 61\n", bad ? "FAIL" : "PASS", bad);
+    // ─────────────────────────────────────────────────────────────────────
+    // CHAMFER CONTROLS — the two things ctl("CHAMFER") above cannot see.
+    //
+    // (1) IS THE ARM THE CHAMFER ENGINE AT ALL? forge::occtfillet::makeFillet
+    //     and ::makeChamfer take almost the same call shape, live in the same
+    //     namespace, share a Result type, and BOTH return ok==true on this very
+    //     edge. A CHAMFER family accidentally wired to makeFillet would build,
+    //     would agree with nothing in particular, and would produce a full
+    //     column of plausible numbers that were a duplicate of the FILLET row —
+    //     the failure this family was added to end, reintroduced one level down.
+    //     So the two are run on the SAME edge with the SAME argument and are
+    //     required to DISAGREE on the strict observable vector. (A rolling-ball
+    //     blend and a flat bevel of the same setback cannot be the same solid:
+    //     the bevel removes d*d*H/2 and the round removes (1-pi/4)*d*d*H.)
+    //
+    // (2) IS THE NATIVE ANSWER RIGHT, not merely non-null? ctl() only asks for
+    //     ARM_OK, and this repo's standing lesson is that a built shape proves
+    //     nothing (four measured cases of a wrong solid at the right volume, one
+    //     of them invisible to every single observable). A 10 mm box chamfered
+    //     1 mm on one vertical edge has a CLOSED FORM in two independent
+    //     observables — it loses a right-triangular prism, so
+    //         V = 1000 - d*d*H/2                       = 995
+    //         A = 600 - 2*d*H + d*sqrt(2)*H - 2*(d*d/2) = 593.142135623731
+    //     — and both are checked, not one. The closed form is used rather than
+    //     "the two arms agree" deliberately: it is independent of OCCT, so it
+    //     stays a control under the drop macro that deletes OCCT's chamfer, and
+    //     it says the native answer is CORRECT where agreement says only that
+    //     two engines match.
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        auto vcheck = [&](const char* what, bool got, bool want) {
+            const bool okv = (got == want);
+            std::printf("  %-40s got %-5s want %-5s  %s\n", what, got ? "true" : "false",
+                        want ? "true" : "false", okv ? "ok" : "MISMATCH");
+            if (!okv) ++bad;
+        };
+
+        const double D = 1.0;
+        ArmResult cham, fil;
+        if (!vertEdge.IsNull()) {
+            cham = runArm([&]() -> TopoDS_Shape {
+                std::vector<forge::occtfillet::ChamferSpec> sp(1);
+                sp[0].edge = vertEdge; sp[0].dist = D; sp[0].dist2 = 0.0;
+                const forge::occtfillet::Result r2 = forge::occtfillet::makeChamfer(box, sp);
+                return r2.ok ? r2.shape : TopoDS_Shape();
+            }, true, CT, false);
+            fil = runArm([&]() -> TopoDS_Shape {
+                std::vector<forge::occtfillet::FilletSpec> sp(1);
+                sp[0].edge = vertEdge; sp[0].radius = D;
+                const forge::occtfillet::Result r2 = forge::occtfillet::makeFillet(box, sp);
+                return r2.ok ? r2.shape : TopoDS_Shape();
+            }, true, CT, false);
+        }
+        // Vacuity guard FIRST: agreeStrict() is false for any pair that did not
+        // build, so the distinctness check below would "pass" on two failures.
+        const bool bothBuilt = (cham.status == ARM_OK && fil.status == ARM_OK);
+        vcheck("chamfer and fillet controls both build", bothBuilt, true);
+        vcheck("native CHAMFER is not native FILLET",
+               bothBuilt && !agreeStrict(cham, fil, 17.32), true);
+        vcheck("native CHAMFER volume matches closed form",
+               bothBuilt && close_(cham.volume, 1000.0 - D * D * H / 2.0, 1000.0), true);
+        vcheck("native CHAMFER area matches closed form",
+               bothBuilt && close_(cham.area,
+                                   600.0 - 2.0 * D * H + D * std::sqrt(2.0) * H - D * D,
+                                   600.0), true);
+    }
+
+    std::printf("%s: self-test, %d check(s) red of 66\n", bad ? "FAIL" : "PASS", bad);
     return bad ? 1 : 0;
 }
 
@@ -1995,6 +2140,83 @@ int main(int argc, char** argv) {
             }, true, T, NF);
             emit("FILLET", true, "", nat, oc, od);
         }
+    }
+
+    // ═════════════════════════════════════════════════════ CHAMFER (TKFillet)
+    // native  forge::occtfillet::makeChamfer                src/Features.cpp:2093
+    // occt    BRepFilletAPI_MakeChamfer mk(src); Add(d,e)   src/Features.cpp:2129
+    //
+    // THE SECOND HALF OF THE SAME SEAM. FORGE_FILLET_DROP_NATIVE deletes
+    // BRepFilletAPI_MakeFillet AND BRepFilletAPI_MakeChamfer — both are TKFillet,
+    // both are behind that one macro (includes at Features.cpp:69-75, the chamfer
+    // dispatch at :2040-2147) — so the FILLET row above answers the flip gate for
+    // HALF of what the option drops. This row is the other half.
+    //
+    // SAME INPUT AS FILLET, deliberately: the same longest-line edge, the same
+    // 0.05 * min-extent argument. Two families derived from one pick are directly
+    // comparable, and any gap between the rows is then a gap between the ENGINES
+    // rather than between two different samples of the corpus.
+    //
+    // THE NATIVE ARM IS THE SHIPPED DISPATCH, not a re-implementation. It builds
+    // the same ChamferSpec forge::part::chamferEdges builds — dist = distance and
+    // dist2 = 0 for the symmetric request (Features.cpp:2073-2075: distance2 is
+    // <= Precision::Confusion() here, so `asymmetric` is false and `contact` is
+    // left null exactly as that site leaves it) — and calls the same
+    // forge::occtfillet::makeChamfer. Under the drop macro that call is the ONLY
+    // path and its decline becomes a THROWN REFUSAL (Features.cpp:2087). So an
+    // ARM_DEFER on this row is not a shrug: it is a request the shipped kernel
+    // would refuse outright once the flag flips, and the reason it refused is
+    // carried into the row's `note` by chamferDeferReason.
+    //
+    // A REFUSAL IS NEVER AGREEMENT. The arm flattens ok==false to a null shape,
+    // which buckets as DEFER, which bucketOf() reads as a native failure and
+    // agree()/agreeStrict() reject on their first line (`status != ARM_OK`). There
+    // is no path on which a decline is scored as a match.
+    if (wanted(cfg, "CHAMFER")) {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        // TKFillet DROPPED. The OCCT arm of this family IS BRepFilletAPI_MakeChamfer,
+        // and the guarded include above has removed its declaration, so there is no
+        // incumbent to measure against here. A NOT_APPLICABLE row is the honest
+        // emission: a ONE-ARMED row would let a coverage rate be computed against a
+        // baseline that was never run, which reads as parity.
+        //
+        // NOTHING BUILDS THIS BINARY THIS WAY — build_corpus_ab_coverage.sh defines no
+        // FORGE_*_DROP_* macro and says at length that this is not a drop build. The
+        // branch exists so the include guard above is REAL AND TESTABLE rather than
+        // decorative: it is what lets the TU be compiled both ways and the TKFillet
+        // symbol delta be read off `nm` instead of asserted.
+        emit("CHAMFER", false, "tkfillet_dropped_no_occt_baseline", none, none, "");
+#else
+        if (pk.lineEdge.IsNull()) emit("CHAMFER", false, "no_line_edge", none, none, "");
+        else {
+            const double d = 0.05 * scale;
+            const TopoDS_Edge e = pk.lineEdge;
+            const TopoDS_Shape src = part.shape;
+            char od[112];
+            std::snprintf(od, sizeof od, "chamfer d=%.6g on the longest line edge", d);
+            const ArmResult nat = runArm([&]() -> TopoDS_Shape {
+                chamferReasonClear();
+                std::vector<forge::occtfillet::ChamferSpec> sp(1);
+                sp[0].edge  = e;
+                sp[0].dist  = d;
+                sp[0].dist2 = 0.0;          // <=0 => symmetric, both faces cut by d
+                const forge::occtfillet::Result res = forge::occtfillet::makeChamfer(src, sp);
+                if (!res.ok) { chamferReasonSet(res.reason); return TopoDS_Shape(); }
+                return res.shape;
+            }, true, T, NF, &chamferDeferReason);
+            const ArmResult oc = runArm([&]() -> TopoDS_Shape {
+                // Features.cpp:2129 verbatim for the symmetric case: OCCT's
+                // Add(d, edge) overload picks the contact face itself, which is
+                // why that site passes no face when distance2 is not given.
+                BRepFilletAPI_MakeChamfer mk(src);
+                mk.Add(d, e);
+                mk.Build();
+                if (!mk.IsDone()) return TopoDS_Shape();
+                return mk.Shape();
+            }, true, T, NF);
+            emit("CHAMFER", true, "", nat, oc, od);
+        }
+#endif  // FORGE_FILLET_DROP_NATIVE
     }
 
     // ══════════════════════════════════════ MAKEOFFSET (TKOffset family A)

@@ -90,6 +90,7 @@ operation.
 | family | derived operation |
 |---|---|
 | `FILLET` | longest LINE edge, radius `0.05 * min bbox extent` |
+| `CHAMFER` | the **same** edge `FILLET` picks, symmetric setback `0.05 * min bbox extent` |
 | `MAKEOFFSET` | outer wire of the largest PLANAR face, inward `0.05*sqrt(area)` |
 | `THICKSOLID` | remove the largest PLANAR face, wall `0.05 * min extent` |
 | `OFFSETSHAPE` | grow the whole solid by `0.02 * min extent` |
@@ -118,7 +119,9 @@ the R1/R2/R3 geom primitives) called from *inside* other ops. There is no "nativ
 declined where OCCT would have built it" event to count, so the paired-coverage
 question does not apply to them. They are governed by their own A/B gates.
 
-That leaves **ten families, all ten measured**.
+That leaves ten in-scope options and **eleven families, all eleven measured** —
+eleven rather than ten because `FORGE_FILLET_DROP_NATIVE` is the one option that
+is not a single class. See §2.11.
 
 ### 2.5 Containment, and its positive control
 
@@ -135,19 +138,46 @@ deliberate spin, a deliberate throw, a null return and a real solid must come ba
 `CRASH`, `TIMEOUT`, `THREW`, `DEFER` and `OK` respectively. `build_corpus_ab_coverage.sh`
 runs the self-test as part of the build and **refuses to emit a binary if it is red**.
 
-### 2.6 Ten per-family positive controls — why the zeros are believable
+### 2.6 Eleven per-family positive controls — why the zeros are believable
 
 Some families report a native success rate of **zero**. A zero is exactly what a
 mis-wired arm also produces: wrong argument order, a profile the engine never looks
 at, an engine that is not in the binary at all.
 
-So `--selftest` additionally feeds **each of the ten native engines** an input its own
-header documents as in-scope — built on a 10 mm box that the native ruled loft itself
-constructs, so nothing in the control depends on an OCCT modelling call — and requires
-`OK` back from every one. All ten are green (`.build-corpus-ab/selftest.log`).
+So `--selftest` additionally feeds **each of the eleven native engines** an input its
+own header documents as in-scope — built on a 10 mm box that the native ruled loft
+itself constructs, so nothing in the control depends on an OCCT modelling call — and
+requires `OK` back from every one. All eleven are green
+(`.build-corpus-ab/selftest.log`).
 
 **A family whose control is red would make that family's corpus number a harness
 result, not an engine result.** None is red.
+
+**`CHAMFER` carries two controls the other ten do not need**, because it is the only
+family whose engine has a near-identical twin in the same namespace.
+`forge::occtfillet::makeFillet` and `::makeChamfer` take almost the same call shape,
+share a `Result` type, and **both return `ok == true` on the control edge** — so a
+`CHAMFER` family accidentally wired to `makeFillet` would build, and would emit a
+full column of plausible numbers that were a duplicate of the `FILLET` row. `ctl()`
+cannot see that. Two added checks can:
+
+- **It is the chamfer engine.** Both engines are run on the *same* edge with the
+  *same* argument and are required to **disagree** on the strict observable vector.
+  A flat bevel removes `d²H/2`; a rolling-ball blend removes `(1 − π/4)d²H`. They
+  cannot be the same solid.
+- **The native answer is right, not merely non-null.** `ctl()` only asks for
+  `ARM_OK`, and this repo's standing lesson is that a built shape proves nothing.
+  A 10 mm box chamfered 1 mm on one vertical edge has a **closed form in two
+  independent observables** — `V = 1000 − d²H/2 = 995` and
+  `A = 600 − 2dH + d√2H − d² = 593.142135623731` — and **both** are checked. The
+  closed form is used rather than "the two arms agree" deliberately: it is
+  independent of OCCT, so it survives the drop macro that deletes OCCT's chamfer,
+  and it says the native answer is *correct* where agreement says only that two
+  engines match.
+
+All four `CHAMFER` checks were proved to fire by mutation, not assumed: miswiring the
+arm to `makeFillet` reddens three of them, and a 0.1% wrong setback — far too small
+for the distinctness check to see — reddens both closed forms.
 
 ### 2.7 Sampling
 
@@ -273,6 +303,57 @@ the old vector compares but with one face moved from the plane bin to the B-spli
 bin must be `agree == true` and `agree_strict == false`.
 
 ---
+
+### 2.11 One option, two families — why `CHAMFER` is a row of its own
+
+Nine of the ten in-scope options map one-to-one onto a family.
+`FORGE_FILLET_DROP_NATIVE` does not: it drops a **toolkit**, and that toolkit
+contains **two** classes the kernel calls.
+
+The per-toolkit symbol census of the pinned `forge-kernel.node`
+(`reports/OCCT_TOOLKIT_SYMBOL_CENSUS_2026-09-04.md`) counts TKFillet's entire
+contribution as **eleven called symbols**:
+
+| class | called symbols |
+|---|---|
+| `BRepFilletAPI_MakeFillet` | 5 |
+| `BRepFilletAPI_MakeChamfer` | 5 |
+| `ChFi3d_Builder` | 1 |
+| **total** | **11** |
+
+`src/Features.cpp` guards **both** classes behind that one macro — the include pair
+at `:69-75` and the chamfer dispatch at `:2040-2147` — which is correct, because
+both live in TKFillet.
+
+**But until 2026-09-04 this harness measured that seam on half of what it drops.**
+The family list had ten entries and `BRepFilletAPI_MakeChamfer` was not among them:
+`test/corpus_ab_coverage.cpp` included only `BRepFilletAPI_MakeFillet.hxx`. A
+chamfer that declines where OCCT builds is a deletion the `FILLET` row cannot see,
+and on the `FILLET` row alone the option could have been read as gated when half its
+surface had never been measured.
+
+`CHAMFER` is that other half. Three properties make the two rows comparable:
+
+- **Same input.** It is derived from the *same* longest-line edge `FILLET` uses,
+  with the same `0.05 * min extent` argument. Any gap between the rows is therefore
+  a gap between the **engines**, not between two samples.
+- **Same dispatch.** The native arm builds the same `ChamferSpec`
+  `forge::part::chamferEdges` builds (`dist = distance`, `dist2 = 0`, `contact`
+  null — `Features.cpp:2073-2075` for the symmetric request) and calls the same
+  `forge::occtfillet::makeChamfer`. The OCCT arm is `Features.cpp:2129` verbatim.
+- **A refusal is recorded as a refusal.** `makeChamfer` returns `ok == false` with a
+  reason rather than faking (`NativeFilletChamfer.hpp`, "HONEST SCOPE"), and under
+  the drop that decline becomes a **thrown refusal** at the call site
+  (`Features.cpp:2087`). The arm flattens it to a null shape, which buckets as
+  `DEFER` — a native failure — and `agree()`/`agreeStrict()` reject on their first
+  line. There is no path on which a decline is scored as a match. The reason is
+  carried into the row's `note`, so an `OCCT_ONLY` row names *which* documented
+  scope limit refused it.
+
+Its `option` column reads `FORGE_FILLET_DROP_NATIVE`, the same string `FILLET`
+carries. It is the only entry in the table where the option column is not a unique
+key, and it means **both rows must clear the gate before that flag may flip**: a
+PASS on one of them is not a PASS for the option.
 
 ## 3. Results — full corpus, 600/600 parts, 0 part-level failures
 
@@ -810,7 +891,7 @@ fail it.
 ```sh
 cd forge-kernel
 
-# build + containment self-test + ten per-family native controls
+# build + containment self-test + eleven per-family native controls
 test/build_corpus_ab_coverage.sh
 
 # a quick 20-part stride sample

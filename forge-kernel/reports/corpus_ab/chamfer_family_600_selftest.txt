@@ -1,0 +1,34 @@
+  deliberate SIGSEGV           got CRASH    want CRASH     ok
+  deliberate spin              got TIMEOUT  want TIMEOUT   ok
+  deliberate throw             got THREW    want THREW     ok
+  null return                  got DEFER    want DEFER     ok
+  real box                     got OK       want OK        ok
+  -- containment 5/5 --
+  FILLET                       native control OK       ok
+  CHAMFER                      native control OK       ok
+  MAKEOFFSET                   native control OK       ok
+  THICKSOLID                   native control OK       ok
+  OFFSETSHAPE                  native control OK       ok
+  THRUSECTIONS                 native control OK       ok
+  PIPE                         native control OK       ok
+  PIPESHELL                    native control OK       ok
+  FILLING                      native control OK       ok
+  THICKEN                      native control OK       ok
+  DRAFT                        native control OK       ok
+  box faces are all planes                 got true  want true   ok
+  cylinder has a CYLINDER-kind face        got true  want true   ok
+  cylinder has a CIRCLE-kind edge          got true  want true   ok
+  kinds are not all binned as Other        got true  want true   ok
+  histograms sum to the counts beside them got true  want true   ok
+  OLD vector calls quadric->spline EQUAL   got true  want true   ok
+  NEW vector calls quadric->spline DIFFERENT got false want false  ok
+  OLD vector calls line->spline EQUAL      got true  want true   ok
+  NEW vector calls line->spline DIFFERENT  got false want false  ok
+  identical results still agree (strict)   got true  want true   ok
+  strict implies loose (a,b)               got true  want true   ok
+  strict implies loose (a,c)               got true  want true   ok
+  chamfer and fillet controls both build   got true  want true   ok
+  native CHAMFER is not native FILLET      got true  want true   ok
+  native CHAMFER volume matches closed form got true  want true   ok
+  native CHAMFER area matches closed form  got true  want true   ok
+PASS: self-test, 0 check(s) red of 32
