@@ -167,7 +167,27 @@ jobs:
         # file matches the RUNNING code; this proves it matches the SOURCE TEXT, which
         # is the half that catches a kernel-header signature change nothing in ui/
         # would notice. Stdlib-only Python, no install step.
-        run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
+        #
+        # ★ AND NO CONFLICT MARKER IS EITHER. A DRIFT CHECK PROVES SELF-CONSISTENCY,
+        #   NOT CORRECTNESS -- measured 2026-09-03, not supposed. A resolution left
+        #   <<<<<<< / >>>>>>> in forge-kernel/CMakeLists.txt; regenerating recorded
+        #   THAT file's hash and BOTH --check gates reported OK. The gate that exists
+        #   to notice a source moving cannot notice the source being a BROKEN MERGE,
+        #   because a conflicted file is perfectly self-consistent with a hash of
+        #   itself. On a file nothing parses strictly, that ships. Scanned FIRST, so
+        #   a green --check is never the last word.
+        #   ONLY git's LABELLED prefixes are matched. A bare `=======` line is a
+        #   markdown setext H1 underline, and a gate that reds a valid document is
+        #   not a stricter gate, it is a WRONG one -- the same correction this change
+        #   set already had to make once, to its centroid-sanity threshold. A
+        #   conflict always writes both prefixes, so either alone is sufficient.
+        run: |
+          if git grep -nE '^(<<<<<<< |>>>>>>> )' -- . ; then
+            echo "::error::conflict markers are committed -- this tree is a broken merge"
+            exit 1
+          fi
+          echo "no conflict markers in the tree"
+          python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
       - name: op-constraint bridge (drift check + 9 mutations)
         # The bridge is the vocabulary made ENFORCEABLE: it accepts or refuses a
         # proposed op plan against the user-invocable ops. run_ui.sh above already

@@ -135,7 +135,12 @@
 #include <TopoDS_Solid.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
+#include <Geom2d_Line.hxx>
 #include <gp_Ax1.hxx>
+#include <gp_Ax2d.hxx>
+#include <gp_Dir2d.hxx>
+#include <gp_Lin2d.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
@@ -689,6 +694,16 @@ struct QF {
     double               u1 = 0, u2 = 0, v1 = 0, v2 = 0;   // original UV bounds
     double               nv1 = 0, nv2 = 0;                 // re-trimmed v bounds
     bool                 gotV1 = false, gotV2 = false;
+    // Family H only. A straight edge on a curved face is a RULING, so it pins a
+    // U bound exactly as a circle edge pins a V bound. It is carried separately
+    // from v because it moves only on the CROSS-SECTION MEET (see offsetRuling):
+    // a co-surface split and a tangent seam both leave it at delta == 0, which is
+    // why every result this engine already produced keeps its original u range to
+    // the last bit rather than being re-derived through an atan2.
+    double               nu1 = 0, nu2 = 0;                 // re-trimmed u bounds
+    bool                 gotU1 = false, gotU2 = false;
+    gp_Pnt               smp;       // a point KNOWN to be on the face (faceSample)
+    bool                 notched = false;   // family H: >2 rulings => not a u-v rectangle
 };
 
 // The surface a face contributes to a meridian meet: a RETAINED face offers its
@@ -2003,6 +2018,13 @@ struct OffSeg {
     gp_Pnt  start;
     gp_Pnt  end;
     bool    ccw = true;            // arc sense about +N
+    // The arc's EXACT sweep, carried from the original edge's own parameter
+    // range. Recovering it from the chord is ambiguous at exactly pi — the two
+    // endpoints of a semicircle are antiparallel about the centre, so the cross
+    // product that decides the sense is ZERO and its sign is round-off. A full
+    // circle split into two half-arcs is the commonest thing in a STEP file, so
+    // that ambiguity is not a corner case; it is measured on ho137/ho310/ho627.
+    double  sweep = 0.0;           // > 0 when known exactly
 };
 
 // One boundary loop of an offset planar face.
@@ -2025,6 +2047,7 @@ struct OffLoop {
 
 // Signed sweep of the arc from `start` to `end` about +N, in (0, 2*pi).
 double arcSweep(const OffSeg& g, const gp_Dir& N) {
+    if (g.sweep > 0.0) return g.sweep;          // exact, from the original edge
     const gp_Pnt  C = g.circ.Location();
     const gp_Dir  A = g.circ.Axis().Direction();
     gp_Vec u(C, g.start), v(C, g.end);
@@ -2394,6 +2417,607 @@ bool solveOffsetVertexWithCyl(const std::vector<Plane>& planes,
     return got;
 }
 
+// ===========================================================================
+// family H: THE OFFSET OF A STRAIGHT EDGE, solved in its CROSS-SECTION plane
+// ===========================================================================
+//
+// WHAT WAS MISSING, MEASURED. Family H's deletion bucket at HEAD is 38 parts and
+// 23 of them — the single largest column — decline on ONE label,
+// `quadric/line_edge_not_between_two_planes`: a LINE edge shared by two
+// CYLINDERS. The rule that produced it admitted a straight edge only between two
+// PLANES, or on the TANGENT seam of a plane and a cylinder. A census of those 23
+// parts (every one of them) finds both kinds of cylinder-cylinder line edge:
+//
+//   * a CO-SURFACE SPLIT — one cylindrical region carried as two or more faces
+//     meeting along seam rulings (same axis, same radius, equal outward normals;
+//     13 to 40 such edges per part). This is the cylindrical twin of the
+//     coplanar split path (D) the thick-solid already handles: a split of one
+//     smooth region is not a geometric edge and must be INVISIBLE in the answer.
+//   * a TRANSVERSAL MEET — two cylinders with PARALLEL axes crossing along a
+//     common ruling (e.g. r=1.716 against r=18.100 at axis distance 17.731: a
+//     bore breaking out through a curved wall). Outward normals differ there, so
+//     it is a genuine sharp edge with a genuine dihedral.
+//
+// THE CONSTRUCTION. A surface contains a straight line only as a RULING, and for
+// every kind this engine supports that forces the surface to be PRISMATIC along
+// that line: a plane containing it is parallel to it, and a cylinder containing
+// it is coaxial-parallel to it. So the whole neighbourhood is a prism along the
+// edge, and the offset edge is the meet of the two OFFSET surfaces' CROSS-
+// SECTIONS in the plane perpendicular to the edge: a line/line, line/circle or
+// circle/circle meet in 2-D. Closed form, no sampling, no marching intersector —
+// the same standard this file's meridian re-trim already holds itself to.
+//
+// A plane/cylinder TANGENCY is the double root of that same line/circle meet, so
+// this subsumes the tangent-seam rule rather than sitting beside it, and it also
+// admits the plane that CUTS a cylinder (two rulings) which the tangency test
+// deliberately declined because it had no construction for it.
+//
+// The CO-SURFACE case is the one degenerate one: two identical circles meet
+// everywhere, so there is no isolated root to take. It is resolved the way path
+// D resolves the coplanar split — the split is topological, so the offset ruling
+// is the SAME ruling of the offset cylinder, i.e. the original translated by
+// dist along the common outward normal. That is not a fallback: for equal
+// outward normals it is exactly what the meet degenerates to.
+//
+// HONEST DEFER, never an approximation: a face whose surface is not prismatic
+// along the edge (a cone, sphere or torus can contain a line only degenerately),
+// a cross-section pair that does not actually pass through the original edge
+// (which would mean the edge is not a ruling of both), and an offset pair whose
+// cross-sections no longer meet at all — the last is a TOPOLOGY CHANGE (the two
+// features have come apart under the offset) and there is no sharp-join answer
+// to give.
+
+// One surface's cross-section in the frame {O; ex, ey} perpendicular to an edge.
+struct XSec {
+    bool   isCircle = false;
+    double a = 0, b = 0, c = 0;      // line   a*s + b*t = c, (a,b) UNIT
+    double cs = 0, ct = 0, r = 0;    // circle (s-cs)^2 + (t-ct)^2 = r^2
+};
+
+// The cross-section of `s` (kind `k`) in the frame {O; ex, ey} whose third axis
+// is `D`. Returns false iff `s` is not PRISMATIC along D — which is exactly the
+// condition for it to be able to contain a straight edge in that direction.
+bool crossSectionOf(const Handle(Geom_Surface)& s, SK k, const gp_Pnt& O,
+                    const gp_Dir& ex, const gp_Dir& ey, const gp_Dir& D, XSec& out) {
+    if (s.IsNull()) return false;
+    if (k == SK::Plane) {
+        Handle(Geom_Plane) pl = Handle(Geom_Plane)::DownCast(s);
+        if (pl.IsNull()) return false;
+        const gp_Dir n = pl->Pln().Axis().Direction();
+        if (std::fabs(n.Dot(D)) > 1.0e-7) return false;      // not prismatic along D
+        const double a = n.Dot(ex), b = n.Dot(ey);
+        const double len = std::sqrt(a * a + b * b);
+        if (len < 1.0e-9) return false;
+        gp_Vec w(O, pl->Pln().Location());
+        out.isCircle = false;
+        out.a = a / len; out.b = b / len;
+        out.c = (w.Dot(gp_Vec(n))) / len;                    // n . (x - O) = n . (loc - O)
+        return true;
+    }
+    if (k == SK::Cyl) {
+        Handle(Geom_CylindricalSurface) cy = Handle(Geom_CylindricalSurface)::DownCast(s);
+        if (cy.IsNull()) return false;
+        if (!dirParallel(cy->Axis().Direction(), D)) return false;
+        gp_Vec w(O, cy->Axis().Location());
+        out.isCircle = true;
+        out.cs = w.Dot(gp_Vec(ex));
+        out.ct = w.Dot(gp_Vec(ey));
+        out.r  = cy->Radius();
+        return true;
+    }
+    return false;   // cone / sphere / torus: not prismatic, cannot carry a ruling
+}
+
+// Signed residual of the point (s,t) against a cross-section: 0 on the curve.
+double xsecResidual(const XSec& x, double s, double t) {
+    if (!x.isCircle) return x.a * s + x.b * t - x.c;
+    const double ds = s - x.cs, dt = t - x.ct;
+    return std::sqrt(ds * ds + dt * dt) - x.r;
+}
+
+// Do A and B coincide as curves? (Only circles can: two identical circles are
+// the CO-SURFACE SPLIT, the one configuration with no isolated meet.)
+bool xsecIdentical(const XSec& A, const XSec& B, double tol) {
+    if (A.isCircle != B.isCircle) return false;
+    if (A.isCircle)
+        return std::fabs(A.cs - B.cs) < tol && std::fabs(A.ct - B.ct) < tol &&
+               std::fabs(A.r - B.r) < tol;
+    // Two lines coincide when their unit normals are parallel and c matches for
+    // the matching sign. Not a configuration a solid boundary can present (two
+    // coplanar faces sharing a straight edge is the coplanar split, and its edge
+    // has no dihedral either), but it is checked rather than assumed.
+    if (std::fabs(A.a * B.b - A.b * B.a) > tol) return false;
+    const double sgn = (A.a * B.a + A.b * B.b) >= 0.0 ? 1.0 : -1.0;
+    return std::fabs(A.c - sgn * B.c) < tol;
+}
+
+// Meet two cross-sections and return the root NEAREST the origin of the frame
+// (which is where the ORIGINAL edge sits, so "nearest" is the root that is the
+// continuation of this edge and not of a different one on the same pair of
+// surfaces). Returns false iff they do not meet — under an offset that is a
+// TOPOLOGY CHANGE, not a numerical problem, and it is declined.
+bool meetXSec(const XSec& A, const XSec& B, double tol, double& os, double& ot) {
+    double cand[2][2];
+    int n = 0;
+    if (!A.isCircle && !B.isCircle) {
+        const double det = A.a * B.b - A.b * B.a;
+        if (std::fabs(det) < 1.0e-9) return false;           // parallel lines
+        cand[n][0] = (A.c * B.b - A.b * B.c) / det;
+        cand[n][1] = (A.a * B.c - A.c * B.a) / det;
+        ++n;
+    } else if (A.isCircle != B.isCircle) {
+        const XSec& L = A.isCircle ? B : A;
+        const XSec& C = A.isCircle ? A : B;
+        // Distance from the circle centre to the line, along the line's UNIT normal.
+        const double h = L.a * C.cs + L.b * C.ct - L.c;      // signed
+        const double disc = C.r * C.r - h * h;
+        if (disc < 0.0) {
+            if (-disc > 1.0e-9 * std::max(1.0, C.r * C.r)) return false;
+            cand[n][0] = C.cs - h * L.a; cand[n][1] = C.ct - h * L.b; ++n;   // tangency
+        } else {
+            const double q = std::sqrt(disc);
+            const double fs = C.cs - h * L.a, ft = C.ct - h * L.b;           // foot
+            cand[n][0] = fs - q * L.b; cand[n][1] = ft + q * L.a; ++n;
+            cand[n][0] = fs + q * L.b; cand[n][1] = ft - q * L.a; ++n;
+        }
+    } else {
+        const double dx = B.cs - A.cs, dy = B.ct - A.ct;
+        const double d2 = dx * dx + dy * dy;
+        const double d  = std::sqrt(d2);
+        if (d < tol) return false;                            // concentric (identical handled above)
+        const double aa = (d2 + A.r * A.r - B.r * B.r) / (2.0 * d);
+        const double disc = A.r * A.r - aa * aa;
+        const double ux = dx / d, uy = dy / d;
+        const double fs = A.cs + aa * ux, ft = A.ct + aa * uy;
+        if (disc < 0.0) {
+            if (-disc > 1.0e-9 * std::max(1.0, A.r * A.r)) return false;     // come apart
+            cand[n][0] = fs; cand[n][1] = ft; ++n;                           // tangency
+        } else {
+            const double q = std::sqrt(disc);
+            cand[n][0] = fs - q * uy; cand[n][1] = ft + q * ux; ++n;
+            cand[n][0] = fs + q * uy; cand[n][1] = ft - q * ux; ++n;
+        }
+    }
+    int best = -1;
+    double bd = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const double dd = cand[i][0] * cand[i][0] + cand[i][1] * cand[i][1];
+        if (best < 0 || dd < bd) { bd = dd; best = i; }
+    }
+    if (best < 0) return false;
+    os = cand[best][0];
+    ot = cand[best][1];
+    return true;
+}
+
+// The OUTWARD unit normal of a face at a point on it, for the two kinds that can
+// carry a ruling. The cylinder's radial SIGN is read back from the offset radius
+// rather than re-derived: offsetSurfaceOf already moved it the right way for this
+// face's outward normal (r+t on a boss, r-t in a bore) and verified the
+// displacement really was normal, so reading it cannot disagree with the surface
+// that was actually built.
+bool rulingOutwardNormal(const QF& q, const gp_Pnt& p, double dist, gp_Dir& out) {
+    if (q.kind == SK::Plane) {
+        Plane pl;
+        if (!outwardPlaneOf(q.face, pl)) return false;
+        out = gp_Dir(pl.nx, pl.ny, pl.nz);
+        return true;
+    }
+    if (q.kind != SK::Cyl) return false;
+    Handle(Geom_CylindricalSurface) c0 = Handle(Geom_CylindricalSurface)::DownCast(q.surf);
+    Handle(Geom_CylindricalSurface) c1 = Handle(Geom_CylindricalSurface)::DownCast(q.off);
+    if (c0.IsNull() || c1.IsNull()) return false;
+    gp_Dir rhat;
+    if (!radialDir(c0->Axis().Location(), c0->Axis().Direction(), p, rhat)) return false;
+    const double dR = c1->Radius() - c0->Radius();
+    if (std::fabs(dR) < 1.0e-12) return false;
+    if ((dR / dist) < 0.0) rhat.Reverse();
+    out = rhat;
+    return true;
+}
+
+// THE OFFSET RULING. `L0` is the edge's supporting line; A and B are the two
+// faces that share it. Fills `out` with the line the sharp join sends it to.
+bool offsetRuling(const gp_Lin& L0, const gp_Pnt& onEdge, const QF& A, const QF& B,
+                  double dist, gp_Lin& out, const char** why) {
+    const gp_Dir D = L0.Direction();
+    // A frame perpendicular to the edge, with the ORIGINAL edge at the origin.
+    gp_Dir ex, ey;
+    {
+        const gp_Dir seed = (std::fabs(D.X()) < 0.9) ? gp_Dir(1, 0, 0) : gp_Dir(0, 1, 0);
+        ex = gp_Dir(gp_Vec(D).Crossed(gp_Vec(seed)));
+        ey = gp_Dir(gp_Vec(D).Crossed(gp_Vec(ex)));
+    }
+    const gp_Pnt O = onEdge;
+
+    XSec oa, ob, na, nb;
+    if (!crossSectionOf(A.surf, A.kind, O, ex, ey, D, oa) ||
+        !crossSectionOf(B.surf, B.kind, O, ex, ey, D, ob)) {
+        if (why) *why = "quadric/line_edge_face_not_prismatic";
+        return false;
+    }
+    // The edge must really be a ruling of BOTH originals, or this whole prism
+    // argument is about a different pair of surfaces than the ones on the shape.
+    const double scale = std::max(1.0, std::max(oa.isCircle ? oa.r : 0.0,
+                                                ob.isCircle ? ob.r : 0.0));
+    const double onTol = 1.0e-6 * scale;
+    if (std::fabs(xsecResidual(oa, 0.0, 0.0)) > onTol ||
+        std::fabs(xsecResidual(ob, 0.0, 0.0)) > onTol) {
+        if (why) *why = "quadric/line_edge_not_a_ruling_of_both";
+        return false;
+    }
+    if (!crossSectionOf(A.off, surfKind(A.off), O, ex, ey, D, na) ||
+        !crossSectionOf(B.off, surfKind(B.off), O, ex, ey, D, nb)) {
+        if (why) *why = "quadric/line_edge_offset_not_prismatic";
+        return false;
+    }
+
+    double s = 0.0, t = 0.0;
+    if (xsecIdentical(oa, ob, onTol)) {
+        // CO-SURFACE SPLIT. There is no isolated meet because there is no edge:
+        // the two faces are the same smooth region. Its offset ruling is the same
+        // ruling of the offset region — the original translated by dist along the
+        // common outward normal — and it must be INVISIBLE in the answer, which is
+        // what the u-retrim delta of exactly 0 below then makes it.
+        gp_Dir n1, n2;
+        if (!rulingOutwardNormal(A, O, dist, n1) || !rulingOutwardNormal(B, O, dist, n2)) {
+            if (why) *why = "quadric/line_edge_split_normal_failed";
+            return false;
+        }
+        if (n1.Dot(n2) < 1.0 - 1.0e-9) {
+            // Same surface, OPPOSITE outward normals: the two faces bound the
+            // material from opposite sides, which is a zero-thickness sliver, not
+            // a split. Declined — its offset is not a sharp join at all.
+            if (why) *why = "quadric/line_edge_split_normals_opposed";
+            return false;
+        }
+        if (!xsecIdentical(na, nb, onTol)) {
+            if (why) *why = "quadric/line_edge_split_offsets_differ";
+            return false;
+        }
+        s = dist * gp_Vec(n1).Dot(gp_Vec(ex));
+        t = dist * gp_Vec(n1).Dot(gp_Vec(ey));
+    } else if (!meetXSec(na, nb, onTol, s, t)) {
+        if (why) *why = "quadric/line_edge_offsets_do_not_meet";
+        return false;
+    }
+
+    // VERIFY the answer against BOTH offset cross-sections, at the tolerance the
+    // rest of this engine holds a closed form to. A root that does not satisfy
+    // both is not the meet, and no result is given.
+    const double vTol = std::max(1.0e-9, 1.0e-7 * std::max(1.0, std::fabs(dist)));
+    if (std::fabs(xsecResidual(na, s, t)) > vTol ||
+        std::fabs(xsecResidual(nb, s, t)) > vTol) {
+        if (why) *why = "quadric/line_edge_offset_residual";
+        return false;
+    }
+    out = gp_Lin(O.Translated(gp_Vec(ex) * s + gp_Vec(ey) * t), D);
+    return true;
+}
+
+// The u parameter of a point about an elementary surface's own gp_Ax3 — the same
+// angle OCCT's cylinder parametrisation uses (P = L + R(cos u X + sin u Y) + v Z).
+bool uParamAbout(const gp_Ax3& ax, const gp_Pnt& p, double& u) {
+    gp_Vec w(ax.Location(), p);
+    const double x = w.Dot(gp_Vec(ax.XDirection()));
+    const double y = w.Dot(gp_Vec(ax.YDirection()));
+    if (x * x + y * y < 1.0e-24) return false;
+    u = std::atan2(y, x);
+    return true;
+}
+
+// Lift `u` into the branch nearest the middle of [lo, hi].
+double liftU(double u, double lo, double hi) {
+    const double mid = 0.5 * (lo + hi);
+    while (u - mid >  kPi) u -= 2.0 * kPi;
+    while (mid - u >  kPi) u += 2.0 * kPi;
+    return u;
+}
+
+// ---- family H: the vertex an offset RULING pins ----------------------------
+//
+// A polyhedral corner is three offset planes; a line-meets-arc corner is two
+// planes and a cylinder. A seam endpoint is neither: at the top of a split bore
+// the incident faces are ONE cap plane and TWO faces of the SAME cylinder, so
+// the surfaces alone leave a whole circle of solutions. What pins it is the
+// EDGE — the offset ruling is known exactly, and the vertex is where that line
+// crosses the offset cap plane.
+//
+// ★ Every candidate is verified against EVERY incident constraint — all planes,
+//   all cylinders AND all rulings, not merely the two it was built from. That is
+//   the same contract the other two solves carry, and it is what declines a
+//   vertex that has no exact sharp-join offset instead of approximating one.
+bool solveOffsetVertexWithRuling(const std::vector<Plane>& planes,
+                                 const std::vector<OffCyl>& cyls,
+                                 const std::vector<gp_Lin>& lines,
+                                 const gp_Pnt& v0, double resTol, gp_Pnt& out) {
+    if (lines.empty()) return false;
+    const double geoTol = std::max(resTol, 1.0e-9 * std::max(1.0, v0.XYZ().Modulus()));
+
+    std::vector<gp_Pnt> cand;
+    for (const gp_Lin& L : lines) {
+        const gp_Vec dir(L.Direction());
+        for (const Plane& p : planes) {
+            const gp_Vec n(p.nx, p.ny, p.nz);
+            const double den = n.Dot(dir);
+            if (std::fabs(den) < 1.0e-9) continue;            // ruling lies in / parallel to it
+            const gp_Pnt L0 = L.Location();
+            const double num = p.d - (p.nx * L0.X() + p.ny * L0.Y() + p.nz * L0.Z());
+            cand.push_back(L0.Translated(dir * (num / den)));
+        }
+    }
+    // Two non-parallel rulings meeting is also a corner; it is admitted only when
+    // they REALLY meet (skew lines have a nearest pair and no intersection, and
+    // taking the midpoint of that pair would fabricate a vertex).
+    for (std::size_t i = 0; i < lines.size(); ++i)
+        for (std::size_t j = i + 1; j < lines.size(); ++j) {
+            const gp_Vec d1(lines[i].Direction()), d2(lines[j].Direction());
+            const gp_Vec cr = d1.Crossed(d2);
+            const double cn = cr.SquareMagnitude();
+            if (cn < 1.0e-18) continue;                       // parallel
+            const gp_Pnt p1 = lines[i].Location(), p2 = lines[j].Location();
+            const gp_Vec w(p1, p2);
+            const double s = w.Crossed(d2).Dot(cr) / cn;
+            const gp_Pnt x = p1.Translated(d1 * s);
+            if (lines[j].Distance(x) > geoTol) continue;      // skew, not a corner
+            cand.push_back(x);
+        }
+    if (cand.empty()) return false;
+
+    bool got = false;
+    double best = 0.0;
+    for (const gp_Pnt& x : cand) {
+        bool ok = true;
+        for (const Plane& p : planes)
+            if (std::fabs(p.nx * x.X() + p.ny * x.Y() + p.nz * x.Z() - p.d) > resTol) { ok = false; break; }
+        if (ok)
+            for (const OffCyl& c : cyls) {
+                const double tolC = std::max(resTol, 1.0e-7 * std::max(1.0, c.r));
+                if (std::fabs(distToAxis(x, c) - c.r) > tolC) { ok = false; break; }
+            }
+        if (ok)
+            for (const gp_Lin& L : lines)
+                if (L.Distance(x) > geoTol) { ok = false; break; }
+        if (!ok) continue;
+        const double dd = v0.Distance(x);
+        if (!got || dd < best) { best = dd; got = true; out = x; }
+    }
+    return got;
+}
+
+// ---- family H: a CYLINDRICAL offset face that is NOT a u-v rectangle --------
+//
+// MEASURED: with the cross-section ruling in place, 33 of the 600 corpus parts —
+// and 10 of the 38 in family H's deletion bucket — stop on one thing: a
+// cylindrical face carrying MORE THAN TWO rulings. Such a face is NOTCHED in u
+// (a hole breaking out through a curved wall leaves a bite out of it), and
+// MakeFace over a u-v rectangle would FILL THE NOTCH IN. That is a wrong answer
+// whose volume is within a fraction of a percent of the right one, so it is
+// built from the face's OWN BOUNDARY LOOP instead, or not at all.
+//
+// EVERY PIECE IS CLOSED FORM AND THE SURFACE TYPE IS KEPT. On a cylinder the
+// boundary of any face this engine admits is isoparametric: a RULING is u =
+// const and a coaxial ARC is v = const. So each offset edge is an exact 3-D
+// line or an exact arc of the offset circle offsetCircle already returned, and
+// its PCURVE is an exact Geom2d_Line — nothing is sampled, spline-fitted or
+// tessellated, and no ShapeFix/Approx symbol is touched.
+//
+//   ruling A->B :  C3(t) = A + t*Zhat            t in [0, |AB|]
+//                  C2(t) = (u0, v(A) + sgn * t)  a 2-D line, direction (0, ±1)
+//   arc         :  the offset circle rebuilt on gp_Ax2(centre, Zhat, Xhat) — the
+//                  cylinder's OWN angular frame, so the circle's parameter IS the
+//                  cylinder's u — hence
+//                  C2(t) = (t, v0)               a 2-D line, direction (1, 0)
+//
+// THE ARC'S SWEEP IS NOT READ OFF AN ORIENTATION FLAG. Its magnitude comes from
+// the original edge's own parameter range, and its SIGN is the one that actually
+// lands on the solved end vertex — checked, both ways, so an arc that runs the
+// wrong way round the circle cannot be built.
+//
+// SELF-CHECK, and it is the one that can see a filled notch. The face's area has
+// a closed form here: every boundary segment is axis-parallel in (u, v), so the
+// shoelace of the (u, v) loop is EXACT, and the area of the cylindrical patch is
+// R times it. A notch that has been filled in changes that number; a volume
+// check would not have seen it.
+TopoDS_Face cylTrimmedFace(const QF& q,
+                           const TopTools_IndexedDataMapOfShapeListOfShape& vfMap,
+                           const std::vector<gp_Pnt>& moved,
+                           const std::vector<bool>& movedOk,
+                           const TopTools_IndexedMapOfShape& edgeIdx,
+                           const std::vector<gp_Circ>& offCirc,
+                           const std::vector<bool>& offOk,
+                           const std::vector<gp_Lin>& offLine,
+                           const std::vector<bool>& offLineOk,
+                           const char** why) {
+    const TopoDS_Face kNull;
+    auto fail = [&](const char* w) -> TopoDS_Face { if (why) *why = w; return kNull; };
+
+    Handle(Geom_CylindricalSurface) oc = Handle(Geom_CylindricalSurface)::DownCast(q.off);
+    if (oc.IsNull()) return fail("quadric/cyltrim_offset_not_cylinder");
+    const gp_Ax3 ax = oc->Position();
+    const double R  = oc->Radius();
+    const gp_Pnt Lo = ax.Location();
+    const gp_Dir Z  = ax.Direction();
+    const gp_Dir X  = ax.XDirection();
+    const gp_Dir Y  = ax.YDirection();
+    const double geoTol = 1.0e-6 * std::max(1.0, R);
+
+    auto uOf = [&](const gp_Pnt& p) {
+        const gp_Vec w(Lo, p);
+        return std::atan2(w.Dot(gp_Vec(Y)), w.Dot(gp_Vec(X)));
+    };
+    auto vOf = [&](const gp_Pnt& p) { return gp_Vec(Lo, p).Dot(gp_Vec(Z)); };
+
+    const TopoDS_Wire w = BRepTools::OuterWire(q.face);
+    if (w.IsNull()) return fail("quadric/cyltrim_no_outer_wire");
+
+    struct Piece { TopoDS_Edge e; Handle(Geom2d_Curve) pc; double u0, v0, u1, v1; };
+    std::vector<Piece> pieces;
+    bool haveAnchor = false;
+    double uCur = 0.0;
+
+    for (BRepTools_WireExplorer wex(w, q.face); wex.More(); wex.Next()) {
+        const TopoDS_Edge   we = wex.Current();
+        const TopoDS_Vertex vA = wex.CurrentVertex();
+        if (BRep_Tool::Degenerated(we)) return fail("quadric/cyltrim_degenerate_edge");
+        TopoDS_Vertex va, vb;
+        TopExp::Vertices(we, va, vb, Standard_True);
+        const TopoDS_Vertex vB = vA.IsSame(va) ? vb : va;
+        const int ia = vfMap.FindIndex(vA), ib = vfMap.FindIndex(vB);
+        if (ia == 0 || ib == 0) return fail("quadric/cyltrim_vertex_not_indexed");
+        if (!movedOk[static_cast<std::size_t>(ia) - 1] ||
+            !movedOk[static_cast<std::size_t>(ib) - 1])
+            return fail("quadric/cyltrim_vertex_not_solved");
+        const gp_Pnt A = moved[static_cast<std::size_t>(ia) - 1];
+        const gp_Pnt B = moved[static_cast<std::size_t>(ib) - 1];
+        const int ei = edgeIdx.FindIndex(we);
+        if (ei == 0) return fail("quadric/cyltrim_edge_not_indexed");
+        const std::size_t e0 = static_cast<std::size_t>(ei) - 1;
+
+        // The absolute u branch is arbitrary (the surface is periodic); what must
+        // be consistent is the loop, so it is anchored ONCE and then threaded.
+        if (!haveAnchor) { uCur = uOf(A); haveAnchor = true; }
+
+        Piece pz;
+        pz.u0 = uCur;
+        pz.v0 = vOf(A);
+
+        if (edgeIsLine(we)) {
+            if (!offLineOk[e0]) return fail("quadric/cyltrim_ruling_missing");
+            // The two solved vertices must sit on the OFFSET RULING this edge was
+            // sent to. They were solved from surfaces, the ruling from the
+            // cross-section meet, and the two answers are independent — so this
+            // rejects a vertex that landed on a DIFFERENT ruling of the same pair
+            // of cylinders, which is the one way a face here could close on the
+            // wrong side and still look like a face.
+            if (offLine[e0].Distance(A) > geoTol || offLine[e0].Distance(B) > geoTol)
+                return fail("quadric/cyltrim_vertex_off_ruling");
+            // ORDER MATTERS, AND IT IS THE CONTRACT. gp_Vec::Normalized() RAISES
+            // gp_VectorWithNullMagnitude when the vector is shorter than
+            // gp::Resolution(), so testing axiality by normalising FIRST would
+            // throw out of an engine whose documented answer is a null shape —
+            // an inward offset that drives a ruling's two ends together is
+            // exactly the input that does it. The length is therefore measured
+            // first, and the axiality test is then written on the UN-normalised
+            // vector (|ab . Z| == |ab|), which is the same predicate with no
+            // division in it at all.
+            const double len = A.Distance(B);
+            if (!(len > 1.0e-12)) return fail("quadric/cyltrim_ruling_degenerate");
+            const gp_Vec ab(A, B);
+            const double along = ab.Dot(gp_Vec(Z));
+            if (std::fabs(std::fabs(along) - len) > 1.0e-7 * len)
+                return fail("quadric/cyltrim_ruling_not_axial");
+            const double sgn = along > 0.0 ? 1.0 : -1.0;
+            BRepBuilderAPI_MakeEdge me(A, B);
+            if (!me.IsDone()) return fail("quadric/cyltrim_ruling_edge_failed");
+            pz.e  = me.Edge();
+            pz.pc = new Geom2d_Line(gp_Pnt2d(uCur, pz.v0), gp_Dir2d(0.0, sgn));
+            pz.u1 = uCur;
+            pz.v1 = pz.v0 + sgn * len;
+        } else {
+            gp_Circ o0;
+            const bool full = edgeFullCircle(we, o0);
+            if (!full && !edgeArcCircle(we, o0)) return fail("quadric/cyltrim_edge_not_line_or_arc");
+            if (full) return fail("quadric/cyltrim_full_circle_in_mixed_loop");
+            if (!offOk[e0]) return fail("quadric/cyltrim_arc_offset_missing");
+            const gp_Circ off = offCirc[e0];
+            if (!dirParallel(off.Axis().Direction(), Z) ||
+                std::fabs(off.Radius() - R) > geoTol ||
+                distToAxis(Lo, Z, off.Location()) > geoTol)
+                return fail("quadric/cyltrim_arc_not_coaxial");
+            double f0 = 0.0, l0 = 0.0;
+            (void)edgeBasisCurve(we, f0, l0);
+            const double sweep = std::fabs(l0 - f0);
+            if (!(sweep > 1.0e-9) || sweep >= 2.0 * kPi - 1.0e-9)
+                return fail("quadric/cyltrim_arc_sweep_out_of_range");
+            // The SIGN is the one that lands on the solved far vertex. Both are
+            // tried and exactly one must fit, so a wrong-way arc cannot be built.
+            const double uB = uOf(B);
+            int hits = 0; double du = 0.0;
+            for (int sgn = -1; sgn <= 1; sgn += 2) {
+                double r = uCur + sgn * sweep - uB;
+                while (r >  kPi) r -= 2.0 * kPi;
+                while (r < -kPi) r += 2.0 * kPi;
+                // ARC LENGTH, not radians: |r| * R is the distance on the
+                // cylinder between where this sweep lands and the solved vertex,
+                // which is the quantity geoTol is denominated in. The max(1, R)
+                // that stood here cancelled against geoTol's own max(1, R) and so
+                // silently made this a bare 1e-6 RADIAN test at every radius.
+                if (std::fabs(r) * R < geoTol) { ++hits; du = sgn * sweep; }
+            }
+            if (hits != 1) return fail("quadric/cyltrim_arc_sense_ambiguous");
+            const double vh = vOf(A);
+            if (std::fabs(vh - vOf(B)) > geoTol) return fail("quadric/cyltrim_arc_not_isoparametric");
+            const gp_Pnt ctr = Lo.Translated(gp_Vec(Z) * vh);
+            const gp_Circ cc(gp_Ax2(ctr, Z, X), R);       // parameter == the cylinder's u
+            const double lo = std::min(uCur, uCur + du), hi = std::max(uCur, uCur + du);
+            BRepBuilderAPI_MakeEdge me(cc, lo, hi);
+            if (!me.IsDone()) return fail("quadric/cyltrim_arc_edge_failed");
+            pz.e  = me.Edge();
+            pz.pc = new Geom2d_Line(gp_Pnt2d(0.0, vh), gp_Dir2d(1.0, 0.0));
+            pz.u1 = uCur + du;
+            pz.v1 = vh;
+            // The rebuilt arc must actually run between the two solved vertices.
+            auto onCirc = [&](double t) {
+                return ctr.Translated(gp_Vec(X) * (R * std::cos(t)) + gp_Vec(Y) * (R * std::sin(t)));
+            };
+            const gp_Pnt pa = onCirc(lo), pb = onCirc(hi);
+            const double d0 = std::min(pa.Distance(A) + pb.Distance(B),
+                                       pa.Distance(B) + pb.Distance(A));
+            if (d0 > geoTol) return fail("quadric/cyltrim_arc_endpoints_moved");
+        }
+        uCur = pz.u1;
+        pieces.push_back(pz);
+    }
+    if (pieces.size() < 3) return fail("quadric/cyltrim_loop_under_3");
+    // The loop must CLOSE in (u, v) — if threading the sweeps does not come back
+    // to where it started, the boundary this face was read from is not a loop on
+    // this cylinder and nothing is built.
+    // ★ BOTH HALVES OF THIS CONDITION ARE MILLIMETRES AGAINST THE SAME BOUND.
+    //   The u half was a bare 1.0e-7 RADIAN constant with no radius in it, sitting
+    //   in the same `if` as a v half measured in mm against geoTol — and TIGHTER,
+    //   by ten, than the arc-sense gate that produced the u values. A loop every
+    //   piece of which passed its own gate could therefore still be declined here,
+    //   which is a spurious DEFER (never a wrong shape: the area identity, the sew,
+    //   the face count and BRepCheck all still stand behind it). |du| * R is the
+    //   closure gap as a distance on the cylinder, which is what geoTol measures.
+    if (std::fabs(pieces.back().u1 - pieces.front().u0) * R > geoTol ||
+        std::fabs(pieces.back().v1 - pieces.front().v0) > geoTol)
+        return fail("quadric/cyltrim_loop_does_not_close");
+
+    // EXACT area, by the shoelace of an axis-parallel (u, v) loop, times R.
+    double a2 = 0.0;
+    for (const Piece& pz : pieces) a2 += pz.u0 * pz.v1 - pz.u1 * pz.v0;
+    const double areaUV = 0.5 * a2;
+    if (std::fabs(areaUV) < 1.0e-12) return fail("quadric/cyltrim_zero_area");
+
+    BRepBuilderAPI_MakeWire mw;
+    for (const Piece& pz : pieces) {
+        mw.Add(pz.e);
+        if (!mw.IsDone()) return fail("quadric/cyltrim_wire_add_failed");
+    }
+    if (!mw.IsDone()) return fail("quadric/cyltrim_wire_not_done");
+    TopoDS_Wire ow = mw.Wire();
+    // A FORWARD face carries its outer wire COUNTER-CLOCKWISE in (u, v); the
+    // shoelace sign is what says so, and the caller then applies the original
+    // face's own TopAbs orientation exactly as the rectangle path does.
+    if (areaUV < 0.0) ow.Reverse();
+
+    BRep_Builder bb;
+    TopoDS_Face f;
+    bb.MakeFace(f, q.off, Precision::Confusion());
+    for (const Piece& pz : pieces) bb.UpdateEdge(pz.e, pz.pc, f, Precision::Confusion());
+    bb.Add(f, ow);
+    f.Orientation(TopAbs_FORWARD);
+
+    GProp_GProps g;
+    BRepGProp::SurfaceProperties(f, g);
+    const double want = R * std::fabs(areaUV);
+    if (std::fabs(g.Mass() - want) > 1.0e-6 * std::max(1.0, want))
+        return fail("quadric/cyltrim_area_mismatch");
+    return f;
+}
+
 // ---- planar / prismatic: offset the Hesse planes, re-meet at every vertex ----
 TopoDS_Shape planarOffsetShape(const TopoDS_Shape& shape, double dist, double tol) {
     const TopoDS_Shape kNull;
@@ -2538,9 +3162,11 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
         if (q.kind == SK::Other) return dfr("quadric/unsupported_surface");
         BRepTools::UVBounds(f, q.u1, q.u2, q.v1, q.v2);
         q.nv1 = q.v1; q.nv2 = q.v2;
+        q.nu1 = q.u1; q.nu2 = q.u2;
 
         gp_Pnt P; gp_Dir outward;
         if (!faceSample(f, q.surf, q.u1, q.u2, q.v1, q.v2, P, outward)) return dfr("quadric/face_sample_failed");
+        q.smp = P;
         const gp_Vec disp = gp_Vec(outward) * dist;    // ALONG the outward normal
         q.off = offsetSurfaceOf(q.surf, q.kind, P, disp, t);
         if (q.off.IsNull()) return dfr("quadric/offset_surface_null");
@@ -2598,6 +3224,14 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
     std::vector<gp_Circ> offCirc(static_cast<std::size_t>(edgeIdx.Extent()));
     std::vector<bool>    offOk(static_cast<std::size_t>(edgeIdx.Extent()), false);
     std::vector<bool>    offIsArc(static_cast<std::size_t>(edgeIdx.Extent()), false);
+    // The offset RULING of every straight edge (see offsetRuling). It is what
+    // pins a seam-endpoint vertex, whose incident SURFACES leave a whole circle
+    // of solutions.
+    std::vector<gp_Lin>  offLine(static_cast<std::size_t>(edgeIdx.Extent()));
+    std::vector<bool>    offLineOk(static_cast<std::size_t>(edgeIdx.Extent()), false);
+    // Per CURVED face, every boundary ruling as (u of the original, delta the
+    // offset moved it by). Resolved into a u domain once the whole loop is known.
+    std::vector<std::vector<std::pair<double, double>>> faceRulings(qf.size());
     TopTools_IndexedMapOfShape cornerVerts;   // vertices that must be SOLVED
 
     for (int i = 1; i <= efMap.Extent(); ++i) {
@@ -2610,7 +3244,31 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
             if (!q) return dfr("quadric/edge_face_not_indexed");
             if (std::find(nb.begin(), nb.end(), q) == nb.end()) nb.push_back(q);
         }
-        if (nb.size() == 1) continue;                  // seam
+        if (nb.size() == 1) {
+            // THE SEAM OF A FULL-REVOLUTION FACE. The same face is on both sides,
+            // so there is no dihedral and nothing to re-trim — but if it is a
+            // STRAIGHT seam it is still the only thing that pins the vertex where
+            // it meets a cap: one cap plane and one cylinder leave a whole CIRCLE
+            // of solutions, and MEASURED on ho137 that is what 51 of the 600 parts
+            // now stop on. The seam's offset is the co-surface case of
+            // offsetRuling — the same face on both sides — so it is computed by
+            // exactly the same code, not by a special rule.
+            if (edgeIsLine(e)) {
+                double sf = 0.0, sl = 0.0;
+                Handle(Geom_Curve) sbc = edgeBasisCurve(e, sf, sl);
+                Handle(Geom_Line) sgl = Handle(Geom_Line)::DownCast(sbc);
+                if (!sgl.IsNull()) {
+                    gp_Lin sol;
+                    const char* swhy = nullptr;
+                    if (offsetRuling(sgl->Lin(), sgl->Value(0.5 * (sf + sl)),
+                                     *nb[0], *nb[0], dist, sol, &swhy)) {
+                        offLine[static_cast<std::size_t>(i) - 1]   = sol;
+                        offLineOk[static_cast<std::size_t>(i) - 1] = true;
+                    }
+                }
+            }
+            continue;                                  // seam
+        }
         if (nb.size() != 2) return dfr("quadric/edge_non_manifold");              // non-manifold
         QF& A = *nb[0];
         QF& B = *nb[1];
@@ -2631,28 +3289,61 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
             // the translate of this one.
             if (edgeIsLine(e)) {
                 const bool pp = (A.kind == SK::Plane && B.kind == SK::Plane);
-                bool tangentSeam = false;
-                if (!pp && ((A.kind == SK::Plane && B.kind == SK::Cyl) ||
-                            (A.kind == SK::Cyl   && B.kind == SK::Plane))) {
-                    const QF& PF = (A.kind == SK::Plane) ? A : B;
-                    const QF& CF = (A.kind == SK::Plane) ? B : A;
-                    Handle(Geom_Plane) gpl = Handle(Geom_Plane)::DownCast(PF.surf);
-                    Handle(Geom_CylindricalSurface) gcy =
-                        Handle(Geom_CylindricalSurface)::DownCast(CF.surf);
-                    if (!gpl.IsNull() && !gcy.IsNull()) {
-                        const gp_Dir pn = gpl->Position().Direction();
-                        const gp_Dir ca = gcy->Axis().Direction();
-                        if (std::fabs(pn.Dot(ca)) < 1.0e-7) {
-                            const double miss = std::fabs(gpl->Pln().Distance(gcy->Axis().Location())
-                                                          - gcy->Radius());
-                            if (miss < 1.0e-6 * std::max(1.0, gcy->Radius())) tangentSeam = true;
-                        }
-                    }
-                    if (!tangentSeam) return dfr("quadric/line_edge_plane_cyl_not_tangent");
+                double ef = 0.0, el = 0.0;
+                Handle(Geom_Curve) bc = edgeBasisCurve(e, ef, el);
+                Handle(Geom_Line) gl = Handle(Geom_Line)::DownCast(bc);
+                if (gl.IsNull()) return dfr("quadric/line_edge_basis_lost");
+                // A point INSIDE the trimmed edge, so the cross-section frame is
+                // centred on THIS ruling: "the root nearest the origin" then names
+                // the continuation of this edge and not of another ruling the same
+                // pair of surfaces also shares.
+                const gp_Pnt onEdge = gl->Value(0.5 * (ef + el));
+
+                gp_Lin ol;
+                const char* lwhy = nullptr;
+                const bool gotRuling = offsetRuling(gl->Lin(), onEdge, A, B, dist, ol, &lwhy);
+                if (!gotRuling && !pp)
+                    return dfr(lwhy ? lwhy : "quadric/line_edge_offset_failed");
+                // PLANE/PLANE keeps the behaviour it has always had: the polyhedral
+                // corner solve pins those vertices from the offset planes alone, and
+                // the ruling is recorded only as an EXTRA constraint when it is
+                // available. A pair of planes that declines to produce one therefore
+                // cannot turn a part that builds today into a defer.
+                if (gotRuling) {
+                    offLine[static_cast<std::size_t>(i) - 1]   = ol;
+                    offLineOk[static_cast<std::size_t>(i) - 1] = true;
                 }
-                if (!pp && !tangentSeam) return dfr("quadric/line_edge_not_between_two_planes");
                 for (TopExp_Explorer ev(e, TopAbs_VERTEX); ev.More(); ev.Next())
                     cornerVerts.Add(ev.Current());
+
+                // ---- U RE-TRIM (collected here, RESOLVED after the edge loop).
+                // A ruling is a u-isoparametric boundary of a cylindrical face,
+                // so it pins a u bound exactly as a circle edge pins a v bound.
+                // WHICH bound it pins cannot be decided one edge at a time: a
+                // face may WRAP THROUGH THE SEAM (u = 0), and BRepTools::UVBounds
+                // then reports [0, 2*pi] for a face that actually occupies, say,
+                // [5.70, 1.48 + 2*pi] -- the COMPLEMENT of what a nearest-end test
+                // would pick. So every ruling on a face is collected and the
+                // domain is resolved once, against a point faceSample already
+                // proved is ON the face.
+                if (gotRuling) {
+                    for (QF* q : nb) {
+                        if (q->kind != SK::Cyl) continue;
+                        gp_Ax3 ax;
+                        if (!axesOf(q->surf, q->kind, ax)) return dfr("quadric/ruling_axes_failed");
+                        double uOrig = 0.0, uOff = 0.0;
+                        if (!uParamAbout(ax, onEdge, uOrig) ||
+                            !uParamAbout(ax, ol.Location(), uOff))
+                            return dfr("quadric/ruling_uparam_failed");
+                        uOff = liftU(uOff, uOrig - kPi, uOrig + kPi);
+                        double delta = uOff - uOrig;
+                        // A ruling that geometry says did not move (a co-surface
+                        // split, a tangent seam) must not move a bound by the last
+                        // bits of an atan2.
+                        if (std::fabs(delta) < 1.0e-12) delta = 0.0;
+                        faceRulings[static_cast<std::size_t>(q - &qf[0])].push_back({uOrig, delta});
+                    }
+                }
                 continue;
             }
             // An ARC of a circle: its supporting circle offsets by exactly the same
@@ -2690,6 +3381,83 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
         }
     }
 
+    // ---- 3a. THE U DOMAIN OF EVERY CYLINDRICAL FACE -------------------------
+    // A cylindrical face's u domain is bounded by its RULINGS, and offsetting
+    // moves each ruling by the delta collected above. Two things make this more
+    // than an assignment:
+    //
+    //   * A FACE THAT WRAPS THROUGH THE SEAM. BRepTools::UVBounds reports the
+    //     min and max of the pcurve values, so a face occupying [5.70, 1.48+2pi]
+    //     comes back as [0, 2pi] and a nearest-end test picks its COMPLEMENT --
+    //     the same band of the cylinder, on the wrong side. MEASURED on ho1097's
+    //     r=2.835 bore. The ambiguity is resolved against `smp`, a point
+    //     faceSample already proved is on the face, so the domain is chosen and
+    //     never guessed.
+    //
+    //   * A FACE WITH MORE THAN TWO RULINGS is NOT a u-v rectangle at all: it is
+    //     notched, and MakeFace over a rectangle would fill the notch in. There
+    //     is no closed-form rectangle to give, so it is an HONEST DEFER. That
+    //     wants a trimmed cylindrical face built from its own boundary loop, and
+    //     it is the measured next rung for this family.
+    for (std::size_t fi = 0; fi < qf.size(); ++fi) {
+        QF& q = qf[fi];
+        if (q.kind != SK::Cyl) continue;
+        std::vector<std::pair<double, double>>& rl = faceRulings[fi];
+        if (rl.empty()) continue;                       // full revolution: unchanged
+        // Two rulings that are the SAME angle are the same boundary carried as
+        // two edges (a seam split by a vertex); collapse them before counting.
+        std::sort(rl.begin(), rl.end(),
+                  [](const std::pair<double, double>& a, const std::pair<double, double>& b) {
+                      return a.first < b.first;
+                  });
+        std::vector<std::pair<double, double>> uniq;
+        for (const std::pair<double, double>& r : rl) {
+            if (!uniq.empty() && std::fabs(uniq.back().first - r.first) < 1.0e-9) {
+                if (std::fabs(uniq.back().second - r.second) > 1.0e-9)
+                    return dfr("quadric/ruling_u_bound_conflict");
+                continue;
+            }
+            uniq.push_back(r);
+        }
+        if (uniq.size() == 1) {
+            // One ruling on a face that still wraps a full turn (a tangent line
+            // of contact, not a boundary). It may not MOVE, or the face is being
+            // sheared and there is no rectangle for it.
+            if (uniq[0].second != 0.0) return dfr("quadric/cyl_face_single_moving_ruling");
+            continue;
+        }
+        if (uniq.size() > 2) {
+            // NOT a u-v rectangle. It is built from its own boundary loop by
+            // cylTrimmedFace instead — see that function's banner.
+            q.notched = true;
+            continue;
+        }
+        gp_Ax3 ax;
+        if (!axesOf(q.surf, q.kind, ax)) return dfr("quadric/ruling_axes_failed");
+        double us = 0.0;
+        if (!uParamAbout(ax, q.smp, us)) return dfr("quadric/ruling_sample_uparam_failed");
+        // The two arcs between the rulings; the face is the one holding `smp`.
+        double a = uniq[0].first, b = uniq[1].first;
+        double da = uniq[0].second, db = uniq[1].second;
+        double sweep = b - a;
+        while (sweep <= 0.0) sweep += 2.0 * kPi;
+        const double usA = liftU(us, a, a + sweep);
+        double uStart = a, uEnd = a + sweep, dStart = da, dEnd = db;
+        if (!(usA > a && usA < a + sweep)) {            // `smp` is on the OTHER arc
+            uStart = b; uEnd = b + (2.0 * kPi - sweep); dStart = db; dEnd = da;
+            const double usB = liftU(us, uStart, uEnd);
+            if (!(usB > uStart && usB < uEnd)) return dfr("quadric/cyl_face_u_domain_ambiguous");
+        }
+        // A face whose rulings reproduce the UVBounds interval keeps that
+        // interval VERBATIM, so every result this engine already produces is
+        // still built on the numbers it was built on.
+        if (dStart == 0.0 && dEnd == 0.0 &&
+            std::fabs(uStart - q.u1) < 1.0e-9 && std::fabs(uEnd - q.u2) < 1.0e-9) continue;
+        q.nu1 = uStart + dStart;
+        q.nu2 = uEnd + dEnd;
+        if (!(q.nu2 - q.nu1 > 1.0e-9)) return dfr("quadric/cyl_face_u_domain_collapsed");
+    }
+
     // ---- 3b. the polyhedral corner solve, for straight edges only -----------
     // Verbatim the construction planarOffsetShape uses: slide every incident
     // face's outward Hesse plane by `dist` and meet them. The meet is only the
@@ -2698,6 +3466,8 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
     // declined rather than approximated.
     TopTools_IndexedDataMapOfShapeListOfShape vfMap;
     TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_FACE, vfMap);
+    TopTools_IndexedDataMapOfShapeListOfShape veMap;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_EDGE, veMap);
     std::vector<gp_Pnt> moved(static_cast<std::size_t>(std::max(0, vfMap.Extent())));
     std::vector<bool>   movedOk(static_cast<std::size_t>(std::max(0, vfMap.Extent())), false);
     const double resTol = 1.0e-7 * std::max(1.0, std::fabs(dist));
@@ -2730,14 +3500,35 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
                 return dfr("quadric/corner_touches_curved_face");
             }
         }
-        if (meet.empty()) return dfr("quadric/corner_no_incident_plane");
+        // The offset RULINGS incident to this vertex. At a seam endpoint they are
+        // the only thing that pins it: one cap plane plus the two faces of ONE
+        // split cylinder is two independent surface constraints, and their common
+        // solution set is a circle.
+        std::vector<gp_Lin> rulings;
+        {
+            const int vi = veMap.FindIndex(vfMap.FindKey(i));
+            if (vi != 0)
+                for (TopTools_ListIteratorOfListOfShape it(veMap.FindFromIndex(vi)); it.More(); it.Next()) {
+                    const int ei = edgeIdx.FindIndex(it.Value());
+                    if (ei != 0 && offLineOk[static_cast<std::size_t>(ei) - 1])
+                        rulings.push_back(offLine[static_cast<std::size_t>(ei) - 1]);
+                }
+        }
         gp_Pnt corner;
         const gp_Pnt v0 = BRep_Tool::Pnt(TopoDS::Vertex(vfMap.FindKey(i)));
-        if (cyls.empty()) {
+        // ★ THE ORDER IS THE OLD ORDER, and the ruling solve is only ever reached
+        //   where the engine previously returned a DEFER. A vertex that has an
+        //   exact corner today is still solved by the code that solved it, so this
+        //   increment cannot move a result family H already produces.
+        if (meet.empty()) {
+            if (!solveOffsetVertexWithRuling(meet, cyls, rulings, v0, resTol, corner))
+                return dfr("quadric/corner_no_incident_plane");
+        } else if (cyls.empty()) {
             if (!projectOntoOffsetPlanes(meet, v0, resTol, corner))
                 return dfr("quadric/corner_overdetermined_residual");
         } else if (!solveOffsetVertexWithCyl(meet, cyls, v0, resTol, corner)) {
-            return dfr("quadric/corner_cyl_solve_failed");
+            if (!solveOffsetVertexWithRuling(meet, cyls, rulings, v0, resTol, corner))
+                return dfr("quadric/corner_cyl_solve_failed");
         }
         moved[static_cast<std::size_t>(i) - 1] = corner;
         movedOk[static_cast<std::size_t>(i) - 1] = true;
@@ -2811,20 +3602,24 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
                             // Sense: run the ORIGINAL arc's own direction. The offset
                             // circle is coaxial with the original, so the traversal
                             // sense about the face normal is preserved exactly.
+                            //
+                            // ★ IT IS READ FROM THE EDGE'S OWN PARAMETRISATION, NOT
+                            //   FROM THE CHORD. Increasing parameter on a circle is
+                            //   counter-clockwise about ITS axis, and the wire
+                            //   explorer says whether this traversal runs with the
+                            //   parameter or against it. The chord test that stood
+                            //   here is ZERO for a semicircle — its sign is round-off
+                            //   — and a full circle carried as two half-arcs is what
+                            //   a STEP file emits constantly. MEASURED: three parts
+                            //   of family H's deletion bucket died on exactly that.
                             gp_Circ oc0;
                             if (!edgeArcCircle(we, oc0)) return dfr("quadric/mixed_arc_lost");
-                            const gp_Pnt p0 = BRep_Tool::Pnt(v0), p1 = BRep_Tool::Pnt(vfar);
-                            gp_Vec r0(oc0.Location(), p0), r1(oc0.Location(), p1);
-                            const double sg = r0.Crossed(r1).Dot(gp_Vec(oc0.Axis().Direction()));
-                            const bool axisWithN = oc0.Axis().Direction().Dot(gp_Vec(N)) >= 0.0;
-                            bool shortCcwN = (sg > 0.0);
-                            if (!axisWithN) shortCcwN = !shortCcwN;
-                            // Which of the two arcs is it? Compare the edge's own
-                            // parametric sweep against pi to settle the long/short case.
                             double f0 = 0.0, l0 = 0.0;
                             (void)edgeBasisCurve(we, f0, l0);
-                            const bool isMajor = std::fabs(l0 - f0) > kPi;
-                            g.ccw = isMajor ? !shortCcwN : shortCcwN;
+                            const bool fwd = (we.Orientation() != TopAbs_REVERSED);
+                            const bool axisWithN = oc0.Axis().Direction().Dot(gp_Vec(N)) >= 0.0;
+                            g.ccw   = (fwd == axisWithN);
+                            g.sweep = std::fabs(l0 - f0);
                         }
                         L.segs.push_back(g);
                     }
@@ -2856,12 +3651,30 @@ TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double t
                 nf = planarMixedFace(opl, outerL, holeL);
             }
         } else {
-            double a = q.nv1, b = q.nv2;
-            if (a > b) std::swap(a, b);
-            if (!(b - a > 1.0e-9)) return dfr("quadric/vrange_collapsed");       // v-range inverted / collapsed
-            BRepBuilderAPI_MakeFace mk(q.off, q.u1, q.u2, a, b, Precision::Confusion());
-            if (!mk.IsDone()) return dfr("quadric/makeface_not_done");
-            nf = mk.Face();
+            if (q.notched) {
+                // A cylindrical face with more than two rulings is notched in u,
+                // and a u-v rectangle would fill the notch in. Built from its own
+                // offset boundary loop, with exact pcurves and an exact area
+                // self-check that can SEE a filled notch.
+                const char* cwhy = nullptr;
+                nf = cylTrimmedFace(q, vfMap, moved, movedOk, edgeIdx, offCirc, offOk,
+                                    offLine, offLineOk, &cwhy);
+                if (nf.IsNull()) return dfr(cwhy ? cwhy : "quadric/cyltrim_failed");
+            } else {
+                double a = q.nv1, b = q.nv2;
+                if (a > b) std::swap(a, b);
+                if (!(b - a > 1.0e-9)) return dfr("quadric/vrange_collapsed");   // v-range inverted / collapsed
+                // The u range is the ORIGINAL one unless a ruling moved it (see the U
+                // RE-TRIM above), so a full revolution and every face whose seams are
+                // co-surface splits or tangent seams rebuild on exactly the numbers
+                // they rebuilt on before.
+                double ua = q.nu1, ub = q.nu2;
+                if (ua > ub) std::swap(ua, ub);
+                if (!(ub - ua > 1.0e-9)) return dfr("quadric/urange_collapsed");
+                BRepBuilderAPI_MakeFace mk(q.off, ua, ub, a, b, Precision::Confusion());
+                if (!mk.IsDone()) return dfr("quadric/makeface_not_done");
+                nf = mk.Face();
+            }
         }
         if (nf.IsNull()) return dfr("quadric/face_null");
         // Same gp_Ax3 => same parametric normal field, so the ORIGINAL topological

@@ -139,6 +139,52 @@ restore_sources() {
   #   "[5/5] RED — the tree did not come back clean" this script reported on
   #   PR #206 while its own 8 invariant checks passed.
   touch "$COMPILER_SRC" "$KERNEL/src/native/brep/NativeRoute.cpp"
+  # ★ AND DELETE THE OBJECTS, BECAUSE `touch` ALONE IS NOT ENOUGH — MEASURED IN CI.
+  #   `touch` sets mtime to NOW, and the library was also linked NOW. At one-second
+  #   filesystem granularity those compare EQUAL, cmake calls the library current,
+  #   and the compile is skipped exactly as the comment above fears. That is not
+  #   hypothetical: on PR #220 this gate went RED with the clean run passing (8
+  #   checks, 0 failures) and BOTH mutations caught, failing only at [5/5] with
+  #   `before: feat=1 -> after: feat=0` -- i.e. mutation 2's deletion of the
+  #   FEATURES restore was STILL LINKED after being reverted in the source. The
+  #   ★ CORRECTED: an earlier version of this comment argued that [5/5]
+  #   finishing in 3 SECONDS proved the rebuild was elided. That number DOES NOT
+  #   DISCRIMINATE. Comparing sub-step timings between a PASSING archdisc run
+  #   (3d886631) and a FAILING one (5dc9aaf0): [1/5] 2m41s vs 2m01s, mutation 1
+  #   10s vs 8s, mutation 2 5s vs 4s, the restore window 9s vs 7s, and [5/5]
+  #   itself 3s in BOTH. So [5/5] recompiles nothing even when the gate PASSES:
+  #   the compile that decides the outcome happens inside restore_sources(), in
+  #   that 9s-vs-7s window -- which is exactly where the deletion below lives.
+  #   The failing run was uniformly ~25% faster at every phase: a RUNNER-SPEED
+  #   signature tightening a one-second collision, not a branch-content
+  #   signature, since this gate compiles no file that branch touched.
+  #   ★ And the evidentiary asymmetry, because it nearly cost the diagnosis: a
+  #   local PASS would NOT refute this. For a race, different hardware has
+  #   different timing, so only a reproduction confirms -- treating a
+  #   non-reproduction as refutation is how a real race is closed "works for me".
+  #   ★★ RETRACTED: an earlier revision of this comment claimed the trigger
+  #   REQUIRES a shared, pre-built tree. That was over-generalised from a single
+  #   reproduction and is REFUTED. Rate, measured:
+  #       attempt 1  shared build-verify, pre-built    -> RED (CI's exact signature)
+  #       attempt 2  same tree, back-to-back           -> GREEN
+  #       attempt 3  fresh pre-built tree              -> GREEN
+  #   1 reproduction in 3. A control that passes 2 of 3 cannot distinguish a fix
+  #   from luck, so nothing here is empirically verified by that experiment.
+  #   ★ It is a genuine TIMING RACE with a rate, not a deterministic trigger --
+  #   which is exactly why it went 3/3 red on one CI branch and green on another
+  #   without either branch touching this gate's sources.
+  #   ★★ THE DELETION BELOW IS SOUND BY CONSTRUCTION, NOT BY THAT EXPERIMENT:
+  #   cmake cannot elide a compile whose output does not exist, whatever the
+  #   timestamps do and whichever tree is used. Demonstrating it STATISTICALLY
+  #   would need a rate comparison of order 20 runs per arm; that has NOT been
+  #   done and is not claimed.
+  #   It reproduced on re-run and passed on the same tree locally, because locally
+  #   the gate owns its build directory while CI points GATE_GUARD_BUILD at the
+  #   SHARED build-verify, whose library an earlier job step had just linked.
+  #   Removing the objects makes the recompile a fact rather than a race: cmake
+  #   cannot elide a compile whose output does not exist.
+  find "$BUILD" -name 'FeatureTreeCompiler.cpp.o' -delete 2>/dev/null || true
+  find "$BUILD" -name 'NativeRoute.cpp.o' -delete 2>/dev/null || true
   # REBUILD after restoring. This gate may share a build tree with the rest of the
   # job (CI points GATE_GUARD_BUILD at build-verify), so an early exit mid-mutation
   # would otherwise leave a MUTATED library in place for every later step — a gate
@@ -192,6 +238,21 @@ restore_sources
 
 echo "[5/5] rebuild clean and re-run (the mutations must leave no residue)"
 rebuild_lib && build_all
+# ★ PROVE THE REBUILD HAPPENED BEFORE JUDGING THE INVARIANT. restore_sources()
+#   deletes both objects, so after a real rebuild they MUST exist again. If they
+#   do not, the compile was elided and the library still holds mutated code --
+#   in which case the gate below would report a FAILING INVARIANT for what is
+#   actually a broken measurement. That mis-attribution is not hypothetical: it
+#   cost two agents an afternoon on PR #220. Name the cause here instead.
+for obj in FeatureTreeCompiler.cpp.o NativeRoute.cpp.o; do
+  if ! find "$BUILD" -name "$obj" | grep -q .; then
+    echo "[gate-guard] RED -- the rebuild was ELIDED: $obj was deleted and never"
+    echo "             recompiled, so the library may still hold mutated code."
+    echo "             This is a MEASUREMENT failure, not an invariant failure --"
+    echo "             do not read the checks below as a kernel regression."
+    exit 1
+  fi
+done
 "$OUT/gate" > "$OUT/final.log" 2>&1; rc2=$?
 if [ "$rc2" -ne 0 ]; then
   # SAY WHY. This ran with >/dev/null 2>&1, so when it went red on PR #206 the

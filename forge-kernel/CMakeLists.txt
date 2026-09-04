@@ -288,6 +288,47 @@ set(OCCT_LIBS
 #   explicit decision about this ledger and never a side effect of an aggregator.
 #   NOTHING BELOW THIS LINE CHANGED: every option's default is exactly as it was.
 #   Method and the BEFORE/AFTER tables: reports/CORPUS_AB_COVERAGE.md §2.9, §2.10, §3.5.
+# ★ RE-MEASURED AGAIN AT 26db603e, AFTER THE CYLINDER-CYLINDER RULING INCREMENT, AND
+#   THE COVERAGE NUMBER DID NOT MOVE: native 24/600 = 4.0% BEFORE and 24/600 = 4.0%
+#   AFTER, against the same OCCT 38/600 = 6.3%, same harness, same 600 parts, full
+#   corpus both times (test/run_corpus_ab_coverage.sh all, FAMILIES=OFFSETSHAPE).
+#   FORGE_OFFSETSHAPE_DROP_NATIVE STAYS OFF. What DID move is the attribution, and it
+#   is recorded here because the next person to cost this family needs the real
+#   ladder rather than the top rung:
+#
+#     deletion bucket (38 parts), BEFORE          deletion bucket (38 parts), AFTER
+#       23  line_edge_not_between_two_planes        13  line_edge_offsets_do_not_meet
+#        6  result_not_valid                         7  corner_cyl_solve_failed
+#        4  line_edge_plane_cyl_not_tangent          6  result_not_valid
+#        4  unsupported_surface                      6  face_null
+#        1  offset_surface_null                      4  unsupported_surface
+#                                                    1  cyl_face_u_domain_collapsed
+#                                                    1  offset_surface_null
+#
+#   The 27 parts that stopped on a STRAIGHT EDGE now get past it — a line shared by
+#   two cylinders is solved in closed form in its cross-section plane — and stop four
+#   rungs further in, at the corner solve, the planar face builder and the sew.
+#
+#   ★ AND 13 OF THE 38 ARE NOT REACHABLE BY AN EXACT SHARP-JOIN ENGINE AT ALL, which
+#     is the finding that changes what this family is worth. They stop on
+#     `line_edge_offsets_do_not_meet`: their offset CHANGES THE TOPOLOGY. Worked by
+#     hand on two of them — ho14 (bore r=1.7160 at axis distance 17.7314 inside a wall
+#     of r=18.1000, offset d=0.720831) and ho111 (r=2.7240 at 28.1485 inside r=28.9000,
+#     d=1.151130) — the hole breaks out of the curved wall in the INPUT and does not in
+#     the OFFSET: ho14 stops breaking out at d = 0.6737 and is offset by 0.7208. The
+#     two offset surfaces genuinely stop meeting, a face has to DISAPPEAR, and the
+#     engine's own face-count identity forbids returning that. Declining is correct.
+#     So of the 38-part bar, at most 25 are reachable without a topology-changing
+#     offset, and 33 of the 38 OCCT answers are BRepCheck-INVALID in the first place.
+#
+#   Measured next rung, largest first, over the whole 600 (not just the bucket):
+#     89  line_edge_offsets_do_not_meet   topology change; needs face deletion
+#     29  face_null                       the planar mixed-loop builder
+#     22  corner_cyl_solve_failed         over-determined apexes (4+ offset surfaces)
+#     12  result_not_valid                built, then BRepCheck-rejected
+#   with entry/bodies_not_separated_by_2dist (271) and quadric/unsupported_surface
+#   (150) still the two biggest columns overall and CONTRIBUTING 0 and 4 to the bucket
+#   respectively — which is why neither is the thing to work on next.
 #
 # ★ [1] THICKSOLID's 1.2% WAS SEVEN INVALID SOLIDS AND IS NOW AN HONEST 0.0%. The seven
 #   parts the native thick-solid "built" on this corpus were every one of them
