@@ -896,6 +896,13 @@ void KernelScene::installGeometry(std::vector<SceneVertex> stream, std::uint32_t
   anyHidden_ = false;
   visible_.clear();
   visible_.shrink_to_fit();
+
+  // Pack body indices into vertex flags for multi-body material differentiation
+  for (SceneVertex& v : allVertices_) {
+    const std::uint32_t body = report_.bodyForFace(v.faceId);
+    v.flags = (v.flags & 1u) | ((body & 0xFFu) << 8);
+  }
+
   computeBounds();
   extractFeatureEdges();
 }

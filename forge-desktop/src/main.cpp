@@ -666,6 +666,11 @@ int main(int argc, char** argv) {
     frame.setViewportUnavailable(viewport.error());
   } else {
     viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
+    if (!openPath.empty() && scene.bounds().valid) {
+      float c[3] = {0.0f, 0.0f, 0.0f};
+      scene.bounds().centre(c);
+      frame.camera().frame(c, scene.bounds().radius());
+    }
   }
 
 

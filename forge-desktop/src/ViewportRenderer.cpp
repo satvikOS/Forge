@@ -274,13 +274,16 @@ bool ViewportRenderer::createPipeline() {
                                   &pipelineWire_) != VK_SUCCESS) {
       pipelineWire_ = VK_NULL_HANDLE;
     }
+  }
 
-    // ── CAD feature edge line pipeline (VK_PRIMITIVE_TOPOLOGY_LINE_LIST) ───
+  // ── CAD feature edge line pipeline (VK_PRIMITIVE_TOPOLOGY_LINE_LIST) ───
+  // Line topology does not require fillModeNonSolid and works across all platforms.
+  if (ok) {
     VkPipelineInputAssemblyStateCreateInfo lineIa = ia;
     lineIa.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
 
     VkPipelineRasterizationStateCreateInfo lineRs = rs;
-    lineRs.polygonMode = VK_POLYGON_MODE_LINE;
+    lineRs.polygonMode = VK_POLYGON_MODE_FILL;
     lineRs.depthBiasEnable = VK_TRUE;
     lineRs.depthBiasConstantFactor = -2.0f;
     lineRs.depthBiasSlopeFactor = -2.0f;
