@@ -240,6 +240,20 @@ const std::vector<IrOpSpec>& irOpTable() {
       {"RESIZEBORE", 3, 3, true},
       {"DEFEATURE", 2, 2, true},
       {"VERIFY", 2, kIrArgsUnbounded, true},
+      // ── NX / CATIA parity ops (s19.3) ─────────────────────────────────
+      // Each mirrors a production kernel function already in binding.cpp.
+      {"DRAFT", 3, 5, true},       // %solid, angle, pullDir [, faceSelector, neutralPlane]
+      {"THREAD", 4, 7, true},      // %solid, diameter, pitch, depth [, handedness, startAngle, type]
+      {"RIB", 4, 6, true},         // %solid, %profile, thickness, direction [, taper, symmetric]
+      {"OFFSETSOLID", 2, 3, true}, // %solid, distance [, tolerance]
+      {"SPLITBODY", 2, 3, true},   // %solid, %toolOrPlane [, keepSide]
+      {"SURFTRIM", 2, 3, true},    // %surface, %toolOrCurve [, keepSide]
+      {"SURFEXTEND", 2, 4, true},  // %surface, distance [, continuity, direction]
+      {"REPLACEFACE", 3, 3, true}, // %solid, faceSelector, %newSurface
+      {"SCALEUNIFORM", 2, 5, true},// %solid, factor [, cx, cy, cz]
+      {"UNFOLD", 1, 2, true},      // %solid [, kFactor]
+      {"POCKET", 4, 7, true},      // %solid, %profile, depth, direction [, taper, cornerR, floorR]
+      {"MEASURE", 2, kIrArgsUnbounded, true}, // %ref, property [, extraRefs...]
   };
   return table;
 }
