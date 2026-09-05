@@ -2815,6 +2815,15 @@ private:
         // Face identity is meaningless on a strip-faceted body — unify first so
         // "the bore" is one face, exactly as DirectEdit.hpp requires.
         try { h = forge::unifyFaces(h); } catch (...) {}
+        try {
+            auto v = forge::heal::checkValidity(h);
+            if (!v.isOriented) {
+                auto healed = forge::heal::harmonizeNormals(h);
+                if (healed != 0 && healed != forge::kInvalidHandle) {
+                    h = healed;
+                }
+            }
+        } catch (...) {}
         return h;
     }
 
