@@ -630,11 +630,25 @@ int main(int argc, char** argv) {
               shell.registry().size(), partCommands, shell.registry().categories().size());
 
   // A document named on the command line is opened through THE SAME file.open
-  // the menu and Ctrl+O dispatch -- not a private loader beside it.
+  // or file.import_step / file.import_brep the menu and Ctrl+O dispatch.
   if (!openPath.empty()) {
     forge::ui::CommandParams params;
     params.setText("path", openPath);
-    const forge::ui::DispatchResult r = shell.run("file.open", params);
+    std::string cmdId = "file.open";
+    auto hasSuffix = [](const std::string& str, const std::string& suffix) {
+      if (str.size() < suffix.size()) return false;
+      for (std::size_t i = 0; i < suffix.size(); ++i) {
+        if (std::tolower(str[str.size() - suffix.size() + i]) !=
+            std::tolower(suffix[i])) return false;
+      }
+      return true;
+    };
+    if (hasSuffix(openPath, ".step") || hasSuffix(openPath, ".stp")) {
+      cmdId = "file.import_step";
+    } else if (hasSuffix(openPath, ".brep")) {
+      cmdId = "file.import_brep";
+    }
+    const forge::ui::DispatchResult r = shell.run(cmdId, params);
     if (!r.ok() || !shell.lastDocumentError().empty()) {
       std::fprintf(stderr, "[forge] could not open %s: %s\n", openPath.c_str(),
                    shell.lastDocumentError().empty() ? forge::ui::machineName(r.status)
