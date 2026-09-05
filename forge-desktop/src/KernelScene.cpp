@@ -8,6 +8,7 @@
 #include <cstring>
 #include <exception>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -26,11 +27,12 @@
 namespace forge::desktop {
 namespace {
 
-// Tessellation tolerances. 0.05 mm linear / 0.35 rad angular is the deflection
-// pair the kernel's own mesh probe uses for a display mesh: fine enough that a
-// 12 mm bore reads as round, coarse enough to stay interactive.
-constexpr double kLinearTol = 0.05;
-constexpr double kAngularTol = 0.35;
+// Studio CAD tessellation tolerances:
+// High precision deflection (0.008 mm / 0.06 rad ~ 3.4 deg) ensures curved
+// surfaces, fillets, and bores render smooth and round without low-poly facets.
+constexpr double kLinearTol = 0.008;
+constexpr double kAngularTol = 0.06;
+
 
 void normalize3(float v[3]) {
   const float len = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
@@ -895,7 +897,112 @@ void KernelScene::installGeometry(std::vector<SceneVertex> stream, std::uint32_t
   visible_.clear();
   visible_.shrink_to_fit();
   computeBounds();
+  extractFeatureEdges();
 }
+
+void KernelScene::extractFeatureEdges() {
+  edgeVertices_.clear();
+  const std::size_t nTris = allVertices_.size() / 3;
+  if (nTris == 0) return;
+
+  struct PtKey {
+    long long x, y, z;
+    bool operator==(const PtKey& o) const noexcept {
+      return x == o.x && y == o.y && z == o.z;
+    }
+  };
+  struct PtHash {
+    std::size_t operator()(const PtKey& k) const noexcept {
+      std::size_t h = 14695981039346656037ull;
+      auto mix = [&](long long v) {
+        h ^= static_cast<std::size_t>(v);
+        h *= 1099511628211ull;
+      };
+      mix(k.x); mix(k.y); mix(k.z);
+      return h;
+    }
+  };
+  auto quantize = [](float v) -> long long {
+    return static_cast<long long>(std::round(v * 1000.0f)); // 1 micron precision
+  };
+  auto makeKey = [&](float x, float y, float z) -> PtKey {
+    return PtKey{quantize(x), quantize(y), quantize(z)};
+  };
+
+  struct HalfEdgeInfo {
+    SceneVertex v0;
+    SceneVertex v1;
+    float nx, ny, nz;
+    std::uint32_t faceId;
+  };
+
+  struct EdgePairKey {
+    PtKey a, b;
+    bool operator==(const EdgePairKey& o) const noexcept {
+      return (a == o.a && b == o.b) || (a == o.b && b == o.a);
+    }
+  };
+  struct EdgePairHash {
+    std::size_t operator()(const EdgePairKey& k) const noexcept {
+      PtHash h;
+      return h(k.a) ^ h(k.b);
+    }
+  };
+
+  std::unordered_map<EdgePairKey, std::vector<HalfEdgeInfo>, EdgePairHash> edgeMap;
+  edgeMap.reserve(nTris * 3);
+
+  for (std::size_t t = 0; t < nTris; ++t) {
+    const SceneVertex& v0 = allVertices_[t * 3 + 0];
+    const SceneVertex& v1 = allVertices_[t * 3 + 1];
+    const SceneVertex& v2 = allVertices_[t * 3 + 2];
+
+    float e1[3] = {v1.px - v0.px, v1.py - v0.py, v1.pz - v0.pz};
+    float e2[3] = {v2.px - v0.px, v2.py - v0.py, v2.pz - v0.pz};
+    float gn[3] = {e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2],
+                   e1[0] * e2[1] - e1[1] * e2[0]};
+    normalize3(gn);
+
+    const SceneVertex* triVerts[3] = {&v0, &v1, &v2};
+    for (int e = 0; e < 3; ++e) {
+      const SceneVertex& va = *triVerts[e];
+      const SceneVertex& vb = *triVerts[(e + 1) % 3];
+      PtKey ka = makeKey(va.px, va.py, va.pz);
+      PtKey kb = makeKey(vb.px, vb.py, vb.pz);
+      if (ka == kb) continue;
+      EdgePairKey k{ka, kb};
+      edgeMap[k].push_back(HalfEdgeInfo{va, vb, gn[0], gn[1], gn[2], va.faceId});
+    }
+  }
+
+  // Crease angle threshold: cos(23 deg) ~ 0.92
+  constexpr float kCreaseCosThreshold = 0.92f;
+
+  for (const auto& kv : edgeMap) {
+    const auto& list = kv.second;
+    if (list.size() == 1) {
+      // Boundary edge (sheet metal, open shell, hole rim)
+      edgeVertices_.push_back(list[0].v0);
+      edgeVertices_.push_back(list[0].v1);
+    } else if (list.size() >= 2) {
+      bool isFeature = false;
+      if (list[0].faceId != list[1].faceId) {
+        // Topological B-Rep face boundary
+        isFeature = true;
+      } else {
+        const float dotN = list[0].nx * list[1].nx + list[0].ny * list[1].ny + list[0].nz * list[1].nz;
+        if (dotN < kCreaseCosThreshold) {
+          isFeature = true;
+        }
+      }
+      if (isFeature) {
+        edgeVertices_.push_back(list[0].v0);
+        edgeVertices_.push_back(list[0].v1);
+      }
+    }
+  }
+}
+
 
 // Re-derives the drawn stream from the master. A triangle belongs to the body
 // its faceId belongs to -- the SAME id picking resolves and the SAME map the

@@ -325,7 +325,11 @@ class KernelScene {
   const std::vector<SceneVertex>& vertices() const noexcept {
     return anyHidden_ ? visible_ : allVertices_;
   }
+  const std::vector<SceneVertex>& edgeVertices() const noexcept {
+    return edgeVertices_;
+  }
   std::size_t triangleCount() const noexcept { return vertices().size() / 3; }
+
   const Bounds& bounds() const noexcept { return bounds_; }
   std::uint32_t faceCount() const noexcept { return faceCount_; }
 
@@ -399,6 +403,7 @@ class KernelScene {
   // the derivation of the drawn subset from the master.
   void installGeometry(std::vector<SceneVertex> stream, std::uint32_t faces);
   void rebuildVisible();
+  void extractFeatureEdges();
 
   bool built_ = false;
   IrBuildReport report_;
@@ -410,6 +415,8 @@ class KernelScene {
   // applySelection() flags -- so hiding a body removes it from all three at once
   // rather than from the picture only.
   std::vector<SceneVertex> allVertices_;
+  std::vector<SceneVertex> edgeVertices_;
+
   // Indexed by 1-based body; entry 0 is unused. Empty means everything is shown.
   std::vector<bool> bodyHidden_;
   bool anyHidden_ = false;

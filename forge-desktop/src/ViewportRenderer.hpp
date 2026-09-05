@@ -35,7 +35,8 @@ class ViewportRenderer {
   void destroy();
 
   // Re-uploads the vertex stream (used when the selection flags change).
-  bool uploadVertices(const std::vector<SceneVertex>& vertices);
+  bool uploadVertices(const std::vector<SceneVertex>& vertices,
+                      const std::vector<SceneVertex>& edgeVertices = {});
 
   // Ensures the offscreen target is `width` x `height`. Returns false only on a
   // real Vulkan failure; a zero-size request is a no-op that returns true.
@@ -67,6 +68,7 @@ class ViewportRenderer {
   VkPipelineLayout layout_ = VK_NULL_HANDLE;
   VkPipeline pipelineSolid_ = VK_NULL_HANDLE;
   VkPipeline pipelineWire_ = VK_NULL_HANDLE;
+  VkPipeline pipelineLine_ = VK_NULL_HANDLE;
   VkSampler sampler_ = VK_NULL_HANDLE;
 
   VkImage color_ = VK_NULL_HANDLE;
@@ -82,6 +84,13 @@ class ViewportRenderer {
   VkDeviceMemory vboMem_ = VK_NULL_HANDLE;
   VkDeviceSize vboBytes_ = 0;
   void* vboMapped_ = nullptr;
+
+  VkBuffer vboEdges_ = VK_NULL_HANDLE;
+  VkDeviceMemory vboEdgesMem_ = VK_NULL_HANDLE;
+  VkDeviceSize vboEdgesBytes_ = 0;
+  void* vboEdgesMapped_ = nullptr;
+  std::uint32_t edgeLines_ = 0;
+
 
   std::uint32_t width_ = 0;
   std::uint32_t height_ = 0;

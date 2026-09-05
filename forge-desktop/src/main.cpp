@@ -650,7 +650,10 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "[forge] viewport renderer: %s\n", viewport.error().c_str());
     // ... and, unlike before, somewhere the user will actually see it.
     frame.setViewportUnavailable(viewport.error());
+  } else {
+    viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
   }
+
 
   // ── frame loop ───────────────────────────────────────────────────────────
   int frames = 0;
@@ -727,7 +730,7 @@ int main(int argc, char** argv) {
     // first. A selection re-upload only rewrites mapped bytes and needs none.
     if (req.geometryDirty) {
       vkDeviceWaitIdle(g_device);
-      viewport.uploadVertices(scene.vertices());
+      viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
       // Re-frame the camera on the new body -- a rebuild can move the bounds
       // (a pattern trebles them), and a camera left behind looks like a crash.
       float c[3] = {0.0f, 0.0f, 0.0f};
@@ -739,10 +742,11 @@ int main(int argc, char** argv) {
       // LEFT WHERE THE USER PUT IT. Hiding one body of six is not opening a new
       // part, and a view that jumps on every checkbox is unusable.
       vkDeviceWaitIdle(g_device);
-      viewport.uploadVertices(scene.vertices());
+      viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
     } else if (req.selectionDirty) {
-      viewport.uploadVertices(scene.vertices());
+      viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
     }
+
 
     // ── acquire, record, submit, present ───────────────────────────────────
     ImGui_ImplVulkanH_FrameSemaphores* sem =

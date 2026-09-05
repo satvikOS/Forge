@@ -274,7 +274,34 @@ bool ViewportRenderer::createPipeline() {
                                   &pipelineWire_) != VK_SUCCESS) {
       pipelineWire_ = VK_NULL_HANDLE;
     }
+
+    // ── CAD feature edge line pipeline (VK_PRIMITIVE_TOPOLOGY_LINE_LIST) ───
+    VkPipelineInputAssemblyStateCreateInfo lineIa = ia;
+    lineIa.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+
+    VkPipelineRasterizationStateCreateInfo lineRs = rs;
+    lineRs.polygonMode = VK_POLYGON_MODE_LINE;
+    lineRs.depthBiasEnable = VK_TRUE;
+    lineRs.depthBiasConstantFactor = -2.0f;
+    lineRs.depthBiasSlopeFactor = -2.0f;
+    lineRs.lineWidth = 1.0f;
+
+    VkPipelineDepthStencilStateCreateInfo lineDs = ds;
+    lineDs.depthTestEnable = VK_TRUE;
+    lineDs.depthWriteEnable = VK_FALSE;
+    lineDs.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkGraphicsPipelineCreateInfo lgp = gp;
+    lgp.pInputAssemblyState = &lineIa;
+    lgp.pRasterizationState = &lineRs;
+    lgp.pDepthStencilState = &lineDs;
+
+    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &lgp, nullptr,
+                                  &pipelineLine_) != VK_SUCCESS) {
+      pipelineLine_ = VK_NULL_HANDLE;
+    }
   }
+
 
   vkDestroyShaderModule(device_, vertModule, nullptr);
   vkDestroyShaderModule(device_, fragModule, nullptr);
@@ -282,58 +309,102 @@ bool ViewportRenderer::createPipeline() {
   return ok;
 }
 
-bool ViewportRenderer::uploadVertices(const std::vector<SceneVertex>& vertices) {
+bool ViewportRenderer::uploadVertices(const std::vector<SceneVertex>& vertices,
+                                      const std::vector<SceneVertex>& edgeVertices) {
   triangles_ = static_cast<std::uint32_t>(vertices.size() / 3);
-  if (vertices.empty()) return true;
-  const VkDeviceSize bytes = vertices.size() * sizeof(SceneVertex);
+  if (!vertices.empty()) {
+    const VkDeviceSize bytes = vertices.size() * sizeof(SceneVertex);
 
-  if (vbo_ == VK_NULL_HANDLE || bytes > vboBytes_) {
-    if (vboMapped_ != nullptr) {
-      vkUnmapMemory(device_, vboMem_);
-      vboMapped_ = nullptr;
-    }
-    if (vbo_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, vbo_, nullptr);
-    if (vboMem_ != VK_NULL_HANDLE) vkFreeMemory(device_, vboMem_, nullptr);
+    if (vbo_ == VK_NULL_HANDLE || bytes > vboBytes_) {
+      if (vboMapped_ != nullptr) {
+        vkUnmapMemory(device_, vboMem_);
+        vboMapped_ = nullptr;
+      }
+      if (vbo_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, vbo_, nullptr);
+      if (vboMem_ != VK_NULL_HANDLE) vkFreeMemory(device_, vboMem_, nullptr);
 
-    VkBufferCreateInfo bi{};
-    bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    bi.size = bytes;
-    bi.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-    bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    if (vkCreateBuffer(device_, &bi, nullptr, &vbo_) != VK_SUCCESS) {
-      error_ = "vkCreateBuffer(vertex) failed";
-      return false;
+      VkBufferCreateInfo bi{};
+      bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+      bi.size = bytes;
+      bi.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+      bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+      if (vkCreateBuffer(device_, &bi, nullptr, &vbo_) != VK_SUCCESS) {
+        error_ = "vkCreateBuffer(vertex) failed";
+        return false;
+      }
+      VkMemoryRequirements mr{};
+      vkGetBufferMemoryRequirements(device_, vbo_, &mr);
+      VkMemoryAllocateInfo ai{};
+      ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+      ai.allocationSize = mr.size;
+      ai.memoryTypeIndex = findMemoryType(mr.memoryTypeBits,
+                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      if (ai.memoryTypeIndex == UINT32_MAX) {
+        error_ = "no host-visible memory type for the vertex buffer";
+        return false;
+      }
+      if (vkAllocateMemory(device_, &ai, nullptr, &vboMem_) != VK_SUCCESS) {
+        error_ = "vkAllocateMemory(vertex) failed";
+        return false;
+      }
+      vkBindBufferMemory(device_, vbo_, vboMem_, 0);
+      vboBytes_ = mr.size;
+      if (vkMapMemory(device_, vboMem_, 0, VK_WHOLE_SIZE, 0, &vboMapped_) != VK_SUCCESS) {
+        error_ = "vkMapMemory(vertex) failed";
+        vboMapped_ = nullptr;
+        return false;
+      }
     }
-    VkMemoryRequirements mr{};
-    vkGetBufferMemoryRequirements(device_, vbo_, &mr);
-    VkMemoryAllocateInfo ai{};
-    ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    ai.allocationSize = mr.size;
-    // HOST_VISIBLE | HOST_COHERENT: Apple Silicon is unified memory, so a staging
-    // copy would be pure overhead, and the selection-flag re-upload happens on
-    // every pick.
-    ai.memoryTypeIndex = findMemoryType(mr.memoryTypeBits,
-                                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    if (ai.memoryTypeIndex == UINT32_MAX) {
-      error_ = "no host-visible memory type for the vertex buffer";
-      return false;
+    std::memcpy(vboMapped_, vertices.data(), static_cast<std::size_t>(bytes));
+  }
+
+  // Upload edge lines if present
+  edgeLines_ = static_cast<std::uint32_t>(edgeVertices.size() / 2);
+  if (!edgeVertices.empty()) {
+    const VkDeviceSize edgeBytes = edgeVertices.size() * sizeof(SceneVertex);
+    if (vboEdges_ == VK_NULL_HANDLE || edgeBytes > vboEdgesBytes_) {
+      if (vboEdgesMapped_ != nullptr) {
+        vkUnmapMemory(device_, vboEdgesMem_);
+        vboEdgesMapped_ = nullptr;
+      }
+      if (vboEdges_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, vboEdges_, nullptr);
+      if (vboEdgesMem_ != VK_NULL_HANDLE) vkFreeMemory(device_, vboEdgesMem_, nullptr);
+
+      VkBufferCreateInfo bi{};
+      bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+      bi.size = edgeBytes;
+      bi.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+      bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+      if (vkCreateBuffer(device_, &bi, nullptr, &vboEdges_) != VK_SUCCESS) {
+        error_ = "vkCreateBuffer(edge) failed";
+        return false;
+      }
+      VkMemoryRequirements mr{};
+      vkGetBufferMemoryRequirements(device_, vboEdges_, &mr);
+      VkMemoryAllocateInfo ai{};
+      ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+      ai.allocationSize = mr.size;
+      ai.memoryTypeIndex = findMemoryType(mr.memoryTypeBits,
+                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+      if (ai.memoryTypeIndex != UINT32_MAX &&
+          vkAllocateMemory(device_, &ai, nullptr, &vboEdgesMem_) == VK_SUCCESS) {
+        vkBindBufferMemory(device_, vboEdges_, vboEdgesMem_, 0);
+        vboEdgesBytes_ = mr.size;
+        if (vkMapMemory(device_, vboEdgesMem_, 0, VK_WHOLE_SIZE, 0, &vboEdgesMapped_) != VK_SUCCESS) {
+          vboEdgesMapped_ = nullptr;
+        }
+      }
     }
-    if (vkAllocateMemory(device_, &ai, nullptr, &vboMem_) != VK_SUCCESS) {
-      error_ = "vkAllocateMemory(vertex) failed";
-      return false;
-    }
-    vkBindBufferMemory(device_, vbo_, vboMem_, 0);
-    vboBytes_ = mr.size;
-    if (vkMapMemory(device_, vboMem_, 0, VK_WHOLE_SIZE, 0, &vboMapped_) != VK_SUCCESS) {
-      error_ = "vkMapMemory(vertex) failed";
-      vboMapped_ = nullptr;
-      return false;
+    if (vboEdgesMapped_ != nullptr) {
+      std::memcpy(vboEdgesMapped_, edgeVertices.data(), static_cast<std::size_t>(edgeBytes));
     }
   }
-  std::memcpy(vboMapped_, vertices.data(), static_cast<std::size_t>(bytes));
+
   return true;
 }
+
 
 void ViewportRenderer::destroyTarget() {
   if (descriptor_ != VK_NULL_HANDLE) {
@@ -471,7 +542,7 @@ void ViewportRenderer::record(VkCommandBuffer cmd, const Camera& camera,
 
     PushBlock pb{};
     camera.viewProj(pb.mvp);
-    Camera::identity(pb.nrm);
+    camera.view(pb.nrm);  // camera view matrix for camera-aligned studio specular & normals
     pb.hoverFace = hoverFace;
     pb.shadingMode = 0;
     vkCmdPushConstants(cmd, layout_,
@@ -481,6 +552,17 @@ void ViewportRenderer::record(VkCommandBuffer cmd, const Camera& camera,
     const VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &vbo_, &offset);
     vkCmdDraw(cmd, triangles_ * 3, 1, 0, 0);
+
+    // ── CAD feature edge overlay ("Shaded with Edges") ─────────────────────
+    if (edgeLines_ > 0 && vboEdges_ != VK_NULL_HANDLE && pipelineLine_ != VK_NULL_HANDLE) {
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLine_);
+      pb.shadingMode = 1;
+      vkCmdPushConstants(cmd, layout_,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                         sizeof(pb), &pb);
+      vkCmdBindVertexBuffers(cmd, 0, 1, &vboEdges_, &offset);
+      vkCmdDraw(cmd, edgeLines_ * 2, 1, 0, 0);
+    }
   }
 
   vkCmdEndRenderPass(cmd);
@@ -496,6 +578,15 @@ void ViewportRenderer::destroy() {
   }
   if (vbo_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, vbo_, nullptr);
   if (vboMem_ != VK_NULL_HANDLE) vkFreeMemory(device_, vboMem_, nullptr);
+
+  if (vboEdgesMapped_ != nullptr) {
+    vkUnmapMemory(device_, vboEdgesMem_);
+    vboEdgesMapped_ = nullptr;
+  }
+  if (vboEdges_ != VK_NULL_HANDLE) vkDestroyBuffer(device_, vboEdges_, nullptr);
+  if (vboEdgesMem_ != VK_NULL_HANDLE) vkFreeMemory(device_, vboEdgesMem_, nullptr);
+
+  if (pipelineLine_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipelineLine_, nullptr);
   if (pipelineWire_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipelineWire_, nullptr);
   if (pipelineSolid_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipelineSolid_, nullptr);
   if (layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, layout_, nullptr);
@@ -503,6 +594,9 @@ void ViewportRenderer::destroy() {
   if (renderPass_ != VK_NULL_HANDLE) vkDestroyRenderPass(device_, renderPass_, nullptr);
   vbo_ = VK_NULL_HANDLE;
   vboMem_ = VK_NULL_HANDLE;
+  vboEdges_ = VK_NULL_HANDLE;
+  vboEdgesMem_ = VK_NULL_HANDLE;
+  pipelineLine_ = VK_NULL_HANDLE;
   pipelineWire_ = VK_NULL_HANDLE;
   pipelineSolid_ = VK_NULL_HANDLE;
   layout_ = VK_NULL_HANDLE;
@@ -510,5 +604,6 @@ void ViewportRenderer::destroy() {
   renderPass_ = VK_NULL_HANDLE;
   device_ = VK_NULL_HANDLE;
 }
+
 
 }  // namespace forge::desktop

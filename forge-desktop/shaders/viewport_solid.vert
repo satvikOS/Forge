@@ -23,10 +23,14 @@ layout(push_constant) uniform PushConstants {
 layout(location = 0) out vec3 vNormal;
 layout(location = 1) flat out uint vFaceId;
 layout(location = 2) flat out uint vFlags;
+layout(location = 3) out vec3 vViewPos;
 
 void main() {
     gl_Position = pc.mvp * vec4(inPos, 1.0);
+    vec4 vp = pc.nrm * vec4(inPos, 1.0);
+    vViewPos = vp.xyz;
     vNormal = mat3(pc.nrm) * inNormal;
     vFaceId = inFaceId;
     vFlags  = inFlags;
 }
+
