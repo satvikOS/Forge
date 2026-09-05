@@ -654,6 +654,7 @@ int main(int argc, char** argv) {
                    shell.lastDocumentError().empty() ? forge::ui::machineName(r.status)
                                                      : shell.lastDocumentError().c_str());
     } else {
+      frame.documentChanged();
       std::printf("[forge] opened %s: %zu statements, %zu triangles\n", openPath.c_str(),
                   frame.document().records().size(), scene.triangleCount());
     }

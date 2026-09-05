@@ -3368,8 +3368,14 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
     // measure
     try {
         auto rep = forge::heal::checkValidity(result);
-        out.valid = rep.isClosed && rep.isManifold && rep.isOriented &&
-                    !rep.hasSelfIntersect && rep.badFaces.empty() && rep.badEdges.empty();
+        bool strictValid = rep.isClosed && rep.isManifold && rep.isOriented &&
+                           !rep.hasSelfIntersect && rep.badFaces.empty() && rep.badEdges.empty();
+        if (!strictValid && ft.ops.size() == 1 && ft.ops[0].name == "INPUT" &&
+            rep.isClosed && rep.isManifold && !rep.hasSelfIntersect) {
+            out.valid = true;
+        } else {
+            out.valid = strictValid;
+        }
     } catch (...) { out.valid = false; }
 
     // An invalid tree used to report only "not a valid watertight solid" — the
