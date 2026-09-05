@@ -3124,28 +3124,20 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // cylindrical faces. Kernel: forge.part.draftFaces.
   {
     CommandDescriptor c = base("part.draft", "Face Draft", "DRAFT",
-                               SelectionSignature::body());
+                               SelectionSignature::exactly(EntityKind::Body, 1));
     c.schema.push_back(ParamSpec{.name = "angle", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 3.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "pull_x", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "pull_y", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "pull_z", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 1.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "pull_dir", .type = ParamType::Text,
+                                 .required = false, .defaultText = "Z", .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) { return solidTarget(*d, ctx.selection()).ok; };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       if (!t.ok) { ctx.fail("select a solid body"); return; }
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(t.value));
+      args.push_back(IrArg::valueRef(t.value));
       args.push_back(IrArg::num(num(ctx, "angle", 3.0)));
-      const double px = num(ctx, "pull_x", 0.0);
-      const double py = num(ctx, "pull_y", 0.0);
-      const double pz = num(ctx, "pull_z", 1.0);
-      args.push_back(IrArg::keyword(
-          std::to_string(px) + " " + std::to_string(py) + " " + std::to_string(pz)));
+      args.push_back(IrArg::keyword(txt(ctx, "pull_dir", "Z")));
       emit(ctx, *d, *s, "part.draft", "Face Draft", "DRAFT", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
@@ -3158,27 +3150,23 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // cosmetic annotation.
   {
     CommandDescriptor c = base("part.thread", "Thread", "THREAD",
-                               SelectionSignature::body());
+                               SelectionSignature::exactly(EntityKind::Body, 1));
     c.schema.push_back(ParamSpec{.name = "diameter", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 10.0, .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "pitch", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 1.5, .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "depth", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 20.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "handedness", .type = ParamType::String,
-                                 .required = false});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) { return solidTarget(*d, ctx.selection()).ok; };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       if (!t.ok) { ctx.fail("select a solid body with a cylindrical face"); return; }
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(t.value));
+      args.push_back(IrArg::valueRef(t.value));
       args.push_back(IrArg::num(num(ctx, "diameter", 10.0)));
       args.push_back(IrArg::num(num(ctx, "pitch", 1.5)));
       args.push_back(IrArg::num(num(ctx, "depth", 20.0)));
-      const std::string hand = str(ctx, "handedness", "RIGHT");
-      if (hand != "RIGHT") args.push_back(IrArg::keyword(hand));
       emit(ctx, *d, *s, "part.thread", "Thread", "THREAD", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
@@ -3190,34 +3178,28 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // an existing solid. Kernel: forge.part.rib.
   {
     CommandDescriptor c = base("part.rib", "Rib/Stiffener", "RIB",
-                               SelectionSignature::bodyAndProfile());
+                               SelectionSignature::none());
     c.schema.push_back(ParamSpec{.name = "thickness", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 2.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "direction", .type = ParamType::String,
-                                 .required = false});
-    c.schema.push_back(ParamSpec{.name = "taper", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "symmetric", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "direction", .type = ParamType::Text,
+                                 .required = false, .defaultText = "NORMAL", .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
-      const auto bodies = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
       const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      return !bodies.empty() && !profiles.empty();
+      return !ids.empty() && !profiles.empty();
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const auto bodies = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
       const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      if (bodies.empty() || profiles.empty()) { ctx.fail("select a body and a profile"); return; }
+      if (ids.empty() || profiles.empty()) { ctx.fail("select a body and a profile"); return; }
       const std::string node = singleNode(ctx.selection());
+      const int profile = profiles.front();
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(bodies.front()));
-      args.push_back(IrArg::ref(profiles.front()));
+      args.push_back(IrArg::valueRef(ids[0]));
+      args.push_back(IrArg::valueRef(profile));
       args.push_back(IrArg::num(num(ctx, "thickness", 2.0)));
-      const std::string dir = str(ctx, "direction", "NORMAL");
-      args.push_back(IrArg::keyword(dir));
-      double taper = num(ctx, "taper", 0.0);
-      if (taper != 0.0) args.push_back(IrArg::num(taper));
+      args.push_back(IrArg::keyword(txt(ctx, "direction", "NORMAL")));
       emit(ctx, *d, *s, "part.rib", "Rib/Stiffener", "RIB", std::move(args),
            IrValueKind::Solid, {}, node);
     };
@@ -3229,18 +3211,16 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // Kernel: forge.part.offsetSolid.
   {
     CommandDescriptor c = base("part.offset_solid", "Offset Solid", "OFFSETSOLID",
-                               SelectionSignature::body());
+                               SelectionSignature::exactly(EntityKind::Body, 1));
     c.schema.push_back(ParamSpec{.name = "distance", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 1.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "tolerance", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.01, .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) { return solidTarget(*d, ctx.selection()).ok; };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       if (!t.ok) { ctx.fail("select a solid body"); return; }
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(t.value));
+      args.push_back(IrArg::valueRef(t.value));
       args.push_back(IrArg::num(num(ctx, "distance", 1.0)));
       emit(ctx, *d, *s, "part.offset_solid", "Offset Solid", "OFFSETSOLID", std::move(args),
            IrValueKind::Solid, {}, t.node);
@@ -3253,9 +3233,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // datum plane or tool body. Kernel: forge.mold.splitCavityCore.
   {
     CommandDescriptor c = base("part.split_body", "Split Body", "SPLITBODY",
-                               SelectionSignature::twoBody());
-    c.schema.push_back(ParamSpec{.name = "keep", .type = ParamType::String,
-                                 .required = false});
+                               SelectionSignature::exactly(EntityKind::Body, 2));
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
       return resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() >= 2;
@@ -3265,10 +3243,8 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       if (bodies.size() < 2) { ctx.fail("select a body and a splitting tool"); return; }
       const std::string node = singleNode(ctx.selection());
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(bodies[0]));
-      args.push_back(IrArg::ref(bodies[1]));
-      const std::string keep = str(ctx, "keep", "BOTH");
-      if (keep != "BOTH") args.push_back(IrArg::keyword(keep));
+      args.push_back(IrArg::valueRef(bodies[0]));
+      args.push_back(IrArg::valueRef(bodies[1]));
       emit(ctx, *d, *s, "part.split_body", "Split Body", "SPLITBODY", std::move(args),
            IrValueKind::Solid, {}, node);
     };
@@ -3280,26 +3256,20 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // curve or another surface. Kernel: forge.surfacing.trim.
   {
     CommandDescriptor c = base("part.surf_trim", "Trim Surface", "SURFTRIM",
-                               SelectionSignature::surfaceAndBody());
-    c.schema.push_back(ParamSpec{.name = "keep", .type = ParamType::String,
-                                 .required = false});
+                               SelectionSignature::atLeast(EntityKind::Surface, 1));
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
       return !resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty();
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const auto surfaces = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
-      if (surfaces.empty()) { ctx.fail("select a surface to trim"); return; }
+      const auto sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      if (sheets.empty()) { ctx.fail("select a surface to trim"); return; }
+      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      if (ids.empty()) { ctx.fail("select a trimming tool"); return; }
       const std::string node = singleNode(ctx.selection());
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(surfaces.front()));
-      // Second ref: the trimming tool (another surface or solid)
-      const auto bodies = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
-      if (!bodies.empty()) args.push_back(IrArg::ref(bodies.front()));
-      else if (surfaces.size() > 1) args.push_back(IrArg::ref(surfaces[1]));
-      else { ctx.fail("select a trimming tool"); return; }
-      const std::string keep = str(ctx, "keep", "INSIDE");
-      if (keep != "INSIDE") args.push_back(IrArg::keyword(keep));
+      args.push_back(IrArg::valueRef(sheets.front()));
+      args.push_back(IrArg::valueRef(ids[0]));
       emit(ctx, *d, *s, "part.surf_trim", "Trim Surface", "SURFTRIM", std::move(args),
            IrValueKind::Surface, {}, node);
     };
@@ -3310,24 +3280,20 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // NX: Extend Sheet, CATIA: Extrapolate. Extends a surface beyond its boundary.
   {
     CommandDescriptor c = base("part.surf_extend", "Extend Surface", "SURFEXTEND",
-                               SelectionSignature::surface());
+                               SelectionSignature::exactly(EntityKind::Surface, 1));
     c.schema.push_back(ParamSpec{.name = "distance", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 10.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "continuity", .type = ParamType::String,
-                                 .required = false});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
       return !resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty();
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const auto surfaces = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
-      if (surfaces.empty()) { ctx.fail("select a surface to extend"); return; }
+      const auto sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      if (sheets.empty()) { ctx.fail("select a surface to extend"); return; }
       const std::string node = singleNode(ctx.selection());
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(surfaces.front()));
+      args.push_back(IrArg::valueRef(sheets.front()));
       args.push_back(IrArg::num(num(ctx, "distance", 10.0)));
-      const std::string cont = str(ctx, "continuity", "TANGENT");
-      if (cont != "TANGENT") args.push_back(IrArg::keyword(cont));
       emit(ctx, *d, *s, "part.surf_extend", "Extend Surface", "SURFEXTEND", std::move(args),
            IrValueKind::Surface, {}, node);
     };
@@ -3339,9 +3305,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // target surface. Kernel: forge.direct.replaceFace.
   {
     CommandDescriptor c = base("part.replace_face", "Replace Face", "REPLACEFACE",
-                               SelectionSignature::bodyAndSurface());
-    c.schema.push_back(ParamSpec{.name = "face", .type = ParamType::String,
-                                 .required = false});
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{.name = "face", .type = ParamType::Text,
+                                 .required = false, .defaultText = "LARGEST", .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
       return solidTarget(*d, ctx.selection()).ok &&
@@ -3349,13 +3315,12 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
-      const auto surfaces = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
-      if (!t.ok || surfaces.empty()) { ctx.fail("select a body and a replacement surface"); return; }
+      const auto sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
+      if (!t.ok || sheets.empty()) { ctx.fail("select a body and a replacement surface"); return; }
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(t.value));
-      const std::string face = str(ctx, "face", "LARGEST");
-      args.push_back(IrArg::keyword(face));
-      args.push_back(IrArg::ref(surfaces.front()));
+      args.push_back(IrArg::valueRef(t.value));
+      args.push_back(IrArg::keyword(txt(ctx, "face", "LARGEST")));
+      args.push_back(IrArg::valueRef(sheets.front()));
       emit(ctx, *d, *s, "part.replace_face", "Replace Face", "REPLACEFACE", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
@@ -3366,31 +3331,17 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // NX: Scale Body, CATIA: Scaling. Uniform scale about a center point.
   {
     CommandDescriptor c = base("part.scale_uniform", "Scale Body", "SCALEUNIFORM",
-                               SelectionSignature::body());
+                               SelectionSignature::exactly(EntityKind::Body, 1));
     c.schema.push_back(ParamSpec{.name = "factor", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 2.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "center_x", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "center_y", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "center_z", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) { return solidTarget(*d, ctx.selection()).ok; };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       if (!t.ok) { ctx.fail("select a solid body"); return; }
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(t.value));
+      args.push_back(IrArg::valueRef(t.value));
       args.push_back(IrArg::num(num(ctx, "factor", 2.0)));
-      const double cx = num(ctx, "center_x", 0.0);
-      const double cy = num(ctx, "center_y", 0.0);
-      const double cz = num(ctx, "center_z", 0.0);
-      if (cx != 0.0 || cy != 0.0 || cz != 0.0) {
-        args.push_back(IrArg::num(cx));
-        args.push_back(IrArg::num(cy));
-        args.push_back(IrArg::num(cz));
-      }
       emit(ctx, *d, *s, "part.scale_uniform", "Scale Body", "SCALEUNIFORM", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
@@ -3402,18 +3353,14 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // body. Kernel: forge.sheetMetal.unfold.
   {
     CommandDescriptor c = base("part.unfold", "Unfold Sheet Metal", "UNFOLD",
-                               SelectionSignature::body());
-    c.schema.push_back(ParamSpec{.name = "k_factor", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.44, .hasDefault = true});
+                               SelectionSignature::exactly(EntityKind::Body, 1));
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) { return solidTarget(*d, ctx.selection()).ok; };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       if (!t.ok) { ctx.fail("select a sheet-metal body"); return; }
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(t.value));
-      double kf = num(ctx, "k_factor", 0.44);
-      if (kf != 0.44) args.push_back(IrArg::num(kf));
+      args.push_back(IrArg::valueRef(t.value));
       emit(ctx, *d, *s, "part.unfold", "Unfold Sheet Metal", "UNFOLD", std::move(args),
            IrValueKind::Surface, {}, t.node);
     };
@@ -3426,40 +3373,28 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // taper, corner radius, and floor radius parameters.
   {
     CommandDescriptor c = base("part.pocket", "Pocket", "POCKET",
-                               SelectionSignature::bodyAndProfile());
+                               SelectionSignature::none());
     c.schema.push_back(ParamSpec{.name = "depth", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 10.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "direction", .type = ParamType::String,
-                                 .required = false});
-    c.schema.push_back(ParamSpec{.name = "taper", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "corner_radius", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "floor_radius", .type = ParamType::Number,
-                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "direction", .type = ParamType::Text,
+                                 .required = false, .defaultText = "NORMAL", .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
-      const auto bodies = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
       const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      return !bodies.empty() && !profiles.empty();
+      return !ids.empty() && !profiles.empty();
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const auto bodies = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
       const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      if (bodies.empty() || profiles.empty()) { ctx.fail("select a body and a profile"); return; }
+      if (ids.empty() || profiles.empty()) { ctx.fail("select a body and a profile"); return; }
       const std::string node = singleNode(ctx.selection());
+      const int profile = profiles.front();
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(bodies.front()));
-      args.push_back(IrArg::ref(profiles.front()));
+      args.push_back(IrArg::valueRef(ids[0]));
+      args.push_back(IrArg::valueRef(profile));
       args.push_back(IrArg::num(num(ctx, "depth", 10.0)));
-      const std::string dir = str(ctx, "direction", "NORMAL");
-      args.push_back(IrArg::keyword(dir));
-      double taper = num(ctx, "taper", 0.0);
-      if (taper != 0.0) args.push_back(IrArg::num(taper));
-      double cr = num(ctx, "corner_radius", 0.0);
-      if (cr != 0.0) args.push_back(IrArg::num(cr));
-      double fr = num(ctx, "floor_radius", 0.0);
-      if (fr != 0.0) args.push_back(IrArg::num(fr));
+      args.push_back(IrArg::keyword(txt(ctx, "direction", "NORMAL")));
       emit(ctx, *d, *s, "part.pocket", "Pocket", "POCKET", std::move(args),
            IrValueKind::Solid, {}, node);
     };
@@ -3471,19 +3406,19 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // introspection command that reports geometric properties.
   {
     CommandDescriptor c = base("part.measure", "Measure", "MEASURE",
-                               SelectionSignature::body());
-    c.schema.push_back(ParamSpec{.name = "property", .type = ParamType::String,
-                                 .required = true});
-    c.sideEffect = SideEffectClass::None;  // read-only; no document mutation
-    c.undo = UndoContract::None;
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{.name = "property", .type = ParamType::Text,
+                                 .required = false, .defaultText = "VOLUME", .hasDefault = true});
+    c.sideEffect = SideEffectClass::ViewOnly;  // read-only; no document mutation
+    c.undo = UndoContract::NotUndoable;
     c.preview = PreviewPolicy::None;
     c.enabled = [d](const CommandContext& ctx) { return solidTarget(*d, ctx.selection()).ok; };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       if (!t.ok) { ctx.fail("select a body to measure"); return; }
       std::vector<IrArg> args;
-      args.push_back(IrArg::ref(t.value));
-      args.push_back(IrArg::keyword(str(ctx, "property", "VOLUME")));
+      args.push_back(IrArg::valueRef(t.value));
+      args.push_back(IrArg::keyword(txt(ctx, "property", "VOLUME")));
       emit(ctx, *d, *s, "part.measure", "Measure", "MEASURE", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
