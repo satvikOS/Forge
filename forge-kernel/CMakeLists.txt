@@ -1807,6 +1807,7 @@ set(FORGE_KERNEL_SOURCES
     src/binding.cpp
     src/ShapeRegistry.cpp
     src/OcctPrimBuilder.cpp       # TKPrim-free analytic OCCT primitive solids (Geom_ + BRepBuilderAPI)
+    src/OcctPipeSweep.cpp         # TKOffset-free analytic polyline pipe sweep
     src/NativeOcctBridge.cpp
     src/OcctImport.cpp
     src/Primitives.cpp
@@ -2191,6 +2192,7 @@ set(FORGE_KERNEL_SOURCES
     src/native/brep/UnifyFaces.cpp      # native unify-same-domain (coplanar planar face merge) — in-house ShapeUpgrade_UnifySameDomain replacement (TKShHealing-drop blocker #1); wired as the native path in DirectEdit unifyFaces, OCCT fallback for curved/holed
     src/native/brep/NativeShapeHeal.cpp      # R4 — TKShHealing-free heal subset (valueOfUV / projectPointOnCurve / freeBounds / solidFromShell / finalizeShape LIGHT-heal) on surviving foundation toolkits; native hot-path behind FORGE_NATIVE_BREP, OCCT ShapeFix/ShapeAnalysis fallback kept
     src/native/brep/NativeShapeHealBridge.cpp # R4-bridge — RICH ShapeFix_Shape replacement: OCCT shape -> importOcctSolid -> healBRep -> occtFromNativeSolid (TopoDS in/out); whole-file FORGE_NATIVE_BREP, defers (returns input) on open/curved-changed shapes so OCCT fallback stays
+    src/native/brep/NativeAabbBridge.cpp      # OCCT-shape -> native-analytic-AABB seam (exact tight bounds)
     # IN-HOUSE KERNEL STEP 3a — the live-op ROUTING LAYER (runtime gate +
     # transformSolid placement fix + native viewport-tessellate + mesh massprops)
     # and the MESH-BRIDGE feature ops (native fillet/chamfer). Always compiled;
@@ -2229,6 +2231,7 @@ set(FORGE_KERNEL_SOURCES
     # ClassASurfacing.cpp stay live by default.
     src/native/brep/NativeLoftPipe.cpp
     src/native/brep/NativeFilling.cpp
+    src/native/brep/NativeWireFill.cpp        # TKOffset-free free-wire cap synthesis (exact planar Geom_Plane cap)
     # TKOffset family I — TKOffset-free THICKEN of an OPEN shell into a solid
     # (the BRepOffset_MakeOffset Skin + makeThickSolid + GeomAbs_Arc replacement
     # for forge::part::thickenSurface). Rossignac-Requicha offset decomposition:
