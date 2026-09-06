@@ -595,6 +595,8 @@ REF_ROLES = {
     # the `section` entry above records for LOFT.
     "sheet": "surface_sheet",
     "sheets.front()": "target_surface",
+    "sheets[0]": "target_surface",
+    "sheets[1]": "tool_surface",
     # part.section_curve's two operands. They are NOT target/tool: SECTION consumes
     # neither body and the operation is symmetric, so naming them the way the
     # booleans name theirs would teach Archie that one of them gets eaten.
@@ -909,9 +911,10 @@ UNIT_RULES = [
     (r"Deg$",                              "deg",           "angle"),
     (r"^(n|nx|ny|nSides|seg)$",            "count",         "instance_count"),
     (r"^p$",                               "dimensionless", "superellipse_exponent"),
+    (r"^(factor|kFactor)$",                "dimensionless", "scale_factor"),
     (r"^(ax[xyz]|dir[xyz]|openAx[xyz])$",  "dimensionless", "direction_vector_component"),
     (r"^(dia|cboreDia)$",                  "mm",            "diameter"),
-    (r"^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$",
+    (r"^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd|cornerR|floorR)$",
                                            "mm",            "radius"),
     (r"^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$",  "mm",            "position"),
     (r"^(dx|dy|dz)$",                      "mm",            "step_offset"),
@@ -921,7 +924,7 @@ UNIT_RULES = [
     # reading "no unit rule matched the argument name 'w'", leaving one side of a rectangle
     # carrying a unit and semantic and the other side carrying neither. Archie is trained
     # from this file, so an unclassified argument is a hole in the training signal.
-    (r"^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$",
+    (r"^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w|pitch)$",
                                            "mm",            "linear_size"),
 ]
 
@@ -1004,6 +1007,8 @@ OP_ARG_OVERRIDES = {
                                   "RESIZEBORE(%body, \"sel\", newRadius) -- the kernel sets "
                                   "the selected cylindrical bore to this RADIUS, not to this "
                                   "diameter"),
+    ("OFFSETSOLID", "tol"): ("mm", "linear_size",
+                             "OFFSETSOLID(%body, dist [, tol]) -- whole-solid offset tolerance in mm"),
 }
 
 
@@ -1261,7 +1266,7 @@ REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%
                    # The two SURFACE roles. `%sheet` is SEW's variadic list and
                    # `%surface` the single sheet THICKEN / CAP / SURFCHECK take;
                    # one shared name would lose SEW's repeat.
-                   "surface_sheet": "%sheet", "target_surface": "%surface",
+                   "surface_sheet": "%sheet", "target_surface": "%surface", "tool_surface": "%toolSheet",
                    # SECTION is symmetric and consumes neither operand, so both slots
                    # are bodies. They still need DISTINCT placeholders: one shared name
                    # would render the worked example as SECTION(%body, %body), which

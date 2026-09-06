@@ -460,6 +460,7 @@ std::string resolvePlaceholder(const std::string& token) {
   if (token == "%surface") return "%8";
   if (token == "%sheet1") return "%8";
   if (token == "%sheet2") return "%9";
+  if (token == "%toolSheet") return "%9";
   // The sketch family. `%sketch` is the SKETCH value; the rest are entities
   // INSIDE it. SCIRC's centre and SARC's centre share the `%centre` spelling
   // because they are the same role in the same position; SARC's three stay
@@ -566,7 +567,7 @@ int main() {
   // branch adds exactly FIFTEEN the base lacks -- the eight of the 2D sketch +
   // constraint family, the six SURFACE commands, and part.section_curve -- so 58
   // is |ours union theirs|.
-  CHECK_EQ_INT(partAdded, 58);
+  CHECK_EQ_INT(partAdded, 70);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
   CHECK_EQ_INT(liveIds.size(), static_cast<long long>(j.num(counts, "registry_commands")));

@@ -132,4 +132,12 @@ ShapeHandle rotate(ShapeHandle h, double ax, double ay, double az, double angleR
     return applyTrsf(h, tr);
 }
 
+ShapeHandle scaleUniform(ShapeHandle h, double factor, double cx, double cy, double cz) {
+    if (std::abs(factor) < 1e-12 || !std::isfinite(factor))
+        throw std::invalid_argument("forge scaleUniform: factor must be non-zero");
+    gp_Trsf tr;
+    tr.SetScale(gp_Pnt(cx, cy, cz), factor);
+    return applyTrsf(h, tr);
+}
+
 } // namespace forge

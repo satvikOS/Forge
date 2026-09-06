@@ -267,7 +267,7 @@ int main() {
   //
   // Anything else means the derivation itself broke, and a broken oracle must
   // not pass quietly.
-  CHECK_EQ_INT(kernel.size(), 56);
+  CHECK_EQ_INT(kernel.size(), 68);
   CHECK_EQ_INT(irOpTable().size(), kernel.size());
 
   for (const auto& [name, want] : kernel) {

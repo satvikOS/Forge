@@ -3178,26 +3178,22 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // an existing solid. Kernel: forge.part.rib.
   {
     CommandDescriptor c = base("part.rib", "Rib/Stiffener", "RIB",
-                               SelectionSignature::none());
+                               SelectionSignature::exactly(EntityKind::Body, 2));
     c.schema.push_back(ParamSpec{.name = "thickness", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 2.0, .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "direction", .type = ParamType::Text,
                                  .required = false, .defaultText = "NORMAL", .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
-      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
-      const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      return !ids.empty() && !profiles.empty();
+      return resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() >= 2;
     };
     c.execute = [d, s](CommandContext& ctx) {
       const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
-      const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      if (ids.empty() || profiles.empty()) { ctx.fail("select a body and a profile"); return; }
+      if (ids.size() < 2) { ctx.fail("select a body and a rib tool"); return; }
       const std::string node = singleNode(ctx.selection());
-      const int profile = profiles.front();
       std::vector<IrArg> args;
       args.push_back(IrArg::valueRef(ids[0]));
-      args.push_back(IrArg::valueRef(profile));
+      args.push_back(IrArg::valueRef(ids[1]));
       args.push_back(IrArg::num(num(ctx, "thickness", 2.0)));
       args.push_back(IrArg::keyword(txt(ctx, "direction", "NORMAL")));
       emit(ctx, *d, *s, "part.rib", "Rib/Stiffener", "RIB", std::move(args),
@@ -3256,20 +3252,18 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // curve or another surface. Kernel: forge.surfacing.trim.
   {
     CommandDescriptor c = base("part.surf_trim", "Trim Surface", "SURFTRIM",
-                               SelectionSignature::atLeast(EntityKind::Surface, 1));
+                               SelectionSignature::atLeast(EntityKind::Surface, 2));
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
-      return !resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty();
+      return resolveValues(*d, ctx.selection(), IrValueKind::Surface).size() >= 2;
     };
     c.execute = [d, s](CommandContext& ctx) {
       const auto sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
-      if (sheets.empty()) { ctx.fail("select a surface to trim"); return; }
-      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
-      if (ids.empty()) { ctx.fail("select a trimming tool"); return; }
+      if (sheets.size() < 2) { ctx.fail("select a surface to trim and a trimming sheet"); return; }
       const std::string node = singleNode(ctx.selection());
       std::vector<IrArg> args;
-      args.push_back(IrArg::valueRef(sheets.front()));
-      args.push_back(IrArg::valueRef(ids[0]));
+      args.push_back(IrArg::valueRef(sheets[0]));
+      args.push_back(IrArg::valueRef(sheets[1]));
       emit(ctx, *d, *s, "part.surf_trim", "Trim Surface", "SURFTRIM", std::move(args),
            IrValueKind::Surface, {}, node);
     };
@@ -3305,24 +3299,23 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // target surface. Kernel: forge.direct.replaceFace.
   {
     CommandDescriptor c = base("part.replace_face", "Replace Face", "REPLACEFACE",
-                               SelectionSignature::exactly(EntityKind::Body, 1));
+                               SelectionSignature::exactly(EntityKind::Body, 2));
     c.schema.push_back(ParamSpec{.name = "face", .type = ParamType::Text,
                                  .required = false, .defaultText = "LARGEST", .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
-      return solidTarget(*d, ctx.selection()).ok &&
-             !resolveValues(*d, ctx.selection(), IrValueKind::Surface).empty();
+      return resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() >= 2;
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const SolidTarget t = solidTarget(*d, ctx.selection());
-      const auto sheets = resolveValues(*d, ctx.selection(), IrValueKind::Surface);
-      if (!t.ok || sheets.empty()) { ctx.fail("select a body and a replacement surface"); return; }
+      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      if (ids.size() < 2) { ctx.fail("select a body and a replacement tool"); return; }
+      const std::string node = singleNode(ctx.selection());
       std::vector<IrArg> args;
-      args.push_back(IrArg::valueRef(t.value));
+      args.push_back(IrArg::valueRef(ids[0]));
       args.push_back(IrArg::keyword(txt(ctx, "face", "LARGEST")));
-      args.push_back(IrArg::valueRef(sheets.front()));
+      args.push_back(IrArg::valueRef(ids[1]));
       emit(ctx, *d, *s, "part.replace_face", "Replace Face", "REPLACEFACE", std::move(args),
-           IrValueKind::Solid, {}, t.node);
+           IrValueKind::Solid, {}, node);
     };
     add(std::move(c));
   }
@@ -3373,26 +3366,22 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // taper, corner radius, and floor radius parameters.
   {
     CommandDescriptor c = base("part.pocket", "Pocket", "POCKET",
-                               SelectionSignature::none());
+                               SelectionSignature::exactly(EntityKind::Body, 2));
     c.schema.push_back(ParamSpec{.name = "depth", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 10.0, .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "direction", .type = ParamType::Text,
                                  .required = false, .defaultText = "NORMAL", .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
-      const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
-      const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      return !ids.empty() && !profiles.empty();
+      return resolveValues(*d, ctx.selection(), IrValueKind::Solid).size() >= 2;
     };
     c.execute = [d, s](CommandContext& ctx) {
       const auto ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
-      const auto profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
-      if (ids.empty() || profiles.empty()) { ctx.fail("select a body and a profile"); return; }
+      if (ids.size() < 2) { ctx.fail("select a body and a pocket tool"); return; }
       const std::string node = singleNode(ctx.selection());
-      const int profile = profiles.front();
       std::vector<IrArg> args;
       args.push_back(IrArg::valueRef(ids[0]));
-      args.push_back(IrArg::valueRef(profile));
+      args.push_back(IrArg::valueRef(ids[1]));
       args.push_back(IrArg::num(num(ctx, "depth", 10.0)));
       args.push_back(IrArg::keyword(txt(ctx, "direction", "NORMAL")));
       emit(ctx, *d, *s, "part.pocket", "Pocket", "POCKET", std::move(args),
@@ -3409,8 +3398,6 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                                SelectionSignature::exactly(EntityKind::Body, 1));
     c.schema.push_back(ParamSpec{.name = "property", .type = ParamType::Text,
                                  .required = false, .defaultText = "VOLUME", .hasDefault = true});
-    c.sideEffect = SideEffectClass::ViewOnly;  // read-only; no document mutation
-    c.undo = UndoContract::NotUndoable;
     c.preview = PreviewPolicy::None;
     c.enabled = [d](const CommandContext& ctx) { return solidTarget(*d, ctx.selection()).ok; };
     c.execute = [d, s](CommandContext& ctx) {

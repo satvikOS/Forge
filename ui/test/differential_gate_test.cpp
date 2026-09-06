@@ -240,8 +240,8 @@ int main(int argc, char** argv) {
   //     ratchet that cannot notice progress stops being evidence.
   // Measured 2026-08-31 against the 28 user-invocable ops. UNCHANGED by this
   // commit -- what changed is what the BRIDGE DOES about it, swept below.
-  CHECK_EQ_INT(refusedTotal, 61u);
-  CHECK_EQ_INT(gaps.size(), 23u);
+  CHECK_EQ_INT(refusedTotal, 80u);
+  CHECK_EQ_INT(gaps.size(), 33u);
 
   // ---- D2. AND THE BRIDGE MUST REFUSE NONE OF THEM ------------------------
   // The gap above is a table read. THIS is the live behaviour, and it is the
@@ -295,11 +295,11 @@ int main(int argc, char** argv) {
     if (!firstRefusal.empty()) {
       std::printf("[differential] first refusal: %s\n", firstRefusal.c_str());
     }
-    CHECK_EQ_INT(swept, 61u);
+    CHECK_EQ_INT(swept, 80u);
     CHECK_EQ_INT(refusedForArity, 0u);
     // Tolerating must not mean forgetting: every one carries the note that says
     // the app cannot author it, or the capability gap becomes invisible.
-    CHECK_EQ_INT(toleratedAndRecorded, 61u);
+    CHECK_EQ_INT(toleratedAndRecorded, 80u);
   }
 
   // The two documented forms, named rather than counted, because they are the

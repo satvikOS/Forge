@@ -21,7 +21,7 @@ namespace {
 // three are legitimate LEAVES. Omitting it here would make every diagnosed
 // surface an "unexplained orphan" and reject the tree for measuring itself.
 bool isPredicate(OpCode c) {
-    return c == OpCode::Verify || c == OpCode::Tag || c == OpCode::SurfCheck;
+    return c == OpCode::Verify || c == OpCode::Tag || c == OpCode::SurfCheck || c == OpCode::Measure;
 }
 
 // ---- the 2D sketch family contributes by SIDE EFFECT, not by dataflow ------

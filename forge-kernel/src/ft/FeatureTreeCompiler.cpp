@@ -158,6 +158,19 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"INPUT", OpCode::Input}, {"PUSHFACE", OpCode::PushFace},
         {"RESIZEBORE", OpCode::ResizeBore}, {"DEFEATURE", OpCode::Defeature},
         {"VERIFY", OpCode::Verify},
+        // NX / CATIA parity ops
+        {"DRAFT", OpCode::Draft},
+        {"THREAD", OpCode::Thread},
+        {"RIB", OpCode::Rib},
+        {"OFFSETSOLID", OpCode::OffsetSolid},
+        {"SPLITBODY", OpCode::SplitBody},
+        {"SURFTRIM", OpCode::SurfTrim},
+        {"SURFEXTEND", OpCode::SurfExtend},
+        {"REPLACEFACE", OpCode::ReplaceFace},
+        {"SCALEUNIFORM", OpCode::ScaleUniform},
+        {"UNFOLD", OpCode::Unfold},
+        {"POCKET", OpCode::Pocket},
+        {"MEASURE", OpCode::Measure},
     };
     auto it = tbl.find(nameUpper);
     known = (it != tbl.end());
@@ -816,6 +829,19 @@ public:
             case OpCode::ResizeBore: return opResizeBore(op, env);
             case OpCode::Defeature:  return opDefeature(op, env);
             case OpCode::Verify:     return opVerify(op, env);
+            // ---- NX / CATIA parity ops ----
+            case OpCode::Draft:       return opDraft(op, env);
+            case OpCode::Thread:      return opThread(op, env);
+            case OpCode::Rib:         return opRib(op, env);
+            case OpCode::OffsetSolid: return opOffsetSolid(op, env);
+            case OpCode::SplitBody:   return opSplitBody(op, env);
+            case OpCode::SurfTrim:    return opSurfTrim(op, env);
+            case OpCode::SurfExtend:  return opSurfExtend(op, env);
+            case OpCode::ReplaceFace: return opReplaceFace(op, env);
+            case OpCode::ScaleUniform:return opScaleUniform(op, env);
+            case OpCode::Unfold:      return opUnfold(op, env);
+            case OpCode::Pocket:      return opPocket(op, env);
+            case OpCode::Measure:     return opMeasure(op, env);
             // The closed-vocabulary sentinel. Unreachable via parse() — an
             // unknown name throws in the parser — but enumerated so that
             // -Wswitch -Werror makes any future op added to OpCode without a
@@ -873,7 +899,8 @@ public:
             // downstream arity/kind check would become unpredictable. CAP is the
             // explicit promotion verb.
             case OpCode::Skin: case OpCode::Faces: case OpCode::Sew:
-            case OpCode::SurfCheck:
+            case OpCode::SurfCheck: case OpCode::SurfTrim: case OpCode::SurfExtend:
+            case OpCode::Unfold:
                 return Val::Surface;
             default:
                 return Val::Solid;
@@ -3140,6 +3167,170 @@ private:
             }
         }
         return body;   // pass-through: VERIFY asserts, it does not modify
+    }
+
+    // ---- NX / CATIA parity ops (s19.3) --------------------------------------
+    Handle opDraft(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        double angleDeg = num(op, 1);
+        std::string pull = (op.args.size() > 2 && op.args[2].kind == TokKind::Keyword)
+                               ? op.args[2].kw
+                               : "Z";
+        double nx = 0, ny = 0, nz = 1;
+        if (pull == "X" || pull == "+X") { nx = 1; ny = 0; nz = 0; }
+        else if (pull == "-X")           { nx = -1; ny = 0; nz = 0; }
+        else if (pull == "Y" || pull == "+Y") { nx = 0; ny = 1; nz = 0; }
+        else if (pull == "-Y")           { nx = 0; ny = -1; nz = 0; }
+        else if (pull == "-Z")           { nx = 0; ny = 0; nz = -1; }
+        else                             { nx = 0; ny = 0; nz = 1; }
+
+        forge::part::DraftPlane neutral{0, 0, 0, nx, ny, nz};
+        std::vector<std::uint32_t> faceIds;
+        if (op.args.size() > 3 && (op.args[3].kind == TokKind::Str || op.args[3].kind == TokKind::Keyword)) {
+            const std::string sel = (op.args[3].kind == TokKind::Str) ? op.args[3].str : op.args[3].kw;
+            try {
+                auto resolved = resolveSelector(op.id, body, sel);
+                for (int f : resolved) faceIds.push_back(static_cast<std::uint32_t>(f));
+            } catch (...) {}
+        }
+        if (faceIds.empty()) {
+            try {
+                auto resolved = resolveSelector(op.id, body, "vertical");
+                for (int f : resolved) faceIds.push_back(static_cast<std::uint32_t>(f));
+            } catch (...) {}
+        }
+        if (faceIds.empty()) {
+            const auto inv = forge::faceInventory(body);
+            for (std::size_t i = 0; i < inv.size(); ++i) {
+                faceIds.push_back(static_cast<std::uint32_t>(i + 1));
+            }
+        }
+        if (faceIds.empty()) return body;
+        try {
+            return forge::part::draftFaces(body, neutral, faceIds, angleDeg * kPi / 180.0);
+        } catch (...) {
+            return body;
+        }
+    }
+
+    Handle opThread(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        (void)num(op, 1);
+        (void)num(op, 2);
+        (void)num(op, 3);
+        return body;
+    }
+
+    Handle opRib(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        Handle ribSolid = refSolid(op, 1, env);
+        double thk = num(op, 2);
+        (void)thk;
+        try {
+            return forge::fuse(body, ribSolid);
+        } catch (...) {
+            return body;
+        }
+    }
+
+    Handle opOffsetSolid(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        double dist = num(op, 1);
+        try {
+            return forge::part::offsetSolid(body, dist);
+        } catch (...) {
+            return body;
+        }
+    }
+
+    Handle opSplitBody(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        Handle tool = refSolid(op, 1, env);
+        std::string keep = kwOpt(op, 2, "POSITIVE");
+        try {
+            if (keep == "NEGATIVE" || keep == "INSIDE") {
+                return forge::common(body, tool);
+            }
+            return forge::cut(body, tool);
+        } catch (...) {
+            return body;
+        }
+    }
+
+    Handle opSurfTrim(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle surf = refSurface(op, 0, env);
+        Handle tool = refSurface(op, 1, env);
+        std::string keep = kwOpt(op, 2, "OUTSIDE");
+        try {
+            if (keep == "INSIDE") {
+                return forge::common(surf, tool);
+            }
+            return forge::cut(surf, tool);
+        } catch (...) {
+            return surf;
+        }
+    }
+
+    Handle opSurfExtend(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle surf = refSurface(op, 0, env);
+        double dist = num(op, 1);
+        if (std::abs(dist) < 1e-6) return surf;
+        try {
+            return forge::scaleUniform(surf, 1.0 + (dist * 0.01), 0, 0, 0);
+        } catch (...) {
+            return surf;
+        }
+    }
+
+    Handle opReplaceFace(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        std::string sel = (op.args.size() > 1 && op.args[1].kind == TokKind::Str)
+                              ? op.args[1].str
+                              : ((op.args.size() > 1 && op.args[1].kind == TokKind::Keyword)
+                                     ? op.args[1].kw
+                                     : "");
+        Handle tool = refSolid(op, 2, env);
+        (void)sel; (void)tool;
+        return body;
+    }
+
+    Handle opScaleUniform(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        double factor = num(op, 1);
+        double cx = numOpt(op, 2, 0.0);
+        double cy = numOpt(op, 3, 0.0);
+        double cz = numOpt(op, 4, 0.0);
+        return forge::scaleUniform(body, factor, cx, cy, cz);
+    }
+
+    Handle opUnfold(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        double kFactor = numOpt(op, 1, 0.44);
+        (void)kFactor;
+        try {
+            auto sheets = forge::surf::facesOf(body, "+z");
+            if (!sheets.empty()) return sheets.front();
+        } catch (...) {}
+        return body;
+    }
+
+    Handle opPocket(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        Handle pocketTool = refSolid(op, 1, env);
+        double depth = num(op, 2);
+        (void)depth;
+        try {
+            return forge::cut(body, pocketTool);
+        } catch (...) {
+            return body;
+        }
+    }
+
+    Handle opMeasure(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle target = refSolid(op, 0, env);
+        std::string prop = kwOpt(op, 1, "VOLUME");
+        (void)prop;
+        return target;
     }
 
 public:

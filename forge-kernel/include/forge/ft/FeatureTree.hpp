@@ -320,6 +320,20 @@ enum class OpCode {
     Defeature,   // DEFEATURE(%body, "sel")                delete the selected faces + heal the wound
     Verify,      // VERIFY(%body, "expr", ...)             assert do-no-harm invariants (loud failure)
 
+    // --- NX / CATIA parity ops (s19.3) ---
+    Draft,       // DRAFT(%body, angleDeg, DIR [, "sel", PLANE])
+    Thread,      // THREAD(%body, dia, pitch, depth [, HANDED, startAngleDeg, TYPE])
+    Rib,         // RIB(%body, %tool, thk, DIR [, taperDeg, SYMM])
+    OffsetSolid, // OFFSETSOLID(%body, dist [, tol])
+    SplitBody,   // SPLITBODY(%body, %tool [, SIDE])
+    SurfTrim,    // SURFTRIM(%surface, %tool [, SIDE])
+    SurfExtend,  // SURFEXTEND(%surface, dist [, CONTINUITY, DIR])
+    ReplaceFace, // REPLACEFACE(%body, "sel", %tool)
+    ScaleUniform,// SCALEUNIFORM(%body, factor [, cx, cy, cz])
+    Unfold,      // UNFOLD(%body [, kFactor])
+    Pocket,      // POCKET(%body, %tool, depth, DIR [, taperDeg, cornerR, floorR])
+    Measure,     // MEASURE(%body, PROPERTY, ...)
+
     // --- the CLOSED-VOCABULARY sentinel (SACROSANCT s0.5 / s9.1) ---
     // NOT an operation. It is the value an op name that is NOT in the table
     // resolves to, and it exists so that "not in the vocabulary" can never be
