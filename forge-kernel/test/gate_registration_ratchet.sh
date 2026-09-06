@@ -55,6 +55,7 @@ run_ft_edge_selector_gate
 run_pipe_drop_gate
 run_pipeshell_guided_gate
 run_thicksolid_nesting_gate
+run_thrusections_quadrature_gate
 run_thrusections_xlate_label_gate
 build_aabb_bridge_gate
 build_hlr_import_gate
