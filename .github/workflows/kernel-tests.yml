@@ -48,7 +48,7 @@ on:
   # and 33151114401 on the same sha. pull_request already covers feature branches, so this removes
   # the duplicate at the source rather than trying to key around it.
   push:
-    branches: [archdisc]
+    branches: [main, main-production, archdisc]
   pull_request:
   workflow_dispatch:
 

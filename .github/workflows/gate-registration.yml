@@ -48,7 +48,7 @@ name: Gate registration
 
 on:
   push:
-    branches: [archdisc]
+    branches: [main, main-production, archdisc]
   pull_request:
   workflow_dispatch:
 
