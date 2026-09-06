@@ -48,7 +48,22 @@
 #      REAL parser is asked which URL it would fetch. That string is compared
 #      with the URL derived from the workflow. This is the one check that spans
 #      bash, YAML and C++ at once.
-#   7. Its own negative controls (--mutations). A gate nobody has seen fail is
+#   7. THE AUTOMATIC PATH agrees with itself the same way the tag path does. A
+#      push to archdisc derives its own version and its own tag from expressions
+#      that nothing else compares, and gets them wrong in exactly the same way:
+#      a tag that is not the tag the payload URL enters is a release every
+#      installed copy 404s on.
+#   8. THE AUTOMATIC RELEASE IS NEITHER A DRAFT NOR A PRERELEASE. This is THE
+#      requirement, not a detail. GitHub's `latest` skips both, and
+#      releases/latest/download/appcast.json is the only URL a shipped Forge ever
+#      asks for, so either flag turns a release that looks perfect on the
+#      releases page into one no user can see. Measured 2026-09-02: the
+#      repository's one existing release has BOTH set and has never been visible.
+#   9. THE ACCEPTANCE STEP IS STILL AN ACCEPTANCE TEST. It must fetch the live
+#      URL an installed app fetches, and it must NOT be softened with
+#      --allow-unreleased, which tolerates "nothing is published" — the single
+#      condition the whole step exists to detect.
+#  10. Its own negative controls (--mutations). A gate nobody has seen fail is
 #      silence.
 #
 # WHAT IT HONESTLY DOES NOT CHECK
@@ -262,7 +277,117 @@ if [ -f "$WORK/appcast.json" ]; then
 fi
 
 # ═════════════════════════════════════════════════════════════════════════════
-# 7. negative controls — each MUST make this gate go red.
+say "7. the AUTOMATIC path derives a tag the payload URL actually enters"
+
+# The tag path is checked above by running the workflow's own expression. The
+# automatic path has its OWN two expressions, and they are the ones that run on
+# every merge, so they are the ones a mistake reaches users through. Same method:
+# EXTRACT and EVALUATE, never retype.
+AUTO_V="$(eval_assignment "$WF" '^[[:space:]]*V="\$\{FORGE_VERSION_LINE\}\.\$\{COMMITS\}"' \
+          V FORGE_VERSION_LINE=9.9 COMMITS=9)"
+AUTO_TAG="$(eval_assignment "$WF" '^[[:space:]]*TAG="v\$\{V\}"' TAG V="$AUTO_V")"
+say "   line 9.9 + 9 commits -> version '$AUTO_V', release tag '$AUTO_TAG'"
+
+case "$AUTO_V$AUTO_TAG" in
+  *__EXTRACT_FAILED__*|*__UNSAFE_EXPRESSION__*)
+    bad "could not extract the automatic path's version/tag derivation from $WF" ;;
+  *)
+    AUTO_URL="$(REPO=satvikOS/Forge VERSION="$AUTO_V" bash -c 'printf %s "'"$URL_TMPL"'"')"
+    say "   an installed app would fetch $AUTO_URL"
+    case "$AUTO_URL" in
+      "https://github.com/satvikOS/Forge/releases/download/$AUTO_TAG/"*)
+        ok "the automatic payload URL enters /releases/download/$AUTO_TAG/" ;;
+      *)
+        bad "the automatic path publishes tag '$AUTO_TAG' and the appcast points at '$AUTO_URL' — every installed app would 404" ;;
+    esac ;;
+esac
+
+# ═════════════════════════════════════════════════════════════════════════════
+say "8. the automatic release is NEITHER a draft NOR a prerelease"
+
+# Read the actual command out of the workflow rather than asserting on a
+# comment. `--target` is what distinguishes the automatic create (which makes the
+# tag) from the tag path's create (which is deliberately a draft).
+#
+# BACKSLASH CONTINUATIONS ARE JOINED FIRST. Reading one grep line found
+# `--target` and missed the `--latest` on the following line, and would equally
+# have missed a `--draft` added there — a flag out of sight on line two is the
+# whole failure this check exists for. `index()` rather than a regex so no `$` or
+# `"` needs escaping into a shell string into an awk pattern.
+AUTO_CREATE="$(LC_ALL=C awk '
+  index($0, "gh release create \"$TAG\" --target") {
+    buf = $0; sub(/^[ \t]+/, "", buf)
+    while (buf ~ /\\$/) {
+      sub(/\\[ \t]*$/, "", buf)
+      if ((getline nl) <= 0) break
+      sub(/^[ \t]+/, " ", nl)
+      buf = buf nl
+    }
+    print buf; exit
+  }' "$WF")"
+if [ -z "$AUTO_CREATE" ]; then
+  bad "no automatic 'gh release create \"\$TAG\" --target ...' in $WF — nothing publishes on green"
+else
+  say "   $AUTO_CREATE"
+  case "$AUTO_CREATE" in
+    *--draft*)
+      bad "the automatic path creates a DRAFT. GitHub's 'latest' skips drafts, so releases/latest/download/appcast.json stays a 404 and no installed copy can ever see the release" ;;
+    *--prerelease*)
+      bad "the automatic path marks the release as a PRERELEASE. GitHub's 'latest' skips prereleases too" ;;
+    *)
+      ok "it passes neither --draft nor --prerelease" ;;
+  esac
+  case "$AUTO_CREATE" in
+    *--latest*) ok "and it marks the release as 'latest' explicitly rather than relying on the API default" ;;
+    *)          bad "the automatic create does not pass --latest; the one property the whole feature turns on is left to a default" ;;
+  esac
+fi
+
+# The two flags are re-read from the API after publishing, because `gh release
+# create` exiting 0 is not evidence about what was created.
+LC_ALL=C grep -q 'isDraft,isPrerelease' "$WF" \
+  && ok "the workflow re-reads isDraft/isPrerelease from the API after publishing" \
+  || bad "nothing re-reads the two flags after publishing — the job would go green on the word of the flags it passed"
+
+# The DRAFT path must survive: it is the human escape hatch, and losing it would
+# mean a human can no longer stage a release before anyone sees it.
+LC_ALL=C grep -qE 'gh release create "\$TAG" --draft' "$WF" \
+  && ok "the pushed-tag path still creates a DRAFT for a human to publish" \
+  || bad "the pushed-tag path no longer creates a draft — the manual escape hatch is gone"
+
+# ═════════════════════════════════════════════════════════════════════════════
+say "9. the acceptance step still asks the question a green job cannot answer"
+
+LC_ALL=C grep -q 'releases/latest/download/appcast.json' "$WF" \
+  && ok "the workflow fetches the live URL an installed Forge fetches" \
+  || bad "the workflow never fetches releases/latest/download/appcast.json — 'the job was green' would be the only evidence the release is visible"
+
+# The INVOCATION, not any mention of the script. Grepping the whole file for
+# `--allow-unreleased` reported this workflow as softened because a COMMENT
+# explains why it is not passed — a check that cannot tell an instruction from a
+# note about it will keep finding defects that are not there, and people stop
+# reading it.
+VIS_CALLS="$(LC_ALL=C grep -E '^[[:space:]]*bash .*release_visibility_check\.sh' "$WF" \
+             | sed 's/^[[:space:]]*//' || true)"
+if [ -z "$VIS_CALLS" ]; then
+  bad "the workflow never RUNS release_visibility_check.sh after publishing — nothing asks the API whether the release is visible"
+else
+  say "   $VIS_CALLS"
+  case "$VIS_CALLS" in
+    *--expect-version*) ok "it asks release_visibility_check.sh for a second opinion, pinned to this version" ;;
+    *) bad "release_visibility_check.sh is run without --expect-version, so it would pass on ANY published release, including a stale one" ;;
+  esac
+  # --allow-unreleased tolerates EXACTLY ONE condition: nothing published. That
+  # is the correct tolerance for a per-PR job and the WRONG one here, where the
+  # step runs immediately after publishing and that condition IS the failure.
+  case "$VIS_CALLS" in
+    *--allow-unreleased*) bad "the release workflow passes --allow-unreleased, which tolerates 'nothing is published' — the exact state the acceptance step exists to catch" ;;
+    *) ok "and NOT with --allow-unreleased, so 'nothing is published' fails the job" ;;
+  esac
+fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 10. negative controls — each MUST make this gate go red.
 # Run against a COPY of the tree, and the gate re-invokes ITSELF there rather
 # than re-implementing its checks, so a check that stops working stops being
 # provable here too.
@@ -311,6 +436,26 @@ if [ "${1:-}" = "--mutations" ]; then
   run_mutation "the app is pointed at a different repository" \
     "forge-desktop/src/update/Updater.hpp" \
     's|"https://github.com/satvikOS/Forge/releases/latest/download/appcast.json";|"https://github.com/someone/Else/releases/latest/download/appcast.json";|'
+
+  # ── the automatic path ─────────────────────────────────────────────────────
+  # Each of these is a change that leaves the workflow valid YAML, leaves the job
+  # green, and silently takes the product back to where it was on 2026-09-02: a
+  # release that exists and that no installed copy can see.
+  run_mutation "the automatic release goes out as a DRAFT" \
+    ".github/workflows/desktop-release.yml" \
+    's|gh release create "\$TAG" --target "\$GITHUB_SHA" --title|gh release create "$TAG" --draft --target "$GITHUB_SHA" --title|'
+  run_mutation "the automatic release goes out marked PRERELEASE" \
+    ".github/workflows/desktop-release.yml" \
+    's|gh release create "\$TAG" --target "\$GITHUB_SHA" --title|gh release create "$TAG" --prerelease --target "$GITHUB_SHA" --title|'
+  run_mutation "the automatic tag stops being the tag the payload URL enters" \
+    ".github/workflows/desktop-release.yml" \
+    's|^\([[:space:]]*\)TAG="v\${V}"$|\1TAG="release-${V}"|'
+  run_mutation "the acceptance step is softened to tolerate nothing being published" \
+    ".github/workflows/desktop-release.yml" \
+    's|release_visibility_check.sh --expect-version|release_visibility_check.sh --allow-unreleased --expect-version|'
+  run_mutation "the acceptance step stops fetching the live URL" \
+    ".github/workflows/desktop-release.yml" \
+    '/releases\/latest\/download\/appcast.json/d'
 
   say "negative controls: $mut_caught of $mut_n caught"
   [ "$mut_caught" -eq "$mut_n" ] || fails=$((fails + 1))

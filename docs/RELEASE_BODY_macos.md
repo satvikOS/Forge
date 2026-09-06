@@ -31,8 +31,20 @@
 That minimum is measured from the shipped bundle itself, not asserted: it is the
 highest `LC_BUILD_VERSION minos` across every Mach-O file inside `Forge.app`.
 
+It is also higher than we would like, and it is **not set by Forge's own code**.
+18 of the 21 Mach-O files in the bundle carry that floor and every one of them is
+a third-party library: 16 are OpenCASCADE and its `tbb` dependency, the other two
+are SDL2 and Vulkan. A Homebrew bottle inherits the OS of the machine that built
+it, and no compile flag of ours can lower a floor set inside someone else's
+binary — Forge's own two binaries measure 14.0. Lowering it means building those
+libraries from source with an explicit deployment target, which is work that has
+not been done rather than a limitation of your Mac.
+
 **Download:** `Forge-macos-arm64-@@VERSION@@.zip`
 **sha256:** `@@SHA@@`
+
+Builds are produced automatically from the `archdisc` branch, so the version
+number is a build counter rather than a milestone.
 
 ### First launch — one approval, once
 

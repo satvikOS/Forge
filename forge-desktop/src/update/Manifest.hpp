@@ -17,10 +17,26 @@
 //      callers to 60 requests an hour per IP, which an updater shipped to real
 //      users behind one NAT would hit; the release-download path does not carry
 //      that limit.
-//   3. A DRAFT release is not "latest". The release workflow creates releases as
-//      drafts, so the existing "a human presses Publish" gate automatically
-//      becomes the gate on auto-update too. Nothing extra had to be built for
-//      that, and nothing may be built that bypasses it.
+//   3. A DRAFT release is not "latest", and neither is a PRERELEASE. Either flag
+//      makes this URL a 404 for every installed copy, silently.
+//
+//      ★ CHANGED 2026-09-03, and this paragraph used to say the opposite. It
+//      said the release workflow creates every release as a draft, so "a human
+//      presses Publish" was automatically the gate on auto-update, and that
+//      nothing may be built that bypasses it. Something now does, deliberately:
+//      a green build on archdisc publishes a release that is neither a draft nor
+//      a prerelease. The reason is that the human gate had been holding shut for
+//      the project's entire life -- MEASURED 2026-09-02: zero tags, one release
+//      and it a draft AND a prerelease with no assets, GET /releases/latest
+//      answering 404. A gate that has never once been opened is not protecting
+//      users; it is stranding them on whatever build they happened to install.
+//
+//      THE GATE MOVED, IT DID NOT VANISH. It is now the merge to archdisc, and
+//      the pushed-tag path still creates a draft for a human who wants to
+//      inspect a release before anyone can see it. What must still never be
+//      built is a path that publishes something which has not passed the build,
+//      the packaging measurements, and the live-URL acceptance check at the
+//      bottom of .github/workflows/desktop-release.yml.
 //
 // ── WHY THE PAYLOAD URL IS PINNED AND THE MANIFEST URL IS NOT ────────────────
 // `url` inside the manifest MUST be a version-pinned release asset
