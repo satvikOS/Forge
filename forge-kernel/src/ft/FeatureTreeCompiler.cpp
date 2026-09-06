@@ -3258,8 +3258,8 @@ private:
     }
 
     Handle opSurfTrim(const Op& op, std::unordered_map<int, Val>& env) {
-        Handle surf = refSurface(op, 0, env);
-        Handle tool = refSurface(op, 1, env);
+        Handle surf = refSurface(op, 0, env).h;
+        Handle tool = refSurface(op, 1, env).h;
         std::string keep = kwOpt(op, 2, "OUTSIDE");
         try {
             if (keep == "INSIDE") {
@@ -3272,7 +3272,7 @@ private:
     }
 
     Handle opSurfExtend(const Op& op, std::unordered_map<int, Val>& env) {
-        Handle surf = refSurface(op, 0, env);
+        Handle surf = refSurface(op, 0, env).h;
         double dist = num(op, 1);
         if (std::abs(dist) < 1e-6) return surf;
         try {
@@ -3308,8 +3308,8 @@ private:
         double kFactor = numOpt(op, 1, 0.44);
         (void)kFactor;
         try {
-            auto sheets = forge::surf::facesOf(body, "+z");
-            if (!sheets.empty()) return sheets.front();
+            auto sheet = forge::surf::boundaryOf(body);
+            if (sheet != 0) return sheet;
         } catch (...) {}
         return body;
     }
