@@ -334,20 +334,50 @@ void tessellateSolid(const Solid& solid,
                 continue;
             }
 
-            // Fan-triangulate the (convex-or-simple) loop polygon.
+            // Fan-triangulate the loop polygon IN ITS OWN WINDING — do NOT re-orient
+            // the triangles against the face's surface normal.
+            //
+            // A fan emitted in the loop's winding has boundary == the loop, EXACTLY:
+            // the interior diagonals (0,t) each appear once forward and once reversed
+            // and cancel, whatever the polygon's convexity. Every edge of the B-rep is
+            // traversed by its two coedges in OPPOSITE directions, so the loops then
+            // cancel across the solid and the welded soup is a CLOSED surface. That
+            // closure is the property the whole faceted pipeline rests on: it is what
+            // makes the divergence-theorem volume well defined (independent of the
+            // integration origin), what lets OCCT's BRepGProp integral of the rebuilt
+            // B-rep agree with it, and what NativeOcctBridge's self-check tests.
+            //
+            // The removed rule re-wound each fan triangle on its own to agree with
+            // refN. On a NON-CONVEX loop that is wrong twice over: the opposite-wound
+            // triangles are SUBTRACTING the reflex pockets, so re-winding one both
+            // turns it additive AND leaves its two diagonals uncancelled — the chain's
+            // boundary is no longer the loop and the soup is no longer closed.
+            // Re-winding the WHOLE face instead is no better: it inverts the loop, so
+            // that face's edges stop cancelling against the neighbours that were not
+            // inverted (measured — it costs three other bodies, see below).
+            //
+            // MEASURED on mmcad_b tractable_pool/00000_117.step (29 faces, 1004 fan
+            // triangles, 15 of the 29 mixed-winding): the old rule gave
+            // sum(area*n) = (44.926, -49.636, -11.697) instead of 0, every face
+            // individually correct (1003/1003 exact areas, all FORWARD, manual flux ==
+            // the polyhedron volume) and yet BRepGProp integrating the assembled solid
+            // 3.05% low — "OCCT 33266.9651 vs native polyhedron 34315.2659", which is
+            // the bridge REFUSING a body it should accept. Emitting the loop winding
+            // gives sum(area*n) = (0,0,0) and the two integrals agree to every digit.
+            // Over a 215-file stride sample of that 4296-file pool, STEP import goes
+            // 110/215 -> 134/215 (mis-integration refusals 98 -> 74); the three
+            // whole-face-reversal variants all scored worse or equal and none beat it.
+            //
+            // A globally INVERTED solid (every loop wound the other way) is still fine:
+            // it stays closed, and NativeOcctBridge's own `if (vp.Mass() < 0) Reverse()`
+            // puts the sign right. Only a solid whose loops disagree WITH EACH OTHER is
+            // unfixable here, and that is a malformed B-rep the self-check must reject.
             std::uint32_t i0 = vid(pts[0]);
             for (std::size_t t = 1; t + 1 < pts.size(); ++t) {
                 std::uint32_t i1 = vid(pts[t]);
                 std::uint32_t i2 = vid(pts[t + 1]);
                 if (i0 == i1 || i1 == i2 || i0 == i2) continue; // degenerate
-                // Orient the triangle so its normal agrees with refN (outward).
-                Vec3 a = pts[0], b = pts[t], cc = pts[t + 1];
-                Vec3 triN = vcross(vsub(b, a), vsub(cc, a));
-                if (f->surface && vdot(triN, refN) < 0.0) {
-                    indices.push_back(i0); indices.push_back(i2); indices.push_back(i1);
-                } else {
-                    indices.push_back(i0); indices.push_back(i1); indices.push_back(i2);
-                }
+                indices.push_back(i0); indices.push_back(i1); indices.push_back(i2);
             }
         }
     }
