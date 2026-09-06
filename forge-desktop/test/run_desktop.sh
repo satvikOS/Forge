@@ -50,9 +50,10 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. The defects
-#                       (imgui_recovery + document + file_exchange + frame +
-#                       copilot + update + click) are
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. EIGHTY-THREE
+#                       defects (imgui_recovery 8 + document 8 + file_exchange 5 +
+#                       file_dialog 3 + frame 22 + drawing 6 + copilot 8 + update 7 +
+#                       click 12 + assembly 4) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
 #                       unfalsifiable check is not a check.
@@ -207,6 +208,13 @@ run_gate forge_desktop_file_dialog_gate 1 2 3
 #    from an empty mesh; 21 the tool list answered from a stale plan; 22 the
 #    taper the job asks for dropped on the floor.
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22
+# The DRAWING gate: the title block, the view list, the geometric tolerances and
+# the notes, over a real kernel body. Its six mutations break the QUERY rather
+# than the assertion -- a tolerance placed on a curved face, a datum on a curved
+# face, a control naming a face that is not in the part, a document saved without
+# its drawing, a layout cache that missed the sheet change, and a scale taken as
+# a constant instead of from the fit.
+run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # The ARCHIE COPILOT gate: the agent panel, driven in real ImGui frames, with
 # what it dispatched followed all the way into forge::ft::compile. Mutations 7
 # and 8 are the op-constraint bypass -- a plan whose every op name is allowed and

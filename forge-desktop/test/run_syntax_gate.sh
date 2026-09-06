@@ -133,6 +133,7 @@ CHECKED=(
   forge-desktop/src/Camera.cpp
   forge-desktop/test/assembly_gate.cpp
   forge-desktop/src/FileDialog.cpp
+  forge-desktop/src/DrawingGdt.cpp
   forge-desktop/src/ForgeFrame.cpp
   forge-desktop/src/ImGuiErrorPolicy.cpp
   forge-desktop/src/kernel_worker_main.cpp
@@ -142,6 +143,7 @@ CHECKED=(
   forge-desktop/test/copilot_gate.cpp
   forge-desktop/test/document_gate.cpp
   forge-desktop/test/file_dialog_gate.cpp
+  forge-desktop/test/drawing_gate.cpp
   forge-desktop/test/file_exchange_gate.cpp
   forge-desktop/test/frame_gate.cpp
   forge-desktop/test/imgui_recovery_gate.cpp

@@ -5,8 +5,11 @@
 //
 // `.fpart` is written by TWO independent pieces of code in this repository:
 //
-//   forge-desktop/src/PartFile.cpp   magic FORGE-PART, version 1   (the shipped
-//                                    app: ForgeFrame::documentSave calls it)
+//   forge-desktop/src/PartFile.cpp   magic FORGE-PART, versions 1 and 3 (the
+//                                    shipped app: ForgeFrame::documentSave calls
+//                                    it; version 3 adds the DRAWING -- the title
+//                                    block, the datums, the notes and the
+//                                    geometric tolerances)
 //   ui/src/DocumentModel.cpp         magic FORGE-PART, version 2   (the document
 //                                    layer, which also carries units, material,
 //                                    view, parameters, named entities and
@@ -27,11 +30,12 @@
 //
 // ── the consequence this gate does NOT hide ─────────────────────────────────
 // Compatibility is ONE-WAY and that is a real cost, recorded here rather than
-// discovered by a user. readPartFile refuses any version that is not exactly
-// kPartFileVersion, so a v2 file is unreadable by the shipped build -- it says
-// "unsupported version 2", which is at least honest, but it is still a document
-// the old app cannot open. Section 4 asserts that refusal exists and is
-// version-shaped, so the migration cost stays measured instead of assumed.
+// discovered by a user. The two implementations cannot read each other's newer
+// files: the app skipped version 2 precisely BECAUSE the document layer had
+// already minted it, and it refuses a version 2 file by number rather than
+// accepting the header and dying on the first key. Section 4 asserts both
+// halves -- that the numbers do not collide, and that the refusal is
+// version-shaped -- so the migration cost stays measured instead of assumed.
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -183,9 +187,12 @@ int main() {
   const std::string appMagic = constantOf(header, "kPartFileMagic");
   const std::string appExtension = constantOf(header, "kPartFileExtension");
   const std::string appVersionText = constantOf(header, "kPartFileVersion");
+  const std::string appOldestText = constantOf(header, "kOldestReadablePartFileVersion");
   CHECK_EQ_STR(appMagic, "FORGE-PART");
   CHECK_EQ_STR(appExtension, ".fpart");
-  CHECK_EQ_STR(appVersionText, "1");
+  // The app has moved on from 1, and the thing that must NOT move is the OLDEST
+  // version it still reads: every .fpart already on a user's disk is a version 1.
+  CHECK_EQ_STR(appOldestText, "1");
 
   // THE COLLISION, asserted rather than described: these are the same format
   // name, so the compatibility rules below are not optional.
@@ -193,11 +200,22 @@ int main() {
   CHECK_EQ_STR(appExtension, std::string(kDocumentExtension));
 
   const int appVersion = std::stoi(appVersionText.empty() ? std::string("0") : appVersionText);
-  // The shipped app's version must be one this reader accepts. If the app ever
-  // moves past kDocumentFormatVersion this fails, which is the correct moment
-  // to notice.
-  CHECK(appVersion >= kOldestReadableDocumentVersion);
-  CHECK(appVersion <= kDocumentFormatVersion);
+  CHECK(appVersion >= 1);
+  // ★ THE NUMBERS MUST NOT COLLIDE. Two dialects of one magic both calling
+  //   themselves version N is a file that reads as one format and means another
+  //   -- strictly worse than either being unreadable, because the reader gets
+  //   past the header before it starts guessing. The app skipped 2 for exactly
+  //   this reason and this is the assertion that keeps it skipped.
+  if (appVersion == kDocumentFormatVersion) {
+    std::printf("  FAIL  both implementations of FORGE-PART now claim version %d\n", appVersion);
+  }
+  CHECK(appVersion != kDocumentFormatVersion);
+  // And the app must still SAY which number belongs to the other layer, by
+  // number, rather than letting it fall into a general "unsupported" answer.
+  const bool namesTheOtherVersion =
+      source.find("version == 2") != std::string::npos &&
+      source.find("written by the document layer") != std::string::npos;
+  CHECK(namesTheOtherVersion);
 
   // ── 2. v1 means the SAME THING to both, key for key ───────────────────────
   const std::set<std::string> emitted = writerKeys(source);
@@ -206,6 +224,66 @@ int main() {
   // extraction broke and every comparison below would pass vacuously.
   CHECK(emitted.size() >= 8);
   CHECK(accepted.size() >= 8);
+
+  // ── 2a. the CURRENT vocabulary is covered ────────────────────────────────
+  // One canonical document at the app's CURRENT version, exercising every key
+  // its writer emits and its reader accepts. The v1 probe below cannot do this
+  // any more: a version 1 file may not contain a version 3 key, and the app's
+  // reader enforces that, so requiring the v1 probe to carry the drawing keys
+  // would require it to be a file the app is right to refuse.
+  const std::string everyCurrentKey =
+      "FORGE-PART 3\n"
+      "NAME probe\n"
+      "UNITS mm\n"
+      "TITLEBLOCK\n"
+      "PARTNUMBER BRK-001\n"
+      "TITLE Bracket\n"
+      "REVISION B\n"
+      "AUTHOR a\n"
+      "APPROVED b\n"
+      "COMPANY c\n"
+      "MATERIAL steel\n"
+      "FINISH painted\n"
+      "SHEET A3\n"
+      "PROJECTION first\n"
+      "SCALEMODE automatic\n"
+      "SCALE 1:1\n"
+      "END\n"
+      "DATUM\n"
+      "LETTER A\n"
+      "TARGETKIND face\n"
+      "TARGETBODY body_1\n"
+      "TARGETNAME face@1\n"
+      "TARGETGEN 0\n"
+      "LABEL face 1\n"
+      "END\n"
+      "NOTE\n"
+      "ID note1\n"
+      "KIND note\n"
+      "VIEW front\n"
+      "TEXT break sharp edges\n"
+      "END\n"
+      "CONTROL\n"
+      "ID control1\n"
+      "CHAR flatness\n"
+      "TOL 0.05\n"
+      "BASIC 0\n"
+      "ZONE diametral\n"
+      "MOD rfs\n"
+      "FEATURE planar_surface\n"
+      "DATUMS A\n"
+      "END\n"
+      "FEATURE\n"
+      "ID 1\n"
+      "KIND solid\n"
+      "NODE body_1\n"
+      "COMMAND part.box\n"
+      "LABEL Box\n"
+      "OP BOX\n"
+      "ARG num 1\n"
+      "ARG num 2\n"
+      "ARG num 3\n"
+      "END\n";
 
   // ONE canonical v1 document exercising EVERY key the shipped writer can emit.
   // A separate probe per key was tried first and produced malformed fixtures (an
@@ -240,10 +318,19 @@ int main() {
   // appear in that document -- otherwise this gate is not covering it, and a key
   // the app writes that the new reader refuses is a user's file that will not
   // open.
-  const auto covered = [&everyV1Key](const std::string& key) {
-    return everyV1Key.find("\n" + key + "\n") != std::string::npos ||
-           everyV1Key.find("\n" + key + " ") != std::string::npos;
+  const auto covered = [&everyCurrentKey](const std::string& key) {
+    return everyCurrentKey.find("\n" + key + "\n") != std::string::npos ||
+           everyCurrentKey.find("\n" + key + " ") != std::string::npos;
   };
+  // The v1 probe must still be exactly what a version 1 file is: it may carry
+  // no key that was introduced later, because the app now refuses that file.
+  for (const char* later : {"TITLEBLOCK", "DATUM", "NOTE", "CONTROL"}) {
+    const bool leaked = everyV1Key.find(std::string("\n") + later + "\n") != std::string::npos;
+    if (leaked) {
+      std::printf("  FAIL  the v1 probe carries '%s', a key added after version 1\n", later);
+    }
+    CHECK(!leaked);
+  }
   for (const std::string& key : emitted) {
     if (!covered(key)) {
       std::printf("  FAIL  the app WRITES key '%s', absent from the canonical v1 probe\n",
@@ -377,12 +464,20 @@ int main() {
   // The old reader pins its version with an equality, not a range, so it
   // refuses everything except exactly 1. Deriving that from the source keeps
   // this honest if the app is ever changed to accept a range.
-  const bool pinsExactVersion = source.find("version != kPartFileVersion") != std::string::npos;
-  CHECK(pinsExactVersion);
-  if (pinsExactVersion) {
-    std::printf("[document_format_compat] one-way: readPartFile pins `version != "
-                "kPartFileVersion`, so the shipped v%d build cannot open the v%d files this "
-                "layer writes. Old -> new is safe; new -> old is a refusal, not a corruption.\n",
+  // The app reads an ACCEPTED SET rather than a range, and the set is spelled in
+  // one function so the reader and this gate cannot disagree about it. Deriving
+  // that from the source keeps this honest if the policy is ever changed.
+  const bool pinsAcceptedSet =
+      source.find("bool partFileVersionIsReadable(int version) noexcept") != std::string::npos &&
+      source.find("version == 1 || version == kPartFileVersion") != std::string::npos;
+  CHECK(pinsAcceptedSet);
+  // The app's OWN older files must stay readable. This is the half a version
+  // bump is most likely to break, and it is the half users notice.
+  CHECK(source.find("partFileVersionIsReadable") != std::string::npos);
+  if (pinsAcceptedSet) {
+    std::printf("[document_format_compat] one-way: readPartFile accepts {1, %d} and refuses %d by "
+                "number, so neither implementation can misread the other's file. Old -> new is "
+                "safe; new -> old is a refusal, not a corruption.\n",
                 appVersion, kDocumentFormatVersion);
   }
   // The refusal must at least be VERSION-shaped rather than a parse crash: the

@@ -53,8 +53,8 @@ struct Row {
 // Sorted by id so the table reads as a list and a missing entry is visible.
 constexpr Row kRows[] = {
     {"annotation",
-     "Notes, balloons and leader text placed on the drawing sheet.",
-     PanelContent::Planned},
+     "Notes and leader text on this drawing, and which face of the part each one points at.",
+     PanelContent::Live},
     {"appearance",
      "What this part would weigh in each material it could be made from, beside the colour that "
      "material is shaded in.",
@@ -119,9 +119,9 @@ constexpr Row kRows[] = {
      "How the raw stock is clamped on the machine, and which faces the clamps cover.",
      PanelContent::Planned},
     {"gdt",
-     "Geometric tolerances on this drawing: flatness, position, runout and the rest, with the "
-     "datums they are measured from.",
-     PanelContent::Planned},
+     "Geometric tolerances on this drawing, the datums they are measured from, and whether the "
+     "part as built meets each one.",
+     PanelContent::Live},
     {"interference",
      "Which components in this assembly overlap each other, and by how much.",
      PanelContent::Planned},
@@ -200,8 +200,9 @@ constexpr Row kRows[] = {
      "The history of this part as a strip you can roll back through to see how it was built.",
      PanelContent::Live},
     {"title_block",
-     "The title block of this drawing: part number, revision, material, scale and who signed it.",
-     PanelContent::Planned},
+     "The title block of this drawing: part number, revision, material, sheet size, scale and who "
+     "signed it.",
+     PanelContent::Live},
     {"tool_library",
      "The cutting tools this part calls for: the size each cut needs, how deep it has to reach, "
      "and which cuts share one tool.",
@@ -210,8 +211,9 @@ constexpr Row kRows[] = {
      "Whether the part that was built matches what was asked for, and where it does not.",
      PanelContent::Live},
     {"view_list",
-     "The views placed on this drawing sheet, and which part each one is showing.",
-     PanelContent::Planned},
+     "The views on this drawing sheet, how big each one really is, and where the projection puts "
+     "it.",
+     PanelContent::Live},
     {"viewport_3d",
      "The part in three dimensions. Orbit, pan and zoom here, and click to pick a face or an "
      "edge.",

@@ -56,6 +56,7 @@
 #include <string>
 #include <vector>
 
+#include "forge/ui/Drawing.hpp"
 #include "forge/ui/Material.hpp"
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
@@ -245,11 +246,6 @@ MachiningPlan buildMachiningPlan(const PartDocument& document);
 // The arrangement is the four-view general arrangement every mechanical drawing
 // starts from: a front view, the plan above it, an end view beside it, and an
 // isometric in the corner they leave free.
-struct SheetSize {
-  std::string name;        // "A3"
-  double widthMm = 0.0;    // landscape: width >= height
-  double heightMm = 0.0;
-};
 
 // A4 through A0, smallest first. Deterministic.
 const std::vector<SheetSize>& sheetSizeLibrary();

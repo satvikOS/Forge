@@ -474,10 +474,13 @@ MachiningPlan buildMachiningPlan(const PartDocument& document) {
 
 const std::vector<SheetSize>& sheetSizeLibrary() {
   // ISO 216 trimmed sizes, landscape, smallest first.
-  static const std::vector<SheetSize> table = {
-      {"A4", 297.0, 210.0},  {"A3", 420.0, 297.0},   {"A2", 594.0, 420.0},
-      {"A1", 841.0, 594.0},  {"A0", 1189.0, 841.0},
-  };
+  static const std::vector<SheetSize> table = [] {
+    std::vector<SheetSize> res;
+    for (const SheetSize& s : sheetSizes()) {
+      if (s.family == "ISO 216") res.push_back(s);
+    }
+    return res;
+  }();
   return table;
 }
 

@@ -41,15 +41,53 @@
 #include <string>
 #include <vector>
 
+#include "forge/ui/Drawing.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/PartCommands.hpp"
 
 namespace forge::desktop {
 
-// The magic + version the writer emits and the reader requires.
+// ── the version policy, and the number that is deliberately missing ─────────
+//
+// Version 1 was the feature tree and nothing else. Version 3 adds the DRAWING --
+// the title block, the datums, the notes and the geometric tolerances -- as
+// blocks alongside the FEATUREs.
+//
+// ★ WHY 3 AND NOT 2. `FORGE-PART` is written by TWO implementations in this
+//   repository: this file, and ui/src/DocumentModel.cpp, which is a separate
+//   document layer with its own vocabulary (UNITS, MATERIAL, PARAM, VIEW, NAMED,
+//   SUPPRESSED) and which ALREADY MINTED VERSION 2 for it. Two different
+//   dialects both calling themselves "FORGE-PART 2" would be a file that reads
+//   as one format and means another, which is worse than either of them being
+//   unreadable. ui/test/document_format_compat_test.cpp exists for that
+//   collision and states it; this is the first change that had to act on it.
+//
+//   So the accepted set is {1, 3}, NOT the range 1..3, and a version 2 file is
+//   refused BY NUMBER with a sentence saying whose it is. Accepting the header
+//   and then dying on the first key would tell a user their file was corrupt
+//   when it is merely somebody else's.
+//
+// The rest of the policy:
+//   * a v1 file is upgraded in memory by taking an EMPTY drawing. Upgrading is
+//     idempotent: writing an upgraded document and reading it back gives the
+//     same document.
+//   * a version this build does not know is refused, and the refusal names both
+//     the file's number and what this build reads. Guessing at records it cannot
+//     know corrupts a user's work.
+//   * ADDITIVE ONLY. A version-3 key may not appear in a version-1 file: the
+//     drawing blocks carry the version they were introduced in, so a hand-edited
+//     hybrid is refused as the corruption it is rather than half-read.
 inline constexpr const char* kPartFileMagic = "FORGE-PART";
-inline constexpr int kPartFileVersion = 1;
+inline constexpr int kPartFileVersion = 3;
+inline constexpr int kOldestReadablePartFileVersion = 1;
+// The version the DRAWING blocks were introduced in. A file older than this may
+// not contain one.
+inline constexpr int kPartFileDrawingVersion = 3;
 inline constexpr const char* kPartFileExtension = ".fpart";
+
+// Whether this build can read a file claiming `version`. The accepted set, not a
+// range: see the note above about version 2.
+bool partFileVersionIsReadable(int version) noexcept;
 
 // One stored feature: the document record, plus the selection node its value is
 // bound to at save time ("" when nothing names it — because a later op consumed
@@ -63,6 +101,13 @@ struct PartFileDoc {
   std::string name = "untitled";
   std::string units = "mm";
   std::vector<PartFileFeature> features;
+  // The 2-D documentation side: the title block, the datum letters, the notes
+  // and the geometric tolerances. Introduced in format version 2; a version 1
+  // file loads with this empty.
+  forge::ui::DrawingModel drawing;
+  // The version the data was READ from, so a caller can tell a v1 document from
+  // a v2 one. The writer always emits kPartFileVersion.
+  int version = kPartFileVersion;
 
   // The feature-IR program these records spell, newline-joined — derived, never
   // stored, so it cannot disagree with the records.
@@ -76,7 +121,8 @@ std::string writePartFile(const PartFileDoc& doc);
 bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error);
 
 // ── document <-> file ───────────────────────────────────────────────────────
-PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name);
+PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name,
+                                const forge::ui::DrawingModel& drawing);
 // Appends every stored record into `doc` through its ONE mutation entry point
 // (PartDocument::appendFeature), so a file that would build an illegal document
 // is refused by the same validator a live command is refused by.
