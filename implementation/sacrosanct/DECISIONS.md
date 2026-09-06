@@ -1789,9 +1789,6 @@ Recorded so the next reader does not discover them as a surprise.
 deleting a block and re-running `--write` puts its op back in `forbidden_ops`. The measurements
 above are what would have to be refuted first.
 
-
-
-
 ## D-039 (2026-08-31): a SIGSEGV is not an exception — the kernel moves to a process the app can afford to lose, and the gates that would have caught it are built
 
 **The defect.** `forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md` measured a null `Geom2d_Curve`
@@ -4455,3 +4452,102 @@ public release. That is a judgement for the owner, not a defect blocking them.
 
 The 66-part failing set is the right acceptance corpus for the out-of-process worker in #157: it is
 a known, reproducible, 11.0%-of-corpus population of real SIGSEGVs to prove isolation against.
+
+## D-040-ALT (2026-08-31): the build rate, arm-qualified — and two parts in six hundred explain the OOM
+
+Two agents reported irreconcilable build rates: I said **80.8%**, another measured **10.7–63.9%**
+on "other traces". Neither of us named the arm. Re-measured with a per-process memory cap:
+
+```
+ARM axis_named_v7_e600   n=600   verifier tools/pinned/forge_verify   cap 3000MB   timeout 120s
+   242 (40.3%)  built_a_solid
+   226 (37.7%)  ok_and_valid
+   102 (17.0%)  no_solid
+    23 ( 3.8%)  ok_not_valid
+     4 ( 0.7%)  timeout
+     2 ( 0.3%)  memory_blowup
+     1 ( 0.2%)  crash_rc-11
+  --> produced a solid: 491/600 = 81.8%
+  --> peak RSS: max 3035MB, median 1MB
+```
+
+**81.8% for this arm**, against my earlier 80.8% — the difference is a tighter 120 s timeout. The
+other figure came from different arms and different traces. Neither number was ever wrong; both
+were **unqualified**, which made them look contradictory. ★From here a build rate is quoted with
+its arm, its verifier and its timeout, or not at all.
+
+### The distribution is the finding, not the headline
+
+★**Peak RSS: max 3035 MB, median 1 MB.** The median part costs a megabyte. **Two parts in six
+hundred** hit the ceiling. That single fact explains the jetsam event that killed a whole session
+earlier today: the machine did not fall over under sustained load, it fell over because a
+0.3%-frequency part allocated without bound while eleven other agents held their own working sets.
+
+### Why the previous attempt could not have found this
+
+The first runner used `--jobs 2` and checked swap **between arms**. Both were useless:
+
+* ★**PER-JOB CONCURRENCY DOES NOT BOUND PER-JOB MEMORY.** One part grew a single `forge_verify` to
+  **9.9 GB in 101 seconds** and drove swap from 375 MB to 35 GB. A limit of two such jobs is not a
+  limit.
+* A gate *between* arms cannot see growth *within* a part.
+
+The replacement gives each part its own subprocess, polls RSS every 250 ms, and kills at 3 GB —
+so `memory_blowup` becomes **a named outcome next to `timeout` and `crash_rc139`** rather than an
+invisible near-miss that occasionally takes the machine with it.
+
+### A second self-inflicted lesson, recorded so it is not repeated
+
+The attempt before that printed **"ARM-QUALIFICATION COMPLETE"** while every arm had failed with
+`No such file or directory` — it never checked exit codes. ★**A SCRIPT THAT PRINTS "COMPLETE"
+WITHOUT CHECKING rc IS LYING.** Two causes: the tool path pointed at the **main checkout, which is
+stale at `267891bc`**, while the tool lives in the `appbuild` worktree — *measure only from a tree
+pinned to origin*, in the small as well as the large — and the pipeline's status was read from
+`tail` rather than `${pipestatus[1]}`.
+
+### What this unblocks
+
+This is step 1 of the training characterisation: the failure taxonomy the corpus rebuild has to
+target. `no_solid` at 17.0% and `ok_not_valid` at 3.8% are model-fidelity failures. `timeout`,
+`memory_blowup` and `crash_rc-11` together are **1.2%** and are *kernel* defects, not model ones —
+they should never be counted against the model's score, and previously they were indistinguishable
+from a model failure because the harness simply died.
+
+Cross-reference: the unforked sweep in [D-039] found **66 of 600 (11.0%)** gold-reference parts
+SIGSEGV, all OFFSETSHAPE. That is a different population — gold parts through the offset engine,
+not model emissions through the compiler — which is exactly why both numbers need their arm.
+
+### The second arm settles it conclusively
+
+```
+ARM expert3d_v1_e600     n=600  -->  produced a solid  381/600 = 63.5%
+ARM axis_named_v7_e600   n=600  -->  produced a solid  491/600 = 81.8%
+```
+
+★**Both disputed figures were correct.** My 80.8% was `axis_named_v7_e600`; the other agent's
+range topped out at 63.9%, and `expert3d_v1_e600` measures **63.5%** — inside it. Neither of us was
+wrong about anything except *which arm we were describing*. An unqualified build rate is not a
+weak claim, it is **an ambiguous one**, and two correct measurements can look like a contradiction
+for no reason but a missing label.
+
+The third arm (`expert3d_v5cap_e600`) was **deliberately abandoned mid-run**, and that is recorded
+rather than hidden: a MEMORY-LOW alert fired at 7% free with swap rising 2 GB in one interval while
+a 30B LoRA training run was live. The two arms above already settle the question; the third would
+have been confirmation, not information. ★**Protecting an irreplaceable job beats completing an
+optional measurement** — the sweep was stopped by PID descent over my own process tree, never
+`pkill`, because the training run and eight app agents were sharing the machine.
+
+### A measurement correction about the disk, in the same spirit
+
+I earlier reported reclaiming disk from "38 Gi to 123 Gi". That headline was wrong: `df /` on APFS
+reports the *container's* available space, which swings with purgeable caches and swap-file sizing.
+The real data volume is `/System/Volumes/Data`, and it has sat at **~39 Gi free, 92% full**
+throughout. The reclaim itself was real — 67 worktrees to 2, the repo 22 G to 6 G — but the number
+I quoted came from the wrong filesystem. ★*Measure the volume the data is on, not the one the path
+happens to resolve through.*
+
+The standing pressure is `archdisc-Models` at **192 GB**, of which `adapters/` is **39 GB across 37
+historical LoRA adapters** at ~3.2 GB each. That is accumulation, not a leak, and several of those
+adapters are baselines that merged decisions cite — so they are not mine to delete on my own
+judgement.
+
