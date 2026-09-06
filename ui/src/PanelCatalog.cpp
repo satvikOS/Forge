@@ -104,12 +104,11 @@ constexpr Row kRows[] = {
      "finer.",
      PanelContent::Planned},
     {"curve_list",
-     "Every curve on this shape with its length, so you can pick one without hunting in the 3D "
-     "view.",
+     "Every point, line, circle and arc in the sketch you are working in, at the size the solver "
+     "gave it, so you can pick one without hunting in the 3D view.",
      PanelContent::Live},
     {"dimensions",
-     "Every number that drives the shape of this part, in one list, so you can find the one you "
-     "want to change.",
+     "The dimensions driving this sketch, and which of them you can still change.",
      PanelContent::Live},
     {"feature_tree",
      "Every feature in this part, in the order it was built. Pick a row to select it, or change "
@@ -164,8 +163,8 @@ constexpr Row kRows[] = {
      "it.",
      PanelContent::Live},
     {"relations",
-     "How the entities in this sketch depend on each other, so you can see what will move when "
-     "you drag one.",
+     "How the curves in this sketch depend on each other, so you can see what will move when you "
+     "drag one.",
      PanelContent::Live},
     {"restraints",
      "Which sides of this part are held still, the directions each one is held in, and how much "

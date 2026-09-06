@@ -152,6 +152,7 @@ CHECKED=(
   forge-desktop/test/isolation_gate.cpp
   forge-desktop/test/release_rehearsal.cpp
   forge-desktop/test/study_gate.cpp
+  forge-desktop/test/sketch_panels_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(

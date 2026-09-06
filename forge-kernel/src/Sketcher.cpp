@@ -711,6 +711,56 @@ void writePoint(SketchHandle h, SketchParamId pid, double x, double y) {
     *p.y = y;
 }
 
+// The live geometry of one entity. Every number below is READ from the storage
+// planegcs mutates in place; the only arithmetic is the length of the curve
+// those numbers define, which is the same formula extractProfileRings uses to
+// sample it.
+SketchEntityGeometry readEntity(SketchHandle h, SketchEntityId eid) {
+    constexpr double kPi = 3.14159265358979323846;
+    Sketch& s = SketchRegistry::instance().get(h);
+    SketchEntityGeometry g{};
+    switch (s.kindOfEntity(eid)) {
+        case SketchEntityKind::Line: {
+            const GCS::Line& l = s.lineByEntityId(eid);
+            g.shape = SketchEntityShape::Line;
+            g.x0 = *l.p1.x; g.y0 = *l.p1.y;
+            g.x1 = *l.p2.x; g.y1 = *l.p2.y;
+            const double dx = g.x1 - g.x0, dy = g.y1 - g.y0;
+            g.length = std::sqrt(dx * dx + dy * dy);
+            return g;
+        }
+        case SketchEntityKind::Circle: {
+            const GCS::Circle& c = s.circleByEntityId(eid);
+            g.shape = SketchEntityShape::Circle;
+            g.cx = *c.center.x; g.cy = *c.center.y;
+            g.radius = *c.rad;
+            g.length = 2.0 * kPi * g.radius;
+            return g;
+        }
+        case SketchEntityKind::Arc: {
+            const GCS::Arc& a = s.arcByEntityId(eid);
+            g.shape = SketchEntityShape::Arc;
+            g.cx = *a.center.x; g.cy = *a.center.y;
+            g.radius = *a.rad;
+            g.x0 = *a.start.x; g.y0 = *a.start.y;
+            g.x1 = *a.end.x;   g.y1 = *a.end.y;
+            // The SAME minor-arc normalisation extractWires and
+            // extractProfileRings apply, for the same reason: a corner arc that
+            // straddles the +/-pi branch cut would otherwise report the MAJOR
+            // arc's length while the profile bridge builds the minor one, and a
+            // length that disagrees with the geometry is worse than none.
+            double sweep = *a.endAngle - *a.startAngle;
+            while (sweep <= -kPi) sweep += 2.0 * kPi;
+            while (sweep >   kPi) sweep -= 2.0 * kPi;
+            g.startAngle = *a.startAngle;
+            g.endAngle   = g.startAngle + sweep;
+            g.length = std::abs(g.radius * sweep);
+            return g;
+        }
+    }
+    throw std::runtime_error("forge::sketcher: unknown entity kind");
+}
+
 // ---------------------------------------------------------------- extractWires
 //
 // Convert each line / circle / arc into a TopoDS_Edge on the Z=0 plane,
@@ -1162,6 +1212,44 @@ SketchDiagnostics diagnoseSketch(SketchHandle h) {
         if (mapParamToGeometry(s, p, role, owner)) { dp.role = role; dp.ownerId = owner; }
         dp.group = groupOf(p);
         d.dependentParams.push_back(dp);
+    }
+
+    // The two loss-free views. `describe` is the SAME mapping the loop above
+    // uses; it is a lambda rather than a third copy of those five lines.
+    auto describe = [&](const double* p, int group) {
+        SketchDependentParam dp{};
+        dp.role = SketchParamRole::Unknown;
+        dp.ownerId = 0;
+        SketchParamRole role;
+        std::uint32_t owner;
+        if (mapParamToGeometry(s, p, role, owner)) { dp.role = role; dp.ownerId = owner; }
+        dp.group = group;
+        return dp;
+    };
+    // EVERY free parameter, ONCE. Deduplicated by POINTER, which is the
+    // parameter's identity here — two entries naming the same double are the
+    // same freedom counted twice, and that is the whole defect.
+    {
+        std::vector<const double*> seen;
+        for (const double* p : dependent) {
+            if (std::find(seen.begin(), seen.end(), p) != seen.end()) continue;
+            seen.push_back(p);
+            d.distinctDependentParams.push_back(describe(p, groupOf(p)));
+        }
+    }
+    // The groups, as the engine computed them. Deduplicated WITHIN a group
+    // (belt and braces — the engine writes each column once per group) and
+    // deliberately NOT deduplicated between groups: two groups sharing a
+    // parameter is the coupling this report exists to show.
+    for (std::size_t g = 0; g < groups.size(); ++g) {
+        std::vector<SketchDependentParam> members;
+        std::vector<const double*> seen;
+        for (const double* p : groups[g]) {
+            if (std::find(seen.begin(), seen.end(), p) != seen.end()) continue;
+            seen.push_back(p);
+            members.push_back(describe(p, static_cast<int>(g)));
+        }
+        d.dependentParamGroups.push_back(std::move(members));
     }
 
     // DCM-style classification.

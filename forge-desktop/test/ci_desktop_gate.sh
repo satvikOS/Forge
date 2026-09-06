@@ -62,27 +62,7 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-# ── 2026-09-03, THE EIGHTH: 67, and BOTH sides were wrong AGAIN. This side had
-#    63 (it runs frame_gate 1..16 but not the assembly gate); archdisc had 65
-#    (it runs the assembly gate but only frame_gate 1..14). run_desktop.sh
-#    auto-merged CORRECTLY and now carries both, so neither committed constant
-#    describes the tree: 63 + 4 (assembly) = 65 + 2 (frame 15, 16) = 67.
-#    That both parents were individually right one commit earlier, and both wrong
-#    here, is the entire argument for deriving rather than inheriting:
-#      awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-#    prints 71 = ir_pipeline 0 + imgui_recovery 8 + document 8 + file_exchange 5
-#    + file_dialog 3 + frame 16 + copilot 8 + update 7 + click 12 + assembly 4
-#    + isolation 0.
-# ── 2026-09-04: 77. Two independent tranches landed together. Six more docked
-#    panels stopped being empty (Constraints, Relations, Solver, Isocline,
-#    Continuity, Tools) and frame_gate section 18 brought six mutations with
-#    them, 17..22; and the viewport work took click 8 -> 12 (9 the arrow pressed
-#    60 px off where the app PUBLISHED it, 10 the body never selected so the
-#    handles are not up, 11 a drag with zero net motion, 12 the pick filter left
-#    on `face` so the body branch never runs).
-# ── 2026-09-04: 96. Added manufacturing panels (+7: cam_panels_gate 1..7).
-#    DERIVED: awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-EXPECTED_MUTATIONS=96
+EXPECTED_MUTATIONS=102
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

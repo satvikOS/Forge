@@ -16,6 +16,7 @@
 #include "forge/Booleans.hpp"
 #include "forge/DirectEdit.hpp"
 #include "forge/DirectModeling.hpp"
+#include "forge/Healing.hpp"
 #include "forge/IoExchange.hpp"
 #include "forge/ShapeRegistry.hpp"
 #include "forge/Tessellate.hpp"
@@ -417,6 +418,16 @@ bool FileExchangeHost::importFile(const std::string& path, ExchangeFormat format
   // and the face census reported to the user is not the one the document holds.
   try {
     handle = forge::unifyFaces(handle);
+  } catch (...) {
+  }
+  try {
+    auto v = forge::heal::checkValidity(handle);
+    if (!v.isOriented) {
+      auto healed = forge::heal::harmonizeNormals(handle);
+      if (healed != 0 && healed != forge::kInvalidHandle) {
+        handle = healed;
+      }
+    }
   } catch (...) {
   }
 

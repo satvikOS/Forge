@@ -969,7 +969,10 @@ OcctStepWriteResult StepWriteOcct::write(const TopoDS_Shape& shape,
                 facetOneFace(E, face, out);
                 return;
             }
-            const bool sameSense = (face.Orientation() != TopAbs_REVERSED);
+            bool sameSense = (face.Orientation() != TopAbs_REVERSED);
+            if (fi.isPlane && fi.yScale == -1.0) {
+                sameSense = !sameSense;
+            }
             const TopoDS_Wire outer = BRepTools::OuterWire(face);
             std::vector<std::uint64_t> bounds;
             for (TopExp_Explorer wx(face, TopAbs_WIRE); wx.More(); wx.Next()) {
