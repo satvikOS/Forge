@@ -43,6 +43,7 @@
 #include <Geom_Line.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_Ellipse.hxx>
+#include <Geom_TrimmedCurve.hxx>
 #include <Geom_Hyperbola.hxx>   // TKG3d (directly linked) — no toolkit change
 #include <Geom_Parabola.hxx>    // TKG3d (directly linked) — no toolkit change
 #include <Geom_BSplineCurve.hxx>
@@ -535,6 +536,35 @@ Handle(Geom_Surface) buildSurface(const Resolver& R, std::uint64_t id, double sc
         std::uint64_t dirId = 0; gp_Dir d;
         if (vp.size() < 2 || !parseRef(vp[1], dirId) || !getDir(R, dirId, d))
             fail("SURFACE_OF_LINEAR_EXTRUSION direction");
+        Handle(Geom_Curve) c = basis;
+        if (Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(c)) {
+            c = tc->BasisCurve();
+        }
+        if (Handle(Geom_Line) line = Handle(Geom_Line)::DownCast(c)) {
+            gp_Dir lDir = line->Position().Direction();
+            gp_Vec normVec = gp_Vec(lDir).Crossed(gp_Vec(d));
+            if (normVec.Magnitude() > 1e-9) {
+                gp_Dir norm(normVec);
+                gp_Ax3 ax(line->Position().Location(), norm, lDir);
+                return new Geom_Plane(ax);
+            }
+        }
+        if (Handle(Geom_BSplineCurve) bsc = Handle(Geom_BSplineCurve)::DownCast(c)) {
+            if (bsc->Degree() == 1 && bsc->NbPoles() >= 2) {
+                gp_Pnt p0 = bsc->Pole(1);
+                gp_Pnt p1 = bsc->Pole(bsc->NbPoles());
+                gp_Vec lVec(p0, p1);
+                if (lVec.Magnitude() > 1e-9) {
+                    gp_Dir lDir(lVec);
+                    gp_Vec normVec = gp_Vec(lDir).Crossed(gp_Vec(d));
+                    if (normVec.Magnitude() > 1e-9) {
+                        gp_Dir norm(normVec);
+                        gp_Ax3 ax(p0, norm, lDir);
+                        return new Geom_Plane(ax);
+                    }
+                }
+            }
+        }
         return new Geom_SurfaceOfLinearExtrusion(basis, d);
     }
     if (ins.type == "SURFACE_OF_REVOLUTION") {

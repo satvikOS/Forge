@@ -129,6 +129,7 @@
 #include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <Geom_ConicalSurface.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
@@ -139,6 +140,8 @@
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
+#include <BRepLib.hxx>
+#include <BRep_Builder.hxx>
 #include "forge/OcctPrimBuilder.hpp"  // TKPrim-free analytic cylinder
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
@@ -188,6 +191,7 @@ namespace occtloft {
 namespace {
 
 const TopoDS_Shape kNull;
+const double kLoftPi = 3.14159265358979323846;
 
 // ---------------- DIAGNOSTIC-ONLY DEFER-REASON CHANNEL (behaviour-neutral) ---
 // Every FK_DEFER below expands to "record a label, then do EXACTLY what the
@@ -956,6 +960,127 @@ TopoDS_Shape thruSectionsTranslate(const std::vector<TopoDS_Shape>& sections,
     return out;
 }
 
+// A section that is ONE FULL CIRCLE. Returns the supporting circle in WORLD space
+// (BRepAdaptor_Curve applies the edge's location) and the wire's ORIGIN point —
+// the start of its single edge, which is what fixes the loft's correspondence.
+bool circleSection(const TopoDS_Wire& w, gp_Circ& circ, gp_Pnt& origin) {
+    if (w.IsNull()) FK_DEFER_F("cone_wire_null");
+    if (!BRep_Tool::IsClosed(w)) FK_DEFER_F("cone_wire_open");
+    TopoDS_Edge e;
+    std::size_t n = 0;
+    for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) { e = ex.Current(); ++n; }
+    if (n != 1) FK_DEFER_F("cone_wire_not_single_edge");
+    BRepAdaptor_Curve ac(e);
+    if (ac.GetType() != GeomAbs_Circle) FK_DEFER_F("cone_edge_not_circle");
+    const double a = ac.FirstParameter(), b = ac.LastParameter();
+    if (std::fabs(std::fabs(b - a) - 2.0 * kLoftPi) > 1.0e-9) FK_DEFER_F("cone_circle_not_full");
+    try {
+        circ = ac.Circle();
+        origin = ac.Value(a);
+    } catch (const Standard_Failure&) { FK_DEFER_F("cone_circle_threw"); }
+    return true;
+}
+
+// The ruled loft of two coaxial circles of different radius, built as the exact
+// right-circular frustum. Null (with a label) on anything outside that scope.
+TopoDS_Shape thruSectionsCoaxialCircles(const std::vector<TopoDS_Shape>& sections,
+                                        bool solid, double tol) {
+    if (sections.size() != 2) FK_DEFER("cone_not_two_sections");
+    if (sections[0].IsNull() || sections[1].IsNull()) FK_DEFER("cone_section_null");
+    if (sections[0].ShapeType() != TopAbs_WIRE || sections[1].ShapeType() != TopAbs_WIRE)
+        FK_DEFER("cone_section_not_wire");
+
+    gp_Circ k0, k1;
+    gp_Pnt o0, o1;
+    if (!circleSection(TopoDS::Wire(sections[0]), k0, o0)) return kNull;
+    if (!circleSection(TopoDS::Wire(sections[1]), k1, o1)) return kNull;
+
+    const gp_Pnt p0 = k0.Location(), p1 = k1.Location();
+    const double r0 = k0.Radius(), r1 = k1.Radius();
+
+    const double sz = std::max(std::max(r0, r1), p0.Distance(p1));
+    const double xt = std::max(tol, 1.0e-7 * std::max(1.0, sz));
+
+    if (r0 <= xt || r1 <= xt) FK_DEFER("cone_zero_radius");
+    if (std::fabs(r0 - r1) <= xt) FK_DEFER("cone_radii_equal");
+
+    const gp_Dir a0 = k0.Axis().Direction();
+    if (!a0.IsParallel(k1.Axis().Direction(), 1.0e-9)) FK_DEFER("cone_axes_not_parallel");
+
+    const gp_Vec step(p0, p1);
+    const double h = step.Magnitude();
+    if (h <= xt) FK_DEFER("cone_sections_coplanar");
+    const gp_Dir A(step);
+    if (!A.IsParallel(a0, 1.0e-9)) FK_DEFER("cone_centres_off_axis");
+
+    const gp_Vec q0(p0, o0), q1(p1, o1);
+    if (q0.Magnitude() <= xt || q1.Magnitude() <= xt) FK_DEFER("cone_origin_degenerate");
+    const gp_Dir u0(q0), u1(q1);
+    if (gp_Vec(u0).Subtracted(gp_Vec(u1)).Magnitude() * std::max(r0, r1) > xt)
+        FK_DEFER("cone_seam_not_aligned");
+
+    gp_Ax2 ax;
+    try { ax = gp_Ax2(p0, A, u0); }
+    catch (const Standard_Failure&) { FK_DEFER("cone_frame_failed"); }
+
+    const double sumsq = r0 * r0 + r0 * r1 + r1 * r1;
+
+    if (solid) {
+        TopoDS_Shape out;
+        try { out = forge::occtConeSolid(ax, r0, r1, h); }
+        catch (const Standard_Failure&) { out = kNull; }
+        catch (const std::exception&)   { out = kNull; }
+        if (out.IsNull()) FK_DEFER("cone_solid_failed");
+
+        GProp_GProps vp;
+        try { BRepGProp::VolumeProperties(out, vp); }
+        catch (const Standard_Failure&) { FK_DEFER("cone_volume_threw"); }
+        const double cf = kLoftPi * h / 3.0 * sumsq;
+        if (std::fabs(std::fabs(vp.Mass()) - cf) > 1.0e-9 * cf)
+            FK_DEFER("cone_volume_not_closed_form");
+        const double zc = h * (r0 * r0 + 2.0 * r0 * r1 + 3.0 * r1 * r1) / (4.0 * sumsq);
+        if (vp.CentreOfMass().Distance(p0.Translated(gp_Vec(A) * zc)) >
+            std::max(1.0e-7, 1.0e-9 * sz))
+            FK_DEFER("cone_centroid_not_closed_form");
+        int nsh = 0;
+        for (TopExp_Explorer ex(out, TopAbs_SHELL); ex.More(); ex.Next()) {
+            ++nsh;
+            if (!BRep_Tool::IsClosed(ex.Current())) FK_DEFER("cone_shell_not_closed");
+        }
+        if (nsh != 1) FK_DEFER("cone_not_one_shell");
+        return out;
+    }
+
+    const double semi = std::atan2(r1 - r0, h);
+    const double cs = std::cos(semi);
+    if (!(cs > 1.0e-12)) FK_DEFER("cone_semi_angle_degenerate");
+    TopoDS_Face lat;
+    try {
+        Handle(Geom_ConicalSurface) cone = new Geom_ConicalSurface(gp_Ax3(ax), semi, r0);
+        const double vMax = h / cs;
+        BRepBuilderAPI_MakeFace mkf(cone, 0.0, 2.0 * kLoftPi,
+                                    std::min(0.0, vMax), std::max(0.0, vMax), xt);
+        if (!mkf.IsDone()) FK_DEFER("cone_lateral_face_failed");
+        lat = mkf.Face();
+        BRepLib::SameParameter(lat, 1.0e-7, Standard_True);
+    } catch (const Standard_Failure&) { FK_DEFER("cone_lateral_threw"); }
+    if (lat.IsNull()) FK_DEFER("cone_lateral_face_failed");
+
+    TopoDS_Shell sh;
+    BRep_Builder bld;
+    bld.MakeShell(sh);
+    bld.Add(sh, lat);
+
+    GProp_GProps sp;
+    try { BRepGProp::SurfaceProperties(sh, sp); }
+    catch (const Standard_Failure&) { FK_DEFER("cone_area_threw"); }
+    const double slant = std::sqrt(h * h + (r1 - r0) * (r1 - r0));
+    const double af = kLoftPi * (r0 + r1) * slant;
+    if (std::fabs(sp.Mass() - af) > 1.0e-9 * af) FK_DEFER("cone_area_not_closed_form");
+    return sh;
+}
+
+
 
 // ═══════════════════════════ GENERAL RULED LOFT (curved sections, family D)
 // ★ WHY A THIRD PATH, and why it runs only after the other two decline.
@@ -1179,6 +1304,19 @@ TopoDS_Shape thruSectionsRuledCurved(const std::vector<TopoDS_Shape>& sections,
     if (!wireEdges(w0, e0) || !wireEdges(w1, e1)) FK_DEFER("ruled_wire_no_edge");
     const std::size_t m = e0.size();
     if (e1.size() != m) FK_DEFER("ruled_edge_count_mismatch");
+
+    bool allLines = true;
+    for (const auto& e : e0) if (!isLineEdge(e)) { allLines = false; break; }
+    if (allLines) {
+        for (const auto& e : e1) if (!isLineEdge(e)) { allLines = false; break; }
+    }
+    if (allLines) FK_DEFER("ruled_sections_polygonal");
+
+    gp_Circ kc0, kc1;
+    gp_Pnt oc0, oc1;
+    if (circleSection(w0, kc0, oc0) && circleSection(w1, kc1, oc1)) {
+        FK_DEFER("ruled_sections_circles");
+    }
 
     // ── the correspondence, chosen by LEAST TOTAL RULING LENGTH ──────────────
     // Edge i of w0 is joined to edge (k + dir*i) mod m of w1. Both `dir` values
@@ -1683,6 +1821,8 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
     // the census still reads why the first engine declined as well as the second.
     const TopoDS_Shape xlate = thruSectionsTranslate(sections, solid, t);
     if (!xlate.IsNull()) return xlate;
+    const TopoDS_Shape cone = thruSectionsCoaxialCircles(sections, solid, t);
+    if (!cone.IsNull()) return cone;
     // The twisted pass can only ever convert a NON-PLANAR-QUAD decline. Anything
     // else the polygonal path rejected it would reject again, for the same
     // reason, and re-running it would only duplicate labels in the census.

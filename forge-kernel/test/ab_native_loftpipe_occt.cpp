@@ -63,6 +63,7 @@
 #include <utility>
 #include <vector>
 
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -206,6 +207,11 @@ TopoDS_Wire polyWire(const std::vector<gp_Pnt>& pts) {
 TopoDS_Wire circleWire(double r, double z) {
     const gp_Circ c(gp_Ax2(gp_Pnt(0.0, 0.0, z), gp_Dir(0, 0, 1)), r);
     return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(c).Edge()).Wire();
+}
+TopoDS_Wire circleWireAx(double r, const gp_Pnt& c, const gp_Dir& axis,
+                         const gp_Dir& xdir) {
+    const gp_Circ k(gp_Ax2(c, axis, xdir), r);
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(k).Edge()).Wire();
 }
 // Straight length L between the arc centres, radius r; area = 2 r L + pi r^2.
 TopoDS_Wire obroundWire(double L, double r, double z) {
@@ -808,18 +814,73 @@ int main() {
             check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
                   "defer: sections of differing vertex count are DECLINED");
         }
-        // (2b) UNEQUAL circles. A cone frustum is a perfectly good ruled loft and
-        //      OCCT builds it; the translated-section path must NOT claim it,
-        //      because the two sections are not related by a translation and the
-        //      lateral surface is therefore not a linear extrusion. Without this
-        //      the new path could be a rubber stamp on any curved pair.
+        // (2b) THE COAXIAL-CIRCLE PATH'S OWN BOUNDARY. The unequal-circle pair
+        //      that used to sit here as a defer is now the real comparison
+        //      ts-cone-frustum.
         {
-            std::vector<TopoDS_Shape> sec{circleWire(7.0, 0.0), circleWire(4.0, 13.0)};
+            const double r0 = 7.0, r1 = 4.0, h = 13.0;
+            std::vector<TopoDS_Shape> s{circleWire(r0, 0.0), circleWire(r1, h)};
+            check(!occtThru(s, true, true).IsNull(),
+                  "control: OCCT DOES build that cone — the comparison below has a "
+                  "live oracle, and this input was never impossible");
+            runThru("ts-cone-frustum", s, true, true,
+                    M_PI * h / 3.0 * (r0 * r0 + r0 * r1 + r1 * r1));
+        }
+        {
+            // (i) CENTRES OFF THE AXIS. Parallel axes, centres 2 mm apart across
+            //     them: the ruled loft is an OBLIQUE circular cone.
+            std::vector<TopoDS_Shape> sec{
+                circleWireAx(7.0, gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
+                circleWireAx(4.0, gp_Pnt(2, 0, 13), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0))};
             check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
-                  "defer: UNEQUAL circles are DECLINED (not a translate, so not an extrusion)");
+                  "defer: circles with centres OFF the common axis are DECLINED "
+                  "(an oblique cone is not a right circular one)");
             check(!occtThru(sec, true, true).IsNull(),
-                  "control: OCCT DOES build that cone — the decline is a real coverage gap, "
-                  "not an impossible input");
+                  "control: OCCT DOES build the oblique cone — the decline is a real "
+                  "coverage gap, not an impossible input");
+        }
+        {
+            // (ii) AXES NOT PARALLEL. 20 degrees of tilt: the surface is not a
+            //      cone at all.
+            const double a = 0.35;
+            std::vector<TopoDS_Shape> sec{
+                circleWireAx(7.0, gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
+                circleWireAx(4.0, gp_Pnt(0, 0, 13),
+                             gp_Dir(0, std::sin(a), std::cos(a)),
+                             gp_Dir(1, 0, 0))};
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: circles whose AXES are not parallel are DECLINED");
+            check(!occtThru(sec, true, true).IsNull(),
+                  "control: OCCT DOES build the tilted pair");
+        }
+        {
+            // (iii) SEAM NOT ALIGNED.
+            const double a = 45.0 * M_PI / 180.0;
+            std::vector<TopoDS_Shape> sec{
+                circleWireAx(7.0, gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
+                circleWireAx(4.0, gp_Pnt(0, 0, 13), gp_Dir(0, 0, 1),
+                             gp_Dir(std::cos(a), std::sin(a), 0))};
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: coaxial circles whose wire ORIGINS sit at different polar "
+                  "angles are DECLINED (the correspondence is twisted, not a cone)");
+            const TopoDS_Shape occ = occtThru(sec, true, true);
+            check(!occ.IsNull(), "control: OCCT DOES build the seam-offset pair");
+        }
+        {
+            // (iv) EQUAL radii, coaxial: still the TRANSLATED-SECTION path's, and
+            //      it must stay there.
+            const double r = 7.0, h = 13.0;
+            std::vector<TopoDS_Shape> sec{circleWire(r, 0.0), circleWire(r, h)};
+            const TopoDS_Shape nat = forge::occtloft::thruSections(sec, true, true, 1.0e-6);
+            check(!nat.IsNull(), "control: EQUAL coaxial circles still BUILD");
+            int nCone = 0;
+            for (TopExp_Explorer ex(nat, TopAbs_FACE); ex.More(); ex.Next()) {
+                BRepAdaptor_Surface as(TopoDS::Face(ex.Current()));
+                if (as.GetType() == GeomAbs_Cone) ++nCone;
+            }
+            check(nCone == 0,
+                  "control: and they carry NO conical face — the cylinder is still the "
+                  "translated-section path's answer, not the cone path's");
         }
         // (3) Smoothed loft over THREE sections.
         {

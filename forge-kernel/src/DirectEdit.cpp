@@ -2,7 +2,8 @@
 
 #include <cmath>
 #include <stdexcept>
-
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
@@ -34,6 +35,7 @@
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
+#pragma clang diagnostic pop
 
 #ifdef FORGE_NATIVE_BREP
 #include <memory>
@@ -333,6 +335,22 @@ std::vector<FaceInfo> faceInventory(ShapeHandle body) {
                 case GeomAbs_BSplineSurface:        fi.kind = "bspline";    break;
                 case GeomAbs_BezierSurface:         fi.kind = "bezier";     break;
                 case GeomAbs_SurfaceOfRevolution:   fi.kind = "revolution"; break;
+                case GeomAbs_SurfaceOfExtrusion: {
+                    if (ad.BasisCurve()->GetType() == GeomAbs_Line) {
+                        fi.kind = "plane";
+                        const gp_Dir d = ad.Direction();
+                        const gp_Dir ld = ad.BasisCurve()->Line().Direction();
+                        const gp_Vec n = gp_Vec(ld).Crossed(gp_Vec(d));
+                        if (n.Magnitude() > 1e-9) {
+                            const gp_Dir nd(n);
+                            const double s = fi.concave ? -1.0 : 1.0;
+                            fi.direction = {{s * nd.X(), s * nd.Y(), s * nd.Z()}};
+                        }
+                        break;
+                    }
+                    fi.kind = "other";
+                    break;
+                }
                 default:                            fi.kind = "other";      break;
             }
             out.push_back(std::move(fi));

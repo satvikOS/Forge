@@ -541,14 +541,15 @@ std::uint64_t emitSurface(Emit& E, const TopoDS_Face& face, FaceInfo& fi) {
     try {
         if (Handle(Geom_Plane) p = Handle(Geom_Plane)::DownCast(S); !p.IsNull()) {
             gp_Ax3 ax = p->Position();
-            if (directAx3(ax)) {
-                fi.isPlane = true;
-                std::uint64_t a = E.axis2(ax.Location(), ax.Direction(), ax.XDirection());
-                std::uint64_t i = E.alloc();
-                E.id(i);
-                E.data += "=PLANE('',#"; E.data += std::to_string(a); E.data += ");\n";
-                return i;
+            fi.isPlane = true;
+            if (!directAx3(ax)) {
+                fi.yScale = -1.0;
             }
+            std::uint64_t a = E.axis2(ax.Location(), ax.Direction(), ax.XDirection());
+            std::uint64_t i = E.alloc();
+            E.id(i);
+            E.data += "=PLANE('',#"; E.data += std::to_string(a); E.data += ");\n";
+            return i;
         } else if (Handle(Geom_CylindricalSurface) cy =
                        Handle(Geom_CylindricalSurface)::DownCast(S); !cy.IsNull()) {
             gp_Ax3 ax = cy->Position();
