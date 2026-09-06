@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""A `gh` stub backed by one JSON file, so the workflow's OWN publish shell can
+be run without a network and without publishing anything.
+
+It implements only the calls the release path makes, and it EXITS 90 on a call
+it does not recognise -- an unimplemented call that quietly returned success
+would let a rehearsal pass over a step it never actually exercised.
+
+State: $FORGE_SIM_STATE (json)
+  {"releases":[{"tag_name","draft","prerelease","latest","assets":[names],
+                "target_commitish"}],
+   "tags":{"v0.1.1":{"type":"commit","sha":"..."}},
+   "kernel_runs":[{"status","conclusion"}],   # consumed head-first per poll
+   "push_runs_for_tag":0,
+   "lie_on_create":{"draft":false,"prerelease":false}}
+Every mutating call is appended to $FORGE_SIM_LOG.
+"""
+import json, os, sys
+
+STATE = os.environ["FORGE_SIM_STATE"]
+LOG = os.environ.get("FORGE_SIM_LOG", "/dev/null")
+
+def load():
+    with open(STATE) as f: return json.load(f)
+def save(s):
+    with open(STATE, "w") as f: json.dump(s, f, indent=1)
+def log(*a):
+    with open(LOG, "a") as f: f.write(" ".join(a) + "\n")
+def api_view(r):
+    """The REST shape. Internally assets are names; the API returns objects, and
+    release_visibility_check.sh reads a["name"] -- a stub that returned bare
+    strings would make the real script crash instead of judging."""
+    d = dict(r); d["assets"] = [{"name": n} for n in r["assets"]]
+    return d
+
+def rel(s, tag):
+    for r in s["releases"]:
+        if r["tag_name"] == tag: return r
+    return None
+def latest(s):
+    pub = [r for r in s["releases"] if not r["draft"] and not r["prerelease"]]
+    if not pub: return None
+    for r in pub:
+        if r.get("latest"): return r
+    return pub[-1]
+
+a = sys.argv[1:]
+s = load()
+
+# ── gh api ───────────────────────────────────────────────────────────────────
+if a and a[0] == "api":
+    path = a[1]
+    jq = a[a.index("--jq") + 1] if "--jq" in a else None
+    if "/actions/workflows/kernel-tests.yml/runs" in path:
+        runs = s.get("kernel_runs", [])
+        r = runs.pop(0) if runs else None
+        s["kernel_runs"] = runs; save(s)
+        if r is None:
+            print("null:pending"); sys.exit(0)
+        print("%s:%s" % (r["status"], r.get("conclusion") or "pending")); sys.exit(0)
+    if path.endswith("/releases/latest"):
+        r = latest(s)
+        if r is None:
+            sys.stderr.write("gh: Not Found (HTTP 404)\n"); sys.exit(1)
+        print(r["tag_name"] if jq else json.dumps(api_view(r))); sys.exit(0)
+    if path.endswith("/releases"):
+        print(json.dumps([api_view(r) for r in s["releases"]])); sys.exit(0)
+    if "/git/ref/tags/" in path:
+        # An injected NON-404 failure. `|| echo {}` used to swallow this as
+        # "the tag does not exist", which silently skipped the ownership check.
+        if s.get("api_fail_ref"):
+            sys.stderr.write("gh: %s\n" % s["api_fail_ref"]); sys.exit(1)
+        tag = path.rsplit("/", 1)[-1]
+        t = s.get("tags", {}).get(tag)
+        if not t:
+            sys.stderr.write("gh: Not Found (HTTP 404)\n"); sys.exit(1)
+        print(json.dumps({"ref": "refs/tags/" + tag, "object": t})); sys.exit(0)
+    if "/git/tags/" in path:
+        sha = path.rsplit("/", 1)[-1]
+        print(s.get("annotated", {}).get(sha, "")); sys.exit(0)
+    if "/actions/runs?" in path:
+        print(s.get("push_runs_for_tag", 0)); sys.exit(0)
+    sys.stderr.write("gh-stub: unimplemented api path %r\n" % path); sys.exit(90)
+
+# ── gh release ───────────────────────────────────────────────────────────────
+if a and a[0] == "release":
+    sub, tag = a[1], a[2]
+    if sub == "view":
+        r = rel(s, tag)
+        if r is None:
+            sys.stderr.write("release not found\n"); sys.exit(1)
+        if "--json" in a:
+            fields = a[a.index("--json") + 1].split(",")
+            if fields == ["assets"]:
+                print(" ".join(r["assets"])); sys.exit(0)
+            if set(fields) == {"isDraft", "isPrerelease"}:
+                print("%s %s" % (str(r["draft"]).lower(), str(r["prerelease"]).lower())); sys.exit(0)
+            if fields == ["tagName"]:
+                print(json.dumps({"tagName": tag})); sys.exit(0)
+        print(json.dumps(api_view(r))); sys.exit(0)
+    if sub == "create":
+        if rel(s, tag) is not None:
+            sys.stderr.write("gh: release already exists\n"); sys.exit(1)
+        lie = s.get("lie_on_create", {})
+        r = {"tag_name": tag, "draft": bool(lie.get("draft", "--draft" in a)),
+             "prerelease": bool(lie.get("prerelease", "--prerelease" in a)),
+             "latest": "--latest" in a, "assets": [],
+             "target_commitish": a[a.index("--target") + 1] if "--target" in a else None}
+        if r["latest"]:
+            for o in s["releases"]: o["latest"] = False
+        s["releases"].append(r)
+        s.setdefault("tags", {})[tag] = {"type": "commit", "sha": r["target_commitish"] or "unknown"}
+        save(s); log("create", *a[2:]); sys.exit(0)
+    if sub == "edit":
+        r = rel(s, tag)
+        if r is None: sys.stderr.write("release not found\n"); sys.exit(1)
+        if "--draft=false" in a: r["draft"] = False
+        if "--draft=true" in a: r["draft"] = True
+        if "--prerelease=false" in a: r["prerelease"] = False
+        if "--prerelease=true" in a: r["prerelease"] = True
+        if "--latest" in a:
+            for o in s["releases"]: o["latest"] = False
+            r["latest"] = True
+        # An API that exits 0 and does not do what it was asked. The publish step
+        # re-reads the flags precisely because `gh` exiting 0 is not evidence.
+        for k, v in s.get("lie_on_edit", {}).items():
+            r[k] = v
+        save(s); log("edit", *a[2:]); sys.exit(0)
+    if sub == "upload":
+        r = rel(s, tag)
+        if r is None: sys.stderr.write("release not found\n"); sys.exit(1)
+        for f in a[3:]:
+            if f.startswith("--"): continue
+            b = os.path.basename(f)
+            if not os.path.exists(f):
+                sys.stderr.write("gh: no such file %s\n" % f); sys.exit(1)
+            if b not in r["assets"]: r["assets"].append(b)
+            d = os.path.join(os.path.dirname(STATE), "served", tag)
+            os.makedirs(d, exist_ok=True)
+            with open(f, "rb") as fi, open(os.path.join(d, b), "wb") as fo:
+                fo.write(fi.read())
+        save(s); log("upload", *a[2:]); sys.exit(0)
+sys.stderr.write("gh-stub: unimplemented call %r\n" % (a,)); sys.exit(90)

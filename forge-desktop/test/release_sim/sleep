@@ -1,0 +1,3 @@
+#!/bin/sh
+# The rehearsal must not spend the workflow's real retry budget in wall clock.
+exit 0
