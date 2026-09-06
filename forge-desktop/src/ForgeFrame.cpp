@@ -8580,7 +8580,32 @@ void ForgeFrame::drawVerifyReportPanel() {
     ++verifyRowsDrawn_;
   }
 
-  if (!haveAnswer) return;
+  if (!haveAnswer) {
+    const IrBuildReport& r = scene_.lastBuild();
+    const forge::ui::MeshMeasure& m = modelMeasure();
+
+    forge::ui::KernelSolidReport k;
+    k.built = r.ok();
+    k.valid = r.valid;
+    k.faceCount = r.faceCount;
+    k.edgeCount = r.edgeCount;
+    k.volumeMm3 = r.volume;
+    k.declared = r.nDeclared;
+    k.parsed = r.nParsed;
+    k.compiled = r.nCompiled;
+    k.bboxKnown = r.ok();
+    for (std::size_t a = 0; a < 3; ++a) {
+      k.bboxMin[a] = r.bboxMin[a];
+      k.bboxMax[a] = r.bboxMax[a];
+    }
+    const forge::ui::InspectionReport report =
+        forge::ui::buildInspectionReport(k, m, partDoc_.records());
+    for (const forge::ui::InspectionCheck& c : report.checks) {
+      ImGui::Text("   %s", c.name.c_str());
+      ++verifyRowsDrawn_;
+    }
+    return;
+  }
 
   ImGui::Spacing();
   ImGui::TextColored(rgb(242, 158, 38), "Measured");
@@ -8689,6 +8714,23 @@ void ForgeFrame::drawVerifyReportPanel() {
 // ── continuity: how neighbouring faces meet ────────────────────────────────
 void ForgeFrame::drawContinuityPanel() {
   continuityRowsDrawn_ = 0;
+  if (!qualityRan_) {
+    const forge::ui::ContinuityReport report = continuityReport();
+    ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+    ImGui::Separator();
+    if (!report.known) {
+      ImGui::TextWrapped("There is nothing on screen to measure yet.");
+      return;
+    }
+    ImGui::TextColored(report.sharp == 0 ? rgb(120, 200, 140) : rgb(130, 137, 148),
+                       "%zu joins run in smoothly, %zu break", report.smooth, report.sharp);
+    ImGui::Separator();
+    for (const forge::ui::SurfaceJoin& j : report.joins) {
+      ImGui::Text("faces %d and %d: %.2f deg", j.faceA, j.faceB, j.maxBreakDeg);
+      ++continuityRowsDrawn_;
+    }
+    return;
+  }
   if (!beginQualityPanel("continuity")) return;
   const ModelQualityReport& q = quality();
 
@@ -8779,6 +8821,42 @@ void ForgeFrame::drawContinuityPanel() {
 // ── draft: where a surface tips past the pull direction ────────────────────
 void ForgeFrame::drawIsoclinePanel() {
   draftRowsDrawn_ = 0;
+  if (!qualityRan_) {
+    const forge::ui::DraftReport report = draftReport();
+    ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
+    ImGui::Separator();
+    if (!report.known) {
+      ImGui::TextWrapped("There is nothing on screen to measure yet.");
+      return;
+    }
+    ImGui::TextDisabled("pull it out along");
+    for (forge::ui::PullAxis axis : forge::ui::allPullAxes()) {
+      ImGui::SameLine();
+      const bool on = axis == draftPull_;
+      if (on) ImGui::PushStyleColor(ImGuiCol_Button, rgb(242, 158, 38, 0.55f));
+      if (ImGui::SmallButton(forge::ui::pullAxisWord(axis))) setDraftPull(axis);
+      if (on) ImGui::PopStyleColor();
+    }
+    ImGui::TextDisabled("taper the job asks for");
+    const double kOffered[] = {0.0, 1.0, 2.0, 3.0, 5.0};
+    for (double degrees : kOffered) {
+      ImGui::SameLine();
+      char label[24];
+      std::snprintf(label, sizeof(label), "%.0f deg", degrees);
+      const bool on = std::fabs(degrees - report.requiredDeg) < 1e-9;
+      if (on) ImGui::PushStyleColor(ImGuiCol_Button, rgb(242, 158, 38, 0.55f));
+      ImGui::PushID(label);
+      if (ImGui::SmallButton(label)) setRequiredDraft(degrees);
+      ImGui::PopID();
+      if (on) ImGui::PopStyleColor();
+    }
+    ImGui::Separator();
+    for (const forge::ui::DraftFace& f : report.faces) {
+      ImGui::Text("face %d: %.2f deg", f.faceId, f.draftDeg);
+      ++draftRowsDrawn_;
+    }
+    return;
+  }
   if (!beginQualityPanel("isocline")) return;
   const ModelQualityReport& q = quality();
 

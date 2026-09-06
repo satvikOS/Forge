@@ -113,7 +113,7 @@ fi
 GATE="$APP_BUILD/forge_desktop_frame_gate"
 [ -x "$GATE" ] || die "$GATE not found (run without --no-build, or build first)"
 say "headless frame gate"
-"$GATE" >/dev/null || die "the frame gate is RED — not packaging this build"
+"$GATE" || die "the frame gate is RED — not packaging this build"
 say "  frame gate passed"
 
 # ── 3. package ───────────────────────────────────────────────────────────────
