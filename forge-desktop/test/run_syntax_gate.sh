@@ -147,6 +147,7 @@ CHECKED=(
   forge-desktop/test/imgui_recovery_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
+  forge-desktop/test/release_rehearsal.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
