@@ -97,6 +97,7 @@ done
 # appear in exactly one of them.
 DESKTOP_LINK=(
   forge-desktop/src/KernelScene.cpp
+  forge-desktop/src/ModelQuality.cpp
   forge-desktop/src/PartFile.cpp
   forge-desktop/src/Camera.cpp
   forge-desktop/src/ForgeFrame.cpp
@@ -138,6 +139,10 @@ if [ "${#unclassified[@]}" -ne 0 ]; then
   exit 3
 fi
 
+# ModelQuality.cpp CALLS OCCT (it enumerates the sub-shapes the quality queries
+# need: the solids of the model, the edges with a face on each side, the face
+# map). Every toolkit below is already in this binary's closure through the
+# kernel library; naming them makes the DIRECT references resolve.
 echo "[click-gate] compiling forge::ui + the desktop frame builder + the gate"
 echo "[click-gate] desktop TUs linked: ${#DESKTOP_LINK[@]}, deliberately skipped: ${#DESKTOP_SKIP[@]}"
 # shellcheck disable=SC2086
@@ -149,7 +154,7 @@ echo "[click-gate] desktop TUs linked: ${#DESKTOP_LINK[@]}, deliberately skipped
   "${DESKTOP_LINK[@]}" \
   forge-desktop/test/click_gate.cpp \
   "${IMGUI_OBJS[@]}" \
-  "$LIB" -L "$OCCT_PREFIX/lib" \
+  "$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase \
   -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib" \
   -o "$BIN"
 rc=$?

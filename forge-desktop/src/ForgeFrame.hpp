@@ -633,7 +633,6 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // over two reports cannot say which report was actually drawn.
   std::size_t materialRowsDrawn() const noexcept { return materialRowsDrawn_; }
   std::size_t curveRowsDrawn() const noexcept { return curveRowsDrawn_; }
-  std::size_t verifyRowsDrawn() const noexcept { return verifyRowsDrawn_; }
   std::size_t dimensionRowsDrawn() const noexcept { return dimensionRowsDrawn_; }
   // ── the assembly panels' row counts ─────────────────────────────────────
   // One counter per panel, reset at the top of each draw. A gate asserts that a
@@ -659,6 +658,28 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void showEveryBody();
   void showOnlyBody(std::uint32_t bodyIndex);
   void hideEveryBody();
+
+  // ── the trust panels' data ──────────────────────────────────────────────
+  // What the last check answered, and whether it still describes the model on
+  // screen. `qualityStale()` is a WITNESS, not a flag: it compares the program
+  // the check ran against with the program the scene is currently built from,
+  // so a rebuild nobody remembered to announce still marks the answer old.
+  const ModelQualityReport& quality() const noexcept { return scene_.lastQuality(); }
+  bool qualityRan() const noexcept { return qualityRan_; }
+  bool qualityStale() const;
+  // Ask for a check on the next frame. Public so a gate can drive the same
+  // request the button records.
+  void requestQualityCheck() noexcept { pendingQualityCheck_ = true; }
+  std::size_t qualityChecksRun() const noexcept { return qualityChecksRun_; }
+  // Rows each trust panel drew on its last draw, so a gate asserts on what
+  // reached the screen rather than on what was available to draw.
+  std::size_t clashRowsDrawn() const noexcept { return clashRowsDrawn_; }
+  std::size_t verifyRowsDrawn() const noexcept { return verifyRowsDrawn_; }
+  std::size_t zebraCellsDrawn() const noexcept { return zebraCellsDrawn_; }
+  // The settings the next check will use. Public so a gate can drive the pull
+  // direction the buttons set.
+  QualitySettings& qualitySettings() noexcept { return qualitySettings_; }
+  const QualitySettings& qualitySettings() const noexcept { return qualitySettings_; }
 
   // Selection round-trip: the viewport writes a pick here, the frame turns it
   // into a typed EntityRef through SelectionService and re-flags the mesh.
@@ -875,6 +896,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // what the user sees and what serialize() writes cannot diverge.
   void setRatioAt(const std::vector<std::size_t>& path, double ratio);
   void setActiveTabAt(const std::vector<std::size_t>& path, std::size_t active);
+  // ── "show me that panel" ────────────────────────────────────────────────
+  // Finds the tab group holding `panelId` in the main window and makes it the
+  // active tab, so a caller can bring a panel to the front by NAME instead of by
+  // a path it had to work out itself. Returns false when this layout has no such
+  // panel -- which is the honest answer for a workspace that does not hold it.
+  bool focusPanel(const std::string& panelId);
 
  private:
   // Panels
@@ -905,7 +932,6 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // number on screen is one a headless gate has already asserted.
   void drawMaterialPanel();
   void drawCurveListPanel();
-  void drawVerifyReportPanel();
   void drawDimensionsPanel();
   void drawTitleBlockPanel();
   void drawViewListPanel();
@@ -939,8 +965,6 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void drawConstraintsPanel();
   void drawRelationsPanel();
   void drawSolverStatusPanel();
-  void drawIsoclinePanel();
-  void drawContinuityPanel();
   // ── THE ASSEMBLY PANELS ─────────────────────────────────────────────────
   // Four tabs that used to draw one apologetic sentence between them. They are
   // all fed by the SAME body inventory the kernel takes off the B-rep at build
@@ -963,6 +987,24 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   void selectBody(std::uint32_t bodyIndex);
   // "Body 3". One spelling, used by all four panels and by the gate.
   static std::string bodyLabel(std::uint32_t bodyIndex);
+
+  // ── the trust panels ────────────────────────────────────────────────────
+  // Interference, Verification, Continuity, Draft and Zebra: the five tabs an
+  // engineer opens to decide whether a model can be trusted. Every number they
+  // draw comes from KernelScene::lastQuality(), which is what the kernel's own
+  // queries answered about the solid on screen.
+  void drawInterferencePanel();
+  void drawVerifyReportPanel();
+  void drawContinuityPanel();
+  void drawIsoclinePanel();
+  void drawZebraPanel();
+  // The shared top of all five: the title, the Check button, and whether the
+  // answer on screen still belongs to the model on screen. Returns true when
+  // there is a report to draw below it.
+  bool beginQualityPanel(const char* panelId);
+  // Runs the check. Deferred out of the dock walk like every other mutation,
+  // because it can take seconds and pumps the host while it waits.
+  void runQualityCheck();
   void drawCopilotPanel();
   // The work the three recorded presses stand for. Private: the ONLY caller is
   // build(), after the walk.
@@ -1272,6 +1314,19 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // reason every other mutation in this class is: it runs a command that touches
   // the document while the walk still holds references into it.
   std::string pendingMaterialId_;
+
+  // ── the trust panels' state ─────────────────────────────────────────────
+  // `qualityProgram_` is the IR the last check measured. Comparing it with
+  // `builtProgram_` is the whole staleness test, taken from the things
+  // themselves rather than from a flag somebody has to remember to set.
+  QualitySettings qualitySettings_;
+  std::string qualityProgram_;
+  bool qualityRan_ = false;
+  bool pendingQualityCheck_ = false;
+  std::size_t qualityChecksRun_ = 0;
+  std::size_t clashRowsDrawn_ = 0;
+  std::size_t zebraCellsDrawn_ = 0;
+  int zebraFace_ = 0;  // which face's stripes are drawn; 0 = the first one
 
   Camera camera_;
   ViewportRequest viewportRequest_;

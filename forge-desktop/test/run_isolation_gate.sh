@@ -89,7 +89,11 @@ run_with_timeout() {
 
 INC=(-I "$ROOT/ui/include" -I "$ROOT/forge-kernel/include" -I "$ROOT/forge-desktop/src"
      -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3")
-LINK=("$LIB" -L "$OCCT_PREFIX/lib" -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib")
+# ModelQuality.cpp CALLS OCCT (it enumerates the sub-shapes the quality queries
+# need: the solids of the model, the edges with a face on each side, the face
+# map). Every toolkit below is already in this binary's closure through the
+# kernel library; naming them makes the DIRECT references resolve.
+LINK=("$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib")
 ASAN=(-fsanitize=address -fno-omit-frame-pointer -g)
 
 # $1 = source directory to compile FROM (the tree, or a mutated copy)
@@ -101,7 +105,8 @@ build_pair() {
     -I "$SRC/ui/include" -I "$ROOT/forge-kernel/include" -I "$SRC/forge-desktop/src" \
     -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
     "$SRC"/ui/src/*.cpp \
-    "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/PartFile.cpp" \
+    "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp" \
+    "$SRC/forge-desktop/src/PartFile.cpp" \
     "$SRC/forge-desktop/src/kernel_worker_main.cpp" \
     "${LINK[@]}" -o "$OUT/forge_kernel_worker" 2>"$OUT/worker.err" || return 1
   # The gate: sanitized.
@@ -109,7 +114,8 @@ build_pair() {
     -I "$SRC/ui/include" -I "$ROOT/forge-kernel/include" -I "$SRC/forge-desktop/src" \
     -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
     "$SRC"/ui/src/*.cpp \
-    "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/PartFile.cpp" \
+    "$SRC/forge-desktop/src/KernelScene.cpp" "$SRC/forge-desktop/src/ModelQuality.cpp" \
+    "$SRC/forge-desktop/src/PartFile.cpp" \
     "$SRC/forge-desktop/src/Camera.cpp" \
     "$SRC/forge-desktop/test/isolation_gate.cpp" \
     "${LINK[@]}" -o "$OUT/isolation_gate" 2>"$OUT/gate.err" || return 1

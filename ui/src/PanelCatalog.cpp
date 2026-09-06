@@ -122,8 +122,8 @@ constexpr Row kRows[] = {
      "part as built meets each one.",
      PanelContent::Live},
     {"interference",
-     "Which components in this assembly overlap each other, and by how much.",
-     PanelContent::Planned},
+     "Which solids in this model overlap each other, by how much, and where.",
+     PanelContent::Live},
     {"isocline",
      "Where a surface tips past a chosen angle, so you can check a part will release from its "
      "mould.",
@@ -231,7 +231,7 @@ constexpr Row kRows[] = {
     {"zebra_analysis",
      "Striped reflections across a surface, which is the quickest way to see a kink a shaded view "
      "hides.",
-     PanelContent::Planned},
+     PanelContent::Live},
 };
 
 std::vector<PanelInfo> buildCatalog() {

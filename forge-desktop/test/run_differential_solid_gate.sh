@@ -94,13 +94,18 @@ fail() { echo "[differential-solid] FAIL -- $1"; FAILURES=$((FAILURES + 1)); }
 
 # -Wall -Wextra -Werror to match every other gate in this tree: a warning nobody is
 # forced to read is a suggestion, not a standard.
+# ModelQuality.cpp CALLS OCCT (it enumerates the sub-shapes the quality queries
+# need: the solids of the model, the edges with a face on each side, the face
+# map). Every toolkit below is already in this binary's closure through the
+# kernel library; naming them makes the DIRECT references resolve.
 # shellcheck disable=SC2086
 "$CXX" -std=c++20 -O1 -Wall -Wextra -Werror \
   -I ui/include -I ui/test -I forge-desktop/src -I forge-kernel/include \
   -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
-  ui/src/*.cpp forge-desktop/src/KernelScene.cpp forge-desktop/src/PartFile.cpp \
+  ui/src/*.cpp forge-desktop/src/KernelScene.cpp forge-desktop/src/ModelQuality.cpp \
+  forge-desktop/src/PartFile.cpp \
   forge-desktop/test/differential_solid_gate.cpp \
-  "$LIB" -L "$OCCT_PREFIX/lib" \
+  "$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase \
   -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib" \
   -o "$BIN" 2>"$WORK/build.err"
 rc=$?

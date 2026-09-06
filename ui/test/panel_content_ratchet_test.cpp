@@ -75,8 +75,6 @@ namespace {
 const char* const kPinnedEmptyPanels[] = {
     "convergence",
     "fixtures",
-    "interference",
-    "zebra_analysis",
 };
 
 // ── the comparison, as a function, so it can be proved falsifiable ──────────
