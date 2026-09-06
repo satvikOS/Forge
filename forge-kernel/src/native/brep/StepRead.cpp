@@ -1877,7 +1877,22 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         // control points' [cMin,cMax] hull, so [ (pMin-cMax), (pMax-cMin) ]/|V|^2
         // is a tight superset of the true v-range. Building it (vs. dropping the
         // face) CLOSES the shell; it then flows through the identical NURBS trim +
-        // region mass path. Genuinely off-hull margin is trimmed by the region loop.
+        if (isExtrusion) {
+            if (extrProfile.valid() && extrProfile.degree == 1 && extrProfile.controlPoints.size() >= 2) {
+                const Vec3 lDir = vsub(extrProfile.controlPoints.back(), extrProfile.controlPoints.front());
+                Vec3 norm = vcross(lDir, extrDir);
+                if (vlen(norm) > 1e-9) {
+                    norm = vnorm(norm);
+                    protoSurf.kind = SurfaceKind::Plane;
+                    protoSurf.origin = extrProfile.controlPoints.front();
+                    protoSurf.axis = norm;
+                    protoSurf.refDir = vnorm(lDir);
+                    protoSurf.reversed = !sameSense;
+                    isExtrusion = false;
+                }
+            }
+        }
+
         if (isExtrusion) {
             const std::vector<Vec3>& rp = outerRings[0].pts;
             const double VdotV = vdot(extrDir, extrDir);

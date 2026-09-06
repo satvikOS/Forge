@@ -264,109 +264,113 @@ ShapeHandle unifyFaces(ShapeHandle body) {
 }
 
 std::vector<FaceInfo> faceInventory(ShapeHandle body) {
-#ifdef FORGE_NATIVE_BREP
-    if (ShapeRegistry::instance().kindOf(body) == ShapeKind::NativeSolid) {
-        const auto& solid = ShapeRegistry::instance().getNativeSolid(body);
+    try {
+        const TopoDS_Shape& shape = ShapeRegistry::instance().get(body);
+        TopTools_IndexedMapOfShape m = faceMap(shape);
+
         std::vector<FaceInfo> out;
-        int idx = 1;
-        for (const auto* sh : solid.shells) {
-            if (!sh) continue;
-            for (const auto* f : sh->faces) {
-                if (!f) continue;
-                FaceInfo fi;
-                fi.index = idx++;
-                if (f->surface) {
-                    switch (f->surface->kind) {
-                        case native::brep::SurfaceKind::Plane: fi.kind = "plane"; break;
-                        case native::brep::SurfaceKind::Cylinder: fi.kind = "cylinder"; break;
-                        case native::brep::SurfaceKind::Cone: fi.kind = "cone"; break;
-                        case native::brep::SurfaceKind::Sphere: fi.kind = "sphere"; break;
-                        case native::brep::SurfaceKind::Torus: fi.kind = "torus"; break;
-                        case native::brep::SurfaceKind::Nurbs: fi.kind = "bspline"; break;
-                        default: fi.kind = "other"; break;
-                    }
-                } else {
+        out.reserve(static_cast<std::size_t>(m.Extent()));
+
+        for (int i = 1; i <= m.Extent(); ++i) {
+            const TopoDS_Face f = TopoDS::Face(m.FindKey(i));
+            BRepAdaptor_Surface ad(f);
+
+            FaceInfo fi;
+            fi.index = i;
+            fi.concave = (f.Orientation() == TopAbs_REVERSED);
+            fi.vMin = ad.FirstVParameter();
+            fi.vMax = ad.LastVParameter();
+
+            GProp_GProps props;
+            BRepGProp::SurfaceProperties(f, props);
+            fi.area = props.Mass();
+            const gp_Pnt c = props.CentreOfMass();
+            fi.centroid = {{c.X(), c.Y(), c.Z()}};
+
+            switch (ad.GetType()) {
+                case GeomAbs_Plane: {
                     fi.kind = "plane";
+                    const gp_Dir d = ad.Plane().Axis().Direction();
+                    const double s = fi.concave ? -1.0 : 1.0;
+                    fi.direction = {{s * d.X(), s * d.Y(), s * d.Z()}};
+                    break;
                 }
-                out.push_back(fi);
+                case GeomAbs_Cylinder: {
+                    fi.kind = "cylinder";
+                    const gp_Cylinder cy = ad.Cylinder();
+                    const gp_Dir d = cy.Axis().Direction();
+                    const gp_Pnt p = cy.Axis().Location();
+                    fi.direction = {{d.X(), d.Y(), d.Z()}};
+                    fi.axisLocation = {{p.X(), p.Y(), p.Z()}};
+                    fi.radius = cy.Radius();
+                    break;
+                }
+                case GeomAbs_Cone: {
+                    fi.kind = "cone";
+                    const gp_Cone co = ad.Cone();
+                    const gp_Dir d = co.Axis().Direction();
+                    const gp_Pnt p = co.Axis().Location();
+                    fi.direction = {{d.X(), d.Y(), d.Z()}};
+                    fi.axisLocation = {{p.X(), p.Y(), p.Z()}};
+                    fi.radius = co.RefRadius();
+                    break;
+                }
+                case GeomAbs_Sphere:
+                    fi.kind = "sphere";
+                    fi.radius = ad.Sphere().Radius();
+                    break;
+                case GeomAbs_Torus: {
+                    fi.kind = "torus";
+                    const gp_Torus to = ad.Torus();
+                    const gp_Dir d = to.Axis().Direction();
+                    const gp_Pnt p = to.Axis().Location();
+                    fi.direction = {{d.X(), d.Y(), d.Z()}};
+                    fi.axisLocation = {{p.X(), p.Y(), p.Z()}};
+                    fi.radius = to.MajorRadius();
+                    fi.minorRadius = to.MinorRadius();
+                    break;
+                }
+                case GeomAbs_BSplineSurface:        fi.kind = "bspline";    break;
+                case GeomAbs_BezierSurface:         fi.kind = "bezier";     break;
+                case GeomAbs_SurfaceOfRevolution:   fi.kind = "revolution"; break;
+                default:                            fi.kind = "other";      break;
             }
+            out.push_back(std::move(fi));
         }
         return out;
-    }
-#endif
-    const TopoDS_Shape& shape = ShapeRegistry::instance().get(body);
-    TopTools_IndexedMapOfShape m = faceMap(shape);
-
-    std::vector<FaceInfo> out;
-    out.reserve(static_cast<std::size_t>(m.Extent()));
-
-    for (int i = 1; i <= m.Extent(); ++i) {
-        const TopoDS_Face f = TopoDS::Face(m.FindKey(i));
-        BRepAdaptor_Surface ad(f);
-
-        FaceInfo fi;
-        fi.index = i;
-        fi.concave = (f.Orientation() == TopAbs_REVERSED);
-        fi.vMin = ad.FirstVParameter();
-        fi.vMax = ad.LastVParameter();
-
-        GProp_GProps props;
-        BRepGProp::SurfaceProperties(f, props);
-        fi.area = props.Mass();
-        const gp_Pnt c = props.CentreOfMass();
-        fi.centroid = {{c.X(), c.Y(), c.Z()}};
-
-        switch (ad.GetType()) {
-            case GeomAbs_Plane: {
-                fi.kind = "plane";
-                const gp_Dir d = ad.Plane().Axis().Direction();
-                const double s = fi.concave ? -1.0 : 1.0;
-                fi.direction = {{s * d.X(), s * d.Y(), s * d.Z()}};
-                break;
+    } catch (...) {
+#ifdef FORGE_NATIVE_BREP
+        if (ShapeRegistry::instance().kindOf(body) == ShapeKind::NativeSolid) {
+            const auto& solid = ShapeRegistry::instance().getNativeSolid(body);
+            std::vector<FaceInfo> out;
+            int idx = 1;
+            for (const auto* sh : solid.shells) {
+                if (!sh) continue;
+                for (const auto* f : sh->faces) {
+                    if (!f) continue;
+                    FaceInfo fi;
+                    fi.index = idx++;
+                    if (f->surface) {
+                        switch (f->surface->kind) {
+                            case native::brep::SurfaceKind::Plane: fi.kind = "plane"; break;
+                            case native::brep::SurfaceKind::Cylinder: fi.kind = "cylinder"; break;
+                            case native::brep::SurfaceKind::Cone: fi.kind = "cone"; break;
+                            case native::brep::SurfaceKind::Sphere: fi.kind = "sphere"; break;
+                            case native::brep::SurfaceKind::Torus: fi.kind = "torus"; break;
+                            case native::brep::SurfaceKind::Nurbs: fi.kind = "bspline"; break;
+                            default: fi.kind = "other"; break;
+                        }
+                    } else {
+                        fi.kind = "plane";
+                    }
+                    out.push_back(fi);
+                }
             }
-            case GeomAbs_Cylinder: {
-                fi.kind = "cylinder";
-                const gp_Cylinder cy = ad.Cylinder();
-                const gp_Dir d = cy.Axis().Direction();
-                const gp_Pnt p = cy.Axis().Location();
-                fi.direction = {{d.X(), d.Y(), d.Z()}};
-                fi.axisLocation = {{p.X(), p.Y(), p.Z()}};
-                fi.radius = cy.Radius();
-                break;
-            }
-            case GeomAbs_Cone: {
-                fi.kind = "cone";
-                const gp_Cone co = ad.Cone();
-                const gp_Dir d = co.Axis().Direction();
-                const gp_Pnt p = co.Axis().Location();
-                fi.direction = {{d.X(), d.Y(), d.Z()}};
-                fi.axisLocation = {{p.X(), p.Y(), p.Z()}};
-                fi.radius = co.RefRadius();
-                break;
-            }
-            case GeomAbs_Sphere:
-                fi.kind = "sphere";
-                fi.radius = ad.Sphere().Radius();
-                break;
-            case GeomAbs_Torus: {
-                fi.kind = "torus";
-                const gp_Torus to = ad.Torus();
-                const gp_Dir d = to.Axis().Direction();
-                const gp_Pnt p = to.Axis().Location();
-                fi.direction = {{d.X(), d.Y(), d.Z()}};
-                fi.axisLocation = {{p.X(), p.Y(), p.Z()}};
-                fi.radius = to.MajorRadius();
-                fi.minorRadius = to.MinorRadius();
-                break;
-            }
-            case GeomAbs_BSplineSurface:        fi.kind = "bspline";    break;
-            case GeomAbs_BezierSurface:         fi.kind = "bezier";     break;
-            case GeomAbs_SurfaceOfRevolution:   fi.kind = "revolution"; break;
-            default:                            fi.kind = "other";      break;
+            return out;
         }
-        out.push_back(std::move(fi));
+#endif
+        throw;
     }
-    return out;
 }
 
 ShapeHandle defeature(ShapeHandle body, const std::vector<int>& faceIndices) {
