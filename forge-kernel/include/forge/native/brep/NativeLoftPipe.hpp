@@ -43,19 +43,60 @@
 //   correspondence is tried once, and a pair that fails both is still declined.
 //   Between consecutive sections the engine emits
 //     * one PLANAR QUAD per index i: (A_i, A_i+1, B_i+1, B_i), or
+//     * one exact BILINEAR PATCH per index i when those four corners are NOT
+//       coplanar (see the TWISTED pass below), or
 //     * one TRIANGLE per index i when one side is the point section.
 //   With solid=true the two end sections are closed by planar cap faces. The
 //   result is sewn, checked watertight, and oriented to positive volume.
 //
-//   ★ WHY PLANAR QUADS ARE A HARD REQUIREMENT, not a shortcut. The ruled surface
-//   between two non-parallel straight edges is a BILINEAR patch, and a bilinear
-//   patch's signed volume contribution is the MEAN of its two triangulations —
-//   so a quad split into triangles encloses a DIFFERENT volume from the ruled
-//   patch OCCT builds. Rather than approximate, a quad whose four corners are
-//   not coplanar within `tol` is an HONEST DEFER. This covers prisms, frustums,
-//   pyramids, wedges, and every pair of sections related by translation and/or a
-//   homothety about a common axis — and declines exactly the twisted cases where
-//   a triangulated answer would be silently wrong.
+//   ★ WHY A TRIANGULATED QUAD IS STILL FORBIDDEN. The ruled surface between two
+//   non-parallel straight edges is a BILINEAR patch, and a bilinear patch's
+//   signed volume contribution is the MEAN of its two triangulations — so a quad
+//   split into triangles encloses a DIFFERENT volume from the ruled patch OCCT
+//   builds. That rules out triangulation for ever. It never ruled out building
+//   the bilinear patch ITSELF, which is what the twisted pass now does.
+//
+//   ★ THE TWISTED PASS (added 2026-09-03; this used to be an unconditional
+//   defer, and test/ab_native_loftpipe_occt.cpp used to ASSERT the defer). A
+//   non-planar lateral quad is now laid as a degree-(1,1) Geom_BezierSurface
+//   whose four poles ARE the four corners — the exact ruled surface, analytic,
+//   nothing fitted or faceted. MEASURED that this is the incumbent's own
+//   surface: OCCT 7.9.3 emits, for each lateral of a 30-degree-twisted square
+//   loft, a Geom_BSplineSurface of UDegree 1 and VDegree 1 with 2x2 non-rational
+//   poles equal to those same corners.
+//
+//   THE TWISTED PASS RUNS ONLY AFTER THE PLANAR AND TRANSLATED PASSES DECLINE,
+//   so it is strictly additive: no input either of them covered can answer
+//   differently. It carries TWO acceptance gates of its own, because a curved
+//   lateral takes away the planarity check that used to police the ring
+//   correspondence for free:
+//
+//     (a) CORRESPONDENCE, EARNED. The index pairing is chosen by LEAST TWIST
+//         (minimum sum of squared displacement over every winding and origin
+//         offset) and then VERIFIED: the chosen pairing must make the two rings
+//         SIMILAR (one constant k with |b_i b_j| = k |a_i a_j| for every pair),
+//         and must beat the runner-up pairing by a clear cost margin. A pairing
+//         that cannot be verified is an honest defer — the engine never guesses
+//         a correspondence it cannot check. MEASURED why this is not optional:
+//         with the nearest-vertex origin the polygonal path uses, an asymmetric
+//         quadrilateral pair built 3528.944 where OCCT builds 3771.638 — 6.4%
+//         apart, both BRepCheck-VALID, both 6/12/8/1.
+//     (b) CLOSED FORM. The built solid's volume AND centre of mass must match
+//         the divergence-theorem values computed from the section rings alone by
+//         exact Gauss quadrature over the same bilinear patches. Four
+//         observables, none of them read off the B-rep being judged.
+//
+//   SO THE TWISTED PASS COVERS: two (or more) polygon sections related by a
+//   verified similarity — a rotated, tapered, or rotated-and-tapered boss, the
+//   real CAD twisted loft. IT STILL DECLINES: a twisted pair NOT related by a
+//   similarity, and a pair whose least-twist correspondence is contested (a
+//   square rotated by exactly 45 degrees, where the two pairings tie exactly).
+//   Both declines are exercised in the A/B with an OCCT control proving they are
+//   real coverage boundaries and not impossible inputs.
+//
+//   The planar family remains what it always was: prisms, frustums, pyramids,
+//   wedges, and every pair of sections related by translation and/or a homothety
+//   about a common axis.
 //
 // family F — pipeShell()
 //   Unguided sweep of a CLOSED planar polygon profile along a POLYLINE spine
@@ -78,8 +119,12 @@
 //       conic or open wire);
 //     * polygon sections of differing vertex count (OCCT auto-reparametrises;
 //       this engine does NOT and says so);
-//     * a lateral quad whose 4 corners are not coplanar within `tol`, or whose
-//       area is degenerate;
+//     * a lateral quad whose 4 corners are not coplanar within `tol` AND whose
+//       ring pair fails the twisted pass's correspondence gate (not related by a
+//       verified similarity, or a contested least-twist choice) — a non-planar
+//       quad on its own is no longer a defer, see THE TWISTED PASS above;
+//     * a lateral quad whose area is degenerate (all four corners collinear);
+//     * a twisted build whose volume or centre of mass misses the closed form;
 //     * a non-planar end section when solid=true;
 //     * ruled=false (the SMOOTHED B-spline skin is a genuinely different
 //       surface — approximating it here would be a silent substitution);
