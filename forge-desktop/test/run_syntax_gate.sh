@@ -136,6 +136,7 @@ CHECKED=(
   forge-desktop/src/DrawingGdt.cpp
   forge-desktop/src/ForgeFrame.cpp
   forge-desktop/src/ImGuiErrorPolicy.cpp
+  forge-desktop/test/cam_panels_gate.cpp
   forge-desktop/src/kernel_worker_main.cpp
   forge-desktop/src/PartFile.cpp
   forge-desktop/src/UpdateService.cpp
@@ -157,6 +158,7 @@ SKIPPED=(
   "forge-desktop/src/KernelScene.cpp     (OCCT: TopoDS_Shape.hxx)"
   "forge-desktop/src/FileExchangeHost.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/IoExchange.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/StudyHost.cpp       (OCCT: TopoDS_Shape.hxx, reached through forge/Fea.hpp -> forge/ShapeRegistry.hpp)"
+  "forge-desktop/src/CamHost.cpp         (OCCT: TopoDS_Shape.hxx, reached through forge/CamAdvanced.hpp -> forge/Cam.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/main.cpp            (SDL2 + Vulkan)"
   "forge-desktop/src/PlatformSDL2.cpp    (SDL2)"
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"

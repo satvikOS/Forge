@@ -84,13 +84,19 @@ int main() {
   {
     App app;
     const std::vector<std::string> blocked = gestureBlockedCommands(app.shell.registry());
-    CHECK_EQ_INT(blocked.size(), 6);
+    CHECK_EQ_INT(blocked.size(), 7);
     CHECK_EQ_STR(forge::uitest::at(blocked, 0), "file.export_brep");
     CHECK_EQ_STR(forge::uitest::at(blocked, 1), "file.export_step");
     CHECK_EQ_STR(forge::uitest::at(blocked, 2), "file.import_brep");
     CHECK_EQ_STR(forge::uitest::at(blocked, 3), "file.import_step");
     CHECK_EQ_STR(forge::uitest::at(blocked, 4), "file.open");
     CHECK_EQ_STR(forge::uitest::at(blocked, 5), "part.edit_feature");
+    // The SEVENTH is part.set_material, blocked for the third distinct honest
+    // reason on this list: a part being designed has no default material, and
+    // filling one in would let a bare keystroke decide the part is aluminium and
+    // change what it weighs. The Materials panel names the choice; the keyboard
+    // asks for it.
+    CHECK_EQ_STR(forge::uitest::at(blocked, 6), "part.set_material");
     // And each of the four names its own unfillable parameter, so the list is
     // not four ids that merely happen to sort into place.
     for (const char* id : {"file.import_step", "file.import_brep", "file.export_step",
@@ -170,7 +176,7 @@ int main() {
     // application registry really holds. This is the check that caught the
     // model.* -> part.* rename when the stubs were retired.
     CHECK_EQ_INT(rep.count(BindingIssueKind::UnknownCommand), 0);
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 6);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 7);
     // The shipped defaults bind the same 13 commands in all four profiles, so
     // there is no ProfileGap yet: a gap needs a command bound HERE and not
     // THERE. Unbound and ProfileGap are raised instead of each other, never
@@ -212,7 +218,7 @@ int main() {
     // complete() must NOT be cleared by GestureBlocked: that is a property of a
     // schema and no rebinding can fix it, so treating it as an incomplete map
     // would make the flag permanently unreachable.
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 6);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 7);
 
     // IDEMPOTENT. Running it again adds nothing and changes nothing — a startup
     // that calls it after registration AND after loadState must not double-bind.

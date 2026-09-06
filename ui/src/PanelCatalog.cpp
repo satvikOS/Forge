@@ -134,8 +134,8 @@ constexpr Row kRows[] = {
      "lands on and how the study shares it out.",
      PanelContent::Live},
     {"materials",
-     "The density of every material this part could be made from, and the weight each one gives "
-     "it.",
+     "What this part is made of, what that makes it weigh, and the whole list you can choose "
+     "from.",
      PanelContent::Live},
     {"mates",
      "Where the bodies of this model line up: which of them turn about one axis, which sit flush "
@@ -158,7 +158,7 @@ constexpr Row kRows[] = {
      PanelContent::Live},
     {"post_output",
      "The machine code produced for this setup, ready to read before you send it to the machine.",
-     PanelContent::Planned},
+     PanelContent::Live},
     {"properties",
      "The document you have open and the feature you have picked, with the one number that drives "
      "it.",
@@ -192,8 +192,7 @@ constexpr Row kRows[] = {
      "Whether this sketch is fully defined, and what is still free to move if it is not.",
      PanelContent::Live},
     {"stock",
-     "The smallest block of raw material this part can be cut from, and how much of that block "
-     "is cut away.",
+     "The block of raw material this part is cut from, and how much of it is left.",
      PanelContent::Live},
     {"study_tree",
      "The simulation studies set up for this part, and what each one is solving for.",
@@ -206,8 +205,8 @@ constexpr Row kRows[] = {
      "signed it.",
      PanelContent::Live},
     {"tool_library",
-     "The cutting tools this part calls for: the size each cut needs, how deep it has to reach, "
-     "and which cuts share one tool.",
+     "The cutting tools available for this setup, with their sizes, flute counts and the speeds "
+     "and feeds they cut at.",
      PanelContent::Live},
     {"verify_report",
      "Whether the part that was built matches what was asked for, and where it does not.",

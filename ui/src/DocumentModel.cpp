@@ -242,10 +242,23 @@ const std::vector<KeySpec>& keyTable() {
       {"DISPLAY-LENGTH", KeyScope::Top, 2, 0},
       {"DISPLAY-ANGLE", KeyScope::Top, 2, 0},
       {"DISPLAY-MASS", KeyScope::Top, 2, 0},
-      {"MATERIAL-ID", KeyScope::Top, 2, 0},
-      {"MATERIAL-NAME", KeyScope::Top, 2, 0},
-      {"MATERIAL-DENSITY", KeyScope::Top, 2, 0},
-      {"MATERIAL-APPEARANCE", KeyScope::Top, 2, 0},
+      // ── the four material keys are `since = 1`, and that is not a typo ────
+      // They were introduced here, at v2, and for a while only this writer
+      // emitted them. The SHIPPED writer -- forge-desktop/src/PartFile.cpp, which
+      // is what ForgeFrame::documentSave puts on a user's disk -- now stores the
+      // part's material too, and it stores it under THESE names rather than a
+      // second spelling of its own, because two vocabularies for one field is
+      // exactly the drift ui/test/document_format_compat_test.cpp exists to
+      // refuse. So a v1 file can carry them, and a reader that rejected them at
+      // v1 would refuse a document the application had just written.
+      //
+      // Widening `since` is safe in the one direction that matters: a v1 file
+      // written before the material existed simply has no such line, and the
+      // reader's defaults already answer "no material chosen".
+      {"MATERIAL-ID", KeyScope::Top, 1, 0},
+      {"MATERIAL-NAME", KeyScope::Top, 1, 0},
+      {"MATERIAL-DENSITY", KeyScope::Top, 1, 0},
+      {"MATERIAL-APPEARANCE", KeyScope::Top, 1, 0},
       {"VIEW-EYE", KeyScope::Top, 2, 0},
       {"VIEW-TARGET", KeyScope::Top, 2, 0},
       {"VIEW-UP", KeyScope::Top, 2, 0},

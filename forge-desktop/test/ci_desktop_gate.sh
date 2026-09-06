@@ -80,9 +80,9 @@ set -uo pipefail
 #    60 px off where the app PUBLISHED it, 10 the body never selected so the
 #    handles are not up, 11 a drag with zero net motion, 12 the pick filter left
 #    on `face` so the body branch never runs).
-# ── 2026-09-04: 89. Added simulation panels (+6: study_gate 1..6).
+# ── 2026-09-04: 96. Added manufacturing panels (+7: cam_panels_gate 1..7).
 #    DERIVED: awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-EXPECTED_MUTATIONS=89
+EXPECTED_MUTATIONS=96
 # MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
 # from either parent. This number has been contested at THREE merges now and the
 # sides have swapped between them, which is the whole argument for measuring it

@@ -333,21 +333,26 @@ int main() {
     }
   }
   CHECK_EQ_INT(documentCommands, app.partCommands + 1);  // + edit.delete
-  // Every document command emits feature IR EXCEPT part.edit_feature, and that exception
-  // is structural rather than an oversight: edit_feature MUTATES an existing statement's
-  // argument in place, so it has no op of its own to emit -- the statement it edits already
-  // carries one. Naming the single exemption keeps this as strong as the equality it
-  // replaces: a SECOND op-less document command still fails here.
+  // Every document command emits feature IR except TWO, and both exceptions are
+  // structural rather than oversights. part.edit_feature MUTATES an existing
+  // statement's argument in place, so it has no op of its own to emit -- the
+  // statement it edits already carries one. part.set_material changes what the
+  // part is MADE OF, which is a property of the document and not a step in its
+  // history: emitting an op for it would put the material in the feature tree,
+  // where undoing an unrelated fillet could take it away again.
+  //
+  // Both are named, deliberately: a THIRD op-less document command still fails
+  // here, which is the whole strength of this check over a bare count.
   std::size_t documentCommandsWithoutIr = 0;
   for (const std::string& id : shell.registry().ids()) {
     const CommandDescriptor* c = shell.registry().find(id);
     if (c->undo == UndoContract::Transaction && c->featureIrOp.empty()) {
       ++documentCommandsWithoutIr;
-      CHECK_EQ_STR(id, "part.edit_feature");
+      CHECK(id == "part.edit_feature" || id == "part.set_material");
     }
   }
-  CHECK_EQ_INT(documentCommandsWithoutIr, 1);
-  CHECK_EQ_INT(documentCommandsWithIr, documentCommands - 1);
+  CHECK_EQ_INT(documentCommandsWithoutIr, 2);
+  CHECK_EQ_INT(documentCommandsWithIr, documentCommands - 2);
 
   // ── one dispatch path: shortcut, palette pick and macro step all land ───
   // in the SAME journal, because they all go through run().

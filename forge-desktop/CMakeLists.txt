@@ -199,10 +199,14 @@ target_include_directories(forge_imgui PUBLIC "${IMGUI_DIR}" "${VK_INC}")
 target_link_libraries(forge_imgui PUBLIC "${VK_LOADER_LIB}")
 
 # ---------------------------------------------------------------- app sources
-# KernelScene.cpp and FileExchangeHost.cpp are the ONLY translation units that
-# see OCCT headers. FileExchangeHost is the second one and it is deliberate: file
-# exchange reads and writes files, holds no geometry and has no scene, and
-# folding it into KernelScene would have made the viewport own the file system.
+# KernelScene.cpp, FileExchangeHost.cpp and CamHost.cpp are the ONLY translation
+# units that see OCCT headers, and each of the three is deliberate. FileExchange
+# reads and writes files, holds no geometry and has no scene, and folding it into
+# KernelScene would have made the viewport own the file system. CamHost is the
+# manufacturing seam: forge/CamAdvanced.hpp reaches forge/Cam.hpp, which reaches
+# ShapeRegistry.hpp and therefore OCCT, so the four Manufacturing panels get
+# their tools, toolpaths, machine code and stock simulation through one file the
+# frame builder can include without seeing any of it.
 # The property that matters is unchanged -- the ImGui frame builder still reaches
 # no OCCT header, and every headless gate still links what it needs and no more.
 # FileDialog.cpp is the POLICY half of the native file panel -- which command
@@ -215,6 +219,7 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CamHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
@@ -329,6 +334,20 @@ add_executable(forge_desktop_copilot_gate
 target_compile_options(forge_desktop_copilot_gate PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(forge_desktop_copilot_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_copilot_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
+# ------------------------------------------------- the MANUFACTURING gate
+# The four Manufacturing panels, headless. It asserts that what the panels HOLD
+# equals what an INDEPENDENT call into forge::camx and forge::cam returns for the
+# same inputs -- not that the panels drew something. `--mutate 1..7` breaks one
+# query each and the gate is then REQUIRED to go red; the mutations are
+# registered below as ordinary tests with WILL_FAIL, the same idiom the update
+# and file-exchange gates use.
+add_executable(forge_desktop_cam_panels_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/cam_panels_gate.cpp")
+target_compile_options(forge_desktop_cam_panels_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_cam_panels_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_cam_panels_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
 # ---------------------------------------------------------------- the gates
@@ -511,6 +530,7 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileExchangeHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialog.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/CamHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
@@ -659,6 +679,16 @@ foreach(_sm RANGE 1 6)
     add_test(NAME forge_desktop_study_mutation_${_sm}
              COMMAND forge_desktop_study_gate --mutate ${_sm})
     set_tests_properties(forge_desktop_study_mutation_${_sm} PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_cam_panels_gate COMMAND forge_desktop_cam_panels_gate)
+# The negative controls. Each --mutate breaks ONE query the panels depend on, and
+# a mutation that stops being caught is a RED TEST rather than a line nobody
+# reads. Do not "fix" one of these by removing WILL_FAIL.
+foreach(_cm RANGE 1 7)
+    add_test(NAME forge_desktop_cam_panels_mutation_${_cm}
+             COMMAND forge_desktop_cam_panels_gate --mutate ${_cm})
+    set_tests_properties(forge_desktop_cam_panels_mutation_${_cm}
+                         PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_click_gate COMMAND forge_desktop_click_gate)
 add_test(NAME forge_desktop_update_gate COMMAND forge_desktop_update_gate)
