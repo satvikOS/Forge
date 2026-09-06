@@ -4246,3 +4246,137 @@ than the thing measured.** The same shape retired several other beliefs the same
 in OPPOSITE directions); DRAFT's other 52 are **not** a topology change; THICKSOLID's invalid bar is
 **133**; and FILLET's 58 near-misses are a **real geometric difference, not a tolerance** — so
 declining to widen was right.
+
+## 2026-09-04 — the v5 evaluation blocker was self-inflicted; the invariant was backwards
+
+**Claimed yesterday and recorded as measured:** every adapter holds 1024 tensors of which 480 are
+LoRA; `adapter_config.json` lists the 240 LoRA modules, so **544 are silently ignored at load**, and
+110 of them changed during v5 training. On that basis I declared the evaluation blocked, refused to
+produce a number, and put a question mark on the published v3 result.
+
+**That claim is false.** `mlx_vlm/trainer/utils.py:346` calls `model.load_weights(..., strict=False)`
+on the WHOLE model after the LoRA layers are installed, so a non-LoRA tensor is applied iff its name
+matches an existing parameter. Measured on the live model — load v3, read the tensor back:
+`vision_tower.blocks.25.mlp.linear_fc2.weight` equals the ADAPTER exactly (max|d| 0) and differs from
+base by the full 4.37e-3. All 544 land. v3's result stands; v5 was never blocked.
+
+**The real defect was in our own `expert_lora_patch.verify()`**, and it was backwards: it passed the
+784-key config that CRASHES the loader and refused the 240-key config that works. Cause:
+`keys_from_weights()` stripped `.lora_[ab]` off every tensor name, so the norms and the whole vision
+tower (544) were counted as LoRA module paths.
+
+**Decision — fix the invariant, do not relax it.** LoRA-only key derivation; `verify(base_dir=...)`
+checks the two tensor classes on the instrument that governs each. The v4a protection (a LoRA tensor
+whose module is never built IS dropped — 72 expert tensors lost) is unchanged in both directions; a
+new check covers the class that had none. Gate: `scripts/test_expert_lora_verify.py`, 10 checks,
+three mutations each refused with its own diagnosis. The evaluator now refuses an adapter whose
+tensors cannot all land, proved against a synthetic bad adapter.
+
+**Rule taken from it:** a measured fact multiplied by an unmeasured premise yields an unmeasured
+conclusion. The measurement ("110 tensors changed") was right; the premise about load behaviour was
+never checked, and the product was a blocker that cost a night. Loading the model and reading the
+tensor back took four minutes.
+
+**Also this tick:** #242 merged (`0e1efdcd`, 27 today). App rebuilt from the merged HEAD and
+installed; the shipped dylib carries both new guard strings, the worker answers
+`FORGE-WORKER-RESULT 1`, the bundle launches. Rollback `/Applications/Forge.app.prev-20260904-1142`.
+**OCCT_CLOSURE re-measured after the base move: 14, unchanged** — as predicted, `BRepExtrema` is
+TKTopAlgo and already a direct dep. Zero of 14 dropped; the pair {TKOffset, TKFillet} still gates it.
+
+## 2026-09-04 — the vocabulary corpus teaches copying, not knowing
+
+**Measured, and it is a total disjunction on the one cue the corpus exists to teach:**
+
+```
+vocab_legal_v3/train.jsonl   38,000 rows — system prompt lists the 53 legal ops:  38,000  (100.0%)
+holdout_enlarged_600.jsonl      600 rows — system prompt lists the 53 legal ops:       0  (  0.0%)
+```
+
+Training says *"The ONLY ops a user can invoke are: BLEND, BOX, CAP, …"* in **every** row. The
+benchmark says *"reverse-engineer this face census"* and names **no ops at all**. The model was
+never required to memorise the vocabulary — it could read it out of the context window every time —
+and at evaluation the context does not contain it.
+
+**The failure this produces is exactly the observed one.** First 15 e600 tasks under v5: 15/15 fail
+to compile, **100% on invented ops** — `CYLINDRICAL_BORE` (10), `CYLINDRICAL BORE` (2), `CYLINDER`
+(2), `extrudeSphere` (1). Pre-registered P1 said the unknown-op share of compile failures would fall
+from ~100% to **<20%**. On this evidence **P1 is failing**, and `CYLINDER` is the same token that
+made v8 score 0/600.
+
+**The tasks also differ, not just the cue.** Training: "Build this part in Forge" from a text
+description. Benchmark: reverse-engineer a solid from a kernel-measured face census. Same output
+grammar, different input modality.
+
+**Decision — stop the full run and buy the answer instead.** e600 was emitting at 2.7 min/task, so
+the remaining 585 would take ~27 hours to confirm a number already visible at 15/15. The partial
+data is preserved (`reports/vocab_v5_partial/`) and reported as what it is: a prefix, and the
+holdout is sorted hardest-first, so it is a hard sample. Running in its place is a controlled A/B on
+a **stride** sample of 20 tasks, identical in every field except the system prompt, which in arm B
+gains the one sentence naming the 53 ops. Positive control recorded before launch: the arms differ
+in exactly one field, `system`, 0/20 vs 20/20.
+
+**What each outcome would mean, written down before the result:**
+- **Arm B collapses the invented-op rate** → the vocabulary was never internalised, and the fix is a
+  corpus that withholds the op list from a large fraction of rows.
+- **Arm B fails too** → the binding constraint is the TASK mismatch (census → tree), not the
+  vocabulary cue, and a corpus of census-derived rows is what is missing. **Do not build v6 until
+  this comes back** — the two diagnoses call for different corpora.
+
+**The shape is one already in the ledger:** MM-CAD was unusable because all 33,816 rows carried the
+assistant answer verbatim in the user prompt. This is the same defect one level down — not the
+answer in the prompt, but the *vocabulary* in the prompt, in 100% of rows. **A corpus can be 100%
+legal, fully covered across all 53 ops, and still teach copying rather than knowing. Check what the
+model must SUPPLY, not just what the corpus CONTAINS.**
+
+## 2026-09-04 — the FILLET/CHAMFER deficit decomposed; and it does not move closure
+
+Measured on a full 600-part corpus run at `0e1efdcd` (1200 rows, 0 error rows, gate self-test PASS,
+`build_stamp.git_head == kernel_head_at_run`, 0 dirty files). Positive control: the run reproduced
+#242's pre-registered numbers exactly, so the binary matches the tree.
+
+**First, a correction to how we have been stating the deficit.** "Parts where OCCT succeeds and
+native DEFERS" is true for CHAMFER (171/171) but NOT for FILLET:
+
+| family | deficit | native DEFER | native invalid | native VALID but disagrees |
+|---|---:|---:|---:|---:|
+| FILLET | 202 | **144** | 0 | **58** |
+| CHAMFER | 171 | **171** | 0 | 0 |
+
+Both tables below sum to the deficit **exactly, with no remainder**.
+
+**FILLET 202** — hole-wire clearance 69 · *disagreement (not a defer) 58* · ring clearance 37 ·
+face A non-planar 14 · face B non-planar 9 · extent unmeasurable 7 · non-straight outer boundary 6 ·
+vertex not trihedral 2.
+
+**CHAMFER 171** — end face not a straight-boundary corner 67 · hole-wire clearance 59 · ring
+clearance 16 · face B non-planar 8 · face A non-planar 7 · extent unmeasurable 7 · non-straight
+outer boundary 6 · vertex not trihedral 1.
+
+The two families are the **same parts class-for-class**. The one off-diagonal cell is
+`FILLET DISAGREE(58) → CHAMFER ENDFACE(58)`: one geometry class seen twice.
+
+**The 58 are probably the instrument, not the engine.** Counts, bbox (bit-identical) and COM all
+agree; only volume (2.2–5.0e-6 relative) and area (4.5–6.3e-6) differ. Native emits exact
+**Torus×4 + Cylinder×8**; OCCT emits **BSpline×8**. If native is the correct arm the true FILLET
+capability deficit is **144, not 202**. **This is being adjudicated against an independent closed
+form — neither arm may be its own judge — and until that returns the deficit stays stated as 202.**
+
+**Tractable:** CHAMFER's 67 end-face parts are a pure code gap — FILLET answers them through
+`filletTangentRim`; CHAMFER has no rim path at all. The chamfer rim is strictly simpler (a Plane per
+line segment where the fillet uses a cylinder, a Cone per arc where it uses a torus). Implementation
+is under way. Hole-wire clearance (69/59) is also bounded but is two pieces, not one: OCCT's answer
+there is a blend **split into two by the bore**, which `retrimAdjacentFace` cannot express.
+
+**Deep, and not to be budgeted as a sprint:** the non-planar-face classes (23 FILLET / 15 CHAMFER)
+are 157–181-face organic parts with B-spline outer rings and B-spline/cylindrical end faces; they
+need uv-space retrim of a cylindrical face, spline-boundary retrim, and blend termination against a
+B-spline end face. The last two are the general problem.
+
+★★★**AND THE PART THAT MATTERS MOST: NONE OF THIS MOVES CLOSURE.** The flip gate is
+**`deficit == 0`, not "deficit small"**. Even if the CHAMFER rim and both hole-clearance classes
+landed perfectly, FILLET's defers would fall 144 → 75 and CHAMFER's 171 → 45 — **both rows still
+fail, `TKFillet` still cannot go, and `TKOffset` has to go in the same step regardless.**
+**OCCT_CLOSURE stays 14.** This is the honest answer to "why has closure still not dropped": the
+remaining work is not a long tail of small fixes, it is ~23–38 parts per family of genuine spline
+blending, behind an all-or-nothing gate, on the second member of a pair that must be removed
+together.
