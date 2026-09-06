@@ -130,8 +130,9 @@ constexpr Row kRows[] = {
      "mould.",
      PanelContent::Live},
     {"loads",
-     "The forces, pressures and temperatures applied to this study.",
-     PanelContent::Planned},
+     "The forces pushing on this part: how big each one is, which way it points, which side it "
+     "lands on and how the study shares it out.",
+     PanelContent::Live},
     {"materials",
      "The density of every material this part could be made from, and the weight each one gives "
      "it.",
@@ -167,8 +168,9 @@ constexpr Row kRows[] = {
      "you drag one.",
      PanelContent::Live},
     {"restraints",
-     "Where this study is held still: the faces that are fixed, pinned or supported.",
-     PanelContent::Planned},
+     "Which sides of this part are held still, the directions each one is held in, and how much "
+     "of the part that covers.",
+     PanelContent::Live},
     {"sheet_canvas",
      "The drawing sheet itself, with the views, notes and title block laid out as they will "
      "print.",
