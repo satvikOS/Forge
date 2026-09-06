@@ -107,6 +107,7 @@
 #include "forge/native/brep/Topology.hpp"          // Solid, TopologyBuilder
 #include "forge/native/brep/FaceNormal.hpp"         // native BRepGProp_Face::Normal replacement
 #include <cstdint>
+#include <unordered_set>
 #include <vector>
 #endif
 
@@ -366,6 +367,16 @@ bool tryNativePushPull(ShapeHandle shape, FaceId /*faceId*/, double /*distance*/
 #endif
 
 std::size_t faceCount(ShapeHandle shape) {
+#ifdef FORGE_NATIVE_BREP
+    if (ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        const auto& solid = ShapeRegistry::instance().getNativeSolid(shape);
+        std::size_t count = 0;
+        for (const auto* sh : solid.shells) {
+            if (sh) count += sh->faces.size();
+        }
+        return count;
+    }
+#endif
     const auto& s = ShapeRegistry::instance().get(shape);
     TopTools_IndexedMapOfShape map;
     TopExp::MapShapes(s, TopAbs_FACE, map);
@@ -376,6 +387,31 @@ std::size_t faceCount(ShapeHandle shape) {
 // when the user clicks the toolbar tool without picking edges (matches
 // SolidWorks "Round all edges" / Fusion 360 default fillet behavior).
 std::size_t edgeCount(ShapeHandle shape) {
+#ifdef FORGE_NATIVE_BREP
+    if (ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        const auto& solid = ShapeRegistry::instance().getNativeSolid(shape);
+        std::unordered_set<const native::brep::Edge*> uniqueEdges;
+        for (const auto* sh : solid.shells) {
+            if (!sh) continue;
+            for (const auto* f : sh->faces) {
+                if (!f) continue;
+                auto countLoop = [&](const native::brep::Loop* l) {
+                    if (!l || !l->first) return;
+                    const native::brep::Coedge* c = l->first;
+                    do {
+                        if (c->edge) uniqueEdges.insert(c->edge);
+                        c = c->next;
+                    } while (c && c != l->first);
+                };
+                countLoop(f->outerLoop);
+                for (const auto* inner : f->innerLoops) {
+                    countLoop(inner);
+                }
+            }
+        }
+        return uniqueEdges.size();
+    }
+#endif
     const auto& s = ShapeRegistry::instance().get(shape);
     TopTools_IndexedMapOfShape map;
     TopExp::MapShapes(s, TopAbs_EDGE, map);
@@ -386,6 +422,47 @@ std::size_t edgeCount(ShapeHandle shape) {
 // order faceCount/edgeCount return, so an index taken from either still means
 // the same sub-shape here.
 TopoCounts topoCounts(ShapeHandle shape) {
+#ifdef FORGE_NATIVE_BREP
+    if (ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        const auto& solid = ShapeRegistry::instance().getNativeSolid(shape);
+        TopoCounts c;
+        c.solids = 1;
+        c.shells = solid.shells.size();
+        std::unordered_set<const native::brep::Edge*> uniqueEdges;
+        std::unordered_set<const native::brep::Vertex*> uniqueVertices;
+        std::size_t wireCount = 0;
+        std::size_t faceCount = 0;
+        for (const auto* sh : solid.shells) {
+            if (!sh) continue;
+            for (const auto* f : sh->faces) {
+                if (!f) continue;
+                ++faceCount;
+                auto processLoop = [&](const native::brep::Loop* l) {
+                    if (!l || !l->first) return;
+                    ++wireCount;
+                    const native::brep::Coedge* ce = l->first;
+                    do {
+                        if (ce->edge) {
+                            uniqueEdges.insert(ce->edge);
+                            if (ce->edge->start) uniqueVertices.insert(ce->edge->start);
+                            if (ce->edge->end) uniqueVertices.insert(ce->edge->end);
+                        }
+                        ce = ce->next;
+                    } while (ce && ce != l->first);
+                };
+                processLoop(f->outerLoop);
+                for (const auto* inner : f->innerLoops) {
+                    processLoop(inner);
+                }
+            }
+        }
+        c.faces = faceCount;
+        c.wires = wireCount;
+        c.edges = uniqueEdges.size();
+        c.vertices = uniqueVertices.size();
+        return c;
+    }
+#endif
     const auto& s = ShapeRegistry::instance().get(shape);
     const auto count = [&s](TopAbs_ShapeEnum type) -> std::size_t {
         TopTools_IndexedMapOfShape map;

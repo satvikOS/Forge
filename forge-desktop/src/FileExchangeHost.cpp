@@ -21,6 +21,9 @@
 #include "forge/Tessellate.hpp"
 #include "forge/Transform.hpp"
 #include "forge/ft/FeatureTree.hpp"
+#include "forge/native/brep/Surface.hpp"
+#include "forge/native/brep/Topology.hpp"
+#include <unordered_set>
 
 namespace forge::desktop {
 namespace {
@@ -214,6 +217,49 @@ void measure(forge::ShapeHandle handle, ExchangeReport& report) {
       ++report.faceKinds[face.kind];
     }
   } catch (...) {
+  }
+  if ((report.faceCount <= 0 || report.faceKinds.empty()) &&
+      forge::ShapeRegistry::instance().kindOf(handle) == forge::ShapeKind::NativeSolid) {
+    try {
+      const auto& solid = forge::ShapeRegistry::instance().getNativeSolid(handle);
+      long fCount = 0;
+      std::unordered_set<const forge::native::brep::Edge*> uniqueEdges;
+      for (const auto* sh : solid.shells) {
+        if (!sh) continue;
+        for (const auto* f : sh->faces) {
+          if (!f) continue;
+          ++fCount;
+          std::string kind = "plane";
+          if (f->surface) {
+            switch (f->surface->kind) {
+              case forge::native::brep::SurfaceKind::Plane: kind = "plane"; break;
+              case forge::native::brep::SurfaceKind::Cylinder: kind = "cylinder"; break;
+              case forge::native::brep::SurfaceKind::Cone: kind = "cone"; break;
+              case forge::native::brep::SurfaceKind::Sphere: kind = "sphere"; break;
+              case forge::native::brep::SurfaceKind::Torus: kind = "torus"; break;
+              case forge::native::brep::SurfaceKind::Nurbs: kind = "bspline"; break;
+              default: kind = "other"; break;
+            }
+          }
+          ++report.faceKinds[kind];
+          auto addLoopEdges = [&](const forge::native::brep::Loop* l) {
+            if (!l || !l->first) return;
+            const forge::native::brep::Coedge* c = l->first;
+            do {
+              if (c->edge) uniqueEdges.insert(c->edge);
+              c = c->next;
+            } while (c && c != l->first);
+          };
+          addLoopEdges(f->outerLoop);
+          for (const auto* inner : f->innerLoops) {
+            addLoopEdges(inner);
+          }
+        }
+      }
+      if (report.faceCount <= 0) report.faceCount = fCount;
+      if (report.edgeCount <= 0) report.edgeCount = static_cast<long>(uniqueEdges.size());
+    } catch (...) {
+    }
   }
   try {
     const forge::Mesh mesh = forge::tessellate(handle, kMeasureLinearTol, kMeasureAngularTol);

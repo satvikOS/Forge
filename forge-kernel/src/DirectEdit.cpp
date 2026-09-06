@@ -40,6 +40,8 @@
 #include "forge/native/brep/UnifyFaces.hpp"
 #include "forge/native/brep/NativeRoute.hpp"      // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/NativeShapeHeal.hpp"  // occtheal::finalizeShape (TKShHealing-free light heal)
+#include "forge/native/brep/Topology.hpp"
+#include "forge/native/brep/Surface.hpp"
 #endif
 
 namespace forge {
@@ -262,6 +264,36 @@ ShapeHandle unifyFaces(ShapeHandle body) {
 }
 
 std::vector<FaceInfo> faceInventory(ShapeHandle body) {
+#ifdef FORGE_NATIVE_BREP
+    if (ShapeRegistry::instance().kindOf(body) == ShapeKind::NativeSolid) {
+        const auto& solid = ShapeRegistry::instance().getNativeSolid(body);
+        std::vector<FaceInfo> out;
+        int idx = 1;
+        for (const auto* sh : solid.shells) {
+            if (!sh) continue;
+            for (const auto* f : sh->faces) {
+                if (!f) continue;
+                FaceInfo fi;
+                fi.index = idx++;
+                if (f->surface) {
+                    switch (f->surface->kind) {
+                        case native::brep::SurfaceKind::Plane: fi.kind = "plane"; break;
+                        case native::brep::SurfaceKind::Cylinder: fi.kind = "cylinder"; break;
+                        case native::brep::SurfaceKind::Cone: fi.kind = "cone"; break;
+                        case native::brep::SurfaceKind::Sphere: fi.kind = "sphere"; break;
+                        case native::brep::SurfaceKind::Torus: fi.kind = "torus"; break;
+                        case native::brep::SurfaceKind::Nurbs: fi.kind = "bspline"; break;
+                        default: fi.kind = "other"; break;
+                    }
+                } else {
+                    fi.kind = "plane";
+                }
+                out.push_back(fi);
+            }
+        }
+        return out;
+    }
+#endif
     const TopoDS_Shape& shape = ShapeRegistry::instance().get(body);
     TopTools_IndexedMapOfShape m = faceMap(shape);
 
