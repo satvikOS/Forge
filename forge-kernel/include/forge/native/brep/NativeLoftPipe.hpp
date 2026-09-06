@@ -49,54 +49,33 @@
 //   With solid=true the two end sections are closed by planar cap faces. The
 //   result is sewn, checked watertight, and oriented to positive volume.
 //
-//   ★ WHY A TRIANGULATED QUAD IS STILL FORBIDDEN. The ruled surface between two
-//   non-parallel straight edges is a BILINEAR patch, and a bilinear patch's
-//   signed volume contribution is the MEAN of its two triangulations — so a quad
-//   split into triangles encloses a DIFFERENT volume from the ruled patch OCCT
-//   builds. That rules out triangulation for ever. It never ruled out building
-//   the bilinear patch ITSELF, which is what the twisted pass now does.
+//   ★ THREE MORE ENGINES SIT BEHIND THAT ONE, each tried ONLY when the previous
+//   declines, so every one of them is strictly additive — an input the polygonal
+//   path covered still takes the polygonal path and returns the shape it always
+//   returned.
 //
-//   ★ THE TWISTED PASS (added 2026-09-03; this used to be an unconditional
-//   defer, and test/ab_native_loftpipe_occt.cpp used to ASSERT the defer). A
-//   non-planar lateral quad is now laid as a degree-(1,1) Geom_BezierSurface
-//   whose four poles ARE the four corners — the exact ruled surface, analytic,
-//   nothing fitted or faceted. MEASURED that this is the incumbent's own
-//   surface: OCCT 7.9.3 emits, for each lateral of a 30-degree-twisted square
-//   loft, a Geom_BSplineSurface of UDegree 1 and VDegree 1 with 2x2 non-rational
-//   poles equal to those same corners.
+//     TRANSLATED SECTIONS. When section B is section A translated by T, every
+//     ruled line joins p to p + T, so the loft IS the linear extrusion of A along
+//     T — exactly, for any edge geometry, arcs and splines alike. Built with
+//     forge::occtPrism.
 //
-//   THE TWISTED PASS RUNS ONLY AFTER THE PLANAR AND TRANSLATED PASSES DECLINE,
-//   so it is strictly additive: no input either of them covered can answer
-//   differently. It carries TWO acceptance gates of its own, because a curved
-//   lateral takes away the planarity check that used to police the ring
-//   correspondence for free:
+//     COAXIAL CIRCLES (unequal radii). Between two COAXIAL full circles the ruled
+//     line from polar angle t on one to polar angle t on the other has radius
+//     (1-s) r0 + s r1, affine in s, which vanishes at one point ON the axis — so
+//     every such line passes through a single apex and the surface is EXACTLY a
+//     right circular cone. The loft is the frustum of it, built by
+//     forge::occtConeSolid as one analytic Geom_ConicalSurface lateral plus two
+//     planar circular caps (solid=true) or as that lateral alone in a one-face
+//     shell (solid=false).
 //
-//     (a) CORRESPONDENCE, EARNED. The index pairing is chosen by LEAST TWIST
-//         (minimum sum of squared displacement over every winding and origin
-//         offset) and then VERIFIED: the chosen pairing must make the two rings
-//         SIMILAR (one constant k with |b_i b_j| = k |a_i a_j| for every pair),
-//         and must beat the runner-up pairing by a clear cost margin. A pairing
-//         that cannot be verified is an honest defer — the engine never guesses
-//         a correspondence it cannot check. MEASURED why this is not optional:
-//         with the nearest-vertex origin the polygonal path uses, an asymmetric
-//         quadrilateral pair built 3528.944 where OCCT builds 3771.638 — 6.4%
-//         apart, both BRepCheck-VALID, both 6/12/8/1.
-//     (b) CLOSED FORM. The built solid's volume AND centre of mass must match
-//         the divergence-theorem values computed from the section rings alone by
-//         exact Gauss quadrature over the same bilinear patches. Four
-//         observables, none of them read off the B-rep being judged.
+//     THE TWISTED PASS (added 2026-09-03). A non-planar lateral quad is laid
+//     as a degree-(1,1) Geom_BezierSurface whose four poles ARE the four
+//     corners — the exact ruled surface, analytic, nothing fitted or faceted.
+//     The pairing is verified by similarity and bounded by the Gauss-quadrature
+//     closed-form oracle.
 //
-//   SO THE TWISTED PASS COVERS: two (or more) polygon sections related by a
-//   verified similarity — a rotated, tapered, or rotated-and-tapered boss, the
-//   real CAD twisted loft. IT STILL DECLINES: a twisted pair NOT related by a
-//   similarity, and a pair whose least-twist correspondence is contested (a
-//   square rotated by exactly 45 degrees, where the two pairings tie exactly).
-//   Both declines are exercised in the A/B with an OCCT control proving they are
-//   real coverage boundaries and not impossible inputs.
-//
-//   The planar family remains what it always was: prisms, frustums, pyramids,
-//   wedges, and every pair of sections related by translation and/or a homothety
-//   about a common axis.
+//     RULED CURVED SECTIONS. General ruled patch between two matching closed
+//     curves.
 //
 // family F — pipeShell()
 //   Unguided sweep of a CLOSED planar polygon profile along a POLYLINE spine
@@ -121,10 +100,20 @@
 //       this engine does NOT and says so);
 //     * a lateral quad whose 4 corners are not coplanar within `tol` AND whose
 //       ring pair fails the twisted pass's correspondence gate (not related by a
-//       verified similarity, or a contested least-twist choice) — a non-planar
-//       quad on its own is no longer a defer, see THE TWISTED PASS above;
+//       verified similarity, or a contested least-twist choice);
 //     * a lateral quad whose area is degenerate (all four corners collinear);
 //     * a twisted build whose volume or centre of mass misses the closed form;
+//     * a circle pair the coaxial-circle path cannot claim, each declined by name
+//       and each MEASURED against live OCCT rather than assumed impossible:
+//         - centres OFF the common axis (`cone_centres_off_axis`) — the loft is an
+//           OBLIQUE cone, which no Geom_ConicalSurface represents;
+//         - axes NOT PARALLEL (`cone_axes_not_parallel`) — not a cone at all;
+//         - wire ORIGINS at different polar angles (`cone_seam_not_aligned`) — the
+//           correspondence is then t -> t + phi and the surface is TWISTED, not
+//           the cone;
+//         - anything that is not two closed single-edge FULL-circle wires (an arc,
+//           an ellipse, a three-section stack);
+//         - a built frustum that misses either closed form above;
 //     * a non-planar end section when solid=true;
 //     * ruled=false (the SMOOTHED B-spline skin is a genuinely different
 //       surface — approximating it here would be a silent substitution);
@@ -189,6 +178,11 @@
 // face/edge/vertex/shell counts AND validity, plus independent closed forms,
 // plus a NEGATIVE CONTROL proving the comparator rejects two shapes of equal
 // volume. Run it with test/run_ab_native_loftpipe.sh.
+// test/run_cone_loft_mutation_gate.sh proves the coaxial-circle half of that
+// harness CAN fail: six mutants of THIS FILE (never of the test), each of which
+// must turn the harness red on its OWN assertion — including the two-sided pair
+// that shows the closed-form oracle is what converts a deliberately wrong build
+// into an honest defer rather than a plausible wrong answer.
 //
 // WIRING. The OCCT calls stay live by default; the native attempt is opt-in
 // (FORGE_LOFT_NATIVE=1 / FORGE_PIPESHELL_NATIVE=1) and falls through on defer.

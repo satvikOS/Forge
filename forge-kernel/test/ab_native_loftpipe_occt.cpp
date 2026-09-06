@@ -25,12 +25,14 @@
 // comparator REJECTS them. A gate that cannot fail is not a gate.
 //
 // DEFER CONTROL. Several cases assert the engine returns a NULL shape on inputs
-// outside its stated scope (mismatched section vertex counts, unequal circles, a
-// smoothed 3-section loft, a guided pipe-shell, an open section wire, and the
-// twisted pass's own three boundaries). A defer contract that is never exercised
-// is a comment, not a contract — and every twisted defer here carries an OCCT
-// control proving the input is one the incumbent DOES build, so the decline is a
-// stated coverage boundary rather than an impossible case.
+// outside its stated scope (mismatched section vertex counts, circle pairs whose
+// centres are off the common axis / whose axes are not parallel / whose wire
+// origins sit at different polar angles, a smoothed 3-section loft, a guided
+// pipe-shell, an open section wire, and the twisted pass's own boundaries).
+// A defer contract that is never exercised is a comment, not a contract —
+// and every defer here carries an OCCT control proving the input is one the
+// incumbent DOES build, so the decline is a stated coverage boundary rather
+// than an impossible case.
 //
 // ★ THE NON-PLANAR-QUAD DEFER USED TO BE ONE OF THESE and is not any more: the
 // engine builds the exact bilinear patch now, so that control was PROMOTED to a
@@ -90,6 +92,7 @@
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Wire.hxx>
@@ -208,6 +211,10 @@ TopoDS_Wire circleWire(double r, double z) {
     const gp_Circ c(gp_Ax2(gp_Pnt(0.0, 0.0, z), gp_Dir(0, 0, 1)), r);
     return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(c).Edge()).Wire();
 }
+// The same circle with the frame stated EXPLICITLY. The coaxial-circle cases
+// below turn each of the three frame degrees of freedom in turn — centre off the
+// axis, axis tilted, seam (the wire's origin direction) rotated — so each is a
+// separate, named input rather than three variations hidden in one helper.
 TopoDS_Wire circleWireAx(double r, const gp_Pnt& c, const gp_Dir& axis,
                          const gp_Dir& xdir) {
     const gp_Circ k(gp_Ax2(c, axis, xdir), r);
@@ -455,6 +462,54 @@ int main() {
         const double L = 24.0, r = 6.0, t = 9.0;
         std::vector<TopoDS_Shape> s{obroundWire(L, r, 0.0), obroundWire(L, r, t)};
         runThru("ts-xlate-obround", s, true, true, (2.0 * r * L + M_PI * r * r) * t);
+    }
+    {   // ★ THE COAXIAL-CIRCLE PATH — half two of family D, and the PROMOTION of
+        // what used to be a documented defer in the controls below ("UNEQUAL
+        // circles are DECLINED"). Two circles of different radius are NOT a
+        // translate, so the translated-section path above still declines them and
+        // must: the lateral surface is not a linear extrusion. It is, exactly, a
+        // RIGHT CIRCULAR CONE — every ruled line between polar angle t on one
+        // circle and polar angle t on the other passes through the single axis
+        // point where the affine radius (1-s) r0 + s r1 vanishes — so the loft is
+        // the frustum of that cone, and the closed form pins it independently:
+        //   V = pi h / 3 * (r0^2 + r0 r1 + r1^2).
+        // The old defer's POSITIVE CONTROL is KEPT, verbatim in intent, as the
+        // first assertion here — where it now reads as what it always was: the
+        // proof that OCCT is a live oracle for this input, and that the pair was
+        // never an impossible one.
+        const double r0 = 7.0, r1 = 4.0, h = 13.0;
+        std::vector<TopoDS_Shape> s{circleWire(r0, 0.0), circleWire(r1, h)};
+        check(!occtThru(s, true, true).IsNull(),
+              "control: OCCT DOES build that cone — the comparison below has a "
+              "live oracle, and this input was never impossible");
+        runThru("ts-cone-frustum", s, true, true,
+                M_PI * h / 3.0 * (r0 * r0 + r0 * r1 + r1 * r1));
+    }
+    {   // The same pair with solid == false — the OPEN conical skin, one face in
+        // one shell, which is the shape kind OCCT returns here too.
+        const double r0 = 7.0, r1 = 4.0, h = 13.0;
+        std::vector<TopoDS_Shape> s{circleWire(r0, 0.0), circleWire(r1, h)};
+        runThru("ts-cone-open", s, false, true, -1.0);
+    }
+    {   // EXPANDING (r0 < r1), on an ARBITRARY axis, off the origin, and with a
+        // seam direction that is not any global axis. The identity is a statement
+        // about the two circles, not about +Z through (0,0,0) — a frame-dependent
+        // implementation passes the case above and fails this one.
+        const double r0 = 4.0, r1 = 9.0, h = 20.0;
+        const gp_Dir A(1, 2, 2), X(2, -1, 0);
+        const gp_Pnt c0(3, 4, 5);
+        const gp_Pnt c1 = c0.Translated(gp_Vec(A) * h);
+        std::vector<TopoDS_Shape> s{circleWireAx(r0, c0, A, X), circleWireAx(r1, c1, A, X)};
+        runThru("ts-cone-arbaxis", s, true, true,
+                M_PI * h / 3.0 * (r0 * r0 + r0 * r1 + r1 * r1));
+    }
+    {   // ruled == false on the same coaxial pair: for TWO sections that is the
+        // same surface (PART 2 of NativeLoftPipe.cpp), asserted rather than
+        // assumed — exactly as ts-smooth-2sec does for the polygonal engine.
+        const double r0 = 7.0, r1 = 4.0, h = 13.0;
+        std::vector<TopoDS_Shape> s{circleWire(r0, 0.0), circleWire(r1, h)};
+        runThru("ts-cone-smooth-2sec", s, true, false,
+                M_PI * h / 3.0 * (r0 * r0 + r0 * r1 + r1 * r1));
     }
 
     // ================================ family F — MakePipeShell ===============
@@ -828,7 +883,12 @@ int main() {
         }
         {
             // (i) CENTRES OFF THE AXIS. Parallel axes, centres 2 mm apart across
-            //     them: the ruled loft is an OBLIQUE circular cone.
+            //     them: the ruled loft is an OBLIQUE circular cone. Real, but not
+            //     a right circular one, so no Geom_ConicalSurface represents it.
+            //     MEASURED: OCCT leaves its own analytic path here too and
+            //     returns a B-spline lateral whose volume misses the exact
+            //     oblique-frustum closed form by 2.37e-9 relative — recorded, not
+            //     used as a licence to approximate.
             std::vector<TopoDS_Shape> sec{
                 circleWireAx(7.0, gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
                 circleWireAx(4.0, gp_Pnt(2, 0, 13), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0))};
@@ -841,7 +901,16 @@ int main() {
         }
         {
             // (ii) AXES NOT PARALLEL. 20 degrees of tilt: the surface is not a
-            //      cone at all.
+            //      cone at all, and OCCT's own answer is 1.96e-2 relative away
+            //      from the frustum closed form.
+            //      ★ The tilt is about X, NOT about Y, so that the second wire's
+            //        ORIGIN direction stays (1,0,0) and the seam control (iii)
+            //        does not also fire on this input. A tilt about Y moves the
+            //        origin too, and then the axis guard is never the reason this
+            //        case declines — MEASURED: removing the axis guard entirely
+            //        left this case still declining, i.e. the assertion was
+            //        passing for someone else's reason (test/run_cone_loft_
+            //        mutation_gate.sh, mutant M4).
             const double a = 0.35;
             std::vector<TopoDS_Shape> sec{
                 circleWireAx(7.0, gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
@@ -854,7 +923,15 @@ int main() {
                   "control: OCCT DOES build the tilted pair");
         }
         {
-            // (iii) SEAM NOT ALIGNED.
+            // (iii) SEAM NOT ALIGNED. Same two coaxial circles, but the second
+            //       wire's origin rotated 45 degrees about the axis. The ruled
+            //       correspondence is then t -> t + phi and the surface is a
+            //       TWISTED one, not the cone. MEASURED on the incumbent: OCCT
+            //       re-origins the wires and returns FOUR faces / 6 edges / 4
+            //       vertices for this input where the aligned pair gives 3/3/2.
+            //       Emitting the 3-face cone here would be a topology change
+            //       smuggled in under a drop, so it is declined, and the control
+            //       records that OCCT does answer.
             const double a = 45.0 * M_PI / 180.0;
             std::vector<TopoDS_Shape> sec{
                 circleWireAx(7.0, gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)),
@@ -865,10 +942,20 @@ int main() {
                   "angles are DECLINED (the correspondence is twisted, not a cone)");
             const TopoDS_Shape occ = occtThru(sec, true, true);
             check(!occ.IsNull(), "control: OCCT DOES build the seam-offset pair");
+            if (!occ.IsNull()) {
+                const Metrics m = measure(occ);
+                check(m.nFace == 4 && m.nEdge == 6 && m.nVert == 4,
+                      "control: and it builds it with a SPLIT lateral — 4F/6E/4V, not the "
+                      "3F/3E/2V of the aligned pair (measured " +
+                          std::to_string(m.nFace) + "F/" + std::to_string(m.nEdge) + "E/" +
+                          std::to_string(m.nVert) + "V)");
+            }
         }
         {
             // (iv) EQUAL radii, coaxial: still the TRANSLATED-SECTION path's, and
-            //      it must stay there.
+            //      it must stay there. Two engines answering the same input is how
+            //      two answers start to drift, so this asserts the answer carries
+            //      NO conical face — i.e. the cone path did not claim a cylinder.
             const double r = 7.0, h = 13.0;
             std::vector<TopoDS_Shape> sec{circleWire(r, 0.0), circleWire(r, h)};
             const TopoDS_Shape nat = forge::occtloft::thruSections(sec, true, true, 1.0e-6);
