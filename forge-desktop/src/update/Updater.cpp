@@ -251,6 +251,63 @@ bool CurlFetcher::get(const std::string& url, const std::string& out_path, std::
   return true;
 }
 
+// ────────────────────────────────────────────────────── explaining a failure
+namespace {
+
+bool contains(const std::string& haystack, const char* needle) {
+  return haystack.find(needle) != std::string::npos;
+}
+
+}  // namespace
+
+std::string describeFetchFailure(const std::string& err) {
+  // Ordered most-specific first. Each arm is matched on curl's numeric code AND
+  // on its text, because the code is stable across versions and the text is what
+  // survives when the code is not in the message.
+
+  // A 404 on releases/latest/download is not a fault: GitHub's `latest` skips
+  // drafts and prereleases, so this is what an installed copy sees for as long
+  // as nothing has been PUBLISHED. Measured on this repository 2026-09-03:
+  //   curl: (56) The requested URL returned error: 404
+  // This sentence is the one the app already showed for that case; it is kept
+  // word for word so the fix does not change what a user reads in the one
+  // situation they are actually in today.
+  if (contains(err, "404")) return "no published release to update from yet";
+
+  if (contains(err, "(6)") || contains(err, "(7)") || contains(err, "Could not resolve host") ||
+      contains(err, "Failed to connect") || contains(err, "Couldn't connect")) {
+    return "could not reach github.com — check your internet connection";
+  }
+  if (contains(err, "(28)") || contains(err, "timed out") || contains(err, "Timeout")) {
+    return "the update check timed out before github.com answered";
+  }
+  if (contains(err, "(35)") || contains(err, "(60)") || contains(err, "(77)") ||
+      contains(err, "SSL") || contains(err, "certificate")) {
+    return "the secure connection to github.com could not be verified";
+  }
+  // curl 18: the connection closed cleanly with fewer bytes than were promised.
+  // The digest would catch this a step later, but only after the truncated file
+  // had been written; naming it here means the sentence matches the cause.
+  if (contains(err, "(18)") || contains(err, "transfer closed")) {
+    return "the download ended early and was discarded; nothing was installed";
+  }
+  if (contains(err, "(63)") || contains(err, "Maximum file size")) {
+    return "the download was bigger than Forge is willing to fetch; nothing was installed";
+  }
+  if (contains(err, "(47)") || contains(err, "redirect")) {
+    return "github.com redirected the download somewhere Forge will not follow";
+  }
+  if (contains(err, "500") || contains(err, "502") || contains(err, "503")) {
+    return "github.com is having trouble right now; try again later";
+  }
+  if (contains(err, "posix_spawn") || contains(err, "No such file or directory")) {
+    return "the update check could not start: /usr/bin/curl is missing from this system";
+  }
+  // Unrecognised. Still a sentence, still never empty, and still never the raw
+  // curl line: the caller keeps `err` for the log.
+  return "the update check could not be completed";
+}
+
 // ─────────────────────────────────────────────────────────────────── verifying
 bool verifyPayload(const std::string& zip_path, const Manifest& m, std::string& err) {
   err.clear();

@@ -176,6 +176,27 @@ struct CurlFetcher : Fetcher {
   bool get(const std::string& url, const std::string& out_path, std::string& err) override;
 };
 
+// Turns a Fetcher::get() error into ONE sentence a person can act on.
+//
+// WHY THIS EXISTS. `err` out of CurlFetcher is curl's own diagnostic, folded
+// through runProcess: "download failed: /usr/bin/curl exited 56: curl: (56) The
+// requested URL returned error: 404". That string is correct and it is the right
+// thing to keep in a log. It is the WRONG thing to put in front of a user, who
+// cannot act on an exit code from a program they did not know was involved --
+// and in this project's most common case it is actively misleading, because a
+// 404 on releases/latest/download means NOTHING IS PUBLISHED YET, not that
+// anything is broken.
+//
+// Both callers -- the app's update menu (UpdateService) and the `forge_update`
+// command -- run this over the same input so that the sentence a user reads is
+// the same one either way. The raw `err` stays available to the caller; the CLI
+// prints it on a second line labelled `detail:`, and the menu does not print it
+// at all.
+//
+// NEVER returns an empty string: a failed check that renders as blank is a
+// failed check that looks like a successful one.
+std::string describeFetchFailure(const std::string& err);
+
 // ────────────────────────────────────────────────────────── verify / stage / swap
 // sha256 and size of the file on disk against the manifest. Returns false with a
 // reason on ANY mismatch, including an unreadable file.
