@@ -102,6 +102,9 @@ DESKTOP_LINK=(
   forge-desktop/src/ForgeFrame.cpp
   forge-desktop/src/FileDialog.cpp
   forge-desktop/src/ImGuiErrorPolicy.cpp
+  forge-desktop/src/CamHost.cpp
+  forge-desktop/src/DrawingGdt.cpp
+  forge-desktop/src/StudyHost.cpp
 )
 # Deliberately NOT linked, each for a reason a reader can check:
 #   main.cpp, kernel_worker_main.cpp  -- each defines main(); click_gate.cpp owns it here
