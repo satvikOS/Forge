@@ -73,16 +73,9 @@ namespace {
 // Do not ADD a line here to make a red gate green. A new empty panel is the
 // defect this file exists to report.
 const char* const kPinnedEmptyPanels[] = {
-    "annotation",
     "convergence",
     "fixtures",
-    "gdt",
     "interference",
-    "loads",
-    "post_output",
-    "restraints",
-    "title_block",
-    "view_list",
     "zebra_analysis",
 };
 

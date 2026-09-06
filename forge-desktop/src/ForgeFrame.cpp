@@ -7739,14 +7739,14 @@ void ForgeFrame::runPendingMaterial() {
   const forge::ui::DispatchResult r = shell_.run("part.set_material", params);
   lastInvokeOk_ = r.ok();
   if (!r.ok()) {
-    note("part.set_material  ->  REFUSED: " + std::string(forge::ui::machineName(r.status)));
+    note("Set material — " + std::string(forge::ui::userText(r.status)));
     return;
   }
   // A material change alters what the part WEIGHS, so the document has changed
   // even though not one statement did. Without this line the change would be
   // lost on close with no prompt.
   documentDirty_ = true;
-  note("material: " + partDoc_.material().name);
+  note("Material: " + partDoc_.material().name);
 }
 
 // ── TOOL LIBRARY ────────────────────────────────────────────────────────────
@@ -8148,7 +8148,7 @@ int ForgeFrame::sketchDimensionNumberIndex(int statementIrId) const {
 bool ForgeFrame::applySketchDimensionEdit(int statementIrId, double value) {
   const int index = sketchDimensionNumberIndex(statementIrId);
   if (index < 0) {
-    note("statement %" + std::to_string(statementIrId) +
+    note("Feature %" + std::to_string(statementIrId) +
          " has no single number to change, so the dimension was not edited");
     return false;
   }
@@ -8161,11 +8161,10 @@ bool ForgeFrame::applySketchDimensionEdit(int statementIrId, double value) {
   // log and the enabled predicate.
   const forge::ui::DispatchResult r = shell_.run("part.edit_feature", p);
   if (!r.ok()) {
-    note("part.edit_feature  ->  " + std::string(forge::ui::machineName(r.status)) +
-         (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+    note("Edit feature — " + std::string(forge::ui::userText(r.status)));
     return false;
   }
-  note("part.edit_feature  ->  ok");
+  note("Edit feature — done");
   // The document changed, so the part is rebuilt from it AND the field is
   // released: sketchInspection() will re-read the solver on the next call
   // because the program text it compares against has moved.

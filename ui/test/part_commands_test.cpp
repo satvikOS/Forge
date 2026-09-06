@@ -1696,7 +1696,7 @@ int main() {
     PartDocument docM;
     UndoStack stackM;
     SelectionService selM;
-    CHECK_EQ_INT(registerPartCommands(regM, docM, stackM), 59);
+    CHECK_EQ_INT(registerPartCommands(regM, docM, stackM), 71);
 
     const CommandDescriptor* d = regM.find("part.set_material");
     CHECK(d != nullptr);
