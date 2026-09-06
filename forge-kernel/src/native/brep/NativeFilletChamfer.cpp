@@ -44,6 +44,7 @@
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_ToroidalSurface.hxx>
+#include <Geom_ConicalSurface.hxx>
 #include <Geom_Surface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Circle.hxx>
@@ -1819,6 +1820,28 @@ bool edgeIsTangentNoOp(const TopoDS_Shape& shape, const TopoDS_Edge& edge) {
 //   arc, tangent at every junction, carry at least one arc (a polygon rim is NOT a
 //   propagating contour and must keep the per-edge path), CONVEX throughout, with
 //   every wall used exactly once, rho > R, and every wall at least R deep.
+//
+// ★ AND THE SAME RIM SERVES THE CHAMFER — added 2026-09-04, measured on the same
+//   600-part corpus A/B. CHAMFER's largest remaining defer class is "end face is not
+//   a straight-boundary corner", n=67 of 347, and those 67 are THESE parts: the same
+//   rounded-rectangle plates, declining for the same correct reason (the face at each
+//   end of the picked edge is the corner cylinder, not a plane).
+//   Every scope condition above transfers VERBATIM, because a chamfer of setback d
+//   offsets the cap ring inward by d and pulls every wall back by d — exactly what a
+//   fillet of radius R does with R. Only the surface spanning the band changes, and
+//   it changes to something simpler: a PLANE per straight run (where the fillet has a
+//   cylinder) and a CONE per corner (where it has a torus), both exact Geom_ analytic
+//   surfaces. The self-check changes with it, by the same Pappus argument:
+//       |dV| = SUM_lines  d^2/2 * L
+//            + SUM_arcs   theta * 1/2 [ rho^2 d - (rho^3 - (rho-d)^3)/3 ]
+//   the second term being the first moment about the corner axis of the right
+//   triangle the bevel cuts off. Verified against live OCCT on exactly built
+//   rounded-rectangle prisms to 5e-15 relative, with the face-KIND census matching
+//   OCCT's own answer term for term (Cone:4 Cyl:4 Plane:10) — see the RIMCHAM cases
+//   in test/ab_native_fillet_concave_occt.cpp.
+//   So `kind` is threaded through ONE context builder and ONE assembly routine
+//   rather than the guards being copied into a second pair, where a scope condition
+//   could drift out of step between the two families.
 
 // A cylindrical face in ANY representation. The corpus's prismatic walls arrive
 // from STEP as Geom_SurfaceOfLinearExtrusion of a circle, which is a cylinder in
@@ -1874,9 +1897,49 @@ struct RimContext {
     double  bandArea = 0.0;    // area the cap loses to the offset
 };
 
+// WHICH BLEND a rim is being resolved for.
+//
+// ★ THE CHAMFER RIM IS THE SAME RIM. Everything that decides WHETHER a rim can be
+//   blended — the closed G1 ring, the inward offset of the cap, the convexity of
+//   every segment, rho > setback, the wall depth, the blend band's clearance of
+//   every wall feature, the offset ring's topological clearance of every hole — is
+//   IDENTICAL for a fillet of radius R and a chamfer of setback d, because both
+//   replace the SAME band of the cap with the SAME band of the walls. Only two
+//   things differ, and both are strictly simpler on the chamfer side:
+//     * the surface spanning the band: a PLANE per straight run where the fillet
+//       has a cylinder, a CONE per corner where the fillet has a torus;
+//     * the closed form for the removed volume, because only the swept section
+//       differs — a quarter-disc bite (fillet) against a right triangle (chamfer).
+//   So `kind` is threaded through the ONE context builder rather than the guards
+//   being copied into a second one, where a scope condition could drift.
+enum class RimKind { Fillet, Chamfer };
+
 // |dV| of ONE convex corner arc per unit angle: the section moment about the axis.
 inline double rimCornerMoment(double rho, double R) {
     return R * R * (2.0 * rho - R) * 0.5 - R * R * R / 3.0 - (rho - R) * kPi * R * R * 0.25;
+}
+
+// The same quantity for a CHAMFER of setback d, by the same Pappus argument.
+// In the corner's (r, z) half-plane — r measured from the corner axis, z from the
+// cap plane, material at z <= 0 — the chamfer removes the right triangle
+//   (rho-d, 0) - (rho, 0) - (rho, -d),
+// the bevel being the straight line r = rho - d - z across it. The first moment of
+// that triangle about the axis is
+//   \int\int r dA = \int_{-d}^{0} 1/2 [ rho^2 - (rho-d-z)^2 ] dz
+//                  = 1/2 [ rho^2 d - (rho^3 - (rho-d)^3)/3 ],
+// and Guldinus multiplies it by the swept angle. For d << rho this tends to
+// theta*rho * (d^2/2) — arc length times the triangle's own area — which is the
+// straight-run term below, as it must be.
+inline double rimChamferCornerMoment(double rho, double d) {
+    const double a = rho - d;
+    return 0.5 * (rho * rho * d - (rho * rho * rho - a * a * a) / 3.0);
+}
+
+// |dV| of ONE straight run per unit length, for each kind: the fillet leaves the
+// square minus its quarter disc, the chamfer leaves the square minus its diagonal
+// half. Both collapse to the per-edge engine's own constants.
+inline double rimRunSection(double R, RimKind kind) {
+    return kind == RimKind::Fillet ? (1.0 - kPi / 4.0) * R * R : 0.5 * R * R;
 }
 
 // Unit tangent of a ring edge at its START / END, in TRAVERSAL direction.
@@ -1897,9 +1960,12 @@ bool ringTangents(const TopoDS_Edge& e, gp_Vec& tStart, gp_Vec& tEnd) {
 
 // Resolve the rim: which of the picked edge's two faces is the prismatic CAP, and
 // what does its outer ring consist of. Empty `why` on success.
+// `R` is the blend SETBACK: the fillet's radius, or the chamfer's distance. Both
+// offset the cap ring inward by exactly that much and pull every wall back by
+// exactly that much, which is why one builder serves both.
 bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double R,
-                     RimContext& rc, std::string& why) {
-    if (!(R > 0.0)) { why = "non-positive fillet radius"; return false; }
+                     RimKind kind, RimContext& rc, std::string& why) {
+    if (!(R > 0.0)) { why = "non-positive blend setback"; return false; }
     TopTools_IndexedDataMapOfShapeListOfShape efMap;
     TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, efMap);
     if (!efMap.Contains(edge)) { why = "rim: edge not found in shape"; return false; }
@@ -1990,7 +2056,10 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
                 { why = "rim: a rim segment is not convex"; ok = false; break; }
                 sg.off0 = shift(sg.p0, gp_Dir(m), R);
                 sg.off1 = shift(sg.p1, gp_Dir(m), R);
-                c.predictedDv += (1.0 - kPi / 4.0) * R * R * sg.len;
+                c.predictedDv += rimRunSection(R, kind) * sg.len;
+                // The band the cap loses is the SAME for both kinds — it is fixed by
+                // the offset, not by the surface that spans it — so this line is not
+                // switched, and the cap-area identity downstream is shared verbatim.
                 c.bandArea    += R * sg.len;
                 ++c.nLine;
             } else if (ac.GetType() == GeomAbs_Circle) {
@@ -2006,7 +2075,7 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
                 if (std::fabs(sg.rho - rad) > 1e-6 * std::max(1.0, sg.rho))
                 { why = "rim: rim arc radius differs from its wall cylinder"; ok = false; break; }
                 if (!(sg.rho > R + kTol))
-                { why = "rim: the corner radius is not larger than the fillet radius"; ok = false; break; }
+                { why = "rim: the corner radius is not larger than the blend setback"; ok = false; break; }
                 sg.theta = std::fabs(ac.LastParameter() - ac.FirstParameter());
                 if (!(sg.theta > kTol) || sg.theta > 2.0 * kPi + kTol)
                 { why = "rim: unreadable arc sweep"; ok = false; break; }
@@ -2036,7 +2105,9 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
                 }
                 sg.off0 = shift(sg.p0, gp_Dir(gp_Vec(sg.p0, sg.ctr)), R);
                 sg.off1 = shift(sg.p1, gp_Dir(gp_Vec(sg.p1, sg.ctr)), R);
-                c.predictedDv += sg.theta * rimCornerMoment(sg.rho, R);
+                c.predictedDv += sg.theta * (kind == RimKind::Fillet
+                                                 ? rimCornerMoment(sg.rho, R)
+                                                 : rimChamferCornerMoment(sg.rho, R));
                 c.bandArea    += 0.5 * sg.theta * (sg.rho * sg.rho - (sg.rho - R) * (sg.rho - R));
                 ++c.nArc;
             } else {
@@ -2085,7 +2156,7 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
             }
             if (!ok) break;
             if (!(deepest < -R - kTol))
-            { why = "rim: a wall is shallower than the fillet radius"; ok = false; break; }
+            { why = "rim: a wall is shallower than the blend setback"; ok = false; break; }
             for (TopExp_Explorer vx(wo, TopAbs_VERTEX); vx.More(); vx.Next()) {
                 const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()));
                 const double d = gp_Vec(pln.Location(), p).Dot(gp_Vec(nCap));
@@ -2102,33 +2173,105 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
     return false;
 }
 
-// The corner blend: a torus tangent to the wall cylinder at v=0 and to the offset
-// cap at v=pi/2. Null face on failure (caller defers).
-TopoDS_Face rimTorus(const RimSeg& sg, const gp_Dir& nCap, double R) {
-    const gp_Pnt O = shift(sg.ctr, gp_Dir(gp_Vec(nCap).Reversed()), R);
-    // X so that u=0 is the arc's p0 (or its p1 when the sweep runs the other way).
+// The reference X direction of a rim arc's local frame, chosen so that sweeping u
+// from 0 to sg.theta about `zdir` runs from one end of the arc to the other rather
+// than the reflex way round. Extracted from rimTorus, where it was written first:
+// the corner CONE needs the identical choice, and rimTrimCylWall was already
+// carrying a third copy of it. One reading of the arc's sense, three surfaces.
+// `zdir` is a parameter and not nCap because a surface may want the opposite axis
+// sense, which reverses u; passing the axis the caller will actually build with is
+// what keeps the answer right for all of them.
+bool rimArcXDir(const RimSeg& sg, const gp_Dir& zdir, gp_Dir& X) {
     for (int flip = 0; flip < 2; ++flip) {
         const gp_Pnt& a = flip == 0 ? sg.p0 : sg.p1;
         const gp_Pnt& b = flip == 0 ? sg.p1 : sg.p0;
         gp_Vec xv(sg.ctr, a);
-        xv -= gp_Vec(nCap) * xv.Dot(gp_Vec(nCap));
-        if (xv.Magnitude() <= kTol) return TopoDS_Face();
-        const gp_Dir X(xv);
-        const gp_Vec Y = gp_Vec(nCap).Crossed(gp_Vec(X));
+        xv -= gp_Vec(zdir) * xv.Dot(gp_Vec(zdir));
+        if (xv.Magnitude() <= kTol) return false;
+        const gp_Dir Xc(xv);
+        const gp_Vec Y = gp_Vec(zdir).Crossed(gp_Vec(Xc));
         gp_Vec bv(sg.ctr, b);
-        bv -= gp_Vec(nCap) * bv.Dot(gp_Vec(nCap));
-        double ub = std::atan2(bv.Dot(Y), bv.Dot(gp_Vec(X)));
+        bv -= gp_Vec(zdir) * bv.Dot(gp_Vec(zdir));
+        double ub = std::atan2(bv.Dot(Y), bv.Dot(gp_Vec(Xc)));
         if (ub < 0.0) ub += 2.0 * kPi;
         if (std::fabs(ub - sg.theta) > 1e-6) continue;   // the sweep runs the other way
-        const gp_Ax3 ax(O, nCap, X);
-        Handle(Geom_ToroidalSurface) tor = new Geom_ToroidalSurface(ax, sg.rho - R, R);
-        BRepBuilderAPI_MakeFace mf(tor, 0.0, sg.theta, 0.0, 0.5 * kPi, Precision::Confusion());
-        if (!mf.IsDone()) return TopoDS_Face();
-        TopoDS_Face f = mf.Face();
-        BRepLib::SameParameter(f, 1e-7, Standard_True);
-        return f;
+        X = Xc;
+        return true;
     }
-    return TopoDS_Face();
+    return false;
+}
+
+// The corner blend: a torus tangent to the wall cylinder at v=0 and to the offset
+// cap at v=pi/2. Null face on failure (caller defers).
+TopoDS_Face rimTorus(const RimSeg& sg, const gp_Dir& nCap, double R) {
+    gp_Dir X;
+    if (!rimArcXDir(sg, nCap, X)) return TopoDS_Face();
+    const gp_Pnt O = shift(sg.ctr, gp_Dir(gp_Vec(nCap).Reversed()), R);
+    const gp_Ax3 ax(O, nCap, X);
+    Handle(Geom_ToroidalSurface) tor = new Geom_ToroidalSurface(ax, sg.rho - R, R);
+    BRepBuilderAPI_MakeFace mf(tor, 0.0, sg.theta, 0.0, 0.5 * kPi, Precision::Confusion());
+    if (!mf.IsDone()) return TopoDS_Face();
+    TopoDS_Face f = mf.Face();
+    BRepLib::SameParameter(f, 1e-7, Standard_True);
+    return f;
+}
+
+// The CHAMFER's corner patch, and the exact counterpart of the torus above: a CONE
+// of half-angle 45 degrees on the corner cylinder's own axis, meeting the pulled-back
+// wall at radius rho and depth d, and the inward-offset cap at radius rho-d in the
+// cap plane. Ruled, analytic, and nothing is fitted.
+//
+// Geom_ConicalSurface's reference radius is the radius at v=0 and it runs
+// r + v*sin(semiAngle), with v the SLANT parameter (axial height / cos(semiAngle)).
+// So the surface origin goes at the BOTTOM of the band, where the radius is rho,
+// and the semi-angle is NEGATIVE so the radius shrinks on the way up to the cap —
+// the same signed convention occtConeSolid uses (src/OcctPrimBuilder.cpp:191,
+// `semiAng = atan2(r2 - r1, h)`, "signed: r2<r1 -> negative").
+TopoDS_Face rimCone(const RimSeg& sg, const gp_Dir& nCap, double d) {
+    if (!(d > 0.0) || !(sg.rho > d)) return TopoDS_Face();
+    gp_Dir X;
+    if (!rimArcXDir(sg, nCap, X)) return TopoDS_Face();
+    const gp_Pnt O = shift(sg.ctr, gp_Dir(gp_Vec(nCap).Reversed()), d);
+    const gp_Ax3 ax(O, nCap, X);
+    const double semiAng = -0.25 * kPi;             // atan2((rho-d) - rho, d)
+    const double cs      = std::cos(semiAng);
+    if (!(cs > 1e-12)) return TopoDS_Face();
+    const double vTop    = d / cs;                  // slant length of the band = d*sqrt(2)
+    TopoDS_Face f;
+    try {
+        Handle(Geom_ConicalSurface) con = new Geom_ConicalSurface(ax, semiAng, sg.rho);
+        BRepBuilderAPI_MakeFace mf(con, 0.0, sg.theta, 0.0, vTop, Precision::Confusion());
+        if (!mf.IsDone()) return TopoDS_Face();
+        f = mf.Face();
+    } catch (...) { return TopoDS_Face(); }
+    BRepLib::SameParameter(f, 1e-7, Standard_True);
+    // ★ AREA, as an observable INDEPENDENT of the volume the caller will check.
+    //   This programme's standing lesson is that volume alone cannot validate
+    //   geometry, and a cone built on the wrong branch — the radius growing upward
+    //   instead of shrinking, or the sweep taken the reflex way round — still sews
+    //   into a closed body. The lateral area of a conical frustum sector of sweep
+    //   theta, radii rho and rho-d, slant s is (theta/2)(rho + (rho-d)) s, and that
+    //   is a number this face cannot match unless it is the patch that was intended.
+    const double aWant = 0.5 * sg.theta * (2.0 * sg.rho - d) * vTop;
+    const double aGot  = areaOf(f);
+    if (!(aWant > 0.0) || std::fabs(aGot - aWant) > 1e-6 * aWant) return TopoDS_Face();
+    return f;
+}
+
+// The CHAMFER's straight-run patch: the flat bevel spanning the inward-offset cap
+// edge and the pulled-back wall edge. Both run parallel to the segment, so the quad
+// is a rectangle and exactly planar — where the fillet needs a cylinder, this needs
+// a plane. Area is checked for the same reason rimCone's is.
+TopoDS_Face rimBevel(const RimSeg& sg, const gp_Dir& nCap, double d) {
+    if (!(d > 0.0) || !(sg.len > kTol)) return TopoDS_Face();
+    const gp_Dir down(gp_Vec(nCap).Reversed());
+    const TopoDS_Face f = bevelQuad(sg.off0, shift(sg.p0, down, d),
+                                   shift(sg.p1, down, d), sg.off1);
+    if (f.IsNull()) return f;
+    const double aWant = sg.len * d * std::sqrt(2.0);   // length x slant
+    const double aGot  = areaOf(f);
+    if (!(aWant > 0.0) || std::fabs(aGot - aWant) > 1e-6 * aWant) return TopoDS_Face();
+    return f;
 }
 
 // A cylindrical wall pulled back R from the cap plane. Rebuilt as the canonical uv
@@ -2158,31 +2301,18 @@ TopoDS_Face rimTrimCylWall(const RimSeg& sg, const gp_Pln& capPln, const gp_Dir&
     const double aBox = sg.rho * sg.theta * (vmax - vmin);
     if (!(aBox > 0.0) || std::fabs(aOld - aBox) > 1e-6 * aBox) return TopoDS_Face();
 
-    for (int flip = 0; flip < 2; ++flip) {
-        const gp_Pnt& a = flip == 0 ? sg.p0 : sg.p1;
-        const gp_Pnt& b = flip == 0 ? sg.p1 : sg.p0;
-        gp_Vec xv(sg.ctr, a);
-        xv -= gp_Vec(nCap) * xv.Dot(gp_Vec(nCap));
-        if (xv.Magnitude() <= kTol) return TopoDS_Face();
-        const gp_Dir X(xv);
-        const gp_Vec Y = gp_Vec(nCap).Crossed(gp_Vec(X));
-        gp_Vec bv(sg.ctr, b);
-        bv -= gp_Vec(nCap) * bv.Dot(gp_Vec(nCap));
-        double ub = std::atan2(bv.Dot(Y), bv.Dot(gp_Vec(X)));
-        if (ub < 0.0) ub += 2.0 * kPi;
-        if (std::fabs(ub - sg.theta) > 1e-6) continue;
-        const gp_Ax3 axc(sg.ctr, nCap, X);
-        Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(axc, sg.rho);
-        BRepBuilderAPI_MakeFace mf(cyl, 0.0, sg.theta, vmin, vmax - R, Precision::Confusion());
-        if (!mf.IsDone()) return TopoDS_Face();
-        TopoDS_Face f = mf.Face();
-        BRepLib::SameParameter(f, 1e-7, Standard_True);
-        const double aNew = areaOf(f);
-        const double aWant = sg.rho * sg.theta * (vmax - R - vmin);
-        if (std::fabs(aNew - aWant) > 1e-6 * aWant) return TopoDS_Face();
-        return f;
-    }
-    return TopoDS_Face();
+    gp_Dir X;
+    if (!rimArcXDir(sg, nCap, X)) return TopoDS_Face();
+    const gp_Ax3 axc(sg.ctr, nCap, X);
+    Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(axc, sg.rho);
+    BRepBuilderAPI_MakeFace mf(cyl, 0.0, sg.theta, vmin, vmax - R, Precision::Confusion());
+    if (!mf.IsDone()) return TopoDS_Face();
+    TopoDS_Face f = mf.Face();
+    BRepLib::SameParameter(f, 1e-7, Standard_True);
+    const double aNew = areaOf(f);
+    const double aWant = sg.rho * sg.theta * (vmax - R - vmin);
+    if (std::fabs(aNew - aWant) > 1e-6 * aWant) return TopoDS_Face();
+    return f;
 }
 
 // A planar wall pulled back R: every ring vertex sitting IN the cap plane drops by R.
@@ -2204,11 +2334,21 @@ TopoDS_Face rimTrimPlanarWall(const TopoDS_Face& wall, const gp_Pln& capPln,
     return planarFaceFromSegs(segs, pw, nw, innerWires(wall));
 }
 
-// The whole rim blend. ok==false is an honest deferral, as everywhere else here.
-Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
+// The whole rim blend, for EITHER kind. ok==false is an honest deferral, as
+// everywhere else here.
+//
+// ★ ONE FUNCTION, TWO FAMILIES — see the RimKind note above for why the chamfer
+//   path is this function with two substitutions rather than a copy of it. Steps 1
+//   (the inward-offset cap, and every guard on it), 2 (the pulled-back walls) and 4
+//   (every other face verbatim), and the sew, the BRepCheck reading and the
+//   material-removal sign that follow, are shared LITERALLY: they do not depend on
+//   what spans the band. Only step 3 branches.
+Result tangentRim(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double dist,
+                  RimKind kind) {
+    const bool fil = (kind == RimKind::Fillet);
     RimContext rc; std::string why;
-    if (!buildRimContext(shape, spec.edge, spec.radius, rc, why)) return defer(why);
-    const double R = spec.radius;
+    if (!buildRimContext(shape, edge, dist, kind, rc, why)) return defer(why);
+    const double R = dist;
 
     std::vector<TopoDS_Face> faces;
 
@@ -2240,7 +2380,7 @@ Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
         //   that separates them is topological, and it is cheap.
         if (BRepCheck_Analyzer(capNew).IsValid() != Standard_True)
             return defer("rim: the offset cap ring runs into a hole (an inner wire "
-                         "lies closer to the rim than the fillet radius)");
+                         "lies closer to the rim than the blend setback)");
         // AREA, kept: it catches an offset ring that closed onto the WRONG region
         // without crossing a wire, which BRepCheck would call valid.
         const double aOld = areaOf(rc.cap), aNew = areaOf(capNew);
@@ -2259,19 +2399,26 @@ Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
         faces.push_back(w);
     }
 
-    // 3. the blend patches
+    // 3. the blend patches — THE ONLY STEP THAT KNOWS WHICH KIND THIS IS.
+    //    fillet: cylinder per straight run, torus per corner.
+    //    chamfer: plane    per straight run, cone  per corner.
     for (const RimSeg& sg : rc.segs) {
         if (sg.isArc) {
-            const TopoDS_Face t = rimTorus(sg, rc.nCap, R);
-            if (t.IsNull()) return defer("rim: the corner torus patch would not build");
+            const TopoDS_Face t = fil ? rimTorus(sg, rc.nCap, R) : rimCone(sg, rc.nCap, R);
+            if (t.IsNull()) return defer(fil ? "rim: the corner torus patch would not build"
+                                             : "rim: the corner cone patch would not build");
             faces.push_back(t);
-        } else {
+        } else if (fil) {
             const gp_Dir down(gp_Vec(rc.nCap).Reversed());
             const gp_Pnt axis0 = shift(sg.off0, down, R);
             const gp_Pnt sB0   = shift(sg.p0,  down, R);
             const TopoDS_Face cy = filletCylinder(axis0, sg.dir, R, sg.off0, sB0, sg.len);
             if (cy.IsNull()) return defer("rim: a straight blend patch would not build");
             faces.push_back(cy);
+        } else {
+            const TopoDS_Face bv = rimBevel(sg, rc.nCap, R);
+            if (bv.IsNull()) return defer("rim: a straight bevel patch would not build");
+            faces.push_back(bv);
         }
     }
 
@@ -2309,9 +2456,38 @@ Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
             return defer("rim: blend volume disagrees with the rim closed form");
     }
     Result r; r.ok = true; r.shape = sol;
-    r.reason = "native rim fillet (tangent-continuous prismatic rim: " +
-               std::to_string(rc.nLine) + " cylinder + " + std::to_string(rc.nArc) + " torus patches)";
+    // The tolerance above is 1e-6 for BOTH kinds, and deliberately not relaxed for
+    // the chamfer: its surfaces are a plane and a cone where the fillet's are a
+    // cylinder and a torus, so if anything it is the MORE exact of the two. A
+    // looser bar here would let a wrong patch through wherever its error happened
+    // to be small, which is the failure this file already records twice.
+    r.reason = std::string("native rim ") + (fil ? "fillet" : "chamfer") +
+               " (tangent-continuous prismatic rim: " + std::to_string(rc.nLine) +
+               (fil ? " cylinder + " : " bevel + ") + std::to_string(rc.nArc) +
+               (fil ? " torus patches)" : " cone patches)");
     return r;
+}
+
+// The two named entry points. They exist so each family's call site reads as its
+// own operation and so `uspecs.size() == 1` is enforced at ONE place per family.
+Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
+    return tangentRim(shape, spec.edge, spec.radius, RimKind::Fillet);
+}
+
+// ★ SYMMETRIC ONLY, and this is a refusal rather than an omission. An asymmetric
+//   chamfer cuts dA into the cap and dB into the wall, so the cap offsets by one
+//   distance while the walls pull back by the other — buildRimContext resolves ONE
+//   setback and its offset ring, its wall-depth guard and its band-clearance guard
+//   are all written against that one number. Serving an asymmetric request off a
+//   symmetric context would build a body whose bevel is not the requested bevel, and
+//   a wrong body is far worse than a defer. The corpus's chamfers are symmetric
+//   (dist2 = 0, as forge::part::chamferEdges passes it), so this costs no coverage
+//   there and it is the honest answer where it does.
+Result chamferTangentRim(const TopoDS_Shape& shape, const ChamferSpec& spec) {
+    const double d = spec.dist;
+    if (spec.dist2 > Precision::Confusion() && std::fabs(spec.dist2 - d) > 1e-12)
+        return defer("rim: an asymmetric chamfer is not a single-setback rim");
+    return tangentRim(shape, spec.edge, d, RimKind::Chamfer);
 }
 
 }  // namespace
@@ -2372,6 +2548,28 @@ Result makeChamfer(const TopoDS_Shape& shape, const std::vector<ChamferSpec>& sp
         seq.reason += " | corner-aware: " + b.reason;
     } catch (...) {
         seq.reason += " | corner-aware raised an OCCT exception";
+    }
+    // ★ THE TANGENT-CONTINUOUS PRISMATIC RIM, the other half of the seam the FILLET
+    //   row's rim path closed. MEASURED 2026-09-04 over the same 600-part corpus
+    //   A/B: CHAMFER's single largest remaining defer class is "end face is not a
+    //   straight-boundary corner", n=67, and those 67 are the SAME rounded-rectangle
+    //   plates the FILLET rim path already answers. The guard fires for the same
+    //   correct reason as its fillet twin — the face at each end of the picked edge
+    //   is the corner CYLINDER (a SurfOfExtrusion, measured flatness deviation
+    //   2.07-4.42 mm), not a plane — and the right answer is the same one: the rim is
+    //   G1-tangent, so OCCT's BRepFilletAPI PROPAGATES the contour round the whole
+    //   loop rather than clipping one edge.
+    //   Tried LAST and only on a single-edge request, for the identical reason
+    //   makeFillet gives: nothing the per-edge or corner-aware paths already answer
+    //   can change, because this runs only where BOTH declined.
+    if (uspecs.size() == 1) {
+        try {
+            Result rim = chamferTangentRim(shape, uspecs.front());
+            if (rim.ok) return rim;
+            seq.reason += " | " + rim.reason;
+        } catch (...) {
+            seq.reason += " | rim path raised an OCCT exception";
+        }
     }
     debugDefer("chamfer", seq.reason);
     return seq;
