@@ -11,16 +11,19 @@
 
 #include "forge/native/brep/NativeAabbBridge.hpp"
 
+#if __has_include(<BRepBndLib.hxx>)
 #include <BRepBndLib.hxx>
 #include <Bnd_Box.hxx>
 #include <TopoDS_Shape.hxx>
+#define FORGE_HAVE_OCCT_AABB 1
+#endif
 
 #include <atomic>
 #include <cmath>
 #include <cstdlib>
 #include <string>
 
-#ifdef FORGE_NATIVE_BREP
+#if defined(FORGE_HAVE_OCCT_AABB) && defined(FORGE_NATIVE_BREP)
 #include "forge/OcctImport.hpp"                // importOcctSolid
 #include "forge/native/brep/Aabb.hpp"          // computeAabb (exact analytic)
 #endif
@@ -63,7 +66,7 @@ unsigned long long shapeAabbNativeCount() { return g_native.load(std::memory_ord
 bool shapeAabbNative(const TopoDS_Shape& shape, Bnd_Box& box) {
     g_calls.fetch_add(1, std::memory_order_relaxed);
 
-#ifdef FORGE_NATIVE_BREP
+#if defined(FORGE_HAVE_OCCT_AABB) && defined(FORGE_NATIVE_BREP)
     if (forgeNativeAabbEnabled() && !shape.IsNull()) {
         // importOcctSolid never throws on an unsupported face — it returns
         // ok=false with a named reason (measured: a bare FACE gives "import not
@@ -102,10 +105,16 @@ bool shapeAabbNative(const TopoDS_Shape& shape, Bnd_Box& box) {
     }
 #endif
 
+#if defined(FORGE_HAVE_OCCT_AABB)
     // Gate OFF, import declined, or the native box failed its own sanity check.
     // EXACTLY what the call site did before this seam existed.
     BRepBndLib::Add(shape, box);
     return false;
+#else
+    (void)shape;
+    (void)box;
+    return false;
+#endif
 }
 
 void shapeAabb(const TopoDS_Shape& shape, Bnd_Box& box) {
