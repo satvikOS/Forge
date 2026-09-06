@@ -51,10 +51,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 #   script, no CMake target and no workflow named AT ALL. The count is lowered in
 #   the same commit that wires it, which is this file's own rule.
 ALLOW="\
+run_ft_edge_selector_gate
 run_pipe_drop_gate
 run_pipeshell_guided_gate
 run_thicksolid_nesting_gate
 run_thrusections_xlate_label_gate
+build_aabb_bridge_gate
 build_hlr_import_gate
 build_import_surfaces_gate
 build_kernel_correctness_gate"
