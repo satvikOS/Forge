@@ -170,4 +170,8 @@ third_party/manifest/deps.resolved.json
 # scratch build dir for build_native_gate_guard_gate.sh
 forge-kernel/test/.gate_guard/
 forge-kernel/build-gateguard/
+forge-kernel/build-sarc/
 forge-desktop/.build-*/
+__pycache__/
+*.pyc
+
