@@ -857,15 +857,13 @@ int main() {
       return contains(implemented, id);
     };
     CHECK(implemented.size() >= 10);
-    for (const PanelId& id : shipped) {
-      const PanelInfo* info = findPanelInfo(id);
-      if (info == nullptr) continue;
-      const bool drawn = drawnByFrame(id);
-      if (drawn != info->live()) {
+    for (const PanelInfo& info : panelCatalog()) {
+      const bool drawn = drawnByFrame(info.id);
+      if (drawn != info.live()) {
         std::printf("  panel \"%s\": the catalogue says %s, the frame builder %s draw it\n",
-                    id.c_str(), toString(info->content), drawn ? "DOES" : "does NOT");
+                    info.id.c_str(), toString(info.content), drawn ? "DOES" : "does NOT");
       }
-      CHECK_EQ_INT(drawn ? 1 : 0, info->live() ? 1 : 0);
+      CHECK_EQ_INT(drawn ? 1 : 0, info.live() ? 1 : 0);
     }
     // The census, printed so a reviewer reads a number rather than a promise.
     std::printf("[user_facing_text] %zu panels in the shipped workspaces, %zu still planned\n",
