@@ -19,26 +19,40 @@
 // tip deflection is **200 µm**, not 2 µm — the spec has an order-of-
 // magnitude error in the divisor.
 //
-// On top of that, constant-strain Tet4 (CST) elements suffer severe
-// shear-locking in pure bending — typically returning 5–15× under the
-// Bernoulli prediction even on a refined mesh. A standalone CST
-// validation on a hand-crafted 5-tet 0.1×0.01×0.01 m box gave 2.9 µm
-// against 200 µm theory (70× too stiff), confirming the locking is
-// inherent to the element type, not a bug in this code path. (The
-// existing hex `forge.fea.solveStatic` on the same beam returns 196 µm.)
+// This file used to say that constant-strain Tet4 elements "suffer
+// severe shear-locking in pure bending — typically returning 5–15×
+// under the Bernoulli prediction EVEN ON A REFINED MESH", citing a
+// hand-crafted 5-tet box that gave 2.9 µm against 200 µm theory, and
+// concluded the locking was "inherent to the element type, not a bug
+// in this code path". The bands were widened to fit that belief.
 //
-// Therefore this smoke validates the *engineering plausibility* band
-// for Tet4 (5–500 µm), not the spec's tighter and arithmetically
-// incorrect 0.5–10 µm. The von-Mises band [10 MPa, 200 MPa] from the
-// spec stays correct (σ = Mc/I ≈ 60 MPa) and is enforced as-is. The
-// modal band [50, 5000] Hz is unaffected by the CST locking penalty
-// on the bending mode shape — the locking biases the eigenfrequency
-// *up* but still in-band.
+// MEASUREMENT REFUTES IT. The tet mesher densified the CAD surface in
+// a SINGLE pass, so the clamped face of this very beam carried ELEVEN
+// nodes at every refinement level — the cantilever was restrained at
+// 11 points instead of 51. With that fixed, the SAME element on the
+// SAME beam gives (see reports/FEA_BOUNDARY_FIX_MEASURED.md):
+//
+//     tip displacement  184.146 µm  vs 200.0 µm theory   (−7.9 %)
+//     peak von Mises     56.35 MPa  vs  60.0 MPa         (−6.1 %)
+//     first mode        848.6 Hz    vs 815.4 Hz analytic (+4.1 %)
+//
+// A 5-tet box genuinely does lock — five elements cannot represent
+// bending — but the generalisation to "even on a refined mesh" was
+// wrong, and the bands it justified let a −91.2 % displacement and a
+// +226 % first mode PASS. This test printed "within engineering
+// plausibility band" on the exact defect a whole task existed to fix.
+//
+// Bands now live in fea_smoke_bands.cjs, at ±40 % of the analytic
+// value, and are tested WITHOUT an addon build by
+// fea_smoke_band_test.cjs against both measured runs. ±40 % is looser
+// than the ~8 % now achieved on purpose: this is a smoke test, and
+// accuracy is ratcheted by test/fea_nafems_ratchet.sh.
 
 'use strict';
 
 const path   = require('path');
 const assert = require('assert');
+const { checkBands } = require('./fea_smoke_bands.cjs');
 
 const KERNEL = path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node');
 const forge  = require(KERNEL);
@@ -121,12 +135,6 @@ console.log(
     `σ_max = ${(theoreticalSigma / 1e6).toFixed(1)} MPa`
 );
 
-// CST shear locking band — see header note.
-assert.ok(res.maxDisp >= 0.5e-6 && res.maxDisp <= 5e-4,
-    `maxDisp ${res.maxDisp} m out of plausibility band [5e-7, 5e-4] m`);
-// Stress band from spec is correct and stays tight.
-assert.ok(res.maxVonMises >= 10e6 && res.maxVonMises <= 200e6,
-    `maxVonMises ${(res.maxVonMises/1e6).toFixed(2)} MPa out of band [10, 200] MPa`);
 assert.ok(res.converged, 'CG did not converge');
 
 // --------------------------------------------------------------- modal
@@ -140,7 +148,15 @@ console.log(
 );
 assert.ok(freqs.length >= 1, 'no modal frequencies returned');
 const f1 = freqs[0];
-assert.ok(f1 >= 50 && f1 <= 5000,
-    `first mode ${f1.toFixed(1)} Hz out of band [50, 5000] Hz`);
+// All three bands are applied together, from fea_smoke_bands.cjs, so a run that is
+// wrong in one observable and plausible in the others cannot slip through on the
+// strength of the others.
+const violations = checkBands({
+  maxDisp_m:      res.maxDisp,
+  maxVonMises_Pa: res.maxVonMises,
+  firstMode_Hz:   f1,
+});
+assert.ok(violations.length === 0,
+    'outside the cantilever acceptance bands:\n  ' + violations.join('\n  '));
 
-console.log('[push-11] PASS — Tet4 FEA cantilever within engineering plausibility band.');
+console.log('[push-11] PASS — Tet4 FEA cantilever within ±40% of analytic on displacement, stress AND first mode.');
