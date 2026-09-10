@@ -107,6 +107,25 @@ Two lessons hold specifically here:
 Then spawn an independent validator against the branch that is told to **falsify**
 the result, not reproduce it.
 
+## 5b. PREFLIGHT — before every push, without exception
+
+```sh
+bash tools/preflight/forge-preflight
+```
+
+It DISCOVERS what to run rather than naming it: every `--check` generator under
+`implementation/sacrosanct/tools`, every workflow file, both gate-registration
+ratchets, and the cheap self-contained gates.
+
+This exists because a hand-written battery let me break CI twice in one session on
+the same two-sided system — `--check` on the vocabulary JSON against its sources,
+and `--check` on the C++ header against that JSON's sha. Fixing the first moved the
+sha and broke the second. The battery I verified with listed only the check I
+already knew about, and a hand-listed battery is incomplete the moment anyone adds
+a generator — it reports PASS for what it contains and says nothing about the rest.
+
+A CI cycle here is 35–45 minutes. Preflight is seconds.
+
 ## 6. INTEGRATE — one integrator, serially
 
 One PR/merge at a time. CI green **and** the branch rebuilt on the target branch
