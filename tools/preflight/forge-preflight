@@ -53,6 +53,14 @@ for w in .github/workflows/*.yml; do
 done
 
 echo "== cheap self-contained gates =="
+# The syntax gate CLASSIFIES every .cpp in forge-desktop/{src,test} and refuses an
+# unclassified one. Adding a gate file without listing it makes CI red on ubuntu
+# while macOS compiles it happily -- which is exactly what happened with
+# atomic_save_gate.cpp, and it stayed hidden for two runs because an earlier step in
+# the same job failed first. Cheap, so there is no reason not to run it here.
+[ -f forge-desktop/test/run_syntax_gate.sh ] && \
+  run "forge-desktop type-checks (all TUs classified)" bash forge-desktop/test/run_syntax_gate.sh
+
 [ -f orchestration/run_orchestration_tests.sh ] && \
   run "orchestration (phase 2 required)" env FORGE_ORCH_REQUIRE_PHASE2=1 bash orchestration/run_orchestration_tests.sh
 
