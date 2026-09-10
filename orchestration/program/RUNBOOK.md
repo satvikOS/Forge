@@ -593,3 +593,97 @@ read as benchmark-specific. The third hang was on BenchCAD-HF-980. It is a gener
 MLX/Metal failure on long runs, and the earlier note naming Drawing2CAD had to be
 corrected. Before attributing a failure to the one component you saw it on, ask how
 many chances the others actually had.
+
+### A flag on a `|| echo` continuation line is an argument to echo
+
+The sweep's FLOOR arm gated its scorer on the pinned binary's sha256. The MODEL arm
+wrote the same two flags after `|| echo "...WARNING..."`, so they were arguments to
+`echo` — printed only on failure, never passed to the scorer. The two numbers being
+compared to each other were held to different rules for weeks. Nothing was wrong
+with either number (the sweep exports `FORGE_PINNED_DIR`, so both arms really did
+use the baseline pin) and that is exactly why it survived: a disarmed guard looks
+identical to an armed one until the day it is needed.
+
+When checking that a command is invoked with a flag, split the logical command at
+the first `||` and look only at the part that actually runs. Grep alone says
+"present" for both cases.
+
+### Check an observable's VARIANCE before using it to falsify anything
+
+A wedging benchmark row was declared "completely unremarkable" on the basis of
+prompt length (1213 chars against a median of 1210) and image size (268×268, like
+all 40 that succeeded). Both observables are near-constant by construction in that
+corpus — they could not have discriminated anything, and "unremarkable" was a
+statement about the instrument, not the row. On the observables that carry
+ground-truth complexity the same row was outside the range of every success:
+faceCount 46 vs max 30, edgeCount 108 vs max 75, family never seen.
+
+Before an observable can clear a suspect, confirm it separates the population at
+all. This is the "volume cannot validate geometry" law applied to inputs.
+
+### A log written at the end of a loop cannot describe the iteration that hung
+
+`score_benchmarks.py` flushed its trace at the bottom of the per-task loop, so the
+row that wedged the GPU never appeared in it. Three hypotheses were tested and
+eliminated — benchmark-specific, pathological input, cumulative generation — all
+inferred from the last row that SUCCEEDED, which by construction says nothing about
+the one that did not. The preceding-row statistics looked like noise because they
+were noise (gen-time rank 25/40, 25/40, 1/4, 5/5).
+
+When diagnosing a failure, the first question is not "what caused it" but "is the
+failing unit observable at all". If it is not, stop and instrument.
+
+### `open(path, "w")` destroys the marker it is supposed to leave behind
+
+The in-flight marker was first written with `open(path, "w")`, which truncates on
+open. A process killed between the truncate and the write leaves a 0-byte file — the
+diagnostic destroyed by the exact event it exists to record. MEASURED over 16
+SIGKILLs: truncate-in-place lost it 7 times, write-to-temp + `os.replace` lost it 0.
+Any file whose whole purpose is to survive a crash must be written by rename.
+
+### A mutant that does not apply is not a surviving mutant
+
+A mutation harness reported "GREEN — MUTATION SURVIVED" for a mutant whose anchor
+had not matched: the file was never modified, so the clean code passed, as it
+should. Two near-misses in one tick, both from hand-counted indentation in a
+here-doc anchor.
+
+A mutation harness must refuse to report a verdict unless the file actually changed
+(`cmp` against a backup) and the mutant still parses. Prefer a regex or line-number
+mutation over a hand-typed anchor.
+
+### Pick n from the measured failure rate, not from roundness
+
+The kill-survival check was written with 10 trials against a fault whose observed
+rate was 2 in 10. That gives 0.8**10 = an 11% chance of missing a reverted fix — a
+guard that fails to fail one time in nine. Raised to 16 (2.8%). The eventual
+mutation measured 7/16, so the real power is far higher, but the number was chosen
+before that was known and had to be defensible on the evidence available then.
+
+### Re-using a task id destroyed two completed tasks, and the tool said "added"
+
+`forge-program add` did `tasks.get(id, <new>)` then `.update(...)`, so an id already
+in use was silently overwritten in place: title, layer, repo, write_set, acceptance
+and evidence replaced, and the word printed was "added". Two DONE tasks went that
+way because an agent — this one — filed new work without checking the highest id in
+use. It surfaced only because `status` still read 37 tasks after two adds.
+
+Three separate lessons, and the second is the one that nearly cost the records:
+
+**Check the ledger before choosing an id.** `status` prints the total; the highest
+id is one line of JSON away. Never assume the next number.
+
+**An append-only log is only as good as the fields it appends.** The `done` events
+carried full evidence, which is why the work was recoverable at all. The `add`
+events carried only `title` — so layer, repo, write_set and acceptance for the
+originals are gone permanently. When logging an event that can destroy state, log
+the state it destroys, not a summary of it.
+
+**A snapshot taken by reference is a snapshot of the future.** The first fix
+recorded `prev = tasks.get(id)` and then mutated the same dict through `t`, so the
+ledger's "replaced" field held the REPLACEMENT — a perfect-looking audit trail of
+the wrong record. Deep-copy anything you intend to keep as a before-image. The test
+caught this; reading the code did not.
+
+An `add` that finds its id in use now refuses, naming the state and title it would
+have destroyed, and `--force` still records a rebuildable before-image.
