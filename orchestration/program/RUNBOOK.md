@@ -509,3 +509,31 @@ The band battery asserts that the OLD bands really did admit the broken run. If 
 assertion ever fails, the tightening was aimed at a problem that did not exist, and
 the test says so instead of passing quietly. A regression test for a fix should pin
 the defect as well as the repair.
+
+### Back-solving a model from the error is a hypothesis, not a measurement
+
+LE10's plateau fitted a nodal-averaging model beautifully: invert the error and the
+implied averaging depth comes out frozen at 0.106 m across the whole sweep, which is
+exactly the frozen-length-scale signature that explained the previous defect. It was
+wrong. Measuring the patch directly showed the depth shrinking 3.2x, tracking the mesh,
+and disagreeing with the inferred value by 4.4x.
+
+An inverted model tells you what the error WOULD mean if your model were right. Measure
+the quantity the model is about before believing it — especially when the answer
+flatters a pattern you have just successfully used.
+
+### Report a task that eliminated a hypothesis without establishing a cause
+
+T-026 asked for a root cause. This tick did not find one: it killed the leading
+candidate with a measurement and quantified the next. That is real progress and it is
+not completion, so the task stays open and the report says "SUPPORTED, not proven" in
+its own heading. Writing the elimination down is what stops the next attempt from
+spending its first hour on the same idea.
+
+### A flat face is a free instrument
+
+Deciding whether an unstructured mesh has converged to curved geometry is awkward. The
+LE10 slab has a FLAT top face whose exact area is a closed form, and whose area depends
+entirely on how well its boundary polygon is resolved — so it converts "is the boundary
+converging?" into one number with a known answer. Look for the part of a model whose
+correct value you can write down.
