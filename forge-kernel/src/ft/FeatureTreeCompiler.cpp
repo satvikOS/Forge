@@ -761,6 +761,15 @@ public:
     };
     std::unordered_map<std::string, FaceSig> names;
 
+    // THE SKETCH PLANE, per sketch handle.
+    //
+    // forge::Sketcher solves every sketch on Z=0 -- that is a contract its native
+    // consumers rely on -- so a plane keyword cannot change where the SKETCH is
+    // solved. It changes where the SOLID that consumes the sketch ends up, which is
+    // a rigid transform applied at consumption time. Recorded here rather than
+    // discarded at SKETCH.
+    std::unordered_map<Handle, std::string> sketchPlane;
+
     Handle build(const Op& op, std::unordered_map<int, Val>& env) {
         switch (op.code) {
             // ---- 2D profiles ----
@@ -1099,18 +1108,46 @@ private:
 
     Handle skNew(const Op& op) {
         const std::string plane = kwOpt(op, 0, "XY");
+        if (plane != "XY" && plane != "YZ" && plane != "XZ")
+            throw OpError(op.id, "SKETCH: plane must be XY, YZ or XZ (got '" + plane + "')");
         const SketchHandle s = forge::createSketch();
-        // forge::Sketcher states the Z=0 plane as a CONTRACT every native
-        // consumer relies on (Sketcher.hpp), and re-planting a solved profile
-        // is a transform of the BUILT SOLID, not of the sketch. That transform
-        // is not implemented here. Rather than refuse a plane keyword — which
-        // would cost a whole tree over one token — YZ/XZ solve on XY and SAY SO
-        // on the verify channel. A reported approximation beats both a refusal
-        // and a silent lie.
-        if (plane != "XY" && res)
-            res->verify.push_back("SKETCH %" + std::to_string(op.id) + " plane=" + plane +
-                                  " NOT APPLIED — solved on XY (sketch planes are not implemented)");
+        // The sketch is still SOLVED on Z=0 -- forge::Sketcher states that as a
+        // contract every native consumer relies on. What changes is where the solid
+        // built FROM it lands, which is a rigid transform applied when the profile is
+        // consumed. See planeRotation() and placeOnSketchPlane().
+        //
+        // This used to record nothing and push a note onto res->verify saying the
+        // plane was "NOT APPLIED", arguing that a reported approximation beats a
+        // refusal. The argument had a hole: the note goes to a channel `ok` does not
+        // read. MEASURED before this change -- SKETCH(YZ) and SKETCH(XZ) each
+        // returned ok=true, error empty, and a bounding box IDENTICAL to XY's
+        // [0,0,0]->[40,25,10]. Every consumer that checks ok, which is all of them,
+        // read a wrong solid as a correct one.
+        sketchPlane[s] = plane;
         return s;
+    }
+
+    // The rotation carrying XY-plane geometry onto the named plane. Returns false
+    // for XY, where there is nothing to do.
+    //
+    // XZ: +90 deg about X sends Y->Z, so the sketch's v axis lands on Z and the
+    //     default +Z extrusion lands on -Y, normal to XZ.
+    // YZ: 120 deg about (1,1,1) cycles X->Y->Z->X, so u lands on Y, v on Z, and the
+    //     default +Z extrusion lands on X, normal to YZ.
+    static bool planeRotation(const std::string& plane,
+                              double& ax, double& ay, double& az, double& angleRad) {
+        if (plane == "XZ") { ax = 1; ay = 0; az = 0; angleRad = kPi / 2.0; return true; }
+        if (plane == "YZ") { ax = 1; ay = 1; az = 1; angleRad = 2.0 * kPi / 3.0; return true; }
+        return false;   // XY, or an unknown plane skNew already refused
+    }
+
+    // Applied by every op that turns a PROFILE into a solid.
+    Handle placeOnSketchPlane(SketchHandle sk, Handle solid) {
+        const auto it = sketchPlane.find(sk);
+        if (it == sketchPlane.end()) return solid;
+        double ax, ay, az, ang;
+        if (!planeRotation(it->second, ax, ay, az, ang)) return solid;
+        return forge::rotate(solid, ax, ay, az, ang);
     }
 
     Handle skPoint(const Op& op, std::unordered_map<int, Val>& env) {
@@ -1599,7 +1636,7 @@ private:
         SketchHandle sk = refProfile(op, 0, env);
         double amount = num(op, 1);
         double dx = numOpt(op, 2, 0), dy = numOpt(op, 3, 0), dz = numOpt(op, 4, 1);
-        return forge::part::extrudeProfile(sk, amount, dx, dy, dz);
+        return placeOnSketchPlane(sk, forge::part::extrudeProfile(sk, amount, dx, dy, dz));
     }
     // REVOLVE — partial angle (0<a<=360) about an ARBITRARY axis line. The
     // native revolveProfile already takes (origin, dir, angleRad); this only
@@ -1613,7 +1650,8 @@ private:
         double ax = numOpt(op, 5, 0), ay = numOpt(op, 6, 1), az = numOpt(op, 7, 0);
         if (ax * ax + ay * ay + az * az < 1e-18)
             throw OpError(op.id, "REVOLVE: axis direction is zero");
-        return forge::part::revolveProfile(sk, ox, oy, oz, ax, ay, az, angDeg * kPi / 180.0);
+        return placeOnSketchPlane(
+            sk, forge::part::revolveProfile(sk, ox, oy, oz, ax, ay, az, angDeg * kPi / 180.0));
     }
     // LOFT — skin >= 2 WIRE sections (each placed in 3D via profileWire) with
     // loftguide::loft (BSpline-smoothed lateral faces + planar caps). Trailing
