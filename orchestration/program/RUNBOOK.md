@@ -103,6 +103,24 @@ Two lessons hold specifically here:
   observable caught it — COM was clean on the sphere, bbox clean on the cylinder.
 - **Prove the arms differ.** A null A/B result usually means the harness is broken,
   not that the change did nothing. Run a positive control before believing a zero.
+- **Run a new gate against the UNFIXED code first.** If it is green before the fix, it
+  is not testing the fix. Two vacuous gates in one session: one whose panel never drew
+  because the default workspace did not hold it, and one that sent an empty tool list
+  so every case failed for an unrelated reason — and its red-then-green control
+  "passed" on that same wrong reason. A control that fires for the wrong cause is
+  worse than no control.
+- **Delete the binary before rebuilding it.** A failed compile leaves the previous
+  executable in place, and running it reprints the old result as the new one. Four
+  stale-artefact incidents in one session: an OCCT ledger measuring a `.node` nothing
+  rebuilds, orphan-source counts taken from leftover object files, a gate linked
+  against a stale `libforge_ui.a`, and a `/tmp` probe answering for a failed build.
+- **One heavy job per build directory.** Two runs of the same suite against one
+  `APP_BUILD` rebuild and execute each other's mutated binaries — identical code
+  reported 109 mutations once and 133 the next time. Doc 06 states it: the same build
+  directory is never shared.
+- **Do not declare a resource the job already gates itself on.** Wrapping the
+  benchmark sweep in `forge-job --gpu` made the health signal report `gpu_jobs=1`, and
+  the sweep's own Law 7 check refused to start — it saw a GPU job that was itself.
 
 Then spawn an independent validator against the branch that is told to **falsify**
 the result, not reproduce it.

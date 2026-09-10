@@ -106,6 +106,11 @@ dist-electron/
 *.AppImage
 *.zip
 *.exe
+# Ad-hoc build directories. `build/` above matches only that exact name, so every
+# one-off `-B forge-desktop/build-sg` escaped it -- 21M of objects sitting untracked
+# and one `git add -A` away from the history. The trailing slash matters: it matches
+# DIRECTORIES only, so tools/build-kernel-ci.sh (a tracked file) is untouched.
+build-*/
 forge-kernel/build-native/
 forge-kernel/build-desktop-ui/
 # The node-free kernel core the C++ desktop app links, and the app's own build
