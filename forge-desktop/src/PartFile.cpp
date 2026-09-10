@@ -2,9 +2,13 @@
 
 #include "forge/ui/Units.hpp"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -734,19 +738,74 @@ bool savePartFile(const std::string& path, const PartFileDoc& doc, std::string& 
     error = "no path";
     return false;
   }
-  std::ofstream out(path, std::ios::trunc | std::ios::binary);
-  if (!out) {
-    error = "cannot open '" + path + "' for writing";
-    return false;
-  }
+  // ATOMIC REPLACEMENT.
+  //
+  // This used to be `std::ofstream out(path, std::ios::trunc)`, which DESTROYS the
+  // user's existing file at open -- before a single byte of the new content has
+  // been written. Everything after that point is running against a file the user
+  // can no longer get back: a crash, a kill, a full disk or a serialisation throw
+  // all leave a truncated or empty part where the design was.
+  //
+  // The loader two hundred lines up already knows this state exists: it reports
+  // "file ends inside a FEATURE block (truncated write?)". The reader was taught to
+  // recognise the wreck while the writer went on producing it.
+  //
+  // Same shape as ui/src/DocumentStore.cpp, which had it right and is not in the
+  // shipped app.
   const std::string text = writePartFile(doc);
-  out.write(text.data(), static_cast<std::streamsize>(text.size()));
-  out.flush();
-  // A write that failed halfway must not be reported as a save.
-  if (!out) {
-    error = "write to '" + path + "' failed";
+  const std::string temporary = path + ".forge-tmp";
+  {
+    std::ofstream out(temporary, std::ios::trunc | std::ios::binary);
+    if (!out) {
+      error = "cannot open '" + temporary + "' for writing";
+      return false;
+    }
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.flush();
+    // A write that failed halfway must not be reported as a save.
+    if (!out) {
+      error = "write to '" + temporary + "' failed";
+      std::error_code ignored;
+      std::filesystem::remove(std::filesystem::path(temporary), ignored);
+      return false;
+    }
+  }
+
+  // flush() only pushes the stream buffer into the OS. That is enough to survive
+  // the PROCESS dying, which is the threat the truncation created, but not enough
+  // to survive the machine losing power between the write and the rename -- the
+  // rename would then commit a name onto blocks that were never written. A part
+  // file is small and saves are user-initiated, so the fsync is not worth
+  // optimising away.
+  {
+    const int fd = ::open(temporary.c_str(), O_RDONLY);
+    if (fd >= 0) {
+      ::fsync(fd);
+      ::close(fd);
+    }
+  }
+
+  std::error_code ec;
+  std::filesystem::rename(std::filesystem::path(temporary), std::filesystem::path(path), ec);
+  if (ec) {
+    error = "cannot replace '" + path + "': " + ec.message();
+    std::error_code ignored;
+    std::filesystem::remove(std::filesystem::path(temporary), ignored);
     return false;
   }
+
+  // Persist the DIRECTORY entry too, so the rename itself survives power loss and
+  // cannot leave the target missing entirely.
+  {
+    std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) parent = std::filesystem::path(".");
+    const int dfd = ::open(parent.c_str(), O_RDONLY);
+    if (dfd >= 0) {
+      ::fsync(dfd);
+      ::close(dfd);
+    }
+  }
+
   error.clear();
   return true;
 }

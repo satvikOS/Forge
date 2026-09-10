@@ -167,6 +167,12 @@ run_gate() {
 # what the UI emits at all, and there is nothing to inject that the compiler
 # would not reject on its own.
 run_gate forge_desktop_ir_pipeline_gate
+
+# THE ATOMIC-SAVE gate. No external mutations: it carries its own positive control
+# INSIDE the binary -- the same fault injection is run against the OLD
+# truncate-in-place algorithm and that arm is REQUIRED to leave a partial file, so
+# a green run cannot mean the kill simply never landed.
+run_gate forge_desktop_atomic_save_gate
 # THE INTERFACE-ERROR GATE, early because it is the cheapest of the lot and
 # because what it guards is the difference between a repaired frame and a lost
 # model. It links no kernel and no OCCT. Its eight mutations each leave the
