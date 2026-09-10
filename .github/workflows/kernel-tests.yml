@@ -1311,6 +1311,48 @@ jobs:
           fi
           ls -l forge-kernel/build-app/libforge_kernel_core.dylib
 
+      - name: ★ OCCT ledger on the artifact the APP links (not the .node)
+        # The ledger was ratcheted on forge-kernel/build/Release/forge-kernel.node --
+        # the script's default binary -- and on nothing else. But the artifact
+        # package_macos.sh stages into Forge.app links libforge_kernel_core.dylib,
+        # and that library was gated by NOTHING.
+        #
+        # MEASURED 2026-09-09, same tree, same script:
+        #
+        #                     .node (ratcheted)   .dylib (shipped)
+        #   OCCT_DIRECT             9                  11
+        #   OCCT_CLOSURE           14                  14
+        #   OCCT_PHANTOM            2                   0
+        #
+        # CLOSURE agrees at 14, so the ledger number quoted by the roadmap happens to
+        # be right today -- by coincidence, not by enforcement. Nothing stopped the
+        # shipped library's closure from rising while the .node's stayed put, and the
+        # OCCT-zero programme's headline number would have gone on being measured on
+        # an artifact no user runs.
+        #
+        # The two DIRECT counts differ for a real reason, and it is why the dylib is
+        # the BETTER artifact to gate: the .node links `-undefined dynamic_lookup`, so
+        # it CALLS TKBO and TKG2d with no link record at all (PHANTOM=2, 32 and 27
+        # masked symbols). The dylib names every toolkit it uses, so PHANTOM=0 and
+        # --assert-no-phantom can be demanded of it -- a strictly stronger claim than
+        # anything assertable about the .node.
+        #
+        # ★ PURELY ADDITIVE, in the convention this file already uses: the existing
+        #   --assert-closure 14 --assert-direct 9 on the .node is untouched. The
+        #   ceilings below are this tree's own measured values, not new targets.
+        #   OCCT_CLOSURE is monotone, so these can only ever be lowered.
+        #
+        # It runs the gate rather than the raw assertion, because the gate ALSO
+        # proves each assertion can reject: closure 13 must refuse closure=14,
+        # direct 10 must refuse direct=11, and --assert-no-phantom must refuse the
+        # .node (PHANTOM=2) while accepting the dylib (PHANTOM=0). A ratchet that
+        # has never failed is an unverified ratchet. The gate FAILS CLOSED if the
+        # dylib is missing -- a skip that exits 0 reads exactly like a pass.
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash forge-kernel/test/occt_ledger_gate_fires.sh forge-kernel/build-app
+
       - name: Compile forge-desktop (the application AND all three headless gates)
         # THIS is the step defect #107 could not have survived, and it is kept
         # separate from the gate step below so that a compile break is legible by
