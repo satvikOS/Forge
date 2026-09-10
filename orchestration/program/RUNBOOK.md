@@ -381,3 +381,46 @@ filename the block note never mentioned, and the note pointed at two artefact pa
 that do not exist (`reports/FEA_NAFEMS_GAP.md`, `test/fea_nafems_convergence.mjs`; both
 live under `forge-kernel/`). One `find -iname '*NAFEMS*'` would have found it. Check the
 repo for the answer before scheduling the investigation.
+
+### A test that cannot exhibit the defect is not evidence
+
+I fixed the boundary densifier, proved it on a unit cube, and committed. A cube cannot
+exhibit an aspect-ratio defect: all its triangles are isotropic, so 4-way subdivision
+and longest-edge bisection give byte-identical output. The repo's own `fea_smoke` then
+ran for twelve minutes at 100% CPU on a 10:1 beam, where my scheme over-refined the
+short direction 16x.
+
+Before claiming a geometric fix, ask which shapes could distinguish it from a wrong
+one, and mesh those. The claim I made was true and insufficient, which is the harder
+kind of wrong to notice.
+
+### Build the baseline from a pinned commit, not from a reverted file
+
+To measure before/after I restored the old source, launched the build, and restored
+the new source — racing the compiler for the one translation unit that mattered. The
+"baseline" could have been built from the fixed code and I would not have known. A
+`git worktree add --detach <sha>` costs a checkout and makes the race impossible.
+
+### Report the criterion you set, especially when you miss it
+
+Acceptance said the convergence harness must report `monotone: YES`. It reports NO.
+The work still moved four independent observables by an order of magnitude — clamped
+nodes 11 -> 51, displacement -91.2% -> -7.9%, stress -52.2% -> -6.1%, first mode
++226.4% -> +4.1% — and NAFEMS LE1 from -61.5% to -3.46%, inside its band. All of that
+is worth shipping, and none of it converts a missed criterion into a met one. Record
+the miss in the same breath as the wins and file what remains.
+
+### A wide band is not a gate
+
+`fea_smoke` printed "PASS — within engineering plausibility band" on a run with a
+-91.2% displacement error and a +226% first mode. It passed on the defect that an
+entire task existed to fix. When a test's verdict is stable across an order-of-
+magnitude change in the thing it measures, it is reporting that it ran, not that the
+number is right.
+
+### Independent observables are what make a mechanism believable
+
+Displacement, peak stress and modal frequency do not share a formula. All three moved
+together and landed within 8%, and the log named the mechanism directly: the clamped
+face carried ELEVEN nodes because its node set was the frozen one. One observable
+would have been a number; three plus a legible cause is an explanation.
