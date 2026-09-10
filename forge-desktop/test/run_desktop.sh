@@ -122,7 +122,14 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + forge_kernel_worker + 9 headless gates (-Wall -Wextra -Werror clean)"
+# COUNTED, not written down. This said "9 headless gates" while the build produced
+# considerably more, because a number in prose does not move when the thing it
+# describes does -- and a stale count in a green log is how a missing gate hides.
+_gates=("$APP_BUILD"/forge_desktop_*_gate)
+# An unmatched glob is left as the LITERAL pattern in bash, which counts as one
+# element -- so "no gates built" would report 1. Test that the first entry exists.
+if [ ! -e "${_gates[0]}" ]; then _ngates=0; else _ngates=${#_gates[@]}; fi
+echo "[desktop] built forge_desktop + forge_kernel_worker + ${_ngates} headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0
@@ -173,6 +180,11 @@ run_gate forge_desktop_ir_pipeline_gate
 # truncate-in-place algorithm and that arm is REQUIRED to leave a partial file, so
 # a green run cannot mean the kill simply never landed.
 run_gate forge_desktop_atomic_save_gate
+
+# THE COPILOT INPUT gate. No external mutations: it carries its own before/after
+# inside the fixture -- the 254/255 cases pass under the old code and the 256/257/
+# 1024 cases do not, so the boundary itself is the control.
+run_gate forge_desktop_copilot_input_gate
 # THE INTERFACE-ERROR GATE, early because it is the cheapest of the lot and
 # because what it guards is the difference between a repaired frame and a lost
 # model. It links no kernel and no OCCT. Its eight mutations each leave the

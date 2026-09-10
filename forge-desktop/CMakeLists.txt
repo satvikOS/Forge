@@ -15,6 +15,7 @@
 #                             viewport vertices -> a .fpart on disk -> back.
 #   forge_desktop_ir_pipeline_gate
 #   forge_desktop_atomic_save_gate
+#   forge_desktop_copilot_input_gate
 #                             HEADLESS: a UI-authored IR program parses, compiles
 #                             and measures as a real solid.
 #   forge_desktop_click_gate  HEADLESS and INTERACTIVE: drives the real ImGui
@@ -409,6 +410,17 @@ target_link_libraries(forge_desktop_atomic_save_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_atomic_save_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# THE COPILOT INPUT gate. drawCopilotPanel round-tripped copilotInput_ through a
+# 256-byte stack buffer every frame, so an engineering request longer than 255 bytes
+# was silently shortened. Drives the REAL panel through real frames, because the
+# truncation happens in the draw and not in the accessor.
+add_executable(forge_desktop_copilot_input_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/copilot_input_gate.cpp")
+target_compile_options(forge_desktop_copilot_input_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_copilot_input_gate PRIVATE forge_desktop_core forge_imgui)
+set_target_properties(forge_desktop_copilot_input_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # The DOCUMENT gate: the user-launchable slice, headless. It drives the real
 # registry, rebuilds the real kernel geometry from the document, and round-trips
 # the document through a real .fpart file on disk.
@@ -715,6 +727,7 @@ add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
 add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_atomic_save_gate COMMAND forge_desktop_atomic_save_gate)
+add_test(NAME forge_desktop_copilot_input_gate COMMAND forge_desktop_copilot_input_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
 add_test(NAME forge_desktop_imgui_recovery_gate COMMAND forge_desktop_imgui_recovery_gate)
 # Same WILL_FAIL idiom as the update and file-exchange mutations: a mutated run

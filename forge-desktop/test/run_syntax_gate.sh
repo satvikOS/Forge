@@ -143,6 +143,7 @@ CHECKED=(
   forge-desktop/src/UpdateService.cpp
   forge-desktop/test/appcast_check.cpp
   forge-desktop/test/copilot_gate.cpp
+  forge-desktop/test/copilot_input_gate.cpp
   forge-desktop/test/document_gate.cpp
   forge-desktop/test/file_dialog_gate.cpp
   forge-desktop/test/drawing_gate.cpp
