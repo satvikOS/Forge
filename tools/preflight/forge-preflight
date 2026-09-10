@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# forge-preflight — run every cheap consistency check CI runs, before pushing.
+#
+# WHY THIS IS DERIVED AND NOT A LIST.
+#
+# I broke CI twice in one session on the same two-sided system, and the second
+# break happened BECAUSE the first fix was verified with a hand-written battery:
+#
+#   gen_archie_op_vocabulary.py --check   the JSON must match its 8 SOURCE files
+#   gen_op_constraint_table.py  --check   the HEADER must match the JSON
+#
+# Regenerating the JSON to satisfy the first moved its sha256, which broke the
+# second, and my battery listed only the check I already knew about. A hand-listed
+# battery is incomplete the moment someone adds a generator, and it fails silently:
+# it reports PASS for the checks it happens to contain.
+#
+# So this DISCOVERS the generators rather than naming them: every *.py under
+# implementation/sacrosanct/tools that accepts --check is run. Adding a new one
+# gets it covered with no edit here.
+set -uo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$ROOT"
+PASS=0; FAIL=0; NAMES=()
+run() {  # run <label> <cmd...>
+  local label="$1"; shift
+  printf "  %-52s " "$label"
+  if "$@" >/tmp/preflight.$$ 2>&1; then echo "PASS"; PASS=$((PASS+1))
+  else echo "FAIL"; FAIL=$((FAIL+1)); NAMES+=("$label"); sed -n '1,6p' /tmp/preflight.$$ | sed 's/^/        /'; fi
+  rm -f /tmp/preflight.$$
+}
+
+echo "== generated-artifact consistency (DISCOVERED, not listed) =="
+found=0
+for g in implementation/sacrosanct/tools/*.py; do
+  [ -f "$g" ] || continue
+  grep -q -- '--check' "$g" || continue
+  found=$((found+1))
+  run "$(basename "$g") --check" python3 "$g" --check
+done
+[ "$found" -eq 0 ] && { echo "  FAIL  no --check generators discovered -- the discovery itself is broken"; FAIL=$((FAIL+1)); }
+echo "  ($found generators discovered)"
+
+echo "== tree hygiene =="
+run "no committed conflict markers" bash -c '! git grep -qnE "^(<<<<<<< |>>>>>>> )" -- .'
+
+echo "== gate registration =="
+[ -f forge-kernel/test/gate_registration_ratchet.sh ] && run "kernel gates all wired" bash forge-kernel/test/gate_registration_ratchet.sh
+[ -f forge-desktop/test/gate_registration_check.sh ] && run "desktop gates all wired" bash forge-desktop/test/gate_registration_check.sh
+
+echo "== workflow syntax =="
+for w in .github/workflows/*.yml; do
+  run "$(basename "$w") parses" ruby -ryaml -e "YAML.safe_load(File.read('$w'), aliases: true)"
+done
+
+echo "== cheap self-contained gates =="
+[ -f orchestration/run_orchestration_tests.sh ] && \
+  run "orchestration (phase 2 required)" env FORGE_ORCH_REQUIRE_PHASE2=1 bash orchestration/run_orchestration_tests.sh
+
+echo
+echo "forge-preflight: $PASS passed, $FAIL failed"
+if [ "$FAIL" -ne 0 ]; then printf '  failed: %s\n' "${NAMES[@]}"; fi
+[ "$FAIL" -eq 0 ]
