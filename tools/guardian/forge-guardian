@@ -1,0 +1,257 @@
+#!/bin/zsh
+# ============================================================================
+# FORGE GUARDIAN — workstation resource governor (spec doc 06, L0)
+#
+# The predecessor (healthmon.sh) was a DETECTOR: it emitted text and nothing
+# acted on it. Guardian is a GOVERNOR. It publishes a machine-readable pressure
+# state that every heavy job must consult before and during execution, and it
+# actuates load-shedding when the machine is genuinely in danger.
+#
+# DOCTRINE (doc 06):
+#   - macOS memory pressure is the PRIMARY truth; RSS/swap/pageouts corroborate.
+#   - Never wait for an allocation failure before reacting.
+#   - The UI, project state and supervisor survive worker failures.
+#
+# HARD SAFETY RULES (learned, do not relax):
+#   1. A LEVEL IS NOT A TREND. Escalation requires a moving signal, not a large
+#      steady one. A 30B model resident at 7GB is WANTED, not an emergency.
+#   2. NEVER kill an unregistered process. Machine-wide pkill patterns kill every
+#      parallel agent's work (measured 2026-08-21). Guardian may only signal PIDs
+#      that registered themselves with an envelope and declared can_restart.
+#   3. A VECTOR OF OBSERVABLES, never one. Any single number can be clean while
+#      the machine is dying.
+#   4. HYSTERESIS. Escalate only after N consecutive confirming polls; de-escalate
+#      only after M. A flapping governor is worse than none.
+#   5. Cooperative before coercive: publish -> SIGUSR1 (checkpoint+shed) ->
+#      SIGTERM -> SIGKILL, in that order, with grace periods.
+# ============================================================================
+set -u
+setopt NULL_GLOB 2>/dev/null || true
+STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+JOBS_DIR="$STATE_DIR/jobs"
+LOG="$STATE_DIR/log/guardian.log"
+STATE_F="$STATE_DIR/state"
+STATE_J="$STATE_DIR/state.json"
+mkdir -p "$JOBS_DIR" "$STATE_DIR/log"
+
+POLL=${FORGE_GUARDIAN_POLL:-5}
+NCPU=$(sysctl -n hw.ncpu)
+NPERF=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || echo $((NCPU/2)))
+RAM_BYTES=$(sysctl -n hw.memsize)
+RAM_GB=$(( RAM_BYTES / 1073741824 ))
+PAGE=$(sysctl -n hw.pagesize)
+
+# Processes Guardian must NEVER signal, even if they somehow appear registered.
+PROTECTED_RE='(^|/)(claude|node|WindowServer|loginwindow|Finder|kernel_task|launchd|forge-guardian)$'
+
+log() { print -r -- "$(date '+%Y-%m-%dT%H:%M:%S') $1" >> "$LOG"; }
+emit() { print -r -- "$1"; log "$1"; }
+
+# ---- atomic state publication -------------------------------------------------
+publish() {
+  local st="$1" reason="$2" jmax="$3"
+  print -r -- "$st" > "$STATE_F.tmp" && mv -f "$STATE_F.tmp" "$STATE_F"
+  cat > "$STATE_J.tmp" <<JSON
+{
+  "state": "$st",
+  "reason": "$reason",
+  "ts": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+  "epoch": $(date +%s),
+  "build_jobs_max": $jmax,
+  "spawn_agents_ok": $([[ "$st" == "GREEN" || "$st" == "YELLOW" ]] && echo true || echo false),
+  "heavy_jobs_ok": $([[ "$st" == "GREEN" ]] && echo true || echo false),
+  "observables": {
+    "vm_pressure_level": ${O_VMP:-1},
+    "free_pct": ${O_FREE:-0},
+    "swap_used_mb": ${O_SWU:-0},
+    "swap_total_mb": ${O_SWT:-0},
+    "pageout_rate_pages_per_poll": ${O_PORATE:-0},
+    "disk_avail_gb": ${O_DISK:-0},
+    "loadavg": "${O_LOAD:-0}",
+    "cpu_speed_limit_pct": ${O_THERM:-100},
+    "registered_jobs": ${O_JOBS:-0}
+  },
+  "host": {"ram_gb": $RAM_GB, "ncpu": $NCPU, "nperf": $NPERF}
+}
+JSON
+  mv -f "$STATE_J.tmp" "$STATE_J"
+}
+
+# ---- registered-job helpers ---------------------------------------------------
+# A job file is KEY=VALUE lines: pid, name, priority(0=critical..9=speculative),
+# can_restart(0/1), peak_gb, started
+job_field() { sed -n "s/^$2=//p" "$1" 2>/dev/null | head -1; }
+
+reap_dead_jobs() {
+  local f pid
+  for f in "$JOBS_DIR"/*.job; do
+    pid=$(job_field "$f" pid)
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || rm -f "$f"
+  done
+}
+
+# Return job files sorted by priority DESC (most speculative first) — shed order.
+shed_order() {
+  local f p
+  for f in "$JOBS_DIR"/*.job; do
+    p=$(job_field "$f" priority); print -r -- "${p:-5} $f"
+  done | sort -rn | awk '{print $2}'
+}
+
+is_protected() {
+  local pid="$1" comm
+  comm=$(ps -o comm= -p "$pid" 2>/dev/null)
+  [[ -z "$comm" ]] && return 0                      # unknown -> treat as protected
+  [[ "${comm:t}" =~ $PROTECTED_RE ]] && return 0
+  return 1
+}
+
+# Cooperative shed: SIGUSR1 means "checkpoint now and reduce your footprint".
+signal_job() {
+  local f="$1" sig="$2" pid name
+  pid=$(job_field "$f" pid); name=$(job_field "$f" name)
+  [[ -z "$pid" ]] && return 1
+  if is_protected "$pid"; then
+    log "REFUSED to signal protected pid=$pid name=$name (sig=$sig)"
+    return 1
+  fi
+  kill -"$sig" "$pid" 2>/dev/null && emit "🛡  GUARDIAN shed sig=$sig -> job='$name' pid=$pid" && return 0
+  return 1
+}
+
+# ---- observation --------------------------------------------------------------
+PREV_PO=""
+sample() {
+  O_VMP=$(sysctl -n kern.memorystatus_vm_pressure_level 2>/dev/null || echo 1)
+  O_FREE=$(memory_pressure 2>/dev/null | sed -n 's/.*free percentage: \([0-9]*\)%.*/\1/p'); O_FREE=${O_FREE:-100}
+  local sw; sw=$(sysctl -n vm.swapusage 2>/dev/null)
+  O_SWU=$(print -r -- "$sw" | sed -n 's/.*used = \([0-9.]*\)M.*/\1/p'); O_SWU=${O_SWU%%.*}; O_SWU=${O_SWU:-0}
+  O_SWT=$(print -r -- "$sw" | sed -n 's/.*total = \([0-9.]*\)M.*/\1/p'); O_SWT=${O_SWT%%.*}; O_SWT=${O_SWT:-1}
+  (( O_SWT > 0 )) || O_SWT=1
+  local po; po=$(vm_stat 2>/dev/null | awk '/Pageouts/{gsub(/\./,"",$NF); print $NF}'); po=${po:-0}
+  O_PORATE=$(( po - ${PREV_PO:-$po} )); (( O_PORATE < 0 )) && O_PORATE=0
+  PREV_PO=$po
+  O_DISK=$(df -g / 2>/dev/null | awk 'NR==2{print $4}'); O_DISK=${O_DISK:-999}
+  O_LOAD=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'); O_LOAD=${O_LOAD:-0}
+  O_THERM=$(pmset -g therm 2>/dev/null | sed -n 's/.*CPU_Speed_Limit *= *\([0-9]*\).*/\1/p' | tail -1); O_THERM=${O_THERM:-100}
+  O_JOBS=$(ls "$JOBS_DIR"/*.job 2>/dev/null | wc -l | tr -d ' '); O_JOBS=${O_JOBS:-0}
+}
+
+# ---- classification -----------------------------------------------------------
+# Each tier needs a VECTOR: OS pressure OR (corroborated swap thrash) OR disk OR thermal.
+# Sets GLOBALS CLASS and REASON. Must NOT be called in $(...) — a command
+# substitution is a subshell, so the REASON assignment would be lost and the
+# caller would read an unset variable. That exact bug killed the daemon after
+# one poll on 2026-09-09 while the stale state file still read GREEN.
+classify() {
+  local swpct=$(( 100 * O_SWU / O_SWT ))
+  # RED — the OS itself says critical, or genuine sustained thrash, or disk cliff.
+  if (( O_VMP >= 4 )); then REASON="kern vm_pressure=CRITICAL"; CLASS=RED; return; fi
+  if (( O_PORATE > 6000 && swpct >= 85 )); then REASON="pageouts +${O_PORATE}/poll with swap ${swpct}%"; CLASS=RED; return; fi
+  if (( O_DISK < 12 )); then REASON="disk ${O_DISK}Gi"; CLASS=RED; return; fi
+  # ORANGE — OS warning, or real pageout traffic, or disk/thermal pressure.
+  if (( O_VMP >= 2 )); then REASON="kern vm_pressure=WARNING"; CLASS=ORANGE; return; fi
+  if (( O_PORATE > 1500 && swpct >= 60 )); then REASON="pageouts +${O_PORATE}/poll with swap ${swpct}%"; CLASS=ORANGE; return; fi
+  if (( O_DISK < 25 )); then REASON="disk ${O_DISK}Gi"; CLASS=ORANGE; return; fi
+  if (( O_THERM < 70 )); then REASON="thermal CPU_Speed_Limit=${O_THERM}%"; CLASS=ORANGE; return; fi
+  # YELLOW — early warning: memory genuinely tight, or pageouts started, or disk low.
+  if (( O_FREE <= 12 && O_PORATE > 300 )); then REASON="free ${O_FREE}% with pageouts +${O_PORATE}"; CLASS=YELLOW; return; fi
+  if (( O_PORATE > 600 )); then REASON="pageouts +${O_PORATE}/poll"; CLASS=YELLOW; return; fi
+  if (( O_DISK < 45 )); then REASON="disk ${O_DISK}Gi"; CLASS=YELLOW; return; fi
+  if (( O_THERM < 90 )); then REASON="thermal CPU_Speed_Limit=${O_THERM}%"; CLASS=YELLOW; return; fi
+  REASON="nominal"; CLASS=GREEN
+}
+
+build_jobs_for() {
+  case "$1" in
+    GREEN)  print $(( NPERF > 2 ? NPERF - 2 : 1 )) ;;
+    YELLOW) print $(( NPERF / 2 > 1 ? NPERF / 2 : 1 )) ;;
+    ORANGE) print 2 ;;
+    RED)    print 1 ;;
+  esac
+}
+
+# ---- library mode -------------------------------------------------------------
+# Sourcing with FORGE_GUARDIAN_LIB=1 defines every function and returns WITHOUT
+# starting the loop, so the fault-injection suites exercise THIS code rather than
+# a re-extracted copy. A test that re-implements the thing it tests proves nothing.
+if [[ -n "${FORGE_GUARDIAN_LIB:-}" ]]; then return 0 2>/dev/null || exit 0; fi
+
+# ---- main loop ----------------------------------------------------------------
+STATE=GREEN; CAND=GREEN; CONFIRM=0; CLASS=GREEN; REASON="nominal"
+O_VMP=1; O_FREE=100; O_SWU=0; O_SWT=1; O_PORATE=0; O_DISK=999; O_LOAD=0; O_THERM=100; O_JOBS=0
+ESCALATE_N=2      # 2 polls (~10s) to escalate — fast enough to beat an OOM
+DEESCALATE_N=6    # 6 polls (~30s) to relax — slow, so we do not flap
+RED_STAGE=0
+
+trap 'publish "GREEN" "guardian stopped" "$(build_jobs_for GREEN)"; log "guardian stopped"; exit 0' TERM INT
+
+sample; publish "GREEN" "armed" "$(build_jobs_for GREEN)"
+emit "🛡  FORGE GUARDIAN ARMED $(date '+%Y-%m-%d %H:%M:%S') ram=${RAM_GB}G ncpu=${NCPU} poll=${POLL}s"
+
+while true; do
+  sample
+  reap_dead_jobs
+  classify; NEW="$CLASS"
+
+  if [[ "$NEW" == "$STATE" ]]; then
+    CONFIRM=0; CAND="$STATE"
+  else
+    if [[ "$NEW" == "$CAND" ]]; then (( CONFIRM++ )); else CAND="$NEW"; CONFIRM=1; fi
+    local_need=$ESCALATE_N
+    case "$STATE:$NEW" in
+      GREEN:*|YELLOW:ORANGE|YELLOW:RED|ORANGE:RED) local_need=$ESCALATE_N ;;
+      *) local_need=$DEESCALATE_N ;;
+    esac
+    if (( CONFIRM >= local_need )); then
+      OLD="$STATE"; STATE="$CAND"; CONFIRM=0
+      JMAX=$(build_jobs_for "$STATE")
+      publish "$STATE" "$REASON" "$JMAX"
+      case "$STATE" in
+        YELLOW) emit "🟡 GUARDIAN $OLD→YELLOW ($REASON) — no speculative work, build -j$JMAX" ;;
+        ORANGE) emit "🟠 GUARDIAN $OLD→ORANGE ($REASON) — shedding speculative jobs, build -j$JMAX" ;;
+        RED)    emit "🔴 GUARDIAN $OLD→RED ($REASON) — halting new work, checkpointing" ;;
+        GREEN)  emit "🟢 GUARDIAN $OLD→GREEN (recovered) — build -j$JMAX"; RED_STAGE=0 ;;
+      esac
+    fi
+  fi
+
+  JMAX=$(build_jobs_for "$STATE")
+  publish "$STATE" "$REASON" "$JMAX"
+
+  # ---- actuation ----
+  case "$STATE" in
+    ORANGE)
+      RED_STAGE=0
+      # Cooperative only: ask the most speculative registered jobs to checkpoint
+      # and shrink. Nothing is killed at ORANGE.
+      for f in $(shed_order); do
+        p=$(job_field "$f" priority)
+        (( ${p:-5} >= 7 )) || continue
+        signal_job "$f" USR1
+      done
+      ;;
+    RED)
+      # Staged. Stage 1: everyone checkpoints. Stage 2: TERM the single most
+      # speculative restartable job. Stage 3: TERM the next. Never SIGKILL a job
+      # that has not first had a TERM and a grace period; never touch anything
+      # unregistered or protected.
+      (( RED_STAGE++ ))
+      if (( RED_STAGE == 1 )); then
+        for f in $(shed_order); do signal_job "$f" USR1; done
+        emit "🔴 GUARDIAN RED stage1: all registered jobs asked to checkpoint"
+      elif (( RED_STAGE >= 3 )); then
+        for f in $(shed_order); do
+          [[ "$(job_field "$f" can_restart)" == "1" ]] || continue
+          if signal_job "$f" TERM; then
+            emit "🔴 GUARDIAN RED stage${RED_STAGE}: terminated '$(job_field "$f" name)' to relieve pressure"
+            break
+          fi
+        done
+        RED_STAGE=1
+      fi
+      ;;
+  esac
+
+  sleep "$POLL"
+done

@@ -1,0 +1,40 @@
+#!/bin/zsh
+# forge-job — run a heavy command under Guardian supervision.
+#   forge-job --name build-kernel --priority 5 --peak-gb 6 [--restartable] [--need green] -- cmd args...
+# Registers an envelope so Guardian can shed THIS job (and only registered jobs)
+# under pressure, then deregisters on exit no matter how the command ends.
+set -u
+STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+JOBS_DIR="$STATE_DIR/jobs"; mkdir -p "$JOBS_DIR"
+NAME="job"; PRIO=5; PEAK=2; RESTART=0; NEED=green
+while (( $# )); do
+  case "$1" in
+    --name) NAME="$2"; shift 2 ;;
+    --priority) PRIO="$2"; shift 2 ;;
+    --peak-gb) PEAK="$2"; shift 2 ;;
+    --restartable) RESTART=1; shift ;;
+    --need) NEED="$2"; shift 2 ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+(( $# )) || { print -u2 "forge-job: no command given"; exit 2; }
+
+"$STATE_DIR/bin/forge-gate" --need "$NEED" --wait 900 --why "$NAME" || exit 75   # EX_TEMPFAIL
+
+JF="$JOBS_DIR/$$.job"
+cleanup() { rm -f "$JF"; }
+trap cleanup EXIT INT TERM
+cat > "$JF" <<J
+pid=$$
+name=$NAME
+priority=$PRIO
+can_restart=$RESTART
+peak_gb=$PEAK
+started=$(date +%s)
+cmd=$*
+J
+"$@"
+rc=$?
+cleanup
+exit $rc

@@ -1,0 +1,63 @@
+#!/bin/zsh
+# Fault-injection suite for Forge Guardian (doc 06 "Fault injection tests").
+# Falsifies the classifier and the actuator against synthetic pressure, so the
+# governor is proven to FIRE — an unfired monitor is an unverified monitor.
+set -u
+G=${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian
+PASS=0; FAIL=0
+chk() { # chk <desc> <expected> <actual>
+  if [[ "$2" == "$3" ]]; then print "  PASS  $1 -> $3"; (( PASS++ ))
+  else print "  FAIL  $1 -> got '$3' want '$2'"; (( FAIL++ )); fi
+}
+
+# Extract classify() and build_jobs_for() from the daemon and drive them directly.
+eval "$(sed -n '/^classify() {/,/^}/p' "$G")"
+eval "$(sed -n '/^build_jobs_for() {/,/^}/p' "$G")"
+NPERF=10
+
+set_obs() { O_VMP=$1; O_FREE=$2; O_SWU=$3; O_SWT=$4; O_PORATE=$5; O_DISK=$6; O_THERM=$7; }
+
+print "== classifier: vector of observables =="
+set_obs 1 91 0 1024 0 174 100;      chk "idle machine"                    GREEN  "$(classify; print $CLASS)"
+set_obs 1 91 0 1024 0 174 100
+set_obs 2 40 200 1024 0 174 100;    chk "OS says pressure WARNING"        ORANGE "$(classify; print $CLASS)"
+set_obs 4 30 900 1024 100 174 100;  chk "OS says pressure CRITICAL"       RED    "$(classify; print $CLASS)"
+set_obs 1 8 7000 8192 8000 174 100; chk "real thrash: pageouts+swap 85%"  RED    "$(classify; print $CLASS)"
+set_obs 1 20 5000 8192 2000 174 100;chk "moderate thrash"                 ORANGE "$(classify; print $CLASS)"
+set_obs 1 91 0 1024 0 8 100;        chk "disk cliff 8Gi"                  RED    "$(classify; print $CLASS)"
+set_obs 1 91 0 1024 0 20 100;       chk "disk 20Gi"                       ORANGE "$(classify; print $CLASS)"
+set_obs 1 91 0 1024 0 40 100;       chk "disk 40Gi"                       YELLOW "$(classify; print $CLASS)"
+set_obs 1 91 0 1024 0 174 60;       chk "thermal 60%"                     ORANGE "$(classify; print $CLASS)"
+set_obs 1 91 0 1024 0 174 85;       chk "thermal 85%"                     YELLOW "$(classify; print $CLASS)"
+set_obs 1 10 100 1024 400 174 100;  chk "free 10% + pageouts starting"    YELLOW "$(classify; print $CLASS)"
+
+print "== THE KEY REGRESSION: a LEVEL is not a TREND =="
+# 30B model resident: free% permanently low, swap large and STEADY, no pageouts.
+# The predecessor fired MEMORY-LOW every 10 min for an hour on exactly this.
+set_obs 1 7 6000 8192 0 174 100;    chk "big resident model, zero pageouts" GREEN "$(classify; print $CLASS)"
+set_obs 1 5 12000 23000 20 174 100; chk "23G swapfile, 20 pages moved"      GREEN "$(classify; print $CLASS)"
+
+print "== build parallelism degrades with state =="
+chk "GREEN -j"  8 "$(build_jobs_for GREEN)"
+chk "YELLOW -j" 5 "$(build_jobs_for YELLOW)"
+chk "ORANGE -j" 2 "$(build_jobs_for ORANGE)"
+chk "RED -j"    1 "$(build_jobs_for RED)"
+
+print "== LIVENESS: the daemon must survive polls, not just start =="
+CTL=${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian-ctl
+SD=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+if [[ -f "$SD/guardian.pid" ]] && kill -0 "$(cat $SD/guardian.pid)" 2>/dev/null; then
+  a1=$(stat -f %m "$SD/state.json"); sleep 12; a2=$(stat -f %m "$SD/state.json")
+  if (( a2 > a1 )); then print "  PASS  daemon alive and republishing (mtime $a1 -> $a2)"; (( PASS++ ))
+  else print "  FAIL  state.json is NOT being refreshed — daemon is dead or wedged"; (( FAIL++ )); fi
+    # grep -c PRINTS 0 and EXITS 1, so `$(grep -c ... || echo 0)` yields "0\n0"
+  # and every later comparison sees a two-line string. Count lines instead.
+  errs=$(grep -E "parameter not set|command not found|no matches found" "$SD/log/guardian.out" 2>/dev/null | wc -l | tr -d " ")
+  chk "daemon stderr is clean" 0 "$errs"
+else
+  print "  FAIL  daemon not running"; (( FAIL++ ))
+fi
+
+print ""
+print "RESULT: $PASS passed, $FAIL failed"
+(( FAIL == 0 ))

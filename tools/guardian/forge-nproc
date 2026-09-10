@@ -1,0 +1,14 @@
+#!/bin/zsh
+# forge-nproc — the ONLY sanctioned source of build parallelism.
+# Never hardcode -j. Guardian lowers this under pressure.
+set -u
+STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+if [[ -f "$STATE_DIR/state.json" ]]; then
+  age=$(( $(date +%s) - $(stat -f %m "$STATE_DIR/state.json") ))
+  if (( age <= 60 )); then
+    j=$(sed -n 's/.*"build_jobs_max": *\([0-9]*\).*/\1/p' "$STATE_DIR/state.json" | head -1)
+    [[ -n "$j" ]] && { print -r -- "$j"; exit 0; }
+  fi
+fi
+# Fail SAFE, not fast: with no guardian, assume we must be conservative.
+print -r -- 2

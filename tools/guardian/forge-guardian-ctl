@@ -1,0 +1,29 @@
+#!/bin/zsh
+# forge-guardian-ctl {start|stop|status|tail}
+set -u
+STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+PIDF="$STATE_DIR/guardian.pid"
+case "${1:-status}" in
+  start)
+    if [[ -f "$PIDF" ]] && kill -0 "$(cat $PIDF)" 2>/dev/null; then
+      print "guardian already running pid=$(cat $PIDF)"; exit 0
+    fi
+    nohup "$STATE_DIR/bin/forge-guardian" >> "$STATE_DIR/log/guardian.out" 2>&1 &
+    print $! > "$PIDF"
+    sleep 2
+    print "guardian started pid=$(cat $PIDF) state=$(cat $STATE_DIR/state 2>/dev/null)"
+    ;;
+  stop)
+    [[ -f "$PIDF" ]] && kill "$(cat $PIDF)" 2>/dev/null && rm -f "$PIDF" && print "stopped" || print "not running"
+    ;;
+  status)
+    if [[ -f "$PIDF" ]] && kill -0 "$(cat $PIDF)" 2>/dev/null; then
+      print "RUNNING pid=$(cat $PIDF)"
+    else
+      print "NOT RUNNING"
+    fi
+    [[ -f "$STATE_DIR/state.json" ]] && cat "$STATE_DIR/state.json"
+    print "registered jobs:"; ls -1 "$STATE_DIR/jobs"/*.job 2>/dev/null | wc -l
+    ;;
+  tail) tail -f "$STATE_DIR/log/guardian.log" ;;
+esac
