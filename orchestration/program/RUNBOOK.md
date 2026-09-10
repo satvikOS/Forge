@@ -537,3 +537,34 @@ LE10 slab has a FLAT top face whose exact area is a closed form, and whose area 
 entirely on how well its boundary polygon is resolved — so it converts "is the boundary
 converging?" into one number with a known answer. Look for the part of a model whose
 correct value you can write down.
+
+### When correcting a confounded measurement, enumerate ALL the confounds
+
+I measured "distance from the geometry" for boundary vertices and got 0.29 m, frozen.
+Corrected it once — excluding the flat top and bottom planes, where an ellipsoid
+distance is meaningless — and got 0.291263, frozen. Wrote it up as a root cause.
+
+The second number was the same defect: the model is a quarter of an elliptic annulus
+with SIX boundary surface types, and I had excluded two of the four flat ones. The
+worst vertex sat on the `y = 0` symmetry cut plane, exactly where it belonged.
+
+**A correction that barely changes the answer is a warning, not a confirmation.** Two
+wrong measurements agreeing to three decimal places felt like convergent evidence; it
+was the same mistake twice. Before trusting a corrected metric, list every category
+the measurement could be confusing and check you handled all of them, not the one that
+happened to occur to you.
+
+### A fix that changes nothing is evidence about the diagnosis
+
+The interior-clearance change produced byte-identical deviation at every refinement
+level while removing 5–8% of the elements. That is not a fix that underperformed; it
+is a fix aimed at something that was not happening — and it said so before it could be
+merged. When a targeted change moves the target metric by exactly zero, stop and
+re-examine the cause rather than tuning the change.
+
+### Retract in the same place you claimed
+
+The wrong root cause was a committed report. The retraction is another committed
+report that names the file, the commit, the vertex and the reason, and the ledger task
+was reset from DONE rather than left standing. A finding that stays in the repo
+uncontradicted will be believed by whoever reads it next, including me.
