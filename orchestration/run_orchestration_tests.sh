@@ -104,6 +104,16 @@ if [ "$(uname -s)" = "Darwin" ]; then
   fi
   echo "[orch] phase 2 (network denied) PASSED"
 else
+  # A SKIP THAT EXITS 0 READS EXACTLY LIKE A PASS. The interposer is macOS-only, so
+  # a developer on Linux legitimately skips phase 2 -- but CI must not quietly report
+  # the offline guarantee as proven on a runner that never tested it. Set
+  # FORGE_ORCH_REQUIRE_PHASE2=1 (CI does, on macOS) to make the skip an error.
+  if [ "${FORGE_ORCH_REQUIRE_PHASE2:-0}" = "1" ]; then
+    echo "[orch] FAILED: phase 2 was required but the interposer is macOS-specific" >&2
+    echo "[orch]         run this on macOS, or unset FORGE_ORCH_REQUIRE_PHASE2 and do" >&2
+    echo "[orch]         NOT claim the network-denied phase was proven." >&2
+    exit 1
+  fi
   echo "[orch] phase 2 skipped: the interposer is macOS-specific"
 fi
 
