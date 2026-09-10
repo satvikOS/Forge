@@ -22,6 +22,12 @@ case "${1:-status}" in
   start)
     if [[ -n "$(launchd_pid)" ]]; then print "already running under launchd pid=$(launchd_pid)"; exit 0; fi
     if [[ -f "$PLIST" ]]; then
+      # Under launchd the pid file is meaningless -- launchd owns the process and
+      # restarts it with a new pid on KeepAlive. A leftover from an earlier
+      # unsupervised start is worse than absent: it names a DEAD pid, and anything
+      # that checks liveness with `kill -0 $(cat guardian.pid)` then reports a
+      # perfectly healthy daemon as down. Remove it rather than let it rot.
+      rm -f "$PIDF"
       launchctl load -w "$PLIST" 2>/dev/null; sleep 3
       print "started under launchd pid=$(launchd_pid)"; exit 0
     fi
@@ -33,6 +39,7 @@ case "${1:-status}" in
   stop)
     if [[ -f "$PLIST" && -n "$(launchd_pid)" ]]; then
       launchctl unload "$PLIST" 2>/dev/null && print "stopped (launchd unloaded)"
+      rm -f "$PIDF"
     elif [[ -n "$(pidfile_pid)" ]]; then
       kill "$(cat $PIDF)" 2>/dev/null; rm -f "$PIDF"; print "stopped"
     else print "not running"; fi

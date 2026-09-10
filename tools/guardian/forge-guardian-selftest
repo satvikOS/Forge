@@ -46,7 +46,20 @@ chk "RED -j"    1 "$(build_jobs_for RED)"
 print "== LIVENESS: the daemon must survive polls, not just start =="
 CTL=${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian-ctl
 SD=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
-if [[ -f "$SD/guardian.pid" ]] && kill -0 "$(cat $SD/guardian.pid)" 2>/dev/null; then
+# PUBLISHING is the definition of alive -- the same definition forge-guardian-ctl
+# uses, and the one every consumer already depends on, since forge-gate and
+# forge-nproc fail closed on a stale state and never look for a process at all.
+#
+# This used to gate on `kill -0 $(cat guardian.pid)`. That file is written ONLY by
+# an unsupervised `ctl start`; under launchd -- the configuration this ships with --
+# it is stale or absent, so the liveness check reported "daemon not running" against
+# a healthy launchd-supervised daemon. A suite that cries wolf in its own supported
+# deployment teaches its reader to skip the red line.
+guardian_publishing() {
+  [[ -f "$SD/state.json" ]] || return 1
+  (( $(date +%s) - $(stat -f %m "$SD/state.json") <= 60 ))
+}
+if guardian_publishing; then
   a1=$(stat -f %m "$SD/state.json"); sleep 12; a2=$(stat -f %m "$SD/state.json")
   if (( a2 > a1 )); then print "  PASS  daemon alive and republishing (mtime $a1 -> $a2)"; (( PASS++ ))
   else print "  FAIL  state.json is NOT being refreshed — daemon is dead or wedged"; (( FAIL++ )); fi
@@ -55,7 +68,8 @@ if [[ -f "$SD/guardian.pid" ]] && kill -0 "$(cat $SD/guardian.pid)" 2>/dev/null;
   errs=$(grep -E "parameter not set|command not found|no matches found" "$SD/log/guardian.out" 2>/dev/null | wc -l | tr -d " ")
   chk "daemon stderr is clean" 0 "$errs"
 else
-  print "  FAIL  daemon not running"; (( FAIL++ ))
+  print "  FAIL  nothing is publishing to $SD/state.json (daemon down or wedged)"
+  (( FAIL++ ))
 fi
 
 print ""
