@@ -1,0 +1,181 @@
+# ArchDisc autonomous execution — the tick runbook
+
+One "tick" of the autonomous loop. It is written to be executed by an agent that
+remembers **nothing** from the previous tick: context is compacted, sessions end,
+the machine reboots. Every fact a tick needs is read from disk.
+
+The doctrine this implements is `02_CLAUDE_MANUAL_TO_FORGE_OPERATING_MODEL.md`:
+
+`DISCOVER → BASELINE → PLAN → RESERVE_RESOURCES → ISOLATE → IMPLEMENT_SMALL → BUILD → VERIFY_LOCAL → VERIFY_INDEPENDENT → BENCHMARK → INTEGRATE → CLEAN → RECORD`
+
+---
+
+## 0. RESOURCE GATE — always first, no exceptions
+
+```sh
+forge-guardian-ctl status | head -1        # must say RUNNING
+forge-gate --need green --wait 600 --why "loop tick" || exit 75
+```
+
+If Guardian is not running, **start it and do nothing else this tick**. An
+unguarded long run is how a workstation dies. If the gate denies for the whole
+600s, the tick is a legitimate no-op — record it and reschedule; do not
+"just try anyway".
+
+## 1. DISCOVER — read state from disk, never from memory
+
+```sh
+forge-program status
+forge-program ready
+```
+
+`ready` already excludes tasks whose dependencies are unmet **and** tasks whose
+write set collides with something `IN_PROGRESS`. Take the first task that shows no
+`WRITE-SET CONFLICT`. If nothing is ready, go to §7 (housekeeping) — a tick with no
+implementation work still does cleanup and re-verification, and is not wasted.
+
+## 2. BASELINE — prove the starting point is green before touching it
+
+Never begin work on top of an unknown baseline; you cannot attribute a failure
+afterwards.
+
+```sh
+git -C <repo> status --porcelain      # must be clean, or the dirt must be explained
+git -C <repo> rev-parse HEAD
+<the task's baseline command from tasks.json>
+```
+
+If the baseline is already red, the tick's job is to **fix or characterise the
+baseline**, not to add to it. Record that and stop.
+
+## 3. ISOLATE — one mutating agent, one worktree, one branch
+
+```sh
+git -C <repo> worktree add -b work/<task-id> "<repo>/.claude/worktrees/<task-id>" HEAD
+```
+
+Rules that have each already cost this program a day:
+
+- **Never `git checkout` in the shared checkout.** It moves HEAD out from under
+  every other agent and every read-only auditor attached to it.
+- **Never reuse an existing worktree path.** `worktree add` fails when the path
+  exists, and your `cd` then lands in a *pre-existing worktree on another branch*,
+  where a `reset --hard` destroys someone else's work.
+- **Never commit into the shared checkout while read-only agents are reading it.**
+- **Never edit a script that is currently executing.** zsh reads scripts
+  incrementally; an in-place edit corrupts the running process.
+
+Then `forge-program claim <id> --owner loop-<tick>`.
+
+## 4. IMPLEMENT — smallest coherent patch
+
+`inspect → state hypothesis → smallest patch → compile the narrow target → run the
+target test → inspect the diff → widen the test → commit`
+
+Forbidden, from doc 07: giant reformatting, opportunistic unrelated cleanup, deleting
+files that "look unused" without dependency proof, disabling a failing test to get
+green, changing the acceptance criteria after the fact, silently adding a dependency,
+editing generated/vendor code as source.
+
+Builds go through the governor, always:
+
+```sh
+forge-job --name build-<task-id> --priority 5 --peak-gb 8 --restartable -- \
+  cmake --build build -j "$(forge-nproc)"
+```
+
+Never hardcode `-j`. `forge-nproc` is the only sanctioned source, and it drops to 2
+under pressure and 1 at RED.
+
+## 5. VERIFY — falsifiably, and independently
+
+Doc 02 §4 and doc 18 of the directive: a task is **not** done because code compiled,
+a file exists, a screenshot looks right, or an agent said "success".
+
+Engineering truth for this program comes from: geometry checks, constraint
+satisfaction, dimensions, topology, invariants, round trips, solver convergence,
+collision tests, manufacturing rules, benchmarks, resource telemetry.
+
+Two lessons hold specifically here:
+
+- **A vector of observables, never one.** Volume alone has passed a wrong shape four
+  separate times in this program; in one case (a native quadric offset) *no single*
+  observable caught it — COM was clean on the sphere, bbox clean on the cylinder.
+- **Prove the arms differ.** A null A/B result usually means the harness is broken,
+  not that the change did nothing. Run a positive control before believing a zero.
+
+Then spawn an independent validator against the branch that is told to **falsify**
+the result, not reproduce it.
+
+## 6. INTEGRATE — one integrator, serially
+
+One PR/merge at a time. CI green **and** the branch rebuilt on the target branch
+before the next merge begins.
+
+`CANCELLED is never a pass` — read the check *description*, not the bucket. A
+supersession and a genuine timeout look identical in the status column and need
+opposite responses.
+
+Record with mandatory evidence:
+
+```sh
+forge-program done <id> --commit <sha> \
+  --evidence "what was MEASURED, with numbers"
+```
+
+The ledger refuses evidence shorter than 20 characters on purpose.
+
+## 7. CLEAN — every tick, whether or not work landed
+
+```sh
+git -C <repo> worktree list                       # any merged worktree still present?
+git -C <repo> worktree remove <path>              # only after integration is confirmed
+du -sh <repo>/.claude/worktrees/* 2>/dev/null     # the #1 hiding place for disk
+df -g / | awk 'NR==2{print $4"Gi free"}'
+ls ~/.forge-health/jobs/                          # stale envelopes = a leaked process
+```
+
+`DISCOVER → CLASSIFY → VERIFY RECOVERABILITY → VERIFY NOT ACTIVE → DRY RUN → DELETE → AUDIT`
+
+Never delete on "looks unused". Two traps already sprung in this program:
+
+- A worktree that is clean, unlocked and witnessed can still be **load-bearing** —
+  another repo was running a binary built inside it. Check `lsof`, not just `git`.
+- A cleanup's own keep-rule can be broken: one compared against a ref that *merging
+  had just deleted*, so it kept everything for ever. Ask a cleanup **why** it kept
+  something, not just what it deleted.
+
+For source, confirm the commit is on the correct remote before deleting locally —
+and note that "git tracked" is not the same as "backed up". For weights and datasets
+too large for GitHub, require a second verified durable copy first.
+
+## 8. RECORD — and choose the next wake
+
+Append the tick outcome to the ledger. Then `ScheduleWakeup`:
+
+- waiting on nothing in particular → 1200–1800s
+- waiting on an external run the harness cannot notify about (CI, a deploy) → match
+  the delay to how fast that thing actually changes
+- background work already tracked by the harness → a long fallback (1200s+); you are
+  re-invoked when it finishes, so polling is waste
+
+## Stop conditions — stopping is not failure
+
+Stop the tick immediately, and record why, when:
+
+- a required write escapes the task's declared write set
+- the repository is unexpectedly dirty
+- the baseline is not reproducible
+- Guardian reports ORANGE or RED
+- the disk reserve is violated
+- tool or kernel output contradicts the plan's assumption
+- three materially identical repair attempts have failed → the ledger AUTO-BLOCKS at
+  three, which is deliberate: `STOP → COLLECT EVIDENCE → FIND ROOT CAUSE → REPLAN`,
+  never endless symptom-patching
+- a destructive operation has no rollback
+
+## Escalate to the user only for
+
+Unavailable required information, destructive ambiguity, credentials, licensing
+ambiguity, user-owned irreversible data, or an unsafe hardware state. Everything else
+is an ordinary technical decision — make it, record the reasoning, continue.

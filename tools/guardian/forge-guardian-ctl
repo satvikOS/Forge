@@ -1,0 +1,68 @@
+#!/bin/zsh
+# forge-guardian-ctl {start|stop|status|tail}
+#
+# Liveness is asked of launchd FIRST, then of a pidfile, then of the published
+# state's freshness. An earlier version consulted only the pidfile and reported
+# "NOT RUNNING" for a daemon that launchd had restarted under a new PID — while
+# forge-gate, reading the state file, correctly admitted. Two safety instruments
+# disagreeing is worse than either being absent: an autonomous tick then either
+# halts on a healthy machine or proceeds on a dead guardian.
+set -u
+setopt NULL_GLOB
+STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+PIDF="$STATE_DIR/guardian.pid"
+LABEL=com.archdisc.forge.guardian
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+
+launchd_pid() { launchctl list 2>/dev/null | awk -v l="$LABEL" '$3==l && $1 ~ /^[0-9]+$/ {print $1}'; }
+pidfile_pid() { [[ -f "$PIDF" ]] && kill -0 "$(cat $PIDF)" 2>/dev/null && cat "$PIDF"; }
+state_age()   { [[ -f "$STATE_DIR/state" ]] && print $(( $(date +%s) - $(stat -f %m "$STATE_DIR/state") )) || print 999999; }
+
+case "${1:-status}" in
+  start)
+    if [[ -n "$(launchd_pid)" ]]; then print "already running under launchd pid=$(launchd_pid)"; exit 0; fi
+    if [[ -f "$PLIST" ]]; then
+      launchctl load -w "$PLIST" 2>/dev/null; sleep 3
+      print "started under launchd pid=$(launchd_pid)"; exit 0
+    fi
+    if [[ -n "$(pidfile_pid)" ]]; then print "already running pid=$(pidfile_pid)"; exit 0; fi
+    nohup "$STATE_DIR/bin/forge-guardian" >> "$STATE_DIR/log/guardian.out" 2>&1 &
+    print $! > "$PIDF"; sleep 2
+    print "started (unsupervised) pid=$(cat $PIDF) — prefer installing $PLIST"
+    ;;
+  stop)
+    if [[ -f "$PLIST" && -n "$(launchd_pid)" ]]; then
+      launchctl unload "$PLIST" 2>/dev/null && print "stopped (launchd unloaded)"
+    elif [[ -n "$(pidfile_pid)" ]]; then
+      kill "$(cat $PIDF)" 2>/dev/null; rm -f "$PIDF"; print "stopped"
+    else print "not running"; fi
+    ;;
+  status)
+    LP=$(launchd_pid); PP=$(pidfile_pid); AGE=$(state_age)
+    # PUBLISHING is the definition of alive, not process existence. Every consumer
+    # (forge-gate, forge-nproc) reads the published state and fails closed when it
+    # goes stale, so a process that still exists but has stopped publishing must be
+    # reported as DOWN here too — otherwise the two instruments disagree and an
+    # autonomous tick trusts whichever it happened to ask.
+    if (( AGE > 60 )); then
+      if [[ -n "$LP$PP" ]]; then
+        print "NOT RUNNING (process ${LP:-$PP} exists but stopped publishing ${AGE}s ago — WEDGED)"
+      else
+        print "NOT RUNNING"
+      fi
+      print "  ⚠ published state is ${AGE}s STALE — consumers fail closed"
+      exit 0
+    fi
+    if [[ -n "$LP" ]];   then print "RUNNING pid=$LP (launchd-supervised)"
+    elif [[ -n "$PP" ]]; then print "RUNNING pid=$PP (unsupervised — will NOT survive a crash)"
+    else                      print "NOT RUNNING (nothing publishing)"; fi
+    print "  state=$(cat $STATE_DIR/state 2>/dev/null) age=${AGE}s"
+    # NULL_GLOB makes an unmatched glob VANISH, and `ls` with no arguments lists the
+    # CURRENT DIRECTORY — which reported "48 registered jobs" for an empty jobs dir.
+    # Count the array, never a command whose argument list can disappear.
+    JOBS=("$STATE_DIR/jobs"/*.job(N))
+    print "  registered jobs: ${#JOBS[@]}"
+    ;;
+  tail) tail -f "$STATE_DIR/log/guardian.log" ;;
+  *) print -u2 "usage: forge-guardian-ctl {start|stop|status|tail}"; exit 2 ;;
+esac

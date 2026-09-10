@@ -1,0 +1,83 @@
+#!/bin/zsh
+# Actuator fault-injection. Sources the REAL daemon in library mode so this
+# suite tests the shipped code, not a re-extracted copy of it.
+# The failure being prevented is real and measured: a machine-wide pkill once
+# killed every parallel agent's server at once.
+set -u
+setopt NULL_GLOB
+export FORGE_GUARDIAN_LIB=1
+source "${FORGE_HEALTH_DIR:-$HOME/.forge-health}/bin/forge-guardian"
+unset FORGE_GUARDIAN_LIB
+PASS=0; FAIL=0
+chk() { if [[ "$2" == "$3" ]]; then print "  PASS  $1"; (( PASS++ )); else print "  FAIL  $1 -> got '$3' want '$2'"; (( FAIL++ )); fi }
+
+# Find the supervising claude PID robustly: pgrep -x matches comm exactly, which
+# can miss it; fall back to a full-cmdline match. If we cannot identify it we
+# must SKIP, never silently test `kill -0 1` and call the result a pass.
+CLAUDEPID=$(pgrep -x claude 2>/dev/null | head -1)
+[[ -z "$CLAUDEPID" ]] && CLAUDEPID=$(pgrep -f '(^|/)claude( |$)' 2>/dev/null | head -1)
+[[ -z "$CLAUDEPID" ]] && CLAUDEPID=$(ps -Ao pid=,comm= | awk '$2 ~ /\/claude$|^claude$/ {print $1; exit}')
+
+SAVED=$(mktemp -d); mv "$JOBS_DIR"/*.job "$SAVED"/ 2>/dev/null
+O1=$(mktemp); O2=$(mktemp); VICT=$(mktemp)
+cat > "$VICT" <<'V'
+#!/bin/zsh
+trap 'print USR1 >> "$1"' USR1
+trap 'print TERM >> "$1"; exit 0' TERM
+while true; do sleep 0.2; done
+V
+chmod +x "$VICT"
+"$VICT" "$O1" & SPEC=$!
+"$VICT" "$O2" & CRIT=$!
+sleep 0.4
+{ print "pid=$SPEC"; print "name=speculative"; print "priority=8"; print "can_restart=1"; print "peak_gb=1"; } > "$JOBS_DIR/spec.job"
+{ print "pid=$CRIT"; print "name=critical-ui"; print "priority=0"; print "can_restart=0"; print "peak_gb=1"; } > "$JOBS_DIR/crit.job"
+if [[ -n "$CLAUDEPID" ]]; then
+  { print "pid=$CLAUDEPID"; print "name=BOGUS-claude-entry"; print "priority=9"; print "can_restart=1"; print "peak_gb=1"; } > "$JOBS_DIR/bogus.job"
+fi
+
+print "== shed order: most speculative first =="
+ORDER=$(for f in $(shed_order); do job_field "$f" name; done | tr '\n' ',')
+print "  order: $ORDER"
+WANT_FIRST=$([[ -n "$CLAUDEPID" ]] && print "BOGUS-claude-entry" || print "speculative")
+chk "highest priority number sheds first" "$WANT_FIRST" "${ORDER%%,*}"
+
+print "== ORANGE: SIGUSR1 to priority>=7 only, protected REFUSED =="
+B=$(grep -E "REFUSED to signal protected" "$LOG" 2>/dev/null | wc -l | tr -d ' ')
+for f in $(shed_order); do p=$(job_field "$f" priority); (( ${p:-5} >= 7 )) || continue; signal_job "$f" USR1 >/dev/null 2>&1; done
+sleep 0.6
+chk "speculative job checkpointed" "USR1" "$(head -1 $O1 2>/dev/null)"
+chk "CRITICAL job untouched at ORANGE" "" "$(cat $O2 2>/dev/null)"
+A=$(grep -E "REFUSED to signal protected" "$LOG" 2>/dev/null | wc -l | tr -d ' ')
+if [[ -n "$CLAUDEPID" ]]; then
+  chk "bogus claude entry REFUSED (protected)" "1" "$(( A - B ))"
+  chk "claude pid $CLAUDEPID still alive" "alive" "$(kill -0 $CLAUDEPID 2>/dev/null && print alive || print DEAD)"
+else
+  print "  SKIP  protected-refusal: could not identify the claude pid (NOT a pass)"
+fi
+
+print "== RED stage3: TERM the most speculative RESTARTABLE, one at a time =="
+for f in $(shed_order); do [[ "$(job_field "$f" can_restart)" == "1" ]] || continue; signal_job "$f" TERM >/dev/null 2>&1 && break; done
+sleep 0.8
+chk "speculative job terminated" "TERM" "$(grep -m1 TERM $O1 2>/dev/null)"
+chk "critical job STILL alive after RED" "alive" "$(kill -0 $CRIT 2>/dev/null && print alive || print DEAD)"
+[[ -n "$CLAUDEPID" ]] && chk "claude STILL alive after RED" "alive" "$(kill -0 $CLAUDEPID 2>/dev/null && print alive || print DEAD)"
+
+print "== unregistered processes are invisible to Guardian =="
+"$VICT" "$O2.un" & UNREG=$!
+sleep 0.3
+for f in $(shed_order); do signal_job "$f" TERM >/dev/null 2>&1; done
+sleep 0.5
+chk "unregistered process untouched" "alive" "$(kill -0 $UNREG 2>/dev/null && print alive || print DEAD)"
+
+print "== reaping dead job files =="
+kill -9 $CRIT $UNREG 2>/dev/null; sleep 0.3
+reap_dead_jobs
+chk "dead job files reaped" "0" "$(ls $JOBS_DIR/spec.job $JOBS_DIR/crit.job 2>/dev/null | wc -l | tr -d ' ')"
+
+kill -9 $SPEC $CRIT $UNREG 2>/dev/null
+rm -f "$JOBS_DIR"/*.job "$O1" "$O2" "$O2.un" "$VICT"
+mv "$SAVED"/*.job "$JOBS_DIR"/ 2>/dev/null; rmdir "$SAVED" 2>/dev/null
+print ""
+print "RESULT: $PASS passed, $FAIL failed"
+(( FAIL == 0 ))

@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""
+forge-program — the durable execution ledger for the ArchDisc program.
+
+An autonomous run that lives for weeks cannot hold its task graph in a model's
+context: context is compacted, sessions restart, machines reboot. The DAG, the
+evidence and the decisions therefore live on DISK, and every tick of the loop
+reads them back rather than remembering them.
+
+Ledger is append-only JSONL plus a derived task file. Append-only matters: a
+task that regressed must leave a trace, not be silently overwritten by a later
+"done".
+
+Commands:
+  forge-program ready                 tasks whose deps are all done and whose write-set is free
+  forge-program show <id>             one task with its full event history
+  forge-program claim <id> --owner X  mark IN_PROGRESS and lock its write set
+  forge-program done  <id> --evidence "..."   requires evidence; refuses without it
+  forge-program fail  <id> --reason "..."
+  forge-program block <id> --reason "..."
+  forge-program add   <id> ...        add/update a task definition
+  forge-program status                summary by state, and any write-set conflicts
+  forge-program conflicts             pairs of ready tasks that cannot run concurrently
+"""
+import json, os, sys, argparse, fcntl, time, subprocess
+from datetime import datetime, timezone
+
+# State lives OUTSIDE any git checkout by default. The ledger is written many times
+# per tick; that must not translate into many commits into a tree other agents are
+# reading. The repo receives periodic snapshots (see `snapshot`) for durability and
+# audit instead. Overridable with FORGE_PROGRAM_DIR.
+ROOT = os.environ.get("FORGE_PROGRAM_DIR") or os.path.expanduser("~/.forge-program")
+TASKS = os.path.join(ROOT, "tasks.json")
+LEDGER = os.path.join(ROOT, "ledger.jsonl")
+
+STATES = ["TODO", "READY", "IN_PROGRESS", "DONE", "FAILED", "BLOCKED"]
+
+
+def now():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class Lock:
+    """Advisory lock so two loop ticks (or two agents) never write at once."""
+    def __init__(self):
+        self.p = os.path.join(ROOT, ".lock")
+    def __enter__(self):
+        os.makedirs(ROOT, exist_ok=True)
+        self.f = open(self.p, "w")
+        for _ in range(100):
+            try:
+                fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return self
+            except BlockingIOError:
+                time.sleep(0.1)
+        raise SystemExit("forge-program: could not acquire ledger lock after 10s")
+    def __exit__(self, *a):
+        fcntl.flock(self.f, fcntl.LOCK_UN); self.f.close()
+
+
+def load():
+    if not os.path.exists(TASKS):
+        return {"tasks": {}}
+    with open(TASKS) as f:
+        return json.load(f)
+
+
+def save(d):
+    os.makedirs(ROOT, exist_ok=True)
+    tmp = TASKS + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(d, f, indent=2, sort_keys=True)
+    os.replace(tmp, TASKS)
+
+
+def append(event):
+    os.makedirs(ROOT, exist_ok=True)
+    event["ts"] = now()
+    with open(LEDGER, "a") as f:
+        f.write(json.dumps(event, sort_keys=True) + "\n")
+
+
+def overlaps(a, b):
+    """Two write sets conflict if any path is a prefix of the other."""
+    for x in a:
+        for y in b:
+            if x == y or x.startswith(y.rstrip("/") + "/") or y.startswith(x.rstrip("/") + "/"):
+                return (x, y)
+    return None
+
+
+def ready(d):
+    out = []
+    active = [t for t in d["tasks"].values() if t["state"] == "IN_PROGRESS"]
+    for t in sorted(d["tasks"].values(), key=lambda t: (t.get("order", 999), t["id"])):
+        if t["state"] not in ("TODO", "READY"):
+            continue
+        deps = t.get("depends_on", [])
+        if any(d["tasks"].get(x, {}).get("state") != "DONE" for x in deps):
+            continue
+        conflict = None
+        for a in active:
+            c = overlaps(t.get("write_set", []), a.get("write_set", []))
+            if c:
+                conflict = (a["id"], c)
+                break
+        t = dict(t)
+        t["_blocked_by_active"] = conflict
+        out.append(t)
+    return out
+
+
+def main():
+    ap = argparse.ArgumentParser(add_help=True)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    a = sub.add_parser("add")
+    a.add_argument("id")
+    a.add_argument("--title", required=True)
+    a.add_argument("--layer", default="")
+    a.add_argument("--depends-on", default="")
+    a.add_argument("--write-set", default="")
+    a.add_argument("--acceptance", default="")
+    a.add_argument("--order", type=int, default=999)
+    a.add_argument("--repo", default="archdisc-Mech")
+    a.add_argument("--notes", default="")
+
+    for c in ("ready", "status", "conflicts"):
+        sub.add_parser(c)
+    s = sub.add_parser("show"); s.add_argument("id")
+    cl = sub.add_parser("claim"); cl.add_argument("id"); cl.add_argument("--owner", default="loop")
+    dn = sub.add_parser("done"); dn.add_argument("id"); dn.add_argument("--evidence", required=True); dn.add_argument("--commit", default="")
+    fl = sub.add_parser("fail"); fl.add_argument("id"); fl.add_argument("--reason", required=True)
+    bl = sub.add_parser("block"); bl.add_argument("id"); bl.add_argument("--reason", required=True)
+    rs = sub.add_parser("reset"); rs.add_argument("id")
+    sn = sub.add_parser("snapshot"); sn.add_argument("--dest", required=True)
+
+    args = ap.parse_args()
+
+    with Lock():
+        d = load()
+
+        if args.cmd == "add":
+            t = d["tasks"].get(args.id, {"id": args.id, "state": "TODO", "history": 0})
+            t.update({
+                "title": args.title,
+                "layer": args.layer,
+                "repo": args.repo,
+                "depends_on": [x for x in args.depends_on.split(",") if x],
+                "write_set": [x for x in args.write_set.split(",") if x],
+                "acceptance": [x for x in args.acceptance.split(";") if x],
+                "order": args.order,
+                "notes": args.notes,
+            })
+            t.setdefault("state", "TODO")
+            d["tasks"][args.id] = t
+            save(d); append({"event": "add", "id": args.id, "title": args.title})
+            print(f"added {args.id}")
+
+        elif args.cmd == "ready":
+            r = ready(d)
+            if not r:
+                print("(no ready tasks)")
+            for t in r:
+                flag = ""
+                if t["_blocked_by_active"]:
+                    other, (x, y) = t["_blocked_by_active"]
+                    flag = f"  [WRITE-SET CONFLICT with {other}: {x} vs {y}]"
+                print(f"{t['id']:14s} {t.get('layer',''):6s} {t['title']}{flag}")
+
+        elif args.cmd == "conflicts":
+            r = [t for t in ready(d)]
+            for i in range(len(r)):
+                for j in range(i + 1, len(r)):
+                    c = overlaps(r[i].get("write_set", []), r[j].get("write_set", []))
+                    if c:
+                        print(f"{r[i]['id']} <-> {r[j]['id']}  on {c[0]} / {c[1]}")
+
+        elif args.cmd == "show":
+            t = d["tasks"].get(args.id)
+            if not t: raise SystemExit(f"no such task {args.id}")
+            print(json.dumps(t, indent=2))
+            print("--- history ---")
+            if os.path.exists(LEDGER):
+                for l in open(LEDGER):
+                    e = json.loads(l)
+                    if e.get("id") == args.id:
+                        print(" ", e["ts"], e.get("event"), e.get("evidence") or e.get("reason") or "")
+
+        elif args.cmd in ("claim", "done", "fail", "block", "reset"):
+            t = d["tasks"].get(args.id)
+            if not t: raise SystemExit(f"no such task {args.id}")
+            if args.cmd == "claim":
+                for o in d["tasks"].values():
+                    if o["state"] == "IN_PROGRESS" and o["id"] != args.id:
+                        c = overlaps(t.get("write_set", []), o.get("write_set", []))
+                        if c:
+                            raise SystemExit(
+                                f"REFUSED: write set overlaps IN_PROGRESS task {o['id']} "
+                                f"({c[0]} vs {c[1]}). Two agents must never own one file.")
+                t["state"] = "IN_PROGRESS"; t["owner"] = args.owner
+                append({"event": "claim", "id": args.id, "owner": args.owner})
+            elif args.cmd == "done":
+                # Evidence is mandatory. "Compiled" / "AI said success" / "file exists"
+                # is not completion (doc 02 sec.4, the falsifiable-verification rule).
+                if len(args.evidence.strip()) < 20:
+                    raise SystemExit("REFUSED: evidence too thin. State what was MEASURED.")
+                t["state"] = "DONE"; t["evidence"] = args.evidence; t["commit"] = args.commit
+                append({"event": "done", "id": args.id, "evidence": args.evidence, "commit": args.commit})
+            elif args.cmd == "fail":
+                t["state"] = "FAILED"; t["history"] = t.get("history", 0) + 1
+                append({"event": "fail", "id": args.id, "reason": args.reason})
+                if t["history"] >= 3:
+                    t["state"] = "BLOCKED"
+                    t["notes"] = (t.get("notes", "") + " | AUTO-BLOCKED after 3 failures: "
+                                  "stop patching symptoms, find root cause (doc: FAILURE BEHAVIOR)")
+                    append({"event": "auto_block", "id": args.id, "reason": "3 failures"})
+                    print(f"{args.id} AUTO-BLOCKED after 3 failures — replan required")
+            elif args.cmd == "block":
+                t["state"] = "BLOCKED"
+                append({"event": "block", "id": args.id, "reason": args.reason})
+            elif args.cmd == "reset":
+                t["state"] = "TODO"; t.pop("owner", None)
+                append({"event": "reset", "id": args.id})
+            save(d)
+            print(f"{args.id} -> {t['state']}")
+
+        elif args.cmd == "snapshot":
+            os.makedirs(args.dest, exist_ok=True)
+            for f in ("tasks.json", "ledger.jsonl"):
+                src = os.path.join(ROOT, f)
+                if os.path.exists(src):
+                    with open(src) as a, open(os.path.join(args.dest, f), "w") as b:
+                        b.write(a.read())
+            print(f"snapshot -> {args.dest}")
+
+        elif args.cmd == "status":
+            counts = {}
+            for t in d["tasks"].values():
+                counts[t["state"]] = counts.get(t["state"], 0) + 1
+            total = len(d["tasks"])
+            done = counts.get("DONE", 0)
+            print(f"ArchDisc program: {done}/{total} done")
+            for s in STATES:
+                if counts.get(s):
+                    print(f"  {s:12s} {counts[s]}")
+            ip = [t for t in d["tasks"].values() if t["state"] == "IN_PROGRESS"]
+            if ip:
+                print("in progress:")
+                for t in ip:
+                    print(f"  {t['id']} ({t.get('owner','?')}) {t['title']}")
+            bl = [t for t in d["tasks"].values() if t["state"] == "BLOCKED"]
+            if bl:
+                print("BLOCKED (need replan or a decision):")
+                for t in bl:
+                    print(f"  {t['id']} {t['title']}")
+
+
+if __name__ == "__main__":
+    main()

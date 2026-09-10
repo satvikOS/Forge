@@ -1,0 +1,40 @@
+#!/bin/zsh
+# forge-gate — admission control. A heavy job calls this BEFORE it starts.
+#   forge-gate [--need green|yellow] [--wait SECONDS] [--why "text"]
+# Exit 0 = admitted. Exit 1 = denied (caller must not start).
+# Also fails CLOSED if the guardian is not running or its state is stale: an
+# absent instrument is not evidence of a healthy machine.
+set -u
+STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
+NEED=green; WAIT=0; WHY=""
+while (( $# )); do
+  case "$1" in
+    --need) NEED="${2:l}"; shift 2 ;;
+    --wait) WAIT="$2"; shift 2 ;;
+    --why)  WHY="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+rank() { case "$1" in GREEN) print 0;; YELLOW) print 1;; ORANGE) print 2;; RED) print 3;; *) print 9;; esac }
+need_rank=$(rank "${NEED:u}")
+deadline=$(( $(date +%s) + WAIT ))
+while true; do
+  if [[ ! -f "$STATE_DIR/state" ]]; then
+    print -u2 "forge-gate: DENY — guardian not running (no state file). Start it: forge-guardian-ctl start"
+    exit 1
+  fi
+  age=$(( $(date +%s) - $(stat -f %m "$STATE_DIR/state") ))
+  if (( age > 60 )); then
+    print -u2 "forge-gate: DENY — guardian state is ${age}s stale (guardian dead?). Restart: forge-guardian-ctl start"
+    exit 1
+  fi
+  st=$(cat "$STATE_DIR/state")
+  if (( $(rank "$st") <= need_rank )); then
+    exit 0
+  fi
+  if (( $(date +%s) >= deadline )); then
+    print -u2 "forge-gate: DENY — state=$st (need <=${NEED:u})${WHY:+ for: $WHY}"
+    exit 1
+  fi
+  sleep 5
+done
