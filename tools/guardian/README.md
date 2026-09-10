@@ -82,6 +82,23 @@ natural producer. `gpu_jobs` counts registered jobs that declared `--gpu`; GPU w
 that never registered an envelope is invisible to it, and consumers must not read a
 `0` as proof the GPU is idle.
 
+**Consumers must not read `gpu_jobs` directly.** It is a scalar with no pids in it,
+so a job reading `gpu_jobs != 0` cannot tell somebody else's trainer from its own
+envelope — and a job launched under `forge-job --gpu` blocks on ITSELF. That is not
+hypothetical: it is why the benchmark sweep stopped declaring `--gpu`, and why this
+file reported an idle GPU for hours with a 26 GiB model resident. Use
+`archdisc-Models/scripts/forge_law7.py`, which reads this daemon's envelope
+directory and excludes any envelope whose pid is the caller or one of its ancestors
+(`forge-job` registers under its own pid and then execs the job, so ancestry, not
+equality, is what has to work). It also fails closed on an absent or stale
+instrument, skips envelopes whose pid is dead, and — because it runs between tasks
+in a harness holding a 26 GiB checkpoint — walks the process tree with a libproc
+syscall rather than forking `ps`.
+
+`gpu_jobs` is a derived echo of the envelope directory, recomputed once per poll.
+It can lag the registry by one poll but can never exceed what registered, so a
+difference means staleness, not detection of unregistered work.
+
 ## Supervision
 
 `com.archdisc.forge.guardian.plist` runs it under launchd with `KeepAlive`, so it

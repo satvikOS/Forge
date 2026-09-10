@@ -228,12 +228,19 @@ RED_STAGE=0
 
 trap 'publish "GREEN" "guardian stopped" "$(build_jobs_for GREEN)"; log "guardian stopped"; exit 0' TERM INT
 
-sample; publish "GREEN" "armed" "$(build_jobs_for GREEN)"
+reap_dead_jobs; sample; publish "GREEN" "armed" "$(build_jobs_for GREEN)"
 emit "🛡  FORGE GUARDIAN ARMED $(date '+%Y-%m-%d %H:%M:%S') ram=${RAM_GB}G ncpu=${NCPU} poll=${POLL}s"
 
 while true; do
-  sample
+  # REAP BEFORE SAMPLING. sample() computes registered_jobs and publish() counts
+  # gpu_jobs, and with the reaper between them one status.json carried both an
+  # unreaped and a reaped count of the SAME directory: a phantom left by a
+  # SIGKILLed job (forge-job's EXIT trap cannot fire) published
+  # registered_jobs=1 alongside gpu_jobs=0 for one poll. Measured, then fixed by
+  # moving one line. Two fields describing one set must be computed on the same
+  # side of the thing that changes it.
   reap_dead_jobs
+  sample
   classify; NEW="$CLASS"
 
   if [[ "$NEW" == "$STATE" ]]; then
