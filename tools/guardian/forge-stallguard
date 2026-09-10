@@ -20,11 +20,22 @@
 #
 # PROGRESS, NOT LIVENESS
 # ----------------------
-# It watches a FILE THE WORK ITSELF UPDATES — a per-row-flushed trace — not the
-# process. A wedged job is still running, still scheduled, still burning CPU; the
-# only thing that distinguishes it from a slow one is that its output stops
-# growing. Both `ps` and the child-process list said "working" while the trace had
-# not moved for 31 minutes.
+# It watches a FILE THE WORK ITSELF UPDATES, not the process. A wedged job is still
+# running, still scheduled, still burning CPU; the only thing that distinguishes it
+# from a slow one is that its output stops growing. Both `ps` and the child-process
+# list said "working" while the watched file had not moved for 31 minutes.
+#
+# THE CALLER MUST PICK A FILE THAT ADVANCES ON EVERY UNIT OF WORK.
+# This is the caller's responsibility and it is easy to get wrong. The benchmark
+# sweep first pointed it at score_benchmarks' TRACE, which is written at the bottom
+# of the per-row loop and is skipped by five `continue` paths -- including "model
+# emitted no IR". When astra-v1 stopped emitting at row 41 of BenchCAD-HF the trace
+# froze, this guard concluded the arm was wedged, and it killed a perfectly healthy
+# run. Twice. It now watches <trace>.inflight, written BEFORE each row regardless of
+# outcome. See archdisc-Models/reports/GPU_HANG_WHAT_IS_ELIMINATED.md.
+#
+# A guard cannot tell "stopped working" from "working without producing this
+# particular output". Only the signal it is given can.
 #
 # WHAT IT WILL NOT DO
 # -------------------
