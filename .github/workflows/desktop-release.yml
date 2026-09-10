@@ -757,7 +757,35 @@ jobs:
           set -uo pipefail
           SHA="${{ github.sha }}"
           API="repos/${{ github.repository }}/actions/workflows/kernel-tests.yml/runs"
-          DEADLINE=$(( SECONDS + 1800 ))
+          # BUDGET, MEASURED -- not a round number.
+          #
+          # This was 1800s (30 min) and it was shorter than the thing it waits for,
+          # so the gate could never observe a completed kernel run. Measured over
+          # the last five Kernel + Guards runs that reached a conclusion:
+          #
+          #   fcf78fe8  failure  45.7 min   <- exceeded the 30-min wait
+          #   80d1832f  failure  38.0 min   <- exceeded
+          #   2a5003e0  failure  34.6 min   <- exceeded
+          #   4c0b5fc8  failure  12.3 min
+          #   7a280ac6  failure  17.5 min
+          #
+          # Three of five exceeded it, and the two that did not only finished early
+          # because they FAILED FAST. Every run that actually did the work overran,
+          # so a green kernel run was structurally unobservable: the gate timed out,
+          # reported "did not COMPLETE", and refused to publish -- correctly, given
+          # what it could see, but for a reason that was an artefact of its own
+          # budget rather than a property of the build.
+          #
+          # 4200s (70 min) covers the observed maximum with ~50% margin and the
+          # kernel job's own 75-min timeout-minutes. It fits this job's 90-min
+          # budget: measured on run 34424181693, everything before this step costs
+          # 4.2 min (build + package, warm ccache), leaving 85.8 min of headroom, so
+          # 70 min of waiting still lands ~15 min inside the cap.
+          #
+          # This does NOT weaken the gate. The conclusion handling above is
+          # untouched: success publishes, cancelled/skipped declines without
+          # erroring, failure stops. Only the patience changed.
+          DEADLINE=$(( SECONDS + 4200 ))
           while :; do
             ST=$(gh api "$API?head_sha=$SHA&per_page=1" \
                    --jq '.workflow_runs[0] | "\(.status):\(.conclusion // "pending")"' 2>/dev/null || echo "")
@@ -777,7 +805,7 @@ jobs:
               *)  echo "kernel-tests $ST — waiting" ;;
             esac
             if [ "$SECONDS" -ge "$DEADLINE" ]; then
-              echo "::error::kernel-tests did not COMPLETE for $SHA within 30 min (last: ${ST:-none})."
+              echo "::error::kernel-tests did not COMPLETE for $SHA within 70 min (last: ${ST:-none})."
               echo "::error::Refusing to publish a release whose correctness gate is unverified."
               echo "gate=stop" >> "$GITHUB_OUTPUT"; exit 1
             fi
