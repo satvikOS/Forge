@@ -568,3 +568,28 @@ The wrong root cause was a committed report. The retraction is another committed
 report that names the file, the commit, the vertex and the reason, and the ledger task
 was reset from DONE rather than left standing. A finding that stays in the repo
 uncontradicted will be believed by whoever reads it next, including me.
+
+### A supervisor's clock starts from the evidence, not from when it was armed
+
+forge-stallguard initialised its stall timer to the moment it started. Armed on a run
+whose trace had been untouched for 44 minutes, with a 300s timeout, it waited another
+300s — having been handed the answer at startup, in the file's mtime.
+
+That is worst in exactly the case a supervisor exists for: attached to work already in
+trouble, or restarted after a crash. When a watcher can read history, read it.
+
+### You find a tool's defects by using it on something real
+
+The staleness bug was invisible in the battery, which always created fresh fixtures
+and then made them stale. It appeared the first time the guard was pointed at a
+genuinely wedged production run. The fix came with tests in both directions, because
+"start from the file" implemented carelessly is just "always fire" — which turns a
+stall guard into a timer that kills healthy work.
+
+### n=2 in one place is not a property of that place
+
+Two GPU hangs on Drawing2CAD, with two other benchmarks completing cleanly twice each,
+read as benchmark-specific. The third hang was on BenchCAD-HF-980. It is a general
+MLX/Metal failure on long runs, and the earlier note naming Drawing2CAD had to be
+corrected. Before attributing a failure to the one component you saw it on, ask how
+many chances the others actually had.
