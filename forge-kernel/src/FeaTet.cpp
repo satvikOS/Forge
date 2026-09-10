@@ -207,16 +207,29 @@ void densifyBoundaryRecursive(const std::vector<Vec3>& pts,
             const double longest = std::max(lab, std::max(lbc, lca));
             if (longest > minLen && it.depth < maxDepth) {
                 if (added >= budget) { capped = true; continue; }
-                const Vec3 mab = (A + B) * 0.5;
-                const Vec3 mbc = (B + C) * 0.5;
-                const Vec3 mca = (C + A) * 0.5;
-                if (lab > minLen && tryAdd(mab)) ++added;
-                if (lbc > minLen && tryAdd(mbc)) ++added;
-                if (lca > minLen && tryAdd(mca)) ++added;
-                stack.push_back({A,   mab, mca, it.depth + 1});
-                stack.push_back({mab, B,   mbc, it.depth + 1});
-                stack.push_back({mca, mbc, C,   it.depth + 1});
-                stack.push_back({mab, mbc, mca, it.depth + 1});
+                // LONGEST-EDGE BISECTION, not 4-way subdivision.
+                //
+                // Splitting all three edges every level refines a slender triangle
+                // in its SHORT direction as well, and the recursion only stops when
+                // the LONGEST edge is small enough. On the 100x10 mm face of the
+                // fea_smoke beam that meant subdividing until the long edge reached
+                // 2.5 mm, by which point the short edge was 10/64 = 0.16 mm -- 16x
+                // finer than asked for. Measured cost of that mistake: a 200x10x10
+                // beam at targetEdge 4 mm produced 11,405 nodes where a uniform mesh
+                // needs about 800, and doubling the beam's LENGTH multiplied nodes by
+                // 3.8x and time by 14x. fea_smoke, a smoke test, ran for 12 minutes.
+                //
+                // Bisecting only the longest edge refines exactly the direction that
+                // is too coarse, terminates when every edge is within minLen, and
+                // keeps the aspect ratio bounded (Rivara).
+                Vec3 m;
+                Vec3 p0, p1, p2;
+                if (lab >= lbc && lab >= lca)      { m = (A + B) * 0.5; p0 = A; p1 = B; p2 = C; }
+                else if (lbc >= lca)               { m = (B + C) * 0.5; p0 = B; p1 = C; p2 = A; }
+                else                               { m = (C + A) * 0.5; p0 = C; p1 = A; p2 = B; }
+                if (tryAdd(m)) ++added;
+                stack.push_back({p0, m,  p2, it.depth + 1});
+                stack.push_back({m,  p1, p2, it.depth + 1});
             } else {
                 const double area = 0.5 * (B - A).cross(C - A).norm();
                 if (area > minArea) {
@@ -934,7 +947,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
         std::size_t bndAdded = 0;
         bool bndCapped = false;
         densifyBoundaryRecursive(bndPts, triangles, tryAdd, minLen, minArea,
-                                 static_cast<std::size_t>(seedBudget), 12,
+                                 static_cast<std::size_t>(seedBudget), 40,
                                  bndAdded, bndCapped);
         if (bndCapped) {
             std::fprintf(stderr,
@@ -1208,7 +1221,7 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
         std::size_t bndAdded = 0;
         bool bndCapped = false;
         densifyBoundaryRecursive(bndPts, triangles, tryAdd, minLen, minArea,
-                                 static_cast<std::size_t>(seedBudget), 12,
+                                 static_cast<std::size_t>(seedBudget), 40,
                                  bndAdded, bndCapped);
         if (bndCapped) {
             std::fprintf(stderr,

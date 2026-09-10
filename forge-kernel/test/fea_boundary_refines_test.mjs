@@ -120,6 +120,41 @@ check(!(rows[0].distinct === fine.distinct && Math.abs(rows[0].maxGap - fine.max
       `${rows[0].distinct} stations / gap ${rows[0].maxGap.toFixed(5)} vs ` +
       `${fine.distinct} / ${fine.maxGap.toFixed(5)}, across ${rows[0].tets} -> ${fine.tets} tets`);
 
+// ---- SLENDER GEOMETRY MUST NOT EXPLODE ------------------------------------
+// Refining by splitting all three edges every level also refines the SHORT
+// direction of a slender triangle, and the recursion only stops once the LONGEST
+// edge is small enough. On a 100x10 mm face that meant subdividing until the long
+// edge reached 2.5 mm with the short edge at 0.16 mm — 16x finer than requested.
+// Measured: a 200x10x10 beam at targetEdge 4 mm produced 11,405 nodes where a
+// uniform mesh needs about 800, and fea_smoke (a SMOKE test) ran for 12 minutes.
+//
+// Longest-edge bisection refines only the direction that is too coarse. The test
+// is scaling, not an absolute count: doubling the beam's LENGTH must roughly double
+// the node count, not quadruple it.
+function meshNodes(w, h, d, e) {
+  const s = forge.makeBox(w, h, d);
+  const m = forge.fea.tet.meshShape(s, e);
+  const n = m.nodeCount;
+  forge.release(s);
+  return n;
+}
+const E = 0.004;
+const n100 = meshNodes(0.10, 0.01, 0.01, E);
+const n200 = meshNodes(0.20, 0.01, 0.01, E);
+const growth = n200 / n100;
+console.log(`  slender scaling: 100x10x10 -> ${n100} nodes, 200x10x10 -> ${n200} ` +
+            `(x${growth.toFixed(2)} for 2x length)`);
+check(growth < 3.2,
+      'doubling a beam\'s LENGTH does not more than triple its node count',
+      `x${growth.toFixed(2)} — 4-way subdivision gave x3.82 (2988 -> 11405)`);
+
+// and an isotropic shape must be unaffected by the bisection rule
+const cube = meshNodes(0.02, 0.02, 0.02, E);
+check(cube > 200 && cube < 900,
+      'an isotropic cube is unchanged by the refinement rule',
+      `${cube} nodes (4-way and bisection both give 458)`);
+
+console.log('');
 console.log(`[boundary-refines] ${CHECKS} checks, ${FAILURES.length} failures`);
 for (const f of FAILURES) console.log(`   - ${f}`);
 process.exit(FAILURES.length ? 1 : 0);
