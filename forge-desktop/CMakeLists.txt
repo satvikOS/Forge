@@ -696,9 +696,25 @@ add_library(forge_updater STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Version.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Sha256.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Manifest.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/update/ManifestSignature.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/update/Updater.cpp")
 target_include_directories(forge_updater PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_options(forge_updater PRIVATE -Wall -Wextra -Werror)
+
+# The key the shipped updater trusts, base64 DER SubjectPublicKeyInfo, baked in at
+# BUILD time. Deliberately EMPTY by default: a build nobody gave a key to refuses
+# to install rather than accepting anything, and `forge_update check` says so.
+# Release builds pass -DFORGE_UPDATE_PUBKEY_B64=... ; the private half lives only
+# in the FORGE_UPDATE_SIGNING_KEY repository secret and signs the appcast.
+set(FORGE_UPDATE_PUBKEY_B64 "" CACHE STRING
+    "base64 DER public key the updater verifies the appcast against (empty = refuse to install)")
+if(FORGE_UPDATE_PUBKEY_B64)
+  target_compile_definitions(forge_updater PRIVATE
+      FORGE_UPDATE_PUBKEY_B64="${FORGE_UPDATE_PUBKEY_B64}")
+  message(STATUS "forge-desktop: update signing key baked in")
+else()
+  message(STATUS "forge-desktop: NO update signing key -- this build will REFUSE to install updates")
+endif()
 
 # `forge_update` — the same library, addressable from a shell. This is how the
 # update path gets exercised against the REAL GitHub release, which the headless

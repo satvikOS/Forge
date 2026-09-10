@@ -53,6 +53,7 @@
 #include <string>
 #include <vector>
 
+#include "update/ManifestSignature.hpp"
 #include "update/Manifest.hpp"
 #include "update/Updater.hpp"
 #include "update/Version.hpp"
@@ -276,6 +277,42 @@ int main(int argc, char** argv) {
       std::fprintf(stderr, "the appcast downloaded as an empty document; nothing to read\n");
       return 3;
     }
+  }
+
+  // ── AUTHENTICITY, before the bytes are given any meaning ──────────────────
+  // The sha256 inside this manifest describes the payload, and both are assets of
+  // the SAME release -- so it proves the download was not corrupted and nothing
+  // about who produced it. The signature is checked against a key COMPILED INTO
+  // this binary, the only link in the chain a release-write token cannot reach.
+  //
+  // Verified BEFORE parseManifest: an unverified manifest should not be given
+  // meaning, let alone acted on.
+  //
+  // `check` installs nothing, so it reports and continues -- a build with no key
+  // compiled in must still be able to see whether an update exists. `apply`
+  // REFUSES, because that is where the security boundary actually is.
+  std::string sig_blob, sig_err;
+  if (!appcast_file.empty()) {
+    sig_blob = readFile(appcast_file + ".sig");
+  } else {
+    CurlFetcher sigf;
+    sigf.max_bytes = 4096;            // an ECDSA P-256 signature is ~70 bytes
+    sigf.timeout_seconds = 30;
+    std::error_code sec;
+    const fs::path stmp = fs::temp_directory_path(sec) / "forge-appcast.json.sig";
+    std::string ferr;
+    if (sigf.get(url + ".sig", stmp.string(), ferr)) sig_blob = readFile(stmp.string());
+    fs::remove(stmp, sec);
+  }
+  const bool sig_ok = forge::update::verifyManifestSignature(body, sig_blob, sig_err);
+  if (!sig_ok && cmd == "apply") {
+    std::fprintf(stderr, "REFUSED: %s\n", sig_err.c_str());
+    std::fprintf(stderr, "nothing was downloaded and the installed app is untouched\n");
+    return 1;
+  }
+  if (!sig_ok) {
+    std::fprintf(stderr, "warning: this update could not be verified (%s)\n", sig_err.c_str());
+    std::fprintf(stderr, "warning: `apply` will refuse it\n");
   }
 
   std::string err;
