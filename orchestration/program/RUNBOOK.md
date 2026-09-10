@@ -481,3 +481,31 @@ in a `build/` that was configured WITHOUT the addon. Leaving it there means the 
 run may load an addon built from different source and report a confident wrong number.
 Stage it, use it, remove it. This program has produced four false results from stale
 build artefacts already; the fifth is not free either.
+
+### A band calibrated to a defect outlives the defect
+
+fea_smoke's displacement band spanned a factor of a thousand because its header
+argued that Tet4 shear locking made a large error inherent — "5–15x under the
+Bernoulli prediction even on a refined mesh". The measurement behind that claim was a
+hand-crafted FIVE-element box, which genuinely does lock. The generalisation did not
+hold, and once the real cause (a frozen boundary, 11 clamped nodes instead of 51) was
+fixed, the same element hit −7.9%.
+
+When a test's tolerance is justified by a written argument rather than by a
+measurement of the current code, re-derive it after any change to what it measures.
+The band outlived its reason by long enough to pass the defect it was hiding.
+
+### Put the judgement where it can be tested without the expensive part
+
+The bands survived because exercising them meant a full addon build and a
+161-second run dominated by a modal eigensolve. Moving the thresholds and the check
+into a plain module made them testable against recorded numbers in any build, in
+milliseconds. The pattern repeats: the piece that turns measurements into a verdict is
+usually the piece with no test, because it is downstream of everything slow.
+
+### Assert the premise, so a fix cannot be aimed at nothing
+
+The band battery asserts that the OLD bands really did admit the broken run. If that
+assertion ever fails, the tightening was aimed at a problem that did not exist, and
+the test says so instead of passing quietly. A regression test for a fix should pin
+the defect as well as the repair.
