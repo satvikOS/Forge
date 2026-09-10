@@ -134,7 +134,11 @@ sample() {
   O_DISK=$(df -g / 2>/dev/null | awk 'NR==2{print $4}'); O_DISK=${O_DISK:-999}
   O_LOAD=$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}'); O_LOAD=${O_LOAD:-0}
   O_THERM=$(pmset -g therm 2>/dev/null | sed -n 's/.*CPU_Speed_Limit *= *\([0-9]*\).*/\1/p' | tail -1); O_THERM=${O_THERM:-100}
-  O_JOBS=$(ls "$JOBS_DIR"/*.job 2>/dev/null | wc -l | tr -d ' '); O_JOBS=${O_JOBS:-0}
+  # NULL_GLOB makes an unmatched glob VANISH, and `ls` with no arguments then lists
+  # the daemon's CWD — under launchd that is "/", so an empty jobs dir published a
+  # double-digit registered_jobs count into the telemetry every poll. Count the
+  # array; never a command whose argument list can disappear.
+  local -a _jobs; _jobs=("$JOBS_DIR"/*.job(N)); O_JOBS=${#_jobs[@]}
 }
 
 # ---- classification -----------------------------------------------------------
