@@ -2279,6 +2279,71 @@ set(FORGE_KERNEL_SOURCES
     # previously only built by run_native.sh — they MUST link into the addon now.
     src/native/brep/NativeRoute.cpp
     src/native/mesh/FeatureEdges.cpp
+
+    # ── THE NATIVE SUBSTRATE THAT WAS NEVER COMPILED ────────────────────────────
+    # 37 .cpp files under src/ produced no object file in any target. Not "unused"
+    # -- never BUILT, so nothing could call them and no compiler ever checked them.
+    # Among them is the mesh substrate OCCT_ZERO_ROADMAP.md credits as the sewing
+    # (W3.4) and HLR (W3.6) foundation, and WallThickness, which the DFM audit
+    # separately recorded as fully implemented and reachable by nothing.
+    #
+    #
+    # TWO MORE, found by distrusting the instrument. The first sweep counted a file
+    # as "compiled" if ANY object existed for it, and picked up stale objects under
+    # build/CMakeFiles/forge_kernel.dir -- the node-addon target, which the current
+    # configure sets OFF. ArcHelix.cpp and NativeDraftAngle.cpp are named in NO
+    # CMakeLists at all; their objects were left over from an older configure. Same
+    # stale-artifact trap as the OCCT ledger ratcheting a .node nothing rebuilds.
+    # True count was 39, not 37.
+    #
+    # These two are NOT OCCT-free -- ArcHelix.cpp carries 23 OCCT includes and
+    # NativeDraftAngle.cpp 27 -- so unlike the other 37 they COULD move the ledger.
+    # Measured after adding them: OCCT_CLOSURE stays 14, DIRECT stays 11, PHANTOM
+    # stays 0. They use toolkits the library already links, so they add reach
+    # without adding a dependency. If that ever stops being true the ledger gate in
+    # the desktop job fails, which is the point of ratcheting the shipped artifact.
+    # MEASURED before adding them, because dead code usually rots:
+    #   * all 37 pass `c++ -std=c++20 -fsyntax-only` against the project's includes
+    #   * 0 of 37 include an OCCT header, so wiring them in CANNOT raise
+    #     OCCT_CLOSURE -- they are exactly the OCCT-free substrate the roadmap
+    #     depends on
+    src/native/csg/Extrude.cpp
+    src/native/csg/MeshCrossSection.cpp
+    src/native/gdt/FcfEvaluator.cpp
+    src/native/geom/Bezier.cpp
+    src/native/geom/KdTree3D.cpp
+    src/native/geom/LineGeometry.cpp
+    src/native/geom/MinEnclosingSphere.cpp
+    src/native/geom/OBB.cpp
+    src/native/geom/PointCloudNormals.cpp
+    src/native/geom/PrimitiveFit.cpp
+    src/native/geom/SurfaceIntersect.cpp
+    src/native/mesh/BooleanBVH.cpp
+    src/native/mesh/Bridge.cpp
+    src/native/mesh/Curvature.cpp
+    src/native/mesh/Decimate.cpp
+    src/native/mesh/GeodesicDijkstra.cpp
+    src/native/mesh/HausdorffDistance.cpp
+    src/native/mesh/HoleFill.cpp
+    src/native/mesh/Inset.cpp
+    src/native/mesh/Offset.cpp
+    src/native/mesh/Parameterize.cpp
+    src/native/mesh/ProjectSilhouette.cpp
+    src/native/mesh/QuadDominant.cpp
+    src/native/mesh/Remesh.cpp
+    src/native/mesh/Repair.cpp
+    src/native/mesh/Shell.cpp
+    src/native/mesh/Slice.cpp
+    src/native/mesh/Smooth.cpp
+    src/native/mesh/Subdivide.cpp
+    src/native/mesh/TopologyStats.cpp
+    src/native/mesh/Voxelize.cpp
+    src/native/mesh/WallThickness.cpp
+    src/native/shape/Compound.cpp
+    src/native/shape/Explore.cpp
+    src/native/shape/Shape.cpp
+    src/native/shape/Wire.cpp
+    src/native/storage/StorageGovernor.cpp
     src/native/geom/Delaunay3D.cpp
     src/native/brep/Fillet.cpp
     src/native/brep/FilletAnalytic.cpp  # analytic rolling-ball constant-radius fillet on a convex straight edge between two planar faces (true cylinder blend surface); + concave (reflex) edges + edge-chains (shared-vertex corners honestly reported)
@@ -2286,6 +2351,8 @@ set(FORGE_KERNEL_SOURCES
     src/native/brep/NativeFilletChamfer.cpp  # R3 — TKFillet-free const-radius fillet / flat-bevel chamfer on an ARBITRARY OCCT TopoDS_Shape (local-neighbourhood retrim + sew); native hot-path behind FORGE_NATIVE_BREP, OCCT BRepFilletAPI fallback kept (prismatic convex planar edges only, else honest defer)
     src/native/brep/NativeVariableFillet.cpp # R3-V — TKFillet-free VARIABLE-radius (linear-law) rolling-ball fillet on prismatic convex planar edges (exact rational Geom_BSplineSurface blend); native hot-path behind FORGE_NATIVE_BREP, OCCT fallback kept (non-linear law / curved / concave defer)
     src/native/brep/Shell.cpp           # offset/shell: hollow a solid to a uniform wall (analytic face offset + SSI re-trim + sew), open or closed
+    src/ArcHelix.cpp
+    src/native/brep/NativeDraftAngle.cpp
     # TKOffset family G/H — TKOffset-free HOLLOW on an OCCT TopoDS_Shape (the
     # BRepOffsetAPI_MakeThickSolid replacement for OCCT-backed handles, where
     # Shell.cpp's native-B-rep engine cannot reach). PLANAR prismatic + EXACT

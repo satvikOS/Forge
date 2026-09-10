@@ -1299,7 +1299,8 @@ jobs:
           set +e
           ccache --max-size=3G --zero-stats
           cmake -S forge-kernel -B forge-kernel/build-app -DCMAKE_BUILD_TYPE=Release \
-                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON \
+                -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
           rc=$?
           if [ "$rc" -ne 0 ]; then
             echo "::error::forge-kernel configure failed (rc=$rc)"; exit 1
@@ -1310,6 +1311,21 @@ jobs:
             echo "::error::forge_kernel_core did not build (rc=$rc)"; exit 1
           fi
           ls -l forge-kernel/build-app/libforge_kernel_core.dylib
+
+      - name: every src/*.cpp is compiled, or is allow-listed with a reason
+        # 39 .cpp files under src/ produced no object in any target. Not "unused" --
+        # never BUILT, so nothing could call them and no compiler ever checked them.
+        # Among them: the mesh substrate OCCT_ZERO_ROADMAP.md credits as the sewing
+        # (W3.4) and HLR (W3.6) foundation, and WallThickness, which the DFM audit
+        # recorded as fully implemented and reachable by nothing.
+        #
+        # The ratchet reads compile_commands.json, not .o files. The first sweep
+        # counted a file as compiled if ANY object existed and picked up leftovers
+        # from the node-addon target this configure sets OFF, hiding two files and
+        # reporting 37 where the truth was 39 -- the same stale-artifact trap as
+        # ratcheting an OCCT count on a .node nothing rebuilds.
+        shell: bash
+        run: bash forge-kernel/test/orphan_source_ratchet.sh forge-kernel/build-app
 
       - name: ★ OCCT ledger on the artifact the APP links (not the .node)
         # The ledger was ratcheted on forge-kernel/build/Release/forge-kernel.node --
