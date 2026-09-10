@@ -92,6 +92,13 @@ test-results/
 # shared, reviewable agent definitions are tracked.
 .claude/*
 !.claude/agents/
+# Policy that must travel WITH the repo, not with one developer's machine. The
+# operating manual's rule is that an invariant whose violation is unacceptable
+# belongs in mechanical enforcement rather than prose -- which is worth nothing
+# if the enforcement is gitignored and every clone silently loses it.
+!.claude/settings.json
+!.claude/hooks/
+!.claude/hooks/**
 
 # Forge — autonomous-build cruft
 dist-electron/
