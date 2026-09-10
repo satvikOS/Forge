@@ -22,7 +22,7 @@ Commands:
   forge-program status                summary by state, and any write-set conflicts
   forge-program conflicts             pairs of ready tasks that cannot run concurrently
 """
-import json, os, sys, argparse, fcntl, time, subprocess
+import copy, json, os, sys, argparse, fcntl, time, subprocess
 from datetime import datetime, timezone
 
 # State lives OUTSIDE any git checkout by default. The ledger is written many times
@@ -115,6 +115,10 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     a = sub.add_parser("add")
+    a.add_argument("--force", action="store_true",
+                   help="replace an existing record with this id. Without it, an id "
+                        "already in the ledger is refused -- re-using one silently "
+                        "destroyed two completed tasks once.")
     a.add_argument("id")
     a.add_argument("--title", required=True)
     a.add_argument("--layer", default="")
@@ -141,6 +145,22 @@ def main():
         d = load()
 
         if args.cmd == "add":
+            # AN ID THAT ALREADY EXISTS IS NOT A NEW TASK. This used to update the
+            # record in place and still print "added", so re-using an id silently
+            # destroyed a completed task's title, layer, write_set, acceptance and
+            # evidence. It happened: T-036 and T-037, both DONE, were overwritten on
+            # 2026-09-10 by an agent that had lost track of the highest id in use.
+            # They were restorable only because the ledger keeps `done` events.
+            # A COPY. `t` below is the SAME dict object, and t.update() mutates it
+            # in place -- a live reference here would record the REPLACEMENT as the
+            # thing that was replaced. The test caught exactly that.
+            prev = copy.deepcopy(d["tasks"].get(args.id))
+            if prev is not None and not args.force:
+                raise SystemExit(
+                    f"forge-program: {args.id} already exists and is {prev.get('state')}:\n"
+                    f"    {prev.get('title')}\n"
+                    f"  Refusing to overwrite it. Use a new id, or --force if you really\n"
+                    f"  mean to replace this record.")
             t = d["tasks"].get(args.id, {"id": args.id, "state": "TODO", "history": 0})
             t.update({
                 "title": args.title,
@@ -154,8 +174,14 @@ def main():
             })
             t.setdefault("state", "TODO")
             d["tasks"][args.id] = t
-            save(d); append({"event": "add", "id": args.id, "title": args.title})
-            print(f"added {args.id}")
+            # Record the WHOLE record, not just the title. When T-036/T-037 were
+            # clobbered, the ledger's add events held only `title`, so layer, repo,
+            # write_set and acceptance were gone for good. An append-only log is only
+            # as good as the fields it appends.
+            save(d)
+            append({"event": "add", "id": args.id, "title": args.title,
+                    "replaced": prev, "task": t})
+            print(f"{'replaced' if prev is not None else 'added'} {args.id}")
 
         elif args.cmd == "ready":
             r = ready(d)

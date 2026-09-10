@@ -117,6 +117,27 @@ else
   echo "[orch] phase 2 skipped: the interposer is macOS-specific"
 fi
 
+# ── phase 3: the durable ledger's own CLI ───────────────────────────────────
+# The C++ gate above covers the workflow engine. The program LEDGER is a separate
+# artefact with its own way to lose data: `add` on an existing id used to overwrite
+# a completed task in place and print "added". It destroyed two DONE records on
+# 2026-09-10. This runs against a throwaway FORGE_PROGRAM_DIR, never the real one.
+LEDGER_TEST="$ROOT/orchestration/program/test/test_add_clobber.sh"
+if [ -x "$LEDGER_TEST" ]; then
+  echo
+  echo "[orch] phase 3: program ledger CLI"
+  if "$LEDGER_TEST"; then
+    echo "[orch] phase 3 PASSED"
+  else
+    echo "[orch] FAILED: the program ledger lets a task be silently overwritten" >&2
+    exit 1
+  fi
+else
+  # Same rule as phase 2: a missing test must not read as a passing one.
+  echo "[orch] FAILED: $LEDGER_TEST is missing or not executable" >&2
+  exit 1
+fi
+
 echo
 echo "[orch] GATE PASSED"
 exit 0
