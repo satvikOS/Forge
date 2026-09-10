@@ -334,6 +334,23 @@ jobs:
       - name: retrieval gates (phase 1 + network-denied phase 2)
         run: bash retrieval/run_retrieval_tests.sh
 
+      - name: durable-workflow orchestration gate (fixtures + network denied)
+        # orchestration/ is 3,359 LOC with 198 assertions and its own offline proof,
+        # and it appeared in NO CMakeLists and NO workflow. It was not rotted code:
+        # run as found, it passes 198/198 twice -- once on fixtures, once with the
+        # network denied by a dyld interposer that self-tests by aborting a real
+        # socket(). It is the only place in the repo carrying a failure taxonomy,
+        # approval classes, evidence entries and a repair budget, i.e. the repair-loop
+        # substrate spec 05 requires, and nothing built it.
+        #
+        # Hosted here rather than on a ubuntu job on purpose: the interposer is
+        # macOS-only, and on Linux the script SKIPS phase 2 and still exits 0 -- a
+        # skip that exits 0 reads exactly like a pass. FORGE_ORCH_REQUIRE_PHASE2=1
+        # turns that skip into an error, so this step cannot report the offline
+        # guarantee as proven on a runner that never tested it.
+        shell: bash
+        run: FORGE_ORCH_REQUIRE_PHASE2=1 bash orchestration/run_orchestration_tests.sh
+
   s0_conformance:
     name: s0 Appendix B conformance ratchet + the SECTION op gate
     # The acceptance suite deliberately asserts laws the implementation does not yet satisfy, so its
