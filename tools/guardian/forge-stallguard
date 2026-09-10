@@ -1,0 +1,111 @@
+#!/bin/zsh
+# forge-stallguard — bound a wedged job from OUTSIDE it.
+#
+#   forge-stallguard --watch FILE --timeout SECS --pid PID [--label NAME]
+#                    [--poll SECS] [--grace SECS] [--dry-run]
+#
+# WHY THIS CANNOT LIVE INSIDE THE JOB
+# -----------------------------------
+# The benchmark harness already has a wall-clock deadline on generation, in the
+# per-token stopping_criteria hook. That hook is only called BETWEEN tokens. A
+# Metal command buffer that hangs never returns to it, so the deadline is never
+# evaluated and cannot fire. Measured: a Drawing2CAD run aborted after 4 of 283
+# rows with
+#     [METAL] Command buffer execution failed: Caused GPU Hang Error
+#             (00000003:kIOGPUCommandBufferCallbackErrorHang)
+# and an earlier run on the same benchmark sat wedged for 69 minutes, burning CPU
+# and 97% GPU, making no progress at all.
+#
+# A guard that bounds a hang has to be a different process. This is that process.
+#
+# PROGRESS, NOT LIVENESS
+# ----------------------
+# It watches a FILE THE WORK ITSELF UPDATES — a per-row-flushed trace — not the
+# process. A wedged job is still running, still scheduled, still burning CPU; the
+# only thing that distinguishes it from a slow one is that its output stops
+# growing. Both `ps` and the child-process list said "working" while the trace had
+# not moved for 31 minutes.
+#
+# WHAT IT WILL NOT DO
+# -------------------
+# It signals exactly one pid, the one it was given, after confirming that pid is
+# not a protected process. It never pattern-matches for victims: a `pkill -f`
+# pattern kills every agent's job on a shared machine, which is a rule this repo
+# learned the expensive way. TERM first with a grace period, KILL only if TERM was
+# ignored.
+set -u
+
+WATCH="" TIMEOUT=0 PID=0 LABEL="job" POLL=30 GRACE=20 DRY=0
+while (( $# )); do
+  case "$1" in
+    --watch)   WATCH="$2"; shift 2 ;;
+    --timeout) TIMEOUT="$2"; shift 2 ;;
+    --pid)     PID="$2"; shift 2 ;;
+    --label)   LABEL="$2"; shift 2 ;;
+    --poll)    POLL="$2"; shift 2 ;;
+    --grace)   GRACE="$2"; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
+    *) print -u2 "forge-stallguard: unknown argument '$1'"; exit 2 ;;
+  esac
+done
+[[ -n "$WATCH" ]] || { print -u2 "forge-stallguard: --watch is required"; exit 2 }
+(( TIMEOUT > 0 )) || { print -u2 "forge-stallguard: --timeout must be > 0"; exit 2 }
+(( PID > 0 ))     || { print -u2 "forge-stallguard: --pid must be > 0"; exit 2 }
+
+# Same list the guardian refuses to signal. A stall guard that can kill the shell
+# supervising it, or the window server, is worse than no stall guard.
+PROTECTED_RE='(^|/)(claude|node|WindowServer|loginwindow|Finder|kernel_task|launchd|forge-guardian|zsh|bash|sh|login|Terminal)$'
+
+is_protected() {
+  local p="$1" comm
+  comm=$(ps -o comm= -p "$p" 2>/dev/null)
+  [[ -z "$comm" ]] && return 0                       # unknown -> treat as protected
+  [[ "${comm:t}" =~ $PROTECTED_RE ]] && return 0
+  return 1
+}
+alive()  { kill -0 "$1" 2>/dev/null }
+mtime()  { [[ -f "$1" ]] && stat -f %m "$1" 2>/dev/null || print 0 }
+now()    { date +%s }
+say()    { print -r -- "[stallguard] $1" }
+
+LAST_M=$(mtime "$WATCH")
+LAST_CHANGE=$(now)
+say "watching $WATCH for '$LABEL' (pid $PID), stall timeout ${TIMEOUT}s, poll ${POLL}s"
+
+while true; do
+  if ! alive "$PID"; then
+    say "pid $PID exited on its own — nothing to do"
+    exit 0
+  fi
+  sleep "$POLL"
+  local_m=$(mtime "$WATCH")
+  if [[ "$local_m" != "$LAST_M" ]]; then
+    LAST_M="$local_m"; LAST_CHANGE=$(now)
+    continue
+  fi
+  stalled=$(( $(now) - LAST_CHANGE ))
+  (( stalled < TIMEOUT )) && continue
+
+  if ! alive "$PID"; then
+    say "pid $PID exited while stalled — nothing to do"
+    exit 0
+  fi
+  if is_protected "$PID"; then
+    say "REFUSING to signal pid $PID ($(ps -o comm= -p $PID 2>/dev/null)) — protected"
+    exit 3
+  fi
+  say "STALLED: $WATCH has not advanced in ${stalled}s (>= ${TIMEOUT}s) while pid $PID is alive"
+  if (( DRY )); then
+    say "--dry-run: would TERM pid $PID"
+    exit 4
+  fi
+  kill -TERM "$PID" 2>/dev/null && say "sent TERM to $PID; ${GRACE}s grace"
+  waited=0
+  while (( waited < GRACE )) && alive "$PID"; do sleep 1; waited=$((waited+1)); done
+  if alive "$PID"; then
+    kill -KILL "$PID" 2>/dev/null && say "TERM ignored — sent KILL to $PID"
+  else
+    say "pid $PID exited on TERM"
+  fi
+  exit 4
+done

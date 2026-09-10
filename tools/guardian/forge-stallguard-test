@@ -1,0 +1,96 @@
+#!/bin/zsh
+# Falsifiable battery for forge-stallguard.
+#
+# BOTH DIRECTIONS FOR EVERY RULE. A guard that always kills passes "kills a wedged
+# job"; a guard that never kills passes "spares a slow one". Only a guard that
+# discriminates passes both, and the second is the one that matters in production —
+# a stall guard that kills healthy work is worse than none.
+set -u
+G="${0:h}/forge-stallguard"
+PASS=0 FAIL=0
+chk() { if [[ "$2" == "$3" ]]; then print "  PASS  $1 -> $3"; (( PASS++ ));
+        else print "  FAIL  $1 -> got '$3' want '$2'"; (( FAIL++ )); fi }
+
+D=$(mktemp -d)
+trap 'rm -rf "$D"' EXIT
+
+print "== it kills a job whose output has stopped advancing =="
+touch "$D/wedged.trace"
+sleep 60 & VICTIM=$!
+"$G" --watch "$D/wedged.trace" --timeout 2 --pid $VICTIM --poll 1 --grace 2 >"$D/o1" 2>&1
+rc=$?
+chk "exit code says it acted" 4 "$rc"
+sleep 1
+if kill -0 $VICTIM 2>/dev/null; then chk "victim was killed" killed alive; kill -9 $VICTIM 2>/dev/null
+else chk "victim was killed" killed killed; fi
+grep -q 'STALLED' "$D/o1" && chk "it said WHY" said said || chk "it said WHY" said silent
+
+print ""
+print "== it does NOT kill a job that is still advancing, however slowly =="
+touch "$D/live.trace"
+sleep 60 & VICTIM2=$!
+( for i in 1 2 3 4 5 6 7 8; do sleep 1; touch "$D/live.trace"; done ) &
+TOUCHER=$!
+"$G" --watch "$D/live.trace" --timeout 3 --pid $VICTIM2 --poll 1 --grace 2 >"$D/o2" 2>&1 &
+GUARD=$!
+sleep 7
+if kill -0 $VICTIM2 2>/dev/null; then chk "a progressing job SURVIVES" alive alive
+else chk "a progressing job SURVIVES" alive killed; fi
+kill -9 $GUARD $VICTIM2 $TOUCHER 2>/dev/null
+wait $GUARD 2>/dev/null; wait $VICTIM2 2>/dev/null; wait $TOUCHER 2>/dev/null
+
+print ""
+print "== a pid that exits on its own is not a kill =="
+sleep 1 & GONE=$!
+touch "$D/gone.trace"
+sleep 2
+"$G" --watch "$D/gone.trace" --timeout 2 --pid $GONE --poll 1 >"$D/o3" 2>&1
+chk "exits 0 when the pid is already gone" 0 "$?"
+
+print ""
+print "== it REFUSES to signal a protected process =="
+touch "$D/prot.trace"
+"$G" --watch "$D/prot.trace" --timeout 1 --pid $$ --poll 1 >"$D/o4" 2>&1
+chk "refuses (this test's own zsh)" 3 "$?"
+grep -q 'REFUSING' "$D/o4" && chk "and says so" said said || chk "and says so" said silent
+chk "and the protected process is still alive" alive "$(kill -0 $$ 2>/dev/null && print alive || print dead)"
+
+print ""
+print "== TERM first, KILL only if TERM is ignored =="
+python3 -c 'import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)' &
+STUBBORN=$!
+sleep 1
+touch "$D/stub.trace"
+"$G" --watch "$D/stub.trace" --timeout 2 --pid $STUBBORN --poll 1 --grace 2 >"$D/o5" 2>&1
+chk "acted on the stubborn process" 4 "$?"
+sleep 1
+if kill -0 $STUBBORN 2>/dev/null; then chk "a TERM-ignoring process is KILLed" killed alive; kill -9 $STUBBORN 2>/dev/null
+else chk "a TERM-ignoring process is KILLed" killed killed; fi
+grep -q 'TERM ignored' "$D/o5" && chk "and the escalation is named" said said || chk "and the escalation is named" said silent
+
+print ""
+print "== a watch file that never appears is itself a stall =="
+sleep 60 & VICTIM3=$!
+"$G" --watch "$D/never-created.trace" --timeout 2 --pid $VICTIM3 --poll 1 --grace 2 >"$D/o6" 2>&1
+chk "an absent output is treated as no progress" 4 "$?"
+kill -9 $VICTIM3 2>/dev/null
+
+print ""
+print "== --dry-run reports without killing =="
+sleep 60 & VICTIM4=$!
+touch "$D/dry.trace"
+"$G" --watch "$D/dry.trace" --timeout 2 --pid $VICTIM4 --poll 1 --dry-run >"$D/o7" 2>&1
+chk "dry-run still reports the stall" 4 "$?"
+chk "but the victim survives" alive "$(kill -0 $VICTIM4 2>/dev/null && print alive || print dead)"
+kill -9 $VICTIM4 2>/dev/null
+
+print ""
+print "== bad arguments are refused, not guessed =="
+"$G" --timeout 5 --pid 1 >/dev/null 2>&1;                chk "missing --watch"   2 "$?"
+"$G" --watch "$D/x" --pid 1 >/dev/null 2>&1;             chk "missing --timeout" 2 "$?"
+"$G" --watch "$D/x" --timeout 5 >/dev/null 2>&1;         chk "missing --pid"     2 "$?"
+"$G" --watch "$D/x" --timeout 5 --pid 1 --bogus >/dev/null 2>&1; chk "unknown flag" 2 "$?"
+
+print ""
+print "RESULT: $PASS passed, $FAIL failed"
+(( FAIL == 0 ))
