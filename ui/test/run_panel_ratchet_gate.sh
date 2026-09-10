@@ -146,12 +146,25 @@ open(cp,'w').write(c.replace(row.group(0), row.group(0).replace("PanelContent::P
 PY
        ;;
     3) # A panel that HAD content loses its dispatch: content going backwards.
+       #
+       # THIS MUTATION STAYED GREEN AND THE ANCHOR WAS NOT THE REASON. ForgeFrame
+       # grew a SECOND `curve_list` dispatch, and `.replace(old,'',1)` deleted only
+       # the first, so the panel still drew and the ratchet was RIGHT to stay green.
+       # A mutation that silently under-applies is worse than one that fails loudly:
+       # it reports the gate as blind when the gate was fine.
+       #
+       # Removing every occurrence, and asserting the count, so a third dispatch
+       # site cannot quietly disarm this again.
        python3 - "$tree/$FRAME" <<'PY'
-import sys
+import re, sys
 p=sys.argv[1]; s=open(p).read()
-old='  } else if (panelId == "curve_list") {\n    drawCurveListPanel();\n'
-assert old in s, "mutation 3 anchor missing"
-open(p,'w').write(s.replace(old,'',1))
+pat = re.compile(r'[ \t]*\} else if \(panelId == "curve_list"\) \{\n(?:[ \t]*draw\w+\(\);\n)+')
+hits = pat.findall(s)
+assert hits, "mutation 3: no curve_list dispatch found -- re-anchor, do not delete"
+s2 = pat.sub('', s)
+assert 'panelId == "curve_list"' not in s2, \
+    "mutation 3 under-applied: %d site(s) removed, some remain" % len(hits)
+open(p,'w').write(s2)
 PY
        ;;
     4) # THE ONE-WORD LOOPHOLE: the catalogue declares a panel finished while the
@@ -177,12 +190,31 @@ PY
        ;;
     5) # THE PIN PADDED with a panel that is not empty. A pin allowed to sit
        # above the truth can absorb a future regression in silence.
-       python3 - "$tree/$PIN" <<'PY'
-import sys
-p=sys.argv[1]; s=open(p).read()
-old='    "annotation",\n'
-assert old in s, "mutation 5 anchor missing"
-open(p,'w').write(s.replace(old, old+'    "measure",\n',1))
+       #
+       # THE ANCHOR WAS A LITERAL PIN ENTRY, "annotation", and the pin has since
+       # been lowered past it -- correctly, because that panel got content. So the
+       # mutation died on `anchor missing` and the case scored as unproven. Pinning
+       # a mutation to one id inside the very list this gate exists to shrink means
+       # it disarms itself every time the project improves.
+       #
+       # Selected from the CATALOGUE instead: any panel the catalogue calls Live and
+       # the pin does not already name. That is refactor-proof by construction, and
+       # it is a truer statement of the intent -- pad the pin with something that
+       # demonstrably is NOT empty.
+       python3 - "$tree/$PIN" "$tree/$CAT" <<'PY'
+import re, sys
+pp, cp = sys.argv[1], sys.argv[2]
+pin = open(pp).read()
+block = re.search(r'kPinnedEmptyPanels\[\] = \{(.*?)\};', pin, re.S)
+assert block, "cannot find kPinnedEmptyPanels"
+already = set(re.findall(r'"([a-z_0-9]+)"', block.group(1)))
+cat = open(cp).read()
+live = [m for m in re.findall(r'\{"([a-z_0-9]+)",\n(?:[^\n]*\n)*?\s*PanelContent::Live\},', cat)]
+cand = [x for x in live if x not in already]
+assert cand, "no Live catalogue panel outside the pin -- rethink this mutation, do not delete it"
+pid = cand[0]
+inner = block.group(1)
+open(pp,'w').write(pin.replace(inner, inner.rstrip() + '\n    "%s",\n' % pid, 1))
 PY
        ;;
     6) # TRUE CONTROL: an edit that names no panel at all must leave the verdict
