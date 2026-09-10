@@ -1,0 +1,186 @@
+{
+  "tasks": {
+    "T-001": {
+      "acceptance": [
+        "re-scoring reports/archie_loop_abcreal_v11_e600.jsonl yields compile_rate distinct from pass_rate",
+        " the 399 rounds with a measured volume count as compiled",
+        " a positive control proves the two metrics can differ"
+      ],
+      "commit": "932830a09",
+      "depends_on": [],
+      "evidence": "MEASURED on reports/archie_loop_abcreal_v11_e600.jsonl: n=600, old compiled(=ok)=15 (2.5%), new compiled(=a volume was measured)=414 (69.0%) -- a 27.6x understatement. 399 of the 585 'not compiled' rounds carry a measured volume; re-running one through the pinned verifier gives ok=False valid=True volume=183851.88 with 4 FAIL / 1 PASS assertions. THREE defect sites fixed, not the two identified by the scout (moe_gate.py:589 plus its prose header). Gate tools/selfconsist/test_compiled_is_a_build_signal.py 9/9 including a negative control (real build failure reads False under both definitions, no volume key) and a positive control (12/12 sampled real emissions diverge).",
+      "history": 0,
+      "id": "T-001",
+      "layer": "L11",
+      "notes": "archie_loop.py:1013 and score_benchmarks.py:1147 both set compiled=meas.get('ok'), which is TRUE only if built AND all assertions passed. Correct definition already exists in tools/selfconsist/ (different module - this is a cross-module reconciliation, not a local edit).",
+      "order": 1,
+      "owner": "loop-tick2",
+      "repo": "archdisc-Models",
+      "state": "DONE",
+      "title": "Fix 'compiled' = verifier ok (399/600 rounds mislabelled)",
+      "write_set": [
+        "archdisc-Models/scripts/archie_loop.py",
+        "archdisc-Models/scripts/score_benchmarks.py"
+      ]
+    },
+    "T-002": {
+      "acceptance": [
+        "the ledger runs against libforge_kernel_core.dylib (the artifact Forge.app links)",
+        " OCCT_DIRECT for the dylib is measured and ratcheted",
+        " CI fails if the dylib regresses"
+      ],
+      "depends_on": [],
+      "history": 0,
+      "id": "T-002",
+      "layer": "L5",
+      "notes": "CI asserts closure 14 / direct 9 against forge-kernel.node. The dylib measures OCCT_DIRECT=11, above the ceiling, and is gated by nothing. NOTE the verifier's correction: CI does rebuild the .node before measuring, so the staleness is a workstation-only problem - the wrong-artifact problem is real and separate.",
+      "order": 2,
+      "repo": "archdisc-Mech",
+      "state": "TODO",
+      "title": "OCCT ledger ratchets the wrong binary; the shipped dylib is unmeasured",
+      "write_set": [
+        "archdisc-Mech/forge-kernel/scripts/occt_closure_count.sh",
+        "archdisc-Mech/.github/workflows/kernel-tests.yml"
+      ]
+    },
+    "T-003": {
+      "acceptance": [
+        "/tmp/archie_health/status.json is produced by Guardian",
+        " a killed producer makes consumers fail CLOSED not open",
+        " injected ORANGE actually halts a training admission"
+      ],
+      "commit": "2101017e0+4d9ad0e9",
+      "depends_on": [],
+      "evidence": "Producer wired: forge-guardian now writes /tmp/archie_health/status.json (state/swap_gib/halt/gpu_jobs/producer), verified live and fresh at age 0s. Four consumers inverted to fail CLOSED: missing->UNKNOWN, stale(>600s)->STALE, unparseable->UNREADABLE, healthy->GREEN, ORANGE passes through. Gate tools/selfconsist/test_health_fails_closed.py 25/25, extracting the LIVE health() via ast rather than restating the rule. Positive control: the OLD function run under the same missing-file condition returns GREEN, proving a behaviour change not a passing state. End-to-end: HALT flag propagates within one poll and clears.",
+      "history": 0,
+      "id": "T-003",
+      "layer": "L0",
+      "notes": "The Law-7 admission system depends on a file NOTHING writes. Five consumers return {state:GREEN} on a missing file. forge-guardian already computes this exact state - wire it as the producer and invert the fail direction.",
+      "order": 3,
+      "owner": "loop-tick2",
+      "repo": "archdisc-Models",
+      "state": "DONE",
+      "title": "Health signal has 17 consumers, no producer, and 5 fail OPEN to GREEN",
+      "write_set": [
+        "archdisc-Models/scripts/forge_health_producer.py",
+        "archdisc-Models/scripts/moe_gate.py",
+        "archdisc-Models/scripts/decompose_longtree.py"
+      ]
+    },
+    "T-004": {
+      "acceptance": [
+        "an off-machine durable copy exists and is VERIFIED by restore, not by listing",
+        " the verify names what is NOT covered"
+      ],
+      "depends_on": [],
+      "history": 0,
+      "id": "T-004",
+      "layer": "L0",
+      "notes": "Verifier corrected the scout: archdisc-backups IS a real 32G estate refreshed today (bundle heads == HEAD, full adapters copy). But it is the SAME physical disk, so it protects against deletion, not disk failure. Two adapters in fused-master's declared lineage are missing from BOTH.",
+      "order": 4,
+      "repo": "archdisc-Models",
+      "state": "TODO",
+      "title": "113G of models/corpora has no off-machine copy",
+      "write_set": [
+        "archdisc-Models/.git/config",
+        "archdisc-Mech/tools/guardian/backup-verify.sh"
+      ]
+    },
+    "T-005": {
+      "acceptance": [
+        "save is temp+fsync+atomic rename",
+        " a fault injected mid-write leaves the ORIGINAL file intact and openable",
+        " gate proves it by killing mid-flush"
+      ],
+      "depends_on": [],
+      "history": 0,
+      "id": "T-005",
+      "layer": "L2",
+      "notes": "PartFile.cpp is a plain truncating ofstream: no temp+rename, no autosave, no session marker. A crash mid-flush has already destroyed the file. ui/src DocumentStore implements exactly this protection and is NOT in the shipped app.",
+      "order": 5,
+      "repo": "archdisc-Mech",
+      "state": "TODO",
+      "title": "Shipped save truncates the user's file before writing",
+      "write_set": [
+        "archdisc-Mech/forge-desktop/src/PartFile.cpp"
+      ]
+    },
+    "T-006": {
+      "acceptance": [
+        "a YZ sketch extrudes along X",
+        " bbox and COM confirm the plane",
+        " a red-then-green mutation proves the gate detects the old behaviour"
+      ],
+      "depends_on": [],
+      "history": 0,
+      "id": "T-006",
+      "layer": "L5",
+      "notes": "Sketch planes are not implemented - the op is accepted and silently solved on XY. A wrong answer that reports success is worse than a refusal.",
+      "order": 6,
+      "repo": "archdisc-Mech",
+      "state": "TODO",
+      "title": "SKETCH(YZ/XZ) is silently solved on XY",
+      "write_set": [
+        "archdisc-Mech/forge-kernel/src/ft/FeatureTreeCompiler.cpp"
+      ]
+    },
+    "T-007": {
+      "acceptance": [
+        "an index-permuting edit preserves every reference",
+        " the witness form checks identity not position",
+        " TAG names survive a structural edit, not merely a re-execution"
+      ],
+      "depends_on": [],
+      "history": 0,
+      "id": "T-007",
+      "layer": "L4",
+      "notes": "nextIrId() returns records_.size()+1 and renumber() rewrites ids on every structural edit. persistentName is literally 'face@'+faceId - the exact form spec 05 names as Bad. The real mechanism (TAG/@name over FaceSig with ambiguity detection) exists in FeatureTreeCompiler.cpp:762 but lives in a per-compile map that is never persisted.",
+      "order": 7,
+      "repo": "archdisc-Mech",
+      "state": "TODO",
+      "title": "IR ids are positional; persistentName is 'face@'+index",
+      "write_set": [
+        "archdisc-Mech/ui/src/DocumentModel.cpp",
+        "archdisc-Mech/ui/src/PickModel.cpp"
+      ]
+    },
+    "T-008": {
+      "acceptance": [
+        "every intended file is compiled or explicitly recorded as excluded with a reason",
+        " the count is ratcheted so a new orphan fails CI"
+      ],
+      "depends_on": [
+        "T-002"
+      ],
+      "history": 0,
+      "id": "T-008",
+      "layer": "L5",
+      "notes": "39 are native modules. Verifier corrected 'the ENTIRE src/native/mesh': 7 of 28 mesh files ARE compiled (the half-edge/boolean core). The roadmap credits the uncompiled remainder as the sewing and HLR foundation for OCCT-zero, so this directly blocks T-002's north star.",
+      "order": 8,
+      "repo": "archdisc-Mech",
+      "state": "TODO",
+      "title": "45 .cpp files are in no build target",
+      "write_set": [
+        "archdisc-Mech/forge-kernel/CMakeLists.txt"
+      ]
+    },
+    "T-009": {
+      "acceptance": [
+        "the module compiles, its tests run in CI, and its failure taxonomy is reachable from the product"
+      ],
+      "depends_on": [],
+      "history": 0,
+      "id": "T-009",
+      "layer": "L2",
+      "notes": "It is the ONLY place in the repo with a failure taxonomy, approval classes, evidence entries and a repair budget - i.e. exactly the repair-loop substrate spec 05 requires - and nothing builds it.",
+      "order": 9,
+      "repo": "archdisc-Mech",
+      "state": "TODO",
+      "title": "orchestration/ has no CMakeLists and is dead code",
+      "write_set": [
+        "archdisc-Mech/orchestration/CMakeLists.txt",
+        "archdisc-Mech/forge-kernel/CMakeLists.txt"
+      ]
+    }
+  }
+}
