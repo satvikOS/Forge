@@ -132,6 +132,7 @@ FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 CHECKED=(
   forge-desktop/src/Camera.cpp
   forge-desktop/test/assembly_gate.cpp
+  forge-desktop/test/atomic_save_gate.cpp
   forge-desktop/src/FileDialog.cpp
   forge-desktop/src/DrawingGdt.cpp
   forge-desktop/src/ForgeFrame.cpp
