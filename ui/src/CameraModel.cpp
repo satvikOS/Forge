@@ -149,7 +149,26 @@ FramingBounds selectionBounds(const PickScene& scene, const std::vector<EntityRe
     switch (ref.kind) {
       case EntityKind::Face: {
         std::uint32_t faceId = 0;
-        if (scene.mesh != nullptr && faceIdFromKey(ref.persistentName, faceId)) {
+        // PREFER THE SIGNATURE. faceIdFromKey parses "face@<index>", and the
+        // index is exactly what an edit invalidates. When a signature is present
+        // it decides; the index is the fallback for references saved before
+        // signatures existed. An AMBIGUOUS signature falls through to the index
+        // rather than guessing -- doc 05 requires that ambiguous references are
+        // not silently resolved, and the kernel's TAG op already refuses on the
+        // same grounds.
+        bool resolved = false;
+        if (scene.mesh != nullptr && !ref.signature.empty()) {
+          std::uint32_t bySig = 0;
+          if (resolveFaceSignature(*scene.mesh, ref.signature, bySig) ==
+              SignatureMatch::Exact) {
+            faceId = bySig;
+            resolved = true;
+          }
+        }
+        if (!resolved && scene.mesh != nullptr && faceIdFromKey(ref.persistentName, faceId)) {
+          resolved = true;
+        }
+        if (resolved) {
           ok = growByFace(*scene.mesh, faceId, out.box) > 0;
         }
         break;

@@ -460,6 +460,12 @@ ScenePick faceAnswer(const PickScene& scene, const FacePick& face) {
   out.ref.bodyId = scene.bodyId;
   out.ref.kind = EntityKind::Face;
   out.ref.persistentName = "face@" + std::to_string(face.faceId);
+  // The index above MOVES: measured, the same conceptual face is index 6 before an
+  // earlier HOLE is inserted and 7 after. The signature is the identity that does
+  // not, and it is carried ALONGSIDE rather than replacing the name, so every
+  // saved .fpart, every gate asserting "face@N", and every existing selection keep
+  // working while resolution gains something better to prefer.
+  if (scene.mesh != nullptr) out.ref.signature = faceSignature(*scene.mesh, face.faceId);
   return out;
 }
 

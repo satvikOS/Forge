@@ -123,8 +123,19 @@ bool namedViewFromSuffix(const std::string& suffix, NamedView& out) noexcept;
 // A stable, rebuild-surviving reference to one topological entity.
 //   bodyId          — persistent body/document-node identity
 //   kind            — what sort of entity this names
-//   persistentName  — the L4 TAG/@name style persistent label (survives index
-//                     permutation); empty only for whole-body references
+//   persistentName  — the label this reference is KNOWN BY. For faces it is
+//                     "face@<index>", which is a TOPOLOGY INDEX and does NOT
+//                     survive an edit: MEASURED, the same conceptual face is
+//                     "cylinder face 6" before an earlier HOLE is inserted and
+//                     "cylinder face 7" after. This comment used to claim it
+//                     "survives index permutation", which is the property doc 04
+//                     calls a major product risk when it is absent -- and saying
+//                     so here is very likely why nobody went looking.
+//   signature       — the identity that DOES survive: a quantised geometric
+//                     signature of the face (kind, area, centroid, normal).
+//                     Empty when unknown, so this is additive and every existing
+//                     .fpart still loads. Resolution prefers it and falls back to
+//                     the index only when it is absent.
 //   generation      — bumped by the modeller when the entity is re-resolved,
 //                     so the UI can report a stale reference honestly
 struct EntityRef {
@@ -132,6 +143,19 @@ struct EntityRef {
   EntityKind kind = EntityKind::None;
   std::string persistentName;
   std::uint64_t generation = 0;
+  // LAST, and with a DEFAULT MEMBER INITIALISER. Both halves are required.
+  //
+  // EntityRef is aggregate-initialised across the tree -- EntityRef{"body_1",
+  // EntityKind::Face, name, 1} appears in nine test files -- so inserting a member
+  // before `generation` silently rebinds that 1 to a std::string. Appending fixes
+  // that but not the second problem: ui builds with -Werror
+  // -Wmissing-field-initializers, under which ANY new aggregate member breaks every
+  // brace-initialiser that does not list it.
+  //
+  // MEASURED on this compiler: `std::string c;` warns, `std::string c = {};` does
+  // not. The initialiser is what makes this change additive instead of a nine-file
+  // edit, so do not "tidy" it away.
+  std::string signature = {};
 
   bool valid() const noexcept { return kind != EntityKind::None && !bodyId.empty(); }
   std::string key() const;  // deterministic identity string, used for set membership

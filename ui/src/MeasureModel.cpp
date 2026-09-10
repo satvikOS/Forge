@@ -1,5 +1,11 @@
 #include "forge/ui/MeasureModel.hpp"
 
+#include <string>
+
+#include <sstream>
+
+#include <iomanip>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -290,6 +296,66 @@ SelectionMeasure measureFaces(const MeasureMesh& mesh,
     }
   }
   return s;
+}
+
+
+// ── durable face identity ───────────────────────────────────────────────────
+namespace {
+
+// Quantisation. The signature must be STABLE across a rebuild but DISTINCT between
+// genuinely different faces, so each quantum is coarse enough to swallow float
+// noise and fine enough not to merge neighbours:
+//   area      0.01 mm^2   (a 0.1 x 0.1 mm patch)
+//   position  0.001 mm    (one micron)
+//   direction 1e-4        (~0.006 degrees)
+// A too-fine quantum makes the signature brittle; a too-coarse one makes distinct
+// faces collide, which resolveFaceSignature reports as Ambiguous rather than
+// guessing. Both failure directions are visible, neither is silent.
+std::string q(double v, double quantum) {
+  const double snapped = std::round(v / quantum) * quantum;
+  // -0 and +0 must not produce different strings.
+  const double clean = (snapped == 0.0) ? 0.0 : snapped;
+  std::ostringstream os;
+  os << std::fixed << std::setprecision(6) << clean;
+  return os.str();
+}
+
+}  // namespace
+
+std::string faceSignature(const MeasureMesh& mesh, std::uint32_t faceId) {
+  FaceMeasure fm;
+  if (!measureFace(mesh, faceId, fm)) return {};
+  std::ostringstream os;
+  os << "fsig1:" << (fm.planar ? "plane" : "curved")
+     << ":a" << q(fm.area, 0.01)
+     << ":c" << q(fm.centroid[0], 0.001) << ',' << q(fm.centroid[1], 0.001) << ','
+     << q(fm.centroid[2], 0.001)
+     << ":n" << q(fm.normal[0], 1e-4) << ',' << q(fm.normal[1], 1e-4) << ','
+     << q(fm.normal[2], 1e-4);
+  return os.str();
+}
+
+SignatureMatch resolveFaceSignature(const MeasureMesh& mesh, const std::string& signature,
+                                    std::uint32_t& out) {
+  if (signature.empty()) return SignatureMatch::Missing;
+  std::uint32_t hit = 0;
+  std::size_t hits = 0;
+  // Iterate the ids the mesh ACTUALLY carries. A first version looped 1..faceCount
+  // on the assumption that ids are dense, which is not a property MeasureMesh
+  // offers -- a soup holding faces {1, 5, 9} reports 3 faces and the loop would
+  // have examined 1, 2, 3 and silently missed two thirds of them, reporting
+  // Missing for a face that is right there.
+  for (const std::uint32_t id : mesh.faces()) {
+    if (faceSignature(mesh, id) != signature) continue;
+    ++hits;
+    if (hits == 1) hit = id;
+    // Keep counting: the CALLER must be told it is ambiguous, and stopping at two
+    // would make "2 candidates" and "9 candidates" indistinguishable.
+  }
+  if (hits == 0) return SignatureMatch::Missing;
+  if (hits > 1) return SignatureMatch::Ambiguous;
+  out = hit;
+  return SignatureMatch::Exact;
 }
 
 }  // namespace forge::ui
