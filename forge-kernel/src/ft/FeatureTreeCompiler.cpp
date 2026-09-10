@@ -2658,6 +2658,32 @@ private:
         else {
             // gather the candidate cylindrical set for this predicate family
             std::string sel_tail;   // filter text after a position clause, if any
+            // REFUSE AN UNRECOGNISED KIND rather than quietly meaning "any cylinder".
+            //
+            // This branch is the last one, so anything that reached it without a
+            // recognised prefix used to fall through with all three want* flags
+            // false -- which selects EVERY cylindrical face and then ranks by
+            // radius. MEASURED: `planar:max` on a box with one hole answered
+            // "TAG @t -> cylinder face 6". The caller asked for the largest PLANAR
+            // face and was handed a bore, with ok=true.
+            //
+            // `planar` is a near-miss of `plane:largest`, which IS valid, so this is
+            // precisely the typo a model or a person makes -- and the whole point of
+            // a closed vocabulary is that a word outside it fails loudly. Same class
+            // as SKETCH silently solving YZ on XY: an unrecognised token doing
+            // something else while reporting success.
+            {
+                static const char* kKinds[] = {"bore", "hole", "boss", "shaft", "fillet", "blend"};
+                bool known = false;
+                for (const char* k : kKinds)
+                    if (sel.rfind(k, 0) == 0) { known = true; break; }
+                if (!known)
+                    throw OpError(opId,
+                                  "unknown selector kind in `" + selRaw +
+                                      "`; expected one of bore|hole|boss|shaft|fillet|blend, "
+                                      "or plane:largest / plane:max-area / face:<n> / "
+                                      "radial|blade|lug|spoke, or an axis like +Z");
+            }
             const bool wantConcave = (sel.rfind("bore", 0) == 0 || sel.rfind("hole", 0) == 0);
             const bool wantConvex  = (sel.rfind("boss", 0) == 0 || sel.rfind("shaft", 0) == 0);
             const bool wantFillet  = (sel.rfind("fillet", 0) == 0 || sel.rfind("blend", 0) == 0);
