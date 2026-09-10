@@ -687,3 +687,48 @@ caught this; reading the code did not.
 
 An `add` that finds its id in use now refuses, naming the state and title it would
 have destroyed, and `--force` still records a rebuildable before-image.
+
+### A watchdog is only as honest as the signal it is handed
+
+`forge-stallguard` watched `score_benchmarks`' trace, on the reasoning that "output
+is the only observable that separates slow from stuck". The reasoning is right. The
+choice of output was wrong: the trace is written at the **bottom** of the per-row
+loop and five `continue` paths never reach it — prompt over ceiling, missing image,
+dry-run without gold, a generation exception, and **"model emitted no IR"**.
+
+From row 41 of BenchCAD-HF the model stopped emitting. The trace froze while the job
+ran perfectly normally. The guard waited 900 s and killed it. Twice — both stallguard
+firings on record are this — and the resulting "BenchCAD-HF-980 wedges
+bit-deterministically at row 41" was written up, published and defended for an hour
+before a probe finished all 45 rows with exit 0.
+
+**A guard cannot distinguish "stopped working" from "working without producing this
+particular output".** Only the signal can. Before arming a watchdog, ask what the
+watched file does on the *unsuccessful* path — that is the path a struggling run
+spends its time on, and it is exactly when you least want to be killed.
+
+The test that matters is the negative control: the same arm, watched the old way,
+must still be killed. A test that only proves the new target works would also pass on
+a guard that never armed.
+
+### The instrument you build to answer a question can refute the question
+
+The in-flight marker was built to name the row that wedged the GPU. The first run
+that used it showed there was no wedge on that benchmark at all, retiring a report
+published an hour earlier — including a "deterministic hang point" and a tidy
+complexity explanation for it (46 faces vs max 30, 108 edges vs max 75). The face and
+edge numbers were correct. The inference built on them was not: row 41 is where the
+*model* stops, not where the GPU stops.
+
+Three hypotheses had been tested and eliminated against a phenomenon that did not
+exist. All three were reasoned from the last row that *succeeded*, because the
+failing row was unobservable. Instrument first, hypothesise second — and when the new
+instrument contradicts the story, the story goes, not the instrument.
+
+### An untraced row is invisible in every direction
+
+The same trace gap was present on benchmarks nobody suspected: BenchCAD-holdout-41
+has 41 `per_task` rows and 40 traced; neuralCAD-Edit-56 has 56 and 54. Those runs
+completed, so the discrepancy was never questioned — and it had been silently
+shrinking every reported denominator. When a summary and a detail log disagree about
+how many rows ran, that difference is a finding, not rounding.
