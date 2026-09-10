@@ -148,6 +148,86 @@ void stampSeedDiag(Mesh& m, double targetEdge, int budget, bool capped, double s
     m.interiorSpacing = spacing;
 }
 
+// --------------------------------------------------------------------------- //
+//  Boundary densification — RECURSIVE                                          //
+// --------------------------------------------------------------------------- //
+// This was a single pass over the ORIGINAL triangle list, duplicated verbatim at
+// both call sites (the OCCT path and the native path):
+//
+//     std::size_t ntri = triangles.size();          // captured BEFORE the loop
+//     for (std::size_t ti = 0; ti < ntri; ++ti) {
+//         if ((B - A).norm() > minLen) tryAdd((A + B) * 0.5);   // one midpoint, once
+//         if (area > minArea)          tryAdd((A + B + C) / 3);
+//     }
+//
+// `tryAdd` appends to `bndPts` and never to `triangles`, so a second pass had
+// nothing new to subdivide: every surface triangle contributed its edge midpoints
+// and its barycentre exactly once, and boundary spacing floored at a fraction of the
+// surface facet size INDEPENDENT of targetEdge. Only the interior AABB lattice
+// tracked it.
+//
+// Measured on a unit box before this change: the z=0 face carried 11 nodes at
+// 5 distinct x stations with a 0.33333 m maximum gap at targetEdge 0.5, 0.25, 0.125
+// AND 0.0625 — byte-identical across a 118x increase in tet count (240 -> 28296),
+// while total node count grew 65 -> 4951. The mesh refined everywhere except its
+// surface. NAFEMS LE1/LE10 show the same signature on real geometry: boundary node
+// set identical across a 69x tet increase, stress-recovery patch frozen at 0.625 m,
+// and h_local at the probe falling 1.46x while targetEdge fell 2.9x.
+//
+// Subdividing to a depth bounded by the requested edge length fixes that. The work
+// list is PRIVATE: `triangles` is not modified, so the shell fallback that consumes
+// it downstream sees exactly what it saw before.
+//
+// The budget is a REPORTED cap, never a silent one — a surface that cannot be
+// resolved within it says so, because a quietly truncated boundary is the defect
+// this function exists to remove.
+template <class AddFn>
+void densifyBoundaryRecursive(const std::vector<Vec3>& pts,
+                              const std::vector<std::array<int, 3>>& triangles,
+                              AddFn&& tryAdd,
+                              double minLen, double minArea,
+                              std::size_t budget, int maxDepth,
+                              std::size_t& added, bool& capped) {
+    struct Item { Vec3 a, b, c; int depth; };
+    std::vector<Item> stack;
+    stack.reserve(256);
+    const std::size_t ntri = triangles.size();
+    for (std::size_t ti = 0; ti < ntri; ++ti) {
+        // Copy the corners by value. tryAdd push_backs into the same vector `pts`
+        // refers to, and a reference into its storage would dangle on reallocation.
+        stack.push_back({pts[triangles[ti][0]], pts[triangles[ti][1]],
+                         pts[triangles[ti][2]], 0});
+        while (!stack.empty()) {
+            const Item it = stack.back();
+            stack.pop_back();
+            const Vec3 A = it.a, B = it.b, C = it.c;
+            const double lab = (B - A).norm();
+            const double lbc = (C - B).norm();
+            const double lca = (A - C).norm();
+            const double longest = std::max(lab, std::max(lbc, lca));
+            if (longest > minLen && it.depth < maxDepth) {
+                if (added >= budget) { capped = true; continue; }
+                const Vec3 mab = (A + B) * 0.5;
+                const Vec3 mbc = (B + C) * 0.5;
+                const Vec3 mca = (C + A) * 0.5;
+                if (lab > minLen && tryAdd(mab)) ++added;
+                if (lbc > minLen && tryAdd(mbc)) ++added;
+                if (lca > minLen && tryAdd(mca)) ++added;
+                stack.push_back({A,   mab, mca, it.depth + 1});
+                stack.push_back({mab, B,   mbc, it.depth + 1});
+                stack.push_back({mca, mbc, C,   it.depth + 1});
+                stack.push_back({mab, mbc, mca, it.depth + 1});
+            } else {
+                const double area = 0.5 * (B - A).cross(C - A).norm();
+                if (area > minArea) {
+                    if (added < budget) { if (tryAdd((A + B + C) * (1.0 / 3.0))) ++added; }
+                    else                { capped = true; }
+                }
+            }
+        }
+    }
+}
+
 // Inc1b — closed-form principal stresses (eigenvalues of the symmetric 3×3
 // Cauchy tensor) via the trigonometric (Smith 1961) method for a real
 // symmetric matrix. Input Voigt s = {sxx,syy,szz,sxy,syz,szx}; output
@@ -851,16 +931,17 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge, int seedGridBudget)
         // triangle list to avoid iterating new points).
         const double minLen = 1.25 * targetEdge;
         const double minArea = 0.5 * targetEdge * targetEdge;
-        std::size_t ntri = triangles.size();
-        for (std::size_t ti = 0; ti < ntri; ++ti) {
-            Vec3 A = bndPts[triangles[ti][0]];
-            Vec3 B = bndPts[triangles[ti][1]];
-            Vec3 C = bndPts[triangles[ti][2]];
-            if ((B - A).norm() > minLen) tryAdd((A + B) * 0.5);
-            if ((C - B).norm() > minLen) tryAdd((B + C) * 0.5);
-            if ((A - C).norm() > minLen) tryAdd((C + A) * 0.5);
-            double area = 0.5 * (B - A).cross(C - A).norm();
-            if (area > minArea) tryAdd((A + B + C) * (1.0 / 3.0));
+        std::size_t bndAdded = 0;
+        bool bndCapped = false;
+        densifyBoundaryRecursive(bndPts, triangles, tryAdd, minLen, minArea,
+                                 static_cast<std::size_t>(seedBudget), 12,
+                                 bndAdded, bndCapped);
+        if (bndCapped) {
+            std::fprintf(stderr,
+                         "[feaTet] boundary densification hit its budget (%d points) at "
+                         "targetEdge=%.6g -- the SURFACE is coarser than requested; raise "
+                         "FORGE_FEA_TET_SEED_BUDGET before trusting a convergence sweep.\n",
+                         seedBudget, targetEdge);
         }
         // (b) Interior grid.
         BRepClass3d_SolidClassifier classifier(shape);
@@ -1124,16 +1205,17 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
 
         const double minLen = 1.25 * targetEdge;
         const double minArea = 0.5 * targetEdge * targetEdge;
-        std::size_t ntri = triangles.size();
-        for (std::size_t ti = 0; ti < ntri; ++ti) {
-            Vec3 A = bndPts[triangles[ti][0]];
-            Vec3 B = bndPts[triangles[ti][1]];
-            Vec3 C = bndPts[triangles[ti][2]];
-            if ((B - A).norm() > minLen) tryAdd((A + B) * 0.5);
-            if ((C - B).norm() > minLen) tryAdd((B + C) * 0.5);
-            if ((A - C).norm() > minLen) tryAdd((C + A) * 0.5);
-            double area = 0.5 * (B - A).cross(C - A).norm();
-            if (area > minArea) tryAdd((A + B + C) * (1.0 / 3.0));
+        std::size_t bndAdded = 0;
+        bool bndCapped = false;
+        densifyBoundaryRecursive(bndPts, triangles, tryAdd, minLen, minArea,
+                                 static_cast<std::size_t>(seedBudget), 12,
+                                 bndAdded, bndCapped);
+        if (bndCapped) {
+            std::fprintf(stderr,
+                         "[feaTet] boundary densification hit its budget (%d points) at "
+                         "targetEdge=%.6g -- the SURFACE is coarser than requested; raise "
+                         "FORGE_FEA_TET_SEED_BUDGET before trusting a convergence sweep.\n",
+                         seedBudget, targetEdge);
         }
         int nx = 0, ny = 0, nz = 0;
         seedCapped = sizeSeedGrid(xmax - xmin, ymax - ymin, zmax - zmin,
