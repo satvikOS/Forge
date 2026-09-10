@@ -424,3 +424,35 @@ Displacement, peak stress and modal frequency do not share a formula. All three 
 together and landed within 8%, and the log named the mechanism directly: the clamped
 face carried ELEVEN nodes because its node set was the frozen one. One observable
 would have been a number; three plus a legible cause is an explanation.
+
+### A guard that can hang cannot report anything
+
+The mutation that disabled forge-stallguard's stall check made the guard loop for
+ever — correctly, since a supervisor with nothing to report should not exit. The
+battery therefore HUNG instead of failing, and the mutation harness sat there with no
+verdict at all. Bound every mutant run, and label a hang distinctly from a clean
+failure so the two are never confused: both are red, but only one of them means what
+you think it means.
+
+### Output is what separates slow from wedged
+
+Two composite drivers were running on this machine. Both reported **0.0% CPU**,
+because in both cases the work was in a `forge_verify` child. One was progressing at
+four rows a minute and one had produced nothing in an hour. `ps` could not tell them
+apart; the log files could, instantly. When supervising work, watch the artefact the
+work updates, never the process.
+
+### Split a task rather than work around a write-set conflict
+
+The ledger refused T-029 because it overlapped a file another task was holding. The
+answer was not to override it but to split off the half that conflicts with nothing —
+a standalone tool — and leave the wiring for when the hold lifts. Most of the value
+landed immediately and the invariant stayed intact.
+
+### The right pgrep can still match the wrong process
+
+Two `composite_score.py` processes were running on the same task file: one six hours
+old, one ninety minutes old. `pgrep -f` returned the wrong one and I nearly measured
+the healthy job while diagnosing the stalled one. Disambiguate by something the
+processes do not share — here `lsof` on their stdout — rather than by a pattern that
+happens to match today.
