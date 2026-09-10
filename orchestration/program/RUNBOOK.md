@@ -350,3 +350,34 @@ line, max 1), and huge vision prefill (refuted — all 283 images are identical 
 about 225 tokens, including the row in flight). Each took one measurement to kill.
 Killing a hypothesis cheaply is worth more than defending it; write the refutations
 down, because the next reader will have the same idea.
+
+### A number carried one file further than its caveat
+
+`p = -6.70` blocked a task for weeks. Its own source report said, on the same commit
+day, that the sequences are non-monotone and "the `p` values in section 2 are noise
+rather than rates", and the harness prints that warning at runtime. The baseline file
+recorded them anyway as "observed orders of accuracy", my block note quoted the
+baseline, and by then the caveat was two hops behind the number.
+
+Computed pairwise, that exponent ranges from **-2092 to +4.35** depending only on which
+consecutive pair you pick, because one denominator is `log(0.16035/0.16038) = -0.0002`.
+It was `log(something) / log(almost 1)`.
+
+When a statistic justifies a decision, open the file it came from and read what that
+file says about it. A derived number does not carry its own preconditions.
+
+### "The error grows under refinement" needs the refinement to have happened
+
+The inference `negative order => formulation error` is sound only if the mesh actually
+refined at the place the answer is read. Here `targetEdge` fell 2.9x and the tet count
+rose 4.5x while `h_local` at the probe fell 1.46x, and once went the wrong way. The
+model refines everywhere except where it is measured. Before concluding anything from a
+convergence sweep, verify the independent variable moved.
+
+### Search for prior work before treating a blocked task as research
+
+The root cause had already been established, mutation-proven and committed — under a
+filename the block note never mentioned, and the note pointed at two artefact paths
+that do not exist (`reports/FEA_NAFEMS_GAP.md`, `test/fea_nafems_convergence.mjs`; both
+live under `forge-kernel/`). One `find -iname '*NAFEMS*'` would have found it. Check the
+repo for the answer before scheduling the investigation.
