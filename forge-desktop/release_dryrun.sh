@@ -138,6 +138,18 @@ ZIP="$DIST/Forge-macos-arm64-${VERSION}.zip"
 [ -f "$ZIP" ] || die "no zip at $ZIP"
 [ -x "$APP/Contents/MacOS/forge_desktop" ] || die "no executable inside the bundle"
 
+# ── 3z. the artifact must carry the licence text its binaries require ────────
+# Asked of the ARTIFACT, not the manifest: the release audit found the manifest
+# omits components that actually ship (SDL2 and Dear ImGui), so a manifest-based
+# check would pass on a bundle with no licence text in it -- which is what every
+# artifact published so far contained.
+LICV="$ROOT/third_party/licenses/verify_bundle_licences.sh"
+if [ -x "$LICV" ]; then
+  bash "$LICV" "$APP" || die "the bundle does not carry its required licence text"
+else
+  die "third_party/licenses/verify_bundle_licences.sh is missing -- refusing to certify a binary whose licence coverage nothing checked"
+fi
+
 # ── 3a. the crash-isolation worker must be INSIDE the bundle ─────────────────
 # forge_kernel_worker is the process the application is allowed to lose: the app
 # looks for it BESIDE ITSELF, and a bundle without it degrades SILENTLY -- the

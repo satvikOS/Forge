@@ -209,6 +209,30 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" \
 cp "$EXE" "$APP/Contents/MacOS/forge_desktop" || die "cannot stage the executable"
 chmod +x "$APP/Contents/MacOS/forge_desktop"
 
+# ── LICENCE TEXTS — required BY DISTRIBUTION, not by use ─────────────────────
+# third_party/notices/NOTICES.md records what we use and hashes each licence file
+# IN THE RESOLVED BUILD PREFIX -- a path on the build machine. So every artifact
+# published so far contained no licence text at all, while shipping LGPL-2.1 code
+# (OCCT dynamically; planegcs STATICALLY, five objects inside
+# libforge_kernel_core.dylib) and Apache-2.0 code (MoltenVK).
+#
+# Copied, never generated: these are real files vendored from real prefixes, and
+# third_party/licenses/INCOMPLETE.md names what is still missing rather than
+# reconstructing it. A notice written from memory looks compliant and is not.
+#
+# die, not warn: an artifact that reaches users without these is the defect.
+LIC_SRC="$ROOT/third_party/licenses"
+[ -d "$LIC_SRC" ] || die "third_party/licenses is missing -- refusing to package a binary with no licence text"
+mkdir -p "$APP/Contents/Resources/licenses" || die "mkdir licenses failed"
+_lic_n=0
+for _l in "$LIC_SRC"/*.txt "$LIC_SRC"/*.md; do
+  [ -f "$_l" ] || continue
+  cp "$_l" "$APP/Contents/Resources/licenses/" || die "cannot stage $(basename "$_l")"
+  _lic_n=$((_lic_n + 1))
+done
+[ "$_lic_n" -ge 3 ] || die "only $_lic_n licence file(s) staged -- expected at least the three vendored texts"
+say "staged $_lic_n licence file(s) into Contents/Resources/licenses"
+
 # ── ★ THE KERNEL WORKER — the process the application is allowed to lose ─────
 # forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null Geom2d_Curve
 # dereferenced INSIDE OCCT, on Archie's output AND on the gold reference parts.
