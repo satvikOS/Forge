@@ -1119,6 +1119,23 @@ jobs:
         # separately asserts the three extents differ from one another, so a
         # regression back to "all three are XY" cannot pass.
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/sketch_plane_gate.sh
+
+      - name: an unrecognised selector KIND fails loudly
+        # TAG's grammar is <kind>:<qualifier>, and the resolver's last branch handled
+        # bore/hole/boss/shaft/fillet/blend. Anything else fell THROUGH it with every
+        # want* flag false, which selects every cylindrical face and ranks by radius.
+        # MEASURED: `planar:max` on a box with one hole answered ok=true,
+        # "TAG @t -> cylinder face 6" -- the caller asked for the largest PLANAR face
+        # and got a bore.
+        #
+        # `planar` is a near-miss of `plane:largest`, which IS valid, so this is the
+        # typo a model actually makes. The point of a closed vocabulary is that a
+        # word outside it fails rather than meaning something else.
+        #
+        # Blast radius checked before landing: every TAG selector in the repository
+        # is bore:max / hole:at=... ; the only other matches were comment
+        # placeholders and one roadmap line the old binary ALREADY refused.
+        run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/selector_kind_gate.sh
       - name: ... and the gate that proves it can fail (8 mutations, red-then-green)
         # THE NEGATIVE CONTROL FOR THE TWO STEPS ABOVE. The defect they exist for
         # survived a COMPLETE 600-row run because nothing exercised the path
