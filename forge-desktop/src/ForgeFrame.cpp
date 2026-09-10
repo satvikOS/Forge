@@ -5922,14 +5922,42 @@ void ForgeFrame::drawCopilotPanel() {
   ImGui::Separator();
 
   // ── the ask ───────────────────────────────────────────────────────────────
-  char buf[256];
-  const std::size_t copied = copilotInput_.copy(buf, sizeof(buf) - 1);
-  buf[copied] = '\0';
+  // GROW THE STRING, do not round-trip it through a fixed buffer.
+  //
+  // This was a `char buf[256]` that copied at most 255 bytes OUT of copilotInput_,
+  // handed the buffer to ImGui, and assigned it straight BACK -- so every frame the
+  // panel drew silently shortened the request to 255 bytes. copilotInput_ is a
+  // std::string and always was, which is precisely why this was easy to miss: the
+  // cap was never the type, it was the round trip.
+  //
+  // MEASURED before the change: a 271-byte request became 255 after ONE frame; 254
+  // and 255 survived, 256, 257 and 1024 all clamped to 255. And 255 bytes is
+  // shorter than the requests doc 03 is written around -- "make the wall 20%
+  // thicker without moving the mounting-hole centres..." is the SHAPE of the input.
+  //
+  // ImGuiInputTextFlags_CallbackResize is the documented way to back an InputText
+  // with a std::string (imgui.h: "see misc/cpp/imgui_stdlib.h for an example").
+  // The callback MUST honour the BufSize ImGui provides.
   ImGui::SetNextItemWidth(-90.0f * dpiScale_);
-  const bool entered = ImGui::InputTextWithHint("##copilot_in", "ask Archie for an edit...", buf,
-                                                sizeof(buf),
-                                                ImGuiInputTextFlags_EnterReturnsTrue);
-  copilotInput_.assign(buf);
+  if (copilotInput_.capacity() < 256) copilotInput_.reserve(256);
+  const bool entered = ImGui::InputTextWithHint(
+      "##copilot_in", "ask Archie for an edit...", copilotInput_.data(),
+      copilotInput_.capacity() + 1,
+      ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackResize,
+      [](ImGuiInputTextCallbackData* data) -> int {
+        if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+          auto* str = static_cast<std::string*>(data->UserData);
+          // BufSize includes the terminator; resize to the text length and hand
+          // ImGui the (possibly reallocated) storage back.
+          str->resize(static_cast<std::size_t>(data->BufTextLen));
+          data->Buf = str->data();
+        }
+        return 0;
+      },
+      &copilotInput_);
+  // InputText writes through data() and terminates at the typed length, so the
+  // std::string's own size must be brought back into agreement with it.
+  copilotInput_.resize(std::strlen(copilotInput_.c_str()));
   ImGui::SameLine();
   ImGui::BeginDisabled(copilotInput_.empty() || copilot_.requestPending());
   const bool sent = ImGui::Button("Send");
