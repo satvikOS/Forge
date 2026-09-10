@@ -24,10 +24,24 @@
 # DECISIONS.md.
 #
 # MEASURED at this baseline (2026-08-28, worktree build of forge-kernel.node, Release):
-#   LE1  elliptic membrane   σ_yy @ D(2,0)      =  35.671 MPa vs   92.7 MPa  (-61.5 %, band ±5 %)
-#   LE10 thick plate         σ_yy @ D(2,0,top)  =  -2.125 MPa vs  -5.38 MPa  (+60.5 %, band ±6 %)
-#   LE11 cyl/taper/sphere    σ_zz @ A(1,0,0)    = -59.664 MPa vs  -105  MPa  (+43.2 %, band ±6 %)
-# All three observed orders of accuracy are NEGATIVE (-0.06, -0.18, -6.70): the error GROWS
+#   LE1  elliptic membrane   σ_yy @ D(2,0)      =  73.299 MPa vs   92.7 MPa  (-20.9 %, band ±5 %)
+#   LE10 thick plate         σ_yy @ D(2,0,top)  =  -3.467 MPa vs  -5.38 MPa  (+35.6 %, band ±6 %)
+#   LE11 cyl/taper/sphere    σ_zz @ A(1,0,0)    = BLOCKED here (native boolean refuses the fuse)
+#
+#   RE-MEASURED 2026-09-10 after the boundary-densification fix (FeaTet.cpp: the CAD
+#   surface was densified in ONE pass, so boundary spacing floored at the facet size and
+#   did not track targetEdge). Previous values, for the record: LE1 35.671 MPa / -61.5 %,
+#   LE10 -2.125 MPa / +60.5 %. Both cases still MISS their bands, so the miss SET is
+#   unchanged and this baseline's variables below are unchanged.
+# THE ORDERS ARE NOW POSITIVE: LE1 0.754, LE10 1.043 — roughly first order, which is what
+# Tet4 stress recovery should give. They were previously recorded here as "-0.06, -0.18,
+# -6.70 ... the error GROWS under h-refinement", and that reading BLOCKED a task for
+# weeks. It was wrong twice over: the sequences were non-monotone, so those exponents were
+# division artefacts rather than rates (forge-kernel/reports/FEA_NAFEMS_GAP.md said so
+# itself — "the p values in section 2 are noise rather than rates"), and the underlying
+# cause was a frozen boundary, not a formulation error. See
+# reports/FEA_NEGATIVE_ORDER_IS_A_DIVISION_ARTEFACT.md and
+# reports/FEA_BOUNDARY_FIX_MEASURED.md. Do not re-derive a formulation defect from this file.
 # under h-refinement. These are NOT under-resolution that a finer mesh would close.
 # See reports/FEA_NAFEMS_GAP.md and test/fea_nafems_convergence.mjs.
 NAFEMS_EXPECTED_MISSES=3
