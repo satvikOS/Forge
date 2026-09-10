@@ -243,6 +243,35 @@ struct Verb {
 };
 
 const Verb kVerbs[] = {
+    // ── ORIGINATING GEOMETRY ────────────────────────────────────────────────────
+    // Every verb below this block CONSUMES something: a PROFILE, a WIRE or a SOLID.
+    // MEASURED before adding these, the table named 19 of the registry's 71 part
+    // commands -- 26.8% -- and not one of them could make a body. Against an empty
+    // document the CoPilot could therefore do NOTHING, while the registry had all
+    // seven primitives sitting unreachable behind it.
+    //
+    // PlanSelect::None, because these are the commands the enum's own comment
+    // describes: "clear the selection first (a command that must run on nothing)".
+    // Each is declared SelectionSignature::none() in PartCommands.cpp.
+    //
+    // The numeric slots are the REQUIRED parameters, in the order the schema
+    // declares them, because that is the order a sentence's numbers fill. Optional
+    // centre and axis arguments keep their command defaults; a plan that wants them
+    // is past what a keyword table should be guessing at.
+    {"box",        "part.primitive_box",      PlanSelect::None, {"dx", "dy", "dz"},                            nullptr},
+    {"cube",       "part.primitive_box",      PlanSelect::None, {"dx", "dy", "dz"},                            nullptr},
+    {"block",      "part.primitive_box",      PlanSelect::None, {"dx", "dy", "dz"},                            nullptr},
+    {"cylinder",   "part.primitive_cylinder", PlanSelect::None, {"radius", "height"},                          nullptr},
+    {"rod",        "part.primitive_cylinder", PlanSelect::None, {"radius", "height"},                          nullptr},
+    {"sphere",     "part.primitive_sphere",   PlanSelect::None, {"radius"},                                    nullptr},
+    {"ball",       "part.primitive_sphere",   PlanSelect::None, {"radius"},                                    nullptr},
+    {"cone",       "part.primitive_cone",     PlanSelect::None, {"radius_base", "radius_top", "height"},       nullptr},
+    {"torus",      "part.primitive_torus",    PlanSelect::None, {"major_radius", "minor_radius"},              nullptr},
+    {"ring",       "part.primitive_torus",    PlanSelect::None, {"major_radius", "minor_radius"},              nullptr},
+    {"tube",       "part.primitive_tube",     PlanSelect::None, {"outer_radius", "inner_radius", "height"},    nullptr},
+    {"pipe",       "part.primitive_tube",     PlanSelect::None, {"outer_radius", "inner_radius", "height"},    nullptr},
+    {"prism",      "part.primitive_prism",    PlanSelect::None, {"sides", "radius", "height"},                 nullptr},
+
     {"extrude",     "part.extrude",          PlanSelect::LatestProfile, {"distance"},                         nullptr},
     {"pad",         "part.extrude",          PlanSelect::LatestProfile, {"distance"},                         nullptr},
     {"revolve",     "part.revolve",          PlanSelect::LatestProfile, {"angle"},                            nullptr},
