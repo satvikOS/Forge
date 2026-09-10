@@ -216,3 +216,57 @@ Stop the tick immediately, and record why, when:
 Unavailable required information, destructive ambiguity, credentials, licensing
 ambiguity, user-owned irreversible data, or an unsafe hardware state. Everything else
 is an ordinary technical decision — make it, record the reasoning, continue.
+
+### A guard that names a state nobody publishes is an absent guard, not a weak one
+
+`health_blocks()` — the brake that runs before EVERY task of a four-hour sweep —
+tripped on `"DANGER"`/`"TRIPWIRE"`. forge-guardian emits GREEN/YELLOW/ORANGE/RED and
+never has emitted anything else. On the state axis the brake was dead code for as
+long as it has existed, and the only thing that could stop a run was the HALT file.
+It read like a working safety check in every review.
+
+When a consumer tests a producer's value against a literal, go read the producer and
+enumerate what it can actually emit. Then write the test both ways: RED must stop
+work AND YELLOW must not, because a brake that never fires passes the second and a
+brake that always fires passes the first.
+
+### Parent CPU is the wrong observable for a driver process
+
+A scorer 62 minutes in with 0.53s of CPU and 29 MB RSS looks hung. It was not: it was
+a thin Python driver blocked in `read()` on a pipe while its `forge_verify` child ran
+at 99.7%. The observables that answer the question are child liveness and log growth,
+measured twice over an interval — not the parent's CPU, and not elapsed time.
+
+### The instrument you are reading may not be the instrument that exists
+
+`gpu_jobs != 0` was implemented three times by three consumers, each with a different
+idea of what the number counted, and one of them (`moe_gate._self_is_heavy`) was
+calibrated to a monitor that had been replaced. It subtracted itself from a count it
+was no longer in. Size is not identity: to exclude yourself from a registry, match on
+pid ancestry, not on a threshold that happens to correlate.
+
+Corollary: before adding a "these two instruments disagree, fail closed" check, find
+out whether one is DERIVED from the other. `status.json.gpu_jobs` is computed by the
+guardian from the same envelope directory the consumer reads, so it can lag by a poll
+but can never exceed it — a refusal on that difference could only ever be a false
+alarm, and I shipped one before catching it.
+
+### Read the code you are replacing for its reasons, not just its behaviour
+
+The function I deleted carried a docstring explaining that nothing on that path may
+fork, because fork(2) from a process holding a 17 GiB checkpoint makes the kernel
+reserve swap for the whole copy-on-write address space — measured once at
+swap 2.5 → 11.8 GiB with the machine wedged. My replacement called `ps` in a loop. The
+memory guard would have become the thing that exhausted memory. When a rewrite drops
+a function, the constraint it encoded has to be re-homed and re-tested, or it is
+rediscovered the expensive way.
+
+### A suite that cries wolf in its own supported deployment is worse than no suite
+
+The guardian's fault-injection selftest reported `FAIL daemon not running` against a
+healthy launchd-supervised daemon, because it gated on a pid file only an
+*unsupervised* start writes. 17 passes and one permanent, meaningless red — exactly
+the shape that teaches a reader to skim past the red line. Key liveness to the thing
+consumers actually depend on (here: publishing), and prove the new check still goes
+red for absent AND for present-but-stale, or you have replaced a false failure with a
+check that always passes.
