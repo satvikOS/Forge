@@ -125,4 +125,37 @@ APPCAST_JSON
 python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$OUT" \
   || die "the appcast just written is not valid JSON: $OUT"
 
+# ── SIGN IT ──────────────────────────────────────────────────────────────────
+# The sha256 in this file proves the payload was not corrupted in transit. It
+# proves NOTHING about who produced it: this appcast and the payload it names are
+# both assets of the same release, so anyone who can write that release writes
+# both. A token with `contents: write` was code execution on every user.
+#
+# The signature closes that because the verifying key is COMPILED INTO the shipped
+# app (FORGE_UPDATE_PUBKEY_B64) rather than fetched beside the payload. Forging
+# this file needs the PRIVATE key, which never leaves the signer.
+#
+# ECDSA P-256 because macOS ships LibreSSL 3.3.6, which cannot do Ed25519 keygen
+# but does P-256 sign and verify correctly (measured 2026-09-10).
+#
+# UNSIGNED IS A REFUSAL, NOT A WARNING, when a key is configured: emitting an
+# appcast the shipped app will reject is worse than not emitting one, because it
+# looks like a working release. With no key configured it is explicitly skipped
+# and SAID, so a developer dry run still works.
+if [ -n "${FORGE_UPDATE_SIGNING_KEY:-}" ]; then
+  KEYF="$(mktemp)"; trap 'rm -f "$KEYF"' EXIT
+  printf '%s' "$FORGE_UPDATE_SIGNING_KEY" > "$KEYF"
+  /usr/bin/openssl dgst -sha256 -sign "$KEYF" -out "$OUT.sig" "$OUT" 2>/dev/null     || die "could not sign the appcast; refusing to publish an update the app will reject"
+  [ -s "$OUT.sig" ] || die "signing produced an empty signature for $OUT"
+  # Verify what we just produced, with the PUBLIC half, before anyone ships it.
+  PUBF="$(mktemp)"
+  /usr/bin/openssl ec -in "$KEYF" -pubout -out "$PUBF" 2>/dev/null     || die "cannot derive the public key from the signing key"
+  /usr/bin/openssl dgst -sha256 -verify "$PUBF" -signature "$OUT.sig" "$OUT" >/dev/null 2>&1     || { rm -f "$PUBF"; die "the signature just written does not verify; refusing to publish"; }
+  rm -f "$PUBF"
+  echo "[appcast] signed -> $OUT.sig ($(wc -c <"$OUT.sig" | tr -d ' ') bytes), self-verified"
+else
+  echo "[appcast] NOT SIGNED: FORGE_UPDATE_SIGNING_KEY is unset." >&2
+  echo "[appcast] A shipped app built WITH a public key will refuse this appcast." >&2
+fi
+
 echo "[appcast] $OUT  version=$VERSION channel=$CHANNEL size=$BYTES sha256=$SHA"
