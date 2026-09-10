@@ -300,9 +300,46 @@ int main(int argc, char** argv) {
       (forceN * beam.lengthM) * (beam.heightM * 0.5) / I / 1.0e6;
   std::printf("[gate] peak %.3f MPa against the bending formula's %.3f MPa\n", one.maxStressMPa,
               theoryMPa);
-  check(one.maxStressMPa > 0.15 * theoryMPa && one.maxStressMPa < 4.0 * theoryMPa,
-        "peak stress is the right order beside the bending formula",
-        num(one.maxStressMPa) + " vs " + num(theoryMPa));
+  // THE BAND WAS 0.15x .. 4.0x -- 26.7-fold, wide enough that a stress number
+  // three times wrong passes, which is exactly the error class a staircase voxel
+  // mesh produces at a fillet or a bore. A user reads the MPa figure this gate is
+  // the only check on.
+  //
+  // MEASURED, five consecutive runs, identical to four decimals:
+  //
+  //   peak 43.402 MPa   theory (M c / I) 60.000 MPa   ratio 0.7234
+  //
+  // 28% UNDER is expected and is not the defect: a coarse hex mesh under-predicts
+  // peak stress at a stress concentration, while displacement converges fast --
+  // the tip ratio above is 1.002. So the band is one-sided on purpose. Below 1 has
+  // room for the mesh to coarsen; ABOVE 1 has almost none, because a coarse mesh
+  // over-predicting the peak is a defect rather than a modelling choice.
+  //
+  // 0.60 .. 1.10 is 1.83-fold. It still passes today's 0.7234 with ~17% of headroom
+  // beneath it, and it now REFUSES the 2x and 3x errors the old band accepted.
+  const double stressRatio = one.maxStressMPa / theoryMPa;
+  check(stressRatio > 0.60 && stressRatio < 1.10,
+        "peak stress agrees with the bending formula",
+        num(one.maxStressMPa) + " vs " + num(theoryMPa) + "  ratio " + num(stressRatio));
+
+  // WHAT THE TIGHTENING BUYS, asserted rather than claimed. Each of these is a
+  // value the OLD band accepted; a band is only worth changing if the change is
+  // shown to reject something.
+  {
+    auto oldBand = [&](double mpa) { return mpa > 0.15 * theoryMPa && mpa < 4.0 * theoryMPa; };
+    auto newBand = [&](double mpa) {
+      const double r = mpa / theoryMPa;
+      return r > 0.60 && r < 1.10;
+    };
+    check(oldBand(3.0 * theoryMPa) && !newBand(3.0 * theoryMPa),
+          "a 3x OVER-prediction passed the old band and is refused now", "ratio 3.00");
+    check(oldBand(0.25 * theoryMPa) && !newBand(0.25 * theoryMPa),
+          "a 4x UNDER-prediction passed the old band and is refused now", "ratio 0.25");
+    check(oldBand(2.0 * theoryMPa) && !newBand(2.0 * theoryMPa),
+          "a 2x OVER-prediction passed the old band and is refused now", "ratio 2.00");
+    check(newBand(one.maxStressMPa),
+          "and the value this solver actually produces still passes", num(stressRatio));
+  }
 
   // ── linearity, which luck cannot produce ─────────────────────────────────
   forge::ui::StudyDefinition twice = study;
