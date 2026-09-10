@@ -85,6 +85,31 @@ chk "but the victim survives" alive "$(kill -0 $VICTIM4 2>/dev/null && print ali
 kill -9 $VICTIM4 2>/dev/null
 
 print ""
+print "== the clock starts from the FILE, not from when the guard was armed =="
+# A guard armed AFTER a stall began must not grant a fresh full timeout. Measured on
+# the real thing: armed on a run whose trace had been untouched for 44 minutes, with
+# a 300s timeout, it sat for another 300s having already been handed the evidence.
+touch -t 202601010000 "$D/ancient.trace"
+sleep 60 & AV=$!
+T0=$(date +%s)
+"$G" --watch "$D/ancient.trace" --timeout 300 --pid $AV --poll 2 --grace 2 --dry-run >"$D/o8" 2>&1
+chk "an already-stale file trips at once" 4 "$?"
+T1=$(date +%s)
+if (( T1 - T0 < 30 )); then print "  PASS  and it did not wait out the timeout -> $((T1-T0))s"; (( PASS++ ));
+else print "  FAIL  it waited $((T1-T0))s, i.e. the clock restarted"; (( FAIL++ )); fi
+kill -9 $AV 2>/dev/null; wait $AV 2>/dev/null
+
+# ... and the other direction, or the fix is just "always fire"
+touch "$D/fresh.trace"
+sleep 60 & FV=$!
+"$G" --watch "$D/fresh.trace" --timeout 20 --pid $FV --poll 2 --dry-run >"$D/o9" 2>&1 &
+FG=$!
+sleep 8
+if kill -0 $FG 2>/dev/null; then print "  PASS  a FRESH file is still not a stall -> watching"; (( PASS++ ));
+else print "  FAIL  a fresh file tripped -> the clock fix became 'always fire'"; (( FAIL++ )); fi
+kill -9 $FG $FV 2>/dev/null; wait $FG 2>/dev/null; wait $FV 2>/dev/null
+
+print ""
 print "== bad arguments are refused, not guessed =="
 "$G" --timeout 5 --pid 1 >/dev/null 2>&1;                chk "missing --watch"   2 "$?"
 "$G" --watch "$D/x" --pid 1 >/dev/null 2>&1;             chk "missing --timeout" 2 "$?"

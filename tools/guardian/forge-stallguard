@@ -69,7 +69,21 @@ now()    { date +%s }
 say()    { print -r -- "[stallguard] $1" }
 
 LAST_M=$(mtime "$WATCH")
-LAST_CHANGE=$(now)
+# START THE CLOCK FROM THE FILE, NOT FROM NOW.
+#
+# Initialising LAST_CHANGE to `now` means a guard armed AFTER a stall began waits a
+# full timeout before noticing it. Measured: armed on a run whose trace had been
+# untouched for 44 minutes, with a 300s timeout, it sat for another 300s having
+# already been handed the evidence.
+#
+# It matters most in exactly the case a supervisor exists for -- restarted after a
+# crash, or attached to work that was already in trouble. A future mtime (clock
+# skew, a copied file) is clamped to now so it can never postpone a stall.
+if [[ "$LAST_M" != "0" ]] && (( LAST_M < $(now) )); then
+  LAST_CHANGE=$LAST_M
+else
+  LAST_CHANGE=$(now)
+fi
 say "watching $WATCH for '$LABEL' (pid $PID), stall timeout ${TIMEOUT}s, poll ${POLL}s"
 
 while true; do
