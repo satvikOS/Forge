@@ -507,6 +507,43 @@ int main(int argc, char** argv) {
 
   forge::desktop::PlatformSDL2 platform;
   platform.init(window);
+
+  // ── keep the application answering during a rebuild ──────────────────────────
+  //
+  // KernelScene's isolated build waits for the worker in a loop. That wait is
+  // BOUNDED by limits.deadlineMs -- 300000 above, five minutes -- and it is
+  // INTERRUPTIBLE only when a host pump is installed. Nothing installed one:
+  // `setHostPump` appeared in the whole tree exactly four times, and every call
+  // site was a test (forge-desktop/test/isolation_gate.cpp). KernelScene.hpp says
+  // so plainly: "Without it the wait is merely BOUNDED ...; with it the wait is
+  // also INTERRUPTIBLE."
+  //
+  // So the shipped app could sit up to FIVE MINUTES without draining its event
+  // queue, which macOS reports as "Application Not Responding" and a user answers
+  // by force-quitting -- losing exactly the document this isolation exists to
+  // protect. A freeze you recover from is better than a hang, as the comment
+  // there says; a rebuild you can cancel is better than both.
+  //
+  // The pump does two things and deliberately no more:
+  //   * drains the OS event queue, so the window stays live
+  //   * answers "the user pressed Escape" (or closed the window) with true, which
+  //     cancels the build
+  //
+  // It does NOT draw. ImGui_ImplVulkan/NewFrame/Render are not re-entrant, and
+  // this runs from inside the frame the build was started by; painting a progress
+  // bar from here would corrupt the draw state it is trying to keep alive. Events
+  // are still FORWARDED to the platform after inspection, so nothing typed during
+  // a rebuild is swallowed.
+  scene.setHostPump([&platform](std::uint64_t /*elapsedMs*/, const std::string& /*opText*/) {
+    bool cancel = false;
+    SDL_Event pumped;
+    while (SDL_PollEvent(&pumped)) {
+      if (pumped.type == SDL_QUIT) cancel = true;
+      if (pumped.type == SDL_KEYDOWN && pumped.key.keysym.sym == SDLK_ESCAPE) cancel = true;
+      platform.processEvent(pumped);
+    }
+    return cancel;
+  });
   int winW = 0, winH = 0;
   SDL_GetWindowSize(window, &winW, &winH);
   const float dpi = winW > 0 ? static_cast<float>(fbw) / static_cast<float>(winW) : 1.0f;
