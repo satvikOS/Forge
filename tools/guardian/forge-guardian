@@ -32,6 +32,9 @@ JOBS_DIR="$STATE_DIR/jobs"
 LOG="$STATE_DIR/log/guardian.log"
 STATE_F="$STATE_DIR/state"
 STATE_J="$STATE_DIR/state.json"
+# Law-7 health signal consumed by the archdisc-Models training fleet.
+AH_DIR=${ARCHIE_HEALTH_DIR:-/tmp/archie_health}
+AH_F="$AH_DIR/status.json"
 mkdir -p "$JOBS_DIR" "$STATE_DIR/log"
 
 POLL=${FORGE_GUARDIAN_POLL:-5}
@@ -75,6 +78,41 @@ publish() {
 }
 JSON
   mv -f "$STATE_J.tmp" "$STATE_J"
+
+  # ---- Law-7 producer -------------------------------------------------------
+  # /tmp/archie_health/status.json had SEVENTEEN consumers across archdisc-Models
+  # and NO producer anywhere. Five of them read it inside a bare try/except and
+  # returned {"state":"GREEN"} when the file was missing -- so the training fleet's
+  # memory guard was not merely absent, it actively asserted GREEN. Guardian already
+  # computes this exact state, so it is the natural producer.
+  #
+  # gpu_jobs counts REGISTERED jobs that declared --gpu. GPU work that never
+  # registered an envelope is invisible here, and consumers must not read a 0 as
+  # proof the GPU is idle.
+  local gpu=0 f
+  for f in "$JOBS_DIR"/*.job(N); do
+    [[ "$(job_field "$f" gpu)" == "1" ]] && (( gpu++ ))
+  done
+  local halt=false
+  [[ -f "$AH_DIR/HALT" ]] && halt=true
+  mkdir -p "$AH_DIR" 2>/dev/null
+  cat > "$AH_F.tmp" <<AHJSON
+{
+  "state": "$st",
+  "reason": "$reason",
+  "swap_gib": $(( O_SWU / 1024 )).$(printf '%02d' $(( (O_SWU % 1024) * 100 / 1024 ))),
+  "halt": $halt,
+  "gpu_jobs": $gpu,
+  "registered_jobs": ${O_JOBS:-0},
+  "free_pct": ${O_FREE:-0},
+  "pageout_rate": ${O_PORATE:-0},
+  "disk_avail_gb": ${O_DISK:-0},
+  "producer": "forge-guardian",
+  "ts": $(date +%s),
+  "iso": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+}
+AHJSON
+  mv -f "$AH_F.tmp" "$AH_F"
 }
 
 # ---- registered-job helpers ---------------------------------------------------

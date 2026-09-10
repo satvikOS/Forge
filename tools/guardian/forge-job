@@ -6,13 +6,14 @@
 set -u
 STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
 JOBS_DIR="$STATE_DIR/jobs"; mkdir -p "$JOBS_DIR"
-NAME="job"; PRIO=5; PEAK=2; RESTART=0; NEED=green
+NAME="job"; PRIO=5; PEAK=2; RESTART=0; NEED=green; GPU=0
 while (( $# )); do
   case "$1" in
     --name) NAME="$2"; shift 2 ;;
     --priority) PRIO="$2"; shift 2 ;;
     --peak-gb) PEAK="$2"; shift 2 ;;
     --restartable) RESTART=1; shift ;;
+    --gpu) GPU=1; shift ;;
     --need) NEED="$2"; shift 2 ;;
     --) shift; break ;;
     *) break ;;
@@ -31,6 +32,7 @@ name=$NAME
 priority=$PRIO
 can_restart=$RESTART
 peak_gb=$PEAK
+gpu=$GPU
 started=$(date +%s)
 cmd=$*
 J

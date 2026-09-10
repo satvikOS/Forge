@@ -71,6 +71,17 @@ forge-job --name build-kernel --priority 5 --peak-gb 8 --restartable -- \
 forge-gate --need green --wait 900 --why "corpus A/B" || exit 75
 ```
 
+## The Law-7 producer
+
+Guardian also writes `/tmp/archie_health/status.json`, the health signal the
+archdisc-Models training fleet gates on. That file had **seventeen consumers and no
+producer** — and four of them returned `{"state": "GREEN"}` from a bare
+`except Exception`, so the memory guard actively asserted health for as long as the
+file was absent, which was always. Guardian already computed this state, so it is the
+natural producer. `gpu_jobs` counts registered jobs that declared `--gpu`; GPU work
+that never registered an envelope is invisible to it, and consumers must not read a
+`0` as proof the GPU is idle.
+
 ## Supervision
 
 `com.archdisc.forge.guardian.plist` runs it under launchd with `KeepAlive`, so it
