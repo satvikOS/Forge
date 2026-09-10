@@ -25,8 +25,11 @@ Commands:
 import json, os, sys, argparse, fcntl, time, subprocess
 from datetime import datetime, timezone
 
-ROOT = os.environ.get("FORGE_PROGRAM_DIR") or os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# State lives OUTSIDE any git checkout by default. The ledger is written many times
+# per tick; that must not translate into many commits into a tree other agents are
+# reading. The repo receives periodic snapshots (see `snapshot`) for durability and
+# audit instead. Overridable with FORGE_PROGRAM_DIR.
+ROOT = os.environ.get("FORGE_PROGRAM_DIR") or os.path.expanduser("~/.forge-program")
 TASKS = os.path.join(ROOT, "tasks.json")
 LEDGER = os.path.join(ROOT, "ledger.jsonl")
 
@@ -130,6 +133,7 @@ def main():
     fl = sub.add_parser("fail"); fl.add_argument("id"); fl.add_argument("--reason", required=True)
     bl = sub.add_parser("block"); bl.add_argument("id"); bl.add_argument("--reason", required=True)
     rs = sub.add_parser("reset"); rs.add_argument("id")
+    sn = sub.add_parser("snapshot"); sn.add_argument("--dest", required=True)
 
     args = ap.parse_args()
 
@@ -220,6 +224,15 @@ def main():
                 append({"event": "reset", "id": args.id})
             save(d)
             print(f"{args.id} -> {t['state']}")
+
+        elif args.cmd == "snapshot":
+            os.makedirs(args.dest, exist_ok=True)
+            for f in ("tasks.json", "ledger.jsonl"):
+                src = os.path.join(ROOT, f)
+                if os.path.exists(src):
+                    with open(src) as a, open(os.path.join(args.dest, f), "w") as b:
+                        b.write(a.read())
+            print(f"snapshot -> {args.dest}")
 
         elif args.cmd == "status":
             counts = {}
