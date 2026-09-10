@@ -732,3 +732,55 @@ has 41 `per_task` rows and 40 traced; neuralCAD-Edit-56 has 56 and 54. Those run
 completed, so the discrepancy was never questioned — and it had been silently
 shrinking every reported denominator. When a summary and a detail log disagree about
 how many rows ran, that difference is a finding, not rounding.
+
+### A dead instrument was published as a capability
+
+`forge_verify` could not start — `forge-kernel/build/libforge_kernel_core.dylib` is a
+symlink to a `build/Release/` directory that does not exist, so dyld aborts it. The
+harness restarts the child on failure, so the dead binary was relaunched and died
+again once per row. Every row recorded `verifier died on write: [Errno 32] Broken
+pipe`, every row was `compiled=False`, and the summary table printed **0/45
+compiled** — which reads as a model result.
+
+40/40 rows of every BenchCAD-HF run, 5/5 of one Drawing2CAD run, and both of the
+day's probes. `holdout-41` and `neuralCAD-Edit-56` were clean, which is why nobody
+looked: a fault that spares some benchmarks looks like a property of the ones it
+hits.
+
+`score_benchmarks` now asks the verifier one `BOX(1,1,1)` question before scoring
+anything and refuses the whole run if it cannot answer. Refusing costs one run; not
+refusing costs the conclusion. The escape hatch prints, in those words, that
+**nothing in the run measures the model** — a silent hatch is how this comes back.
+
+### The positive control is where the second bug was
+
+The fail-closed gate looked finished and passed its "a dead verifier is refused"
+check. Then the positive control — a verifier *known to work* must NOT be refused —
+failed, and kept failing after the probe IR was proven valid by hand.
+
+The cause was not in the new code. `BenchVerifier.__init__` replaced the queue that
+`Verifier._spawn`'s pump writes into and started a **second pump on the same
+stdout**. Two threads raced for every line, so a reply could land in the orphaned
+queue and disappear. Measured: the first `run_job` of a fresh verifier returned
+`verifier timeout after 20s`, and only the restart that timeout triggered made it
+work. **Every run had been losing its first row(s) to a race in its own harness and
+recording them as compile failures.**
+
+Write the arm that must SUCCEED first. It is the one that fails for reasons you did
+not put there.
+
+### A mutation that survives is a gap in the test, not a passing grade
+
+`M3 _restart re-implements _spawn` came back GREEN. The honest reading was not
+"the mutation is harmless" but "no check reaches the restart path" — and a restart
+happens on every timeout, so that path is the steady state of any long run. Adding
+one check for it turned M3 red and found that the hand-rolled restart had also
+dropped the stderr pump, leaving the child's stderr an unread pipe.
+
+### Fixing a harness breaks the tests that were living off the bug
+
+The fail-closed gate immediately broke two batteries that had been quietly running
+against the dead verifier. Neither was about the verifier; both had simply inherited
+whatever the live build was doing. They now name a binary known to work. When a gate
+starts refusing, expect the existing tests that never noticed to go red — and fix
+them by making their dependencies explicit, not by weakening the gate.
