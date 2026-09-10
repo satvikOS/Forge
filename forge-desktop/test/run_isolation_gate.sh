@@ -144,6 +144,48 @@ if [ $rc -ge 128 ]; then
 fi
 [ $rc -ne 0 ] && exit $rc
 
+# ── is the interruptible wait actually WIRED INTO THE PRODUCT? ──────────────
+#
+# The C++ gate below proves the host-pump MECHANISM works. It cannot prove the
+# application uses it, because main.cpp is not linked into the gate -- and for the
+# whole life of this mechanism the application did not: `setHostPump` appeared four
+# times in the tree and every call site was a test.
+#
+# The cost of that gap is specific. main.cpp sets limits.deadlineMs = 300000, and
+# KernelScene.hpp says a wait without a pump is "merely BOUNDED ... with it the wait
+# is also INTERRUPTIBLE". So a rebuild could leave the app not draining its event
+# queue for FIVE MINUTES, which macOS reports as "Application Not Responding" and a
+# user answers by force-quitting -- losing the document the isolation exists to
+# protect.
+#
+# A gate that tests a mechanism nobody calls is the same defect one level up, so
+# this checks the wiring, and PROVES IT CAN FAIL against a copy with the call
+# removed.
+MAIN="$ROOT/forge-desktop/src/main.cpp"
+wiring_ok() {  # wiring_ok <file> -> 0 when the product installs a pump
+  grep -qE '^[[:space:]]*scene\.setHostPump\(' "$1"
+}
+
+if wiring_ok "$MAIN"; then
+  echo "[isolation] wiring: main.cpp installs a host pump -- a rebuild stays answerable"
+else
+  echo "[isolation] RED: main.cpp does NOT call scene.setHostPump(). limits.deadlineMs is"
+  echo "           300000, so a rebuild can leave the app unresponsive for five minutes"
+  echo "           with no way to cancel. Install a pump that drains the event queue and"
+  echo "           returns true on Escape."
+  exit 1
+fi
+
+WPROBE="$(mktemp)"
+sed -E 's/^[[:space:]]*scene\.setHostPump\(/  \/\/ REMOVED-BY-CONTROL scene.setHostPump(/' "$MAIN" > "$WPROBE"
+if wiring_ok "$WPROBE"; then
+  echo "[isolation] RED: the wiring check cannot fail -- it passed a copy with the call"
+  echo "           removed, so it is not watching what it claims."
+  rm -f "$WPROBE"; exit 1
+fi
+rm -f "$WPROBE"
+echo "[isolation] wiring control: the check goes RED when the call is removed"
+
 # ── the mutation proof ──────────────────────────────────────────────────────
 # Each entry: id | one-line description | file | sed expression
 # The sed expressions edit a COPY of the tree; $ROOT is never written to.
