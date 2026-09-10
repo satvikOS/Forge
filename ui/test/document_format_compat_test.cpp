@@ -265,6 +265,13 @@ int main() {
       "TARGETKIND face\n"
       "TARGETBODY body_1\n"
       "TARGETNAME face@1\n"
+      // ADDITIVE, and covered here because this gate requires every key the reader
+      // ACCEPTS to appear in the canonical probe -- otherwise a new key could be
+      // read by the app and silently absent from the compatibility contract.
+      // TARGETSIG carries the face's durable geometric signature; TARGETNAME stays
+      // the label, and a document with no signature omits the key entirely, so a
+      // file written before signatures existed is byte-identical.
+      "TARGETSIG fsig1:plane:a1000.000000:c20.000000,12.500000,10.000000:n0.000000,0.000000,1.000000\n"
       "TARGETGEN 0\n"
       "LABEL face 1\n"
       "END\n"

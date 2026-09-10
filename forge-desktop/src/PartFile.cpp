@@ -198,6 +198,11 @@ void writeRef(std::string& out, const forge::ui::EntityRef& ref) {
   writeField(out, "TARGETKIND", forge::ui::toString(ref.kind));
   writeField(out, "TARGETBODY", ref.bodyId);
   writeField(out, "TARGETNAME", ref.persistentName);
+  // ADDITIVE. The durable geometric identity of the face, written only when known,
+  // so a file saved by this build still opens on one that predates signatures and
+  // a file saved before them still opens here. TARGETNAME stays the label; this is
+  // what resolution actually prefers.
+  writeField(out, "TARGETSIG", ref.signature);
   if (ref.generation != 0) {
     out += "TARGETGEN " + std::to_string(ref.generation) + "\n";
   }
@@ -377,6 +382,7 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
     }
     if (key == "TARGETBODY") { curRef.bodyId = rest; return 1; }
     if (key == "TARGETNAME") { curRef.persistentName = rest; return 1; }
+    if (key == "TARGETSIG") { curRef.signature = rest; return 1; }
     if (key == "TARGETGEN") {
       char* end = nullptr;
       const unsigned long long g = std::strtoull(rest.c_str(), &end, 10);

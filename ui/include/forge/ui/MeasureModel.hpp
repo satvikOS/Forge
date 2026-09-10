@@ -33,6 +33,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace forge::ui {
@@ -131,6 +132,31 @@ MeshMeasure measureMesh(const MeasureMesh& mesh);
 bool measureFace(const MeasureMesh& mesh, std::uint32_t faceId, FaceMeasure& out);
 SelectionMeasure measureFaces(const MeasureMesh& mesh,
                               const std::vector<std::uint32_t>& faceIds);
+
+// ── durable face identity ───────────────────────────────────────────────────
+// A face's persistentName is "face@<index>", and an index MOVES: measured, the
+// same conceptual face is index 6 before an earlier HOLE is inserted and index 7
+// after. doc 04 calls that the major product risk in a feature modeller.
+//
+// faceSignature() answers with the face's own GEOMETRY instead -- planarity, area,
+// centroid and area-weighted normal, quantised so that rebuild noise does not
+// change the string. Empty when the face is unknown to the mesh.
+std::string faceSignature(const MeasureMesh& mesh, std::uint32_t faceId);
+
+enum class SignatureMatch {
+  Exact,      // exactly one face carries this signature
+  Ambiguous,  // more than one does -- the caller must NOT guess
+  Missing,    // none does
+};
+
+// Resolve a signature back to a face id on a possibly-rebuilt mesh.
+//
+// Ambiguity is REPORTED, never resolved by picking the first hit: doc 05 requires
+// that "ambiguous references are not silently guessed for destructive edits", and
+// the kernel's own TAG op already refuses with "a name must denote exactly ONE
+// feature". This is the same rule on the UI side.
+SignatureMatch resolveFaceSignature(const MeasureMesh& mesh, const std::string& signature,
+                                    std::uint32_t& out);
 
 }  // namespace forge::ui
 
