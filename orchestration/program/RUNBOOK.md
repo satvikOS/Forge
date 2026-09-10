@@ -314,3 +314,39 @@ Three observables disagreed about one process. The trace file was the one that
 mattered, because it is flushed per row and its mtime is a direct measurement of
 progress. Prefer the observable that the work itself updates over the ones the OS
 reports about the process.
+
+### When the fix is blocked by the thing it fixes, that is a deadlock — break it
+
+A sweep stalled on one row for 69 minutes. The patch that bounds exactly that failure
+was written and tested, and could not be merged because the stalled sweep was
+executing the file out of the main checkout. Waiting was not conservative; it was the
+deadlock. The move is to establish what is durable first (both completed benchmarks
+had gate/composite/verdict/trace on disk), stop the stalled work deliberately, merge,
+and relaunch — and to check what else you are about to take down with it (the
+independent floor run was five hours in and was kept alive).
+
+### Verify a fix by reading its signal, not by trusting the change
+
+The relaunch printed exactly the admission line the fix was built for — and then
+published `gpu_jobs=2` for a single resident model, because the wrapper and the script
+each registered an envelope. If I had stopped at "the acceptance line appeared", a
+ten-hour run would have published a Law-7 signal that contradicted Law 7. Read the
+number the fix was supposed to correct, not the log line saying it ran.
+
+### A held branch diverges; `--ff-only` failing is information, not an obstacle
+
+Three commits held for a sweep meant main moved on underneath them. The ff-only merge
+refused, which is the correct behaviour and the moment to look. Resolving an add/add
+conflict by picking a side is only safe once you have DIFFED the two versions and can
+say what the losing side contained — here the branch file was main's plus one class,
+a strict superset, and saying so took one command.
+
+### Two plausible causes, both refuted, before the real one
+
+A 69-minute row invited three explanations in turn: token-cap truncation (refuted —
+the emissions stopped at lengths from 1,827 to 6,605 characters, so no single cap),
+the corpus teaching VERIFY spam (refuted — training rows carry a median of ONE VERIFY
+line, max 1), and huge vision prefill (refuted — all 283 images are identical 400x400,
+about 225 tokens, including the row in flight). Each took one measurement to kill.
+Killing a hypothesis cheaply is worth more than defending it; write the refutations
+down, because the next reader will have the same idea.
