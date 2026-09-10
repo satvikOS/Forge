@@ -270,3 +270,47 @@ the shape that teaches a reader to skim past the red line. Key liveness to the t
 consumers actually depend on (here: publishing), and prove the new check still goes
 red for absent AND for present-but-stale, or you have replaced a false failure with a
 check that always passes.
+
+### Bound the stochastic component, not just the deterministic one
+
+`planner.plan()` had no timeout. The verifier on the next screen had a thread, a
+queue, a kill and a restart, with a comment explaining that a timeout means "a bad
+task costs one task". The careful engineering had gone to the deterministic C++
+component and none to the LLM — the one that can degenerate into a repetition loop.
+A row decoded for 37 minutes against a p90 of 60s, holding the GPU under Law 7 and
+stalling every other job on the machine.
+
+When auditing a loop for robustness, list the calls that can block and check the
+bound is on the one whose runtime you cannot predict.
+
+### An existing guard is not coverage until you read its preconditions
+
+A decode-time repetition guard was ON and did not fire. It could not have: it
+requires 40 statement-shaped lines before it is permitted to return True, so an
+emission that never becomes statement-shaped leaves it a no-op for the whole
+generation. "There is already a guard for that" is a claim about a name; read the
+threshold and ask which inputs reach it.
+
+### Stop at a boundary the callee already has
+
+The obvious way to bound a call is a thread plus a kill. On a process holding 7.5 GiB
+of weights and a live Metal queue, that risks abandoning half-finished GPU work. The
+generation API already called a per-token hook, so the deadline went there and stops
+decoding at a token boundary with nothing to abandon. Prefer a cancellation point the
+callee already exposes.
+
+### Say which stops were yours
+
+A backstop that truncates output creates rows that look exactly like the model
+emitting a broken tree. Record the reason (`eos | novelty | deadline | max_tokens`)
+and classify a self-inflicted stop ahead of every model-failure class, or the next
+person to read the numbers will attribute your safety margin to the model. The same
+mislabelling — a generation collapse reported as `ft parse line` — is what hid an
+18.5% failure class until a taxonomy was built for it.
+
+### Parent CPU said "hung", child liveness said "working", and the trace settled it
+
+Three observables disagreed about one process. The trace file was the one that
+mattered, because it is flushed per row and its mtime is a direct measurement of
+progress. Prefer the observable that the work itself updates over the ones the OS
+reports about the process.
