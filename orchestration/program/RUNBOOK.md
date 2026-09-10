@@ -456,3 +456,28 @@ old, one ninety minutes old. `pgrep -f` returned the wrong one and I nearly meas
 the healthy job while diagnosing the stalled one. Disambiguate by something the
 processes do not share — here `lsof` on their stdout — rather than by a pattern that
 happens to match today.
+
+### After merging, run the gate your change was most likely to break
+
+The NAFEMS ratchet goes RED on "an improvement whose baseline was not lowered in the
+same commit". I had merged a mesher fix that roughly halves two of its three errors —
+exactly the shape that trips that rule — and had not touched the baseline. It turned
+out fine, because neither case left its band, but that was worth ten minutes of
+building and running rather than an argument. A gate designed to catch improvements
+is one you must think about after a win, not only after a regression.
+
+### A guard proves itself by NOT firing
+
+forge-stallguard watched a live benchmark for twenty-five minutes and did nothing,
+while the job advanced 389 → 495 rows. Earlier the same job had shown 60 seconds of no
+progress, which was one slow task and not a stall. Refusing to conclude from that short
+window, and letting the instrument with the right timeout decide, is the whole point of
+having one.
+
+### A stale artefact in a build directory is a false result waiting to happen
+
+To run the FEA gate locally the `.node` has to be staged where the test looks for it —
+in a `build/` that was configured WITHOUT the addon. Leaving it there means the next
+run may load an addon built from different source and report a confident wrong number.
+Stage it, use it, remove it. This program has produced four false results from stale
+build artefacts already; the fifth is not free either.
