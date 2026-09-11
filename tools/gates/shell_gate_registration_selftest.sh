@@ -11,7 +11,14 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 R=tools/gates/shell_gate_registration_ratchet.sh
-PHANTOM=tools/gates/run_phantom_ci_gate.sh
+# The phantom's name must collide with NOTHING. forge-kernel's own proof creates
+# a phantom of its own and requires ITS ratchet to go red; when this file used
+# that same phantom name (deliberately not repeated here), the mere MENTION here made the kernel ratchet
+# read that phantom as reachable and its proof case stayed GREEN -- this file
+# turned the NEIGHBOURING check unfalsifiable. Measured: "mutation 1 stayed
+# GREEN -- the ratchet does not detect a new unwired gate", in CI, on green
+# local runs. A file that names a gate is indistinguishable from one that runs it.
+PHANTOM=tools/gates/shellgate_probe_gate.sh
 CONSUMER=tools/gates/phantom_consumer.sh
 MUT=tools/gates/.ratchet_mutant.sh
 PASS=0; FAIL=0
@@ -30,13 +37,13 @@ echo "[selftest] 1. a NEW unwired gate must turn it RED"
 printf '#!/usr/bin/env bash\necho phantom\n' > "$PHANTOM"
 out=$(bash "$R" 2>&1); rc=$?
 ck "unwired gate refused" 1 $rc
-case "$out" in *run_phantom_ci_gate*) ck "and it NAMES the gate" 0 0 ;;
+case "$out" in *shellgate_probe_gate*) ck "and it NAMES the gate" 0 0 ;;
                 *) ck "and it NAMES the gate" 0 1 ;; esac
 rm -f "$PHANTOM"
 
 echo "[selftest] 2. wiring the phantom up must make it GREEN again"
 printf '#!/usr/bin/env bash\necho phantom\n' > "$PHANTOM"
-printf '#!/usr/bin/env bash\nbash tools/gates/run_phantom_ci_gate.sh\n' > "$CONSUMER"
+printf '#!/usr/bin/env bash\nbash tools/gates/shellgate_probe_gate.sh\n' > "$CONSUMER"
 bash "$R" >/dev/null 2>&1; ck "a wired gate is accepted" 0 $?
 rm -f "$PHANTOM" "$CONSUMER"
 
