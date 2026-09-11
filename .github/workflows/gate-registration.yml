@@ -164,6 +164,29 @@ jobs:
         shell: bash
         run: bash forge-kernel/test/gate_registration_ratchet.sh
 
+      - name: Prove the tree-wide shell-gate ratchet can fail (7 cases)
+        # FIRST, as with the two checks above. The ratchet beside it reports
+        # GREEN, and a GREEN from a check that cannot fail is worth nothing --
+        # this repository has already shipped one that passed 13/13 because it
+        # enumerated by prefix and read its own comments as invocations.
+        #
+        # Case 4 is the sharp one: delete the ratchet's self-exclusion and
+        # measured falls 5 -> 0, because every pinned gate finds its own name in
+        # the ALLOW list that pins it and reports itself wired.
+        shell: bash
+        run: bash tools/gates/shell_gate_registration_selftest.sh
+
+      - name: Every *_gate.sh anywhere is reachable from CI (or pinned)
+        # The gap between the two checks above. They are each correctly scoped and
+        # neither can see a *_gate.sh outside forge-kernel/test, nor one inside it
+        # named neither run_* nor build_*. THREE gates had never executed once:
+        # the guardian single-instance gate (33 checks, 11 mutations), the Archie
+        # remote-planner gate (32 checks), and update_apply_refuses_gate.sh -- a
+        # SECURITY gate asserting that the shipped updater refuses an update it
+        # cannot attribute. All three are wired now; this is what keeps them so.
+        shell: bash
+        run: bash tools/gates/shell_gate_registration_ratchet.sh
+
       # The release job's published-release lookup masked a 404 into a 130-byte
       # error body and failed 11 of its last 14 runs. The build was never broken:
       # 13 of 14 steps passed every time, including the kernel gate. This runs the

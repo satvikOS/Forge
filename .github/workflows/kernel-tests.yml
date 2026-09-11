@@ -351,6 +351,21 @@ jobs:
         shell: bash
         run: FORGE_ORCH_REQUIRE_PHASE2=1 bash orchestration/run_orchestration_tests.sh
 
+      - name: Archie remote planner + JSON number contract (32 checks)
+        # This job's own subject is retrieval/, and the gate links exactly
+        # retrieval/src/Json.cpp and HttpTransport.cpp -- so it needs no new
+        # runner and no new toolchain, and it belongs beside the code it tests.
+        #
+        # It had never run in CI. It covers two things that have each already
+        # cost a red tree: the planner the app reaches Archie through (T-080),
+        # and the JSON number parser underneath it, which had to be rewritten off
+        # std::from_chars because that overload is DELETED in the CI toolchain's
+        # libc++ while compiling fine locally (T-083). That contract was asserted
+        # by a test nothing ever executed -- the exact class of hole this
+        # repository keeps a registration ratchet for, in a tree it did not cover.
+        shell: bash
+        run: bash archie/test/run_archie_gate.sh
+
   s0_conformance:
     name: s0 Appendix B conformance ratchet + the SECTION op gate
     # The acceptance suite deliberately asserts laws the implementation does not yet satisfy, so its
@@ -495,6 +510,16 @@ jobs:
         # negative control.
         run: bash forge-desktop/test/release_publish_selftest.sh --mutations
 
+      - name: the updater REFUSES an update it cannot attribute
+        # update_signature_gate.sh proves the verification primitive; this proves
+        # the shipped CLI actually calls it. A primitive protects nobody until it
+        # is wired in, and a unit test cannot tell the difference.
+        #
+        # It had never run in CI -- a SECURITY gate, committed and never executed
+        # once. forge-desktop has its own registration check, but that one
+        # enumerates *_gate.cpp CMake targets, so a *_gate.sh was invisible to it.
+        run: bash forge-desktop/test/update_apply_refuses_gate.sh
+
   guardian:
     name: Forge Guardian single-instance gate (macOS, 11 mutations)
     # T-065 built this gate and NOTHING ran it. It sat in the tree, 33 checks and
@@ -525,7 +550,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: single instance, fail-open, 11 mutations
-        run: zsh tools/guardian/test/guardian_single_instance_test.sh
+        run: zsh tools/guardian/test/guardian_single_instance_gate.sh
 
   release_visibility:
     name: could an installed Forge actually SEE the latest release?
