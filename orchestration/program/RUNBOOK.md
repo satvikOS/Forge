@@ -1007,3 +1007,45 @@ plausibly short. It died the moment those same targets were compiled and their f
 counted: 5 ops yields 10 faces, because `EXTRUDE` of a profile with several segments
 is one op and many faces. Op count is not complexity, and eyeballing a tree measures
 neither.
+
+### Four ticks of convergence, killed by one ablation
+
+The explanation that astra-v1 **cannot use the image** survived elimination for four
+ticks. Every competing hypothesis was measured and dropped — vocabulary, tree length,
+orientation, scale, the adapter itself — and each death made the survivor look
+stronger. It was also supported by a hard fact: the adapter was fine-tuned on 112,545
+rows containing **zero** images.
+
+It was wrong. `--no-image` withholds the render and changes nothing else:
+
+| arm | composite | holes emitted on the 18 parts that have them |
+|---|---|---|
+| with image | 0.2181 | **6** |
+| image withheld | **0.2947** | **0** |
+
+The model reads the renders — blind it never cuts a hole in a holed part — and
+**scores +0.0767 better without them**, because it over-emits 8.5× (431 hole ops
+against 51 real).
+
+**Surviving elimination is not evidence.** A hypothesis that outlasts its rivals has
+only been *compared*, never *tested*, and the supporting fact — zero images in the
+corpus — was consistent with both "cannot see" and "sees badly". Run the experiment
+that could kill the survivor, especially when it is the last one standing and
+therefore feels safest.
+
+The right test is cheap and specific: remove the input the hypothesis says is unused.
+Unchanged confirms it, worse refutes it, better says the input is actively harmful.
+
+### Identical medians, categorically different content
+
+Within the same tick, and before the ablation finished scoring, an earlier pass
+concluded "the image contributes nothing to the geometry" from the summary statistics:
+**5 ops and 6 faces in both arms, identical**. That was about to be published.
+
+The medians were identical and the emissions were not — **0 byte-identical trees,
+median text similarity 0.45**. One diff showed `HOLE(...)` present in the sighted tree
+and absent in the blind one, on the same task.
+
+A median answers "how big", never "what". When two arms are supposed to differ in
+content, diff the content; matching aggregates are consistent with the arms producing
+completely different things.
