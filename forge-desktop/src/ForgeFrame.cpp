@@ -5831,6 +5831,28 @@ void ForgeFrame::drawToolsPanel() {
 // request is RAISED and a response is DELIVERED; the transport between them is
 // the host's. copilotAutoPlan_ answers in process with forge::ui::LocalPlanner
 // so the panel is a working surface with no model configured.
+// Ask the model-backed planner first when one is installed; fall back to the
+// deterministic one when it refuses, and SAY SO in the summary. A silent fallback
+// is the worst of both: the user believes Archie answered, and the plan they are
+// reading came from somewhere else.
+forge::ui::PlanResponse ForgeFrame::planWithFallback(const forge::ui::PlanRequest& request) {
+  if (copilotRemote_ != nullptr) {
+    forge::ui::PlanResponse remote = copilotRemote_->plan(request);
+    if (remote.ok) return remote;
+    forge::ui::PlanResponse local = copilotPlanner_.plan(request);
+    const std::string why = remote.error.empty() ? std::string("no reason given")
+                                                 : remote.error;
+    if (local.ok) {
+      local.plan.summary += (local.plan.summary.empty() ? "" : "  ");
+      local.plan.summary += "[deterministic fallback: Archie " + why + "]";
+    } else if (local.error.empty()) {
+      local.error = "Archie " + why + ", and the deterministic planner also declined";
+    }
+    return local;
+  }
+  return copilotPlanner_.plan(request);
+}
+
 const forge::ui::PlanRequest* ForgeFrame::copilotRequest() const noexcept {
   return copilot_.requestPending() ? &copilot_.request() : nullptr;
 }
@@ -5889,7 +5911,7 @@ void ForgeFrame::runCopilotSubmit() {
   // ANSWERED IN PROCESS, or left pending for the host to answer. Either way the
   // reply comes back through deliverCopilotPlan(), so there is one validation
   // path and not two.
-  if (copilotAutoPlan_) deliverCopilotPlan(copilotPlanner_.plan(copilot_.request()));
+  if (copilotAutoPlan_) deliverCopilotPlan(planWithFallback(copilot_.request()));
 }
 
 void ForgeFrame::runCopilotApply() {

@@ -170,7 +170,17 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   const forge::ui::ArchieCopilot& copilot() const noexcept { return copilot_; }
   void setCopilotAutoPlan(bool on) noexcept { copilotAutoPlan_ = on; }
   bool copilotAutoPlan() const noexcept { return copilotAutoPlan_; }
+  // Install or remove a model-backed planner. Ownership stays with the caller;
+  // nullptr restores the deterministic planner alone. Set this and the copilot
+  // asks Archie first and falls back, ANNOUNCING the fallback rather than hiding
+  // it -- a user who cannot tell which planner answered cannot trust either.
+  void setCopilotRemotePlanner(forge::ui::Planner* planner) noexcept {
+    copilotRemote_ = planner;
+  }
+  const forge::ui::Planner* copilotRemotePlanner() const noexcept { return copilotRemote_; }
   const forge::ui::PlanRequest* copilotRequest() const noexcept;
+  // Remote first when installed, deterministic otherwise; announces a fallback.
+  forge::ui::PlanResponse planWithFallback(const forge::ui::PlanRequest& request);
   forge::ui::PlanCheck deliverCopilotPlan(const forge::ui::PlanResponse& response);
   void failCopilotRequest(const std::string& why);
 
@@ -1598,7 +1608,13 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // is looking at. It writes nothing itself -- every edit it causes goes through
   // shell_.run(), the same door a menu click uses.
   forge::ui::ArchieCopilot copilot_;
+  // The planner that ships: deterministic, offline, always present. It is the
+  // FALLBACK, never removed, so the app still plans when no model is running.
   forge::ui::LocalPlanner copilotPlanner_;
+  // Optional model-backed planner, tried FIRST when set. A pointer to the
+  // abstract base on purpose: forge-desktop gains no dependency on the archie
+  // module, and a build without it is not a build with a hole in it.
+  forge::ui::Planner* copilotRemote_ = nullptr;
   bool copilotAutoPlan_ = true;
   std::string copilotInput_;
   // PLAN rows only -- one per step of the verdict on offer. The transcript is

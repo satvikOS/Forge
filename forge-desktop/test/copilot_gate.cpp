@@ -653,9 +653,73 @@ int main(int argc, char** argv) {
     }
   }
 
+  // ── the model-backed planner, and the fallback it must announce ──────────
+  //
+  // A silent fallback is the worst outcome available here: the user believes
+  // Archie answered and the plan on screen came from somewhere else. So the
+  // deterministic plan must still arrive, and must SAY that it is the fallback
+  // and why.
+  {
+  struct AlwaysRefuses final : forge::ui::Planner {
+    std::string why;
+    forge::ui::PlanResponse plan(const forge::ui::PlanRequest& rq) override {
+      forge::ui::PlanResponse r;
+      r.id = rq.id;
+      r.ok = false;
+      r.error = why;
+      return r;
+    }
+  };
+  struct AlwaysAnswers final : forge::ui::Planner {
+    forge::ui::PlanResponse plan(const forge::ui::PlanRequest& rq) override {
+      forge::ui::PlanResponse r;
+      r.id = rq.id;
+      r.ok = true;
+      r.plan.summary = "from the model";
+      forge::ui::PlanStep st;
+      st.commandId = "part.new";
+      r.plan.steps.push_back(st);
+      return r;
+    }
+  };
+
+  AlwaysRefuses refuser;
+  refuser.why = "sidecar unreachable: ConnectFailed";
+  frame.setCopilotRemotePlanner(&refuser);
+  frame.setCopilotAutoPlan(true);
+  const forge::ui::PlanResponse fb =
+      frame.planWithFallback(*req);
+  check(fb.ok || !fb.error.empty(),
+        "a refusing remote planner still yields an answer, never silence", fb.error);
+  if (fb.ok) {
+    check(fb.plan.summary.find("deterministic fallback") != std::string::npos,
+          "the fallback ANNOUNCES itself in the summary", fb.plan.summary);
+    check(fb.plan.summary.find("ConnectFailed") != std::string::npos,
+          "  ...and carries the reason Archie refused", fb.plan.summary);
+  } else {
+    check(fb.error.find("ConnectFailed") != std::string::npos,
+          "both declined, and the reason survives", fb.error);
+  }
+
+  AlwaysAnswers answerer;
+  frame.setCopilotRemotePlanner(&answerer);
+  const forge::ui::PlanResponse rem =
+      frame.planWithFallback(*req);
+  check(rem.ok && rem.plan.summary == "from the model",
+        "a working remote planner is used AS IS, not merged with the local one",
+        rem.plan.summary);
+
+  frame.setCopilotRemotePlanner(nullptr);
+  const forge::ui::PlanResponse loc =
+      frame.planWithFallback(*req);
+  check(loc.plan.summary.find("deterministic fallback") == std::string::npos,
+        "with no remote planner there is no fallback notice to show",
+        loc.plan.summary);
+  }
   std::printf("\n[copilot] %d checks, %d failures\n", g_checks, g_failures);
   if (g_failures == 0) {
-    std::printf("[copilot] ALL ARCHIE COPILOT GATES PASS "
+
+  std::printf("[copilot] ALL ARCHIE COPILOT GATES PASS "
                 "(headless: no window, no swapchain, no socket)\n");
     return 0;
   }
