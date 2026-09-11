@@ -738,6 +738,22 @@ jobs:
       #
       # ★ WHEN A TOOLKIT IS GENUINELY RETIRED, LOWER THE NUMBER IN THE SAME COMMIT.
       #   Never raise one to make a build pass.
+      # Runs BEFORE the ledger gate because it is what makes the ledger number mean
+      # anything. occt_closure_count.sh expands a dependency only if it resolves to
+      # a real file, so ONE unresolvable libTK* truncates the BFS at the binary and
+      # the closure silently collapses onto the gameable direct count -- measured
+      # 14 -> 8, exit 0, no warning. A Homebrew upgrade, a relocated OCCT, or a host
+      # without OCCT would each have "improved" the one number this programme
+      # measures progress by.
+      #
+      # It was unwired for as long as it existed, and gate_registration_ratchet.sh
+      # could not say so: it enumerated run_*.sh and build_*.sh and THEN filtered to
+      # the *_gate suffix, so this file -- carrying neither prefix -- was never
+      # considered. The ratchet printed "measured=10 pinned=10 GREEN" over it.
+      - name: OCCT libraries actually RESOLVE (the ledger number cannot be faked)
+        run: |
+          bash forge-kernel/test/occt_lib_resolution_gate.sh \
+            forge-kernel/build/Release/forge-kernel.node
       - name: OCCT ledger gate — closure, PHANTOM and TKOffset symbols
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \

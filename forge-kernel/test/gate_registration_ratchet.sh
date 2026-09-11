@@ -71,17 +71,47 @@ reachable() {   # reachable <basename>
   #   proof case silently no-ops. That is exactly what happened: all three cases
   #   reported failure in CI while passing locally, because locally the mutations
   #   came from the shell and not from a file the search reads.
-  grep -rql --exclude=gate-registration.yml "$b" .github/workflows/ 2>/dev/null && return 0
+  # ★ A COMMENT IS NOT AN INVOCATION. This matched the basename as a SUBSTRING
+  #   ANYWHERE, so `# TODO: wire probe_todo_gate into CI one day` -- a line whose
+  #   plain meaning is "this gate is NOT wired" -- turned the ratchet GREEN for
+  #   that gate. MEASURED: phantom gate with no mention = RED; add only that
+  #   comment = GREEN. The sentence stating the problem silenced the check.
+  #   Comments are stripped before searching. `#` inside a quoted string would be
+  #   stripped too, which can only make a gate look LESS reachable -- the safe
+  #   direction for a ratchet, because it errs toward flagging work, never toward
+  #   hiding it.
+  uncommented_has() {   # uncommented_has <dir-or-file...> ; uses $b
+    local f
+    for f in "$@"; do
+      [ -e "$f" ] || continue
+      # NOT `sed ... | grep -q`. `grep -q` exits at the FIRST match, `sed` is still
+      # writing, takes SIGPIPE and exits 141 -- and `set -o pipefail` above makes
+      # THAT the pipeline's status, so a SUCCESSFUL MATCH reads as a failure. It
+      # only bites on a file long enough that sed has not finished, which is why it
+      # missed kernel-tests.yml (1400+ lines) while the same pipeline matched fine
+      # on a short one. Reading from a process substitution takes grep's own status.
+      grep -q -- "$b" <(sed 's/#.*$//' "$f" 2>/dev/null) && return 0
+    done
+    return 1
+  }
+  local wf
+  for wf in .github/workflows/*.yml .github/workflows/*.yaml; do
+    [ -e "$wf" ] || continue
+    case "$wf" in */gate-registration.yml) continue ;; esac
+    uncommented_has "$wf" && return 0
+  done
   # invoked by any OTHER script or workflow in the tree
   # ★ EXCLUDE THIS SCRIPT. Its own ALLOW list names every pinned gate, so without
   #   this the search finds each name HERE and calls it reachable -- measured
   #   collapses to 0 and the ratchet reports a permanent phantom "improvement".
   #   Caught by running it: the first version printed measured=0 against pinned=9.
-  grep -rl "$b" --include="*.sh" --include="*.yml" . 2>/dev/null \
+  local cand
+  while IFS= read -r cand; do
+    uncommented_has "$cand" && return 0
+  done < <(grep -rl "$b" --include="*.sh" --include="*.yml" . 2>/dev/null \
     | grep -v "/$b\.sh$" \
     | grep -v "/gate_registration_ratchet\.sh$" \
-    | grep -v "/gate-registration\.yml$" \
-    | grep -q . && return 0
+    | grep -v "/gate-registration\.yml$")
   # run_ab_all.sh CONSTRUCTS run_ab_native_<t>.sh from its HARNESSES list, so a
   # name never appears literally. This is the only dynamic construction in the
   # tree — verified by grepping for any other interpolated gate name.
@@ -93,10 +123,19 @@ reachable() {   # reachable <basename>
 }
 
 UNREG=""
-for f in forge-kernel/test/run_*.sh forge-kernel/test/build_*.sh; do
+# ★ ENUMERATE ON THE NAME THIS CHECK IS ABOUT, NOT ON A PREFIX.
+#   This globbed run_*.sh and build_*.sh and THEN filtered to the *_gate suffix, so
+#   a gate carrying neither prefix was never even considered. SIX were invisible --
+#   forge_verify_batch_gate, forge_verify_instrument_gate, occt_lib_resolution_gate,
+#   selector_kind_gate, sketch_plane_gate, occt_ledger_gate_fires -- and the ratchet
+#   printed "measured=10 pinned=10 GREEN" over them. Five turned out to be wired;
+#   ONE, occt_lib_resolution_gate, was genuinely unregistered and had been hidden by
+#   the glob for as long as it existed.
+#   A check whose enumeration cannot see a thing cannot report on it. A gate that
+#   passes because it never looked is not evidence.
+for f in forge-kernel/test/*_gate.sh; do
   [ -e "$f" ] || continue
   b=$(basename "$f" .sh)
-  case "$b" in *_gate) ;; *) continue ;; esac
   reachable "$b" || UNREG="$UNREG$b\n"
 done
 MEASURED=$(printf "%b" "$UNREG" | grep -c . || true)
