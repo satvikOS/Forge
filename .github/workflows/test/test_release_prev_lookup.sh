@@ -75,13 +75,7 @@ gate() {
   ck "C1a 404 + not approved: exits 0"          "$rc" "0"
   ck "C1b 404: takes the FIRST-release path"    "$(echo "$out" | grep -c 'FIRST one')" "1"
   ck "C1c 404: does NOT echo the error body"    "$(echo "$out" | grep -c 'Not Found')" "0"
-  ck "C1d 404: refuses to publish unapproved"   "$(echo "$out" | grep -c 'Not publishing')" "1"
-  ck "C1e 404: stops before the rest of publish" "$(echo "$out" | grep -c 'REACHED_END')" "0"
-
-  r=$(run_case notfound "true");    rc=${r%%|*}; out=${r#*|}
-  ck "C2a 404 + APPROVED: continues"            "$rc" "0"
-  ck "C2b 404 + APPROVED: says it is cutting"   "$(echo "$out" | grep -c 'cutting the first public release')" "1"
-  ck "C2c 404 + APPROVED: reaches the rest"     "$(echo "$out" | grep -c 'REACHED_END')" "1"
+  ck "C1d 404: continues into the publish path"  "$(echo "$out" | grep -c 'REACHED_END')" "1"
 
   r=$(run_case ok "");              rc=${r%%|*}; out=${r#*|}
   ck "C3a published tag: exits 0"               "$rc" "0"
@@ -133,14 +127,18 @@ open(p,"w").write(s)
 PY
 }
 
+# Indexed BY MUTATION NUMBER. Slot 4 is deliberately empty: it tested the
+# first-release approval gate, which was reverted in favour of the repo's own
+# FORGE_AUTORELEASE brake. Renumbering instead would have silently re-pointed
+# every later expectation at a different mutation.
 MDESC=( "" "the || true one-liner restored -> the 404 body lands in PREV" \
            "every failure treated as a 404 -> an outage reads as 'no release'" \
            "semver validation removed -> a non-version reply flows downstream" \
-           "approval gate removed -> an unapproved FIRST release would publish" \
+           "(retired: approval gate reverted)" \
            "CONTROL: a comment edit (must stay GREEN)" )
-MWANT=( "" RED RED RED RED GREEN )
+MWANT=( "" RED RED RED "" GREEN )
 MFAIL=0
-for n in 1 2 3 4 5; do
+for n in 1 2 3 5; do
   if ! apply_mut "$n" 2>/dev/null; then echo "  mutation $n: DID NOT APPLY -- void"; MFAIL=$((MFAIL+1)); continue; fi
   if cmp -s "$SRC" "$MUT"; then echo "  mutation $n: file unchanged -- void"; MFAIL=$((MFAIL+1)); continue; fi
   if ! ruby -ryaml -e 'YAML.load_file(ARGV[0])' "$MUT" 2>/dev/null; then echo "  mutation $n: YAML broken -- void"; MFAIL=$((MFAIL+1)); continue; fi
@@ -154,7 +152,7 @@ done
 
 echo
 if [ "$MFAIL" -eq 0 ]; then
-  echo "[prev-lookup] GREEN -- clean run passes ($CLEAN checks), 4 mutations red, control green"; exit 0
+  echo "[prev-lookup] GREEN -- clean run passes ($CLEAN checks), 3 mutations red, control green"; exit 0
 else
   echo "[prev-lookup] RED -- $MFAIL mutation(s) behaved wrongly"; exit 1
 fi
