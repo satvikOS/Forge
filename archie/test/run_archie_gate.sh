@@ -20,4 +20,19 @@ if ! $CXX -std=c++20 -O2 -Wall -Wextra -Werror \
   exit 2
 fi
 "$BIN" || exit 1
+
+# The JSON number path, direct. RemotePlanner reads every sidecar reply through
+# it, and it was rewritten off std::from_chars because that overload is deleted
+# in the CI toolchain's libc++ -- so the contract it must still honour is
+# asserted here rather than assumed from the planner's own cases.
+NUMBIN="${TMPDIR:-/tmp}/json_number_gate.$$"
+trap 'rm -f "$BIN" "$NUMBIN"' EXIT
+echo "[archie] building the json number gate"
+if ! $CXX -std=c++20 -O2 -Wall -Wextra -Werror -I retrieval/include \
+      -o "$NUMBIN" retrieval/test/json_number_test.cpp retrieval/src/Json.cpp 2>&1; then
+  echo "[archie] COMPILE FAILED -- a gate that cannot build cannot fail." >&2
+  exit 2
+fi
+"$NUMBIN" || exit 1
+
 echo "[archie] GREEN"

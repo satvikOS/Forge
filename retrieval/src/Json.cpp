@@ -1,6 +1,8 @@
 #include "forge/retrieval/Json.hpp"
 
-#include <charconv>
+#include <cerrno>
+#include <charconv>   // the INTEGER overloads here are portable
+#include <cstdlib>
 #include <cstdint>
 
 namespace forge::retrieval::json {
@@ -144,8 +146,23 @@ struct Parser {
     }
     const char* first = s.data() + start;
     const char* last = s.data() + i;
-    auto res = std::from_chars(first, last, out);
-    if (res.ec != std::errc() || res.ptr != last) return fail("unrepresentable number");
+    // NOT std::from_chars. Its FLOATING-POINT overload is `= delete`d in the
+    // libc++ shipped with Xcode 16.4 -- the CI toolchain -- and implemented in
+    // the newer one on a current developer machine. So this file compiled
+    // locally and failed in CI the FIRST time anything built it, because
+    // retrieval/ appeared in no CMakeLists until forge_archie linked it. The
+    // INTEGER overloads elsewhere in this module are portable and stay.
+    //
+    // strtod exists everywhere, and the checks below keep the original contract
+    // exactly: the token must parse, be consumed WHOLE, and be representable.
+    // The scanner above has already bounded the token, so the copy is short.
+    const std::string token(first, last);
+    errno = 0;
+    char* end = nullptr;
+    const double parsed = std::strtod(token.c_str(), &end);
+    if (end != token.c_str() + token.size()) return fail("unrepresentable number");
+    if (errno == ERANGE) return fail("unrepresentable number");
+    out = parsed;
     return true;
   }
 
