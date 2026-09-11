@@ -1192,3 +1192,28 @@ So the pre-first-release path now SKIPS publishing behind an explicit
 `FORGE_FIRST_RELEASE_APPROVED` variable and lets the job be green for what it
 actually verified. Fixing the error and taking the decision are separate changes,
 and only the first one is mine to make.
+
+---
+
+## Regenerating one artefact breaks the next one along the chain
+
+`FeatureTreeCompiler.cpp` → `gen_archie_op_vocabulary.py` →
+`archie_op_vocabulary.json` → `gen_op_constraint_table.py` →
+`ui/include/forge/ui/ArchieOpVocabulary.hpp` → a build-time check.
+
+Four links. Editing the C++ made link 2 unable to derive; fixing that and
+regenerating link 3 changed its sha256, which link 5 pins as a compile-time
+constant — so the **desktop build itself** failed, one commit after the gate that
+had been failing. Each step fixed a real red and uncovered the next.
+
+Before regenerating anything, ask what reads it, and run every `--check` in the
+chain afterwards, not just the one that was failing:
+
+    python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
+    python3 implementation/sacrosanct/tools/gen_op_constraint_table.py --check
+    grep -rn "<the old sha>" .     # must return nothing
+
+And diff what actually changed before accepting a regeneration. Here the op list
+was identical — 65 ops, none added, none removed — and the only diff was two lines
+carrying the hash. A regeneration that changes more than you expected is a finding,
+not a formality.
