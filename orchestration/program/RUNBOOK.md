@@ -950,3 +950,31 @@ measurement — the one such step in an otherwise measured chain. So it is writt
 in the source, recorded into the output JSON so a ceiling always travels with the
 assumption that produced it, and any surface kind missing from it is reported as
 UNMAPPED with a non-zero exit rather than silently counted as reachable.
+
+### The corpus in the eval command is not the corpus the model was trained on
+
+Two findings were built on `data/forge/unified_ir_v4` — "45 of 68 ops never taught",
+"49% of the holdout needs vocabulary the corpus barely teaches" — and both headlines
+are retracted. That file is what `score_benchmarks.py` passes to `--train-corpus` for
+the **Law 8 contamination check**. It is not the training set.
+
+The adapter records its own: `adapter_config.train.json` → `data/_astra_v1`, 112,545
+rows against 9,827, and 48 covered ops against 19. On the real corpus the
+expressibility ceiling is **zero** — every surface in the holdout has a covered
+producer — so the vocabulary story that took two tasks to build explains nothing.
+
+The error was taking the corpus that was in front of me, because every benchmark
+command names it, and never asking whether it was the right one. A model's training
+data is recorded in its own config; read that before attributing behaviour to corpus
+content.
+
+**What survived is the part that was measured narrowly.** `SCALEUNIFORM` and
+`OFFSETSOLID` have zero rows in the *real* corpus and are exactly the two ops the
+model fabricated names for. A claim scoped to specific observed emissions held; the
+sweeping one built on top of it did not.
+
+**And the tools were fine.** Both produced the correct answer the moment they were
+given the correct file — which is what their tests pin. Recording the producer mapping
+into the output JSON is what made the recomputation a one-line change rather than a
+re-derivation. When a result is wrong, check whether the instrument or the input was
+at fault before rewriting the instrument.
