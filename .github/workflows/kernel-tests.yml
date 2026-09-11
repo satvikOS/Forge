@@ -550,6 +550,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: single instance, fail-open, 11 mutations
+        # MEASURED on this runner: 633s, against ~240s on the workstation. The
+        # watchdog exists to reap leaked daemons, which matters on a machine that
+        # persists and not on a VM that is destroyed after the job -- so give it
+        # room here rather than let a slow runner trip it, while keeping it well
+        # under the 20-minute job timeout so it still reports WHY, with the
+        # guardians reaped, instead of being killed with its children alive.
+        env:
+          GATE_BUDGET: '1080'
         run: zsh tools/guardian/test/guardian_single_instance_gate.sh
 
   release_visibility:

@@ -228,7 +228,27 @@ run_gate() {  # -> 0 green, 1 red ; prints failures
   rm -rf "$HD/guardian.lock"; rm -f "$HD/state"
   local pS w
   FORGE_HEALTH_DIR="$HD" ARCHIE_HEALTH_DIR="$AH" zsh "$G" >"$ROOT/dS.log" 2>&1 &
-  pS=$!; note_pid $pS; sleep 3
+  pS=$!; note_pid $pS
+  # TERM at the START of a poll interval, not at a fixed 3s.
+  #
+  # The guardian publishes and then immediately enters `sleep $POLL`, so the
+  # instant after a publish is the only moment at which a FOREGROUND sleep is
+  # distinguishable from a backgrounded one. At a fixed 3s against the shipped
+  # POLL=5 the mutant deferred TERM by 2.1s into a 2s window -- 0.1s of margin --
+  # and MEASURED on a GitHub macOS runner (2.6x slower than this workstation)
+  # mutation 11 came back GREEN when it must be RED, because at t=3 the guardian
+  # was still doing work rather than sleeping, and zsh runs a trap between
+  # commands. Waiting for a publish first makes the deferral a full poll.
+  local st0="" st1=""
+  for w in {1..120}; do
+    [[ -f "$HD/state" ]] && { st0=$(stat -f %m "$HD/state" 2>/dev/null); break; }
+    sleep 0.25
+  done
+  for w in {1..120}; do
+    [[ -f "$HD/state" ]] && st1=$(stat -f %m "$HD/state" 2>/dev/null)
+    [[ -n $st1 && $st1 != $st0 ]] && break
+    sleep 0.25
+  done
   ck "C15a setup: running at the shipped default poll"  $(kill -0 "$pS" 2>/dev/null; echo $?)
   ck "C15b setup: it holds the lock"                    $([[ -d "$HD/guardian.lock" ]]; echo $?)
   kill -TERM "$pS" 2>/dev/null
