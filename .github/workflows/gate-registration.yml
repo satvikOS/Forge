@@ -163,3 +163,13 @@ jobs:
       - name: Every gate named *_gate is reachable from CI (or pinned with a reason)
         shell: bash
         run: bash forge-kernel/test/gate_registration_ratchet.sh
+
+      # The release job's published-release lookup masked a 404 into a 130-byte
+      # error body and failed 11 of its last 14 runs. The build was never broken:
+      # 13 of 14 steps passed every time, including the kernel gate. This runs the
+      # lookup's own gate against the SHIPPED desktop-release.yml, with a stub `gh`
+      # reproducing the measured 404 behaviour (exit 1, body on STDOUT, message on
+      # STDERR), so the same masking cannot come back unnoticed.
+      - name: The release job's published-release lookup survives a 404
+        shell: bash
+        run: bash .github/workflows/test/test_release_prev_lookup.sh

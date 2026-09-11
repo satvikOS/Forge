@@ -931,13 +931,72 @@ jobs:
           MONOTONIC
           }
 
-          # Read ONCE, and used by whichever branch runs. `|| true` because a 404
-          # here is the legitimate pre-first-release state, not an error.
-          PREV="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)"
+          # ── WHAT IS ALREADY PUBLISHED ─────────────────────────────────────
+          # MEASURED 2026-09-11: `gh api` on a 404 exits 1, writes
+          # "gh: Not Found (HTTP 404)" to STDERR **and the 130-byte error body to
+          # STDOUT**. So `--jq '.tag_name' 2>/dev/null || true` did NOT leave PREV
+          # empty on the pre-first-release state -- it left the literal string
+          # '{"message":"Not Found",...}', which is non-empty, so the "no published
+          # release yet" branch was never taken and assert_ordering below died with
+          # `cannot read a major.minor.patch out of ...`. That is the whole reason
+          # this job failed 11 of its last 14 runs. The repo's only release is a
+          # DRAFT, and GitHub's `releases/latest` skips drafts and prereleases, so
+          # it 404s on every single run.
+          #
+          # 404 is the ONLY tolerated failure and it has to be told apart from
+          # every other one -- exactly as the git-ref check below already does.
+          # A check that cannot ask must fail, not assume.
+          PREV_ERR="${RUNNER_TEMP:-/tmp}/prevrel.err"
+          if PREV="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>"$PREV_ERR")"; then
+            :
+          elif grep -qi 'not found\|HTTP 404' "$PREV_ERR"; then
+            PREV=''            # genuinely nothing PUBLISHED yet (drafts do not count)
+          else
+            sed 's/^/  /' "$PREV_ERR" >&2
+            echo "::error::could not read the currently published release, and the failure" \
+                 "above is not a 404. Refusing to continue: this is the check that stops" \
+                 "GitHub's latest pointer being dragged backwards onto an older build, and" \
+                 "skipping it because the API was briefly unavailable is exactly how that ships."
+            exit 1
+          fi
+
+          # A tag is a tag. Anything that is not major.minor.patch is an error body
+          # that slipped through, and must be reported as an API problem here rather
+          # than as a confusing semver complaint three functions away.
+          if [ -n "${PREV:-}" ] && ! printf '%s' "$PREV" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "::error::the published-release lookup returned something that is not a" \
+                 "version: '"'"'$PREV'"'"'. Treating that as a tag is how a 404 body reached the" \
+                 "version comparator."
+            exit 1
+          fi
+
           if [ -n "${PREV:-}" ]; then
             echo "currently published latest: $PREV"
           else
-            echo "no published release yet — this would be the first one"
+            echo "no published release yet — this would be the FIRST one"
+            # ── THE FIRST PUBLIC RELEASE IS AN OWNER DECISION ────────────────
+            # Everything above this line has already passed: the app is built,
+            # packaged, Gatekeeper-checked, proved self-contained, and the kernel
+            # correctness gate is green for this commit. The artifact is uploaded
+            # on every run regardless. What is left is publishing it to the world
+            # under a version line, which is irreversible (a published tag and a
+            # release people can download) and is tracked as T-019/T-033/T-034.
+            #
+            # Until the owner opts in, SKIP the publish and let the job be GREEN
+            # for what it actually verified. Failing here instead would mean a
+            # permanently red release job that says nothing about whether the
+            # desktop app builds -- which is precisely what it did for a day.
+            if [ "${FORGE_FIRST_RELEASE_APPROVED:-}" != "true" ]; then
+              echo "::notice::Not publishing: this would be the FIRST public release and" \
+                   "FORGE_FIRST_RELEASE_APPROVED is not set to '"'"'true'"'"'. The build, packaging," \
+                   "Gatekeeper and kernel gates above all passed and the artifact is attached" \
+                   "to this run. To cut the first release, settle the version line and the" \
+                   "signing key, then set the repository variable FORGE_FIRST_RELEASE_APPROVED=true."
+              echo "state=skipped-first-release-not-approved" >> "$GITHUB_OUTPUT"
+              echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "FORGE_FIRST_RELEASE_APPROVED=true — cutting the first public release $TAG"
           fi
 
           # ── DOES THE TAG ALREADY POINT SOMEWHERE ELSE? ─────────────────────
