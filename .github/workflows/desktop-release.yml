@@ -786,9 +786,34 @@ jobs:
           # untouched: success publishes, cancelled/skipped declines without
           # erroring, failure stops. Only the patience changed.
           DEADLINE=$(( SECONDS + 4200 ))
+          KG_ERR="${RUNNER_TEMP:-/tmp}/kgate.err"
+          ASKFAIL=0
           while :; do
-            ST=$(gh api "$API?head_sha=$SHA&per_page=1" \
-                   --jq '.workflow_runs[0] | "\(.status):\(.conclusion // "pending")"' 2>/dev/null || echo "")
+            # `gh api` writes its ERROR BODY TO STDOUT, so `--jq ... || echo ""` does
+            # not yield an empty ST on a 404/403 -- it yields '{"message":"Not
+            # Found",...}', which matches no case below, falls to the `*)`
+            # catch-all and prints "waiting" every 30s for 70 minutes of paid
+            # runner before blaming a slow kernel run for a question this gate
+            # could never ask. Tell an ANSWER from a FAILURE TO ASK, and require
+            # the answer to have the right SHAPE.
+            if ST=$(gh api "$API?head_sha=$SHA&per_page=1" \
+                      --jq '.workflow_runs[0] | "\(.status):\(.conclusion // "pending")"' 2>"$KG_ERR"); then
+              ASKFAIL=0
+            else
+              ASKFAIL=$(( ASKFAIL + 1 )); sed 's/^/  /' "$KG_ERR" >&2; ST=""
+            fi
+            case "$ST" in
+              *:*|"") : ;;
+              *) echo "::warning::ignoring a non-status reply from the runs API: $(printf '%.80s' "$ST")"
+                 ASKFAIL=$(( ASKFAIL + 1 )); ST="" ;;
+            esac
+            if [ "$ASKFAIL" -ge 5 ]; then
+              echo "::error::could not ask whether the kernel gate passed for $SHA -- five" \
+                   "consecutive failures from the runs API (see above). Refusing to publish a" \
+                   "release whose correctness gate is unverified. A check that cannot ask must" \
+                   "fail, not wait out its deadline and then blame a slow kernel run."
+              echo "gate=stop" >> "$GITHUB_OUTPUT"; exit 1
+            fi
             case "$ST" in
               completed:success)
                 echo "kernel-tests SUCCESS on $SHA — publishing"
@@ -880,6 +905,15 @@ jobs:
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
+          # A repository variable is ONLY reachable through the `vars` context;
+          # GitHub does not export it into the step's shell. Without this line
+          # `${FORGE_FIRST_RELEASE_APPROVED:-}` expands to the empty string on
+          # every run, `:-` silently supplies the plausible default, and the
+          # first-release gate below reads "the owner has not approved" as a fact
+          # it never actually asked about -- a valve nobody can open, whose log
+          # blames the owner for not opening it. FORGE_AUTORELEASE is plumbed
+          # exactly this way a few hundred lines above.
+          FORGE_FIRST_RELEASE_APPROVED: ${{ vars.FORGE_FIRST_RELEASE_APPROVED }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1180,6 +1214,7 @@ jobs:
           && github.ref_type != 'tag'
           && steps.ver.outputs.mode == 'auto'
           && steps.kgate.outputs.gate == 'go'
+          && steps.publish.outputs.state != 'skipped-first-release-not-approved'
         id: acceptance
         env:
           GH_TOKEN: ${{ github.token }}

@@ -173,3 +173,13 @@ jobs:
       - name: The release job's published-release lookup survives a 404
         shell: bash
         run: bash .github/workflows/test/test_release_prev_lookup.sh
+
+      # A repo variable reaches a step ONLY through an `env:` mapping. A shell
+      # reading ${FORGE_X:-} with no mapping reads the empty string and `:-`
+      # supplies a plausible default, so an owner-controlled switch becomes a
+      # valve nobody can open -- which is exactly what shipped in the release
+      # job's first-release gate. This asserts every FORGE_* a run block reads
+      # is actually mapped in.
+      - name: Every FORGE_* a run block reads is mapped into the shell
+        shell: bash
+        run: python3 .github/workflows/test/test_env_is_mapped.py
