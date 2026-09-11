@@ -27,6 +27,20 @@
 # ============================================================================
 set -u
 setopt NULL_GLOB 2>/dev/null || true
+
+# ---- argv: this program takes no arguments ------------------------------------
+# Guardian IS the daemon, not a CLI. Until 2026-09-11 every argument was silently
+# ignored and the daemon started anyway, so a typo -- `forge-guardian status` --
+# launched a SECOND governor beside the launchd-owned one. RED_STAGE, the
+# hysteresis counters and the TERM grace periods are all per-process state, so
+# while two run, Hard Safety Rules 4 (hysteresis) and 5 (cooperative-before-
+# coercive) above are both void: two independent escalation ladders shed the
+# same job set. Reject arguments and name the tool that does take them.
+if [[ -z "${FORGE_GUARDIAN_LIB:-}" ]] && (( $# > 0 )); then
+  print -u2 "forge-guardian: takes no arguments (it is the daemon itself), got: $*"
+  print -u2 "  to inspect or control it:  forge-guardian-ctl {start|stop|status|tail}"
+  exit 2
+fi
 STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
 JOBS_DIR="$STATE_DIR/jobs"
 LOG="$STATE_DIR/log/guardian.log"
@@ -37,6 +51,105 @@ AH_DIR=${ARCHIE_HEALTH_DIR:-/tmp/archie_health}
 AH_F="$AH_DIR/status.json"
 mkdir -p "$JOBS_DIR" "$STATE_DIR/log"
 
+# ---- single instance ----------------------------------------------------------
+# THE BUG (measured 2026-09-11): argv was ignored, so `forge-guardian status`
+# started a SECOND governor beside the launchd-owned one. RED_STAGE, the
+# hysteresis counters and the TERM grace periods are all per-process, so while
+# two run, Hard Safety Rules 4 and 5 above are void -- two independent ladders
+# shed the same jobs.
+#
+# BIAS: FAIL OPEN. launchd runs this KeepAlive=true, ThrottleInterval=10. A guard
+# that wrongly refuses leaves the machine with NO governor while respawning every
+# 10s -- far worse than the duplicate it prevents. So every refusal must rest on
+# positive, DOMAIN-SCOPED evidence, and every ambiguous case must start.
+#
+# WHAT ACTUALLY CONFLICTS is the domain: $STATE_DIR's job registry, state files
+# and Law-7 signal. Two guardians on different FORGE_HEALTH_DIRs share none of
+# it and must not block each other. `ps -E` is SIP-restricted here, so a peer's
+# FORGE_HEALTH_DIR cannot be read from the process table and PROCESS IDENTITY
+# CANNOT BE DOMAIN-SCOPED. Both signals below therefore live inside $STATE_DIR:
+#   1. the lock       -- authoritative, atomic, and per-domain by its path
+#   2. state freshness -- the governor republishes $STATE_F every poll, so a
+#                         fresh file means this domain is governed right now
+LOCK_D="$STATE_DIR/guardian.lock"
+GUARD_SELF=${0:A}
+GUARD_BASE=${GUARD_SELF:t}
+LOCK_HELD=0
+
+# Is $1 a live process running this same guardian script? Checked per-PID with
+# `ps -p`, never by grepping the process table: a table grep matches its own grep
+# and the zsh wrapper, which cost two healthy autopilots (measured 2026-08-21).
+# Exact-basename matching on a shell word also excludes the siblings
+# forge-guardian-ctl / -selftest / -actuator-test for free.
+is_live_guardian() {
+  local p=$1 a w
+  [[ -n "$p" && "$p" == <-> ]] || return 1
+  (( p == $$ )) && return 1
+  kill -0 "$p" 2>/dev/null || return 1
+  a=$(ps -p "$p" -o args= 2>/dev/null) || return 1
+  [[ -n "$a" ]] || return 1
+  # ${(z)a} splits into shell words. A bare `for w in $a` iterates ONCE in zsh.
+  for w in ${(z)a}; do
+    [[ ${w:t} == "$GUARD_BASE" ]] && return 0
+  done
+  return 1
+}
+
+# Is THIS domain being governed right now? Only a live governor keeps $STATE_F
+# rewritten. 3 polls of slack: the poll that matters is the one under memory
+# pressure, which is exactly when a cycle runs long.
+domain_is_governed() {
+  [[ -f "$STATE_F" ]] || return 1
+  local -i lim=$(( ${FORGE_GUARDIAN_POLL:-5} * 3 ))
+  (( lim < 3 )) && lim=3
+  local -i mt=$(stat -f %m "$STATE_F" 2>/dev/null || print 0)
+  (( mt > 0 )) || return 1
+  (( $(date +%s) - mt <= lim ))
+}
+
+# Best-effort pid for the refusal message only -- NEVER for the decision. It
+# matches by basename, so it can name a guardian from another domain.
+# THE TRAP IT AVOIDS: `$(ps | awk)` forks a subshell that inherits THIS script's
+# argv verbatim, so a naive scan finds itself and every guardian refuses to start.
+name_a_guardian() {
+  local anc="," p=$PPID ; local -i d=0
+  while [[ -n "$p" && "$p" != 0 && "$p" != 1 ]] && (( d++ < 64 )); do
+    anc="$anc$p,"; p=$(ps -p "$p" -o ppid= 2>/dev/null | tr -d ' ')
+  done
+  ps -axo pid=,ppid=,args= 2>/dev/null | awk -v base="$GUARD_BASE" -v self="$$" -v anc="$anc" '
+    { par[$1]=$2; a=""; for (i=3;i<=NF;i++) a=a " " $i; argv[$1]=a; order[++n]=$1 }
+    END {
+      for (k=1;k<=n;k++) {
+        p=order[k]
+        if (p==self || index(anc, "," p ",")) continue
+        q=p; d=0; mine=0
+        while (q!="" && q!="0" && q!="1" && d++<64) { if (q==self) { mine=1; break } q=par[q] }
+        if (mine) continue
+        m=split(argv[p], w, " ")
+        for (i=1;i<=m;i++) { nn=split(w[i], z, "/"); if (z[nn]==base) { print p; exit } }
+      }
+    }'
+}
+
+refuse_duplicate() {
+  print -u2 "forge-guardian: $1 is already governing $STATE_DIR; refusing to start a second governor."
+  print -u2 "  two governors keep independent RED_STAGE, hysteresis and grace-period state,"
+  print -u2 "  which voids the staged load-shedding doctrine for every registered job."
+  print -u2 "  to inspect it:  forge-guardian-ctl status"
+  exit 3
+}
+
+release_lock() {
+  (( LOCK_HELD )) || return 0
+  [[ -d "$LOCK_D" ]] || return 0
+  [[ "$(cat "$LOCK_D/pid" 2>/dev/null)" == "$$" ]] || return 0
+  rm -rf "$LOCK_D" 2>/dev/null
+  # We are no longer publishing, so the domain must not look governed. This lets
+  # a replacement start AT ONCE after an orderly stop, and tells every age-based
+  # consumer the truth immediately instead of after their staleness window.
+  [[ -f "$STATE_F" ]] && touch -t 197001020000 "$STATE_F" 2>/dev/null
+  return 0
+}
 POLL=${FORGE_GUARDIAN_POLL:-5}
 NCPU=$(sysctl -n hw.ncpu)
 NPERF=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || echo $((NCPU/2)))
@@ -219,6 +332,44 @@ build_jobs_for() {
 # a re-extracted copy. A test that re-implements the thing it tests proves nothing.
 if [[ -n "${FORGE_GUARDIAN_LIB:-}" ]]; then return 0 2>/dev/null || exit 0; fi
 
+# ---- single instance: ACQUIRE (never in library mode) -------------------------
+trap 'release_lock' EXIT
+trap 'release_lock; exit 143' TERM
+trap 'release_lock; exit 130' INT
+
+# 1. the lock
+for _try in 1 2; do
+  if mkdir "$LOCK_D" 2>/dev/null; then
+    print -r -- $$ > "$LOCK_D/pid"
+    ps -p $$ -o lstart= 2>/dev/null > "$LOCK_D/started"
+    LOCK_HELD=1; break
+  fi
+  holder=$(cat "$LOCK_D/pid" 2>/dev/null || true)
+  # A pid alone cannot identify a process: pids are reused. If the recorded start
+  # time no longer matches, this lock names a DIFFERENT process that merely
+  # inherited the number, and treating it as a live peer would refuse for ever.
+  held_start=$(cat "$LOCK_D/started" 2>/dev/null || true)
+  now_start=$(ps -p "${holder:-0}" -o lstart= 2>/dev/null || true)
+  if [[ -n "$held_start" && "$held_start" != "$now_start" ]]; then
+    rm -rf "$LOCK_D" 2>/dev/null; continue          # pid reused -> stale
+  fi
+  if is_live_guardian "${holder:-}"; then refuse_duplicate "pid $holder"; fi
+  # Not a live guardian: stale lock (crash, reboot, PID reuse). Reclaim it.
+  # A STALE LOCK MUST NEVER KEEP THE GOVERNOR DOWN.
+  rm -rf "$LOCK_D" 2>/dev/null
+done
+(( LOCK_HELD )) || print -u2 "forge-guardian: could not take the lock and could not confirm a live peer; starting anyway (fail-open)."
+
+# 2. the upgrade window: we hold the lock, but a guardian from BEFORE this
+#    version holds none and is still publishing. Fresh state is the evidence.
+#    After a real crash nothing republishes, so this clears within 3 polls and
+#    the replacement starts on its own -- bounded, self-healing, never permanent.
+if domain_is_governed; then
+  release_lock
+  refuse_duplicate "$(name_a_guardian | head -1 | sed 's/^/pid /' | grep . || print 'an unlocked guardian')"
+fi
+
+
 # ---- main loop ----------------------------------------------------------------
 STATE=GREEN; CAND=GREEN; CONFIRM=0; CLASS=GREEN; REASON="nominal"
 O_VMP=1; O_FREE=100; O_SWU=0; O_SWT=1; O_PORATE=0; O_DISK=999; O_LOAD=0; O_THERM=100; O_JOBS=0
@@ -302,5 +453,10 @@ while true; do
       ;;
   esac
 
-  sleep "$POLL"
+  # `sleep` as a FOREGROUND command defers every trap until it returns, so a TERM
+  # arriving one second into a 5-second poll waits out the other four before the
+  # lock is released and the domain de-published. Backgrounding it and `wait`ing
+  # makes the shell interruptible: zsh runs a trap the moment `wait` is signalled.
+  # MEASURED 2026-09-11: 4s deferral at the shipped POLL=5, ~0s after this change.
+  sleep "$POLL" & wait $!
 done

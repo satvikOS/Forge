@@ -1049,3 +1049,86 @@ and absent in the blind one, on the same task.
 A median answers "how big", never "what". When two arms are supposed to differ in
 content, diff the content; matching aggregates are consistent with the arms producing
 completely different things.
+
+---
+
+## A daemon that ignores argv starts a second copy of itself
+
+`forge-guardian status` is not a command. The daemon parsed no arguments at all,
+so the typo was ignored and a SECOND governor started beside the launchd-owned
+one. `RED_STAGE`, the hysteresis counters and the TERM grace periods are all
+per-process, so while two run, the guardian's own Hard Safety Rules 4 and 5 are
+void: two independent escalation ladders shedding the same registered jobs.
+
+A long-lived singleton must reject arguments AND refuse to be a second instance.
+Neither half is optional, and the argument check is the cheaper one.
+
+### For a supervised daemon, fail OPEN
+
+launchd runs the guardian `KeepAlive=true, ThrottleInterval=10`. A single-instance
+guard that ever wrongly refuses does not merely block a duplicate — it leaves the
+machine with NO governor while respawning every 10 seconds. That is strictly
+worse than the bug it prevents.
+
+So: refuse only on positive evidence, and start on every ambiguity. A stale lock,
+an unreadable lock, a lost race, a lock naming a dead pid — all must start. This
+inverts the usual instinct and has to be stated explicitly, or you will write the
+safe-looking version that deadlocks the thing it protects.
+
+### Identify the RESOURCE, not the program
+
+My first cut treated any process named `forge-guardian` as a peer. But two
+guardians with different `FORGE_HEALTH_DIR` share no job registry, no state file
+and no Law-7 signal — they conflict over nothing. The live daemon was refusing to
+let the test copy run, which is also why the suite could not be isolated.
+
+`ps -E` is SIP-restricted here, so a peer's environment cannot be read and PROCESS
+IDENTITY CANNOT BE DOMAIN-SCOPED AT ALL. Both surviving signals had to live inside
+the domain itself: the lock (per-domain by its path) and the freshness of the
+state file the governor republishes every poll.
+
+### `$(ps | awk)` finds ITSELF
+
+`found=$(ps -axo args= | awk ...)` forks a subshell that inherits the calling
+script's argv verbatim. A scan for "another process running this script" matches
+that subshell, so every guardian detected itself and refused — the exact
+fail-closed catastrophe above. Skip self, every ANCESTOR and every DESCENDANT by
+walking the ppid map; do not try to filter by argv shape.
+
+This is the third form of one recurring bug: `pgrep -f` matches its own grep,
+`awk -v needle=<path>` puts the needle in awk's own command line (put it in the
+ENVIRONMENT instead), and `$(...)` clones your argv. Any process-table search
+must first exclude the searcher.
+
+### A refusal that does not happen is a daemon that never returns
+
+The gate ran the daemon in the foreground for every check expecting an exit.
+The moment a mutation removed a refusal, the daemon started instead and the whole
+suite hung — a 20-minute run lost, and a hang is not a verdict. macOS has no
+`timeout(1)`; bound it by hand and give "still running" its own exit code so it
+reads as a distinct failure rather than a stall.
+
+### Two overlapping defences mask each other's mutations
+
+Removing the lock's refusal changed nothing: a live peer always republishes, so
+the freshness check caught the duplicate anyway and the gate stayed green. Real
+defence in depth, but it meant the lock path was never under test.
+
+To isolate overlapping defences, find the state that separates them. Here it was
+`SIGSTOP`: a peer that is alive, still holding the lock, and no longer publishing.
+That is also a real scenario — a wedged governor. After that the mutation failed
+exactly one check, which is what a well-aimed mutation looks like.
+
+Likewise, deleting the exit traps changed nothing because the un-released lock was
+wiped by an `rm -rf` two checks later. A check that cannot fail proves nothing;
+the mutation is what exposes it.
+
+### Execution belongs below the library-mode guard
+
+`forge-guardian-actuator-test` SOURCES the daemon (`FORGE_GUARDIAN_LIB=1`) so the
+suite fault-injects the shipped code rather than a re-extracted copy. Everything
+above that guard is definitions. I put an `exit 3` path above it, which would have
+killed the actuator suite mid-run — and only while the real guardian was correctly
+governing, so it would have looked like a flaky test.
+
+Before adding startup logic to a file, check whether anything sources it.
