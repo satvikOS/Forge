@@ -890,3 +890,34 @@ they tested the driver and not the call site.
 Whenever a fix is a new component rather than an edit to an existing path, one of the
 checks has to assert that the old path is **gone**. The mutation to write is "revert
 the caller", not only "break the new tool".
+
+### A mutation harness over COMPILED code must restore the binary, not the source
+
+Two mutations of the kernel's op-hint rule were run in one batch. The harness
+restored the source file between them and rebuilt — and `cp` finished within the same
+second as the previous build, so `make` saw an up-to-date object and skipped the
+translation unit. M2's test therefore ran M1's binary, and reported M2 breaking a case
+it does not touch. Run in isolation with a forced `touch`, M1 breaks only `FILL` and
+M2 breaks only `RESIZEFEATURE`.
+
+Both were RED either way, so the verdict survived — but the *diagnosis* was wrong, and
+a diagnosis is the reason to run mutations at all. For a compiled artefact: `touch`
+the source, rebuild, and verify the binary corresponds before believing any result.
+This is the same one-second mtime trap that once made `cp -R` produce objects newer
+than their source.
+
+### 92% of "invented" vocabulary was a rename, not a hallucination
+
+`INVENTED_OP` was the largest failure class on the edit benchmark, which reads as the
+model making things up. Of 13 invented ops, **12 are near misses of real ones** —
+`CYLINDER`/`CYL`, `RESIZE`/`RESIZEBORE`, `FILL`/`FILLET`, `SCALE`/`SCALEUNIFORM`,
+`OFFSET`/`OFFSETSOLID`. Only `HINGE` is a genuine fabrication. The model has the
+concept and the wrong surface form.
+
+The fix was **not** an alias table. Silently mapping `RESIZE` to `RESIZEBORE` would
+build the wrong geometry and *pass*, and a plausible wrong answer costs more than an
+obvious refusal. The kernel still refuses; it just names the op it nearly was.
+
+Before treating a failure class as a capability limit, check how far the emissions are
+from correct. "Invented an op" and "spelled a real op the natural English way" are the
+same symptom and completely different problems.
