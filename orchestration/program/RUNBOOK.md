@@ -821,3 +821,35 @@ always pointing at the right place.
 Before rebuilding anything, read the *linker's* error rather than the consumer's. The
 consumer said `verifier died on write: [Errno 32] Broken pipe` on 40 of 40 rows,
 which describes a pipe, not a missing output directory four layers upstream.
+
+### Run the control on your OWN code before auditing someone else's
+
+The 40-generation cliff was chased through `mlx_vlm` for six probes — reading its
+cache handling, its `rope_deltas` persistence, its Qwen3-VL position logic — while
+`adapters/archie-30b-astra-v1` and our own `expert_lora_patch` / `LoRASwitchLinear`
+machinery were inside the loop the entire time. **Every probe had loaded the
+adapter.** The base-model control, which takes the same four minutes as any of the
+others, should have been the first experiment, not the eighth.
+
+The general form: when a bug appears "in a dependency", the cheapest discriminating
+experiment is usually to remove *your* layer, not to read theirs.
+
+### A failed experiment is not a finding
+
+A reload-recovery test built a second 17.5 GB model without freeing the first, on a
+36 GB machine, and died with `kIOGPUCommandBufferCallbackErrorOutOfMemory`. That
+error is real and says nothing whatsoever about the cliff — it is the test's own
+flaw. It was tempting to read it as "memory pressure confirmed", which would have
+been the fifth instrument artefact of the session promoted to a finding.
+
+The tell is that the error appears in the *test's* novel behaviour, not in the
+behaviour under test. Before believing an error, ask which of the two it came from.
+
+### Flat memory on both sides of a cliff rules memory out
+
+`get_active_memory` and `get_cache_memory` were flat, so the obvious next move was to
+suspect a transient spike that only `get_peak_memory` would show. Measured with
+`reset_peak_memory()` per generation: peak is **18.51–18.52 GB on healthy rows and
+18.51–18.52 GB on degenerate ones**, drifting +0.01 GB across forty generations, with
+zero exceptions raised. Identical distributions on both sides of a deterministic
+cliff rule the variable out — that is a stronger statement than "it looked flat".
