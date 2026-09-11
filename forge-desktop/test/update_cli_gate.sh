@@ -76,7 +76,8 @@ build_cli() {  # <srcdir> <out>
   local src="$1" out="$2"
   c++ -std=c++20 -O1 -g -Wall -Wextra -Werror -I "$src" -o "$out" \
       "$src/update/Version.cpp" "$src/update/Sha256.cpp" "$src/update/Manifest.cpp" \
-      "$src/update/Updater.cpp" "$src/update/main_update_cli.cpp" 2>&1
+      "$src/update/Updater.cpp" "$src/update/ManifestSignature.cpp" \
+      "$src/update/main_update_cli.cpp" 2>&1
 }
 
 # ── fixtures ────────────────────────────────────────────────────────────────

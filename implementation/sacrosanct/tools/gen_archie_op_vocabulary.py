@@ -324,8 +324,23 @@ def parse_kernel_opcodes(hpp):
 
 
 def parse_op_from_name(cpp):
-    body, _, _ = block_after(cpp, r"OpCode\s+opFromName\s*\([^)]*\)\s*")
-    tbl, _, _ = block_after(body, r"static const std::unordered_map<std::string, OpCode> tbl\s*=")
+    # DERIVE FROM WHERE THE TABLE IS, NOT WHERE IT ONCE WAS.
+    # This used to extract opFromName()'s body and then find the table inside it.
+    # On 2026-09-11 the table was hoisted out into `opTable()` so relatedOps()
+    # could share one list instead of keeping a second, already-drifted copy of
+    # ~45 names in the error path. opFromName() then contained no table, the
+    # pattern was not found, and this exited 2 with CANNOT DERIVE -- correctly
+    # failing closed rather than emitting an empty vocabulary, but red.
+    # The table's declaration is unique in the file, so anchor on IT and assert
+    # that uniqueness: if a second one ever appears, picking the first silently
+    # would be worse than stopping.
+    n = len(re.findall(r"static const std::unordered_map<std::string, OpCode> tbl\s*=", cpp))
+    if n != 1:
+        raise DeriveError(
+            "expected exactly one `static const std::unordered_map<std::string, OpCode> tbl`"
+            " in the compiler source, found %d. Two tables mean the vocabulary has two"
+            " sources of truth and this cannot know which one a user reaches." % n)
+    tbl, _, _ = block_after(cpp, r"static const std::unordered_map<std::string, OpCode> tbl\s*=")
     out = {}
     gated = 0
     for line in tbl.split("\n"):
