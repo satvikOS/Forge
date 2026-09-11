@@ -921,3 +921,32 @@ obvious refusal. The kernel still refuses; it just names the op it nearly was.
 Before treating a failure class as a capability limit, check how far the emissions are
 from correct. "Invented an op" and "spelled a real op the natural English way" are the
 same symptom and completely different problems.
+
+### Ask the question the data can answer
+
+"Which ops does the benchmark demand?" was unanswerable: the benchmarks carry no
+ground-truth IR at all, only measured properties and a STEP file. Any tree producing
+the right geometry passes, so there is no required op list to compare a corpus
+against. Two tool-writing attempts went at it before reading the task schema.
+
+The answerable form is one level down: a **surface** still has to come from somewhere.
+A bspline face cannot be produced by BOX and EXTRUDE whatever the planner does, and
+the kernel's own census reports surface kinds from the GT STEP. Reframed that way the
+ceiling is measurable — 7% of holdout-41 contains a surface no taught op can produce,
+41% only thinly reachable ones.
+
+When a question resists measurement, suspect the question before the instrument.
+
+### Overstating a ceiling is as wrong as understating one
+
+The first pass said cone and sphere were impossible, because CONE, SPHERE and REVOLVE
+all have zero training rows. That was wrong and would have been a satisfying story —
+"half the benchmark is unreachable". CHAMFER (72 rows) leaves a conical face on a
+rounded edge and FILLET (80 rows) leaves a spherical patch at a three-way corner, so
+those parts are thinly reachable, not blocked. Only bspline has no taught producer.
+
+The mapping from a surface to the ops that can produce it is a **judgement**, not a
+measurement — the one such step in an otherwise measured chain. So it is written out
+in the source, recorded into the output JSON so a ceiling always travels with the
+assumption that produced it, and any surface kind missing from it is reported as
+UNMAPPED with a non-zero exit rather than silently counted as reachable.
