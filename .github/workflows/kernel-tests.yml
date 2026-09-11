@@ -495,6 +495,38 @@ jobs:
         # negative control.
         run: bash forge-desktop/test/release_publish_selftest.sh --mutations
 
+  guardian:
+    name: Forge Guardian single-instance gate (macOS, 11 mutations)
+    # T-065 built this gate and NOTHING ran it. It sat in the tree, 33 checks and
+    # 11 mutations deep, executed only when a human typed its path -- which is
+    # the same as not existing, because the property it protects is one nobody
+    # re-tests by hand. The gate-registration ratchet did not catch that: it
+    # enumerates forge-kernel/test ONLY, so a gate anywhere else is invisible to
+    # it and it stays green (T-088 widens that).
+    #
+    # The property: the guardian is the machine's resource governor and a SECOND
+    # one is worse than none -- two governors fight, and on a 36 GiB workstation
+    # that is how you reach 13 GiB of swap. It must therefore refuse to start
+    # beside a live peer, and it must FAIL OPEN, because a guardian that wrongly
+    # refuses leaves the machine ungoverned, which is the failure it exists to
+    # prevent. Mutation 7 is exactly that direction: make the domain always look
+    # governed and nothing can ever start.
+    #
+    # macOS on purpose: the script is #!/bin/zsh and reads `ps` output, and the
+    # zsh-vs-bash difference is not cosmetic here -- running it under bash dies
+    # on `A: unbound variable` before the first check.
+    #
+    # Its own wall clock (GATE_BUDGET, default 900s) is BELOW this timeout, so a
+    # wedged gate reaps its guardians and says why, instead of being killed by
+    # the runner with its children still alive. Measured: killing the pre-T-087
+    # gate while one guardian was live orphaned it; the watchdog arm leaves zero.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: single instance, fail-open, 11 mutations
+        run: zsh tools/guardian/test/guardian_single_instance_test.sh
+
   release_visibility:
     name: could an installed Forge actually SEE the latest release?
     # SEPARATE from desktop_update on purpose. That job documents itself as

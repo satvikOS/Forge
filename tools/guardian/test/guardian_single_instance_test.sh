@@ -23,11 +23,45 @@ ck() { # ck <desc> <cond-exit>
 }
 
 ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fg_single.XXXXXX")
-trap 'reap; rm -rf "$ROOT"' EXIT
+trap 'kill -9 $WATCHDOG 2>/dev/null; reap; rm -rf "$ROOT"' EXIT
 
-# every guardian this test starts, so nothing survives the run
+# Every guardian this test starts, so nothing survives the run.
+#
+# The registry is a FILE as well as an array, because the array alone cannot see
+# every pid.  gexec is called as `out=$(gexec --help)` -- a command-substitution
+# SUBSHELL -- so an append it makes to STARTED dies with that subshell and the
+# parent's reap never learns the pid.  That is the same subshell trap that made the
+# guardian's own self-detection count itself, three times over.  A file crosses the
+# fork; an array does not.
 STARTED=()
-reap() { local p; for p in $STARTED; do kill -9 "$p" 2>/dev/null; done }
+PIDFILE="$ROOT/started.pids"
+: >"$PIDFILE"
+note_pid() { STARTED+=($1); print $1 >>"$PIDFILE" }
+reap() {
+  local p
+  for p in $STARTED; do kill -9 "$p" 2>/dev/null; done
+  if [[ -r $PIDFILE ]]; then
+    while read -r p; do [[ -n $p ]] && kill -9 "$p" 2>/dev/null; done <"$PIDFILE"
+  fi
+  return 0
+}
+
+# A wall-clock bound on the WHOLE gate.  gexec already bounds one invocation, and
+# the EXIT trap already reaps -- but neither runs if the script itself wedges, and
+# then every guardian it started stays alive.  That is not hypothetical: one hung
+# run left a mutant `forge-guardian --help` daemon (mutation 1 deletes the argv
+# check, so --help becomes a daemon) running on the workstation for 10h13m before
+# it was found by hand.  The watchdog reads the pid FILE rather than a copy of the
+# array taken when it forked, so it reaps pids registered after it started.
+GATE_BUDGET=${GATE_BUDGET:-900}
+{ sleep "$GATE_BUDGET"
+  print -u2 "[single-instance] WALL-CLOCK EXCEEDED (${GATE_BUDGET}s) -- reaping and failing"
+  if [[ -r $PIDFILE ]]; then
+    while read -r wp; do [[ -n $wp ]] && kill -9 "$wp" 2>/dev/null; done <"$PIDFILE"
+  fi
+  kill -TERM $$ 2>/dev/null; sleep 2; kill -9 $$ 2>/dev/null
+} &
+WATCHDOG=$!
 
 mkdir -p "$ROOT/bin"
 G="$ROOT/bin/forge-guardian"          # basename must stay exact: self-identification
@@ -42,7 +76,7 @@ GBUDGET=${GBUDGET:-15}
 gexec() {
   local lg="$ROOT/ge.log" p i
   FORGE_HEALTH_DIR="$HD" ARCHIE_HEALTH_DIR="$AH" FORGE_GUARDIAN_POLL=1 zsh "$G" "$@" >"$lg" 2>&1 &
-  p=$!; STARTED+=($p)
+  p=$!; note_pid $p
   for i in {1..$(( GBUDGET * 4 ))}; do kill -0 $p 2>/dev/null || break; sleep 0.25; done
   if kill -0 $p 2>/dev/null; then
     kill -9 $p 2>/dev/null; wait $p 2>/dev/null
@@ -53,7 +87,7 @@ gexec() {
 }
 gspawn() { local lg=$1; shift
   FORGE_HEALTH_DIR="$HD" ARCHIE_HEALTH_DIR="$AH" FORGE_GUARDIAN_POLL=1 zsh "$G" "$@" >"$lg" 2>&1 &
-  STARTED+=($!); print $! }
+  local q=$!; note_pid $q; print $q }
 
 # how many live processes are running THIS temp copy (never the real one)
 # NEEDLE GOES IN THE ENVIRONMENT, NOT IN ARGV: `awk -v g=<path>` puts the path
@@ -137,7 +171,7 @@ run_gate() {  # -> 0 green, 1 red ; prints failures
   kill -9 "$p2" 2>/dev/null; sleep 1; rm -rf "$HD/guardian.lock"
 
   # -- C6 FAIL-OPEN: lock held by a LIVE NON-guardian (pid reuse) -------------
-  zsh -c 'exec sleep 30' & local sp=$!; STARTED+=($sp)
+  zsh -c 'exec sleep 30' & local sp=$!; note_pid $sp
   mkdir -p "$HD/guardian.lock"; print -r -- "$sp" > "$HD/guardian.lock/pid"
   touch -t 200001010101 "$HD/state"                    # isolate: only the lock is under test
   local p3; p3=$(gspawn "$ROOT/d3.log")
@@ -150,7 +184,7 @@ run_gate() {  # -> 0 green, 1 red ; prints failures
   # process lives -- a permanent fail-closed on a machine with two domains.
   local HD2="$ROOT/health2"; rm -rf "$HD2"; mkdir -p "$HD2"
   FORGE_HEALTH_DIR="$HD2" ARCHIE_HEALTH_DIR="$AH" FORGE_GUARDIAN_POLL=1 zsh "$G" >"$ROOT/d5.log" 2>&1 &
-  local p5=$!; STARTED+=($p5); sleep 2
+  local p5=$!; note_pid $p5; sleep 2
   rm -rf "$HD/guardian.lock"; mkdir -p "$HD/guardian.lock"
   print -r -- "$p5" > "$HD/guardian.lock/pid"
   print -r -- "Thu Jan  1 00:00:00 1970" > "$HD/guardian.lock/started"   # not its real start
@@ -179,7 +213,7 @@ run_gate() {  # -> 0 green, 1 red ; prints failures
   rm -rf "$HD/guardian.lock"; touch "$HD/state"          # make the domain look governed
   local lrc li lp
   ( FORGE_HEALTH_DIR="$HD" ARCHIE_HEALTH_DIR="$AH" FORGE_GUARDIAN_LIB=1 zsh -c "source '$G'" ) >/dev/null 2>&1 &
-  lp=$!; STARTED+=($lp)
+  lp=$!; note_pid $lp
   for li in {1..40}; do kill -0 $lp 2>/dev/null || break; sleep 0.25; done
   if kill -0 $lp 2>/dev/null; then kill -9 $lp 2>/dev/null; lrc=99; else wait $lp; lrc=$?; fi
   ck "C14a library-mode source returns 0 (got $lrc)"   $(( lrc == 0 ? 0 : 1 ))
@@ -194,7 +228,7 @@ run_gate() {  # -> 0 green, 1 red ; prints failures
   rm -rf "$HD/guardian.lock"; rm -f "$HD/state"
   local pS w
   FORGE_HEALTH_DIR="$HD" ARCHIE_HEALTH_DIR="$AH" zsh "$G" >"$ROOT/dS.log" 2>&1 &
-  pS=$!; STARTED+=($pS); sleep 3
+  pS=$!; note_pid $pS; sleep 3
   ck "C15a setup: running at the shipped default poll"  $(kill -0 "$pS" 2>/dev/null; echo $?)
   ck "C15b setup: it holds the lock"                    $([[ -d "$HD/guardian.lock" ]]; echo $?)
   kill -TERM "$pS" 2>/dev/null
@@ -316,7 +350,7 @@ for n in 1 2 3 4 5 6 7 8 9 10 11; do
   if ! zsh -n "$G" 2>/dev/null; then
     print "  mutation $n: does not parse -- verdict void"; (( MFAIL++ )); continue
   fi
-  reap; STARTED=()
+  reap; STARTED=(); : >"$PIDFILE"
   if run_gate; then
     if [[ "$want" == GREEN ]]; then print "  mutation $n: GREEN (as required) -- $desc"
     else print "  mutation $n: GREEN but should be RED -- $desc"; (( MFAIL++ )); fi
