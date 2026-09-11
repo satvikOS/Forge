@@ -127,7 +127,12 @@ bool parseDouble(const std::string& s, double& out) {
 }
 
 // ------------------------------------------------------------------ op table
-OpCode opFromName(const std::string& nameUpper, bool& known) {
+// THE op table. Exposed so the "unknown op" diagnostic can be driven by the same
+// vocabulary the parser enforces. It used to be duplicated as a hand-written list of
+// ~45 names inside the error path, which had already drifted: SCALEUNIFORM and
+// OFFSETSOLID are real ops and were missing from it, so a tree that emitted SCALE or
+// OFFSET got no hint at all.
+const std::unordered_map<std::string, OpCode>& opTable() {
     static const std::unordered_map<std::string, OpCode> tbl = {
         {"RECT", OpCode::Rect}, {"RRECT", OpCode::RRect}, {"CIRCLE", OpCode::Circle},
         {"SLOT", OpCode::Slot}, {"POLY", OpCode::Poly}, {"REGPOLY", OpCode::RegPoly},
@@ -173,6 +178,11 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"POCKET", OpCode::Pocket},
         {"MEASURE", OpCode::Measure},
     };
+    return tbl;
+}
+
+OpCode opFromName(const std::string& nameUpper, bool& known) {
+    const auto& tbl = opTable();
     auto it = tbl.find(nameUpper);
     known = (it != tbl.end());
     // A MISS RETURNS THE SENTINEL, NOT A BOX. This line used to read
@@ -182,6 +192,45 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
     // `known` is an out-parameter every caller must honour; returning a sentinel
     // means a caller that forgets to still cannot build anything.
     return known ? it->second : OpCode::Unknown;
+}
+
+// Real ops whose name is related to an unknown one, for the repair instruction.
+//
+// TWO DIRECTIONS, because the miss goes both ways. The original check was only
+// `U.find(k)` -- the real op appearing inside the invented name -- which catches
+// CYLINDER -> CYL but not the far more common case of the model emitting the plain
+// English STEM of a specialised op. MEASURED on the 2026-09-10 sweep: of 13 invented
+// ops, 12 are near misses of real ones, and 7 of those 13 occurrences got NO hint
+// because the invented name was shorter than the real one --
+// RESIZE -> RESIZEBORE (4x), FILL -> FILLET, SCALE -> SCALEUNIFORM,
+// OFFSET -> OFFSETSOLID, RESIZEFEATURE -> RESIZEBORE.
+//
+// The stem direction requires >= 4 characters. Below that the matches are noise: a
+// two-letter fragment hits a dozen ops and a hint that lists a dozen ops is not a
+// repair instruction.
+std::vector<std::string> relatedOps(const std::string& U) {
+    std::vector<std::string> hits;
+    if (U.empty()) return hits;
+    for (const auto& kv : opTable()) {
+        const std::string& k = kv.first;
+        const bool realInsideInvented = U.find(k) != std::string::npos;
+        const bool inventedIsStem =
+            U.size() >= 4 && k.find(U) != std::string::npos;
+        // A SHARED PREFIX, for the case where neither contains the other:
+        // RESIZEFEATURE and RESIZEBORE agree on six characters and are unrelated as
+        // substrings. The threshold is MEASURED, not guessed -- across the 68 real
+        // ops, a >= 5 character shared prefix produces ZERO collisions between two
+        // genuine ops, while >= 4 collides three times (SURFCHECK/SURFEXTEND/
+        // SURFTRIM). Five is the largest useful rule that cannot confuse two real
+        // ops with each other.
+        std::size_t common = 0;
+        while (common < U.size() && common < k.size() && U[common] == k[common])
+            ++common;
+        const bool sharedPrefix = common >= 5;
+        if (realInsideInvented || inventedIsStem || sharedPrefix) hits.push_back(k);
+    }
+    std::sort(hits.begin(), hits.end());
+    return hits;
 }
 
 // The rotational symmetry ORDER of a set of angles: the largest N for which
@@ -511,17 +560,13 @@ FeatureTree parse(const std::string& text) {
             // naming the constituents converts a dead end into a fixable one.
             const std::string U = upper(name);
             std::string hint;
-            for (const char* k : {"RECT","RRECT","CIRCLE","SLOT","POLY","REGPOLY","ARC","RING",
-                                  "WIRE","HELIX","BOX","CYL","CONE","SPHERE","TORUS","PRISM","TUBE",
-                                  "EXTRUDE","REVOLVE","LOFT","SWEEP","FUSE","CUT","COMMON",
-                                  "SECTION",
-                                  "TRANSLATE","ROTATE","MIRROR","PATTERN","HOLE","CBORE",
-                                  "FILLET","CHAMFER","BLEND","SHELL","FOLD","HEAL","TAG",
-                                  "INPUT","PUSHFACE","RESIZEBORE","DEFEATURE","VERIFY"}) {
-                if (U.find(k) != std::string::npos) {
-                    if (!hint.empty()) hint += ", ";
-                    hint += k;
-                }
+            // Driven by opTable(), so the hint can never drift from the vocabulary
+            // the parser actually enforces. Capped: a hint naming ten ops is a wall
+            // of text, not a repair instruction.
+            const std::vector<std::string> rel = relatedOps(U);
+            for (std::size_t i = 0; i < rel.size() && i < 4; ++i) {
+                if (!hint.empty()) hint += ", ";
+                hint += rel[i];
             }
             // HARD, and NOT routed through fail(). fail() classifies anything on
             // the LAST line as ParseFailure::Incomplete — "the emission stopped
@@ -543,8 +588,16 @@ FeatureTree parse(const std::string& text) {
                                  ": unknown op `" + name + "`" +
                                  (hint.empty()
                                       ? ""
-                                      : " — the IR spells this with " + hint +
-                                            " (compose them; there is no combined op)"));
+                                      : (rel.size() == 1
+                                             // ONE match is a NAMING miss, not a
+                                             // composition. Telling a planner to
+                                             // "compose" CYL with nothing is a
+                                             // repair instruction it cannot follow;
+                                             // the actual fix is to write CYL.
+                                             ? " — did you mean `" + hint + "`?"
+                                             : " — the IR spells this with " + hint +
+                                                   " (compose them; there is no "
+                                                   "combined op)")));
         }
 
         if (op.code == OpCode::Arc) {
