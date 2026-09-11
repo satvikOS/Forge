@@ -1132,3 +1132,63 @@ killed the actuator suite mid-run — and only while the real guardian was corre
 governing, so it would have looked like a flaky test.
 
 Before adding startup logic to a file, check whether anything sources it.
+
+---
+
+## Gate on CI, not only on the Guardian and the ledger
+
+The loop's gate was "Forge Guardian is GREEN and forge-program has a ready task".
+Both were true all day on 2026-09-11 while **Desktop Release (macOS arm64) was red
+and 47 commits sat unpushed**. CI had been testing a commit from the previous
+morning. Neither gate can see that, because neither looks at the remote.
+
+Add both checks to the top of every tick, before claiming anything is integrated:
+
+    git fetch origin -q
+    git rev-list --left-right --count origin/<branch>...<branch>   # unpushed work
+    gh run list --limit 5 --json workflowName,conclusion,headSha    # and is it green
+
+"Integrated" has to mean *reached CI and passed*, not *merged locally*. A local
+fast-forward is not integration; it is a private opinion about the code.
+
+### A red job is not necessarily a broken build
+
+Desktop Release failed 11 of 14 runs, and on every one of them **13 of 14 steps
+passed** — build, packaging, Gatekeeper, self-containment, and the kernel gate.
+Only the publish step failed. Reading the red badge as "the desktop app is
+broken" would have sent a day into the build; reading the STEP list took a minute
+and pointed at a nine-line shell bug.
+
+Open the failing STEP before forming any theory about a red job.
+
+### `gh api` writes its error body to STDOUT
+
+Measured: on a 404, `gh api` exits 1, writes `gh: Not Found (HTTP 404)` to stderr
+**and a 130-byte JSON body to stdout**. So
+
+    PREV="$(gh api .../releases/latest --jq '.tag_name' 2>/dev/null || true)"
+
+does NOT leave `PREV` empty on the pre-first-release state. It leaves
+`{"message":"Not Found",...}` — non-empty, so every `[ -n "$PREV" ]` test takes
+the wrong branch, and the failure surfaces far away as a semver complaint.
+
+`|| true` converts "this command failed" into "this command returned something
+plausible". Capture stderr, discriminate the one status you tolerate, refuse on
+everything else — and then validate the SHAPE of what you got, because a value
+that arrived from an error path can still be non-empty.
+
+This is the same family as `grep -c` printing 0 and exiting 1, and as a process
+search matching its own grep: the instrument answers, the answer is wrong, and
+nothing anywhere is marked as an error.
+
+### An irreversible step inside a CI job is still an owner decision
+
+The fix made the 404 legible, which would have let the job proceed to publish the
+first public release — a tag and a downloadable artifact, tracked as T-019 and
+blocked on the version line and the signing key. Making a job green must not
+smuggle in the decision it was blocked on.
+
+So the pre-first-release path now SKIPS publishing behind an explicit
+`FORGE_FIRST_RELEASE_APPROVED` variable and lets the job be green for what it
+actually verified. Fixing the error and taking the decision are separate changes,
+and only the first one is mine to make.
