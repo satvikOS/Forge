@@ -279,6 +279,26 @@ target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
 # headless gate must not need a window server. Six file commands are reachable
 # with a mouse because of this file; forge_desktop_file_dialog_gate proves the
 # path they travel with the panel scripted instead.
+# ── forge_archie ────────────────────────────────────────────────────────────
+# The typed client for the OPTIONAL local Archie sidecar, plus the two retrieval
+# translation units it needs. Built unconditionally because it costs nothing to
+# carry: zero third-party includes, loopback-only sockets, no new link-time
+# dependency. Whether the app USES it is a RUNTIME decision (see main.cpp) --
+# building it always keeps one binary rather than a build-variant matrix, and a
+# feature you cannot switch on without recompiling is a feature nobody switches on.
+#
+# NOTE: retrieval/ appeared in ZERO CMakeLists before this. Only the two files
+# RemotePlanner.cpp actually needs are compiled; SearxngClient and its evidence
+# machinery stay out, so nothing about search is pulled into the app.
+add_library(forge_archie STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/../archie/src/RemotePlanner.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/HttpTransport.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/Json.cpp")
+target_include_directories(forge_archie PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/../archie/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/include")
+target_link_libraries(forge_archie PUBLIC forge_ui)
+
 set(FORGE_DESKTOP_APP_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PlatformSDL2.cpp"
@@ -314,7 +334,7 @@ endif()
 # renders the result. Until this line existed the shipped bundle contained ZERO
 # updater symbols -- the library, the CLI and its 130-check gate were all real, and
 # none of them was in the thing users install.
-target_link_libraries(forge_desktop PRIVATE forge_desktop_core forge_updater
+target_link_libraries(forge_desktop PRIVATE forge_archie forge_desktop_core forge_updater
                       "${SDL2_LIB}" "${VK_LOADER_LIB}")
 set_target_properties(forge_desktop PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")

@@ -62,6 +62,8 @@
 #include "FileDialog.hpp"
 #include "FileExchangeHost.hpp"
 #include "ForgeFrame.hpp"
+
+#include "forge/archie/RemotePlanner.hpp"
 #include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
 #include "PlatformSDL2.hpp"
@@ -601,6 +603,45 @@ int main(int argc, char** argv) {
   }
 
   forge::desktop::ForgeFrame frame(shell, scene);
+
+  // ── Archie, when a sidecar is running ────────────────────────────────────
+  // OPT-IN AT RUNTIME, and absent by default. Doc 09 calls the model service
+  // "an optional localhost sidecar"; an app that REQUIRES one is not optional,
+  // so with FORGE_ARCHIE_ENDPOINT unset the copilot keeps the deterministic
+  // planner it has always had and nothing here reaches for a socket.
+  //
+  //     FORGE_ARCHIE_ENDPOINT=127.0.0.1:8731 open -a Forge
+  //
+  // The transport refuses anything that is not a loopback LITERAL, so this
+  // cannot be pointed off the machine even by a typo -- and the check is made
+  // here too, so the refusal is legible at startup rather than per request.
+  std::shared_ptr<forge::retrieval::HttpTransport> archieTransport;
+  std::unique_ptr<forge::archie::RemotePlanner> archiePlanner;
+  if (const char* ep = std::getenv("FORGE_ARCHIE_ENDPOINT")) {
+    forge::archie::Endpoint endpoint;
+    const std::string spec(ep);
+    const std::size_t colon = spec.rfind(':');
+    if (colon != std::string::npos) {
+      endpoint.host = spec.substr(0, colon);
+      endpoint.port = static_cast<std::uint16_t>(std::atoi(spec.c_str() + colon + 1));
+    } else {
+      endpoint.host = spec;
+    }
+    if (!forge::retrieval::isLoopbackLiteral(endpoint.host) || endpoint.port == 0) {
+      std::fprintf(stderr,
+                   "[forge] FORGE_ARCHIE_ENDPOINT='%s' is not a loopback host:port; "
+                   "Archie stays off and the deterministic planner is used.\n", ep);
+    } else {
+      archieTransport = std::make_shared<forge::retrieval::LoopbackHttpTransport>();
+      archiePlanner =
+          std::make_unique<forge::archie::RemotePlanner>(archieTransport, endpoint);
+      frame.setCopilotRemotePlanner(archiePlanner.get());
+      std::fprintf(stderr,
+                   "[forge] Archie planner enabled at %s:%u (falls back to the "
+                   "deterministic planner whenever it refuses)\n",
+                   endpoint.host.c_str(), static_cast<unsigned>(endpoint.port));
+    }
+  }
 
   // ── auto-update ────────────────────────────────────────────────────────────
   // The FIRST download is meant to be the last manual one. A shipped bundle is
