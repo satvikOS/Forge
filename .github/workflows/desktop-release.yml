@@ -905,15 +905,6 @@ jobs:
         id: publish
         env:
           GH_TOKEN: ${{ github.token }}
-          # A repository variable is ONLY reachable through the `vars` context;
-          # GitHub does not export it into the step's shell. Without this line
-          # `${FORGE_FIRST_RELEASE_APPROVED:-}` expands to the empty string on
-          # every run, `:-` silently supplies the plausible default, and the
-          # first-release gate below reads "the owner has not approved" as a fact
-          # it never actually asked about -- a valve nobody can open, whose log
-          # blames the owner for not opening it. FORGE_AUTORELEASE is plumbed
-          # exactly this way a few hundred lines above.
-          FORGE_FIRST_RELEASE_APPROVED: ${{ vars.FORGE_FIRST_RELEASE_APPROVED }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1007,30 +998,13 @@ jobs:
           if [ -n "${PREV:-}" ]; then
             echo "currently published latest: $PREV"
           else
+            # The owner control for whether this is cut is the EXISTING brake,
+            # `FORGE_AUTORELEASE=off`, documented at the top of this file and
+            # already a tolerated, announced skip. Do not add a second gate: one
+            # was added here on 2026-09-11 and broke 17 of this path's 46
+            # self-test checks, because release_publish_selftest.sh encodes that a
+            # green archdisc push PUBLISHES and that publishing nothing is RED.
             echo "no published release yet — this would be the FIRST one"
-            # ── THE FIRST PUBLIC RELEASE IS AN OWNER DECISION ────────────────
-            # Everything above this line has already passed: the app is built,
-            # packaged, Gatekeeper-checked, proved self-contained, and the kernel
-            # correctness gate is green for this commit. The artifact is uploaded
-            # on every run regardless. What is left is publishing it to the world
-            # under a version line, which is irreversible (a published tag and a
-            # release people can download) and is tracked as T-019/T-033/T-034.
-            #
-            # Until the owner opts in, SKIP the publish and let the job be GREEN
-            # for what it actually verified. Failing here instead would mean a
-            # permanently red release job that says nothing about whether the
-            # desktop app builds -- which is precisely what it did for a day.
-            if [ "${FORGE_FIRST_RELEASE_APPROVED:-}" != "true" ]; then
-              echo "::notice::Not publishing: this would be the FIRST public release and" \
-                   "FORGE_FIRST_RELEASE_APPROVED is not set to '"'"'true'"'"'. The build, packaging," \
-                   "Gatekeeper and kernel gates above all passed and the artifact is attached" \
-                   "to this run. To cut the first release, settle the version line and the" \
-                   "signing key, then set the repository variable FORGE_FIRST_RELEASE_APPROVED=true."
-              echo "state=skipped-first-release-not-approved" >> "$GITHUB_OUTPUT"
-              echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "FORGE_FIRST_RELEASE_APPROVED=true — cutting the first public release $TAG"
           fi
 
           # ── DOES THE TAG ALREADY POINT SOMEWHERE ELSE? ─────────────────────
@@ -1214,7 +1188,6 @@ jobs:
           && github.ref_type != 'tag'
           && steps.ver.outputs.mode == 'auto'
           && steps.kgate.outputs.gate == 'go'
-          && steps.publish.outputs.state != 'skipped-first-release-not-approved'
         id: acceptance
         env:
           GH_TOKEN: ${{ github.token }}
