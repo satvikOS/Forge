@@ -784,3 +784,40 @@ against the dead verifier. Neither was about the verifier; both had simply inher
 whatever the live build was doing. They now name a binary known to work. When a gate
 starts refusing, expect the existing tests that never noticed to go red — and fix
 them by making their dependencies explicit, not by weakening the gate.
+
+### "The model stops emitting" was 4096 repetitions of token 0
+
+BenchCAD-HF rows 41-150 emitted 1 row in 110, against 40/40 before them. That reads
+as a capability cliff, and it is not one. Every collapsed row recorded
+`raw_len = 4096` consisting of a **single distinct character**, `!` — which is
+**token id 0**. An argmax that keeps returning index 0 is a broken logit
+distribution: the decoder failing, not the model answering badly.
+
+The evidence was already on every row. `raw_head` and `raw_len` are recorded next to
+`error: "model emitted no IR"`, and I had said a new GPU run with `--save-emissions`
+would be needed to tell "no text" from "unparseable text". Read the fields the record
+already has before spending a run to collect them again.
+
+**Neither stop guard could fire, and both said so in their own comments.** The
+novelty rule is *statement-level* — it needs 40 `%`-prefixed lines before it can act,
+and `!!!!` has zero; its docstring already read *"an emission that is not
+statement-shaped leaves it a no-op for the entire generation."* The wall-clock
+deadline is 300 s, ~5× the slowest legitimate generation; these rows took 60.2 s. So
+the most degenerate output a decoder can produce ran to the token cap **every time**,
+costing ~109 minutes of GPU, and reached the record only as "emitted no IR".
+
+A guard written against one *shape* of failure is blind to every other shape. Add the
+shape-free check too: a run of identical tokens needs no decode and no grammar.
+
+### Deleting one directory broke the link step and the symlinks that pointed into it
+
+`forge_verify` had been unable to start since 2026-09-06. `build/Release/` is both
+the CMake link output directory **and** an entry on the binary's rpath. It was
+deleted; `ld` then failed with `open() failed, errno=2`, and the two convenience
+symlinks in `build/` and `build-app/` dangled. The whole fix was `mkdir -p
+build/Release` followed by a relink — no symlinks recreated, because the rpath was
+always pointing at the right place.
+
+Before rebuilding anything, read the *linker's* error rather than the consumer's. The
+consumer said `verifier died on write: [Errno 32] Broken pipe` on 40 of 40 rows,
+which describes a pipe, not a missing output directory four layers upstream.
