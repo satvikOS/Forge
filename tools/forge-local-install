@@ -1,0 +1,147 @@
+#!/bin/bash
+# ============================================================================
+# forge-local-install — install the CI-built Forge.app onto THIS machine.
+#
+# Forge is not published. It is installed locally and must behave exactly as a
+# published copy would, so this installs THE SAME ARTIFACT the publish path would
+# have uploaded -- the zip a green "Desktop Release (macOS arm64)" run produces --
+# rather than a local dev build. A dev build would differ in deployment floor,
+# bundled worker, and signing state, and would prove nothing about the shipped one.
+#
+# EVERY REFUSAL LEAVES THE EXISTING INSTALL UNTOUCHED. The swap is the last step
+# and is atomic; the previous bundle is kept until the new one has been verified
+# in place, and restored if it has not.
+#
+#   forge-local-install                 install the newest green archdisc build
+#   forge-local-install --run <id>      install a specific run's artifact
+#   forge-local-install --check         report what is installed vs available
+# ============================================================================
+set -uo pipefail
+
+REPO="${FORGE_REPO:-satvikOS/Forge}"
+BRANCH="${FORGE_BRANCH:-archdisc}"
+WF="Desktop Release (macOS arm64)"
+DEST="${FORGE_INSTALL_DEST:-/Applications/Forge.app}"
+RECEIPT="${FORGE_INSTALL_RECEIPT:-$HOME/.forge-health/installed.json}"
+
+die()  { echo "[install] REFUSED: $*" >&2; exit 1; }
+say()  { echo "[install] $*"; }
+
+MODE=install; WANT_RUN=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --run)   WANT_RUN="${2:-}"; shift 2 ;;
+    --check) MODE=check; shift ;;
+    *) die "unknown argument '$1' (try --check or --run <id>)" ;;
+  esac
+done
+
+command -v gh >/dev/null || die "gh is not installed"
+
+# ── what is installed now ────────────────────────────────────────────────────
+cur_ver="none"; cur_run="none"; cur_sha="none"
+if [ -f "$RECEIPT" ]; then
+  cur_ver=$(python3 -c "import json;print(json.load(open('$RECEIPT')).get('version','?'))" 2>/dev/null || echo '?')
+  cur_run=$(python3 -c "import json;print(json.load(open('$RECEIPT')).get('run_id','?'))" 2>/dev/null || echo '?')
+  cur_sha=$(python3 -c "import json;print(json.load(open('$RECEIPT')).get('commit','?'))" 2>/dev/null || echo '?')
+elif [ -d "$DEST" ]; then
+  cur_ver=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DEST/Contents/Info.plist" 2>/dev/null || echo '?')
+  cur_run="(no receipt — installed before this tool existed)"
+fi
+
+# ── the newest run that is ACTUALLY GREEN on the integration branch ──────────
+if [ -n "$WANT_RUN" ]; then
+  RUN="$WANT_RUN"
+else
+  RUN=$(gh run list --repo "$REPO" --workflow "$WF" --branch "$BRANCH" \
+        --limit 20 --json databaseId,conclusion,headSha \
+        --jq '[.[] | select(.conclusion=="success")] | .[0].databaseId' 2>/dev/null)
+fi
+[ -n "${RUN:-}" ] && [ "$RUN" != "null" ] || die "no green '$WF' run on $BRANCH to install from"
+
+CONC=$(gh run view "$RUN" --repo "$REPO" --json conclusion --jq '.conclusion' 2>/dev/null)
+HEAD=$(gh run view "$RUN" --repo "$REPO" --json headSha   --jq '.headSha'   2>/dev/null)
+# A run is only installable if IT passed. "the workflow exists" is not a pass.
+[ "$CONC" = "success" ] || die "run $RUN concluded '$CONC', not success"
+
+say "installed now : $cur_ver  (run $cur_run, commit ${cur_sha:0:8})"
+say "candidate     : run $RUN  commit ${HEAD:0:8}"
+if [ "$MODE" = check ]; then
+  [ "$cur_run" = "$RUN" ] && say "UP TO DATE" || say "OUT OF DATE — run without --check to update"
+  exit 0
+fi
+if [ "$cur_run" = "$RUN" ]; then say "already installed from run $RUN — nothing to do"; exit 0; fi
+
+# ── fetch ────────────────────────────────────────────────────────────────────
+W=$(mktemp -d "${TMPDIR:-/tmp}/forge-install.XXXXXX") || die "no temp dir"
+trap 'rm -rf "$W"' EXIT
+NAME=$(gh api "repos/$REPO/actions/runs/$RUN/artifacts" \
+       --jq '.artifacts[] | select(.expired==false) | .name' 2>/dev/null | grep '^Forge-macos-arm64-' | head -1)
+[ -n "${NAME:-}" ] || die "run $RUN has no unexpired Forge-macos-arm64-* artifact"
+say "artifact      : $NAME"
+gh run download "$RUN" --repo "$REPO" -n "$NAME" -D "$W" >/dev/null 2>&1 || die "could not download $NAME"
+
+ZIP=$(ls "$W"/Forge-macos-arm64-*.zip 2>/dev/null | head -1)
+[ -n "$ZIP" ] && [ -f "$ZIP" ] || die "artifact contains no .zip"
+SUM="$ZIP.sha256"
+[ -f "$SUM" ] || die "artifact has no .sha256 — refusing to install an unverifiable payload"
+
+# ── verify the payload, the way an installed copy would ──────────────────────
+want=$(awk '{print $1}' "$SUM" | tr -d '\r\n')
+got=$(shasum -a 256 "$ZIP" | awk '{print $1}')
+[ -n "$want" ] || die "the .sha256 file is empty"
+[ "$want" = "$got" ] || die "digest mismatch — recorded $want, computed $got"
+say "digest        : $got  ✓"
+
+/usr/bin/unzip -q "$ZIP" -d "$W/stage" || die "unzip failed"
+APP=$(find "$W/stage" -maxdepth 2 -name 'Forge.app' -type d | head -1)
+[ -n "$APP" ] || die "no Forge.app inside the zip"
+
+# structure: the three executables a published bundle is proved to carry
+for exe in forge_desktop forge_kernel_worker forge_update; do
+  [ -x "$APP/Contents/MacOS/$exe" ] || die "bundle is missing $exe — a partial bundle must not be installed"
+done
+ARCH=$(file -b "$APP/Contents/MacOS/forge_desktop" | head -1)
+case "$ARCH" in *arm64*) : ;; *) die "forge_desktop is not arm64: $ARCH" ;; esac
+
+# self-contained: no load command may point outside the bundle or the system
+BAD=$(otool -L "$APP/Contents/MacOS/forge_desktop" 2>/dev/null | tail -n +2 | awk '{print $1}' \
+      | grep -vE '^(/usr/lib/|/System/|@rpath/|@executable_path/|@loader_path/)' || true)
+[ -z "$BAD" ] && say "self-contained: ✓" || die "forge_desktop links outside the bundle:
+$BAD"
+
+# ── install: stage aside, swap, verify, roll back on failure ─────────────────
+BACKUP=""
+if [ -d "$DEST" ]; then
+  BACKUP="${DEST}.previous.$$"
+  mv "$DEST" "$BACKUP" || die "could not move the existing install aside"
+fi
+if ! ditto "$APP" "$DEST" 2>/dev/null; then
+  [ -n "$BACKUP" ] && mv "$BACKUP" "$DEST"
+  die "copy failed — the previous install has been restored"
+fi
+# prove the thing we just installed is the thing we verified
+for exe in forge_desktop forge_kernel_worker forge_update; do
+  if [ ! -x "$DEST/Contents/MacOS/$exe" ]; then
+    rm -rf "$DEST"; [ -n "$BACKUP" ] && mv "$BACKUP" "$DEST"
+    die "installed bundle is missing $exe — rolled back"
+  fi
+done
+VER=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$DEST/Contents/Info.plist" 2>/dev/null || echo '?')
+[ -n "$BACKUP" ] && rm -rf "$BACKUP"
+
+mkdir -p "$(dirname "$RECEIPT")"
+cat > "$RECEIPT" <<JSON
+{
+  "version": "$VER",
+  "run_id": "$RUN",
+  "commit": "$HEAD",
+  "artifact": "$NAME",
+  "zip_sha256": "$got",
+  "installed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "dest": "$DEST",
+  "source": "CI artifact from a green '$WF' run — the same payload the publish path would upload"
+}
+JSON
+say "INSTALLED     : $VER at $DEST"
+say "receipt       : $RECEIPT"
