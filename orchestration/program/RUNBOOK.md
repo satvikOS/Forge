@@ -978,3 +978,32 @@ given the correct file — which is what their tests pin. Recording the producer
 into the output JSON is what made the recomputation a one-line change rather than a
 re-derivation. When a result is wrong, check whether the instrument or the input was
 at fault before rewriting the instrument.
+
+### Two corpus explanations died; the modality gap kept surviving
+
+Chasing why astra-v1 scores below a bounding box, the corpus was blamed twice and was
+innocent twice:
+
+* **"45 of 68 ops are never taught."** Measured against the wrong file — the Law 8
+  contamination corpus, not the training set. On the real corpus it is 14 of 68, and
+  the expressibility ceiling is **zero**.
+* **"The corpus teaches short trees."** Measured by compiling its own targets: median
+  5 ops → **10 faces**, 1.15 bores per part, matching the benchmark exactly. The model
+  emits 5 ops → 6 faces, 0.07 bores. It is not reproducing what it was shown.
+
+What survived every elimination was the thing found by reading the adapter's own
+config rather than by theorising: **112,545 training rows, zero images**, against a
+benchmark whose prompt carries a bounding box and directs all shape to the renders.
+
+The pattern worth keeping: a corpus is easy to blame because it is large and
+inspectable, and blaming it produces a satisfying narrative with no experiment
+attached. Both corpus theories fell to one measurement each. Prefer the hypothesis you
+can kill in a single command, and run that command before writing the story.
+
+### Compile the corpus's targets; do not read them
+
+The brevity theory looked right from reading trees — a 6-op block, a 5-op bracket, all
+plausibly short. It died the moment those same targets were compiled and their faces
+counted: 5 ops yields 10 faces, because `EXTRUDE` of a profile with several segments
+is one op and many faces. Op count is not complexity, and eyeballing a tree measures
+neither.
