@@ -853,3 +853,40 @@ suspect a transient spike that only `get_peak_memory` would show. Measured with
 18.51–18.52 GB on degenerate ones**, drifting +0.01 GB across forty generations, with
 zero exceptions raised. Identical distributions on both sides of a deterministic
 cliff rule the variable out — that is a stronger statement than "it looked flat".
+
+### A retrodiction on data you already have is worth more than another experiment
+
+The switch-LoRA ceiling was established by direct experiment, but the strongest
+evidence came free. The explanation requires **images** — a text-only isolation ran 55
+generations with no cliff. Every benchmark run from earlier the same day, collected
+before the hypothesis existed, agrees:
+
+| benchmark | rows with an image | emitted |
+|---|---|---|
+| BenchCAD-holdout-41 | 100% | **40** of 41 |
+| neuralCAD-Edit-56 | **0%** | **54** of 56 |
+| Drawing2CAD-283 | 100% | capped |
+| BenchCAD-HF-980 | 100% | **40**, every run |
+
+An audit of every trace on disk makes it sharper: of thirteen runs with ≥20 rows,
+exactly **three** ever exceeded 41 emitted rows — the two text-only `neuralCAD-Edit`
+runs, and the chunked run that fixed it. Nothing was tuned to produce that; the runs
+predate the explanation. When a hypothesis arrives, check what it says about
+measurements already taken before spending GPU on a new one.
+
+It also found a truncation nobody had noticed: `BenchCAD-holdout-41`, the canonical
+gate benchmark, is 100% images and emitted exactly 40 of its 41 rows. That looked like
+one ordinary non-emission and was the ceiling. **Every holdout-41 number in the repo
+came from 40 of 41 rows.** A cap one row below a benchmark's size is invisible; a cap
+940 rows below it is not, which is why BenchCAD-HF is where it was finally caught.
+
+### A tool that exists is not a tool that runs
+
+The chunked arm was built, tested with ten checks, and proved live at 60/60 rows —
+and the sweep went on calling `score_benchmarks` as one long process, so every
+benchmark it ran was *still* capped at 40. All ten checks passed throughout, because
+they tested the driver and not the call site.
+
+Whenever a fix is a new component rather than an edit to an existing path, one of the
+checks has to assert that the old path is **gone**. The mutation to write is "revert
+the caller", not only "break the new tool".
