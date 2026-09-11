@@ -2754,6 +2754,42 @@ private:
                     cand.push_back(&f);
                 }
             }
+            // VALIDATE THE SELECTOR BEFORE JUDGING THE PART.
+            //
+            // The `at=` arity check used to live below the emptiness test, so a
+            // MALFORMED selector on a part with no matching faces was reported as
+            // "matched no candidate face" -- a statement about the geometry -- when
+            // the actual fault was in the request. MEASURED on the 2026-09-10 edit
+            // benchmark: of 12 BAD_SELECTOR rows, SIX gave three coordinates where
+            // `at=` takes two, and THREE of those six were reported as grounding
+            // misses. That mis-attribution is what made selector failure look like a
+            // grounding problem when half of it is a format problem.
+            //
+            // A malformed request is not evidence about the part.
+            double wx = 0, wy = 0;
+            bool haveAt = false;
+            // NOT named `cut`: a free function of that name is in scope here, and the
+            // original code only compiled because its local shadowed it.
+            std::size_t atPos = std::string::npos, atCut = std::string::npos;
+            {
+                atPos = sel.find("at=");
+                if (atPos != std::string::npos) {
+                    std::string coords0 = sel.substr(atPos + 3);
+                    for (char& c : coords0)
+                        if (c == '(' || c == ')' || c == ';') c = ' ';
+                    atCut = coords0.find(':');
+                    const std::string pair0 =
+                        (atCut == std::string::npos) ? coords0 : coords0.substr(0, atCut);
+                    const std::size_t comma0 = pair0.find(',');
+                    if (comma0 == std::string::npos ||
+                        !parseDouble(trim(pair0.substr(0, comma0)), wx) ||
+                        !parseDouble(trim(pair0.substr(comma0 + 1)), wy))
+                        throw OpError(opId,
+                                      "bad position in `" + selRaw + "` (want at=x,y)");
+                    haveAt = true;
+                }
+            }
+
             if (cand.empty())
                 throw OpError(opId, "selector `" + selRaw + "` matched no candidate face");
 
@@ -2766,21 +2802,8 @@ private:
             // immediately, so "the O4.02 bore at (21.75, 0)" was inexpressible —
             // position and radius could never be combined, which is exactly how a
             // human disambiguates a hole on a drawing.
-            std::size_t ap = sel.find("at=");
-            if (ap != std::string::npos) {
-                std::string coords = sel.substr(ap + 3);
-                for (char& c : coords)
-                    if (c == '(' || c == ')' || c == ';') c = ' ';
-                // stop the coordinate pair at the next filter, so
-                // "hole:at=21.75,0:r=4.02" parses as position THEN radius
-                std::size_t cut = coords.find(':');
-                std::string pair = (cut == std::string::npos) ? coords : coords.substr(0, cut);
-                double wx = 0, wy = 0;
-                std::size_t comma = pair.find(',');
-                if (comma == std::string::npos ||
-                    !parseDouble(trim(pair.substr(0, comma)), wx) ||
-                    !parseDouble(trim(pair.substr(comma + 1)), wy))
-                    throw OpError(opId, "bad position in `" + selRaw + "` (want at=x,y)");
+            // wx/wy were parsed and validated above, before the part was judged.
+            if (haveAt) {
                 const double tol = 1e-2;
                 std::vector<const forge::FaceInfo*> at;
                 for (const auto* f : cand) {
@@ -2799,11 +2822,11 @@ private:
                 cand.swap(at);
                 // a bare position selects what it matched; a further r=/rank
                 // filter below narrows it
-                if (cut == std::string::npos) {
+                if (atCut == std::string::npos) {
                     for (const auto* f : cand) out.push_back(f->index);
                     return out;
                 }
-                sel_tail = sel.substr(ap + 3 + cut + 1);
+                sel_tail = sel.substr(atPos + 3 + atCut + 1);
             }
 
             // optional exact radius: "bore:r=47.5", "fillet:r<=3"
