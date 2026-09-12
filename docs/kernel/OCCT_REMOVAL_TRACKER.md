@@ -80,7 +80,7 @@ because there is a single Forge type to substitute ONTO. Before this, there
 was not: ten incompatible Vec3s with nothing in common.
 
 Still fragmented, and the next rungs -- declaration counts, same measurement:
-Plane 7, Point3 3, AABB 4, Mat3 3.
+Plane 7, Point3 1, AABB 4, Mat3 3.
 
 ## Application-layer leaks
 

@@ -64,6 +64,7 @@
 #ifndef FORGE_NATIVE_BREP_TOPOLOGY_HPP
 #define FORGE_NATIVE_BREP_TOPOLOGY_HPP
 
+#include "forge/math/Point3.hpp"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -94,9 +95,14 @@ namespace native {
 namespace brep {
 
 // A 3D point in model space (geometry-light: a vertex just carries a position).
-struct Point3 {
-    double x = 0.0, y = 0.0, z = 0.0;
-};
+// Point3 is THE canonical forge::math::Point3, not a local re-declaration.
+//
+// It was a plain {double x, y, z}; so were ft::Point3 and geom::Point3 -- three
+// copies of one concept in three namespaces, which is what forces a field-by-field
+// repack at every seam between them. It is NOT aliased to Vec3: AABBTree.hpp
+// overloads on BOTH spellings, so merging them is a redeclaration error and would
+// mean deleting public API. See forge/math/Point3.hpp for the measurement.
+using Point3 = forge::math::Point3;
 
 struct Vertex;
 struct Edge;

@@ -195,6 +195,11 @@ def _baseline(root, td):
     if diff.strip():
         subprocess.run(['git', 'apply', '--allow-empty', '-'], cwd=dst,
                        input=diff, text=True, check=True)
+        # git apply creates NEW files unstaged, and tracked() reads `git ls-files`,
+        # so a newly added header is invisible in the clone and every check that
+        # looks for it reports "declared in 0 places". MEASURED: the baseline went
+        # red on a file that exists, and the selftest reported VOID.
+        subprocess.run(['git', 'add', '-A'], cwd=dst, check=True, capture_output=True)
     _, _, new, gone = check(dst)
     if new or gone:
         raise SystemExit('[js-gate-registration] selftest VOID — baseline already red:\n   '

@@ -31,10 +31,16 @@ Run with --selftest to prove each check can actually go RED.
 import re, subprocess, sys, tempfile, pathlib, shutil, os
 
 CANON = 'forge-kernel/include/forge/math/Vec3.hpp'
+CANON_P3 = 'forge-kernel/include/forge/math/Point3.hpp'
 GUARDED_EPS = {  # module free-normalize functions whose epsilon must not be "unified"
     'forge-kernel/src/native/materials/Materials.cpp':   'normalizeV',
     'forge-kernel/src/native/composites/Composites.cpp': 'normalize3',
 }
+
+def read(root, rel):
+    p = pathlib.Path(root) / rel
+    return p.read_text(errors='replace') if p.exists() else ''
+
 
 def tracked(root):
     out = subprocess.run(['git', 'ls-files', 'forge-kernel'], cwd=root,
@@ -82,7 +88,35 @@ def check(root):
         fails.append(f'{CANON} declares free {", ".join(bad)} at namespace scope; '
                      'ADL finds these alongside each module\'s own and 28 TUs stop compiling')
 
-    # (3) the modules keep their own epsilon-guarded normalize
+    # (3) Point3 is ONE type too, and it is NOT the same type as Vec3.
+    #
+    # The file name says vec3, and this lives here on purpose rather than in a
+    # sibling: a .py gate is invisible to BOTH the shell-gate ratchet (*.sh) and
+    # the JS-gate ratchet (*_gate.{js,mjs}), so a new file whose registration was
+    # missed would simply never run. Extending a gate that is already wired into
+    # gate-registration.yml and preflight cannot fail that way.
+    p3defs = []
+    for rel in tracked(root):
+        p = root / rel
+        if not p.exists():
+            continue
+        for i, line in enumerate(p.read_text(errors='replace').splitlines(), 1):
+            if re.match(r'\s*struct\s+Point3\s*(\{|$)', line):
+                p3defs.append(f'{rel}:{i}')
+    if [d.split(':')[0] for d in p3defs] != [CANON_P3]:
+        fails.append(f'Point3 is declared in {len(p3defs)} place(s), expected only {CANON_P3}:\n'
+                     + '\n'.join('      ' + d for d in p3defs))
+
+    # Point3 must stay a DISTINCT type from Vec3. forge/native/geom/AABBTree.hpp
+    # overloads rayIntersect and closestPoint on BOTH spellings, so aliasing Point3
+    # to Vec3 is "class member cannot be redeclared" -- MEASURED with a minimal
+    # repro. Anyone "simplifying" the two into one deletes public API.
+    p3 = read(root, CANON_P3) if (root / CANON_P3).exists() else ''
+    if re.search(r'using\s+Point3\s*=\s*(forge::math::)?Vec3', p3):
+        fails.append(f'{CANON_P3} aliases Point3 to Vec3; AABBTree.hpp overloads on both, '
+                     'so this is a redeclaration error and removes public API')
+
+    # (4) the modules keep their own epsilon-guarded normalize
     for rel, fn in GUARDED_EPS.items():
         p = root / rel
         if not p.exists():
@@ -109,6 +143,11 @@ def _baseline(root, td):
     if diff.strip():
         subprocess.run(['git', 'apply', '--allow-empty', '-'], cwd=dst,
                        input=diff, text=True, check=True)
+        # git apply creates NEW files unstaged, and tracked() reads `git ls-files`,
+        # so a newly added header is invisible in the clone and every check that
+        # looks for it reports "declared in 0 places". MEASURED: the baseline went
+        # red on a file that exists, and the selftest reported VOID.
+        subprocess.run(['git', 'add', '-A'], cwd=dst, check=True, capture_output=True)
     # untracked-but-staged-later files (this gate itself) do not affect check()
     pre = check(dst)
     if pre:
@@ -127,6 +166,9 @@ def selftest(root):
         ('a second struct Vec3 reappears ON ONE LINE',
          lambda d: (d / 'forge-kernel/include/forge/native/mesh/HalfEdgeMesh.hpp')
                    .write_text('struct Vec3 { double x, y, z; };\n')),
+        ('a second struct Point3 reappears',
+         lambda d: (d / 'forge-kernel/include/forge/native/geom/Geom.hpp')
+                   .write_text('struct Point3 { double x, y, z; };\n')),
         ('canonical header regains a free dot()',
          lambda d: (d / CANON).write_text((d / CANON).read_text() +
                    '\nnamespace forge { namespace math {\n'

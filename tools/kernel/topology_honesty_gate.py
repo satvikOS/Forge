@@ -158,6 +158,11 @@ def selftest(root):
             if diff.strip():
                 subprocess.run(['git', 'apply', '--allow-empty', '-'], cwd=dst,
                                input=diff, text=True, check=True)
+            # git apply creates NEW files unstaged and brep_files() reads
+            # `git ls-files`, so an added file would be invisible here. This
+            # gate's current mutations only edit existing files, so it does not
+            # bite today; staging removes the foot-gun for the next one.
+            subprocess.run(['git', 'add', '-A'], cwd=dst, check=True, capture_output=True)
             pre = check(dst)
             if pre:
                 print('  VOID  baseline already red:\n     ' + '\n     '.join(pre))
