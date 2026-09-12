@@ -235,6 +235,48 @@ def render():
     for mark, name, tot, files, paths in stage_rows():
         w(f'| {mark} | {name} | {tot} | {files} | `{paths}` |')
     w('')
+    w('## Is the Forge vocabulary ADOPTED, or merely OCCT-free?')
+    w('')
+    w('A subsystem can show zero OCCT includes by being unused, and the table above')
+    w('cannot tell the difference. MEASURED, and it is the central fact of this')
+    w('migration:')
+    w('')
+    mathinc = sum(1 for rel in walk()
+                  if rel.startswith('forge-kernel/')
+                  and 'forge/math/Vec3.hpp' in open(os.path.join(ROOT, rel),
+                                                    encoding='utf-8', errors='ignore').read())
+    nativeinc = sum(1 for rel in walk()
+                    if rel.startswith(('forge-kernel/src/native', 'forge-kernel/include/forge/native'))
+                    and 'forge/math/Vec3.hpp' in open(os.path.join(ROOT, rel),
+                                                      encoding='utf-8', errors='ignore').read())
+    def count(tok, prefix):
+        n = 0
+        for rel in walk():
+            if not rel.startswith(prefix):
+                continue
+            n += open(os.path.join(ROOT, rel), encoding='utf-8', errors='ignore').read().count(tok)
+        return n
+    gp = count('gp_Pnt', 'forge-kernel/src/native/brep')
+    fv = count('math::Vec3', 'forge-kernel/src/native/brep')
+    w('| | |')
+    w('|---|---:|')
+    w(f'| files including `forge/math/Vec3.hpp` | {mathinc} |')
+    w(f'| of those, under `native/` | **{nativeinc}** |')
+    w(f'| `gp_Pnt` uses in `src/native/brep` | **{gp}** |')
+    w(f'| `forge::math::Vec3` uses there | **{fv}** |')
+    w('')
+    w("So OCCT's gp_Pnt is the kernel's shared geometry vocabulary, and Forge's own")
+    w('Vec3 is not adopted by the native subsystems at all. They each carry a local')
+    w('one instead -- Vec3 has TEN definitions in this tree, Plane four, Point3 and')
+    w('AABB three -- and types that cannot interoperate have to meet somewhere, so')
+    w('they meet in OCCT.')
+    w('')
+    w('That is why "Math [x]" above is not the win it looks like: that directory is')
+    w('OCCT-free AND unused. The directive\'s first ladder rung, Math -> Geometry')
+    w('Primitives, is not done; it has been built and not adopted. Removing OCCT')
+    w('before a shared Forge vocabulary exists would leave ten incompatible Vec3s')
+    w('with nothing in common.')
+    w('')
     w('## Application-layer leaks')
     w('')
     w('The migration rule is that application code stops talking to OCCT directly and')

@@ -51,6 +51,31 @@ Status is DERIVED from the tree on every run, never typed in.
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
 | [ ] | Kernel core (rest) | 1304 | 62 | `forge-kernel/src` |
 
+## Is the Forge vocabulary ADOPTED, or merely OCCT-free?
+
+A subsystem can show zero OCCT includes by being unused, and the table above
+cannot tell the difference. MEASURED, and it is the central fact of this
+migration:
+
+| | |
+|---|---:|
+| files including `forge/math/Vec3.hpp` | 6 |
+| of those, under `native/` | **0** |
+| `gp_Pnt` uses in `src/native/brep` | **594** |
+| `forge::math::Vec3` uses there | **0** |
+
+So OCCT's gp_Pnt is the kernel's shared geometry vocabulary, and Forge's own
+Vec3 is not adopted by the native subsystems at all. They each carry a local
+one instead -- Vec3 has TEN definitions in this tree, Plane four, Point3 and
+AABB three -- and types that cannot interoperate have to meet somewhere, so
+they meet in OCCT.
+
+That is why "Math [x]" above is not the win it looks like: that directory is
+OCCT-free AND unused. The directive's first ladder rung, Math -> Geometry
+Primitives, is not done; it has been built and not adopted. Removing OCCT
+before a shared Forge vocabulary exists would leave ten incompatible Vec3s
+with nothing in common.
+
 ## Application-layer leaks
 
 The migration rule is that application code stops talking to OCCT directly and
