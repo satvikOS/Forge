@@ -170,6 +170,11 @@ class RecordingExchange final : public forge::ui::FileExchange {
     ++exports;
     return inner_.exportFile(path, format, report);
   }
+  // Forwarded and NOT recorded, unlike the two above. This gate's subject is the
+  // path a COMMAND hands the exchange, and no command reaches this one: it is
+  // called by the document open, which restores a binding the file already
+  // states. A counter here would be a field nobody reads.
+  void bindInputFile(const std::string& path) override { inner_.bindInputFile(path); }
 
   std::string lastImportPath;
   std::string lastExportPath;

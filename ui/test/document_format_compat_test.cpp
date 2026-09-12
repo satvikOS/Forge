@@ -239,9 +239,14 @@ int main() {
   // reader enforces that, so requiring the v1 probe to carry the drawing keys
   // would require it to be a file the app is right to refuse.
   const std::string everyCurrentKey =
-      "FORGE-PART 3\n"
+      "FORGE-PART 4\n"
       "NAME probe\n"
       "UNITS mm\n"
+      // Version 4's one new key: the file an imported body came from. Covered
+      // here because this gate requires every key the reader ACCEPTS to appear
+      // in the canonical probe -- a key the app reads and this contract does not
+      // mention is a key the two implementations can come to disagree about.
+      "INPUT-FILE /Users/a/parts/bracket.step\n"
       "MATERIAL-ID aluminium-6061\n"
       "MATERIAL-NAME Aluminium 6061-T6\n"
       "MATERIAL-DENSITY 2700\n"
@@ -493,18 +498,32 @@ int main() {
   // The app reads an ACCEPTED SET rather than a range, and the set is spelled in
   // one function so the reader and this gate cannot disagree about it. Deriving
   // that from the source keeps this honest if the policy is ever changed.
+  // The set grew by one when INPUT-FILE arrived: a .fpart the shipped app wrote
+  // yesterday claims version 3, so 3 stays in the set beside the current number
+  // and the oldest one. What is asserted is still that the policy is a SET
+  // spelled in one function, not a range -- and the literal is read out of the
+  // source, so changing the policy without changing this line is impossible.
   const bool pinsAcceptedSet =
       source.find("bool partFileVersionIsReadable(int version) noexcept") != std::string::npos &&
-      source.find("version == 1 || version == kPartFileVersion") != std::string::npos;
+      source.find("version == 1 || version == kPartFileDrawingVersion || "
+                  "version == kPartFileVersion") != std::string::npos;
   CHECK(pinsAcceptedSet);
   // The app's OWN older files must stay readable. This is the half a version
   // bump is most likely to break, and it is the half users notice.
   CHECK(source.find("partFileVersionIsReadable") != std::string::npos);
   if (pinsAcceptedSet) {
-    std::printf("[document_format_compat] one-way: readPartFile accepts {1, %d} and refuses %d by "
-                "number, so neither implementation can misread the other's file. Old -> new is "
+    // The set is {1, the drawing version, the current one} -- read out of the
+    // header rather than written down here, because a line that names the set
+    // and does not move with it is how a green log comes to state a policy the
+    // code stopped following.
+    const int appDrawing =
+        std::stoi(constantOf(header, "kPartFileDrawingVersion").empty()
+                      ? std::string("0")
+                      : constantOf(header, "kPartFileDrawingVersion"));
+    std::printf("[document_format_compat] one-way: readPartFile accepts {1, %d, %d} and refuses %d "
+                "by number, so neither implementation can misread the other's file. Old -> new is "
                 "safe; new -> old is a refusal, not a corruption.\n",
-                appVersion, kDocumentFormatVersion);
+                appDrawing, appVersion, kDocumentFormatVersion);
   }
   // The refusal must at least be VERSION-shaped rather than a parse crash: the
   // new writer's header line is exactly what the old reader tests.

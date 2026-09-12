@@ -39,6 +39,57 @@ namespace forge::desktop {
 
 class KernelScene;
 
+// ── CAN THE DOCUMENT'S `INPUT()` ACTUALLY READ THIS FILE? ───────────────────
+//
+// Asked by ForgeFrame::documentOpen about the path a saved .fpart names, and
+// answered HERE because this is the translation unit that already owns the
+// content sniff the kernel's own opInput performs. The app and the kernel have
+// to agree about what a model file is, or an Open accepts a file the rebuild
+// then refuses -- which is exactly the failure this enum was added for.
+//
+// ★ WHY NOT fopen. The first version of that open check asked only whether the
+//   name could be opened for reading. MEASURED, all three silently: the .step
+//   overwritten with junk, the .step truncated to zero bytes, and an INPUT-FILE
+//   naming a DIRECTORY each reported a successful open and then left the user
+//   with `%1 = INPUT()`, volume 0.000000 and faces -1 -- the original defect,
+//   reproduced through the very guard meant to prevent it. Existence is not
+//   readability and readability is not a model.
+//
+// ★ AND WHY `Unreadable` IS NOT `Missing`. The first version of this enum had
+//   four non-usable states and NONE of them meant "it is there and cannot be
+//   read", so a failed ifstream was folded into Missing -- whose sentence is
+//   "there is no file at that name now" and whose remedy is "put that file back
+//   where it was". MEASURED: chmod 000 on a source file produced exactly that
+//   sentence, about a file that had never moved, and prescribed a step the user
+//   cannot perform on a file that never left. This is reachable on macOS with
+//   no exotic setup at all -- a part whose source lives in a TCC-protected
+//   ~/Documents, ~/Desktop or ~/Downloads, a file owned by another user, or a
+//   network share that has gone away -- and "put it back" is the wrong
+//   instruction for every one of them.
+enum class InputFileState {
+  Usable,      // sniffed as STEP, BREP or STL, and whole
+  Missing,     // no file at that name -- the name itself does not resolve
+  Unreadable,  // the name resolves and the BYTES cannot be reached (permission)
+  Nothing,     // it opens and yields no bytes -- a zero-length file, or a folder
+  NotAModel,   // bytes, but not a format `INPUT()` reads
+  Truncated,   // the right format, cut short (a BREP cut short SEGFAULTS the reader)
+};
+
+InputFileState inputFileState(const std::string& path);
+
+// The half-sentence a refusal quotes, in the user's words and never the
+// enumerator's; "" for Usable. It is a clause, not a sentence: the caller owns
+// the part that says which file and what to do about it.
+std::string inputFileProblem(InputFileState state);
+
+// ── AND THE STEP THAT ACTUALLY HELPS, WHICH IS NOT THE SAME FOR ALL OF THEM ──
+// "Put that file back where it was" is the right answer for a file that is GONE
+// and the wrong answer for one that is sitting there unreadable or corrupt --
+// the user cannot put back a file that never left. The remedy therefore travels
+// WITH the problem rather than being written once at the call site, which is how
+// the two came to disagree. A full sentence, ending in a full stop.
+std::string inputFileRemedy(InputFileState state);
+
 class FileExchangeHost final : public forge::ui::FileExchange {
  public:
   // `document` supplies the feature-IR program an export compiles -- the SAME
@@ -55,6 +106,12 @@ class FileExchangeHost final : public forge::ui::FileExchange {
                   forge::ui::ExchangeReport& report) override;
   bool exportFile(const std::string& path, forge::ui::ExchangeFormat format,
                   forge::ui::ExchangeReport& report) override;
+
+  // Binds a file the DOCUMENT names, without reading it -- see the note on the
+  // interface. It sets BOTH halves of the binding, this object's and the
+  // scene's, because the two are one fact kept in two places and an Open that
+  // set only one of them is the half fix that header describes.
+  void bindInputFile(const std::string& path) override;
 
   // The file the document's `INPUT()` currently binds; "" when none does.
   const std::string& inputFile() const noexcept { return inputFile_; }

@@ -13,6 +13,7 @@
 #include <map>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace forge::desktop {
@@ -282,7 +283,47 @@ std::string drawingText(const forge::ui::DrawingModel& d) {
 }  // namespace
 
 bool partFileVersionIsReadable(int version) noexcept {
-  return version == 1 || version == kPartFileVersion;
+  return version == 1 || version == kPartFileDrawingVersion || version == kPartFileVersion;
+}
+
+namespace {
+
+// The accepted set, spelled for a REFUSAL to quote. It used to be written into
+// each message as "version 1 and version <current>", which was true while the
+// set had two members and became a sentence that omits 3 the moment it had
+// three -- a refusal that misstates what the build can read is worse than a
+// terse one, because the user acts on it.
+std::string readableVersions() {
+  std::string out;
+  for (int v = kOldestReadablePartFileVersion; v <= kPartFileVersion; ++v) {
+    if (!partFileVersionIsReadable(v)) continue;
+    if (!out.empty()) out += ", ";
+    out += std::to_string(v);
+  }
+  return out;
+}
+
+}  // namespace
+
+std::string absolutePartPath(const std::string& path) {
+  if (path.empty() || path[0] == '/') return path;
+  std::error_code ec;
+  const std::filesystem::path cwd = std::filesystem::current_path(ec);
+  if (ec) return path;  // nothing to resolve against; the caller keeps what it has
+  std::string base = cwd.string();
+  while (base.size() > 1 && base.back() == '/') base.pop_back();
+  return base + "/" + path;
+}
+
+bool partFileBindsInput(const PartFileDoc& doc) noexcept {
+  // The op name is spelled ONCE in this system outside the kernel's own table.
+  // `INPUT()` is the only op that reads a file, and forge::ui::FeatureIr gives
+  // it arity 0..0, so "does this document need an input file" is exactly "is
+  // this op present".
+  for (const PartFileFeature& f : doc.features) {
+    if (f.record.line.op == "INPUT") return true;
+  }
+  return false;
 }
 
 // ── PartFileDoc ─────────────────────────────────────────────────────────────
@@ -301,6 +342,33 @@ std::string writePartFile(const PartFileDoc& doc) {
   out += std::string(kPartFileMagic) + " " + std::to_string(kPartFileVersion) + "\n";
   out += "NAME " + (doc.name.empty() ? std::string("untitled") : doc.name) + "\n";
   out += "UNITS " + (doc.units.empty() ? std::string("mm") : doc.units) + "\n";
+  // ── WHERE AN IMPORTED BODY CAME FROM (format version 4) ───────────────────
+  //
+  // Written only when the document binds one, so a .fpart saved from a document
+  // with no `INPUT()` is byte-identical to what the previous writer produced --
+  // the same rule the material follows two blocks down.
+  //
+  // ── ★ AND WRITTEN VERBATIM, WHICH IS WHY IT IS NOT writeField ────────────
+  // Every other free-text value in this format goes through sanitizeValue:
+  // control characters become spaces and the ends are trimmed, because the
+  // reader trims and a value the reader would change is a value the file does
+  // not round-trip. A PATH is the one value where that rule is wrong, because
+  // the value is not text the file is describing -- it is a NAME the app is
+  // going to hand back to the operating system.
+  //
+  // MEASURED, on this tree, with the sanitised writer: a source file whose
+  // folder name contained a TAB was written out with a SPACE in its place, and
+  // the reopen refused the document with "Forge cannot read it any more",
+  // naming a path no file has ever had, about a file that had never moved. The
+  // only byte a line-based format truly cannot carry is the line break, and
+  // FileExchangeHost refuses a path containing one before it can ever be bound
+  // (pathIsOneLine), so what reaches here is already carriable as it stands.
+  // The reader takes this value back off the raw line for the same reason.
+  if (!doc.inputFile.empty()) {
+    out += "INPUT-FILE ";
+    out += doc.inputFile;
+    out += '\n';
+  }
   out += drawingText(doc.drawing);
   // ── the material, whole, and only when there is one ───────────────────────
   //
@@ -420,13 +488,12 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
         // this magic is a well-formed document written by the other layer, and
         // telling its owner it is corrupt would be false.
         return fail("this file is version 2, which is written by the document layer and uses "
-                    "different records; this build reads version 1 and version " +
-                    std::to_string(kPartFileVersion));
+                    "different records; this build reads versions " +
+                    readableVersions());
       }
       if (!partFileVersionIsReadable(version)) {
-        return fail("unsupported version " + rest + " (this build reads version " +
-                    std::to_string(kOldestReadablePartFileVersion) + " and version " +
-                    std::to_string(kPartFileVersion) + ")");
+        return fail("unsupported version " + rest + " (this build reads versions " +
+                    readableVersions() + ")");
       }
       fileVersion = version;
       sawHeader = true;
@@ -570,6 +637,40 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
     if (!inFeature) {
       if (key == "NAME") { doc.name = rest; continue; }
       if (key == "UNITS") { doc.units = rest; continue; }
+      if (key == "INPUT-FILE") {
+        // ADDITIVE-ONLY, enforced the way the drawing blocks are: this key was
+        // introduced in version 4, so a file that CLAIMS an older version and
+        // carries one has been hand-edited or half-written.
+        if (fileVersion < kPartFileInputVersion) {
+          return fail("'INPUT-FILE' was added in format version " +
+                      std::to_string(kPartFileInputVersion) +
+                      ", but this file says it is version " + std::to_string(fileVersion));
+        }
+        // An empty value is a file that names no file, which is not the same
+        // fact as omitting the key -- and it is not a path. The writer never
+        // emits one, so reading it would be inventing a meaning.
+        if (rest.empty()) return fail("INPUT-FILE with no path");
+        // ── ★ TAKEN OFF THE RAW LINE, NOT OFF THE TRIMMED ONE ──────────────
+        // `rest` has been through trim() twice by now, and a path is the one
+        // value in this format that must come back exactly as it went in: see
+        // the writer's note. Everything after the single space that follows the
+        // key is the path, including tabs, including leading and trailing
+        // spaces. A CR is the one byte taken off, because a file written on
+        // another platform ends its lines with one and no bound path can
+        // contain one (FileExchangeHost::pathIsOneLine refuses those outright).
+        //
+        // A line that does not START with the key is one somebody indented by
+        // hand; there is no way to tell their indentation from the path, so
+        // that case keeps the trimmed value it always had.
+        std::string value = rest;
+        const std::string marker = "INPUT-FILE ";
+        if (raw.rfind(marker, 0) == 0) {
+          value = raw.substr(marker.size());
+          while (!value.empty() && value.back() == '\r') value.pop_back();
+        }
+        doc.inputFile = value;
+        continue;
+      }
       if (key == "MATERIAL-ID") {
         if (rest.empty()) return fail("MATERIAL-ID with no name");
         doc.material.id = rest;
@@ -688,7 +789,8 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
 
 // ── document <-> file ───────────────────────────────────────────────────────
 PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name,
-                                const forge::ui::DrawingModel& drawing) {
+                                const forge::ui::DrawingModel& drawing,
+                                const std::string& inputFile) {
   PartFileDoc out;
   out.name = name.empty() ? std::string("untitled") : name;
   // THE UNIT, from the one place that owns it. forge/ui/Units.hpp states the
@@ -712,6 +814,22 @@ PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::s
       }
     }
     out.features.push_back(std::move(f));
+  }
+  // ── THE INPUT FILE: the document's own binding, made absolute ─────────────
+  //
+  // Two conditions, and they answer two different questions. `inputFile` is the
+  // binding ForgeFrame keeps for THE DOCUMENT NOW OPEN -- set by an import or by
+  // an open, and cleared by File > New and by anything else that empties the
+  // document -- so a non-empty one is the fact that this part came from a file.
+  // partFileBindsInput then asks whether the program has an INPUT() statement to
+  // spend it on, because a file naming a source none of its features read is
+  // making a claim it cannot support.
+  //
+  // MEASURED with only the second condition, and it is why the first exists:
+  // import a part, File > New, state an imported solid in the fresh document,
+  // Save -- and the .fpart named the file the FIRST part was built from.
+  if (!inputFile.empty() && partFileBindsInput(out)) {
+    out.inputFile = absolutePartPath(inputFile);
   }
   return out;
 }

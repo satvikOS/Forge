@@ -815,6 +815,15 @@ void ForgeShell::runImport(CommandContext& ctx, ExchangeFormat format) {
     ctx.fail(lastExchange_.message);
     return;
   }
+  // ── AND RE-STATE THE BINDING FOR THE DOCUMENT ABOUT TO BE BUILT ─────────
+  // documentReset empties the document AND clears its input binding, because the
+  // binding is a fact about the document that is open and that document has just
+  // been thrown away. The file this import read is the source of the NEXT one,
+  // so it is bound again here, before the statement that spends it. Without this
+  // pair the binding has no lifetime at all: MEASURED, a part imported, then
+  // File > New, then given an imported solid, saved a .fpart naming the file the
+  // FIRST part came from.
+  fileExchange_->bindInputFile(path);
   const DispatchResult placed = registry_.dispatch("part.input_solid", selection_);
   if (!placed.ok()) {
     lastExchange_.ok = false;

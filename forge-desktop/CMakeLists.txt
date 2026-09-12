@@ -687,6 +687,27 @@ target_link_libraries(forge_desktop_document_gate PRIVATE forge_desktop_core ${F
 set_target_properties(forge_desktop_document_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------- the IMPORT / SAVE / REOPEN gate
+# Does an imported STEP survive a restart? MEASURED before this gate: no. The
+# .fpart recorded `OP INPUT` and no path, nothing re-bound an input file on open,
+# and the reopened document answered "INPUT() used but no input STEP was supplied
+# to the compiler" from a Save and an Open that both reported success.
+#
+# It RE-EXECUTES ITSELF to do the reopening, because the bindings the defect is
+# about live in memory that a restart destroys -- an in-process round trip cannot
+# make the claim. `--mutate 1..15` proves it can fail -- the same fifteen
+# registered as ctest cases below, and the same fifteen run_desktop.sh runs.
+# EIGHT of them are defects and SEVEN are controls on the gate's own
+# expectations; which is which is written down in run_desktop.sh and in the
+# gate's own header, because a control that is counted as a defect is a
+# mutation score that flatters itself.
+add_executable(forge_desktop_import_reopen_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/import_reopen_gate.cpp")
+target_compile_options(forge_desktop_import_reopen_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_import_reopen_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_import_reopen_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # ============================================================================
 # The CLICK gate, and the ADDRESS-SANITIZED build it needs.
 #
@@ -878,6 +899,16 @@ add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_g
 add_test(NAME forge_desktop_atomic_save_gate COMMAND forge_desktop_atomic_save_gate)
 add_test(NAME forge_desktop_copilot_input_gate COMMAND forge_desktop_copilot_input_gate)
 add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
+add_test(NAME forge_desktop_import_reopen_gate COMMAND forge_desktop_import_reopen_gate)
+# The negative controls, in the WILL_FAIL idiom every other mutation set here
+# uses: the binary keeps the ordinary exit convention under --mutate, so a CAUGHT
+# mutation is a red run and ctest is told to expect it. A mutation that starts
+# exiting zero is one whose defect the gate no longer detects.
+foreach(_ir RANGE 1 15)
+    add_test(NAME forge_desktop_import_reopen_mutation_${_ir}
+             COMMAND forge_desktop_import_reopen_gate --mutate ${_ir})
+    set_tests_properties(forge_desktop_import_reopen_mutation_${_ir} PROPERTIES WILL_FAIL TRUE)
+endforeach()
 add_test(NAME forge_desktop_imgui_recovery_gate COMMAND forge_desktop_imgui_recovery_gate)
 # Same WILL_FAIL idiom as the update and file-exchange mutations: a mutated run
 # is EXPECTED to be red, so a mutation that starts exiting ZERO -- one whose

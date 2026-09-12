@@ -566,8 +566,12 @@ int main(int argc, char** argv) {
     // MUTATION 4 saves an EMPTY drawing, which is what forgetting to pass it
     // through capturePartDocument would do.
     const forge::ui::DrawingModel empty;
+    // "" for the input file: this document is the starter part, which binds no
+    // imported body. capturePartDocument stores a path only for a document whose
+    // program contains INPUT(), so passing one here would change nothing -- the
+    // argument is required so that a caller has to answer the question.
     const forge::desktop::PartFileDoc file = forge::desktop::capturePartDocument(
-        frame.document(), "bracket", g_mutation == 4 ? empty : frame.drawing());
+        frame.document(), "bracket", g_mutation == 4 ? empty : frame.drawing(), std::string());
     const std::string text = forge::desktop::writePartFile(file);
     check(text.rfind("FORGE-PART ", 0) == 0, "the file starts with the format's own magic", "");
 
@@ -621,10 +625,15 @@ int main(int argc, char** argv) {
           "and it is told whose it is rather than called corrupt", err);
     check(!forge::desktop::readPartFile("FORGE-PART 99\nNAME x\n", refused, err),
           "an unknown version is refused", err);
+    // The set grew when INPUT-FILE minted version 4: a .fpart the shipped app
+    // wrote yesterday claims the DRAWING version and must still open, so that
+    // number is in the set beside 1 and the current one. 2 is still refused --
+    // it belongs to the other document layer.
     check(forge::desktop::partFileVersionIsReadable(1) &&
+              forge::desktop::partFileVersionIsReadable(forge::desktop::kPartFileDrawingVersion) &&
               forge::desktop::partFileVersionIsReadable(forge::desktop::kPartFileVersion) &&
               !forge::desktop::partFileVersionIsReadable(2),
-          "the accepted set is exactly {1, the current version}", "");
+          "the accepted set is exactly {1, the drawing version, the current version}", "");
   }
 
   std::printf("[drawing_gate] %zu checks, %zu failures — %s\n", g_checks, g_failures,

@@ -204,6 +204,25 @@ class FileExchange {
   // Compile the open document and write it to `path` in `format`.
   virtual bool exportFile(const std::string& path, ExchangeFormat format,
                           ExchangeReport& report) = 0;
+
+  // ── RE-BIND A FILE THE DOCUMENT ALREADY NAMES ───────────────────────────
+  // importFile READS a file and binds it. This binds one WITHOUT reading it,
+  // and it exists for exactly one caller: opening a saved part whose stored
+  // program contains `INPUT()`. The document already says which file that is;
+  // re-importing it would replace the document that was just restored, which is
+  // the one thing an Open must not do.
+  //
+  // MEASURED: without this, an Open that rebinds only the viewport's copy of the
+  // path produces a HALF FIX that looks complete -- the part draws, and the next
+  // "Save a Copy as STEP" refuses, because exportFile compiles the document with
+  // the implementation's own binding and that one is still empty.
+  //
+  // PURE, not a defaulted no-op, for the reason the two above are: a default
+  // that quietly did nothing is precisely the silence this whole change exists
+  // to remove, and it would be invisible in every implementation that forgot it.
+  // `path` may be "": a document that binds no input file clears the binding, so
+  // an earlier import cannot follow the next document opened in this session.
+  virtual void bindInputFile(const std::string& path) = 0;
 };
 
 }  // namespace forge::ui

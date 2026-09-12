@@ -114,7 +114,30 @@ set -uo pipefail
 #   behind the surface -- far enough to stitch, not far enough to hide -- which is
 #   the only injected input that makes a visible edge come out DASHED. Six
 #   mutations that all leave a check green are six mutations that do not test it.
-EXPECTED_MUTATIONS=128
+#
+# * 2026-09-12: 113 -> 128, + import_reopen 15. The IMPORT/SAVE/REOPEN gate joined
+#   run_desktop.sh, so this number moves in the SAME commit. DERIVED on this tree,
+#   not incremented on faith:
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   prints 128.
+#
+#   ★ THIS NOTE WAS ITSELF WRONG ON ITS FIRST WRITING and is worth keeping as the
+#     example: it said "113 -> 118, + import_reopen 5" beside a constant of 122.
+#     Every figure in it was wrong -- the parent's own awk printed 113 and not
+#     118, the gate carried nine --mutate cases and not five, and the number it
+#     claimed the awk printed was one the awk had never printed. The constant was
+#     right and its own explanation was not, which is the failure this constant
+#     cannot catch: CI compares the NUMBER, and prose beside a number is checked
+#     by nothing but a reader.
+# ── MERGE NOTE 2026-09-12: both sides of this merge derived 128 and the merged
+# tree derives 143. The two branches added disjoint gates to a shared base of
+# 113 -- render 7 + the egress/sheet work on one side, import_reopen 15 on the
+# other -- and each arrived at 128 by a DIFFERENT route. Because the two numbers
+# agreed, git auto-merged the constant and no conflict was raised on the one
+# line that decides the build. DERIVED on the merged tree, not carried over:
+#   awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+# prints 143.
+EXPECTED_MUTATIONS=143
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists

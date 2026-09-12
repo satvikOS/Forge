@@ -75,19 +75,34 @@ namespace forge::desktop {
 //   * a version this build does not know is refused, and the refusal names both
 //     the file's number and what this build reads. Guessing at records it cannot
 //     know corrupts a user's work.
-//   * ADDITIVE ONLY. A version-3 key may not appear in a version-1 file: the
-//     drawing blocks carry the version they were introduced in, so a hand-edited
-//     hybrid is refused as the corruption it is rather than half-read.
+//   * ADDITIVE ONLY. A key may not appear in a file older than the version that
+//     introduced it: the drawing blocks carry theirs and so does INPUT-FILE, so
+//     a hand-edited hybrid is refused as the corruption it is rather than
+//     half-read.
+//
+// ★ WHY 4. Version 3 wrote `OP INPUT` and NOTHING ELSE for an imported body --
+//   no path, no name, no bytes. MEASURED on this tree before the key below
+//   existed: import a STEP, Save, reopen in a fresh process, and the document
+//   comes back as the one statement `%1 = INPUT()` with nothing bound, so the
+//   kernel answers "INPUT() used but no input STEP was supplied to the compiler"
+//   and the user gets an EMPTY viewport from a Save that reported success. The
+//   file has to carry the path or the most common CAD workflow there is --
+//   import, save, come back tomorrow -- cannot survive a restart.
 inline constexpr const char* kPartFileMagic = "FORGE-PART";
-inline constexpr int kPartFileVersion = 3;
+inline constexpr int kPartFileVersion = 4;
 inline constexpr int kOldestReadablePartFileVersion = 1;
 // The version the DRAWING blocks were introduced in. A file older than this may
 // not contain one.
 inline constexpr int kPartFileDrawingVersion = 3;
+// The version INPUT-FILE was introduced in. A file older than this may not
+// contain one, for the same additive-only reason the drawing blocks carry theirs.
+inline constexpr int kPartFileInputVersion = 4;
 inline constexpr const char* kPartFileExtension = ".fpart";
 
-// Whether this build can read a file claiming `version`. The accepted set, not a
-// range: see the note above about version 2.
+// Whether this build can read a file claiming `version`. The accepted SET, not a
+// range: see the note above about version 2. 3 is listed because a .fpart the
+// shipped app wrote yesterday claims it, and dropping it would make this build
+// refuse its own documents.
 bool partFileVersionIsReadable(int version) noexcept;
 
 // One stored feature: the document record, plus the selection node its value is
@@ -114,6 +129,27 @@ struct PartFileDoc {
   // byte-identical to what the previous writer produced.
   forge::ui::Material material = forge::ui::unassignedMaterial();
   std::vector<PartFileFeature> features;
+  // ── WHERE AN IMPORTED BODY CAME FROM ──────────────────────────────────────
+  // The file the document's `INPUT()` binds, and "" when nothing is bound.
+  //
+  // ★ ABSOLUTE, AND BYTE FOR BYTE. capturePartDocument puts it through
+  //   absolutePartPath, because a path is only a name of a file while the
+  //   working directory it was relative to is still the current one -- MEASURED:
+  //   an import typed as `rel.step` recorded `INPUT-FILE rel.step`, and the same
+  //   document opened from any other directory was refused as a file that had
+  //   gone missing while it sat there the whole time. And writePartFile writes
+  //   these bytes VERBATIM rather than through the free-text writer every other
+  //   value uses: that writer maps control characters to spaces, so a source
+  //   whose folder contained a TAB was recorded under a name no file has --
+  //   MEASURED, and the reopen then said "Forge cannot read it any more" about
+  //   a file that had never moved.
+  //
+  // It is NOT an IR argument. `INPUT()` has arity 0..0 in the kernel's op table
+  // and reads Builder::inputStep, so the path is document state beside the
+  // program, the same way the selection bindings and the tree labels are. That
+  // is also why the fix belongs here: a .fpart is the only thing that survives
+  // the process, and before this field it carried no trace of the file at all.
+  std::string inputFile;
   // The 2-D documentation side: the title block, the datum letters, the notes
   // and the geometric tolerances. Introduced in format version 2; a version 1
   // file loads with this empty.
@@ -133,9 +169,63 @@ std::string writePartFile(const PartFileDoc& doc);
 // written on success: a rejected file never half-replaces a document.
 bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error);
 
+// Does this document's program NEED an input file -- does it contain an
+// `INPUT()` statement? ONE function, because two callers need the same answer
+// and a second copy of the rule is how the writer and the reader come to
+// disagree.
+//
+// ★ WHAT THIS IS NOT. It is not the answer to "was this document bound to a
+//   file", and it was used as that answer once: capturePartDocument recorded
+//   whatever path the session happened to be holding whenever the program
+//   contained INPUT(). MEASURED -- import a part, File > New, state an imported
+//   solid in the fresh document, Save, and the .fpart named the file the FIRST
+//   part came from. The document's binding is now kept as a fact with a
+//   lifetime (ForgeFrame::bindInputFile clears it whenever the document is
+//   emptied or replaced), and this predicate answers only the question it is
+//   right for: an open asks it whether an unreachable source file matters at
+//   all, and a save asks it whether a path would describe anything in the file.
+bool partFileBindsInput(const PartFileDoc& doc) noexcept;
+
+// ── a path that still names the file tomorrow ───────────────────────────────
+// Returns `path` unchanged when it is already absolute (or empty), and
+// otherwise PREPENDS the current working directory -- which is the directory the
+// relative path was typed in, and the only one it means.
+//
+// ★ WHAT IT DOES NOT DO, AND WHAT IT CANNOT AVOID. It never rewrites `path`
+//   itself: no realpath, no "..", no symlink resolution, so the NAME the user
+//   typed comes through intact. The BASE is another matter and this comment
+//   used to claim otherwise. std::filesystem::current_path() is getcwd(), and
+//   getcwd() is resolved by the kernel -- so a relative import made in
+//   /var/folders/... is recorded under /private/var/folders/..., which is
+//   exactly the rewrite the old comment cited as the thing this function avoids.
+//   MEASURED on this tree.
+//
+//   It is left that way ON PURPOSE. The resolved base is the more DURABLE of
+//   the two: it goes on naming the file after a symlink in the user's path is
+//   removed or re-pointed, and a recorded path is read back tomorrow, not now.
+//   The price is real and is paid in words, not in geometry -- a refusal can
+//   quote a prefix the user did not type -- and it is the price this function
+//   pays rather than the other one. There is no portable way to ask for the
+//   unresolved cwd: $PWD is the shell's belief, and the app is usually launched
+//   with no shell at all.
+std::string absolutePartPath(const std::string& path);
+
 // ── document <-> file ───────────────────────────────────────────────────────
+// `inputFile` is the file BOUND TO THIS DOCUMENT -- KernelScene's, which is what
+// the compiler is handed, and which ForgeFrame clears whenever the document is
+// emptied or replaced. It is a REQUIRED argument and not a defaulted one on
+// purpose: the defect this parameter exists for is a caller that never thought
+// about the input file, and a default would let the next one make the same
+// omission silently.
+//
+// It is stored ABSOLUTE (absolutePartPath) and only when the program actually
+// contains an INPUT() statement, so a .fpart never names a file none of its
+// features read. The staleness guard is the BINDING's lifetime, not this
+// predicate -- see the note on partFileBindsInput for what that distinction
+// cost when it was the other way round.
 PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::string& name,
-                                const forge::ui::DrawingModel& drawing);
+                                const forge::ui::DrawingModel& drawing,
+                                const std::string& inputFile);
 // Appends every stored record into `doc` through its ONE mutation entry point
 // (PartDocument::appendFeature), so a file that would build an illegal document
 // is refused by the same validator a live command is refused by.

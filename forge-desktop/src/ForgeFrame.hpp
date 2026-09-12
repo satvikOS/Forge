@@ -253,6 +253,13 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   bool documentReset(std::string& error) override;
   bool documentOpen(const std::string& path, std::string& error) override;
   bool documentSave(const std::string& path, std::string& error) override;
+  // The file THIS document's `INPUT()` binds, told to both holders at once --
+  // the scene the viewport is rebuilt from and the exchange a STEP export
+  // compiles with. "" clears it. Everything that replaces or empties the
+  // document calls it, which is what gives the binding a lifetime and stops one
+  // part's source file following the next part into its file. See the note on
+  // the definition for what it cost when it had none.
+  void bindInputFile(const std::string& path);
   bool documentUndo() override;
   bool documentRedo() override;
   // The shell calls this after any Document-side-effect command that ran. It is

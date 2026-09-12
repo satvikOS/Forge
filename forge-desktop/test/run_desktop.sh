@@ -53,19 +53,19 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. ONE HUNDRED AND
-#                       SEVENTEEN defects (imgui_recovery 8 + document 8 +
-#                       file_exchange 5 + file_dialog 4 + frame 25 + drawing 6 +
-#                       sketch_panels 6 + quality 7 + copilot 8 + study 6 +
-#                       cam_panels 7 + update 7 + click 12 + assembly 4 +
-#                       frame_capture 3 + transaction 1) are
-#                       injected in turn and each MUST make its gate exit non-zero;
-#                       a mutation that stays green fails this script, because an
-#                       unfalsifiable check is not a check. The list above was
-#                       STALE at 83 — it named ten of the sixteen gates that carry
-#                       mutations — and is now derived from the run_gate lines
-#                       below, which are what actually decide the number
-#                       ci_desktop_gate.sh pins.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. Every defect
+#                       named by a `run_gate` line below is injected in turn and
+#                       each MUST make its gate exit non-zero; a mutation that
+#                       stays green fails this script, because an unfalsifiable
+#                       check is not a check. The TOTAL is deliberately not
+#                       written here: it is a figure this comment cannot keep,
+#                       and it said EIGHTY-THREE for long enough that the real
+#                       count reached 113 underneath it. It is pinned where it
+#                       decides the build — EXPECTED_MUTATIONS in
+#                       ci_desktop_gate.sh — and derived, on the tree being
+#                       committed, by
+#                         awk '/^run_gate /{t+=NF-2} END{print t}' \
+#                           forge-desktop/test/run_desktop.sh
 #
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
@@ -259,6 +259,48 @@ run_gate forge_desktop_copilot_input_gate
 # carries the message out in Forge's own words.
 run_gate forge_desktop_imgui_recovery_gate 1 2 3 4 5 6 7 8
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
+# IMPORT, SAVE, REOPEN: the workflow every CAD session begins with, across a REAL
+# process boundary -- the gate re-executes itself to do the opening, because the
+# bindings the defect is about live in memory a restart destroys. MEASURED before
+# it existed: the .fpart recorded `OP INPUT` and no path, nothing re-bound an
+# input file on open, and the reopened part answered "INPUT() used but no input
+# STEP was supplied to the compiler" while both the Save and the Open reported
+# success.
+#
+# It also holds every failure the FIRST TWO versions of that fix produced, each
+# measured before it was fixed. From the first: a version-3 .fpart -- every file
+# the shipped app ever wrote for an imported part -- was refused outright; the
+# remedy the refusal prescribed (import it again) EMPTIES the document; the
+# recorded path went through the format's free-text writer, so a source whose
+# name held a TAB was written under a name no file has; a relative import was
+# recorded relative; renaming a job folder broke the part while its .step sat
+# beside it; and a source that was present but unusable (junk, empty, a folder)
+# reproduced the original silent empty viewport through the guard meant to
+# prevent it. That is SIX, and this comment said "five" while listing them.
+#
+# From the second: the look beside the document was skipped entirely for a BARE
+# RELATIVE document name, which is how main.cpp dispatches a command-line path;
+# an open that bound nothing did not clear a previous import, so a legacy part
+# naming no source silently BUILT the last part's solid; a file present but
+# unreadable was reported as absent; the sibling warning said "is not there now"
+# about a file that was there and junk; and the save that warning prescribes was
+# `disabled` at the moment it was prescribed.
+#
+# Fifteen mutations, counted where they are written: EIGHT are defects (1 2 3 4 6
+# 9 11 15) -- the path is not written; the scene is not re-bound; the exchange is
+# not re-bound; the path is re-bound to a DIFFERENT file; the recorded path is
+# sanitised the way a free-text value is; the previous import is re-bound after
+# File > New; the previous part's source is re-bound after an open that binds
+# nothing; and the file found beside a bare-name document is the DECOY solid.
+# SEVEN are controls on the gate's own expectations (5 7 8 10 12 13 14) -- the
+# source is not moved; the file beside the renamed folder is deleted; the four
+# unusable sources are left intact; the file beside the BARE-NAME folder is
+# deleted; the permission fixture is left readable; the recorded source is
+# deleted instead of junked; and a good copy is left at the recorded path.
+#
+# The production lines these do NOT reach are proved by breaking the SOURCE, one
+# line at a time -- see the mutation sweep in this gate's commit message.
+run_gate forge_desktop_import_reopen_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 # FILE EXCHANGE: open and save real CAD files through the shipping command path,
 # comparing a VECTOR of observables at the seam -- volume AND area AND centre of
 # mass AND bounding box AND the per-kind face census. The five mutations break the

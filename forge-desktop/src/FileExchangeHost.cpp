@@ -1,5 +1,8 @@
 #include "FileExchangeHost.hpp"
 
+#include <sys/stat.h>
+
+#include <cerrno>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -420,6 +423,92 @@ void damageFile(const std::string& path, FileExchangeHost::WriteMutation mutatio
 
 }  // namespace
 
+// ── ★ IS THE FILE A SAVED DOCUMENT NAMES STILL USABLE? ──────────────────────
+// The three helpers above, in the order the kernel's opInput applies them, plus
+// the completeness check opInput does NOT do -- deliberately, because a BREP cut
+// in half makes the reader SEGFAULT and an Open must not take a process down on
+// a file the user merely copied badly.
+//
+// The format is sniffed from CONTENT and the extension is never consulted, for
+// the reason contentMatches gives: a file called part.step holding an STL is an
+// STL, and `INPUT()` will read it as one.
+InputFileState inputFileState(const std::string& path) {
+  if (path.empty() || !pathIsOneLine(path)) return InputFileState::Missing;
+  // ── ★ "NOT THERE" AND "CANNOT BE READ" ARE DIFFERENT ANSWERS ────────────
+  // A failed ifstream used to mean Missing, whose sentence is "there is no file
+  // at that name now" and whose remedy is "put that file back where it was".
+  // MEASURED: chmod 000 produced that sentence about a file that had never
+  // moved. stat() is asked FIRST because it answers the question the sentence
+  // is about -- does this NAME resolve -- while the stream answers whether the
+  // BYTES can be reached. ENOENT (no such name) and ENOTDIR (a component of the
+  // path is not a folder, so the name cannot resolve either) are the two errnos
+  // that really mean "not there"; every other one -- EACCES on the file or on a
+  // folder above it, EPERM from a sandbox, a share that is gone -- is a file
+  // whose name is fine and whose content this process cannot have.
+  {
+    struct ::stat st;
+    if (::stat(path.c_str(), &st) != 0) {
+      return (errno == ENOENT || errno == ENOTDIR) ? InputFileState::Missing
+                                                   : InputFileState::Unreadable;
+    }
+    std::ifstream probe(path, std::ios::binary);
+    if (!probe) return InputFileState::Unreadable;
+  }
+  // A DIRECTORY opens and reads nothing, which is the same answer a zero-length
+  // file gives and deserves the same sentence: there is nothing in it to read.
+  if (peek(path, 1).empty()) return InputFileState::Nothing;
+
+  ExchangeFormat format = ExchangeFormat::Step;
+  bool known = false;
+  for (const ExchangeFormat candidate :
+       {ExchangeFormat::Step, ExchangeFormat::Brep, ExchangeFormat::Stl}) {
+    if (contentMatches(path, candidate)) {
+      format = candidate;
+      known = true;
+      break;
+    }
+  }
+  if (!known) return InputFileState::NotAModel;
+  if (!contentIsComplete(path, format)) return InputFileState::Truncated;
+  return InputFileState::Usable;
+}
+
+std::string inputFileProblem(InputFileState state) {
+  switch (state) {
+    case InputFileState::Usable: return std::string();
+    case InputFileState::Missing: return "there is no file at that name now";
+    case InputFileState::Unreadable: return "it is there and Forge is not allowed to read it";
+    case InputFileState::Nothing: return "there is nothing in it to read";
+    case InputFileState::NotAModel: return "it is not a STEP, BREP or STL file";
+    case InputFileState::Truncated: return "it stops part way through";
+  }
+  return "Forge cannot read it";
+}
+
+std::string inputFileRemedy(InputFileState state) {
+  switch (state) {
+    case InputFileState::Usable: return std::string();
+    // GONE. Putting it back is the only thing that names this file again.
+    case InputFileState::Missing:
+      return "Put that file back where it was, or put a copy of it in the same folder as this "
+             "part, and open the part again.";
+    // THERE, and behind a permission. "Put it back" is an instruction the user
+    // cannot carry out on a file that never left.
+    case InputFileState::Unreadable:
+      return "Give yourself permission to read that file, or put a copy of it that you can read "
+             "in the same folder as this part, and open the part again.";
+    // THERE, and not the file it used to be. A good copy is what is missing, not
+    // the name.
+    case InputFileState::Nothing:
+    case InputFileState::NotAModel:
+    case InputFileState::Truncated:
+      return "Put a good copy of that file back, or put one in the same folder as this part, and "
+             "open the part again.";
+  }
+  return "Put a good copy of that file back, or put one in the same folder as this part, and open "
+         "the part again.";
+}
+
 FileExchangeHost::FileExchangeHost(const forge::ui::PartDocument& document, KernelScene* scene)
     : document_(document), scene_(scene) {}
 
@@ -492,6 +581,15 @@ bool FileExchangeHost::importFile(const std::string& path, ExchangeFormat format
   inputFile_ = path;
   if (scene_ != nullptr) scene_->setInputFile(path);
   return true;
+}
+
+void FileExchangeHost::bindInputFile(const std::string& path) {
+  // The SAME two assignments importFile ends on, and deliberately nothing else:
+  // no read, no measure, no report. The caller is restoring a binding the
+  // document already states, and reading the file here would replace the
+  // document that was just opened with a fresh import of it.
+  inputFile_ = path;
+  if (scene_ != nullptr) scene_->setInputFile(path);
 }
 
 bool FileExchangeHost::exportFile(const std::string& path, ExchangeFormat format,

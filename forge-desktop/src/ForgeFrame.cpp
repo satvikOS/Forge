@@ -21,6 +21,11 @@
 #include "imgui.h"
 
 #include "Camera.hpp"
+// For inputFileState: whether the file a saved document names can still be read
+// AS A MODEL. It is answered in the translation unit that owns the content sniff
+// the kernel itself performs, so the Open and the rebuild cannot disagree about
+// what a STEP file is. The header declares no kernel type.
+#include "FileExchangeHost.hpp"
 #include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
 #include "StudyHost.hpp"
@@ -608,6 +613,10 @@ bool ForgeFrame::syncSceneToDocument() {
 // ── forge::ui::DocumentHost ─────────────────────────────────────────────────
 bool ForgeFrame::documentNew(std::string& error) {
   partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
+  // A NEW part came from no file. Without this the scene kept whatever the last
+  // import bound, and a Save that stated an imported solid wrote that path into
+  // a document which had never seen it -- MEASURED.
+  bindInputFile(std::string());
   // Snapshot does NOT carry the material -- deliberately, so undoing a fillet
   // cannot change what the part is made of -- which means restore() leaves the
   // old one behind. A NEW document has not been given a material, and saying it
@@ -649,10 +658,35 @@ bool ForgeFrame::documentNew(std::string& error) {
 // `documentPath_` alone: the sample is loaded INTO the open document, and
 // forgetting where that document came from would turn the next Save into a
 // silent Save As.
+// ── THE DOCUMENT'S INPUT BINDING, SET IN ONE PLACE ──────────────────────────
+//
+// BOTH holders are told, and neither line is redundant. The scene's copy is what
+// the viewport rebuild compiles with, and it is set DIRECTLY because the
+// exchange is optional: main.cpp installs it after wirePartCommands, and a
+// headless configuration runs with none at all. The exchange keeps its own copy
+// and that is the one "Save a Copy as STEP" compiles with, so telling only the
+// scene is a fix that draws the right part and cannot export it.
+//
+// ★ IT HAS A LIFETIME, AND THAT IS THE POINT. The binding is a fact about THE
+//   DOCUMENT NOW OPEN, so everything that replaces or empties the document
+//   passes through here -- an open, an import, File > New, a reset. MEASURED
+//   when it did not: import a part, File > New, state an imported solid, Save,
+//   and the .fpart named the file the FIRST part was built from, because the
+//   scene was still holding it and nothing had ever cleared it.
+void ForgeFrame::bindInputFile(const std::string& path) {
+  scene_.setInputFile(path);
+  if (shell_.fileExchange() != nullptr) shell_.fileExchange()->bindInputFile(path);
+}
+
 bool ForgeFrame::documentReset(std::string& error) {
   error.clear();
   partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
   partUndo_.clear();
+  // The emptied document is bound to nothing. ForgeShell::runImport re-binds
+  // immediately after this returns, because an import BINDS A FILE and then
+  // empties the document to state it -- the binding belongs to the document it
+  // is about to build, not to the one being thrown away.
+  bindInputFile(std::string());
   // The scene is rebuilt from an EMPTY program, so the viewport shows an empty
   // document rather than the last body it happened to be holding. Without this
   // the window would keep drawing geometry the document no longer contains.
@@ -724,6 +758,64 @@ bool omittableWhenBlank(const forge::ui::CommandDescriptor* d, const std::string
   return false;
 }
 
+// The folder a path lives in, and the name inside it. "" when the path names no
+// folder, which is what a bare file name does.
+std::string folderOf(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  if (slash == std::string::npos) return std::string();
+  return slash == 0 ? std::string("/") : path.substr(0, slash);
+}
+
+std::string leafOf(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
+// ── WHERE TO LOOK FOR A DOCUMENT'S SOURCE FILE ──────────────────────────────
+//
+// In order, and never more than two places:
+//
+//   1. the path the file records. Absolute since format version 4; a relative
+//      one predates that or was hand-written, and the only directory a path
+//      INSIDE a document can sensibly be relative to is the document's own.
+//   2. ★ THE SAME NAME, BESIDE THE DOCUMENT. This is the ordinary case, not a
+//      recovery: people copy a job folder, or rename it, or take it home on a
+//      stick, and the .step travels with the .fpart because they are in the
+//      same folder. MEASURED before this existed: renaming the folder made the
+//      part refuse to open, naming its OLD absolute path, while the file it
+//      wanted sat right beside the document it was refusing.
+//
+// It is a SEARCH OF TWO NAMED PLACES and deliberately not a search: guessing at
+// any file of the right type nearby is how a part quietly opens against the
+// wrong solid.
+//
+// ★ A DOCUMENT PATH THAT NAMES NO FOLDER IS NOT A DOCUMENT WITH NO FOLDER.
+//   folderOf("part.fpart") is "", and the first version of this function read
+//   that as "there is nowhere beside this document to look" -- so it skipped
+//   place 2 entirely for a BARE RELATIVE NAME. That is not a corner: main.cpp
+//   dispatches a command-line path AS TYPED, so `forge part.fpart` arrives here
+//   exactly that way, and it is the natural way to open a job folder you have
+//   just cd'd into. MEASURED with "" left as "no folder": rename a job folder,
+//   cd in, open "part.fpart" -- REFUSED, with part.step sitting in the working
+//   directory, while the SAME part opened by absolute path worked. The folder a
+//   bare name lives in is the working directory, and its name is ".".
+std::vector<std::string> inputFileCandidates(const std::string& recorded,
+                                             const std::string& documentPath) {
+  std::vector<std::string> out;
+  if (recorded.empty()) return out;
+  const std::string named = folderOf(documentPath);
+  const std::string folder = named.empty() ? std::string(".") : named;
+  if (recorded[0] == '/') {
+    out.push_back(recorded);
+  } else {
+    out.push_back(folder == "/" ? "/" + recorded : folder + "/" + recorded);
+  }
+  const std::string beside =
+      folder == "/" ? "/" + leafOf(recorded) : folder + "/" + leafOf(recorded);
+  if (std::find(out.begin(), out.end(), beside) == out.end()) out.push_back(beside);
+  return out;
+}
+
 }  // namespace
 
 bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
@@ -737,6 +829,111 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
   // legal document must not half-replace the one that is open.
   forge::ui::PartDocument candidate;
   if (!restorePartDocument(file, candidate, error)) return false;
+
+  // ── THE FILE AN IMPORTED BODY CAME FROM ─────────────────────────────────
+  //
+  // THE DEFECT THIS BLOCK EXISTS FOR. A document whose program is `%1 = INPUT()`
+  // is a STEP somebody imported, and `INPUT()` carries no path: it reads the one
+  // file the compiler was handed. Nothing here used to hand it one, so the open
+  // SUCCEEDED, the rebuild answered "INPUT() used but no input STEP was supplied
+  // to the compiler", and the user got an empty viewport and no sentence -- from
+  // a Save that had reported success. Import, save, reopen is the most common
+  // workflow in CAD and it did not survive the process.
+  //
+  // ── THE THREE ANSWERS, AND WHY THEY ARE DIFFERENT ───────────────────────
+  //
+  //   the file NAMES NO SOURCE     it OPENS, with a warning. Every .fpart the
+  //                                shipped app ever wrote for an imported part
+  //                                is this file: version 3 recorded `OP INPUT`
+  //                                and no path at all. Refusing it -- which this
+  //                                change did in its first form, MEASURED --
+  //                                makes an existing class of user documents
+  //                                permanently unopenable, and a format that
+  //                                predates a key is not a corrupt file.
+  //   the source is FOUND          it opens, bound to what was found: the
+  //                                recorded path, or the same name beside the
+  //                                document (see inputFileCandidates).
+  //   the source is NAMED AND      it is REFUSED, by name and with the reason,
+  //   CANNOT BE USED               leaving the document that was already open
+  //                                exactly as it was. There is nothing to show
+  //                                and nothing to edit, so opening "successfully"
+  //                                into an empty part would tell the user their
+  //                                work is gone -- and the remedy the refusal
+  //                                names costs nothing: put the file back, or
+  //                                put a copy of it beside the part, which is
+  //                                the second place looked in above.
+  //
+  // ★ THE REMEDY IS NOT "IMPORT IT AGAIN". That is what the first version of
+  //   this refusal told the user to do, and MEASURED: file.import_step empties
+  //   the document first (ForgeShell::runImport -> documentReset, which the
+  //   graph-quality gate forces), so `%1 = INPUT()` + `%2 = FILLET(%1, 1)`
+  //   became `%1 = INPUT()` and the fillet was gone. A refusal must not
+  //   prescribe a step that destroys the work it is protecting.
+  std::string boundInput;
+  // ★ DID THE SOURCE MOVE? Not "is the bound path spelled differently from the
+  //   recorded one" -- that was the old test and it is a DIFFERENT question. A
+  //   relative record resolved against the document's own folder is spelled
+  //   differently and is the same file, found in the first place looked. This
+  //   is the index of the candidate that answered, and only a later one means
+  //   the part is now built from somewhere else.
+  bool foundBeside = false;
+  if (partFileBindsInput(file)) {
+    if (file.inputFile.empty()) {
+      shell_.log().warning(
+          "document.open",
+          "This part has an imported body and the file does not say which file it came "
+          "from, so that body is empty. Import the file again to put it back -- but "
+          "importing replaces everything in the part, so save a copy first if you have "
+          "added anything since.",
+          "no INPUT-FILE record in " + path);
+    } else {
+      // The reason quoted is the FIRST place looked in -- which for the
+      // absolute path a version-4 file records is the file itself. The message
+      // always names the RECORDED path, because that is the name the user knows
+      // and the one they can put back.
+      InputFileState state = InputFileState::Missing;
+      std::size_t index = 0;
+      for (const std::string& candidate : inputFileCandidates(file.inputFile, path)) {
+        const InputFileState found = inputFileState(candidate);
+        if (index == 0) state = found;
+        if (found == InputFileState::Usable) {
+          boundInput = candidate;
+          foundBeside = index > 0;
+          break;
+        }
+        ++index;
+      }
+      if (boundInput.empty()) {
+        // The REMEDY travels with the problem. It used to be one sentence
+        // written here for every state, and MEASURED it told a user whose file
+        // was merely unreadable to "put that file back where it was" -- about a
+        // file that had never left. See inputFileRemedy.
+        error = "This part is built from the file \"" + file.inputFile +
+                "\", and Forge cannot use it: " + inputFileProblem(state) + ". " +
+                inputFileRemedy(state);
+        return false;
+      }
+      if (foundBeside) {
+        // ★ AND IT SAYS WHAT IS ACTUALLY WRONG WITH THE RECORDED FILE.
+        //   This sentence used to read "which is not there now" whatever had
+        //   happened, because it fired on `boundInput != file.inputFile` and the
+        //   loop above falls through to the sibling for NotAModel, Nothing and
+        //   Truncated as well as Missing. MEASURED: overwrite the recorded
+        //   source with junk, leave a good copy beside the part -- it opened
+        //   bound to the sibling and said the junk file "is not there now". It
+        //   was there. It was junk. inputFileProblem already has the right
+        //   words for all five cases, so they are used here too.
+        const std::string what = state == InputFileState::Missing
+                                     ? std::string("which is not there now")
+                                     : "and Forge cannot use that file: " + inputFileProblem(state);
+        shell_.log().warning("document.open",
+                             "This part was built from \"" + file.inputFile + "\", " + what +
+                                 ". Forge is using the file of the same name in the folder "
+                                 "this part is in. Save the part to record where it is now.",
+                             "input file resolved beside the document: " + boundInput);
+      }
+    }
+  }
 
   // ── THE UNIT THE FILE CLAIMS ────────────────────────────────────────────
   // This field has been written since the format existed and NEVER READ. Every
@@ -760,6 +957,13 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
     }
   }
   partDoc_ = candidate;  // the command handlers captured this OBJECT by reference
+  // ── AND BIND WHAT WAS ACTUALLY FOUND, BEFORE THE REBUILD BELOW ──────────
+  // `boundInput`, not the recorded path: when the source was found beside the
+  // document, that is the file this part is now built from, and the next Save
+  // records it. Set UNCONDITIONALLY, including to "": a document that binds no
+  // input must CLEAR whatever an earlier import in this session left behind, or
+  // the next Save would record a path this part never came from.
+  bindInputFile(boundInput);
   drawing_ = file.drawing;
   drawingLayoutBuilt_ = false;
   partUndo_.clear();
@@ -770,9 +974,39 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
   documentName_ = (file.name.empty() || file.name == "untitled") ? documentNameFromPath(path)
                                                                  : file.name;
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
-  builtProgram_.clear();  // force the rebuild below
+  // ── ★ AND THE REBUILD IS REALLY FORCED ──────────────────────────────────
+  // This line used to be `builtProgram_.clear();  // force the rebuild below`
+  // and it forced nothing: syncSceneToDocument's guard is
+  // `program == lastAttemptedProgram_`, not builtProgram_, and has been since
+  // the guard moved to "what was last ATTEMPTED". So an Open whose program text
+  // matched the document already open SKIPPED THE REBUILD ENTIRELY.
+  //
+  // MEASURED, and it is the same user-visible failure as a stale binding: open a
+  // version-4 part built from X.step, then open a LEGACY version-3 part that
+  // names no source. Both programs are the single line `%1 = INPUT()`, so no
+  // rebuild ran, and the viewport went on showing X's solid -- compiled=1,
+  // volume 31865.840840 -- inside a document that names no file at all. Clearing
+  // the binding correctly is not enough if nothing rebuilds against it.
+  //
+  // A DIFFERENT DOCUMENT IS A DIFFERENT BUILD even when its text is identical,
+  // because the input file, and therefore the solid, is document state beside
+  // the program.
+  builtProgram_.clear();
+  lastAttemptedProgram_.clear();
   syncSceneToDocument();
-  documentDirty_ = false;
+  // ── ★ AND A PART WHOSE SOURCE MOVED OPENS *DIRTY* ───────────────────────
+  // The warning above ends "Save the part to record where it is now", and
+  // MEASURED with this line as a flat `false`: file.save answered `disabled`
+  // ("Save Document is not available now") the moment the part opened, because
+  // its `enabled` predicate is `doc_.dirty` and there is no Save As. The
+  // sentence prescribed a step the app refused, and the .fpart went on naming
+  // the old path until the user happened to make an unrelated edit.
+  //
+  // Dirty is also simply TRUE here: what is in memory is bound to a file the
+  // document on disk does not name, so closing without saving loses that fact
+  // and the next open warns again. `foundBeside` is false on every ordinary
+  // open, so this is not "every Open is now dirty".
+  documentDirty_ = foundBeside;
   note("Opened " + path + "  (" + std::to_string(partDoc_.records().size()) + " features)");
   return true;
 }
@@ -787,7 +1021,11 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
     target = dir + "/" + documentName_ + kPartFileExtension;
   }
   documentName_ = documentNameFromPath(target);
-  const PartFileDoc file = capturePartDocument(partDoc_, documentName_, drawing_);
+  // The scene's binding is the one the viewport was built with, so what the file
+  // records is the file the part on screen was made from -- the same "save what
+  // you see" rule the STEP export follows.
+  const PartFileDoc file =
+      capturePartDocument(partDoc_, documentName_, drawing_, scene_.inputFile());
   if (!savePartFile(target, file, error)) return false;
   documentPath_ = target;
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
