@@ -57,14 +57,17 @@
 // y+ is perfectly in-band. No stub, no hidden fallback — the limit is stated.
 //
 // CONVENTIONS: pure C++20, standard library only (no OCCT, no Eigen, no WASM, no
-// third-party libs). Mirrors forge/native/gdt + forge/native/tolstack: a minimal
-// self-contained local Vec3 + dot/cross/sub/norm/normalize so there is NO
-// cross-class link dependency; geometry arrives as a flat triangle soup (the
+// third-party libs). Vec3 is the canonical forge::math::Vec3 (header-only, only
+// <cmath>, so there is still NO cross-class link dependency); the local
+// dot/cross/sub/norm/normalize helpers stay, since they carry this module's own
+// tolerances; geometry arrives as a flat triangle soup (the
 // solver/mesh outputs are consumed BY VALUE, since the production solvers pull
 // OCCT+Eigen and cannot link into the dependency-free native gate).
 
 #ifndef FORGE_NATIVE_VVUQ_VVUQ_HPP
 #define FORGE_NATIVE_VVUQ_VVUQ_HPP
+
+#include "forge/math/Vec3.hpp"
 
 #include <vector>
 #include <cstddef>
@@ -77,11 +80,16 @@ namespace vvuq {
 // ---------------------------------------------------------------------------
 // Self-contained minimal vector math (gdt/tolstack convention — no coupling).
 // ---------------------------------------------------------------------------
-struct Vec3 {
-    double x{0.0};
-    double y{0.0};
-    double z{0.0};
-};
+// Vec3 is THE canonical forge::math::Vec3, not a local re-declaration.
+//
+// This subsystem declared its own layout-identical {double x,y,z}; so did nine
+// others -- ten layout-identical types with ten names, which cannot interoperate
+// without a conversion at every module seam. MEASURED before this patch: nine
+// declarations under native/, and the canonical forge/math/Vec3.hpp included by
+// no file under native/ at all. forge::math::Vec3 is a superset of every copy
+// (it adds the arithmetic/dot/cross/norm each declared separately), so this is
+// an alias, not a rewrite -- every existing use keeps compiling unchanged.
+using Vec3 = forge::math::Vec3;
 double dot(const Vec3& a, const Vec3& b);
 Vec3   cross(const Vec3& a, const Vec3& b);
 Vec3   sub(const Vec3& a, const Vec3& b);

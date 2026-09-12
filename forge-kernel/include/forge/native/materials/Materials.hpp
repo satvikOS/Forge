@@ -57,14 +57,17 @@
 //   (c) TEMPERATURE-DEPENDENT properties and true A/B-basis statistical allowables.
 //
 // CONVENTIONS: pure C++20, standard library only (no OCCT, no Eigen, no WASM, no
-// third-party libs). Mirrors forge/native/{gdt,tolstack,vvuq}: a minimal
-// self-contained local Vec3 so there is NO cross-class link dependency (the
-// production FEA Material pulls OCCT+Eigen and cannot link into the dependency-free
-// native gate). Voigt order is (11,22,33,23,13,12) throughout. SI units: Pa for
+// third-party libs). There is NO cross-class link dependency (the production FEA
+// Material pulls OCCT+Eigen and cannot link into the dependency-free native gate),
+// and the canonical forge::math::Vec3 preserves that: it is header-only with no
+// dependency beyond <cmath>. It used to be a local copy here -- see the note on
+// Vec3 below for why that cost more than it saved. Voigt order is (11,22,33,23,13,12) throughout. SI units: Pa for
 // moduli/strengths, kg/m^3 for density, radians for angles, Poisson dimensionless.
 
 #ifndef FORGE_NATIVE_MATERIALS_MATERIALS_HPP
 #define FORGE_NATIVE_MATERIALS_MATERIALS_HPP
+
+#include "forge/math/Vec3.hpp"
 
 #include <vector>
 #include <cstddef>
@@ -76,13 +79,26 @@ namespace native {
 namespace materials {
 
 // ---------------------------------------------------------------------------
-// Self-contained minimal vector (gdt/tolstack/vvuq convention — no coupling).
+// THE vector, not a local copy of one.
+//
+// This was a self-contained {double x,y,z} "no coupling" by design, and nine other
+// subsystems made the same choice independently -- Vec3 has TEN definitions in this
+// tree. They are all layout-identical, so nothing was gained by the separation, and
+// something was lost: every module seam needs a conversion, and there is no ONE
+// type to migrate the OCCT uses onto. MEASURED before this patch: nine local
+// declarations under native/, and forge/math/Vec3.hpp included by NO file under
+// native/ -- the canonical type existed and nothing had adopted it. (src/native/
+// brep mixes both vocabularies: 2440 uses of its own Vec3 and 594 of gp_Pnt.)
+//
+// An alias rather than a rewrite: forge::math::Vec3 is layout-compatible and a
+// superset -- it carries the arithmetic and dot/cross/length/normalized as
+// MEMBERS. The free dotV/crossV/normV/normalizeV below are KEPT, not replaced:
+// this module guards a zero-length normalize at DBL_MIN and the canonical member
+// guards at 1e-15, which is observable (a length-1e-20 vector normalizes to
+// {1,0,0} here and to {0,0,0} there). Aliasing the TYPE is behaviour-preserving;
+// adopting the canonical FUNCTIONS would not have been.
 // ---------------------------------------------------------------------------
-struct Vec3 {
-    double x{0.0};
-    double y{0.0};
-    double z{0.0};
-};
+using Vec3 = forge::math::Vec3;
 double dotV(const Vec3& a, const Vec3& b);
 Vec3   crossV(const Vec3& a, const Vec3& b);
 double normV(const Vec3& a);

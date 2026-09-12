@@ -20,9 +20,9 @@ namespace implicit {
 namespace {
 
 // --- minimal local vector arithmetic on native::Vec3 ----------------------
-// (native::Vec3 — from VoxelGrid.hpp — is a bare POD with no operators. We keep
-// these helpers file-local and minimal; a shared math header is a future
-// consolidation, not duplicated logic. // TODO(shared-math))
+// (native::Vec3 — from VoxelGrid.hpp — is now the canonical forge::math::Vec3,
+// which DOES carry these operators as members. These file-local helpers are kept
+// so this file's tolerances stay its own; the shared math header landed.)
 using V3 = native::Vec3;
 
 inline V3 sub(const V3& a, const V3& b) { return V3{a.x - b.x, a.y - b.y, a.z - b.z}; }

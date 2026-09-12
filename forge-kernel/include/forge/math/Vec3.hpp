@@ -9,9 +9,14 @@
 // it can become the ONE substitution boundary for the ~780 gp_Pnt / gp_Vec /
 // gp_Dir / gp_XYZ uses when the modules migrate onto it (a later wave).
 //
-// ADDITIVE: this does NOT replace any existing per-module Vec3 yet. It lives in
-// its own namespace (forge::math) so it can be linked alongside every module
-// without ODR conflict. Header-only, no dependencies beyond <cmath>.
+// ADOPTED (was "ADDITIVE: does not replace any per-module Vec3 yet"): the nine
+// per-module Vec3 declarations listed above are now `using Vec3 =
+// forge::math::Vec3;` aliases of this type -- brep/Nurbs, composites, gdt,
+// geom/Bezier, implicit/SdfTree, materials, mesh/HalfEdgeMesh, voxel/VoxelGrid,
+// vvuq and src/FeaTet.cpp. All ten were layout-identical and this type is a
+// superset of each, so adoption was an alias, not a rewrite. This is now THE
+// forge vector type, which is what makes it usable as the single substitution
+// boundary for the gp_Pnt/gp_Vec/gp_Dir uses. Header-only, only <cmath>.
 //
 // A Vec3 is used both as a POINT (a gp_Pnt / gp_XYZ location) and as a VECTOR
 // or DIRECTION (a gp_Vec / gp_Dir). The distinction is contextual, exactly as
@@ -92,10 +97,27 @@ struct Vec3 {
 constexpr inline Vec3 operator*(double s, const Vec3& v) { return {v.x * s, v.y * s, v.z * s}; }
 
 // Free-function forms (mirror gp_Vec free helpers; handy in generic code).
-constexpr inline double dot(const Vec3& a, const Vec3& b) { return a.dot(b); }
-constexpr inline Vec3   cross(const Vec3& a, const Vec3& b) { return a.cross(b); }
-inline double           length(const Vec3& v) { return v.length(); }
-inline Vec3             normalize(const Vec3& v) { return v.normalized(); }
+// NO free dot/cross/length/normalize here, deliberately.
+//
+// They existed, and outside their own unit test no production file called them.
+// (I first checked that by grepping the QUALIFIED name math::dot, which found
+// zero -- the wrong instrument: every real call site spells them unqualified and
+// reaches them by ADL. test/native/linalg/forge_math_test.cpp did exactly that
+// and was the one thing that broke.) Every module that now aliases its Vec3
+// to this type ALREADY declares its own `dot`/`cross`/`length`/`normalize` for
+// its own namespace, so free functions here are found by ADL as well and every
+// call site becomes ambiguous -- MEASURED: 28 translation units failed to
+// compile on exactly these four names, and on nothing else.
+//
+// Removing them loses no capability -- the members below are the same
+// operations -- and it is the SAFE direction of the two. The modules' versions
+// are not interchangeable with these: their zero-length guards use different
+// epsilons (materials DBL_MIN, composites 1e-300, this header 1e-15), and the
+// gap is observable. MEASURED on a vector of length 1e-20: materials and
+// composites normalize it to {1,0,0}; `normalized()` collapses it to {0,0,0}.
+// So deleting the MODULES' free functions and routing them here would have
+// silently changed numerics in nine subsystems; deleting these four changes
+// nothing, because nothing called them.
 
 } // namespace math
 } // namespace forge

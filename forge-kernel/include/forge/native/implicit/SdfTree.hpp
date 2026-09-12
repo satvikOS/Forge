@@ -47,6 +47,7 @@
 #ifndef FORGE_NATIVE_IMPLICIT_SDFTREE_HPP
 #define FORGE_NATIVE_IMPLICIT_SDFTREE_HPP
 
+#include "forge/math/Vec3.hpp"
 #include <array>
 #include <memory>
 #include <utility>
@@ -56,16 +57,9 @@ namespace native {
 namespace implicit {
 
 // A 3D point / vector with the minimal arithmetic the SDF tree needs.
-struct Vec3 {
-    double x = 0.0, y = 0.0, z = 0.0;
-
-    Vec3() = default;
-    Vec3(double x_, double y_, double z_) : x(x_), y(y_), z(z_) {}
-
-    Vec3 operator+(const Vec3& o) const { return {x + o.x, y + o.y, z + o.z}; }
-    Vec3 operator-(const Vec3& o) const { return {x - o.x, y - o.y, z - o.z}; }
-    Vec3 operator*(double s) const { return {x * s, y * s, z * s}; }
-};
+// Vec3 is THE canonical forge::math::Vec3 (superset of this local copy:
+// same layout, same ctors, and it already carries dot/cross/norm).
+using Vec3 = forge::math::Vec3;
 
 double dot(const Vec3& a, const Vec3& b);
 double length(const Vec3& v);

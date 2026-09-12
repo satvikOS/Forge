@@ -187,6 +187,21 @@ jobs:
         shell: bash
         run: python3 tools/kernel/occt_dependency_graph.py --check
 
+      - name: Vec3 stays ONE type, and the module epsilon guards stay put
+        # Vec3 had TEN layout-identical declarations in ten namespaces, and the
+        # canonical forge/math/Vec3.hpp existed while being included by no file under
+        # native/ at all. They are now one type reached by alias. Two regressions are
+        # possible from here and NEITHER would fail any test: a new module re-declares
+        # its own struct Vec3, or someone "unifies" the modules' free normalize onto
+        # the canonical member -- whose zero-length epsilon is 1e-15 against materials'
+        # DBL_MIN and composites' 1e-300, so a length-1e-20 vector flips from {1,0,0}
+        # to {0,0,0} across nine subsystems, silently. This fails on both, and its
+        # --selftest proves each check actually goes red.
+        shell: bash
+        run: |
+          python3 tools/kernel/vec3_unification_gate.py
+          python3 tools/kernel/vec3_unification_gate.py --selftest
+
       - name: Every *_gate.sh anywhere is reachable from CI (or pinned)
         # The gap between the two checks above. They are each correctly scoped and
         # neither can see a *_gate.sh outside forge-kernel/test, nor one inside it

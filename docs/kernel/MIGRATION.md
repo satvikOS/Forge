@@ -38,8 +38,27 @@ The good news is where the floor already is:
 - `forge/native/Predicates.hpp` and `ExactPredicates3D.hpp` are Forge-owned, **0 OCCT**.
 - `src/native/mesh` and `src/native/csg` are **0 OCCT**.
 
-Math, transforms, predicates and tessellation — the first four steps of the
-recommended order — are already clear. The work starts at geometry primitives.
+Read "0 OCCT" carefully: it is a statement about includes, not about use. `forge/
+math/Vec3.hpp` was 0 OCCT **and included by no file under `native/` at all**, while
+nine modules each declared their own layout-identical `struct Vec3` — ten types
+with ten names and no way to interoperate, so every module seam paid a conversion
+and there was no single type to migrate the OCCT uses ONTO. A directory can be
+OCCT-free by being unused, and the tracker could not tell the difference.
+
+Vec3 is now ONE type: the nine declarations are `using Vec3 = forge::math::Vec3;`
+aliases, `tools/kernel/vec3_unification_gate.py` fails if a tenth appears, and the
+tracker counts declarations directly. That is the first rung — Math → Geometry
+Primitives — ADOPTED rather than merely built.
+
+The same question is still open for the rest of the vocabulary: Plane has 7
+declarations, AABB 4, Mat3 3 (Mat3 has a canonical type already, so it is a direct
+repeat), and Point3 3 with no canonical type — though `forge/math/Vec3.hpp` already
+defines Vec3 as serving for both points and directions, exactly as OCCT's gp_Pnt/
+gp_Vec pair does. 28 functions in the tree exist only to repack Point3 into Vec3.
+
+So: math, transforms, predicates and tessellation are clear of OCCT *and* Vec3 is
+now adopted. The work starts at the rest of the primitive vocabulary, then
+geometry primitives proper.
 
 ## A prior measurement worth not repeating
 

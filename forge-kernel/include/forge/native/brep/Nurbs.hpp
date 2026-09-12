@@ -33,6 +33,8 @@
 #ifndef FORGE_NATIVE_BREP_NURBS_HPP
 #define FORGE_NATIVE_BREP_NURBS_HPP
 
+#include "forge/math/Vec3.hpp"
+
 #include <cstddef>
 #include <vector>
 
@@ -42,9 +44,16 @@ namespace brep {
 
 // Euclidean 3D point (re-declared standalone so Nurbs.hpp does not depend on
 // Topology.hpp; the two share the same simple POD shape by intent).
-struct Vec3 {
-    double x = 0.0, y = 0.0, z = 0.0;
-};
+// Vec3 is THE canonical forge::math::Vec3, not a local re-declaration.
+//
+// This subsystem declared its own layout-identical {double x,y,z}; so did nine
+// others -- ten layout-identical types with ten names, which cannot interoperate
+// without a conversion at every module seam. MEASURED before this patch: nine
+// declarations under native/, and the canonical forge/math/Vec3.hpp included by
+// no file under native/ at all. forge::math::Vec3 is a superset of every copy
+// (it adds the arithmetic/dot/cross/norm each declared separately), so this is
+// an alias, not a rewrite -- every existing use keeps compiling unchanged.
+using Vec3 = forge::math::Vec3;
 
 // ---------------------------------------------------------------------------
 // Cox-de Boor basis machinery (free functions, header-light core lives in cpp).

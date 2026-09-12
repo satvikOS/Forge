@@ -68,11 +68,15 @@
 // third-party libs). SI units internally: Pa for moduli, metres for thickness,
 // radians for angles. (The JS oracle uses GPa-mm; native stays SI to match
 // materials — the test oracles compute in the same SI units, so magnitudes are
-// self-consistent with no unit drift.) A self-contained local Vec2/Vec3 (mirroring
-// gdt/tolstack/materials) keeps the surface math un-coupled from any one mesh Vec3.
+// self-consistent with no unit drift.) Vec2 is still a local POD; Vec3 is now an
+// alias of the canonical forge::math::Vec3 -- it was a local copy "to stay
+// un-coupled", which in practice meant ten incompatible Vec3s and a conversion at
+// every module seam. normalize3 keeps its own 1e-300 zero-guard deliberately.
 
 #ifndef FORGE_NATIVE_COMPOSITES_COMPOSITES_HPP
 #define FORGE_NATIVE_COMPOSITES_COMPOSITES_HPP
+
+#include "forge/math/Vec3.hpp"
 
 #include <vector>
 #include <array>
@@ -94,11 +98,16 @@ struct Vec2 {
     double u{0.0};
     double v{0.0};
 };
-struct Vec3 {
-    double x{0.0};
-    double y{0.0};
-    double z{0.0};
-};
+// Vec3 is THE canonical forge::math::Vec3, not a local re-declaration.
+//
+// This subsystem declared its own layout-identical {double x,y,z}; so did nine
+// others -- ten layout-identical types with ten names, which cannot interoperate
+// without a conversion at every module seam. MEASURED before this patch: nine
+// declarations under native/, and the canonical forge/math/Vec3.hpp included by
+// no file under native/ at all. forge::math::Vec3 is a superset of every copy
+// (it adds the arithmetic/dot/cross/norm each declared separately), so this is
+// an alias, not a rewrite -- every existing use keeps compiling unchanged.
+using Vec3 = forge::math::Vec3;
 double dot3(const Vec3& a, const Vec3& b);
 Vec3   sub3(const Vec3& a, const Vec3& b);
 double norm3(const Vec3& a);

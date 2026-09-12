@@ -120,9 +120,10 @@ public:
     explicit GridFieldSdf(const VoxelGrid<float>& grid) : grid_(&grid) {}
 
     double eval(const implicit::Vec3& p) const override {
-        // implicit::Vec3 -> native::Vec3 (the grid's point type). Distinct POD
-        // structs across the two stages; convert field-by-field (no shared math
-        // header yet — // TODO(shared-math)).
+        // implicit::Vec3 and native::Vec3 are now the SAME type -- both alias
+        // forge::math::Vec3 -- so this is a copy, not a conversion. It was a
+        // field-by-field rebuild between two distinct PODs, which is exactly
+        // what ten separate Vec3 declarations cost at every module seam.
         return grid_->sample(native::Vec3{p.x, p.y, p.z});
     }
 

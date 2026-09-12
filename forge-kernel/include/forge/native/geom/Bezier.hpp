@@ -14,9 +14,10 @@
 // header reused (by #include) is mesh/HalfEdgeMesh.hpp, the tessellation target.
 // The basic 3D point type is geom::Point3 (re-declared here is forbidden — we do
 // NOT have a geom dependency on Geom.hpp's algorithms, only its trivial structs,
-// so we define our own header-only Vec3 to keep this module self-contained and
-// avoid pulling Predicates.hpp transitively; the SURFACE tessellation still emits
-// a mesh::HalfEdgeMesh).
+// so this module avoids pulling Predicates.hpp transitively; the SURFACE
+// tessellation still emits a mesh::HalfEdgeMesh). Vec3 is no longer a local
+// re-declaration -- it is the canonical forge::math::Vec3, a header-only type
+// with no dependency beyond <cmath>, so self-containment is preserved.
 //
 // ============================ WHAT SHIPS (REAL + VALIDATED) ==================
 // Validated in test/native/geom/bezier_test.cpp against analytic identities and
@@ -84,6 +85,7 @@
 #ifndef FORGE_NATIVE_GEOM_BEZIER_HPP
 #define FORGE_NATIVE_GEOM_BEZIER_HPP
 
+#include "forge/math/Vec3.hpp"
 #include <cstddef>
 #include <vector>
 
@@ -97,11 +99,16 @@ namespace geom {
 // A trivial 3D point/vector. Self-contained (no dependency on Geom.hpp /
 // Predicates.hpp) so this module compiles against the mesh header alone.
 // ---------------------------------------------------------------------------
-struct Vec3 {
-    double x{0.0};
-    double y{0.0};
-    double z{0.0};
-};
+// Vec3 is THE canonical forge::math::Vec3, not a local re-declaration.
+//
+// This subsystem declared its own layout-identical {double x,y,z}; so did nine
+// others -- ten layout-identical types with ten names, which cannot interoperate
+// without a conversion at every module seam. MEASURED before this patch: nine
+// declarations under native/, and the canonical forge/math/Vec3.hpp included by
+// no file under native/ at all. forge::math::Vec3 is a superset of every copy
+// (it adds the arithmetic/dot/cross/norm each declared separately), so this is
+// an alias, not a rewrite -- every existing use keeps compiling unchanged.
+using Vec3 = forge::math::Vec3;
 
 // Header-only vector algebra (free functions; keeps Vec3 a plain aggregate).
 inline Vec3 vadd(const Vec3& a, const Vec3& b) {

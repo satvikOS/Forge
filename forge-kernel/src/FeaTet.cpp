@@ -6,6 +6,7 @@
 // No external numerical libraries.  Only OCCT (for surface meshing +
 // inside-tests) and C++ std.
 
+#include "forge/math/Vec3.hpp"
 #include "forge/FeaTet.hpp"
 #include "forge/ShapeRegistry.hpp"
 #include "forge/OcctNativeMesh.hpp"   // K5 — native surface mesher (no TKMesh)
@@ -88,19 +89,9 @@ namespace {
 
 constexpr double kEps = 1e-12;
 
-struct Vec3 {
-    double x{0}, y{0}, z{0};
-    Vec3() = default;
-    Vec3(double a, double b, double c) : x(a), y(b), z(c) {}
-    Vec3 operator-(const Vec3& o) const { return {x - o.x, y - o.y, z - o.z}; }
-    Vec3 operator+(const Vec3& o) const { return {x + o.x, y + o.y, z + o.z}; }
-    Vec3 operator*(double s)     const { return {x * s, y * s, z * s}; }
-    double dot(const Vec3& o)    const { return x * o.x + y * o.y + z * o.z; }
-    double norm()                const { return std::sqrt(dot(*this)); }
-    Vec3   cross(const Vec3& o)  const {
-        return {y * o.z - z * o.y, z * o.x - x * o.z, x * o.y - y * o.x};
-    }
-};
+// Vec3 is THE canonical forge::math::Vec3 (superset of this local copy:
+// same layout, same ctors, and it already carries dot/cross/norm).
+using Vec3 = forge::math::Vec3;
 
 double tetVolume(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d) {
     return (b - a).cross(c - a).dot(d - a) / 6.0;

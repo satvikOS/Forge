@@ -241,14 +241,19 @@ def render():
     w('cannot tell the difference. MEASURED, and it is the central fact of this')
     w('migration:')
     w('')
+    # Count the #include DIRECTIVE, not the string. A substring match counts any
+    # file that merely NAMES the path in a comment -- which this document's own
+    # sources now do, and which silently inflated "adopted" by one.
+    INC = re.compile(r'^\s*#\s*include\s*[<"]forge/math/Vec3\.hpp[>"]', re.M)
+    def includes(rel):
+        return bool(INC.search(open(os.path.join(ROOT, rel),
+                                    encoding='utf-8', errors='ignore').read()))
     mathinc = sum(1 for rel in walk()
-                  if rel.startswith('forge-kernel/')
-                  and 'forge/math/Vec3.hpp' in open(os.path.join(ROOT, rel),
-                                                    encoding='utf-8', errors='ignore').read())
+                  if rel.startswith('forge-kernel/') and includes(rel))
     nativeinc = sum(1 for rel in walk()
-                    if rel.startswith(('forge-kernel/src/native', 'forge-kernel/include/forge/native'))
-                    and 'forge/math/Vec3.hpp' in open(os.path.join(ROOT, rel),
-                                                      encoding='utf-8', errors='ignore').read())
+                    if rel.startswith(('forge-kernel/src/native',
+                                       'forge-kernel/include/forge/native'))
+                    and includes(rel))
     def count(tok, prefix):
         n = 0
         for rel in walk():
@@ -257,25 +262,51 @@ def render():
             n += open(os.path.join(ROOT, rel), encoding='utf-8', errors='ignore').read().count(tok)
         return n
     gp = count('gp_Pnt', 'forge-kernel/src/native/brep')
-    fv = count('math::Vec3', 'forge-kernel/src/native/brep')
+    # Count the SPELLING each vocabulary actually uses at the call site. An earlier
+    # version of this row counted the qualified `math::Vec3` against the unqualified
+    # `gp_Pnt` and reported 0 -- which read as "brep computes purely in OCCT types"
+    # and was false: brep had 2440 uses of a Vec3, just its own. Both spellings are
+    # unqualified in the source, so both are counted unqualified.
+    fv = sum(len(re.findall(r'\bVec3\b',
+                            open(os.path.join(ROOT, rel), encoding='utf-8',
+                                 errors='ignore').read()))
+             for rel in walk() if rel.startswith('forge-kernel/src/native/brep'))
+    ndefs = sum(1 for rel in walk()
+                if rel.startswith('forge-kernel/')
+                and re.search(r'^\s*struct\s+Vec3\s*(\{|$)',
+                              open(os.path.join(ROOT, rel), encoding='utf-8',
+                                   errors='ignore').read(), re.M))
     w('| | |')
     w('|---|---:|')
+    w(f'| distinct `struct Vec3` declarations in the tree | **{ndefs}** |')
     w(f'| files including `forge/math/Vec3.hpp` | {mathinc} |')
     w(f'| of those, under `native/` | **{nativeinc}** |')
     w(f'| `gp_Pnt` uses in `src/native/brep` | **{gp}** |')
-    w(f'| `forge::math::Vec3` uses there | **{fv}** |')
+    w(f'| `Vec3` uses there (now the canonical type) | **{fv}** |')
     w('')
-    w("So OCCT's gp_Pnt is the kernel's shared geometry vocabulary, and Forge's own")
-    w('Vec3 is not adopted by the native subsystems at all. They each carry a local')
-    w('one instead -- Vec3 has TEN definitions in this tree, Plane four, Point3 and')
-    w('AABB three -- and types that cannot interoperate have to meet somewhere, so')
-    w('they meet in OCCT.')
+    w('Vec3 HAD ten layout-identical declarations in ten namespaces, and the canonical')
+    w('forge/math/Vec3.hpp -- a superset of every one of them -- was included by no')
+    w('file under `native/` at all. It is now one type: the nine module declarations')
+    w('are `using Vec3 = forge::math::Vec3;` aliases, so the uses counted above are')
+    w('uses of the canonical Forge type. That is the first ladder rung, Math ->')
+    w('Geometry Primitives, actually ADOPTED rather than merely built.')
     w('')
-    w('That is why "Math [x]" above is not the win it looks like: that directory is')
-    w('OCCT-free AND unused. The directive\'s first ladder rung, Math -> Geometry')
-    w('Primitives, is not done; it has been built and not adopted. Removing OCCT')
-    w('before a shared Forge vocabulary exists would leave ten incompatible Vec3s')
-    w('with nothing in common.')
+    w('Read the last two rows together and do NOT read them as a ratio. Both')
+    w('vocabularies live in the same files: brep computes in Vec3 and calls OCCT in')
+    w('gp_Pnt. The gp_Pnt count is the work that remains -- every one is a place a')
+    w('native implementation has to substitute -- and it is now substitutable,')
+    w('because there is a single Forge type to substitute ONTO. Before this, there')
+    w('was not: ten incompatible Vec3s with nothing in common.')
+    w('')
+    def decls(name):
+        return sum(1 for rel in walk()
+                   if rel.startswith('forge-kernel/')
+                   and re.search(rf'^\s*struct\s+{name}\s*(\{{|$)',
+                                 open(os.path.join(ROOT, rel), encoding='utf-8',
+                                      errors='ignore').read(), re.M))
+    rest = ', '.join(f'{t} {decls(t)}' for t in ('Plane', 'Point3', 'AABB', 'Mat3'))
+    w('Still fragmented, and the next rungs -- declaration counts, same measurement:')
+    w(f'{rest}.')
     w('')
     w('## Application-layer leaks')
     w('')

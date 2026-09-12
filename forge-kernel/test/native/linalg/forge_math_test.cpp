@@ -29,8 +29,46 @@
 
 #include <cstdio>
 #include <cmath>
+#include <type_traits>
+#include <cstddef>
+#include <utility>
 
 using namespace forge::math;
+
+// Detect a namespace-scope dot()/cross() reachable by ADL on forge::math::Vec3.
+// There must be NONE. forge/math/Vec3.hpp used to declare free dot/cross/length/
+// normalize wrappers; nine native modules declare their OWN for their own
+// namespaces, and once those modules alias their Vec3 to this type both sets are
+// found by ADL at every call site. MEASURED: exactly 28 translation units stopped
+// compiling, on exactly those four names. The members below are the operation;
+// the free wrappers were only spelling, and they are gone. These traits fail to
+// compile the moment someone restores one.
+namespace adl_probe {
+template <class T, class = void> struct has_free_dot : std::false_type {};
+template <class T> struct has_free_dot<
+    T, std::void_t<decltype(dot(std::declval<const T&>(), std::declval<const T&>()))>>
+    : std::true_type {};
+template <class T, class = void> struct has_free_cross : std::false_type {};
+template <class T> struct has_free_cross<
+    T, std::void_t<decltype(cross(std::declval<const T&>(), std::declval<const T&>()))>>
+    : std::true_type {};
+}  // namespace adl_probe
+
+// The alias is only safe while this type stays layout-compatible with the plain
+// {double x,y,z} aggregate that nine modules used to declare. MEASURED at the
+// time of adoption: size 24, align 8, offsets 0/8/16, trivially copyable and
+// standard layout -- identical to the aggregate. Only is_aggregate changed (the
+// ctors below make it a non-aggregate), which matters solely to brace-init with
+// FEWER than three arguments; every call site in the tree uses 0 or 3.
+namespace {
+struct PlainVec3 { double x = 0.0, y = 0.0, z = 0.0; };
+static_assert(sizeof(Vec3) == sizeof(PlainVec3), "Vec3 grew; aliased modules would change layout");
+static_assert(alignof(Vec3) == alignof(PlainVec3), "Vec3 alignment moved");
+static_assert(offsetof(Vec3, x) == 0 && offsetof(Vec3, y) == 8 && offsetof(Vec3, z) == 16,
+              "Vec3 field offsets moved; anything treating it as {x,y,z} breaks");
+static_assert(std::is_trivially_copyable_v<Vec3>, "Vec3 stopped being trivially copyable");
+static_assert(std::is_standard_layout_v<Vec3>, "Vec3 stopped being standard layout");
+}  // namespace
 
 static int g_pass = 0;
 static int g_total = 0;
@@ -70,10 +108,12 @@ int main() {
 
         // dot = 1*4 + 2*-5 + 3*6 = 4 -10 +18 = 12
         check(approx(a.dot(b), 12.0), "Vec3 dot");
-        check(approx(dot(a, b), 12.0), "Vec3 free dot");
+        check(!adl_probe::has_free_dot<Vec3>::value,
+              "no ADL-ambiguous free dot() at forge::math scope");
         // cross(a,b) = (2*6 - 3*-5, 3*4 - 1*6, 1*-5 - 2*4) = (12+15, 12-6, -5-8) = (27,6,-13)
         check(vapprox(a.cross(b), Vec3{27, 6, -13}), "Vec3 cross");
-        check(vapprox(cross(a, b), Vec3{27, 6, -13}), "Vec3 free cross");
+        check(!adl_probe::has_free_cross<Vec3>::value,
+              "no ADL-ambiguous free cross() at forge::math scope");
         // anti-commutativity
         check(vapprox(b.cross(a), Vec3{-27, -6, 13}), "Vec3 cross anti-commutes");
 

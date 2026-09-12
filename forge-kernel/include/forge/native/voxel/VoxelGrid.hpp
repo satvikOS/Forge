@@ -47,6 +47,8 @@
 #ifndef FORGE_NATIVE_VOXEL_VOXELGRID_HPP
 #define FORGE_NATIVE_VOXEL_VOXELGRID_HPP
 
+#include "forge/math/Vec3.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -74,13 +76,19 @@ namespace forge {
 namespace native {
 
 // ---------------------------------------------------------------------------
-// Small POD vector helpers (kept local & minimal; a shared math header is a
-// future consolidation, not duplicated logic). // TODO(shared-math): unify with
-// the kernel's vector type when the native math header lands.
+// The shared math header LANDED and this module is on it (was: TODO(shared-math),
+// "a future consolidation"). Vec3 below is the canonical forge::math::Vec3.
 // ---------------------------------------------------------------------------
-struct Vec3 {
-    double x = 0.0, y = 0.0, z = 0.0;
-};
+// Vec3 is THE canonical forge::math::Vec3, not a local re-declaration.
+//
+// This subsystem declared its own layout-identical {double x,y,z}; so did nine
+// others -- ten layout-identical types with ten names, which cannot interoperate
+// without a conversion at every module seam. MEASURED before this patch: nine
+// declarations under native/, and the canonical forge/math/Vec3.hpp included by
+// no file under native/ at all. forge::math::Vec3 is a superset of every copy
+// (it adds the arithmetic/dot/cross/norm each declared separately), so this is
+// an alias, not a rewrite -- every existing use keeps compiling unchanged.
+using Vec3 = forge::math::Vec3;
 
 // ---------------------------------------------------------------------------
 // VoxelGrid<T> : a dense sampled scalar field over an axis-aligned box.

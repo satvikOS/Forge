@@ -59,22 +59,28 @@ migration:
 
 | | |
 |---|---:|
-| files including `forge/math/Vec3.hpp` | 6 |
-| of those, under `native/` | **0** |
+| distinct `struct Vec3` declarations in the tree | **1** |
+| files including `forge/math/Vec3.hpp` | 15 |
+| of those, under `native/` | **9** |
 | `gp_Pnt` uses in `src/native/brep` | **594** |
-| `forge::math::Vec3` uses there | **0** |
+| `Vec3` uses there (now the canonical type) | **2440** |
 
-So OCCT's gp_Pnt is the kernel's shared geometry vocabulary, and Forge's own
-Vec3 is not adopted by the native subsystems at all. They each carry a local
-one instead -- Vec3 has TEN definitions in this tree, Plane four, Point3 and
-AABB three -- and types that cannot interoperate have to meet somewhere, so
-they meet in OCCT.
+Vec3 HAD ten layout-identical declarations in ten namespaces, and the canonical
+forge/math/Vec3.hpp -- a superset of every one of them -- was included by no
+file under `native/` at all. It is now one type: the nine module declarations
+are `using Vec3 = forge::math::Vec3;` aliases, so the uses counted above are
+uses of the canonical Forge type. That is the first ladder rung, Math ->
+Geometry Primitives, actually ADOPTED rather than merely built.
 
-That is why "Math [x]" above is not the win it looks like: that directory is
-OCCT-free AND unused. The directive's first ladder rung, Math -> Geometry
-Primitives, is not done; it has been built and not adopted. Removing OCCT
-before a shared Forge vocabulary exists would leave ten incompatible Vec3s
-with nothing in common.
+Read the last two rows together and do NOT read them as a ratio. Both
+vocabularies live in the same files: brep computes in Vec3 and calls OCCT in
+gp_Pnt. The gp_Pnt count is the work that remains -- every one is a place a
+native implementation has to substitute -- and it is now substitutable,
+because there is a single Forge type to substitute ONTO. Before this, there
+was not: ten incompatible Vec3s with nothing in common.
+
+Still fragmented, and the next rungs -- declaration counts, same measurement:
+Plane 7, Point3 3, AABB 4, Mat3 3.
 
 ## Application-layer leaks
 
