@@ -658,7 +658,16 @@ int main() {
   }
 
   // ── 5. every example is dispatched, and must record what the file says ───
+  // BOTH arrays, and the second one is the point. `examples` holds the LEGAL
+  // forms; `refused_app_emissions` holds the statements the command can STILL
+  // emit that the kernel refuses (part.fillet's CONVEX branch and its quoted
+  // selector). Those are derived from ui/src/PartCommands.cpp by the generator,
+  // and derived is not measured -- this loop dispatches them through the LIVE
+  // registry, so the claim "the app emits exactly this" is checked against the
+  // app. ft_silent_noop_gate.sh then runs the same statements through the kernel
+  // and requires each to be refused readably. Neither half is retyped anywhere.
   std::size_t examplesRun = 0;
+  std::size_t refusedRun = 0;
   for (std::size_t i = 0; i < ops.items.size(); ++i) {
     const JsonValue& o = j.at(ops, i);
     const std::string opName = j.text(o, "op");
@@ -666,9 +675,22 @@ int main() {
     for (std::size_t f = 0; f < forms.items.size(); ++f) {
       const JsonValue& form = j.at(forms, f);
       const std::string cmdId = j.text(form, "command");
+      std::vector<const JsonValue*> rows;
       const JsonValue& examples = j.at(form, "examples");
-      for (std::size_t e = 0; e < examples.items.size(); ++e) {
-        const JsonValue& ex = j.at(examples, e);
+      for (std::size_t e = 0; e < examples.items.size(); ++e) rows.push_back(&j.at(examples, e));
+      const std::size_t nLegal = rows.size();
+      if (j.has(form, "refused_app_emissions")) {
+        const JsonValue& refused = j.at(form, "refused_app_emissions");
+        for (std::size_t e = 0; e < refused.items.size(); ++e) {
+          rows.push_back(&j.at(refused, e));
+          // it must say WHY, or the probe cannot tell a derived refusal from a
+          // form somebody dropped in by hand
+          CHECK(!j.text(j.at(refused, e), "refused_because").empty());
+        }
+      }
+      for (std::size_t e = 0; e < rows.size(); ++e) {
+        const JsonValue& ex = *rows[e];
+        const bool isRefused = e >= nLegal;
         Fixture fx;
         CHECK(fx.seeded());
         const CommandDescriptor* c = fx.registry.find(cmdId);
@@ -714,13 +736,21 @@ int main() {
           want += resolvePlaceholder(j.at(args, k).str);
         }
         CHECK_EQ_STR(joinTokens(rec->line.args), want);
-        ++examplesRun;
+        if (isRefused) {
+          ++refusedRun;
+        } else {
+          ++examplesRun;
+        }
       }
     }
   }
   CHECK(examplesRun >= 25);
-  std::printf("  [info] dispatched %zu recorded examples through the live registry\n",
-              examplesRun);
+  // part.fillet and part.chamfer contribute two each. If this reaches zero the
+  // vocabulary has stopped deriving the refused half and every instrument that
+  // reads it -- this test and ft_app_path_probe.py -- goes blind to it together.
+  CHECK(refusedRun >= 4);
+  std::printf("  [info] dispatched %zu recorded examples and %zu app-reachable refused "
+              "emissions through the live registry\n", examplesRun, refusedRun);
 
   // ── 6. the recorded defects are still real ──────────────────────────────
   // A defect list nobody drives is a list that goes stale in the SAFE direction

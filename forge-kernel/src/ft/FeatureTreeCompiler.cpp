@@ -976,6 +976,167 @@ public:
     std::uint32_t lastEntity = 0;
 
 private:
+    // ---- REFUSAL, not a silent no-op -----------------------------------------
+    // `catch (...) { return body; }` is the most expensive line shape in this
+    // file. The op FAILED, the compiler recorded a step that did not happen, and
+    // the caller got `ok=true` with the geometry it handed IN. MEASURED through
+    // forge_verify on this tree before this existed:
+    //
+    //   THREAD(%1, 20, 2.5, 30) on CYL(10,40) -> ok=true valid=true
+    //        12566.3706 mm^3, 3 faces, 3 edges -- and M6x1.0 gives the SAME
+    //        numbers, because all three arguments were read with (void) casts.
+    //   DRAFT(%1, 20, Z) on BOX(60,40,20)     -> ok=true valid=true
+    //        48000.0000 mm^3, 6 faces, 12 edges -- angles 0, 5 and 20 are all
+    //        the input box, to the last digit.
+    //
+    // Both are recorded in the feature tree as COMPILED features. Nothing
+    // downstream can tell them from a real thread and a real draft.
+    //
+    // CALLED ONLY FROM INSIDE A catch BLOCK. The bare `throw;` re-raises the
+    // exception currently being handled purely to NAME it -- an OCCT raise is not
+    // a std::exception, so the two have to be separated here or the message is
+    // lost -- and then refuses with the op id, so compile() attributes the
+    // failure to the line the user wrote. Calling it outside a handler
+    // terminates, which is why every call site below is literally
+    // `catch (...) { refuse(op, "..."); }`.
+    [[noreturn]] void refuse(const Op& op, const std::string& why) {
+        std::string detail;
+        try {
+            throw;
+        } catch (const OpError&) {
+            throw;                 // already named AND attributed -- pass through
+        } catch (const Standard_Failure& f) {
+            const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
+            const char* ms = f.GetMessageString();
+            detail = std::string("kernel raised ") + (ty ? ty : "Standard_Failure") +
+                     ((ms && *ms) ? (std::string(": ") + ms) : std::string());
+        } catch (const std::exception& e) {
+            detail = e.what();
+        } catch (...) {
+            detail = "unknown exception";
+        }
+        throw OpError(op.id, op.name + ": " + why + " [" + detail + "]");
+    }
+
+    // ---- a QUOTED selector is not a keyword, and must not widen to ALL --------
+    // kwOpt() returns its DEFAULT for any token that is not a Keyword, so a
+    // quoted face/edge selector fell through it and silently became "ALL".
+    // MEASURED on BOX(60,40,20) before this existed:
+    //
+    //   FILLET(%1, 1, "face:top")  -> 47898.3300 mm^3, 26 faces, 56 edges
+    //   FILLET(%1, 1, ALL)         -> 47898.3300 mm^3, 26 faces, 56 edges
+    //
+    // identical to the last digit, and the same pair for CHAMFER and for BLEND.
+    // The caller named ONE face and every edge on the body was rounded, reported
+    // ok=true. This is the worked example the shipped op vocabulary hands the
+    // model (`FILLET(%body, 1, "face:top")`), so it is what the model emits.
+    // Resolving a face selector to that face's edges is real work that is NOT
+    // done here; widening to ALL is the defect, so refuse until it is done.
+    // A QUOTED selector is the form the vocabulary documents and the corpus is
+    // full of, so it gets its own message. But kwOpt() widens EVERY non-Keyword
+    // token to the default, not just a string: MEASURED, FILLET(%1, 1, 7) on
+    // BOX(60,40,20) also returns 47898.330353 / 26f / 56e -- ALL again. FILLET
+    // and CHAMFER declare max_args 3, and BLEND's args 3..4 are [sel] [SMOOTH],
+    // so nothing but a keyword is meaningful in these slots and anything else is
+    // a malformed selector, never a licence to act on the whole body.
+    //
+    // An ABSENT selector is a different thing and stays legal: the documented
+    // form is `FILLET(%body, radius [, sel=ALL])`, so omitting it still means
+    // ALL. Present-and-wrong is refused; absent keeps its default.
+    // THE SLOT, NOT THE ARGUMENT INDEX. The first version of this guard checked
+    // arg #2 and nothing else, and SAID in its gate that "a QUOTED selector is
+    // refused, never widened to ALL". That invariant was FALSE one argument to
+    // the right. MEASURED on the post-fix dylib 11cf789d, BOX(60,40,20):
+    //
+    //   FILLET(%1, 1, ALL, "face:top") -> ok=true 47898.330353, 26f/56e
+    //   FILLET(%1, 1, ALL)             -> ok=true 47898.330353, 26f/56e
+    //
+    // identical to the last digit: the fourth token was DROPPED on the floor and
+    // every edge on the body was still rounded. Same for CHAMFER. A guard that
+    // states an invariant and enforces it on one arity only is worse than no
+    // invariant, because the gate now certifies the hole. Every argument from the
+    // selector slot onward is checked, and an argument past the documented arity
+    // is refused rather than ignored -- see refuseExtraArgs below.
+    void refuseTextSelector(const Op& op, std::size_t i) {
+        refuseNonKeyword(op, i, "edge selector", EDGE_SELECTOR_DOMAIN,
+                         "It used to be read as ALL, which acts on EVERY edge of "
+                         "the body instead of the ones named.");
+    }
+
+    // ---- a keyword SLOT must not silently take its default -------------------
+    // The generalisation of the above. kwOpt() returns its DEFAULT for any token
+    // that is not a Keyword, so EVERY keyword slot in this file had the same
+    // hole, not just the three edge selectors. MEASURED on the post-fix dylib
+    // 11cf789d, one process per row:
+    //
+    //   SPLITBODY(%1,%2,NEGATIVE)   ->  8000.000000 mm^3, 6f/12e
+    //   SPLITBODY(%1,%2,"NEGATIVE") -> 40000.000000 mm^3, 10f/24e  == POSITIVE
+    //   SURFTRIM(...,INSIDE)        ->   400.000000 mm^3 (thickened)
+    //   SURFTRIM(...,"INSIDE")      ->  5124.631241 mm^3           == OUTSIDE
+    //   THICKEN(%s,1,IN)            -> a different (invalid) solid
+    //   THICKEN(%s,1,"IN")          ->  5524.631241 mm^3           == MID
+    //   SKETCH(YZ)   + rect + EXTRUDE -> bbox extent 10,40,25
+    //   SKETCH("YZ") + rect + EXTRUDE -> bbox extent 40,25,10      == XY
+    //
+    // Every quoted row reported ok=true. A five-fold volume error and a solid on
+    // the wrong plane are not "a selector detail": the caller named one thing and
+    // got another, with no observable saying so.
+    //
+    // An ABSENT slot is a different thing and stays legal -- `FILLET(%body, r
+    // [, sel=ALL])` means the default when omitted. PRESENT-and-not-a-keyword is
+    // refused; absent keeps its default. That one line is the whole distinction.
+    static constexpr const char* EDGE_SELECTOR_DOMAIN = "ALL | VERTICAL | RIM | HORIZONTAL";
+
+    void refuseNonKeyword(const Op& op, std::size_t i, const std::string& slot,
+                          const std::string& domain, const std::string& extra = "") {
+        if (i >= op.args.size() || op.args[i].kind == TokKind::Keyword) return;
+        // The bare noun ("selector", "side", "plane") is the LAST word of the slot
+        // name, so the sentence reads `quoted side "IN"` and not `quoted thicken
+        // side "IN"`, while the clause after it still names the slot in full.
+        const std::size_t sp = slot.rfind(' ');
+        const std::string noun = (sp == std::string::npos) ? slot : slot.substr(sp + 1);
+        const std::string what = (op.args[i].kind == TokKind::Str)
+            ? ("quoted " + noun + " \"" + op.args[i].str + "\"")
+            : ("the non-keyword token at arg #" + std::to_string(i));
+        throw OpError(op.id, op.name + ": " + what + " is NOT APPLIED -- the " + slot +
+                      " is a KEYWORD only (" + domain + "). " +
+                      (extra.empty() ? std::string("It used to fall through to the default, "
+                                                   "so the op did something other than what "
+                                                   "was written.")
+                                     : extra) +
+                      " Use a keyword.");
+    }
+
+    // ---- a keyword the slot does not define is not the default either --------
+    // kwOpt() hands back whatever keyword it finds, and a handler that compares
+    // it against two names and falls through to an `else` treats an UNKNOWN third
+    // name as the default. SPLITBODY(%1,%2,SIDEWAYS) was a plain CUT. Same defect,
+    // one token class over.
+    void refuseUnknownKeyword(const Op& op, std::size_t i, const std::string& slot,
+                              const std::string& kw,
+                              std::initializer_list<const char*> legal) {
+        for (const char* k : legal) if (kw == k) return;
+        std::string domain;
+        for (const char* k : legal) domain += (domain.empty() ? "" : " | ") + std::string(k);
+        throw OpError(op.id, op.name + ": " + slot + " `" + kw + "` at arg #" +
+                      std::to_string(i) + " is NOT ONE THIS OP DEFINES (" + domain +
+                      "). It used to fall through to the default, so the op did "
+                      "something other than what was written.");
+    }
+
+    // ---- an argument past the documented arity is not a free argument --------
+    // The parser accepts any number of tokens; each handler reads the ones it
+    // knows and the rest vanish. MEASURED: FILLET(%1, 1, ALL, "face:top") built
+    // the ALL solid and said ok=true. Refusing names the token that would have
+    // been discarded, which is the only way the caller learns the difference.
+    void refuseExtraArgs(const Op& op, std::size_t maxArgs, const std::string& form) {
+        if (op.args.size() <= maxArgs) return;
+        throw OpError(op.id, op.name + ": " + std::to_string(op.args.size()) +
+                      " arguments, but this op reads " + std::to_string(maxArgs) +
+                      " -- arg #" + std::to_string(maxArgs) + " onward would be "
+                      "DISCARDED, not applied. The form is " + form + ".");
+    }
+
     // ---- typed arg access ----------------------------------------------------
     static double num(const Op& op, std::size_t i) {
         if (i >= op.args.size() || op.args[i].kind != TokKind::Number)
@@ -1160,6 +1321,11 @@ private:
     }
 
     Handle skNew(const Op& op) {
+        // MEASURED: SKETCH("YZ") + a 40x25 rect + EXTRUDE(10) gave bbox extent
+        // 40,25,10 -- the XY solid -- where SKETCH(YZ) gives 10,40,25. The quoted
+        // plane fell through kwOpt to the default and the part landed on the wrong
+        // plane, ok=true. SKETCH(ZZ) was already refused; SKETCH("YZ") was not.
+        refuseNonKeyword(op, 0, "sketch plane", "XY | YZ | XZ");
         const std::string plane = kwOpt(op, 0, "XY");
         if (plane != "XY" && plane != "YZ" && plane != "XZ")
             throw OpError(op.id, "SKETCH: plane must be XY, YZ or XZ (got '" + plane + "')");
@@ -1271,6 +1437,7 @@ private:
                     if (res)
                         res->verify.push_back("CON %" + std::to_string(op.id) +
                                               " SKIPPED — " + e.what());
+                    // SWALLOW-OK: the skip is RECORDED in res->verify, so the caller is told the constraint was dropped
                     return owner;
                 }
                 if (o2 != owner) {
@@ -1369,6 +1536,7 @@ private:
             if (res)
                 res->verify.push_back("SOLVE %" + std::to_string(op.id) +
                                       " SOLVER RAISED — kept the as-drawn coordinates: " + e.what());
+            // SWALLOW-OK: RECORDED in res->verify as SOLVER RAISED; the as-drawn coordinates are still a sketch
             return s;
         }
         if (res) {
@@ -1928,7 +2096,26 @@ private:
     }
 
     // Classify + select edges by a keyword filter, then fillet/chamfer.
-    std::vector<std::uint32_t> selectEdges(Handle body, const std::string& sel, int opId) {
+    std::vector<std::uint32_t> selectEdges(Handle body, const std::string& sel, int opId,
+                                          const std::string& opName) {
+        // "NO EDGES MATCH" IS NOT WHAT HAPPENED when the keyword is one this
+        // function never implemented. MEASURED on the app's own emission path:
+        // part.fillet offers ALL | VERTICAL | RIM | CONVEX (ui/src/PartCommands.cpp)
+        // and CONVEX is not in the four branches below, so FILLET(%1, 1, CONVEX)
+        // came back "no edges match selector `CONVEX`" -- which reads as "your
+        // body has no convex edges" on a BOX that is nothing but convex edges.
+        // The refusal has to say which of the two it is or the user re-selects
+        // for ever -- and it has to name the OP the user clicked, because
+        // "selector `CONVEX` is not implemented here" does not say WHERE here is
+        // when three handlers share this function. ft_app_path_probe.py now runs
+        // this exact emission (part.fillet's own CONVEX branch), and the gate
+        // requires both the op name and a next step.
+        if (sel != "ALL" && sel != "VERTICAL" && sel != "RIM" && sel != "HORIZONTAL")
+            throw OpError(opId, opName + ": selector `" + sel + "` is NOT IMPLEMENTED here -- "
+                                "this op resolves " + std::string(EDGE_SELECTOR_DOMAIN) +
+                                " only. It is not that no edge matched; the keyword has no "
+                                "resolver, so nothing could have matched. Use " +
+                                std::string(EDGE_SELECTOR_DOMAIN) + " instead.");
         auto segs = forge::direct::edgeSegments(body, 0.25);
         std::vector<std::uint32_t> ids;
         for (auto& e : segs) {
@@ -1951,8 +2138,13 @@ private:
     Handle opFillet(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
         double r = num(op, 1);
+        // EVERY argument from the selector slot on, not just arg #2: the 4-arg
+        // form FILLET(%1,1,ALL,"face:top") dropped its fourth token and built the
+        // ALL solid. See refuseTextSelector.
+        for (std::size_t i = 2; i < op.args.size(); ++i) refuseTextSelector(op, i);
+        refuseExtraArgs(op, 3, "FILLET(%body, radius [, sel=ALL])");
         std::string sel = kwOpt(op, 2, "ALL");
-        auto ids = selectEdges(body, sel, op.id);
+        auto ids = selectEdges(body, sel, op.id, op.name);
         // retry with a shrinking radius (native fillet declines on thin/large radii)
         for (double rr : {r, r * 0.75, r * 0.5, r * 0.35, r * 0.2}) {
             if (rr <= 0) break;
@@ -1965,8 +2157,10 @@ private:
     Handle opChamfer(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
         double d = num(op, 1);
+        for (std::size_t i = 2; i < op.args.size(); ++i) refuseTextSelector(op, i);
+        refuseExtraArgs(op, 3, "CHAMFER(%body, dist [, sel=ALL])");
         std::string sel = kwOpt(op, 2, "ALL");
-        auto ids = selectEdges(body, sel, op.id);
+        auto ids = selectEdges(body, sel, op.id, op.name);
         for (double dd : {d, d * 0.75, d * 0.5, d * 0.35, d * 0.2}) {
             if (dd <= 0) break;
             try { return forge::part::chamferEdges(body, ids, dd, -1); }
@@ -1981,15 +2175,17 @@ private:
     Handle opBlend(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
         double r0 = num(op, 1), r1 = num(op, 2);
+        refuseExtraArgs(op, 5, "BLEND(%body, rStart, rEnd [, sel=ALL] [, SMOOTH])");
         std::string sel = "ALL";
         bool smooth = false;
         for (std::size_t i = 3; i < op.args.size(); ++i) {
+            refuseTextSelector(op, i);      // "face:top" used to mean ALL. See above.
             if (op.args[i].kind != TokKind::Keyword) continue;
             const std::string& kw = op.args[i].kw;
             if (kw == "SMOOTH") smooth = true;
             else sel = kw;
         }
-        auto ids = selectEdges(body, sel, op.id);
+        auto ids = selectEdges(body, sel, op.id, op.name);
         for (double scale : {1.0, 0.75, 0.5, 0.35, 0.2}) {
             std::vector<forge::varfillet::EdgeSpec> specs;
             specs.reserve(ids.size());
@@ -2107,6 +2303,7 @@ private:
     // the repair, so it is recorded in `pendingNote` instead of being refused.
     Handle sewIfLoose(const Val& sheet, double tol, std::string& note) {
         forge::surf::SheetStats st;
+        // SWALLOW-OK: statsOf is a DIAGNOSIS, not the op; an unmeasurable sheet is still a legal SURFACE
         try { st = forge::surf::statsOf(sheet.h); } catch (...) { return sheet.h; }
         if (st.faces <= 1) return sheet.h;
         try {
@@ -2122,6 +2319,7 @@ private:
             // end the tree: the unsewn sheet is still a legal SURFACE and the
             // caller may still be able to use it.
             note += (note.empty() ? "" : "; ") + std::string("sew declined: ") + e.what();
+            // SWALLOW-OK: RECORDED in `note`; sewing is a repair and the unsewn sheet is still a legal SURFACE
             return sheet.h;
         }
     }
@@ -2259,6 +2457,10 @@ private:
         const Val sheet = refSurface(op, 0, env);
         const double wall = num(op, 1);
         if (wall <= 0.0) throw OpError(op.id, "THICKEN: wall must be > 0");
+        // MEASURED: THICKEN(%sheet, 1, "IN") returned 5524.631241 mm^3 -- the MID
+        // solid -- where THICKEN(%sheet, 1, IN) is a different body entirely. The
+        // unknown-keyword case below already threw; the quoted one did not.
+        refuseNonKeyword(op, 2, "thicken side", "IN | OUT | MID");
         const std::string sideKw = kwOpt(op, 2, "MID");
         int side = 0;
         if (sideKw == "IN" || sideKw == "INWARD") side = -1;
@@ -3338,32 +3540,58 @@ private:
                 faceIds.push_back(static_cast<std::uint32_t>(i + 1));
             }
         }
-        if (faceIds.empty()) return body;
+        // NO FACES IS NOT "NOTHING TO DO". Every fallback above has already been
+        // tried; reaching here means the body offers nothing to draft, and
+        // handing the body back records a draft feature that does not exist.
+        if (faceIds.empty())
+            throw OpError(op.id, "DRAFT: no face to draft -- the explicit selector, "
+                                 "the `vertical` fallback and the whole-body fallback "
+                                 "all resolved to zero faces. The tree records a draft "
+                                 "the solid does not carry.");
         try {
             return forge::part::draftFaces(body, neutral, faceIds, angleDeg * kPi / 180.0);
         } catch (...) {
-            return body;
+            refuse(op, "the kernel declined to draft " + std::to_string(faceIds.size()) +
+                       " face(s) at " + std::to_string(angleDeg) + " deg about pull " + pull +
+                       ". No draft has ever succeeded on this build -- tested on 8 "
+                       "shapes, angles and pull directions -- so use a smaller angle "
+                       "only if you have seen one work, or model the taper as geometry "
+                       "(a LOFT or a CUT with an angled tool)");
         }
     }
 
+    // THREAD READ THREE NUMBERS WITH (void) CASTS AND RETURNED ITS INPUT. It was
+    // not a partial implementation; it was no implementation at all, wearing a
+    // success. MEASURED on CYL(10,40): THREAD(%1,20,2.5,30) and THREAD(%1,6,1.0,5)
+    // both report ok=true valid=true 12566.3706 mm^3 / 3 faces / 3 edges, which is
+    // the bare cylinder. A downstream consumer reading the tree sees a threaded
+    // feature; the solid has no thread on it anywhere.
     Handle opThread(const Op& op, std::unordered_map<int, Val>& env) {
-        Handle body = refSolid(op, 0, env);
-        (void)num(op, 1);
-        (void)num(op, 2);
-        (void)num(op, 3);
-        return body;
+        refSolid(op, 0, env);              // still validate the operand, and its kind
+        const double dia   = num(op, 1);
+        const double pitch = num(op, 2);
+        const double len   = num(op, 3);
+        throw OpError(op.id, "THREAD: not implemented -- dia=" + std::to_string(dia) +
+                             " pitch=" + std::to_string(pitch) + " len=" + std::to_string(len) +
+                             " were read and DISCARDED, and the unthreaded body was "
+                             "returned as a success. Cut the thread as geometry "
+                             "(HELIX + SWEEP + CUT), or carry it as a PMI note.");
     }
 
+    // RIB DISCARDED ITS THICKNESS AND DEGRADED TO A PLAIN FUSE. MEASURED on
+    // BOX(60,40,20) + BOX(60,4,30): RIB(...,4), RIB(...,40) and FUSE(%1,%2) all
+    // report 50400.0000 mm^3 / 18 faces / 36 edges / bbox [-30,-20,0]->[30,20,30].
+    // Three different requests, one answer. A rib IS its thickness, so a RIB that
+    // cannot apply one is a union with a misleading name in the feature tree.
     Handle opRib(const Op& op, std::unordered_map<int, Val>& env) {
-        Handle body = refSolid(op, 0, env);
-        Handle ribSolid = refSolid(op, 1, env);
-        double thk = num(op, 2);
-        (void)thk;
-        try {
-            return forge::fuse(body, ribSolid);
-        } catch (...) {
-            return body;
-        }
+        refSolid(op, 0, env);
+        refSolid(op, 1, env);
+        const double thk = num(op, 2);
+        throw OpError(op.id, "RIB: thickness " + std::to_string(thk) + " is NOT APPLIED -- "
+                             "this op discarded it and degraded to FUSE(%body, %tool), "
+                             "which is the same solid for every thickness. Write FUSE "
+                             "explicitly if a plain union is what you mean, or build the "
+                             "rib body at its true thickness first.");
     }
 
     Handle opOffsetSolid(const Op& op, std::unordered_map<int, Val>& env) {
@@ -3372,59 +3600,90 @@ private:
         try {
             return forge::part::offsetSolid(body, dist);
         } catch (...) {
-            return body;
+            refuse(op, "the kernel declined to offset this solid by " + std::to_string(dist) +
+                       ". Use a non-zero distance, or a smaller one: an inward offset "
+                       "larger than the thinnest wall has nothing left to offset");
         }
     }
 
     Handle opSplitBody(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
         Handle tool = refSolid(op, 1, env);
+        // MEASURED on BOX(60,40,20) / BOX(20,20,40): SPLITBODY(%1,%2,NEGATIVE) is
+        // 8000.000000 mm^3 and SPLITBODY(%1,%2,"NEGATIVE") is 40000.000000 -- the
+        // POSITIVE answer, five times the volume, reported ok=true. This handler
+        // was EDITED by the same commit that refused the selector widening and the
+        // identical defect one line above the edit went unrefused.
+        refuseNonKeyword(op, 2, "split side", "POSITIVE | NEGATIVE | INSIDE | OUTSIDE");
+        refuseExtraArgs(op, 3, "SPLITBODY(%body, %tool [, side=POSITIVE])");
         std::string keep = kwOpt(op, 2, "POSITIVE");
+        refuseUnknownKeyword(op, 2, "split side", keep,
+                             {"POSITIVE", "OUTSIDE", "NEGATIVE", "INSIDE"});
         try {
             if (keep == "NEGATIVE" || keep == "INSIDE") {
                 return forge::common(body, tool);
             }
             return forge::cut(body, tool);
         } catch (...) {
-            return body;
+            refuse(op, "the kernel declined to split this body with the tool (keep=" + keep +
+                       "). Check the tool actually intersects the body, or write CUT / "
+                       "COMMON directly for the half you want");
         }
     }
 
     Handle opSurfTrim(const Op& op, std::unordered_map<int, Val>& env) {
         Handle surf = refSurface(op, 0, env).h;
         Handle tool = refSurface(op, 1, env).h;
+        // MEASURED (both thickened by 1 so the sheet is measurable): SURFTRIM with
+        // INSIDE gives 400.000000 mm^3 and with "INSIDE" gives 5124.631241 -- the
+        // OUTSIDE answer. Also edited by the same commit, also left unrefused.
+        refuseNonKeyword(op, 2, "trim side", "INSIDE | OUTSIDE");
+        refuseExtraArgs(op, 3, "SURFTRIM(%surface, %tool [, side=OUTSIDE])");
         std::string keep = kwOpt(op, 2, "OUTSIDE");
+        refuseUnknownKeyword(op, 2, "trim side", keep, {"INSIDE", "OUTSIDE"});
         try {
             if (keep == "INSIDE") {
                 return forge::common(surf, tool);
             }
             return forge::cut(surf, tool);
         } catch (...) {
-            return surf;
+            refuse(op, "the kernel declined to trim this sheet with the tool sheet (keep=" +
+                       keep + "). Check the two sheets actually cross, or SEW the sheet "
+                       "first so it is one face set");
         }
     }
 
     Handle opSurfExtend(const Op& op, std::unordered_map<int, Val>& env) {
         Handle surf = refSurface(op, 0, env).h;
         double dist = num(op, 1);
-        if (std::abs(dist) < 1e-6) return surf;
+        if (std::abs(dist) < 1e-6) return surf;   // extend by zero IS the identity
         try {
             return forge::scaleUniform(surf, 1.0 + (dist * 0.01), 0, 0, 0);
         } catch (...) {
-            return surf;
+            refuse(op, "the kernel declined to extend this sheet by " + std::to_string(dist) +
+                       ". Use a smaller distance, or build the extension as a separate "
+                       "sheet and SEW it on");
         }
     }
 
+    // THE NINTH INSTANCE, found by measuring rather than by reading the list.
+    // opReplaceFace has the same body shape as the old opThread -- resolve the
+    // arguments, (void) them, return the input -- and neither audit named it.
+    // MEASURED on BOX(60,40,20) with tool BOX(20,20,20):
+    //   REPLACEFACE(%1, "face:top", %2) -> ok=true valid=true 48000.0000, 6f/12e
+    // which is the input box, with a face-replacement recorded in the tree.
     Handle opReplaceFace(const Op& op, std::unordered_map<int, Val>& env) {
-        Handle body = refSolid(op, 0, env);
-        std::string sel = (op.args.size() > 1 && op.args[1].kind == TokKind::Str)
+        refSolid(op, 0, env);
+        const std::string sel = (op.args.size() > 1 && op.args[1].kind == TokKind::Str)
                               ? op.args[1].str
                               : ((op.args.size() > 1 && op.args[1].kind == TokKind::Keyword)
                                      ? op.args[1].kw
                                      : "");
-        Handle tool = refSolid(op, 2, env);
-        (void)sel; (void)tool;
-        return body;
+        refSolid(op, 2, env);
+        throw OpError(op.id, "REPLACEFACE: not implemented -- the selector \"" + sel +
+                             "\" and the tool body were resolved and DISCARDED, and the "
+                             "unchanged body was returned as a success. Cut and re-fuse "
+                             "the region explicitly (CUT + FUSE) instead.");
     }
 
     Handle opScaleUniform(const Op& op, std::unordered_map<int, Val>& env) {
@@ -3440,23 +3699,39 @@ private:
         Handle body = refSolid(op, 0, env);
         double kFactor = numOpt(op, 1, 0.44);
         (void)kFactor;
+        Handle sheet = 0;
         try {
-            auto sheet = forge::surf::boundaryOf(body);
-            if (sheet != 0) return sheet;
-        } catch (...) {}
-        return body;
+            sheet = forge::surf::boundaryOf(body);
+        } catch (...) {
+            refuse(op, "the kernel declined to take the boundary of this body. UNFOLD "
+                       "needs a closed solid: CAP or THICKEN the input first, or check "
+                       "it is a sheet-metal-like body at all");
+        }
+        // A SOLID RETURNED FROM A SURFACE-TYPED OP IS A TYPE LIE. kindOf() types
+        // UNFOLD's result as a SURFACE, so handing the SOLID back made every
+        // downstream consumer read a closed body as a sheet -- and did it with
+        // ok=true. An empty boundary is a refusal, not a flat pattern.
+        if (sheet == 0)
+            throw OpError(op.id, "UNFOLD: the body has no boundary sheet to unfold -- "
+                                 "the SOLID was previously returned in its place, typed "
+                                 "as a SURFACE.");
+        return sheet;
     }
 
+    // POCKET DISCARDED ITS DEPTH AND DEGRADED TO A PLAIN THROUGH-CUT. MEASURED on
+    // BOX(60,40,20) with tool BOX(20,20,40): POCKET(...,5), POCKET(...,50) and
+    // CUT(%1,%2) all report 40000.0000 mm^3 / 10 faces / 24 edges. A 5 mm pocket
+    // in a 20 mm plate should remove 20*20*5 = 2000 mm^3 and leave 46000; it
+    // removed 8000 and left a hole through the part, and called that a success.
     Handle opPocket(const Op& op, std::unordered_map<int, Val>& env) {
-        Handle body = refSolid(op, 0, env);
-        Handle pocketTool = refSolid(op, 1, env);
-        double depth = num(op, 2);
-        (void)depth;
-        try {
-            return forge::cut(body, pocketTool);
-        } catch (...) {
-            return body;
-        }
+        refSolid(op, 0, env);
+        refSolid(op, 1, env);
+        const double depth = num(op, 2);
+        throw OpError(op.id, "POCKET: depth " + std::to_string(depth) + " is NOT APPLIED -- "
+                             "this op discarded it and degraded to CUT(%body, %tool), a "
+                             "through-cut that is the same solid for every depth. Write "
+                             "CUT explicitly if a through-cut is what you mean, or size "
+                             "the tool body to the pocket depth first.");
     }
 
     Handle opMeasure(const Op& op, std::unordered_map<int, Val>& env) {
@@ -3565,6 +3840,7 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
             out.error = std::string("op %") + std::to_string(op.id) +
                         " (line " + std::to_string(op.srcLine) + "): " + e.what();
             out.failedOpId = e.opId;
+            // SWALLOW-OK: out.error was set on the line above -- this return IS the refusal, travelling as a value
             return out;
         } catch (const Standard_Failure& f) {
             // AN OCCT RAISE IS NOT A std::exception. Standard_Failure derives
@@ -3587,11 +3863,13 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
                         (ty ? ty : "Standard_Failure") +
                         ((ms && *ms) ? (std::string(": ") + ms) : std::string());
             out.failedOpId = op.id;
+            // SWALLOW-OK: out.error was set above -- the refusal travelling out as a value
             return out;
         } catch (const std::exception& e) {
             out.error = std::string("op %") + std::to_string(op.id) + " " + op.name +
                         " (line " + std::to_string(op.srcLine) + "): " + e.what();
             out.failedOpId = op.id;
+            // SWALLOW-OK: out.error was set above -- the refusal travelling out as a value
             return out;
         }
         Val v;
@@ -3808,15 +4086,18 @@ CompileResult compileText(const std::string& text, const std::string& exportStep
         out.error = std::string(tag) + ": " + e.what();
         out.nParsed = e.checkpoint.ops.size();
         out.nDeclared = e.checkpoint.counts.declared;
+        // SWALLOW-OK: out.error was set above -- the refusal travelling out as a value
         return out;
     } catch (const Standard_Failure& f) {
         const char* ty = f.DynamicType() ? f.DynamicType()->Name() : "Standard_Failure";
         const char* ms = f.GetMessageString();
         out.error = std::string("PARSE: kernel raised ") + (ty ? ty : "Standard_Failure") +
                     ((ms && *ms) ? (std::string(": ") + ms) : std::string());
+        // SWALLOW-OK: out.error was set above -- the refusal travelling out as a value
         return out;
     } catch (const std::exception& e) {
         out.error = e.what();
+        // SWALLOW-OK: out.error was set above -- the refusal travelling out as a value
         return out;
     }
     // THE ONE ENTRY POINT ANSWERS FOR ITSELF. compile() catches per op, but the
@@ -3833,9 +4114,11 @@ CompileResult compileText(const std::string& text, const std::string& exportStep
         out.error = std::string("kernel raised ") + (ty ? ty : "Standard_Failure") +
                     ((ms && *ms) ? (std::string(": ") + ms) : std::string()) +
                     " outside any op handler";
+        // SWALLOW-OK: out.error was set above -- the refusal travelling out as a value
         return out;
     } catch (const std::exception& e) {
         out.error = std::string("kernel threw outside any op handler: ") + e.what();
+        // SWALLOW-OK: out.error was set above -- the refusal travelling out as a value
         return out;
     }
     if (out.ok && !exportStepPath.empty()) {

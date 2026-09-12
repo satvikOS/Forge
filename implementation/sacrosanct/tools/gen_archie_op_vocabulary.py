@@ -1304,6 +1304,151 @@ REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 
+# ---------------------------------------------------------------------------
+# 7b. what the KERNEL will actually accept in a selector slot
+# ---------------------------------------------------------------------------
+# THE VOCABULARY SHIPPED THE FORM THE KERNEL REFUSES. ops[15] (FILLET) and
+# ops[4] (CHAMFER) each carried
+#
+#     "%<id> = FILLET(%body, 1, \"face:top\")"
+#
+# as a WORKED EXAMPLE. A quoted selector used to widen silently to ALL -- the
+# caller named one face and every edge on the body was rounded, ok=true -- and
+# the kernel now refuses it by name. Handing the model a worked example of a
+# refused form teaches it to emit exactly that form; 30,472 of 120,000 rows
+# across data/forge/vocab_legal_v1..v3 already carry one.
+#
+# Both facts below are READ OUT OF forge-kernel/src/ft/FeatureTreeCompiler.cpp
+# (SOURCES["kernel_compiler"]), never asserted here, so the JSON follows the
+# kernel the next time either moves:
+#
+#   refuses_text_selector  ops whose handler calls refuseTextSelector /
+#                          refuseNonKeyword -- a non-keyword token in that slot
+#                          is an error, so no example may use one.
+#   resolvable             the keyword domain selectEdges() can actually resolve.
+#                          The app offers ALL|VERTICAL|RIM|CONVEX and the kernel
+#                          resolves ALL|VERTICAL|RIM|HORIZONTAL: MEASURED,
+#                          FILLET(%1,1,CONVEX) on BOX(60,40,20) does not build.
+#                          Documenting CONVEX as legal teaches an unbuildable
+#                          form just as surely as the quoted one does.
+def parse_selector_rules(compiler_src, spellings):
+    # Comments out first: this file documents the very C++ shapes the patterns
+    # below match (a doc block spelling `catch (...) { ... }` would unbalance the
+    # brace walk), so a parser that reads them is reading its own prose.
+    compiler_src = strip_comments(compiler_src)
+    dispatch = dict(re.findall(r"case OpCode::(\w+):\s*return (\w+)\(op", compiler_src))
+    if not dispatch:
+        raise DeriveError("no `case OpCode::X: return opY(op` dispatch rows in the compiler")
+    refuses = set()
+    for enum, fn in dispatch.items():
+        m = re.search(r"\bHandle\s+%s\s*\(const Op& op" % re.escape(fn), compiler_src)
+        if not m:
+            continue
+        body, _ = balanced(compiler_src, compiler_src.index("{", m.end()), "{", "}")
+        if "refuseTextSelector(" in body or "refuseNonKeyword(" in body:
+            refuses.add(enum)
+    # The dispatch table is keyed by OpCode ENUMERATOR (`Fillet`); every other
+    # table in this file is keyed by the IR SPELLING (`FILLET`). opFromName is the
+    # one place that relates them, so the translation is read from there rather
+    # than guessed by upper-casing -- SplitBody/SPLITBODY happens to survive that,
+    # and the next op added may not.
+    by_enum = {info["enum"]: name for name, info in spellings.items()}
+    unknown = sorted(e for e in refuses if e not in by_enum)
+    if unknown:
+        raise DeriveError("refusing handlers on OpCode %s, which opFromName does not spell"
+                          % ", ".join(unknown))
+    refuses = {by_enum[e] for e in refuses}
+
+    m = re.search(r"selectEdges\(Handle body, const std::string& sel, int opId\b", compiler_src)
+    if not m:
+        raise DeriveError("selectEdges signature not found -- cannot derive the selector domain")
+    body, _ = balanced(compiler_src, compiler_src.index("{", m.end()), "{", "}")
+    guard = re.search(r'if \(((?:sel != "\w+"(?:\s*&&\s*)?)+)\)', body)
+    if not guard:
+        raise DeriveError("selectEdges has no `sel != \"KW\" && ...` domain guard")
+    resolvable = re.findall(r'sel != \"(\w+)\"', guard.group(1))
+    if not resolvable:
+        raise DeriveError("selectEdges domain guard names no keywords")
+    return {"refuses": refuses, "resolvable": resolvable}
+
+
+# Filled by build() from the kernel source before any form is enumerated.
+SELECTOR_RULES = {"refuses": set(), "resolvable": []}
+
+
+def selector_keywords(cmd, selects_on):
+    """The keyword alternatives this op's selector slot may document: what the
+    APP offers, narrowed to what the KERNEL resolves. Order follows the app."""
+    app = ternary_domain(selects_on)
+    if cmd["feature_ir_op"] not in SELECTOR_RULES["refuses"]:
+        return app
+    keep = [k for k in app if k in SELECTOR_RULES["resolvable"]]
+    if not keep:
+        raise DeriveError("%s: the app offers %s and the kernel resolves %s -- no legal "
+                          "selector keyword is left to document"
+                          % (cmd["id"], app, SELECTOR_RULES["resolvable"]))
+    return keep
+
+
+def app_selector_domain(cmd, slots):
+    """Every token this command's selector slot can carry, as the APP writes it.
+
+    `examples` documents only the LEGAL forms, so narrowing the documented domain
+    (which is right) also removes those forms from every instrument that reads the
+    vocabulary -- and ft_app_path_probe.py reads its IR out of exactly here. The
+    only two emissions the kernel refusals broke were then the only two nothing
+    ran. This returns the WHOLE domain, legal and refused alike, so the refused
+    half can be recorded beside the legal half rather than disappearing with it.
+    """
+    alt = [s for s in slots if "alternatives" in s]
+    if not alt:
+        return None
+    app = ternary_domain(alt[0]["selects_on"])
+    if not app:
+        raise DeriveError("%s: ternary selector slot with no `p == \"KW\"` domain" % cmd["id"])
+    return app
+
+
+def refused_app_emissions(cmd, slots, active, params, text_params):
+    """The statements this command CAN emit that the kernel REFUSES, with why.
+
+    Both halves are read out of forge-kernel/src/ft/FeatureTreeCompiler.cpp by
+    parse_selector_rules: a keyword the app offers and selectEdges cannot resolve
+    (CONVEX), and -- where the handler calls refuseTextSelector/refuseNonKeyword --
+    the quoted branch of the ternary, which any non-keyword parameter value takes.
+    MEASURED on this kernel: FILLET(%body, 1, CONVEX) and FILLET(%body, 1,
+    "face:top") are both errors, and part.fillet emits one of them the moment a
+    user types anything but ALL/VERTICAL/RIM into its selector box.
+    """
+    app = app_selector_domain(cmd, slots)
+    if app is None or cmd["feature_ir_op"] not in SELECTOR_RULES["refuses"]:
+        return []
+    if len(text_params) != 1:
+        raise DeriveError("%s has a keyword/text slot but %d Text parameters"
+                          % (cmd["id"], len(text_params)))
+    rows = []
+    for kw in app:
+        if kw in SELECTOR_RULES["resolvable"]:
+            continue
+        rows.append((kw, kw, "selectEdges resolves %s only, so the keyword has no resolver"
+                     % " | ".join(SELECTOR_RULES["resolvable"])))
+    rows.append(('"%s"' % EXAMPLE_TEXT_SELECTOR, EXAMPLE_TEXT_SELECTOR,
+                 "the slot is keyword-only; a quoted selector used to fall "
+                 "through kwOpt() to the slot default and act on every edge"))
+    out = []
+    for token, value, why in rows:
+        ex_params = dict(params)
+        ex_params[text_params[0]] = value
+        args = render_example(cmd, slots, active, ex_params, token)
+        out.append({
+            "parameters": ex_params,
+            "ir_arguments": args,
+            "ir_text": "%%<id> = %s(%s)" % (cmd["feature_ir_op"], ", ".join(args)),
+            "refused_because": why,
+        })
+    return out
+
+
 def fmt_num(v):
     """Same rendering forge::ui::formatIrNumber uses ("%.10g")."""
     return "%.10g" % v
@@ -1311,7 +1456,11 @@ def fmt_num(v):
 
 def slot_token(slot, cmd):
     if "alternatives" in slot:
-        kws = ternary_domain(slot["selects_on"])
+        kws = selector_keywords(cmd, slot["selects_on"])
+        # `"<face selector>"` is only a legal token where the kernel does not
+        # refuse a non-keyword in this slot. See parse_selector_rules.
+        if cmd["feature_ir_op"] in SELECTOR_RULES["refuses"]:
+            return "|".join(kws)
         return "|".join(kws + ['"<face selector>"'])
     if slot["token"] == "ref":
         base = REF_PLACEHOLDER[slot["role"]]
@@ -1520,7 +1669,10 @@ def enumerate_forms(cmd, kernel_arity):
         choices = [None]
         if has_alt:
             alt = [s for s in slots if "alternatives" in s][0]
-            choices = [ternary_domain(alt["selects_on"])[0], '"%s"' % EXAMPLE_TEXT_SELECTOR]
+            kws = selector_keywords(cmd, alt["selects_on"])
+            choices = [kws[0]]
+            if cmd["feature_ir_op"] not in SELECTOR_RULES["refuses"]:
+                choices.append('"%s"' % EXAMPLE_TEXT_SELECTOR)
         text_params = [p["name"] for p in cmd["parameters"] if p["type"] == "Text"]
         for ch in choices:
             ex_params = dict(params)
@@ -1542,6 +1694,9 @@ def enumerate_forms(cmd, kernel_arity):
             "argument_count": {"min": arity_min, "max": None if variadic else arity_min},
             "examples": examples,
         }
+        refused = refused_app_emissions(cmd, slots, active, params, text_params)
+        if refused:
+            form["refused_app_emissions"] = refused
         if variadic:
             form["variadic"] = ("one %%ref per selected value, in selection order; the selection "
                                 "signature requires at least %d" % cmd["selection"]["min"])
@@ -1578,6 +1733,7 @@ def build():
     shell = parse_shell_commands(src["ui_shell_commands"])
     seeds = parse_desktop_seeds(src["desktop_frame"])
     archelix = archelix_config(src["kernel_cmake"], src["kernel_header"], src["kernel_compiler"])
+    SELECTOR_RULES.update(parse_selector_rules(src["kernel_compiler"], spellings))
 
     by_name = {}
     for op in kops:
@@ -1784,8 +1940,14 @@ def build():
                 "forge::ui command can produce.",
                 "Emit only an argument count listed in that op's `emitted_forms`. The kernel "
                 "would accept more, but no user can reach it through the app.",
-                "Keyword arguments are bare and UPPERCASE; a face/edge selector that is not one "
-                "of the listed keywords is a QUOTED string.",
+                "Keyword arguments are bare and UPPERCASE. Where the slot's documented "
+                "domain is keywords ONLY, a quoted string in it is an ERROR the kernel "
+                "refuses -- see `refused_app_emissions` -- not a fallback for a selector "
+                "you cannot name.",
+                "NEVER emit a form recorded under `refused_app_emissions`. Those rows exist "
+                "because the APP can still produce them and the KERNEL refuses them; they "
+                "are what the instruments run to prove the refusal still fires, and they "
+                "are the opposite of a target.",
                 "Every %N must refer to a STRICTLY EARLIER statement id.",
                 "Respect each command's constraints (see `commands[].constraints`): the app "
                 "refuses the emission otherwise, so a training target that violates one is a "

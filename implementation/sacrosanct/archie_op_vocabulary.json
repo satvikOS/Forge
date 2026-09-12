@@ -30,9 +30,9 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "25b51ea0efec62749142dbe7496f5260bdf931c71c9cf1b75d2209df66acaf5e",
-        "bytes": 205762,
-        "lines": 3872
+        "sha256": "d2e5ea3727b1c0fef3cb35a5e0a5185725ef4ae3b2f07a32376e8706286543d1",
+        "bytes": 226881,
+        "lines": 4155
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
@@ -156,7 +156,8 @@
     "rules": [
       "Emit ONLY an op listed in `ops`. Any other op name is out of vocabulary, including every op in `forbidden_ops` and the RESULT terminal, which no forge::ui command can produce.",
       "Emit only an argument count listed in that op's `emitted_forms`. The kernel would accept more, but no user can reach it through the app.",
-      "Keyword arguments are bare and UPPERCASE; a face/edge selector that is not one of the listed keywords is a QUOTED string.",
+      "Keyword arguments are bare and UPPERCASE. Where the slot's documented domain is keywords ONLY, a quoted string in it is an ERROR the kernel refuses -- see `refused_app_emissions` -- not a fallback for a selector you cannot name.",
+      "NEVER emit a form recorded under `refused_app_emissions`. Those rows exist because the APP can still produce them and the KERNEL refuses them; they are what the instruments run to prove the refusal still fires, and they are the opposite of a target.",
       "Every %N must refer to a STRICTLY EARLIER statement id.",
       "Respect each command's constraints (see `commands[].constraints`): the app refuses the emission otherwise, so a training target that violates one is a target no user could have produced."
     ]
@@ -763,7 +764,7 @@
           "arguments": [
             "%body",
             "distance",
-            "ALL|CONVEX|RIM|VERTICAL|\"<face selector>\""
+            "ALL|RIM|VERTICAL"
           ],
           "argument_count": {
             "min": 3,
@@ -781,6 +782,21 @@
                 "ALL"
               ],
               "ir_text": "%<id> = CHAMFER(%body, 1, ALL)"
+            }
+          ],
+          "refused_app_emissions": [
+            {
+              "parameters": {
+                "distance": 1.0,
+                "selector": "CONVEX"
+              },
+              "ir_arguments": [
+                "%body",
+                "1",
+                "CONVEX"
+              ],
+              "ir_text": "%<id> = CHAMFER(%body, 1, CONVEX)",
+              "refused_because": "selectEdges resolves ALL | VERTICAL | RIM | HORIZONTAL only, so the keyword has no resolver"
             },
             {
               "parameters": {
@@ -792,7 +808,8 @@
                 "1",
                 "\"face:top\""
               ],
-              "ir_text": "%<id> = CHAMFER(%body, 1, \"face:top\")"
+              "ir_text": "%<id> = CHAMFER(%body, 1, \"face:top\")",
+              "refused_because": "the slot is keyword-only; a quoted selector used to fall through kwOpt() to the slot default and act on every edge"
             }
           ],
           "command": "part.chamfer"
@@ -2008,7 +2025,7 @@
           "arguments": [
             "%body",
             "radius",
-            "ALL|CONVEX|RIM|VERTICAL|\"<face selector>\""
+            "ALL|RIM|VERTICAL"
           ],
           "argument_count": {
             "min": 3,
@@ -2026,6 +2043,21 @@
                 "ALL"
               ],
               "ir_text": "%<id> = FILLET(%body, 1, ALL)"
+            }
+          ],
+          "refused_app_emissions": [
+            {
+              "parameters": {
+                "radius": 1.0,
+                "selector": "CONVEX"
+              },
+              "ir_arguments": [
+                "%body",
+                "1",
+                "CONVEX"
+              ],
+              "ir_text": "%<id> = FILLET(%body, 1, CONVEX)",
+              "refused_because": "selectEdges resolves ALL | VERTICAL | RIM | HORIZONTAL only, so the keyword has no resolver"
             },
             {
               "parameters": {
@@ -2037,7 +2069,8 @@
                 "1",
                 "\"face:top\""
               ],
-              "ir_text": "%<id> = FILLET(%body, 1, \"face:top\")"
+              "ir_text": "%<id> = FILLET(%body, 1, \"face:top\")",
+              "refused_because": "the slot is keyword-only; a quoted selector used to fall through kwOpt() to the slot default and act on every edge"
             }
           ],
           "command": "part.fillet"

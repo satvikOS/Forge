@@ -1248,6 +1248,68 @@ jobs:
         # is bore:max / hole:at=... ; the only other matches were comment
         # placeholders and one roadmap line the old binary ALREADY refused.
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/selector_kind_gate.sh
+
+      - name: an op that did NOTHING does not report SUCCESS
+        # Same class as the step above, reached from the other direction: there the
+        # selector meant something else, here the OP did nothing at all and said it
+        # had. FIFTEEN ops in FeatureTreeCompiler.cpp answered a request they had not
+        # carried out and reported ok=true, so the feature tree recorded a step that
+        # never happened. The gate DERIVES that fifteen from the dispatch table and
+        # fails if it moves -- an earlier version of this comment said "Eleven"
+        # while the commit subject said "twelve" and the file said neither.
+        #
+        # MEASURED through forge_verify before the fix, on BOX(60,40,20)/CYL(10,40):
+        #   THREAD(%1,20,2.5,30) and THREAD(%1,6,1.0,5)  -> both 12566.3706 mm^3,
+        #     3 faces: the bare input cylinder. Three arguments read with (void).
+        #   RIB(...,4), RIB(...,40) and FUSE(%1,%2)      -> all 50400.0000, 18f/36e
+        #   POCKET(...,5), POCKET(...,50) and CUT(%1,%2) -> all 40000.0000, 10f/24e
+        #     (a 5 mm pocket in a 20 mm plate should leave 46000; it cut through)
+        #   DRAFT(%1,5,Z) / DRAFT(%1,20,Z)               -> both 48000.0000, the
+        #     input box. catch(...) was eating a Standard_NoSuchObject.
+        #   FILLET(%1,1,"face:top") == FILLET(%1,1,ALL)  -> 47898.330353 both, to
+        #     the last digit. kwOpt() returns its default for a non-Keyword token,
+        #     so a quoted selector silently widened to EVERY edge on the body.
+        #
+        #   SPLITBODY(%1,%2,"NEGATIVE") -> 40000.0000, the POSITIVE answer, where
+        #     SPLITBODY(%1,%2,NEGATIVE) is 8000.0000. kwOpt()'s hole is not
+        #     selector-specific: SURFTRIM, THICKEN and SKETCH had it too, and
+        #     SKETCH("YZ") put the part on the XY plane.
+        #
+        # VOLUME ALONE CANNOT SEE ANY OF THIS -- the no-op's volume is exactly its
+        # input's, which is a perfectly ordinary number -- so the gate asserts on
+        # the REFUSAL and its reason, and separately holds twelve working rows to
+        # their measured volume/face/edge triples so a fix cannot pay for itself
+        # by refusing more than it should. It also runs the IR the SHIPPED COMMANDS
+        # emit (read from the derived op vocabulary, not retyped) and requires the
+        # refusal a user sees to name the op and a next step.
+        #
+        # THREE OF ITS OWN CHECKS COULD REPORT GREEN ON THE DEFECT THEY EXIST FOR,
+        # and that is fixed here: the derived op count ran its message test over
+        # the ORIGINAL source and so counted COMMENTS (deleting opSketch's guard
+        # left the count at 15; one comment line in opScaleUniform made it 16);
+        # the app-path probe read its IR out of the vocabulary, which no longer
+        # documented the two emissions the refusals broke; and the "next step"
+        # requirement was the substring " or ", which a pure diagnosis passed.
+        #
+        # SIX mutations were injected for those three, each restored to 59/59:
+        # opSketch's guard deleted outright (count 15 -> 14, RED, where the old
+        # logic stayed at 15 and GREEN); one behaviour-free comment line in
+        # opScaleUniform (count must NOT move, and does not, where the old logic
+        # went to 16 and RED); DRAFT's remedy replaced by a pure diagnosis
+        # containing " or " (2 red, where the substring test passed);
+        # refused_app_emissions stripped from the vocabulary (1 red, where nothing
+        # saw it before); FILLET's quoted-selector guard removed (4 red, one of
+        # them the app-path row that did not exist); and SURFTRIM's remedy
+        # replaced by a pure diagnosis (1 red -- a refuse() site no IR fixture in
+        # this tree can reach). The seven earlier reverts -- the arg-#2-only
+        # selector guard (3 red), the four unguarded keyword slots (6), the
+        # unimplemented-keyword message (1), a refusal with no next step (1), the
+        # source scanner swapped back for the awk it replaces (1), a stale
+        # hand-written op count (1) and a live `catch (const std::exception&)
+        # { return surf; }` re-injection (1) -- were measured against the
+        # 52-check version and were not re-run. Controls green throughout.
+        run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/ft_silent_noop_gate.sh
+
       - name: ... and the gate that proves it can fail (8 mutations, red-then-green)
         # THE NEGATIVE CONTROL FOR THE TWO STEPS ABOVE. The defect they exist for
         # survived a COMPLETE 600-row run because nothing exercised the path
