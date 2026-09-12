@@ -88,8 +88,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
+
+// setenv(), for the HOME redirect at the top of main(): a gate that invokes
+// every command must not write into the user's real home directory.
+#include <stdlib.h>
 
 #include "imgui.h"
 
@@ -266,6 +271,38 @@ int main(int argc, char** argv) {
     if (std::strcmp(argv[i], "--mutate") == 0 && i + 1 < argc) g_mutation = std::atoi(argv[++i]);
   }
   if (g_mutation != 0) std::printf("[gate] MUTATION %d ACTIVE\n", g_mutation);
+
+  // ── THIS GATE MUST NOT TOUCH THE USER'S FILES ────────────────────────────
+  // The sweep below invokes EVERY registered command, and `file.save` is one of
+  // them. ForgeFrame::documentSave() puts a never-saved document in
+  // ~/.forge/<name>.fpart -- the application's own documented behaviour for a
+  // bare Ctrl+S -- so the sweep wrote into the machine's real home directory,
+  // over whatever untitled.fpart was there. MEASURED: deleting
+  // ~/.forge/untitled.fpart and running this binary recreated it.
+  //
+  // (It could not happen before `file.save` was offered on an unchanged
+  // document: the sweep runs in sorted id order, `file.new` comes before
+  // `file.save` and clears the path, so every save in here is an untitled one.)
+  //
+  // HOME is redirected for THIS PROCESS ONLY -- setenv, not a machine-wide
+  // change -- which fixes it for anything else that reaches into the home
+  // directory too, rather than for the one command somebody remembered.
+  {
+    const char* tmp = std::getenv("TMPDIR");
+    std::string sandbox = (tmp != nullptr && tmp[0] != 0) ? std::string(tmp) : std::string("/tmp");
+    if (!sandbox.empty() && sandbox.back() == '/') sandbox.pop_back();
+    sandbox += "/forge_click_gate_home";
+    std::error_code ec;
+    // `.forge` too: ForgeFrame::documentSave() writes into it and does not create
+    // it, so a sandbox without one turns the sweep's save into a REFUSAL. The
+    // point is to move the write, not to stop it happening.
+    std::filesystem::create_directories(sandbox + "/.forge", ec);
+    if (::setenv("HOME", sandbox.c_str(), 1) != 0) {
+      std::printf("[gate] could not redirect HOME; refusing to write into the real one\n");
+      return 1;
+    }
+    std::printf("[gate] HOME redirected to %s for this process\n", sandbox.c_str());
+  }
 
   // ── the real application, headless ───────────────────────────────────────
   forge::desktop::KernelScene scene;

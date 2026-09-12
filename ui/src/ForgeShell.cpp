@@ -103,28 +103,49 @@ void ForgeShell::registerCommands() {
     // and the host answers where. A required parameter here would turn every
     // keyboard save into MissingRequiredParameter.
     c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = false});
-    // A save is offered only when there is something to save.
-    c.enabled = [this](const CommandContext&) { return doc_.dirty; };
-    c.execute = [this](CommandContext& ctx) {
-      documentError_.clear();
-      const std::string path = ctx.params().text("path").value_or(std::string());
-      if (documentHost_ != nullptr) {
-        if (!documentHost_->documentSave(path, documentError_)) {
-          ++documentErrorSeq_;
-          return;
-        }
-        // The host is the ONLY thing that knows where a bare Ctrl+S went: this
-        // command's `path` is optional and empty in that case, and the host
-        // chooses ~/.forge/<name>.fpart. Remembering `path` here would remember
-        // "" — which is exactly how a user saves successfully and can never find
-        // the file again.
-        recent_.remember(documentHost_->documentPath());
-        syncDocumentStats();
-        doc_.dirty = false;
-        return;
-      }
-      doc_.dirty = false;
-    };
+    // ── SAVE IS ALWAYS OFFERED, AND THE PREDICATE THAT WAS HERE IS WHY ──────
+    // This used to be `return doc_.dirty;`, and the three words of prose above
+    // it -- "a save is offered only when there is something to save" -- hid two
+    // real failures behind a reasonable-sounding rule:
+    //
+    //   1. A document the user has just OPENED, or has just saved, could not be
+    //      written anywhere at all. Every path into the file panel goes through
+    //      this predicate (ForgeFrame::wantsFileDialog asks the REGISTRY rather
+    //      than deciding for itself), so a clean document could not be given a
+    //      name, could not be copied to a second location, and could not be
+    //      re-written after the file underneath it was moved or deleted.
+    //   2. It made Save UNREACHABLE at the exact moment a user reaches for it:
+    //      "did that save?" is answered by pressing Ctrl+S, and a greyed item
+    //      answers it with nothing.
+    //
+    // Saving an unchanged document costs one file write and produces the file
+    // the user asked for. That is a better bargain than a menu item that cannot
+    // be clicked, and `file.save_as` below could not exist without it -- the
+    // whole point of Save As is naming a document that is NOT dirty.
+    c.enabled = always;
+    c.execute = [this](CommandContext& ctx) { runSave(ctx, false); };
+    registry_.add(std::move(c));
+  }
+  {
+    CommandDescriptor c;
+    c.id = "file.save_as";
+    c.label = "Save Document As";
+    c.category = "File";
+    c.sideEffect = SideEffectClass::Application;
+    c.undo = UndoContract::NotUndoable;
+    // REQUIRED, and that is the entire difference from `file.save`: Save As
+    // without a name is Save. "" is not a document name, so ParamSpec declares
+    // no default and a bare keystroke reports the parameter for a UI to ask for
+    // -- the same contract file.open has always had.
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Always: a document that has never changed is exactly the one a user wants
+    // to write out under a new name.
+    c.enabled = always;
+    // THE SAME HANDLER as file.save, with the one flag that is the difference
+    // between them: a name is not optional here. A second body would be a second
+    // opinion about what gets remembered in Open Recent and when the document
+    // stops being dirty.
+    c.execute = [this](CommandContext& ctx) { runSave(ctx, true); };
     registry_.add(std::move(c));
   }
   // ── FILE EXCHANGE: the commands that open and save REAL CAD FILES ────────
@@ -835,6 +856,55 @@ void ForgeShell::runImport(CommandContext& ctx, ExchangeFormat format) {
     return;
   }
   syncDocumentStats();
+}
+
+// ── the ONE save ────────────────────────────────────────────────────────────
+// `file.save` and `file.save_as` are two schemas over this one body. Everything
+// below was `file.save`'s execute lambda before Save As existed and is moved
+// rather than rewritten, so the behaviour a user already had is unchanged.
+//
+// ── `requirePath` IS THE WHOLE OF WHAT SAVE AS MEANS, AND THE SCHEMA CANNOT
+//    SAY IT ────────────────────────────────────────────────────────────────
+// file.save_as declares `path` REQUIRED, and a required parameter is satisfied
+// by one that is PRESENT AND EMPTY: CommandRegistry::evaluate asks
+// `params.has(name)` and nothing more. MEASURED: file.save_as with no path at
+// all was correctly refused with missing_required_parameter, and file.save_as
+// with path="" answered STATUS OK and wrote over the open document -- Save As,
+// silently doing Save, which is the one thing Save As must never do. A user
+// cannot type "" into the native panel (runPendingFileDialog treats an empty
+// path as a cancel), but a macro, an Archie tool call or a script can, and the
+// file it overwrites is whichever one happens to be open.
+//
+// The refusal is here rather than in the registry because "" is not universally
+// meaningless -- it is a legal value for plenty of text parameters -- and a
+// blanket rule in evaluate() would change what every other command does with an
+// empty string.
+void ForgeShell::runSave(CommandContext& ctx, bool requirePath) {
+  documentError_.clear();
+  const std::string path = ctx.params().text("path").value_or(std::string());
+  if (requirePath && path.empty()) {
+    documentError_ =
+        "Save As needs a name for the file. Pick one, or use Save to write this part back "
+        "where it came from.";
+    ++documentErrorSeq_;
+    ctx.fail(documentError_);
+    return;
+  }
+  if (documentHost_ != nullptr) {
+    if (!documentHost_->documentSave(path, documentError_)) {
+      ++documentErrorSeq_;
+      return;
+    }
+    // The host is the ONLY thing that knows where a bare Ctrl+S went: file.save's
+    // `path` is optional and empty in that case, and the host chooses
+    // ~/.forge/<name>.fpart. Remembering `path` here would remember "" — which is
+    // exactly how a user saves successfully and can never find the file again.
+    recent_.remember(documentHost_->documentPath());
+    syncDocumentStats();
+    doc_.dirty = false;
+    return;
+  }
+  doc_.dirty = false;
 }
 
 void ForgeShell::runExport(CommandContext& ctx, ExchangeFormat format) {

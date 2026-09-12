@@ -42,6 +42,7 @@
 #include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/CommandSurface.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/DocumentStore.hpp"
 #include "forge/ui/Drawing.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
@@ -68,6 +69,31 @@
 struct ImDrawList;
 
 namespace forge::desktop {
+
+// ── WHERE THE AUTOSAVED DRAWING LIVES ───────────────────────────────────────
+//
+// An autosave is a forge::ui::DocumentModel, and that model has no drawing: the
+// title block, the datums, the notes and the geometric tolerances are
+// forge::desktop's, carried in the .fpart dialect this application writes
+// (PartFile.hpp) and NOT expressible in the forge::ui one. Adding them to the ui
+// dialect would need a version 3 there, and forge::desktop has already minted
+// FORGE-PART 3 for itself -- two dialects answering to one number is the exact
+// collision PartFile.hpp refuses a version 2 file over.
+//
+// So the drawing rides BESIDE the autosave, in a file named by appending this to
+// the autosave's own path, written through the same DocumentStorage seam, by the
+// same writePartFile() that documentSave() uses. It holds NO features on
+// purpose: a second copy of the feature tree could disagree with the autosave's,
+// and the one thing worse than a lost drawing is a drawing stitched onto the
+// wrong part.
+//
+// The suffix deliberately does not end in the autosave's own, so that a scan
+// counting autosaves cannot count these too.
+inline constexpr const char* kAutosaveDrawingSuffix = ".autosave.drawing.fpart";
+
+// The drawing file that belongs beside `autosavePath`. "" when there is no
+// autosave to sit beside.
+std::string autosaveDrawingPath(const std::string& autosavePath);
 
 // What the frame decided the viewport needs from the renderer this frame. The
 // renderer reads this AFTER build(); build() itself never calls into Vulkan.
@@ -445,9 +471,79 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   Camera& camera() noexcept { return camera_; }
   const Camera& camera() const noexcept { return camera_; }
 
-  // The shell state the host loop needs.
+  // ── THE QUIT GUARD, and the data loss it exists to end ──────────────────
+  //
+  // MEASURED on the tree this was written against, with a headless probe that
+  // drove exactly this API: a document with an unsaved `part.fillet` in it,
+  // `requestQuit()` -> `wantsQuit()` TRUE on the same line, `documentDirty()`
+  // still true, and ZERO autosave files and ZERO session markers anywhere on
+  // disk. `Window > Quit`'s whole body was `quit_ = true;` and the window's
+  // close box went straight to the host loop's `running = false`. Every edit
+  // since the last manual Ctrl+S was gone, with nothing asked and nothing kept.
+  //
+  // `wantsQuit()` still means exactly what it meant to the host loop -- STOP --
+  // so main.cpp's contract is unchanged. What changed is who is allowed to set
+  // it: `requestQuit()` is now a REQUEST, and a dirty document turns it into a
+  // question instead of an exit. The three answers below are the only ways past
+  // it, and Discard is the only one that loses anything.
   bool wantsQuit() const noexcept { return quit_; }
-  void requestQuit() noexcept { quit_ = true; }
+  // Window > Quit, the window's close box, and anything else that means "the
+  // user wants out". Takes an autosave FIRST -- before the question is even
+  // asked -- so the work is on disk no matter what happens next, including a
+  // crash while the prompt is up.
+  void requestQuit();
+  // Is the application standing on the unsaved-changes question right now?
+  bool quitPromptOpen() const noexcept { return quitPrompt_; }
+  // How many times the guard has stopped a quit. A lifetime total: "the prompt
+  // came up" is a claim about a number, so the number is kept.
+  std::size_t quitPromptsRaised() const noexcept { return quitPromptsRaised_; }
+  // How many times it took itself back down because the work had been saved by
+  // hand while it stood. The prompt is a plain window and not a modal, so that
+  // is a thing a user can do, and until this was counted it was a thing nobody
+  // could see had happened.
+  std::size_t quitPromptsWithdrawn() const noexcept { return quitPromptsWithdrawn_; }
+  // The three answers. They RECORD intent exactly as the CoPilot's buttons do,
+  // and build() applies it after the dock walk -- Save dispatches file.save,
+  // which can rebuild the document and the feature tree the walk was indexing.
+  // A frame must be built for a recorded answer to take effect.
+  void answerQuitSave();
+  void answerQuitDiscard();
+  void answerQuitCancel();
+
+  // ── AUTOSAVE: forge::ui::RecoveryService, wired ─────────────────────────
+  // ui/src/DocumentStore.cpp has held a complete, gated autosave-and-crash-
+  // recovery engine since it was written, and forge-desktop CONSTRUCTED IT ZERO
+  // TIMES (measured: `grep -rn RecoveryService forge-desktop` -> 0 hits). This
+  // is that wiring and not a second engine: the session marker, the cadence, the
+  // atomic write and the change test are all the service's.
+  //
+  // `directory` is where the marker and the autosave live (the app uses
+  // ~/.forge/recovery). Returns false, with the reason in the activity log, when
+  // the marker cannot be written -- a session with no crash evidence is a fact
+  // worth saying out loud rather than silent disabled recovery.
+  bool beginRecoverySession(const std::string& directory);
+  // Null until beginRecoverySession() succeeds. Every headless gate that does
+  // not ask for autosave therefore writes no files at all.
+  const forge::ui::RecoveryService* recovery() const noexcept { return recovery_.get(); }
+  // One frame's worth of the cadence. `deltaSeconds` is the frame time, so the
+  // clock is the application's own and a gate can step it deterministically.
+  // Returns true only when an autosave was actually written.
+  bool autosaveTick(double deltaSeconds);
+  // "Snapshot now" -- what the quit guard calls. Still skipped when the document
+  // has not changed since the last one; that is the service's rule, not a new one.
+  bool autosaveNow();
+  // A CLEAN exit: removes the autosave and the marker, which is what makes a
+  // marker left on disk MEAN a session that died.
+  bool endRecoverySession();
+  // Every session in the recovery directory that is not this one: every session
+  // that did not end cleanly.
+  std::vector<forge::ui::RecoveryCandidate> recoverableSessions() const;
+  // Reads `candidate`'s autosave back through the service and installs it as the
+  // live document. The autosave is a forge::ui::DocumentModel document, so this
+  // goes through that reader and lifts the feature tree across -- the two layers
+  // share forge::ui::PartDocument, which is what makes this a handful of lines
+  // rather than a format conversion.
+  bool recoverFromAutosave(const forge::ui::RecoveryCandidate& candidate, std::string& error);
 
   // Instrumentation the frame gate asserts on.
   // ── what a menu item, a toolbar button or a palette row actually does ────
@@ -1691,6 +1787,84 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // asking this application already has.
   bool wantsParameterSheet(const std::string& id) const;
   void drawParameterPrompt();
+
+  // ── the unsaved-changes question ────────────────────────────────────────
+  // Drawn after the dock walk, beside the parameter prompt, and for the same
+  // reason stated there.
+  void drawQuitPrompt();
+  // The answer the user gave, applied after the walk. One slot: a user cannot
+  // press two of three buttons in one frame.
+  enum class QuitAnswer { None, Save, Discard, Cancel };
+  QuitAnswer pendingQuitAnswer_ = QuitAnswer::None;
+  void applyPendingQuitAnswer();
+  // Set when the user answered "Save, then quit". Resolved at the END of
+  // build(), after the file panel has had its turn: an untitled document raises
+  // a panel from inside invoke(), so whether the save happened is not knowable
+  // on the line that asked for it.
+  bool quitAfterSave_ = false;
+  void resolveQuitAfterSave();
+  // The one place quit_ is allowed to become true. Ends the recovery session on
+  // the way out, which is what turns "a marker is still there" into evidence.
+  void grantQuit();
+  bool quitPrompt_ = false;
+  std::size_t quitPromptsRaised_ = 0;
+  // How many times the question WITHDREW itself because the unsaved changes it
+  // was asking about had been saved by hand while it stood. A lifetime total,
+  // for the same reason quitPromptsRaised_ is one.
+  std::size_t quitPromptsWithdrawn_ = 0;
+
+  // ── autosave ────────────────────────────────────────────────────────────
+  // The storage is a plain member and the service holds a reference to it, so
+  // the declaration order here is load-bearing exactly as partDoc_'s is.
+  forge::ui::FileSystemStorage recoveryStorage_;
+  std::unique_ptr<forge::ui::RecoveryService> recovery_;
+  // The application's own clock, in milliseconds, accumulated from frame times.
+  // NOT a wall clock: a gate steps it, and the cadence is then a value rather
+  // than a wait.
+  std::uint64_t autosaveClockMillis_ = 0;
+  // How often the cadence is even ASKED. RecoveryService::tick() takes the
+  // document by const reference and this class has to BUILD that document to
+  // hand it over, so asking sixty times a second would copy the feature tree
+  // sixty times a second to be told "not due". The service still owns the real
+  // cadence; this only bounds how often it is consulted.
+  std::uint64_t autosaveProbeAtMillis_ = 0;
+  // The document as forge::ui::DocumentModel sees it -- the form RecoveryService
+  // writes. Built from the live PartDocument on each autosave rather than kept
+  // in step, so there is no second document to drift.
+  forge::ui::DocumentModel autosaveSnapshot() const;
+  // The DRAWING half of that snapshot, which no forge::ui::DocumentModel can
+  // carry -- see kAutosaveDrawingSuffix at the top of this header for the format
+  // collision that puts it in a file of its own. Written through the same
+  // storage seam and skipped when it has not changed, which is the service's own
+  // rule applied to the one piece of the document the service cannot see.
+  // Returns true only when it actually wrote.
+  bool writeAutosaveDrawing();
+  // The snapshot File > New and File > Open take before they replace a document
+  // that has unsaved changes in it. NEITHER OF THEM ASKS -- see the comment over
+  // documentNew() in the .cpp, which states that hole rather than hiding it.
+  void autosaveDiscardedWork(const char* what);
+  // The bytes last written by the line above. The comparison that keeps an
+  // unchanged drawing from spinning a disk every fifteen seconds.
+  std::string lastAutosavedDrawing_;
+  // When the drawing is next due, on the application's own clock. Separate from
+  // the service's cadence because the service decides the TREE's due-ness from a
+  // digest this class cannot see, and autosaveTick()'s 250 ms probe is a bound
+  // on asking rather than a cadence -- see the comment at the call site.
+  std::uint64_t autosaveDrawingDueAtMillis_ = 0;
+  // The drawing that belongs to `candidate`, by the ladder recoverFromAutosave()
+  // documents: the snapshot beside the autosave, else the user's own file, else
+  // NOTHING -- and "nothing" is the answer that also refuses the path, because a
+  // document whose drawing is unknown must not be one keystroke from overwriting
+  // the file that still has it.
+  bool recoverDrawingFor(const forge::ui::RecoveryCandidate& candidate,
+                         forge::ui::DrawingModel& out, bool& adoptPath, std::string& why) const;
+  // The unsaved-changes question is a plain window, not a modal, so every other
+  // gesture still works while it stands -- including Ctrl+S. This re-reads the
+  // condition the question was raised on and withdraws it when that condition is
+  // gone, so the window cannot go on claiming unsaved changes that no longer
+  // exist. Called once per frame, immediately before the question is drawn.
+  void refreshQuitPrompt();
+
   bool quit_ = false;
   std::string status_ = "Ready";
   std::vector<std::string> log_;

@@ -301,6 +301,28 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # The production lines these do NOT reach are proved by breaking the SOURCE, one
 # line at a time -- see the mutation sweep in this gate's commit message.
 run_gate forge_desktop_import_reopen_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+
+# THE QUIT GATE: the document gate proves a part can be written and read back;
+# this one proves the application does not throw it away on the way out. It
+# drives ForgeFrame::requestQuit() -- the call Window > Quit and the window's
+# close box both make -- with a dirty document, and asserts the work is still
+# there afterwards BOTH through the unsaved-changes prompt and through the
+# forge::ui::RecoveryService autosave, which a SECOND session reads back into a
+# live document and compares statement for statement against the program that
+# was about to be lost. Its seven mutations each break one link in that chain;
+# mutation 1 is the application exactly as it shipped -- the recovery engine
+# written, gated, and constructed zero times. Mutations 8-13 came out of the
+# adversarial review of the first version of this very change, which found that
+# the guard DESTROYED DATA the bug it fixed had only failed to save: the autosave
+# carried neither the drawing nor the material, and recovery then pointed the
+# document at the user's own .fpart, so one Ctrl+S wrote those losses into it.
+# 8 and 9 are that seam; 10 is the question outliving the save that answered it;
+# 11 is Save As with an empty name silently doing Save; 12 is Save and Close on a
+# document that has never been saved, where the close must WAIT for a file panel
+# and must not happen at all if it is cancelled; 13 is what File > New leaves
+# behind when it replaces a dirty document without asking; 14 is the fifteen-
+# second cadence asked to keep an edit that touches only the drawing.
+run_gate forge_desktop_quit_guard_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
 # FILE EXCHANGE: open and save real CAD files through the shipping command path,
 # comparing a VECTOR of observables at the seam -- volume AND area AND centre of
 # mass AND bounding box AND the per-kind face census. The five mutations break the

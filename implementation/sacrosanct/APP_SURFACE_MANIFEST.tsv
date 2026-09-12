@@ -17,6 +17,7 @@ file.import_step	File	-	document	none	none	1	path:text:required
 file.new	File	-	application	none	none	1	-
 file.open	File	-	application	none	none	1	path:text:required
 file.save	File	-	application	none	none	1	path:text:optional
+file.save_as	File	-	application	none	none	1	path:text:required
 part.boolean_intersect	Part	COMMON	document	transaction	none	1	-
 part.boolean_subtract	Part	CUT	document	transaction	none	1	-
 part.boolean_union	Part	FUSE	document	transaction	none	1	-

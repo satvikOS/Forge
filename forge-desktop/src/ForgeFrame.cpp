@@ -17,6 +17,9 @@
 #include <vector>
 
 #include <sys/stat.h>
+// getpid(), for the recovery SESSION ID. A marker is evidence of a live process,
+// so its name has to be unique to one -- see beginRecoverySession().
+#include <unistd.h>
 
 #include "imgui.h"
 
@@ -711,7 +714,35 @@ bool ForgeFrame::syncSceneToDocument() {
 }
 
 // ── forge::ui::DocumentHost ─────────────────────────────────────────────────
+
+// One snapshot, taken by a gesture that is ABOUT to throw a document away
+// without asking. `what` names the gesture in the log, so a user reading it
+// afterwards can tell which click cost them the work.
+void ForgeFrame::autosaveDiscardedWork(const char* what) {
+  if (!documentDirty_) return;
+  if (recovery_ == nullptr || !recovery_->active()) return;
+  if (!autosaveNow()) return;
+  shell_.log().info("Autosave",
+                    "Forge kept a spare copy of the part you had open before this one, in "
+                    "case you did not mean to leave it.",
+                    std::string(what) + " replaced a document with unsaved changes; the copy is " +
+                        recovery_->autosavePath());
+}
+
+// ── THE SNAPSHOT NEW AND OPEN TAKE ON THE WAY PAST ──────────────────────────
+//
+// ★ STATED PLAINLY, BECAUSE IT IS A HOLE AND NOT A FIX: File > New and File >
+//   Open REPLACE a document with unsaved changes and NEITHER ASKS. That is the
+//   same silent discard the quit guard exists for, one gesture over, and this
+//   change does not close it -- there is no prompt here.
+//
+// What there IS, from this line, is the snapshot. Both replacements take one
+// FIRST, so the discarded work is on disk rather than gone at the instant of the
+// click. The promise is smaller than a prompt and it is worth stating exactly:
+// the autosave survives only until the replacement document is itself edited and
+// the fifteen-second cadence writes over it. It is a window, not a guarantee.
 bool ForgeFrame::documentNew(std::string& error) {
+  autosaveDiscardedWork("New");
   partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
   // A NEW part came from no file. Without this the scene kept whatever the last
   // import bound, and a Save that stated an imported solid wrote that path into
@@ -1071,6 +1102,11 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
                            "file UNITS=" + file.units + " expected " + expected);
     }
   }
+  // The document about to be replaced still holds whatever the user had not
+  // saved; see autosaveDiscardedWork(). Taken HERE rather than at the top of the
+  // function, because a file that turns out not to be a legal document must not
+  // cost a snapshot of a document that is not going anywhere.
+  autosaveDiscardedWork("Open");
   partDoc_ = candidate;  // the command handlers captured this OBJECT by reference
   // ── AND BIND WHAT WAS ACTUALLY FOUND, BEFORE THE REBUILD BELOW ──────────
   // `boundInput`, not the recorded path: when the source was found beside the
@@ -1176,6 +1212,494 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
   documentDirty_ = false;
   note("Saved " + target + "  (" + std::to_string(file.features.size()) + " features)");
   return true;
+}
+
+// ── AUTOSAVE: the engine that was written and never switched on ─────────────
+//
+// forge::ui::RecoveryService is complete, gated (ui/test/document_store_test.cpp)
+// and, until this wiring, CONSTRUCTED ZERO TIMES by the application -- measured
+// with `grep -rn RecoveryService forge-desktop`, which returned nothing at all.
+// Nothing below re-implements any of it: the session marker, the atomic write,
+// the "has it actually changed" test and the cadence are the service's, and this
+// file contributes the three things only the application knows -- WHERE the
+// document is, WHAT it currently contains, and WHEN a frame went by.
+forge::ui::DocumentModel ForgeFrame::autosaveSnapshot() const {
+  forge::ui::DocumentModel model;
+  // The two document layers share forge::ui::PartDocument, so the feature tree
+  // crosses WHOLE rather than being re-encoded through a second format.
+  model.tree() = partDoc_;
+  model.setName(documentName_);
+  // ── THE MATERIAL, WHICH TRAVELS IN NEITHER OF THOSE TWO LINES ───────────
+  // MEASURED, on the first version of this change: DocumentModel::capture()
+  // writes the MODEL's own `material_`, not `tree().material()`, and nothing
+  // here set it -- so every autosave claimed the part was made of nothing. Then
+  // recoverFromAutosave() installed that document over the user's own file path
+  // and one Ctrl+S wrote "unassigned" into a file that said 6061-T6, taking the
+  // density, and therefore every mass the part had, with it.
+  model.setMaterial(partDoc_.material());
+  // The DRAWING is not here because it CANNOT be: a forge::ui::DocumentModel has
+  // no drawing and the ui dialect cannot express one without colliding with
+  // forge::desktop's own FORGE-PART 3. It rides beside the autosave instead --
+  // writeAutosaveDrawing(), called by both autosave paths below.
+  return model;
+}
+
+std::string autosaveDrawingPath(const std::string& autosavePath) {
+  if (autosavePath.empty()) return std::string();
+  // The autosave's own suffix is REPLACED rather than appended to, so the result
+  // cannot be counted by anything scanning for autosaves.
+  const std::string suffix = forge::ui::kAutosaveSuffix;
+  std::string stem = autosavePath;
+  if (stem.size() >= suffix.size() &&
+      stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0) {
+    stem.erase(stem.size() - suffix.size());
+  }
+  return stem + kAutosaveDrawingSuffix;
+}
+
+// ── THE DRAWING'S SNAPSHOT ──────────────────────────────────────────────────
+//
+// ★ WHAT THIS EXISTS FOR, MEASURED. documentSave() writes
+//   capturePartDocument(partDoc_, documentName_, drawing_) and autosaveSnapshot()
+//   carried the tree and the name. The title block, the datums, the geometric
+//   tolerances and every note were therefore absent from every autosave, while
+//   ELEVEN document operations in this file mark a document dirty by touching
+//   nothing else -- five title-block controls in drawTitleBlockPanel(), plus add
+//   and remove for datums, tolerance frames and notes. Counted by attributing
+//   every `documentDirty_ = true` in this file to the function it sits in. So
+//   the state the autosave was most likely to be holding was exactly the state
+//   it could not keep.
+//
+// It is written by writePartFile(), the function documentSave() itself uses, so
+// there is no second serialiser for a drawing and no second thing to drift. It
+// carries NO FEATURES deliberately: a second copy of the feature tree could
+// disagree with the autosave's, and a drawing stitched onto the wrong part is
+// worse than a drawing that is late.
+bool ForgeFrame::writeAutosaveDrawing() {
+  if (recovery_ == nullptr || !recovery_->active()) return false;
+  const std::string path = autosaveDrawingPath(recovery_->autosavePath());
+  if (path.empty()) return false;
+  PartFileDoc sidecar;
+  sidecar.name = documentName_;
+  sidecar.drawing = drawing_;
+  const std::string text = writePartFile(sidecar);
+  // The service's own rule, applied to the piece the service cannot see: an
+  // unchanged drawing is not rewritten every fifteen seconds.
+  if (text == lastAutosavedDrawing_) return false;
+  std::string error;
+  if (!recoveryStorage_.write(path, text, error)) {
+    shell_.log().error("Autosave",
+                       "Forge could not write a spare copy of this part's drawing. Save your "
+                       "work somewhere you choose.",
+                       error);
+    return false;
+  }
+  lastAutosavedDrawing_ = text;
+  return true;
+}
+
+bool ForgeFrame::beginRecoverySession(const std::string& directory) {
+  if (directory.empty()) return false;
+  recovery_ = std::make_unique<forge::ui::RecoveryService>(recoveryStorage_, directory);
+
+  forge::ui::AutosavePolicy policy;
+  policy.intervalMillis = 15000;
+  // ── everyNEdits IS ZERO ON PURPOSE, and this is the honest half ─────────
+  // The service's edit trigger reads `model.undo().undoDepth()`, and the model
+  // it is handed here is a SNAPSHOT built by autosaveSnapshot(); the undo stack
+  // a user actually fills is ForgeFrame::partUndo_ and does not travel with it.
+  // Declaring `everyNEdits = 20` would therefore be a trigger that can never
+  // fire -- a number in a struct that nothing reads, which is the exact defect
+  // shape this file already carries three post-mortems for (view.fit, the theme
+  // command, the retired model.* stubs). The time cadence is halved instead,
+  // and requestQuit() snapshots unconditionally on the way out.
+  policy.everyNEdits = 0;
+  recovery_->setPolicy(policy);
+
+  // Unique per LIVE SESSION, which is what makes a marker left behind mean a
+  // session that died rather than this one. Pid plus start time is the pairing
+  // the service's header names...
+  //
+  // ...and the COUNTER is the half that pairing does not cover. Two sessions
+  // opened by ONE process inside the same second mint the same id, and
+  // RecoveryService::beginSession writes its marker at a path derived from the
+  // id -- so the second session overwrites the first one's marker and scan()
+  // then skips the dead session as "our own, still live". MEASURED while writing
+  // this change's own gate: two sessions a few milliseconds apart produced ZERO
+  // recoverable candidates where one was owed. The live application opens one
+  // session per launch and would not have hit it; a harness, and a future
+  // document-per-window build, both would.
+  static unsigned long long sessionSerial = 0;
+  ++sessionSerial;
+  const std::string sessionId =
+      "forge-" + std::to_string(static_cast<long long>(::getpid())) + "-" +
+      std::to_string(static_cast<long long>(std::time(nullptr))) + "-" +
+      std::to_string(sessionSerial);
+  std::string error;
+  if (!recovery_->beginSession(sessionId, autosaveClockMillis_, error)) {
+    shell_.log().error("Autosave",
+                       "Forge cannot keep a spare copy of your work in this session, so save "
+                       "it yourself before you stop for the day.",
+                       "recovery session refused: " + error);
+    recovery_.reset();
+    return false;
+  }
+  shell_.log().info("Autosave",
+                    "Forge is keeping a spare copy of this part while you work, and will ask "
+                    "before it closes with changes you have not saved.",
+                    "recovery session " + sessionId + " in " + directory);
+  return true;
+}
+
+bool ForgeFrame::autosaveNow() {
+  if (recovery_ == nullptr || !recovery_->active()) return false;
+  // A document that matches its file has nothing to recover THAT THE FILE DOES
+  // NOT ALREADY HOLD. This is the application's fact, not the service's.
+  if (!documentDirty_) return false;
+  std::string error;
+  // THE DRAWING FIRST, and the order is deliberate. The marker a scan reads is
+  // written by the service at the END of its own autosave, so a process that
+  // dies between these two lines leaves a drawing with no marker -- invisible,
+  // and harmless. The other order would leave a marker advertising an autosave
+  // whose drawing is a version behind.
+  writeAutosaveDrawing();
+  // A snapshot NOW restarts the drawing's cadence, exactly as the service
+  // restarts its own: what was just written is not due again for a full interval.
+  autosaveDrawingDueAtMillis_ = autosaveClockMillis_ + recovery_->policy().intervalMillis;
+  const bool wrote =
+      recovery_->autosaveNow(autosaveClockMillis_, autosaveSnapshot(), documentPath_, error);
+  if (!wrote && !error.empty()) {
+    // Stated, not swallowed: the whole point of an autosave is what happens when
+    // the write fails, and a failure nobody is told about is silent again.
+    shell_.log().error("Autosave",
+                       "Forge could not write its spare copy of this part. Save your work "
+                       "somewhere you choose.",
+                       error);
+  }
+  return wrote;
+}
+
+bool ForgeFrame::autosaveTick(double deltaSeconds) {
+  if (recovery_ == nullptr || !recovery_->active()) return false;
+  if (deltaSeconds > 0.0) {
+    autosaveClockMillis_ += static_cast<std::uint64_t>(deltaSeconds * 1000.0);
+  }
+  if (!documentDirty_) return false;
+  if (autosaveClockMillis_ < autosaveProbeAtMillis_) return false;
+  autosaveProbeAtMillis_ = autosaveClockMillis_ + 250;
+  std::string error;
+  // ── THE DRAWING RIDES ON THE CADENCE TOO, AND ON ITS OWN CLOCK ──────────
+  // Eleven document operations here mark a document dirty by touching the
+  // drawing and nothing else, so a cadence that skipped it would keep a spare
+  // copy of everything the user had NOT been editing.
+  //
+  // The clock is separate because the two writes are due for different reasons:
+  // the SERVICE decides when the tree is due, from a digest this class cannot
+  // see, and the line above only bounds how often it is ASKED (every 250 ms). A
+  // drawing written on that probe would be rewritten four times a second while
+  // somebody types into a title block. The policy's own interval is used, so
+  // there is one cadence in the application and not two numbers to drift.
+  if (autosaveClockMillis_ >= autosaveDrawingDueAtMillis_) {
+    autosaveDrawingDueAtMillis_ = autosaveClockMillis_ + recovery_->policy().intervalMillis;
+    writeAutosaveDrawing();
+  }
+  const bool wrote =
+      recovery_->tick(autosaveClockMillis_, autosaveSnapshot(), documentPath_, error);
+  if (!wrote && !error.empty()) {
+    shell_.log().error("Autosave",
+                       "Forge could not write its spare copy of this part. Save your work "
+                       "somewhere you choose.",
+                       error);
+  }
+  return wrote;
+}
+
+bool ForgeFrame::endRecoverySession() {
+  if (recovery_ == nullptr) return true;
+  // READ BEFORE the session is closed: endSession() clears the session id, and
+  // autosavePath() is empty without one -- so naming the file afterwards would
+  // report the failure with a blank where the file is.
+  const std::string leftover = recovery_->autosavePath();
+  // The drawing goes with it. A clean exit removes the marker and the autosave;
+  // a drawing left behind would be an orphan nothing scans for and nothing ever
+  // deletes -- one file per session, for ever, in the user's ~/.forge.
+  {
+    const std::string drawingPath = autosaveDrawingPath(leftover);
+    std::string why;
+    if (!drawingPath.empty() && recoveryStorage_.exists(drawingPath)) {
+      recoveryStorage_.remove(drawingPath, why);
+    }
+  }
+  lastAutosavedDrawing_.clear();
+  std::string error;
+  const bool ok = recovery_->endSession(error);
+  if (!ok) {
+    // NOT "Forge will offer it to you next time": there is no recovery prompt at
+    // startup yet, and a sentence that promises one is a sentence that lies to
+    // the one user who will read it. What is true is the path, so the path is
+    // what it says.
+    shell_.log().warning("Autosave",
+                         "Forge left a spare copy of this part behind. It is harmless, and "
+                         "the file it is in is named beside this message.",
+                         "leftover autosave: " + leftover + " (endSession: " + error + ")");
+  }
+  return ok;
+}
+
+std::vector<forge::ui::RecoveryCandidate> ForgeFrame::recoverableSessions() const {
+  if (recovery_ == nullptr) return {};
+  return recovery_->scan();
+}
+
+// ── THE DRAWING A RECOVERY IS ALLOWED TO INSTALL ────────────────────────────
+//
+// THREE ANSWERS, IN ORDER, AND THE THIRD ONE REFUSES THE FILE.
+//
+//   1. the snapshot beside the autosave -- the drawing as it was when the
+//      session died. This is the answer in every case the application controls.
+//   2. the USER'S OWN FILE, when there is no snapshot: an autosave written by a
+//      build that had none, a half-deleted recovery directory, a disk that
+//      filled between two writes. The last SAVED drawing is not the newest, but
+//      it is the user's, and an empty one is nobody's.
+//   3. nothing -- and then `adoptPath` is FALSE. A document whose drawing cannot
+//      be accounted for must not be one keystroke away from overwriting the file
+//      that still has it, so the recovery keeps the work and gives up the path.
+bool ForgeFrame::recoverDrawingFor(const forge::ui::RecoveryCandidate& candidate,
+                                   forge::ui::DrawingModel& out, bool& adoptPath,
+                                   std::string& why) const {
+  out = forge::ui::DrawingModel{};
+  adoptPath = true;
+  why.clear();
+
+  const std::string path = autosaveDrawingPath(candidate.autosavePath);
+  if (!path.empty() && recoveryStorage_.exists(path)) {
+    std::string text;
+    std::string readError;
+    if (recoveryStorage_.read(path, text, readError)) {
+      PartFileDoc snapshot;
+      std::string parseError;
+      // The SAME reader File > Open uses, for the same reason the service reads
+      // its autosave through the document reader: a recovered drawing is a
+      // drawing and not a special case.
+      if (readPartFile(text, snapshot, parseError)) {
+        out = snapshot.drawing;
+        return true;
+      }
+      why = "the drawing beside that autosave could not be read: " + parseError;
+    } else {
+      why = readError;
+    }
+  }
+
+  if (candidate.documentPath.empty()) {
+    // Never saved: there is no file to lose a drawing from, so an empty one is
+    // the truth rather than a loss, and the path there is nothing to give up.
+    return false;
+  }
+
+  PartFileDoc onDisk;
+  std::string loadError;
+  if (loadPartFile(candidate.documentPath, onDisk, loadError)) {
+    out = onDisk.drawing;
+    if (why.empty()) why = "no drawing was saved beside that autosave";
+    return false;
+  }
+
+  // Nothing knows what the drawing was. THE PATH IS REFUSED.
+  adoptPath = false;
+  why = "no drawing was saved beside that autosave, and " + candidate.documentPath +
+        " could not be read to take one from it (" + loadError + ")";
+  return false;
+}
+
+bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candidate,
+                                     std::string& error) {
+  error.clear();
+  if (recovery_ == nullptr) {
+    error = "no recovery session is open";
+    return false;
+  }
+  forge::ui::DocumentModel recovered;
+  forge::ui::DocumentIoError why;
+  // The SAME reader a normal Open uses, which is the service's own rule: a
+  // recovered document is a document and not a special case.
+  if (!recovery_->recover(candidate, recovered, why)) {
+    error = why.describe();
+    return false;
+  }
+
+  // ── WHAT THIS FUNCTION IS ABOUT TO POINT AT, AND WHY THE DRAWING COMES
+  //    BEFORE IT ──────────────────────────────────────────────────────────
+  // The lines below install a document AND point documentPath_ at the dead
+  // session's own .fpart, dirty. One Ctrl+S after that -- no panel, no
+  // confirmation -- writes this document OVER the user's file. So anything this
+  // function fails to restore is not merely missing from the screen: it is
+  // DELETED FROM DISK by the next keystroke, by the feature that exists to
+  // prevent loss. MEASURED on the first version of this change: a file holding 6
+  // features and 1 annotation recovered with 0 annotations, and a bare Ctrl+S
+  // made that permanent. The drawing and the material are therefore resolved
+  // FIRST, and a drawing that cannot be resolved costs the PATH rather than the
+  // user's work.
+  forge::ui::DrawingModel drawing;
+  bool adoptPath = true;
+  std::string drawingNote;
+  const bool fromSnapshot = recoverDrawingFor(candidate, drawing, adoptPath, drawingNote);
+
+  partDoc_ = recovered.tree();
+  // DocumentModel::restore() installs a FRESH PartDocument and puts the file's
+  // material on the MODEL, not on that tree -- so `recovered.tree().material()`
+  // is "unassigned" whatever the autosave said. Taking it from the model is what
+  // keeps a recovered part made of what it was made of.
+  partDoc_.setMaterial(recovered.material());
+  drawing_ = drawing;
+  drawingLayoutBuilt_ = false;
+  partUndo_.clear();
+  ensureBodyBinding();
+  // Where the user's OWN file is, if the dead session had one AND this recovery
+  // can account for everything that file holds. The recovered work is NOT that
+  // file's content, which is why the document stays dirty.
+  documentPath_ = adoptPath ? candidate.documentPath : std::string();
+  documentName_ = recovered.name().empty() ? std::string("untitled") : recovered.name();
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  builtProgram_.clear();
+  lastAttemptedProgram_.clear();
+  syncSceneToDocument();
+  rebuildTree();
+  documentDirty_ = true;
+  note("Recovered " + std::to_string(partDoc_.records().size()) + " features from an autosave");
+  if (!fromSnapshot && !drawingNote.empty()) {
+    if (adoptPath) {
+      shell_.log().warning("Recovery",
+                           "Forge recovered this part, and took its drawing from the last "
+                           "version you saved -- so any change to the title block, the datums "
+                           "or the notes since then is not in it. Check the drawing before you "
+                           "save over your file.",
+                           drawingNote);
+    } else {
+      // NOT a silent fallback: the user asked for their file back and is not
+      // getting the name with it, so the sentence says what to do instead.
+      shell_.log().warning("Recovery",
+                           "Forge recovered your work, but it could not tell what this part's "
+                           "drawing looked like -- so it has NOT pointed the document at your "
+                           "original file. Use Save As, and keep the old file until you have "
+                           "checked the new one.",
+                           drawingNote + " (the document was left untitled on purpose)");
+      note("Recovered work, but not the file it came from — use Save As");
+    }
+  }
+  return true;
+}
+
+// ── THE QUIT GUARD ──────────────────────────────────────────────────────────
+//
+// MEASURED before this existed, with a headless probe driving this exact API: a
+// document holding an unsaved part.fillet, `requestQuit()`, and `wantsQuit()`
+// answered TRUE on the next line while `documentDirty()` was still true and
+// there were zero autosaves and zero session markers anywhere on disk. The menu
+// item's whole body was `quit_ = true;`.
+void ForgeFrame::requestQuit() {
+  // THE SNAPSHOT COMES FIRST, before the question is even asked. Whatever the
+  // user answers -- and whether or not they ever answer -- the work is on disk
+  // from this line onward, including if the process dies while the prompt is up.
+  autosaveNow();
+  if (!documentDirty_) {
+    grantQuit();
+    return;
+  }
+  if (quitPrompt_) return;  // already asking; a second gesture is not a second question
+  quitPrompt_ = true;
+  ++quitPromptsRaised_;
+  note("This part has changes you have not saved — Forge is asking before it closes");
+}
+
+void ForgeFrame::grantQuit() {
+  // A CLEAN exit removes the marker AND the autosave. Whatever is left in the
+  // recovery directory after this is, by definition, a session that died.
+  endRecoverySession();
+  quit_ = true;
+}
+
+void ForgeFrame::answerQuitSave() {
+  if (quitPrompt_) pendingQuitAnswer_ = QuitAnswer::Save;
+}
+void ForgeFrame::answerQuitDiscard() {
+  if (quitPrompt_) pendingQuitAnswer_ = QuitAnswer::Discard;
+}
+void ForgeFrame::answerQuitCancel() {
+  if (quitPrompt_) pendingQuitAnswer_ = QuitAnswer::Cancel;
+}
+
+void ForgeFrame::applyPendingQuitAnswer() {
+  const QuitAnswer answer = pendingQuitAnswer_;
+  pendingQuitAnswer_ = QuitAnswer::None;
+  if (answer == QuitAnswer::None || !quitPrompt_) return;
+  switch (answer) {
+    case QuitAnswer::None:
+      return;
+    case QuitAnswer::Cancel:
+      quitPrompt_ = false;
+      note("Closing cancelled — your part is still open");
+      return;
+    case QuitAnswer::Discard:
+      // The ONE path in this application that throws work away, and it is the
+      // one the user asked for by name, on a button that says so.
+      quitPrompt_ = false;
+      note("Closed without saving — the changes were discarded as you asked");
+      grantQuit();
+      return;
+    case QuitAnswer::Save:
+      // Through the ONE registry, so this is the same Save as Ctrl+S: it
+      // remembers the path, feeds Open Recent and clears the dirty flag. An
+      // untitled document raises the file panel from inside invoke(), which is
+      // why the outcome is resolved at the end of the frame rather than here.
+      quitPrompt_ = false;
+      quitAfterSave_ = true;
+      invoke("file.save");
+      return;
+  }
+}
+
+// ── THE QUESTION HAS TO KEEP BEING TRUE ─────────────────────────────────────
+//
+// MEASURED: with the question up, a manual Ctrl+S left the application holding
+// dirty=0 and prompt=1 -- a window insisting on unsaved changes that no longer
+// existed, and one whose "Close Without Saving" button offered to throw away
+// nothing. It is a plain window and NOT a modal, deliberately (the user may want
+// to look at the part they are being asked about), so every other gesture still
+// works while it stands and nothing re-read the condition it was raised on.
+//
+// It WITHDRAWS rather than closing the application. The user's quit gesture is
+// on record, but this window is not modal: the same user may have saved and gone
+// back to work minutes ago, and an application that closes itself under them
+// because of a click they made before lunch is a worse failure than the one
+// being fixed. Quitting again is one gesture, and on a clean document it is now
+// immediate.
+void ForgeFrame::refreshQuitPrompt() {
+  if (!quitPrompt_ || documentDirty_) return;
+  // "Save and Close" is in flight: quitAfterSave_ owns the outcome, and
+  // resolveQuitAfterSave() is the one line allowed to decide it.
+  if (quitAfterSave_) return;
+  quitPrompt_ = false;
+  pendingQuitAnswer_ = QuitAnswer::None;
+  ++quitPromptsWithdrawn_;
+  note("Your part is saved — Forge took the unsaved-changes question back down");
+}
+
+void ForgeFrame::resolveQuitAfterSave() {
+  if (!quitAfterSave_) return;
+  // Still being asked WHERE -- a file panel is owed, or the parameter prompt is
+  // standing on this command. Neither is an answer yet.
+  if (!pendingDialogId_.empty() || (promptOpen_ && promptCommand_ == "file.save")) return;
+  quitAfterSave_ = false;
+  if (!documentDirty_) {
+    grantQuit();
+    return;
+  }
+  // The save was refused, or the panel was cancelled. Staying open is the only
+  // safe answer: closing here would be the defect this guard exists for, with
+  // an extra click in front of it.
+  quitPrompt_ = true;
+  note("Your part was not saved, so Forge did not close");
 }
 
 void ForgeFrame::documentChanged() { syncSceneToDocument(); }
@@ -2569,6 +3093,14 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   drawStatusStrip(H - statH, W, statH);
   drawCommandPalette();
   drawParameterPrompt();
+  // ...and BEFORE the question is drawn, the condition it asks about is re-read.
+  // Everything that can save the document -- Ctrl+S, the file panel, a menu
+  // click, Archie -- has had its turn by this point in the previous frame, so
+  // the question is never DRAWN claiming unsaved changes that are already saved.
+  refreshQuitPrompt();
+  // The unsaved-changes question, drawn last of the three so it sits in front of
+  // them: it is the one the user has to answer before the application will go.
+  drawQuitPrompt();
 
   // ── the deferred mutations ───────────────────────────────────────────────
   // The walk is over and no DockNode reference is live, so it is now safe to
@@ -2620,6 +3152,12 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingPromptSubmit_ = false;
     submitPrompt();
   }
+  // The answer to the unsaved-changes question, deferred for the same reason:
+  // "Save and Close" dispatches file.save, which can raise a file panel and
+  // rebuild the document and the feature tree the walk was indexing. It runs
+  // BEFORE runPendingFileDialog() below so a Save that is owed a panel gets it
+  // in this frame rather than the next one.
+  applyPendingQuitAnswer();
   // A FINISHED HANDLE DRAG. Same deferral, same reason: the gizmo lives in the
   // viewport, the viewport is a docked panel, and part.move / part.rotate
   // rebuild the document and the feature tree the walk was indexing. The flag
@@ -2671,6 +3209,19 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   // Open Recent, last: it REPLACES the document, so anything above that acts on
   // the document the user was looking at when they clicked must run first.
   runPendingOpen();
+
+  // ── did the Save the user asked for on the way out actually happen? ──────
+  // After the file panel, because that is where an untitled document's name
+  // comes from, and after the open, because a document replaced in this frame
+  // is the one the answer applies to.
+  resolveQuitAfterSave();
+
+  // ── the autosave cadence ────────────────────────────────────────────────
+  // The application's own clock, taken from the frame time rather than from a
+  // wall clock, so a headless gate steps it deterministically and the cadence is
+  // a value rather than a wait. A no-op in every build that never called
+  // beginRecoverySession(), which is every gate that is not about autosave.
+  autosaveTick(static_cast<double>(ImGui::GetIO().DeltaTime));
 }
 
 void ForgeFrame::drawMenuBar() {
@@ -2764,7 +3315,10 @@ void ForgeFrame::drawMenuBar() {
       }
     }
     ImGui::Separator();
-    if (ImGui::MenuItem("Quit")) quit_ = true;
+    // requestQuit(), NOT `quit_ = true`. That assignment was the whole of this
+    // application's shutdown path and it discarded every unsaved edit without a
+    // word; the guard is what turns it into a question.
+    if (ImGui::MenuItem("Quit")) requestQuit();
     ImGui::EndMenu();
   }
 
@@ -9982,6 +10536,60 @@ void ForgeFrame::drawParameterPrompt() {
   ImGui::End();
   ImGui::PopStyleVar();
   if (!open) cancelPrompt();
+}
+
+// ── the unsaved-changes question ────────────────────────────────────────────
+// A plain window rather than an ImGui modal, for the reason stated over
+// drawParameterPrompt(): a modal grabs input for as long as it stands, and the
+// user may well want to look at the part they are being asked about. The
+// application does not close while this is up, which is what makes it a guard
+// rather than a notice.
+//
+// THREE buttons, and the destructive one says what it destroys. "Don't Save" is
+// what every other application writes there and it is the one word in the
+// sentence a hurried user does not read; "Close Without Saving" cannot be
+// misread as the safe choice.
+void ForgeFrame::drawQuitPrompt() {
+  if (!quitPrompt_) return;
+  const ImGuiIO& io = ImGui::GetIO();
+  const float w = std::min(560.0f * dpiScale_, io.DisplaySize.x * 0.6f);
+  ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - w) * 0.5f, io.DisplaySize.y * 0.24f),
+                          ImGuiCond_Appearing);
+  ImGui::SetNextWindowSize(ImVec2(w, 0));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+  bool open = true;
+  if (ImGui::Begin("Close Forge?", &open,
+                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+                       ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextColored(rgb(242, 158, 38), "%s", (documentName_ + kPartFileExtension).c_str());
+    ImGui::Separator();
+    // WHERE the work would go, in the user's terms. A part that has never been
+    // saved and one that has are different situations and the sentence says so,
+    // because "Save" means "pick a name" in the first and "write the file you
+    // already have" in the second.
+    if (documentPath_.empty()) {
+      ImGui::TextWrapped("This part has changes you have not saved, and it has never been "
+                         "saved anywhere. Close it now and the changes are gone. Saving will "
+                         "ask you where to put it.");
+    } else {
+      ImGui::TextWrapped("This part has changes you have not saved. Close it now and the "
+                         "changes are gone; saving writes them back to the file you opened.");
+      ImGui::Spacing();
+      ImGui::TextDisabled("%s", documentPath_.c_str());
+    }
+    ImGui::Spacing();
+    if (ImGui::Button("Save and Close")) answerQuitSave();
+    ImGui::SameLine();
+    if (ImGui::Button("Close Without Saving")) answerQuitDiscard();
+    ImGui::SameLine();
+    if (ImGui::Button("Keep Working")) answerQuitCancel();
+    // Escape is the SAFE answer, always. The window's own close box is the same
+    // answer, which is why `open` going false is a cancel and not a quit.
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) open = false;
+  }
+  ImGui::End();
+  ImGui::PopStyleVar();
+  if (!open) answerQuitCancel();
 }
 
 void ForgeFrame::drawCommandPalette() {

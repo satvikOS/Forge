@@ -717,6 +717,28 @@ add_executable(forge_desktop_import_reopen_gate
 target_compile_options(forge_desktop_import_reopen_gate PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(forge_desktop_import_reopen_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_import_reopen_gate PROPERTIES
+
+# ------------------------------------------------------------- the QUIT gate
+# The document gate proves a part can be written to disk and read back. This one
+# proves the application does not throw the part away on the way out: it drives
+# ForgeFrame::requestQuit() -- the call the menu item and the host loop both make
+# -- with a dirty document, and asserts the work is still there afterwards, both
+# through the unsaved-changes prompt and through the forge::ui::RecoveryService
+# autosave that the application used to construct ZERO times.
+#
+# FORGE_DESKTOP_REPO_ROOT, for the same reason forge_desktop_imgui_recovery_gate
+# has it: the HOST LOOP is in main.cpp, main.cpp defines main(), and no gate can
+# link it. Reading it is the only way to assert that the window's close box goes
+# through ForgeFrame::requestQuit() rather than straight to `running = false` --
+# which is half of the defect this gate exists for and the half no linked binary
+# can reach.
+add_executable(forge_desktop_quit_guard_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/quit_guard_gate.cpp")
+target_compile_definitions(forge_desktop_quit_guard_gate PRIVATE
+    FORGE_DESKTOP_REPO_ROOT="${FORGE_ROOT}")
+target_compile_options(forge_desktop_quit_guard_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_quit_guard_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_quit_guard_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
 # ============================================================================
@@ -931,6 +953,16 @@ foreach(_cm RANGE 1 7)
              COMMAND forge_desktop_camera_stability_gate --mutate ${_cm})
     set_tests_properties(forge_desktop_camera_stability_mutation_${_cm}
                          PROPERTIES WILL_FAIL TRUE)
+
+add_test(NAME forge_desktop_quit_guard_gate COMMAND forge_desktop_quit_guard_gate)
+# The seven negative controls for the quit guard, same WILL_FAIL idiom as the
+# rest: each breaks ONE link between the gesture and the surviving work, and each
+# is EXPECTED to be red. A mutation that starts exiting zero is one whose defect
+# the gate no longer detects.
+foreach(_qg RANGE 1 7)
+    add_test(NAME forge_desktop_quit_guard_mutation_${_qg}
+             COMMAND forge_desktop_quit_guard_gate --mutate ${_qg})
+    set_tests_properties(forge_desktop_quit_guard_mutation_${_qg} PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_imgui_recovery_gate COMMAND forge_desktop_imgui_recovery_gate)
 # Same WILL_FAIL idiom as the update and file-exchange mutations: a mutated run

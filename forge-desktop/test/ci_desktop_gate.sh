@@ -180,7 +180,38 @@ set -uo pipefail
 #   be true. DERIVED on this tree, not incremented on faith:
 #     awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
 #   prints 150.
-EXPECTED_MUTATIONS=150
+#
+# * 2026-09-12: 113 -> 120, + quit_guard 7. The QUIT gate: a dirty document
+#   driven through the real requestQuit() path, with the work asserted to
+#   survive both as an unsaved-changes prompt and as a forge::ui::RecoveryService
+#   autosave a second session reads back. DERIVED on this tree, not incremented
+#   on faith:
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   prints 120.
+#
+# * 2026-09-12: 120 -> 127, + quit_guard 7 (7 -> 14). The adversarial review of
+#   the quit guard found that the fix DESTROYED DATA the original bug only
+#   failed to save -- the autosave carried neither the drawing nor the material,
+#   and the recovery seam then pointed the document at the user's own file and
+#   marked it dirty, so a bare Ctrl+S wrote those losses into it. Six more
+#   injected defects cover that seam, the question that outlived its own
+#   condition, Save As with an empty name, and Save and Close on a document that
+#   has never been saved, and the cadence asked to keep a drawing-only edit.
+#   DERIVED on this tree, not incremented on faith:
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   prints 127.#
+# ── MERGE NOTE 2026-09-12 (the THIRD of the day, same trap, both parents armed
+#    it again): 150 and 127, and the merged tree derives 164. Both were right for
+#    their own parent -- 150 counted render 7, import_reopen 15 and
+#    camera_stability 7 against the shared base; 127 counted quit_guard 14 and
+#    file_dialog 4 against a base with none of those. Neither was taken. BOTH
+#    assignments survived the textual merge again, one at the top of the conflict
+#    and one at the bottom, and in bash the LAST one wins -- so the file would
+#    have pinned 127 while 164 mutations ran, and the gate would have failed for
+#    arithmetic rather than for a defect. DERIVED on the merged tree:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+#    prints 164.
+EXPECTED_MUTATIONS=164
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists

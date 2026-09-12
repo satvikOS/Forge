@@ -82,6 +82,12 @@ constexpr Row kRows[] = {
     // bare Ctrl+S dispatches. See PathRole in the header for why a panel on
     // every save would be the wrong answer.
     {"file.save", FileDialogMode::Save, PathRole::SaveTarget, "Save the Part", "Save"},
+    // Required, not SaveTarget, and that is the whole of Save As: it asks EVERY
+    // time, including on a part that already has a file, because choosing a new
+    // name is the only thing it is for. file.save's `path` is optional and this
+    // one's is required, so the registry itself reports the missing parameter
+    // and the panel is owed on every invocation.
+    {"file.save_as", FileDialogMode::Save, PathRole::Required, "Save the Part As", "Save"},
     {"file.import_step", FileDialogMode::Open, PathRole::Required, "Import a STEP File",
      "Import"},
     {"file.export_step", FileDialogMode::Save, PathRole::Required, "Save a Copy as STEP",
@@ -102,7 +108,7 @@ constexpr Row kRows[] = {
 // The filters and the default suffix for one row. Kept beside the table rather
 // than in it because a std::vector cannot live in a constexpr row.
 void fillFormats(const std::string& id, FileDialogPolicy& out) {
-  if (id == "file.open" || id == "file.save") {
+  if (id == "file.open" || id == "file.save" || id == "file.save_as") {
     out.filters.push_back(partFilter());
     out.defaultExtension = kPartFileExtension;
     return;

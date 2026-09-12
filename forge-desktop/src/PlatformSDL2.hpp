@@ -54,6 +54,13 @@ class PlatformSDL2 {
   void newFrame();
 
   bool quitRequested() const noexcept { return quit_; }
+  // TAKE the request rather than only reading it. The window's close box latched
+  // this flag and the host loop turned it straight into `running = false`, which
+  // is how every unsaved change was discarded without a word. The loop now hands
+  // the request to the frame's quit guard, and the guard decides -- so the flag
+  // has to be CLEARED, or a cancelled close would end the application on the
+  // very next iteration anyway.
+  void clearQuitRequest() noexcept { quit_ = false; }
   float dpiScale() const noexcept { return dpiScale_; }
 
   // The key presses seen since the last call, drained. Only presses that ImGui

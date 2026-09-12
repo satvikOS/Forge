@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "3891f987cc6db2f09a1cd0dc99114f143c22b8ffa1c56e623cdd9763550f307e",
-        "bytes": 485938,
-        "lines": 10060
+        "sha256": "f0f6d5fa8f59a4dc0a0664876ba3c27fbc12b86768f3fa8a51fc80092e4739ff",
+        "bytes": 517089,
+        "lines": 10668
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -54,9 +54,9 @@
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "2e14579990deec7bad515741e3d365657d13c8fab9b62d40dca5e231ef91f067",
-        "bytes": 59061,
-        "lines": 1314
+        "sha256": "09286b5163c161c0deda9b578c42be3905547ae1148acb00e1a7c053b5987905",
+        "bytes": 63287,
+        "lines": 1384
       }
     ],
     "build_configuration": {
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 68,
     "ui_validator_ops": 68,
-    "registry_commands": 99,
+    "registry_commands": 100,
     "commands_emitting_ir": 69,
     "user_invocable_ops": 65,
     "forbidden_ops": 3,
@@ -7895,6 +7895,31 @@
           "name": "path",
           "type": "Text",
           "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "file.save_as",
+      "label": "Save Document As",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
           "default_number": 0.0,
           "default_text": "",
           "has_default": false

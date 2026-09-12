@@ -377,6 +377,15 @@ class ForgeShell {
   // cannot come to disagree about what a missing file means.
   void runImport(CommandContext& ctx, ExchangeFormat format);
   void runExport(CommandContext& ctx, ExchangeFormat format);
+  // ONE save handler behind BOTH `file.save` and `file.save_as`. The two
+  // commands differ in exactly one thing -- whether `path` is required -- and
+  // that difference belongs in the two schemas, not in two bodies that can come
+  // to disagree about what remembering a document means.
+  // ONE body behind file.save and file.save_as. `requirePath` is the only
+  // difference between them: Save As with no name is Save, and "" is no name --
+  // a required TEXT parameter is satisfied by a present-but-empty one, so the
+  // schema cannot refuse it and this does. See the comment over the definition.
+  void runSave(CommandContext& ctx, bool requirePath);
   // True when a file command can run at all: an exchange is installed, and (for
   // import) the ONE command that can state an imported body in feature-IR is
   // registered. Offering an Import that cannot put the body in the document is

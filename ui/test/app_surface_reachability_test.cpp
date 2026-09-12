@@ -435,9 +435,17 @@ int main() {
   //                          second copy of it -- the same argument as file.open, and it must
   //                          be a literal for the same reason: the id decides WHICH material
   //                          and a derived SurfaceItem carries no argument.
+  //   file.save           -- the unsaved-changes prompt's "Save and Close" button dispatches
+  //                          exactly this one command, through invoke(), so a save made on the
+  //                          way out is the SAME save as Ctrl+S: it remembers the path, feeds
+  //                          Open Recent and clears the dirty flag. A second save path there
+  //                          would be a second opinion about what saving means, at the one
+  //                          moment a user cannot check the result. It is a literal because the
+  //                          button is answering a QUESTION, not offering a command surface --
+  //                          there is nothing to derive.
   const std::set<std::string> allowedLiterals = {"app.command_palette", "app.load_sample",
-                                                 "file.open", "part.edit_feature",
-                                                 "part.set_material"};
+                                                 "file.open", "file.save",
+                                                 "part.edit_feature", "part.set_material"};
   const std::set<std::string> literals = hardcodedCommandIds(frame, all);
   for (const std::string& id : literals)
     if (allowedLiterals.count(id) == 0)

@@ -311,14 +311,21 @@ int main(int argc, char** argv) {
   };
 
   // ── 1. the policy covers every file command that needs a path ────────────
-  std::printf("\n-- 1. the six commands, and the policy that reaches them -------------\n");
+  std::printf("\n-- 1. the seven commands, and the policy that reaches them -----------\n");
   {
     const std::vector<std::string>& ids = forge::desktop::fileDialogCommandIds();
-    // EIGHT, not six: file.export_stl and file.export_gcode joined the six PR #206
-    // registered. Pinned as a number on purpose -- the two-way comparison below is
-    // what proves the two lists AGREE, and this is what refuses a command quietly
-    // leaving the policy table altogether.
-    check(ids.size() == 8, "the policy table names eight commands",
+    // NINE, not six, and the three arrived on two branches that each moved this
+    // number without knowing about the other: file.export_stl and
+    // file.export_gcode from the EGRESS work -- nothing modelled in Forge could
+    // reach a slicer, and the CAM program could leave only by clipboard -- and
+    // file.save_as from the DATA-LOSS work, which declares a REQUIRED path and is
+    // therefore owed a panel on every invocation, which is what makes it Save As
+    // rather than Save. 6 + 2 + 1 = 9.
+    //
+    // Pinned as a number on purpose: the two-way comparison below proves the two
+    // LISTS agree, and this is what refuses a command quietly leaving the policy
+    // table altogether.
+    check(ids.size() == 9, "the policy table names nine commands",
           "it names " + std::to_string(ids.size()));
     for (const std::string& id : ids) {
       check(shell.registry().find(id) != nullptr, "policy names a registered command: " + id);
@@ -341,7 +348,7 @@ int main(int argc, char** argv) {
       check(forge::desktop::fileDialogPolicyFor(id, policy),
             "every file command that takes a path opens a panel: " + id);
     }
-    check(pathCommands == 8, "eight registered file commands take a path",
+    check(pathCommands == 9, "nine registered file commands take a path",
           "found " + std::to_string(pathCommands));
   }
 
@@ -398,12 +405,12 @@ int main(int argc, char** argv) {
       if (id == "file.save") continue;  // checked below, in the state it applies to
       checkCancelIsNoOp(id);
     }
-    std::printf("  five panels shown, five cancelled, %zu dispatches, %zu errors\n",
+    std::printf("  six panels shown, six cancelled, %zu dispatches, %zu errors\n",
                 shell.journal().size(), shell.log().count(forge::ui::Severity::Error));
   }
 
   // ── 3. the chosen path reaches the command ───────────────────────────────
-  std::printf("\n-- 3. the chosen path reaches all six --------------------------------\n");
+  std::printf("\n-- 3. the chosen path reaches all seven ------------------------------\n");
   dialog.accept = true;
 
   const std::string stepPath = dir + "/forge_dialog_gate.step";

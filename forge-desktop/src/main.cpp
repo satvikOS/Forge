@@ -70,6 +70,7 @@
 #include "UpdateService.hpp"
 #include "PngWriter.hpp"
 #include "ViewportRenderer.hpp"
+#include "forge/ui/DocumentStore.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/UserFacingText.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
@@ -381,6 +382,18 @@ std::string stateFilePath() {
   std::string cmd = "mkdir -p '" + dir + "' 2>/dev/null";
   if (std::system(cmd.c_str()) != 0) { /* fall through to the write attempt */ }
   return dir + "/shell_state.txt";
+}
+
+// Where the session markers and the autosaves live. Beside the shell state, in
+// the directory the application already owns, and NOT in the user's documents:
+// an autosave is Forge's business until the user accepts it.
+std::string recoveryDirPath() {
+  const char* home = std::getenv("HOME");
+  const std::string dir = home != nullptr ? std::string(home) + "/.forge" : std::string(".forge");
+  // No mkdir here on purpose: forge::ui::FileSystemStorage::write creates the
+  // directory it is asked to write into, and a second opinion about that is a
+  // second thing to get wrong.
+  return dir + "/recovery";
 }
 
 }  // namespace
@@ -731,6 +744,31 @@ int main(int argc, char** argv) {
   std::printf("[forge] registry: %zu commands (%zu of them Part), %zu categories\n",
               shell.registry().size(), partCommands, shell.registry().categories().size());
 
+  // ── AUTOSAVE AND CRASH EVIDENCE ──────────────────────────────────────────
+  // forge::ui::RecoveryService was written, gated and CONSTRUCTED ZERO TIMES by
+  // this application. This is the construction. It opens a session marker beside
+  // the autosaves; a marker still on disk at the next launch means a session that
+  // did not end cleanly, which is why the exit below closes the session
+  // explicitly rather than letting the process simply stop.
+  const std::string recoveryDir = recoveryDirPath();
+  if (frame.beginRecoverySession(recoveryDir)) {
+    std::printf("[forge] autosave: ON (%s)\n", recoveryDir.c_str());
+    // What is ALREADY there, before this session wrote anything: every session
+    // that died. Said out loud, with the path, because a spare copy nobody is
+    // told about is the same silence the autosave exists to end.
+    for (const forge::ui::RecoveryCandidate& c : frame.recoverableSessions()) {
+      if (!c.hasAutosave) continue;
+      shell.log().warning("Autosave",
+                          "Forge did not close properly last time and kept a spare copy of "
+                          "the part you were working on. It is on disk and it is safe.",
+                          "recoverable autosave: " + c.autosavePath);
+      std::printf("[forge] a previous session left work behind: %s\n", c.autosavePath.c_str());
+    }
+  } else {
+    std::fprintf(stderr, "[forge] autosave: OFF (could not open a session in %s)\n",
+                 recoveryDir.c_str());
+  }
+
   // A document named on the command line is opened through THE SAME file.open
   // or file.import_step / file.import_brep the menu and Ctrl+O dispatch.
   if (!openPath.empty()) {
@@ -799,7 +837,19 @@ int main(int argc, char** argv) {
         g_swapchainRebuild = true;
       }
     }
-    if (platform.quitRequested() || frame.wantsQuit()) running = false;
+    // ── THE CLOSE BOX GOES THROUGH THE GUARD ────────────────────────────
+    // This line was `if (platform.quitRequested() || frame.wantsQuit()) running
+    // = false;` -- so clicking the window's red button, or Cmd-Q, ended the
+    // process with a dirty document and no question asked. The request is TAKEN
+    // (cleared) and handed to ForgeFrame::requestQuit(), which autosaves, and
+    // then either grants the quit or raises the unsaved-changes prompt. Only
+    // `frame.wantsQuit()` stops this loop now: there is one place in the
+    // application that decides it is safe to go.
+    if (platform.quitRequested()) {
+      platform.clearQuitRequest();
+      frame.requestQuit();
+    }
+    if (frame.wantsQuit()) running = false;
 
     if (g_swapchainRebuild) {
       int w = 0, h = 0;
@@ -991,6 +1041,13 @@ int main(int argc, char** argv) {
   }
 
   std::printf("[forge] presented %d frames\n", frames);
+
+  // ── A CLEAN EXIT SAYS SO ─────────────────────────────────────────────────
+  // Removing the marker and the autosave is what makes a marker left behind
+  // MEAN a session that died -- there is no separate "was it a crash?" guess.
+  // frame.wantsQuit() has already done this when the user quit; this covers the
+  // other way out of the loop, `--frames N`, and is idempotent.
+  frame.endRecoverySession();
 
   // ── persistence: the layout the user leaves is the layout they come back to ─
   {

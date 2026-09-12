@@ -150,6 +150,7 @@ CHECKED=(
   forge-desktop/test/copilot_input_gate.cpp
   forge-desktop/test/document_gate.cpp
   forge-desktop/test/import_reopen_gate.cpp
+  forge-desktop/test/quit_guard_gate.cpp
   forge-desktop/test/file_dialog_gate.cpp
   forge-desktop/test/drawing_gate.cpp
   forge-desktop/test/file_exchange_gate.cpp

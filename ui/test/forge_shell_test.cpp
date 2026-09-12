@@ -187,13 +187,20 @@ int main() {
   // owns. The assertion just below -- no id begins "model." -- is still what
   // proves no modelling command crept back in, and it is unaffected.
   //
-  // 28, not 26: THE TWO WAYS OUT. file.export_stl -- STL was offered in neither
-  // direction, so nothing modelled in Forge could reach a slicer -- and
-  // file.export_gcode, which is the Manufacturing workspace's only egress: the
-  // CAM post was real and gate-proven and its program could leave the
-  // application by clipboard alone. Both are document-level File commands that
-  // emit no feature-IR, so they belong here for the same reason the other four do.
-  CHECK_EQ_INT(app.shellCommands, 28);
+  // 29, not 26, and the three came from two different branches that each moved
+  // this number and neither of which knew about the other. From the EGRESS work:
+  // file.export_stl -- STL was offered in neither direction, so nothing modelled
+  // in Forge could reach a slicer -- and file.export_gcode, the Manufacturing
+  // workspace's only way out, whose program could otherwise leave the
+  // application by clipboard alone. From the DATA-LOSS work: file.save_as, which
+  // shares file.save's ONE handler and differs only in requiring `path`, because
+  // before it existed a saved part could never be written to a second name --
+  // file.save was greyed out the moment the document was clean.
+  //
+  // All three are document-level File commands that emit no feature-IR, so they
+  // belong here for the same reason the other four do. 26 + 2 + 1 = 29, and the
+  // gate below re-derives it from the live registry rather than trusting this.
+  CHECK_EQ_INT(app.shellCommands, 29);
   CHECK(shell.registry().contains("file.import_step"));
   CHECK(shell.registry().contains("file.export_step"));
   // They must be DISABLED with no exchange installed, rather than failing when
@@ -461,19 +468,42 @@ int main() {
     CHECK_EQ_INT(bare.journal().size(), 0);
   }
 
-  // save is offered only when the document is dirty
+  // ── SAVE IS ALWAYS OFFERED, and Save As is beside it ────────────────────
+  // This block used to assert the opposite -- `file.save` Disabled on a document
+  // that had not changed -- and the rule read reasonably: "a save is offered
+  // only when there is something to save". What it actually produced was a
+  // document that could not be written ANYWHERE once it was clean: not to a new
+  // name, not to a second location, not back over a file that had been moved or
+  // deleted underneath it, by any gesture. Every path to the file panel asks the
+  // registry for this predicate, so a greyed Save greys the panel too.
   {
     App fresh;
-    CHECK_EQ_INT(static_cast<int>(fresh.shell.run("file.save").status),
-                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK(!fresh.shell.document().dirty);
+    CHECK(fresh.shell.run("file.save").ok());
+    CHECK_EQ_INT(fresh.host.saves(), 1);
     fresh.shell.selection().add(sketchRef("S1"));
     CHECK(fresh.shell.run("part.extrude", distance).ok());
     CHECK(fresh.shell.document().dirty);
     CHECK(fresh.shell.run("file.save").ok());
-    CHECK_EQ_INT(fresh.host.saves(), 1);
+    CHECK_EQ_INT(fresh.host.saves(), 2);
     CHECK(!fresh.shell.document().dirty);
-    CHECK_EQ_INT(static_cast<int>(fresh.shell.run("file.save").status),
-                 static_cast<int>(DispatchStatus::Disabled));
+    // ...and again, on the now-clean document. This is the case that used to be
+    // unreachable.
+    CHECK(fresh.shell.run("file.save").ok());
+    CHECK_EQ_INT(fresh.host.saves(), 3);
+
+    // SAVE AS: the same handler, one required parameter. Without a path it
+    // reports the parameter for a UI to ask for rather than silently behaving
+    // like Save.
+    const CommandDescriptor* saveAs = fresh.shell.registry().find("file.save_as");
+    CHECK(saveAs != nullptr);
+    CHECK_EQ_INT(static_cast<int>(fresh.shell.run("file.save_as").status),
+                 static_cast<int>(DispatchStatus::MissingRequiredParameter));
+    CHECK_EQ_INT(fresh.host.saves(), 3);
+    CommandParams named;
+    named.setText("path", "/tmp/forge_shell_test_save_as.fpart");
+    CHECK(fresh.shell.run("file.save_as", named).ok());
+    CHECK_EQ_INT(fresh.host.saves(), 4);
   }
 
   // ── workspaces ──────────────────────────────────────────────────────────
