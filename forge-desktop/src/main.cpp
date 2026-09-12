@@ -769,11 +769,12 @@ int main(int argc, char** argv) {
     frame.setViewportUnavailable(viewport.error());
   } else {
     viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
-    if (!openPath.empty() && scene.bounds().valid) {
-      float c[3] = {0.0f, 0.0f, 0.0f};
-      scene.bounds().centre(c);
-      frame.camera().frame(c, scene.bounds().radius());
-    }
+    // The --open case used to frame the camera a SECOND time here. It is
+    // already framed: shell.run("file.open") above reached
+    // ForgeFrame::documentOpen, which asks for the framing its own rebuild
+    // then performs. Two call sites for one decision is how the decision
+    // drifts, so there is now exactly one -- and camera_stability_gate asserts
+    // this file has no camera framing left in it at all.
   }
 
 
@@ -847,35 +848,36 @@ int main(int argc, char** argv) {
     ImGui::Render();
     ImDrawData* drawData = ImGui::GetDrawData();
 
-    // Size the 3D target to the panel the frame just laid out.
+    // ── THE HOST'S WHOLE REACTION TO THE VIEWPORT REQUEST ──────────────────
+    // Decided by hostViewportActions() in ForgeFrame.hpp and EXECUTED here. It
+    // used to be decided here too, and while it was, it grew a second duty: this
+    // branch also re-framed the camera, because geometryDirty -- which means
+    // "re-upload the vertex buffer" -- was the nearest flag to hand. So every
+    // rebuild threw away the user's pan and zoom, including a rebuild the kernel
+    // REFUSED, where nothing on screen had changed at all. Measured: target
+    // (-1.457, -3.397, 12.106) -> (0, 0, 10) and distance 108.87 -> 144.90 after
+    // nudging one fillet radius. Iterating a dimension is the core CAD loop and
+    // it cost a re-orbit and a re-zoom per Apply.
+    //
+    // The camera belongs to ForgeFrame, which knows whether this rebuild is the
+    // first body, a document being opened, or the user's fourth try at a radius
+    // -- and the host does not. Moving the decision out of this file is what
+    // lets camera_stability_gate RUN it: this loop cannot be linked into a gate
+    // (SDL2, Vulkan, a display), and for as long as the rule lived here the only
+    // check available was a text search over this file, which one local
+    // reference defeats.
     const forge::desktop::ViewportRequest& req = frame.viewport();
-    if (req.visible && req.width > 0 && req.height > 0) {
+    const forge::desktop::HostViewportActions act = forge::desktop::hostViewportActions(req);
+    if (act.resize) {
       viewport.resize(static_cast<std::uint32_t>(req.width),
                       static_cast<std::uint32_t>(req.height));
     }
-    // A DOCUMENT REBUILD changes the triangle count, so uploadVertices may
-    // destroy and recreate the vertex buffer. Doing that while a previous frame
-    // is still reading it is a use-after-free the validation layers would not
-    // even catch on a coherent host-visible allocation, so the device is drained
-    // first. A selection re-upload only rewrites mapped bytes and needs none.
-    if (req.geometryDirty) {
-      vkDeviceWaitIdle(g_device);
-      viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
-      // Re-frame the camera on the new body -- a rebuild can move the bounds
-      // (a pattern trebles them), and a camera left behind looks like a crash.
-      float c[3] = {0.0f, 0.0f, 0.0f};
-      scene.bounds().centre(c);
-      frame.camera().frame(c, scene.bounds().radius());
-    } else if (req.visibilityDirty) {
-      // A body was shown or hidden. The triangle count moved, so the buffer is
-      // resized and the device is drained exactly as above -- but the camera is
-      // LEFT WHERE THE USER PUT IT. Hiding one body of six is not opening a new
-      // part, and a view that jumps on every checkbox is unusable.
-      vkDeviceWaitIdle(g_device);
-      viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
-    } else if (req.selectionDirty) {
-      viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
-    }
+    // uploadVertices may destroy and recreate the vertex buffer at a new size.
+    // Doing that while a previous frame is still reading it is a use-after-free
+    // the validation layers would not even catch on a coherent host-visible
+    // allocation, so the device is drained when the decision says to.
+    if (act.waitDeviceIdle) vkDeviceWaitIdle(g_device);
+    if (act.uploadVertices) viewport.uploadVertices(scene.vertices(), scene.edgeVertices());
 
 
     // ── acquire, record, submit, present ───────────────────────────────────

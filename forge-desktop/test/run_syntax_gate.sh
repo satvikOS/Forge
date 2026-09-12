@@ -139,6 +139,7 @@ CHECKED=(
   forge-desktop/src/ModelQuality.cpp
   forge-desktop/src/ImGuiErrorPolicy.cpp
   forge-desktop/test/cam_panels_gate.cpp
+  forge-desktop/test/camera_stability_gate.cpp
   forge-desktop/src/kernel_worker_main.cpp
   forge-desktop/src/PartFile.cpp
   forge-desktop/src/UpdateService.cpp

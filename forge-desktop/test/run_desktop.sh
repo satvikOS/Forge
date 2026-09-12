@@ -448,6 +448,37 @@ fi
 echo "[desktop]   ok — exit 77 + banner when skipping, exit 1 under FORGE_REQUIRE_GPU=1"
 run_gate forge_desktop_render_gate 1 2 3 4 5 6 7
 
+# THE CAMERA gate. EVERY REBUILD RESET THE CAMERA -- main.cpp's frame loop hung
+# "re-frame the camera" off geometryDirty, the flag that means "re-upload the
+# vertex buffer", so changing one dimension threw away the user's pan and zoom
+# and so did a rebuild the kernel REFUSED, where nothing on screen had moved.
+# The gate RUNS the host's own reaction rather than reading main.cpp for it, and
+# it asserts camera stability on the far side of a document event as well as at
+# startup -- because the startup state has no framing request outstanding, and a
+# check made only there passes whether the request is ever consumed or not. It
+# reaches the latch from BOTH sides: File > New and a window that opens on a
+# kernel failure arm it, and deleting either arm used to leave this gate green.
+# SEVEN mutations, listed here in the order the numbers run: 1 and 2 put the
+# removed host rule back (on every re-upload, then after the failed rebuild
+# only), 3 stops dispatching view.fit, 4 reaches a new document without opening
+# it, 5 refills a document without emptying it first, and 6 re-opens the already
+# open file without saying a document event happened. The over-corrections and
+# the original defect alike.
+#
+# ★ 7 IS THE ONE A REVIEWER FOUND, and it is here because it is the same defect
+#   through a door the counters cannot see. Mutations 1 and 2 move Camera
+#   directly; 7 makes the host ask the APPLICATION to re-frame -- `view.fit`, a
+#   command a user may legitimately run -- which lands through fitCount and
+#   applyPendingFit() and moves the camera WITHOUT touching cameraRefits_. Every
+#   "did a document event re-frame the camera" check in the gate reads
+#   cameraRefits_, so the counter sits at 1 while the camera is thrown from the
+#   user's view back onto the part. MEASURED on the merged tree: it turns the
+#   gate RED with four failures, at the reviewer's own coordinates -- target
+#   (-1.4570, -3.3971, 12.1058) d=108.8658 becomes (0,0,10) d=197.6292 -- so the
+#   CamState comparisons, and not the counters, are what catch it. It is a
+#   mutation rather than a note in a commit so that stays true.
+run_gate forge_desktop_camera_stability_gate 1 2 3 4 5 6 7
+
 # ── 3. mutation verdict ──────────────────────────────────────────────────────
 if [ "$BAD" -ne 0 ]; then
   echo "[desktop] $BAD mutation(s) did not turn their gate red"; exit 1

@@ -89,6 +89,81 @@ struct ViewportRequest {
   bool wireframe = false;
 };
 
+// ── WHAT THE HOST DOES ABOUT A VIEWPORT REQUEST — IN ONE RUNNABLE PLACE ─────
+//
+// main.cpp's frame loop used to decide this inline, and while it was inline it
+// grew a SECOND DUTY: it re-framed the camera whenever geometryDirty said
+// "re-upload the vertex buffer". Nothing could observe that. forge_desktop links
+// SDL2, Vulkan and a display, so no headless gate can link main.cpp, and the
+// only instrument available was a TEXT SEARCH over main.cpp for
+// `camera().frame(`. A text search is not a measurement, and this one is
+// defeated by a single line:
+//
+//     Camera& cam = frame.camera();
+//     cam.frame(c, scene.bounds().radius());       // the whole defect, restored
+//
+// MEASURED: with exactly that in main.cpp's geometryDirty branch, the gate's
+// check stayed GREEN and forge_desktop compiled and linked. Its replacement --
+// count the ACCESSOR, `frame.camera()`, exactly once and on the line that hands
+// it to the renderer -- was then defeated the same way, by putting the binding
+// and the words the check looks for on ONE line:
+//
+//     Camera& cam = frame.camera();  // handed to viewport.record( below
+//
+// MEASURED AGAIN: 58 checks, 0 failures, forge_desktop compiled, linked, and
+// re-framed the camera on every rebuild. Text checks over a file no gate can
+// link are a belt, never the measurement; what closed that one is a rule about
+// what the host may CALL, read out of Camera.hpp rather than listed by hand.
+//
+// So the DECISION lives here instead -- a pure function of the request, with no
+// Vulkan in it, no camera in its arguments, none in its return type and none in
+// its scope -- and main.cpp executes what it returns. camera_stability_gate RUNS
+// this function: it drives every one of the thirty-two reachable request shapes
+// through it and applies what comes back to the live application, and it applies
+// the host's reaction after every frame it steps, so every camera assertion in
+// that gate is made with the host's real response in the loop.
+//
+// AND IT ASSERTS THE SHAPE OF THIS STRUCT, which is the claim the sweep itself
+// cannot make. hostViewportActions() takes a const reference and returns bools,
+// so it has no way to move a camera and "the camera moved in none of them" is
+// vacuous by construction -- it was written as though it were not, and that is
+// corrected in the gate. What is NOT vacuous is that this action set is exactly
+// the set the gate executes: a FOURTH duty here is one main.cpp would perform and
+// the gate would not, so the gate reads these members and requires them to be the
+// three it runs. MEASURED: adding `bool refitCamera` and setting it on every
+// geometryDirty left that gate at 58 checks / 0 failures before it did.
+//
+// The actions are deliberately THREE BOOLS AND NO MORE. Re-hanging the camera
+// off a rebuild means adding a member to this struct, in the same header that
+// says why not, rather than adding a line to a frame loop nobody can test.
+struct HostViewportActions {
+  bool resize = false;          // the 3D panel changed size
+  // The vertex buffer is about to be DESTROYED AND RECREATED at a new size, and
+  // a previous frame may still be reading it. A selection re-upload only rewrites
+  // bytes already mapped and needs no drain.
+  bool waitDeviceIdle = false;
+  bool uploadVertices = false;  // push the tessellation to the GPU
+};
+
+constexpr HostViewportActions hostViewportActions(const ViewportRequest& req) {
+  HostViewportActions act;
+  act.resize = req.visible && req.width > 0 && req.height > 0;
+  if (req.geometryDirty) {
+    act.waitDeviceIdle = true;
+    act.uploadVertices = true;
+  } else if (req.visibilityDirty) {
+    // A body was shown or hidden. The triangle count moved, so the buffer is
+    // resized and the device drained exactly as a rebuild makes it -- and the
+    // camera is LEFT WHERE THE USER PUT IT. Hiding one body of six is not
+    // opening a new part.
+    act.waitDeviceIdle = true;
+    act.uploadVertices = true;
+  } else if (req.selectionDirty) {
+    act.uploadVertices = true;
+  }
+  return act;
+}
+
 // Where one VIEWPORT DRAG HANDLE was drawn, in the same screen coordinates ImGui
 // was given. Recorded per handle, per frame, for the same reason TabHit is: the
 // handles are not widgets, so nothing outside this class can re-derive where
@@ -244,6 +319,22 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // Returns true when it actually rebuilt.
   bool syncSceneToDocument();
 
+  // Honour an outstanding DOCUMENT framing request, if there is one and if there
+  // is a body to frame. It is ONE function with two call sites inside
+  // syncSceneToDocument() -- the rebuild path and the identical-program path
+  // that skips it -- because the defect it closes was the second path silently
+  // not doing what the first one did.
+  //
+  // `sceneShowsTheDocument` is the caller's answer to "is the body in the
+  // viewport the one this document describes?", which the two call sites know by
+  // different means and neither of which this function can re-derive: the
+  // rebuild path knows it from the rebuild it just ran, and the skip path from
+  // whether the last attempt at this same program left an error. It is NOT
+  // scene_.bounds().valid -- a failed build leaves the LAST GOOD BODY on screen,
+  // bounds and all, which is exactly what made the first draft of this repair
+  // frame an emptied document onto the part it had just thrown away.
+  void applyDocumentRefit(bool sceneShowsTheDocument);
+
   // ── forge::ui::DocumentHost ─────────────────────────────────────────────
   bool documentNew(std::string& error) override;
   // EMPTY, not "new": no starter part is seeded. app.load_sample is about to
@@ -310,6 +401,32 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   bool applyPendingSelectionFit();
   std::size_t viewsApplied() const noexcept { return viewsApplied_; }
   std::size_t selectionFitsApplied() const noexcept { return selectionFitsApplied_; }
+
+  // ── how many times the DOCUMENT path has re-framed the camera ────────────
+  // Not the fit count: `view.fit` is the user asking, and this is the
+  // application deciding for them. It moves on exactly three KINDS of event --
+  // the first body this window ever shows, a document opened or replaced, and a
+  // new document -- and on NOTHING else. A counter rather than a flag for the
+  // reason DocumentStats states: two opens in a row are two events and a boolean
+  // swallows the second.
+  //
+  // "AND ON NOTHING ELSE" IS A CLAIM ABOUT WHERE THE LATCH IS CONSUMED, and it
+  // was FALSE as first written. The three events raise refitCameraPending_;
+  // syncSceneToDocument() consumed it. But that function returns EARLY when the
+  // program it is handed is identical to the one already built -- which is
+  // exactly what re-opening the open file, or File > New on an untouched starter
+  // part, produces -- and the early return ran before the latch was consumed. So
+  // the request survived into the user's NEXT PLAIN EDIT, and that edit re-framed
+  // the camera: the defect this whole mechanism exists to prevent, alive on the
+  // one path that skipped it. MEASURED: open a part, open the same file again,
+  // nudge one dimension -> target (-1.099, 11.116, 51.765) -> (0, 0, 45),
+  // distance 189.48 -> 813.18.
+  //
+  // Both paths now go through applyDocumentRefit(), and camera_stability_gate
+  // asserts the property on the far side of a document event -- which is the
+  // only state in which the latch is ever set, and therefore the only state in
+  // which a check of it can fail.
+  std::size_t cameraRefits() const noexcept { return cameraRefits_; }
 
   // Build the frame. Must be called between ImGui::NewFrame() and ImGui::Render().
   // `viewportTexture` is 0 when there is no 3D texture yet (headless, or the
@@ -1208,10 +1325,25 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   std::string documentName_ = "untitled";
   bool documentDirty_ = false;
   bool geometryDirty_ = false;            // latched for the host's re-upload
-  // Latched the same way, and kept SEPARATE from geometryDirty_ on purpose: the
-  // host re-frames the camera on a rebuild and must not re-frame it when a body
-  // is merely hidden.
+  // Latched the same way, and kept SEPARATE from geometryDirty_ on purpose: a
+  // body shown or hidden resizes the vertex buffer without changing the model,
+  // and the host drains the device for one and not the other.
   bool visibilityDirty_ = false;
+  // ── THE CAMERA IS NOT A FUNCTION OF THE VERTEX BUFFER ────────────────────
+  // geometryDirty_ answers "must the host re-upload?", which is true after
+  // EVERY rebuild including one the kernel refused. It was also, in
+  // main.cpp's frame loop, the answer to "must the camera be re-framed?" --
+  // and those are different questions. MEASURED on the unfixed tree: orbit,
+  // zoom to distance 108.87, pan the target to (-1.457, -3.397, 12.106), then
+  // change one fillet radius; the target snapped back to (0, 0, 10) and the
+  // distance to 144.90. The same reset happened after a rebuild that FAILED,
+  // when nothing on screen had moved at all. Iterating a dimension -- the core
+  // CAD loop -- therefore cost a re-orbit and a re-zoom per Apply.
+  //
+  // So framing is latched HERE, on the three events that are about the
+  // DOCUMENT rather than about the mesh, and the host no longer decides it.
+  bool refitCameraPending_ = false;
+  std::size_t cameraRefits_ = 0;
   std::size_t rebuilds_ = 0;
   std::string rebuildError_;
   // The shell's fitCount as of the last fit this builder actually applied. The

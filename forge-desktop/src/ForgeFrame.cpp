@@ -256,10 +256,26 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   // sequence -- there is no row vector to push anywhere.
   rebuildTree();
 
-  float c[3] = {0.0f, 0.0f, 0.0f};
-  scene_.bounds().centre(c);
   camera_.setIsometric();
-  camera_.frame(c, scene_.bounds().radius());
+  // THE FIRST BUILD -- the one framing this application performs without being
+  // asked for it. It is a framing ONLY IF THERE WAS A BODY. A window that opens
+  // on a kernel failure has an INVALID bounding box, and Camera::frame() on that
+  // puts the camera at the origin at a default distance, which is not a framing
+  // of anything -- yet it was COUNTED as one: cameraRefits_ read 1 for a window
+  // that had framed nothing, and then 2 when the first real body arrived and was
+  // framed for the first and only time. That count is the instrument every check
+  // in camera_stability_gate reads, so a count including a framing that did not
+  // happen is an instrument lying about the one thing it measures.
+  //
+  // What did not happen here is OWED to the first build that does produce
+  // geometry, and the latch below is what carries it into syncSceneToDocument().
+  if (scene_.bounds().valid) {
+    float c[3] = {0.0f, 0.0f, 0.0f};
+    scene_.bounds().centre(c);
+    camera_.frame(c, scene_.bounds().radius());
+    ++cameraRefits_;
+  }
+  refitCameraPending_ = !scene_.bounds().valid;
   note("Forge is ready");
   if (scene_.built()) {
     note("Part ready: " + std::to_string(scene_.faceCount()) + " faces");
@@ -512,12 +528,70 @@ void ForgeFrame::reportKernelIsolation() {
   note("Modelling engine: not protected — save often");
 }
 
+// ── THE ONE PLACE A DOCUMENT EVENT REACHES THE CAMERA ───────────────────────
+//
+// Framing is a DOCUMENT event, not a mesh event. documentNew(), documentOpen()
+// and documentReset() raise refitCameraPending_; this is the only thing that
+// lowers it, and syncSceneToDocument() calls it on BOTH of its exits.
+//
+// That "both" is the repair. The first version consumed the latch only on the
+// rebuild path, and syncSceneToDocument() returns EARLY whenever the program it
+// is handed equals the one already built. Re-opening the file that is already
+// open produces exactly that, and so does File > New on an untouched starter
+// part: the framing the open asked for never happened, the request stayed armed,
+// and the user's NEXT PLAIN EDIT collected it and threw their pan and zoom away.
+// MEASURED before this: open, open the same file again, nudge one dimension ->
+// target (-1.099, 11.116, 51.765) -> (0, 0, 45), distance 189.48 -> 813.18. The
+// original defect, surviving on the one path that skipped the rule.
+//
+// THE REQUEST IS KEPT, NOT CONSUMED, WHEN THERE ARE NO BOUNDS. An empty document
+// has no sphere to frame -- applyPendingFit() refuses for the same reason -- and
+// File > Import STEP depends on it: runImport calls documentReset(), which
+// empties the document and builds nothing, and only THEN writes the INPUT()
+// statement that produces the body the camera is supposed to land on.
+void ForgeFrame::applyDocumentRefit(bool sceneShowsTheDocument) {
+  if (!refitCameraPending_ || !sceneShowsTheDocument || !scene_.bounds().valid) return;
+  float centre[3] = {0.0f, 0.0f, 0.0f};
+  scene_.bounds().centre(centre);
+  camera_.frame(centre, scene_.bounds().radius());
+  refitCameraPending_ = false;
+  ++cameraRefits_;
+}
+
 // ── the document -> geometry edge ───────────────────────────────────────────
 bool ForgeFrame::syncSceneToDocument() {
   const std::string program = partDoc_.irProgram();
   // Guard on what was last ATTEMPTED, not on what last BUILT. A program the kernel
   // refused is still "already tried", and retrying it every frame is a spin.
-  if (program == lastAttemptedProgram_) return false;
+  if (program == lastAttemptedProgram_) {
+    // ...but A DOCUMENT EVENT THAT LANDS ON AN IDENTICAL PROGRAM IS STILL A
+    // DOCUMENT EVENT. The rebuild is correctly skipped -- the scene already
+    // shows this exact body -- while the FRAMING that event asked for has not
+    // happened yet, and applyDocumentRefit() is the only thing that performs it.
+    // Not calling it here is what kept the original defect alive: the request
+    // stayed armed and the user's next plain edit collected it.
+    //
+    // The scene shows this document only if the last attempt at this same
+    // program SUCCEEDED, and rebuildError_ is that record. Asking the BOUNDS
+    // instead would be wrong in the one case that matters: documentReset()
+    // empties the document, the empty program does not build, and the viewport
+    // goes on holding the previous body -- valid bounds, radius 269.26 mm,
+    // belonging to the part just thrown away. MEASURED: framing on bounds alone
+    // re-framed an EMPTIED document onto its predecessor.
+    //
+    // WHERE THIS RUNS, stated exactly, because the sentence that stood here
+    // ("costs nothing ... every frame but a handful") implied it was cheap by
+    // implying it was rare, and it is neither rare nor the only cost.
+    // syncSceneToDocument() is called once per FRAME from build() and again from
+    // every document-event path, and this branch -- taken whenever the document
+    // has not changed -- is the frame loop's NORMAL case. What the call below
+    // adds there is one std::string::empty() and a function that returns on its
+    // first test of refitCameraPending_. What dominates this function on those
+    // same frames is the irProgram() rebuild at the top of it, which predates
+    // this change and is untouched by it.
+    applyDocumentRefit(rebuildError_.empty());
+    return false;
+  }
 
   // ── THE ONE OPERATION LONG ENOUGH TO REPORT ─────────────────────────────
   // Compiling the IR program through the kernel and tessellating the result is
@@ -557,7 +631,33 @@ bool ForgeFrame::syncSceneToDocument() {
   }
   ++rebuilds_;
   documentDirty_ = true;
+  // STILL UNCONDITIONAL, and deliberately: this is the host's "re-upload the
+  // vertex buffer" latch, and the tessellation it describes has been replaced
+  // whether or not the kernel liked the result. What was WRONG was the second
+  // duty main.cpp hung off this same flag -- see below.
   geometryDirty_ = true;
+
+  // ── FRAMING IS A DOCUMENT EVENT, NOT A REBUILD EVENT ─────────────────────
+  // main.cpp's frame loop read geometryDirty and re-framed the camera, so every
+  // rebuild -- a fillet radius nudged by 0.5 mm, an undo, a FAILED rebuild that
+  // left the screen untouched -- threw the user's pan and zoom away. Measured:
+  // target (-1.457, -3.397, 12.106) -> (0, 0, 10), distance 108.87 -> 144.90,
+  // on a rebuild that changed one number, and again on one that built nothing.
+  //
+  // Three conditions, all three still required. `ok` is answered HERE, because
+  // it is about the rebuild that just ran; the other two are answered inside
+  // applyDocumentRefit(), which the identical-program exit above also calls --
+  // and that shared call site is the repair, because the two exits differing was
+  // the whole defect.
+  //   ok                      a rebuild that FAILED has not changed what is on
+  //                           screen, so there is nothing new to frame and
+  //                           moving the camera is pure loss.
+  //   refitCameraPending_     only the first build, an open, a New, or a reset
+  //                           (the Import path) raises it. A plain edit never
+  //                           does -- and nothing but applyDocumentRefit() ever
+  //                           lowers it, which is the property that was broken.
+  //   bounds().valid          an empty document has no sphere to frame.
+  applyDocumentRefit(ok);
   rebuildTree();
 
   const IrBuildReport& r = scene_.lastBuild();
@@ -632,6 +732,9 @@ bool ForgeFrame::documentNew(std::string& error) {
   drawing_ = forge::ui::DrawingModel{};
   drawingLayoutBuilt_ = false;
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  // A DIFFERENT PART. The camera was framed on the one being thrown away, and
+  // its distance has nothing to do with the starter part's size.
+  refitCameraPending_ = true;
   syncSceneToDocument();
   documentDirty_ = false;
   note("New part");
@@ -687,10 +790,22 @@ bool ForgeFrame::documentReset(std::string& error) {
   // empties the document to state it -- the binding belongs to the document it
   // is about to build, not to the one being thrown away.
   bindInputFile(std::string());
-  // The scene is rebuilt from an EMPTY program, so the viewport shows an empty
-  // document rather than the last body it happened to be holding. Without this
-  // the window would keep drawing geometry the document no longer contains.
-  builtProgram_.clear();
+  // ── MERGE 2026-09-12: the two parents DISAGREED about `builtProgram_.clear()`
+  //    here, and one of them had MEASURED it. The import parent added it saying
+  //    "the scene is rebuilt from an EMPTY program, so the viewport shows an
+  //    empty document"; the camera parent answered that the empty program does
+  //    not build, the viewport goes on holding the previous body, and clearing
+  //    the name therefore made builtProgram_ -- the answer to "what is the scene
+  //    showing" -- say nothing while the scene showed something. It forced no
+  //    rebuild either way: syncSceneToDocument() guards on lastAttemptedProgram_.
+  //    The measured side wins and the line is GONE. The binding clear above is
+  //    the import parent's actual fix and is untouched.
+  refitCameraPending_ = true;
+  // Raised here and NOT consumed by the empty build that follows -- an empty
+  // document has no bounds to frame. It is the caller's next statement that
+  // collects it, which is what File > Import STEP needs: runImport resets the
+  // document and then writes an INPUT() naming a body this window has never
+  // seen. app.load_sample takes the same route.
   syncSceneToDocument();
   rebuildTree();
   documentDirty_ = true;
@@ -991,8 +1106,37 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
   // A DIFFERENT DOCUMENT IS A DIFFERENT BUILD even when its text is identical,
   // because the input file, and therefore the solid, is document state beside
   // the program.
+  //
+  // ── MERGE 2026-09-12, and BOTH PARENTS WERE RIGHT ABOUT A REAL DEFECT. The
+  //    camera parent deleted `builtProgram_.clear()` from this function because
+  //    on the one path where an open SKIPS the rebuild -- re-open the file that
+  //    is already open -- it left builtProgram_ naming nothing while the scene
+  //    showed a body, and the Study panel blocks Run study on exactly that
+  //    comparison. The import parent kept it and added the line that makes the
+  //    skip impossible.
+  //
+  //    I first resolved this by dropping the clear, and the import/reopen gate
+  //    said no: open a v4 part built from X.step, then a LEGACY v3 part naming
+  //    no source. The legacy program is the same text, its rebuild FAILS
+  //    (compiled=0), and builtProgram_ goes on naming the identical text from
+  //    the PREVIOUS document -- so the app believes the viewport is showing this
+  //    document while it is showing the last one. That is the SAME lie the
+  //    camera parent objected to, pointing the other way.
+  //
+  //    Both lines are here because neither alone is the invariant. The invariant
+  //    is e5419952's: builtProgram_ may only ever name a program that really
+  //    built. Clearing it is safe HERE and only here, because the line below
+  //    guarantees the rebuild that re-establishes it actually runs -- which is
+  //    what the old "force the rebuild below" comment claimed and never did. It
+  //    is NOT restored in documentReset(), where the camera parent's measurement
+  //    stands: the empty program does not build, the viewport keeps the previous
+  //    body, and emptying the name there would make it lie.
   builtProgram_.clear();
   lastAttemptedProgram_.clear();
+  // A PART THIS WINDOW HAS NEVER SEEN. It may be ten times the size of the one
+  // that was open, so the camera distance that suited the last document would
+  // put this one off screen or fill it with one corner.
+  refitCameraPending_ = true;
   syncSceneToDocument();
   // ── ★ AND A PART WHOSE SOURCE MOVED OPENS *DIRTY* ───────────────────────
   // The warning above ends "Save the part to record where it is now", and

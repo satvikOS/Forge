@@ -679,6 +679,17 @@ target_link_libraries(forge_desktop_transaction_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_transaction_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# THE CAMERA gate. Every rebuild re-framed the camera, including a rebuild the
+# kernel refused, so iterating a dimension cost a re-orbit and a re-zoom per
+# Apply. It asserts the three occasions framing IS wanted (first build, open,
+# explicit Fit) and the two it is not (a successful rebuild, a failed one).
+add_executable(forge_desktop_camera_stability_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/camera_stability_gate.cpp")
+target_compile_options(forge_desktop_camera_stability_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_camera_stability_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_camera_stability_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
@@ -908,6 +919,18 @@ foreach(_ir RANGE 1 15)
     add_test(NAME forge_desktop_import_reopen_mutation_${_ir}
              COMMAND forge_desktop_import_reopen_gate --mutate ${_ir})
     set_tests_properties(forge_desktop_import_reopen_mutation_${_ir} PROPERTIES WILL_FAIL TRUE)
+endforeach()
+
+add_test(NAME forge_desktop_camera_stability_gate
+         COMMAND forge_desktop_camera_stability_gate)
+# The negative controls, same WILL_FAIL idiom as the rest of this file: a
+# mutation that starts exiting ZERO is one whose defect the gate no longer
+# detects, and that is a failing test rather than something to delete.
+foreach(_cm RANGE 1 7)
+    add_test(NAME forge_desktop_camera_stability_mutation_${_cm}
+             COMMAND forge_desktop_camera_stability_gate --mutate ${_cm})
+    set_tests_properties(forge_desktop_camera_stability_mutation_${_cm}
+                         PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_imgui_recovery_gate COMMAND forge_desktop_imgui_recovery_gate)
 # Same WILL_FAIL idiom as the update and file-exchange mutations: a mutated run

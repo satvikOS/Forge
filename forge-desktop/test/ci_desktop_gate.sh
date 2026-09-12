@@ -137,7 +137,50 @@ set -uo pipefail
 # line that decides the build. DERIVED on the merged tree, not carried over:
 #   awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
 # prints 143.
-EXPECTED_MUTATIONS=143
+#
+# * 2026-09-12: 113 -> 118, + camera_stability 5. The camera gate: every rebuild
+#   re-framed the camera because main.cpp's loop read geometryDirty -- the
+#   "re-upload the vertex buffer" flag -- as "re-frame the camera" too, so
+#   iterating a dimension cost a re-orbit and a re-zoom per Apply, and a rebuild
+#   the kernel REFUSED reset it as well. Two mutations put that host rule back
+#   (every rebuild, then the failed rebuild only) and three break the OTHER half,
+#   which a "never move the camera" patch would have broken silently: Fit, the
+#   re-frame a document open genuinely wants, and the one an Import STEP needs
+#   across the EMPTY document documentReset() leaves behind. Counted from
+#   run_desktop.sh's own run_gate arguments on this tree:
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#
+# * 2026-09-12: 118 -> 119, + camera_stability 1. The repair to that same gate.
+#   Its stability checks were all made in the PRISTINE STARTUP STATE, where no
+#   framing request is outstanding -- so deleting the one line that consumes the
+#   request left the gate at 33 checks / 0 failures and exit 0 while breaking
+#   every rebuild after an open. The checks are now made on the far side of a
+#   document event too, and the sixth mutation is the one they needed: re-derive
+#   an already-open document without saying a document event happened, so nothing
+#   asks for the framing an open owes the user.#
+# ── MERGE NOTE 2026-09-12 (the second of the day, and it is the SAME defect
+#    shape): the parents pinned 143 and 119 and the merged tree derives 149.
+#    Both numbers were correct FOR THEIR OWN PARENT -- 143 counted render 7 and
+#    import_reopen 15 against the shared base, 119 counted camera_stability 6
+#    against a base without either. Neither was taken. What makes this one worth
+#    a note is that BOTH assignments survived the textual merge, one at the top
+#    of the conflict and one at the bottom, and in bash the LAST one wins: the
+#    file would have silently pinned 119 with 149 mutations running. This file
+#    has now recorded that same trap three times. DERIVED on the merged tree:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+#    prints 149.
+#
+# * 2026-09-12: 149 -> 150, + camera_stability 7. A REVIEWER'S FINDING TURNED
+#   INTO A MUTATION rather than into a sentence in a commit message. The finding
+#   was that the same camera defect, routed through `view.fit` instead of
+#   through Camera directly, moves the camera without touching cameraRefits_ --
+#   the counter every document-reframe check in that gate reads. Measured on
+#   this tree it is RED (4 failures, at the reviewer's own coordinates), so the
+#   gate does catch it; the mutation is what keeps that from silently ceasing to
+#   be true. DERIVED on this tree, not incremented on faith:
+#     awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+#   prints 150.
+EXPECTED_MUTATIONS=150
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists
