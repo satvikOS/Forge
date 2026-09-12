@@ -176,6 +176,20 @@ struct PlanRequest {
   std::string intent;
   std::string selectionSummary;
   std::string documentSummary;
+  // Absolute path to a PNG of what the user is looking at, or empty for none.
+  //
+  // A PATH and not the bytes: the only transport that carries a PlanRequest
+  // refuses anything outside 127.0.0.0/8 (HttpTransport RefusedNonLoopback), so
+  // the reader is always this same machine and there is nothing to embed. The
+  // sidecar already accepts a top-level "image" path, so nothing on that side
+  // changes.
+  //
+  // WHY IT EXISTS: the model is a VLM and the app could only ever send it text.
+  // T-084 measured both arms of an image ablation and the missing input is the
+  // IMAGE, not the adapter -- with no picture the planner is reasoning about a
+  // part it cannot see. A planner that ignores this field is still correct; one
+  // that cannot be given a picture at all is not.
+  std::string imagePath;
   std::vector<PlanTool> tools;
 };
 

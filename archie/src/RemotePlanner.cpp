@@ -41,8 +41,15 @@ std::string requestBody(const PlanRequest& request) {
   std::string text = request.intent;
   if (!request.selectionSummary.empty()) text += "\nSelection: " + request.selectionSummary;
   if (!request.documentSummary.empty()) text += "\nDocument: " + request.documentSummary;
+  // "image" is top level, beside "messages", NOT inside the message content.
+  // That is the shape the sidecar already reads (it does req.get("image") and
+  // requires os.path.isfile), and it is what lets the same body reach LM Studio
+  // or Ollama unchanged after fusing. Omitted entirely when there is no image,
+  // so a text-only request is byte-identical to what it was before this field.
+  std::string image;
+  if (!request.imagePath.empty()) image = ",\"image\":" + jstr(request.imagePath);
   return std::string("{\"messages\":[{\"role\":\"user\",\"content\":") +
-         jstr(text) + "}],\"tools\":[" + tools + "]}";
+         jstr(text) + "}],\"tools\":[" + tools + "]" + image + "}";
 }
 
 // The sidecar answers in the OpenAI shape; the payload we care about is the

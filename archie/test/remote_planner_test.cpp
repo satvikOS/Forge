@@ -2,6 +2,7 @@
 // failure paths can only be exercised by stopping a 30B model is a planner whose
 // failure paths nobody exercises. Every refusal below is reachable in CI.
 #include "forge/archie/RemotePlanner.hpp"
+#include "forge/retrieval/Json.hpp"   // to prove the body with an image still parses
 
 #include <cstdio>
 #include <memory>
@@ -81,6 +82,34 @@ int main() {
        body.find("BOX") != std::string::npos);
     ck("  ...and the selection summary, not just the instruction",
        body.find("nothing selected") != std::string::npos);
+
+    // The image field. The model is a VLM and until now the app could only send
+    // it text; T-084 measured that the missing input is the IMAGE.
+    ck("  ...and NO image key at all when there is no image",
+       body.find("\"image\"") == std::string::npos, body);
+
+    forge::ui::PlanRequest withImage = makeRequest();
+    withImage.imagePath = "/tmp/forge frame \"1\".png";   // spaces AND a quote
+    const std::string ibody = forge::archie::requestBody(withImage);
+    ck("an image path is carried to the sidecar",
+       ibody.find("\"image\":") != std::string::npos, ibody);
+    ck("  ...top level, beside messages -- the shape the sidecar reads",
+       ibody.find("],\"image\":") != std::string::npos ||
+       ibody.find("\"image\":") > ibody.find("\"tools\""), ibody);
+    ck("  ...and it is JSON-escaped, so a path with a quote cannot break the body",
+       ibody.find("frame \\\"1\\\".png") != std::string::npos, ibody);
+
+    // A body that still parses is the whole point of escaping it.
+    forge::retrieval::json::Value parsed;
+    std::string perr;
+    ck("  ...the body with an image still parses as JSON",
+       forge::retrieval::json::parse(ibody, parsed, perr), perr);
+
+    // Adding a field must not disturb the text-only request: everything that
+    // worked before this change must be byte-identical, or this is a rewrite
+    // wearing a feature's clothes.
+    ck("  ...and a text-only body is UNCHANGED by the new field",
+       forge::archie::requestBody(makeRequest()) == body, "text-only body moved");
   }
 
   // ── a good reply ──────────────────────────────────────────────────────────
