@@ -14,7 +14,11 @@
 #   2. no line says a mutation STAYED GREEN — an unfalsifiable check is not a
 #      check, and run_desktop.sh prints that phrase before deciding its own
 #      verdict;
-#   3. the exact final verdict line is present, naming EXPECTED_MUTATIONS.
+#   3. the exact final verdict line is present, naming EXPECTED_MUTATIONS --
+#      or, when a gate SKIPPED for want of a GPU, the skipped form of that line,
+#      whose RUN + NOT RUN must still add up to EXPECTED_MUTATIONS exactly. See
+#      THE SKIPPED VERDICT below for why that case is green and loud rather than
+#      red, and why it cannot be used to hide a shrinking mutation count.
 #
 # EXPECTED_MUTATIONS is an EXACT value and deliberately NOT an environment
 # override and NOT a floor. Adding a --mutate case to run_desktop.sh means
@@ -99,7 +103,18 @@ set -uo pipefail
 # Both landed the same day; the constant below is the DERIVED total of the merged
 # run_desktop.sh, not either branch's figure (117 and 115 each counted only its own
 # additions against the shared 113 base).
-EXPECTED_MUTATIONS=121
+# * 2026-09-12: 113 -> 120, + render 7. The RENDER gate joined run_desktop.sh:
+#   the first gate in this project that executes ViewportRenderer and asserts on
+#   the PIXELS it produced. DERIVED on this tree, not incremented on faith --
+#   awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   prints 120.
+#
+#   The seventh is mutation 7, added after the first six were run and found NOT
+#   to falsify the gate's two ink-continuity checks. It sinks the edges 0.15 mm
+#   behind the surface -- far enough to stitch, not far enough to hide -- which is
+#   the only injected input that makes a visible edge come out DASHED. Six
+#   mutations that all leave a check green are six mutations that do not test it.
+EXPECTED_MUTATIONS=128
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists
@@ -180,14 +195,64 @@ if grep -q 'STAYED GREEN' "$LOG"; then
   exit 1
 fi
 
-if ! grep -qxF -- "$VERDICT" "$LOG"; then
-  red "run_desktop.sh exited 0 without printing its exact verdict line, so nothing here is proved"
-  echo "[ci-desktop] expected : $VERDICT"
-  echo "[ci-desktop] last line: $(tail -1 "$LOG")"
-  echo "[ci-desktop] if the mutation count CHANGED on purpose, update"
-  echo "[ci-desktop] EXPECTED_MUTATIONS in this file in the SAME commit. It is an"
-  echo "[ci-desktop] exact value, never a floor."
-  exit 1
+# ── THE SKIPPED VERDICT ──────────────────────────────────────────────────────
+# ONE gate in run_desktop.sh can fail for a reason that is not about this
+# project's code: forge_desktop_render_gate is the only gate that calls
+# vkCreateInstance, and a runner with no Vulkan ICD has no instrument rather than
+# a broken renderer. Failing the whole job for an absent instrument would turn CI
+# red for everyone on a machine that is merely unequipped -- a worse outcome than
+# the defect the gate was written to catch.
+#
+# So run_desktop.sh prints a DIFFERENT verdict line when a gate skipped, and this
+# is where that line is judged. It is accepted, and it is NOT accepted quietly:
+#
+#   * the ratchet still holds. RUN + NOT RUN must equal EXPECTED_MUTATIONS
+#     exactly, so mutation coverage cannot shrink behind a skip -- which is the
+#     hole a skip would otherwise open in the one number nothing else guards.
+#   * it is a ::warning:: in the GitHub log and a loud line locally, naming the
+#     gate, so "the viewport was never rendered on this run" is visible instead
+#     of hiding inside the word PASS.
+#   * FORGE_REQUIRE_GPU=1 makes the skip a hard failure in the gate binary
+#     itself. Set it on a runner that is SUPPOSED to have a device and the day
+#     its ICD stops being installed is a red build, not a silent hole.
+#
+# The deliberate choice, written down so the next reader does not have to guess:
+# CI does NOT set FORGE_REQUIRE_GPU, because this repository cannot prove that
+# every runner image will ship a working MoltenVK ICD forever, and a gate that
+# breaks the build for everyone the day an image changes is not a gate anybody
+# keeps. The warning is the instrument on the skip.
+SKIP_RE='^\[desktop\] FORGE DESKTOP GATES PASS WITH ([0-9]+) GATE\(S\) SKIPPED \((.+)\): ([0-9]+) mutations proved red-then-green, ([0-9]+) NOT RUN$'
+if grep -qxF -- "$VERDICT" "$LOG"; then
+  echo "[ci-desktop] GREEN — verdict confirmed: $VERDICT"
+  exit 0
 fi
 
-echo "[ci-desktop] GREEN — verdict confirmed: $VERDICT"
+skip_line="$(grep -E "$SKIP_RE" "$LOG" | tail -1)"
+if [ -n "$skip_line" ]; then
+  n_gates="$(printf '%s' "$skip_line" | sed -E "s/$SKIP_RE/\1/")"
+  names="$(printf '%s' "$skip_line" | sed -E "s/$SKIP_RE/\2/")"
+  n_run="$(printf '%s' "$skip_line" | sed -E "s/$SKIP_RE/\3/")"
+  n_skipped="$(printf '%s' "$skip_line" | sed -E "s/$SKIP_RE/\4/")"
+  if [ "$((n_run + n_skipped))" -ne "$EXPECTED_MUTATIONS" ]; then
+    red "a gate skipped AND the mutation count does not add up: ${n_run} run + ${n_skipped} not run = $((n_run + n_skipped)), expected ${EXPECTED_MUTATIONS}"
+    echo "[ci-desktop] a skip may cost coverage; it may not HIDE a change in coverage."
+    exit 1
+  fi
+  echo "[ci-desktop] ★★ ${n_gates} GATE(S) SKIPPED: ${names}"
+  echo "[ci-desktop] ★★ ${n_skipped} of ${EXPECTED_MUTATIONS} mutations were NOT RUN on this machine."
+  echo "[ci-desktop] ★★ The viewport was not rendered here. Set FORGE_REQUIRE_GPU=1 on a"
+  echo "[ci-desktop] ★★ runner that is supposed to have a Vulkan device to make this RED."
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "::warning::forge-desktop: ${n_gates} gate(s) SKIPPED for want of a GPU (${names}); ${n_skipped} mutations not run"
+  fi
+  echo "[ci-desktop] GREEN (with skips) — verdict confirmed: $skip_line"
+  exit 0
+fi
+
+red "run_desktop.sh exited 0 without printing its exact verdict line, so nothing here is proved"
+echo "[ci-desktop] expected : $VERDICT"
+echo "[ci-desktop] last line: $(tail -1 "$LOG")"
+echo "[ci-desktop] if the mutation count CHANGED on purpose, update"
+echo "[ci-desktop] EXPECTED_MUTATIONS in this file in the SAME commit. It is an"
+echo "[ci-desktop] exact value, never a floor."
+exit 1

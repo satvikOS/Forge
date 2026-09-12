@@ -1,8 +1,10 @@
 #include "ViewportRenderer.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <vulkan/vulkan.h>
@@ -284,9 +286,30 @@ bool ViewportRenderer::createPipeline() {
 
     VkPipelineRasterizationStateCreateInfo lineRs = rs;
     lineRs.polygonMode = VK_POLYGON_MODE_FILL;
-    lineRs.depthBiasEnable = VK_TRUE;
-    lineRs.depthBiasConstantFactor = -2.0f;
-    lineRs.depthBiasSlopeFactor = -2.0f;
+    // ── NO depthBiasEnable HERE, AND THAT IS THE POINT ───────────────────
+    // This pipeline used to set depthBiasEnable = VK_TRUE with a constant and
+    // slope factor of -2.0, to lift the edge lines off the surface they lie on.
+    // It did nothing. Vulkan applies depth bias to fragments produced by POLYGON
+    // rasterization; the topology here is LINE_LIST, so no polygon is rasterized
+    // and there is nothing for the bias to offset (polygonMode is not consulted
+    // for a line topology either).
+    //
+    // FALSIFIED AGAINST THE EDIT ACTUALLY MADE, which is the deletion of the
+    // three lines named above. Putting those exact three lines BACK --
+    // depthBiasEnable = VK_TRUE, constant -2.0f, slope -2.0f -- and rebuilding
+    // produces a BYTE-IDENTICAL frame: `cmp` on the two PNGs written by
+    // forge_desktop_render_gate --png reports no difference, and every number
+    // the gate prints is unchanged at both gated cameras AND at all sixteen
+    // cameras of the sweep. The deletion changes nothing, which is the claim.
+    //
+    // And it is not that -2.0 is too small to see: setting both factors to
+    // -50000.0 instead -- which would slam every edge line onto the near plane
+    // if the bias applied at all -- gives the SAME byte-identical frame. Two
+    // arms 25000x apart and a third with the state absent entirely all produce
+    // the same pixels; the state is inert, not merely under-tuned.
+    //
+    // The offset that DOES apply to a line is applied in viewport_solid.vert,
+    // to gl_Position.z, where the primitive type is irrelevant.
     lineRs.lineWidth = 1.0f;
 
     VkPipelineDepthStencilStateCreateInfo lineDs = ds;
@@ -429,6 +452,10 @@ void ViewportRenderer::destroyTarget() {
   depthView_ = VK_NULL_HANDLE;
   depth_ = VK_NULL_HANDLE;
   depthMem_ = VK_NULL_HANDLE;
+  // There is no colour image now, so it has no usage flags. Leaving the last
+  // successful target's flags standing would let colorImageUsage() answer for an
+  // image that does not exist.
+  colorUsage_ = 0;
   width_ = height_ = 0;
 }
 
@@ -466,9 +493,26 @@ bool ViewportRenderer::createTarget(std::uint32_t w, std::uint32_t h) {
     return vkCreateImageView(device_, &vi, nullptr, &view) == VK_SUCCESS;
   };
 
-  if (!makeImage(kColorFormat,
-                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, color_,
-                 colorMem_, colorView_, VK_IMAGE_ASPECT_COLOR_BIT)) {
+  // ★ TRANSFER_SRC is what makes this renderer OBSERVABLE. The offscreen colour
+  // attachment is read back with vkCmdCopyImageToBuffer -- by the render gate,
+  // and by anything that ever wants a screenshot of the viewport -- and the spec
+  // allows that only on an image created with this usage. Without it there is no
+  // pixel assertion to be made at all, which is exactly how a broken picture
+  // survived a fully green suite. It costs nothing at runtime.
+  //
+  // WHAT IS NOT TRUE, because it was measured: "without it the frame can be
+  // sampled by ImGui and by nothing else". Delete the bit on THIS machine and
+  // MoltenVK performs the copy regardless -- the gate stayed GREEN, every pixel
+  // check passed, the PNG was written. So the one line the whole gate rests on
+  // was the one line nothing guarded, and on a driver that enforces the usage,
+  // or with a validation layer enabled, every pixel check would fail at once for
+  // a reason none of them names. colorUsage_ IS the argument to vkCreateImage,
+  // not a second spelling of it, and colorImageUsage() is what the gate asserts
+  // on; removing the bit here removes it from what the gate reads.
+  colorUsage_ = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  if (!makeImage(kColorFormat, colorUsage_, color_, colorMem_, colorView_,
+                 VK_IMAGE_ASPECT_COLOR_BIT)) {
     error_ = "offscreen colour image creation failed";
     return false;
   }
@@ -608,5 +652,29 @@ void ViewportRenderer::destroy() {
   device_ = VK_NULL_HANDLE;
 }
 
+
+// ── THE SHADER SOURCES THIS TRANSLATION UNIT WAS COMPILED FROM ─────────────
+// ★ The .spv.h files included at the top of this file are BUILD PRODUCTS, and a
+// timestamp-driven rule can be defeated (see cmake/embed_shader_source.cmake):
+// touch the header, restore a source with an older mtime, and glslang is skipped
+// while this object keeps the PREVIOUS shader. Measured before the stamp
+// existed: kEdgeDepthBias set to 0.0 -- the defect the render gate was written
+// for -- plus a touched header gave "36 checks, 0 failed".
+//
+// Each generated header therefore carries the exact bytes glslang was handed,
+// written by the same build command. These two functions hand them to
+// forge_desktop_render_gate, which compares them with the files in the tree. It
+// is deliberately THIS translation unit that exposes them: the point is to prove
+// that the SPIR-V THE SHIPPED RENDERER CREATES ITS PIPELINES FROM came from the
+// shaders being tested, so the answer has to come from the object that holds it.
+std::string_view viewportSolidVertCompiledSource() noexcept {
+  return {reinterpret_cast<const char*>(viewportSolidVertSpvSource),
+          static_cast<std::size_t>(viewportSolidVertSpvSourceLen)};
+}
+
+std::string_view viewportSolidFragCompiledSource() noexcept {
+  return {reinterpret_cast<const char*>(viewportSolidFragSpvSource),
+          static_cast<std::size_t>(viewportSolidFragSpvSourceLen)};
+}
 
 }  // namespace forge::desktop

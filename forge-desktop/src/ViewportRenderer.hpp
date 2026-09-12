@@ -18,6 +18,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <vulkan/vulkan.h>
@@ -48,6 +49,21 @@ class ViewportRenderer {
 
   // The ImGui texture handle for the current target, 0 until the first resize.
   std::uint64_t texture() const noexcept { return textureId_; }
+  // The offscreen colour attachment itself, so the frame can be COPIED OUT and
+  // asserted on. The texture handle above is a descriptor: it can be composited
+  // and never read. This is the handle forge_desktop_render_gate transitions to
+  // TRANSFER_SRC and copies into host memory; it is created with
+  // VK_IMAGE_USAGE_TRANSFER_SRC_BIT for exactly that reason.
+  VkImage colorImage() const noexcept { return color_; }
+  // ★ THE USAGE FLAGS THE COLOUR IMAGE WAS ACTUALLY CREATED WITH -- the value
+  // passed to vkCreateImage, not a second spelling of it. 0 when there is no
+  // target. The whole render gate rests on VK_IMAGE_USAGE_TRANSFER_SRC_BIT being
+  // in there, because the spec allows vkCmdCopyImageToBuffer only on an image
+  // that has it. Deleting the bit from createTarget left the gate GREEN --
+  // MoltenVK copied anyway -- so the enabling line of the only instrument on
+  // this class was the one line nothing guarded, and a stricter driver would
+  // have failed every pixel check at once instead. The gate asserts the bit.
+  VkImageUsageFlags colorImageUsage() const noexcept { return colorUsage_; }
   std::uint32_t width() const noexcept { return width_; }
   std::uint32_t height() const noexcept { return height_; }
   std::uint32_t triangleCount() const noexcept { return triangles_; }
@@ -72,6 +88,7 @@ class ViewportRenderer {
   VkSampler sampler_ = VK_NULL_HANDLE;
 
   VkImage color_ = VK_NULL_HANDLE;
+  VkImageUsageFlags colorUsage_ = 0;
   VkDeviceMemory colorMem_ = VK_NULL_HANDLE;
   VkImageView colorView_ = VK_NULL_HANDLE;
   VkImage depth_ = VK_NULL_HANDLE;
@@ -98,6 +115,24 @@ class ViewportRenderer {
   std::uint64_t textureId_ = 0;
   std::string error_;
 };
+
+// ── THE SHADER SOURCES THE SPIR-V IN THIS BINARY WAS COMPILED FROM ─────────
+// ★ The generated .spv.h headers ViewportRenderer.cpp includes are build
+// products of a timestamp-driven rule, and a timestamp rule can be defeated:
+// touch the header, restore a shader with an older mtime (cp -p, rsync -t, an
+// unpacked archive), and glslang is skipped while the binary keeps the previous
+// shader. MEASURED before this existed: with kEdgeDepthBias = 0.0 in the tree --
+// the exact defect forge_desktop_render_gate exists for -- and a touched header,
+// the gate printed "36 checks, 0 failed. RENDER GATE PASS".
+//
+// So each header now carries the bytes glslang was handed, written by the same
+// build command (forge-desktop/cmake/embed_shader_source.cmake), and these two
+// functions expose them FROM THE TRANSLATION UNIT THAT CREATES THE SHADER
+// MODULES. The gate compares them with shaders/viewport_solid.{vert,frag} on
+// disk and goes red on any difference, so "the gate measures the shipped
+// shader" is a check rather than a habit.
+std::string_view viewportSolidVertCompiledSource() noexcept;
+std::string_view viewportSolidFragCompiledSource() noexcept;
 
 }  // namespace forge::desktop
 

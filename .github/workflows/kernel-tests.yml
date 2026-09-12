@@ -1544,7 +1544,11 @@ jobs:
             echo "::error::forge-desktop did not COMPILE (rc=$rc); the application is un-buildable on this commit"
             exit 1
           fi
-          # EVERY executable forge-desktop/CMakeLists.txt adds, not a subset.
+          # The executables whose absence this step is meant to catch here, under
+          # the name that says the application did not build, rather than later
+          # from inside a gate script's log. (It is NOT the full set any more --
+          # tools/gates/preflight.sh's "every forge-desktop gate is built AND
+          # run" check is what guards the whole list.)
           # copilot, click, update and the forge_update CLI were absent from
           # this list while `cmake --build` compiled them, so any one of them
           # could have stopped being PRODUCED with this step still green -- and
@@ -1558,7 +1562,8 @@ jobs:
                    forge_desktop_click_gate forge_desktop_update_gate \
                    forge_desktop_file_exchange_gate \
                    forge_desktop_sketch_panels_gate \
-                   forge_desktop_isolation_gate; do
+                   forge_desktop_isolation_gate \
+                   forge_desktop_render_gate; do
             if [ -x "forge-desktop/build/$b" ]; then printf 'ok       %s\n' "$b"
             else printf 'MISSING  %s\n' "$b"; missing=1; fi
           done
@@ -1567,12 +1572,28 @@ jobs:
             exit 1
           fi
 
-      - name: forge-desktop gates + mutation proofs (headless -- no window, no GPU)
+      - name: forge-desktop gates + mutation proofs (headless -- no window; ONE gate wants a GPU)
         # ci_desktop_gate.sh runs run_desktop.sh -- the missing-include
-        # preflight, then the SIX headless gates (ir_pipeline, document, frame,
-        # copilot, update, click, isolation), then the injected defects each of
-        # which MUST turn its gate red -- and then JUDGES ITS OUTPUT rather than
-        # trusting its exit status.
+        # preflight, then the headless gates (ir_pipeline, document, frame,
+        # copilot, update, click, isolation and the rest), then the injected
+        # defects each of which MUST turn its gate red -- and then JUDGES ITS
+        # OUTPUT rather than trusting its exit status.
+        #
+        # ★ NO WINDOW, BUT NO LONGER "NO GPU". forge_desktop_render_gate opens a
+        # headless VkDevice and renders the real viewport, because a suite in
+        # which nothing needed a device is exactly how ViewportRenderer.cpp came
+        # to be executed by nothing. It needs a Vulkan ICD, which the molten-vk
+        # bottle installed two steps above provides.
+        #
+        # FORGE_REQUIRE_GPU IS DELIBERATELY NOT SET HERE. If this image ever
+        # stops shipping a working ICD, the render gate exits 77, run_desktop.sh
+        # prints a SKIPPED verdict naming it, and ci_desktop_gate.sh turns that
+        # into a ::warning:: -- loud, attributable, and not a red build for
+        # everyone over a runner image's graphics stack. The ratchet still holds
+        # through a skip: run + not-run must equal EXPECTED_MUTATIONS exactly, so
+        # a skip can COST coverage but cannot HIDE a change in it. Set
+        # FORGE_REQUIRE_GPU=1 here the day this repository is willing to own a
+        # red build for a missing device.
         # run_desktop.sh has no `set -e`, so its status is the status of
         # whatever ran last and a run that fell out of its own middle would exit
         # 0; the gate script requires a zero status AND no mutation reported as

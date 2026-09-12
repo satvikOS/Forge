@@ -9,7 +9,10 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — nine headless gates, none of which needs a GPU:
+#   2. gates          — headless gates. All but ONE need no GPU; the exception
+#                       is the render gate, and it is the exception on purpose:
+#                       "no gate needs a GPU" is exactly why the viewport had no
+#                       instrument on it for the whole life of this file.
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
 #                       * imgui_recovery — what a RECOVERABLE interface error
@@ -76,6 +79,28 @@
 # a gate that cannot run in CI is not a gate. Launch it yourself with
 #   forge-desktop/build/run_forge.sh
 # and add --screenshot <path> to have it write a PNG of its own live swapchain.
+#
+# What that paragraph USED to mean in practice was that nothing ran the renderer
+# at all. A display server and a GPU are different requirements, and conflating
+# them left ViewportRenderer.cpp -- the object the whole product is a frame
+# around -- linked into no gate and executed by nothing. forge_desktop_render_gate
+# below needs the second and not the first.
+#
+# AND IT IS THE ONLY THING HERE THAT NEEDS EITHER. That is a new dependency in a
+# script everyone runs, so what happens on a machine without a Vulkan device is
+# decided rather than discovered: the render gate exits 77, this script reports
+# it as SKIPPED in a DIFFERENT verdict line naming the gate and the mutations
+# that did not run, and exits 0. An absent instrument is not a defect in the
+# renderer, and failing the whole suite for one would break this script for
+# everyone on any runner whose image stops shipping a working ICD.
+#
+# Three things stop that allowance from rotting into a gate nobody notices is
+# dead: the skip changes the verdict LINE (so ci_desktop_gate.sh has to decide
+# about it explicitly and warns in CI), the skipped mutations are counted and
+# must still add up to EXPECTED_MUTATIONS, and FORGE_REQUIRE_GPU=1 turns the
+# skip into a hard failure on any machine that is supposed to have a device.
+# The skip path itself is PROVED on every run, GPU or not, by the
+# --simulate-no-device control just above the run_gate line.
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -139,6 +164,25 @@ echo "[desktop] built forge_desktop + forge_kernel_worker + ${_ngates} headless 
 
 BAD=0
 TOTAL_MUTATIONS=0
+# ── SKIPPED gates, and why this bookkeeping exists ───────────────────────────
+# Exactly one gate here can fail for a reason that is not about this project's
+# code: forge_desktop_render_gate needs a Vulkan device, and a runner without an
+# ICD has no instrument rather than a broken renderer. That gate exits 77 when
+# there is no device (see the banner it prints), and 77 is handled HERE and
+# nowhere else.
+#
+# A skip is allowed to be green, and it is NOT allowed to be quiet. Three things
+# keep it from becoming a permanent no-op:
+#   1. SKIPPED_NAMES goes into the FINAL VERDICT LINE, which is the exact line
+#      ci_desktop_gate.sh matches -- so a skipped run cannot print the same
+#      verdict as a complete one, and CI reads a different string.
+#   2. the mutations a skipped gate did not run are counted in SKIPPED_MUTATIONS
+#      and reported, so the coverage ratchet still sees the whole number.
+#   3. FORGE_REQUIRE_GPU=1 turns the skip into a hard failure. Set it on any
+#      machine that is supposed to have a device.
+SKIPPED_NAMES=""
+SKIPPED_GATES=0
+SKIPPED_MUTATIONS=0
 
 # run_gate <binary-name> <mutation numbers...>
 # Runs the gate, then every mutation, and requires each mutation to turn it RED.
@@ -146,7 +190,23 @@ run_gate() {
   name="$1"; shift
   bin="$APP_BUILD/$name"
   if [ ! -x "$bin" ]; then echo "[desktop] gate binary missing at $bin"; exit 1; fi
-  if ! "$bin" > "$LOG/$name.log" 2>&1; then
+  "$bin" > "$LOG/$name.log" 2>&1
+  gate_rc=$?
+  if [ "$gate_rc" -eq 77 ]; then
+    # 77 means the gate could not run at all, not that it passed. Print its own
+    # banner (which names the machine and the fix), record it, and DO NOT run its
+    # mutations -- every one of them would skip identically and counting them as
+    # red-then-green would be a lie.
+    cat "$LOG/$name.log"
+    echo "[desktop] ★ $name SKIPPED (exit 77) — it needs a GPU and this machine has none."
+    echo "[desktop] ★ Nothing it asserts was checked. $# mutation(s) were NOT run."
+    echo "[desktop] ★ Set FORGE_REQUIRE_GPU=1 to make this a RED build instead."
+    SKIPPED_GATES=$((SKIPPED_GATES+1))
+    SKIPPED_MUTATIONS=$((SKIPPED_MUTATIONS+$#))
+    SKIPPED_NAMES="${SKIPPED_NAMES:+$SKIPPED_NAMES }$name"
+    return 0
+  fi
+  if [ "$gate_rc" -ne 0 ]; then
     cat "$LOG/$name.log"; echo "[desktop] $name FAILED"; exit 1
   fi
   cat "$LOG/$name.log"
@@ -280,9 +340,84 @@ run_gate forge_desktop_isolation_gate
 run_gate forge_desktop_frame_capture_gate 1 2 3
 run_gate forge_desktop_transaction_gate 4
 
+# ★ THE RENDER GATE — the only gate here that runs the RENDERER, and therefore
+# the only one that needs a GPU. Everything above is device-free, and that is
+# precisely how the viewport came to be the one part of this application with no
+# instrument on it: ViewportRenderer.cpp compiled into forge_desktop alone, this
+# script declines to launch the windowed app, and a broken picture was
+# indistinguishable from a correct one in a fully green suite.
+#
+# It opens no window and no swapchain: a headless VkDevice, the application's own
+# ViewportRenderer rendering the default bracket into its offscreen target, the
+# colour attachment copied back to host memory, and assertions ON THE PIXELS --
+# per edge segment, so a DASHED rim fails where a count of dark pixels would not.
+#
+# The seven mutations each break a different link: 1 the edges never reach the
+# vertex buffer, 2 only a handful survive the upload, 3 they sink 1 mm behind the
+# surface and mostly go dark, 4 the solid never rasterizes, 5 every edge floats
+# in front of the material -- which is what "just switch the depth test off"
+# looks like and must not pass -- and 7 sinks them only 0.15 mm, which is the
+# STITCHING shape of the real defect: the edges still mostly win the depth test
+# and come out DASHED rather than hidden, so it is the injected input that turns
+# the two INK-CONTINUITY observables red. 6 is the positive control for the
+# body-hiding section: it hides no body at all, so a check that would pass
+# whether or not the hide happened is caught being unfalsifiable rather than
+# counted as a pass.
+#
+# ★ FIRST, THE SKIP PATH ITSELF. This gate is the one thing in this script that
+# can fail for a reason that is not about this project's code, so it is allowed
+# to exit 77 and be reported as SKIPPED on a machine with no Vulkan device. A
+# skip branch nobody has executed is a branch nobody has read, and the first
+# GPU-less runner is a bad place to discover it prints nothing or returns the
+# wrong code. --simulate-no-device forces that branch HERE, on every machine
+# including the ones that do have a device, and this control requires both the
+# exit code and the banner. Without it, "SKIPPED" could silently become "did
+# nothing and said nothing".
+echo "[desktop] proving the render gate's no-GPU SKIP path before trusting it:"
+if [ ! -x "$APP_BUILD/forge_desktop_render_gate" ]; then
+  echo "[desktop] gate binary missing at $APP_BUILD/forge_desktop_render_gate"; exit 1
+fi
+"$APP_BUILD/forge_desktop_render_gate" --simulate-no-device > "$LOG/render_skip.log" 2>&1
+skip_rc=$?
+if [ "$skip_rc" -ne 77 ]; then
+  cat "$LOG/render_skip.log"
+  echo "[desktop] the render gate's --simulate-no-device path exited $skip_rc, not 77;"
+  echo "[desktop] the skip contract is broken, so a GPU-less runner would not be"
+  echo "[desktop] reported honestly. FAILED"; exit 1
+fi
+if ! grep -q 'RENDER GATE SKIPPED' "$LOG/render_skip.log"; then
+  cat "$LOG/render_skip.log"
+  echo "[desktop] the render gate exited 77 without printing its skip banner;"
+  echo "[desktop] a silent skip is the no-op gate this control exists to prevent. FAILED"
+  exit 1
+fi
+# ...and that FORGE_REQUIRE_GPU turns the same absent device into a RED build,
+# which is the escape hatch a runner that is SUPPOSED to have a GPU uses. A
+# safety valve nobody has opened is not a safety valve.
+FORGE_REQUIRE_GPU=1 "$APP_BUILD/forge_desktop_render_gate" --simulate-no-device \
+  > "$LOG/render_require.log" 2>&1
+require_rc=$?
+if [ "$require_rc" -ne 1 ]; then
+  cat "$LOG/render_require.log"
+  echo "[desktop] FORGE_REQUIRE_GPU=1 did not turn an absent device RED (exit"
+  echo "[desktop] $require_rc, expected 1), so the escape hatch does not work. FAILED"
+  exit 1
+fi
+echo "[desktop]   ok — exit 77 + banner when skipping, exit 1 under FORGE_REQUIRE_GPU=1"
+run_gate forge_desktop_render_gate 1 2 3 4 5 6 7
+
 # ── 3. mutation verdict ──────────────────────────────────────────────────────
 if [ "$BAD" -ne 0 ]; then
   echo "[desktop] $BAD mutation(s) did not turn their gate red"; exit 1
 fi
 
+# ── 4. the verdict, which says what was NOT run ──────────────────────────────
+# Two different lines, on purpose. ci_desktop_gate.sh matches the complete one
+# EXACTLY, so a run that skipped a gate cannot present itself as a run that did
+# not -- the skipped form names the gate and the mutations that never executed,
+# and CI has to decide about it explicitly rather than inherit a green string.
+if [ "$SKIPPED_GATES" -ne 0 ]; then
+  echo "[desktop] FORGE DESKTOP GATES PASS WITH $SKIPPED_GATES GATE(S) SKIPPED ($SKIPPED_NAMES): $TOTAL_MUTATIONS mutations proved red-then-green, $SKIPPED_MUTATIONS NOT RUN"
+  exit 0
+fi
 echo "[desktop] ALL FORGE DESKTOP GATES PASS, and all $TOTAL_MUTATIONS mutations proved red-then-green"

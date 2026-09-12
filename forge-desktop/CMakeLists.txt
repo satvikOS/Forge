@@ -130,6 +130,20 @@ set(SHADER_HEADERS "")
 # stage;C-identifier pairs -- the identifier is spelled out rather than built from
 # the stage, because "viewportSolid${_stage}Spv" produces viewportSolidvertSpv and
 # the mismatch only surfaces at compile time in another file.
+#
+# ★ EACH HEADER CARRIES THE SOURCE IT WAS COMPILED FROM. The second COMMAND
+# appends the exact bytes glslang was just handed into the header it just wrote,
+# and forge_desktop_render_gate compares that copy against the file on disk.
+# The DEPENDS below is real -- editing the shader and rebuilding DOES move the
+# header's md5, measured -- but a declared dependency is a statement about
+# timestamps, not about content: `touch` the header, restore a source with an
+# older mtime (cp -p, rsync -t, an unpacked archive), or run a clock backwards,
+# and glslang is skipped while the header keeps the PREVIOUS shader. Measured on
+# this tree: with kEdgeDepthBias set to 0.0 -- the defect the render gate exists
+# for -- and the header touched, the gate reported "36 checks, 0 failed". It was
+# asserting on pixels drawn by a program the tree no longer contained. The stamp
+# turns that into a RED gate instead of a caveat somebody has to have read.
+set(SHADER_SOURCE_STAMP "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_shader_source.cmake")
 foreach(_pair "vert;viewportSolidVertSpv" "frag;viewportSolidFragSpv")
     list(GET _pair 0 _stage)
     list(GET _pair 1 _sym)
@@ -139,8 +153,14 @@ foreach(_pair "vert;viewportSolidVertSpv" "frag;viewportSolidFragSpv")
                 "${CMAKE_CURRENT_SOURCE_DIR}/shaders/viewport_solid.${_stage}"
                 --vn ${_sym}
                 -o "${SHADER_GEN_DIR}/viewport_solid_${_stage}.spv.h"
+        COMMAND "${CMAKE_COMMAND}"
+                "-DSRC=${CMAKE_CURRENT_SOURCE_DIR}/shaders/viewport_solid.${_stage}"
+                "-DHDR=${SHADER_GEN_DIR}/viewport_solid_${_stage}.spv.h"
+                "-DSYM=${_sym}"
+                -P "${SHADER_SOURCE_STAMP}"
         DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shaders/viewport_solid.${_stage}"
-        COMMENT "glslang: viewport_solid.${_stage} -> ${_sym}" VERBATIM)
+                "${SHADER_SOURCE_STAMP}"
+        COMMENT "glslang: viewport_solid.${_stage} -> ${_sym} (+ source stamp)" VERBATIM)
     list(APPEND SHADER_HEADERS "${SHADER_GEN_DIR}/viewport_solid_${_stage}.spv.h")
 endforeach()
 
@@ -331,11 +351,29 @@ target_include_directories(forge_archie PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/include")
 target_link_libraries(forge_archie PUBLIC forge_ui)
 
+# ------------------------------------------------------- the GPU-side viewport
+# ★ ViewportRenderer.cpp USED TO BE AN APPLICATION SOURCE AND NOTHING ELSE.
+# It compiled into forge_desktop, no gate linked it, and run_desktop.sh declines
+# to launch the windowed app -- so the one panel the whole product exists to show
+# had NO instrument pointed at it, and a viewport that drew a broken picture was
+# indistinguishable from one that drew a correct one in a fully green suite.
+#
+# It is a library now for one reason: so forge_desktop_render_gate links THE SAME
+# OBJECT the application ships and renders it offscreen. Not a copy of it, not a
+# second renderer written for the test -- the same translation unit, the same
+# pipelines, the same SPIR-V.
+add_library(forge_desktop_render STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ViewportRenderer.cpp"
+    ${SHADER_HEADERS})
+target_include_directories(forge_desktop_render PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/src" "${SHADER_GEN_DIR}")
+target_compile_options(forge_desktop_render PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_render PUBLIC forge_desktop_core)
+
 set(FORGE_DESKTOP_APP_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PlatformSDL2.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateService.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/ViewportRenderer.cpp")
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateService.cpp")
 if(APPLE)
     list(APPEND FORGE_DESKTOP_APP_SOURCES
          "${CMAKE_CURRENT_SOURCE_DIR}/src/FileDialogMac.mm")
@@ -366,7 +404,8 @@ endif()
 # renders the result. Until this line existed the shipped bundle contained ZERO
 # updater symbols -- the library, the CLI and its 130-check gate were all real, and
 # none of them was in the thing users install.
-target_link_libraries(forge_desktop PRIVATE forge_archie forge_desktop_core forge_updater
+target_link_libraries(forge_desktop PRIVATE forge_archie forge_desktop_core
+                      forge_desktop_render forge_updater
                       "${SDL2_LIB}" "${VK_LOADER_LIB}")
 set_target_properties(forge_desktop PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
@@ -745,6 +784,26 @@ add_dependencies(forge_desktop_isolation_gate forge_kernel_worker)
 add_executable(forge_desktop_frame_capture_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/frame_capture_gate.cpp")
 target_compile_options(forge_desktop_frame_capture_gate PRIVATE -Wall -Wextra -Werror)
+
+# ------------------------------------------------ ★ THE PIXELS THE USER SEES
+# The ONLY gate in this project that runs the renderer. It needs a Vulkan device
+# and therefore a GPU -- it is the one gate here that is not device-free, and
+# that is the point: everything that was device-free could not see the viewport.
+# No window, no swapchain, no surface; an offscreen target, one submit, and the
+# colour attachment copied back and asserted on pixel by pixel.
+add_executable(forge_desktop_render_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/render_gate.cpp")
+target_compile_options(forge_desktop_render_gate PRIVATE -Wall -Wextra -Werror)
+# ★ The gate compares the shader sources in THIS TREE against the bytes stamped
+# into the generated .spv.h it linked, so it has to know where the tree is. Not
+# defaulted anywhere: render_gate.cpp #errors without it, because a provenance
+# check that silently falls back to comparing a build product with itself is
+# worse than no check.
+target_compile_definitions(forge_desktop_render_gate PRIVATE
+    "FORGE_VIEWPORT_SHADER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/shaders\"")
+target_link_libraries(forge_desktop_render_gate PRIVATE forge_desktop_render)
+set_target_properties(forge_desktop_render_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
 # ------------------------------------------------------------------ updating
 # THE AUTO-UPDATER. Deliberately its own library with NO project dependencies --

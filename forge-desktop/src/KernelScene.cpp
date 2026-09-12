@@ -938,8 +938,6 @@ void KernelScene::installGeometry(std::vector<SceneVertex> stream, std::uint32_t
   faceCount_ = faces;
   bodyHidden_.assign(report_.bodies.size() + 1, false);
   anyHidden_ = false;
-  visible_.clear();
-  visible_.shrink_to_fit();
 
   // Pack body indices into vertex flags for multi-body material differentiation
   for (SceneVertex& v : allVertices_) {
@@ -948,12 +946,23 @@ void KernelScene::installGeometry(std::vector<SceneVertex> stream, std::uint32_t
   }
 
   computeBounds();
-  extractFeatureEdges();
+  // Through rebuildVisible(), which drops the stale visible subset AND
+  // re-derives the feature edges. Doing those two by hand here is how they came
+  // to disagree: the edges were extracted on install and never again.
+  rebuildVisible();
 }
 
+// ── the feature edges of WHAT IS DRAWN ──────────────────────────────────────
+// `drawn` is vertices(), not allVertices_, and that is the whole correction.
+// This used to walk the MASTER stream and be called from installGeometry() and
+// from nowhere else, so hiding a body took its triangles out of the viewport and
+// LEFT ITS EDGES INKED: a wireframe ghost of a body the user had just switched
+// off, floating in front of the bodies that remained. rebuildVisible() is the
+// only caller now, and it is the only place the drawn stream changes.
 void KernelScene::extractFeatureEdges() {
   edgeVertices_.clear();
-  const std::size_t nTris = allVertices_.size() / 3;
+  const std::vector<SceneVertex>& drawn = vertices();
+  const std::size_t nTris = drawn.size() / 3;
   if (nTris == 0) return;
 
   struct PtKey {
@@ -1004,9 +1013,9 @@ void KernelScene::extractFeatureEdges() {
   edgeMap.reserve(nTris * 3);
 
   for (std::size_t t = 0; t < nTris; ++t) {
-    const SceneVertex& v0 = allVertices_[t * 3 + 0];
-    const SceneVertex& v1 = allVertices_[t * 3 + 1];
-    const SceneVertex& v2 = allVertices_[t * 3 + 2];
+    const SceneVertex& v0 = drawn[t * 3 + 0];
+    const SceneVertex& v1 = drawn[t * 3 + 1];
+    const SceneVertex& v2 = drawn[t * 3 + 2];
 
     float e1[3] = {v1.px - v0.px, v1.py - v0.py, v1.pz - v0.pz};
     float e2[3] = {v2.px - v0.px, v2.py - v0.py, v2.pz - v0.pz};
@@ -1063,16 +1072,28 @@ void KernelScene::extractFeatureEdges() {
 // delete part of the user's model from the picture.
 void KernelScene::rebuildVisible() {
   visible_.clear();
-  if (!anyHidden_) return;
-  visible_.reserve(allVertices_.size());
-  const std::size_t tris = allVertices_.size() / 3;
-  for (std::size_t t = 0; t < tris; ++t) {
-    const std::uint32_t body = report_.bodyForFace(allVertices_[t * 3].faceId);
-    if (body != 0 && body < bodyHidden_.size() && bodyHidden_[body]) continue;
-    visible_.push_back(allVertices_[t * 3 + 0]);
-    visible_.push_back(allVertices_[t * 3 + 1]);
-    visible_.push_back(allVertices_[t * 3 + 2]);
+  if (!anyHidden_) {
+    // With nothing hidden the drawn stream IS the master, so the subset costs
+    // nothing to keep. Falling THROUGH to the edge re-derivation rather than
+    // returning here is what makes showAllBodies() correct: bringing a body back
+    // has to put its edges back with it.
+    visible_.shrink_to_fit();
+  } else {
+    visible_.reserve(allVertices_.size());
+    const std::size_t tris = allVertices_.size() / 3;
+    for (std::size_t t = 0; t < tris; ++t) {
+      const std::uint32_t body = report_.bodyForFace(allVertices_[t * 3].faceId);
+      if (body != 0 && body < bodyHidden_.size() && bodyHidden_[body]) continue;
+      visible_.push_back(allVertices_[t * 3 + 0]);
+      visible_.push_back(allVertices_[t * 3 + 1]);
+      visible_.push_back(allVertices_[t * 3 + 2]);
+    }
   }
+  // THE ONE PLACE the drawn stream changes, so the one place the feature edges
+  // are re-derived. It costs one pass over the drawn triangles, on the same
+  // gesture that already costs the pass above -- a checkbox or a selection, not
+  // a frame.
+  extractFeatureEdges();
 }
 
 bool KernelScene::setBodyVisible(std::uint32_t bodyIndex, bool visible) {
@@ -1097,8 +1118,9 @@ void KernelScene::showAllBodies() {
   if (!anyHidden_) return;
   std::fill(bodyHidden_.begin(), bodyHidden_.end(), false);
   anyHidden_ = false;
-  visible_.clear();
-  visible_.shrink_to_fit();
+  // Through rebuildVisible() rather than clearing the subset here, so the edge
+  // re-derivation cannot be forgotten on THIS path and remembered on the other.
+  rebuildVisible();
   computeBounds();
 }
 

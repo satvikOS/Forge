@@ -170,6 +170,7 @@ SKIPPED=(
   "forge-desktop/src/PlatformSDL2.cpp    (SDL2)"
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"
   "forge-desktop/test/click_gate.cpp     (Vulkan, through its ImGui backend)"
+  "forge-desktop/test/render_gate.cpp    (Vulkan directly, and OCCT through KernelScene -- it drives ViewportRenderer on a real device)"
   "forge-desktop/test/differential_solid_gate.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/Topology.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/FileDialogMac.mm    (AppKit + UniformTypeIdentifiers, and it is Objective-C++: -x objective-c++, not a C++ TU)"
   "forge-desktop/test/panel_probe.mm     (AppKit + UniformTypeIdentifiers; run it with test/run_panel_probe.sh, which builds it under the same -Wall -Wextra -Werror this gate would)"

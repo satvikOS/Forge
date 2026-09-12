@@ -8,13 +8,24 @@
 # and asserts the exit code each time — plus one green path, without which the
 # suite would pass just as well against a script that always exits 1.
 #
-# Six cases:
+# Nine cases:
 #   A  the exact verdict, exit 0                     -> GREEN  (positive control)
 #   B  mutation count FELL by one, still exit 0      -> RED    (coverage shrank)
 #   C  mutation count ROSE by one, still exit 0      -> RED    (exact, not a floor)
 #   D  a mutation STAYED GREEN, still exit 0         -> RED    (unfalsifiable check)
 #   E  the script died, no verdict                   -> RED    (a real failure)
 #   F  exit 0 and no verdict line at all             -> RED    (fell out mid-run)
+#   G  run_desktop.sh is not there                   -> RED    (a check that could
+#                                                               not run did not pass)
+#   H  a gate SKIPPED, run + not-run == expected     -> GREEN  (a GPU-less runner)
+#   I  a gate SKIPPED, run + not-run  < expected     -> RED    (a skip may COST
+#                                                               coverage; it may
+#                                                               not HIDE a change)
+#
+# H and I are the pair that matters for the render gate. It is the only gate in
+# this project that needs a Vulkan device, so it is the only one allowed to exit
+# 77 and be reported as skipped -- and I is what stops that allowance from
+# becoming a place to hide a shrinking mutation count.
 #
 # C is the case that matters most to read twice. A check written as ">= N"
 # would pass it, and would then never notice mutation coverage being replaced
@@ -49,6 +60,12 @@ case "$N" in ''|*[!0-9]*) echo "[selftest] cannot read EXPECTED_MUTATIONS"; exit
 VN="[desktop] ALL FORGE DESKTOP GATES PASS, and all ${N} mutations proved red-then-green"
 VLESS="[desktop] ALL FORGE DESKTOP GATES PASS, and all $((N-1)) mutations proved red-then-green"
 VMORE="[desktop] ALL FORGE DESKTOP GATES PASS, and all $((N+1)) mutations proved red-then-green"
+# The SKIPPED verdict: 7 of the mutations belong to the render gate, which does
+# not run without a GPU. RUN + NOT RUN must still add up to N exactly. (The 7 is
+# incidental -- what these two cases assert is the RELATIONSHIP, the same way N
+# itself is derived rather than written here.)
+VSKIP="[desktop] FORGE DESKTOP GATES PASS WITH 1 GATE(S) SKIPPED (forge_desktop_render_gate): $((N-7)) mutations proved red-then-green, 7 NOT RUN"
+VSKIPBAD="[desktop] FORGE DESKTOP GATES PASS WITH 1 GATE(S) SKIPPED (forge_desktop_render_gate): $((N-8)) mutations proved red-then-green, 7 NOT RUN"
 STAYED='  forge_desktop_frame_gate mutation 4: STAYED GREEN - the check it targets is unfalsifiable'
 
 BAD=0
@@ -93,6 +110,12 @@ exit 1"
 run_case "F exit 0, no verdict line at all" 1 "echo '[desktop] built forge_desktop + 3 headless gates'
 exit 0"
 
+run_case "H a gate SKIPPED, counts add up -> GREEN" 0 "echo \"$VSKIP\"
+exit 0"
+
+run_case "I a gate SKIPPED, counts do NOT add up" 1 "echo \"$VSKIPBAD\"
+exit 0"
+
 # G: the gate must not report GREEN when the script it judges is not there. A
 # check that could not run is not a check that passed.
 rm -f "$WORK/forge-desktop/test/run_desktop.sh"
@@ -112,4 +135,4 @@ if [ "$BAD" -ne 0 ]; then
   echo "[selftest] $BAD case(s) did not behave as documented. RED."
   exit 1
 fi
-echo "[selftest] all 7 cases behaved as documented — ci_desktop_gate.sh's green is falsifiable"
+echo "[selftest] all 9 cases behaved as documented — ci_desktop_gate.sh's green is falsifiable"
