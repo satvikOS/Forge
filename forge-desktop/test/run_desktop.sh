@@ -272,6 +272,7 @@ run_gate forge_desktop_assembly_gate 1 2 3 4
 # only the one run_isolation_gate.sh compiles for itself.
 run_gate forge_desktop_isolation_gate
 run_gate forge_desktop_frame_capture_gate 1 2 3
+run_gate forge_desktop_transaction_gate 4
 
 # ── 3. mutation verdict ──────────────────────────────────────────────────────
 if [ "$BAD" -ne 0 ]; then

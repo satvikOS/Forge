@@ -1163,6 +1163,15 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // partDoc_.irProgram() is the whole dirty check: a witness taken from the
   // thing itself, not a flag somebody has to remember to set.
   std::string builtProgram_;
+  // The last program syncSceneToDocument() ATTEMPTED, successful or not.
+  //
+  // builtProgram_ answers "what is on screen" and must only ever name a program
+  // that really built. That alone cannot also be the do-I-have-work guard: after a
+  // refused statement the document holds a program builtProgram_ does not name, so
+  // the guard would report work to do on every frame and the same doomed rebuild
+  // would run for ever. MEASURED when this was missing: click_gate's "the viewport
+  // already matches the document after <id>" failed once per command, 96 times.
+  std::string lastAttemptedProgram_;
   std::string documentPath_;              // "" until saved or opened
   std::string documentName_ = "untitled";
   bool documentDirty_ = false;

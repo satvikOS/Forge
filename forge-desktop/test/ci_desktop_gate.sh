@@ -71,7 +71,13 @@ set -uo pipefail
 #   added the gate, run_desktop.sh reported 112, and CI went red here because this
 #   said 109. run_desktop.sh passing locally is NOT the desktop CI -- the syntax
 #   gate and this counter are separate steps that a local suite run never executes.
-EXPECTED_MUTATIONS=112
+#
+# * 2026-09-12: 112 -> 113, + transaction 1. Only ONE, deliberately: this gate's
+#   subject is ForgeFrame, which a --mutate flag inside the gate BINARY cannot
+#   reach. Its real red-then-green is against the code. Mutation 4 asks for a radius
+#   the kernel ACCEPTS, so there is no failure to roll back and the gate must refuse
+#   to pass vacuously.
+EXPECTED_MUTATIONS=113
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists

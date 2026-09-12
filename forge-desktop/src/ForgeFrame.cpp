@@ -503,7 +503,9 @@ void ForgeFrame::reportKernelIsolation() {
 // ── the document -> geometry edge ───────────────────────────────────────────
 bool ForgeFrame::syncSceneToDocument() {
   const std::string program = partDoc_.irProgram();
-  if (program == builtProgram_) return false;
+  // Guard on what was last ATTEMPTED, not on what last BUILT. A program the kernel
+  // refused is still "already tried", and retrying it every frame is a spin.
+  if (program == lastAttemptedProgram_) return false;
 
   // ── THE ONE OPERATION LONG ENOUGH TO REPORT ─────────────────────────────
   // Compiling the IR program through the kernel and tessellating the result is
@@ -522,7 +524,25 @@ bool ForgeFrame::syncSceneToDocument() {
   const bool ok = scene_.buildFromIr(program);
   progress_.step(partDoc_.records().size());
   progress_.end();
-  builtProgram_ = program;
+
+  // ── THE TRANSACTION BOUNDARY (doc 00 stage 4, doc 04's rollback rule) ────
+  // builtProgram_ is the answer to "what is the scene showing", and on a failed
+  // rebuild the scene is still showing the LAST GOOD body -- the branch below says
+  // so itself: "The previous body stays on screen". Assigning it unconditionally
+  // made it name a program that never built, so the staleness witness, the quality
+  // report and the next edit all compared against something that does not exist.
+  //
+  // The failing statement STAYS in the document, deliberately. That is what every
+  // history-based CAD system does with a failed feature, and this file already
+  // says so. Rolling the document back was my first attempt and it is wrong: it
+  // deletes the user's edit instead of letting them fix it, and it breaks the one
+  // property doc 04 actually asks for -- the USER-VISIBLE MODEL must not be
+  // partially mutated, which it is not, because the viewport keeps the last good
+  // body either way.
+  lastAttemptedProgram_ = program;
+  if (ok) {
+    builtProgram_ = program;
+  }
   ++rebuilds_;
   documentDirty_ = true;
   geometryDirty_ = true;

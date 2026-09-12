@@ -640,8 +640,27 @@ int main(int argc, char** argv) {
     const std::size_t rebuildsBefore = frame.rebuilds();
     const std::size_t runsBefore = frame.qualityChecksRun();
     // Changed through the SAME registry a user's click reaches.
-    frame.invoke("part.primitive_box");
+    //
+    // WAS part.primitive_box, which does NOT build on a document that already has
+    // a body: it appends a second, unconnected solid and the kernel's s0.4 gate
+    // refuses the program ("unexplained_orphans=1"). This section passed anyway,
+    // because syncSceneToDocument() assigned builtProgram_ UNCONDITIONALLY, so a
+    // FAILED rebuild still moved the staleness witness. Now that builtProgram_ only
+    // names what really built, a refused command leaves the SOLID unchanged -- and
+    // a quality answer about an unchanged solid is not stale. Correct, and it means
+    // staleness must be driven by a command that actually builds.
+    forge::ui::EntityRef edgeSel;
+    edgeSel.bodyId = frame.activeBodyNode();
+    edgeSel.kind = forge::ui::EntityKind::Edge;
+    edgeSel.persistentName = "edge@all";
+    edgeSel.generation = 1;
+    shell.selection().replaceWith({edgeSel});
+    forge::ui::CommandParams filletP;
+    filletP.setNumber("radius", 2.0);
+    shell.run("part.fillet", filletP);
     frameOnce(frame);
+    check(frame.rebuildError().empty(),
+          "the staleness-driving command actually BUILT", frame.rebuildError());
     checkGe(frame.rebuilds(), rebuildsBefore + 1, "the command rebuilt the model");
     check(frame.qualityStale(), "the answer is marked out of date once the model changes", "");
     frame.requestQualityCheck();

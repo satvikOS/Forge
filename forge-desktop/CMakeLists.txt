@@ -598,6 +598,13 @@ set_target_properties(forge_desktop_quality_gate PROPERTIES
 # It reports the worker as absent rather than failing when it is not there, so
 # this dependency is what makes the comparison actually happen in a normal build.
 add_dependencies(forge_desktop_quality_gate forge_kernel_worker)
+add_executable(forge_desktop_transaction_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/transaction_gate.cpp")
+target_compile_options(forge_desktop_transaction_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_transaction_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_transaction_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
