@@ -254,13 +254,45 @@ target_compile_options(forge_desktop_core PRIVATE -Wall -Wextra -Werror)
 # transitively, so nothing new is shipped. Listed one per line with what needs
 # it, because an unexplained library list is how one gets added and never
 # removed.
-set(FORGE_DESKTOP_OCCT_LIBS
-    TKernel     # Standard_Failure and the handle machinery every other one needs
-    TKMath      # Bnd_Box, gp_Dir
-    TKBRep      # TopoDS_Shape/Face/Edge, BRep_Builder, TopLoc
-    TKTopAlgo   # BRepBndLib, TopExp ancestors
-    TKG3d       # the surface and curve types the shape types refer to
-    TKGeomBase) # the geometry those surfaces are built on
+# REMOVED, and the list is kept here deleted rather than silently gone because the
+# comment above is right that an unexplained library list is how one gets added and
+# never removed. The six were TKernel, TKMath, TKBRep, TKTopAlgo, TKG3d, TKGeomBase.
+#
+# MEASURED on the shipped 0.1.3344 bundle: both executables carried 6 libTK*
+# LC_LOAD_DYLIB records and referenced ZERO OCCT symbols between them.
+#
+#   $ nm -u forge_kernel_worker | grep -E 'TopoDS|BRep|Geom_|gp_|Standard_|TColgp|TColStd|Poly_|TopLoc|Bnd_'
+#   (nothing)
+#   $ nm -u forge_desktop       | ...same...
+#   __ZN5forge3fea12meshFromBRepEjd     -> c++filt: forge::fea::meshFromBRep(unsigned int, double)
+#
+# The single hit is a FORGE symbol the pattern catches on "BRep", not an OCCT one.
+# The comment that each toolkit is needed for "Bnd_Box, gp_Dir", "TopoDS_Shape",
+# "BRepBndLib" describes forge-kernel, not this application: forge-desktop/src
+# contains no live OCCT type reference at all, only string literals.
+#
+# ★ WHAT THIS IS WORTH — do not mis-score it. OCCT_CLOSURE does NOT move. All six
+# stay in the closure, and in the bundle, through libforge_kernel_core's own 11
+# direct records and its 471 undefined OCCT symbols. What this buys is one clause
+# of the directive's final-removal gate ("no module links against OCCT") for the
+# two binaries a user actually launches, and it stops a link record outliving the
+# code that justified it. The closure number is unchanged at 14 by design; a patch
+# that moved the tracker's count without moving the closure would be a phantom
+# drop, which is the failure occt_closure_count.sh exists to catch.
+#
+# ★ IT IS NOT PRODUCTION THAT NEEDED THEM — IT IS FIVE GATES. Removing the link
+# outright broke forge_desktop_quality_gate with
+#     "TopLoc_Location::TopLoc_Location()", referenced from: _main in quality_gate.cpp.o
+#     NCollection_List<TopoDS_Shape>::~NCollection_List() ...
+# because forge_desktop_core is PUBLIC-linked by the gates as well as by the two
+# executables. MEASURED across forge-desktop: FIVE TEST files use OCCT types
+# (quality 5 refs, file_exchange 2, copilot/document/isolation 1 each) and ZERO
+# production files do — src/KernelScene.cpp's three hits are two comments and one
+# string literal, "compile threw a non-std exception (an OCCT Standard_Failure)".
+# So OCCT is attached to exactly those five gate targets below, and the production
+# link stays clean. A gate that validates Forge against OCCT is an ORACLE; that is
+# a legitimate OCCT use and is not a production dependency.
+set(FORGE_DESKTOP_OCCT_LIBS TKernel TKMath TKBRep TKTopAlgo TKG3d TKGeomBase)
 foreach(_tk IN LISTS FORGE_DESKTOP_OCCT_LIBS)
     if(NOT EXISTS "${OCCT_PREFIX}/lib/lib${_tk}.dylib")
         message(FATAL_ERROR "OCCT toolkit ${_tk} not found under ${OCCT_PREFIX}/lib")
@@ -269,7 +301,7 @@ foreach(_tk IN LISTS FORGE_DESKTOP_OCCT_LIBS)
 endforeach()
 
 target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
-                      "${FORGE_KERNEL_CORE_LIB}" ${FORGE_DESKTOP_OCCT_PATHS})
+                      "${FORGE_KERNEL_CORE_LIB}")
 
 # ---------------------------------------------------------------- the app
 # ── the NATIVE FILE PANEL is in the app and in nothing else ────────────────
@@ -390,7 +422,8 @@ set_target_properties(forge_desktop_frame_gate PROPERTIES
 add_executable(forge_desktop_copilot_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/copilot_gate.cpp")
 target_compile_options(forge_desktop_copilot_gate PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_desktop_copilot_gate PRIVATE forge_desktop_core)
+# ORACLE gate: uses OCCT types directly to validate Forge against them.
+target_link_libraries(forge_desktop_copilot_gate PRIVATE forge_desktop_core ${FORGE_DESKTOP_OCCT_PATHS})
 set_target_properties(forge_desktop_copilot_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
@@ -459,7 +492,8 @@ set_target_properties(forge_desktop_copilot_input_gate PROPERTIES
 add_executable(forge_desktop_file_exchange_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/file_exchange_gate.cpp")
 target_compile_options(forge_desktop_file_exchange_gate PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_core)
+# ORACLE gate: uses OCCT types directly to validate Forge against them.
+target_link_libraries(forge_desktop_file_exchange_gate PRIVATE forge_desktop_core ${FORGE_DESKTOP_OCCT_PATHS})
 set_target_properties(forge_desktop_file_exchange_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 # ---------------------------------------------------- the assembly gate
@@ -590,7 +624,8 @@ set_target_properties(forge_desktop_sketch_panels_gate PROPERTIES
 add_executable(forge_desktop_quality_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/quality_gate.cpp")
 target_compile_options(forge_desktop_quality_gate PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_desktop_quality_gate PRIVATE forge_desktop_core)
+# ORACLE gate: uses OCCT types directly to validate Forge against them.
+target_link_libraries(forge_desktop_quality_gate PRIVATE forge_desktop_core ${FORGE_DESKTOP_OCCT_PATHS})
 set_target_properties(forge_desktop_quality_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 # The gate runs the check in the SHIPPED configuration too -- in the worker
@@ -608,7 +643,8 @@ set_target_properties(forge_desktop_transaction_gate PROPERTIES
 add_executable(forge_desktop_document_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
 target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_desktop_document_gate PRIVATE forge_desktop_core)
+# ORACLE gate: uses OCCT types directly to validate Forge against them.
+target_link_libraries(forge_desktop_document_gate PRIVATE forge_desktop_core ${FORGE_DESKTOP_OCCT_PATHS})
 set_target_properties(forge_desktop_document_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
@@ -669,9 +705,10 @@ target_include_directories(forge_desktop_core_asan PUBLIC
     "${OCCT_PREFIX}/include/opencascade")
 target_compile_definitions(forge_desktop_core_asan PRIVATE FORGE_NATIVE_BREP=1)
 target_compile_options(forge_desktop_core_asan PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
+# FORGE_DESKTOP_OCCT_PATHS dropped here too — see the note above. It is now unset,
+# so leaving it would expand to nothing while reading as though it linked something.
 target_link_libraries(forge_desktop_core_asan
-    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}"
-           ${FORGE_DESKTOP_OCCT_PATHS})
+    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}")
 
 add_executable(forge_desktop_click_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/click_gate.cpp")
@@ -692,7 +729,8 @@ add_executable(forge_desktop_isolation_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/isolation_gate.cpp")
 target_compile_options(forge_desktop_isolation_gate PRIVATE -Wall -Wextra -Werror ${FORGE_ASAN_FLAGS})
 target_link_options(forge_desktop_isolation_gate PRIVATE -fsanitize=address)
-target_link_libraries(forge_desktop_isolation_gate PRIVATE forge_desktop_core_asan)
+# ORACLE gate: uses OCCT types directly to validate Forge against them.
+target_link_libraries(forge_desktop_isolation_gate PRIVATE forge_desktop_core_asan ${FORGE_DESKTOP_OCCT_PATHS})
 set_target_properties(forge_desktop_isolation_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 # The gate looks for the worker beside itself, so the worker must exist before it
