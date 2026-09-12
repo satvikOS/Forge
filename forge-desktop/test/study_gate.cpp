@@ -487,7 +487,12 @@ int main(int argc, char** argv) {
   // ── the staleness witness ────────────────────────────────────────────────
   check(!frame.studyOutcomeIsStale(), "a fresh answer is not stale", "");
   if (g_mutation != 6) {
+    // BOTH HALVES OF THE GESTURE. A click on a command that declares parameters
+    // opens a sheet prefilled with the values it was about to use; Run is the
+    // rest of the same action. Pressed with nothing typed, so this still edits
+    // the part with the schema's own 40x30x20 -- what the bare click did before.
     frame.invoke("part.primitive_box");
+    if (frame.promptOpen()) frame.submitPrompt();
     step(frame);
   }
   check(frame.studyOutcomeIsStale(),

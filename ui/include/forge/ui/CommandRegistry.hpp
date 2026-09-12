@@ -162,6 +162,28 @@ CommandParams applyDefaults(const CommandDescriptor& command, CommandParams para
 std::vector<std::string> missingRequired(const CommandDescriptor& command,
                                          const CommandParams& params);
 
+// Every parameter an interactive invoker may put in front of a person, in schema
+// order — so a sheet can be built from the command's own declaration instead of
+// from a hand-written list per surface.
+//
+// THIS IS NOT missingRequired(), AND CONFLATING THE TWO IS WHY MOST PARAMETERS
+// COULD NOT BE TYPED. missingRequired() answers "what can this command not run
+// without", which is the right question for a prompt that exists to rescue a
+// dead end and the WRONG one for a dialog that exists to let someone choose.
+// MEASURED over the 71 registered Part commands: 179 declared parameters, of
+// which missingRequired() can ever name 2.
+//   * 86 are `required` AND declare an honest default, so applyDefaults() fills
+//     them and missingRequired() comes back empty — the Box was 40x30x20 for
+//     every user of every build;
+//   * 84 more are OPTIONAL positional arguments (a box's centre, a cylinder's
+//     axis). They are not required, so NO answer from missingRequired() could
+//     have included them however the defaults were declared, and the handler's
+//     `num(ctx, "cx", 0.0)` fallback was the only value they ever took.
+// This function names all of them, and a caller seeds the boxes with the values
+// the command would otherwise have run with, so asking costs a keypress and
+// never a lookup.
+std::vector<std::string> editableParameters(const CommandDescriptor& command);
+
 enum class DispatchStatus : std::uint8_t {
   Ok = 0,
   UnknownCommand,

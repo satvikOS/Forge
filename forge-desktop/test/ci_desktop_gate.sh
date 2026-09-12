@@ -87,7 +87,19 @@ set -uo pipefail
 #   without a red check. DERIVED on this tree, not incremented on faith:
 #     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
 #   prints 117.
-EXPECTED_MUTATIONS=117
+#
+# * 2026-09-12: 113 -> 115, + frame 23 and 24, the negative controls for the
+#   PARAMETER SHEET. 23 draws the sheet and types nothing, which reproduces the
+#   shipped behaviour exactly (every Box 40x30x20); 24 takes the pre-sheet route
+#   and builds the part before the user has seen a value. DERIVED on this tree,
+#   not incremented on faith:
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   prints 115.
+#
+# Both landed the same day; the constant below is the DERIVED total of the merged
+# run_desktop.sh, not either branch's figure (117 and 115 each counted only its own
+# additions against the shared 113 base).
+EXPECTED_MUTATIONS=119
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists

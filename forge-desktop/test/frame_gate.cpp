@@ -53,6 +53,16 @@
 //      plan as it was BEFORE an edit                       a bigger tool and the
 //                                                          panel goes on naming
 //                                                          the old one
+//  17..22 are documented at the sections they belong to, below.
+//  23  the parameter sheet is drawn but NOTHING is      -> the part comes out
+//      typed into it before Run                             40x30x20 whatever the
+//                                                          user wanted. This is
+//                                                          the SHIPPED behaviour,
+//                                                          so it is the negative
+//                                                          control for section 19
+//  24  the gesture takes the pre-sheet route -- the     -> a click builds the part
+//      shell's own invoke, every declared default          before the user has
+//      filled, dispatched                                  seen a single value
 // <algorithm> for the same reason document_gate.cpp includes it beside <cstdio>:
 // this file calls std::remove(const char*) to delete its temp .fpart, and
 // `std::remove` is declared by BOTH headers -- the iterator algorithm and the C
@@ -76,6 +86,7 @@
 #include "KernelScene.hpp"
 #include "PartFile.hpp"
 #include "forge/ui/ActivityLog.hpp"
+#include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/GuardedProcess.hpp"
 #include "forge/ui/InspectionReport.hpp"
@@ -176,6 +187,20 @@ std::string tempPath(const char* leaf) {
   std::string dir = (tmp != nullptr && tmp[0] != 0) ? std::string(tmp) : std::string("/tmp");
   if (!dir.empty() && dir.back() != '/') dir += '/';
   return dir + leaf;
+}
+
+// A USER GESTURE, BOTH HALVES OF IT. A click on a command that declares
+// parameters now opens a sheet holding the values that command was about to use,
+// and pressing Run is the rest of the same action -- in the shipping app that is
+// the deferred pendingPromptSubmit_, one frame later. A command with no
+// parameters runs on the click and this adds nothing to it.
+//
+// Run is pressed with NOTHING TYPED, so every call site that uses this still
+// asserts against the schema's own defaults: precisely what a bare invoke() used
+// to dispatch. Section 19 is the one that types.
+void gesture(forge::desktop::ForgeFrame& frame, const std::string& id) {
+  frame.invoke(id);
+  if (frame.promptOpen() && frame.promptCommand() == id) frame.submitPrompt();
 }
 
 ImDrawData* buildOneFrame(forge::desktop::ForgeFrame& frame, std::uint64_t tex) {
@@ -1473,7 +1498,7 @@ int main(int argc, char** argv) {
     // registry rather than assuming the earlier sections left it that way: a
     // Save that was refused as unavailable would fail this section for a reason
     // that has nothing to do with what it is testing.
-    frame.invoke("part.primitive_box");
+    gesture(frame, "part.primitive_box");
     check(shell.document().dirty, "the document is dirty, so Save is offered", "");
 
     const std::string reopenPath = tempPath("recent_reopen.fpart");
@@ -1607,7 +1632,7 @@ int main(int argc, char** argv) {
           std::to_string(frame.document().valueFor(pickedNode)));
 
     const std::size_t before = frame.document().records().size();
-    frame.invoke("part.extrude");
+    gesture(frame, "part.extrude");
     const std::size_t after = frame.document().records().size();
     checkEq(after, before + 1, "Extrude, dispatched through the one registry, added a statement");
     std::string producedOp;
@@ -1665,7 +1690,7 @@ int main(int argc, char** argv) {
 
     // ── draw one, through the commands a user would use ────────────────────
     const std::size_t beforeSketch = frame.document().records().size();
-    frame.invoke("part.sketch_new");
+    gesture(frame, "part.sketch_new");
     checkEq(frame.document().records().size(), beforeSketch + 1,
             "New Sketch added a step through the one registry");
     int sketchId = 0;
@@ -1680,10 +1705,10 @@ int main(int argc, char** argv) {
     // Two points in it. Each needs the sketch selected, which is the same
     // statement click the tree makes.
     frame.clickFeature(sketchId, false);
-    frame.invoke("part.sketch_entity_point");
+    gesture(frame, "part.sketch_entity_point");
     const int p0 = frame.document().records().empty() ? 0 : frame.document().records().back().irId;
     frame.clickFeature(sketchId, false);
-    frame.invoke("part.sketch_entity_point");
+    gesture(frame, "part.sketch_entity_point");
     const int p1 = frame.document().records().empty() ? 0 : frame.document().records().back().irId;
     check(p0 != 0 && p1 != 0 && p0 != p1, "two points went into the sketch",
           std::to_string(p0) + " and " + std::to_string(p1));
@@ -1695,7 +1720,7 @@ int main(int argc, char** argv) {
     // A line on the two of them.
     frame.clickFeature(p0, false);
     frame.clickFeature(p1, true);
-    frame.invoke("part.sketch_entity_line");
+    gesture(frame, "part.sketch_entity_line");
     const int l0 = frame.document().records().empty() ? 0 : frame.document().records().back().irId;
     check(l0 != 0 && l0 != p1, "a line was drawn on the two points", std::to_string(l0));
 
@@ -1716,12 +1741,12 @@ int main(int argc, char** argv) {
 
     // ── the constraints, through the commands ──────────────────────────────
     frame.clickFeature(l0, false);
-    frame.invoke("part.sketch_constrain_single");   // HORIZ, the schema's default
+    gesture(frame, "part.sketch_constrain_single");   // HORIZ, the schema's default
     const int cHoriz = frame.document().records().empty()
                            ? 0 : frame.document().records().back().irId;
     frame.clickFeature(p0, false);
     frame.clickFeature(p1, true);
-    frame.invoke("part.sketch_constrain");          // COINC, the schema's default
+    gesture(frame, "part.sketch_constrain");          // COINC, the schema's default
     const int cPair = frame.document().records().empty()
                           ? 0 : frame.document().records().back().irId;
     check(cHoriz != 0 && cPair != 0 && cHoriz != cPair, "two constraints were added",
@@ -1785,7 +1810,7 @@ int main(int argc, char** argv) {
     // must be NAMED.
     frame.clickFeature(p0, false);
     frame.clickFeature(p1, true);
-    frame.invoke("part.sketch_constrain");
+    gesture(frame, "part.sketch_constrain");
     buildOneFrame(frame, 0);
     const forge::ui::SketchDiagnosisSet repeated =
         g_mutation == 18 ? loose : frame.sketchDiagnosis();
@@ -1933,6 +1958,140 @@ int main(int argc, char** argv) {
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
     frame.setActiveTabAt({0}, 0);
     buildOneFrame(frame, 0);
+  }
+
+  // ── 19. A USER CAN TYPE A DIMENSION ──────────────────────────────────────
+  //
+  // WHAT THIS EXISTS FOR, MEASURED ON THIS REGISTRY. The 71 Part commands
+  // declare 179 parameters. Before the parameter sheet, exactly TWO of them
+  // could be typed into the application at all (part.edit_feature's `value` and
+  // part.set_material's `material`), eighteen more could be nudged by one global
+  // slider that feeds `radius`/`distance`/`thickness`, and the remaining 159 were
+  // frozen at the constants in the schema: every Box a user could make was
+  // 40x30x20, for every user, in every build.
+  //
+  // The mechanism was NOT applyDefaults() inventing values -- it refuses to, for
+  // any spec without an honest default. It was that the only thing that ever
+  // opened a box was missingRequired(), which names parameters the command
+  // CANNOT RUN WITHOUT. 86 of the 88 required parameters declare an honest
+  // default, so applyDefaults() fills them and missingRequired() comes back
+  // empty; the other 84 parameters are optional positional arguments, which
+  // missingRequired() can never name whatever their defaults say.
+  //
+  // MUTATIONS. 23 presses Run without typing anything -- which is the shipped
+  // behaviour exactly, so it is the negative control for the whole section: with
+  // the sheet drawn and the typing removed, the part is the frozen 40x30x20 one.
+  // 24 takes the pre-sheet route (straight into the shell's own invoke, every
+  // declared default filled, dispatched) and must fail the checks that say a
+  // gesture ASKS.
+  {
+    const forge::ui::DispatchResult cleared = shell.run("file.new");
+    check(cleared.ok(), "a clean document for the parameter-sheet section",
+          forge::ui::machineName(cleared.status));
+    const std::size_t startRecords = frame.document().records().size();
+    // THE STATEMENT WITHOUT ITS ID. File > New seeds the starter part rather than
+    // emptying the document, so the id of the next statement depends on how many
+    // the seed holds -- and a gate that wrote "%1 = " would be asserting the
+    // seed's size, which is not what this section is about.
+    const auto lastStatement = [&frame]() {
+      if (frame.document().records().empty()) return std::string();
+      const std::string t = frame.document().records().back().line.text();
+      const std::size_t eq = t.find(" = ");
+      return eq == std::string::npos ? t : t.substr(eq + 3);
+    };
+
+    // (a) A GESTURE ON A COMMAND WITH PARAMETERS ASKS BEFORE IT RUNS.
+    if (g_mutation == 24) {
+      shell.invoke("part.primitive_box");  // the route the application took before
+    } else {
+      frame.invoke("part.primitive_box");
+    }
+    check(frame.promptOpen(), "a gesture on Box opens a parameter sheet", "");
+    check(frame.promptCommand() == "part.primitive_box",
+          "and the sheet is open on the command that was clicked", frame.promptCommand());
+    checkEq(frame.document().records().size(), startRecords,
+            "and nothing was built before the user had seen the values");
+
+    // (b) THE SHEET IS THE COMMAND'S OWN SPEC LIST, optional group included.
+    const forge::ui::CommandDescriptor* boxCmd = shell.registry().find("part.primitive_box");
+    check(boxCmd != nullptr, "the Box command is in the registry", "");
+    const std::vector<std::string> offered = frame.promptParameters();
+    checkEq(offered.size(), boxCmd == nullptr ? 0 : boxCmd->schema.size(),
+            "the sheet offers every parameter the command declares");
+    check(std::find(offered.begin(), offered.end(), "cz") != offered.end(),
+          "including cz -- an OPTIONAL positional argument no answer from "
+          "missingRequired() could ever have named",
+          std::to_string(offered.size()) + " offered");
+
+    // (c) PREFILLED, so nothing got slower: the boxes hold what the click was
+    //     about to dispatch, and a parameter the statement may OMIT opens blank
+    //     rather than writing a 0 into a statement that did not carry one.
+    check(frame.promptValue("dx") == "40", "dx opens on the schema's own default",
+          frame.promptValue("dx"));
+    check(frame.promptValue("dy") == "30", "dy opens on the schema's own default",
+          frame.promptValue("dy"));
+    check(frame.promptValue("dz") == "20", "dz opens on the schema's own default",
+          frame.promptValue("dz"));
+    check(frame.promptValue("cx").empty(), "and the omittable centre opens blank",
+          frame.promptValue("cx"));
+
+    // (d) RUN WITH NOTHING TYPED IS BYTE-FOR-BYTE THE OLD BEHAVIOUR.
+    check(frame.submitPrompt(), "Run dispatched the command", "");
+    const std::string defaulted = lastStatement();
+    check(defaulted == "BOX(40, 30, 20)",
+          "and a sheet nobody typed into emits the statement the click used to", defaulted);
+    checkEq(frame.document().records().size(), startRecords + 1,
+            "exactly one statement came out of the first sheet");
+
+    // (e) ★ AND TYPING CHANGES THE PART. This is the check the whole change is
+    //     for, and it reaches BOTH halves of the gap: the three required
+    //     dimensions that were frozen at constants, and the optional centre that
+    //     had no route into the application at all.
+    frame.invoke("part.primitive_box");
+    check(frame.promptOpen(), "a second gesture opens the sheet again", "");
+    bool typed = true;
+    if (g_mutation != 23) {
+      typed = frame.setPromptValue("dx", "11") && frame.setPromptValue("dy", "12") &&
+              frame.setPromptValue("dz", "13") && frame.setPromptValue("cx", "5") &&
+              frame.setPromptValue("cy", "6") && frame.setPromptValue("cz", "7");
+    }
+    check(typed, "every box the user types into exists on the sheet", "");
+    check(frame.submitPrompt(), "Run dispatched the typed command", "");
+    const std::string typedText = lastStatement();
+    check(typedText == "BOX(11, 12, 13, 5, 6, 7)",
+          "★ the typed dimensions AND the typed centre reach the emitted statement", typedText);
+    std::printf("[gate] parameter sheet: default gesture -> %s, typed gesture -> %s\n",
+                defaulted.c_str(), typedText.c_str());
+
+    // (f) IT IS THE REGISTRY'S ANSWER, NOT A CASE FOR ONE COMMAND. Every
+    //     declared parameter in the whole registry is offered, and every command
+    //     that declares one asks before it runs. Both references are DERIVED from
+    //     the registry, so neither can drift into agreeing with a stale number.
+    std::size_t declared = 0, editable = 0, asks = 0, runsSilently = 0, withParams = 0;
+    for (const std::string& id : shell.registry().ids()) {
+      const forge::ui::CommandDescriptor* dd = shell.registry().find(id);
+      if (dd == nullptr) continue;
+      declared += dd->schema.size();
+      editable += forge::ui::editableParameters(*dd).size();
+      if (dd->schema.empty()) continue;  // nothing to ask about; it runs on the click
+      ++withParams;
+      // Safe to sweep: a command that asks dispatches NOTHING, and the sheet is
+      // cancelled before the next one, so this cannot mutate the document.
+      frame.invoke(id);
+      if (frame.promptOpen() && frame.promptCommand() == id) {
+        ++asks;
+      } else {
+        ++runsSilently;
+        std::printf("[gate] %s ran without offering its %zu parameters\n", id.c_str(),
+                    dd->schema.size());
+      }
+      frame.cancelPrompt();
+    }
+    checkEq(editable, declared, "every parameter declared in the registry is offered");
+    checkEq(runsSilently, 0u, "no command with declared parameters runs without asking");
+    std::printf("[gate] %zu of %zu commands with parameters ask first; "
+                "%zu declared parameters, %zu reachable\n",
+                asks, withParams, declared, editable);
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

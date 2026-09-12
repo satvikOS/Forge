@@ -1392,13 +1392,19 @@ class ForgeFrame final : public forge::ui::DocumentHost,
 
   // ── the parameter prompt's fields ───────────────────────────────────────
   // A fixed char buffer per field rather than a std::string, because that is
-  // what ImGui::InputText writes into. `text` records which of setText/setNumber
-  // the value has to go back through: a number typed into a text box is still a
-  // number to the command, and passing "6" as text would fail the schema check
-  // with no visible reason.
+  // what ImGui::InputText writes into. `type` records which of setText/setNumber/
+  // setFlag the value has to go back through: a number typed into a text box is
+  // still a number to the command, and passing "6" as text would fail the schema
+  // check with no visible reason.
+  //
+  // It is the SCHEMA'S type and not a bool, because the sheet now offers every
+  // declared parameter and four of them are Flags (part.loft's `ruled` and
+  // `open`, part.skin's `ruled`, part.variable_fillet's `smooth`). A Flag written
+  // back through setText lands in a map the handler's params().flag() never
+  // reads, which is a box that silently does nothing -- worse than no box.
   struct PromptField {
     std::string name;
-    bool text = true;
+    forge::ui::ParamType type = forge::ui::ParamType::Text;
     std::array<char, 256> value{};
   };
   // Which theme the ImGui style currently HOLDS, so the frame can notice that
@@ -1498,7 +1504,20 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // which a Finder launch does not have. Called once, from wirePartCommands().
   void reportKernelIsolation();
 
-  void openPrompt(const std::string& id, const std::vector<std::string>& parameters);
+  // `seed` is the CommandParams this invocation WOULD HAVE DISPATCHED. Passing it
+  // is what keeps the sheet from making anything slower: every box opens holding
+  // the value the command was about to use, so Run alone reproduces the old
+  // behaviour exactly and typing is only for when you want something else.
+  // nullptr keeps the two historical seeds (a path, a feature value) and nothing
+  // more, which is what the keystroke and file-dialog paths still want.
+  void openPrompt(const std::string& id, const std::vector<std::string>& parameters,
+                  const forge::ui::CommandParams* seed = nullptr);
+  // Should this invocation ASK before it runs? True for any command that declares
+  // a parameter, EXCEPT when the values are already in hand -- the sheet's own Run
+  // (promptCommand_), a finished gizmo drag (handleCommand_) or a path chosen in
+  // the file panel (dialogCommand_) all re-enter invoke() with their answers, and
+  // asking again would be a loop rather than a dialog.
+  bool wantsParameterSheet(const std::string& id) const;
   void drawParameterPrompt();
   bool quit_ = false;
   std::string status_ = "Ready";

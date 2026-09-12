@@ -209,7 +209,7 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # restored on purpose, so "revert the fix and watch it go red" is a permanent check.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5 6
 run_gate forge_desktop_file_dialog_gate 1 2 3
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
 run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.
 run_gate forge_desktop_sketch_panels_gate 1 2 3 4 5 6

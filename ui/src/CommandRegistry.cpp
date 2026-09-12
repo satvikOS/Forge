@@ -135,6 +135,19 @@ std::vector<std::string> missingRequired(const CommandDescriptor& command,
   return out;
 }
 
+std::vector<std::string> editableParameters(const CommandDescriptor& command) {
+  std::vector<std::string> out;
+  out.reserve(command.schema.size());
+  for (const ParamSpec& spec : command.schema) {
+    // An unnamed spec cannot be written into CommandParams and cannot be read
+    // back out by a handler, so a box for it would collect a value that nothing
+    // can ever receive. Skipped rather than drawn blank.
+    if (spec.name.empty()) continue;
+    out.push_back(spec.name);
+  }
+  return out;
+}
+
 const char* machineName(DispatchStatus status) noexcept {
   switch (status) {
     case DispatchStatus::Ok:                         return "ok";

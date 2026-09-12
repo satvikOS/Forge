@@ -493,8 +493,13 @@ int main(int argc, char** argv) {
       const std::string& id = ids[i];
 
       // The command runs against a REAL frame with REAL geometry, exactly as it
-      // would from the menu.
+      // would from the menu -- and from the menu a command that declares
+      // parameters now opens a sheet prefilled with the values it was about to
+      // use, so Run is the second half of the SAME click. Without this line the
+      // sweep would stop dispatching every Part command the moment the sheet
+      // shipped, while still reporting the same coverage number.
       frame.invoke(id);
+      if (frame.promptOpen() && frame.promptCommand() == id) frame.submitPrompt();
       ++invoked;
 
       // ★ THE FURTHER FRAME, AND AN ASSERTION THAT ACTUALLY DEPENDS ON IT.

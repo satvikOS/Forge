@@ -678,6 +678,52 @@ std::string documentNameFromPath(const std::string& path) {
   return leaf.empty() ? std::string("untitled") : leaf;
 }
 
+// A Flag parameter, as a person types it. "off", "no", "false", "0" and an empty
+// box are off; anything else is on. Accepting only "1" would make every other
+// spelling of yes read as OFF, silently, which is the failure mode a checkbox
+// exists to avoid -- and the sheet writes these back through setFlag, so the
+// handler's params().flag() sees a real bool either way.
+bool flagFromText(const char* text) {
+  if (text == nullptr) return false;
+  std::string v;
+  for (const char* p = text; *p != '\0'; ++p) {
+    if (std::isspace(static_cast<unsigned char>(*p)) != 0) continue;
+    v.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(*p))));
+  }
+  if (v.empty()) return false;
+  return !(v == "0" || v == "off" || v == "no" || v == "false");
+}
+
+// A number in the SHORTEST form that reads back as the same number. %g and not
+// %f, because "40.000000" in a dimension box is six characters of noise a user
+// has to delete before typing 11.
+std::string numberForBox(double v) {
+  char buf[64];
+  std::snprintf(buf, sizeof(buf), "%g", v);
+  return buf;
+}
+
+// Is an EMPTY box for this parameter the same as not mentioning it at all?
+// `required = false, hasDefault = false` is the schema's way of saying the
+// handler carries its own fallback and the emitted statement OMITS the argument
+// -- a box's centre, a cylinder's axis, a chamfer's selector. Without this, a
+// sheet that offers those boxes (and it must, they were unreachable) would write
+// a 0 into every one of them and BOX(40,30,20) would become BOX(40,30,20,0,0,0)
+// on every click, which is a different statement from the one the op vocabulary
+// records as this command's minimal form.
+//
+// It deliberately does NOT cover required parameters. `path` and `value` are
+// required with no default; an empty box there is a value the user cleared, and
+// dropping it silently would re-open the sheet instead of reporting the refusal.
+bool omittableWhenBlank(const forge::ui::CommandDescriptor* d, const std::string& name) {
+  if (d == nullptr) return false;
+  for (const forge::ui::ParamSpec& p : d->schema) {
+    if (p.name != name) continue;
+    return !p.required && !p.hasDefault;
+  }
+  return false;
+}
+
 }  // namespace
 
 bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
@@ -839,10 +885,22 @@ void ForgeFrame::invoke(const std::string& id) {
   // prompt is open on. Cleared by runPromptedCommand() once it has dispatched.
   if (promptCommand_ == id) {
     for (const PromptField& f : promptFields_) {
-      if (f.text) {
-        overrides.setText(f.name, std::string(f.value.data()));
-      } else {
-        overrides.setNumber(f.name, std::atof(f.value.data()));
+      // A blank box on a parameter the statement may omit contributes nothing,
+      // so the minimal emitted form survives a sheet that offers every argument.
+      if (f.value[0] == '\0' && omittableWhenBlank(d, f.name)) continue;
+      switch (f.type) {
+        case forge::ui::ParamType::Number:
+          overrides.setNumber(f.name, std::atof(f.value.data()));
+          break;
+        case forge::ui::ParamType::Flag:
+          // A box a person types into, so anything that is not an explicit "off"
+          // reads as on -- and an EMPTY box is off, not on, because a field the
+          // user cleared must not turn a flag the command did not have.
+          overrides.setFlag(f.name, flagFromText(f.value.data()));
+          break;
+        case forge::ui::ParamType::Text:
+          overrides.setText(f.name, std::string(f.value.data()));
+          break;
       }
     }
   }
@@ -881,7 +939,53 @@ void ForgeFrame::invoke(const std::string& id) {
     return;
   }
 
+  // ── A COMMAND THAT HAS PARAMETERS ASKS FOR THEM ─────────────────────────
+  //
+  // MEASURED on this registry, not inferred: 71 Part commands declare 179
+  // parameters, and exactly 2 of them could ever be typed. The mechanism is NOT
+  // applyDefaults() -- that function refuses to invent a value for a spec with
+  // no honest default, which is correct. It is that the ONLY thing that ever
+  // opened a box was `missingRequired()`, whose whole job is to name parameters
+  // the command CANNOT RUN WITHOUT:
+  //   * 86 required parameters declare an honest default, so applyDefaults()
+  //     fills them and missingRequired() returns nothing -- Box built 40x30x20
+  //     and nothing in the application could be told otherwise;
+  //   * 84 are optional positional arguments (a box's centre, a cylinder's
+  //     axis) and are not required at all, so missingRequired() could never have
+  //     named them whatever the defaults said. They were unreachable by
+  //     construction, not by oversight.
+  // The remaining 18 (radius / distance / thickness) had one global slider
+  // between them, and everything else had to be built wrong and then corrected
+  // one number at a time in the Properties panel.
+  //
+  // So the sheet is driven by editableParameters() -- the command's OWN spec
+  // list -- and seeded with `applyDefaults(...)`, which is precisely the
+  // CommandParams the next line would have dispatched. Run with nothing typed
+  // is therefore byte-identical to the old behaviour, and the same prompt
+  // window, the same fields and the same Run are reused: there is no second
+  // parameter path to keep in step with this one.
+  if (wantsParameterSheet(id)) {
+    lastInvokeOk_ = false;
+    const forge::ui::CommandParams seeded = forge::ui::applyDefaults(*d, overrides);
+    openPrompt(id, forge::ui::editableParameters(*d), &seeded);
+    return;
+  }
+
+  // ── THE WITNESS FOR "DID THIS ONE FAIL", TAKEN BEFORE IT RUNS ───────────
+  // shell_.lastDocumentError() is STICKY: only the file, undo/redo and reset
+  // commands clear it. Testing it for emptiness afterwards therefore answers
+  // "has anything ever failed", not "did this fail" -- so after one refused
+  // import every later command reported lastInvokeOk_ = false. That is the
+  // witness submitPrompt() reads to decide whether to close the sheet, so the
+  // box stayed open on a command that had just run and the NEXT gesture on it
+  // dispatched twice: two sketch points where the user asked for one, MEASURED
+  // in frame_gate. The counter is the same discriminator ForgeShell::run's own
+  // recordDispatch() uses, for the same reason it gives: two failed opens of one
+  // path leave identical text, so the string alone cannot tell them apart.
+  const std::size_t documentErrorsBefore = shell_.documentErrorSeq();
   const forge::ui::InvokeOutcome outcome = shell_.invoke(id, overrides);
+  const bool documentRefusedThis = shell_.documentErrorSeq() != documentErrorsBefore &&
+                                   !shell_.lastDocumentError().empty();
 
   // ── A COMMAND THAT NEEDS A VALUE OPENS A DIALOG; IT DOES NOT FAIL ────────
   // needsParameters() is NOT a refusal. It is the schema saying "no honest
@@ -896,7 +1000,7 @@ void ForgeFrame::invoke(const std::string& id) {
   const forge::ui::DispatchResult r = outcome.dispatch;
   // A file.* command reports refusal through the shell rather than through the
   // dispatch status, so "it ran" is BOTH conditions, not just the status.
-  lastInvokeOk_ = r.ok() && shell_.lastDocumentError().empty();
+  lastInvokeOk_ = r.ok() && !documentRefusedThis;
   // THE LABEL, NOT THE ID. Every line below used to open with the command's
   // stable id -- "part.edit_feature  ->  ok" -- which is the name a macro
   // stores, not a name anybody has read on a button.
@@ -905,8 +1009,10 @@ void ForgeFrame::invoke(const std::string& id) {
       (invoked != nullptr && !invoked->label.empty()) ? invoked->label : id;
   if (r.ok()) {
     // A file.* command reports refusal through the shell, not through the
-    // dispatch status: `execute` returns void, so "ok" only means it ran.
-    if (shell_.lastDocumentError().empty()) {
+    // dispatch status: `execute` returns void, so "ok" only means it ran. The
+    // counter, not the string: an old sentence from a previous command must not
+    // be printed against this one.
+    if (!documentRefusedThis) {
       note(label + " — done");
     } else {
       note(label + " — " + shell_.lastDocumentError());
@@ -936,8 +1042,27 @@ void ForgeFrame::invoke(const std::string& id) {
   if (id == "app.command_palette") togglePalette();
 }
 
+// ── does this invocation ask first? ─────────────────────────────────────────
+bool ForgeFrame::wantsParameterSheet(const std::string& id) const {
+  const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
+  if (d == nullptr) return false;
+  // Nothing to ask about. view.*, edit.undo, file.new and the rest run on the
+  // click, exactly as they did -- a sheet with no fields in it is a speed bump.
+  if (forge::ui::editableParameters(*d).empty()) return false;
+  // THE THREE RE-ENTRIES. Each of these is invoke() being called a SECOND time
+  // for the same command by something that has already collected the values:
+  // the sheet's own Run, a finished gizmo drag, a path chosen in the file panel.
+  // invoke() reads all three into `overrides` a few lines above; asking again
+  // here would re-open the box over the answer and the command would never run.
+  if (promptCommand_ == id) return false;
+  if (handleCommand_ == id) return false;
+  if (dialogCommand_ == id) return false;
+  return true;
+}
+
 // ── the parameter prompt ────────────────────────────────────────────────────
-void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string>& parameters) {
+void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string>& parameters,
+                            const forge::ui::CommandParams* seed) {
   const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
   promptCommand_ = id;
   promptOpen_ = true;
@@ -946,13 +1071,45 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
   for (const std::string& name : parameters) {
     PromptField field;
     field.name = name;
-    field.text = true;
+    field.type = forge::ui::ParamType::Text;
     if (d != nullptr) {
       for (const forge::ui::ParamSpec& p : d->schema) {
         if (p.name != name) continue;
-        field.text = (p.type != forge::ui::ParamType::Number);
+        field.type = p.type;
         break;
       }
+    }
+    // ── THE VALUE THIS INVOCATION WAS ABOUT TO USE ──────────────────────────
+    // `seed` is the merged CommandParams the dispatch would have carried -- the
+    // schema's own defaults, with the Properties slider and a drag's numbers
+    // already layered on top. Reading the box back out therefore reproduces the
+    // old behaviour exactly, which is the property that lets a sheet open on
+    // EVERY parameterised command without making any of them slower: Run, and
+    // you get what the click used to give you.
+    if (seed != nullptr) {
+      switch (field.type) {
+        case forge::ui::ParamType::Number:
+          if (const std::optional<double> v = seed->number(name)) {
+            std::snprintf(field.value.data(), field.value.size(), "%s",
+                          numberForBox(*v).c_str());
+          }
+          break;
+        case forge::ui::ParamType::Flag:
+          if (const std::optional<bool> v = seed->flag(name)) {
+            std::snprintf(field.value.data(), field.value.size(), "%s", *v ? "on" : "off");
+          }
+          break;
+        case forge::ui::ParamType::Text:
+          if (const std::optional<std::string> v = seed->text(name)) {
+            std::snprintf(field.value.data(), field.value.size(), "%s", v->c_str());
+          }
+          break;
+      }
+    }
+    if (field.value[0] != '\0') {
+      promptFields_.push_back(std::move(field));
+      continue;  // the seed answered it; the two app-knowledge seeds below are
+                 // for the parameters no default can answer
     }
     // SEEDED, never blank where the app knows a sensible starting point. The
     // schema declares no default for these -- that is why they are prompted --
@@ -977,13 +1134,24 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
     promptFields_.push_back(std::move(field));
   }
   const std::string label = (d != nullptr && !d->label.empty()) ? d->label : id;
-  std::string names;
-  for (std::size_t i = 0; i < parameters.size(); ++i) {
-    if (i != 0) names += ", ";
-    names += parameters[i];
+  // WHAT THIS LINE SAYS NOW DEPENDS ON WHETHER THE BOXES ARE FULL. "<command>
+  // needs width, height" was true while the only prompt in the application was a
+  // dead-end rescue for a value nothing could supply. It is false of a sheet that
+  // opens holding 40 and 30, and a status line that reports a value missing while
+  // it is on screen in front of the user is how people learn to stop reading the
+  // status line. So the empty boxes are named, and when there are none the line
+  // says what is actually true.
+  std::string blank;
+  for (const PromptField& f : promptFields_) {
+    if (f.value[0] != '\0') continue;
+    if (!blank.empty()) blank += ", ";
+    blank += f.name;
   }
-  note(label + " needs " + names + " — enter " +
-       (parameters.size() == 1 ? std::string("it") : std::string("them")) + " and press Run");
+  if (blank.empty()) {
+    note(label + " — set the values and press Run");
+  } else {
+    note(label + " — type " + blank + ", then press Run");
+  }
 }
 
 std::string ForgeFrame::pathPromptSeed() const {
@@ -3379,7 +3547,7 @@ void ForgeFrame::drawEmptyState(float x, float y, float w, float h) {
         promptFields_.clear();
         PromptField field;
         field.name = "sample";
-        field.text = true;
+        field.type = forge::ui::ParamType::Text;
         std::snprintf(field.value.data(), field.value.size(), "%s", id.c_str());
         promptFields_.push_back(std::move(field));
         pendingInvokeId_ = "app.load_sample";
@@ -9270,19 +9438,34 @@ void ForgeFrame::drawParameterPrompt() {
   ImGui::SetNextWindowSize(ImVec2(w, 0));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
   bool open = true;
-  if (ImGui::Begin("Command needs a value", &open,
+  if (ImGui::Begin("Set the values", &open,
                    ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
                        ImGuiWindowFlags_AlwaysAutoResize)) {
     ImGui::TextColored(rgb(242, 158, 38), "%s", label.c_str());
     ImGui::Separator();
-    // WHY it is asking, in the schema's own terms. "There is no honest default
-    // for this" is the whole reason a prompt exists rather than a default, and a
-    // box with no explanation is a box a user guesses at.
-    ImGui::TextWrapped(
-        "There is no sensible default for the value%s below, so Forge cannot fill %s in "
-        "for you. Type %s and press Run.",
-        promptFields_.size() == 1 ? "" : "s", promptFields_.size() == 1 ? "it" : "them",
-        promptFields_.size() == 1 ? "it" : "them");
+    // WHAT THE USER IS LOOKING AT, and it is no longer one thing. This window
+    // used to open only when nothing could fill a box, so it said so. It is now
+    // also how every command with a size, a position or an option is set up, and
+    // those boxes open ALREADY HOLDING the values the command will use -- so the
+    // line has to tell the truth about which of the two is on screen, or it is
+    // telling a user a value is missing while they are reading it.
+    std::size_t blank = 0;
+    for (const PromptField& f : promptFields_) {
+      if (f.value[0] == '\0') ++blank;
+    }
+    if (blank == 0) {
+      ImGui::TextWrapped(
+          "These are the values Forge will use. Change any of them, then press Run.");
+    } else if (blank == promptFields_.size()) {
+      ImGui::TextWrapped(
+          "Forge has no starting value for %s below, so type %s and press Run.",
+          blank == 1 ? "the box" : "these boxes", blank == 1 ? "it" : "them");
+    } else {
+      ImGui::TextWrapped(
+          "These are the values Forge will use. The %zu empty %s no starting value, so "
+          "fill %s in, then press Run.",
+          blank, blank == 1 ? "box has" : "boxes have", blank == 1 ? "it" : "them");
+    }
     ImGui::Spacing();
 
     bool submitted = false;

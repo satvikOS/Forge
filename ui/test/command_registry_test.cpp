@@ -193,6 +193,52 @@ int main() {
   CHECK_EQ_INT(static_cast<int>(r.status),
                static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
 
+  // ── what an interactive caller may OFFER is not what it must ASK FOR ────
+  //
+  // These two questions were conflated, and the conflation is why nearly every
+  // parameter in the shipped application was unreachable. missingRequired()
+  // answers "what can this command not run without" -- correct for a prompt that
+  // rescues a dead end, and wrong for a sheet that exists so a person can choose.
+  // A parameter with an honest default disappears from it (applyDefaults fills
+  // the value in) and so does an OPTIONAL one (it was never required), which
+  // between them is 170 of the 179 parameters the Part registry declares.
+  //
+  // The fixture below is that shape in miniature: one required parameter with a
+  // default, one required without, one optional. missingRequired() sees exactly
+  // one of the three after defaults are applied; editableParameters() sees all
+  // three, in schema order.
+  {
+    CommandDescriptor sheet;
+    sheet.id = "model.sheet_probe";
+    sheet.label = "Sheet Probe";
+    sheet.category = "Model";
+    sheet.schema.push_back(ParamSpec{.name = "width", .type = ParamType::Number,
+                                     .required = true, .defaultNumber = 40.0,
+                                     .hasDefault = true});
+    sheet.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    sheet.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    sheet.execute = [](CommandContext&) {};
+    // NOT registered: the palette, category and dispatch-count checks below are
+    // exact counts over this registry, and a probe command added to it would
+    // move three of them for a reason that has nothing to do with them.
+    const std::vector<std::string> offer = editableParameters(sheet);
+    CHECK_EQ_INT(offer.size(), 3);
+    CHECK_EQ_STR(at(offer, 0), "width");  // schema order, so a sheet reads top to bottom
+    CHECK_EQ_STR(at(offer, 1), "path");
+    CHECK_EQ_STR(at(offer, 2), "cx");
+
+    // The negative half, and the whole point: the other function answers ONE.
+    const std::vector<std::string> ask = missingRequired(sheet, applyDefaults(sheet, {}));
+    CHECK_EQ_INT(ask.size(), 1);
+    CHECK_EQ_STR(at(ask, 0), "path");
+
+    // A command with no schema offers nothing -- so a surface can tell "run it
+    // on the click" from "ask first" without a list of special cases.
+    const CommandDescriptor* undoCmd = registry.find("edit.undo");
+    CHECK(undoCmd != nullptr);
+    if (undoCmd != nullptr) CHECK_EQ_INT(editableParameters(*undoCmd).size(), 0);
+  }
+
   // ── command palette search ──────────────────────────────────────────────
   const std::vector<std::string> hits = registry.search("fillet");
   CHECK_EQ_INT(hits.size(), 1);

@@ -252,7 +252,21 @@ class ForgeShell {
   DocumentHost* documentHost() const noexcept { return documentHost_; }
   // Why the last file.* command did not do what it says. Empty when it did.
   // `execute` returns void, so this is how a refused open reaches the UI.
+  //
+  // IT IS STICKY, AND THAT IS WHY THE COUNTER BELOW IS PUBLIC TOO. Only the
+  // file, undo/redo and reset commands clear it, so a Part command dispatched
+  // after one refused import sees the OLD sentence -- and a caller asking "is it
+  // empty" concludes a command that ran perfectly did not. recordDispatch()
+  // already states the rule in its own comment ("the COUNTER is what
+  // distinguishes a refusal raised by THIS dispatch from one still sitting there
+  // from an earlier command") and uses it; the counter was private, so
+  // ForgeFrame::invoke could not apply the same rule and tested the string alone.
+  // MEASURED in frame_gate: after the file section's refused import, EVERY later
+  // command set lastInvokeOk_ = false, which left the parameter sheet standing
+  // open on a command that had just run -- and the next gesture on that command
+  // then dispatched it TWICE (two sketch points where the user asked for one).
   const std::string& lastDocumentError() const noexcept { return documentError_; }
+  std::size_t documentErrorSeq() const noexcept { return documentErrorSeq_; }
 
   // ── where the user's parts are ──────────────────────────────────────────
   // Written by the file.open and file.save HANDLERS, so every invoker feeds it
