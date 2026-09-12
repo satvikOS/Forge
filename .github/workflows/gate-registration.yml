@@ -176,6 +176,17 @@ jobs:
         shell: bash
         run: bash tools/gates/shell_gate_registration_selftest.sh
 
+      - name: the OCCT removal tracker still matches the code
+        # The removal directive requires this document be "synchronized with actual
+        # code". A hand-kept tracker is synchronized only until the first person
+        # forgets, and a removal programme steered by a stale map is worse than one
+        # with no map -- it reports progress that has not happened. So the tracker is
+        # GENERATED from the tree and this step fails if the committed copy has
+        # drifted, in either direction: a hand edit to the document, or a new OCCT
+        # include in code the document says is clean.
+        shell: bash
+        run: python3 tools/kernel/occt_dependency_graph.py --check
+
       - name: Every *_gate.sh anywhere is reachable from CI (or pinned)
         # The gap between the two checks above. They are each correctly scoped and
         # neither can see a *_gate.sh outside forge-kernel/test, nor one inside it
