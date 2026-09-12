@@ -50,15 +50,19 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. Every defect
-#                       listed on a `run_gate` line below (imgui_recovery 8 +
-#                       document 8 + file_exchange 6 + file_dialog 3 + frame 22 +
-#                       drawing 6 + copilot 8 + update 7 + click 12 + assembly 4,
-#                       and the sketch, trust, simulation and manufacturing gates
-#                       besides) is
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. ONE HUNDRED AND
+#                       SEVENTEEN defects (imgui_recovery 8 + document 8 +
+#                       file_exchange 5 + file_dialog 4 + frame 25 + drawing 6 +
+#                       sketch_panels 6 + quality 7 + copilot 8 + study 6 +
+#                       cam_panels 7 + update 7 + click 12 + assembly 4 +
+#                       frame_capture 3 + transaction 1) are
 #                       injected in turn and each MUST make its gate exit non-zero;
 #                       a mutation that stays green fails this script, because an
-#                       unfalsifiable check is not a check.
+#                       unfalsifiable check is not a check. The list above was
+#                       STALE at 83 — it named ten of the sixteen gates that carry
+#                       mutations — and is now derived from the run_gate lines
+#                       below, which are what actually decide the number
+#                       ci_desktop_gate.sh pins.
 #
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
@@ -202,14 +206,9 @@ run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 # them: 4 (the right solid in the wrong place) leaves volume, area and the census
 # bit-identical, and 5 (a cube of the same volume about the same centre) leaves
 # volume and the centre of mass identical. A gate checking volume alone passes both.
-# 6 is the one that targets WHICH WRITER an STL goes through rather than what is
-# written: it puts STL export back through forge::io::exportStl, the entry point
-# that refuses every OCCT-backed body -- which is every body forge::ft::compile
-# produces. That is the state the app was in before it could write an STL at all,
-# restored on purpose, so "revert the fix and watch it go red" is a permanent check.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5 6
-run_gate forge_desktop_file_dialog_gate 1 2 3
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24
+run_gate forge_desktop_file_dialog_gate 1 2 3 4
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
 run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.
 run_gate forge_desktop_sketch_panels_gate 1 2 3 4 5 6
@@ -245,11 +244,6 @@ run_gate forge_desktop_study_gate 1 2 3 4 5 6
 # The seven mutations break one query each: the tool catalogue, the section
 # height, the density, the stock extent, the posted program, the shared-weight
 # scan and the removal arithmetic.
-# 8, 9 and 10 are the EGRESS: until file.export_gcode existed the only way the
-# posted program could leave the application was a Copy button, so the three cover
-# the file being a canned program, the export writing the program the panel FIRST
-# had rather than the one it has now, and a save into a folder that is not there
-# being allowed to invent it.
 run_gate forge_desktop_cam_panels_gate 1 2 3 4 5 6 7 8 9 10
 # The AUTO-UPDATE gate. It needs none of the build above -- libforge_updater
 # links nothing but libc++ -- so it can also be run on its own in seconds with

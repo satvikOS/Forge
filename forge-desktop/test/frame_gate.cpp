@@ -63,6 +63,12 @@
 //  24  the gesture takes the pre-sheet route -- the     -> a click builds the part
 //      shell's own invoke, every declared default          before the user has
 //      filled, dispatched                                  seen a single value
+//  25  the second gesture of section 19(g) dispatches   -> a statement is built
+//      through the shell while the sheet goes on              behind a sheet the
+//      standing -- the exact shape of reading                 user is still
+//      `promptCommand_ == id` as "the values are in           looking at, and
+//      hand" for an ordinary click on the live menu           (click, click, Run)
+//      behind a sheet that is not a modal                     emits TWO statements
 // <algorithm> for the same reason document_gate.cpp includes it beside <cstdio>:
 // this file calls std::remove(const char*) to delete its temp .fpart, and
 // `std::remove` is declared by BOTH headers -- the iterator algorithm and the C
@@ -82,6 +88,10 @@
 #include "imgui.h"
 
 #include "Camera.hpp"
+// The policy table, because the six file commands' parameter entry is the NATIVE
+// PANEL and not the parameter sheet -- section 19(f) has to know which commands
+// those are to say so out loud rather than quietly not sweeping them.
+#include "FileDialog.hpp"
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "PartFile.hpp"
@@ -2078,23 +2088,58 @@ int main(int argc, char** argv) {
     std::printf("[gate] parameter sheet: default gesture -> %s, typed gesture -> %s\n",
                 defaulted.c_str(), typedText.c_str());
 
-    // (f) IT IS THE REGISTRY'S ANSWER, NOT A CASE FOR ONE COMMAND. Every
-    //     declared parameter in the whole registry is offered, and every command
-    //     that declares one asks before it runs. Both references are DERIVED from
-    //     the registry, so neither can drift into agreeing with a stale number.
-    std::size_t declared = 0, editable = 0, asks = 0, runsSilently = 0, withParams = 0;
+    // (f) IT IS THE REGISTRY'S ANSWER, NOT A CASE FOR ONE COMMAND. Every command
+    //     that declares a parameter asks before it runs, and the sheet it opens
+    //     offers EXACTLY that command's own spec list, by name and in order.
+    //
+    //     ── WHAT THIS CHECK USED TO BE, AND WHY IT WAS NOT EVIDENCE ────────
+    //     It compared `editableParameters(dd).size()` against `dd->schema.size()`
+    //     and reported "186 declared, 186 reachable". Those are two readings of
+    //     the same vector: editableParameters() returns every NAMED spec, so the
+    //     comparison can only fail on an unnamed ParamSpec, of which this registry
+    //     has none -- it reads identically with the fix reverted, which is the
+    //     definition of a check that is not measuring the change. What is
+    //     measured now is what the SHEET holds after a real gesture, which is
+    //     empty when nothing opens one.
+    //
+    //     ── THE SIX COMMANDS THIS SWEEP DOES NOT DRIVE, NAMED ──────────────
+    //     file.open, file.save, file.import_step, file.import_brep,
+    //     file.export_step and file.export_brep declare `path` and nothing else,
+    //     and their parameter entry is the NATIVE FILE PANEL -- asserted end to
+    //     end, bytes included, by forge_desktop_file_dialog_gate. A parameter
+    //     sheet in front of that panel is a second policy over one command and it
+    //     is what stopped File > Save from saving. They are counted and named
+    //     here rather than quietly skipped.
+    std::size_t declared = 0, asks = 0, runsSilently = 0, withParams = 0;
+    std::size_t panelOwned = 0, offeredTotal = 0, offeredMatched = 0, sheetDeclared = 0;
     for (const std::string& id : shell.registry().ids()) {
       const forge::ui::CommandDescriptor* dd = shell.registry().find(id);
       if (dd == nullptr) continue;
       declared += dd->schema.size();
-      editable += forge::ui::editableParameters(*dd).size();
       if (dd->schema.empty()) continue;  // nothing to ask about; it runs on the click
       ++withParams;
+      forge::desktop::FileDialogPolicy filePolicy;
+      if (forge::desktop::fileDialogPolicyFor(id, filePolicy)) {
+        ++panelOwned;
+        continue;  // the panel asks, and a different gate proves it
+      }
+      sheetDeclared += dd->schema.size();
       // Safe to sweep: a command that asks dispatches NOTHING, and the sheet is
       // cancelled before the next one, so this cannot mutate the document.
       frame.invoke(id);
       if (frame.promptOpen() && frame.promptCommand() == id) {
         ++asks;
+        const std::vector<std::string> got = frame.promptParameters();
+        std::vector<std::string> want;
+        want.reserve(dd->schema.size());
+        for (const forge::ui::ParamSpec& p : dd->schema) want.push_back(p.name);
+        offeredTotal += got.size();
+        if (got == want) {
+          ++offeredMatched;
+        } else {
+          std::printf("[gate] %s offers %zu boxes for %zu declared parameters\n", id.c_str(),
+                      got.size(), want.size());
+        }
       } else {
         ++runsSilently;
         std::printf("[gate] %s ran without offering its %zu parameters\n", id.c_str(),
@@ -2102,11 +2147,106 @@ int main(int argc, char** argv) {
       }
       frame.cancelPrompt();
     }
-    checkEq(editable, declared, "every parameter declared in the registry is offered");
     checkEq(runsSilently, 0u, "no command with declared parameters runs without asking");
-    std::printf("[gate] %zu of %zu commands with parameters ask first; "
-                "%zu declared parameters, %zu reachable\n",
-                asks, withParams, declared, editable);
+    checkEq(offeredMatched, asks,
+            "★ every sheet offers exactly the names its command declares, in schema order");
+    checkEq(offeredTotal, sheetDeclared,
+            "★ and across the registry that is every parameter the sheet is responsible for");
+    checkEq(panelOwned, forge::desktop::fileDialogCommandIds().size(),
+            "the commands the sweep does not drive are exactly the file-panel six");
+    std::printf("[gate] %zu of %zu commands with parameters ask first "
+                "(%zu more are answered by the file panel); "
+                "%zu declared parameters, %zu offered on a real gesture\n",
+                asks, withParams - panelOwned, panelOwned, declared, offeredTotal);
+
+    // (g) ★ A SHEET THAT IS ALREADY STANDING IS NOT A SECOND REQUEST TO RUN.
+    //     Nothing above can see this: the sweep cancels the prompt between every
+    //     command, so the invariant was only ever asserted from a clean state.
+    //     The sheet is a PLAIN WINDOW and not a modal -- deliberately, so the
+    //     palette stays reachable -- which leaves the menu row and the ribbon
+    //     button that opened it live underneath. MEASURED before the fix: click
+    //     Box (sheet opens), click Box again (no new sheet, and a BOX is built
+    //     behind it), press Run -> two statements out of (click, click, Run).
+    //
+    //     MUTATION 25 dismisses the sheet before the second gesture, which is
+    //     exactly the state the old code read every second gesture as.
+    {
+      frame.cancelPrompt();
+      const std::size_t before = frame.document().records().size();
+      frame.invoke("part.primitive_box");
+      check(frame.promptOpen() && frame.promptCommand() == "part.primitive_box",
+            "the first gesture opens the sheet", frame.promptCommand());
+      check(frame.setPromptValue("dx", "77"), "and the user types into it", "");
+      // MUTATION 25 IS THE OLD ROUTE ITSELF: a dispatch that happens while the
+      // sheet goes on standing, which is exactly what `promptCommand_ == id`
+      // read as "the values are in hand" produced. Two checks below must see it.
+      if (g_mutation == 25) {
+        shell.invoke("part.primitive_box", forge::ui::CommandParams{});
+      } else {
+        frame.invoke("part.primitive_box");  // the SECOND gesture, sheet still up
+      }
+      checkEq(frame.document().records().size(), before,
+              "★ a second gesture on a standing sheet dispatches NOTHING");
+      check(frame.promptOpen() && frame.promptCommand() == "part.primitive_box",
+            "★ and the sheet is still standing", frame.promptCommand());
+      check(frame.promptValue("dx") == "77",
+            "★ still holding what the user had typed into it", frame.promptValue("dx"));
+      check(frame.submitPrompt(), "Run dispatched it once", "");
+      checkEq(frame.document().records().size(), before + 1,
+              "★ ONE statement came out of (click, click, Run)");
+      check(!frame.promptOpen(), "and the sheet closed behind it", "");
+    }
+
+    // (h) ★ A REFUSAL THE SHEET CANNOT FIX CLOSES IT. Run on Edge Fillet with
+    //     nothing selected is refused for its SELECTION, which no box on the
+    //     sheet can change. The sheet used to stay standing for ever after that
+    //     -- the test was "the command did not run and a sheet is open", which is
+    //     equally true of the sheet the user pressed Run on -- and the next
+    //     gesture then went straight through the stale promptCommand_ with
+    //     nothing drawn.
+    {
+      frame.cancelPrompt();
+      shell.selection().clearSelection();
+      const std::size_t before = frame.document().records().size();
+      frame.invoke("part.fillet");
+      check(frame.promptOpen() && frame.promptCommand() == "part.fillet",
+            "Edge Fillet asks for its radius", frame.promptCommand());
+      check(!frame.submitPrompt(), "and Run is refused -- nothing is selected", "");
+      check(!frame.promptOpen(),
+            "★ the sheet does not stay standing on a refusal no box on it can fix",
+            frame.promptCommand());
+      frame.invoke("part.fillet");
+      check(frame.promptOpen() && frame.promptCommand() == "part.fillet",
+            "★ and the next gesture opens a sheet rather than dispatching through a stale one",
+            frame.promptCommand());
+      checkEq(frame.document().records().size(), before,
+              "with nothing built along the way");
+      frame.cancelPrompt();
+    }
+
+    // (i) A BOOLEAN IS OFFERED AS A BOOLEAN. The four Flag parameters
+    //     (part.loft's ruled and open, part.skin's ruled, part.variable_fillet's
+    //     smooth) were drawn as InputText and opened BLANK, so a checkbox's worth
+    //     of meaning was an empty free-text box in which the user had to guess
+    //     the spelling of yes. The type reaches the sheet, and the box opens on a
+    //     state rather than on nothing.
+    //
+    //     WHAT THIS DOES NOT ASSERT: that the widget on screen is an ImGui
+    //     checkbox. Section 19(e) proves a sheet DRAWS; no gate here can name the
+    //     widget it drew with.
+    {
+      frame.cancelPrompt();
+      frame.invoke("part.loft");
+      check(frame.promptOpen() && frame.promptCommand() == "part.loft",
+            "Loft asks for its options", frame.promptCommand());
+      check(frame.promptFieldType("ruled") == forge::ui::ParamType::Flag,
+            "★ `ruled` reaches the sheet as a FLAG, not as text", "");
+      check(frame.promptFieldType("open") == forge::ui::ParamType::Flag,
+            "★ and so does `open`", "");
+      check(frame.promptValue("ruled") == "off",
+            "★ and the box opens on a state rather than blank", frame.promptValue("ruled"));
+      frame.cancelPrompt();
+    }
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

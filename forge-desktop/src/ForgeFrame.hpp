@@ -828,6 +828,12 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // the prompt is free to stop calling, which is the "delegating and not
   // enumerating" mistake in miniature. This reads the FIELD.
   std::string promptValue(const std::string& name) const;
+  // WHICH KIND OF BOX that field is, from the command's own schema. Public for
+  // the same reason promptValue() is: the four Flag parameters are drawn as a
+  // CHECKBOX and the rest as a text box, and a gate that could not see the type
+  // would be asserting that a boolean is offered without being able to say it is
+  // offered as a boolean. Text for a field this prompt does not have.
+  forge::ui::ParamType promptFieldType(const std::string& name) const;
   // Dispatch the prompted command with what has been collected. Returns whether
   // it ran. Public so a gate can drive the whole prompt path by name, the way it
   // drives invoke().
@@ -1436,6 +1442,31 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   bool lastInvokeOk_ = false;
   std::string promptCommand_;
   std::vector<PromptField> promptFields_;
+  // ── THE TWO WITNESSES `promptCommand_ == id` WAS BEING ASKED FOR ──────────
+  // It was carrying two different questions at once, and they are not the same
+  // question:
+  //
+  //   "the values are already in hand, dispatch them"   -- the sheet's own Run
+  //   "a sheet is standing on this command"             -- an ordinary click on
+  //                                                        the menu or the ribbon
+  //                                                        WHILE it stands
+  //
+  // The sheet is a plain window and not a modal (drawParameterPrompt says so and
+  // why), so the menu and the ribbon stay live behind it and the second case is
+  // an ordinary thing for a user to do. Reading it as the first is what made a
+  // second click DISPATCH SILENTLY behind the standing sheet -- measured as two
+  // statements out of (click, click, Run).
+  //
+  // `promptSubmitting_` is true only while submitPrompt() is inside invoke(), so
+  // it answers the first question and nothing else can set it.
+  bool promptSubmitting_ = false;
+  // How many times a sheet has been RAISED. submitPrompt() reads it across its
+  // own dispatch to tell "invoke() put a new sheet up because the command still
+  // needs a parameter" (a correction the user can type) from "the sheet I opened
+  // with is simply still there" (a refusal nothing in the box can fix). The
+  // string-and-flag test it replaces could not tell those apart, so a fillet
+  // refused for an empty selection left its sheet standing for ever.
+  std::size_t promptOpens_ = 0;
   // Deferred for the same reason as every other mutation in this class: Submit
   // dispatches a command that can rebuild the document, the feature tree and the
   // scene, and the tree is the container the walk is indexing.
@@ -1516,7 +1547,9 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // a parameter, EXCEPT when the values are already in hand -- the sheet's own Run
   // (promptCommand_), a finished gizmo drag (handleCommand_) or a path chosen in
   // the file panel (dialogCommand_) all re-enter invoke() with their answers, and
-  // asking again would be a loop rather than a dialog.
+  // asking again would be a loop rather than a dialog -- and EXCEPT the six
+  // commands whose parameter entry is the native file panel, which is a way of
+  // asking this application already has.
   bool wantsParameterSheet(const std::string& id) const;
   void drawParameterPrompt();
   bool quit_ = false;

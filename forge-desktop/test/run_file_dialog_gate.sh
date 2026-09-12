@@ -10,7 +10,7 @@
 # panel is scripted rather than shown.
 #
 #   ./forge-desktop/test/run_file_dialog_gate.sh              run the gate
-#   ./forge-desktop/test/run_file_dialog_gate.sh --mutations  ALSO break it three
+#   ./forge-desktop/test/run_file_dialog_gate.sh --mutations  ALSO break it four
 #                                                             ways and require
 #                                                             each to be caught
 #
@@ -117,7 +117,9 @@ if [ "$MUTATIONS" -eq 1 ]; then
   echo "-- the mutations: each MUST be caught ---------------------------------"
   # 1 no dialog installed  2 the panel answers a different path  3 cancel leaks
   #                                                                the last one
-  for m in 1 2 3; do
+  # 4 the second Save dispatches nothing -- the observable shape of a Save that
+  #   put a text sheet on screen and wrote no bytes
+  for m in 1 2 3 4; do
     "$OUT" --mutate "$m" --dir "$DIR" > "$OUT.m$m.log" 2>&1
     mrc=$?
     # `grep -c` prints 0 and EXITS 1, so the count needs the `|| true`.

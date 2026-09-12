@@ -850,7 +850,11 @@ add_test(NAME forge_desktop_file_dialog_gate COMMAND forge_desktop_file_dialog_g
 #                                 registered and no way to produce a path
 #   2  the panel answers a DIFFERENT path than the one it was given
 #   3  a cancel reports the previous choice instead of nothing
-foreach(_fd 1 2 3)
+#   4  the SECOND Save -- on a document that already has a path -- dispatches
+#      nothing, which is the observable shape of a Save that put a text sheet on
+#      screen and wrote no bytes. The check it falsifies used to count native
+#      panels, which a sheet does not raise.
+foreach(_fd 1 2 3 4)
     add_test(NAME forge_desktop_file_dialog_mutation_${_fd}
              COMMAND forge_desktop_file_dialog_gate --mutate ${_fd})
     set_tests_properties(forge_desktop_file_dialog_mutation_${_fd}

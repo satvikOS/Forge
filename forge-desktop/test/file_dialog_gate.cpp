@@ -5,7 +5,9 @@
 // ── the defect this exists for, measured ────────────────────────────────────
 // PR #206 registered six commands and the registry went 80 -> 84:
 // file.open, file.save, file.import_step, file.export_step, file.import_brep,
-// file.export_brep. Four of them declare `path` REQUIRED with no honest default,
+// file.export_brep. FIVE of them declare `path` REQUIRED with no honest default
+// -- counted off the registry this gate links, where file.save's is the one that
+// is optional; "four" stood here and was never measured --
 // so clicking one answered DispatchStatus::MissingRequiredParameter and the
 // application put up an ImGui text box: to open a part, the user typed an
 // absolute path. Every existing gate stayed green, because every existing gate
@@ -48,7 +50,7 @@
 // real NSOpenPanel returns a real path is a claim about AppKit, and it is stated
 // as unverified rather than implied by a green gate.
 //
-// --mutate 1..3 proves the gate can fail. See kMutations below.
+// --mutate 1..4 proves the gate can fail. See kMutations below.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -266,9 +268,26 @@ int main(int argc, char** argv) {
   };
   // A GESTURE: no arguments, exactly what a menu click is. The panel is raised
   // and DEFERRED by invoke(); the frame that follows is what shows it.
+  //
+  // ── AND NOTHING ELSE MAY BE ASKING ──────────────────────────────────────
+  // Every id gestured here declares exactly one parameter, `path`, and this
+  // application has one way to ask a user for a file. When a SECOND way appeared
+  // -- the generic parameter sheet, which offers every declared parameter of
+  // every command -- it took `path` for itself and File > Save silently stopped
+  // saving. The panel count could not see that, because a text sheet raises no
+  // panel. This can: a sheet standing on the command that was just gestured is a
+  // second policy over one command, whatever it then does.
+  //
+  // MUTATION 1 removes the panel, and the text prompt is then the CORRECT and
+  // documented fallback for the five commands whose path is required -- so the
+  // claim is made about the shipping configuration, where a panel exists.
   auto gesture = [&](const std::string& id) {
     frame.invoke(id);
     oneFrame();
+    if (g_mutation == 1) return;
+    check(!(frame.promptOpen() && frame.promptCommand() == id),
+          "the file panel is the only thing asking for " + id + "'s path",
+          frame.promptOpen() ? "a text sheet is standing on " + frame.promptCommand() : "");
   };
   // The request THIS gesture raised. It takes the count from before the gesture
   // rather than reading requests.back(), because back() on an empty vector is
@@ -475,10 +494,47 @@ int main(int argc, char** argv) {
     // ...and now that it HAS a path, a second Save must not ask again. A picker
     // on every Ctrl+S is its own defect, and it is one this policy could easily
     // have shipped.
+    //
+    // ── AND IT MUST SAVE. A PANEL COUNT CANNOT SEE WHETHER IT DID ───────────
+    // The whole of this check used to be `fileDialogsShown() == shown`, which
+    // counts NATIVE PANELS and not SAVES. A second Save that put a TEXT BOX on
+    // screen and wrote nothing passed it -- and that is precisely what shipped
+    // when the generic parameter sheet took file.save's `path`: File > Save
+    // stopped saving, on the configuration every user runs, while the check
+    // written to pin this exact case stayed green.
+    //
+    // So the subject is now the FILE and the DOCUMENT. An edit is made between
+    // the two saves, so a Save that really happened has something new to write
+    // and "the bytes did not change" is a detectable answer rather than the
+    // expected one.
+    const long long firstBytes = fileSize(partPath);
+    check(firstBytes > 0, "the first Save left bytes to measure the second against",
+          std::to_string(firstBytes));
+    const forge::ui::InvokeOutcome edit =
+        shell.invoke("part.primitive_box", forge::ui::CommandParams{});
+    check(edit.dispatch.ok(), "an edit between the two saves",
+          forge::ui::machineName(edit.dispatch.status));
+    check(shell.document().dirty, "which leaves the document dirty, so a Save has work to do");
+
     const std::size_t shown = frame.fileDialogsShown();
-    gesture("file.save");
+    const std::size_t reqBeforeSecond = dialog.requests.size();
+    // MUTATION 4: the second Save DISPATCHES NOTHING -- the observable shape of
+    // the defect this block exists for, where a text sheet stood in front of it
+    // and no file was written. The panel-count check could not tell this apart
+    // from a correct silent save; the byte and dirty checks under it must, and
+    // they are the two that go red on it.
+    if (g_mutation != 4) gesture("file.save");
     check(frame.fileDialogsShown() == shown,
           "a document with a path is saved SILENTLY -- no panel on every save");
+    check(dialog.requests.size() == reqBeforeSecond,
+          "and the panel was not even asked for");
+    const long long secondBytes = fileSize(partPath);
+    check(secondBytes > firstBytes,
+          "★ the second Save WROTE THE EDIT to the same file -- bytes, not panels",
+          std::to_string(firstBytes) + " -> " + std::to_string(secondBytes));
+    check(!shell.document().dirty, "★ and the document is no longer dirty");
+    checkEq(shell.lastDocumentError(), std::string(), "the second Save was not refused");
+    checkEq(frame.documentPath(), partPath, "and it went to the path the first Save chose");
   }
 
   // ---- open --------------------------------------------------------------

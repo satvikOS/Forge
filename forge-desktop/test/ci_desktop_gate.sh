@@ -99,7 +99,7 @@ set -uo pipefail
 # Both landed the same day; the constant below is the DERIVED total of the merged
 # run_desktop.sh, not either branch's figure (117 and 115 each counted only its own
 # additions against the shared 113 base).
-EXPECTED_MUTATIONS=119
+EXPECTED_MUTATIONS=121
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists

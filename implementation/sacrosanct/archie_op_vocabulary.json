@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "b651d8c00ed1213880bf2f85a0ab1765d921404e67bb6116ee4c2529c2390ba5",
-        "bytes": 453243,
-        "lines": 9535
+        "sha256": "b193fca94341cc3031b2d13974d5d57fb0ed58704dc7cbfec2550c21b166fdd3",
+        "bytes": 461996,
+        "lines": 9678
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -54,9 +54,9 @@
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "7b3bf10bdfaf429ab4ccd8f2cd70be84ce4971e0dc0b64670a094adee113b980",
-        "bytes": 50634,
-        "lines": 1163
+        "sha256": "1ca41bdea180d08132581ecb7899edff932f7c712669c64aafd405158518be18",
+        "bytes": 58410,
+        "lines": 1305
       }
     ],
     "build_configuration": {
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 68,
     "ui_validator_ops": 68,
-    "registry_commands": 97,
+    "registry_commands": 99,
     "commands_emitting_ir": 69,
     "user_invocable_ops": 65,
     "forbidden_ops": 3,
@@ -7681,8 +7681,58 @@
       "source": "ui/src/ForgeShell.cpp"
     },
     {
+      "id": "file.export_gcode",
+      "label": "Save the Machine Program",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
       "id": "file.export_step",
       "label": "Save a Copy as STEP",
+      "category": "File",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/ForgeShell.cpp"
+    },
+    {
+      "id": "file.export_stl",
+      "label": "Save a Copy as STL",
       "category": "File",
       "feature_ir_op": null,
       "emits_feature_ir": false,

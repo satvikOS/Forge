@@ -871,6 +871,25 @@ void ForgeFrame::note(const std::string& line) {
 // OVERRIDE rather than as a default. Anything still required comes back in
 // `promptFor`, and the app opens its parameter prompt instead of failing mute.
 void ForgeFrame::invoke(const std::string& id) {
+  // ── A SHEET THAT IS ALREADY STANDING IS NOT A REQUEST TO RUN ────────────
+  // The parameter sheet is a PLAIN WINDOW and not an ImGui modal -- deliberately,
+  // so the Command Palette and everything else stay reachable behind it -- which
+  // means the menu row and the ribbon button that opened it are still live. A
+  // second click on them is an ordinary thing for a user to do, and it used to
+  // read as "the values are in hand" (promptCommand_ == id was the only witness)
+  // and DISPATCH BEHIND THE SHEET: click Box, click Box again, press Run once,
+  // and TWO boxes came out. MEASURED, not supposed.
+  //
+  // The gizmo and the file panel are excluded because those genuinely are
+  // invoke() being re-entered with an answer for this same command.
+  if (promptOpen_ && promptCommand_ == id && !promptSubmitting_ && handleCommand_ != id &&
+      dialogCommand_ != id) {
+    lastInvokeOk_ = false;
+    // Put the cursor back in the first box. The user reached for this command
+    // again; the useful thing to do is hand them the sheet, not run it.
+    promptFocus_ = false;
+    return;
+  }
   forge::ui::CommandParams overrides;
   const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
   if (d != nullptr) {
@@ -1049,11 +1068,34 @@ bool ForgeFrame::wantsParameterSheet(const std::string& id) const {
   // Nothing to ask about. view.*, edit.undo, file.new and the rest run on the
   // click, exactly as they did -- a sheet with no fields in it is a speed bump.
   if (forge::ui::editableParameters(*d).empty()) return false;
+  // ── THE FILE PANEL IS ALREADY THIS COMMAND'S WAY OF ASKING ──────────────
+  // The six commands in the policy table declare exactly ONE parameter between
+  // them -- `path`, measured -- and the application asks for it with a native
+  // panel, or (when there is no panel to show) with this same prompt reached
+  // through the shell's own MissingRequiredParameter answer. Offering a text
+  // sheet here as well is not a second chance to type, it is a SECOND POLICY
+  // over one command, and it broke the one case where the right answer is to
+  // ask nothing at all:
+  //
+  //   File > Save on a document that already has a path must SAVE IT, silently.
+  //   wantsFileDialog() returns false for exactly that case, by design and with
+  //   a comment saying so -- so control fell through to here and Save put a TEXT
+  //   BOX on screen and wrote nothing. MEASURED with a panel installed (the
+  //   shipping configuration): first Save wrote 706 bytes; a second Save after an
+  //   edit left the file at 706 bytes and the document dirty, while Ctrl+S on the
+  //   identical state wrote 821. Two invokers, two outcomes -- which is the
+  //   defect this function's own header comment names as the reason the single
+  //   registry exists.
+  FileDialogPolicy filePolicy;
+  if (fileDialogPolicyFor(id, filePolicy)) return false;
   // THE THREE RE-ENTRIES. Each of these is invoke() being called a SECOND time
   // for the same command by something that has already collected the values:
   // the sheet's own Run, a finished gizmo drag, a path chosen in the file panel.
   // invoke() reads all three into `overrides` a few lines above; asking again
   // here would re-open the box over the answer and the command would never run.
+  // (A sheet STANDING on this command is a different question and is answered at
+  // the top of invoke(); what is left here is the spent one-shot the empty
+  // state's sample buttons plant, which carries its answer with it.)
   if (promptCommand_ == id) return false;
   if (handleCommand_ == id) return false;
   if (dialogCommand_ == id) return false;
@@ -1067,6 +1109,10 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
   promptCommand_ = id;
   promptOpen_ = true;
   promptFocus_ = false;
+  // The witness submitPrompt() reads across its own dispatch. Incremented on
+  // every raise, including a re-raise of the same command, because "the command
+  // came back still needing a parameter" is exactly a re-raise of the same id.
+  ++promptOpens_;
   promptFields_.clear();
   for (const std::string& name : parameters) {
     PromptField field;
@@ -1105,6 +1151,16 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
           }
           break;
       }
+    }
+    // ── A BOOLEAN IS NEVER "BLANK" ──────────────────────────────────────────
+    // All four Flag parameters are optional with no declared default, so the
+    // seed has nothing to say about them and the box opened EMPTY -- a checkbox
+    // with no state, or (before this) a free-text box in which the user had to
+    // guess the spelling of yes. Off is not an invention here: `flagOn()` is what
+    // the handlers ask, and an absent flag is already off, so the box now shows
+    // the state the command was going to use either way.
+    if (field.type == forge::ui::ParamType::Flag && field.value[0] == '\0') {
+      std::snprintf(field.value.data(), field.value.size(), "off");
     }
     if (field.value[0] != '\0') {
       promptFields_.push_back(std::move(field));
@@ -1333,6 +1389,13 @@ std::string ForgeFrame::promptValue(const std::string& name) const {
   return std::string();
 }
 
+forge::ui::ParamType ForgeFrame::promptFieldType(const std::string& name) const {
+  for (const PromptField& f : promptFields_) {
+    if (f.name == name) return f.type;
+  }
+  return forge::ui::ParamType::Text;
+}
+
 bool ForgeFrame::submitPrompt() {
   if (!promptOpen_ || promptCommand_.empty()) return false;
   const std::string id = promptCommand_;
@@ -1345,11 +1408,29 @@ bool ForgeFrame::submitPrompt() {
   // command that failed here while the previous entry happened to be the same id
   // would read as success. A witness taken from the thing itself, not from a
   // list that something else also writes to.
+  //
+  // `promptSubmitting_` is what tells invoke() that THIS re-entry carries the
+  // answers. Without it the flag's job was being done by `promptCommand_ == id`,
+  // which is equally true of an ordinary click on the menu row behind the sheet.
+  const std::size_t opensBefore = promptOpens_;
+  promptSubmitting_ = true;
   invoke(id);
+  promptSubmitting_ = false;
   const bool ran = lastInvokeOk_;
-  // A command that STILL needs a parameter has reopened the prompt from inside
-  // invoke(). Leave that one open: it is a correction, not a second prompt.
-  if (!(promptOpen_ && promptCommand_ == id && !ran)) cancelPrompt();
+  // ── THE SHEET STAYS UP ONLY WHEN invoke() PUT A NEW ONE THERE ───────────
+  // A command that still needs a parameter re-raises the prompt from inside
+  // invoke(), and that one must survive: it is a correction the user can make in
+  // the box in front of them.
+  //
+  // The test this replaces was `promptOpen_ && promptCommand_ == id && !ran`,
+  // which is ALSO true when nothing re-raised anything and the sheet the user
+  // pressed Run on is simply still there. So every refusal a sheet cannot fix
+  // left it standing for ever -- MEASURED: Edge Fillet with nothing selected
+  // opens a sheet, Run refuses it, and the sheet was still on screen with no way
+  // to make it go. The counter distinguishes a NEW sheet from the old one; the
+  // string could not.
+  const bool reRaised = promptOpens_ != opensBefore && promptOpen_ && promptCommand_ == id;
+  if (!reRaised) cancelPrompt();
   return ran;
 }
 
@@ -9488,8 +9569,22 @@ void ForgeFrame::drawParameterPrompt() {
         ImGui::SetKeyboardFocusHere();
         promptFocus_ = true;
       }
-      if (ImGui::InputText("##v", f.value.data(), f.value.size(),
-                           ImGuiInputTextFlags_EnterReturnsTrue)) {
+      if (f.type == forge::ui::ParamType::Flag) {
+        // ── A BOOLEAN GETS A CHECKBOX ───────────────────────────────────────
+        // part.loft's `ruled` and `open`, part.skin's `ruled` and
+        // part.variable_fillet's `smooth` are the four, and as text boxes they
+        // asked the user to guess a spelling: "on", "yes", "true" and "1" all
+        // work, everything else is off, and NONE of that is written anywhere a
+        // user reads. A checkbox has one state, shows it, and cannot be typed
+        // wrong. What it writes back is still the same "on"/"off" text the
+        // dispatch reads through flagFromText(), so there is one representation
+        // and not two.
+        bool on = flagFromText(f.value.data());
+        if (ImGui::Checkbox("##v", &on)) {
+          std::snprintf(f.value.data(), f.value.size(), "%s", on ? "on" : "off");
+        }
+      } else if (ImGui::InputText("##v", f.value.data(), f.value.size(),
+                                  ImGuiInputTextFlags_EnterReturnsTrue)) {
         submitted = true;
       }
       ImGui::PopID();
