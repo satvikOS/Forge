@@ -51,6 +51,61 @@ Status is DERIVED from the tree on every run, never typed in.
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
 | [ ] | Kernel core (rest) | 1304 | 62 | `forge-kernel/src` |
 
+## The drop order is a CHAIN, and the demand is GROWING
+
+Two facts that decide how this programme should be scheduled. Both were
+re-measured on the shipped bundle, not taken from a report.
+
+**The order is forced, not chosen.** All 1024 subsets of the root link line
+were enumerated: every toolkit has EXACTLY ONE minimal cut and each cut is a
+subset of the next. Reachable closure values are 14, 13, 11, 9, 8, 6, 4, 3, 2,
+1, 0 -- **12, 10, 7 and 5 are unreachable by any subset whatsoever**, so a plan
+that predicts one of those is wrong before it starts. TKOffset is the only
+possible FIRST move: it is the only library in the graph with a single parent
+(the root), so nothing else can leave before it. TKernel is last and must NEVER
+be scheduled as a work item -- all 13 other toolkits DT_NEED it and its 27
+symbols are 100% runtime substrate (allocator, Standard_Failure, RTTI, mutex,
+NCollection_Base, Message_Report) that falls out with the other 523.
+
+**The demand is growing, not shrinking.** Per-toolkit undefined-symbol census of
+libforge_kernel_core against each shipped libTK, versus the committed baseline in
+forge-kernel/reports/OCCT_CLOSURE_TRUTH.md:228 (2026-08-28):
+
+| toolkit | symbols now | 15 days ago | delta |
+|---|---:|---:|---:|
+| TKG3d | 152 | 141 | +11 |
+| TKTopAlgo | 110 | 100 | +10 |
+| TKBRep | 103 | 82 | +21 |
+| TKOffset | 42 | 42 | 0 |
+| TKMath | 34 | 26 | +8 |
+| TKBO | 32 | 31 | +1 |
+| TKG2d | 27 | 24 | +3 |
+| TKernel | 27 | 26 | +1 |
+| TKShHealing | 12 | 20 | **-8** |
+| TKFillet | 11 | 11 | 0 |
+| **TOTAL** | **550** | **507** | **+43** |
+
+The four toolkits actually being worked (steps 1-4) moved SEVEN symbols in
+fifteen days while steps 5-9 grew by fifty-four. The mechanism is structural and
+is named in the per-library audits: the `Native*` engines compute natively and
+then REBUILD their answer in OCCT types -- BRepBuilderAPI_MakeFace,
+BRepLib::SameParameter, BRepGProp for the measurement. TKTopAlgo is their OUTPUT
+FORMAT, not their algorithm, and 205 of its 431 call sites are inside those
+engines. So every new native operation ADDS OCCT symbols. Writing more native
+geometry, on its own, makes this number worse.
+
+**The single highest-unlock item** is therefore not an algorithm: it is an
+OWNING, OCCT-free shape handle adopted as the kernel interchange type. It gates
+steps 5, 6 and 7 -- 365 of 550 symbols (66%) and 5 of the 11 remaining libraries.
+Nearly all of it is already written and compiled with ZERO production consumers:
+`forge/capi/forge_capi.h` (27 entry points, no OCCT), `forge/native/shape/`
+{Shape,Explore,Wire,Compound}.hpp, and ~13k lines of OCCT-free native B-rep ops.
+The genuinely missing piece is small and specific: OWNERSHIP. `shape::Shape` is a
+NON-OWNING tagged pointer into a TopologyBuilder while ShapeRegistry stores its
+Occt entries by value, so a registry entry that outlives its builder dangles.
+Either shape::Shape gains shared ownership or ShapeRegistry owns the builder per
+entry. Everything downstream of that decision is re-typing.
+
 ## Is the Forge vocabulary ADOPTED, or merely OCCT-free?
 
 A subsystem can show zero OCCT includes by being unused, and the table above
