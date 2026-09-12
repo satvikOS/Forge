@@ -1896,6 +1896,7 @@ set(FORGE_KERNEL_SOURCES
     src/LineageRegistry.cpp
     src/Tessellate.cpp
     src/MassProps.cpp
+    src/ShapeHandle.cpp
     src/ShapeQuery.cpp
     src/Transform.cpp
     src/ComponentRegistry.cpp

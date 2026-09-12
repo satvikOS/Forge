@@ -1,4 +1,5 @@
 #include "forge/Fea.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepBndLib.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>

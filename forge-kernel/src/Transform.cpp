@@ -1,4 +1,5 @@
 #include "forge/Transform.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepBuilderAPI_Transform.hxx>
 #include <gp_Trsf.hxx>

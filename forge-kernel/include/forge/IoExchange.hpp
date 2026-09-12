@@ -12,7 +12,7 @@
 // Buffer overload is queued for a follow-up slice once we know whether
 // the renderer needs in-memory I/O (e.g. for STEP-paste from clipboard).
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <string>
 #include <vector>

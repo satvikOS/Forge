@@ -1,4 +1,5 @@
 #include "forge/ComponentRegistry.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/BVH.hpp"
 
 #include <BRepBndLib.hxx>

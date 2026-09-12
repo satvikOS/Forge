@@ -14,7 +14,7 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1399 | YES |
+| KERNEL | 1398 | YES |
 | TOOLING | 23 | yes, last |
 | ORACLE | 1919 | no — by design |
 | SCRATCH | 0 | no — by design |
@@ -68,16 +68,24 @@ compile without the OCCT headers, because forge/ShapeRegistry.hpp names
 TopoDS_Shape in add() and get(). The boundary is where the HEADERS are, not
 where the .cpp files are.
 
-So this is the number Stage 1 is measured by: public kernel headers that
+THE OBSERVABLE THAT SETTLES IT is not a header count at all -- it is whether
+the application compiles with NO OCCT HEADERS PRESENT. It does:
+forge-desktop/test/run_syntax_gate.sh compiles every forge-desktop translation
+unit with no OCCT include path, and ModelQuality.cpp -- the last one that was
+SKIPPED for needing OCCT -- is now CHECKED and green. A header below that can
+still name an OCCT type without holding the app back, so long as nothing the
+app includes reaches it.
+
+The count below is the remaining surface, not the Stage 1 gate: public kernel
+headers that
 include an OCCT header. The legacy adapter (Occt*.hpp, NativeOcctBridge.hpp)
 is expected to and is listed separately.
 
-| public kernel headers exposing OCCT | 29 |
+| public kernel headers exposing OCCT | 28 |
 |---|---:|
 | of those, the legacy adapter (expected) | 6 |
-| **of those, the Kernel API proper** | **23** |
+| **of those, the Kernel API proper** | **22** |
 
-- `forge-kernel/include/forge/ComponentRegistry.hpp`
 - `forge-kernel/include/forge/Drawings.hpp`
 - `forge-kernel/include/forge/Mold.hpp`
 - `forge-kernel/include/forge/ShapeRegistry.hpp`

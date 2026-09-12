@@ -33,7 +33,7 @@
 // scales millimetre cantilever dimensions to metres before feeding the
 // solver.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <cstdint>

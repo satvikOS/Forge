@@ -17,7 +17,7 @@
 //
 // See `Healing.hpp` for the companion repair toolbox.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <cstdint>

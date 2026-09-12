@@ -7,7 +7,7 @@
 // full DONE1..8 / FAIL1..8 list as a human-readable log so dashboards can
 // show "what got fixed". Returns a fresh ShapeHandle of the fixed shape.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <string>
 #include <vector>

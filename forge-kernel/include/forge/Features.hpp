@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 #include "forge/Sketcher.hpp"
 
 namespace forge { namespace part {

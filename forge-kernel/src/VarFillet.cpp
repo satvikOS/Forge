@@ -10,6 +10,7 @@
 // edge's start vertex to radiusEnd at its end vertex.
 
 #include "forge/VarFillet.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #ifndef FORGE_FILLET_DROP_NATIVE
 #include <BRepFilletAPI_MakeFillet.hxx>   // OCCT A/B baseline only; compiled out under the drop

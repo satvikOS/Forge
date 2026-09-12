@@ -12,7 +12,7 @@
 // traversal order (same convention as forge::part::filletEdges /
 // chamferEdges).
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <cstdint>
 #include <vector>

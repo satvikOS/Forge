@@ -8,7 +8,7 @@
 // flag the analyser raised, stringified, plus the count of faulty
 // sub-shapes. Use this for "is this CAD import production-ready?" gates.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <cstdint>
 #include <string>

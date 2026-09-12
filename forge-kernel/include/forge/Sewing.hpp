@@ -12,7 +12,7 @@
 // "section" edges that became "boundary" edges in the output) and how
 // many edges are still free (open-boundary survivors).
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <cstdint>
 #include <vector>

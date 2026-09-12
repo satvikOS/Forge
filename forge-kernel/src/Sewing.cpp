@@ -8,6 +8,7 @@
 // shapes (singular geometry).
 
 #include "forge/Sewing.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <TopoDS_Shape.hxx>

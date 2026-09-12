@@ -1,4 +1,5 @@
 #include "forge/Primitives.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/Booleans.hpp"   // forge::cut for the hollow tube
 
 // IN-HOUSE KERNEL STEP 3a — route the live primitives through forge::native

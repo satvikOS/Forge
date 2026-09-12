@@ -1,4 +1,5 @@
 #include "forge/MassProps.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>

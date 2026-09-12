@@ -30,7 +30,7 @@
 
 #ifdef FORGE_FT_ARCHELIX
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 #include "forge/Sketcher.hpp"
 
 namespace forge {

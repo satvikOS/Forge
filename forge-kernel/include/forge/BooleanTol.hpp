@@ -14,7 +14,7 @@
 // Booleans.hpp and return a fresh ShapeHandle on success. They throw
 // std::runtime_error on real OCCT failure — no swallowing.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 namespace forge::booleantol {
 

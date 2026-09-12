@@ -7,6 +7,7 @@
 // degenerate input would put that invariant back.
 
 #include "forge/SurfaceValue.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <algorithm>
 #include <vector>

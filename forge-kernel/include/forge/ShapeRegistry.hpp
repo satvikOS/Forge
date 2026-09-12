@@ -25,6 +25,8 @@
 #include <cstdint>
 #include <mutex>
 #include <unordered_map>
+#include "forge/ShapeHandle.hpp"
+
 #include <TopoDS_Shape.hxx>
 
 // The native variant payload is only compiled in when the in-house B-rep path
@@ -38,15 +40,11 @@
 
 namespace forge {
 
-using ShapeHandle = std::uint32_t;
-constexpr ShapeHandle kInvalidHandle = 0;
 
-// The backend that produced the shape behind a handle.
-enum class ShapeKind : std::uint8_t {
-    Occt = 0,        // a TopoDS_Shape (OCCT — the default live path)
-    NativeSolid = 1, // a forge::native::brep::Solid (analytic native B-rep)
-    NativeMesh = 2   // a forge::native::mesh::HalfEdgeMesh (native fillet/chamfer result)
-};
+// ShapeHandle, kInvalidHandle and ShapeKind now live in forge/ShapeHandle.hpp,
+// which names no OCCT type. Application code includes THAT; this header is the
+// OCCT-typed surface on top of it, and every existing includer of this file keeps
+// working because it is included below.
 
 class ShapeRegistry {
 public:

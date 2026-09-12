@@ -27,6 +27,7 @@
 //     Geom_BSplineSurface::IncreaseDegree directly.
 
 #include "forge/Nurbs.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>

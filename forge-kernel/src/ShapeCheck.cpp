@@ -6,6 +6,7 @@
 // BRepCheck_Status enum into a human-readable string.
 
 #include "forge/ShapeCheck.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepCheck_ListOfStatus.hxx>

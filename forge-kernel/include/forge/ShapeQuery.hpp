@@ -16,7 +16,7 @@
 // ShapeRegistry::add(). The desktop's OwnedHandle RAII wrapper is the intended way.
 #pragma once
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <cstddef>
 #include <vector>

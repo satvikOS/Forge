@@ -44,7 +44,7 @@
 // both vectors into the JS Float32Array.
 
 #include "forge/Cam.hpp"
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <cstdint>

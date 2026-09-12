@@ -36,7 +36,7 @@
 // stub paths, no fallback returns. Missing data throws std::invalid_argument
 // which the binding layer surfaces as a JS Error via safe().
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <cstdint>
 #include <string>

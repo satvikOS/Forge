@@ -1,4 +1,5 @@
 #include "forge/DirectModeling.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/Healing.hpp"
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free linear sweep (occtPrism)
 

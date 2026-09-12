@@ -2,6 +2,7 @@
 // why it is one function rather than a script over massProperties.
 
 #include "forge/BodyInventory.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <algorithm>
 #include <cmath>

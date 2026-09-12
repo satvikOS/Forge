@@ -1,4 +1,5 @@
 #include "forge/DirectEdit.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <cmath>
 #include <stdexcept>

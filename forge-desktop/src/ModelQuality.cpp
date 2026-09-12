@@ -37,10 +37,9 @@
 #include "forge/Healing.hpp"
 #include "forge/InterferenceDetection.hpp"
 #include "forge/MassProps.hpp"
-#include "forge/Mold.hpp"
 #include "forge/ShapeCheck.hpp"
+#include "forge/ShapeHandle.hpp"
 #include "forge/ShapeQuery.hpp"
-#include "forge/ShapeRegistry.hpp"
 #include "forge/Topology.hpp"
 
 
@@ -64,7 +63,7 @@ class OwnedHandle {
   ~OwnedHandle() { reset(); }
   void reset() {
     if (h_ != 0) {
-      try { forge::ShapeRegistry::instance().release(h_); } catch (...) {}
+        forge::releaseShape(h_);
       h_ = 0;
     }
   }
@@ -104,9 +103,8 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
     return out;
   }
 
-  auto& reg = forge::ShapeRegistry::instance();
   try {
-    if (reg.kindOf(h) != forge::ShapeKind::Occt) {
+    if (forge::shapeKind(h) != forge::ShapeKind::Occt) {
       // The kernel has two ways of holding a body and these checks read one of
       // them. Saying so is the honest answer; reporting zeros for a model that
       // was never measured would not be.

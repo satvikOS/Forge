@@ -1,4 +1,5 @@
 #include "forge/Booleans.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/LineageRegistry.hpp"
 
 // IN-HOUSE KERNEL STEP 3a — route fuse/cut/common through the native analytic

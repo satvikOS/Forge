@@ -136,6 +136,7 @@ CHECKED=(
   forge-desktop/src/FileDialog.cpp
   forge-desktop/src/DrawingGdt.cpp
   forge-desktop/src/ForgeFrame.cpp
+  forge-desktop/src/ModelQuality.cpp
   forge-desktop/src/ImGuiErrorPolicy.cpp
   forge-desktop/test/cam_panels_gate.cpp
   forge-desktop/src/kernel_worker_main.cpp
@@ -160,7 +161,6 @@ CHECKED=(
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
-  "forge-desktop/src/ModelQuality.cpp    (OCCT: TRANSITIVELY, through forge/ShapeRegistry.hpp, which names TopoDS_Shape in add() and get(). This file itself no longer mentions OCCT -- it speaks ShapeHandle and forge::ShapeQuery -- but it cannot compile without the headers until the Kernel API stops exposing them. See docs/kernel/MIGRATION.md.)"
   "forge-desktop/src/KernelScene.cpp     (OCCT: TopoDS_Shape.hxx)"
   "forge-desktop/test/quality_gate.cpp   (OCCT: BRep_Builder.hxx, TopoDS_Compound.hxx -- it BUILDS its two-solid fixture rather than shipping one)"
   "forge-desktop/src/FileExchangeHost.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/IoExchange.hpp -> forge/ShapeRegistry.hpp)"

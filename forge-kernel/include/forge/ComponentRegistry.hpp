@@ -18,7 +18,7 @@
 // a BVH overlay in a follow-up slice once the workload profile justifies
 // the build cost.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <cstdint>
@@ -26,7 +26,11 @@
 #include <memory>
 #include <mutex>
 #include <vector>
-#include <Bnd_Box.hxx>
+// FORWARD-DECLARED, not included. transformAABB() takes it by const reference, so
+// this header needs only the name; the .cpp that dereferences it includes the real
+// thing. Including it here made every consumer of ComponentRegistry.hpp -- and the
+// application, transitively -- unable to compile without the OCCT headers present.
+class Bnd_Box;
 
 namespace forge {
 

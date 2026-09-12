@@ -9,6 +9,7 @@
 // bad inputs; binding.cpp's safe() wrapper relays those to JS Errors.
 
 #include "forge/Features.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/Transform.hpp"   // ::forge::translate / ::forge::rotate (gate-routed)
 #include "forge/Booleans.hpp"    // ::forge::fuse / ::forge::cut       (gate-routed)
 #include "forge/Primitives.hpp"  // ::forge::makeCylinder / ::forge::makeCone (gate-routed)

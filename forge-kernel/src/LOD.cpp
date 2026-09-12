@@ -1,4 +1,5 @@
 #include "forge/LOD.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepTools.hxx>
 #include <cmath>

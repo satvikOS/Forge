@@ -18,6 +18,7 @@
 #ifdef FORGE_FT_ARCHELIX
 
 #include "forge/ArcHelix.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/Features.hpp"
 
 #include <BRepBuilderAPI_MakeEdge.hxx>

@@ -1,6 +1,7 @@
 // forge/NativeOcctBridge.cpp — native→OCCT fallback bridge (see header).
 
 #include "forge/NativeOcctBridge.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #ifdef FORGE_NATIVE_BREP
 

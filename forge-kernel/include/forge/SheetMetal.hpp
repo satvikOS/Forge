@@ -43,7 +43,7 @@
 // with a face-graph BFS + per-bend rigid hinge unfold; the JS facade
 // signature does not change.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <cstdint>

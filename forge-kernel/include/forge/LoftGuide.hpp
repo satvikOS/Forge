@@ -13,7 +13,7 @@
 // For a pure loft (no guides), `guideEdges` may be empty. The result is
 // always a single ShapeHandle pointing at the ThruSections output.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <cstdint>
 #include <vector>

@@ -8,6 +8,7 @@
 // forge::part::loftWithGuides which builds a GeomFill_NSections surface.
 
 #include "forge/LoftGuide.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>

@@ -7,6 +7,7 @@
 // inside-tests) and C++ std.
 
 #include "forge/FeaTet.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/OcctNativeMesh.hpp"   // K5 — native surface mesher (no TKMesh)
 #include <cstdio>
 #include <cstdlib>

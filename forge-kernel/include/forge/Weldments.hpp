@@ -27,7 +27,7 @@
 //   * `weldBead`: modelled as a thin fillet brick at the joint — enough for
 //     visualisation and for the cut list bead-length accounting.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <cstdint>
 #include <map>

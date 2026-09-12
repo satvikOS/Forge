@@ -24,7 +24,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 namespace forge { namespace surfacing {
 

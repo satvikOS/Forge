@@ -1,4 +1,5 @@
 #include "forge/Tessellate.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 // IN-HOUSE KERNEL STEP 3a — native tessellation on a native-backed handle behind
 // FORGE_NATIVE_BREP. NativeSolid -> watertight analytic-face tessellation +

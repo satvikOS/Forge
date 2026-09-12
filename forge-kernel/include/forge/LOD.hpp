@@ -18,7 +18,7 @@
 // for their AMD-driver LOD; the constants are exposed in the header so
 // tests can verify boundary behaviour without hardcoding them twice.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 #include "forge/Tessellate.hpp"
 #include "forge/ComponentRegistry.hpp"
 

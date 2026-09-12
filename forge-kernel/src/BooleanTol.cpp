@@ -39,6 +39,7 @@
 // (native OR OCCT) — no swallowing.
 
 #include "forge/BooleanTol.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"     // forgeNativeBrepEnabled()

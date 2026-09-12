@@ -8,7 +8,7 @@
 // (refcount=1). The original is never mutated, so callers can roll back
 // trivially by releasing the new handle.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <cstdint>

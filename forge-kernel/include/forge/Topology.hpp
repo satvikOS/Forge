@@ -16,7 +16,7 @@
 // topology number that moves when you change tessellation settings cannot gate
 // anything.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 #include "forge/Tessellate.hpp"
 
 namespace forge {

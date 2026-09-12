@@ -1,4 +1,5 @@
 #include "forge/IoExchange.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>

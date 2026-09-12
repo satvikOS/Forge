@@ -64,6 +64,7 @@
 // flange/fuse ops light up natively with ZERO further change here. Nothing is faked.
 
 #include "forge/SheetMetal.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled(), transformSolid

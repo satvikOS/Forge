@@ -1,4 +1,5 @@
 #include "forge/Healing.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 // ── TKShHealing P1 (2026-07-31) ──────────────────────────────────────────────
 // FORGE_HEAL_NATIVE_BCD is the single condition under which this file's

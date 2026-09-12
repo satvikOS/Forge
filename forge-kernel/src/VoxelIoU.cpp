@@ -11,6 +11,7 @@
 // measurement tool that cannot say why it declined is not a measurement tool.
 
 #include "forge/VoxelIoU.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <algorithm>
 #include <cmath>

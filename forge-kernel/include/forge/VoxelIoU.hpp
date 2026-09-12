@@ -19,7 +19,7 @@
 #include <memory>
 #include <string>
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 namespace forge {
 

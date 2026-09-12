@@ -4,6 +4,7 @@
 // migration. The code here is a direct port of what forge-desktop/src/ModelQuality.cpp
 // used to do inline, moved across the boundary unchanged in behaviour.
 #include "forge/ShapeQuery.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include "forge/Mold.hpp"
 

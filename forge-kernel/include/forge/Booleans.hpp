@@ -1,6 +1,6 @@
 #pragma once
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 namespace forge {
 

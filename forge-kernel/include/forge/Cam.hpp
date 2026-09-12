@@ -20,7 +20,7 @@
 // resolved a stable face id (e.g. via top-down topology iteration in JS)
 // to address it explicitly.
 
-#include "forge/ShapeRegistry.hpp"
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <cstdint>

@@ -5,6 +5,7 @@
 // matching OCCT documentation. Returns the fixed shape's handle + log.
 
 #include "forge/ShapeFix.hpp"
+#include "forge/ShapeRegistry.hpp"
 
 #include <Precision.hxx>
 #include <ShapeExtend_Status.hxx>
