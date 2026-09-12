@@ -13,7 +13,7 @@ includes as "remaining dependency" would misreport progress by a factor of three
 (measured: 1909 of 3611 include lines in this tree are tests). Scratchpads are
 excluded for the same reason: they are not shipped and not oracles.
 """
-import argparse, os, re, subprocess, sys, collections
+import argparse, collections, datetime, json, os, re, subprocess, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TRACKER = os.path.join(ROOT, 'docs', 'kernel', 'OCCT_REMOVAL_TRACKER.md')
@@ -77,10 +77,14 @@ def occt_includes(path):
         return 0, []
     return n, hdrs
 
-def linked_toolkits(binary):
-    """Toolkits the binary actually LINKS. otool, not the build files: what a binary
-    records is the fact; what CMake says is the intent, and the two have diverged
-    here before (TKG2d was dropped from OCCT_LIBS while still loading transitively)."""
+SNAPSHOT = os.path.join(ROOT, 'tools', 'kernel', 'occt_linked_snapshot.json')
+
+def measure_linked(binary):
+    """Toolkits the binary actually LINKS, read with otool.
+
+    otool and not the build files: what a binary records is the fact, what CMake says
+    is the intent, and the two have diverged in this tree before (TKG2d was dropped
+    from OCCT_LIBS while still loading transitively through TKBRep)."""
     if not os.path.exists(binary):
         return None
     try:
@@ -95,6 +99,27 @@ def linked_toolkits(binary):
         if m:
             tk.add(m.group(1)[3:])
     return sorted(tk)
+
+def linked_snapshot():
+    """The linkage numbers come from a COMMITTED SNAPSHOT, never from otool at render
+    time.
+
+    This is the north-star metric and it can only be measured where the app is
+    installed -- which CI is not. Rendering it live made the document machine-
+    dependent, and the gate went red on its very first CI run for a reason that had
+    nothing to do with the code: the runner has no /Applications/Forge.app, so the
+    table rendered "not installed" and differed from the committed copy. Same defect
+    class as walking the filesystem instead of `git ls-files`, from a second source
+    in the same document.
+
+    So: `--snapshot` records it on the workstation, with provenance; everything else
+    is derived from the tree and verifiable anywhere."""
+    if not os.path.exists(SNAPSHOT):
+        return None
+    try:
+        return json.load(open(SNAPSHOT))
+    except Exception:
+        return None
 
 def build():
     by_class = collections.Counter()
@@ -183,15 +208,22 @@ def render():
     w('`otool -L`, not the build files. What a binary records is the fact; what CMake')
     w('says is the intent, and the two have diverged here before.')
     w('')
-    w('| binary | OCCT toolkits linked |')
-    w('|---|---|')
-    for b in ('forge_desktop', 'forge_kernel_worker', 'forge_update'):
-        p = f'/Applications/Forge.app/Contents/MacOS/{b}'
-        tk = linked_toolkits(p)
-        if tk is None:
-            w(f'| {b} | _not installed; run the app installer_ |')
-        else:
+    snap = linked_snapshot()
+    if snap is None:
+        w('_No snapshot recorded. On the workstation, with Forge installed, run_')
+        w('`python3 tools/kernel/occt_dependency_graph.py --snapshot`.')
+    else:
+        w(f"Snapshot recorded {snap.get('measured_at', 'unknown')} from "
+          f"`{snap.get('bundle', 'unknown')}` at version {snap.get('version', 'unknown')}.")
+        w('')
+        w('| binary | OCCT toolkits linked |')
+        w('|---|---|')
+        for b, tk in sorted(snap.get('binaries', {}).items()):
             w(f'| {b} | **{len(tk)}** — {", ".join(tk) if tk else "none"} |')
+        w('')
+        shipped = snap.get('shipped_dylibs', [])
+        w(f'Bundle ships **{len(shipped)}** OCCT dylibs: '
+          + (', '.join(shipped) if shipped else 'none') + '.')
     w('')
     w('## Migration order')
     w('')
@@ -230,7 +262,33 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--write', action='store_true')
     ap.add_argument('--check', action='store_true')
+    ap.add_argument('--snapshot', action='store_true',
+                    help='re-measure linked toolkits from the installed app (workstation only)')
     a = ap.parse_args()
+    if a.snapshot:
+        bundle = '/Applications/Forge.app'
+        bins = {}
+        for b in ('forge_desktop', 'forge_kernel_worker', 'forge_update'):
+            tk = measure_linked(os.path.join(bundle, 'Contents', 'MacOS', b))
+            if tk is None:
+                print(f'[occt-graph] {b} not found under {bundle}; is Forge installed?',
+                      file=sys.stderr)
+                return 1
+            bins[b] = tk
+        fw = os.path.join(bundle, 'Contents', 'Frameworks')
+        shipped = sorted(f[3:].split('.')[0] for f in os.listdir(fw)
+                         if f.startswith('libTK')) if os.path.isdir(fw) else []
+        ver = ''
+        try:
+            ver = json.load(open(os.path.expanduser('~/.forge-health/installed.json'))).get('version', '')
+        except Exception:
+            pass
+        json.dump({'measured_at': datetime.date.today().isoformat(), 'bundle': bundle,
+                   'version': ver, 'binaries': bins, 'shipped_dylibs': shipped},
+                  open(SNAPSHOT, 'w'), indent=2, sort_keys=True)
+        open(SNAPSHOT, 'a').write('\n')
+        print(f'[occt-graph] snapshot written: {len(bins)} binaries, {len(shipped)} shipped dylibs')
+        return 0
     text = render()
     if a.check:
         if not os.path.exists(TRACKER):

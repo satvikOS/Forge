@@ -25,11 +25,15 @@ overstate the work by roughly threefold on this tree.
 `otool -L`, not the build files. What a binary records is the fact; what CMake
 says is the intent, and the two have diverged here before.
 
+Snapshot recorded 2026-09-11 from `/Applications/Forge.app` at version 0.1.3329.
+
 | binary | OCCT toolkits linked |
 |---|---|
 | forge_desktop | **6** — TKBRep, TKG3d, TKGeomBase, TKMath, TKTopAlgo, TKernel |
 | forge_kernel_worker | **6** — TKBRep, TKG3d, TKGeomBase, TKMath, TKTopAlgo, TKernel |
 | forge_update | **0** — none |
+
+Bundle ships **14** OCCT dylibs: TKBO, TKBRep, TKBool, TKFillet, TKG2d, TKG3d, TKGeomAlgo, TKGeomBase, TKMath, TKOffset, TKPrim, TKShHealing, TKTopAlgo, TKernel.
 
 ## Migration order
 
