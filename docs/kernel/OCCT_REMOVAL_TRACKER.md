@@ -14,7 +14,7 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1386 | YES |
+| KERNEL | 1399 | YES |
 | TOOLING | 23 | yes, last |
 | ORACLE | 1919 | no — by design |
 | SCRATCH | 0 | no — by design |
