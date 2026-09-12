@@ -135,7 +135,15 @@ jobs:
           # 2. An allowlisted gate becoming REACHABLE must also be red — a ratchet
           #    that cannot notice progress is not evidence.
           cp .github/workflows/kernel-tests.yml /tmp/kt.bak
-          printf '\n# run_pipe_drop_gate\n' >> .github/workflows/kernel-tests.yml
+          # A REAL invocation, not a comment. This case used to append
+          #   `# run_pipe_drop_gate`
+          # and rely on the ratchet counting that comment as an invocation -- the
+          # very defect the ratchet now fixes. So the case was proving the bug:
+          # once a comment stopped counting, the gate correctly stayed unreachable,
+          # the ratchet correctly stayed GREEN, and this case reported the ratchet
+          # "cannot notice an improvement". It can; the mutation was wrong.
+          printf '\n      - name: proof m2\n        run: bash forge-kernel/test/run_pipe_drop_gate.sh\n' \
+            >> .github/workflows/kernel-tests.yml
           OUT=$(bash "$R" 2>&1); rc=$?
           cp /tmp/kt.bak .github/workflows/kernel-tests.yml
           if [ $rc -eq 0 ]; then

@@ -5,7 +5,8 @@
 # already shipped a registration check that passed 13/13 because it could not
 # fail -- it enumerated by prefix, counted comments as invocations, and a
 # `sed | grep -q` under pipefail misread its own matches. The gate it hid,
-# occt_lib_resolution_gate, is pinned in ALLOW today because of it.
+# occt_lib_resolution_gate, is now WIRED and no longer pinned -- which is why
+# case 3 below reads its fixture out of ALLOW instead of naming one.
 #
 # So: four cases, each driving the real script, not a re-implementation of it.
 set -uo pipefail
@@ -49,11 +50,22 @@ rm -f "$PHANTOM" "$CONSUMER"
 
 echo "[selftest] 3. a PINNED gate that becomes reachable must turn it RED"
 # The ratchet must notice PROGRESS too, or ALLOW silently becomes permanent.
-printf '#!/usr/bin/env bash\nbash forge-kernel/test/occt_lib_resolution_gate.sh\n' > "$CONSUMER"
+#
+# The pinned gate is READ OUT OF THE RATCHET, not named here. This case used to
+# hardcode occt_lib_resolution_gate, and when that gate was genuinely wired and
+# removed from ALLOW the case stopped testing anything: wiring an UNpinned gate
+# is a no-op, so it returned 0 and the selftest failed with "wanted rc 1, got 0".
+# A proof that names its own fixture goes stale the moment the fixture is fixed.
+PINNED=$(sed -n '/^ALLOW="/,/"$/p' "$R" | sed 's/^ALLOW="//; s/"$//' | grep -v '^$' | head -1)
+if [ -z "$PINNED" ]; then
+  ck "ALLOW is non-empty so this case can run" 0 1
+else
+printf '#!/usr/bin/env bash\nbash %s\n' "$PINNED" > "$CONSUMER"
 out=$(bash "$R" 2>&1); rc=$?
 ck "improvement refused until ALLOW is updated" 1 $rc
 case "$out" in *"RED ON AN IMPROVEMENT"*) ck "and it says so" 0 0 ;;
                 *) ck "and it says so" 0 1 ;; esac
+fi
 rm -f "$CONSUMER"
 
 echo "[selftest] 4. the self-exclusion is LOAD-BEARING, not decoration"

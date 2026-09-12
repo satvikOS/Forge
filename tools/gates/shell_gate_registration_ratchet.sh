@@ -42,20 +42,25 @@ SELF="shell_gate_registration_ratchet.sh"
 ALLOW="forge-desktop/test/run_file_dialog_gate.sh
 forge-kernel/scripts/ft_relational_gate.sh
 forge-kernel/scripts/storage_governor_git_gate.sh
-forge-kernel/scripts/storage_governor_mutation_gate.sh
-forge-kernel/test/occt_lib_resolution_gate.sh"
+forge-kernel/scripts/storage_governor_mutation_gate.sh"
 #   run_file_dialog_gate.sh   — drives a native file dialog; needs a headed
 #                               session, which no runner has.
 #   ft_relational_gate.sh     — investigation from the relational-corpus work.
 #   storage_governor_*_gate   — operate on the real working copy and the real
 #                               disk; running them on a runner measures the
 #                               runner, not this workstation.
-#   occt_lib_resolution_gate  — genuinely unwired, and INVISIBLE to the kernel
-#                               ratchet because its name carries neither the
-#                               run_ nor the build_ prefix that ratchet globs.
-#                               It is pinned here so it is at least counted.
+#   occt_lib_resolution_gate  — REMOVED from this list: it is now wired into
+#                               kernel-tests.yml, and the kernel ratchet can see
+#                               it too (that ratchet used to glob run_*/build_*
+#                               and now globs *_gate.sh, so a name carrying
+#                               neither prefix is no longer invisible).
 
 owned_by_kernel_ratchet() {     # the territory we deliberately do not touch
+  # DELIBERATELY NARROWER than what that ratchet now covers. It used to glob
+  # run_*.sh and build_*.sh; it now globs forge-kernel/test/*_gate.sh, so gates
+  # such as selector_kind_gate.sh are checked by BOTH. That is double coverage,
+  # not a hole, and double coverage is the safe direction -- widening this case
+  # to match would REMOVE this ratchet's check on those files for no gain.
   case "$1" in
     forge-kernel/test/run_*_gate.sh|forge-kernel/test/build_*_gate.sh) return 0 ;;
     *) return 1 ;;
