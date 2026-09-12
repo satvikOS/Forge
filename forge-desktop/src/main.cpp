@@ -238,7 +238,11 @@ bool setupSwapchain(SDL_Window* window, int width, int height) {
 // Copy a PRESENTED swapchain image back to the host and write it as a PNG. This
 // is the app photographing its own window: the source is g_window.Frames[i]
 // .Backbuffer, the very image the compositor just showed.
-bool captureSwapchain(std::uint32_t imageIndex, const std::string& path) {
+// Optionally crop before writing. A zero width or height means "the whole
+// window"; anything else is clamped to the window and REFUSED if nothing of it
+// is inside, because a silently-shrunk crop is a picture of the wrong thing.
+bool captureSwapchain(std::uint32_t imageIndex, const std::string& path,
+                      int cropX = 0, int cropY = 0, int cropW = 0, int cropH = 0) {
   const std::uint32_t w = static_cast<std::uint32_t>(g_window.Width);
   const std::uint32_t h = static_cast<std::uint32_t>(g_window.Height);
   const VkDeviceSize bytes = static_cast<VkDeviceSize>(w) * h * 4;
@@ -340,7 +344,27 @@ bool captureSwapchain(std::uint32_t imageIndex, const std::string& path) {
       g_window.SurfaceFormat.format == VK_FORMAT_B8G8R8A8_SRGB) {
     for (std::size_t i = 0; i + 3 < rgba.size(); i += 4) std::swap(rgba[i], rgba[i + 2]);
   }
-  const bool ok = forge::desktop::png::writeRgba(path, rgba.data(), w, h);
+  // Crop AFTER the channel swap, so the crop sees the same pixels the writer
+  // would. The read-back stays full-window -- MEASURED at ~11-26 ms, about one
+  // frame at 60 Hz -- and the PNG goes 6,721,578 -> 2,659,147 bytes, which is
+  // 2.53x and is exactly the area ratio, because PngWriter stores uncompressed.
+  // The reason to crop is WHAT is in the picture, not how big it is.
+  bool ok = false;
+  if (cropW > 0 && cropH > 0) {
+    std::vector<std::uint8_t> cut;
+    std::uint32_t cw = 0, chh = 0;
+    if (!forge::desktop::png::cropRgba(rgba.data(), w, h, cropX, cropY, cropW, cropH,
+                                       cut, cw, chh)) {
+      std::fprintf(stderr,
+                   "[forge] capture: the requested crop %dx%d at %d,%d lies outside "
+                   "the %ux%u window; writing nothing\n",
+                   cropW, cropH, cropX, cropY, w, h);
+    } else {
+      ok = forge::desktop::png::writeRgba(path, cut.data(), cw, chh);
+    }
+  } else {
+    ok = forge::desktop::png::writeRgba(path, rgba.data(), w, h);
+  }
 
   vkDestroyCommandPool(g_device, pool, nullptr);
   vkDestroyBuffer(g_device, dst, nullptr);
@@ -755,6 +779,14 @@ int main(int argc, char** argv) {
 
   // ── frame loop ───────────────────────────────────────────────────────────
   int frames = 0;
+  // Where the picture Archie is shown lives, and how often it is refreshed.
+  // A fixed path, overwritten in place: the model reads the newest frame and
+  // nothing accumulates in the user's temp directory over a long session.
+  const std::string archieFramePath =
+      std::string(std::getenv("TMPDIR") != nullptr ? std::getenv("TMPDIR") : "/tmp") +
+      "/forge_archie_frame.png";
+  const int kArchieCaptureEvery = 30;   // ~2 Hz at 60 fps; one capture costs ~a frame
+  int lastArchieFrame = -kArchieCaptureEvery;
   bool running = true;
   while (running) {
     SDL_Event event;
@@ -927,6 +959,30 @@ int main(int argc, char** argv) {
                     screenshot.c_str(), g_window.Width, g_window.Height);
       } else {
         std::fprintf(stderr, "[forge] screenshot failed\n");
+      }
+    }
+    // ── the picture Archie is shown ───────────────────────────────────────
+    // Only when a model-backed planner is actually installed (opt-in via
+    // FORGE_ARCHIE_ENDPOINT), and only the 3D VIEWPORT, never the window: a
+    // real 1680x1000 capture is 60.5% application chrome, and that chrome
+    // displays a bulleted list of COMMAND NAMES. Archie's known failure is
+    // copying op names instead of deriving them, so a picture that spells them
+    // out beside the part feeds the failure directly.
+    //
+    // Throttled: one capture costs about a frame, so this takes ~3% of the
+    // budget at 60 Hz rather than halving the frame rate. The path therefore
+    // trails the live view by at most half a second, which is what a user
+    // looking at a part and typing a sentence about it is doing anyway.
+    if (frame.copilotRemotePlanner() != nullptr &&
+        frames - lastArchieFrame >= kArchieCaptureEvery) {
+      const forge::desktop::ViewportRequest& vp = frame.viewport();
+      if (vp.visible && vp.width > 0 && vp.height > 0) {
+        vkQueueWaitIdle(g_queue);
+        if (captureSwapchain(imageIndex, archieFramePath, vp.x, vp.y, vp.width,
+                             vp.height)) {
+          frame.setCopilotFramePath(archieFramePath);
+          lastArchieFrame = frames;
+        }
       }
     }
     if (frameLimit > 0 && frames >= frameLimit) running = false;

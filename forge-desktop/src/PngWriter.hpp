@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -52,6 +53,55 @@ inline void writeChunk(std::vector<std::uint8_t>& out, const char type[4],
   tc.insert(tc.end(), data.begin(), data.end());
   out.insert(out.end(), tc.begin(), tc.end());
   putBE32(out, crc32Of(tc.data(), tc.size(), 0));
+}
+
+// Cut a rectangle out of a tightly packed RGBA8 image.
+//
+// The swapchain read-back is the WHOLE WINDOW, and the whole window is the wrong
+// thing to hand a vision model. MEASURED on a real 1680x1000 capture from the
+// installed app: the 3D viewport is 1038x639, so 39.5% of the frame is the part
+// and 60.5% is application chrome. Two separate reasons that is wrong, and the
+// second is the one that bites: Archie is evaluated on shaded part renders, and
+// the chrome DISPLAYS A BULLETED LIST OF COMMAND NAMES -- a model whose known
+// failure is copying op names instead of deriving them should not be handed a
+// picture that spells them out beside the part. Cropping also takes the PNG from
+// 6,721,578 to 2,659,147 bytes (2.53x) -- which is exactly the area ratio and
+// nothing more, because PngWriter is dependency-free and stores UNCOMPRESSED
+// (measured: written bytes / raw RGBA = 1.000). Size is NOT an independent
+// argument for cropping; the modality is.
+//
+// Clamps to the source and REFUSES rather than guessing: a rect that is empty
+// after clamping, or wholly outside the image, returns false and writes nothing,
+// because a silently-shrunk crop is a picture of the wrong thing.
+inline bool cropRgba(const std::uint8_t* src, std::uint32_t sw, std::uint32_t sh,
+                     int x, int y, int w, int h,
+                     std::vector<std::uint8_t>& out, std::uint32_t& ow,
+                     std::uint32_t& oh) {
+  out.clear();
+  ow = 0;
+  oh = 0;
+  if (src == nullptr || sw == 0 || sh == 0 || w <= 0 || h <= 0) return false;
+  // Clamp the rect into the image. x/y may be negative; the right and bottom
+  // edges may run past it.
+  long x0 = x < 0 ? 0 : x;
+  long y0 = y < 0 ? 0 : y;
+  long x1 = static_cast<long>(x) + w;
+  long y1 = static_cast<long>(y) + h;
+  if (x1 > static_cast<long>(sw)) x1 = static_cast<long>(sw);
+  if (y1 > static_cast<long>(sh)) y1 = static_cast<long>(sh);
+  if (x0 >= x1 || y0 >= y1) return false;   // nothing of the rect is inside
+  const std::uint32_t cw = static_cast<std::uint32_t>(x1 - x0);
+  const std::uint32_t ch = static_cast<std::uint32_t>(y1 - y0);
+  out.resize(static_cast<std::size_t>(cw) * ch * 4);
+  for (std::uint32_t row = 0; row < ch; ++row) {
+    const std::uint8_t* s =
+        src + ((static_cast<std::size_t>(y0) + row) * sw + static_cast<std::size_t>(x0)) * 4;
+    std::memcpy(out.data() + static_cast<std::size_t>(row) * cw * 4, s,
+                static_cast<std::size_t>(cw) * 4);
+  }
+  ow = cw;
+  oh = ch;
+  return true;
 }
 
 inline bool writeRgba(const std::string& path, const std::uint8_t* rgba, std::uint32_t w,

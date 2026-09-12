@@ -692,6 +692,15 @@ set_target_properties(forge_desktop_isolation_gate PROPERTIES
 # runs. A gate that cannot run is not a gate that passed.
 add_dependencies(forge_desktop_isolation_gate forge_kernel_worker)
 
+# ----------------------------------------------------- the picture Archie sees
+# PngWriter had NO gate: it writes every evidence image in this project and
+# nothing checked a pixel of it. This covers the crop that decides WHAT Archie
+# is shown, and it needs no window, no swapchain and no GPU -- PngWriter.hpp is
+# header-only and depends on nothing, so this links nothing either.
+add_executable(forge_desktop_frame_capture_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/frame_capture_gate.cpp")
+target_compile_options(forge_desktop_frame_capture_gate PRIVATE -Wall -Wextra -Werror)
+
 # ------------------------------------------------------------------ updating
 # THE AUTO-UPDATER. Deliberately its own library with NO project dependencies --
 # not the kernel, not OCCT, not ImGui, not SDL, not Vulkan, and no third-party
