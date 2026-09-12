@@ -85,6 +85,43 @@ gexec() {
   wait $p; local rc=$?
   cat "$lg"; return $rc
 }
+# Does a FOREGROUND `sleep` defer a trap in THIS shell and OS?
+#
+# Mutation 11 restores a foreground `sleep "$POLL"` and requires C15c to notice.
+# That only works where the shell actually defers signal handling until an external
+# command returns. MEASURED here: zsh 5.9 on darwin defers for the FULL sleep (a
+# TERM sent 1s into a 10s sleep was handled at 10.00s). MEASURED on the GitHub
+# macOS runner: it does not -- C15c passed under the mutant on two separate runs,
+# with the mutation provably applied (the gate asserts the source text changed).
+#
+# So the mutation is only meaningful where the deferral exists. This probes for it
+# POSITIVELY rather than reading the mutation's own outcome: where the shell defers,
+# mutation 11 MUST still be caught and there is no escape; where it does not, the
+# mutation cannot change observable behaviour and saying so is more honest than
+# either a silent pass or a permanent red. Skipping on a failed outcome is how a
+# gate becomes decoration; skipping on a measured capability is not.
+defers_trap_during_sleep() {
+  local probe="$ROOT/defer_probe.zsh" t0 t1 p
+  cat >"$probe" <<'PROBE'
+zmodload zsh/datetime 2>/dev/null
+trap 'print -r -- "T $EPOCHREALTIME"; exit 0' TERM
+print -r -- "S $EPOCHREALTIME"
+sleep 4
+PROBE
+  zsh "$probe" >"$ROOT/defer_probe.log" 2>&1 &
+  p=$!
+  sleep 1
+  kill -TERM $p 2>/dev/null
+  local i; for i in {1..40}; do kill -0 $p 2>/dev/null || break; sleep 0.25; done
+  kill -9 $p 2>/dev/null
+  t0=$(awk '/^S /{print $2}' "$ROOT/defer_probe.log" 2>/dev/null)
+  t1=$(awk '/^T /{print $2}' "$ROOT/defer_probe.log" 2>/dev/null)
+  [[ -n $t0 && -n $t1 ]] || return 1
+  # Deferred if the trap ran at least 2s after start, i.e. it waited out the sleep
+  # rather than firing at the 1s mark when the signal was sent.
+  awk -v a="$t0" -v b="$t1" 'BEGIN{exit !((b-a) >= 2.0)}'
+}
+
 gspawn() { local lg=$1; shift
   FORGE_HEALTH_DIR="$HD" ARCHIE_HEALTH_DIR="$AH" FORGE_GUARDIAN_POLL=1 zsh "$G" "$@" >"$lg" 2>&1 &
   local q=$!; note_pid $q; print $q }
@@ -359,8 +396,23 @@ MDESC=(
 MWANT=(RED RED RED RED RED GREEN RED RED RED RED RED)
 
 MFAIL=0
+# Probe ONCE, before the loop, and say what was measured either way.
+if defers_trap_during_sleep; then
+  DEFERS=1
+  print "[single-instance] this shell DEFERS a trap during a foreground sleep -- mutation 11 is in force"
+else
+  DEFERS=0
+  print "[single-instance] this shell does NOT defer a trap during a foreground sleep;"
+  print "[single-instance]   mutation 11 cannot change observable behaviour here and is SKIPPED."
+  print "[single-instance]   The shipped guardian still backgrounds its sleep and C15c still asserts"
+  print "[single-instance]   TERM is honoured within 2s -- that half is proved on every platform."
+fi
 for n in 1 2 3 4 5 6 7 8 9 10 11; do
   desc=$MDESC[$n]; want=$MWANT[$n]
+  if (( n == 11 && DEFERS == 0 )); then
+    print "  mutation $n: SKIPPED (this shell does not defer traps during sleep) -- $desc"
+    continue
+  fi
   if ! apply_mutation $n; then
     print "  mutation $n: DID NOT APPLY -- verdict void"; (( MFAIL++ )); continue
   fi

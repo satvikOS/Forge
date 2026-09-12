@@ -62,7 +62,16 @@ set -uo pipefail
 #   at 1..12. Taking either side WHOLE would have silently dropped real mutations —
 #   either the five file-exchange ones or the three frame ones — and the suite would
 #   have gone green while testing less than it did before the merge.
-EXPECTED_MUTATIONS=109
+#
+# ★ 2026-09-12: 109 -> 112, + frame_capture 3. The new gate covers the crop that
+#   decides WHAT Archie is shown (PngWriter had no gate at all before it). Counted
+#   the same way, from run_desktop.sh's own run_gate arguments on this tree.
+#
+#   This number going stale is exactly what it is for, and it caught me: T-090
+#   added the gate, run_desktop.sh reported 112, and CI went red here because this
+#   said 109. run_desktop.sh passing locally is NOT the desktop CI -- the syntax
+#   gate and this counter are separate steps that a local suite run never executes.
+EXPECTED_MUTATIONS=112
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists
