@@ -225,6 +225,19 @@ jobs:
           python3 tools/kernel/topology_honesty_gate.py
           python3 tools/kernel/topology_honesty_gate.py --selftest
 
+      - name: Every gate written in JavaScript reaches CI
+        # The hole between three correctly-scoped checks. gate_registration_ratchet.sh
+        # covers *_gate.sh under forge-kernel/test, shell_gate_registration_ratchet.sh
+        # covers tree-wide *.sh, gate_registration_check.sh covers forge-desktop --
+        # all green, and NOT ONE can see a gate written in JavaScript. Eleven files
+        # match *_gate.{js,mjs}; TEN had never run, including cfd_sod_gate (native 1D
+        # Euler vs the EXACT Sod Riemann solution) and setback_clearance_gate, whose
+        # own --selftest drives six mutations and requires every one to turn it red.
+        shell: bash
+        run: |
+          python3 tools/kernel/js_gate_registration_gate.py
+          python3 tools/kernel/js_gate_registration_gate.py --selftest
+
       - name: Every *_gate.sh anywhere is reachable from CI (or pinned)
         # The gap between the two checks above. They are each correctly scoped and
         # neither can see a *_gate.sh outside forge-kernel/test, nor one inside it

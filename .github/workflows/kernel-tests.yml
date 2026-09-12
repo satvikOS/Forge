@@ -761,6 +761,37 @@ jobs:
             --max-closure 14 --max-phantom 2 --max-tkoffset 42
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
+      - name: Physics validation gates (known-answer, against textbook closed forms)
+        # These SEVEN existed in the tree and had NEVER RUN. Three gate-registration
+        # ratchets are green over *.sh and none of them can see a gate written in
+        # JavaScript, so nothing noticed. They are not smoke tests: cfd_sod_gate
+        # compares the native 1D Euler solver against the EXACT Sod shock-tube
+        # Riemann solution, em_* against textbook closed forms, and
+        # setback_clearance_gate --selftest drives SIX mutations through the real
+        # gate and requires every one to turn it red (control: 12 checks, 0 red).
+        #
+        # MEASURED runtime on this machine, which is why they sit here in the job
+        # that already has the addon rather than in a job of their own:
+        #   calculix_io 0.3s   cfd_sod 0.1s   cfd_species 5.2s   em_electrostatics
+        #   0.1s   em_joule 0.1s   em_magnetostatics 0.1s   setback_clearance 0.1s
+        #   -> 5.9 SECONDS for all seven.
+        #
+        # The three CFD gates NOT here are pinned in tools/kernel/
+        # js_gate_registration_gate.py with their measured cost: cfd_oblique_shock
+        # 5.0 min, cfd_ghia 10.7 min, cfd_natconv 26.9 min -- 42.6 of the suite's
+        # 42.7 minutes live in those three.
+        # shell: bash makes -e AND pipefail explicit. The default for `run:` on
+        # macos-latest is already `bash -e {0}`, so a failing gate exits the step;
+        # this states it rather than relying on a runner default.
+        shell: bash
+        run: |
+          node forge-kernel/test/calculix_io_gate.mjs
+          node forge-kernel/test/cfd_sod_gate.mjs
+          node forge-kernel/test/cfd_species_gate.mjs
+          node forge-kernel/test/em_electrostatics_gate.mjs
+          node forge-kernel/test/em_joule_gate.mjs
+          node forge-kernel/test/em_magnetostatics_gate.mjs
+          node forge-kernel/test/setback_clearance_gate.mjs --selftest
       - name: Coherence + logic scorer (random scenes each run)
         run: npm run forge:coherence
       - name: Native binding smoke (forge.native.* callable in-platform)
