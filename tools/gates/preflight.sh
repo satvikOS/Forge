@@ -43,6 +43,8 @@ run "every forge-desktop gate is built AND run" \
     bash forge-desktop/test/gate_registration_check.sh
 run "Vec3 is one type, module epsilon guards intact" \
     python3 tools/kernel/vec3_unification_gate.py
+run "native B-Rep scope note matches the code" \
+    python3 tools/kernel/topology_honesty_gate.py
 run "no conflict markers are committed" \
     sh -c '! git grep -nE "^(<<<<<<< |>>>>>>> )" -- . >/dev/null 2>&1'
 

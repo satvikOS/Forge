@@ -210,6 +210,21 @@ jobs:
           python3 tools/kernel/vec3_unification_gate.py
           python3 tools/kernel/vec3_unification_gate.py --selftest
 
+      - name: The native B-Rep scope note still matches the code
+        # forge/native/brep/Topology.hpp carries the honesty block that anyone
+        # planning OCCT-removal work reads FIRST, so it is read as scope. It went
+        # stale silently: it said "No geometry is attached to the topology yet"
+        # while Edge::curve and Face::surface were both present and used across 30
+        # files, and "No booleans / sewing / healing / feature ops" while
+        # Boolean.hpp declared booleanSolid(const Solid&, const Solid&, BoolOp)
+        # against those very types. Under-claiming is the dangerous direction: a
+        # planning tick reads it and schedules work that is already finished. Every
+        # claim is now probed against the code, and --selftest proves each probe flips.
+        shell: bash
+        run: |
+          python3 tools/kernel/topology_honesty_gate.py
+          python3 tools/kernel/topology_honesty_gate.py --selftest
+
       - name: Every *_gate.sh anywhere is reachable from CI (or pinned)
         # The gap between the two checks above. They are each correctly scoped and
         # neither can see a *_gate.sh outside forge-kernel/test, nor one inside it

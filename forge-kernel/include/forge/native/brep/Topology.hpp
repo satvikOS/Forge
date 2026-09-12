@@ -4,25 +4,46 @@
 // (Stage 6 of KERNEL_INHOUSE_ROADMAP.md — the OCCT replacement, longest pole).
 //
 // ============================ HONESTY (Bible §0/§9) ========================
-// This is the FIRST increment of a multi-year, Parasolid/ACIS/OCCT-class
-// program. What is REAL and VALIDATED in this file:
+// This file's honesty block used to describe the FIRST increment of this
+// program and went stale without anything failing. It claimed "No geometry is
+// attached to the topology yet" while Edge::curve and Face::surface were both
+// present and used, and "No booleans / sewing / healing / feature ops" while
+// Boolean.hpp declared booleanSolid(const Solid&, const Solid&, BoolOp) against
+// these very types. A stale honesty note is worse than none: it is READ as
+// scope, and it nearly sent a removal-programme tick to re-implement geometry
+// binding that already existed. tools/kernel/topology_honesty_gate.py now
+// probes the code for each claim below and fails if one drifts.
+//
+// What is REAL here, MEASURED (30 files include this header AND take its types
+// in their signatures):
 //
 //   * A boundary-representation topology graph:
 //       Vertex, Edge, Coedge(HalfEdge), Loop, Face, Shell, Solid.
-//   * The basic Euler operators (MEV/MEF style mutators) used to assemble a
-//     valid, orientable, closed 2-manifold shell from nothing.
-//   * A builder that constructs a closed box Solid and reports its
-//       V (vertices), E (edges), F (faces), L (loops), Sh (shells)
-//     counts so the Euler-Poincaré characteristic V - E + F = 2 - 2*genus
-//     can be checked by the gate test.
+//   * The MEV / MEF Euler-operator mutators used to assemble a valid,
+//     orientable, closed 2-manifold shell from nothing, plus the element
+//     factories on TopologyBuilder.
+//   * GEOMETRY IS BOUND: Edge carries `Curve* curve` over its own [t0,t1] trim
+//     (with a tolerance for tolerant edges) and Face carries `Surface* surface`
+//     over a (u0,u1)x(v0,v1) window with per-vertex UV. Faces may carry inner
+//     (hole) loops. Primitives.hpp returns analytic Solids on this graph, not
+//     meshes.
+//   * EulerCounts + eulerPoincareValid(shellCount, genus) for V - E + F.
+//   * Operations that consume and produce these types live in sibling headers:
+//     Boolean.hpp (booleanSolid fuse/cut/common), Sew.hpp, Heal.hpp,
+//     FilletAnalytic.hpp, ChamferAnalytic.hpp, DraftAnalytic.hpp,
+//     OffsetShape.hpp, Shell.hpp, UnifyFaces.hpp, Section.hpp, Query.hpp,
+//     Check.hpp (a diagnostic taxonomy, not just the box gate).
 //
-// What is explicitly TARGETED (NOT built here, do not claim it works):
-//   * No geometry is attached to the topology yet (no curves on edges /
-//     surfaces on faces) — that binding to brep/Nurbs is a later increment.
-//   * No general Euler operator completeness (KEV/KEF/MEKR/KEMR/MZEV ...),
-//     no non-manifold support, no genus>0 handle operators, no validation
-//     beyond the closed-2-manifold box gate.
-//   * No booleans / sewing / healing / feature ops (fillet/chamfer/offset).
+// What is genuinely NOT built (each one probed by the gate, so it cannot go
+// stale the way the list above did):
+//   * No general Euler operator completeness. Only MEV and MEF exist; KEV, KEF,
+//     MEKR, KEMR and MZEV appear nowhere in this kernel except in this sentence.
+//   * No non-manifold REPRESENTATION: Edge has exactly two coedge slots
+//     (coedgeA/coedgeB), so a 3+-coedge edge cannot be built. Check.hpp DETECTS
+//     that condition (T9 NonManifoldEdge) and Heal.hpp repairs it — detecting
+//     and repairing is not supporting.
+//   * No genus>0 HANDLE OPERATORS. genus appears as a parameter to validation
+//     and is computed by Sew.hpp/CadScoreGates, but nothing mints a handle.
 //   * No persistent-ID minting via the existing LineageRegistry yet.
 //
 // CONVENTIONS: namespace forge::native (shared in-house kernel). Pure C++20,
