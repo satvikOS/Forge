@@ -2178,6 +2178,15 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     const std::string id = pendingInvokeId_;
     pendingInvokeId_.clear();
     invoke(id);
+    // ── THE ONE-SHOT FIELD SET IS SPENT ─────────────────────────────────────
+    // The empty state's sample buttons plant promptCommand_ + promptFields_
+    // WITHOUT opening a box -- that is how "load THIS sample" overrides
+    // app.load_sample's honest default of "bracket". Left behind, that planted
+    // set is indistinguishable from a sheet the user is answering, so the next
+    // gesture on the same command would skip its sheet and silently reuse
+    // yesterday's answer. Cleared only when nothing is on screen: a dispatch
+    // that OPENED a sheet must keep it.
+    if (!promptOpen_) cancelPrompt();
   }
   // The file panel, before Open Recent and after everything else: it runs a
   // MODAL nested event loop, so it must not start until the dock walk has

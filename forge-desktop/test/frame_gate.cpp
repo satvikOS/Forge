@@ -2049,6 +2049,21 @@ int main(int argc, char** argv) {
     //     had no route into the application at all.
     frame.invoke("part.primitive_box");
     check(frame.promptOpen(), "a second gesture opens the sheet again", "");
+
+    // AND IT DRAWS. Every check above reads the sheet's STATE; none of them
+    // proves a user would see it. This builds a real frame with the sheet
+    // standing open, which is the only thing that exercises the draw -- the
+    // window, the six labelled boxes and the sentence that says which kind of
+    // sheet this is. A prompt that could not draw would pass every other check
+    // in this section.
+    ImDrawData* withSheet = buildOneFrame(frame, 0);
+    check(withSheet != nullptr, "a frame was drawn with the sheet open", "");
+    if (withSheet != nullptr) {
+      checkGe(withSheet->TotalVtxCount, 500, "and it drew real content");
+      checkGe(withSheet->CmdListsCount, 4, "the app is still behind the sheet, not replaced by it");
+    }
+    check(frame.promptOpen(), "and drawing it did not dismiss it", "");
+
     bool typed = true;
     if (g_mutation != 23) {
       typed = frame.setPromptValue("dx", "11") && frame.setPromptValue("dy", "12") &&
