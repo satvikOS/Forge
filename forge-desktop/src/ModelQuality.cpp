@@ -39,22 +39,10 @@
 #include "forge/MassProps.hpp"
 #include "forge/Mold.hpp"
 #include "forge/ShapeCheck.hpp"
+#include "forge/ShapeQuery.hpp"
 #include "forge/ShapeRegistry.hpp"
 #include "forge/Topology.hpp"
 
-#include <BRepBndLib.hxx>
-#include <Bnd_Box.hxx>
-#include <TopAbs.hxx>
-#include <TopExp.hxx>
-#include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
-#include <TopoDS.hxx>
-#include <TopoDS_Edge.hxx>
-#include <TopoDS_Face.hxx>
-#include <TopoDS_Shape.hxx>
-#include <gp_Dir.hxx>
 
 namespace forge::desktop {
 
@@ -86,16 +74,14 @@ class OwnedHandle {
   forge::ShapeHandle h_ = 0;
 };
 
-bool boxOf(const TopoDS_Shape& shape, double lo[3], double hi[3]) {
-  try {
-    Bnd_Box box;
-    BRepBndLib::Add(shape, box);
-    if (box.IsVoid()) return false;
-    box.Get(lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
-    return true;
-  } catch (...) {
-    return false;
-  }
+// The bounding box, asked of the Kernel API rather than computed here. The OCCT
+// that used to live in this function now lives in forge/src/ShapeQuery.cpp, below
+// the boundary, which is where the migration says it belongs.
+bool boxOf(forge::ShapeHandle h, double lo[3], double hi[3]) {
+  forge::ShapeBounds b;
+  if (!forge::shapeBounds(h, b)) return false;
+  for (int i = 0; i < 3; ++i) { lo[i] = b.lo[i]; hi[i] = b.hi[i]; }
+  return true;
 }
 
 }  // namespace
@@ -119,7 +105,6 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
   }
 
   auto& reg = forge::ShapeRegistry::instance();
-  const TopoDS_Shape* shape = nullptr;
   try {
     if (reg.kindOf(h) != forge::ShapeKind::Occt) {
       // The kernel has two ways of holding a body and these checks read one of
@@ -129,12 +114,13 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
           "This model is held in a form these checks cannot read yet, so none of them ran.";
       return out;
     }
-    shape = &reg.get(h);
   } catch (...) {
     out.unavailable = "The model could not be read back for checking.";
     return out;
   }
-  if (shape == nullptr || shape->IsNull()) {
+  // "Is there anything here" asked through the Kernel API: a shape with no faces
+  // is the same emptiness the null check used to catch, and it needs no OCCT type.
+  if (forge::shapeFaceCount(h) == 0) {
     out.unavailable = "The model came back empty, so there is nothing to check.";
     return out;
   }
@@ -171,7 +157,7 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
     out.checkedMass = true;
   } catch (...) {}
 
-  out.checkedBox = boxOf(*shape, out.bboxMin, out.bboxMax);
+  out.checkedBox = boxOf(h, out.bboxMin, out.bboxMax);
 
   try {
     out.faceCount = static_cast<long>(forge::direct::faceCount(h));
@@ -191,11 +177,10 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
     }
   } catch (...) {}
 
-  // ── the face map, shared by draft and zebra ──────────────────────────────
-  TopTools_IndexedMapOfShape faceMap;
-  try {
-    TopExp::MapShapes(*shape, TopAbs_FACE, faceMap);
-  } catch (...) {}
+  // The face map used to be built here and carried through the rest of this
+  // function purely so face objects could be turned back into indices. The Kernel
+  // API answers in indices now (EdgeJoin::indexA/B, DraftFaceIndexed::faceIndex),
+  // so the map -- and the OCCT type it is -- no longer crosses the boundary.
 
   // ── interference ─────────────────────────────────────────────────────────
   // A clash needs two solids. The model's own solids are enumerated here and
@@ -207,12 +192,11 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
     auto& components = forge::ComponentRegistry::instance();
     try {
       int index = 0;
-      for (TopExp_Explorer e(*shape, TopAbs_SOLID); e.More(); e.Next()) {
+      for (const forge::ShapeHandle solidHandle : forge::shapeSolids(h)) {
         ++index;
         QualitySolid s;
         s.index = index;
-        const TopoDS_Shape& solid = e.Current();
-        OwnedHandle sh(reg.add(solid));
+        OwnedHandle sh(solidHandle);   // the query registered it; we release it
         try {
           const forge::MassProperties mp = forge::massProperties(sh.get());
           s.volume = mp.volume;
@@ -222,7 +206,7 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
           s.com[2] = mp.cz;
           s.measured = true;
         } catch (...) {}
-        boxOf(solid, s.bboxMin, s.bboxMax);
+        boxOf(sh.get(), s.bboxMin, s.bboxMax);
         out.solids.push_back(s);
         try {
           instances.push_back(
@@ -277,7 +261,7 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
                   c.com[0] = mp.cx;
                   c.com[1] = mp.cy;
                   c.com[2] = mp.cz;
-                  c.located = boxOf(reg.get(overlap.get()), c.bboxMin, c.bboxMax);
+                  c.located = boxOf(overlap.get(), c.bboxMin, c.bboxMax);
                 }
               } catch (...) {}
             }
@@ -302,33 +286,26 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
   // meets itself — has the same face twice and is skipped, because "how does
   // this face meet itself" is not the question a continuity check answers.
   try {
-    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
-    TopExp::MapShapesAndAncestors(*shape, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
-    for (int k = 1; k <= edgeFaces.Extent(); ++k) {
-      const TopTools_ListOfShape& adjacent = edgeFaces.FindFromIndex(k);
-      if (adjacent.Extent() != 2) continue;
-      auto it = adjacent.begin();
-      const TopoDS_Face faceA = TopoDS::Face(*it);
-      ++it;
-      const TopoDS_Face faceB = TopoDS::Face(*it);
+    for (const forge::EdgeJoin& ej : forge::shapeEdgeJoins(h)) {
+      // The query already dropped every edge not bounded by exactly two faces.
+      OwnedHandle ha(ej.faceA);
+      OwnedHandle hb(ej.faceB);
+      OwnedHandle he(ej.edge);
       // A SEAM has the same face on both sides -- the closing line of a bore is
       // the standard example. "How does this face meet itself" is not a
       // continuity question, so it is not counted as one either: `sharedEdges`
       // is the number of joins there ARE, so a shortfall against `joins` can
       // only mean the cap was reached.
-      if (faceA.IsSame(faceB)) continue;
+      if (ej.seam) continue;
       ++out.sharedEdges;
       if (out.joins.size() >= kQualityMaxJoins) {
         out.continuityCapped = true;
         continue;
       }
       QualityJoin join;
-      join.faceA = faceMap.Contains(faceA) ? faceMap.FindIndex(faceA) : 0;
-      join.faceB = faceMap.Contains(faceB) ? faceMap.FindIndex(faceB) : 0;
+      join.faceA = static_cast<int>(ej.indexA);
+      join.faceB = static_cast<int>(ej.indexB);
       if (join.faceA > join.faceB) std::swap(join.faceA, join.faceB);
-      OwnedHandle ha(reg.add(faceA));
-      OwnedHandle hb(reg.add(faceB));
-      OwnedHandle he(reg.add(TopoDS::Edge(edgeFaces.FindKey(k))));
       try {
         const forge::classa::ContinuityReport rep = forge::classa::continuityCheck(
             ha.get(), hb.get(), he.get(), kQualityContinuitySamples);
@@ -362,8 +339,13 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
   // The curvature answer is NOT capped -- it is nine samples per face and it is
   // what stops a curved face's single draft sample being read as a verdict on
   // the whole face -- while the stripe grid is, because it is four hundred.
-  for (int k = 1; k <= faceMap.Extent(); ++k) {
-    OwnedHandle hc(reg.add(faceMap(k)));
+  // 1-based, to stay in step with the face indices EdgeJoin and DraftFaceIndexed
+  // report -- shapeFaces() returns the faces in face-map order precisely so this
+  // correspondence holds.
+  int k = 0;
+  for (const forge::ShapeHandle faceHandle : forge::shapeFaces(h)) {
+    ++k;
+    OwnedHandle hc(faceHandle);
     try {
       const std::vector<forge::classa::CurvatureSample> curv =
           forge::classa::gaussianAndMeanCurvature(hc.get(), 3, 3);
@@ -389,12 +371,17 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
                                settings.pull[1] * settings.pull[1] +
                                settings.pull[2] * settings.pull[2]);
     if (n > 1e-12) {
-      const gp_Dir pull(settings.pull[0] / n, settings.pull[1] / n, settings.pull[2] / n);
-      const std::vector<forge::mold::DraftFace> rows =
-          forge::mold::analyseDraft(*shape, pull, settings.draftThresholdDeg);
-      for (const forge::mold::DraftFace& d : rows) {
+      const double pull[3] = {settings.pull[0] / n, settings.pull[1] / n,
+                              settings.pull[2] / n};
+      // The indexed overload. forge::mold::analyseDraft() answers in TopoDS_Face
+      // objects, and the only thing this ever did with one was look up its index
+      // in the face map -- so the lookup happens below the boundary now and the
+      // OCCT type never crosses it.
+      const std::vector<forge::DraftFaceIndexed> rows =
+          forge::shapeDraftFaces(h, pull, settings.draftThresholdDeg);
+      for (const forge::DraftFaceIndexed& d : rows) {
         QualityDraftFace row;
-        row.face = faceMap.Contains(d.face) ? faceMap.FindIndex(d.face) : 0;
+        row.face = static_cast<int>(d.faceIndex);
         row.angleDeg = d.angleDeg;
         // The three verdicts are the kernel's, not a re-derivation: a face that
         // stands along the pull is reported as standing even when the sign of
@@ -427,12 +414,15 @@ ModelQualityReport analyseSolidQuality(std::uint32_t shapeHandle,
 
   // ── zebra ────────────────────────────────────────────────────────────────
   try {
-    for (int k = 1; k <= faceMap.Extent(); ++k) {
+    int k = 0;
+    for (const forge::ShapeHandle zf : forge::shapeFaces(h)) {
+      ++k;
+      OwnedHandle hf(zf);
       if (out.zebra.size() >= kQualityMaxZebraFaces) {
         out.zebraCapped = true;
         break;
       }
-      OwnedHandle hf(reg.add(faceMap(k)));
+
       QualityZebraFace face;
       face.face = k;
       try {

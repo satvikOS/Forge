@@ -13,7 +13,7 @@ overstate the work by roughly threefold on this tree.
 
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
-| APP | 13 | YES |
+| APP | 0 | YES |
 | KERNEL | 1386 | YES |
 | TOOLING | 23 | yes, last |
 | ORACLE | 1919 | no — by design |
@@ -49,7 +49,7 @@ Status is DERIVED from the tree on every run, never typed in.
 | [ ] | Topology / B-Rep | 578 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
 | [x] | Tessellation | 0 | 0 | `forge-kernel/src/native/mesh, forge-kernel/include/forge/native/mesh` |
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
-| [ ] | Kernel core (rest) | 1291 | 61 | `forge-kernel/src` |
+| [ ] | Kernel core (rest) | 1304 | 62 | `forge-kernel/src` |
 
 ## Application-layer leaks
 
@@ -57,9 +57,49 @@ The migration rule is that application code stops talking to OCCT directly and
 goes through the Forge Kernel API. Every file below violates that and is the
 cheapest possible progress.
 
-| file | OCCT include lines |
+None. Application code is behind the Kernel API.
+
+## The Kernel API surface — what STAGE 1 actually requires
+
+"Application code stops talking to OCCT" is not achieved by removing include
+lines. MEASURED: forge-desktop/src/ModelQuality.cpp now names no OCCT type at
+all -- it speaks ShapeHandle and forge::ShapeQuery -- and it still cannot
+compile without the OCCT headers, because forge/ShapeRegistry.hpp names
+TopoDS_Shape in add() and get(). The boundary is where the HEADERS are, not
+where the .cpp files are.
+
+So this is the number Stage 1 is measured by: public kernel headers that
+include an OCCT header. The legacy adapter (Occt*.hpp, NativeOcctBridge.hpp)
+is expected to and is listed separately.
+
+| public kernel headers exposing OCCT | 29 |
 |---|---:|
-| `forge-desktop/src/ModelQuality.cpp` | 13 |
+| of those, the legacy adapter (expected) | 6 |
+| **of those, the Kernel API proper** | **23** |
+
+- `forge-kernel/include/forge/ComponentRegistry.hpp`
+- `forge-kernel/include/forge/Drawings.hpp`
+- `forge-kernel/include/forge/Mold.hpp`
+- `forge-kernel/include/forge/ShapeRegistry.hpp`
+- `forge-kernel/include/forge/Sketcher.hpp`
+- `forge-kernel/include/forge/native/brep/FaceNormal.hpp`
+- `forge-kernel/include/forge/native/brep/NativeDraft.hpp`
+- `forge-kernel/include/forge/native/brep/NativeDraftAngle.hpp`
+- `forge-kernel/include/forge/native/brep/NativeDraftLocal.hpp`
+- `forge-kernel/include/forge/native/brep/NativeFilletChamfer.hpp`
+- `forge-kernel/include/forge/native/brep/NativeFilling.hpp`
+- `forge-kernel/include/forge/native/brep/NativeLoftPipe.hpp`
+- `forge-kernel/include/forge/native/brep/NativeSectionFill.hpp`
+- `forge-kernel/include/forge/native/brep/NativeShapeHeal.hpp`
+- `forge-kernel/include/forge/native/brep/NativeShapeHealBridge.hpp`
+- `forge-kernel/include/forge/native/brep/NativeThickSolid.hpp`
+- `forge-kernel/include/forge/native/brep/NativeThickenShell.hpp`
+- `forge-kernel/include/forge/native/brep/NativeVariableFillet.hpp`
+- `forge-kernel/include/forge/native/brep/NativeWireFill.hpp`
+- `forge-kernel/include/forge/native/brep/StepReadOcct.hpp`
+- `forge-kernel/include/forge/native/geom/NativeNurbsConvert.hpp`
+- `forge-kernel/include/forge/native/geom/NativePCurveFit.hpp`
+- `forge-kernel/include/forge/native/geom/NativeProjection.hpp`
 
 ## Heaviest production kernel files
 

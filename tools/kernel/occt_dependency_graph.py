@@ -249,6 +249,42 @@ def render():
     else:
         w('None. Application code is behind the Kernel API.')
     w('')
+    w('## The Kernel API surface — what STAGE 1 actually requires')
+    w('')
+    w('"Application code stops talking to OCCT" is not achieved by removing include')
+    w('lines. MEASURED: forge-desktop/src/ModelQuality.cpp now names no OCCT type at')
+    w('all -- it speaks ShapeHandle and forge::ShapeQuery -- and it still cannot')
+    w('compile without the OCCT headers, because forge/ShapeRegistry.hpp names')
+    w('TopoDS_Shape in add() and get(). The boundary is where the HEADERS are, not')
+    w('where the .cpp files are.')
+    w('')
+    w('So this is the number Stage 1 is measured by: public kernel headers that')
+    w('include an OCCT header. The legacy adapter (Occt*.hpp, NativeOcctBridge.hpp)')
+    w('is expected to and is listed separately.')
+    w('')
+    api, adapter = [], []
+    hdr_re = re.compile(r'^\s*#\s*include\s*<([A-Za-z0-9_]+)\.hxx>')
+    for rel in sorted(walk()):
+        if not rel.startswith('forge-kernel/include/forge/') or not rel.endswith('.hpp'):
+            continue
+        try:
+            lines = open(os.path.join(ROOT, rel), encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        if not any(m and OCCT_HDR.match(m.group(1) + '.hxx')
+                   for m in (hdr_re.match(l) for l in lines)):
+            continue
+        base = os.path.basename(rel)
+        (adapter if base.startswith('Occt') or base.startswith('NativeOcct')
+         else api).append(rel)
+    w(f'| public kernel headers exposing OCCT | {len(api) + len(adapter)} |')
+    w('|---|---:|')
+    w(f'| of those, the legacy adapter (expected) | {len(adapter)} |')
+    w(f'| **of those, the Kernel API proper** | **{len(api)}** |')
+    w('')
+    for rel in api:
+        w(f'- `{rel}`')
+    w('')
     w('## Heaviest production kernel files')
     w('')
     w('| file | OCCT include lines |')
