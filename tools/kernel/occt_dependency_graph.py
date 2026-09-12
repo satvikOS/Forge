@@ -49,12 +49,21 @@ def classify(rel):
     return 'OTHER'
 
 def walk():
-    skip = {'.git', '.claude', 'node_modules', 'build', 'build-app', 'out', 'dist'}
-    for dp, dn, fn in os.walk(ROOT):
-        dn[:] = [d for d in dn if d not in skip and not d.startswith('.archdisc-wt')]
-        for f in fn:
-            if f.endswith(SRC_EXT):
-                yield os.path.relpath(os.path.join(dp, f), ROOT)
+    """Only files GIT TRACKS.
+
+    An os.walk here made the output depend on untracked local state and the gate was
+    therefore not reproducible: this checkout carries an untracked
+    forge-kernel/scratchpad, so the same commit produced SCRATCH=206 in one working
+    copy and SCRATCH=0 in another, and CI -- which checks out clean -- would have gone
+    red for a reason that has nothing to do with the code. `git ls-files` is the only
+    definition of "the tree" that every checkout agrees on."""
+    out = subprocess.run(['git', '-C', ROOT, 'ls-files'], capture_output=True,
+                         text=True, timeout=60)
+    if out.returncode != 0:
+        raise SystemExit('[occt-graph] cannot list the tree: ' + out.stderr.strip())
+    for rel in out.stdout.splitlines():
+        if rel.endswith(SRC_EXT):
+            yield rel
 
 def occt_includes(path):
     n, hdrs = 0, []
