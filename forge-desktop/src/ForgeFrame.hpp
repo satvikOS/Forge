@@ -178,6 +178,19 @@ class ForgeFrame final : public forge::ui::DocumentHost {
     copilotRemote_ = planner;
   }
   const forge::ui::Planner* copilotRemotePlanner() const noexcept { return copilotRemote_; }
+
+  // The most recent frame the HOST captured, as a PNG path, attached to every
+  // plan request from here on. The host owns the capture because the swapchain
+  // image index exists only inside the render loop; ForgeFrame merely carries
+  // the path it was handed, which is what keeps this class free of Vulkan.
+  //
+  // Empty is the normal state and means "no picture": the request then goes out
+  // exactly as it did before this existed.
+  void setCopilotFramePath(std::string path) noexcept {
+    copilotFramePath_ = std::move(path);
+  }
+  const std::string& copilotFramePath() const noexcept { return copilotFramePath_; }
+
   const forge::ui::PlanRequest* copilotRequest() const noexcept;
   // Remote first when installed, deterministic otherwise; announces a fallback.
   forge::ui::PlanResponse planWithFallback(const forge::ui::PlanRequest& request);
@@ -1616,6 +1629,7 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // module, and a build without it is not a build with a hole in it.
   forge::ui::Planner* copilotRemote_ = nullptr;
   bool copilotAutoPlan_ = true;
+  std::string copilotFramePath_;   // host-captured PNG of the live window, or empty
   std::string copilotInput_;
   // PLAN rows only -- one per step of the verdict on offer. The transcript is
   // counted separately: a caller asking "did the panel draw a row per planned

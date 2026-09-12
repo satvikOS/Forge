@@ -5836,10 +5836,17 @@ void ForgeFrame::drawToolsPanel() {
 // is the worst of both: the user believes Archie answered, and the plan they are
 // reading came from somewhere else.
 forge::ui::PlanResponse ForgeFrame::planWithFallback(const forge::ui::PlanRequest& request) {
+  // Show the model the part, not just a sentence about it. Archie is a VLM and
+  // until PlanRequest carried an image the app could only ever send it text;
+  // T-084 measured both arms of an image ablation and the missing input is the
+  // IMAGE. A planner that ignores the field is still correct -- LocalPlanner is
+  // deterministic and does -- so this is attached once, for whoever answers.
+  forge::ui::PlanRequest req = request;
+  if (!copilotFramePath_.empty()) req.imagePath = copilotFramePath_;
   if (copilotRemote_ != nullptr) {
-    forge::ui::PlanResponse remote = copilotRemote_->plan(request);
+    forge::ui::PlanResponse remote = copilotRemote_->plan(req);
     if (remote.ok) return remote;
-    forge::ui::PlanResponse local = copilotPlanner_.plan(request);
+    forge::ui::PlanResponse local = copilotPlanner_.plan(req);
     const std::string why = remote.error.empty() ? std::string("no reason given")
                                                  : remote.error;
     if (local.ok) {
@@ -5850,7 +5857,7 @@ forge::ui::PlanResponse ForgeFrame::planWithFallback(const forge::ui::PlanReques
     }
     return local;
   }
-  return copilotPlanner_.plan(request);
+  return copilotPlanner_.plan(req);
 }
 
 const forge::ui::PlanRequest* ForgeFrame::copilotRequest() const noexcept {

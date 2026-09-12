@@ -716,6 +716,64 @@ int main(int argc, char** argv) {
         "with no remote planner there is no fallback notice to show",
         loc.plan.summary);
   }
+
+  // ── the frame the model is shown ──────────────────────────────────────────
+  // Archie is a VLM and the app could only ever hand it text. These assert the
+  // CARRYING, not the capturing: the host owns the swapchain read-back and this
+  // class only forwards the path it was handed, which is what keeps ForgeFrame
+  // free of Vulkan and this gate free of a window.
+  {
+    struct SpyPlanner final : forge::ui::Planner {
+      std::string sawImage;
+      forge::ui::PlanResponse plan(const forge::ui::PlanRequest& rq) override {
+        sawImage = rq.imagePath;
+        forge::ui::PlanResponse r;
+        r.id = rq.id;
+        r.ok = true;
+        r.plan.summary = "seen";
+        forge::ui::PlanStep st;
+        st.commandId = "part.new";
+        r.plan.steps.push_back(st);
+        return r;
+      }
+    };
+    SpyPlanner spy;
+    frame.setCopilotRemotePlanner(&spy);
+
+    forge::ui::PlanRequest rq;
+    rq.id = 4242;
+    rq.intent = "make a plate";
+
+    frame.setCopilotFramePath("");
+    frame.planWithFallback(rq);
+    check(spy.sawImage.empty(),
+          "with no captured frame the request carries no image", spy.sawImage);
+
+    frame.setCopilotFramePath("/tmp/forge_live_frame.png");
+    frame.planWithFallback(rq);
+    check(spy.sawImage == "/tmp/forge_live_frame.png",
+          "the host-captured frame reaches the model-backed planner", spy.sawImage);
+    check(frame.copilotFramePath() == "/tmp/forge_live_frame.png",
+          "and the frame the host set is readable back", frame.copilotFramePath());
+
+    // A request that already names an image is OVERWRITTEN by the host's live
+    // frame. That is deliberate -- the host frame is the one the user is looking
+    // at -- so it is asserted rather than left to the order of two assignments.
+    forge::ui::PlanRequest named;
+    named.id = 4243;
+    named.imagePath = "/tmp/caller_chose_this.png";
+    frame.planWithFallback(named);
+    check(spy.sawImage == "/tmp/forge_live_frame.png",
+          "the live host frame wins over a stale path on the request", spy.sawImage);
+
+    // Clearing it returns to text-only, so a host that stops capturing stops
+    // claiming to have shown the model anything.
+    frame.setCopilotFramePath("");
+    frame.planWithFallback(rq);
+    check(spy.sawImage.empty(),
+          "clearing the frame returns the request to text-only", spy.sawImage);
+    frame.setCopilotRemotePlanner(nullptr);
+  }
   std::printf("\n[copilot] %d checks, %d failures\n", g_checks, g_failures);
   if (g_failures == 0) {
 
