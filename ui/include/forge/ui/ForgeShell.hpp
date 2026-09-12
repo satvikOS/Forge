@@ -23,6 +23,7 @@
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/KeymapAudit.hpp"
+#include "forge/ui/MachineProgram.hpp"
 #include "forge/ui/PanelFocus.hpp"
 #include "forge/ui/RecentDocuments.hpp"
 #include "forge/ui/SelectionService.hpp"
@@ -228,6 +229,22 @@ class ForgeShell {
   // programme has measured a wrong solid reproducing a right volume four times.
   const ExchangeReport& lastExchange() const noexcept { return lastExchange_; }
 
+  // ── the MANUFACTURING-EGRESS seam ───────────────────────────────────────
+  //
+  // A THIRD seam, on the same pattern and for the same stated reason as the
+  // second: the posted machine program is not the document's geometry, it does
+  // not come out of the kernel's exchange module, and adding a method to
+  // FileExchange would make its one implementer abstract. It answers a third
+  // question -- "is there an operation set up, and what did the post-processor
+  // write for it" -- and a build with no CAM panels answers no by leaving
+  // file.export_gcode disabled instead of failing when it is pressed.
+  void setMachineProgramSource(MachineProgramSource* source) noexcept {
+    machineProgramSource_ = source;
+  }
+  MachineProgramSource* machineProgramSource() const noexcept { return machineProgramSource_; }
+  // What the last file.export_gcode wrote, or why it did not.
+  const MachineProgramReport& lastMachineProgram() const noexcept { return lastMachineProgram_; }
+
   // ── the document seam ───────────────────────────────────────────────────
   // Install the owner of the real document. Pass nullptr to detach. The counters
   // are refreshed from the host immediately, and again after every dispatch.
@@ -359,6 +376,14 @@ class ForgeShell {
   void refuseExchange(CommandContext& ctx, ExchangeRefusal refusal,
                       ExchangeFormat format, const std::string& path);
 
+  // file.export_gcode. Separate from runExport for the reason MachineProgram.hpp
+  // gives: a machine program is not the document's geometry and does not travel
+  // the FileExchange seam at all.
+  void runExportMachineProgram(CommandContext& ctx);
+  bool machineProgramAvailable() const noexcept;
+  void refuseMachineProgram(CommandContext& ctx, MachineProgramRefusal refusal,
+                            const std::string& path, const std::string& advice);
+
   CommandRegistry registry_;
   SelectionService selection_;
   Keymap keymap_ = defaultKeymaps();
@@ -373,6 +398,8 @@ class ForgeShell {
   DocumentHost* documentHost_ = nullptr;
   FileExchange* fileExchange_ = nullptr;
   ExchangeReport lastExchange_;
+  MachineProgramSource* machineProgramSource_ = nullptr;
+  MachineProgramReport lastMachineProgram_;
   std::string documentError_;
   // Bumped every time a handler RAISES a document error. Comparing the counter
   // across a dispatch is what tells the log "this command refused" apart from

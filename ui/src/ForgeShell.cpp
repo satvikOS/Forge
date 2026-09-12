@@ -2,18 +2,22 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <map>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/DocumentStore.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/KeymapAudit.hpp"
+#include "forge/ui/MachineProgram.hpp"
 #include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PanelFocus.hpp"
 #include "forge/ui/RecentDocuments.hpp"
@@ -232,6 +236,56 @@ void ForgeShell::registerCommands() {
     c.undo = UndoContract::NotUndoable;
     c.enabled = [this](const CommandContext&) { return exportAvailable(); };
     c.execute = [this](CommandContext& ctx) { runExport(ctx, ExchangeFormat::Brep); };
+    registry_.add(std::move(c));
+  }
+  {
+    // ── AND THE ONE A SLICER CAN READ ─────────────────────────────────────
+    // STL was offered in NEITHER direction until now, so nothing modelled in
+    // Forge could reach a 3D printer. The EXPORT half is what became true: see
+    // canExport in FileExchange.cpp -- the body is tessellated and written
+    // through the kernel's own STL writer, and forge::io::exportStl's refusal of
+    // OCCT-backed bodies is intact and was re-measured rather than assumed.
+    //
+    // There is still no Import STL, and that is a DIFFERENT measurement kept in
+    // the same place: an STL body reads exactly and then will not compile, so an
+    // Import would leave a document the app cannot build.
+    CommandDescriptor c;
+    c.id = "file.export_stl";
+    c.label = "Save a Copy as STL";
+    c.category = "File";
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Application, not Document: writing a file changes nothing in the document,
+    // so asking the host to re-derive geometry afterwards would be a rebuild
+    // nobody asked for. file.save is classified the same way for the same reason.
+    c.sideEffect = SideEffectClass::Application;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return exportAvailable(); };
+    c.execute = [this](CommandContext& ctx) { runExport(ctx, ExchangeFormat::Stl); };
+    registry_.add(std::move(c));
+  }
+  {
+    // ── THE MANUFACTURING WORKSPACE'S ONLY WAY OUT ────────────────────────
+    // Registered HERE, beside the geometry exports, because it is the same kind
+    // of thing: a document-level File command that writes a file and emits no
+    // feature-IR. What it writes is not geometry -- see MachineProgram.hpp -- so
+    // it travels its own seam, but a user looking for "how do I get this out of
+    // Forge" must find it in the one place the other four already are.
+    //
+    // MEASURED before it existed: the CAM post is real and gate-proven (578
+    // lines, 8 passes, 2189.6 mm of cutting, 73.0 s on the app's own part, with
+    // the text re-posted through forge::camx and compared byte for byte) and the
+    // ONLY egress was a Copy button putting it on the clipboard.
+    CommandDescriptor c;
+    c.id = "file.export_gcode";
+    c.label = "Save the Machine Program";
+    c.category = "File";
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
+    // Application, not Document: writing a file changes nothing in the document.
+    // file.save and the two geometry exports are classified the same way.
+    c.sideEffect = SideEffectClass::Application;
+    c.undo = UndoContract::NotUndoable;
+    c.enabled = [this](const CommandContext&) { return machineProgramAvailable(); };
+    c.execute = [this](CommandContext& ctx) { runExportMachineProgram(ctx); };
     registry_.add(std::move(c));
   }
   {
@@ -816,6 +870,94 @@ void ForgeShell::runExport(CommandContext& ctx, ExchangeFormat format) {
     ++documentErrorSeq_;
     ctx.fail(report.message);
   }
+}
+
+// ── THE MACHINE PROGRAM ─────────────────────────────────────────────────────
+bool ForgeShell::machineProgramAvailable() const noexcept {
+  // Asked of the SOURCE, every time, and never cached here. The answer changes
+  // as the user sets an operation up, and a copy kept on the shell would have to
+  // be invalidated by something -- which is the drift `syncDocumentStats` exists
+  // to avoid for the document counters. The seam's contract is that this call is
+  // cheap enough to make from a menu.
+  return machineProgramSource_ != nullptr && machineProgramSource_->hasMachineProgram();
+}
+
+void ForgeShell::refuseMachineProgram(CommandContext& ctx, MachineProgramRefusal refusal,
+                                      const std::string& path, const std::string& advice) {
+  lastMachineProgram_ = MachineProgramReport{};
+  lastMachineProgram_.ok = false;
+  lastMachineProgram_.refusal = refusal;
+  // ── THE LEAK STOP, the same one runImport/runExport apply ───────────────
+  // The SOURCE is the best place to explain why there is no program -- it is the
+  // panel that knows there is no part in the document, or that the section
+  // closed into nothing -- and it is not trusted to be the only place. An advice
+  // sentence that fails isUserReadable is DISCARDED for the closed-set one.
+  lastMachineProgram_.message =
+      (!advice.empty() && isUserReadable(advice)) ? advice : machineProgramMessage(refusal, path);
+  documentError_ = lastMachineProgram_.message;
+  ++documentErrorSeq_;
+  ctx.fail(lastMachineProgram_.message);
+}
+
+void ForgeShell::runExportMachineProgram(CommandContext& ctx) {
+  documentError_.clear();
+  lastMachineProgram_ = MachineProgramReport{};
+  const std::string path = ctx.params().text("path").value_or(std::string());
+  if (machineProgramSource_ == nullptr) {
+    refuseMachineProgram(ctx, MachineProgramRefusal::NoSource, path, std::string());
+    return;
+  }
+  if (path.empty()) {
+    refuseMachineProgram(ctx, MachineProgramRefusal::NoPath, path, std::string());
+    return;
+  }
+
+  MachineProgram program;
+  if (!machineProgramSource_->machineProgram(program) || program.text.empty()) {
+    // An implementation that answers "here it is" with no bytes is reporting two
+    // different things; believe the bytes, because the failure mode of believing
+    // the other one is a user handed an empty file to a machine.
+    refuseMachineProgram(ctx, MachineProgramRefusal::NoProgram, path, program.advice);
+    return;
+  }
+
+  // ── THE FOLDER HAS TO BE THERE ALREADY ──────────────────────────────────
+  // Checked HERE rather than left to the write, and the reason is consistency
+  // inside one File menu. FileSystemStorage::write CREATES missing directories --
+  // right for the autosave it was written for, which owns ~/.forge -- and Save a
+  // Copy as STEP REFUSES a path whose folder does not exist ("a save into a
+  // missing folder" is a checked refusal in forge_desktop_file_exchange_gate).
+  // Two exports in the same menu answering a typo in opposite ways is the kind of
+  // difference a user learns as "Forge is unpredictable".
+  {
+    const std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    std::error_code ec;
+    if (!parent.empty() && !std::filesystem::is_directory(parent, ec)) {
+      refuseMachineProgram(ctx, MachineProgramRefusal::WriteFailed, path, std::string());
+      return;
+    }
+  }
+
+  // ATOMIC, through the storage the autosave already uses: it writes a temporary
+  // beside the target and renames, so a Forge that dies mid-write has not
+  // replaced yesterday's good program with half of today's.
+  FileSystemStorage storage;
+  std::string why;
+  if (!storage.write(path, program.text, why)) {
+    // `why` is DISCARDED, not forwarded. It is written for us and it names the
+    // temporary file this layer's atomic write invented -- "cannot open
+    // '/x/part.nc.forge-tmp' for writing" -- a path the user never typed.
+    refuseMachineProgram(ctx, MachineProgramRefusal::WriteFailed, path, std::string());
+    return;
+  }
+
+  lastMachineProgram_.ok = true;
+  lastMachineProgram_.refusal = MachineProgramRefusal::None;
+  lastMachineProgram_.dialect = program.dialect;
+  lastMachineProgram_.lines = program.lines;
+  lastMachineProgram_.bytes = static_cast<long long>(program.text.size());
+  lastMachineProgram_.message =
+      machineProgramSuccessMessage(program.dialect, program.lines, path);
 }
 
 void ForgeShell::setDocumentHost(DocumentHost* host) noexcept {

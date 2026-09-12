@@ -46,10 +46,17 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **97 commands**; **69 of them emit
+Measured at this revision: the registry holds **99 commands**; **69 of them emit
 feature-IR**, reaching **65 distinct op names**. The kernel defines **68** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+Two more commands arrived and the EMITTING count did not move again, for the same
+reason: `file.export_stl` and `file.export_gcode` are the two WAYS OUT. STL was
+offered in neither direction, so nothing modelled in Forge could reach a slicer;
+and the Manufacturing workspace's posted machine program -- real, and proven line
+by line against `forge::camx::postProcess` -- could leave the application only on
+the clipboard. Both write a file and neither writes a statement.
 
 The registry grew from 80 to 85 and the EMITTING count did not move, which is the
 whole point of the five that arrived. Four are `file.import_step`,

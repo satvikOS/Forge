@@ -438,6 +438,13 @@ std::size_t ForgeFrame::wirePartCommands() {
   // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
   // act on this document, and the status strip's counters are read from it.
   shell_.setDocumentHost(this);
+  // AND THE SECOND ONE THIS OBJECT IS: the source of the posted machine program,
+  // so file.export_gcode can write what the Post Output tab shows. Installed HERE
+  // rather than in main.cpp -- unlike FileExchangeHost, which is a separate
+  // object the application owns, this source IS the frame, so every build that
+  // has a frame has it, including every headless gate. A seam wired only in
+  // main.cpp is a seam no gate exercises.
+  shell_.setMachineProgramSource(this);
   note("Part tools ready: " + std::to_string(added));
 
   // ── EVERY COMMAND GETS A KEY, and this is the only moment that can do it ──
@@ -7533,6 +7540,47 @@ void ForgeFrame::ensureCamPlan() {
     camPlan_.advice = camOutline_.advice;
   }
   camCut_ = cam::simulateCut(camStock_, camPlan_);
+}
+
+// ── THE WAY OUT OF THE MANUFACTURING WORKSPACE ──────────────────────────────
+// forge::ui::MachineProgramSource, implemented on the plan the Post Output tab
+// already draws. Nothing here posts machine code: camPlan_.program is
+// forge::camx::postProcess's own output, and forge_desktop_cam_panels_gate
+// re-posts the same toolpath and requires the two to match byte for byte.
+//
+// Before this pair existed the ONLY egress was ImGui::SetClipboardText behind the
+// Copy button in drawPostOutputPanel. A shop cannot paste a clipboard into a
+// machine.
+bool ForgeFrame::hasMachineProgram() {
+  // NO ensureCamPlan() HERE, and that is the contract, not an oversight: the
+  // shell asks this from file.export_gcode's enabled predicate, which the menu,
+  // the ribbon and the palette evaluate for every command on every frame. Running
+  // the contour generator and the voxel stock simulation from there would put a
+  // CAM run in the File menu of a user who has never opened the Manufacturing
+  // workspace. So it reports what the panels have already computed, and the
+  // command is greyed until an operation has actually been set up.
+  return camPlan_.ok && !camPlan_.program.empty();
+}
+
+bool ForgeFrame::machineProgram(forge::ui::MachineProgram& out) {
+  out = forge::ui::MachineProgram{};
+  // THIS one does refresh, for the reason FileExchangeHost refuses a cached
+  // handle: a file that is not what is on screen is the worst defect a Save can
+  // have. It is the cached path in every ordinary case -- the panel that made the
+  // command available drew this same plan -- and it costs a control comparison.
+  ensureCamPlan();
+  if (!camPlan_.ok || camPlan_.program.empty()) {
+    // The panel's OWN sentence, not a second wording of it. When there is no part
+    // at all this is kCamNoPart, which is what the three Manufacturing tabs draw.
+    out.advice = camPlan_.advice;
+    return false;
+  }
+  out.text = camPlan_.program;
+  out.lines = camPlan_.programLines;
+  // The dialect as the kernel's own enum names it, through the one toString the
+  // Post Output tab's chooser is indexed against.
+  out.dialect = forge::desktop::cam::toString(camPlan_.params.post);
+  return true;
 }
 
 bool ForgeFrame::setCamToolId(std::uint32_t id) {

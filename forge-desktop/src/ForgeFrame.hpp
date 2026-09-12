@@ -46,6 +46,7 @@
 #include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/MachineProgram.hpp"
 #include "forge/ui/Manipulator.hpp"
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
@@ -135,7 +136,12 @@ struct SplitterHit {
 // ONE file.new / file.open / file.save / edit.undo / edit.redo act on it. Before
 // this, three disconnected document models coexisted and none of them was the
 // one on screen.
-class ForgeFrame final : public forge::ui::DocumentHost {
+// It is ALSO the source of the posted machine program, for the same reason: the
+// CAM plan the Manufacturing panels compute is state in this object and nowhere
+// else, and forge::ui::MachineProgramSource is the seam that lets the shell's ONE
+// file.export_gcode write it without ui/ knowing what a toolpath is.
+class ForgeFrame final : public forge::ui::DocumentHost,
+                         public forge::ui::MachineProgramSource {
  public:
   ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene);
 
@@ -258,6 +264,19 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t documentRedoDepth() const override;
   bool documentDirty() const override;
   std::string documentPath() const override;
+
+  // ── forge::ui::MachineProgramSource ─────────────────────────────────────
+  // The egress for the Manufacturing workspace. Both read camPlan_, which
+  // ensureCamPlan() fills from forge::camx -- nothing here posts a line of
+  // machine code itself, exactly as drawPostOutputPanel() does not.
+  //
+  // hasMachineProgram() COMPUTES NOTHING. It is called from a command's enabled
+  // predicate, which is evaluated for every command on every frame to draw the
+  // menu; generating a toolpath there would put a CAM run inside the File menu.
+  // It reports what the panels have already computed, so the command is offered
+  // once an operation has been set up and greyed until then.
+  bool hasMachineProgram() override;
+  bool machineProgram(forge::ui::MachineProgram& out) override;
 
   // Feed one key press. Returns true when it resolved to a command that ran.
   bool onKey(const std::string& key, forge::ui::ModMask mods);

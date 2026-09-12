@@ -114,16 +114,29 @@ bool formatFromPath(std::string_view path, ExchangeFormat& out) noexcept {
 //               unproven read is not a capability, so it is not offered either.
 //   exportStep  real (AP242 analytic writer)
 //   exportBrep  real (OCCT BRepTools::Write)
-//   exportStl   NOT REACHABLE FROM THIS APP, and the app says so. The body is
-//               native-only: an OCCT-backed handle throws "native STL export
-//               covers native-kernel bodies; this handle is OCCT-backed and has
-//               no native tessellation". Every solid the app can save is OCCT-
-//               backed, because forge::ft::compile forces the native backend OFF
-//               for the whole build ("Force the clean OCCT analytic backend").
-//               MEASURED: exporting the app's own default bracket to STL refuses.
-//               So canExport(Stl) is false and no Save-as-STL command exists --
-//               a capability nothing the app can build could ever use is not a
-//               capability. STL IMPORT is unaffected and is registered.
+//   exportStl   OFFERED, and NOT through forge::io::exportStl. That entry point
+//               is native-bodies-only and it still refuses everything this app
+//               builds -- RE-MEASURED, on a compiled BOX/CYL/CUT body: it throws
+//               "native STL export covers native-kernel bodies; this handle is
+//               OCCT-backed and has no native tessellation", because
+//               forge::ft::compile forces the native backend OFF for the whole
+//               build ("Force the clean OCCT analytic backend"). So that refusal
+//               is intact and this capability does not depend on it.
+//               What changed is that the refusal was never the whole question. An
+//               STL is a triangle soup and this application ALREADY HAS the
+//               triangles -- forge::tessellate, the same call the viewport is
+//               drawn from, works on an OCCT-backed handle. FileExchangeHost
+//               tessellates the compiled body and serialises it through the
+//               KERNEL's own writer, native::brep::MeshExchange::writeSTL -- the
+//               one forge::io::exportStl itself calls -- so not a byte of the
+//               format is spelled in the app.
+//               MEASURED end to end: the file written for that body, read back
+//               through the kernel's own STL reader and integrated, gives
+//               78439.277 mm3 against the analytic 78429.204 (+0.0128%).
+//               It is a MESH, at a stated chord tolerance, which is what every
+//               CAD application's STL export is.
+//               STL IMPORT is a different question and is still refused; see
+//               importStl above and file_exchange_gate section 4b.
 //   exportIges  REFUSES. Not "sometimes fails" -- the body is an unconditional
 //               throw. Whether that refusal is still fully justified is a
 //               separate question (a native IGES writer covering PLANE and NURBS
@@ -149,7 +162,7 @@ bool canExport(ExchangeFormat format) noexcept {
   switch (format) {
     case ExchangeFormat::Step: return true;
     case ExchangeFormat::Brep: return true;
-    case ExchangeFormat::Stl:  return false;  // native-backed bodies only; see above
+    case ExchangeFormat::Stl:  return true;   // from the tessellation, not forge::io; see above
     case ExchangeFormat::Iges: return false;  // no writer is linked; see above
   }
   return false;

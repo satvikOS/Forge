@@ -140,8 +140,10 @@ bool fileDialogRequestFor(const std::string& commandId, const std::string& seed,
 std::string fileDialogNameField(const std::string& suggestedPath);
 
 // Every command this table covers, in registration order. The file-dialog gate
-// walks it, so a seventh file command that is registered and NOT given a policy
-// is a gate failure rather than a menu item that silently cannot be reached.
+// walks it, so a file command that is registered and NOT given a policy is a
+// gate failure rather than a menu item that silently cannot be reached. (That
+// check has already earned its keep once: file.export_gcode, the Manufacturing
+// workspace's only way out, is the seventh row.)
 const std::vector<std::string>& fileDialogCommandIds();
 
 // ── the native panel ────────────────────────────────────────────────────────

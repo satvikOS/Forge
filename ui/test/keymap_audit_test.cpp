@@ -66,14 +66,14 @@ int main() {
   forge::uitest::Harness H("keymap_audit");
 
   // ── (a) THE GESTURE-BLOCKED LIST, PINNED ─────────────────────────────────
-  // Exactly six commands in the whole application registry cannot be run by a
+  // Exactly nine commands in the whole application registry cannot be run by a
   // bare keystroke or menu click, and every one of them is honest: a file path
   // has no default ("" is not a document), and "the new value of this parameter"
   // has none either — inventing one would let a menu click silently resize the
   // part. Pinned by NAME, deliberately: a count would go on passing while the
   // identity of the blocked command changed underneath it.
   //
-  // FOUR of the six arrived with file exchange (file.import_step / .import_brep,
+  // FOUR of them arrived with file exchange (file.import_step / .import_brep,
   // file.export_step / .export_brep) and they are blocked for the SAME reason
   // file.open always has been: each takes a required `path` of type Text whose
   // ParamSpec declares hasDefault=false, which the header defines as "a fillet
@@ -81,26 +81,34 @@ int main() {
   // dialog in Forge yet, so a path parameter is the honest interim and being
   // reported here is exactly the right outcome -- GestureBlocked is a FACT ABOUT
   // A SCHEMA, not a defect in the keymap, and this gate exists to say so.
+  //
+  // TWO MORE, on the same ground and for the same reason: file.export_stl (STL
+  // was offered in neither direction, so nothing modelled in Forge could reach a
+  // slicer) and file.export_gcode (the Manufacturing workspace's only egress was
+  // a Copy button). Both take a required `path` with no honest default, so the
+  // list is nine and none of the three reasons on it has changed.
   {
     App app;
     const std::vector<std::string> blocked = gestureBlockedCommands(app.shell.registry());
-    CHECK_EQ_INT(blocked.size(), 7);
+    CHECK_EQ_INT(blocked.size(), 9);
     CHECK_EQ_STR(forge::uitest::at(blocked, 0), "file.export_brep");
-    CHECK_EQ_STR(forge::uitest::at(blocked, 1), "file.export_step");
-    CHECK_EQ_STR(forge::uitest::at(blocked, 2), "file.import_brep");
-    CHECK_EQ_STR(forge::uitest::at(blocked, 3), "file.import_step");
-    CHECK_EQ_STR(forge::uitest::at(blocked, 4), "file.open");
-    CHECK_EQ_STR(forge::uitest::at(blocked, 5), "part.edit_feature");
-    // The SEVENTH is part.set_material, blocked for the third distinct honest
+    CHECK_EQ_STR(forge::uitest::at(blocked, 1), "file.export_gcode");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 2), "file.export_step");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 3), "file.export_stl");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 4), "file.import_brep");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 5), "file.import_step");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 6), "file.open");
+    CHECK_EQ_STR(forge::uitest::at(blocked, 7), "part.edit_feature");
+    // The NINTH is part.set_material, blocked for the third distinct honest
     // reason on this list: a part being designed has no default material, and
     // filling one in would let a bare keystroke decide the part is aluminium and
     // change what it weighs. The Materials panel names the choice; the keyboard
     // asks for it.
-    CHECK_EQ_STR(forge::uitest::at(blocked, 6), "part.set_material");
-    // And each of the four names its own unfillable parameter, so the list is
-    // not four ids that merely happen to sort into place.
+    CHECK_EQ_STR(forge::uitest::at(blocked, 8), "part.set_material");
+    // And each of the six names its own unfillable parameter, so the list is
+    // not six ids that merely happen to sort into place.
     for (const char* id : {"file.import_step", "file.import_brep", "file.export_step",
-                           "file.export_brep"}) {
+                           "file.export_brep", "file.export_stl", "file.export_gcode"}) {
       const CommandDescriptor* d = app.shell.registry().find(id);
       CHECK(d != nullptr);
       if (d == nullptr) continue;
@@ -176,7 +184,7 @@ int main() {
     // application registry really holds. This is the check that caught the
     // model.* -> part.* rename when the stubs were retired.
     CHECK_EQ_INT(rep.count(BindingIssueKind::UnknownCommand), 0);
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 7);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 9);
     // The shipped defaults bind the same 13 commands in all four profiles, so
     // there is no ProfileGap yet: a gap needs a command bound HERE and not
     // THERE. Unbound and ProfileGap are raised instead of each other, never
@@ -218,7 +226,7 @@ int main() {
     // complete() must NOT be cleared by GestureBlocked: that is a property of a
     // schema and no rebinding can fix it, so treating it as an incomplete map
     // would make the flag permanently unreachable.
-    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 7);
+    CHECK_EQ_INT(rep.count(BindingIssueKind::GestureBlocked), 9);
 
     // IDEMPOTENT. Running it again adds nothing and changes nothing — a startup
     // that calls it after registration AND after loadState must not double-bind.

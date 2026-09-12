@@ -29,15 +29,20 @@
 //   5  the machine program is a canned sample rather than the post-processor's
 //   6  the shared-measurement scan is pointed at a panel that does not share it
 //   7  the removed volume is added rather than subtracted
+//   8  the exported file is a canned program rather than the posted one
+//   9  the export keeps writing the program the panel FIRST had
+//  10  a save into a folder that is not there is allowed to invent it
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "imgui.h"
@@ -52,7 +57,9 @@
 // file makes itself, not against a helper the panel also uses. CamExtended.hpp
 // reaches no OCCT header, so including it here costs nothing.
 #include "forge/CamExtended.hpp"
+#include "forge/ui/FileExchange.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/MachineProgram.hpp"
 #include "forge/ui/Material.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/Units.hpp"
@@ -150,6 +157,15 @@ std::string tempPath(const char* leaf) {
   return dir + leaf;
 }
 
+// Is there anything at this path -- a file OR a folder? Both halves matter: the
+// refusal check has to say that no file was written AND that no folder was
+// invented, and a reader that opens a directory successfully cannot tell them
+// apart.
+bool onDiskExists(const std::string& path) {
+  std::error_code ec;
+  return std::filesystem::exists(std::filesystem::path(path), ec) && !ec;
+}
+
 std::string readWholeFile(const std::string& path, bool& ok) {
   std::ifstream in(path, std::ios::binary);
   if (!in) {
@@ -220,6 +236,16 @@ int main(int argc, char** argv) {
   // material -- the same call every other desktop gate makes first.
   const std::size_t wired = frame.wirePartCommands();
   check(wired > 0, "the Part commands are registered", std::to_string(wired));
+  // BEFORE A SINGLE FRAME IS DRAWN. hasMachineProgram() is called from
+  // file.export_gcode's enabled predicate, which the menu evaluates for every
+  // command on every frame, so its contract is that it COMPUTES NOTHING and
+  // reports what the Manufacturing panels have already worked out. This is that
+  // contract measured: the part exists and compiles, the source is installed, and
+  // there is still no program because no operation has been set up yet.
+  check(!frame.hasMachineProgram(),
+        "with no panel yet drawn there is no machine program to export", "");
+  check(shell.machineProgramSource() == &frame,
+        "the frame installed itself as the machine-program source", "");
 
   // ── 2. THE TOOL LIBRARY IS THE KERNEL'S ──────────────────────────────────
   // Compared entry by entry against forge::camx::listTools(), called here. A
@@ -538,6 +564,253 @@ int main(int argc, char** argv) {
     step(frame);
     checkEq(frame.camRecomputes(), settled + 1, "changing the tool recomputes once");
     checkEq(frame.camPlan().tool.id, other, "the operation now uses the tool that was chosen");
+  }
+
+  // ── 9. THE PROGRAM CAN LEAVE THE APPLICATION ─────────────────────────────
+  // Everything above proves the Manufacturing workspace computes a real program.
+  // NOTHING above proves a machinist can ever get it, and until file.export_gcode
+  // existed nobody could: the only egress was ImGui::SetClipboardText behind the
+  // Copy button, and a shop cannot paste a clipboard into a machine.
+  //
+  // The claim asserted here is the strongest one available and it is one line:
+  // THE BYTES ON DISK ARE THE PROGRAM THIS GATE ALREADY PROVED, byte for byte --
+  // check 5 above re-posted the same toolpath through forge::camx::postProcess
+  // and required an exact match, so a file equal to camPlan().program is a file
+  // equal to the post-processor's own output.
+  {
+    std::printf("\n-- 9. the machine program reaches a file ----------------------------\n");
+
+    // ── EVERY SENTENCE THIS FEATURE CAN SHOW ───────────────────────────────
+    // The closed refusal set, walked, because a value added to the enum with no
+    // sentence written for it is the defect the set exists to prevent. The
+    // predicate's own positive control -- proof that isUserReadable has ever said
+    // no -- lives in forge_desktop_file_exchange_gate, which feeds it the
+    // kernel's real leaked strings; this is the other half, over the sentences
+    // this feature owns.
+    {
+      std::size_t sentences = 0;
+      for (const forge::ui::MachineProgramRefusal refusal :
+           forge::ui::kAllMachineProgramRefusals) {
+        for (const std::string& path : {std::string(), std::string("/Users/a_b/part_v2.nc")}) {
+          const std::string m = forge::ui::machineProgramMessage(refusal, path);
+          ++sentences;
+          check(!m.empty(), "every refusal has a sentence", forge::ui::toString(refusal));
+          check(forge::ui::isUserReadable(m),
+                "every refusal is in plain words", std::string(forge::ui::toString(refusal)) +
+                                                       ": " + m);
+        }
+      }
+      // And the success sentence, in every dialect the post-processor writes.
+      for (const cam::PostFlavour post : {cam::PostFlavour::Fanuc, cam::PostFlavour::Heidenhain,
+                                          cam::PostFlavour::Siemens}) {
+        const std::string m = forge::ui::machineProgramSuccessMessage(cam::toString(post), 578,
+                                                                     "/Users/a_b/part_v2.nc");
+        ++sentences;
+        check(forge::ui::isUserReadable(m), "the success sentence is in plain words", m);
+        check(m.find(cam::toString(post)) != std::string::npos,
+              "the success sentence names the dialect", m);
+      }
+      // A SOURCE THAT HANDS OVER AN IDENTIFIER does not get to put it in front of
+      // a machinist: the dialect is the one word of that sentence this layer did
+      // not write, so it is checked before it is pasted in.
+      const std::string leaked = forge::ui::machineProgramSuccessMessage(
+          "TopoDS_Shape", 1, "/Users/a_b/part_v2.nc");
+      check(forge::ui::isUserReadable(leaked),
+            "a leaked dialect name is kept out of the success sentence", leaked);
+      std::printf("[gate] %zu machine-program sentences, all plain\n", sentences);
+    }
+
+    const forge::ui::CommandRegistry& reg = shell.registry();
+    const forge::ui::CommandDescriptor* d = reg.find("file.export_gcode");
+    check(d != nullptr, "file.export_gcode is registered", "");
+    if (d != nullptr) {
+      checkEqStr(d->category, "File", "the export sits in the File category");
+      check(d->featureIrOp.empty(), "the export claims no feature-IR op", d->featureIrOp);
+      check(d->schema.size() == 1 && d->schema[0].name == "path" &&
+                d->schema[0].type == forge::ui::ParamType::Text && d->schema[0].required &&
+                !d->schema[0].hasDefault,
+            "the export takes exactly one required path with no default", "");
+      check(static_cast<bool>(d->execute) && static_cast<bool>(d->enabled),
+            "the export has a handler and an enabled predicate", "");
+    }
+
+    // A SHELL WITH NO CAM BEHIND IT SAYS SO BY BEING DISABLED, rather than by
+    // failing when it is pressed -- the contract every other file command keeps.
+    // Every headless forge::ui gate is exactly this configuration.
+    {
+      forge::ui::ForgeShell bare;
+      check(bare.machineProgramSource() == nullptr, "a bare shell has no machine-program source",
+            "");
+      // WITH a path supplied, so the only question left is availability:
+      // evaluate() reports a missing required parameter before it reports
+      // anything else, and "you did not give me a file name" is not the answer
+      // being checked here.
+      forge::ui::CommandParams withPath;
+      withPath.setText("path", tempPath("forge_cam_gate_never_written.nc"));
+      const forge::ui::DispatchResult pre =
+          bare.registry().evaluate("file.export_gcode", bare.selection(), withPath);
+      check(pre.status == forge::ui::DispatchStatus::Disabled,
+            "with no source installed the export is DISABLED, not merely failing",
+            forge::ui::machineName(pre.status));
+    }
+
+    // And in THIS shell, where the Manufacturing panels have run, the only thing
+    // standing between the command and running is the path.
+    const cam::CamPlan& plan = frame.camPlan();
+    check(plan.ok && !plan.program.empty(), "there is a program to export", plan.advice);
+    {
+      const forge::ui::DispatchResult pre =
+          shell.registry().evaluate("file.export_gcode", shell.selection());
+      check(pre.status == forge::ui::DispatchStatus::MissingRequiredParameter &&
+                pre.detail == "path",
+            "with a program set up the export waits only for a file name",
+            std::string(forge::ui::machineName(pre.status)) + " " + pre.detail);
+    }
+
+    // ── THE EXPORT ─────────────────────────────────────────────────────────
+    const std::string programPath = tempPath("forge_cam_panels_gate_program.nc");
+    std::remove(programPath.c_str());
+    const std::string firstProgram = plan.program;
+    const std::size_t firstLines = plan.programLines;
+    const std::string firstDialect = cam::toString(plan.params.post);
+
+    forge::ui::CommandParams params;
+    params.setText("path", programPath);
+    const forge::ui::DispatchResult wrote = shell.run("file.export_gcode", params);
+    check(wrote.ok(), "the export ran",
+          std::string(forge::ui::machineName(wrote.status)) + " " + shell.lastDocumentError());
+
+    bool onDiskOk = false;
+    std::string onDisk = readWholeFile(programPath, onDiskOk);
+    check(onDiskOk, "the program is on disk and can be read back", programPath);
+    // THE CHECK THIS SECTION EXISTS FOR. Mutation 8 replaces the expectation with
+    // a canned program, exactly as mutation 5 does for the panel.
+    std::string wantProgram = firstProgram;
+    if (g_mutation == 8) wantProgram = "%\nO0002 (CANNED)\nG0 X0 Y0\nM30\n%\n";
+    check(onDisk == wantProgram, "the FILE is the program the post-processor wrote",
+          "on disk " + std::to_string(onDisk.size()) + " bytes vs " +
+              std::to_string(wantProgram.size()));
+    // And the file really holds the lines the panel counted -- a byte comparison
+    // alone would pass on two identically-wrong strings.
+    std::size_t newlines = 0;
+    for (const char c : onDisk) {
+      if (c == '\n') ++newlines;
+    }
+    checkEq(newlines, firstLines, "the file holds one line per line the panel counted");
+
+    // ── WHAT THE SHELL REPORTS ABOUT WHAT IT DID ───────────────────────────
+    const forge::ui::MachineProgramReport& rep = shell.lastMachineProgram();
+    check(rep.ok, "the shell reports the export succeeded", rep.message);
+    checkEq(rep.lines, firstLines, "the report names the lines the panel counted");
+    checkEqStr(rep.dialect, firstDialect, "the report names the dialect the panel chose");
+    checkEq(static_cast<std::size_t>(rep.bytes), onDisk.size(),
+            "the report names the bytes that are on disk");
+    check(forge::ui::isUserReadable(rep.message), "the success sentence is plain", rep.message);
+    check(rep.message.find(firstDialect) != std::string::npos,
+          "the success sentence names the dialect", rep.message);
+    std::printf("[gate] exported: %zu bytes, %zu lines, %s -- \"%s\"\n", onDisk.size(), rep.lines,
+                rep.dialect.c_str(), rep.message.c_str());
+
+    // ── IT FOLLOWS THE PANEL, IT IS NOT A CACHED FIRST ANSWER ──────────────
+    // "The file I saved is not the program on screen" is the worst defect a Save
+    // can have. Change the tool -- which changes the feed, and therefore every
+    // cutting line of the program -- and export again.
+    const std::uint32_t otherTool = cam::toolLibrary().front().id;
+    check(otherTool != plan.tool.id, "a second tool is available to switch to",
+          std::to_string(otherTool));
+    check(frame.setCamToolId(otherTool), "the second tool was accepted", "");
+    step(frame);
+    const std::string secondProgram = frame.camPlan().program;
+    check(secondProgram != firstProgram, "changing the tool changed the program",
+          std::to_string(secondProgram.size()) + " vs " + std::to_string(firstProgram.size()));
+
+    std::remove(programPath.c_str());
+    const forge::ui::DispatchResult wroteAgain = shell.run("file.export_gcode", params);
+    check(wroteAgain.ok(), "the second export ran", shell.lastDocumentError());
+    onDisk = readWholeFile(programPath, onDiskOk);
+    check(onDiskOk, "the second program is on disk", programPath);
+    // MUTATION 9: the defect is an export that keeps writing the program the
+    // panel FIRST had. Pinning the old text here is what that defect looks like,
+    // and it must go red against a file that correctly holds the new one.
+    const std::string wantSecond = (g_mutation == 9) ? firstProgram : secondProgram;
+    check(onDisk == wantSecond, "the file follows the panel rather than the first export",
+          "on disk " + std::to_string(onDisk.size()) + " bytes vs " +
+              std::to_string(wantSecond.size()));
+    std::printf("[gate] re-exported after a tool change: %zu bytes, %zu lines (was %zu bytes, "
+                "%zu lines)\n",
+                onDisk.size(), frame.camPlan().programLines, firstProgram.size(), firstLines);
+
+    // ── THE BYTES ARE THE POST-PROCESSOR'S, NOT THE PANEL'S STRING ─────────
+    // Every comparison above is against camPlan().program, and check 5 is what
+    // says that string is the post-processor's own output. That is a CHAIN, and a
+    // chain has a link in it that this section did not test. So the link is
+    // removed: the toolpath is generated and posted a SECOND time, here, from the
+    // kernel, and the bytes on disk are compared against THAT. A panel that had
+    // quietly started holding something else would break this and not the others.
+    {
+      const cam::OutlineLoop* outer = frame.camOutline().outer();
+      check(outer != nullptr, "the section still has an outer boundary", "");
+      if (outer != nullptr) {
+        const cam::CamPlan& now = frame.camPlan();
+        forge::camx::Polygon boundary;
+        for (const cam::Pt2& p : outer->points) boundary.push_back(forge::camx::Pt2{p.x, p.y});
+        forge::camx::ContourParams cp{};
+        cp.depth = now.params.depthMm;
+        cp.stepdown = now.stepdownMm;
+        cp.climb = true;
+        const std::vector<forge::camx::Polyline3> passes = forge::camx::contourToolpath(
+            boundary, now.tool.id, forge::camx::ContourSide_Outside, cp);
+        forge::camx::PostParams pp{};
+        pp.spindleRPM = now.spindleRpm;
+        pp.feed = now.feedMmPerMin;
+        pp.safeZ = now.params.safeZMm;
+        pp.toolId = now.tool.id;
+        const std::string posted = forge::camx::postProcess(passes, forge::camx::Post_Fanuc, pp);
+        check(!posted.empty(), "the kernel posted a program for this gate to compare against",
+              std::to_string(passes.size()) + " passes");
+        check(onDisk == posted, "the FILE is byte-for-byte what the post-processor wrote",
+              "on disk " + std::to_string(onDisk.size()) + " bytes vs a fresh post of " +
+                  std::to_string(posted.size()));
+      }
+    }
+    std::remove(programPath.c_str());
+
+    // ── AND IT REFUSES, IN PLAIN WORDS ─────────────────────────────────────
+    // A folder that is not there is the most ordinary Save error once a path is
+    // typed rather than picked. Save a Copy as STEP refuses it; this must refuse
+    // it the same way rather than inventing the folder, and it must leave nothing
+    // behind. MUTATION 10 points the same check at a folder that DOES exist.
+    {
+      const std::string missingDir = tempPath("forge_cam_panels_gate_no_such_folder");
+      const std::string nowhere =
+          g_mutation == 10 ? tempPath("forge_cam_gate_here.nc") : (missingDir + "/program.nc");
+      std::remove(nowhere.c_str());
+      forge::ui::CommandParams bad;
+      bad.setText("path", nowhere);
+      const forge::ui::DispatchResult refused = shell.run("file.export_gcode", bad);
+      check(!refused.ok(), "a save into a folder that is not there was refused", nowhere);
+      check(!onDiskExists(nowhere), "nothing was written where the folder does not exist",
+            nowhere);
+      check(!onDiskExists(missingDir), "no folder was invented", missingDir);
+      const forge::ui::MachineProgramReport& badRep = shell.lastMachineProgram();
+      check(!badRep.ok, "the report says the export did not happen", badRep.message);
+      check(forge::ui::isUserReadable(badRep.message), "the refusal is in plain words",
+            badRep.message);
+      std::printf("[gate] refused  : \"%s\"\n", badRep.message.c_str());
+      std::remove(nowhere.c_str());
+    }
+    // A path with nothing in it is its own refusal and its own sentence.
+    {
+      forge::ui::CommandParams empty;
+      empty.setText("path", "");
+      const forge::ui::DispatchResult refused = shell.run("file.export_gcode", empty);
+      check(!refused.ok(), "an empty file name was refused", "");
+      check(shell.lastMachineProgram().refusal == forge::ui::MachineProgramRefusal::NoPath,
+            "an empty file name was refused as a missing name",
+            forge::ui::toString(shell.lastMachineProgram().refusal));
+      check(forge::ui::isUserReadable(shell.lastMachineProgram().message),
+            "that refusal is in plain words too", shell.lastMachineProgram().message);
+    }
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

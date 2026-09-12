@@ -47,6 +47,7 @@
 #include "forge/ui/PartCommands.hpp"
 
 #include "forge/ft/FeatureTree.hpp"
+#include "forge/native/brep/MeshExchange.hpp"
 
 using forge::desktop::FileExchangeHost;
 using forge::ui::CommandParams;
@@ -282,7 +283,7 @@ void checkProse() {
 void checkRegistry(const forge::ui::CommandRegistry& reg) {
   std::printf("\n-- 2. the commands, in the ONE registry ----------------------------\n");
   const char* const ids[] = {"file.import_step", "file.import_brep", "file.export_step",
-                             "file.export_brep"};
+                             "file.export_brep", "file.export_stl"};
   for (const char* id : ids) {
     const forge::ui::CommandDescriptor* d = reg.find(id);
     CHECK(d != nullptr, std::string("not registered: ") + id);
@@ -301,16 +302,22 @@ void checkRegistry(const forge::ui::CommandRegistry& reg) {
   // lies to the user and to the model trained from it.
   CHECK(reg.find("file.export_iges") == nullptr,
         "file.export_iges is registered, but Forge cannot write IGES");
-  // And no Save-as-STL: forge::io::exportStl refuses every OCCT-backed body, and
-  // every body forge::ft::compile produces is OCCT-backed. See ui/src/FileExchange.cpp.
-  CHECK(reg.find("file.export_stl") == nullptr,
-        "file.export_stl is registered, but Forge cannot write STL for a compiled body");
+  // Save-as-STL IS offered now, and the two halves of STL are DIFFERENT claims
+  // that must not be allowed to travel together. The write does not go through
+  // forge::io::exportStl at all -- that entry point still refuses every
+  // OCCT-backed body, which is everything forge::ft::compile produces, and
+  // section 4c re-measures that refusal rather than trusting this comment. The
+  // write goes through the tessellation and the kernel's own STL writer.
+  CHECK(reg.find("file.export_stl") != nullptr,
+        "file.export_stl is NOT registered, so nothing modelled in Forge can reach a slicer");
   CHECK(reg.find("file.import_stl") == nullptr,
         "file.import_stl is registered, but an STL body will not build (see section 4b)");
   CHECK(reg.find("file.import_iges") == nullptr,
         "file.import_iges is registered, but nothing here proves IGES read");
-  CHECK(!forge::ui::canExport(ExchangeFormat::Stl) && !forge::ui::canExport(ExchangeFormat::Iges),
-        "the capability table claims Forge can write STL or IGES");
+  CHECK(forge::ui::canExport(ExchangeFormat::Stl),
+        "the capability table denies an STL export that IS registered");
+  CHECK(!forge::ui::canExport(ExchangeFormat::Iges),
+        "the capability table claims Forge can write IGES");
   CHECK(forge::ui::canImport(ExchangeFormat::Step) && forge::ui::canImport(ExchangeFormat::Brep),
         "the capability table denies an import that IS registered");
   CHECK(!forge::ui::canImport(ExchangeFormat::Stl) && !forge::ui::canImport(ExchangeFormat::Iges),
@@ -326,7 +333,7 @@ void checkRegistry(const forge::ui::CommandRegistry& reg) {
     CHECK(forge::ui::canExport(f) == (reg.find(out) != nullptr),
           "the export table and the registry disagree about " + out);
   }
-  std::printf("  4 file-exchange commands; table and registry agree on all %zu formats\n",
+  std::printf("  5 file-exchange commands; table and registry agree on all %zu formats\n",
               sizeof(forge::ui::kAllExchangeFormats) / sizeof(forge::ui::kAllExchangeFormats[0]));
 
   // ── AND THEY REACH THE FILE MENU ────────────────────────────────────────
@@ -710,6 +717,135 @@ int run(FileExchangeHost::WriteMutation mutation, const std::string& dir) {
           "an STL document NOW COMPILES -- Import STL should be offered again");
     CHECK(built.volume > 0.0,
           "the STL body carried no volume at all, which is a different failure");
+  }
+
+  // ── STL EXPORT: nothing modelled in Forge could reach a slicer ────────────
+  // The half of STL that DID become true. Offered in neither direction before
+  // this, and the reason given for the export half -- forge::io::exportStl
+  // refuses OCCT-backed bodies -- was RE-MEASURED and is still true; it simply
+  // was not the whole question, because an STL is a triangle soup and the app
+  // already has the triangles. See writeStlFromTessellation in FileExchangeHost.
+  //
+  // Proved the way the STEP and BREP legs are: written through the SHIPPING
+  // command, read back through the kernel's own STL reader, and compared on a
+  // VECTOR of observables. Mutation 6 restores forge::io::exportStl and every
+  // check below must go red.
+  {
+    std::printf("\n-- 4d. STL export: the part reaches a slicer (measured) --------------\n");
+    const std::string outStl = dir + "/bracket_export.stl";
+    std::remove(outStl.c_str());
+    // EMPTIED first: seedBracket APPENDS, and section 4b left an imported body in
+    // the document. Without this the program is five statements of bracket on top
+    // of somebody else's solid and does not compile at all.
+    doc.restore(PartDocument::Snapshot{});
+    stack.clear();
+    seedBracket(doc);
+
+    // The INDEPENDENT reference, the same one the round-trip legs use: the
+    // kernel's own ANALYTIC volume, from its own backend guard.
+    const forge::ft::FeatureTree stlTree = forge::ft::parse(doc.irProgram());
+    const forge::ft::CompileResult stlTruth = forge::ft::compile(stlTree);
+    CHECK(stlTruth.ok, std::string("stl: the seeded part did not compile: ") + stlTruth.error);
+
+    exchange.setWriteMutation(mutation);
+    CommandParams outParams;
+    outParams.setText("path", outStl);
+    const DispatchResult stlWrote = shell.run("file.export_stl", outParams);
+    exchange.setWriteMutation(FileExchangeHost::WriteMutation::None);
+    CHECK(stlWrote.ok(), std::string("stl: export refused: ") + stlWrote.detail + " -- " +
+                             shell.lastDocumentError());
+    const ExchangeReport stlReport = shell.lastExchange();
+    CHECK(forge::ui::isUserReadable(stlReport.message),
+          "stl: the export message is not plain: " + stlReport.message);
+    const long long stlBytes = fileSize(outStl);
+    std::printf("  wrote %lld bytes  \"%s\"\n", stlBytes, stlReport.message.c_str());
+    CHECK(stlBytes > 0, "stl: nothing was written to disk");
+
+    // It is an ASCII STL and it says so in its own first word. `solid` is the
+    // one thing every STL reader in the world looks at first.
+    CHECK(head(outStl, 5) == "solid", "stl: the file does not begin with an STL header");
+
+    // ── READ IT BACK WITH THE KERNEL'S OWN READER ──────────────────────────
+    // Not through a command: there IS no Import STL and section 4b measures why.
+    // The seam is what a slicer stands in for here.
+    ExchangeReport stlBack;
+    const bool stlReadOk = exchange.importFile(outStl, ExchangeFormat::Stl, stlBack);
+    CHECK(stlReadOk, std::string("stl: the file Forge wrote could not be read back: ") +
+                         stlBack.message);
+    if (stlReadOk) {
+      std::printf("  read back: volume %.4f (analytic %.4f, %+.4f%%)  com (%.4f %.4f %.4f)\n",
+                  stlBack.volume, stlTruth.volume,
+                  stlTruth.volume == 0.0
+                      ? 0.0
+                      : 100.0 * (stlBack.volume - stlTruth.volume) / stlTruth.volume,
+                  stlBack.centreOfMass[0], stlBack.centreOfMass[1], stlBack.centreOfMass[2]);
+      // TWO INSTRUMENTS, ONE SHAPE -- the same 1% the round-trip legs use, which
+      // is the tessellation's own worst error at this deflection and not a
+      // tolerance widened until it passed.
+      CHECK(approxRel(stlBack.volume, stlTruth.volume, 1e-2, 1e-6),
+            "stl: what came back out of the file (" + std::to_string(stlBack.volume) +
+                ") is not the part the kernel measured (" + std::to_string(stlTruth.volume) + ")");
+      // AND THE VECTOR, because four separate cases in this programme have had a
+      // wrong solid reproduce a right volume. The file is written from the SAME
+      // tessellation the export report is measured over, so these are tight.
+      for (int k = 0; k < 3; ++k) {
+        CHECK(approxRel(stlBack.centreOfMass[k], stlReport.centreOfMass[k], 1e-6, 1e-6),
+              "stl: the centre of mass moved on axis " + std::to_string(k));
+        CHECK(approxRel(stlBack.bboxMin[k], stlReport.bboxMin[k], 1e-6, 1e-6),
+              "stl: the bounding box minimum moved on axis " + std::to_string(k));
+        CHECK(approxRel(stlBack.bboxMax[k], stlReport.bboxMax[k], 1e-6, 1e-6),
+              "stl: the bounding box maximum moved on axis " + std::to_string(k));
+      }
+      CHECK(approxRel(stlBack.area, stlReport.area, 1e-6, 1e-6),
+            "stl: the surface area moved");
+      // A MESH, and it says so: an STL body carries no B-rep face census. This is
+      // the same fact section 4b records about an imported STL, asserted here on
+      // a file FORGE wrote so the two halves cannot drift apart.
+      CHECK(stlBack.faceCount < 0 && stlBack.faceKinds.empty(),
+            "stl: the file Forge wrote came back with a B-rep face census");
+
+      // ── AND IT IS NOT INSIDE OUT ─────────────────────────────────────────
+      // NOTHING above could tell. The exchange reports |divergence| as the
+      // volume, so a mesh with every triangle wound backwards reproduces the
+      // right volume, the right centre of mass and the right bounding box
+      // EXACTLY -- the fifth case in this programme's list of wrong solids that
+      // survive a right number. A slicer reads the WINDING, and fed an inverted
+      // STL it prints the negative of the part.
+      //
+      // So the SIGN is taken here, from the file's own vertex order, through the
+      // kernel's own reader. Positive means the normals point out.
+      {
+        std::string stlText;
+        {
+          std::ifstream in(outStl, std::ios::binary);
+          stlText.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        const forge::native::brep::ReadResult rr =
+            forge::native::brep::MeshExchange::readSTL(stlText);
+        CHECK(rr.ok, std::string("stl: the kernel's own reader refused the file: ") + rr.reason);
+        CHECK(rr.mesh.triangleCount() > 0, "stl: the file holds no triangles");
+        double signedSix = 0.0;
+        for (std::size_t i = 0; i + 2 < rr.mesh.indices.size(); i += 3) {
+          const double* a = &rr.mesh.positions[3 * rr.mesh.indices[i]];
+          const double* b = &rr.mesh.positions[3 * rr.mesh.indices[i + 1]];
+          const double* c = &rr.mesh.positions[3 * rr.mesh.indices[i + 2]];
+          signedSix += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) +
+                       a[2] * (b[0] * c[1] - b[1] * c[0]);
+        }
+        const double signedVolume = signedSix / 6.0;
+        std::printf("  winding  : %zu triangles, signed volume %+.4f\n",
+                    rr.mesh.triangleCount(), signedVolume);
+        CHECK(signedVolume > 0.0,
+              "stl: the triangles are wound INSIDE OUT -- a slicer would print the negative "
+              "of this part (signed volume " + std::to_string(signedVolume) + ")");
+        CHECK(approxRel(signedVolume, stlTruth.volume, 1e-2, 1e-6),
+              "stl: the signed volume off the file's own winding is not the part");
+      }
+    }
+    // Put the document back: importFile REPLACED it with the imported STL body.
+    doc.restore(PartDocument::Snapshot{});
+    stack.clear();
+    seedBracket(doc);
   }
 
   // ── PART 5: the refusals a user can actually reach ────────────────────────

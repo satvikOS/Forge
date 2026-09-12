@@ -9,7 +9,9 @@ edit.delete	Edit	DELETE	document	transaction	none	1	-
 edit.redo	Edit	-	document	none	none	1	-
 edit.undo	Edit	-	document	none	none	1	-
 file.export_brep	File	-	application	none	none	1	path:text:required
+file.export_gcode	File	-	application	none	none	1	path:text:required
 file.export_step	File	-	application	none	none	1	path:text:required
+file.export_stl	File	-	application	none	none	1	path:text:required
 file.import_brep	File	-	document	none	none	1	path:text:required
 file.import_step	File	-	document	none	none	1	path:text:required
 file.new	File	-	application	none	none	1	-

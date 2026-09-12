@@ -5,6 +5,7 @@
 
 #include "PartFile.hpp"
 #include "forge/ui/FileExchange.hpp"
+#include "forge/ui/MachineProgram.hpp"
 
 namespace forge::desktop {
 namespace {
@@ -54,7 +55,15 @@ std::string withExtension(const std::string& path, const std::string& extension)
 }
 
 // ── THE TABLE ───────────────────────────────────────────────────────────────
-// Six rows for the six commands PR #206 registered. Every sentence in it is
+// One row per registered file command that needs a path -- the six PR #206
+// registered, plus the two WAYS OUT: file.export_stl (STL was offered in neither
+// direction, so nothing modelled in Forge could reach a slicer) and
+// file.export_gcode (the Manufacturing workspace's posted program could leave the
+// application only on the clipboard). The file-dialog gate walks the registry in
+// the OTHER direction too, so a file command added without a row here is a red
+// check and not a menu item that silently cannot be reached.
+//
+// Every sentence in it is
 // shown to a user and every one of them is checked by the file-dialog gate with
 // forge::ui::isUserReadable -- the same predicate the exchange refusal messages
 // pass -- so a title that leaked an identifier would be a red gate rather than a
@@ -81,6 +90,13 @@ constexpr Row kRows[] = {
      "Import"},
     {"file.export_brep", FileDialogMode::Save, PathRole::Required, "Save a Copy as BREP",
      "Export"},
+    {"file.export_stl", FileDialogMode::Save, PathRole::Required, "Save a Copy as STL",
+     "Export"},
+    // The Manufacturing workspace's egress. A SAVE panel like the other exports,
+    // and for the same reason its `path` is Required: a machine program has no
+    // honest default name either.
+    {"file.export_gcode", FileDialogMode::Save, PathRole::Required, "Save the Machine Program",
+     "Export"},
 };
 
 // The filters and the default suffix for one row. Kept beside the table rather
@@ -91,8 +107,24 @@ void fillFormats(const std::string& id, FileDialogPolicy& out) {
     out.defaultExtension = kPartFileExtension;
     return;
   }
+  if (id == "file.export_gcode") {
+    // READ from forge::ui, exactly as the exchange filters are, and for the same
+    // reason: a second list of suffixes here would be a second opinion about what
+    // a machine program is called. It is NOT an ExchangeFormat -- a posted
+    // program is not geometry and forge::ui::formatFromPath has correctly never
+    // heard of it, which is why this row cannot reuse exchangeFilter().
+    FileFilter f;
+    f.label = "Machine Program";
+    f.extensions = forge::ui::machineProgramExtensions();
+    out.filters.push_back(f);
+    const std::vector<std::string>& exts = forge::ui::machineProgramExtensions();
+    if (!exts.empty() && out.mode == FileDialogMode::Save) out.defaultExtension = exts.front();
+    return;
+  }
   const bool step = (id == "file.import_step" || id == "file.export_step");
-  const ExchangeFormat format = step ? ExchangeFormat::Step : ExchangeFormat::Brep;
+  const ExchangeFormat format = step                      ? ExchangeFormat::Step
+                                : id == "file.export_stl" ? ExchangeFormat::Stl
+                                                          : ExchangeFormat::Brep;
   out.filters.push_back(exchangeFilter(format));
   // The canonical extension is FIRST in formatExtensions() by contract, and it
   // is the one a Save panel appends. Reading [0] rather than naming ".step"

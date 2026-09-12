@@ -81,7 +81,15 @@ class FileExchangeHost final : public forge::ui::FileExchange {
     ZeroBody,       // blank the tail, keeping the header so the magic still reads
     EmptyFile,      // write nothing at all
     Translate,      // write the right solid in the wrong place
-    SameVolumeCube  // write a cube of the same volume, about the same centre
+    SameVolumeCube, // write a cube of the same volume, about the same centre
+    // STL through forge::io::exportStl instead of the tessellation. This is the
+    // state the application was in before STL export existed, restored on
+    // purpose: that entry point refuses every OCCT-backed body and every body
+    // forge::ft::compile produces is one, so the export must fail. It is the
+    // "revert the fix and watch it go red" proof, wired in permanently, and it is
+    // the only mutation here that targets WHICH WRITER is used rather than what
+    // is written.
+    StlThroughNativeWriter
   };
   void setWriteMutation(WriteMutation mutation) noexcept { mutation_ = mutation; }
 

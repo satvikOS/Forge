@@ -77,7 +77,17 @@ set -uo pipefail
 #   reach. Its real red-then-green is against the code. Mutation 4 asks for a radius
 #   the kernel ACCEPTS, so there is no failure to roll back and the gate must refuse
 #   to pass vacuously.
-EXPECTED_MUTATIONS=113
+# * 2026-09-12: 113 -> 117, + file_exchange 1 + cam_panels 3. The MANUFACTURING
+#   EGRESS. The CAM post was real and gate-proven and the only way its program
+#   could leave the application was a Copy button; STL was offered in neither
+#   direction. cam_panels 8/9/10 cover the exported file being canned, being the
+#   program the panel FIRST had, and a save inventing a folder that is not there.
+#   file_exchange 6 puts STL export back through forge::io::exportStl -- which
+#   refuses every body this app can compile -- so the fix cannot be reverted
+#   without a red check. DERIVED on this tree, not incremented on faith:
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   prints 117.
+EXPECTED_MUTATIONS=117
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists

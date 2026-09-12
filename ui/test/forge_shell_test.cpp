@@ -186,7 +186,14 @@ int main() {
   // 80 -> 84), and they sit beside the file.open / file.save this class already
   // owns. The assertion just below -- no id begins "model." -- is still what
   // proves no modelling command crept back in, and it is unaffected.
-  CHECK_EQ_INT(app.shellCommands, 26);
+  //
+  // 28, not 26: THE TWO WAYS OUT. file.export_stl -- STL was offered in neither
+  // direction, so nothing modelled in Forge could reach a slicer -- and
+  // file.export_gcode, which is the Manufacturing workspace's only egress: the
+  // CAM post was real and gate-proven and its program could leave the
+  // application by clipboard alone. Both are document-level File commands that
+  // emit no feature-IR, so they belong here for the same reason the other four do.
+  CHECK_EQ_INT(app.shellCommands, 28);
   CHECK(shell.registry().contains("file.import_step"));
   CHECK(shell.registry().contains("file.export_step"));
   // They must be DISABLED with no exchange installed, rather than failing when

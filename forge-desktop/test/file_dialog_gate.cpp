@@ -290,7 +290,11 @@ int main(int argc, char** argv) {
   std::printf("\n-- 1. the six commands, and the policy that reaches them -------------\n");
   {
     const std::vector<std::string>& ids = forge::desktop::fileDialogCommandIds();
-    check(ids.size() == 6, "the policy table names six commands",
+    // EIGHT, not six: file.export_stl and file.export_gcode joined the six PR #206
+    // registered. Pinned as a number on purpose -- the two-way comparison below is
+    // what proves the two lists AGREE, and this is what refuses a command quietly
+    // leaving the policy table altogether.
+    check(ids.size() == 8, "the policy table names eight commands",
           "it names " + std::to_string(ids.size()));
     for (const std::string& id : ids) {
       check(shell.registry().find(id) != nullptr, "policy names a registered command: " + id);
@@ -313,7 +317,7 @@ int main(int argc, char** argv) {
       check(forge::desktop::fileDialogPolicyFor(id, policy),
             "every file command that takes a path opens a panel: " + id);
     }
-    check(pathCommands == 6, "six registered file commands take a path",
+    check(pathCommands == 8, "eight registered file commands take a path",
           "found " + std::to_string(pathCommands));
   }
 
