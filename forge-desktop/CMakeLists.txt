@@ -717,6 +717,7 @@ add_executable(forge_desktop_import_reopen_gate
 target_compile_options(forge_desktop_import_reopen_gate PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(forge_desktop_import_reopen_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_import_reopen_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
 # ------------------------------------------------------------- the QUIT gate
 # The document gate proves a part can be written to disk and read back. This one
@@ -953,6 +954,7 @@ foreach(_cm RANGE 1 7)
              COMMAND forge_desktop_camera_stability_gate --mutate ${_cm})
     set_tests_properties(forge_desktop_camera_stability_mutation_${_cm}
                          PROPERTIES WILL_FAIL TRUE)
+endforeach()
 
 add_test(NAME forge_desktop_quit_guard_gate COMMAND forge_desktop_quit_guard_gate)
 # The NINETEEN negative controls for the quit guard, same WILL_FAIL idiom as the
