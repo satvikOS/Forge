@@ -107,7 +107,7 @@ if [ "$PROVE" -eq 1 ]; then
   fi
   echo "[syntax] clean run GREEN; proving the gate can fail"
   PROVE_BAD=0
-  for m in 1 2 3; do
+  for m in 1 2 3 4; do
     if bash "$SELF" --mutate "$m" >/dev/null 2>&1; then
       echo "[syntax] mutation $m STAYED GREEN — the check it targets is unfalsifiable"
       PROVE_BAD=$((PROVE_BAD + 1))
@@ -119,7 +119,7 @@ if [ "$PROVE" -eq 1 ]; then
     echo "[syntax] RED: $PROVE_BAD mutation(s) did not turn the gate red"
     exit 1
   fi
-  echo "[syntax] GREEN -- gate passes clean and all 3 mutations proved red"
+  echo "[syntax] GREEN -- gate passes clean and all 4 mutations proved red"
   exit 0
 fi
 
@@ -154,6 +154,18 @@ CHECKED=(
   forge-desktop/test/drawing_gate.cpp
   forge-desktop/test/file_exchange_gate.cpp
   forge-desktop/test/frame_gate.cpp
+  # ── PROMOTED 2026-09-12 BY THE RATCHET AT THE BOTTOM OF THIS FILE, on its
+  #    first run. Both were listed as needing TopoDS_Shape.hxx through
+  #    forge/Fea.hpp and forge/CamAdvanced.hpp -> forge/Cam.hpp ->
+  #    forge/ShapeRegistry.hpp. Those two kernel headers now include
+  #    forge/ShapeHandle.hpp instead -- the OCCT-free half of the registry -- so
+  #    the dependency is gone and the reason beside them had been wrong for as
+  #    long as that was true. MEASURED: each type-checks with NO OCCT on the
+  #    include path, while KernelScene.cpp and FileExchangeHost.cpp still fail
+  #    at ShapeRegistry.hpp:30, which is what a reason that still holds looks
+  #    like. These are two application-layer OCCT removals nobody was told about.
+  forge-desktop/src/StudyHost.cpp
+  forge-desktop/src/CamHost.cpp
   forge-desktop/test/imgui_recovery_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
@@ -166,8 +178,6 @@ SKIPPED=(
   "forge-desktop/src/KernelScene.cpp     (OCCT: TopoDS_Shape.hxx)"
   "forge-desktop/test/quality_gate.cpp   (OCCT: BRep_Builder.hxx, TopoDS_Compound.hxx -- it BUILDS its two-solid fixture rather than shipping one)"
   "forge-desktop/src/FileExchangeHost.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/IoExchange.hpp -> forge/ShapeRegistry.hpp)"
-  "forge-desktop/src/StudyHost.cpp       (OCCT: TopoDS_Shape.hxx, reached through forge/Fea.hpp -> forge/ShapeRegistry.hpp)"
-  "forge-desktop/src/CamHost.cpp         (OCCT: TopoDS_Shape.hxx, reached through forge/CamAdvanced.hpp -> forge/Cam.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/main.cpp            (SDL2 + Vulkan)"
   "forge-desktop/src/PlatformSDL2.cpp    (SDL2)"
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"
@@ -257,6 +267,11 @@ fi
 # defect behind. Mutation 1 removes an override of a pure virtual, which is
 # exactly the defect of 2026-08-31; mutation 2 calls a method that does not
 # exist, which is exactly #107.
+# ── MUTATION 4's PAYLOAD, declared here because it edits no source. It appends
+#    a TU that ALREADY type-checks to the OCCT skip list, which is exactly what a
+#    stale skip entry looks like, and the ratchet at the bottom must catch it.
+OCCT_SKIP_PROBE=""
+
 WORK=""
 cleanup() {
   if [ -n "$WORK" ] && [ -d "$WORK" ]; then
@@ -293,6 +308,10 @@ if [ "$MUTATE" -ne 0 ]; then
       perl -0pi -e 's/void ForgeFrame::note\(const std::string& line\) \{/void ForgeFrame::note(const std::string\& line) {\n  int unusedOnPurpose = 1;/' \
         "$WORK/forge-desktop/src/ForgeFrame.cpp" || true
       ;;
+    4)
+      # No source edit. A TU this gate already compiles is claimed to need OCCT.
+      OCCT_SKIP_PROBE="forge-desktop/src/Camera.cpp     (OCCT: injected by mutation 4 -- this entry is a LIE)"
+      ;;
     *)
       echo "[syntax] no such mutation: $MUTATE"; exit 1 ;;
   esac
@@ -326,4 +345,53 @@ if [ "$BAD" -ne 0 ]; then
   fi
   exit 1
 fi
+
+# ── THE SKIP LIST IS THE OCCT SURFACE, AND IT HAS TO BE RED IN BOTH DIRECTIONS ─
+#
+# Every entry in SKIPPED carries a reason, and the OCCT ones are not a fact about
+# this gate -- they are the MIGRATION's remaining surface in the application
+# layer. "KernelScene.cpp (OCCT: TopoDS_Shape.hxx)" says the app still reaches
+# OCCT through a kernel header, which is the thing the removal programme exists
+# to end.
+#
+# A reason is a claim, and nothing was re-checking these. The failure mode is not
+# the one the click gate hit (a file that became REACHED while its reason said
+# otherwise, which at least breaks the build); it is quieter and it costs
+# progress: an entry whose OCCT dependency has been REMOVED goes on being skipped
+# for ever, the gate stays green, and nobody is told the app got smaller.
+# ModelQuality.cpp left this list by hand, and it is the only reason anyone knows
+# it did.
+#
+# So: attempt every OCCT-reasoned skip with the SAME no-OCCT include path the
+# checked TUs use. A failure means the reason still holds and nothing is said.
+# A SUCCESS is progress, and this goes red asking for the entry to be promoted.
+# Entries that also need an SDK this gate lacks (render_gate.cpp needs Vulkan
+# too) simply keep failing, so they cannot produce a false alarm.
+PROBE_LIST=("${SKIPPED[@]}")
+[ -n "$OCCT_SKIP_PROBE" ] && PROBE_LIST+=("$OCCT_SKIP_PROBE")
+STALE=()
+ATTEMPTED=0
+for s in "${PROBE_LIST[@]}"; do
+  case "$s" in *OCCT*) ;; *) continue ;; esac
+  p="${s%% *}"
+  [ -f "$p" ] || continue
+  ATTEMPTED=$((ATTEMPTED + 1))
+  # shellcheck disable=SC2086
+  if $CXX $FLAGS $INC "$p" 2>/dev/null; then
+    STALE+=("$p")
+  fi
+done
+if [ "${#STALE[@]}" -ne 0 ]; then
+  echo "[syntax] RED, AND THIS IS GOOD NEWS: ${#STALE[@]} of $ATTEMPTED OCCT-skipped"
+  echo "[syntax] translation unit(s) now type-check with NO OCCT on the include path:"
+  for t in "${STALE[@]}"; do echo "[syntax]      $t"; done
+  echo "[syntax] Their entry in SKIPPED says they need OCCT. They do not any more."
+  echo "[syntax] Move each to CHECKED in the same commit that made it true -- that"
+  echo "[syntax] edit is the ledger entry for an application-layer OCCT removal."
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    echo "::error::an OCCT-skipped forge-desktop TU no longer needs OCCT; promote it to CHECKED"
+  fi
+  exit 1
+fi
+echo "[syntax]   $ATTEMPTED OCCT-skipped TU(s) re-attempted; every one still needs OCCT"
 echo "[syntax] GREEN -- all $OK forge-desktop translation units type-check (-Wall -Wextra -Werror)"
