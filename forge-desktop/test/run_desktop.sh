@@ -322,7 +322,7 @@ run_gate forge_desktop_import_reopen_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 # and must not happen at all if it is cancelled; 13 is what File > New leaves
 # behind when it replaces a dirty document without asking; 14 is the fifteen-
 # second cadence asked to keep an edit that touches only the drawing.
-run_gate forge_desktop_quit_guard_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14
+run_gate forge_desktop_quit_guard_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
 # FILE EXCHANGE: open and save real CAD files through the shipping command path,
 # comparing a VECTOR of observables at the seam -- volume AND area AND centre of
 # mass AND bounding box AND the per-kind face census. The five mutations break the

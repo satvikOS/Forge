@@ -199,7 +199,8 @@ set -uo pipefail
 #   has never been saved, and the cadence asked to keep a drawing-only edit.
 #   DERIVED on this tree, not incremented on faith:
 #     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-#   prints 127.#
+#   prints 127.
+#
 # ── MERGE NOTE 2026-09-12 (the THIRD of the day, same trap, both parents armed
 #    it again): 150 and 127, and the merged tree derives 164. Both were right for
 #    their own parent -- 150 counted render 7, import_reopen 15 and
@@ -211,7 +212,29 @@ set -uo pipefail
 #    arithmetic rather than for a defect. DERIVED on the merged tree:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
 #    prints 164.
-EXPECTED_MUTATIONS=164
+#   prints 127.
+#
+# * 2026-09-12, SAME DAY, SECOND REVIEW: 127 -> 130, + quit_guard 3 (14 -> 17).
+#   The review after the one above found the recovery ladder asking only the
+#   FIRST of its two questions: it could account for the drawing and then adopted
+#   the user's file name WITHOUT COMPARING AGES, so a snapshot merely OLDER than
+#   that file was handed its identity and one bare Ctrl+S deleted whatever had
+#   been saved in between. REPRODUCED in the raw bytes of the user's .fpart --
+#   1 annotation block -> 0, and 9 feature blocks -> 8. Mutations 15 and 16 are
+#   the negative controls for those two scenarios and 17 is the one for the guard
+#   itself: it puts the snapshot a minute into the FUTURE, where adopting the
+#   name is correct, so a refusal that fired on a constant rather than on the
+#   file's age would be caught. DERIVED on this tree, not incremented on faith:
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   prints 130.
+#
+# ── AND THE MERGE NOTE ABOVE IS ALREADY ONE COMMIT OUT OF DATE, WHICH IS THE
+#    POINT OF DERIVING IT. It says 164 and that was correct for the commit it was
+#    written on; this commit adds quit_guard 15, 16 and 17, so the tree now
+#    derives 167. Re-derived here rather than adjusted by hand:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+#    prints 167.
+EXPECTED_MUTATIONS=167
 # ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
 # Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
 # number moves in the SAME commit -- which is exactly what this constant exists

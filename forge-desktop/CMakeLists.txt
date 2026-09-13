@@ -955,11 +955,21 @@ foreach(_cm RANGE 1 7)
                          PROPERTIES WILL_FAIL TRUE)
 
 add_test(NAME forge_desktop_quit_guard_gate COMMAND forge_desktop_quit_guard_gate)
-# The seven negative controls for the quit guard, same WILL_FAIL idiom as the
+# The SEVENTEEN negative controls for the quit guard, same WILL_FAIL idiom as the
 # rest: each breaks ONE link between the gesture and the surviving work, and each
 # is EXPECTED to be red. A mutation that starts exiting zero is one whose defect
 # the gate no longer detects.
-foreach(_qg RANGE 1 7)
+#
+# ★ THIS RANGE SAID `1 7` WHILE run_desktop.sh DROVE 1..14. CI was unaffected
+#   (it runs run_desktop.sh, which drives every number on its own line), but a
+#   developer running `ctest` proved HALF the quit guard and was told nothing
+#   about the other half -- and the unregistered half was the whole adversarial
+#   set, mutation 8 included, which is the drawing seam that round existed for.
+#   The range and run_desktop.sh's argument list are ONE list in two places:
+#   change them together, and read the count off
+#     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
+#   which is the same derivation ci_desktop_gate.sh's EXPECTED_MUTATIONS uses.
+foreach(_qg RANGE 1 17)
     add_test(NAME forge_desktop_quit_guard_mutation_${_qg}
              COMMAND forge_desktop_quit_guard_gate --mutate ${_qg})
     set_tests_properties(forge_desktop_quit_guard_mutation_${_qg} PROPERTIES WILL_FAIL TRUE)

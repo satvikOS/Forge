@@ -544,6 +544,11 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // share forge::ui::PartDocument, which is what makes this a handful of lines
   // rather than a format conversion.
   bool recoverFromAutosave(const forge::ui::RecoveryCandidate& candidate, std::string& error);
+  // Whether the LAST recovery gave up the user's file name because that file was
+  // NEWER than the snapshot it was recovering. "Refused" and "there was no file"
+  // both leave documentPath() empty, and they are not the same event, so the one
+  // that means "your own file holds work this does not" is counted separately.
+  bool recoveryRefusedStalePath() const noexcept { return recoveryRefusedStalePath_; }
 
   // Instrumentation the frame gate asserts on.
   // ── what a menu item, a toolbar button or a palette row actually does ────
@@ -1858,6 +1863,18 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // the file that still has it.
   bool recoverDrawingFor(const forge::ui::RecoveryCandidate& candidate,
                          forge::ui::DrawingModel& out, bool& adoptPath, std::string& why) const;
+  // ── THE SECOND QUESTION THE LADDER ABOVE DOES NOT ASK ──────────────────
+  // recoverDrawingFor() asks "can I account for the drawing?". This asks the
+  // other one: IS THE FILE I AM ABOUT TO TAKE THE NAME OF NEWER THAN THE
+  // SNAPSHOT? A recovery that adopts a path is one keystroke from writing over
+  // that file, so a file written AFTER the snapshot holds work the snapshot
+  // cannot contain -- whatever kind of work it is, which is why this is not
+  // part of the drawing ladder. True means the name must be refused, and `why`
+  // is the sentence the activity log gets.
+  bool fileIsNewerThanSnapshot(const forge::ui::RecoveryCandidate& candidate,
+                               std::string& why) const;
+  // Set by recoverFromAutosave() every time it runs; see the accessor.
+  bool recoveryRefusedStalePath_ = false;
   // The unsaved-changes question is a plain window, not a modal, so every other
   // gesture still works while it stands -- including Ctrl+S. This re-reads the
   // condition the question was raised on and withdraws it when that condition is

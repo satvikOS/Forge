@@ -69,11 +69,21 @@
 //       there is, and the one section 4 does not drive, because there the
 //       document already had a name.
 //   14. NEW AND OPEN REPLACE A DIRTY DOCUMENT WITHOUT ASKING. Not fixed, and
-//       asserted as unfixed, with the snapshot they now take asserted too.
+//       asserted as unfixed, with the snapshot they now take asserted too --
+//       and BOTH edges of the window that snapshot lives in, the cadence and a
+//       clean quit, because the prose here once named only the first.
 //   15. AND THE CADENCE KEEPS A DRAWING-ONLY EDIT. The other snapshot path:
 //       the feature tree's digest does not move when a note is added, so the
 //       service declines to rewrite its own autosave and nothing else used to
 //       be written at all.
+//   16. AND A RECOVERY MAY NOT TAKE THE NAME OF A FILE THAT IS NEWER THAN ITS
+//       OWN SNAPSHOT. Section 10's ladder asked "can I account for the
+//       drawing?" and never "is the file I am about to be named after newer
+//       than the work I am holding?". MEASURED on the raw bytes of the user's
+//       .fpart: a note saved after the last cadence went 1 annotation block ->
+//       0, and a feature saved after it went 9 blocks -> 8, both on one bare
+//       Ctrl+S. Neither is about a drawing, which is why the ladder could not
+//       be the fix.
 //
 // Nothing here needs a window, a swapchain, MoltenVK or a display. The clock is
 // the application's own frame time, stepped by this gate, so the autosave cadence
@@ -123,7 +133,21 @@
 //      File > New                                 so there is no snapshot to find
 //  14  the drawing is never touched, so there  -> the cadence has nothing to keep,
 //      is no drawing-only edit                    and section 15 measures that
+//  15  the note is never typed and SAVED after -> section 16a's file then has no
+//      the snapshot                               note to lose, so its raw-byte
+//                                                 assertions measure an empty
+//                                                 count and must go red
+//  16  the extra feature is never modelled    -> the same for 16b, where there is
+//      and SAVED after the snapshot               no drawing involved at all
+//  17  the snapshot is put a minute into the  -> it is then NEWER than the user's
+//      FUTURE instead of the past                 file and adopting that file's
+//                                                 name is CORRECT: the negative
+//                                                 control for the guard itself,
+//                                                 proving the refusal is about
+//                                                 the file's age and not a
+//                                                 constant that refuses always
 
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -364,6 +388,49 @@ long annotationsOnDisk(const std::string& path) {
   std::string error;
   if (!forge::desktop::loadPartFile(path, doc, error)) return -1;
   return static_cast<long>(doc.drawing.annotations().size());
+}
+
+// How many times `needle` occurs in `text`. Used ONLY on the RAW BYTES of a
+// user's .fpart, and that is the point: section 16 is about a WRITE over a file
+// the user saved, and loadPartFile() shares a serialiser with the writer under
+// test, so it can agree with a loss. `\nFEATURE\n` is a feature block as
+// writePartFile() opens one and `\nNOTE\n` is an annotation block; the CONTROL
+// block's `FEATURE <value>` line cannot be mistaken for either, because it has a
+// value after it.
+std::size_t rawCount(const std::string& text, const std::string& needle) {
+  if (needle.empty()) return 0;
+  std::size_t n = 0;
+  for (std::size_t at = text.find(needle); at != std::string::npos;
+       at = text.find(needle, at + needle.size())) {
+    ++n;
+  }
+  return n;
+}
+
+// Puts the autosave and its drawing `seconds` further into the past. The
+// fifteen-second cadence really does leave a snapshot that is seconds OLDER than
+// the Ctrl+S a user makes afterwards; this produces that gap as a VALUE rather
+// than sleeping for it, the same way section 15 steps the frame clock instead of
+// waiting on it. Returns how many files it aged, so a scenario that aged nothing
+// cannot pass as one that aged something.
+std::size_t ageAutosaveFiles(const std::string& directory, int seconds) {
+  forge::ui::FileSystemStorage storage;
+  const std::string tree = forge::ui::kAutosaveSuffix;
+  const std::string sheet = forge::desktop::kAutosaveDrawingSuffix;
+  const auto endsWith = [](const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() &&
+           s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+  };
+  std::size_t aged = 0;
+  for (const std::string& entry : storage.list(directory)) {
+    if (!endsWith(entry, tree) && !endsWith(entry, sheet)) continue;
+    std::error_code ec;
+    const auto was = std::filesystem::last_write_time(entry, ec);
+    if (ec) continue;
+    std::filesystem::last_write_time(entry, was - std::chrono::seconds(seconds), ec);
+    if (!ec) ++aged;
+  }
+  return aged;
 }
 
 // Deletes every autosaved DRAWING in a recovery directory, leaving the feature
@@ -1122,9 +1189,16 @@ int main(int argc, char** argv) {
   //
   // What this change does add is the SNAPSHOT: both take one before they replace
   // anything, so the discarded work is on disk instead of gone at the instant of
-  // the click. It is recoverable only until the replacement document is edited
-  // and the cadence writes over it -- which is a smaller promise than a prompt,
-  // and it is the one that is true.
+  // the click. That is a smaller promise than a prompt, and the FIRST version of
+  // this comment still overstated it: it said the snapshot survives "only until
+  // the replacement document is itself edited and the cadence writes over it",
+  // naming ONE of the window's two edges. The other one is a CLEAN QUIT --
+  // grantQuit() calls endRecoverySession(), which removes the marker, the
+  // autosave and the drawing beside it, and requestQuit() runs autosaveNow()
+  // first, which does nothing on a document that is not dirty. New, then close
+  // the window, and there is NOTHING LEFT AT ALL. Both edges are measured below
+  // rather than described, because a sentence about a window is exactly the kind
+  // of claim that goes stale without anything going red.
   std::printf("\n-- 14. New replaces a dirty document without asking -------------------\n");
   {
     App o;
@@ -1147,6 +1221,21 @@ int main(int argc, char** argv) {
     check(forge::ui::loadDocumentFile(autosavePath, kept, whyNot),
           "but the work New threw away IS in an autosave", whyNot.describe());
     checkStrEq(kept.irProgram(), discarded, "and it is the program that was discarded");
+
+    // ── THE SECOND EDGE OF THAT WINDOW, MEASURED ────────────────────────
+    // The replacement document is CLEAN (file.new leaves it so), so requestQuit()
+    // autosaves nothing and grants the quit, and grantQuit() ends the session --
+    // which takes the marker, the autosave and the drawing with it. So the
+    // honest statement is not "until the cadence writes over it": a user who
+    // presses New and then closes the window is left with NOTHING AT ALL.
+    check(!o.frame->documentDirty(), "the replacement document is clean");
+    o.frame->requestQuit();
+    check(o.frame->wantsQuit(), "so closing the window is granted without a question");
+    check(!std::filesystem::exists(autosavePath),
+          "★ AND A CLEAN QUIT TOOK THE DISCARDED WORK WITH IT -- the other edge",
+          autosavePath);
+    check(!std::filesystem::exists(forge::desktop::autosaveDrawingPath(autosavePath)),
+          "the drawing beside it went too, leaving no orphan");
     o.frame->endRecoverySession();
   }
 
@@ -1195,6 +1284,156 @@ int main(int argc, char** argv) {
     p.frame->endRecoverySession();
     check(!std::filesystem::exists(sidecar),
           "a clean exit takes the drawing's snapshot with it, leaving no orphan", sidecar);
+  }
+
+
+  // ═══ 16. A RECOVERY MAY NOT TAKE THE NAME OF A FILE THAT IS NEWER ═══════
+  //
+  // ★ THE SECOND QUESTION THE LADDER DID NOT ASK. Section 10 taught
+  //   recoverFromAutosave() to ask "can I account for the drawing?" and it
+  //   stopped there. It still adopted candidate.documentPath without ever
+  //   comparing the autosave against the FILE whose identity it was taking. So a
+  //   snapshot that is merely OLDER than the user's file -- the ordinary case,
+  //   because the cadence is fifteen seconds and Ctrl+S is instant -- was handed
+  //   that file's name, and one bare Ctrl+S wrote the older document over the
+  //   newer file.
+  //
+  //   REPRODUCED TWICE on the code as it stood, and NOT drawing-specific, which
+  //   is exactly why the drawing ladder could not be the fix:
+  //     (a) a note typed and SAVED after the last autosave -- the user's own
+  //         file went from 1 NOTE block and 868 bytes to 0 and 803.
+  //     (b) a feature modelled AND SAVED after the last autosave -- the file
+  //         went from 9 FEATURE blocks to 8.
+  //   Both are the RAW BYTES of the user's .fpart, printed below on every run so
+  //   the reproduction and the fix read off the same instrument. (The review
+  //   measured (b) as 8 -> 7 with its own probe; this scenario carries one more
+  //   modelling edit before the first save, so it reads one higher.)
+  //
+  // WHY RAW BYTES AND NOT loadPartFile(). What is under test is a WRITE over a
+  // file the user saved. loadPartFile() shares its serialiser with the writer
+  // doing the damage, so it can agree with a loss; the bytes cannot.
+  //
+  // THE GUARD IS CONSERVATIVE ON PURPOSE. When the file is newer, the recovery
+  // gives up the NAME and keeps the work -- an untitled document and a Save As.
+  // The other way round costs the user the work that is already on their disk,
+  // and those two are not the same size of mistake.
+  std::printf("\n-- 16. a recovery may not take the name of a NEWER file ---------------\n");
+  {
+    // ── 16a. A NOTE TYPED AND SAVED AFTER THE LAST AUTOSAVE ───────────────
+    const std::string userPath = root + "/user/stale-note.fpart";
+    const std::string dir = root + "/recovery-stale-note";
+    std::string savedBytes;
+    {
+      App q;
+      check(q.start(), "the session that is going to die", q.scene.error());
+      check(q.frame->beginRecoverySession(dir), "its recovery session", dir);
+      check(q.fillet(), "a modelling edit");
+      check(q.saveTo(userPath), "the user saves their own file", q.shell.lastDocumentError());
+      check(q.fillet(), "more work, which only a snapshot will ever hold");
+      check(q.frame->autosaveNow(), "THE SNAPSHOT: the fifteen-second cadence fires");
+      // MUTATION 17: the snapshot is put a minute into the FUTURE instead, so it
+      // is NEWER than the file and the recovery is right to take its name. This
+      // is the negative control for the guard itself rather than for the
+      // scenario: it proves the refusal below is caused by the file's AGE and
+      // not by some constant that would refuse every path it was ever offered.
+      checkEq(ageAutosaveFiles(dir, g_mutation == 17 ? -60 : 60), 2u,
+              "and it is a minute older than the save that comes next");
+      // MUTATION 15: the user never saves after the snapshot. Their file is then
+      // NOT newer than it, the recovery is RIGHT to take its name, and every
+      // assertion below about the refusal must go red.
+      if (g_mutation != 15) {
+        check(q.note("HEAT TREAT TO 45 HRC"), "the user types a note on the sheet",
+              q.frame->noteRefusal());
+        check(q.saveTo(userPath), "and SAVES -- their file now holds work the snapshot does not",
+              q.shell.lastDocumentError());
+      }
+      savedBytes = readWholeFile(userPath);
+      // The session dies here. Nothing ends it.
+    }
+    check(!savedBytes.empty(), "the user's file has bytes in it", userPath);
+    std::printf("   [raw] the user's file, as they saved it       : %zu NOTE, %zu FEATURE, %zu bytes\n",
+                rawCount(savedBytes, "\nNOTE\n"), rawCount(savedBytes, "\nFEATURE\n"),
+                savedBytes.size());
+    checkEq(rawCount(savedBytes, "\nNOTE\n"), 1u, "with ONE annotation block in its raw bytes");
+    check(savedBytes.find("HEAT TREAT TO 45 HRC") != std::string::npos,
+          "and the words the user typed are in the file", userPath);
+
+    App r;
+    check(r.start(), "the next launch", r.scene.error());
+    if (recoverOne(r, dir)) {
+      checkStrEq(r.frame->documentPath(), std::string(),
+                 "★ THE RECOVERY REFUSES THE NAME OF A FILE NEWER THAN ITS SNAPSHOT");
+      check(r.frame->recoveryRefusedStalePath(),
+            "and it refused for THAT reason -- not because it could not find a drawing");
+      check(r.save(), "a bare Ctrl+S -- no path, no panel, no confirmation",
+            r.shell.lastDocumentError());
+      const std::string afterBytes = readWholeFile(userPath);
+      std::printf("   [raw] the same file after recover + one Ctrl+S : %zu NOTE, %zu FEATURE, %zu bytes\n",
+                  rawCount(afterBytes, "\nNOTE\n"), rawCount(afterBytes, "\nFEATURE\n"),
+                  afterBytes.size());
+      checkEq(rawCount(afterBytes, "\nNOTE\n"), 1u,
+              "★ THE NOTE THE USER SAVED IS STILL IN THEIR FILE");
+      check(afterBytes.find("HEAT TREAT TO 45 HRC") != std::string::npos,
+            "and it is still the note they typed", userPath);
+      check(afterBytes == savedBytes, "★ AND THE FILE IS BYTE-FOR-BYTE WHAT THEY SAVED",
+            firstDifference(afterBytes, savedBytes));
+    }
+    r.frame->endRecoverySession();
+  }
+
+  {
+    // ── 16b. A FEATURE MODELLED AND SAVED AFTER THE LAST AUTOSAVE ─────────
+    // The same destruction with no drawing anywhere near it. This is the case
+    // that proves the guard belongs BEFORE the drawing ladder rather than inside
+    // it: nothing here is about a note, a title block or a datum.
+    const std::string userPath = root + "/user/stale-feature.fpart";
+    const std::string dir = root + "/recovery-stale-feature";
+    std::string savedBytes;
+    std::size_t snapshotFeatures = 0;
+    {
+      App s;
+      check(s.start(), "a second session that is going to die", s.scene.error());
+      check(s.frame->beginRecoverySession(dir), "its recovery session", dir);
+      check(s.fillet(), "a modelling edit");
+      check(s.fillet(), "and another");
+      check(s.saveTo(userPath), "the user saves their own file", s.shell.lastDocumentError());
+      check(s.fillet(), "one more edit, which never reaches the file");
+      check(s.frame->autosaveNow(), "THE SNAPSHOT");
+      snapshotFeatures = s.frame->document().records().size();
+      // MUTATION 17 again, on the half of this section that has no drawing in it.
+      checkEq(ageAutosaveFiles(dir, g_mutation == 17 ? -60 : 60), 2u,
+              "a minute before what happens next");
+      // MUTATION 16: the user never models-and-saves after the snapshot, so
+      // their file is NOT newer and the refusal below must go red.
+      if (g_mutation != 16) {
+        check(s.fillet(), "the user models one more feature...");
+        check(s.saveTo(userPath), "...and SAVES it", s.shell.lastDocumentError());
+      }
+      savedBytes = readWholeFile(userPath);
+    }
+    check(!savedBytes.empty(), "the user's file has bytes in it", userPath);
+    std::printf("   [raw] the user's file, as they saved it       : %zu FEATURE blocks (the snapshot holds %zu)\n",
+                rawCount(savedBytes, "\nFEATURE\n"), snapshotFeatures);
+    checkEq(rawCount(savedBytes, "\nFEATURE\n"), snapshotFeatures + 1,
+            "their file holds ONE MORE feature than the snapshot does");
+
+    App t;
+    check(t.start(), "the next launch", t.scene.error());
+    if (recoverOne(t, dir)) {
+      checkEq(t.frame->document().records().size(), snapshotFeatures,
+              "the recovered document is the SNAPSHOT -- one feature short of the file");
+      checkStrEq(t.frame->documentPath(), std::string(),
+                 "★ SO THE RECOVERY REFUSES THE FILE'S NAME");
+      check(t.save(), "a bare Ctrl+S", t.shell.lastDocumentError());
+      const std::string afterBytes = readWholeFile(userPath);
+      std::printf("   [raw] the same file after recover + one Ctrl+S : %zu FEATURE blocks\n",
+                  rawCount(afterBytes, "\nFEATURE\n"));
+      checkEq(rawCount(afterBytes, "\nFEATURE\n"), snapshotFeatures + 1,
+              "★ THE FEATURE THE USER MODELLED AND SAVED IS STILL IN THEIR FILE");
+      check(afterBytes == savedBytes, "★ AND THE FILE IS BYTE-FOR-BYTE WHAT THEY SAVED",
+            firstDifference(afterBytes, savedBytes));
+    }
+    t.frame->endRecoverySession();
   }
 
   std::printf("\n[quit-gate] %d checks, %d failures\n", g_checks, g_failures);

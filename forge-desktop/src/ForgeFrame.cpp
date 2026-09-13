@@ -3,6 +3,7 @@
 #include "PartFile.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <string>
@@ -738,9 +740,17 @@ void ForgeFrame::autosaveDiscardedWork(const char* what) {
 //
 // What there IS, from this line, is the snapshot. Both replacements take one
 // FIRST, so the discarded work is on disk rather than gone at the instant of the
-// click. The promise is smaller than a prompt and it is worth stating exactly:
-// the autosave survives only until the replacement document is itself edited and
-// the fifteen-second cadence writes over it. It is a window, not a guarantee.
+// click. The promise is smaller than a prompt and it is worth stating EXACTLY,
+// because the first version of this sentence overstated it. The window closes in
+// TWO ways, not one:
+//   * the replacement document is itself edited and the fifteen-second cadence
+//     writes over the same autosave; and
+//   * ANY CLEAN QUIT. grantQuit() calls endRecoverySession(), which removes the
+//     marker, the autosave AND the drawing beside it, and requestQuit() runs
+//     autosaveNow() before it -- which does nothing on a document that is not
+//     dirty. So New, then close the window: NOTHING IS LEFT AT ALL.
+// It is a window, not a guarantee, and section 14 of the quit gate now measures
+// both of its edges rather than stating one of them.
 bool ForgeFrame::documentNew(std::string& error) {
   autosaveDiscardedWork("New");
   partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
@@ -1453,6 +1463,11 @@ std::vector<forge::ui::RecoveryCandidate> ForgeFrame::recoverableSessions() cons
 
 // ── THE DRAWING A RECOVERY IS ALLOWED TO INSTALL ────────────────────────────
 //
+// THIS IS THE FIRST OF THE TWO QUESTIONS A RECOVERY HAS TO ANSWER BEFORE IT MAY
+// TAKE A FILE'S NAME, and on its own it is NOT enough: see
+// fileIsNewerThanSnapshot() below for the second one, which is about the file's
+// AGE and is not about the drawing at all.
+//
 // THREE ANSWERS, IN ORDER, AND THE THIRD ONE REFUSES THE FILE.
 //
 //   1. the snapshot beside the autosave -- the drawing as it was when the
@@ -1512,6 +1527,106 @@ bool ForgeFrame::recoverDrawingFor(const forge::ui::RecoveryCandidate& candidate
   return false;
 }
 
+namespace {
+
+// The modification time of a real file, or nothing at all. `std::nullopt` covers
+// BOTH "there is no such file" and "the platform would not say", and the caller
+// is required to treat those as different from "it is old" -- see
+// ForgeFrame::fileIsNewerThanSnapshot(), which refuses rather than guesses.
+//
+// file_time_type is returned rather than a count of milliseconds on purpose: two
+// of these are only ever COMPARED WITH EACH OTHER, and converting to a unit
+// invites a truncation that would make a file written half a millisecond after a
+// snapshot read as written at the same moment.
+std::optional<std::filesystem::file_time_type> fileModifiedAt(const std::string& path) {
+  if (path.empty()) return std::nullopt;
+  std::error_code ec;
+  const std::filesystem::file_time_type at = std::filesystem::last_write_time(path, ec);
+  if (ec) return std::nullopt;
+  return at;
+}
+
+}  // namespace
+
+// ── THE SECOND QUESTION: IS THE FILE NEWER THAN THE SNAPSHOT? ───────────────
+//
+// ★ MEASURED TWICE ON THE VERSION OF THIS FILE THAT SHIPPED THE LADDER ABOVE,
+//   with a probe reading the RAW BYTES of the user's .fpart:
+//     (a) a note typed and SAVED after the last fifteen-second autosave, then a
+//         dead session, then a recovery and ONE bare Ctrl+S -- and the user's
+//         own file went from 1 annotation block to 0.
+//     (b) a feature modelled AND SAVED after the last autosave -- and the same
+//         keystroke took the file from 9 feature blocks to 8.
+//
+//   Neither is about a drawing, which is exactly why the ladder above could not
+//   be the fix for it. recoverDrawingFor() answers "can I account for the
+//   drawing?" and then the recovery adopted candidate.documentPath WITHOUT EVER
+//   COMPARING the autosave against the file whose name it was taking. The
+//   snapshot is written on a cadence; Ctrl+S is instant; so the ordinary state
+//   of the world is a snapshot that is SECONDS OLDER than the user's file, and
+//   handing that document the file's identity is handing it a licence to delete
+//   whatever the user saved in between.
+//
+// THE COMPARISON IS THE FILESYSTEM'S OWN MODIFICATION TIME, on both files, from
+// one clock. Not the marker's `savedAtMillis`: that is the APPLICATION's clock,
+// which a gate steps by a value and which has no relationship to the clock that
+// stamped the user's file.
+//
+// WHEN THE SNAPSHOT HAS A DRAWING BESIDE IT the pair is only as fresh as its
+// OLDER half, so the EARLIER of the two times is the snapshot's. When there is
+// no drawing beside it, rung (b) above reads the drawing out of the user's own
+// file, so the drawing is fresh by construction and only the tree's time counts.
+//
+// AN UNREADABLE TIME IS A REFUSAL, not a pass. "I could not tell whether your
+// file is newer" and "your file is not newer" are different answers and only one
+// of them is safe to act on -- the same rule rung (c) above already follows.
+//
+// IT IS DELIBERATELY CONSERVATIVE. A user who saves and then crashes before the
+// next cadence has a file that is newer than a snapshot holding the same work,
+// and this refuses the name there too: the recovery costs them a Save As. The
+// other way round costs them the work already on their disk, and those are not
+// the same size of mistake.
+bool ForgeFrame::fileIsNewerThanSnapshot(const forge::ui::RecoveryCandidate& candidate,
+                                         std::string& why) const {
+  why.clear();
+  // Never saved: there is no file to be newer than anything, and nothing a
+  // keystroke could overwrite.
+  if (candidate.documentPath.empty()) return false;
+
+  const std::optional<std::filesystem::file_time_type> fileAt =
+      fileModifiedAt(candidate.documentPath);
+  // No file there at all -- it was moved, renamed or deleted since the session
+  // died. Nothing to destroy, so this question has no opinion; the drawing
+  // ladder's rung (c) is what decides that case.
+  if (!fileAt.has_value()) return false;
+
+  std::optional<std::filesystem::file_time_type> snapshotAt =
+      fileModifiedAt(candidate.autosavePath);
+  if (!snapshotAt.has_value()) {
+    why = "the age of " + candidate.autosavePath +
+          " could not be read, so it could not be shown to be at least as new as " +
+          candidate.documentPath;
+    return true;
+  }
+  const std::string drawingPath = autosaveDrawingPath(candidate.autosavePath);
+  if (!drawingPath.empty() && recoveryStorage_.exists(drawingPath)) {
+    const std::optional<std::filesystem::file_time_type> drawingAt = fileModifiedAt(drawingPath);
+    if (!drawingAt.has_value()) {
+      why = "the age of " + drawingPath + " could not be read";
+      return true;
+    }
+    if (*drawingAt < *snapshotAt) snapshotAt = drawingAt;
+  }
+
+  if (!(*snapshotAt < *fileAt)) return false;
+  const long long seconds = static_cast<long long>(
+      std::chrono::duration_cast<std::chrono::seconds>(*fileAt - *snapshotAt).count());
+  why = candidate.documentPath + " was written " + std::to_string(seconds) +
+        " s after the spare copy this recovery came from, so it holds work the spare copy "
+        "does not";
+  return true;
+}
+
 bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candidate,
                                      std::string& error) {
   error.clear();
@@ -1540,10 +1655,31 @@ bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candida
   // made that permanent. The drawing and the material are therefore resolved
   // FIRST, and a drawing that cannot be resolved costs the PATH rather than the
   // user's work.
+  //
+  // ★ AND THAT WAS STILL ONE QUESTION SHORT. Accounting for everything the
+  // SNAPSHOT holds says nothing about what the FILE holds. MEASURED on the
+  // version that shipped the ladder: a note saved after the last cadence (1
+  // annotation block -> 0) and a feature saved after it (9 blocks -> 8), both
+  // destroyed by one bare Ctrl+S after a recovery that had accounted for its own
+  // drawing perfectly well. So the path is now refused for EITHER reason, and
+  // the second one -- the file is newer than the snapshot -- is asked of the
+  // candidate rather than of the drawing.
   forge::ui::DrawingModel drawing;
   bool adoptPath = true;
   std::string drawingNote;
   const bool fromSnapshot = recoverDrawingFor(candidate, drawing, adoptPath, drawingNote);
+
+  // ── AND THE SECOND QUESTION, WHICH IS NOT THE DRAWING'S ─────────────────
+  // "Can I account for the drawing?" is answered above. It is not enough, and
+  // MEASURED that it is not: a snapshot that accounts for everything it holds
+  // can still be OLDER THAN THE FILE it is about to be named after, and then the
+  // keystroke deletes whatever the user saved in between -- a note (1 annotation
+  // block -> 0) or a feature (9 blocks -> 8), both reproduced in the raw bytes.
+  // So the freshness question is asked SEPARATELY, of the candidate, whatever
+  // the drawing's provenance turned out to be.
+  std::string staleNote;
+  recoveryRefusedStalePath_ = adoptPath && fileIsNewerThanSnapshot(candidate, staleNote);
+  if (recoveryRefusedStalePath_) adoptPath = false;
 
   partDoc_ = recovered.tree();
   // DocumentModel::restore() installs a FRESH PartDocument and puts the file's
@@ -1567,8 +1703,24 @@ bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candida
   rebuildTree();
   documentDirty_ = true;
   note("Recovered " + std::to_string(partDoc_.records().size()) + " features from an autosave");
+  if (recoveryRefusedStalePath_) {
+    // NOT a silent untitling. The user asked for their work back and is not
+    // getting the file's name with it, and the reason is the one thing they
+    // could not have guessed: the file on their disk is NEWER than what Forge
+    // kept. The sentence says what is true and what to do about it.
+    shell_.log().warning("Recovery",
+                         "Forge recovered your work, but the file you saved is NEWER than the "
+                         "spare copy this came from -- so it has NOT pointed the document at "
+                         "that file. Use Save As, and keep your own file until you have "
+                         "compared the two.",
+                         staleNote + " (the document was left untitled on purpose)");
+    note("Recovered work, but your saved file is newer — use Save As");
+  }
   if (!fromSnapshot && !drawingNote.empty()) {
-    if (adoptPath) {
+    if (adoptPath || recoveryRefusedStalePath_) {
+      // The drawing came from the user's own file (rung b). Whether the NAME was
+      // kept is the other question's business and its own sentence is already in
+      // the log, so this one says only what is true of the drawing.
       shell_.log().warning("Recovery",
                            "Forge recovered this part, and took its drawing from the last "
                            "version you saved -- so any change to the title block, the datums "
