@@ -106,18 +106,35 @@ DESKTOP_LINK=(
   forge-desktop/src/CamHost.cpp
   forge-desktop/src/DrawingGdt.cpp
   forge-desktop/src/StudyHost.cpp
+  # ── 2026-09-12: MOVED HERE FROM DESKTOP_SKIP, where its reason read "not
+  #    reached by a click walk". That was true when it was written and stopped
+  #    being true without anything noticing: the import/save/reopen fix taught
+  #    ForgeFrame::documentOpen to say WHY a source file cannot be used, and the
+  #    three functions that answer that -- inputFileState / inputFileProblem /
+  #    inputFileRemedy -- live in FileExchangeHost.cpp. CI went red on archdisc
+  #    with an undefined-symbol dump. It links headlessly: no SDL, no GL, no
+  #    Vulkan, and the file-exchange gate has always linked it.
+  forge-desktop/src/FileExchangeHost.cpp
 )
 # Deliberately NOT linked, each for a reason a reader can check:
 #   main.cpp, kernel_worker_main.cpp  -- each defines main(); click_gate.cpp owns it here
 #   PlatformSDL2.cpp                  -- needs SDL2; this gate is headless
 #   ViewportRenderer.cpp              -- needs a GL context; a headless frame has no swapchain
-#   FileExchangeHost.cpp, UpdateService.cpp -- not reached by a click walk
+#   UpdateService.cpp                 -- not reached by a click walk
+#
+# ★ "NOT REACHED" IS A CLAIM WITH A SHELF LIFE, and nothing here was checking
+#   it. The drift guard below catches a source in NEITHER list; it cannot catch
+#   one in the WRONG list, which is what happened to FileExchangeHost.cpp -- a
+#   linked TU started calling it and the reason beside it went on saying it was
+#   unreachable. The failure surfaced as a mangled undefined-symbol dump in CI,
+#   which is the same complaint the paragraph above this records from the last
+#   time. So the link failure below now NAMES the skipped file that defines the
+#   missing symbol instead of leaving the reader to work it out.
 DESKTOP_SKIP=(
   forge-desktop/src/main.cpp
   forge-desktop/src/kernel_worker_main.cpp
   forge-desktop/src/PlatformSDL2.cpp
   forge-desktop/src/ViewportRenderer.cpp
-  forge-desktop/src/FileExchangeHost.cpp
   forge-desktop/src/UpdateService.cpp
 )
 # THE DRIFT GUARD. A new desktop source that nobody classifies is the exact
@@ -156,10 +173,42 @@ echo "[click-gate] desktop TUs linked: ${#DESKTOP_LINK[@]}, deliberately skipped
   "${IMGUI_OBJS[@]}" \
   "$LIB" -L "$OCCT_PREFIX/lib" -lTKernel -lTKMath -lTKBRep -lTKTopAlgo -lTKG3d -lTKGeomBase \
   -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib" \
-  -o "$BIN"
+  -o "$BIN" 2> "$WORK/link.err"
 rc=$?
+cat "$WORK/link.err"
 if [ $rc -ne 0 ]; then
   echo "[click-gate] the gate did not BUILD (rc=$rc). RED."
+  # ── AND SAY WHY, IF THE WHY IS A MISCLASSIFIED SOURCE. An undefined symbol
+  #    here is usually a DESKTOP_SKIP file that a linked TU has started calling,
+  #    and the linker reports it mangled, several hundred lines from the list
+  #    that decides it. Demangle the undefined names, look each one up in the
+  #    skipped sources, and name the file. This is a DIAGNOSTIC on a failure
+  #    that has already happened -- it changes no verdict and can produce no
+  #    false green.
+  undef=$(sed -n 's/^  "\(.*\)", referenced from:$/\1/p' "$WORK/link.err" | sort -u)
+  if [ -n "$undef" ]; then
+    named=""
+    while IFS= read -r sym; do
+      [ -z "$sym" ] && continue
+      # the bare function name, without namespaces, parameters or template args
+      short=$(printf '%s' "$sym" | sed 's/(.*$//' | sed 's/.*:://' | tr -d ' ')
+      [ -z "$short" ] && continue
+      for skipped in "${DESKTOP_SKIP[@]}"; do
+        if grep -qE "(^|[^A-Za-z0-9_])${short}[[:space:]]*\\(" "$skipped" 2>/dev/null; then
+          case "$named" in *"$skipped"*) ;; *) named="$named $skipped";; esac
+        fi
+      done
+    done <<< "$undef"
+    if [ -n "$named" ]; then
+      echo "[click-gate] ── THE CAUSE, NAMED: these DESKTOP_SKIP sources define symbols"
+      echo "[click-gate]    the linked translation units now reference:"
+      for n in $named; do echo "[click-gate]      $n"; done
+      echo "[click-gate]    Their reason for being skipped says they are not reached by a"
+      echo "[click-gate]    click walk. That is no longer true. Move each to DESKTOP_LINK"
+      echo "[click-gate]    if it links headlessly (no SDL / GL / Vulkan / second main),"
+      echo "[click-gate]    or break the new call."
+    fi
+  fi
   rm -rf "$WORK"
   exit 3
 fi
