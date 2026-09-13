@@ -43,7 +43,15 @@
 // names a body through one lookup, and no second numbering exists to drift out
 // of step with the first.
 
-#include "forge/ShapeRegistry.hpp"
+// ── 2026-09-12: ShapeHandle.hpp, NOT ShapeRegistry.hpp. This header needed the
+//    registry for exactly one thing -- the TopoDS_Shape overload below -- and
+//    naming an OCCT type in a public kernel header is what keeps the
+//    APPLICATION on OCCT even when its .cpp files name none. MEASURED: this
+//    include alone was the whole of forge-desktop/src/KernelScene.cpp's OCCT
+//    dependency; it reaches here through forge/BodyInventory.hpp and nothing
+//    else it includes touches OCCT. The OCCT-typed overload now lives in
+//    forge/BodyInventoryOcct.hpp, which BodyInventory.cpp includes.
+#include "forge/ShapeHandle.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -151,9 +159,13 @@ struct BodyInventory {
 // contact report is worse than a missing row.
 BodyInventory bodyInventory(ShapeHandle body, const BodyInventoryOptions& options = {});
 
-// The same inventory over a shape the caller already holds. This overload is the
-// actual definition; the handle form resolves the handle and delegates, so the
-// two can never measure differently.
-BodyInventory bodyInventory(const TopoDS_Shape& shape, const BodyInventoryOptions& options = {});
+// The OCCT-typed overload -- the same inventory over a shape the caller already
+// holds -- is declared in forge/BodyInventoryOcct.hpp. It is the actual
+// definition and the handle form above delegates to it, so the two can never
+// measure differently; it is in a sibling header because its PARAMETER is a
+// TopoDS_Shape, and a public header that names one cannot be included by code
+// built without the OCCT SDK. MEASURED before the split: the only caller
+// outside BodyInventory.cpp itself is none -- forge-desktop/src/KernelScene.cpp
+// calls the HANDLE form.
 
 } // namespace forge

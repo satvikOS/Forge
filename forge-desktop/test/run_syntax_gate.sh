@@ -166,6 +166,12 @@ CHECKED=(
   #    like. These are two application-layer OCCT removals nobody was told about.
   forge-desktop/src/StudyHost.cpp
   forge-desktop/src/CamHost.cpp
+  # ── PROMOTED 2026-09-12 IN THE SAME COMMIT THAT MADE IT TRUE, which is what
+  #    the ratchet at the bottom of this file asks for. KernelScene.cpp names no
+  #    OCCT type; its whole dependency was one line in forge/BodyInventory.hpp,
+  #    which declared an overload taking a TopoDS_Shape. That overload moved to
+  #    forge/BodyInventoryOcct.hpp and this file went OCCT-free with it.
+  forge-desktop/src/KernelScene.cpp
   forge-desktop/test/imgui_recovery_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
@@ -175,7 +181,6 @@ CHECKED=(
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
-  "forge-desktop/src/KernelScene.cpp     (OCCT: TopoDS_Shape.hxx)"
   "forge-desktop/test/quality_gate.cpp   (OCCT: BRep_Builder.hxx, TopoDS_Compound.hxx -- it BUILDS its two-solid fixture rather than shipping one)"
   "forge-desktop/src/FileExchangeHost.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/IoExchange.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/main.cpp            (SDL2 + Vulkan)"
