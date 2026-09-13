@@ -173,6 +173,12 @@ CHECKED=(
   #    which declared an overload taking a TopoDS_Shape. That overload moved to
   #    forge/BodyInventoryOcct.hpp and this file went OCCT-free with it.
   forge-desktop/src/KernelScene.cpp
+  # ── PROMOTED 2026-09-12, the fourth today and the first to go through the
+  #    SEAM rather than around it. Its entry blamed forge/IoExchange.hpp ->
+  #    forge/ShapeRegistry.hpp; IoExchange.hpp has been OCCT-free for a while and
+  #    this file included ShapeRegistry.hpp itself, for two calls that
+  #    forge/NativeShapeAccess.hpp now answers without naming an OCCT type.
+  forge-desktop/src/FileExchangeHost.cpp
   forge-desktop/test/imgui_recovery_gate.cpp
   forge-desktop/test/ir_pipeline_gate.cpp
   forge-desktop/test/isolation_gate.cpp
@@ -188,7 +194,6 @@ CHECKED=(
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
   "forge-desktop/test/quality_gate.cpp   (OCCT: BRep_Builder.hxx, TopoDS_Compound.hxx -- it BUILDS its two-solid fixture rather than shipping one)"
-  "forge-desktop/src/FileExchangeHost.cpp (OCCT: TopoDS_Shape.hxx, reached through forge/IoExchange.hpp -> forge/ShapeRegistry.hpp)"
   "forge-desktop/src/main.cpp            (SDL2 + Vulkan)"
   "forge-desktop/src/PlatformSDL2.cpp    (SDL2)"
   "forge-desktop/src/ViewportRenderer.cpp (Vulkan)"

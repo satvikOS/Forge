@@ -21,7 +21,13 @@
 #include "forge/DirectModeling.hpp"
 #include "forge/Healing.hpp"
 #include "forge/IoExchange.hpp"
-#include "forge/ShapeRegistry.hpp"
+// ── forge/NativeShapeAccess.hpp, NOT forge/ShapeRegistry.hpp. This file wanted
+//    exactly two things from the registry -- "is this handle a native solid" and
+//    "give me the solid" -- and reaching for them through the registry CLASS put
+//    <TopoDS_Shape.hxx> on this translation unit's include path for a block that
+//    names no OCCT type. The seam answers both without it; see the header for why
+//    the removal programme calls that its highest-unlock item.
+#include "forge/NativeShapeAccess.hpp"
 #include "forge/Tessellate.hpp"
 #include "forge/Transform.hpp"
 #include "forge/ft/FeatureTree.hpp"
@@ -223,10 +229,15 @@ void measure(forge::ShapeHandle handle, ExchangeReport& report) {
     }
   } catch (...) {
   }
-  if ((report.faceCount <= 0 || report.faceKinds.empty()) &&
-      forge::ShapeRegistry::instance().kindOf(handle) == forge::ShapeKind::NativeSolid) {
+  // ONE call where there were two. nativeShapeOf() answers a NULL Shape for a
+  // handle that is not native-solid-backed -- an OCCT body, a result mesh, a
+  // handle that names nothing -- so the kind test and the fetch are the same
+  // question asked once, and neither of them needs the registry's OCCT-typed
+  // surface. asSolid() is a tag-checked downcast: non-null here means SOLID.
+  const forge::native::shape::Shape nativeShape = forge::nativeShapeOf(handle);
+  if ((report.faceCount <= 0 || report.faceKinds.empty()) && !nativeShape.isNull()) {
     try {
-      const auto& solid = forge::ShapeRegistry::instance().getNativeSolid(handle);
+      const forge::native::brep::Solid& solid = *nativeShape.asSolid();
       long fCount = 0;
       std::unordered_set<const forge::native::brep::Edge*> uniqueEdges;
       for (const auto* sh : solid.shells) {

@@ -115,16 +115,11 @@ off the code on every run.
 | `addNativeSolid` takes that ownership at the door | **yes** |
 | a seam exists: `ShapeHandle` -> `shape::Shape` | **yes** |
 | OCCT include lines in that seam's header | **0** |
-| PRODUCTION files naming `shape::Shape` outside its own directory | **0** |
+| PRODUCTION files naming `shape::Shape` outside its own directory | **1** |
 | oracle/test files naming it | 2 |
 
-The seam is built and gated (`forge-kernel/test/shape_seam_gate.cpp`, compiled
-with an include path that contains no OCCT, which is what makes "OCCT-free" a
-build fact rather than a comment) and **no production code calls it yet**. So
-the remaining work is exactly what the old sentence claimed was downstream of a
-decision: re-typing call sites onto the seam. The difference is that the
-decision is made and the seam is proved, and this row will move off zero as
-call sites adopt it -- which is the number to watch, not the include counts.
+The seam is built, gated and ADOPTED by 1 production file(s). This row is the
+adoption curve for steps 5-7; the OCCT symbol census above is the result.
 
 ## Is the Forge vocabulary ADOPTED, or merely OCCT-free?
 
