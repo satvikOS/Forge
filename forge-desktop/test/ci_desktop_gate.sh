@@ -241,8 +241,11 @@ set -uo pipefail
 #    notes above was true when written and none of them is true now, which is why
 #    the only one that decides anything is re-derived on the tree being committed:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
-#    prints 169.
-EXPECTED_MUTATIONS=169
+#    printed 169.
+#  * 2026-09-13, T-122: file_dialog gained mutations 5 and 6 (what a SAVE panel
+#    POINTS AT) and forge_desktop_save_target_gate arrived with 2, so the same
+#    awk now prints 173. DERIVED on this tree with that command, not arithmetic.
+EXPECTED_MUTATIONS=173
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

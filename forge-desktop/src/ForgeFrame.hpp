@@ -1076,6 +1076,26 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // yesterday's part is to type its absolute path from memory.
   std::string pathPromptSeed() const;
 
+  // ── ★ WHAT A *SAVE* BOX STARTS ON, WHICH IS NOT THE SAME QUESTION ────────
+  // pathPromptSeed() above is the OPEN answer and stays exactly what it was.
+  // This is the one every `path` surface actually calls, and it splits on the
+  // command's own FileDialogPolicy mode:
+  //
+  //   Open-mode, or a command with no policy row   pathPromptSeed(), unchanged.
+  //   Save-mode                                    the DIRECTORY of the
+  //     remembered document, this document's NAME, and the first FREE name in
+  //     that series (refusedSavePath_ skipped) -- so a Save box can never be
+  //     pre-filled with a file that exists.
+  //
+  // MEASURED before the split, on raw bytes, through the shipping dispatch: a
+  // Save panel and a typed Save box were each handed ANOTHER DOCUMENT'S FILE as
+  // the name they open on, and four populations of accepted-seed destroyed it
+  // (657 -> 702, 661 -> 586, 904 -> 822, 665 -> 586 bytes).
+  //
+  // Public for the reason pathPromptSeed() is: the gate walks every Save-mode
+  // command in the policy table and asserts this, with no window and no AppKit.
+  std::string pathSeedFor(const std::string& commandId) const;
+
   // Open one remembered document, through the SAME `file.open` the menu, the
   // keyboard, the palette and `--open` dispatch -- registry, undo contract,
   // activity log and all. Deferred to the end of the frame like every other
@@ -1763,12 +1783,24 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // here is what keeps a disabled command from raising a panel it cannot use.
   bool wantsFileDialog(const std::string& id, const forge::ui::CommandParams& overrides) const;
 
-  // Where a panel should open. The document's own path first, then the most
-  // recent one, then the document's NAME -- so a Save on a never-saved part
-  // starts on "untitled" rather than on nothing at all.
-  // fileDialogRequestFor() puts the COMMAND's own suffix on whatever this
-  // returns, which is why the seed itself does not depend on the command.
-  std::string fileDialogSeed() const;
+  // Where a panel should open: pathSeedFor(commandId), else the document's NAME
+  // -- so a Save on a never-saved part with nothing remembered starts on
+  // "untitled" rather than on nothing at all. fileDialogRequestFor() puts the
+  // COMMAND's own suffix on whatever this returns.
+  //
+  // ★ IT TAKES THE COMMAND NOW. It did not, under the comment "which is why the
+  //   seed itself does not depend on the command", and that was the defect: an
+  //   Open panel and a Save panel were handed the same remembered path, and for
+  //   the Save panel that path was another document's file. No default argument
+  //   here on purpose -- a default is how a new call site silently gets the Open
+  //   answer for a Save box.
+  std::string fileDialogSeed(const std::string& commandId) const;
+
+  // The Save half of pathSeedFor(): the remembered document's DIRECTORY plus
+  // this document's name, through firstFreeFallbackPath, with `extension` the
+  // suffix the panel will actually write. "" when nothing is remembered, which
+  // is the bare-name fallback fileDialogSeed() already had.
+  std::string proposedSaveSeed(const std::string& extension) const;
 
   // Writes whether the kernel is running out of process into the ACTIVITY LOG,
   // where a user can still find it. main.cpp prints the same fact to stderr,

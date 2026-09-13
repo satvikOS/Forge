@@ -568,6 +568,33 @@ target_link_libraries(forge_desktop_file_dialog_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_file_dialog_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------- the SAVE-TARGET gate  (T-122)
+# WHAT A SAVE PANEL POINTS AT, measured on RAW BYTES. The file-dialog gate above
+# pins that File > Save RAISES a panel and never what the panel is POINTED AT,
+# and that hole is the whole of T-122: ForgeFrame::pathPromptSeed() handed
+# shell_.recentDocuments().mostRecent() to a SAVE panel as the name it opens on,
+# so the application's default save target for a document with no file of its own
+# was ANOTHER DOCUMENT'S FILE. Four populations of "the user pressed Return"
+# destroyed it (657 -> 702, 661 -> 586, 904 -> 822, 665 -> 586 bytes) and a fifth,
+# mirror-image route (app.load_sample inheriting the opened part's path) wrote a
+# sample over a released flange on one bare Ctrl+S (663 -> 854).
+#
+# ★ IT MEASURES BYTES, NOT INTENTIONS. Every leg drives ForgeShell's registry and
+#   ForgeFrame::invoke/build exactly as a menu click does, writes real .fpart
+#   files through file.save / file.save_as, and reads them back as bytes --
+#   `\nNOTE\n` and `\nFEATURE\n` counted in those bytes, never through a loader
+#   that shares a serialiser with the writer under test.
+#
+# ONE POPULATION PER PROCESS is not a style choice: forge-kernel's OCCT fillet
+# path enforces a PROCESS-GLOBAL wall-clock window. With no --pop the binary
+# re-executes itself once per population and fails if any child does.
+add_executable(forge_desktop_save_target_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/save_target_gate.cpp")
+target_compile_options(forge_desktop_save_target_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_save_target_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_save_target_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # ------------------------------------------- the INTERFACE-ERROR gate
 # What a RECOVERABLE Dear ImGui error costs the user. MEASURED against the
 # vendored library: with its shipped defaults an unbalanced frame ABORTS the
@@ -1031,10 +1058,35 @@ add_test(NAME forge_desktop_file_dialog_gate COMMAND forge_desktop_file_dialog_g
 #      nothing, which is the observable shape of a Save that put a text sheet on
 #      screen and wrote no bytes. The check it falsifies used to count native
 #      panels, which a sheet does not raise.
-foreach(_fd 1 2 3 4)
+#   5  the panel answers shell.recentDocuments().mostRecent() instead of the
+#      path it was SEEDED with -- T-122's shipped defect, injected at this gate's
+#      own knob. Section 7's byte checks go red; one that stays green was not
+#      reading the user's file.
+#   6  the recent list is emptied, so the seed has no directory to take and the
+#      panel opens on a bare name. Only "★ still opens where the user works" goes
+#      red -- which is what refuses a fix that simply returns nothing, and that
+#      fix would re-break Ctrl+O on a fresh launch.
+foreach(_fd 1 2 3 4 5 6)
     add_test(NAME forge_desktop_file_dialog_mutation_${_fd}
              COMMAND forge_desktop_file_dialog_gate --mutate ${_fd})
     set_tests_properties(forge_desktop_file_dialog_mutation_${_fd}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
+# ── the SAVE-TARGET gate (T-122) ─────────────────────────────────────────────
+# With no --pop it re-execs itself once per population, so this one test really
+# runs seven applications; the OCCT fillet window in forge-kernel is
+# process-global, which is why they cannot share one.
+add_test(NAME forge_desktop_save_target_gate COMMAND forge_desktop_save_target_gate)
+#   1  the scripted panel answers the most recent document instead of the seed.
+#      MEASURED under this mutation, and they are the bytes the defect really
+#      took: 1/5/657 -> 0/6/702, 1/5/661 -> 0/5/586, 1/7/904 -> 0/7/822.
+#   2  the file.open that puts the user's part in the recent list is skipped, so
+#      the seed has no directory and only the "opens where the user works" check
+#      goes red.
+foreach(_st 1 2)
+    add_test(NAME forge_desktop_save_target_mutation_${_st}
+             COMMAND forge_desktop_save_target_gate --mutate ${_st})
+    set_tests_properties(forge_desktop_save_target_mutation_${_st}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
 # WILL_FAIL, the same idiom the update gate's mutations use, and for the same

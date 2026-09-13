@@ -50,10 +50,26 @@
 // real NSOpenPanel returns a real path is a claim about AppKit, and it is stated
 // as unverified rather than implied by a green gate.
 //
-// --mutate 1..4 proves the gate can fail. See kMutations below.
+// ── AND WHAT A SAVE PANEL *POINTS AT* (section 7, T-122) ───────────────────
+// Everything above pins that a panel is RAISED and that the path it returns
+// ARRIVES. None of it pinned what the panel is POINTED AT, and section 6 checked
+// only that file.export_step's seed ends ".step". That hole is the whole of
+// T-122: ForgeFrame handed shell_.recentDocuments().mostRecent() to a SAVE panel
+// as the name it opens on, so the default save target for a document with no
+// file of its own was ANOTHER DOCUMENT'S FILE, and one Return destroyed it.
+// MEASURED on raw bytes by forge_desktop_save_target_gate, which drives the same
+// dispatch this gate does: 657 -> 702, 661 -> 586, 904 -> 822, 665 -> 586.
+// THIS gate ran 197 checks / 0 failures / GREEN on the tree that did all four.
+//
+// Section 7 is the general form of that claim -- it walks the POLICY TABLE, so a
+// tenth Save command lands already pinned -- and the byte-level populations live
+// in forge_desktop_save_target_gate beside it.
+//
+// --mutate 1..6 proves the gate can fail. See kMutations below.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -116,11 +132,17 @@ class ScriptedDialog final : public forge::desktop::FileDialog {
  public:
   std::vector<forge::desktop::FileDialogRequest> requests;
   bool accept = true;      // false == the user pressed Cancel
-  std::string nextPath;    // what they picked when they did not
+  std::string nextPath;    // what they picked when they did not; "" == Return
+  std::string defectPath;  // mutation 5 only; see run()
+
+  // ★ ASKED WHILE THE PANEL IS OPEN, which is the only honest moment. Asking
+  //   after the gesture asks it of a path this very Return has just created.
+  bool seedExisted = false;
 
   forge::desktop::FileDialogResult run(
       const forge::desktop::FileDialogRequest& request) override {
     requests.push_back(request);
+    seedExisted = fileSize(request.suggestedPath) >= 0;
     forge::desktop::FileDialogResult out;
     if (!accept) {
       // MUTATION 3: a cancel that reports the previous choice. This is the
@@ -135,10 +157,22 @@ class ScriptedDialog final : public forge::desktop::FileDialog {
       return out;
     }
     out.accepted = true;
+    // ── AN EMPTY SCRIPT MEANS "THE USER PRESSED RETURN" ──────────────────
+    // Section 7 needs a user who accepts what the panel OPENED ON, because that
+    // is the gesture the whole of T-122 is about. Every earlier section scripts
+    // a path and is unaffected.
+    //
+    // MUTATION 5: that user gets the MOST RECENT DOCUMENT instead of the seed --
+    // the shipped defect, injected at this gate's own knob. Section 7's byte
+    // check must go red on it; one that stays green was not reading the file.
+    std::string answer = nextPath;
+    if (answer.empty()) {
+      answer = (g_mutation == 5 && !defectPath.empty()) ? defectPath : request.suggestedPath;
+    }
     // MUTATION 2: the panel answers a DIFFERENT path from the one it was
     // scripted with. Every receiving-end comparison must then go red -- if any
     // of them stays green it was not comparing the path at all.
-    out.path = (g_mutation == 2) ? nextPath + ".wrong" : nextPath;
+    out.path = (g_mutation == 2) ? answer + ".wrong" : answer;
     lastAccepted_ = out.path;
     return out;
   }
@@ -356,9 +390,16 @@ int main(int argc, char** argv) {
   // Five of the six here; file.save is checked with the other five below, in the
   // ONE state it can raise a panel in. This is not a convenience: a freshly
   // seeded document is NOT dirty (ForgeFrame seeds the starter part and sets
-  // builtProgram_ to it in the same breath), and file.save's enabled predicate
-  // IS `doc_.dirty`, so Save here is correctly disabled and correctly raises
-  // nothing. Manufacturing a dirty document to force the case was tried and it
+  // builtProgram_ to it in the same breath).
+  //
+  // ★ CORRECTED 2026-09-13: this used to say file.save's enabled predicate "IS
+  //   `doc_.dirty`, so Save here is correctly disabled". It is `always`
+  //   (ui/src/ForgeShell.cpp, changed deliberately so Save As could exist), and
+  //   the correction matters: it is why T-122's S4c population needs NO
+  //   modelling at all -- Open, Ctrl+N, File > Save, Return was four keystrokes
+  //   from an opened part to that part destroyed. A comment that mis-states the
+  //   predicate is how the next reader concludes the population cannot happen.
+  //   Save is still exercised below where a user reaches it, after a real edit. Manufacturing a dirty document to force the case was tried and it
   // measured something else: `part.primitive_box` on top of the starter part
   // gives a program the KERNEL refuses -- two unconnected solids, "the part has
   // not rebuilt, so there is nothing to save" -- which then failed the export
@@ -619,6 +660,240 @@ int main(int argc, char** argv) {
               r.suggestedPath.compare(r.suggestedPath.size() - 5, 5, ".step") == 0,
           "the Save panel starts on a name ending .step, not .fpart", r.suggestedPath);
     dialog.accept = true;
+  }
+
+  // ── 7. ★ WHAT A SAVE PANEL POINTS AT ─────────────────────────────────────
+  //
+  // THE HOLE THIS CLOSES. Section 5 pins that Ctrl+S raises no panel and section
+  // 6 checks only that an export's seed ends ".step". NOTHING in this gate, or
+  // anywhere else, pinned what a Save panel is POINTED AT -- and the answer was
+  // shell_.recentDocuments().mostRecent(), i.e. ANOTHER DOCUMENT'S FILE.
+  // MEASURED on raw bytes by forge_desktop_save_target_gate: Open a part, Ctrl+N,
+  // File > Save, Return took /work/bracket.fpart from 1 NOTE / 5 FEATURE / 661 B
+  // to 0 NOTE / 5 FEATURE / 586 B, with no modelling in between, because
+  // file.save's enabled predicate is `always`.
+  //
+  // THREE CLAIMS, and each refuses a different wrong fix: the seed is not the
+  // other document, it is not ANY file that exists (so dodging one file and
+  // landing on the next is still red), and it is STILL IN THE USER'S FOLDER (so
+  // "return nothing", which closes all four populations and re-breaks Ctrl+O on
+  // a fresh launch, is red too).
+  std::printf("\n-- 7. what a SAVE panel points at ------------------------------------\n");
+  {
+    // partPath was written by section 3 and is in the recent list. MUTATION 6
+    // reopens nothing, so nothing is remembered and the seed has no directory to
+    // take -- which must redden the third claim and only the third.
+    dialog.nextPath = partPath;
+    gesture("file.open");
+    checkEq(shell.recentDocuments().mostRecent(), partPath,
+            "the user's part is the most recent document -- the seed's only source");
+    // MUTATION 6: nothing is remembered, so the seed has no directory to take
+    // and the panel opens on a bare name. That is what the CHEAPEST answer to
+    // this defect looks like -- drop the recents fallback, which closes all four
+    // populations and re-breaks Ctrl+O on a fresh launch -- and the "★ still
+    // opens where the user works" check is what refuses it. Nothing is accepted
+    // under this mutation, so no file is written anywhere.
+    if (g_mutation == 6) {
+      shell.recentDocuments().clear();
+      dialog.accept = false;
+    }
+    const long long otherBefore = fileSize(partPath);
+    check(otherBefore > 0, "and it has bytes to lose", std::to_string(otherBefore));
+
+    // File > New, and NO edit: file.save's predicate is `always`, so this is the
+    // whole of the S4c gesture -- four keystrokes from an opened part to that
+    // part destroyed.
+    const forge::ui::DispatchResult fresh = shell.run("file.new");
+    check(fresh.ok(), "File > New", forge::ui::machineName(fresh.status));
+    checkEq(frame.documentPath(), std::string(), "which leaves a document with no file of its own");
+
+    // ---- (a) the panel, through the shipping gesture ---------------------
+    dialog.nextPath.clear();          // "" == the user presses Return on the seed
+    dialog.defectPath = partPath;     // mutation 5 only
+    // READ BEFORE THE GESTURE. A successful save is itself remembered, so asking
+    // afterwards compares the seed with the seed and can never fail -- the check
+    // was written that way first and it was green on a tautology.
+    const std::string recentBefore = shell.recentDocuments().mostRecent();
+    const std::size_t reqBefore = dialog.requests.size();
+    gesture("file.save");
+    const forge::desktop::FileDialogRequest r = raised("file.save", reqBefore);
+    check(r.mode == forge::desktop::FileDialogMode::Save, "File > Save raises a SAVE panel");
+    check(r.suggestedPath != partPath,
+          "★ and it does NOT open on the other document's file", r.suggestedPath);
+    check(r.suggestedPath != recentBefore,
+          "★ nor on whatever the recent list held when it opened", r.suggestedPath);
+    check(!dialog.seedExisted, "★ nor on ANY file that already exists", r.suggestedPath);
+    // ★ AND IT STILL HAS A JOB. Without this, "return nothing" passes every
+    //   check above while making Ctrl+O useless on a fresh launch. Mutation 6
+    //   is what proves this line can fail.
+    check(r.suggestedPath.rfind(dir + "/", 0) == 0,
+          "★ but it DOES still open in the folder the user was last working in",
+          r.suggestedPath);
+
+    // ---- (b) the BYTES, which is the claim that matters ------------------
+    if (g_mutation != 6) {
+      check(fileSize(partPath) == otherBefore,
+            "★ ACCEPTING WHAT THE PANEL OFFERED LEFT THE OTHER DOCUMENT'S BYTES ALONE",
+            std::to_string(otherBefore) + " -> " + std::to_string(fileSize(partPath)));
+      check(frame.documentPath() != partPath,
+            "★ and the document was not bound to that file", frame.documentPath());
+      // A fix that simply stopped saving would pass everything above.
+      check(fileSize(frame.documentPath()) > 0,
+            "the save CREATED a file rather than refusing", frame.documentPath());
+    }
+    dialog.defectPath.clear();
+    dialog.accept = true;
+
+    // ---- (c) THE TABLE WALK, so a tenth command lands already pinned -----
+    // The gesture above proves ONE command. This proves the RULE, for every
+    // Save-mode row in FileDialog.cpp's policy table, by asking the producer
+    // itself. A Save seed may only ever be "", this document's own file, or a
+    // path that does not exist. An OPEN seed is unchanged and must stay so --
+    // naming a file that DOES exist is the entire point of Open, and that
+    // fallback is the whole of the reopen fix (frame_gate pins the box).
+    const forge::ui::DispatchResult again = shell.run("file.new");
+    check(again.ok(), "a fresh untitled document for the walk",
+          forge::ui::machineName(again.status));
+    std::size_t saveRows = 0;
+    std::size_t openRows = 0;
+    for (const std::string& id : forge::desktop::fileDialogCommandIds()) {
+      forge::desktop::FileDialogPolicy policy;
+      if (!forge::desktop::fileDialogPolicyFor(id, policy)) continue;
+      const std::string seed = frame.pathSeedFor(id);
+      if (policy.mode == forge::desktop::FileDialogMode::Save) {
+        ++saveRows;
+        check(seed.empty() || seed == frame.documentPath() || fileSize(seed) < 0,
+              "★ " + id + ": a Save seed never names a file that already exists", seed);
+      } else {
+        ++openRows;
+        checkEq(seed, frame.pathPromptSeed(),
+                id + ": an OPEN seed is the remembered document, unchanged");
+      }
+    }
+    check(saveRows == 6, "six Save-mode commands were walked",
+          std::to_string(saveRows));
+    check(openRows == 3, "and three Open-mode ones", std::to_string(openRows));
+
+    // ---- (c2) A SAVE PANEL FOR AN *EXPORT* IS THE SAME DEFECT ONE SUFFIX
+    //           OVER, and the free-name test has to be asked about the suffix
+    //           the panel will actually WRITE ------------------------------
+    // firstFreeFallbackPath had ONE caller and that caller meant .fpart, so the
+    // suffix was hard-coded in it. The four export commands are Save panels fed
+    // by the same producer, and fileDialogRequestFor() swaps .fpart for .step on
+    // the way out -- so "is untitled.FPART free?" answers yes while
+    // untitled.STEP is sitting there, and the one-click answer replaces the
+    // user's export.
+    //
+    // ★ IN A DIRECTORY OF ITS OWN, and that is not tidiness. Written in the
+    //   shared scratch this block was GREEN under all three of the mutations it
+    //   exists to catch: the accepted save two paragraphs up had already created
+    //   untitled.fpart there, so the broken .fpart test skipped to the same name
+    //   the correct .step test reaches and the difference vanished. MEASURED --
+    //   the first sweep of this change reported P1, P2 and P9 unguarded for
+    //   exactly that reason. A clean directory is what makes the two answers
+    //   different.
+    {
+      const std::string exportDir = dir + "/forge_dialog_gate_exports";
+      std::error_code mkEc;
+      std::filesystem::remove_all(exportDir, mkEc);
+      std::filesystem::create_directories(exportDir, mkEc);
+      // A save into that directory is how the RECENT LIST comes to point at it,
+      // which is where the seed takes its folder from.
+      const std::string anchor = exportDir + "/anchor.fpart";
+      forge::ui::CommandParams ap;
+      ap.setText("path", anchor);
+      const forge::ui::DispatchResult anchored = shell.run("file.save", ap);
+      check(anchored.ok() && fileSize(anchor) > 0,
+            "a part saved into a folder of its own", shell.lastDocumentError());
+      const forge::ui::DispatchResult untitled = shell.run("file.new");
+      check(untitled.ok(), "and then an untitled document",
+            forge::ui::machineName(untitled.status));
+
+      const std::string plantedOne = exportDir + "/untitled.step";
+      const std::string plantedTwo = exportDir + "/untitled-2.step";
+      for (const std::string& planted : {plantedOne, plantedTwo}) {
+        std::FILE* f = std::fopen(planted.c_str(), "wb");
+        if (f != nullptr) {
+          std::fputs("not a real STEP, but real bytes the user would lose\n", f);
+          std::fclose(f);
+        }
+      }
+      check(fileSize(plantedOne) > 0 && fileSize(plantedTwo) > 0,
+            "two exports the user already made are sitting in that folder");
+      check(fileSize(exportDir + "/untitled.fpart") < 0,
+            "and NO untitled.fpart is -- which is what makes the two tests differ");
+
+      forge::desktop::FileDialogRequest req;
+      check(forge::desktop::fileDialogRequestFor("file.export_step",
+                                                 frame.pathSeedFor("file.export_step"), req),
+            "the export panel has a request to build");
+      std::printf("  [seed] Save a Copy as STEP would open on: %s\n", req.suggestedPath.c_str());
+      check(req.suggestedPath != plantedOne && req.suggestedPath != plantedTwo,
+            "★ an EXPORT panel does not open on an export that already exists",
+            req.suggestedPath);
+      check(fileSize(req.suggestedPath) < 0,
+            "★ nor on ANY .step that exists -- the free-name test asked about the "
+            "suffix the panel will WRITE",
+            req.suggestedPath);
+      std::filesystem::remove_all(exportDir, mkEc);
+    }
+
+    // ---- (c3) THE DOCUMENT'S OWN FILE IS STILL THE ANSWER ----------------
+    // Everything above is about a document with NO file. A document that HAS
+    // one must be unaffected: Save As on an open bracket.fpart starts on
+    // bracket.fpart, because that is the file the user is working on. Without
+    // this, a seed fix that swerved EVERY save would pass every check above
+    // while making Save As open on a name nobody asked for.
+    {
+      forge::ui::CommandParams p;
+      p.setText("path", partPath);
+      const forge::ui::DispatchResult back = shell.run("file.open", p);
+      check(back.ok(), "reopen the user's part", forge::ui::machineName(back.status));
+      checkEq(frame.pathSeedFor("file.save_as"), frame.documentPath(),
+              "★ a Save box on a document that HAS a file starts on THAT file");
+      checkEq(frame.pathSeedFor("file.save"), frame.documentPath(),
+              "and so does File > Save");
+      const forge::ui::DispatchResult blank = shell.run("file.new");
+      check(blank.ok(), "back to an untitled document",
+            forge::ui::machineName(blank.status));
+    }
+
+    // ---- (d) the TYPED BOX, the route with no panel at all ---------------
+    // Every headless build and any future non-Apple port takes it, and it is the
+    // one population that had no confirmation of any kind: file.save_as's box
+    // arrived holding the user's other file and one Run took it, 665 -> 586 B.
+    // It is the SAME producer, which is why it closed with the other three.
+    frame.setFileDialog(nullptr);
+    frame.invoke("file.save_as");
+    oneFrame();
+    check(frame.promptOpen(), "with no panel installed, the typed box asks instead");
+    const std::string typed = frame.promptValue("path");
+    check(typed != partPath, "★ and it is NOT pre-filled with the user's other file", typed);
+    check(fileSize(typed) < 0, "★ nor with any file that already exists", typed);
+    frame.cancelPrompt();
+    if (g_mutation != 1) frame.setFileDialog(&dialog);
+
+    // ---- (e) the mirror: an EMPTIED document does not keep the file ------
+    // app.load_sample and file.import_step both reach documentReset(), which
+    // kept documentPath_ on purpose -- so a sample dropped onto an opened part
+    // inherited that part's file and ONE bare Ctrl+S wrote the sample over it
+    // (663 -> 854 B, no panel, NotUndoable). Measured end-to-end next door; what
+    // is pinned here is the one fact it turns on.
+    const forge::ui::DispatchResult reopened = shell.run("file.open", [&] {
+      forge::ui::CommandParams p;
+      p.setText("path", partPath);
+      return p;
+    }());
+    check(reopened.ok(), "reopen the part for the mirror",
+          forge::ui::machineName(reopened.status));
+    checkEq(frame.documentPath(), partPath, "the document is bound to the user's file");
+    std::string resetWhy;
+    check(frame.documentReset(resetWhy), "the document is emptied, as a sample load does it",
+          resetWhy);
+    checkEq(frame.documentPath(), std::string(),
+            "★ AND AN EMPTIED DOCUMENT NO LONGER OWNS THE FILE IT CAME FROM");
+    check(fileSize(partPath) == otherBefore, "the user's file is still untouched",
+          std::to_string(fileSize(partPath)));
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);
