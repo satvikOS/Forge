@@ -218,6 +218,18 @@ jobs:
         # prints. Seventeen Native* headers reach OCCT only once that option is on,
         # and CMake defaults it ON.
         shell: bash
+        #
+        # ★ THIS STEP TOOK CI RED ON THE COMMIT THAT ADDED IT, and the fix is why
+        #   it now asks -M instead of asking whether a compile failed. The first
+        #   version counted headers that would not COMPILE with no OCCT directory
+        #   on the include path. That is a property of the MACHINE: this runner
+        #   installs OCCT into the system include path, so <TopoDS_Shape.hxx>
+        #   resolved with no -I and the step read 0 where a workstation read 14 --
+        #   then failed claiming fourteen phantom entries. `-M -MG` lists what the
+        #   preprocessor actually opened, which is the real question and gives the
+        #   same answer with or without the SDK installed. The --occt-inc control
+        #   pins that equality; here it is redundant because OCCT is already
+        #   present, which is exactly the configuration that broke it.
         run: |
           python3 tools/kernel/occt_header_reach_check.py --selftest
           python3 tools/kernel/occt_header_reach_check.py --report-shipped

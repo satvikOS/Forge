@@ -50,20 +50,42 @@ def public_headers(mod):
 
 
 def probe(args):
+    """Does including this header pull an OCCT header in?
+
+    ★ THIS ASKS THE PREPROCESSOR WHAT IT INCLUDED, NOT WHETHER THE COMPILE FAILED,
+      and the difference is the whole reason this function was rewritten. The
+      first version compiled each header with no OCCT directory on the include
+      path and counted the ones that failed. That works on a workstation where
+      OCCT lives under a prefix nothing adds by default -- and it reads ZERO on a
+      CI runner that installs OCCT into /usr/include, where <TopoDS_Shape.hxx>
+      resolves with no -I at all. MEASURED, on the commit that shipped it: 14
+      locally, 0 in CI, and the step went red claiming fourteen phantom entries.
+      The question was never "does this fail to compile"; it is "does this reach
+      OCCT", and `-M` answers that on any machine.
+
+    -M lists every header the preprocessor actually opened. If OCCT is present it
+    appears in that list; if OCCT is absent the run fails naming the missing OCCT
+    header, which is the same answer by another route. Both are counted 'occt'.
+    """
     rel, cxx, tmpdir, defines = args
     inc = os.path.relpath(rel, 'forge-kernel/include')
     src = os.path.join(tmpdir, inc.replace('/', '_').replace('.hpp', '') + '.cpp')
     with open(src, 'w') as fh:
         fh.write('#include "%s"\n' % inc)
     out = subprocess.run(
-        [cxx, '-std=c++20', '-fsyntax-only', *defines,
+        [cxx, '-std=c++20', '-M', '-MG', *defines,
          '-I', os.path.join(ROOT, 'forge-kernel', 'include'),
          '-I', os.path.join(ROOT, 'ui', 'include'), src],
         capture_output=True, text=True, cwd=ROOT)
     if out.returncode == 0:
+        # -MG keeps going past a header it cannot find and names it anyway, so
+        # one pass covers both machines.
+        for tok in out.stdout.replace('\\\n', ' ').split():
+            if mod_is_occt(os.path.basename(tok)):
+                return rel, 'occt', os.path.basename(tok)
         return rel, 'ok', ''
     m = MISSING.search(out.stderr)
-    if m and mod_is_occt(m.group(1)):
+    if m and mod_is_occt(m.group(1) + '.hxx'):
         return rel, 'occt', m.group(1) + '.hxx'
     return rel, 'other', (out.stderr.strip().splitlines() or [''])[0][:120]
 
@@ -71,8 +93,17 @@ def probe(args):
 _OCCT_HDR = None
 
 
-def mod_is_occt(stem):
-    return bool(_OCCT_HDR.match(stem + '.hxx'))
+def mod_is_occt(basename):
+    """`basename` is a FILE NAME WITH ITS EXTENSION, e.g. "TopoDS_Shape.hxx".
+
+    It used to take a bare stem and append ".hxx" itself, which was fine while the
+    only caller passed a regex group from "'X.hxx' file not found". The -M path
+    hands it real file names, and appending turned TopoDS_Shape.hxx into
+    TopoDS_Shape.hxx.hxx -- matching nothing, so every header read as OCCT-free
+    and the whole measure quietly returned ZERO. It was caught by the number being
+    absurd, not by anything failing.
+    """
+    return bool(_OCCT_HDR.match(basename))
 
 
 def main():
@@ -82,6 +113,14 @@ def main():
     ap.add_argument('--jobs', type=int, default=os.cpu_count() or 4)
     ap.add_argument('--selftest', action='store_true',
                     help='prove this control can fail, in BOTH directions')
+    ap.add_argument('--occt-inc', default=os.environ.get('FORGE_OCCT_INC', ''),
+                    help='an OCCT include directory to ALSO put on the path for a '
+                         'control run. The answer must not change: this measure asks '
+                         'the preprocessor what it included, not whether the compile '
+                         'failed, so a machine with OCCT installed must read the same '
+                         'as one without. The first version of this script did not, '
+                         'and CI -- which installs OCCT into /usr/include -- read 0 '
+                         'where a workstation read 14.')
     ap.add_argument('--report-shipped', action='store_true',
                     help='also probe with -DFORGE_NATIVE_BREP=1 (the shipped build). '
                          'Doubles the runtime and changes no verdict -- the comparison '
@@ -163,6 +202,25 @@ def main():
             return 1
         print('[header-reach] SELFTEST GREEN — the comparison fails in both directions')
         return 0
+
+    # ── THE PORTABILITY CONTROL. Put OCCT itself on the include path and require
+    #    the SAME answer. This is the failure that took CI red: the first version
+    #    counted headers that would not COMPILE without OCCT, which is a property
+    #    of the machine, and a runner with OCCT in /usr/include read zero.
+    if a.occt_inc:
+        if not os.path.isdir(a.occt_inc):
+            print('[header-reach] RED: --occt-inc %s is not a directory' % a.occt_inc)
+            return 1
+        with_occt = {rel for rel, kind, _ in measure(['-I', a.occt_inc]) if kind == 'occt'}
+        if with_occt != measured:
+            print('[header-reach] RED: the answer CHANGED when OCCT was on the include'
+                  ' path -- %d without, %d with. This measure must not depend on whether'
+                  ' the SDK is installed.' % (len(measured), len(with_occt)))
+            for rel in sorted(measured ^ with_occt):
+                print('[header-reach]     differs: %s' % rel)
+            return 1
+        print('[header-reach]   portability control: same %d headers with OCCT on the'
+              ' path as without' % len(with_occt))
 
     missed = sorted(measured - claimed)
     phantom = sorted(claimed - measured)
