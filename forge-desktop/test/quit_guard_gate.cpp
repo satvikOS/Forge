@@ -180,6 +180,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 // setenv(), for the HOME redirect at the top of main(). Section 13 drives Save
@@ -375,7 +376,43 @@ struct App {
 // application is not a gate with a failing check -- it is a gate that cannot ask
 // its question, and saying so is the only honest verdict available.
 bool started(App& app, const std::string& what) {
-  check(app.start(), what, app.scene.error());
+  // ── AND THE OTHER HALF OF THE SAME WINDOW, WHICH CI FOUND AND THIS MACHINE
+  //    COULD NOT ─────────────────────────────────────────────────────────────
+  //
+  // The note above establishes the cause -- the PROCESS-GLOBAL 20 s wall-clock
+  // fillet window in forge-kernel/src/Features.cpp:1738-1760 -- and App::addBox
+  // keeps the EDITS out of it. The STARTS were still in it: this gate builds the
+  // seeded part twenty-five times, each build fillets, and every gap between them
+  // is under the 3 s that would open a fresh window.
+  //
+  // ★ READ THE BUDGET CAREFULLY, because the obvious reading is wrong and it is
+  //   why this looked local-only. `used` is `now - sWinStart` -- WALL-CLOCK
+  //   ELAPSED SINCE THE WINDOW OPENED, not fillet time spent. So the clock that
+  //   runs out is THIS GATE'S OWN RUNTIME. On this workstation the run reaches
+  //   section 15 inside twenty seconds and every start succeeds; on the CI runner
+  //   it does not, and section 15 got "FILLET: kernel declined at every radius
+  //   (r=3.000000)" with 196 checks done and 121 never asked. Nothing about the
+  //   code differed. A gate whose verdict depends on how fast the machine is, is
+  //   not measuring the code.
+  //
+  // The budget documents its own escape: "a >3 s gap starts a fresh window, so an
+  // unrelated later fillet is never starved". So wait out exactly that gap and
+  // ask once more. It costs nothing on a machine that never hits the window, it
+  // costs 3.5 s on one that does, and a start that fails for any OTHER reason
+  // still ends the run on the first attempt with the kernel's own sentence.
+  //
+  // NOT a retry loop, and deliberately not silent: one retry, announced in the
+  // log, so a reader can see that the window bit rather than wondering why a
+  // section took four seconds.
+  if (!app.start() && app.scene.error().find("kernel declined at every radius") !=
+                          std::string::npos) {
+    std::printf("   [fillet-window] the start was refused by the 20 s wall-clock fillet window,\n"
+                "                   not by the geometry -- waiting out the 3 s gap the budget\n"
+                "                   documents, then asking once more\n");
+    std::fflush(stdout);
+    std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+  }
+  check(app.frame.has_value() || app.start(), what, app.scene.error());
   if (app.frame) return true;
   std::printf("\n[quit-gate] %d checks, %d failures\n", g_checks, g_failures);
   std::printf("[quit-gate] FAILED -- no application, so nothing below could be asked\n");
