@@ -955,7 +955,7 @@ foreach(_cm RANGE 1 7)
                          PROPERTIES WILL_FAIL TRUE)
 
 add_test(NAME forge_desktop_quit_guard_gate COMMAND forge_desktop_quit_guard_gate)
-# The SEVENTEEN negative controls for the quit guard, same WILL_FAIL idiom as the
+# The NINETEEN negative controls for the quit guard, same WILL_FAIL idiom as the
 # rest: each breaks ONE link between the gesture and the surviving work, and each
 # is EXPECTED to be red. A mutation that starts exiting zero is one whose defect
 # the gate no longer detects.
@@ -969,7 +969,27 @@ add_test(NAME forge_desktop_quit_guard_gate COMMAND forge_desktop_quit_guard_gat
 #   change them together, and read the count off
 #     awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
 #   which is the same derivation ci_desktop_gate.sh's EXPECTED_MUTATIONS uses.
-foreach(_qg RANGE 1 17)
+#
+# ── THE SAME HOLE, STILL OPEN, AND NOW COUNTED CORRECTLY ────────────────────
+# The commit that fixed the range above wrote the rest of the hole down as "six
+# more gates ... 54 of them -- frame 22, click 12, copilot 8, document 8,
+# assembly 4, frame_capture 3, transaction 1". That list is SEVEN gates and it
+# sums to 58, so the sentence contradicted itself; a tally typed out by hand is
+# how that happens. Derived instead, from a configured build:
+#
+#   ctest -N | sed -n 's/.*: \(forge_desktop_.*\)_mutation_[0-9]*$/\1/p' \
+#     | sort | uniq -c
+#   awk '/^run_gate /{if (NF>2) print NF-2, $2}' forge-desktop/test/run_desktop.sh
+#
+# Today that reads 10 gates / 75 mutation entries here against 17 gates / 132
+# mutations driven there. The difference is SEVEN gates with no ctest entry at
+# all -- frame 22, click 12, document 8, copilot 8, assembly 4, frame_capture 3,
+# transaction 1, which is 58 -- plus update_gate's `RANGE 1 8` below registering
+# one mutation run_desktop.sh does not drive. 132 - 58 + 1 = 75, which is the
+# arithmetic that makes the two lists agree. None of that is fixed here; it is
+# derived so that the next person to read it gets a number that is true on the
+# day they read it.
+foreach(_qg RANGE 1 19)
     add_test(NAME forge_desktop_quit_guard_mutation_${_qg}
              COMMAND forge_desktop_quit_guard_gate --mutate ${_qg})
     set_tests_properties(forge_desktop_quit_guard_mutation_${_qg} PROPERTIES WILL_FAIL TRUE)

@@ -768,6 +768,11 @@ bool ForgeFrame::documentNew(std::string& error) {
   if (!seedDefaultPart(error)) return false;
   documentPath_.clear();
   documentName_ = "untitled";
+  // The refused-path memory belongs to the RECOVERED document, and this gesture
+  // has just thrown that document away. Dropping it here costs nothing: the
+  // untitled fallback still will not write over a file that exists, and this new
+  // part has no claim on a name a previous document was refused.
+  refusedSavePath_.clear();
   // A new document gets a new drawing: keeping the last one's title block would
   // put somebody else's part number and revision on a part that has neither.
   drawing_ = forge::ui::DrawingModel{};
@@ -970,6 +975,77 @@ std::vector<std::string> inputFileCandidates(const std::string& recorded,
       folder == "/" ? "/" + leafOf(recorded) : folder + "/" + leafOf(recorded);
   if (std::find(out.begin(), out.end(), beside) == out.end()) out.push_back(beside);
   return out;
+}
+
+// ── THE UNTITLED FALLBACK MAY ONLY EVER CREATE A FILE ───────────────────────
+//
+// ★ WHAT THIS EXISTS FOR, MEASURED ON RAW BYTES. documentSave() with no path of
+//   its own rebuilds a target out of the document's NAME, and documentNew() sets
+//   that name back to "untitled" for every new part -- so the SECOND bare Ctrl+S
+//   of a session reconstructs the FIRST one's path exactly, and savePartFile()
+//   had no existence check of any kind. Ctrl+S, Ctrl+N, model, Ctrl+S took a
+//   file holding 1 NOTE / 6 FEATURE / 764 bytes to 0 NOTE / 7 FEATURE / 801
+//   bytes -- a DIFFERENT PART, under the first one's name, with "PART ONE -- DO
+//   NOT DELETE" gone out of it. No panel, no prompt, no line in the log at all.
+//   Both keys are bound in all four keymap
+//   profiles and forge_desktop_file_dialog_gate section 5 pins that Ctrl+S
+//   raises nothing, so there was never anything in the way.
+//
+//   The same arithmetic is why a recovery's staleness guard did not pay:
+//   recoverFromAutosave() clears the PATH and keeps the NAME, and this function
+//   rebuilt, out of that name, the very path the guard had just refused.
+//
+// WHY A FREE NAME AND NOT A REFUSAL. A refusal was the other candidate and it is
+// the wrong one here: a bare Ctrl+S must always finish. Save and Close routes
+// through this exact call with nowhere to put the part (quit_guard section 13),
+// so a save that declines leaves the work in memory on the way out of the
+// application; and raising a panel instead is pinned shut by the file-dialog
+// gate, deliberately, because Ctrl+S is not allowed to become a modal. Picking
+// the first FREE name costs nothing and loses nothing: the part is written, no
+// existing file is touched, and note() names the file it actually wrote so the
+// user is not left guessing which one it is.
+//
+// `forbidden` is a path that must be skipped even when nothing is sitting on it
+// -- see refusedSavePath_. A user told to keep their own file while they compare
+// it will move that file aside, and a fallback that only asked "is there a file
+// here?" would hand the refused name straight back the moment they did.
+// `swerved` is set when the FIRST name in the series was not the one returned --
+// i.e. when something really was in the way. It is what the warning below is
+// conditioned on, and it is NOT the same question as "is this the name the
+// document was called": a document called "untitled-4" whose own file is gone
+// is written as untitled.fpart, which is the series behaving, not a collision.
+std::string firstFreeFallbackPath(const std::string& directory, const std::string& stem,
+                                  const std::string& forbidden, bool& swerved,
+                                  std::string& firstChoice) {
+  std::string base = stem.empty() ? std::string("untitled") : stem;
+  // A name this function itself produced goes back into the SERIES it came from
+  // rather than growing a second tail: "untitled-4" asks for "untitled-5", not
+  // "untitled-4-2". A document can only reach here with a name ending in -<n>
+  // by having been given one here or by a recovery carrying one, so nothing a
+  // user typed is trimmed -- Save As and an opened file both arrive with a path
+  // and never reach this function at all.
+  {
+    const std::size_t dash = base.find_last_of('-');
+    if (dash != std::string::npos && dash > 0 && dash + 1 < base.size() &&
+        base.find_first_not_of("0123456789", dash + 1) == std::string::npos) {
+      base.erase(dash);
+    }
+  }
+  swerved = false;
+  firstChoice = directory + "/" + base + kPartFileExtension;
+  std::error_code ec;
+  for (int n = 1; n <= 1000; ++n) {
+    const std::string candidate = n == 1 ? firstChoice
+                                         : directory + "/" + base + "-" + std::to_string(n) +
+                                               kPartFileExtension;
+    if (!forbidden.empty() && candidate == forbidden) continue;
+    if (!std::filesystem::exists(candidate, ec)) {
+      swerved = candidate != firstChoice;
+      return candidate;
+    }
+  }
+  // A thousand untitled parts in one directory is not a state to guess at.
+  return std::string();
 }
 
 }  // namespace
@@ -1206,9 +1282,39 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
   if (target.empty()) {
     // Ctrl+S on a never-saved document must SAVE, and must say where. ~/.forge
     // is the directory the app already owns for its own state.
+    //
+    // ★ AND IT MAY NOT LAND ON A FILE THAT IS ALREADY THERE. This target is
+    //   built out of a NAME, and "untitled" is the name of every new document,
+    //   so the same path comes back for the second part of a session and for a
+    //   recovery whose path the staleness guard has just refused. Neither of
+    //   those is the user asking to replace anything. See
+    //   firstFreeFallbackPath() above for what was measured and why the answer
+    //   is a free name rather than a refusal or a panel.
+    //
+    //   A target the CALLER gave (`path`), or one this document already owns
+    //   (`documentPath_`), is left exactly alone: replacing the file you chose
+    //   is what Save means, and only the invented name is guarded here.
     const char* home = std::getenv("HOME");
     const std::string dir = (home != nullptr && home[0] != 0) ? std::string(home) + "/.forge" : ".";
-    target = dir + "/" + documentName_ + kPartFileExtension;
+    bool swerved = false;
+    std::string wanted;
+    target = firstFreeFallbackPath(dir, documentName_, refusedSavePath_, swerved, wanted);
+    if (target.empty()) {
+      error = "Forge could not find a free name for this part in " + dir +
+              ". Use Save As and choose where it should go.";
+      return false;
+    }
+    if (swerved) {
+      // NOT a silent swerve. The user pressed a key expecting a file they could
+      // guess the name of, and got a different one; the log says which, and why
+      // the obvious name was not used.
+      shell_.log().warning("document.save",
+                           "This part had no file of its own, so Forge made one for it under "
+                           "the next free name. The name it would normally use belongs to "
+                           "another part, and Forge will not write over a file you did not "
+                           "choose.",
+                           "wanted " + wanted + ", wrote " + target);
+    }
   }
   documentName_ = documentNameFromPath(target);
   // The scene's binding is the one the viewport was built with, so what the file
@@ -1630,6 +1736,17 @@ bool ForgeFrame::fileIsNewerThanSnapshot(const forge::ui::RecoveryCandidate& can
 bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candidate,
                                      std::string& error) {
   error.clear();
+  // ── CLEARED HERE, BEFORE EITHER EARLY RETURN, AND THAT IS THE FIX ───────
+  // These two were written only on the success path, while the header said
+  // recoveryRefusedStalePath_ was "set every time this runs". It was not: a
+  // recovery that fell out at one of the two returns below left the PREVIOUS
+  // recovery's answer standing, so the accessor could report "your file was
+  // newer" about a recovery that never got as far as looking at a file -- and
+  // the refused-path memory could go on refusing a name for a document that had
+  // nothing to do with it. Both now mean "the LAST recovery that ran", which is
+  // what they are read as.
+  recoveryRefusedStalePath_ = false;
+  refusedSavePath_.clear();
   if (recovery_ == nullptr) {
     error = "no recovery session is open";
     return false;
@@ -1680,6 +1797,22 @@ bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candida
   std::string staleNote;
   recoveryRefusedStalePath_ = adoptPath && fileIsNewerThanSnapshot(candidate, staleNote);
   if (recoveryRefusedStalePath_) adoptPath = false;
+  // ── AND THE PATH IS REMEMBERED, NOT MERELY DROPPED ──────────────────────
+  // MEASURED: clearing documentPath_ was not enough. The lines below keep the
+  // recovered document's NAME, and documentSave() built its fallback target out
+  // of exactly that name -- so one bare Ctrl+S reconstructed the path this guard
+  // had just refused, and wrote the older document over the user's newer file.
+  // On the raw bytes: 1 NOTE / 883 bytes -> 0 NOTE / 801 bytes, identical with
+  // this guard and without it. The collision test in firstFreeFallbackPath()
+  // catches that on its own while the file is there; this is what still catches
+  // it after the user does what the warning below tells them to and moves their
+  // own file aside.
+  //
+  // It is asked of `adoptPath` and not of the staleness flag on purpose: rung
+  // (c) of the drawing ladder refuses a path too, for a different reason, and a
+  // refusal is a refusal. An empty documentPath -- a dead session that had never
+  // saved -- remembers nothing, which is correct: there is no file to protect.
+  if (!adoptPath) refusedSavePath_ = candidate.documentPath;
 
   partDoc_ = recovered.tree();
   // DocumentModel::restore() installs a FRESH PartDocument and puts the file's
@@ -2355,10 +2488,12 @@ bool ForgeFrame::wantsFileDialog(const std::string& id,
       // Save is dispatchable with no path at all, so the registry says Ok. The
       // question here is a different one: does the APPLICATION know where to put
       // it? An untitled document has nowhere, and ForgeFrame::documentSave()
-      // answers that today by writing ~/.forge/untitled.fpart -- a directory the
-      // user never chose and has no reason to guess. That is the case the panel
-      // is for, and it is the only one: a document that came from a file is
-      // saved back to that file, silently, on every Ctrl+S.
+      // answers that today by writing into ~/.forge -- a directory the user
+      // never chose and has no reason to guess -- under the first FREE name in
+      // the untitled series (see firstFreeFallbackPath(): it may only ever
+      // CREATE a file, never replace one). That is the case the panel is for,
+      // and it is the only one: a document that came from a file is saved back
+      // to that file, silently, on every Ctrl+S.
       //
       // ── A LIMIT, STATED RATHER THAN HIDDEN ──────────────────────────────
       // This reaches the KEYBOARD for the four Required commands and it does

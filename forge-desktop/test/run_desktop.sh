@@ -53,19 +53,25 @@
 #                         surfacing as a failed op and not a dead application.
 #                         Its mutation proof is NOT driven from here — see
 #                         run_isolation_gate.sh below.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. Every defect
-#                       named by a `run_gate` line below is injected in turn and
-#                       each MUST make its gate exit non-zero; a mutation that
-#                       stays green fails this script, because an unfalsifiable
-#                       check is not a check. The TOTAL is deliberately not
-#                       written here: it is a figure this comment cannot keep,
-#                       and it said EIGHTY-THREE for long enough that the real
-#                       count reached 113 underneath it. It is pinned where it
-#                       decides the build — EXPECTED_MUTATIONS in
-#                       ci_desktop_gate.sh — and derived, on the tree being
-#                       committed, by
-#                         awk '/^run_gate /{t+=NF-2} END{print t}' \
-#                           forge-desktop/test/run_desktop.sh
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. One defect per
+#                       --mutate number on the run_gate lines below is injected in
+#                       turn and each MUST make its gate exit non-zero; a mutation
+#                       that stays green fails this script, because an
+#                       unfalsifiable check is not a check.
+#                       ★ THE PER-GATE TALLY THAT USED TO BE WRITTEN OUT HERE
+#                         LISTED TEN GATES AND SUMMED TO 83. Seven more gates on
+#                         the run_gate lines below drive mutations and were never
+#                         added to it — quit_guard, sketch_panels, quality,
+#                         study, cam_panels, frame_capture and transaction. That
+#                         is the same defect the GATE count in phase 1 above was
+#                         fixed for: a number in prose does not move when the
+#                         thing it describes does. So it is DERIVED now, and not
+#                         written down anywhere a reader can trust by eye:
+#                           awk '/^run_gate /{total+=NF-2} END{print total}' \
+#                             forge-desktop/test/run_desktop.sh
+#                         which is the derivation ci_desktop_gate.sh's
+#                         EXPECTED_MUTATIONS and CMakeLists.txt's ctest ranges are
+#                         both read off.
 #
 # CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
 # this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
@@ -321,8 +327,15 @@ run_gate forge_desktop_import_reopen_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 # document that has never been saved, where the close must WAIT for a file panel
 # and must not happen at all if it is cancelled; 13 is what File > New leaves
 # behind when it replaces a dirty document without asking; 14 is the fifteen-
-# second cadence asked to keep an edit that touches only the drawing.
-run_gate forge_desktop_quit_guard_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
+# second cadence asked to keep an edit that touches only the drawing. 15-17 are
+# the staleness guard's, and 18-19 belong to the two sections that measure what a
+# BARE Ctrl+S does when it has to invent a file name: 18 never presses Ctrl+N, so
+# the second save legitimately owns the file it writes, and 19 puts the snapshot
+# in the future, so the recovery is right to take the name and nothing is
+# refused. Both are negative controls for the guard rather than for the scenario:
+# they prove a bare save swerves because a NAME WAS ALREADY TAKEN, and not
+# because this build has started swerving away from every file it is offered.
+run_gate forge_desktop_quit_guard_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
 # FILE EXCHANGE: open and save real CAD files through the shipping command path,
 # comparing a VECTOR of observables at the seam -- volume AND area AND centre of
 # mass AND bounding box AND the per-kind face census. The five mutations break the

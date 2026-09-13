@@ -234,50 +234,15 @@ set -uo pipefail
 #    derives 167. Re-derived here rather than adjusted by hand:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
 #    prints 167.
-EXPECTED_MUTATIONS=167
-# ── 2026-09-06: 102 -> 109. The TRUST-PANELS gate (Interference, Verification,
-# Continuity, Draft, Zebra) joined run_desktop.sh with seven mutations, so this
-# number moves in the SAME commit -- which is exactly what this constant exists
-# to force. DERIVED on this tree, not incremented on faith:
-#   awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh
-# prints 109.
-# MERGED tree by counting run_desktop.sh's own run_gate arguments, not taken
-# from either parent. This number has been contested at THREE merges now and the
-# sides have swapped between them, which is the whole argument for measuring it
-# on the tree being committed rather than inheriting it.
+
 #
-# AT THIS MERGE (origin/archdisc into app/forge-cpp-user-ready) the parents
-# DISAGREE: this branch pins 43, the base pins 40. NEITHER was taken. Counting
-# run_desktop.sh's own run_gate arguments on the MERGED tree gives:
-#     document 8 + frame 12 + copilot 8 + update 7 + click 8 = 43
-# (ir_pipeline_gate and isolation_gate take no mutation arguments.)
-#
-# Both parents are right about their own half. The base's 40 is correct FOR THE
-# BASE, where frame_gate still runs 1..9; this branch adds frame mutations 10, 11
-# and 12 -- a worker CONFIGURED is not distinguished from one absent, the frame
-# never dispatches the deferred Open Recent request, and a statement row is never
-# clicked so Extrude has no Sketch to consume. 40 + 3 = 43.
-#
-# The confirmation, not the count: click mutation 8 -- the camera pull path,
-# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree, which is
-# what the earlier disagreement turned on. This is D-028's failure mode, and the
-# method that catches it is to COUNT on the tree being committed rather than to
-# inherit a number.
-# ── 2026-09-02: 40 -> 45. The file-exchange gate joined run_desktop.sh with five
-# mutations, so this number moves in the SAME commit, which is exactly what this
-# constant exists to force. DERIVED on this tree, not incremented on faith --
-# `awk '/^run_gate /{total+=NF-2} END{print total}' forge-desktop/test/run_desktop.sh`
-# prints 45, made of: ir_pipeline 0 + document 8 + file_exchange 5 + frame 9 +
-# copilot 8 + update 7 + click 8 + isolation 0.
-# (a stale EXPECTED_MUTATIONS from one parent was removed here at the merge —
-#  in bash the LAST assignment wins, so leaving both sides' lines in place would
-#  have silently restored a parent's number over the one counted on this tree.)
-# `g_mutation != 8` in click_gate.cpp -- is PRESENT on the merged tree (four
-# sites), which is what the earlier disagreements turned on. This is D-028's
-# failure mode; the method that catches it is to COUNT on the merged tree.
-# (a stale EXPECTED_MUTATIONS from one parent was removed here at the merge —
-#  in bash the LAST assignment wins, so leaving both sides' lines in place would
-#  have silently restored a parent's number over the one counted on this tree.)
+# ── AND ONE MORE TIME, ON THE THIRD COMMIT OF THE SAME CHAIN: this one adds
+#    quit_guard 18 and 19, so the merged tree derives 169. Every figure in the
+#    notes above was true when written and none of them is true now, which is why
+#    the only one that decides anything is re-derived on the tree being committed:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+#    prints 169.
+EXPECTED_MUTATIONS=169
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

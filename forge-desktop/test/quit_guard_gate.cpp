@@ -43,6 +43,16 @@
 // on a document that has NOT changed, and Save As exists and writes a second
 // file without disturbing the first.
 //
+// ── AND THE ONE THAT NEEDS NO QUIT AND NO RECOVERY (sections 17-18) ────────
+// Sections 9-16 are all downstream of a crash, and recoverFromAutosave() still
+// has no UI entry point. Section 17 needs neither: Ctrl+S, Ctrl+N, model, Ctrl+S
+// is two keys bound in all four keymap profiles, and before the change that
+// added it the second save silently replaced the first part's file. Section 18
+// is the same arithmetic seen from the recovery side, and it is why section 16's
+// guard did not pay for the commonest population there is -- a part the user has
+// only ever pressed Ctrl+S on, which therefore lives at the very path the
+// fallback rebuilds out of the name the guard leaves behind.
+//
 // ── WHAT THE ADVERSARIAL REVIEW OF THE FIRST VERSION ADDED (sections 9-14) ──
 // The first version of this change passed every check above and DESTROYED DATA
 // the bug it fixed had only failed to save. Sections 9-14 are that review,
@@ -146,6 +156,21 @@
 //                                                 proving the refusal is about
 //                                                 the file's age and not a
 //                                                 constant that refuses always
+//  18  Ctrl+N is never pressed between the     -> the second bare Ctrl+S then
+//      two bare saves in section 17               belongs to the SAME document,
+//                                                 which already owns that file,
+//                                                 and writing over it is right.
+//                                                 The negative control for the
+//                                                 collision guard: it proves the
+//                                                 swerve is caused by a path
+//                                                 REBUILT FROM A NAME and not by
+//                                                 a build that has stopped
+//                                                 writing the same file twice
+//  19  section 18's snapshot is put a minute  -> nothing is refused, the document
+//      into the FUTURE                            legitimately owns the path, and
+//                                                 the bare Ctrl+S is right to
+//                                                 write it: the negative control
+//                                                 for the refused-name memory
 
 #include <chrono>
 #include <cstddef>
@@ -268,6 +293,33 @@ struct App {
     return r.ok() && shell.lastDocumentError().empty();
   }
 
+  // ── A MODELLING EDIT THAT IS NOT A FILLET ─────────────────────────────
+  //
+  // ★ MEASURED, and the reason is a kernel property rather than a preference.
+  //   forge::part's OCCT fillet path enforces a CUMULATIVE 20 s WALL-CLOCK
+  //   window across back-to-back fillet calls, reset only by a >3 s gap
+  //   (forge-kernel/src/Features.cpp, "OCCT-fillet hang guard"). Its state is
+  //   `static` -- PROCESS-GLOBAL -- though the comment beside it calls the
+  //   budget "per-body". This gate spends ~19 s of CPU doing back-to-back
+  //   fillets and was therefore already within seconds of that cliff. Three
+  //   more scenarios of fillet() pushed it over, and once the window is spent
+  //   EVERY LATER FILLET IN THE PROCESS fails fast -- including the SEEDED
+  //   part's, so applications stopped starting at all: 7 runs in 8 red, two of
+  //   them SIGSEGV. Sections 17 and 18 use this instead, so they cost the
+  //   window nothing and the gate is no closer to the cliff than it was.
+  //
+  // A BOX needs no selection and no fillet, and it is a feature like any other:
+  // it moves records().size(), marks the document dirty, and writes one more
+  // FEATURE block into the file, which is all these sections read.
+  bool addBox() {
+    forge::ui::CommandParams params;
+    params.setNumber("dx", 12.0);
+    params.setNumber("dy", 8.0);
+    params.setNumber("dz", 6.0);
+    const forge::ui::DispatchResult r = shell.run("part.primitive_box", params);
+    return r.ok() && shell.lastDocumentError().empty();
+  }
+
   bool saveTo(const std::string& path) {
     forge::ui::CommandParams params;
     params.setText("path", path);
@@ -296,6 +348,40 @@ struct App {
     return r.ok();
   }
 };
+
+// ── AN APPLICATION THAT DID NOT START IS NOT A FAILING CHECK ────────────────
+//
+// ★ MEASURED, and it cost a whole verification run. KernelScene::build() can
+//   return FALSE on the perfectly good seeded part -- "FILLET: kernel declined
+//   at every radius (r=3.000000)" -- on a machine with several agents building
+//   at once. App::start() then returns false WITHOUT constructing the frame,
+//   and every `frame->` after it dereferences a DISENGAGED std::optional. That
+//   is undefined behaviour, and what it did here was SIGSEGV with all 2.5 KB of
+//   this gate's stdout still sitting in the block buffer -- so the run printed
+//   NOTHING AT ALL and the harness reported only "exit 139". Three runs in
+//   eight, on one loaded afternoon; one further run reached the FAIL lines and
+//   cascaded eight of them out of one failed start.
+//
+//   WHY the seeded part failed to build is established, and it is not where the
+//   first guess looked: NOT the native exact boolean's 5000 ms budget
+//   (MeshBooleanExact.cpp) -- forcing FORGE_EXACT_BOOL_BUDGET_MS=1 leaves this
+//   gate green, 313/0 -- but the PROCESS-GLOBAL 20 s wall-clock fillet window in
+//   forge-kernel/src/Features.cpp. See App::addBox() above, which is what these
+//   sections use instead so that they cost that window nothing.
+//
+// Only section 1 guarded it, and 24 other start sites did not. This makes the
+// guard the WAY an application is started, so no scenario can forget: it prints
+// the kernel's own sentence and ENDS THE RUN, which flushes. A gate with no
+// application is not a gate with a failing check -- it is a gate that cannot ask
+// its question, and saying so is the only honest verdict available.
+bool started(App& app, const std::string& what) {
+  check(app.start(), what, app.scene.error());
+  if (app.frame) return true;
+  std::printf("\n[quit-gate] %d checks, %d failures\n", g_checks, g_failures);
+  std::printf("[quit-gate] FAILED -- no application, so nothing below could be asked\n");
+  std::printf("[quit-gate] the kernel's reason: %s\n", app.scene.error().c_str());
+  std::exit(1);
+}
 
 // How many features a .fpart on disk actually holds. The file is the claim
 // "the work survived", so it is read back through the shipping reader.
@@ -450,6 +536,24 @@ std::size_t removeAutosaveDrawings(const std::string& directory) {
   return removed;
 }
 
+// ── WHY THESE SECTIONS DO NOT REDIRECT HOME ────────────────────────────────
+// The first version of sections 17 and 18 gave each of them a HOME of its own,
+// so the untitled series would restart at 1 in each. That meant three more
+// ::setenv() calls in a process that already has kernel work in flight, which is
+// process-global state mutated for a cosmetic gain. They share main()'s single
+// redirect instead, and NOTHING below assumes which name the fallback lands on:
+// every path is read back out of documentPath() after the save that chose it.
+// That is also the stronger assertion -- it is true whatever else is in the
+// directory.
+
+// The last path segment, extension and all. Section 18 needs it to state the
+// thing that makes that section's defect possible: the refused file and the
+// recovered document are called THE SAME THING.
+std::string baseName(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  return slash == std::string::npos ? path : path.substr(slash + 1);
+}
+
 // ── the file panel, scripted ────────────────────────────────────────────────
 // Save and Close on a document that has never been saved does not end at the
 // button: `file.save` has nowhere to put the part, so a panel is owed and the
@@ -510,11 +614,7 @@ int main(int argc, char** argv) {
   // ═══ 1. THE GUARD, AND THE SNAPSHOT THAT COMES BEFORE THE QUESTION ═══════
   std::printf("\n-- 1. a dirty document turns Quit into a question ---------------------\n");
   App a;
-  check(a.start(), "the starting part builds and the frame wires up", a.scene.error());
-  if (!a.frame) {
-    std::printf("[quit-gate] cannot continue without an application\n");
-    return 1;
-  }
+  started(a, "the starting part builds and the frame wires up");
 
   // MUTATION 1: the application as it SHIPPED -- the autosave engine exists in
   // ui/src and nothing constructs it.
@@ -580,7 +680,7 @@ int main(int argc, char** argv) {
   if (g_mutation == 5) a.frame->endRecoverySession();
 
   App b;
-  check(b.start(), "a second application starts", b.scene.error());
+  started(b, "a second application starts");
   const bool secondSession = (g_mutation != 1) && b.frame->beginRecoverySession(recoveryDir);
   const std::vector<forge::ui::RecoveryCandidate> dead =
       secondSession ? b.frame->recoverableSessions()
@@ -669,7 +769,7 @@ int main(int argc, char** argv) {
   const std::string discardPath = root + "/discard.fpart";
   {
     App c;
-    check(c.start(), "a third application starts", c.scene.error());
+    started(c, "a third application starts");
     check(c.fillet(), "an edit");
     check(c.saveTo(discardPath), "saved to a file", c.shell.lastDocumentError());
     const long kept = featuresOnDisk(discardPath);
@@ -684,7 +784,7 @@ int main(int argc, char** argv) {
   }
   {
     App d;
-    check(d.start(), "a fourth application starts", d.scene.error());
+    started(d, "a fourth application starts");
     check(d.fillet(), "an edit nobody will save");
     d.frame->requestQuit();
     check(d.frame->quitPromptOpen(), "the guard asked");
@@ -701,7 +801,7 @@ int main(int argc, char** argv) {
   std::printf("\n-- 6. Save is reachable on a clean part, and Save As exists -----------\n");
   {
     App e;
-    check(e.start(), "a fifth application starts", e.scene.error());
+    started(e, "a fifth application starts");
     const std::string first = root + "/first.fpart";
     const std::string second = root + "/second.fpart";
     check(e.fillet(), "an edit");
@@ -860,7 +960,7 @@ int main(int argc, char** argv) {
   std::string referenceBytes;
   {
     App f;
-    check(f.start(), "an application whose document also carries a DRAWING", f.scene.error());
+    started(f, "an application whose document also carries a DRAWING");
     check(f.frame->beginRecoverySession(recoveryDir9), "its recovery session opened",
           recoveryDir9);
     check(f.fillet(), "a modelling edit");
@@ -886,7 +986,7 @@ int main(int argc, char** argv) {
   }
   {
     App g;
-    check(g.start(), "the next launch", g.scene.error());
+    started(g, "the next launch");
     check(g.frame->beginRecoverySession(recoveryDir9), "its own session opened");
     // MUTATION 8: THE DRAWING NEVER CROSSED. The snapshot of the drawing is
     // deleted from beside the autosave before this launch looks -- which is
@@ -965,9 +1065,9 @@ int main(int argc, char** argv) {
   };
 
   App dying;
-  check(dying.start(), "an application that will die three times", dying.scene.error());
+  started(dying, "an application that will die three times");
   App living;
-  check(living.start(), "and one that keeps finding what it left", living.scene.error());
+  started(living, "and one that keeps finding what it left");
 
   // ── 10a. THE ORDINARY CASE ──────────────────────────────────────────────
   {
@@ -1056,7 +1156,7 @@ int main(int argc, char** argv) {
   std::printf("\n-- 11. saving by hand takes the question away -------------------------\n");
   {
     App j;
-    check(j.start(), "an application with unsaved work", j.scene.error());
+    started(j, "an application with unsaved work");
     check(j.fillet(), "an edit");
     j.frame->requestQuit();
     check(j.frame->quitPromptOpen(), "the guard asked");
@@ -1089,7 +1189,7 @@ int main(int argc, char** argv) {
   std::printf("\n-- 12. Save As with an empty name refuses -----------------------------\n");
   {
     App k;
-    check(k.start(), "an application with a named document", k.scene.error());
+    started(k, "an application with a named document");
     const std::string named = root + "/named.fpart";
     check(k.fillet(), "an edit");
     check(k.saveTo(named), "saved once, under a name", k.shell.lastDocumentError());
@@ -1123,7 +1223,7 @@ int main(int argc, char** argv) {
     // no native picker for. documentSave() writes $HOME/.forge/<name>.fpart; HOME
     // is this gate's own directory, redirected at the top of main().
     App l;
-    check(l.start(), "an application whose part has never been saved", l.scene.error());
+    started(l, "an application whose part has never been saved");
     check(l.fillet(), "an edit");
     checkStrEq(l.frame->documentPath(), std::string(), "it has no name yet");
     l.frame->requestQuit();
@@ -1140,7 +1240,7 @@ int main(int argc, char** argv) {
   {
     // (b) A PANEL, ANSWERED. What a user on macOS actually sees.
     App m;
-    check(m.start(), "a second one, with a file panel installed", m.scene.error());
+    started(m, "a second one, with a file panel installed");
     ScriptedDialog panel;
     panel.accept = true;
     panel.nextPath = root + "/panel.fpart";
@@ -1160,7 +1260,7 @@ int main(int argc, char** argv) {
     // (c) A PANEL, CANCELLED -- the answer that is not an answer. Nothing was
     // saved, so nothing may close: resolveQuitAfterSave() puts the question back.
     App n;
-    check(n.start(), "a third one, whose user changes their mind", n.scene.error());
+    started(n, "a third one, whose user changes their mind");
     ScriptedDialog panel;
     // MUTATION 12: the panel answers with a path where the user cancelled. The
     // application then closes, and every check below must go red.
@@ -1202,7 +1302,7 @@ int main(int argc, char** argv) {
   std::printf("\n-- 14. New replaces a dirty document without asking -------------------\n");
   {
     App o;
-    check(o.start(), "an application with unsaved work", o.scene.error());
+    started(o, "an application with unsaved work");
     const std::string dir14 = root + "/recovery-new";
     check(o.frame->beginRecoverySession(dir14), "a recovery session", dir14);
     // MUTATION 13: nothing is edited, so File > New throws nothing away and there
@@ -1252,7 +1352,7 @@ int main(int argc, char** argv) {
   std::printf("\n-- 15. the cadence keeps a drawing-only edit --------------------------\n");
   {
     App p;
-    check(p.start(), "an application on the cadence", p.scene.error());
+    started(p, "an application on the cadence");
     const std::string dir15 = root + "/recovery-cadence";
     check(p.frame->beginRecoverySession(dir15), "a recovery session", dir15);
     // MUTATION 14: the drawing is never touched, so there is no drawing-only
@@ -1325,7 +1425,7 @@ int main(int argc, char** argv) {
     std::string savedBytes;
     {
       App q;
-      check(q.start(), "the session that is going to die", q.scene.error());
+      started(q, "the session that is going to die");
       check(q.frame->beginRecoverySession(dir), "its recovery session", dir);
       check(q.fillet(), "a modelling edit");
       check(q.saveTo(userPath), "the user saves their own file", q.shell.lastDocumentError());
@@ -1359,7 +1459,7 @@ int main(int argc, char** argv) {
           "and the words the user typed are in the file", userPath);
 
     App r;
-    check(r.start(), "the next launch", r.scene.error());
+    started(r, "the next launch");
     if (recoverOne(r, dir)) {
       checkStrEq(r.frame->documentPath(), std::string(),
                  "★ THE RECOVERY REFUSES THE NAME OF A FILE NEWER THAN ITS SNAPSHOT");
@@ -1392,7 +1492,7 @@ int main(int argc, char** argv) {
     std::size_t snapshotFeatures = 0;
     {
       App s;
-      check(s.start(), "a second session that is going to die", s.scene.error());
+      started(s, "a second session that is going to die");
       check(s.frame->beginRecoverySession(dir), "its recovery session", dir);
       check(s.fillet(), "a modelling edit");
       check(s.fillet(), "and another");
@@ -1418,7 +1518,7 @@ int main(int argc, char** argv) {
             "their file holds ONE MORE feature than the snapshot does");
 
     App t;
-    check(t.start(), "the next launch", t.scene.error());
+    started(t, "the next launch");
     if (recoverOne(t, dir)) {
       checkEq(t.frame->document().records().size(), snapshotFeatures,
               "the recovered document is the SNAPSHOT -- one feature short of the file");
@@ -1434,6 +1534,241 @@ int main(int argc, char** argv) {
             firstDifference(afterBytes, savedBytes));
     }
     t.frame->endRecoverySession();
+  }
+
+  // ═══ 17. THE UNTITLED FALLBACK, WITH NO RECOVERY ANYWHERE NEAR IT ═══════
+  //
+  // ★ THE THIRD SHAPE, AND THE ONLY ONE THAT IS LIVE IN THE SHIPPED APP TODAY.
+  //   Sections 10 and 16 are both about a RECOVERY, which no user can reach yet.
+  //   This one needs none of it. Two keystrokes that are bound in all four
+  //   keymap profiles, and a file panel that forge_desktop_file_dialog_gate
+  //   section 5 pins as never being raised by Ctrl+S:
+  //
+  //     Ctrl+S on a brand-new part -> documentSave() has no path, so it builds
+  //                                   one from the document's NAME:
+  //                                   $HOME/.forge/untitled.fpart
+  //     Ctrl+N                     -> documentNew() clears the path and sets the
+  //                                   name back to "untitled"
+  //     model a second part
+  //     Ctrl+S                     -> THE SAME PATH, and savePartFile() had no
+  //                                   existence check of any kind
+  //
+  //   REPRODUCED ON THE RAW BYTES BEFORE ANYTHING WAS CHANGED, with exactly the
+  //   sequence below: part one went from 1 NOTE / 6 FEATURE / 764 bytes to
+  //   0 NOTE / 6 FEATURE / 694 bytes and "PART ONE -- DO NOT DELETE" was gone
+  //   from the file. No crash, no dialog, no entry in the log saying a file had
+  //   been replaced.
+  //
+  // THE FIX IS NOT A PROMPT, and it is worth saying why. A bare Ctrl+S must
+  // never be a no-op -- Save and Close in section 13 depends on it finishing,
+  // and a save that refuses leaves the work nowhere -- and it must not raise a
+  // panel, which section 5 of the file-dialog gate pins. So the fallback picks
+  // the first name in the series that is FREE. A save with nowhere of its own to
+  // go can then only ever CREATE a file, never replace one, and note() names the
+  // file it actually wrote.
+  std::printf("\n-- 17. Ctrl+N then Ctrl+S must not write over the last untitled part --\n");
+  {
+    App u;
+    started(u, "an application holding a brand-new part");
+    check(u.addBox(), "the user models part one");
+    check(u.note("PART ONE -- DO NOT DELETE"), "and writes a note on its sheet",
+          u.frame->noteRefusal());
+    check(u.save(), "a BARE Ctrl+S -- this part has never been given a file",
+          u.shell.lastDocumentError());
+    const std::string pathOne = u.frame->documentPath();
+    check(!pathOne.empty(), "so Forge chose one for it", pathOne);
+    const std::string savedBytes = readWholeFile(pathOne);
+    check(!savedBytes.empty(), "and there are bytes in it", pathOne);
+    std::printf("   [raw] part one, as the user saved it          : %zu NOTE, %zu FEATURE, %zu bytes  (%s)\n",
+                rawCount(savedBytes, "\nNOTE\n"), rawCount(savedBytes, "\nFEATURE\n"),
+                savedBytes.size(), baseName(pathOne).c_str());
+    checkEq(rawCount(savedBytes, "\nNOTE\n"), 1u, "with ONE annotation block in its raw bytes");
+    check(savedBytes.find("PART ONE -- DO NOT DELETE") != std::string::npos,
+          "and the words the user typed are in the file", pathOne);
+
+    // MUTATION 18: Ctrl+N is never pressed, so the second save belongs to the
+    // SAME document, which already owns that file -- and writing over it is
+    // then exactly right. It is the negative control for the guard rather than
+    // for the scenario: it proves the second save lands somewhere else because
+    // the path was REBUILT FROM A NAME, and not because this build has started
+    // refusing to write the same file twice.
+    if (g_mutation != 18) {
+      const forge::ui::DispatchResult n = u.shell.run("file.new", forge::ui::CommandParams{});
+      check(n.ok() && u.shell.lastDocumentError().empty(),
+            "Ctrl+N -- a second part, with nothing to do with the first",
+            u.shell.lastDocumentError());
+      checkStrEq(u.frame->documentPath(), std::string(), "which has no file of its own");
+      checkStrEq(u.frame->documentName(), std::string("untitled"),
+                 "and is called EXACTLY what part one was called when it was saved");
+    }
+    check(u.addBox(), "the user models part two");
+    check(u.addBox(), "and keeps modelling");
+    check(u.save(), "a second BARE Ctrl+S, with no panel and no confirmation",
+          u.shell.lastDocumentError());
+    const std::string pathTwo = u.frame->documentPath();
+    const std::string afterBytes = readWholeFile(pathOne);
+    std::printf("   [raw] part one after part two was saved       : %zu NOTE, %zu FEATURE, %zu bytes  (part two -> %s)\n",
+                rawCount(afterBytes, "\nNOTE\n"), rawCount(afterBytes, "\nFEATURE\n"),
+                afterBytes.size(), baseName(pathTwo).c_str());
+    check(pathTwo != pathOne, "★ PART TWO DID NOT TAKE PART ONE'S FILE", pathTwo);
+    check(std::filesystem::exists(pathTwo), "and part two was written all the same", pathTwo);
+    checkEq(rawCount(afterBytes, "\nNOTE\n"), 1u, "★ PART ONE STILL HOLDS THE NOTE");
+    check(afterBytes.find("PART ONE -- DO NOT DELETE") != std::string::npos,
+          "and it is still the note they typed", pathOne);
+    check(afterBytes == savedBytes, "★ AND PART ONE IS BYTE-FOR-BYTE WHAT THEY SAVED",
+          firstDifference(afterBytes, savedBytes));
+  }
+
+  // ═══ 18. THE NAME THE GUARD DID NOT TAKE AWAY ═══════════════════════════
+  //
+  // ★ WHY SECTION 16'S GUARD DID NOT PAY. It clears documentPath_ and records
+  //   WHY, and the log tells the user Forge "has NOT pointed the document at
+  //   that file". Both true of the PATH. Neither true of the NAME:
+  //   recoverFromAutosave() keeps it, and the next bare Ctrl+S rebuilds
+  //   $HOME/.forge/<name>.fpart -- which, for every part a user has only ever
+  //   pressed Ctrl+S on, is the very file the guard just refused.
+  //
+  //   REPRODUCED ON THE RAW BYTES BEFORE ANYTHING WAS CHANGED, with the exact
+  //   sequence below: 1 NOTE / 866 bytes -> 0 NOTE / 801 bytes, and the words
+  //   were gone. The bytes were IDENTICAL with the guard and without it, so for
+  //   this population section 16's claim -- that what the refusal costs is the
+  //   name and never the work -- was FALSE. One fix makes it true, and it is the
+  //   same fix section 17 needs.
+  std::printf("\n-- 18. a refused file name may not be rebuilt by the next Ctrl+S -----\n");
+  {
+    const std::string dir = root + "/recovery-refused-name";
+    std::string userPath;
+    std::string savedBytes;
+    {
+      App v;
+      started(v, "the session that is going to die");
+      check(v.frame->beginRecoverySession(dir), "its recovery session", dir);
+      check(v.addBox(), "a modelling edit");
+      check(v.save(), "a BARE Ctrl+S -- the only kind this user has ever pressed",
+            v.shell.lastDocumentError());
+      userPath = v.frame->documentPath();
+      check(!userPath.empty(), "so their file is the one Forge chose for them", userPath);
+      check(v.addBox(), "more work, which only a snapshot will ever hold");
+      check(v.frame->autosaveNow(), "THE SNAPSHOT: the fifteen-second cadence fires");
+      // MUTATION 19: the snapshot is put a minute into the FUTURE instead, so it
+      // is NEWER than the user's file, section 16's guard is RIGHT not to refuse,
+      // and the document legitimately owns that path. The negative control for
+      // THIS section's guard: it proves the Ctrl+S below goes somewhere else
+      // because a name was REFUSED, and not because a bare save has started
+      // swerving away from every file it is ever offered.
+      checkEq(ageAutosaveFiles(dir, g_mutation == 19 ? -60 : 60), 2u,
+              "and it is a minute older than the save that comes next");
+      check(v.note("KEEP THIS NOTE -- IT IS THE ONLY COPY"), "the user types a note on the sheet",
+            v.frame->noteRefusal());
+      check(v.save(), "and Ctrl+S again, into the file they already have",
+            v.shell.lastDocumentError());
+      savedBytes = readWholeFile(userPath);
+      // The session dies here. Nothing ends it.
+    }
+    check(!savedBytes.empty(), "the user's file has bytes in it", userPath);
+    std::printf("   [raw] the user's file, as they saved it       : %zu NOTE, %zu FEATURE, %zu bytes  (%s)\n",
+                rawCount(savedBytes, "\nNOTE\n"), rawCount(savedBytes, "\nFEATURE\n"),
+                savedBytes.size(), baseName(userPath).c_str());
+    checkEq(rawCount(savedBytes, "\nNOTE\n"), 1u, "with ONE annotation block in its raw bytes");
+
+    App w;
+    started(w, "the next launch");
+    if (recoverOne(w, dir)) {
+      checkStrEq(w.frame->documentPath(), std::string(),
+                 "section 16's guard refuses the name of a file newer than its snapshot");
+      check(w.frame->recoveryRefusedStalePath(), "and records THAT as the reason");
+      // ★ THE LINE THAT MAKES THIS SECTION POSSIBLE. The guard took the path and
+      //   left the name, and the name is what the fallback builds a path out of.
+      checkStrEq(w.frame->documentName() + std::string(forge::desktop::kPartFileExtension),
+                 baseName(userPath),
+                 "★ BUT THE DOCUMENT IS STILL CALLED WHAT THE REFUSED FILE IS CALLED");
+      check(w.save(), "a bare Ctrl+S -- the keystroke the warning implies is safe",
+            w.shell.lastDocumentError());
+      check(w.frame->documentPath() != userPath,
+            "★ AND IT DID NOT REBUILD THE PATH THE GUARD HAD JUST REFUSED",
+            w.frame->documentPath());
+      const std::string afterBytes = readWholeFile(userPath);
+      std::printf("   [raw] the same file after recover + one Ctrl+S : %zu NOTE, %zu FEATURE, %zu bytes  (it went to %s)\n",
+                  rawCount(afterBytes, "\nNOTE\n"), rawCount(afterBytes, "\nFEATURE\n"),
+                  afterBytes.size(), baseName(w.frame->documentPath()).c_str());
+      checkEq(rawCount(afterBytes, "\nNOTE\n"), 1u,
+              "★ THE NOTE THE USER SAVED IS STILL IN THEIR FILE");
+      check(afterBytes.find("KEEP THIS NOTE -- IT IS THE ONLY COPY") != std::string::npos,
+            "and it is still the note they typed", userPath);
+      check(afterBytes == savedBytes, "★ AND THE FILE IS BYTE-FOR-BYTE WHAT THEY SAVED",
+            firstDifference(afterBytes, savedBytes));
+
+      // ── AND THE ANSWER MUST NOT OUTLIVE THE QUESTION ────────────────────
+      // recoveryRefusedStalePath_ is read as "the LAST recovery refused a name",
+      // and it was written only on the success path -- so a recovery that fell
+      // out at one of recoverFromAutosave()'s two early returns left the
+      // PREVIOUS one's answer standing, and the accessor reported a refusal
+      // about a recovery that never looked at a file. A refusal that stands is
+      // one the interface can show a warning for, so this is asked here, one
+      // line after a REAL refusal, which is the only state in which a stale
+      // `true` is possible at all.
+      forge::ui::RecoveryCandidate nothing;
+      nothing.sessionId = "a-session-that-never-existed";
+      nothing.autosavePath = root + "/no-such-file.forgepart";
+      nothing.documentPath = userPath;
+      nothing.hasAutosave = true;
+      std::string whyNot;
+      check(!w.frame->recoverFromAutosave(nothing, whyNot),
+            "a recovery with no autosave behind it FAILS, as it should", whyNot);
+      check(!w.frame->recoveryRefusedStalePath(),
+            "★ AND THE PREVIOUS RECOVERY'S REFUSAL DOES NOT OUTLIVE IT");
+    }
+    w.frame->endRecoverySession();
+  }
+
+  {
+    // ── 18b. AND WHEN THE COLLISION GOES AWAY ──────────────────────────────
+    // The warning tells the user to "keep your own file until you have compared
+    // the two", so the obvious next thing they do is MOVE it out of the way.
+    // That frees the name -- and a fallback that only asks "is there a file
+    // here?" hands the refused name straight back, writing the older recovered
+    // document into the place the user just cleared, under the name they know
+    // their work by. REMEMBERING the refused path is what stops that, and this
+    // half is what proves the memory is load-bearing rather than a second
+    // spelling of the existence test: delete the remembered-path clause on its
+    // own and 18a stays green while this goes red.
+    const std::string dir = root + "/recovery-refused-then-moved";
+    std::string userPath;
+    {
+      App x;
+      started(x, "another session that is going to die");
+      check(x.frame->beginRecoverySession(dir), "its recovery session", dir);
+      check(x.addBox(), "a modelling edit");
+      check(x.save(), "a BARE Ctrl+S", x.shell.lastDocumentError());
+      userPath = x.frame->documentPath();
+      check(!userPath.empty(), "their file", userPath);
+      check(x.addBox(), "work that only a snapshot will hold");
+      check(x.frame->autosaveNow(), "THE SNAPSHOT");
+      checkEq(ageAutosaveFiles(dir, g_mutation == 19 ? -60 : 60), 2u, "aged a minute");
+      check(x.addBox(), "one more feature...");
+      check(x.save(), "...and SAVED, so their file is newer than the snapshot",
+            x.shell.lastDocumentError());
+    }
+    App y;
+    started(y, "the next launch");
+    if (recoverOne(y, dir)) {
+      check(y.frame->recoveryRefusedStalePath(), "the guard refuses that file's name");
+      const std::string movedAside = userPath + ".moved-by-the-user";
+      std::error_code moveEc;
+      std::filesystem::rename(userPath, movedAside, moveEc);
+      check(!moveEc && !std::filesystem::exists(userPath),
+            "the user moves their own file aside, exactly as the warning tells them to",
+            movedAside);
+      check(y.save(), "and NOW presses Ctrl+S", y.shell.lastDocumentError());
+      check(y.frame->documentPath() != userPath,
+            "★ THE REFUSED NAME IS STILL REFUSED, THOUGH NOTHING IS IN THE WAY NOW",
+            y.frame->documentPath());
+      check(!std::filesystem::exists(userPath),
+            "so the name the user knows their work by is still theirs alone", userPath);
+      check(std::filesystem::exists(y.frame->documentPath()),
+            "and the recovered work was written all the same", y.frame->documentPath());
+    }
+    y.frame->endRecoverySession();
   }
 
   std::printf("\n[quit-gate] %d checks, %d failures\n", g_checks, g_failures);

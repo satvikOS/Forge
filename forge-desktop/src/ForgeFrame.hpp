@@ -1873,8 +1873,20 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // is the sentence the activity log gets.
   bool fileIsNewerThanSnapshot(const forge::ui::RecoveryCandidate& candidate,
                                std::string& why) const;
-  // Set by recoverFromAutosave() every time it runs; see the accessor.
+  // Reset by recoverFromAutosave() at its FIRST line, so it always describes the
+  // last recovery that ran rather than the last one that got far enough to
+  // decide. It used to be written only on the success path, and the two early
+  // returns above it left the previous answer standing. See the accessor.
   bool recoveryRefusedStalePath_ = false;
+  // ── THE PATH A RECOVERY REFUSED, KEPT SO IT CANNOT BE REBUILT ───────────
+  // documentSave() invents a target out of documentName_ when it has no path,
+  // and recoverFromAutosave() gives up the PATH while keeping the NAME -- so a
+  // bare Ctrl+S after a refusal reconstructed the refused file exactly. This is
+  // the one path the untitled fallback may never produce, whether or not a file
+  // is sitting on it: the user has been told to keep their own copy while they
+  // compare, and moving it out of the way must not hand its name back. Empty
+  // when the last recovery adopted its path, or when there was no recovery.
+  std::string refusedSavePath_;
   // The unsaved-changes question is a plain window, not a modal, so every other
   // gesture still works while it stands -- including Ctrl+S. This re-reads the
   // condition the question was raised on and withdraws it when that condition is
