@@ -404,15 +404,28 @@ bool started(App& app, const std::string& what) {
   // NOT a retry loop, and deliberately not silent: one retry, announced in the
   // log, so a reader can see that the window bit rather than wondering why a
   // section took four seconds.
-  if (!app.start() && app.scene.error().find("kernel declined at every radius") !=
-                          std::string::npos) {
+  //
+  // ★ WRITTEN AS AN EXPLICIT `ok`, because the first version of this was a
+  //   sentence that did not match its own code. It read
+  //     if (!app.start() && <fillet reason>) { sleep; }
+  //     check(app.frame.has_value() || app.start(), ...);
+  //   and the commit beside it claimed "a start that fails for any other reason
+  //   still ends the run on the FIRST attempt". It did not: on an unrelated
+  //   failure the `if` simply did not fire, and the `||` then called start() a
+  //   second time anyway -- the same retry, minus the wait. Harmless in effect,
+  //   wrong in description, and a claim that does not match the code is the
+  //   defect this whole gate exists to keep out of the application.
+  bool ok = app.start();
+  if (!ok && app.scene.error().find("kernel declined at every radius") !=
+                 std::string::npos) {
     std::printf("   [fillet-window] the start was refused by the 20 s wall-clock fillet window,\n"
                 "                   not by the geometry -- waiting out the 3 s gap the budget\n"
                 "                   documents, then asking once more\n");
     std::fflush(stdout);
     std::this_thread::sleep_for(std::chrono::milliseconds(3500));
+    ok = app.start();
   }
-  check(app.frame.has_value() || app.start(), what, app.scene.error());
+  check(ok, what, app.scene.error());
   if (app.frame) return true;
   std::printf("\n[quit-gate] %d checks, %d failures\n", g_checks, g_failures);
   std::printf("[quit-gate] FAILED -- no application, so nothing below could be asked\n");
