@@ -803,10 +803,29 @@ bool ForgeFrame::documentNew(std::string& error) {
 // document is not documentNew(): New seeds the starter part, and a caller that
 // is about to write its own statements — Load Sample — would then stack a
 // sample's fourteen features on top of that seed and build a program that is
-// neither part. So this clears and stops, and it deliberately leaves
-// `documentPath_` alone: the sample is loaded INTO the open document, and
-// forgetting where that document came from would turn the next Save into a
-// silent Save As.
+// neither part. So this clears and stops.
+//
+// ── ★ AND IT NO LONGER OWNS THE FILE THAT DOCUMENT CAME FROM ───────────────
+// It USED to keep `documentPath_` on purpose -- "the sample is loaded INTO the
+// open document, and forgetting where that document came from would turn the
+// next Save into a silent Save As". The first clause was right about the NAME
+// and wrong about the TARGET, and the second is not what happens: the untitled
+// fallback below note()s the file it wrote, so the Save is loud, not silent.
+//
+// MEASURED ON RAW BYTES: app.load_sample dropped onto an opened
+// /work2/flange.fpart inherited that file, so ONE bare Ctrl+S -- and NO panel is
+// raised, because the document "has" a path -- wrote the bracket sample over it,
+// 1 NOTE / 5 FEATURE / 663 B -> 1 NOTE / 6 FEATURE / 854 B. What landed was a
+// document that never existed: the sample's geometry, under the flange's name,
+// still carrying the flange's drawing note. UndoContract::NotUndoable, and the
+// undo stack is SIX DEEP at that keystroke rather than zero (this clears it and
+// replaySample then pushes the sample's own six steps), so spending every undo
+// leaves an EMPTY document rather than the flange -- there is no way back.
+//
+// A document whose every record has just been thrown away did not come out of
+// that file. documentSave()'s untitled fallback is the route that already cannot
+// overwrite anything (firstFreeFallbackPath), and File > New has cleared this
+// for the same reason since it was written.
 // ── THE DOCUMENT'S INPUT BINDING, SET IN ONE PLACE ──────────────────────────
 //
 // BOTH holders are told, and neither line is redundant. The scene's copy is what
@@ -831,6 +850,15 @@ bool ForgeFrame::documentReset(std::string& error) {
   error.clear();
   partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
   partUndo_.clear();
+  // ★ THE MIRROR OF THE SEED DEFECT, and a different one: see the block above
+  //   for the bytes. refusedSavePath_ is deliberately NOT touched -- it belongs
+  //   to a RECOVERED document and this gesture has not thrown that memory away;
+  //   keeping it is strictly safer and costs nothing. drawing_ is deliberately
+  //   NOT cleared either: File > Import STEP reaches this same function, and
+  //   discarding a user's drawing sheet here would be a NEW way to lose work
+  //   inside a change that exists to stop one. documentName_ is left alone so
+  //   the part is still called what it was; only the TARGET goes.
+  documentPath_.clear();
   // The emptied document is bound to nothing. ForgeShell::runImport re-binds
   // immediately after this returns, because an import BINDS A FILE and then
   // empties the document to state it -- the binding belongs to the document it
@@ -1035,9 +1063,17 @@ enum class Swerve {
     Refused,    // the caller forbade it -- refusedSavePath_, nothing on disk
 };
 
+// ── AND IT TESTS THE SUFFIX THE CALLER WILL ACTUALLY WRITE ─────────────────
+// `extension` was `kPartFileExtension`, hard-coded, while this function had one
+// caller and that caller meant .fpart. It has four more now (see pathSeedFor):
+// the Save panels for file.export_step/_brep/_stl/_gcode are seeded through
+// here too, and fileDialogRequestFor() swaps the command's own suffix onto
+// whatever comes back. A free-name test asking about `.fpart` would call
+// "bracket" free while bracket.step is sitting on it, and hand the panel a
+// one-click answer that replaces an export the user still wanted.
 std::string firstFreeFallbackPath(const std::string& directory, const std::string& stem,
-                                  const std::string& forbidden, Swerve& swerved,
-                                  std::string& firstChoice) {
+                                  const std::string& forbidden, const std::string& extension,
+                                  Swerve& swerved, std::string& firstChoice) {
   std::string base = stem.empty() ? std::string("untitled") : stem;
   // A name this function itself produced goes back into the SERIES it came from
   // rather than growing a second tail: "untitled-4" asks for "untitled-5", not
@@ -1053,14 +1089,14 @@ std::string firstFreeFallbackPath(const std::string& directory, const std::strin
     }
   }
   swerved = Swerve::None;
-  firstChoice = directory + "/" + base + kPartFileExtension;
+  firstChoice = directory + "/" + base + extension;
   std::error_code ec;
   bool skippedForRefusal = false;
   bool skippedForFile = false;
   for (int n = 1; n <= 1000; ++n) {
     const std::string candidate = n == 1 ? firstChoice
                                          : directory + "/" + base + "-" + std::to_string(n) +
-                                               kPartFileExtension;
+                                               extension;
     if (!forbidden.empty() && candidate == forbidden) {
       skippedForRefusal = true;
       continue;
@@ -1328,7 +1364,8 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
     const std::string dir = (home != nullptr && home[0] != 0) ? std::string(home) + "/.forge" : ".";
     Swerve swerved = Swerve::None;
     std::string wanted;
-    target = firstFreeFallbackPath(dir, documentName_, refusedSavePath_, swerved, wanted);
+    target = firstFreeFallbackPath(dir, documentName_, refusedSavePath_, kPartFileExtension,
+                                  swerved, wanted);
     if (target.empty()) {
       error = "Forge could not find a free name for this part in " + dir +
               ". Use Save As and choose where it should go.";
@@ -2409,7 +2446,12 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
     // directory the user never chose and has no reason to guess. The shell's
     // recent list is restored from the session file before this object is built,
     // so it is exactly what the box should start on.
-    const std::string pathSeed = (name == "path") ? pathPromptSeed() : std::string();
+    // ★ pathSeedFor(), not pathPromptSeed(): an Open box and a Save box do not
+    //   start in the same place. This line IS the S5 population -- with no
+    //   native panel installed, file.save_as's box arrived holding the user's
+    //   other part and one Run took it, 665 -> 586 bytes, with no panel, no
+    //   sheet and no confirmation of any kind.
+    const std::string pathSeed = (name == "path") ? pathSeedFor(id) : std::string();
     if (!pathSeed.empty()) {
       std::snprintf(field.value.data(), field.value.size(), "%s", pathSeed.c_str());
     } else if (name == "value") {
@@ -2441,6 +2483,83 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
 std::string ForgeFrame::pathPromptSeed() const {
   if (!documentPath_.empty()) return documentPath_;
   return shell_.recentDocuments().mostRecent();
+}
+
+// ── ★ A SAVE TARGET MAY NOT BE ANOTHER DOCUMENT'S FILE ─────────────────────
+//
+// THE DEFECT THIS EXISTS FOR, MEASURED ON RAW BYTES THROUGH THE SHIPPING
+// DISPATCH. pathPromptSeed() above answers BOTH questions a `path` box can ask,
+// and they are not the same question. For an OPEN box the remembered document is
+// the right answer and is the whole of the reopen fix. For a SAVE box it is a
+// pre-filled instruction to destroy that document, and it was handed to one:
+//
+//   S4   Ctrl+S, Ctrl+N, model, File > Save     part one's file
+//        1 NOTE / 5 FEATURE / 657 B  ->  0 NOTE / 6 FEATURE / 702 B
+//   S4c  Open bracket.fpart, Ctrl+N, File > Save -- NO modelling at all,
+//        because file.save's enabled predicate is `always` (ForgeShell.cpp)
+//        1 NOTE / 5 FEATURE / 661 B  ->  0 NOTE / 5 FEATURE / 586 B
+//   S4b  ONE GESTURE after the staleness guard REFUSED to write a file, the
+//        panel pre-filled that same file
+//        1 NOTE / 7 FEATURE / 904 B  ->  0 NOTE / 7 FEATURE / 822 B
+//   S5   with no native panel installed -- every headless build, and any future
+//        non-Apple port -- file.save_as's typed box arrived holding the user's
+//        other part and one Run took it, with NO confirmation of any kind
+//        1 NOTE / 5 FEATURE / 665 B  ->  0 NOTE / 5 FEATURE / 586 B
+//
+// All four are this one line, and they are four because the panel and the typed
+// box are two CALLERS of it. Fixing it at the panel would have left the box.
+//
+// ── WHAT IS KEPT AND WHAT IS DROPPED ───────────────────────────────────────
+// The DIRECTORY is the useful half: it is the folder the user was last working
+// in, and a Save panel that opens in ~/.forge -- a dot-directory Finder does not
+// show -- is the defect the recents seed was added to fix. The NAME is the
+// dangerous half, and this document's own name through firstFreeFallbackPath()
+// already answers it: that function may ONLY return a path that
+// std::filesystem::exists() says is absent and that is not refusedSavePath_, so
+// what this seeds can never be a file anybody could lose.
+//
+// `swerved` and `wanted` are deliberately DISCARDED. They drive the warning
+// documentSave() raises, and nothing has happened yet: a box is a question, and
+// a warning about a collision that has not occurred teaches the user to
+// disbelieve the one that has. documentSave() still warns on the save itself.
+std::string ForgeFrame::proposedSaveSeed(const std::string& extension) const {
+  const std::string dir = folderOf(shell_.recentDocuments().mostRecent());
+  // NOTHING REMEMBERED -- a first-ever launch. "" here is what the caller
+  // already did with an empty recent list, and the negative control measured it:
+  // the panel opens on the bare name fileDialogSeed() falls back to and the
+  // user's file is byte-identical (671 -> 671 B). Forcing ~/.forge instead would
+  // move a first-ever Save into a directory the user never chose, and with
+  // nothing remembered there is no other document's path to collide with, which
+  // is the whole defect.
+  if (dir.empty()) return std::string();
+  Swerve swerved = Swerve::None;
+  std::string wanted;
+  return firstFreeFallbackPath(dir, documentName_, refusedSavePath_, extension, swerved, wanted);
+}
+
+std::string ForgeFrame::pathSeedFor(const std::string& commandId) const {
+  // The document's OWN file stays the answer to everything: it is where Open
+  // should start, and replacing the file you chose is what Save means.
+  if (!documentPath_.empty()) return documentPath_;
+  FileDialogPolicy policy;
+  // ── THE MODE IS READ, NOT RE-DECIDED ────────────────────────────────────
+  // fileDialogPolicyFor() is the one table in FileDialog.cpp that already
+  // answers every other per-command panel question -- the title, the prompt, the
+  // filters, the suffix. A `bool forSaving` argument here would put a second
+  // opinion about which commands save in this file, and the copy would drift;
+  // wantsFileDialog() makes the same argument about asking the registry.
+  //
+  // A command with NO policy row, and every OPEN-mode one, keeps the whole
+  // remembered path unchanged. Naming a file that DOES exist is the entire point
+  // of Open, and frame_gate pins that box.
+  if (!fileDialogPolicyFor(commandId, policy) || policy.mode != FileDialogMode::Save) {
+    return pathPromptSeed();
+  }
+  // The suffix the PANEL will actually use: fileDialogRequestFor() swaps .fpart
+  // for .step on an export, so a free-name test asking about the wrong one would
+  // hand back a name it calls free while a file sits on it.
+  return proposedSaveSeed(policy.defaultExtension.empty() ? std::string(kPartFileExtension)
+                                                          : policy.defaultExtension);
 }
 
 void ForgeFrame::requestOpenDocument(const std::string& path) {
@@ -2550,8 +2669,8 @@ bool ForgeFrame::wantsFileDialog(const std::string& id,
   return false;
 }
 
-std::string ForgeFrame::fileDialogSeed() const {
-  const std::string known = pathPromptSeed();
+std::string ForgeFrame::fileDialogSeed(const std::string& commandId) const {
+  const std::string known = pathSeedFor(commandId);
   if (!known.empty()) return known;
   // Never saved and nothing remembered. The document's NAME is still a better
   // starting point than an empty name field, and fileDialogRequestFor() puts the
@@ -2565,7 +2684,7 @@ void ForgeFrame::runPendingFileDialog() {
   if (id.empty() || fileDialog_ == nullptr) return;
 
   FileDialogRequest request;
-  if (!fileDialogRequestFor(id, fileDialogSeed(), request)) return;
+  if (!fileDialogRequestFor(id, fileDialogSeed(id), request)) return;
 
   ++dialogsShown_;
   const FileDialogResult chosen = fileDialog_->run(request);

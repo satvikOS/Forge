@@ -344,7 +344,19 @@ run_gate forge_desktop_quit_guard_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
 # bit-identical, and 5 (a cube of the same volume about the same centre) leaves
 # volume and the centre of mass identical. A gate checking volume alone passes both.
 run_gate forge_desktop_file_exchange_gate 1 2 3 4 5 6
-run_gate forge_desktop_file_dialog_gate 1 2 3 4
+# 5 and 6 are T-122's: what a SAVE panel POINTS AT. 5 makes the panel answer the
+# most recent document instead of the seed (the shipped defect, at the gate's own
+# knob) and the byte checks go red; 6 empties the recent list, so the "★ still
+# opens where the user works" check goes red and a fix that merely returns
+# nothing cannot pass.
+run_gate forge_desktop_file_dialog_gate 1 2 3 4 5 6
+# ── THE SAVE-TARGET GATE (T-122) ──────────────────────────────────────────────
+# The byte-level half of the same claim, across the five populations that were
+# MEASURED destroying user files plus the two negative controls that make a green
+# run attributable. With no --pop the binary re-execs itself once per population
+# (the OCCT fillet window in forge-kernel is PROCESS-GLOBAL), so one run_gate line
+# really is seven applications.
+run_gate forge_desktop_save_target_gate 1 2
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
 run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.

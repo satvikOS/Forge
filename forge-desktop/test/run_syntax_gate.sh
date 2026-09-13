@@ -179,6 +179,11 @@ CHECKED=(
   forge-desktop/test/release_rehearsal.cpp
   forge-desktop/test/study_gate.cpp
   forge-desktop/test/sketch_panels_gate.cpp
+  # ── ADDED 2026-09-13 (T-122). The save-target gate: it links forge_desktop_core
+  #    and forge/ui only -- no OCCT header anywhere in it -- so it belongs in
+  #    CHECKED and the ratchet below is what forced this line to be written in
+  #    the same commit that added the file.
+  forge-desktop/test/save_target_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
