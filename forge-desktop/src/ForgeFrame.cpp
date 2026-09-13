@@ -2451,7 +2451,24 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
     //   native panel installed, file.save_as's box arrived holding the user's
     //   other part and one Run took it, 665 -> 586 bytes, with no panel, no
     //   sheet and no confirmation of any kind.
-    const std::string pathSeed = (name == "path") ? pathSeedFor(id) : std::string();
+    // ★ AND THROUGH THE SAME PRODUCER THE PANEL USES -- T-123. pathSeedFor()
+    //   answers WHICH FILE this command is about; fileDialogSuggestedPath()
+    //   answers WHAT THE FILE IT WRITES IS CALLED, and only the panel was
+    //   asking the second question. MEASURED with no panel installed, on a
+    //   document that HAS a file: all four exports arrived pre-filled with the
+    //   user's own .fpart and one Run took it -- 1 NOTE / 5 FEATURE / 650 B
+    //   became 53903 B of ISO-10303-21, 33491 B of DBRep_DrawableShape, 73394 B
+    //   of 'solid forge' and 22077 B of Fanuc G-code, with the status strip
+    //   reading "<label> - done" and errors +0. Those four numbers are what the
+    //   copies weigh now, beside an untouched part: write_target_gate, W1.
+    //   pathSeedFor() and NOT fileDialogSeed(): fileDialogSeed falls back to the
+    //   bare documentName_, which is a NAME FIELD for a panel that supplies the
+    //   directory separately and a RELATIVE PATH in a typed box -- resolved at
+    //   write time against the process's working directory, "/" for a Finder
+    //   launch. An empty seed stays empty through the producer, so a box that is
+    //   blank today is blank still.
+    const std::string pathSeed =
+        (name == "path") ? fileDialogSuggestedPath(id, pathSeedFor(id)) : std::string();
     if (!pathSeed.empty()) {
       std::snprintf(field.value.data(), field.value.size(), "%s", pathSeed.c_str());
     } else if (name == "value") {

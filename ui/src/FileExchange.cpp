@@ -183,6 +183,7 @@ const char* toString(ExchangeRefusal refusal) noexcept {
     case ExchangeRefusal::WriteFailed:   return "write_failed";
     case ExchangeRefusal::NotPlaced:     return "not_placed";
     case ExchangeRefusal::Truncated:     return "truncated";
+    case ExchangeRefusal::TargetIsDocument: return "target_is_document";
   }
   return "none";
 }
@@ -249,6 +250,13 @@ std::string exchangeMessage(ExchangeRefusal refusal, ExchangeFormat format,
       return hasPath ? "Forge read " + quoted(path) +
                            " but could not add it to the part."
                      : "Forge read the " + name + " file but could not add it to the part.";
+    case ExchangeRefusal::TargetIsDocument:
+      return hasPath ? "Saving a copy writes a second file, so Forge did not write over the "
+                       "part at " + quoted(path) +
+                           ". Pick another name, or use Save to write the part itself."
+                     : "Saving a copy writes a second file, so Forge did not write over the "
+                       "part you have open. Pick another name, or use Save to write the part "
+                       "itself.";
   }
   return "Nothing went wrong.";
 }

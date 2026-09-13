@@ -245,7 +245,11 @@ set -uo pipefail
 #  * 2026-09-13, T-122: file_dialog gained mutations 5 and 6 (what a SAVE panel
 #    POINTS AT) and forge_desktop_save_target_gate arrived with 2, so the same
 #    awk now prints 173. DERIVED on this tree with that command, not arithmetic.
-EXPECTED_MUTATIONS=173
+#  * 2026-09-13, T-123: forge_desktop_write_target_gate arrived with 6 -- what a
+#    COPY command lands on when the TYPED BOX is what asks, which is the route
+#    both T-122 gates stop one step short of. The same awk now prints 179, READ
+#    OFF THIS TREE with that command rather than added up by hand.
+EXPECTED_MUTATIONS=179
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

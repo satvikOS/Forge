@@ -134,6 +134,24 @@ bool fileDialogPolicyFor(const std::string& commandId, FileDialogPolicy& out);
 bool fileDialogRequestFor(const std::string& commandId, const std::string& seed,
                           FileDialogRequest& out);
 
+// ── ★ THE ONE RULE ABOUT WHAT A SAVE STARTS ON ──────────────────────────────
+// `seed` (which file this command is about) with the NAME this command's own
+// output should carry: for a SAVE-mode command the seed's extension is replaced
+// by the policy's, and an OPEN-mode command -- or one with no policy row at all
+// -- gets the seed back unchanged.
+//
+// It is its own function because it has TWO callers and they are two different
+// UIs: fileDialogRequestFor() above (the native panel) and
+// ForgeFrame::openPrompt() (the typed-path box, which is what asks in every
+// headless build and in any future non-Apple port). It existed only inside the
+// first of those, and T-123 is the measurement of that: on a document that HAS
+// a file, "Save a Copy as STEP" opened its PANEL on bracket.step and pre-filled
+// its BOX with bracket.fpart, and one Run with nothing typed replaced the user's
+// part with 53903 bytes of ISO-10303-21 -- no panel, no sheet, no confirmation,
+// errors +0. forge_desktop_write_target_gate measures both halves of that on raw
+// bytes now, one population per route.
+std::string fileDialogSuggestedPath(const std::string& commandId, const std::string& seed);
+
 // The file NAME a Save panel starts on -- the leaf of `suggestedPath`. Written
 // here rather than in the Cocoa file so that the rule about what a file is
 // called sits beside the rule that decides its suffix.

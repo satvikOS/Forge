@@ -357,6 +357,18 @@ run_gate forge_desktop_file_dialog_gate 1 2 3 4 5 6
 # (the OCCT fillet window in forge-kernel is PROCESS-GLOBAL), so one run_gate line
 # really is seven applications.
 run_gate forge_desktop_save_target_gate 1 2
+# ── THE WRITE-TARGET GATE (T-123) ─────────────────────────────────────────────
+# The two gates above walk the SAVE PANEL, and both were GREEN on the tree where
+# one Run in the TYPED-PATH BOX replaced a user's bracket.fpart with 53903 bytes
+# of STEP. This one owns the axis they stop at: the typed box, a COPY command,
+# and a document that HAS a file -- plus the same commands with the path SUPPLIED
+# (a macro, an Archie tool call, --open), which is the route no seed fix reaches.
+# Five populations, one process each.
+#   1 the panel answers the user's own document; 2 the box is never Run;
+#   3 the supplied path is the copy's name, not the part's; 4 the renamed decoy
+#   is really STEP; 5 the re-export goes somewhere fresh; 6 the CAM panels are
+#   never drawn, so the walk finds three commands instead of four.
+run_gate forge_desktop_write_target_gate 1 2 3 4 5 6
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
 run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.

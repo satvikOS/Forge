@@ -64,6 +64,13 @@ enum class MachineProgramRefusal : std::uint8_t {
   NoSource,     // no machine-program source is installed in this build
   NoProgram,    // there is no operation set up yet, so nothing has been posted
   WriteFailed,  // Forge could not put the bytes on disk
+  // ── ★ THE TARGET IS A FORGE PART (T-123) ────────────────────────────────
+  // APPENDED, never inserted. The same rule the exchange refusals carry, and
+  // this command needed it more: it had NO check on its target of any kind --
+  // no format check, no exists() check -- and it wrote 22077 bytes of Fanuc over
+  // a user's .fpart through an atomic temp+rename, so there was not even a
+  // partial-write window in which anything could be salvaged.
+  TargetIsDocument,
 };
 
 inline constexpr MachineProgramRefusal kAllMachineProgramRefusals[] = {
@@ -72,9 +79,10 @@ inline constexpr MachineProgramRefusal kAllMachineProgramRefusals[] = {
     MachineProgramRefusal::NoSource,
     MachineProgramRefusal::NoProgram,
     MachineProgramRefusal::WriteFailed,
+    MachineProgramRefusal::TargetIsDocument,
 };
 static_assert(std::size(kAllMachineProgramRefusals) ==
-                  static_cast<std::size_t>(MachineProgramRefusal::WriteFailed) + 1,
+                  static_cast<std::size_t>(MachineProgramRefusal::TargetIsDocument) + 1,
               "kAllMachineProgramRefusals must list EVERY MachineProgramRefusal: the "
               "prose gate walks it, and a value missing from it is a sentence nobody "
               "checked.");

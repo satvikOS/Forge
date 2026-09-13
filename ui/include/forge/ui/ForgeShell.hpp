@@ -399,6 +399,29 @@ class ForgeShell {
   void refuseExchange(CommandContext& ctx, ExchangeRefusal refusal,
                       ExchangeFormat format, const std::string& path);
 
+  // ── ★ THE ONE PLACE AN EXPORT'S TARGET IS JUDGED (T-123) ────────────────
+  // Returns TRUE when the write must NOT happen, having already refused it
+  // through the right seam for the caller. Called as the last line before bytes
+  // in BOTH export handlers, which is what makes it route-blind: a path typed
+  // into the fallback box, chosen in a native panel, sent by a macro, by an
+  // Archie tool call or by --open all arrive here.
+  //
+  // THE RULE IS ABOUT IDENTITY AND CONTENT, NEVER ABOUT THE EXTENSION.
+  // `Save a Copy` writes a SECOND file, and the one file it must never be is a
+  // Forge part -- the one that is open (asked of documentPath(), so it holds
+  // even for a part whose file was deleted underneath it) or any file whose
+  // first bytes are the document magic (so a part renamed `bracket.step` is
+  // still a part). MEASURED on the tree this was written against: the old
+  // extension check let `.fpart`, `.FPART`, `.zzz`, `.nc` and a path with no
+  // extension at all through, because formatFromPath() answers FALSE for a
+  // suffix it does not know and the refusal was written `if (recognised && !can
+  // write)`.
+  //
+  // `writing` is the exchange format being written, or NULLPTR for the machine
+  // program -- which is not an ExchangeFormat and must not become one.
+  bool refuseTargetIsDocument(CommandContext& ctx, const std::string& path,
+                              const ExchangeFormat* writing);
+
   // file.export_gcode. Separate from runExport for the reason MachineProgram.hpp
   // gives: a machine program is not the document's geometry and does not travel
   // the FileExchange seam at all.

@@ -18,6 +18,7 @@ const char* toString(MachineProgramRefusal refusal) noexcept {
     case MachineProgramRefusal::NoSource:    return "no_source";
     case MachineProgramRefusal::NoProgram:   return "no_program";
     case MachineProgramRefusal::WriteFailed: return "write_failed";
+    case MachineProgramRefusal::TargetIsDocument: return "target_is_document";
   }
   return "none";
 }
@@ -60,6 +61,11 @@ std::string machineProgramMessage(MachineProgramRefusal refusal, const std::stri
                            ". The folder may be read-only, or the disk may be full."
                      : "Forge could not write the machine program. The folder may be "
                        "read-only, or the disk may be full.";
+    case MachineProgramRefusal::TargetIsDocument:
+      return hasPath ? "The machine program goes in a file of its own, so Forge did not write "
+                       "it over the part at " + quoted(path) + ". Pick another name."
+                     : "The machine program goes in a file of its own, so Forge did not write "
+                       "it over the part you have open. Pick another name.";
   }
   return "Forge could not save the machine program.";
 }

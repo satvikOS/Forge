@@ -120,6 +120,15 @@ enum class ExchangeRefusal : std::uint8_t {
   // one to the reader is not merely useless: MEASURED, a BREP file truncated to
   // half its length SEGFAULTS the reader, taking the application with it.
   Truncated,
+  // ── ★ THE TARGET IS A FORGE PART (T-123) ────────────────────────────────
+  // APPENDED, never inserted. An export writes a SECOND file, and the one file
+  // it must never be is a part the user can only open in Forge -- the one that
+  // is open, or any other .fpart-content file the path happens to name. This is
+  // NOT an extension rule: formatFromPath() answers FALSE for every suffix it
+  // does not know, so ".fpart" (and ".zzz", and no extension at all) fell
+  // straight through the CannotWrite check above, and the STEP writer truncated
+  // a user's document to 53903 bytes of ISO-10303-21 with errors +0.
+  TargetIsDocument,
 };
 
 inline constexpr ExchangeRefusal kAllExchangeRefusals[] = {
@@ -129,10 +138,10 @@ inline constexpr ExchangeRefusal kAllExchangeRefusals[] = {
     ExchangeRefusal::FileMissing,  ExchangeRefusal::WrongContents,
     ExchangeRefusal::NoSolid,      ExchangeRefusal::BuildFailed,
     ExchangeRefusal::WriteFailed,  ExchangeRefusal::NotPlaced,
-    ExchangeRefusal::Truncated,
+    ExchangeRefusal::Truncated,    ExchangeRefusal::TargetIsDocument,
 };
 static_assert(std::size(kAllExchangeRefusals) ==
-                  static_cast<std::size_t>(ExchangeRefusal::Truncated) + 1,
+                  static_cast<std::size_t>(ExchangeRefusal::TargetIsDocument) + 1,
               "kAllExchangeRefusals must list EVERY ExchangeRefusal: the prose gate "
               "walks it, and a value missing from it is a sentence nobody checked.");
 

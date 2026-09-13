@@ -1094,6 +1094,17 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   //
   // Public for the reason pathPromptSeed() is: the gate walks every Save-mode
   // command in the policy table and asserts this, with no window and no AppKit.
+  //
+  // ── AND WHAT IT IS NOT (T-123) ──────────────────────────────────────────
+  // It answers WHICH FILE a command is about, not what the file that command
+  // WRITES is called. On a document that has a file it returns that file
+  // verbatim -- correct for Save, which replaces the file you chose, and
+  // destructive for the four Save-a-Copy commands, whose answer is a SECOND
+  // file. Every surface that shows a user a save target therefore puts this
+  // through forge::desktop::fileDialogSuggestedPath() -- the panel already did
+  // and the typed box did not, which is exactly how a user's .fpart became 53903
+  // bytes of STEP. The swap is NOT folded into this function because file.save
+  // must keep writing back to the literal path the document came from.
   std::string pathSeedFor(const std::string& commandId) const;
 
   // Open one remembered document, through the SAME `file.open` the menu, the

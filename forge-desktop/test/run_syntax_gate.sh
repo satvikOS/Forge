@@ -190,6 +190,14 @@ CHECKED=(
   #    CHECKED and the ratchet below is what forced this line to be written in
   #    the same commit that added the file.
   forge-desktop/test/save_target_gate.cpp
+  # ── ADDED 2026-09-13 (T-123). The write-target gate. It links forge_desktop_core
+  #    and forge/ui, and the one header that sounds like OCCT -- FileExchangeHost.hpp
+  #    -- includes <string>, forge/ui/FileExchange.hpp and forge/ui/PartCommands.hpp
+  #    and nothing else; the OCCT in that unit is all in the .cpp, which is why THAT
+  #    file is in SKIPPED below and this one type-checks here. MEASURED, not assumed:
+  #    the census at the bottom of this file is what forced this line into the same
+  #    commit as the gate.
+  forge-desktop/test/write_target_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(

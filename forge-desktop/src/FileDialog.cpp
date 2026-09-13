@@ -174,10 +174,24 @@ bool fileDialogRequestFor(const std::string& commandId, const std::string& seed,
   // `bracket.fpart` -- so the one-click answer writes STEP bytes into a file
   // named like a Forge document, and reopening it later fails in a way that
   // looks like the document is corrupt.
-  out.suggestedPath = (policy.mode == FileDialogMode::Save)
-                          ? withExtension(seed, policy.defaultExtension)
-                          : seed;
+  //
+  // ★ AND THE SAME FUNCTION THE TYPED BOX USES. This expression used to live
+  // here, inline, and ForgeFrame::openPrompt() -- the fallback UI for a build
+  // with no native panel -- seeded its box from the raw path instead. Two UIs,
+  // one question, two answers: T-123.
+  out.suggestedPath = fileDialogSuggestedPath(commandId, seed);
   return true;
+}
+
+std::string fileDialogSuggestedPath(const std::string& commandId, const std::string& seed) {
+  FileDialogPolicy policy;
+  // A command with no policy row is not a file command; whatever the caller
+  // seeded stands.
+  if (!fileDialogPolicyFor(commandId, policy)) return seed;
+  // An OPEN box keeps the path as given: naming a file that DOES exist is the
+  // entire point of Open.
+  if (policy.mode != FileDialogMode::Save) return seed;
+  return withExtension(seed, policy.defaultExtension);
 }
 
 const std::vector<std::string>& fileDialogCommandIds() {

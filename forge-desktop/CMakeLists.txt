@@ -595,6 +595,30 @@ target_link_libraries(forge_desktop_save_target_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_save_target_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ------------------------------------------- the WRITE-TARGET gate (T-123)
+# The gate the two above could not be: they walk the SAVE PANEL, and both were
+# green -- 243 checks / 0 failures, and "7 populations, all green" -- on the tree
+# where one Run in the TYPED-PATH BOX turned a user's bracket.fpart into 53903
+# bytes of ISO-10303-21. This one owns the third axis:
+#
+#     {the typed box} x {a COPY command} x {a document that HAS a file}
+#
+# and it walks the copy commands DERIVED from the FileDialog policy table (every
+# Save-mode row that is not one of the two document saves), so a seventh write
+# command is inside the walk the day it is registered. It asserts on raw bytes,
+# it asserts the copy was WRITTEN as well as that the part survived, and its
+# central seed check is an EQUALITY BETWEEN THE PANEL AND THE BOX rather than a
+# literal name -- a check that spelled out bracket.step could be satisfied by
+# fixing one route again, which is what produced this family.
+#
+# ONE POPULATION PER PROCESS, for the reason the save-target gate gives.
+add_executable(forge_desktop_write_target_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/write_target_gate.cpp")
+target_compile_options(forge_desktop_write_target_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_write_target_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_write_target_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # ------------------------------------------- the INTERFACE-ERROR gate
 # What a RECOVERABLE Dear ImGui error costs the user. MEASURED against the
 # vendored library: with its shipped defaults an unbalanced frame ABORTS the
@@ -1087,6 +1111,25 @@ foreach(_st 1 2)
     add_test(NAME forge_desktop_save_target_mutation_${_st}
              COMMAND forge_desktop_save_target_gate --mutate ${_st})
     set_tests_properties(forge_desktop_save_target_mutation_${_st}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
+# ── the WRITE-TARGET gate (T-123) ────────────────────────────────────────────
+# Five populations, one process each: the typed box on every copy command, the
+# same commands with the path SUPPLIED (a macro, an Archie tool call, --open),
+# a part renamed bracket.step, the allow branch that stops "refuse everything"
+# from passing, and the native panel as the negative control.
+add_test(NAME forge_desktop_write_target_gate COMMAND forge_desktop_write_target_gate)
+#   1  the scripted panel answers the user's own document instead of the seed
+#   2  the typed box is never Run, so nothing is written at all
+#   3  the supplied path is the copy's name rather than the part's
+#   4  the renamed decoy is ordinary STEP text rather than a part
+#   5  the re-export goes to a fresh name, so nothing is replaced
+#   6  the Manufacturing panels are never drawn, so the walk finds three
+#      commands instead of four
+foreach(_wt 1 2 3 4 5 6)
+    add_test(NAME forge_desktop_write_target_mutation_${_wt}
+             COMMAND forge_desktop_write_target_gate --mutate ${_wt})
+    set_tests_properties(forge_desktop_write_target_mutation_${_wt}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
 # WILL_FAIL, the same idiom the update gate's mutations use, and for the same

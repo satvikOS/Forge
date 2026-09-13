@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
+#include <fstream>
+#include <ios>
 #include <map>
 #include <sstream>
 #include <string>
@@ -13,6 +15,7 @@
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/DocumentModel.hpp"
 #include "forge/ui/DocumentStore.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/Keymap.hpp"
@@ -768,6 +771,40 @@ void sanitiseExchangeMessage(ExchangeReport& report, ExchangeFormat format,
   }
 }
 
+// ── ★ TWO PATHS THAT NAME ONE FILE ─────────────────────────────────────────
+// A string compare is neither enough nor nothing. "/w/./bracket.fpart" and
+// "/w/bracket.fpart" are one file and two strings; so are a symlink and its
+// target, a hard link and its twin, and -- on the case-insensitive volume this
+// application ships on -- "Bracket.fpart" and "bracket.fpart". equivalent()
+// asks about the FILES. It answers false with an error code set when either
+// side is absent, which is the right answer here: a target that does not exist
+// yet cannot be the document that is open.
+bool pathNamesSameFile(const std::string& a, const std::string& b) {
+  if (a.empty() || b.empty()) return false;
+  if (a == b) return true;
+  std::error_code ec;
+  const bool same = std::filesystem::equivalent(a, b, ec);
+  return same && !ec;
+}
+
+// ── ★ IS THERE A FORGE PART AT THIS PATH? ASKED OF THE BYTES ───────────────
+// Every .fpart begins "FORGE-PART <version>" (DocumentModel.cpp writes it and
+// refuses anything else on line 1 when reading), so the first bytes ARE the
+// test. Deliberately not a question about the name: an extension rule is the
+// exact shape that let this defect through, and a part a user renamed
+// `bracket.step` is still a part nothing but Forge can open.
+bool fileHoldsForgeDocument(const std::string& path) {
+  // No empty-path branch: an empty path never reaches here (both handlers refuse
+  // it as NoPath first) and std::ifstream("") fails anyway. A line the gate
+  // cannot reach is a line nothing can falsify.
+  std::ifstream in(path, std::ios::binary);
+  if (!in) return false;
+  const std::string magic = kDocumentMagic;
+  std::string head(magic.size(), '\0');
+  in.read(head.data(), static_cast<std::streamsize>(magic.size()));
+  return static_cast<std::size_t>(in.gcount()) == magic.size() && head == magic;
+}
+
 }  // namespace
 
 void ForgeShell::runImport(CommandContext& ctx, ExchangeFormat format) {
@@ -907,6 +944,30 @@ void ForgeShell::runSave(CommandContext& ctx, bool requirePath) {
   doc_.dirty = false;
 }
 
+// ── ★ A COPY MAY NOT REPLACE A PART ────────────────────────────────────────
+// The ONE enforcement point, called as the last line before bytes by both
+// export handlers. See the declaration in ForgeShell.hpp for why the question
+// is about identity and content and never about the extension.
+//
+// It is not in FileExchangeHost, or in PartFile, or in FileSystemStorage::write,
+// and that is deliberate: the storage layer has no notion of "the document that
+// is open", and the autosave and documentSave legitimately replace .fpart files
+// through it every few seconds. A guard there would have to know its caller,
+// which is the definition of the wrong place. Both export commands pass through
+// this file, so this file is the waist.
+bool ForgeShell::refuseTargetIsDocument(CommandContext& ctx, const std::string& path,
+                                        const ExchangeFormat* writing) {
+  const bool isTheOpenDocument =
+      documentHost_ != nullptr && pathNamesSameFile(path, documentHost_->documentPath());
+  if (!isTheOpenDocument && !fileHoldsForgeDocument(path)) return false;
+  if (writing != nullptr) {
+    refuseExchange(ctx, ExchangeRefusal::TargetIsDocument, *writing, path);
+  } else {
+    refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsDocument, path, std::string());
+  }
+  return true;
+}
+
 void ForgeShell::runExport(CommandContext& ctx, ExchangeFormat format) {
   documentError_.clear();
   lastExchange_ = ExchangeReport{};
@@ -938,6 +999,10 @@ void ForgeShell::runExport(CommandContext& ctx, ExchangeFormat format) {
     refuseExchange(ctx, ExchangeRefusal::NoDocument, format, path);
     return;
   }
+
+  // ★ LAST, so nothing can slip between the question and the bytes -- and so
+  //   every refusal that was already here keeps the order it had.
+  if (refuseTargetIsDocument(ctx, path, &format)) return;
 
   ExchangeReport report;
   const bool wrote = fileExchange_->exportFile(path, format, report);
@@ -1016,6 +1081,14 @@ void ForgeShell::runExportMachineProgram(CommandContext& ctx) {
       return;
     }
   }
+
+  // ★ THE SAME RULE AS runExport, and this command needed it most: it had no
+  //   check on its target of ANY kind -- no format check, no exists() check --
+  //   and the write below is atomic, so there is not even a partial-write window
+  //   in which anything could be salvaged. Asked AFTER the program is in hand so
+  //   a target refusal can never be mistaken for NoProgram, and BEFORE the write
+  //   so no temporary file is created beside the user's part.
+  if (refuseTargetIsDocument(ctx, path, nullptr)) return;
 
   // ATOMIC, through the storage the autosave already uses: it writes a temporary
   // beside the target and renames, so a Forge that dies mid-write has not
