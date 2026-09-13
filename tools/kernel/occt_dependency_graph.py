@@ -180,6 +180,70 @@ def stage_rows():
         rows.append((mark, name, tot, files, ', '.join(paths)))
     return rows
 
+# ── THE HIGHEST-UNLOCK ITEM, MEASURED RATHER THAN ASSERTED ──────────────────
+# This paragraph used to be TYPED. It said the missing piece was OWNERSHIP --
+# "Either shape::Shape gains shared ownership or ShapeRegistry owns the builder
+# per entry" -- and the second of those two had ALREADY BEEN IMPLEMENTED for as
+# long as the sentence had been in the file. The tracker steered the programme at
+# a blocker that was not there, which is the exact failure the rest of this
+# generator exists to prevent, in the one paragraph that decides what to work on.
+# So it is derived now. Everything below is read off the tree on every run.
+def measure_shape_adoption():
+    def read(rel):
+        try:
+            with open(os.path.join(ROOT, rel), 'r', errors='ignore') as fh:
+                return fh.read()
+        except OSError:
+            return ''
+
+    reg = read('forge-kernel/include/forge/ShapeRegistry.hpp')
+    # Does a registry ENTRY hold the builder, or merely point into one? The
+    # question is about the member, not about the argument: taking a shared_ptr
+    # and storing a raw pointer would satisfy a signature grep and dangle anyway.
+    owns = bool(re.search(
+        r'std::shared_ptr<\s*native::brep::TopologyBuilder\s*>\s+owner\s*;', reg))
+    takes = bool(re.search(
+        r'addNativeSolid\s*\(\s*std::shared_ptr<\s*native::brep::TopologyBuilder\s*>', reg))
+
+    # Who names the OCCT-free handle type at all, and where? A type with no
+    # namer outside its own directory is built, not adopted.
+    # ★ THE SEAM DOES NOT COUNT AS ITS OWN ADOPTER. NativeShapeAccess.{hpp,cpp}
+    #   name shape::Shape by definition -- they are the door, not someone walking
+    #   through it. Counting them would take this row off zero the moment the
+    #   seam landed and turn the one number that measures ADOPTION into a number
+    #   that measures whether the seam exists, which the row above already says.
+    SEAM_OWN = ('forge-kernel/include/forge/NativeShapeAccess.hpp',
+                'forge-kernel/src/NativeShapeAccess.cpp')
+    users = {'PROD': [], 'ORACLE': [], 'OTHER': []}
+    for rel in walk():
+        if rel.startswith('forge-kernel/include/forge/native/shape/'):
+            continue
+        if rel.startswith('forge-kernel/src/native/shape/'):
+            continue
+        if rel in SEAM_OWN:
+            continue
+        body = read(rel)
+        if 'shape::Shape' not in body:
+            continue
+        cls = classify(rel)
+        bucket = 'ORACLE' if cls in ('ORACLE', 'SCRATCH') else (
+            'PROD' if cls in ('APP', 'KERNEL', 'TOOLING') else 'OTHER')
+        users[bucket].append(rel)
+
+    # Is there a SEAM -- a way to get from the kernel's shape store to the
+    # OCCT-free handle -- and does its header name any OCCT type?
+    seam_path = 'forge-kernel/include/forge/NativeShapeAccess.hpp'
+    seam_hdr = read(seam_path)
+    seam = bool(re.search(r'shape::Shape\s+nativeShapeOf\s*\(', seam_hdr))
+    seam_occt = 0
+    if seam_hdr:
+        seam_occt, _ = occt_includes(seam_path)
+    return {
+        'owns': owns, 'takes': takes, 'seam': seam, 'seam_occt': seam_occt,
+        'prod': sorted(users['PROD']), 'oracle': sorted(users['ORACLE']),
+    }
+
+
 def render():
     by_class, by_dir, hdr_count, app_leaks, kernel_files = build()
     out = []
@@ -281,14 +345,49 @@ def render():
     w('**The single highest-unlock item** is therefore not an algorithm: it is an')
     w('OWNING, OCCT-free shape handle adopted as the kernel interchange type. It gates')
     w('steps 5, 6 and 7 -- 365 of 550 symbols (66%) and 5 of the 11 remaining libraries.')
-    w('Nearly all of it is already written and compiled with ZERO production consumers:')
-    w('`forge/capi/forge_capi.h` (27 entry points, no OCCT), `forge/native/shape/`')
-    w('{Shape,Explore,Wire,Compound}.hpp, and ~13k lines of OCCT-free native B-rep ops.')
-    w('The genuinely missing piece is small and specific: OWNERSHIP. `shape::Shape` is a')
-    w('NON-OWNING tagged pointer into a TopologyBuilder while ShapeRegistry stores its')
-    w('Occt entries by value, so a registry entry that outlives its builder dangles.')
-    w('Either shape::Shape gains shared ownership or ShapeRegistry owns the builder per')
-    w('entry. Everything downstream of that decision is re-typing.')
+    w('Nearly all of it is already written: `forge/capi/forge_capi.h` (27 entry points,')
+    w('no OCCT), `forge/native/shape/`{Shape,Explore,Wire,Compound}.hpp, and ~13k lines')
+    w('of OCCT-free native B-rep ops.')
+    w('')
+    sa = measure_shape_adoption()
+    w('WHAT IS ACTUALLY MISSING -- measured on this tree, because the sentence that')
+    w('used to sit here was TYPED and was wrong. It said the missing piece was')
+    w('OWNERSHIP ("either shape::Shape gains shared ownership or ShapeRegistry owns')
+    w('the builder per entry"), and the second of those two had already been')
+    w('implemented for as long as the sentence had been in the file. The tracker was')
+    w('steering the programme at a blocker that was not there. These rows are now read')
+    w('off the code on every run.')
+    w('')
+    w('| | |')
+    w('|---|---:|')
+    w('| a registry entry OWNS its `TopologyBuilder` (`shared_ptr` member) | **%s** |'
+      % ('yes' if sa['owns'] else 'NO'))
+    w('| `addNativeSolid` takes that ownership at the door | **%s** |'
+      % ('yes' if sa['takes'] else 'NO'))
+    w('| a seam exists: `ShapeHandle` -> `shape::Shape` | **%s** |'
+      % ('yes' if sa['seam'] else 'NO'))
+    w('| OCCT include lines in that seam\'s header | **%d** |' % sa['seam_occt'])
+    w('| PRODUCTION files naming `shape::Shape` outside its own directory | **%d** |'
+      % len(sa['prod']))
+    w('| oracle/test files naming it | %d |' % len(sa['oracle']))
+    w('')
+    if not sa['seam']:
+        w('There is no seam. `shape::Shape` cannot be obtained from the kernel\'s live')
+        w('shape store at all, so the handle type, the traversal facade and the 13k lines')
+        w('below them have no way to be reached from a body a user actually built. That,')
+        w('and not a lifetime, is what adoption is blocked on.')
+    elif not sa['prod']:
+        w('The seam is built and gated (`forge-kernel/test/shape_seam_gate.cpp`, compiled')
+        w('with an include path that contains no OCCT, which is what makes "OCCT-free" a')
+        w('build fact rather than a comment) and **no production code calls it yet**. So')
+        w('the remaining work is exactly what the old sentence claimed was downstream of a')
+        w('decision: re-typing call sites onto the seam. The difference is that the')
+        w('decision is made and the seam is proved, and this row will move off zero as')
+        w('call sites adopt it -- which is the number to watch, not the include counts.')
+    else:
+        w('The seam is built, gated and ADOPTED by %d production file(s). This row is the'
+          % len(sa['prod']))
+        w('adoption curve for steps 5-7; the OCCT symbol census above is the result.')
     w('')
     w('## Is the Forge vocabulary ADOPTED, or merely OCCT-free?')
     w('')

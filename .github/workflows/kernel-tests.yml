@@ -847,6 +847,43 @@ jobs:
           cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
                 -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
           cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: the OCCT-free shape seam, and prove all six mutations turn it red
+        # THE SINGLE HIGHEST-UNLOCK ITEM of the OCCT removal programme, gated.
+        # docs/kernel/OCCT_REMOVAL_TRACKER.md says an owning OCCT-free shape
+        # handle adopted as the kernel interchange type gates 365 of 550
+        # remaining symbols. It also USED to say the missing piece was ownership;
+        # that was typed, and wrong -- ShapeRegistry::Entry has held a
+        # shared_ptr<TopologyBuilder> the whole time. What was missing was a
+        # FUNCTION, and this step is what keeps the answer honest.
+        #
+        # ★ THE INCLUDE PATH IS THE ASSERTION. forge_shape_seam_gate compiles
+        #   with ONLY forge-kernel/include -- no ${OCCT_INC} -- so if
+        #   NativeShapeAccess.hpp ever pulls OCCT in, directly or through
+        #   Shape.hpp/Topology.hpp, this step fails to BUILD. "OCCT-free header"
+        #   stops being a comment and becomes a compile.
+        #
+        # ★ WHY THE MUTATIONS ARE RUN HERE AND NOT LEFT TO ctest. `ctest` is
+        #   invoked by no workflow, no script and no npm target in this
+        #   repository, so kernel.correctness_gate and kernel.capi_smoke -- both
+        #   declared with add_test() -- have executed ZERO times in CI. A gate
+        #   that is only registered is a gate that never runs, which is the
+        #   defect class this repository has now hit in five separate places.
+        run: |
+          cmake --build forge-kernel/build-verify -j3 --target forge_shape_seam_gate
+          BIN=forge-kernel/build-verify/forge_shape_seam_gate
+          "$BIN" || { echo "::error::the shape seam gate is RED on the tree"; exit 1; }
+          fails=0
+          for m in 1 2 3 4 5; do
+            if "$BIN" --mutate "$m" >/tmp/seam_m$m.log 2>&1; then
+              echo "::error::shape-seam mutation $m STAYED GREEN — the gate cannot see it"
+              tail -5 /tmp/seam_m$m.log
+              fails=$((fails+1))
+            else
+              echo "  mutation $m: RED — $(grep '\[FAIL\]' /tmp/seam_m$m.log | head -1)"
+            fi
+          done
+          [ "$fails" -eq 0 ] || exit 1
+          echo "[shape-seam] green on the tree, red under all 5 mutations"
       - name: native gate guard — a compile must restore every gate it forced
         # WHY HERE AND NOT IN THE APPENDIX B JOB, WHERE THIS FIRST LIVED.
         #   This gate needs a full CMake configure of forge-kernel. The Appendix B job

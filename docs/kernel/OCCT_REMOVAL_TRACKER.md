@@ -97,14 +97,34 @@ geometry, on its own, makes this number worse.
 **The single highest-unlock item** is therefore not an algorithm: it is an
 OWNING, OCCT-free shape handle adopted as the kernel interchange type. It gates
 steps 5, 6 and 7 -- 365 of 550 symbols (66%) and 5 of the 11 remaining libraries.
-Nearly all of it is already written and compiled with ZERO production consumers:
-`forge/capi/forge_capi.h` (27 entry points, no OCCT), `forge/native/shape/`
-{Shape,Explore,Wire,Compound}.hpp, and ~13k lines of OCCT-free native B-rep ops.
-The genuinely missing piece is small and specific: OWNERSHIP. `shape::Shape` is a
-NON-OWNING tagged pointer into a TopologyBuilder while ShapeRegistry stores its
-Occt entries by value, so a registry entry that outlives its builder dangles.
-Either shape::Shape gains shared ownership or ShapeRegistry owns the builder per
-entry. Everything downstream of that decision is re-typing.
+Nearly all of it is already written: `forge/capi/forge_capi.h` (27 entry points,
+no OCCT), `forge/native/shape/`{Shape,Explore,Wire,Compound}.hpp, and ~13k lines
+of OCCT-free native B-rep ops.
+
+WHAT IS ACTUALLY MISSING -- measured on this tree, because the sentence that
+used to sit here was TYPED and was wrong. It said the missing piece was
+OWNERSHIP ("either shape::Shape gains shared ownership or ShapeRegistry owns
+the builder per entry"), and the second of those two had already been
+implemented for as long as the sentence had been in the file. The tracker was
+steering the programme at a blocker that was not there. These rows are now read
+off the code on every run.
+
+| | |
+|---|---:|
+| a registry entry OWNS its `TopologyBuilder` (`shared_ptr` member) | **yes** |
+| `addNativeSolid` takes that ownership at the door | **yes** |
+| a seam exists: `ShapeHandle` -> `shape::Shape` | **yes** |
+| OCCT include lines in that seam's header | **0** |
+| PRODUCTION files naming `shape::Shape` outside its own directory | **0** |
+| oracle/test files naming it | 2 |
+
+The seam is built and gated (`forge-kernel/test/shape_seam_gate.cpp`, compiled
+with an include path that contains no OCCT, which is what makes "OCCT-free" a
+build fact rather than a comment) and **no production code calls it yet**. So
+the remaining work is exactly what the old sentence claimed was downstream of a
+decision: re-typing call sites onto the seam. The difference is that the
+decision is made and the seam is proved, and this row will move off zero as
+call sites adopt it -- which is the number to watch, not the include counts.
 
 ## Is the Forge vocabulary ADOPTED, or merely OCCT-free?
 

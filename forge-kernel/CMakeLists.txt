@@ -1897,6 +1897,7 @@ set(FORGE_KERNEL_SOURCES
     src/Tessellate.cpp
     src/MassProps.cpp
     src/ShapeHandle.cpp
+    src/NativeShapeAccess.cpp
     src/ShapeQuery.cpp
     src/Transform.cpp
     src/ComponentRegistry.cpp
@@ -3059,6 +3060,37 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
     set_tests_properties(kernel.capi_smoke PROPERTIES
         TIMEOUT 300
         FAIL_REGULAR_EXPRESSION "FAIL check")
+
+    # shape_seam_gate.cpp — can an OCCT-FREE caller round-trip through the
+    # kernel's shape store?  Same boundary trick as forge_capi_smoke and for the
+    # same reason: the include path is ONLY ${CMAKE_SOURCE_DIR}/include, with no
+    # ${OCCT_INC}, so "forge/NativeShapeAccess.hpp names no OCCT type" is proved
+    # by whether this target COMPILES rather than by a comment in the header.
+    # It still LINKS forge_kernel_core, because the registry behind the seam is
+    # OCCT-backed -- the boundary is the header, not the library.
+    #
+    # ★ AND IT IS ACTUALLY RUN.  `ctest` is invoked by no workflow, no script and
+    #   no npm target in this repository (`grep -rn ctest .github/ *.sh` is
+    #   empty), so kernel.correctness_gate and kernel.capi_smoke above are
+    #   declared, built and executed ZERO times in CI.  add_test() is kept here
+    #   for parity, but the step that makes this gate evidence is the explicit
+    #   run in .github/workflows/kernel-tests.yml beside the build-verify build.
+    add_executable(forge_shape_seam_gate "${FORGE_TEST_DIR}/shape_seam_gate.cpp")
+    target_include_directories(forge_shape_seam_gate PRIVATE
+        "${CMAKE_SOURCE_DIR}/include")
+    target_compile_options(forge_shape_seam_gate PRIVATE -Wall -Wextra -Werror)
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_shape_seam_gate PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_shape_seam_gate PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_shape_seam_gate PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+    endif()
+    add_test(NAME kernel.shape_seam_gate COMMAND forge_shape_seam_gate)
+    set_tests_properties(kernel.shape_seam_gate PROPERTIES
+        TIMEOUT 300
+        FAIL_REGULAR_EXPRESSION "\\[FAIL\\]")
 
 endif()
 
