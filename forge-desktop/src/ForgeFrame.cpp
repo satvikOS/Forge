@@ -1014,8 +1014,29 @@ std::vector<std::string> inputFileCandidates(const std::string& recorded,
 // conditioned on, and it is NOT the same question as "is this the name the
 // document was called": a document called "untitled-4" whose own file is gone
 // is written as untitled.fpart, which is the series behaving, not a collision.
+// ── WHY `swerved` BECAME TWO ANSWERS ────────────────────────────────────────
+// It used to be one bool meaning "the first name in the series was not the one
+// returned", and the warning below was conditioned on it and said the first name
+// "belongs to another part". MEASURED in a HOME whose .forge is empty: the user
+// does exactly what the recovery warning tells them and moves their own file
+// aside, a bare Ctrl+S writes untitled-2.fpart, untitled.fpart is NOT on disk --
+// and the log still told them the name belonged to another part and that Forge
+// would not write over a file they did not choose. Both clauses were untrue
+// there: the series moved because the name is REMEMBERED AS REFUSED, not because
+// anything was in the way.
+//
+// No data is at risk in that case, which is exactly why it is worth fixing: this
+// commit's own standard is that a sentence a user reads must be true, and a
+// warning that cries collision where there is none teaches them to ignore the
+// one that does not.
+enum class Swerve {
+    None,       // the first name in the series was free and was taken
+    Occupied,   // a file really is sitting on it
+    Refused,    // the caller forbade it -- refusedSavePath_, nothing on disk
+};
+
 std::string firstFreeFallbackPath(const std::string& directory, const std::string& stem,
-                                  const std::string& forbidden, bool& swerved,
+                                  const std::string& forbidden, Swerve& swerved,
                                   std::string& firstChoice) {
   std::string base = stem.empty() ? std::string("untitled") : stem;
   // A name this function itself produced goes back into the SERIES it came from
@@ -1031,18 +1052,27 @@ std::string firstFreeFallbackPath(const std::string& directory, const std::strin
       base.erase(dash);
     }
   }
-  swerved = false;
+  swerved = Swerve::None;
   firstChoice = directory + "/" + base + kPartFileExtension;
   std::error_code ec;
+  bool skippedForRefusal = false;
+  bool skippedForFile = false;
   for (int n = 1; n <= 1000; ++n) {
     const std::string candidate = n == 1 ? firstChoice
                                          : directory + "/" + base + "-" + std::to_string(n) +
                                                kPartFileExtension;
-    if (!forbidden.empty() && candidate == forbidden) continue;
+    if (!forbidden.empty() && candidate == forbidden) {
+      skippedForRefusal = true;
+      continue;
+    }
     if (!std::filesystem::exists(candidate, ec)) {
-      swerved = candidate != firstChoice;
+      // A file in the way outranks a refusal in the sentence the user reads:
+      // if both happened, something really is at a name in this series.
+      swerved = skippedForFile ? Swerve::Occupied
+                               : (skippedForRefusal ? Swerve::Refused : Swerve::None);
       return candidate;
     }
+    skippedForFile = true;
   }
   // A thousand untitled parts in one directory is not a state to guess at.
   return std::string();
@@ -1296,7 +1326,7 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
     //   is what Save means, and only the invented name is guarded here.
     const char* home = std::getenv("HOME");
     const std::string dir = (home != nullptr && home[0] != 0) ? std::string(home) + "/.forge" : ".";
-    bool swerved = false;
+    Swerve swerved = Swerve::None;
     std::string wanted;
     target = firstFreeFallbackPath(dir, documentName_, refusedSavePath_, swerved, wanted);
     if (target.empty()) {
@@ -1304,15 +1334,22 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
               ". Use Save As and choose where it should go.";
       return false;
     }
-    if (swerved) {
+    if (swerved != Swerve::None) {
       // NOT a silent swerve. The user pressed a key expecting a file they could
       // guess the name of, and got a different one; the log says which, and why
-      // the obvious name was not used.
+      // the obvious name was not used. TWO REASONS, TWO SENTENCES -- see the
+      // Swerve enum for the measurement that separated them. Telling someone a
+      // file is in the way when none is teaches them to disbelieve the warning
+      // that matters.
+      const std::string why =
+          swerved == Swerve::Occupied
+              ? "The name it would normally use belongs to another part, and Forge will "
+                "not write over a file you did not choose."
+              : "The name it would normally use is one you told Forge not to write over, "
+                "so it went to the next free name instead.";
       shell_.log().warning("document.save",
                            "This part had no file of its own, so Forge made one for it under "
-                           "the next free name. The name it would normally use belongs to "
-                           "another part, and Forge will not write over a file you did not "
-                           "choose.",
+                           "the next free name. " + why,
                            "wanted " + wanted + ", wrote " + target);
     }
   }

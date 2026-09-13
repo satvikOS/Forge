@@ -1767,6 +1767,37 @@ int main(int argc, char** argv) {
             "so the name the user knows their work by is still theirs alone", userPath);
       check(std::filesystem::exists(y.frame->documentPath()),
             "and the recovered work was written all the same", y.frame->documentPath());
+
+      // ── AND THE SENTENCE IT PRINTS HAS TO BE TRUE HERE TOO ────────────────
+      //
+      // This is the population a REVIEWER measured the warning wrong in, and
+      // nothing in this gate was reading the words. The swerve warning used to
+      // say the obvious name "belongs to another part, and Forge will not write
+      // over a file you did not choose" -- in a directory where that file does
+      // not exist, because the user has just moved it aside exactly as the
+      // recovery warning told them to. Both clauses were false. No bytes were at
+      // risk, which is the reason it is worth pinning rather than the reason to
+      // shrug: a warning that cries collision where there is none is how the one
+      // that matters gets ignored.
+      //
+      // The series moved because the name is REMEMBERED AS REFUSED. That is what
+      // the log must say, and this asserts on the words a user reads, not on a
+      // flag behind them.
+      check(!std::filesystem::exists(userPath),
+            "  (nothing is at the refused name, so a collision claim would be false)",
+            userPath);
+      std::string saveWarning;
+      for (const forge::ui::LogEntry& e : y.shell.log().entries()) {
+        if (e.severity == forge::ui::Severity::Warning && e.source == "document.save") {
+          saveWarning = e.message;
+        }
+      }
+      check(!saveWarning.empty(), "the swerve is reported to the user at all", saveWarning);
+      check(saveWarning.find("belongs to another part") == std::string::npos,
+            "★ AND IT DOES NOT CLAIM A FILE IS IN THE WAY WHEN NONE IS", saveWarning);
+      check(saveWarning.find("told Forge not to write over") != std::string::npos,
+            "  ...it names the real reason: the name is one the user refused",
+            saveWarning);
     }
     y.frame->endRecoverySession();
   }
