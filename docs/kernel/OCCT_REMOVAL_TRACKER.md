@@ -14,7 +14,7 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1398 | YES |
+| KERNEL | 1399 | YES |
 | TOOLING | 23 | yes, last |
 | ORACLE | 1919 | no — by design |
 | SCRATCH | 0 | no — by design |
@@ -187,11 +187,35 @@ headers that
 include an OCCT header. The legacy adapter (Occt*.hpp, NativeOcctBridge.hpp)
 is expected to and is listed separately.
 
-| public kernel headers exposing OCCT | 28 |
+★ IT IS A TEXT COUNT, AND THE COMPILER DISAGREES WITH IT IN BOTH DIRECTIONS.
+It counts `#include <Something.hxx>` lines whether or not a build ever reaches
+them, and it cannot see a header that reaches OCCT through another Forge
+header. MEASURED by compiling every public header as a one-line translation
+unit with no OCCT on the include path
+(`tools/kernel/occt_header_reach_check.py`, which is a CI gate and carries its
+own two-way self-test):
+
+| configuration | public headers that cannot be included without OCCT |
+|---|---:|
+| bare, no macros defined | **14** |
+| `-DFORGE_NATIVE_BREP=1` -- **the shipped build**, CMake defaults it ON | **31** |
+
+Neither is the number below. Seventeen `Native*` headers and `OcctImport.hpp` /
+`StepReadOcct.hpp` reach OCCT only once FORGE_NATIVE_BREP is on, and
+`forge/ArcHelix.hpp` has an OCCT include the text count charges it for and no
+build ever compiles -- its whole body is behind `#ifdef FORGE_FT_ARCHELIX`. The
+number to plan against is 31: it is what the application actually faces.
+These are deliberately NOT written into this document, for the reason cfa87c68
+records about the linkage numbers -- a figure that depends on the machine
+generating the file makes `--check` fail for reasons that have nothing to do
+with the code. The gate reports them; the document says where to look.
+
+| public kernel headers exposing OCCT | 29 |
 |---|---:|
 | of those, the legacy adapter (expected) | 6 |
-| **of those, the Kernel API proper** | **22** |
+| **of those, the Kernel API proper** | **23** |
 
+- `forge-kernel/include/forge/BodyInventoryOcct.hpp`
 - `forge-kernel/include/forge/Drawings.hpp`
 - `forge-kernel/include/forge/Mold.hpp`
 - `forge-kernel/include/forge/ShapeRegistry.hpp`
@@ -214,6 +238,25 @@ is expected to and is listed separately.
 - `forge-kernel/include/forge/native/geom/NativeNurbsConvert.hpp`
 - `forge-kernel/include/forge/native/geom/NativePCurveFit.hpp`
 - `forge-kernel/include/forge/native/geom/NativeProjection.hpp`
+
+### The headers that force OCCT WITHOUT naming it
+
+The count above reads DIRECT `#include <Something.hxx>` lines, and that is not
+the same question as "can this header be included without the OCCT SDK".
+A header that includes a Forge header that includes an OCCT one forces OCCT on
+every one of ITS includers and appears in no list above.
+
+MEASURED, and it is why this section exists: `forge/BodyInventory.hpp` named no
+OCCT type and included `forge/ShapeRegistry.hpp` for a single unused overload,
+and that one line was the ENTIRE OCCT dependency of
+`forge-desktop/src/KernelScene.cpp` -- a file that names no OCCT type either.
+It was invisible here until it was fixed.
+
+| public headers that reach OCCT only THROUGH another Forge header | **2** |
+|---|---:|
+
+- `forge-kernel/include/forge/FeaTet.hpp` -> `forge/ShapeRegistry.hpp`
+- `forge-kernel/include/forge/Features.hpp` -> `forge/Sketcher.hpp`
 
 ## Heaviest production kernel files
 

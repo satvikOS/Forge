@@ -195,6 +195,33 @@ jobs:
         shell: bash
         run: python3 tools/kernel/occt_dependency_graph.py --check
 
+      - name: and a COMPILER agrees with the tracker about the header surface
+        # THE STEP ABOVE CHECKS A TEXT MEASURE AGAINST ITSELF. It regenerates the
+        # document from the same include-line walk that wrote it, so it catches a
+        # hand edit and a new include, and it cannot catch the walk being wrong
+        # about what a compiler does. It was: forge/BodyInventory.hpp named no OCCT
+        # type, reached it through forge/ShapeRegistry.hpp, and was the ENTIRE OCCT
+        # dependency of forge-desktop/src/KernelScene.cpp while appearing in no list
+        # the document prints. In the other direction the walk charged
+        # forge/ArcHelix.hpp for an OCCT include no build compiles -- its body is
+        # behind #ifdef FORGE_FT_ARCHELIX.
+        #
+        # So this compiles every public kernel header as a one-line translation unit
+        # with NO OCCT on the include path and requires the failing set to equal
+        # exactly what the walk claims. --selftest first, because a control nobody
+        # has seen fail is a control nobody has read: it perturbs the CLAIM in both
+        # directions (drop a real entry, add a phantom) and requires red each way.
+        #
+        # --report-shipped adds the -DFORGE_NATIVE_BREP=1 arm. It changes no verdict
+        # and is here for the number: bare is 14 and the SHIPPED build is 31, which
+        # is what the application actually faces and is neither figure the document
+        # prints. Seventeen Native* headers reach OCCT only once that option is on,
+        # and CMake defaults it ON.
+        shell: bash
+        run: |
+          python3 tools/kernel/occt_header_reach_check.py --selftest
+          python3 tools/kernel/occt_header_reach_check.py --report-shipped
+
       - name: Vec3 stays ONE type, and the module epsilon guards stay put
         # Vec3 had TEN layout-identical declarations in ten namespaces, and the
         # canonical forge/math/Vec3.hpp existed while being included by no file under

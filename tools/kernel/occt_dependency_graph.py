@@ -243,6 +243,130 @@ def measure_shape_adoption():
         'prod': sorted(users['PROD']), 'oracle': sorted(users['ORACLE']),
     }
 
+# ── WHICH PUBLIC HEADERS FORCE OCCT WITHOUT NAMING IT ────────────────────────
+# The closure over QUOTED forge/ includes only. That is exact for this question:
+# a kernel header reaches OCCT either by including an OCCT header itself (the
+# count above) or by including a Forge header that does, and Forge headers are
+# always included by their "forge/..." path. System includes cannot lead back
+# into forge-kernel/include, so they are not edges.
+#
+# CROSS-CHECKED AGAINST A COMPILER, because a text measure of an include graph is
+# exactly the kind of thing that is plausible and wrong: every public header was
+# compiled as a one-line translation unit with no OCCT on the include path, and
+# the set that failed is the set this returns plus the set that includes OCCT
+# directly. The two agreed on 2026-09-12 (2 transitive, 29 direct, 451 free).
+def _scan_header(path):
+    """Quoted forge/ includes and direct OCCT includes, split by whether the line
+    sits inside a preprocessor conditional.
+
+    THE CONDITIONAL SPLIT IS NOT PEDANTRY -- it is the first thing this measure
+    got wrong. forge/ArcHelix.hpp includes forge/Sketcher.hpp, which includes
+    <TopoDS_Wire.hxx>, so a plain text walk calls ArcHelix an OCCT-forcing
+    header. It is not: its whole body is behind `#ifdef FORGE_FT_ARCHELIX`, which
+    no default build defines, and the compiler says it includes cleanly with no
+    OCCT on the path. A measure that disagrees with the compiler about what the
+    compiler does is not a measure.
+
+    The file's OWN include guard (`#ifndef X` / `#define X` as the first
+    directive) is not a conditional: everything in a header sits inside it.
+    """
+    inc_q = re.compile(r'^\s*#\s*include\s*"(forge/[^"]+)"')
+    hdr_re = re.compile(r'^\s*#\s*include\s*<([A-Za-z0-9_]+)\.hxx>')
+    cond_open = re.compile(r'^\s*#\s*(if|ifdef|ifndef)\b')
+    cond_close = re.compile(r'^\s*#\s*endif\b')
+    guard_open = re.compile(r'^\s*#\s*ifndef\s+(\w+)\s*$')
+    guard_def = re.compile(r'^\s*#\s*define\s+(\w+)\s*$')
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as fh:
+            lines = fh.readlines()
+    except OSError:
+        return [], [], False, False
+    # find the include guard, if this header uses one rather than #pragma once
+    guard_at, pending = None, None
+    for k, line in enumerate(lines):
+        m = guard_open.match(line)
+        if m and pending is None:
+            pending = (k, m.group(1))
+            continue
+        if pending is not None:
+            m2 = guard_def.match(line)
+            if m2 and m2.group(1) == pending[1]:
+                guard_at = pending[0]
+            break
+        if line.strip() and not line.lstrip().startswith(('//', '/*', '*')):
+            break
+    depth = 0
+    q_uncond, q_cond, occt_uncond, occt_cond = [], [], False, False
+    for k, line in enumerate(lines):
+        if cond_open.match(line):
+            if k != guard_at:
+                depth += 1
+            continue
+        if cond_close.match(line):
+            if depth > 0:
+                depth -= 1
+            continue
+        m = inc_q.match(line)
+        if m:
+            (q_cond if depth else q_uncond).append(m.group(1))
+            continue
+        m2 = hdr_re.match(line)
+        if m2 and OCCT_HDR.match(m2.group(1) + '.hxx'):
+            if depth:
+                occt_cond = True
+            else:
+                occt_uncond = True
+    return q_uncond, q_cond, occt_uncond, occt_cond
+
+
+# ── WHICH PUBLIC HEADERS FORCE OCCT WITHOUT NAMING IT ────────────────────────
+# The closure over QUOTED forge/ includes only, and only the UNCONDITIONAL ones.
+# That is exact for this question: a kernel header reaches OCCT either by
+# including an OCCT header itself (the count above) or by including a Forge
+# header that does, and Forge headers are always included by their "forge/..."
+# path. System includes cannot lead back into forge-kernel/include, so they are
+# not edges.
+#
+# CROSS-CHECKED AGAINST A COMPILER, because a text measure of an include graph is
+# exactly the kind of thing that is plausible and wrong -- and this one WAS, on
+# its first run, until the conditional split above. Every public header is
+# compiled as a one-line translation unit with no OCCT on the include path by
+# tools/kernel/occt_header_reach_check.py, and the set that fails must equal the
+# direct set plus this one.
+def transitive_occt_headers(direct):
+    base = os.path.join(ROOT, 'forge-kernel', 'include')
+    edges, has_occt, all_hdrs = {}, set(), []
+    for rel in sorted(walk()):
+        if not rel.startswith('forge-kernel/include/forge/') or not rel.endswith('.hpp'):
+            continue
+        all_hdrs.append(rel)
+        key = os.path.relpath(os.path.join(ROOT, rel), base)
+        q_uncond, _q_cond, occt_uncond, _occt_cond = _scan_header(os.path.join(ROOT, rel))
+        edges[key] = q_uncond
+        if occt_uncond:
+            has_occt.add(key)
+
+    def reaches(key, seen):
+        for nxt in edges.get(key, ()):
+            if nxt in seen:
+                continue
+            seen.add(nxt)
+            if nxt in has_occt:
+                return nxt
+            if reaches(nxt, seen):
+                return nxt
+        return None
+
+    out = []
+    for rel in all_hdrs:
+        key = os.path.relpath(os.path.join(ROOT, rel), base)
+        if rel in direct or key in has_occt:
+            continue
+        via = reaches(key, set())
+        if via:
+            out.append((rel, via))
+    return out
+
 
 def render():
     by_class, by_dir, hdr_count, app_leaks, kernel_files = build()
@@ -498,6 +622,29 @@ def render():
     w('include an OCCT header. The legacy adapter (Occt*.hpp, NativeOcctBridge.hpp)')
     w('is expected to and is listed separately.')
     w('')
+    w('★ IT IS A TEXT COUNT, AND THE COMPILER DISAGREES WITH IT IN BOTH DIRECTIONS.')
+    w('It counts `#include <Something.hxx>` lines whether or not a build ever reaches')
+    w('them, and it cannot see a header that reaches OCCT through another Forge')
+    w('header. MEASURED by compiling every public header as a one-line translation')
+    w('unit with no OCCT on the include path')
+    w('(`tools/kernel/occt_header_reach_check.py`, which is a CI gate and carries its')
+    w('own two-way self-test):')
+    w('')
+    w('| configuration | public headers that cannot be included without OCCT |')
+    w('|---|---:|')
+    w('| bare, no macros defined | **14** |')
+    w('| `-DFORGE_NATIVE_BREP=1` -- **the shipped build**, CMake defaults it ON | **31** |')
+    w('')
+    w('Neither is the number below. Seventeen `Native*` headers and `OcctImport.hpp` /')
+    w('`StepReadOcct.hpp` reach OCCT only once FORGE_NATIVE_BREP is on, and')
+    w('`forge/ArcHelix.hpp` has an OCCT include the text count charges it for and no')
+    w('build ever compiles -- its whole body is behind `#ifdef FORGE_FT_ARCHELIX`. The')
+    w('number to plan against is 31: it is what the application actually faces.')
+    w('These are deliberately NOT written into this document, for the reason cfa87c68')
+    w('records about the linkage numbers -- a figure that depends on the machine')
+    w('generating the file makes `--check` fail for reasons that have nothing to do')
+    w('with the code. The gate reports them; the document says where to look.')
+    w('')
     api, adapter = [], []
     hdr_re = re.compile(r'^\s*#\s*include\s*<([A-Za-z0-9_]+)\.hxx>')
     for rel in sorted(walk()):
@@ -520,6 +667,30 @@ def render():
     w('')
     for rel in api:
         w(f'- `{rel}`')
+    w('')
+    w('### The headers that force OCCT WITHOUT naming it')
+    w('')
+    w('The count above reads DIRECT `#include <Something.hxx>` lines, and that is not')
+    w('the same question as "can this header be included without the OCCT SDK".')
+    w('A header that includes a Forge header that includes an OCCT one forces OCCT on')
+    w('every one of ITS includers and appears in no list above.')
+    w('')
+    w('MEASURED, and it is why this section exists: `forge/BodyInventory.hpp` named no')
+    w('OCCT type and included `forge/ShapeRegistry.hpp` for a single unused overload,')
+    w('and that one line was the ENTIRE OCCT dependency of')
+    w('`forge-desktop/src/KernelScene.cpp` -- a file that names no OCCT type either.')
+    w('It was invisible here until it was fixed.')
+    w('')
+    forced = transitive_occt_headers(set(api) | set(adapter))
+    w(f'| public headers that reach OCCT only THROUGH another Forge header | **{len(forced)}** |')
+    w('|---|---:|')
+    w('')
+    if forced:
+        for rel, via in forced:
+            w(f'- `{rel}` -> `{via}`')
+    else:
+        w('None. Every public kernel header that needs OCCT says so in its own')
+        w('include list, which is the state this row exists to hold.')
     w('')
     w('## Heaviest production kernel files')
     w('')

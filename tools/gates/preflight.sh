@@ -35,6 +35,8 @@ run "op constraint table matches the vocabulary" \
     python3 implementation/sacrosanct/tools/gen_op_constraint_table.py --check
 run "OCCT removal tracker matches the code" \
     python3 tools/kernel/occt_dependency_graph.py --check
+run "the header surface a COMPILER sees matches the tracker's walk" \
+    python3 tools/kernel/occt_header_reach_check.py
 run "every shell gate is wired into CI" \
     bash tools/gates/shell_gate_registration_ratchet.sh
 run "every forge-kernel gate is wired into CI" \
