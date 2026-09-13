@@ -181,6 +181,8 @@
 #include <optional>
 #include <string>
 #include <thread>
+
+#include <unistd.h>   // getpid -- one scratch tree per process
 #include <vector>
 
 // setenv(), for the HOME redirect at the top of main(). Section 13 drives Save
@@ -637,8 +639,26 @@ int main(int argc, char** argv) {
   const char* tmp = std::getenv("TMPDIR");
   std::string root = (tmp != nullptr && tmp[0] != 0) ? std::string(tmp) : std::string("/tmp");
   if (!root.empty() && root.back() == '/') root.pop_back();
+  // ── ONE SCRATCH TREE PER PROCESS, AND THE remove_all IS WHY ───────────────
+  //
+  // ★ MEASURED: this gate used to work in $TMPDIR/forge_quit_guard_gate -- a
+  //   FIXED path -- and delete it at startup. Two runs at once is not a shared
+  //   directory, it is one run DELETING THE OTHER'S EVIDENCE MID-FLIGHT: an
+  //   adversary building in a second worktree saw 11 failures here, and under an
+  //   isolated TMPDIR the same tree gave 317 checks and 0 failures. Nothing about
+  //   the code differed. That is the same shape as the fillet window above --
+  //   a verdict decided by what else the machine was doing -- and it made every
+  //   green from this gate on a busy machine weaker than it looked, including
+  //   the ones recorded as evidence earlier today.
+  //
+  //   The parent stays fixed so the scratch is findable; the run OWNS a child
+  //   named for its pid, and remove_all now touches only that child. A green run
+  //   removes its own tree on the way out; a RED one leaves it, because that
+  //   directory is the evidence.
   root += "/forge_quit_guard_gate";
   std::error_code ec;
+  std::filesystem::create_directories(root, ec);
+  root += "/run-" + std::to_string(static_cast<long long>(::getpid()));
   std::filesystem::remove_all(root, ec);  // a rerun must not inherit yesterday's evidence
   std::filesystem::create_directories(root, ec);
   const std::string recoveryDir = root + "/recovery";
@@ -1902,5 +1922,9 @@ int main(int argc, char** argv) {
     return 1;
   }
   std::printf("[quit-gate] THE QUIT PATH KEEPS YOUR WORK\n");
+  // A green run takes its scratch with it. A red one left it standing above,
+  // because on a failure that directory is the evidence.
+  std::error_code cleanupEc;
+  std::filesystem::remove_all(root, cleanupEc);
   return 0;
 }
