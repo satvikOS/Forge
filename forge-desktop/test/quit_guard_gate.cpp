@@ -1759,6 +1759,10 @@ int main(int argc, char** argv) {
       check(!moveEc && !std::filesystem::exists(userPath),
             "the user moves their own file aside, exactly as the warning tells them to",
             movedAside);
+      std::size_t warnWatermark = 0;
+      for (const forge::ui::LogEntry& e : y.shell.log().entries()) {
+        warnWatermark = e.sequence > warnWatermark ? e.sequence : warnWatermark;
+      }
       check(y.save(), "and NOW presses Ctrl+S", y.shell.lastDocumentError());
       check(y.frame->documentPath() != userPath,
             "★ THE REFUSED NAME IS STILL REFUSED, THOUGH NOTHING IS IN THE WAY NOW",
@@ -1768,36 +1772,76 @@ int main(int argc, char** argv) {
       check(std::filesystem::exists(y.frame->documentPath()),
             "and the recovered work was written all the same", y.frame->documentPath());
 
-      // ── AND THE SENTENCE IT PRINTS HAS TO BE TRUE HERE TOO ────────────────
+      // ── AND THE SENTENCE IT PRINTS HAS TO BE TRUE ────────────────────────
       //
-      // This is the population a REVIEWER measured the warning wrong in, and
-      // nothing in this gate was reading the words. The swerve warning used to
-      // say the obvious name "belongs to another part, and Forge will not write
-      // over a file you did not choose" -- in a directory where that file does
-      // not exist, because the user has just moved it aside exactly as the
-      // recovery warning told them to. Both clauses were false. No bytes were at
-      // risk, which is the reason it is worth pinning rather than the reason to
-      // shrug: a warning that cries collision where there is none is how the one
-      // that matters gets ignored.
+      // A reviewer measured the swerve warning claiming "the name it would
+      // normally use belongs to another part, and Forge will not write over a
+      // file you did not choose" in a directory where that file does not exist,
+      // because the user had just moved it aside exactly as the recovery warning
+      // told them to. The series had moved because the name was REMEMBERED AS
+      // REFUSED, not because anything was in the way. No bytes were at risk,
+      // which is the reason to fix it rather than to shrug: a warning that cries
+      // collision where there is none is how the one that matters gets ignored.
       //
-      // The series moved because the name is REMEMBERED AS REFUSED. That is what
-      // the log must say, and this asserts on the words a user reads, not on a
-      // flag behind them.
-      check(!std::filesystem::exists(userPath),
-            "  (nothing is at the refused name, so a collision claim would be false)",
-            userPath);
-      std::string saveWarning;
+      // ★ THE FIRST VERSION OF THIS CHECK WAS WRONG, and the gate said so. It
+      //   demanded the refused-name sentence unconditionally, and in THIS .forge
+      //   the earlier sections have already written untitled.fpart, untitled-2
+      //   and untitled-3 -- so a file really is in the way, "Occupied" really is
+      //   the right answer, and the collision sentence really is true. Asserting
+      //   a fixed sentence measured the gate's own leftovers.
+      //
+      //   So it asserts the INVARIANT instead, and reads the case out of the log
+      //   rather than assuming it: the detail line records the name that was
+      //   WANTED, and whether a file is sitting on that name is the whole of what
+      //   decides which sentence is honest. Both branches are live in this suite.
+      // ★ ONLY WHAT THIS SAVE SAID. The first version of this scanned the whole
+      //   log for the last document.save warning, which is a DIFFERENT EVENT
+      //   whenever this save did not warn -- an earlier section's message, read
+      //   as though it belonged to the keystroke just pressed. LogEntry carries a
+      //   monotonic sequence for exactly this, and the watermark is taken before
+      //   the save above.
+      std::string saveMessage, saveDetail;
       for (const forge::ui::LogEntry& e : y.shell.log().entries()) {
+        if (e.sequence <= warnWatermark) continue;
         if (e.severity == forge::ui::Severity::Warning && e.source == "document.save") {
-          saveWarning = e.message;
+          saveMessage = e.message;
+          saveDetail = e.detail;
         }
       }
-      check(!saveWarning.empty(), "the swerve is reported to the user at all", saveWarning);
-      check(saveWarning.find("belongs to another part") == std::string::npos,
-            "★ AND IT DOES NOT CLAIM A FILE IS IN THE WAY WHEN NONE IS", saveWarning);
-      check(saveWarning.find("told Forge not to write over") != std::string::npos,
-            "  ...it names the real reason: the name is one the user refused",
-            saveWarning);
+      check(!saveMessage.empty(), "the swerve is reported to the user at all", saveMessage);
+      if (!saveMessage.empty()) {
+        // detail is "wanted <path>, wrote <path>"
+        std::string wantedPath;
+        const std::size_t w = saveDetail.find("wanted ");
+        const std::size_t comma = saveDetail.find(", wrote ");
+        if (w == 0 && comma != std::string::npos) {
+          wantedPath = saveDetail.substr(7, comma - 7);
+        }
+        check(!wantedPath.empty(), "  ...and the detail names the name it wanted",
+              saveDetail);
+        const bool occupied = !wantedPath.empty() && std::filesystem::exists(wantedPath);
+        const bool saysCollision =
+            saveMessage.find("belongs to another part") != std::string::npos;
+        const bool saysRefused =
+            saveMessage.find("told Forge not to write over") != std::string::npos;
+        check(saysCollision != saysRefused,
+              "  ...and it gives exactly one reason, not both and not neither",
+              saveMessage);
+        // PRINTED, like every other measured value in this gate, because a
+        // check that passes is silent here and "saysCollision == occupied" is
+        // satisfied by BOTH being false. The log has to say which case ran.
+        std::printf("   [warn] wanted %s (%s on disk) -> %s\n", wantedPath.c_str(),
+                    occupied ? "IS" : "is NOT",
+                    saysCollision ? "says a file is in the way"
+                                  : (saysRefused ? "says the name was refused"
+                                                 : "SAYS NEITHER"));
+        check(saysCollision == occupied,
+              occupied ? "★ a file IS on the wanted name, and the warning says so"
+                       : "★ NOTHING is on the wanted name, and the warning does NOT "
+                         "claim a file is in the way",
+              "wanted=" + wantedPath + " exists=" + (occupied ? "yes" : "no") +
+                  " | " + saveMessage);
+      }
     }
     y.frame->endRecoverySession();
   }
