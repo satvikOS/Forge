@@ -153,12 +153,15 @@ if [ ! -x "$LIVE" ]; then
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   if [ "${FORGE_ALLOW_NO_LIVE_LOOPBACK:-0}" = "1" ]; then
-    echo "[retrieval] phase 3 SKIPPED: python3 (the stub sidecar) is not on PATH."
+    echo "[retrieval] phases 3, 4 and 5 SKIPPED: python3 is not on PATH."
     echo "[retrieval] FORGE_ALLOW_NO_LIVE_LOOPBACK=1 was set, so this is an explicit, recorded"
-    echo "[retrieval] opt-out. THIS RUN DOES NOT EXERCISE THE REAL SOCKET PATH and does not"
-    echo "[retrieval] make the far-end redaction assertion."
+    echo "[retrieval] opt-out. THIS RUN DOES NOT EXERCISE THE REAL SOCKET PATH, does not make"
+    echo "[retrieval] the far-end redaction assertion, AND DOES NOT TEST THE EXECUTOR OR THE"
+    echo "[retrieval] ARCHIE-SIDE BRIDGE AT ALL — phases 4 and 5 need python3 for their stub"
+    echo "[retrieval] sidecar and for the bridge itself. The send path Archie uses is UNPROVEN"
+    echo "[retrieval] in this run."
     echo
-    echo "[retrieval] GATE PASSED (phases 1-2; phase 3 opted out)"
+    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-5 opted out)"
     exit 0
   fi
   echo "[retrieval] FATAL: phase 3 needs python3 for retrieval/test/stub_sidecar.py." >&2
@@ -185,6 +188,72 @@ if ! grep -q '^\[live\] LOOPBACK LIVE CHECK PASSED' "$OUT/live.log"; then
   exit 1
 fi
 echo "[retrieval] phase 3 (loopback live) PASSED"
+
+# ── phase 4: the EXECUTOR ────────────────────────────────────────────────────
+# Phases 1-3 prove the CLIENT. They say nothing about forge_retrieve, the binary
+# Archie actually invokes — and a gated library called by an ungated wrapper is
+# an ungated system. Phase 4 drives the real executable through a real loopback
+# socket: that it refuses to approve its own request, that a registered secret
+# never reaches its stdout, and that every way the sidecar can be absent or wrong
+# comes back RETRIEVAL_UNAVAILABLE with nothing transmitted.
+#
+# IT RUNS IN ITS --mutations FORM, ALWAYS. After the clean run it injects five
+# defects into a COPY of the executor and requires each to turn a NAMED check
+# red. That costs ~49s measured, which the 20-minute job affords, and it is the
+# difference between a green check and an earned one. Two of those five defects
+# went UNCAUGHT when first written — the checks they were aimed at were being
+# satisfied by a redundant guard one line further down — so this is not a
+# formality; it has already found holes in its own gate.
+EXECGATE="$ROOT/retrieval/test/run_executor_gate.sh"
+if [ ! -f "$EXECGATE" ]; then
+  echo "[retrieval] FATAL: $EXECGATE is missing." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 4: the executor (forge_retrieve), with mutations"
+bash "$EXECGATE" --mutations > "$OUT/executor.log" 2>&1
+rc4=$?
+if [ "$rc4" -ne 0 ]; then
+  echo "[retrieval] PHASE 4 FAILED (exit $rc4) — see below"
+  cat "$OUT/executor.log"
+  exit "$rc4"
+fi
+grep -E '^\[executor\] (mutations|clean run)' "$OUT/executor.log"
+# Exit 0 is not a pass unless the script SAID so. An empty log is a run that did
+# not run, and a suite that reads only $? cannot tell the two apart.
+if ! grep -q '^\[executor\] GATE PASSED (green, and every check demonstrated red)' "$OUT/executor.log"; then
+  echo "[retrieval] phase 4 exited 0 without declaring a mutation-proved pass. Refusing to report one."
+  cat "$OUT/executor.log"
+  exit 1
+fi
+echo "[retrieval] phase 4 (executor) PASSED"
+
+# ── phase 5: the Archie-side bridge ──────────────────────────────────────────
+# forge_retrieval_bridge.py is what Archie imports. Its load-bearing property is
+# NEGATIVE — that it is not a second send path — so the gate reads the module's
+# own AST for every networking import and every way it could mint an approval,
+# and then drives the real executor against a real stub to prove the rest.
+PYGATE="$ROOT/retrieval/test/executor_python_gate.py"
+if [ ! -f "$PYGATE" ]; then
+  echo "[retrieval] FATAL: $PYGATE is missing." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 5: the Archie-side bridge, with mutations"
+python3 "$PYGATE" --mutations > "$OUT/bridge.log" 2>&1
+rc5=$?
+if [ "$rc5" -ne 0 ]; then
+  echo "[retrieval] PHASE 5 FAILED (exit $rc5) — see below"
+  cat "$OUT/bridge.log"
+  exit "$rc5"
+fi
+grep -E '^(mutations|\[python-gate\] clean run)' "$OUT/bridge.log"
+if ! grep -q '^\[python-gate\] GATE PASSED (green, and every check demonstrated red)' "$OUT/bridge.log"; then
+  echo "[retrieval] phase 5 exited 0 without declaring a mutation-proved pass. Refusing to report one."
+  cat "$OUT/bridge.log"
+  exit 1
+fi
+echo "[retrieval] phase 5 (bridge) PASSED"
 
 echo
 echo "[retrieval] GATE PASSED"

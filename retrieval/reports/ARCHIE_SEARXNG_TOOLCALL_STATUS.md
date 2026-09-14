@@ -1,3 +1,21 @@
+> **SUPERSEDED IN PART, 2026-09-14 — see `SIDECAR_WIRING.md`.**
+>
+> The headline below ("No. It has never worked and has never been tested end to
+> end") was true when measured on 2026-08-31 and is **no longer true**. The
+> executor `retrieval/tools/forge_retrieve.cpp` now wires an Archie tool call to
+> the live sidecar through the existing gated path, and the end-to-end transcript
+> — a real query, 12 records from 11 publishers in 971 ms, and both fail-closed
+> branches proven with the sidecar actually stopped — is in `SIDECAR_WIRING.md`.
+>
+> What is still accurate here: §1 (Archie's own loop has no tool dispatch — that
+> remains true of `archie_loop.py`), and §2's reading of the send path, which this
+> work uses unmodified rather than weakening. What is stale: the claim that no
+> sidecar is running (one listens on 127.0.0.1:8888), and the conclusion that the
+> two sides cannot meet.
+>
+> Left in place rather than rewritten: the measurement it records was correct on
+> its date, and a report edited to agree with a later state stops being evidence.
+
 # Can Archie tool-call SearXNG? — measured 2026-08-31
 
 **No. It has never worked and has never been tested end to end, for two independent reasons —
