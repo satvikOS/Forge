@@ -1,0 +1,101 @@
+# archie-30b-knowing-v1 — training configuration
+#
+# ONE checkpoint, trained on the knowing_v1 corpus, to answer ONE question:
+# does a corpus that does not name the answer's ops in its prompt move the
+# BenchCAD-holdout-41 composite off the floor?
+#
+# Every field below is either copied from the arm that is on record as the first to
+# beat a floor in this programme (expert3d-v5cap / v6r8) or changed for a reason
+# stated next to it. Nothing is a default nobody chose.
+
+name: archie-30b-knowing-v1
+created: 2026-09-14
+base_model: models/qwen3-vl-30b-a3b-4bit        # Qwen3-VL-30B-A3B, 4-bit, 48 layers
+
+# ---------------------------------------------------------------------------
+# RESUME: none. This is the single most consequential line in the file.
+# ---------------------------------------------------------------------------
+# Every adapter on disk descends from archie-30b-vocab-v5, and the flagship mix that
+# produced astra-v1 contains `scaled5`, which overlaps 979 holdout parts BY IMAGE KEY
+# (488 of 623 rows of gt_familysplit/heldout). Resuming from any of them would inherit
+# weights fitted on parts this run is scored against, and no amount of care with the
+# new corpus could undo it. Training from the BASE costs capability and buys a number
+# that means something.
+resume_adapter: null
+
+trainer: tools/knowing_train/launch_vlm_expert_lora.py   # mlx_vlm.lora + 3 patches
+launcher_reasons:
+  - eager multimodal RoPE (the fused kernel has no vjp; backward dies without this)
+  - expert LoRA on the RESUME path as well as the fresh one
+  - freeze-before-resume (mlx_vlm's resume branch freezes nothing -> trains 30B -> OOM)
+
+dataset:
+  path: data/forge/knowing_v1                  # in the MODEL repo, absolute image paths
+  source: archdisc-Mech knowing-corpus-v1 (commits ee672228, ec4103fd)
+  source_sha256:
+    train.jsonl: d923ef90706daa6213b373071d8d23ebbf44aad5f8872b989b4692b7df117557
+    valid.jsonl: ab965b464a4cdb948e1ce26177e39e0dca6c096cf136b34f02585868b920c364
+  rows_as_delivered: 11466 train / 477 valid
+  rows_trained:      10997 train /  449 valid
+  rows_dropped:      469 train / 28 valid
+  drop_reason: >
+    scripts/contamination_guard.py (the model repo's own LAW 8 instrument) flags them
+    under rule R6: they reference a part belonging to bench_tasks_benchcad_hf, an ACTIVE
+    980-row eval split with measured gt on disk and a baseline already scored against it.
+    The corpus's own scan walked the data tree and reported zero; it did not cover this
+    split. Scoped checks leave holes between them. Stripped with --strip, which keeps a
+    .contaminated.bak; the backups were moved to data/forge/_knowing_v1_prestrip/.
+    Nothing was deleted.
+  law8_after_strip: 0 contaminated rows across 2 files (same instrument, same command)
+  law8_vs_scored_holdout: >
+    Independently, against data/forge/bench_tasks_benchcad.jsonl (the 41 rows this run
+    is scored on): 0 overlap on image basename, part stem, exact user prompt, and the
+    (sorted bbox extents, genus) signature, exact and rounded. 873 train rows match a
+    holdout part's VOLUME to within 0.5%, and every one of them differs in envelope --
+    the closest sits 6.5% away, in a different family, with a different genus. A volume
+    coincidence is not a part.
+
+lora:
+  fine_tune_type: lora
+  attention_rank: 16                            # v5cap/v6r8, held
+  attention_alpha: 32                           # => scale 2.0 (alpha/rank)
+  dropout: 0.0
+  attention_scope: all 48 layers, q/k/v/o + mlp.gate (240 keys)
+  expert_layers: 12                             # trailing; v5cap's variable, held at v6r8's value
+  expert_rank: 8
+  expert_keys: 36                               # 12 layers x {gate,up,down}_proj
+  train_vision_tower: false                     # frozen; images are read, not re-learned
+
+optimisation:
+  max_seq_length: 3072
+  batch_size: 1
+  gradient_accumulation_steps: 4
+  grad_checkpoint: true
+  learning_rate: 1.0e-5
+  optimizer: adam
+  train_mode: sft
+  train_on_completions: true                    # assistant_id 77091 == "assistant" here (checked)
+  iters: 6000                                   # see sizing below
+  steps_per_report: 50
+  steps_per_save: 250                           # a restart loses at most 250 iters
+
+sizing:
+  measured_reference: >
+    expert3d-v6r8, same base, same launcher family, same 3072/1/4/grad-ckpt shape:
+    2400 iters in 2h36m = 0.256 it/s, peak 30.16 GB of 36 GB.
+  probe: tools/knowing_train/PROBE.md           # 40 iters before the real run, per repo rule
+  why_not_more: >
+    One pass over 10,997 rows is ~11 h at the reference rate and the box is shared.
+    6000 iters (batch 1 => 6000 samples, 0.55 epoch) is the largest budget that
+    reliably finishes in one sitting. A run that has to be killed teaches nothing.
+
+scoring:
+  benchmark: BenchCAD-holdout-41 (data/forge/bench_tasks_benchcad.jsonl, all 41 rows)
+  harness: scripts/sweep_all_benchmarks.sh --only BenchCAD-holdout-41
+  pin: tools/pinned  verifier 2751bc36 / kernel 3133cb25
+  floor: bbox-envelope box of the envelope stated in the prompt, recomputed under the
+         same pin, REPORTED WITH ITS n
+  incumbent: astra-v1, re-scored from its persisted IR under this same pin
+  note: >
+    The holdout is sorted hardest-first, so a prefix is not a sample: 0.2423 on a prefix
+    where the full set reads 0.3617. Only all-41 runs are reported.
