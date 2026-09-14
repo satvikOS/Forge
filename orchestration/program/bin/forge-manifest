@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+"""forge-manifest -- make doc 07's task manifest a checkable artefact, not prose.
+
+Doc 07 step 9 says "write task manifest into worktree". A manifest that lives only
+in an agent's prompt cannot be checked by anything: the declared write_set is
+advisory, the forbidden_write_set is a suggestion, and nobody finds out until a
+parallel agent's file is clobbered. This writes the manifest into the worktree and
+checks the agent's actual diff against it.
+
+  forge-manifest write  --worktree DIR  < manifest.yaml
+  forge-manifest check  --worktree DIR [--base REF]
+  forge-manifest overlap  DIR [DIR ...]
+
+check exits 1 on a violation and names the offending paths. That is the point: a
+gate that cannot fail is not a gate.
+"""
+import argparse, fnmatch, json, os, subprocess, sys
+
+MANIFEST_NAME = ".forge-manifest.json"
+REQUIRED = ("task_id", "write_set", "acceptance")
+
+
+def _die(msg, code=2):
+    print("forge-manifest: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def _git(args, cwd):
+    p = subprocess.run(["git"] + args, cwd=cwd, capture_output=True, text=True)
+    if p.returncode != 0:
+        _die("git " + " ".join(args) + " failed: " + p.stderr.strip())
+    return p.stdout
+
+
+def _load_text(text):
+    """Accept JSON, or the flat YAML subset doc 07's manifest example uses."""
+    text = text.strip()
+    if not text:
+        _die("empty manifest on stdin")
+    if text.startswith("{"):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            _die("manifest is not valid JSON: " + str(e))
+    out, key = {}, None
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].rstrip() if not raw.strip().startswith("#") else ""
+        if not line.strip():
+            continue
+        if line.lstrip().startswith("- "):
+            if key is None:
+                _die("list item before any key: " + raw.strip())
+            out.setdefault(key, [])
+            if not isinstance(out[key], list):
+                _die("key " + key + " has both a scalar and list items")
+            out[key].append(line.lstrip()[2:].strip().strip('"\''))
+            continue
+        if ":" not in line:
+            _die("cannot parse line: " + raw.strip())
+        k, v = line.split(":", 1)
+        key = k.strip()
+        v = v.strip().strip('"\'')
+        out[key] = v if v else []
+    return out
+
+
+def _validate(m):
+    missing = [k for k in REQUIRED if not m.get(k)]
+    if missing:
+        _die("manifest is missing required keys: " + ", ".join(missing))
+    for k in ("write_set", "forbidden_write_set", "acceptance", "stop_conditions", "read_set"):
+        if k in m and isinstance(m[k], str):
+            m[k] = [m[k]]
+    # A path in both sets is a contradiction the agent cannot obey.
+    both = sorted(set(m.get("write_set", [])) & set(m.get("forbidden_write_set", [])))
+    if both:
+        _die("these paths are in BOTH write_set and forbidden_write_set: " + ", ".join(both))
+    return m
+
+
+def _matches(path, patterns):
+    for pat in patterns:
+        pat = pat.strip()
+        if not pat:
+            continue
+        if fnmatch.fnmatch(path, pat):
+            return pat
+        # A bare directory prefix means everything under it.
+        if pat.endswith("/") and path.startswith(pat):
+            return pat
+        if pat.endswith("/**") and path.startswith(pat[:-2]):
+            return pat
+        if "*" not in pat and path.startswith(pat.rstrip("/") + "/"):
+            return pat
+    return None
+
+
+def _exclude(worktree):
+    """Add the manifest to this worktree's git excludes, idempotently."""
+    try:
+        common = _git(["rev-parse", "--git-path", "info/exclude"], worktree).strip()
+    except SystemExit:
+        return
+    path = common if os.path.isabs(common) else os.path.join(worktree, common)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    line = "/" + MANIFEST_NAME
+    existing = open(path).read() if os.path.exists(path) else ""
+    if line not in existing.splitlines():
+        with open(path, "a") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write(line + "\n")
+
+
+USAGE_WRITE = ("write reads the manifest from stdin; pipe one in, e.g.\n"
+               "  forge-manifest write --worktree DIR <<'YAML'\n"
+               "  task_id: T-123\n  write_set:\n    - path/to/file\n"
+               "  acceptance:\n    - \"what proves it\"\n  YAML")
+
+
+def _read_stdin(seconds=20):
+    """Read the manifest, but never block an unattended tick for ever.
+
+    A TTY is obvious misuse. The dangerous case is subtler: stdin inherited as a
+    pipe that nobody ever closes, where read() blocks silently with no output and
+    no error -- exactly how an automated loop stalls without anyone noticing.
+    """
+    if sys.stdin.isatty():
+        _die(USAGE_WRITE)
+    import signal
+
+    def _late(signum, frame):
+        _die("timed out after " + str(seconds) + "s waiting for a manifest on stdin.\n" + USAGE_WRITE)
+
+    try:
+        signal.signal(signal.SIGALRM, _late)
+        signal.alarm(seconds)
+    except (ValueError, AttributeError):
+        return sys.stdin.read()      # not the main thread, or no SIGALRM: read plainly
+    try:
+        return sys.stdin.read()
+    finally:
+        signal.alarm(0)
+
+
+def cmd_write(a):
+    m = _validate(_load_text(_read_stdin()))
+    dest = os.path.join(a.worktree, MANIFEST_NAME)
+    if not os.path.isdir(a.worktree):
+        _die("no such worktree: " + a.worktree)
+    # Pin the base to a SHA, never a ref name. A manifest that records "origin/archdisc"
+    # silently re-bases itself every time that ref moves, so the check drifts under the
+    # agent and a violation can vanish without anyone touching the code.
+    ref = a.base or "HEAD"
+    m["_base"] = _git(["rev-parse", "--verify", ref + "^{commit}"], a.worktree).strip()
+    if a.base:
+        m["_base_ref"] = a.base
+    with open(dest, "w") as f:
+        json.dump(m, f, indent=1, sort_keys=True)
+        f.write("\n")
+    # The manifest is orchestration metadata, not repository content. Without this
+    # a routine `git add -A` commits it, and then a `git reset --hard` to the base
+    # DELETES it -- the agent loses the very contract it is being checked against.
+    _exclude(a.worktree)
+    print("wrote " + dest + " (task " + str(m["task_id"]) + ", base " + m["_base"][:8] + ")")
+    print("  write_set: " + str(len(m.get("write_set", []))) + " patterns"
+          + "  forbidden: " + str(len(m.get("forbidden_write_set", []))) + " patterns")
+
+
+def cmd_check(a):
+    src = os.path.join(a.worktree, MANIFEST_NAME)
+    if not os.path.exists(src):
+        _die("no manifest in " + a.worktree + " -- doc 07 step 9 was skipped, so nothing can be checked")
+    m = json.load(open(src))
+    tracked = _git(["ls-files", "--", MANIFEST_NAME], a.worktree).strip()
+    if tracked:
+        print("WARNING: " + MANIFEST_NAME + " is TRACKED -- a git add -A swept the manifest"
+              " into the branch, and a reset to base will delete it. Run write again.")
+    base = a.base or m.get("_base")
+    if not base:
+        _die("manifest records no base and --base was not given")
+
+    changed = set()
+    # Committed since base, plus anything still in the working tree.
+    mb = _git(["merge-base", base, "HEAD"], a.worktree).strip()
+    for ln in _git(["diff", "--name-only", mb, "HEAD"], a.worktree).splitlines():
+        if ln.strip():
+            changed.add(ln.strip())
+    for ln in _git(["status", "--porcelain"], a.worktree).splitlines():
+        p = ln[3:].strip()
+        if " -> " in p:                      # a rename touches both paths
+            old, new = p.split(" -> ", 1)
+            changed.add(old.strip()); changed.add(new.strip())
+        elif p:
+            changed.add(p)
+    changed.discard(MANIFEST_NAME)
+
+    allowed = m.get("write_set", [])
+    forbidden = m.get("forbidden_write_set", [])
+    outside, banned = [], []
+    for p in sorted(changed):
+        hit = _matches(p, forbidden)
+        if hit:
+            banned.append((p, hit))
+            continue
+        if not _matches(p, allowed):
+            outside.append(p)
+
+    print("task " + str(m.get("task_id")) + ": " + str(len(changed)) + " path(s) changed since " + base[:8])
+    if banned:
+        print("VIOLATION -- wrote inside forbidden_write_set:")
+        for p, pat in banned:
+            print("  " + p + "   (matched forbidden pattern " + pat + ")")
+    if outside:
+        print("VIOLATION -- wrote outside write_set:")
+        for p in outside:
+            print("  " + p)
+    if banned or outside:
+        print("STOP CONDITION: doc 07 says an unexpected edit outside write_set halts the agent.")
+        return 1
+    print("OK -- every changed path is inside the declared write_set")
+    return 0
+
+
+def cmd_overlap(a):
+    loaded = []
+    for d in a.worktrees:
+        src = os.path.join(d, MANIFEST_NAME)
+        if not os.path.exists(src):
+            _die("no manifest in " + d)
+        loaded.append((d, json.load(open(src))))
+    if len(loaded) < 2:
+        _die("overlap needs at least two worktrees")
+    bad = 0
+    for i in range(len(loaded)):
+        for j in range(i + 1, len(loaded)):
+            (da, ma), (db, mb) = loaded[i], loaded[j]
+            # Patterns overlap if either side's pattern matches the other's literal path.
+            hits = set()
+            for p in ma.get("write_set", []):
+                if "*" not in p and _matches(p, mb.get("write_set", [])):
+                    hits.add(p)
+            for p in mb.get("write_set", []):
+                if "*" not in p and _matches(p, ma.get("write_set", [])):
+                    hits.add(p)
+            common = sorted(set(ma.get("write_set", [])) & set(mb.get("write_set", []))) or sorted(hits)
+            label = str(ma.get("task_id")) + " vs " + str(mb.get("task_id"))
+            if common:
+                bad += 1
+                print("OVERLAP " + label + ": " + ", ".join(common))
+            else:
+                print("disjoint " + label)
+    if bad:
+        print("These tasks may not run in parallel: doc 07 step 5 requires disjoint write sets.")
+        return 1
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="forge-manifest")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    w = sub.add_parser("write"); w.add_argument("--worktree", required=True); w.add_argument("--base")
+    c = sub.add_parser("check"); c.add_argument("--worktree", required=True); c.add_argument("--base")
+    o = sub.add_parser("overlap"); o.add_argument("worktrees", nargs="+")
+    a = ap.parse_args()
+    if a.cmd == "write":
+        cmd_write(a); return 0
+    if a.cmd == "check":
+        return cmd_check(a)
+    return cmd_overlap(a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

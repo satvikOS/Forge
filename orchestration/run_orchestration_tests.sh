@@ -138,6 +138,26 @@ else
   exit 1
 fi
 
+# ── phase 4: the task-manifest gate ─────────────────────────────────────────
+# Doc 07 steps 5 and 9. A write set declared only in an agent's prompt cannot be
+# checked by anything, so forbidden_write_set is a suggestion and a write-set
+# collision is discovered after a parallel agent's file is already clobbered.
+# Same rule as the phases above: a missing test must never read as a passing one.
+MANIFEST_TEST="$ROOT/orchestration/program/test/test_manifest_gate.sh"
+if [ -x "$MANIFEST_TEST" ]; then
+  echo
+  echo "[orch] phase 4: task-manifest gate"
+  if "$MANIFEST_TEST"; then
+    echo "[orch] phase 4 PASSED"
+  else
+    echo "[orch] FAILED: an agent can write outside its declared write set undetected" >&2
+    exit 1
+  fi
+else
+  echo "[orch] FAILED: $MANIFEST_TEST is missing or not executable" >&2
+  exit 1
+fi
+
 echo
 echo "[orch] GATE PASSED"
 exit 0

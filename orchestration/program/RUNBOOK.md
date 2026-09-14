@@ -13,9 +13,30 @@ The doctrine this implements is `02_CLAUDE_MANUAL_TO_FORGE_OPERATING_MODEL.md`:
 ## 0. RESOURCE GATE — always first, no exceptions
 
 ```sh
-forge-guardian-ctl status | head -1        # must say RUNNING
+command -v forge-job forge-gate forge-nproc  # ALL THREE must resolve, or nothing below is real
+forge-guardian-ctl status | head -1          # must say RUNNING
 forge-gate --need green --wait 600 --why "loop tick" || exit 75
 ```
+
+**Check `command -v` first, and check it in the shell your subagents actually get
+(`zsh -lc`), not in yours.** The Guardian tools live in `~/.forge-health/bin`, which
+is *not* on `PATH` by default; they are reachable only because they are symlinked
+into `~/.local/bin`. For one entire session every `forge-job` line in every subagent
+manifest was silently `command not found`, Guardian reported `registered jobs: 0`
+throughout, and that zero was read as *agents skipping the step* rather than *the
+step being unable to run*. The zero was the instrument, not the system. If the
+symlinks are missing, restore them and do nothing else this tick:
+
+```sh
+for t in forge-job forge-gate forge-nproc forge-guardian-ctl; do
+  ln -sfn "$HOME/.forge-health/bin/$t" "$HOME/.local/bin/$t"
+done
+```
+
+Note that `forge-job` calls `forge-gate` by absolute path, so only `forge-job`'s own
+resolution ever blocks; and job files are deleted on exit, so a `registered jobs: 0`
+sampled between jobs is normal. Count job files over time — never infer compliance
+from one sample.
 
 If Guardian is not running, **start it and do nothing else this tick**. An
 unguarded long run is how a workstation dies. If the gate denies for the whole
@@ -66,6 +87,50 @@ Rules that have each already cost this program a day:
   incrementally; an in-place edit corrupts the running process.
 
 Then `forge-program claim <id> --owner loop-<tick>`.
+
+### 3a. WRITE THE MANIFEST INTO THE WORKTREE — doc 07 step 9
+
+A write set that exists only in an agent's prompt is unenforceable: nothing can read
+it, so `forbidden_write_set` is a suggestion and the collision is discovered when a
+parallel agent's file is already clobbered. Write it as a file instead:
+
+```sh
+forge-manifest write --worktree "$WT" <<'YAML'
+task_id: T-123
+objective: "one sentence"
+write_set:
+  - forge-kernel/src/Thing.cpp
+forbidden_write_set:
+  - forge-desktop/*
+acceptance:
+  - "the gate is red on the parent"
+stop_conditions:
+  - "an unexpected required edit outside write_set"
+YAML
+```
+
+`write` refuses a manifest that cannot be obeyed (a path in both sets, a missing
+`write_set` or `acceptance`) and excludes itself from git, so a routine `git add -A`
+cannot sweep the manifest into the branch — which, uncaught, means the next
+`reset --hard` deletes the very contract the agent is judged against.
+
+Before spawning two agents at once, doc 07 step 5 — prove the write sets are
+disjoint, rather than assuming it:
+
+```sh
+forge-manifest overlap "$WT_A" "$WT_B"    # exits 1 and names the contended file
+```
+
+And before integrating, prove the agent stayed inside what it declared:
+
+```sh
+forge-manifest check --worktree "$WT"     # exits 1 on any path outside write_set
+```
+
+`check` counts committed changes, uncommitted changes and renames, and refuses to
+pass when there is no manifest at all — an absent contract is an error, never a pass.
+Its own suite (`orchestration/program/test/test_manifest_gate.sh`) shows the gate red
+in seven distinct ways and survives an eight-mutation sweep.
 
 ## 4. IMPLEMENT — smallest coherent patch
 
