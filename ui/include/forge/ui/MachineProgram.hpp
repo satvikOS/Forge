@@ -71,6 +71,12 @@ enum class MachineProgramRefusal : std::uint8_t {
   // a user's .fpart through an atomic temp+rename, so there was not even a
   // partial-write window in which anything could be salvaged.
   TargetIsDocument,
+  // ── ★ THE TARGET IS THE FILE THE DOCUMENT READS (T-127) ─────────────────
+  // APPENDED, never inserted. The same eighth shape the exchange refusals carry:
+  // the target is neither a Forge part nor the open .fpart, it is the STEP the
+  // part was imported from, and a G-code file written over it changes the part
+  // that posted it.
+  TargetIsBound,
 };
 
 inline constexpr MachineProgramRefusal kAllMachineProgramRefusals[] = {
@@ -80,9 +86,10 @@ inline constexpr MachineProgramRefusal kAllMachineProgramRefusals[] = {
     MachineProgramRefusal::NoProgram,
     MachineProgramRefusal::WriteFailed,
     MachineProgramRefusal::TargetIsDocument,
+    MachineProgramRefusal::TargetIsBound,
 };
 static_assert(std::size(kAllMachineProgramRefusals) ==
-                  static_cast<std::size_t>(MachineProgramRefusal::TargetIsDocument) + 1,
+                  static_cast<std::size_t>(MachineProgramRefusal::TargetIsBound) + 1,
               "kAllMachineProgramRefusals must list EVERY MachineProgramRefusal: the "
               "prose gate walks it, and a value missing from it is a sentence nobody "
               "checked.");

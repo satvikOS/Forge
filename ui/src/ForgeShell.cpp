@@ -6,6 +6,7 @@
 #include <fstream>
 #include <ios>
 #include <map>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -126,6 +127,9 @@ void ForgeShell::registerCommands() {
     // be clicked, and `file.save_as` below could not exist without it -- the
     // whole point of Save As is naming a document that is NOT dirty.
     c.enabled = always;
+    // ★ T-128: file.save writes the DOCUMENT to a path a caller may name. That
+    //   it is "just Save" is exactly what left it unguarded for eight rounds.
+    c.writes = WriteIntent::DocumentSave;
     c.execute = [this](CommandContext& ctx) { runSave(ctx, false); };
     registry_.add(std::move(c));
   }
@@ -148,6 +152,9 @@ void ForgeShell::registerCommands() {
     // between them: a name is not optional here. A second body would be a second
     // opinion about what gets remembered in Open Recent and when the document
     // stops being dirty.
+    // ★ T-128 / T-124: this is the command that replaced another user's part
+    //   through the shipping CoPilot Apply button with errors +0.
+    c.writes = WriteIntent::DocumentSave;
     c.execute = [this](CommandContext& ctx) { runSave(ctx, true); };
     registry_.add(std::move(c));
   }
@@ -244,7 +251,14 @@ void ForgeShell::registerCommands() {
     c.sideEffect = SideEffectClass::Application;
     c.undo = UndoContract::NotUndoable;
     c.enabled = [this](const CommandContext&) { return exportAvailable(); };
-    c.execute = [this](CommandContext& ctx) { runExport(ctx, ExchangeFormat::Step); };
+    // ★ T-128: DECLARED, not assumed. ForgeShell::writeTarget() reads this
+    //   from the descriptor and REFUSES to produce a target for a command
+    //   that declares None, so deleting this line stops the command writing
+    //   rather than quietly removing its guard.
+    c.writes = WriteIntent::Copy;
+    c.execute = [this](CommandContext& ctx) {
+      runExport(ctx, "file.export_step", ExchangeFormat::Step);
+    };
     registry_.add(std::move(c));
   }
   {
@@ -259,7 +273,14 @@ void ForgeShell::registerCommands() {
     c.sideEffect = SideEffectClass::Application;
     c.undo = UndoContract::NotUndoable;
     c.enabled = [this](const CommandContext&) { return exportAvailable(); };
-    c.execute = [this](CommandContext& ctx) { runExport(ctx, ExchangeFormat::Brep); };
+    // ★ T-128: DECLARED, not assumed. ForgeShell::writeTarget() reads this
+    //   from the descriptor and REFUSES to produce a target for a command
+    //   that declares None, so deleting this line stops the command writing
+    //   rather than quietly removing its guard.
+    c.writes = WriteIntent::Copy;
+    c.execute = [this](CommandContext& ctx) {
+      runExport(ctx, "file.export_brep", ExchangeFormat::Brep);
+    };
     registry_.add(std::move(c));
   }
   {
@@ -284,7 +305,14 @@ void ForgeShell::registerCommands() {
     c.sideEffect = SideEffectClass::Application;
     c.undo = UndoContract::NotUndoable;
     c.enabled = [this](const CommandContext&) { return exportAvailable(); };
-    c.execute = [this](CommandContext& ctx) { runExport(ctx, ExchangeFormat::Stl); };
+    // ★ T-128: DECLARED, not assumed. ForgeShell::writeTarget() reads this
+    //   from the descriptor and REFUSES to produce a target for a command
+    //   that declares None, so deleting this line stops the command writing
+    //   rather than quietly removing its guard.
+    c.writes = WriteIntent::Copy;
+    c.execute = [this](CommandContext& ctx) {
+      runExport(ctx, "file.export_stl", ExchangeFormat::Stl);
+    };
     registry_.add(std::move(c));
   }
   {
@@ -309,6 +337,8 @@ void ForgeShell::registerCommands() {
     c.sideEffect = SideEffectClass::Application;
     c.undo = UndoContract::NotUndoable;
     c.enabled = [this](const CommandContext&) { return machineProgramAvailable(); };
+    // ★ T-128: see the geometry exports above.
+    c.writes = WriteIntent::Copy;
     c.execute = [this](CommandContext& ctx) { runExportMachineProgram(ctx); };
     registry_.add(std::move(c));
   }
@@ -771,6 +801,8 @@ void sanitiseExchangeMessage(ExchangeReport& report, ExchangeFormat format,
   }
 }
 
+}  // namespace
+
 // ── ★ TWO PATHS THAT NAME ONE FILE ─────────────────────────────────────────
 // A string compare is neither enough nor nothing. "/w/./bracket.fpart" and
 // "/w/bracket.fpart" are one file and two strings; so are a symlink and its
@@ -779,6 +811,20 @@ void sanitiseExchangeMessage(ExchangeReport& report, ExchangeFormat format,
 // asks about the FILES. It answers false with an error code set when either
 // side is absent, which is the right answer here: a target that does not exist
 // yet cannot be the document that is open.
+// ── ★ AND THE EMPTY BRANCH IS REACHED, NOT UNREACHABLE (ALSO-4) ────────────
+// T-123's commit kept the `a.empty() || b.empty()` line and gave the wrong
+// reason: "it is unreachable from either handler". MEASURED at 646d761f, it is
+// reached on EVERY UNTITLED DOCUMENT -- `b` is documentHost_->documentPath(),
+// which is "" until a part has been saved, and the guard runs on those documents
+// (an untitled part exporting onto a stranger's .fpart is refused through the
+// content clause with documentPath() == ""). The line is REDUNDANT, not
+// unreachable: with it gone, `a != b` then std::filesystem::equivalent(a, "", ec)
+// sets ec and returns false, so `same && !ec` answers false either way.
+//
+// It stays, and the reason it stays is now the true one: it STATES the intent --
+// a path that does not exist cannot be a file that does -- instead of leaving
+// that to an error_code nobody reads. A wrong reason in a comment is how the
+// next reader deletes a right line.
 bool pathNamesSameFile(const std::string& a, const std::string& b) {
   if (a.empty() || b.empty()) return false;
   if (a == b) return true;
@@ -805,7 +851,16 @@ bool fileHoldsForgeDocument(const std::string& path) {
   return static_cast<std::size_t>(in.gcount()) == magic.size() && head == magic;
 }
 
-}  // namespace
+// ── ★ IS ANYTHING SITTING ON THIS PATH? ────────────────────────────────────
+// The question T-123 did not ask, and the one that would have caught both of
+// this round's new shapes on its own. `exists` and not `is_regular_file`: a
+// directory, a symlink to something, a device -- none of them is a free name,
+// and a write that lands on one is still a write the caller did not earn.
+bool pathIsOccupied(const std::string& path) {
+  if (path.empty()) return false;
+  std::error_code ec;
+  return std::filesystem::exists(path, ec) && !ec;
+}
 
 void ForgeShell::runImport(CommandContext& ctx, ExchangeFormat format) {
   documentError_.clear();
@@ -918,7 +973,17 @@ void ForgeShell::runImport(CommandContext& ctx, ExchangeFormat format) {
 // empty string.
 void ForgeShell::runSave(CommandContext& ctx, bool requirePath) {
   documentError_.clear();
-  const std::string path = ctx.params().text("path").value_or(std::string());
+  // ★ THE PATH COMES FROM THE ONE PRODUCER -- T-124. This handler used to read
+  //   `ctx.params().text("path")` itself, twenty lines above a guard called by
+  //   the two export handlers and by nothing else, and that is the whole of the
+  //   defect: file.save_as with a caller-supplied path replaced ANOTHER USER'S
+  //   PART, 2 NOTE / 5 FEATURE / 718 B -> 0 / 5 / 586 B with dispatch ok and
+  //   errors +0, on the identical path the three exports had just refused. There
+  //   is no guard call to add here, because there is no other way to get a path.
+  const std::optional<std::string> target =
+      writeTarget(ctx, requirePath ? "file.save_as" : "file.save", nullptr);
+  if (!target) return;
+  const std::string path = *target;
   if (requirePath && path.empty()) {
     documentError_ =
         "Save As needs a name for the file. Pick one, or use Save to write this part back "
@@ -930,6 +995,14 @@ void ForgeShell::runSave(CommandContext& ctx, bool requirePath) {
   if (documentHost_ != nullptr) {
     if (!documentHost_->documentSave(path, documentError_)) {
       ++documentErrorSeq_;
+      // ★ ALSO-3, AND IT IS ONE LINE. Without it this handler returns having set
+      //   documentError_ and NEVER called ctx.fail(), so DispatchResult::ok() is
+      //   TRUE on a save whose bytes never landed -- MEASURED at 646d761f by
+      //   inducing the failure with RLIMIT_FSIZE: the atomic write refused, the
+      //   part was byte-identical, and the dispatch said it worked. Anything
+      //   that ever keys "did bytes land?" off dispatch status reads that as a
+      //   success, and this round added exactly such a caller.
+      ctx.fail(documentError_);
       return;
     }
     // The host is the ONLY thing that knows where a bare Ctrl+S went: file.save's
@@ -944,34 +1017,169 @@ void ForgeShell::runSave(CommandContext& ctx, bool requirePath) {
   doc_.dirty = false;
 }
 
-// ── ★ A COPY MAY NOT REPLACE A PART ────────────────────────────────────────
-// The ONE enforcement point, called as the last line before bytes by both
-// export handlers. See the declaration in ForgeShell.hpp for why the question
-// is about identity and content and never about the extension.
+// ── ★★ EVERY FILE THE OPEN DOCUMENT READS OR IS ────────────────────────────
+// The host's own list, plus the input file the exchange holds. The two halves
+// are here rather than in one place because they are owned by two different
+// objects and neither can see the other: the host knows where the .fpart is and
+// where the recovery copy lives, and only the FileExchange knows which file
+// `INPUT()` is currently reading -- which for eight rounds nothing could ask,
+// because bindInputFile() was a setter with no getter.
 //
-// It is not in FileExchangeHost, or in PartFile, or in FileSystemStorage::write,
-// and that is deliberate: the storage layer has no notion of "the document that
-// is open", and the autosave and documentSave legitimately replace .fpart files
-// through it every few seconds. A guard there would have to know its caller,
-// which is the definition of the wrong place. Both export commands pass through
-// this file, so this file is the waist.
-bool ForgeShell::refuseTargetIsDocument(CommandContext& ctx, const std::string& path,
-                                        const ExchangeFormat* writing) {
-  const bool isTheOpenDocument =
-      documentHost_ != nullptr && pathNamesSameFile(path, documentHost_->documentPath());
-  if (!isTheOpenDocument && !fileHoldsForgeDocument(path)) return false;
-  if (writing != nullptr) {
-    refuseExchange(ctx, ExchangeRefusal::TargetIsDocument, *writing, path);
-  } else {
-    refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsDocument, path, std::string());
+// FileExchangeHost::inputFile_ and KernelScene::inputFile_ are ONE FACT KEPT IN
+// TWO PLACES (bindInputFile sets both, together), so this one getter reaches the
+// scene's copy as well and there is no third accessor to plumb.
+std::vector<std::string> ForgeShell::documentBindings() const {
+  std::vector<std::string> out;
+  if (documentHost_ != nullptr) out = documentHost_->documentBoundFiles();
+  if (fileExchange_ != nullptr) {
+    std::string bound = fileExchange_->inputFile();
+    if (!bound.empty()) out.push_back(std::move(bound));
   }
-  return true;
+  out.erase(std::remove_if(out.begin(), out.end(),
+                           [](const std::string& p) { return p.empty(); }),
+            out.end());
+  return out;
 }
 
-void ForgeShell::runExport(CommandContext& ctx, ExchangeFormat format) {
+// ── ★★ THE ONE PLACE A CALLER-NAMED WRITE TARGET IS PRODUCED ───────────────
+// See the declaration in ForgeShell.hpp for why this RETURNS THE PATH instead of
+// answering a question about one: a call is what the next handler forgets, and
+// `runSave` forgetting T-123's call is this round's item (C).
+//
+// It is not in FileExchangeHost, or in PartFile, or in FileSystemStorage::write,
+// and that is still deliberate: the storage layer has no notion of "the document
+// that is open", and the autosave and documentSave legitimately replace .fpart
+// files through it every few seconds. A guard there would have to know its
+// caller. Every command that writes a caller-named file dispatches through this
+// file, so this file is the waist.
+std::optional<std::string> ForgeShell::writeTarget(CommandContext& ctx, const std::string& id,
+                                                   const ExchangeFormat* writing) {
+  const std::string path = ctx.params().text("path").value_or(std::string());
+
+  // ── THE DECLARATION IS LOAD-BEARING ─────────────────────────────────────
+  // A command that has not declared what it does to a caller-named file may not
+  // produce one. FAILS CLOSED: delete `writes` from a descriptor and that
+  // command stops writing -- loudly, in a gate -- instead of quietly losing its
+  // guard, which is what every previous round of this family did.
+  const CommandDescriptor* command = registry_.find(id);
+  const WriteIntent intent = command != nullptr ? command->writes : WriteIntent::None;
+  if (intent == WriteIntent::None) {
+    const std::string why =
+        "Forge did not write that file: this command has not said what it writes.";
+    documentError_ = why;
+    ++documentErrorSeq_;
+    ctx.fail(why);
+    return std::nullopt;
+  }
+
+  // An empty path is NOT this function's refusal. Each handler has its own
+  // sentence for it -- "Save As needs a name for the file", NoPath for an
+  // exchange -- and they say different, correct things. Handing the empty string
+  // back keeps those sentences where they are.
+  if (path.empty()) return path;
+
+  const std::string ownDocument =
+      documentHost_ != nullptr ? documentHost_->documentPath() : std::string();
+
+  // (1) SAVE MEANS SAVE. Replacing the file you chose is the whole of what the
+  //     command is, and no question is owed for it. First, so that nothing below
+  //     can turn a plain Ctrl+S into an interrogation.
+  if (intent == WriteIntent::DocumentSave && pathNamesSameFile(path, ownDocument)) return path;
+
+  // (2) A FILE THE OPEN DOCUMENT READS. T-127. Refused for EVERY intent and no
+  //     consent lifts it: a user cannot meaningfully agree to the part they are
+  //     saving being rebuilt from its own output, and the next compile would
+  //     read whatever this write left behind.
+  for (const std::string& bound : documentBindings()) {
+    if (!pathNamesSameFile(path, bound)) continue;
+    if (writing != nullptr) {
+      refuseExchange(ctx, ExchangeRefusal::TargetIsBound, *writing, path);
+    } else if (intent == WriteIntent::Copy) {
+      refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsBound, path, std::string());
+    } else {
+      documentError_ = "This part is built from the file at \"" + path +
+                       "\", so saving the part over it would change the part you are "
+                       "saving. Pick another name.";
+      ++documentErrorSeq_;
+      ctx.fail(documentError_);
+    }
+    return std::nullopt;
+  }
+
+  // (3) A COPY MAY NOT REPLACE THE OPEN DOCUMENT. T-123's identity clause,
+  //     unchanged -- asked of documentPath(), so it holds even for a part whose
+  //     file was deleted underneath it.
+  if (pathNamesSameFile(path, ownDocument)) {
+    if (writing != nullptr) {
+      refuseExchange(ctx, ExchangeRefusal::TargetIsDocument, *writing, path);
+    } else {
+      refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsDocument, path, std::string());
+    }
+    return std::nullopt;
+  }
+
+  // (4) SOMEBODY ELSE'S PART IS SITTING THERE. Asked of the BYTES, never the
+  //     extension -- a part a user renamed `bracket.step` is still a part, and
+  //     nothing but Forge can open it.
+  //
+  //     A COPY may never replace one: T-123's content clause, unchanged, and not
+  //     consentable, because a copy is by definition a second file.
+  //
+  //     A DOCUMENT SAVE may, and ONLY with a consent naming this same file --
+  //     which is T-128 and T-124 at once. "Save As over an old part" is a real
+  //     thing a person does, so it must remain possible through a surface that
+  //     ASKS; it must be impossible for a macro, a plan step or an Archie tool
+  //     call, which is what `path` in a CommandParams is and where no human is
+  //     present to answer. MEASURED at 646d761f: the three exports refused a
+  //     path and left it byte-identical while file.save_as on that IDENTICAL
+  //     path replaced it, 2 NOTE / 5 FEATURE / 718 B -> 0 / 5 / 586 B, dispatch
+  //     ok, errors +0, and applyPlan did it again through the shipping panel.
+  if (fileHoldsForgeDocument(path)) {
+    if (intent == WriteIntent::DocumentSave && pathNamesSameFile(path, consentedPath_)) {
+      return path;
+    }
+    if (writing != nullptr) {
+      refuseExchange(ctx, ExchangeRefusal::TargetIsDocument, *writing, path);
+    } else if (intent == WriteIntent::Copy) {
+      refuseMachineProgram(ctx, MachineProgramRefusal::TargetIsDocument, path, std::string());
+    } else {
+      documentError_ = "There is already a Forge part at \"" + path +
+                       "\", and it is not the part you have open. Choose a name that is "
+                       "free, or open that part and save it.";
+      ++documentErrorSeq_;
+      ctx.fail(documentError_);
+    }
+    return std::nullopt;
+  }
+
+  // (5) OCCUPIED BY SOMETHING FORGE HAS NO OPINION ABOUT -- and this is the ONE
+  //     branch that is a STATED LIMIT rather than a rule.
+  //
+  //     Through a SURFACE, a person has already been asked: ForgeFrame raises its
+  //     Replace question before this command is ever dispatched, and a native
+  //     Save panel showed AppKit's Replace sheet. Through a CALLER -- a macro, a
+  //     plan step, `--open` -- nobody was asked and nobody is there to ask, and
+  //     this is still allowed. Re-exporting over yesterday's copy is ordinary
+  //     intent and a script that names a path is its author naming it; refusing
+  //     here would break "export over my last export" for every caller in the
+  //     product and is the bigger hammer, not the better question.
+  //
+  //     It is written down rather than left to be discovered, and the gate pins
+  //     BOTH halves: the box asks, the caller writes.
+  return path;
+}
+
+void ForgeShell::runExport(CommandContext& ctx, const std::string& id,
+                           ExchangeFormat format) {
   documentError_.clear();
   lastExchange_ = ExchangeReport{};
-  const std::string path = ctx.params().text("path").value_or(std::string());
+  // ★ THE PATH COMES FROM THE ONE PRODUCER. T-123 asked its question here as the
+  //   LAST line before the bytes; it is asked at the FIRST line now, where the
+  //   path is produced, and nothing between the two recomputes a target -- so
+  //   there is still no gap, and there is no longer a call to omit.
+  const std::optional<std::string> target = writeTarget(ctx, id, &format);
+  if (!target) return;
+  const std::string path = *target;
   if (fileExchange_ == nullptr) {
     refuseExchange(ctx, ExchangeRefusal::NoExchange, format, path);
     return;
@@ -999,10 +1207,6 @@ void ForgeShell::runExport(CommandContext& ctx, ExchangeFormat format) {
     refuseExchange(ctx, ExchangeRefusal::NoDocument, format, path);
     return;
   }
-
-  // ★ LAST, so nothing can slip between the question and the bytes -- and so
-  //   every refusal that was already here keeps the order it had.
-  if (refuseTargetIsDocument(ctx, path, &format)) return;
 
   ExchangeReport report;
   const bool wrote = fileExchange_->exportFile(path, format, report);
@@ -1046,7 +1250,10 @@ void ForgeShell::refuseMachineProgram(CommandContext& ctx, MachineProgramRefusal
 void ForgeShell::runExportMachineProgram(CommandContext& ctx) {
   documentError_.clear();
   lastMachineProgram_ = MachineProgramReport{};
-  const std::string path = ctx.params().text("path").value_or(std::string());
+  // ★ THE PATH COMES FROM THE ONE PRODUCER, exactly as the two above.
+  const std::optional<std::string> target = writeTarget(ctx, "file.export_gcode", nullptr);
+  if (!target) return;
+  const std::string path = *target;
   if (machineProgramSource_ == nullptr) {
     refuseMachineProgram(ctx, MachineProgramRefusal::NoSource, path, std::string());
     return;
@@ -1081,14 +1288,6 @@ void ForgeShell::runExportMachineProgram(CommandContext& ctx) {
       return;
     }
   }
-
-  // ★ THE SAME RULE AS runExport, and this command needed it most: it had no
-  //   check on its target of ANY kind -- no format check, no exists() check --
-  //   and the write below is atomic, so there is not even a partial-write window
-  //   in which anything could be salvaged. Asked AFTER the program is in hand so
-  //   a target refusal can never be mistaken for NoProgram, and BEFORE the write
-  //   so no temporary file is created beside the user's part.
-  if (refuseTargetIsDocument(ctx, path, nullptr)) return;
 
   // ATOMIC, through the storage the autosave already uses: it writes a temporary
   // beside the target and renames, so a Forge that dies mid-write has not
@@ -1158,6 +1357,13 @@ void ForgeShell::recordDispatch(const std::string& id, const CommandDescriptor* 
 DispatchResult ForgeShell::run(const std::string& id, const CommandParams& params) {
   const std::size_t errorSeqBefore = documentErrorSeq_;
   DispatchResult result = registry_.dispatch(id, selection_, params);
+  // ★ THE CONSENT IS SPENT HERE, ON EVERY DISPATCH, asked for or not -- T-128.
+  //   A consent that survived the gesture it was given in would be a standing
+  //   "yes" a later command could collect: the user answers Replace on one file
+  //   and the next macro step writes over a different one. Cleared AFTER the
+  //   dispatch so the command that was asked about can still read it, and
+  //   unconditionally so no path can bank it.
+  consentedPath_.clear();
   if (result.ok()) {
     journal_.push_back(id);
     // ── A COMMAND CHANGES THE PICTURE ───────────────────────────────────────
@@ -1195,6 +1401,10 @@ InvokeOutcome ForgeShell::invoke(const std::string& id, const CommandParams& ove
   const CommandParams params = applyDefaults(*cmd, overrides);
   outcome.promptFor = missingRequired(*cmd, params);
   if (!outcome.promptFor.empty()) {
+    // ★ AND SPENT ON THIS EXIT TOO. This branch returns WITHOUT calling run(),
+    //   so a consent minted for a gesture that then turned out to be missing a
+    //   parameter would otherwise still be sitting there for the next one.
+    consentedPath_.clear();
     outcome.dispatch =
         DispatchResult{DispatchStatus::MissingRequiredParameter, outcome.promptFor.front()};
     // This path returns WITHOUT calling run(), so it is the one dispatch outcome

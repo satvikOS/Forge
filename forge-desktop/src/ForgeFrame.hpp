@@ -388,6 +388,11 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   std::size_t documentRedoDepth() const override;
   bool documentDirty() const override;
   std::string documentPath() const override;
+  // ── ★ EVERY FILE THIS DOCUMENT READS OR IS (T-127) ──────────────────────
+  // The application holds FOUR bindings and, for eight rounds, the guard could
+  // reach one. This is the list; see the definition for which is which and why
+  // the exchange's own input file is NOT in it.
+  std::vector<std::string> documentBoundFiles() const override;
 
   // ── forge::ui::MachineProgramSource ─────────────────────────────────────
   // The egress for the Manufacturing workspace. Both read camPlan_, which
@@ -509,6 +514,29 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   void answerQuitSave();
   void answerQuitDiscard();
   void answerQuitCancel();
+
+  // ── ★★ THE OVERWRITE QUESTION THE TYPED ROUTE NEVER HAD (T-128 / ALSO-1) ─
+  // MEASURED at 646d761f: a hand-authored 136-byte AP242 ("DO NOT REGENERATE")
+  // sat at a path; one file.export_step through the typed box replaced it with
+  // 53903 bytes of Forge's own STEP with fileDialogsShown()==0, no sheet, no
+  // prompt, warnings +0 and errors +0. The NATIVE panel gets AppKit's Replace
+  // sheet on that same path. Two routes, one gesture, and only one of them ever
+  // asked -- which is how the eighth and ninth members of this family arrived.
+  //
+  // It is raised BEFORE anything dispatches, from submitPrompt(), so a user's
+  // answer is a question put to a person rather than a refusal put in a log. A
+  // "Replace the File" answer mints the shell's one-shot consent and re-invokes;
+  // that consent is what lets Save As legitimately replace an old part, and it
+  // is spent by the next dispatch whether or not that dispatch asked for it.
+  bool replacePromptOpen() const noexcept { return replacePrompt_; }
+  const std::string& replacePromptPath() const noexcept { return replacePromptPath_; }
+  const std::string& replacePromptCommand() const noexcept { return replacePromptCommand_; }
+  std::size_t replacePromptsRaised() const noexcept { return replacePromptsRaised_; }
+  // The two answers. Deferred and applied after the dock walk exactly as the
+  // quit answers are, and for the same reason: Replace dispatches a command that
+  // rebuilds the document and the feature tree the walk was indexing.
+  void answerReplaceYes();
+  void answerReplaceCancel();
 
   // ── AUTOSAVE: forge::ui::RecoveryService, wired ─────────────────────────
   // ui/src/DocumentStore.cpp has held a complete, gated autosave-and-crash-
@@ -1106,6 +1134,9 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // bytes of STEP. The swap is NOT folded into this function because file.save
   // must keep writing back to the literal path the document came from.
   std::string pathSeedFor(const std::string& commandId) const;
+  // ★ T-128: what the seed producer needs to know so a box cannot open on a file
+  //   the shell would then refuse -- or, worse, would allow.
+  forge::desktop::SeedContext seedContext() const;
 
   // Open one remembered document, through the SAME `file.open` the menu, the
   // keyboard, the palette and `--open` dispatch -- registry, undo contract,
@@ -1854,6 +1885,24 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // The one place quit_ is allowed to become true. Ends the recovery session on
   // the way out, which is what turns "a marker is still there" into evidence.
   void grantQuit();
+  // ── ★ THE REPLACE QUESTION ──────────────────────────────────────────────
+  // One slot: a user cannot press two of two buttons in one frame, and the
+  // gesture that raised it is held whole -- the command AND the values that were
+  // in the box -- so answering Replace re-runs the same gesture rather than a
+  // reconstruction of it.
+  // True when a SAVE-mode file command is about to write an OCCUPIED path that is
+  // not the open document's own file -- the question the typed route never had.
+  bool wantsReplaceQuestion(const std::string& id, const std::string& path) const;
+  void drawReplacePrompt();
+  enum class ReplaceAnswer { None, Replace, Keep };
+  ReplaceAnswer pendingReplaceAnswer_ = ReplaceAnswer::None;
+  void applyPendingReplaceAnswer();
+  bool replacePrompt_ = false;
+  std::string replacePromptPath_;
+  std::string replacePromptCommand_;
+  std::string replacePromptWhat_;  // "another Forge part" / "a file Forge did not write"
+  std::size_t replacePromptsRaised_ = 0;
+
   bool quitPrompt_ = false;
   std::size_t quitPromptsRaised_ = 0;
   // How many times the question WITHDREW itself because the unsaved changes it

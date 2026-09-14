@@ -123,6 +123,33 @@ struct FileDialogPolicy {
 // palette, the ribbon -- because they all reach the one function that reads it.
 bool fileDialogPolicyFor(const std::string& commandId, FileDialogPolicy& out);
 
+// ── ★ WHAT THE APPLICATION KNOWS ABOUT THE DOCUMENT (T-127 / T-128) ─────────
+// Handed to the two seed producers below so that a box can never OPEN on a file
+// it would then be refused for. The refusal is the shell's job and it holds;
+// this is the other half, and skipping it is what the eighth and ninth members
+// of this family were:
+//
+//   T-128  a document opened from bracket.txt put `bracket.fpart` in the Save As
+//          box by swapping the suffix. A DIFFERENT PART was at that name, and one
+//          Run with nothing typed replaced it -- 2 NOTE / 5 FEATURE / 738 B ->
+//          1 / 5 / 635 B, warnings +1, errors +0.
+//   T-127  a document imported from bracket.step and saved as bracket.fpart put
+//          `bracket.step` in the export box by the same suffix swap. That file is
+//          what the part is BUILT FROM, and one Run took it from 53903 bytes /
+//          1991 entity lines to 49327 / 1751.
+//
+// NO DEFAULT VALUE, deliberately. A defaulted empty context would give every
+// existing caller the unsafe answer silently, which is the exact shape of the
+// eight defects this is closing.
+struct SeedContext {
+  // The open document's own file; "" for an untitled part. A Save box MAY open
+  // on this one -- replacing the file you chose is what Save means.
+  std::string ownDocument;
+  // Every file the open document READS -- forge::ui::ForgeShell::documentBindings().
+  // No box may open on one of these.
+  std::vector<std::string> boundFiles;
+};
+
 // The policy filled in with the app's own state: where the panel should open and
 // what it should be called. `seed` is a path the application already knows (the
 // open document, or the most recent one, or a bare document name); "" is legal
@@ -132,7 +159,7 @@ bool fileDialogPolicyFor(const std::string& commandId, FileDialogPolicy& out);
 // "Save a Copy as STEP" on `bracket.fpart` starts on `bracket.step` rather than
 // offering to write STEP bytes into a Forge document.
 bool fileDialogRequestFor(const std::string& commandId, const std::string& seed,
-                          FileDialogRequest& out);
+                          const SeedContext& context, FileDialogRequest& out);
 
 // ── ★ THE ONE RULE ABOUT WHAT A SAVE STARTS ON ──────────────────────────────
 // `seed` (which file this command is about) with the NAME this command's own
@@ -150,7 +177,45 @@ bool fileDialogRequestFor(const std::string& commandId, const std::string& seed,
 // part with 53903 bytes of ISO-10303-21 -- no panel, no sheet, no confirmation,
 // errors +0. forge_desktop_write_target_gate measures both halves of that on raw
 // bytes now, one population per route.
-std::string fileDialogSuggestedPath(const std::string& commandId, const std::string& seed);
+// ── ★ AND IT MAY NOT HAND BACK A NAME SOMETHING IS SITTING ON ──────────────
+// Four rules, in order, and each one is a measurement:
+//
+//   (a) the candidate IS context.ownDocument -> STAND. Save As on a .fpart keeps
+//       the identity, which is what the native panel has always offered.
+//   (b) the candidate names a context.boundFiles entry -> the next FREE name.
+//       T-127: the box opened on the file the part is built from.
+//   (c) file.save_as and the candidate EXISTS -> the next FREE name. T-128:
+//       "Save As" means "give it a name it does not have", so a name invented
+//       for it must be one nothing is on.
+//   (d) an EXPORT onto a merely-occupied path -> STAND. "Export over my last
+//       export" is ordinary intent and forge_desktop_write_target_gate W4(b)
+//       pins it; a seed that swerved on occupancy would hand the user
+//       bracket-2.step, bracket-3.step, for ever. The Run-time Replace question
+//       covers that case instead.
+//
+// The discriminator between (c) and (d) is what the COMMAND MEANS, not a fudge.
+std::string fileDialogSuggestedPath(const std::string& commandId, const std::string& seed,
+                                    const SeedContext& context);
+
+// ── the free-name rule, in ONE place ────────────────────────────────────────
+// Moved here from ForgeFrame's anonymous namespace, unchanged, because it now
+// has THREE callers in two files and its contract -- "may ONLY return a path
+// std::filesystem::exists() says is absent, and never `forbidden`" -- is the
+// whole of why a seed built through it cannot name a file anybody could lose.
+//
+// `swerved` says WHY the first name in the series was not the one returned, and
+// the two reasons are different sentences to a user: a file really is in the
+// way, or the caller forbade a name nothing is on. `firstChoice` is the name it
+// wanted, for that sentence.
+enum class Swerve {
+  None,      // the first name in the series was free and was taken
+  Occupied,  // a file really is sitting on it
+  Refused,   // the caller forbade it -- nothing on disk
+};
+
+std::string firstFreeFallbackPath(const std::string& directory, const std::string& stem,
+                                  const std::string& forbidden, const std::string& extension,
+                                  Swerve& swerved, std::string& firstChoice);
 
 // The file NAME a Save panel starts on -- the leaf of `suggestedPath`. Written
 // here rather than in the Cocoa file so that the rule about what a file is

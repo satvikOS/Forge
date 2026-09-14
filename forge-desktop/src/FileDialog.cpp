@@ -1,10 +1,14 @@
 #include "FileDialog.hpp"
 
+#include <cstddef>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "PartFile.hpp"
 #include "forge/ui/FileExchange.hpp"
+#include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MachineProgram.hpp"
 
 namespace forge::desktop {
@@ -156,7 +160,7 @@ bool fileDialogPolicyFor(const std::string& commandId, FileDialogPolicy& out) {
 }
 
 bool fileDialogRequestFor(const std::string& commandId, const std::string& seed,
-                          FileDialogRequest& out) {
+                          const SeedContext& context, FileDialogRequest& out) {
   FileDialogPolicy policy;
   if (!fileDialogPolicyFor(commandId, policy)) return false;
   out = FileDialogRequest{};
@@ -179,11 +183,58 @@ bool fileDialogRequestFor(const std::string& commandId, const std::string& seed,
   // here, inline, and ForgeFrame::openPrompt() -- the fallback UI for a build
   // with no native panel -- seeded its box from the raw path instead. Two UIs,
   // one question, two answers: T-123.
-  out.suggestedPath = fileDialogSuggestedPath(commandId, seed);
+  out.suggestedPath = fileDialogSuggestedPath(commandId, seed, context);
   return true;
 }
 
-std::string fileDialogSuggestedPath(const std::string& commandId, const std::string& seed) {
+// ── ★ MOVED HERE FROM ForgeFrame's ANONYMOUS NAMESPACE, UNCHANGED ──────────
+// Its contract is the load-bearing part: it may ONLY return a path that
+// std::filesystem::exists() says is absent and that is not `forbidden`. It had
+// two callers in one file; the seed producer below is the third, and it is the
+// one that needed it -- T-123's suffix swap INVENTED a name and skipped this
+// rule entirely, which is T-128.
+std::string firstFreeFallbackPath(const std::string& directory, const std::string& stem,
+                                  const std::string& forbidden, const std::string& extension,
+                                  Swerve& swerved, std::string& firstChoice) {
+  std::string base = stem.empty() ? std::string("untitled") : stem;
+  // A name this function itself produced goes back into the SERIES it came from
+  // rather than growing a second tail: "untitled-4" asks for "untitled-5", not
+  // "untitled-4-2".
+  {
+    const std::size_t dash = base.find_last_of('-');
+    if (dash != std::string::npos && dash > 0 && dash + 1 < base.size() &&
+        base.find_first_not_of("0123456789", dash + 1) == std::string::npos) {
+      base.erase(dash);
+    }
+  }
+  swerved = Swerve::None;
+  firstChoice = directory + "/" + base + extension;
+  std::error_code ec;
+  bool skippedForRefusal = false;
+  bool skippedForFile = false;
+  for (int n = 1; n <= 1000; ++n) {
+    const std::string candidate = n == 1 ? firstChoice
+                                         : directory + "/" + base + "-" + std::to_string(n) +
+                                               extension;
+    if (!forbidden.empty() && candidate == forbidden) {
+      skippedForRefusal = true;
+      continue;
+    }
+    if (!std::filesystem::exists(candidate, ec)) {
+      // A file in the way outranks a refusal in the sentence the user reads:
+      // if both happened, something really is at a name in this series.
+      swerved = skippedForFile ? Swerve::Occupied
+                               : (skippedForRefusal ? Swerve::Refused : Swerve::None);
+      return candidate;
+    }
+    skippedForFile = true;
+  }
+  // A thousand untitled parts in one directory is not a state to guess at.
+  return std::string();
+}
+
+std::string fileDialogSuggestedPath(const std::string& commandId, const std::string& seed,
+                                    const SeedContext& context) {
   FileDialogPolicy policy;
   // A command with no policy row is not a file command; whatever the caller
   // seeded stands.
@@ -191,7 +242,45 @@ std::string fileDialogSuggestedPath(const std::string& commandId, const std::str
   // An OPEN box keeps the path as given: naming a file that DOES exist is the
   // entire point of Open.
   if (policy.mode != FileDialogMode::Save) return seed;
-  return withExtension(seed, policy.defaultExtension);
+  const std::string candidate = withExtension(seed, policy.defaultExtension);
+  if (candidate.empty()) return candidate;
+
+  // ── ★ (a) THE DOCUMENT'S OWN FILE STANDS ────────────────────────────────
+  // Save As on a .fpart is the identity, and Save writes the file you chose.
+  // This is the one occupied path a Save box is allowed to open on.
+  if (forge::ui::pathNamesSameFile(candidate, context.ownDocument)) return candidate;
+
+  // ── ★ (b) A FILE THE OPEN DOCUMENT READS -- T-127 ───────────────────────
+  bool namesABinding = false;
+  for (const std::string& bound : context.boundFiles) {
+    if (!forge::ui::pathNamesSameFile(candidate, bound)) continue;
+    namesABinding = true;
+    break;
+  }
+
+  // ── ★ (c) SAVE AS ONTO AN OCCUPIED NAME -- T-128 ────────────────────────
+  // Save As means "give it a name it does not have". An invented one that is
+  // occupied is a trap, whatever is sitting there.
+  const bool saveAsOntoOccupied =
+      commandId == "file.save_as" && forge::ui::pathIsOccupied(candidate);
+
+  // ── (d) an EXPORT onto a merely-occupied path STANDS. See the header.
+  if (!namesABinding && !saveAsOntoOccupied) return candidate;
+
+  const std::size_t slash = candidate.find_last_of('/');
+  const std::string dir = slash == std::string::npos ? std::string(".")
+                                                     : candidate.substr(0, slash);
+  std::string leaf = slash == std::string::npos ? candidate : candidate.substr(slash + 1);
+  const std::size_t dot = leaf.find_last_of('.');
+  const std::string stem = (dot != std::string::npos && dot > 0) ? leaf.substr(0, dot) : leaf;
+  Swerve swerved = Swerve::None;
+  std::string wanted;
+  const std::string free = firstFreeFallbackPath(dir, stem, context.ownDocument,
+                                                 policy.defaultExtension, swerved, wanted);
+  // A thousand collisions in one folder: hand back the candidate rather than an
+  // empty box. The shell still refuses it, and an empty Save As box is a dead
+  // end the user cannot act on.
+  return free.empty() ? candidate : free;
 }
 
 const std::vector<std::string>& fileDialogCommandIds() {

@@ -1113,11 +1113,16 @@ foreach(_st 1 2)
     set_tests_properties(forge_desktop_save_target_mutation_${_st}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
-# ── the WRITE-TARGET gate (T-123) ────────────────────────────────────────────
-# Five populations, one process each: the typed box on every copy command, the
-# same commands with the path SUPPLIED (a macro, an Archie tool call, --open),
-# a part renamed bracket.step, the allow branch that stops "refuse everything"
-# from passing, and the native panel as the negative control.
+# ── the WRITE-TARGET gate (T-123, extended by T-128) ─────────────────────────
+# NINE populations, one process each. The first five are T-123's: the typed box
+# on every copy command, the same commands with the path SUPPLIED (a macro, an
+# Archie tool call, --open), a part renamed bracket.step, the allow branch that
+# stops "refuse everything" from passing, and the native panel as the negative
+# control. The four T-128 added are the ones that make the question OCCUPANCY
+# rather than difference-from-the-original: two parts in one folder and what the
+# Save As box takes (W6), the file the open document READS (W7), the save waist
+# and the CoPilot route that reaches it (W8), and a REFUSED export leaving the
+# target's bytes alone (W9).
 add_test(NAME forge_desktop_write_target_gate COMMAND forge_desktop_write_target_gate)
 #   1  the scripted panel answers the user's own document instead of the seed
 #   2  the typed box is never Run, so nothing is written at all
@@ -1126,7 +1131,16 @@ add_test(NAME forge_desktop_write_target_gate COMMAND forge_desktop_write_target
 #   5  the re-export goes to a fresh name, so nothing is replaced
 #   6  the Manufacturing panels are never drawn, so the walk finds three
 #      commands instead of four
-foreach(_wt 1 2 3 4 5 6)
+#   7  W6's two parts are made the SAME SHAPE, so "replaced" and "untouched"
+#      are the same bytes -- this gate's own note-on-method, injected
+#   8  W6 never presses Run, so "the part WAS saved at the name the box offered"
+#      goes red -- the check that tells a fix from a Save As that does nothing
+#   9  W6's Replace answer is recorded for a DIFFERENT path, so the consent can
+#      never match the file being written -- the consent is PATH-SCOPED
+#  10  W7 is handed an EMPTY binding list -- T-127's blindness restored
+#  11  W8's caller route is handed a consent -- the caller/human distinction
+#  12  W9 leaves the folder writable, so the export succeeds
+foreach(_wt 1 2 3 4 5 6 7 8 9 10 11 12)
     add_test(NAME forge_desktop_write_target_mutation_${_wt}
              COMMAND forge_desktop_write_target_gate --mutate ${_wt})
     set_tests_properties(forge_desktop_write_target_mutation_${_wt}

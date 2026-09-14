@@ -127,6 +127,9 @@ class GateDocumentHost final : public forge::ui::DocumentHost {
   std::size_t documentRedoDepth() const override { return stack_.redoDepth(); }
   bool documentDirty() const override { return true; }
   std::string documentPath() const override { return std::string(); }
+  // ★ T-127. This host binds nothing, and it has to SAY so rather than inherit a
+  //   default that would say it for every host that forgot.
+  std::vector<std::string> documentBoundFiles() const override { return {}; }
   std::size_t changed() const noexcept { return changed_; }
 
  private:

@@ -184,6 +184,7 @@ const char* toString(ExchangeRefusal refusal) noexcept {
     case ExchangeRefusal::NotPlaced:     return "not_placed";
     case ExchangeRefusal::Truncated:     return "truncated";
     case ExchangeRefusal::TargetIsDocument: return "target_is_document";
+    case ExchangeRefusal::TargetIsBound: return "target_is_bound";
   }
   return "none";
 }
@@ -257,6 +258,15 @@ std::string exchangeMessage(ExchangeRefusal refusal, ExchangeFormat format,
                      : "Saving a copy writes a second file, so Forge did not write over the "
                        "part you have open. Pick another name, or use Save to write the part "
                        "itself.";
+    // ── ★ T-127. The sentence has to say WHAT THE FILE IS, or a user reads it
+    //   as Forge being fussy about a STEP file it wrote itself. There is no
+    //   "use Save instead" here: Save writes the part, not this file.
+    case ExchangeRefusal::TargetIsBound:
+      return hasPath ? "This part is built from the file at " + quoted(path) +
+                           ", so saving a copy over it would change the part you are "
+                           "saving. Pick another name."
+                     : "This part is built from that file, so saving a copy over it would "
+                       "change the part you are saving. Pick another name.";
   }
   return "Nothing went wrong.";
 }

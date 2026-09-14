@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,28 @@
 #include "forge/ui/WorkspaceProfile.hpp"
 
 namespace forge::ui {
+
+// ── ★ THE TWO QUESTIONS A WRITE TARGET IS JUDGED BY (T-128) ─────────────────
+// Exposed rather than file-local because the SHELL judges a target and the FRAME
+// has to raise its Replace question about the SAME target BEFORE dispatching --
+// and a box that asks about a different thing from what the shell judges is two
+// opinions, which is how this family reached its ninth member.
+//
+// pathNamesSameFile: "/w/./bracket.fpart" and "/w/bracket.fpart" are one file and
+// two strings; so are a symlink and its target, a hard link and its twin, and --
+// on the case-insensitive volume this application ships on -- "Bracket.fpart" and
+// "bracket.fpart". Answers false when either side is absent or empty.
+//
+// pathIsOccupied: is anything already sitting there. This is the question T-123
+// did not ask; it asked whether the target was a Forge PART, so a user's
+// hand-authored STEP was not a part and was replaced in silence.
+// fileHoldsForgeDocument: are the first bytes the document magic. Asked of the
+// CONTENT and never of the name, because a part a user renamed `bracket.step` is
+// still a part nothing but Forge can open -- and because an extension rule is
+// the exact shape that let the seventh member of this family through.
+bool pathNamesSameFile(const std::string& a, const std::string& b);
+bool pathIsOccupied(const std::string& path);
+bool fileHoldsForgeDocument(const std::string& path);
 
 // Observable document state, mutated only by registered command handlers.
 struct DocumentStats {
@@ -144,6 +167,24 @@ class DocumentHost {
   virtual bool documentDirty() const = 0;
   // The path a bare Save writes to. "" means "never saved"; the host picks one.
   virtual std::string documentPath() const = 0;
+
+  // ── ★ EVERY FILE THE OPEN DOCUMENT READS OR IS (T-127) ──────────────────
+  // documentPath() answers ONE of several, and for eight rounds it was the only
+  // one anything could ask about. The application holds at least four: the
+  // document's own .fpart (above), the imported body the scene compiles with,
+  // the path the .fpart itself records, and the recovery copy. A guard that can
+  // reach one of four is a guard with three blind spots, and T-127 is the second
+  // of them being measured.
+  //
+  // Order and duplicates do not matter; "" entries are ignored. A path listed
+  // here may not be written over by ANY caller and no consent lifts it, so a
+  // host lists a file here when writing over it would change what the open
+  // document reads -- not merely when the file is interesting.
+  //
+  // PURE, like the rest of this interface. A defaulted empty list is the exact
+  // shape of the defect: a host that forgets a binding would compile, ship, and
+  // be invisible until a user's file was gone. Here it does not compile.
+  virtual std::vector<std::string> documentBoundFiles() const = 0;
 };
 
 struct KeyOutcome {
@@ -268,6 +309,33 @@ class ForgeShell {
   const std::string& lastDocumentError() const noexcept { return documentError_; }
   std::size_t documentErrorSeq() const noexcept { return documentErrorSeq_; }
 
+  // ── ★ A HUMAN SAID "REPLACE IT" (T-128) ─────────────────────────────────
+  // ONE SHOT, PATH-SCOPED, AND GESTURE-SCOPED. It is spent by the next dispatch
+  // whether or not that dispatch asked for it, so a consent can never outlive
+  // the gesture it was given in and cannot be banked for a later command.
+  //
+  // WHO MAY CALL IT, and this is the whole of what makes it consent rather than
+  // a flag: a surface that has just put the question in front of a person and
+  // read their answer. In this application that is exactly two places --
+  // ForgeFrame's own Replace question on the typed route, and a native Save
+  // panel that came back ACCEPTED on a path that already exists, which AppKit
+  // cannot produce without having shown its Replace sheet.
+  //
+  // A COMMAND PARAMETER IS NOT A MINTER. A macro, a plan step or an Archie tool
+  // call setting `path` is a caller naming a file, not a person being asked
+  // about one, and treating the two the same is how T-124 destroyed a part
+  // through the shipping CoPilot Apply button with errors +0.
+  //
+  // It lifts OCCUPANCY. It NEVER lifts a binding: see writeTarget().
+  void consentToReplace(const std::string& path) { consentedPath_ = path; }
+  const std::string& consentedReplacePath() const noexcept { return consentedPath_; }
+
+  // Every file the open document reads or is: the host's own list plus the
+  // input file the exchange holds. Public because the frame seeds its file
+  // boxes from it -- a box that OPENS on a path the guard will refuse is a trap
+  // even when the guard holds, which is half of what T-127 and T-128 were.
+  std::vector<std::string> documentBindings() const;
+
   // ── where the user's parts are ──────────────────────────────────────────
   // Written by the file.open and file.save HANDLERS, so every invoker feeds it
   // by construction: a menu click, Ctrl+O, the palette, `--open` on the command
@@ -376,7 +444,11 @@ class ForgeShell {
   // -- but the BEHAVIOUR is one code path, so "Import STEP" and "Import STL"
   // cannot come to disagree about what a missing file means.
   void runImport(CommandContext& ctx, ExchangeFormat format);
-  void runExport(CommandContext& ctx, ExchangeFormat format);
+  // `id` is the registry id this handler was registered under, passed in by the
+  // registration rather than derived from `format` here: a format->id table in
+  // this file would be a second opinion about which command is which, and the
+  // write-intent declaration writeTarget() reads lives on the descriptor.
+  void runExport(CommandContext& ctx, const std::string& id, ExchangeFormat format);
   // ONE save handler behind BOTH `file.save` and `file.save_as`. The two
   // commands differ in exactly one thing -- whether `path` is required -- and
   // that difference belongs in the two schemas, not in two bodies that can come
@@ -399,28 +471,40 @@ class ForgeShell {
   void refuseExchange(CommandContext& ctx, ExchangeRefusal refusal,
                       ExchangeFormat format, const std::string& path);
 
-  // ── ★ THE ONE PLACE AN EXPORT'S TARGET IS JUDGED (T-123) ────────────────
-  // Returns TRUE when the write must NOT happen, having already refused it
-  // through the right seam for the caller. Called as the last line before bytes
-  // in BOTH export handlers, which is what makes it route-blind: a path typed
-  // into the fallback box, chosen in a native panel, sent by a macro, by an
-  // Archie tool call or by --open all arrive here.
+  // ── ★★ THE ONE PLACE A CALLER-NAMED WRITE TARGET IS PRODUCED (T-128) ────
+  // Returns the path this command must write, or NULLOPT having ALREADY refused
+  // it through the right seam for the caller.
   //
-  // THE RULE IS ABOUT IDENTITY AND CONTENT, NEVER ABOUT THE EXTENSION.
-  // `Save a Copy` writes a SECOND file, and the one file it must never be is a
-  // Forge part -- the one that is open (asked of documentPath(), so it holds
-  // even for a part whose file was deleted underneath it) or any file whose
-  // first bytes are the document magic (so a part renamed `bracket.step` is
-  // still a part). MEASURED on the tree this was written against: the old
-  // extension check let `.fpart`, `.FPART`, `.zzz`, `.nc` and a path with no
-  // extension at all through, because formatFromPath() answers FALSE for a
-  // suffix it does not know and the refusal was written `if (recognised && !can
-  // write)`.
+  // WHY IT RETURNS THE PATH RATHER THAN ANSWERING A QUESTION ABOUT IT. T-123's
+  // predecessor was `bool refuseTargetIsDocument(...)`, a CALL placed "last
+  // before the bytes" in the two handlers that had been measured -- and the
+  // third handler, `runSave`, sat twenty lines above it in this same file and
+  // called nothing. That is T-124, and eight rounds of this family are eight
+  // versions of the same omission. A call is what the next handler forgets.
+  //
+  // This is not a call a handler makes; it is where the handler's path COMES
+  // FROM. `ctx.params().text("path")` is read HERE and nowhere else in the
+  // writing handlers, so a handler that writes has asked by construction: there
+  // is no order of operations to get right and no "last line" to preserve.
+  //
+  // AND THE INTENT IS READ FROM THE COMMAND, NOT PASSED IN. A command whose
+  // descriptor declares WriteIntent::None is REFUSED rather than waved through,
+  // so the declaration is load-bearing: delete one and that command stops
+  // writing, loudly, instead of quietly losing its guard.
+  //
+  // THE QUESTION IS OCCUPANCY AND BINDING, NEVER "IS IT THE ORIGINAL".
+  // T-123 asked identity (is this the open .fpart) and content (does it start
+  // with the document magic). T-128's own gate then asserted that a Save As box
+  // moving from bracket.txt to bracket.fpart was safe "because the box now names
+  // a file that is NOT the original" -- true, and irrelevant: not-the-original
+  // is not not-someone's-part, and one Run took a stranger's part from 2 NOTE /
+  // 5 FEATURE / 738 B to 1 / 5 / 635 B with errors +0.
   //
   // `writing` is the exchange format being written, or NULLPTR for the machine
-  // program -- which is not an ExchangeFormat and must not become one.
-  bool refuseTargetIsDocument(CommandContext& ctx, const std::string& path,
-                              const ExchangeFormat* writing);
+  // program and for the document saves -- neither is an ExchangeFormat and
+  // neither must become one.
+  std::optional<std::string> writeTarget(CommandContext& ctx, const std::string& id,
+                                         const ExchangeFormat* writing);
 
   // file.export_gcode. Separate from runExport for the reason MachineProgram.hpp
   // gives: a machine program is not the document's geometry and does not travel
@@ -446,6 +530,9 @@ class ForgeShell {
   ExchangeReport lastExchange_;
   MachineProgramSource* machineProgramSource_ = nullptr;
   MachineProgramReport lastMachineProgram_;
+  // ★ See consentToReplace(). SPENT BY run() ON EVERY DISPATCH, asked for or
+  //   not, so it cannot outlive the gesture that minted it.
+  std::string consentedPath_;
   std::string documentError_;
   // Bumped every time a handler RAISES a document error. Comparing the counter
   // across a dispatch is what tells the log "this command refused" apart from

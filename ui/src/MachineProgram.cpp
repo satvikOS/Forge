@@ -19,6 +19,7 @@ const char* toString(MachineProgramRefusal refusal) noexcept {
     case MachineProgramRefusal::NoProgram:   return "no_program";
     case MachineProgramRefusal::WriteFailed: return "write_failed";
     case MachineProgramRefusal::TargetIsDocument: return "target_is_document";
+    case MachineProgramRefusal::TargetIsBound: return "target_is_bound";
   }
   return "none";
 }
@@ -66,6 +67,12 @@ std::string machineProgramMessage(MachineProgramRefusal refusal, const std::stri
                        "it over the part at " + quoted(path) + ". Pick another name."
                      : "The machine program goes in a file of its own, so Forge did not write "
                        "it over the part you have open. Pick another name.";
+    case MachineProgramRefusal::TargetIsBound:
+      return hasPath ? "This part is built from the file at " + quoted(path) +
+                           ", so a machine program written over it would change the part "
+                           "it was posted from. Pick another name."
+                     : "This part is built from that file, so a machine program written over "
+                       "it would change the part it was posted from. Pick another name.";
   }
   return "Forge could not save the machine program.";
 }

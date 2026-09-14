@@ -249,7 +249,13 @@ set -uo pipefail
 #    COPY command lands on when the TYPED BOX is what asks, which is the route
 #    both T-122 gates stop one step short of. The same awk now prints 179, READ
 #    OFF THIS TREE with that command rather than added up by hand.
-EXPECTED_MUTATIONS=179
+#  * 2026-09-13, T-128: forge_desktop_write_target_gate gained SIX more (7-12)
+#    with the four populations that make its question OCCUPANCY rather than
+#    difference-from-the-original -- two parts in one folder, the file the open
+#    document READS, the save waist and the CoPilot route, and a REFUSED export
+#    leaving the target alone. The same awk now prints 185, READ OFF THIS TREE:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+EXPECTED_MUTATIONS=185
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

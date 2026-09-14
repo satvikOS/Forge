@@ -1057,62 +1057,15 @@ std::vector<std::string> inputFileCandidates(const std::string& recorded,
 // commit's own standard is that a sentence a user reads must be true, and a
 // warning that cries collision where there is none teaches them to ignore the
 // one that does not.
-enum class Swerve {
-    None,       // the first name in the series was free and was taken
-    Occupied,   // a file really is sitting on it
-    Refused,    // the caller forbade it -- refusedSavePath_, nothing on disk
-};
-
-// ── AND IT TESTS THE SUFFIX THE CALLER WILL ACTUALLY WRITE ─────────────────
-// `extension` was `kPartFileExtension`, hard-coded, while this function had one
-// caller and that caller meant .fpart. It has four more now (see pathSeedFor):
-// the Save panels for file.export_step/_brep/_stl/_gcode are seeded through
-// here too, and fileDialogRequestFor() swaps the command's own suffix onto
-// whatever comes back. A free-name test asking about `.fpart` would call
-// "bracket" free while bracket.step is sitting on it, and hand the panel a
-// one-click answer that replaces an export the user still wanted.
-std::string firstFreeFallbackPath(const std::string& directory, const std::string& stem,
-                                  const std::string& forbidden, const std::string& extension,
-                                  Swerve& swerved, std::string& firstChoice) {
-  std::string base = stem.empty() ? std::string("untitled") : stem;
-  // A name this function itself produced goes back into the SERIES it came from
-  // rather than growing a second tail: "untitled-4" asks for "untitled-5", not
-  // "untitled-4-2". A document can only reach here with a name ending in -<n>
-  // by having been given one here or by a recovery carrying one, so nothing a
-  // user typed is trimmed -- Save As and an opened file both arrive with a path
-  // and never reach this function at all.
-  {
-    const std::size_t dash = base.find_last_of('-');
-    if (dash != std::string::npos && dash > 0 && dash + 1 < base.size() &&
-        base.find_first_not_of("0123456789", dash + 1) == std::string::npos) {
-      base.erase(dash);
-    }
-  }
-  swerved = Swerve::None;
-  firstChoice = directory + "/" + base + extension;
-  std::error_code ec;
-  bool skippedForRefusal = false;
-  bool skippedForFile = false;
-  for (int n = 1; n <= 1000; ++n) {
-    const std::string candidate = n == 1 ? firstChoice
-                                         : directory + "/" + base + "-" + std::to_string(n) +
-                                               extension;
-    if (!forbidden.empty() && candidate == forbidden) {
-      skippedForRefusal = true;
-      continue;
-    }
-    if (!std::filesystem::exists(candidate, ec)) {
-      // A file in the way outranks a refusal in the sentence the user reads:
-      // if both happened, something really is at a name in this series.
-      swerved = skippedForFile ? Swerve::Occupied
-                               : (skippedForRefusal ? Swerve::Refused : Swerve::None);
-      return candidate;
-    }
-    skippedForFile = true;
-  }
-  // A thousand untitled parts in one directory is not a state to guess at.
-  return std::string();
-}
+// ── ★ THE FREE-NAME RULE MOVED TO FileDialog.cpp (T-128) ──────────────────
+// `Swerve` and `firstFreeFallbackPath()` were here, in this anonymous namespace,
+// with two callers in this file. They now have a third in another file -- the
+// SEED PRODUCER -- because T-123's suffix swap invented a Save As name and
+// skipped this rule, so a document opened from bracket.txt offered bracket.fpart
+// with a DIFFERENT PART sitting on it. Moved rather than copied: two free-name
+// rules would eventually disagree about what "free" means.
+using forge::desktop::Swerve;
+using forge::desktop::firstFreeFallbackPath;
 
 }  // namespace
 
@@ -2106,6 +2059,46 @@ std::size_t ForgeFrame::documentRedoDepth() const { return partUndo_.redoDepth()
 bool ForgeFrame::documentDirty() const { return documentDirty_; }
 std::string ForgeFrame::documentPath() const { return documentPath_; }
 
+// ── ★ EVERY FILE THIS DOCUMENT READS OR IS ─────────────────────────────────
+// MEASURED at 646d761f: a document imported from bracket.step and saved as
+// bracket.fpart had FOUR file bindings and the write guard could see ONE of
+// them. The export box opened on bracket.step -- which is KernelScene's
+// inputFile() -- and one Run took it from 53903 bytes / 1991 entity lines to
+// 49327 / 1751 with errors +0, because the guard asked whether the target was
+// the open .fpart (it was not) and whether its first bytes were the document
+// magic (they were "ISO-10303-21;").
+//
+//   scene_.inputFile()          the body `INPUT()` compiles with -- THE T-127
+//                               FILE. It is the same fact FileExchangeHost
+//                               holds, set by the same call, and the shell
+//                               reaches that copy through the new
+//                               FileExchange::inputFile(). It is listed HERE as
+//                               well because the scene outlives any particular
+//                               exchange and a build with no exchange installed
+//                               (a headless gate, a future port) still reads it.
+//   recovery_->autosavePath()   the crash copy of this session. Writing over it
+//   recovery_->markerPath()     loses the only record of unsaved work, and the
+//   autosaveDrawingPath(...)    user did not name any of the three.
+//
+// documentPath_ is NOT here: replacing the file you chose is what Save means,
+// and ForgeShell::writeTarget() answers that case first and by itself. Listing
+// it would make Save refuse.
+std::vector<std::string> ForgeFrame::documentBoundFiles() const {
+  std::vector<std::string> out;
+  const std::string input = scene_.inputFile();
+  if (!input.empty()) out.push_back(input);
+  if (recovery_) {
+    const std::string autosave = recovery_->autosavePath();
+    if (!autosave.empty()) {
+      out.push_back(autosave);
+      out.push_back(autosaveDrawingPath(autosave));
+    }
+    const std::string marker = recovery_->markerPath();
+    if (!marker.empty()) out.push_back(marker);
+  }
+  return out;
+}
+
 void ForgeFrame::note(const std::string& line) {
   log_.push_back(line);
   if (log_.size() > 400) log_.erase(log_.begin(), log_.begin() + 100);
@@ -2467,8 +2460,12 @@ void ForgeFrame::openPrompt(const std::string& id, const std::vector<std::string
     //   write time against the process's working directory, "/" for a Finder
     //   launch. An empty seed stays empty through the producer, so a box that is
     //   blank today is blank still.
+    // ★ AND THROUGH THE CONTEXT -- T-127 / T-128. The producer answers what this
+    //   command's output is CALLED; the context is what stops that name being a
+    //   file somebody else's work is sitting on, or the file this part reads.
     const std::string pathSeed =
-        (name == "path") ? fileDialogSuggestedPath(id, pathSeedFor(id)) : std::string();
+        (name == "path") ? fileDialogSuggestedPath(id, pathSeedFor(id), seedContext())
+                         : std::string();
     if (!pathSeed.empty()) {
       std::snprintf(field.value.data(), field.value.size(), "%s", pathSeed.c_str());
     } else if (name == "value") {
@@ -2552,6 +2549,22 @@ std::string ForgeFrame::proposedSaveSeed(const std::string& extension) const {
   Swerve swerved = Swerve::None;
   std::string wanted;
   return firstFreeFallbackPath(dir, documentName_, refusedSavePath_, extension, swerved, wanted);
+}
+
+// ── ★ WHAT THE APPLICATION KNOWS, HANDED TO THE SEED PRODUCER ──────────────
+// ONE function, so the typed box and the native panel cannot be given different
+// facts -- which is the shape T-123 measured and fixed for the SUFFIX and this
+// round is fixing for the OCCUPANT.
+//
+// The bound list comes from the SHELL, not from this object's own members: the
+// shell merges this host's documentBoundFiles() with the input file the
+// FileExchange holds, and the second of those is the binding nothing could read
+// until T-127 gave the interface a getter.
+forge::desktop::SeedContext ForgeFrame::seedContext() const {
+  forge::desktop::SeedContext out;
+  out.ownDocument = documentPath_;
+  out.boundFiles = shell_.documentBindings();
+  return out;
 }
 
 std::string ForgeFrame::pathSeedFor(const std::string& commandId) const {
@@ -2701,7 +2714,7 @@ void ForgeFrame::runPendingFileDialog() {
   if (id.empty() || fileDialog_ == nullptr) return;
 
   FileDialogRequest request;
-  if (!fileDialogRequestFor(id, fileDialogSeed(id), request)) return;
+  if (!fileDialogRequestFor(id, fileDialogSeed(id), seedContext(), request)) return;
 
   ++dialogsShown_;
   const FileDialogResult chosen = fileDialog_->run(request);
@@ -2724,6 +2737,19 @@ void ForgeFrame::runPendingFileDialog() {
   // silently reusing yesterday's answer.
   dialogCommand_ = id;
   dialogPath_ = chosen.path;
+  // ── ★ THE OTHER MINTER (T-128) ──────────────────────────────────
+  // An NSSavePanel cannot come back ACCEPTED on a path that already exists
+  // without having shown its own Replace sheet -- that combination IS the
+  // evidence a person was asked and said yes, and it is the only evidence of it
+  // this process has. Minted only for a SAVE panel on an OCCUPIED path: an Open
+  // panel asks nothing about replacing, and a free name needs no consent.
+  //
+  // Without it, Save As through the native panel onto an old part would be
+  // refused by the shell's part-occupancy clause -- a capability the product has
+  // today and must keep. The consent is one-shot and is spent by the invoke.
+  if (request.mode == FileDialogMode::Save && forge::ui::pathIsOccupied(chosen.path)) {
+    shell_.consentToReplace(chosen.path);
+  }
   invoke(id);
   dialogCommand_.clear();
   dialogPath_.clear();
@@ -2762,9 +2788,59 @@ forge::ui::ParamType ForgeFrame::promptFieldType(const std::string& name) const 
   return forge::ui::ParamType::Text;
 }
 
+// ── ★★ IS A QUESTION OWED BEFORE THIS RUNS? (T-128 / ALSO-1) ───────────────
+// Asked of the SAME two predicates the shell judges the target by -- occupancy
+// and identity -- so the box cannot ask about a different thing from what the
+// shell then rules on.
+//
+// A question is owed when a SAVE-mode file command is about to write a path that
+// is OCCUPIED and is not the open document's own file. Not "is it a Forge part":
+// that is what T-123 asked, and a user's hand-authored STEP is not a part.
+//
+// It is NOT owed for the open document's own file (Save means Save), nor for an
+// Open box, nor for a command with no policy row -- and nor on the PANEL route,
+// where the platform's own Replace sheet has already asked.
+bool ForgeFrame::wantsReplaceQuestion(const std::string& id, const std::string& path) const {
+  if (path.empty()) return false;
+  // ── NO PANEL-ROUTE EARLY-OUT HERE, AND THAT IS MEASURED ─────────────────
+  // The first version of this function began `if (dialogCommand_ == id) return
+  // false;`, to stop Forge asking after a native panel had already shown its own
+  // Replace sheet. MUTATION-SWEPT: deleting that line turned NONE of the eight
+  // file gates red, because it is UNREACHABLE -- this function is called only
+  // from submitPrompt(), and wantsFileDialog() refuses to raise a panel while the
+  // typed box is open on that command, so the panel route never reaches here at
+  // all. A line nothing can falsify is a line nothing is protecting, so it is
+  // gone rather than kept as decoration. W6(e) is where "the panel route does
+  // not ask twice" is actually measured, on a real dispatch.
+  FileDialogPolicy policy;
+  if (!fileDialogPolicyFor(id, policy)) return false;
+  if (policy.mode != FileDialogMode::Save) return false;
+  if (!forge::ui::pathIsOccupied(path)) return false;
+  if (forge::ui::pathNamesSameFile(path, documentPath_)) return false;
+  return true;
+}
+
 bool ForgeFrame::submitPrompt() {
   if (!promptOpen_ || promptCommand_.empty()) return false;
   const std::string id = promptCommand_;
+  // ★ THE QUESTION, BEFORE THE DISPATCH. The box stays up behind it, holding
+  //   what the user typed, so "Keep the Old File" leaves them exactly where they
+  //   were with the name still there to edit.
+  {
+    const std::string typed = promptValue("path");
+    if (!replacePrompt_ && wantsReplaceQuestion(id, typed)) {
+      replacePrompt_ = true;
+      replacePromptPath_ = typed;
+      replacePromptCommand_ = id;
+      // The ONE content sniffer, the shell's, so the question and the judgement
+      // cannot disagree about what is sitting there.
+      replacePromptWhat_ = forge::ui::fileHoldsForgeDocument(typed)
+                               ? "another Forge part"
+                               : "a file Forge did not write";
+      ++replacePromptsRaised_;
+      return false;
+    }
+  }
   // invoke() reads promptFields_ while promptCommand_ still names this command,
   // so the collected values reach the dispatch.
   //
@@ -3560,6 +3636,7 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   refreshQuitPrompt();
   // The unsaved-changes question, drawn last of the three so it sits in front of
   // them: it is the one the user has to answer before the application will go.
+  drawReplacePrompt();
   drawQuitPrompt();
 
   // ── the deferred mutations ───────────────────────────────────────────────
@@ -3612,6 +3689,11 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingPromptSubmit_ = false;
     submitPrompt();
   }
+  // The answer to the Replace question, deferred for the same reason and applied
+  // AFTER the Run above: submitPrompt() is what raises the question, so a Run and
+  // its answer cannot both be pending in one frame, and applying it here means a
+  // user's Replace takes effect in the frame they pressed it.
+  applyPendingReplaceAnswer();
   // The answer to the unsaved-changes question, deferred for the same reason:
   // "Save and Close" dispatches file.save, which can raise a file panel and
   // rebuild the document and the feature tree the walk was indexing. It runs
@@ -11009,6 +11091,85 @@ void ForgeFrame::drawParameterPrompt() {
 // what every other application writes there and it is the one word in the
 // sentence a hurried user does not read; "Close Without Saving" cannot be
 // misread as the safe choice.
+// ── ★ THE TWO ANSWERS TO THE REPLACE QUESTION ──────────────────────────
+// RECORDED, then applied after the dock walk, exactly as the quit answers are:
+// Replace dispatches a command that can rebuild the document and the feature
+// tree the walk was indexing.
+void ForgeFrame::answerReplaceYes() { pendingReplaceAnswer_ = ReplaceAnswer::Replace; }
+void ForgeFrame::answerReplaceCancel() { pendingReplaceAnswer_ = ReplaceAnswer::Keep; }
+
+void ForgeFrame::applyPendingReplaceAnswer() {
+  const ReplaceAnswer answer = pendingReplaceAnswer_;
+  pendingReplaceAnswer_ = ReplaceAnswer::None;
+  if (answer == ReplaceAnswer::None) return;
+  const std::string id = replacePromptCommand_;
+  const std::string path = replacePromptPath_;
+  replacePrompt_ = false;
+  replacePromptCommand_.clear();
+  replacePromptPath_.clear();
+  replacePromptWhat_.clear();
+  if (answer == ReplaceAnswer::Keep) {
+    // The typed box is still standing with the name in it, which is the whole
+    // point: "Keep the Old File" leaves the user where they were, able to edit
+    // the name, rather than throwing the gesture away.
+    note("Kept the file at " + path);
+    return;
+  }
+  // ★ THE MINT. A person has been shown the file and has said replace it, so the
+  //   shell gets its one-shot, path-scoped consent -- and only now. It is spent
+  //   by the dispatch below whether or not that dispatch asks for it.
+  shell_.consentToReplace(path);
+  if (promptOpen_ && promptCommand_ == id) {
+    promptSubmitting_ = true;
+    invoke(id);
+    promptSubmitting_ = false;
+    if (!(promptOpen_ && promptCommand_ == id && !lastInvokeOk_)) cancelPrompt();
+    return;
+  }
+  invoke(id);
+}
+
+// ── ★ THE QUESTION ITSELF ───────────────────────────────────────
+// A plain window rather than an ImGui modal, for the reason drawParameterPrompt
+// and drawQuitPrompt both state: a modal grabs input for as long as it stands,
+// and the user may well want to look at the folder they are being asked about.
+//
+// TWO buttons, and the destructive one says what it destroys -- the same rule
+// the quit question follows. Both sentences are true by construction: every
+// route this question guards replaces the target's bytes, and Forge has no undo
+// for files.
+void ForgeFrame::drawReplacePrompt() {
+  if (!replacePrompt_) return;
+  const ImGuiIO& io = ImGui::GetIO();
+  const float w = std::min(560.0f * dpiScale_, io.DisplaySize.x * 0.6f);
+  ImGui::SetNextWindowPos(ImVec2((io.DisplaySize.x - w) * 0.5f, io.DisplaySize.y * 0.22f),
+                          ImGuiCond_Appearing);
+  ImGui::SetNextWindowSize(ImVec2(w, 0));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+  bool open = true;
+  if (ImGui::Begin("Replace the File?", &open,
+                   ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse |
+                       ImGuiWindowFlags_AlwaysAutoResize)) {
+    ImGui::TextColored(rgb(242, 158, 38), "%s",
+                       fileDialogNameField(replacePromptPath_).c_str());
+    ImGui::Separator();
+    ImGui::TextWrapped("There is already %s there. Saving will replace it, and Forge "
+                       "cannot bring the old file back.",
+                       replacePromptWhat_.c_str());
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", replacePromptPath_.c_str());
+    ImGui::Spacing();
+    if (ImGui::Button("Replace the File")) answerReplaceYes();
+    ImGui::SameLine();
+    if (ImGui::Button("Keep the Old File")) answerReplaceCancel();
+    // Escape is the SAFE answer, always, and so is the window's close box.
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) open = false;
+  }
+  ImGui::End();
+  ImGui::PopStyleVar();
+  if (!open) answerReplaceCancel();
+}
+
 void ForgeFrame::drawQuitPrompt() {
   if (!quitPrompt_) return;
   const ImGuiIO& io = ImGui::GetIO();

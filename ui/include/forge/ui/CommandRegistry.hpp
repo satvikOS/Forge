@@ -103,6 +103,31 @@ class CommandParams {
 // ── the rest of the s19.2 command contract ──────────────────────────────────
 enum class PreviewPolicy : std::uint8_t { None, OnDemand, Live };
 enum class SideEffectClass : std::uint8_t { ViewOnly, Selection, Document, Application };
+
+// ── ★ WHAT THIS COMMAND DOES TO A FILE THE CALLER NAMED (T-128) ─────────────
+// NINE routes by which this application has put bytes over a file the user did
+// not name in the gesture have now been found, and the first eight were each
+// closed where they were found: a CALL, added to the handler that happened to be
+// the one measured. A call is precisely the thing the next handler omits --
+// `ForgeShell::runSave` sat twenty lines above T-123's guard, in the same file,
+// calling nothing, and that is T-124.
+//
+// So the intent is DECLARED HERE, on the command, and ForgeShell::writeTarget()
+// -- the ONE place a caller-named write target is produced -- reads it from the
+// descriptor rather than from an argument. A handler cannot obtain a path to
+// write without asking, because asking is how the path is obtained; and a
+// command that has not declared an intent is REFUSED by that function rather
+// than waved through, so the declaration is load-bearing and deleting one is a
+// red gate rather than a silent hole.
+//
+// `None` is the default and it is the honest one for the 100-odd commands that
+// touch no file at all. It is NOT "this command is safe to skip": it is "this
+// command may not produce a write target", and writeTarget() says so.
+enum class WriteIntent : std::uint8_t {
+  None = 0,      // this command does not put bytes on a path a caller named
+  DocumentSave,  // it writes THE DOCUMENT there: file.save, file.save_as
+  Copy,          // it writes a SECOND file beside the document: the four exports
+};
 enum class UndoContract : std::uint8_t { NotUndoable, SingleStep, Transaction };
 
 // Non-owning view of the state a handler may read. Handlers capture whatever
@@ -143,6 +168,9 @@ struct CommandDescriptor {
   std::vector<ParamSpec> schema;
   PreviewPolicy preview = PreviewPolicy::None;
   SideEffectClass sideEffect = SideEffectClass::Document;
+  // ★ See WriteIntent above. Read by ForgeShell::writeTarget(), which refuses to
+  //   produce a target for a command that declares None.
+  WriteIntent writes = WriteIntent::None;
   UndoContract undo = UndoContract::SingleStep;
   std::uint32_t version = 1;
 

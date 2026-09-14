@@ -79,10 +79,12 @@
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/ActivityLog.hpp"
+#include "forge/ui/ArchieCopilot.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FileExchange.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MachineProgram.hpp"
+#include "forge/ui/OpConstraintBridge.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
@@ -154,6 +156,27 @@ class ReturnOnSeedDialog final : public forge::desktop::FileDialog {
   }
 };
 
+// ── the panel, answering with a path the POPULATION chooses ────────────────
+// ReturnOnSeedDialog answers the SEED, and the seed is free by construction once
+// the producer swerves -- so it cannot drive the case that matters here: a user
+// steering a native Save panel onto a file that already exists, which is the one
+// combination AppKit's own Replace sheet covers and nothing in this gate did.
+class AnswerWithDialog final : public forge::desktop::FileDialog {
+ public:
+  std::string answer;
+  std::size_t runs = 0;
+  forge::desktop::FileDialogResult run(
+      const forge::desktop::FileDialogRequest& request) override {
+    ++runs;
+    lastMode = request.mode;
+    forge::desktop::FileDialogResult out;
+    out.accepted = true;
+    out.path = answer;
+    return out;
+  }
+  forge::desktop::FileDialogMode lastMode = forge::desktop::FileDialogMode::Open;
+};
+
 std::string readWholeFile(const std::string& path) {
   std::string out;
   std::FILE* f = std::fopen(path.c_str(), "rb");
@@ -192,6 +215,11 @@ struct Seen {
   std::size_t notes = 0;
   std::size_t features = 0;
   std::size_t bytes = 0;
+  // ★ A LENGTH ALONE IS NOT AN OBSERVABLE. Two different STEP files can weigh
+  //   the same; the entity count moves when the content does. T-127's measured
+  //   destruction was 53903 B / 1991 entity lines -> 49327 / 1751, and both
+  //   halves of that are reported.
+  std::size_t iso = 0;
   std::string text;
   std::string head;
 };
@@ -203,6 +231,7 @@ Seen look(const std::string& path) {
   s.bytes = s.text.size();
   s.notes = rawCount(s.text, "\nNOTE\n");
   s.features = rawCount(s.text, "\nFEATURE\n");
+  s.iso = rawCount(s.text, "#");
   const std::size_t nl = s.text.find('\n');
   s.head = s.text.substr(
       0, nl == std::string::npos ? std::min<std::size_t>(s.text.size(), 40) : nl);
@@ -378,14 +407,30 @@ void started(App& app, const std::string& what) {
 // these ops contribute nothing to the result"). The document would not compile,
 // so every export would refuse for a reason that has nothing to do with this
 // gate's question and the allow branch could never be measured at all.
+//
+// ── ★ AND A SECOND NOTE WHERE THE POPULATION NEEDS TWO SHAPES ──────────────
+// W6 puts two parts in one folder and asks whether one replaced the other. With
+// both made the same way, "replaced" and "untouched" are files of the same shape
+// and a very similar length, and the check would be reading a coincidence. The
+// reproduce phase hit exactly this: its first control seeded the occupant with a
+// copy of what would replace it, so the two were identical bytes and the check
+// printed NOT-REPRO for the wrong reason. `second` is what makes the two
+// distinguishable by NOTE COUNT and not by length alone.
 std::string makeUserPart(const std::string& work, const std::string& leaf,
-                         const std::string& noteText) {
+                         const std::string& noteText, const std::string& second = std::string()) {
   std::error_code ec;
   std::filesystem::create_directories(work, ec);
   const std::string userPath = work + "/" + leaf;
   App a;
   started(a, "the launch that makes the part");
   check(a.note(noteText), "the user types a note on the sheet", a.frame->noteRefusal());
+  // MUTATION 7: the second note is dropped, so W6's two parts are the SAME SHAPE
+  // and its byte-identical checks cannot tell "replaced" from "untouched". It is
+  // this gate's own note-on-method, injected.
+  if (!second.empty() && g_mutation != 7) {
+    check(a.note(second), "and a second one, so this part has a shape of its own",
+          a.frame->noteRefusal());
+  }
   check(a.saveTo(userPath), "saved where the user wants it", a.shell.lastDocumentError());
   return userPath;
 }
@@ -398,11 +443,35 @@ std::string makeUserPart(const std::string& work, const std::string& leaf,
 // asserted here directly -- and so are the two properties that make routing the
 // box through it safe: an empty seed stays empty (a blank box stays blank) and
 // the transform is idempotent (the untitled seed already carries the suffix).
-void checkTheProducer() {
+//
+// ── ★★ AND THE OCCUPANCY HALF IS ASKED OF REAL FILES (T-128) ──────────────
+// The check this replaces was a STRING check that pinned
+//   fileDialogSuggestedPath("file.save_as", "/w/bracket.txt") == "/w/bracket.fpart"
+// and its stated reason was "the direction is the safe one, because the box now
+// names a file that is NOT the original". That is TRUE AND IRRELEVANT, and it is
+// why T-123 could not merge: NOT-THE-ORIGINAL IS NOT NOT-SOMEONE'S-PART.
+// MEASURED on the tree that check was green on -- a document opened from
+// bracket.txt, a DIFFERENT part sitting at bracket.fpart, one Run with nothing
+// typed: 2 NOTE / 5 FEATURE / 738 B -> 1 / 5 / 635 B, warnings +1, errors +0,
+// status strip "Save Document As - done". The gate pinned the destructive value.
+//
+// A string check CANNOT ask this question at all: whether a name is free is a
+// fact about a filesystem, so the occupancy assertions below make real files in
+// the gate's own scratch and ask about those.
+void checkTheProducer(const std::string& root) {
   std::printf("\n   -- the producer itself --\n");
-  const std::string part = "/w/bracket.fpart";
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", part),
-             "/w/bracket.step", "a copy command names the file IT writes");
+  const std::string w = root + "/producer";
+  std::error_code ec;
+  std::filesystem::remove_all(w, ec);
+  std::filesystem::create_directories(w, ec);
+
+  // NOTHING is bound and NOTHING is open: the pure-transform context, which is
+  // what the suffix rules below are about.
+  const forge::desktop::SeedContext none;
+
+  const std::string part = w + "/bracket.fpart";
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", part, none),
+             w + "/bracket.step", "a copy command names the file IT writes");
   // ★ A .fpart CANNOT ASK THIS QUESTION. file.open's policy row carries
   //   defaultExtension ".fpart" whatever its mode, so swapping the suffix onto a
   //   path that already ends .fpart is the identity and a check written that way
@@ -411,32 +480,83 @@ void checkTheProducer() {
   //   whose line 1 is not the magic), so a part called bracket.txt is a document
   //   Forge really can open, and its Open box must not point at a file that does
   //   not exist.
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.open", "/w/bracket.txt"),
-             "/w/bracket.txt",
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.open", w + "/bracket.txt", none),
+             w + "/bracket.txt",
              "an OPEN box keeps the path as given -- naming a file that exists is the point");
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.import_step", "/w/bracket.txt"),
-             "/w/bracket.txt", "and so does an Import box");
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("part.primitive_box", part), part,
+  checkStrEq(
+      forge::desktop::fileDialogSuggestedPath("file.import_step", w + "/bracket.txt", none),
+      w + "/bracket.txt", "and so does an Import box");
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("part.primitive_box", part, none), part,
              "a command with no policy row is not a file command, and keeps its seed");
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.save_as", part), part,
-             "Save As on a part is the identity, so what file.save writes cannot move");
-  // ★ THE ONE BEHAVIOUR CHANGE BEYOND THE DEFECT, PINNED RATHER THAN LEFT TO BE
-  //   DISCOVERED. A document is opened on its CONTENT, so a part called
-  //   bracket.txt really can be open -- and a Save As box on it now starts on
-  //   bracket.fpart. That is not a new opinion: it is exactly what the shipping
-  //   native panel has always offered for file.save_as, and the direction is the
-  //   safe one, because the box now names a file that is NOT the original.
-  //   file.save is untouched: its `path` is optional, so it dispatches without
-  //   ever raising a box.
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.save_as", "/w/bracket.txt"),
-             "/w/bracket.fpart", "and Save As adopts the panel's own answer on a part "
-             "whose file is not called .fpart");
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", std::string()),
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", std::string(), none),
              std::string(), "an empty seed stays empty -- a blank box stays blank");
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", "/w/bracket.step"),
-             "/w/bracket.step", "and it is idempotent, so the untitled seed is untouched");
-  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", "/w.v1/bracket"),
+  checkStrEq(
+      forge::desktop::fileDialogSuggestedPath("file.export_step", w + "/bracket.step", none),
+      w + "/bracket.step", "and it is idempotent, so the untitled seed is untouched");
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", "/w.v1/bracket", none),
              "/w.v1/bracket.step", "a dot in a FOLDER name is not an extension");
+
+  // ── ★★ THE ASSERTION THAT WAS WRONG, ASKED ABOUT OCCUPANCY ──────────────
+  // (i) NOTHING is sitting on the derived name -> the derived name stands. Save
+  //     As on a part called bracket.txt really does offer bracket.fpart, which
+  //     is what the native panel has always done and what a user expects.
+  check(!std::filesystem::exists(part, ec), "nothing is at bracket.fpart yet", part);
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.save_as", w + "/bracket.txt", none),
+             part,
+             "Save As on a part whose file is not .fpart offers the derived name -- "
+             "while it is FREE");
+
+  // (ii) SOMEBODY'S PART is sitting on it -> the next free name in the series,
+  //      and the name the box offers is one std::filesystem::exists() says is
+  //      absent. This is T-128, asked of bytes.
+  const std::string occupied =
+      makeUserPart(w, "bracket.fpart", "SOMEONE ELSE -- RELEASED", "DO NOT DELETE");
+  const Seen sitting = look(occupied);
+  say("a DIFFERENT part is at bracket.fpart", occupied, sitting);
+  const std::string swerved =
+      forge::desktop::fileDialogSuggestedPath("file.save_as", w + "/bracket.txt", none);
+  std::printf("   [seed] Save As on bracket.txt now offers: %s\n", swerved.c_str());
+  check(swerved != part,
+        "★ the Save As box does NOT offer a name another part is sitting on", swerved);
+  checkStrEq(swerved, w + "/bracket-2.fpart",
+             "★ it offers the next free name in the series instead");
+  check(!std::filesystem::exists(swerved, ec),
+        "★ and the name it offers is one nothing is on", swerved);
+  check(look(occupied).text == sitting.text,
+        "★ and asking the question moved nobody's bytes", occupied);
+
+  // (iii) THE DOCUMENT'S OWN FILE IS THE ONE OCCUPIED PATH A SAVE BOX MAY OPEN
+  //       ON. Replacing the file you chose is what Save means, and a swerve here
+  //       would make Save As on a .fpart offer bracket-2.fpart every time.
+  forge::desktop::SeedContext mine;
+  mine.ownDocument = occupied;
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.save_as", occupied, mine), occupied,
+             "★ Save As on THIS document's own file is still the identity");
+
+  // (iv) A FILE THE OPEN DOCUMENT READS -- T-127, at the seed. The export box
+  //      derived bracket.step from bracket.fpart and that is exactly the file
+  //      `INPUT()` reads; one Run took it 53903 B -> 49327 B.
+  const std::string reads = w + "/bracket.step";
+  check(writeWholeFile(reads, "ISO-10303-21;\nthe file this part is built from\n"),
+        "the file the open part is built from is on disk");
+  forge::desktop::SeedContext bound;
+  bound.ownDocument = occupied;
+  bound.boundFiles.push_back(reads);
+  const std::string away =
+      forge::desktop::fileDialogSuggestedPath("file.export_step", occupied, bound);
+  std::printf("   [seed] the export box on a part built from bracket.step: %s\n",
+              away.c_str());
+  check(away != reads, "★ an export box does NOT open on the file the part READS", away);
+  check(!std::filesystem::exists(away, ec), "★ and it offers a free name", away);
+
+  // (v) AND AN EXPORT ONTO A MERELY-OCCUPIED PATH STILL STANDS. "Export over my
+  //     last export" is ordinary intent; a seed that swerved on occupancy would
+  //     hand the user bracket-2.step, bracket-3.step, for ever. The Run-time
+  //     question covers that case instead, and W4(b) pins the behaviour.
+  forge::desktop::SeedContext plain;
+  plain.ownDocument = occupied;
+  checkStrEq(forge::desktop::fileDialogSuggestedPath("file.export_step", occupied, plain),
+             reads, "★ but an export DOES still open on the user's own last export");
 }
 
 // ── W1 ─────────────────────────────────────────────────────────────────────
@@ -444,7 +564,7 @@ void checkTheProducer() {
 // a file. This is the cell no existing check covers.
 void popTypedBox(const std::string& root) {
   std::printf("\n== W1: the typed box, every copy command, on a document that HAS a file ==\n");
-  checkTheProducer();
+  checkTheProducer(root);
   const std::string work = root + "/work";
   const std::string userPath = makeUserPart(work, "bracket.fpart", "BRACKET -- RELEASED");
   const Seen before = look(userPath);
@@ -482,7 +602,8 @@ void popTypedBox(const std::string& root) {
     //   A check that named bracket.step would be satisfied by fixing this one
     //   route again -- which is what the six fixes before this one did.
     forge::desktop::FileDialogRequest request;
-    check(forge::desktop::fileDialogRequestFor(id, b.frame->pathSeedFor(id), request),
+    check(forge::desktop::fileDialogRequestFor(id, b.frame->pathSeedFor(id),
+                                              b.frame->seedContext(), request),
           id + ": the panel has a request to build from the same seed");
     checkStrEq(typed, request.suggestedPath,
                "★ " + id + ": the TYPED BOX holds what the PANEL opens on");
@@ -544,7 +665,9 @@ void popTypedPath(const std::string& root) {
     // red. It is what stops this population passing on a Forge that refuses
     // every export.
     std::string target = userPath;
-    if (g_mutation == 3) target = forge::desktop::fileDialogSuggestedPath(id, userPath);
+    if (g_mutation == 3) {
+      target = forge::desktop::fileDialogSuggestedPath(id, userPath, b.frame->seedContext());
+    }
     forge::ui::CommandParams params;
     params.setText("path", target);
     const std::size_t errorsBefore = b.errors();
@@ -753,6 +876,602 @@ void popAllows(const std::string& root) {
         std::to_string(partBefore.notes) + " -> " + std::to_string(partAfter.notes));
 }
 
+
+// ── W6 ─────────────────────────────────────────────────────────────────────
+// T-128 END TO END, ON RAW BYTES. The population this gate was missing: the
+// question is OCCUPANCY, so it is asked of two real parts in one folder.
+//
+// MEASURED at 646d761f, which is what these numbers are: bracket.fpart held
+// 2 NOTE / 5 FEATURE / 738 B; a document opened from bracket.txt put
+// bracket.fpart in its Save As box; ONE Run with nothing typed left 1 / 5 / 635 B,
+// warnings +1, errors +0, strip "Save Document As - done".
+//
+// FOUR LEGS, and the last three are what stop "refuse everything" passing:
+//   (a) the box does not offer it, and one Run does not take it;
+//   (b) the SYMMETRIC ALLOW -- with nothing in the way, Save As writes;
+//   (c) the CONSENT arm -- a person answers Replace and it writes, because
+//       replacing an old part deliberately is a thing a user does;
+//   (d) the TOKEN IS ONE-SHOT -- the next occupied target is refused again.
+void popOccupied(const std::string& root) {
+  std::printf("\n== W6: TWO PARTS IN ONE FOLDER -- what does the Save As box take? ======\n");
+  const std::string work = root + "/work";
+  const std::string victim =
+      makeUserPart(work, "bracket.fpart", "SOMEONE ELSE -- RELEASED", "DO NOT DELETE");
+  App maker;
+  started(maker, "the launch that makes the user's own part");
+  check(maker.note("MINE -- IN PROGRESS"), "a second, different part",
+        maker.frame->noteRefusal());
+  const std::string mine = work + "/bracket.txt";
+  check(maker.saveTo(mine), "saved under a name that does not say .fpart",
+        maker.shell.lastDocumentError());
+
+  const Seen before = look(victim);
+  say("bracket.fpart -- SOMEBODY ELSE'S", victim, before);
+  say("bracket.txt -- the one being worked on", mine, look(mine));
+  check(before.notes == 2 && before.features == 5,
+        "★ the two parts are DIFFERENT SHAPES, so 'replaced' is not a same-size control",
+        std::to_string(before.notes) + " NOTE / " + std::to_string(before.features));
+
+  App b;
+  started(b, "a later launch");
+  check(b.open(mine), "File > Open bracket.txt", b.shell.lastDocumentError());
+  checkStrEq(b.frame->documentPath(), mine, "a part is opened on its CONTENT, not its name");
+  // NO setFileDialog(): the configuration with no confirmation of any kind, and
+  // the one T-128 was measured in.
+
+  // ── (a) the box, and one Run ────────────────────────────────────────────
+  const std::size_t warnings = b.warnings();
+  const std::size_t errors = b.errors();
+  b.frame->invoke("file.save_as");
+  b.oneFrame();
+  check(b.frame->fileDialogsShown() == 0, "no panel: there is none to show in this build");
+  check(b.frame->promptOpen(), "the typed box is what asks instead",
+        b.shell.lastDocumentError());
+  const std::string typed = b.frame->promptValue("path");
+  std::printf("   [seed] the Save As box arrived holding: %s\n", typed.c_str());
+  check(typed != victim, "★ the box is NOT pre-filled with another user's part", typed);
+  check(typed != mine, "and it is not the original either -- Save As means a new name",
+        typed);
+  std::error_code ec;
+  check(!std::filesystem::exists(typed, ec), "★ and nothing is sitting on what it offers",
+        typed);
+  // MUTATION 8: never press Run. Every seed check above still passes, so a gate
+  // that only read the text box would call a Forge that writes nothing green.
+  if (g_mutation != 8) {
+    check(b.frame->submitPrompt(), "ONE Run, with nothing typed and nothing changed",
+          b.shell.lastDocumentError());
+    b.oneFrame();
+  }
+  checkUntouched(before, look(victim), victim,
+                 "★ AND THE OTHER PART IS BYTE-IDENTICAL AFTERWARDS");
+  // ★ AND THE SAVE ACTUALLY HAPPENED. This is what mutation 8 targets, and it is
+  //   the check the first version of this population did not have: "the other
+  //   part is byte-identical" is TRUE OF A FORGE THAT WROTE NOTHING AT ALL once
+  //   the seed swerves, so on its own it could not tell a fix from a Save As
+  //   that silently does nothing. MEASURED: mutation 8 STAYED GREEN against that
+  //   version, which is the gate reporting its own hole.
+  const Seen landed = look(typed);
+  say("what Save As wrote", typed, landed);
+  check(landed.exists && landed.head.rfind("FORGE-PART", 0) == 0,
+        "★ and the part WAS saved, at the free name the box offered", typed);
+  check(landed.text != before.text, "and it is not the other part's bytes", typed);
+  std::printf("   [W6] warnings +%zu, errors +%zu\n", b.warnings() - warnings,
+              b.errors() - errors);
+  b.frame->cancelPrompt();
+
+  // ── (b) TYPING IT ANYWAY IS A QUESTION, NOT A SILENT RUN ────────────────
+  b.frame->invoke("file.save_as");
+  b.oneFrame();
+  check(b.frame->promptOpen(), "the box is up again");
+  check(b.frame->setPromptValue("path", victim), "the user types the other part's name");
+  const std::size_t raised = b.frame->replacePromptsRaised();
+  const std::size_t seqBefore = b.shell.documentErrorSeq();
+  const std::size_t mark = logMark(b.shell);
+  b.frame->submitPrompt();
+  b.oneFrame();
+  sayLog(b.shell, mark, "what Run said with an occupied name typed");
+  check(b.frame->replacePromptsRaised() == raised + 1,
+        "★ Forge ASKS before it replaces -- the question the typed route never had",
+        std::to_string(b.frame->replacePromptsRaised() - raised));
+  check(b.frame->replacePromptOpen(), "and it is standing there now");
+  checkStrEq(b.frame->replacePromptPath(), victim, "about the file it would replace");
+  check(b.shell.documentErrorSeq() == seqBefore,
+        "and NOTHING was dispatched while the question stands",
+        b.shell.lastDocumentError());
+  checkUntouched(before, look(victim), victim, "★ the other part is STILL byte-identical");
+
+  // "Keep the Old File" leaves the user where they were.
+  b.frame->answerReplaceCancel();
+  b.oneFrame();
+  check(!b.frame->replacePromptOpen(), "Keep the Old File takes the question down");
+  checkUntouched(before, look(victim), victim, "★ and keeps the file");
+
+  // ── (c) THE CONSENT ARM -- a person says Replace, and it writes ─────────
+  b.frame->invoke("file.save_as");
+  b.oneFrame();
+  check(b.frame->setPromptValue("path", victim), "the user types it again");
+  b.frame->submitPrompt();
+  b.oneFrame();
+  check(b.frame->replacePromptOpen(), "the question comes up again");
+  // MUTATION 9: the answer is recorded for a DIFFERENT path, so the consent can
+  // never match the file being written and "Replace goes through" must go red.
+  // This is what proves the consent is PATH-SCOPED and not a global yes.
+  if (g_mutation == 9) {
+    b.shell.consentToReplace(work + "/somewhere-else.fpart");
+    b.frame->answerReplaceCancel();
+    b.oneFrame();
+    b.frame->invoke("file.save_as");
+    b.oneFrame();
+    b.frame->setPromptValue("path", victim);
+    b.frame->submitPrompt();
+    b.oneFrame();
+    b.frame->answerReplaceCancel();
+  } else {
+    b.frame->answerReplaceYes();
+  }
+  b.oneFrame();
+  const Seen replaced = look(victim);
+  say("bracket.fpart after the user said Replace", victim, replaced);
+  check(replaced.exists && replaced.head.rfind("FORGE-PART", 0) == 0 &&
+            replaced.text != before.text,
+        "★ a person CAN still replace an old part deliberately -- it was written",
+        std::to_string(before.bytes) + " -> " + std::to_string(replaced.bytes));
+
+  // ── (d) AND THE TOKEN IS ONE-SHOT ───────────────────────────────────────
+  // ── ★ THE SPEND, MEASURED ON ITS OWN ────────────────────────────────────
+  // The consent has TWO properties and they need two checks, because either one
+  // alone hides the other:
+  //
+  //   PATH SCOPE  a token for file X does not authorise a write to file Y.
+  //   THE SPEND   a token is consumed by the NEXT dispatch, asked for or not,
+  //               so it cannot be banked for a later gesture.
+  //
+  // MEASURED, and this is why the leg is written this way: with only the
+  // different-file check below, deleting `consentedPath_.clear()` from
+  // ForgeShell::run() left this gate GREEN -- the path scope refused the other
+  // file whether or not the token had ever been spent. And re-asking about the
+  // SAME file cannot measure it either: a successful Save As makes the document
+  // OWN that file, so the next save to it is ordinary Save and is allowed by
+  // the first clause of the judgement, correctly.
+  //
+  // So: a token is minted for a part this document does not own, an UNRELATED
+  // command is dispatched, and the write is then attempted. Nothing about the
+  // gesture changes except that one dispatch went by.
+  {
+    const std::string banked =
+        makeUserPart(work, "banked.fpart", "BANKED -- RELEASED", "DO NOT DELETE");
+    const Seen bankedBefore = look(banked);
+    say("banked.fpart", banked, bankedBefore);
+    b.shell.consentToReplace(banked);
+    const forge::ui::DispatchResult unrelated = b.shell.run("view.fit");
+    std::printf("   [spend] one unrelated dispatch went by (view.fit -> %s)\n",
+                unrelated.ok() ? "ok" : "not ok");
+    forge::ui::CommandParams banking;
+    banking.setText("path", banked);
+    const std::size_t seq3 = b.shell.documentErrorSeq();
+    b.shell.run("file.save_as", banking);
+    std::printf("   [ask] file.save_as on the banked answer -> |%s|\n",
+                b.shell.lastDocumentError().c_str());
+    check(b.shell.documentErrorSeq() != seq3,
+          "★ a consent cannot be BANKED -- the next dispatch spends it, asked for or not",
+          b.shell.lastDocumentError());
+    checkUntouched(bankedBefore, look(banked), banked,
+                   "★ AND banked.fpart IS BYTE-IDENTICAL");
+  }
+
+  // A second part, a second caller-route save onto it, with no new answer: the
+  // PATH SCOPE, which is a different property from the spend above.
+  const std::string second =
+      makeUserPart(work, "housing.fpart", "HOUSING -- RELEASED", "DO NOT DELETE");
+  const Seen secondBefore = look(second);
+  say("housing.fpart", second, secondBefore);
+  forge::ui::CommandParams params;
+  params.setText("path", second);
+  const std::size_t seq2 = b.shell.documentErrorSeq();
+  const forge::ui::DispatchResult again = b.shell.run("file.save_as", params);
+  std::printf("   [ask] file.save_as onto a SECOND part -> %s  |%s|\n",
+              again.ok() ? "dispatch ok" : "dispatch not ok",
+              b.shell.lastDocumentError().c_str());
+  check(b.shell.documentErrorSeq() != seq2,
+        "★ the consent was SPENT -- the next occupied target is refused again",
+        b.shell.lastDocumentError());
+  check(forge::ui::isUserReadable(b.shell.lastDocumentError()),
+        "and the sentence is one a user can read", b.shell.lastDocumentError());
+  check(b.shell.lastDocumentError().find(second) != std::string::npos,
+        "and it names the file it would not write over", b.shell.lastDocumentError());
+  checkUntouched(secondBefore, look(second), second, "★ AND housing.fpart IS BYTE-IDENTICAL");
+
+  // ── (e) AND SAVE AS ON YOUR OWN FILE IS NOT INTERROGATED ────────────────
+  // The document's own file is OCCUPIED -- by the document. A question there
+  // would put a sheet in front of every Save As on an already-saved part, which
+  // is the "refuse everything" failure wearing a dialog. MUTATION-SWEPT: without
+  // this leg, deleting the own-file line from ForgeFrame::wantsReplaceQuestion()
+  // turned nothing red.
+  {
+    App d;
+    started(d, "a launch whose part already has a file");
+    check(d.note("MINE -- ALREADY SAVED"), "a part", d.frame->noteRefusal());
+    const std::string ownFile = work + "/own.fpart";
+    check(d.saveTo(ownFile), "saved once", d.shell.lastDocumentError());
+    checkStrEq(d.frame->documentPath(), ownFile, "so the document owns that file");
+    const std::size_t asked = d.frame->replacePromptsRaised();
+    d.frame->invoke("file.save_as");
+    d.oneFrame();
+    check(d.frame->promptOpen(), "the Save As box is up");
+    checkStrEq(d.frame->promptValue("path"), ownFile,
+               "seeded on the document's own file -- the one occupied path a Save box may "
+               "open on");
+    check(d.frame->submitPrompt(), "★ and ONE Run goes straight through",
+          d.shell.lastDocumentError());
+    d.oneFrame();
+    check(d.frame->replacePromptsRaised() == asked,
+          "★ with NO question: replacing the file you chose is what Save means",
+          std::to_string(d.frame->replacePromptsRaised() - asked));
+    check(look(ownFile).exists, "★ and the part is still there", ownFile);
+  }
+
+  // ── (f) THE NATIVE PANEL IS THE OTHER MINTER ────────────────────────────
+  // The combination no population covered: a user steering a native Save panel
+  // onto a file that already exists. An NSSavePanel cannot return ACCEPTED on an
+  // existing path without having shown its own Replace sheet, so that IS a
+  // person having been asked -- and if Forge refused it anyway, Save As through
+  // the panel onto an old part would stop working, which is a capability the
+  // product has today.
+  //
+  // Driven with a panel that answers a path this population chose, because the
+  // seed is free by construction now and the shipped ReturnOnSeedDialog can only
+  // answer the seed.
+  {
+    App c;
+    started(c, "a launch with a native panel installed");
+    check(c.note("REPLACING AN OLD PART ON PURPOSE"), "a part to save",
+          c.frame->noteRefusal());
+    AnswerWithDialog panel;
+    panel.answer = second;  // housing.fpart, which is still a part on disk
+    c.frame->setFileDialog(&panel);
+    const Seen panelBefore = look(second);
+    say("housing.fpart, before the panel route", second, panelBefore);
+    const std::size_t mark2 = logMark(c.shell);
+    c.frame->invoke("file.save_as");
+    c.oneFrame();
+    sayLog(c.shell, mark2, "what the panel route said");
+    std::printf("   [panel] runs=%zu mode=%s\n", panel.runs,
+                panel.lastMode == forge::desktop::FileDialogMode::Save ? "Save" : "Open");
+    check(panel.runs == 1, "the panel was raised exactly once", std::to_string(panel.runs));
+    check(!c.frame->replacePromptOpen(),
+          "★ and Forge does NOT ask a second time -- the platform already did");
+    const Seen panelAfter = look(second);
+    say("housing.fpart, after", second, panelAfter);
+    check(panelAfter.exists && panelAfter.head.rfind("FORGE-PART", 0) == 0 &&
+              panelAfter.text != panelBefore.text,
+          "★ a native Save panel accepting an EXISTING part still writes it -- the "
+          "platform's own Replace sheet is what asked",
+          std::to_string(panelBefore.bytes) + " -> " + std::to_string(panelAfter.bytes));
+  }
+}
+
+// ── W7 ─────────────────────────────────────────────────────────────────────
+// T-127 END TO END: the EIGHTH shape. The target is NOT a Forge part and NOT the
+// open document, so neither of T-123's two clauses can see it -- it is the STEP
+// the open part was IMPORTED FROM, which `INPUT()` reads on every rebuild.
+//
+// MEASURED at 646d761f: bracket.step 53903 B / 1991 entity lines -> 49327 /
+// 1751, errors +0, with the box AND the native panel both opening on it.
+void popBoundInput(const std::string& root) {
+  std::printf("\n== W7: the file the open document READS ================================\n");
+  const std::string work = root + "/work";
+  std::error_code ec;
+  std::filesystem::create_directories(work, ec);
+  const std::string source = work + "/bracket.step";
+  {
+    App a;
+    started(a, "the launch that writes the STEP");
+    a.oneFrame();
+    forge::ui::CommandParams p;
+    p.setText("path", source);
+    check(a.ran("file.export_step", p), "Forge writes a STEP of its own part",
+          a.shell.lastDocumentError());
+  }
+  const Seen before = look(source);
+  say("bracket.step, before", source, before);
+  check(before.exists && before.head.rfind("ISO-10303-21", 0) == 0,
+        "and it really is STEP text", before.head);
+
+  App b;
+  started(b, "a later launch");
+  {
+    forge::ui::CommandParams p;
+    p.setText("path", source);
+    check(b.ran("file.import_step", p), "the user imports it",
+          b.shell.lastDocumentError());
+  }
+  const std::string doc = work + "/bracket.fpart";
+  {
+    forge::ui::CommandParams p;
+    p.setText("path", doc);
+    check(b.ran("file.save_as", p), "and saves the part as bracket.fpart",
+          b.shell.lastDocumentError());
+  }
+  checkStrEq(b.frame->documentPath(), doc, "the document is bracket.fpart");
+  // MUTATION 10: the interface's getter answers "" -- T-127's blindness, restored
+  // at the one line that removed it. The bound checks below go red and NOTHING
+  // ELSE does, which is what proves they measure the BINDING and not occupancy.
+  const std::vector<std::string> bindings =
+      g_mutation == 10 ? std::vector<std::string>{} : b.shell.documentBindings();
+  std::printf("   [bind] the shell can see %zu binding(s):\n", bindings.size());
+  for (const std::string& one : bindings) std::printf("          %s\n", one.c_str());
+  bool sees = false;
+  for (const std::string& one : bindings) sees = sees || one == source;
+  check(sees, "★ the shell can SEE the file this part is built from", source);
+  checkStrEq(b.exchange->inputFile(), source,
+             "★ and it reaches it through the interface's own getter");
+
+  // ── the SEED ────────────────────────────────────────────────────────────
+  forge::desktop::SeedContext context;
+  context.ownDocument = doc;
+  context.boundFiles = bindings;
+  const std::string suggested =
+      forge::desktop::fileDialogSuggestedPath("file.export_step", doc, context);
+  forge::desktop::FileDialogRequest request;
+  check(forge::desktop::fileDialogRequestFor("file.export_step", doc, context, request),
+        "the panel has a request to build from the same seed");
+  std::printf("   [seed] box=%s\n   [seed] panel=%s\n", suggested.c_str(),
+              request.suggestedPath.c_str());
+  checkStrEq(suggested, request.suggestedPath,
+             "★ the TYPED BOX holds what the PANEL opens on -- still one producer");
+  check(suggested != source, "★ and NEITHER opens on the file the part is built from",
+        suggested);
+
+  // ── the GUARD, with the path supplied: no box, no panel ────────────────
+  const std::size_t errorsBefore = b.errors();
+  const std::size_t seqBefore = b.shell.documentErrorSeq();
+  const std::size_t mark = logMark(b.shell);
+  forge::ui::CommandParams params;
+  params.setText("path", source);
+  const forge::ui::DispatchResult r = b.shell.run("file.export_step", params);
+  sayLog(b.shell, mark, "what Save a Copy as STEP said");
+  std::printf("   [ask] file.export_step onto bracket.step -> %s  |%s|\n",
+              r.ok() ? "dispatch ok" : "dispatch not ok", b.shell.lastDocumentError().c_str());
+  check(b.shell.documentErrorSeq() != seqBefore,
+        "★ a copy may not replace the file the part READS", b.shell.lastDocumentError());
+  check(b.errors() == errorsBefore + 1, "★ and said so where a user reads -- errors +1",
+        std::to_string(b.errors() - errorsBefore));
+  check(b.shell.lastExchange().refusal == forge::ui::ExchangeRefusal::TargetIsBound,
+        "for the reason the closed set has a value for -- and it is NOT TargetIsDocument",
+        forge::ui::toString(b.shell.lastExchange().refusal));
+  check(forge::ui::isUserReadable(b.shell.lastDocumentError()),
+        "the sentence is one a user can read", b.shell.lastDocumentError());
+  check(b.shell.lastDocumentError().find(source) != std::string::npos,
+        "and it names the file", b.shell.lastDocumentError());
+  const Seen after = look(source);
+  say("bracket.step, after", source, after);
+  check(after.text == before.text, "★ AND IT IS BYTE-IDENTICAL AFTERWARDS",
+        std::to_string(before.bytes) + " B / " + std::to_string(before.iso) + " entities -> " +
+            std::to_string(after.bytes) + " B / " + std::to_string(after.iso));
+
+  // ── AND NO CONSENT LIFTS IT ─────────────────────────────────────────────
+  // A binding is not an occupancy question. The panel's own Replace sheet, and
+  // the frame's Replace answer, both mint the same token; neither may authorise
+  // a write onto the file the document is compiled from.
+  b.shell.consentToReplace(source);
+  const std::size_t seqConsented = b.shell.documentErrorSeq();
+  b.shell.run("file.export_step", params);
+  check(b.shell.documentErrorSeq() != seqConsented,
+        "★ consent lifts OCCUPANCY and never lifts a BINDING",
+        b.shell.lastDocumentError());
+  check(look(source).text == before.text, "★ and the file is byte-identical again", source);
+}
+
+// ── W8 ─────────────────────────────────────────────────────────────────────
+// T-124: the SAVE waist, and the CoPilot route that reaches it TODAY.
+//
+// MEASURED at 646d761f: file.export_step / _brep / _stl on a path all REFUSED
+// and left it byte-identical, while file.save_as ON THAT IDENTICAL PATH replaced
+// it -- 2 NOTE / 5 FEATURE / 718 B -> 0 / 5 / 586 B, dispatch ok, errors +0 --
+// and applyPlan did it again through the shipping Apply button.
+//
+// ★ ZERO LINES OF ArchieCopilot ARE TOUCHED BY THE FIX, and that is the point of
+//   the assertion: planTools still offers ten file commands, validatePlan still
+//   accepts the step, and the bytes still do not move -- because the dispatch it
+//   makes is the dispatch the waist now guards.
+void popSaveWaist(const std::string& root) {
+  std::printf("\n== W8: file.save_as from a CALLER, and from the CoPilot ================\n");
+  const std::string work = root + "/work";
+  const std::string victim =
+      makeUserPart(work, "housing.fpart", "HOUSING -- RELEASED", "DO NOT DELETE");
+  const Seen before = look(victim);
+  say("housing.fpart", victim, before);
+  check(before.notes == 2 && before.features == 5,
+        "★ the victim has a shape of its own, so 'byte-identical' is not a coincidence",
+        std::to_string(before.notes) + " NOTE / " + std::to_string(before.features));
+
+  App b;
+  started(b, "a launch with its own UNTITLED part");
+  b.oneFrame();
+  checkStrEq(b.frame->documentPath(), std::string(),
+             "the document is untitled, so the victim is not its own file");
+
+  // ── the four commands, one path ─────────────────────────────────────────
+  for (const char* id : {"file.export_step", "file.export_brep", "file.export_stl",
+                         "file.save_as"}) {
+    const std::size_t seq = b.shell.documentErrorSeq();
+    const std::size_t mark = logMark(b.shell);
+    forge::ui::CommandParams params;
+    // MUTATION 11: the caller is handed a consent, so "a caller cannot replace a
+    // part" must go red. It is what proves the caller/human distinction is
+    // load-bearing rather than decorative.
+    if (g_mutation == 11) b.shell.consentToReplace(victim);
+    params.setText("path", victim);
+    const forge::ui::DispatchResult r = b.shell.run(id, params);
+    sayLog(b.shell, mark, std::string("what ") + id + " said");
+    const Seen now = look(victim);
+    std::printf("   [ask] %-18s dispatch %-7s refused=%-3s  file %s\n", id,
+                r.ok() ? "ok" : "NOT-ok", b.shell.documentErrorSeq() != seq ? "yes" : "no",
+                now.text == before.text ? "byte-identical" : "REPLACED");
+    check(b.shell.documentErrorSeq() != seq,
+          std::string("★ ") + id + ": a CALLER may not replace another user's part",
+          b.shell.lastDocumentError());
+    checkUntouched(before, now, victim,
+                   std::string("★ ") + id + ": AND IT IS BYTE-IDENTICAL AFTERWARDS");
+  }
+
+  // ── the CoPilot route, on the LIVE registry ─────────────────────────────
+  const std::vector<forge::ui::PlanTool> tools =
+      forge::ui::planTools(b.shell.registry(), b.shell.selection());
+  std::size_t fileTools = 0;
+  bool saveAsOffered = false;
+  for (const forge::ui::PlanTool& t : tools) {
+    if (t.id.rfind("file.", 0) != 0) continue;
+    ++fileTools;
+    if (t.id == "file.save_as") saveAsOffered = t.callableNow;
+  }
+  std::printf("   [plan] planTools offers %zu file.* commands; file.save_as callableNow=%s\n",
+              fileTools, saveAsOffered ? "true" : "false");
+  check(fileTools >= 9, "the planner is still offered the file commands it was",
+        std::to_string(fileTools));
+  check(saveAsOffered, "★ and file.save_as is still one of them -- nothing was hidden");
+
+  forge::ui::Plan plan;
+  forge::ui::PlanStep step;
+  step.commandId = "file.save_as";
+  step.args.push_back(forge::ui::PlanArg::str("path", victim));
+  plan.steps.push_back(step);
+  const forge::ui::OpConstraintBridge bridge;
+  const forge::ui::PlanVerdict verdict =
+      forge::ui::validatePlan(plan, b.shell.registry(), bridge);
+  std::printf("   [plan] validatePlan accepted=%s |%s|\n",
+              verdict.accepted() ? "true" : "false", verdict.explanation.c_str());
+  check(verdict.accepted(),
+        "★ validatePlan still accepts it -- the fix is at the WRITE, not the plan",
+        verdict.explanation);
+  const forge::ui::ApplyOutcome applied =
+      forge::ui::applyPlan(plan, b.shell, b.frame->document(), bridge);
+  std::printf("   [plan] applyPlan: %s\n", applied.summary().c_str());
+  check(applied.applied == 0, "★ Applied 0 of 1 step", std::to_string(applied.applied));
+  checkUntouched(before, look(victim), victim,
+                 "★ AND THE PART IS BYTE-IDENTICAL AFTER THE SHIPPING APPLY BUTTON");
+
+  // ── AND A CALLER STILL WRITES A FREE NAME ───────────────────────────────
+  // Without this, "refuse every save from a caller" would pass everything above.
+  const std::string fresh = work + "/fresh.fpart";
+  check(!std::filesystem::exists(fresh), "nothing is at fresh.fpart");
+  {
+    forge::ui::CommandParams params;
+    params.setText("path", fresh);
+    check(b.ran("file.save_as", params), "★ a caller CAN still save to a free name",
+          b.shell.lastDocumentError());
+  }
+  const Seen wrote = look(fresh);
+  say("fresh.fpart", fresh, wrote);
+  check(wrote.exists && wrote.head.rfind("FORGE-PART", 0) == 0,
+        "★ and what landed is a Forge part", wrote.head);
+  // AND SAVE BACK OVER ITSELF, which is what Save means.
+  {
+    forge::ui::CommandParams params;
+    params.setText("path", fresh);
+    check(b.ran("file.save", params), "★ and Save writes it back over its own file",
+          b.shell.lastDocumentError());
+  }
+  check(look(fresh).exists, "★ which still exists afterwards", fresh);
+
+  // ── ★ ALSO-3: A SAVE THAT WROTE NOTHING MAY NOT REPORT SUCCESS ──────────
+  // MEASURED at 646d761f: runSave set documentError_ and returned WITHOUT
+  // calling ctx.fail(), so DispatchResult::ok() was TRUE on a save whose bytes
+  // never landed. Anything that keys "did bytes land?" off dispatch status reads
+  // that as a success -- and this round added exactly such a caller, because
+  // applyPlan counts an applied step by its dispatch.
+  //
+  // The failure is induced at the HOST, not at the guard: a folder that is not
+  // there. savePartFile's atomic write cannot create its temporary, documentSave
+  // answers false, and that is the branch the missing ctx.fail() was in.
+  {
+    const std::string nowhere = work + "/no-such-folder/part.fpart";
+    check(!std::filesystem::exists(work + "/no-such-folder"),
+          "the folder really is not there", work + "/no-such-folder");
+    const std::size_t mark = logMark(b.shell);
+    forge::ui::CommandParams params;
+    params.setText("path", nowhere);
+    const forge::ui::DispatchResult failed = b.shell.run("file.save_as", params);
+    sayLog(b.shell, mark, "what a save into a missing folder said");
+    std::printf("   [ask] file.save_as into a folder that is not there -> %s\n",
+                failed.ok() ? "dispatch ok" : "dispatch not ok");
+    check(!failed.ok(),
+          "★ a save whose bytes never landed reports NOT ok -- dispatch status can be "
+          "trusted to answer 'did bytes land'",
+          forge::ui::machineName(failed.status));
+    check(!std::filesystem::exists(nowhere), "★ and nothing was created there", nowhere);
+  }
+}
+
+// ── W9 ─────────────────────────────────────────────────────────────────────
+// ALSO-2: A FAILED EXPORT MAY NOT DESTROY THE TARGET.
+//
+// MEASURED at 646d761f by making the write fail with RLIMIT_FSIZE: a
+// hand-authored 258-byte STEP was 100 BYTES afterwards, and the dispatch had
+// REFUSED (errors +1). Every geometry writer opens the target with
+// std::ios::trunc, so the file is emptied before anything can go wrong.
+//
+// Induced here WITHOUT setrlimit, which is a process-global knob this gate's
+// own scratch writing would trip: the target's PARENT is made read-only, so the
+// staging sibling cannot be created and the write fails exactly as late. What is
+// asserted is the same fact -- the user's bytes are still there.
+void popFailedExport(const std::string& root) {
+  std::printf("\n== W9: a REFUSED export leaves the target's bytes alone ================\n");
+  const std::string work = root + "/readonly";
+  std::error_code ec;
+  std::filesystem::remove_all(work, ec);
+  std::filesystem::create_directories(work, ec);
+  const std::string hand = work + "/handauthored.step";
+  const std::string handText =
+      "ISO-10303-21;\nHEADER;\n/* bracket fixture, hand-written by the shop, 2019. "
+      "DO NOT REGENERATE. */\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n";
+  check(writeWholeFile(hand, handText), "a hand-authored STEP the shop wrote");
+  const Seen before = look(hand);
+  say("handauthored.step, before", hand, before);
+
+  App b;
+  started(b, "a launch with a part to export");
+  b.oneFrame();
+  check(b.scene.lastBuild().ok(), "the part COMPILES, so the refusal below is about the WRITE",
+        b.scene.lastBuild().error);
+
+  // MUTATION 12: the folder is left writable, so the export SUCCEEDS and the
+  // "it was refused" and "the bytes survived" checks both go red -- which is what
+  // stops this population passing on a Forge that never attempted the write.
+  if (g_mutation != 12) {
+    std::filesystem::permissions(work, std::filesystem::perms::owner_read |
+                                           std::filesystem::perms::owner_exec,
+                                 std::filesystem::perm_options::replace, ec);
+    std::printf("   [setup] the folder is read-only now (%s)\n",
+                ec ? ec.message().c_str() : "ok");
+  }
+
+  const std::size_t errorsBefore = b.errors();
+  const std::size_t mark = logMark(b.shell);
+  forge::ui::CommandParams params;
+  params.setText("path", hand);
+  const forge::ui::DispatchResult r = b.shell.run("file.export_step", params);
+  sayLog(b.shell, mark, "what the export said");
+  std::printf("   [ask] file.export_step -> %s  errors +%zu  |%s|\n",
+              r.ok() ? "dispatch ok" : "dispatch not ok", b.errors() - errorsBefore,
+              b.shell.lastDocumentError().c_str());
+
+  // Restore before reading, so the read itself cannot be the thing that fails.
+  std::filesystem::permissions(work,
+                               std::filesystem::perms::owner_read |
+                                   std::filesystem::perms::owner_write |
+                                   std::filesystem::perms::owner_exec,
+                               std::filesystem::perm_options::replace, ec);
+  const Seen after = look(hand);
+  say("handauthored.step, after", hand, after);
+  check(!r.ok(), "★ the export REFUSED", forge::ui::machineName(r.status));
+  check(after.text == before.text,
+        "★ AND THE HAND-AUTHORED FILE IS BYTE-IDENTICAL -- a refusal destroys nothing",
+        std::to_string(before.bytes) + " B -> " + std::to_string(after.bytes) + " B");
+  check(!std::filesystem::exists(hand + ".forge-tmp", ec),
+        "★ and no staging sibling is left beside it", hand + ".forge-tmp");
+}
+
 // ── W5 ─────────────────────────────────────────────────────────────────────
 // THE NEGATIVE CONTROL: the native panel route, which was already safe. A guard
 // that fired here would break the one route a macOS user actually takes.
@@ -806,8 +1525,9 @@ void popNativePanel(const std::string& root) {
 }  // namespace
 
 // Every population, one per process. See the file header for why.
-const char* const kPopulations[] = {"typed-box", "typed-path", "renamed", "allows",
-                                    "native-panel"};
+const char* const kPopulations[] = {"typed-box",   "typed-path",  "renamed",
+                                    "allows",      "native-panel", "occupied",
+                                    "bound-input", "save-waist",  "failed-export"};
 
 // ── THE SELF-EXEC LOOP ─────────────────────────────────────────────────────
 // fork + execv + waitpid, and the status is read FROM THE PROCESS. A system()
@@ -884,6 +1604,26 @@ int main(int argc, char** argv) {
   //      never replaced and "re-exporting REPLACED it" goes red.
   //   6  W1 skips the Manufacturing panels, so hasMachineProgram() is false,
   //      file.export_gcode's box never opens and `walked == 4` goes red.
+  //   7  W6's two parts are made the SAME SHAPE, so "replaced" and "untouched"
+  //      are the same bytes and the byte-identical checks cannot tell them
+  //      apart. It is this gate's own note-on-method as a mutation: the
+  //      reproduce phase's first control was degenerate for exactly this reason
+  //      and printed NOT-REPRO for the wrong one.
+  //   8  W6 never presses Run. "The other part is byte-identical" is true of a
+  //      Forge that wrote nothing, so what goes red is "the part WAS saved, at
+  //      the free name the box offered" -- the check that tells a fix from a
+  //      Save As that silently does nothing. MEASURED: against the first version
+  //      of W6, which lacked that check, this mutation STAYED GREEN.
+  //   9  W6's Replace answer is recorded for a DIFFERENT path, so the consent
+  //      can never match the file being written and "a person CAN still replace
+  //      an old part" goes red -- which proves the consent is PATH-SCOPED.
+  //  10  W7 is handed an EMPTY binding list -- T-127's blindness restored at the
+  //      one line that removed it. Its bound checks go red and NOTHING ELSE
+  //      does, which is what proves they measure the BINDING, not occupancy.
+  //  11  W8's caller route is handed a consent, so "a caller may not replace
+  //      another user's part" goes red -- the caller/human distinction.
+  //  12  W9 leaves the folder writable, so the export succeeds and both "it
+  //      refused" and "the bytes survived" go red.
   if (population.empty()) return runEveryPopulation(argv[0], g_mutation);
 
   const char* tmp = std::getenv("TMPDIR");
@@ -925,6 +1665,14 @@ int main(int argc, char** argv) {
     popAllows(root);
   } else if (population == "native-panel") {
     popNativePanel(root);
+  } else if (population == "occupied") {
+    popOccupied(root);
+  } else if (population == "bound-input") {
+    popBoundInput(root);
+  } else if (population == "save-waist") {
+    popSaveWaist(root);
+  } else if (population == "failed-export") {
+    popFailedExport(root);
   } else {
     std::printf("[gate] unknown population '%s'\n", population.c_str());
     return 2;

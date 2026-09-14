@@ -78,6 +78,8 @@ class FakeHost final : public DocumentHost {
   std::size_t documentRedoDepth() const override { return 0; }
   bool documentDirty() const override { return true; }
   std::string documentPath() const override { return path; }
+  // ★ T-127: this host does no I/O and binds nothing, and says so explicitly.
+  std::vector<std::string> documentBoundFiles() const override { return {}; }
 };
 
 CommandParams withPath(const std::string& p) {

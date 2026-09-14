@@ -209,6 +209,10 @@ class RecordingExchange final : public forge::ui::FileExchange {
   // called by the document open, which restores a binding the file already
   // states. A counter here would be a field nobody reads.
   void bindInputFile(const std::string& path) override { inner_.bindInputFile(path); }
+  // ★ T-127: forwarded to the real host, so the wrapper cannot answer "this part
+  //   reads nothing" for a document that reads something -- which is the exact
+  //   blindness the pure virtual exists to remove.
+  std::string inputFile() const override { return inner_.inputFile(); }
 
   std::string lastImportPath;
   std::string lastExportPath;
@@ -825,7 +829,8 @@ int main(int argc, char** argv) {
 
       forge::desktop::FileDialogRequest req;
       check(forge::desktop::fileDialogRequestFor("file.export_step",
-                                                 frame.pathSeedFor("file.export_step"), req),
+                                                 frame.pathSeedFor("file.export_step"),
+                                                 frame.seedContext(), req),
             "the export panel has a request to build");
       std::printf("  [seed] Save a Copy as STEP would open on: %s\n", req.suggestedPath.c_str());
       check(req.suggestedPath != plantedOne && req.suggestedPath != plantedTwo,

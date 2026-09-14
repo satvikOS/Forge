@@ -129,6 +129,20 @@ enum class ExchangeRefusal : std::uint8_t {
   // straight through the CannotWrite check above, and the STEP writer truncated
   // a user's document to 53903 bytes of ISO-10303-21 with errors +0.
   TargetIsDocument,
+  // ── ★ THE TARGET IS THE FILE THIS DOCUMENT READS (T-127) ────────────────
+  // APPENDED, never inserted. The EIGHTH shape of this family, and it is not
+  // TargetIsDocument: the file is not a Forge part and it is not the document's
+  // own .fpart, so neither of T-123's two clauses could see it. It is the STEP
+  // (or BREP, or STL) the open part was imported from, which `INPUT()` reads on
+  // every rebuild -- so a copy written over it does not merely destroy a file,
+  // it changes the part that is saving it. MEASURED at 646d761f: one Run took
+  // bracket.step from 53903 bytes / 1991 entity lines to 49327 / 1751, errors +0.
+  //
+  // Its own value because the REMEDY is different from TargetIsDocument's: there
+  // is no "use Save instead" here. The answer is a different name, and the
+  // sentence has to say what the file IS, or the user reads it as Forge being
+  // fussy about a .step file it wrote itself.
+  TargetIsBound,
 };
 
 inline constexpr ExchangeRefusal kAllExchangeRefusals[] = {
@@ -139,9 +153,10 @@ inline constexpr ExchangeRefusal kAllExchangeRefusals[] = {
     ExchangeRefusal::NoSolid,      ExchangeRefusal::BuildFailed,
     ExchangeRefusal::WriteFailed,  ExchangeRefusal::NotPlaced,
     ExchangeRefusal::Truncated,    ExchangeRefusal::TargetIsDocument,
+    ExchangeRefusal::TargetIsBound,
 };
 static_assert(std::size(kAllExchangeRefusals) ==
-                  static_cast<std::size_t>(ExchangeRefusal::TargetIsDocument) + 1,
+                  static_cast<std::size_t>(ExchangeRefusal::TargetIsBound) + 1,
               "kAllExchangeRefusals must list EVERY ExchangeRefusal: the prose gate "
               "walks it, and a value missing from it is a sentence nobody checked.");
 
@@ -232,6 +247,24 @@ class FileExchange {
   // `path` may be "": a document that binds no input file clears the binding, so
   // an earlier import cannot follow the next document opened in this session.
   virtual void bindInputFile(const std::string& path) = 0;
+
+  // ── ★ AND THE SAME FACT, READABLE (T-127) ───────────────────────────────
+  // The file `bindInputFile` last bound, or "" when none is. It is the answer to
+  // "which file does the open part READ", and until this line the interface had
+  // no way to ask: bindInputFile() was declared directly above and the class
+  // ENDED, a setter with no getter. FileExchangeHost has held the value in
+  // inputFile_ the whole time; nothing one layer up could reach it, so the guard
+  // that judges an export's target could not see the one binding that mattered
+  // and the export replaced the file the document was built from.
+  //
+  // A SETTER WITH NO GETTER IS A FACT THE PROCESS OWNS AND CANNOT CONSULT, and
+  // that is the general form of the defect, not an accident of this class.
+  //
+  // PURE, not a defaulted "": a default would answer "this part reads nothing"
+  // for every implementation that forgot to override it -- which is exactly the
+  // blindness this line removes, reintroduced silently and in a place no gate
+  // would look.
+  virtual std::string inputFile() const = 0;
 };
 
 }  // namespace forge::ui

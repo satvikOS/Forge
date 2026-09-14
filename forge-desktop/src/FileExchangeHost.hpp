@@ -113,8 +113,15 @@ class FileExchangeHost final : public forge::ui::FileExchange {
   // set only one of them is the half fix that header describes.
   void bindInputFile(const std::string& path) override;
 
-  // The file the document's `INPUT()` currently binds; "" when none does.
-  const std::string& inputFile() const noexcept { return inputFile_; }
+  // ── ★ THE GETTER THE INTERFACE NEVER HAD (T-127) ────────────────────────
+  // The value has been here the whole time; `forge::ui::FileExchange` declared
+  // bindInputFile() and ended, so nothing one layer up could read it -- and the
+  // guard that judges an export's target lives one layer up. It is an OVERRIDE
+  // now, so the binding is reachable through the interface every caller holds.
+  //
+  // Returns by VALUE rather than by const reference, because the interface must
+  // allow an implementation whose binding is not a stored std::string.
+  std::string inputFile() const override { return inputFile_; }
 
   // ── a TEST seam, and only a test seam ───────────────────────────────────
   // Corrupts the NEXT successful write: the bytes are written and then damaged

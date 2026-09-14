@@ -104,6 +104,9 @@ class TestDocumentHost final : public DocumentHost {
   // witness taken from the document, not a flag somebody has to remember to set.
   bool documentDirty() const override { return doc_.records().size() != savedRecords_; }
   std::string documentPath() const override { return path_; }
+  // ★ T-127: the headless equivalent of ForgeFrame binds no input file, and a
+  //   host that binds nothing has to SAY it rather than inherit a default.
+  std::vector<std::string> documentBoundFiles() const override { return {}; }
 
   std::size_t changes() const noexcept { return changes_; }
   const std::string& seenProgram() const noexcept { return seenProgram_; }

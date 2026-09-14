@@ -8,10 +8,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <fstream>
 #include <ios>
 #include <iterator>
 #include <string>
+#include <system_error>
 #include <vector>
 
 #include "KernelScene.hpp"
@@ -672,6 +674,25 @@ bool FileExchangeHost::exportFile(const std::string& path, ExchangeFormat format
     }
   }
 
+  // ── ★★ A FAILED EXPORT MAY NOT DESTROY THE TARGET (ALSO-2) ──────────────
+  // MEASURED at 646d761f, with the write made to fail by RLIMIT_FSIZE: a
+  // hand-authored 258-byte STEP was 100 bytes AFTERWARDS, and the dispatch
+  // REFUSED (errors +1). Every geometry writer opens the target with
+  // std::ios::trunc -- forge::io::spillFile, writeStlFromTessellation, and OCCT's
+  // BRepTools::Write -- so the file is emptied before anything can go wrong, and
+  // a refusal destroys the user's file just as thoroughly as a success does.
+  //
+  // The contrast was measured on the same harness: runSave's temp+fsync+rename
+  // left its .fpart BYTE-IDENTICAL at 648 bytes through the identical failure.
+  // Atomic for the file the user DID name, truncate-at-open for the file they did
+  // NOT, is the asymmetry this removes.
+  //
+  // ONE PLACE: writeShape() has one caller and all three formats funnel through
+  // it, so the staging sibling is written here rather than in the kernel -- whose
+  // writers the Electron app shares and whose blast radius is a second product.
+  // The suffix matches savePartFile's own, so a leftover temporary is the same
+  // recognisable thing wherever it comes from.
+  const std::string staging = path + ".forge-tmp";
   bool wrote = false;
   try {
     // The one mutation that swaps the WRITER rather than the shape: STL back
@@ -679,18 +700,31 @@ bool FileExchangeHost::exportFile(const std::string& path, ExchangeFormat format
     // write an STL at all. It throws for every OCCT-backed body, so the export
     // must refuse and every STL check must go red.
     wrote = (mutation_ == WriteMutation::StlThroughNativeWriter && format == ExchangeFormat::Stl)
-                ? forge::io::exportStl(toWrite, path)
-                : writeShape(toWrite, path, format);
+                ? forge::io::exportStl(toWrite, staging)
+                : writeShape(toWrite, staging, format);
   } catch (...) {
     wrote = false;
   }
+  if (wrote && (mutation_ == WriteMutation::Truncate ||
+                mutation_ == WriteMutation::EmptyFile ||
+                mutation_ == WriteMutation::ZeroBody)) {
+    // The damage is applied to the STAGING file, so the round-trip gate still
+    // reads damaged bytes at `path` after the rename -- the mutation measures
+    // what it always measured, through one more step.
+    damageFile(staging, mutation_);
+  }
+  if (wrote) {
+    std::error_code ec;
+    std::filesystem::rename(staging, path, ec);
+    if (ec) wrote = false;
+  }
   if (!wrote) {
+    // The staging file is removed on EVERY failure path, so a refused export
+    // leaves nothing beside the user's file either.
+    std::error_code ec;
+    std::filesystem::remove(staging, ec);
     refuse(report, ExchangeRefusal::WriteFailed, format, path);
     return false;
-  }
-  if (mutation_ == WriteMutation::Truncate || mutation_ == WriteMutation::EmptyFile ||
-      mutation_ == WriteMutation::ZeroBody) {
-    damageFile(path, mutation_);
   }
 
   // ── the report describes THE DOCUMENT, not the bytes ────────────────────
