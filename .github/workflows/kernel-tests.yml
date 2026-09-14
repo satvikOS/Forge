@@ -1483,13 +1483,18 @@ jobs:
     # figure is DERIVED from run_desktop.sh's own run_gate lines, so it will keep
     # climbing every time a gate earns its place, which is the intended direction.
     #
-    # ★ I CANNOT CLAIM A HEADROOM MULTIPLE HERE AND I AM NOT GOING TO INVENT ONE.
-    #   The job has never been allowed to FINISH at the current size, so its true
-    #   cold-cache duration on this runner is unknown; 30 minutes is only a lower
-    #   bound. On an M4 Max the same suite is ~12.6 min warm. 75 matches the
-    #   heaviest sibling in this file (the OCCT kernel smoke) and is a ceiling, not
-    #   a budget. THE NEXT GREEN RUN MEASURES IT -- replace this paragraph with the
-    #   number when it does, the way the note it replaced did.
+    # ★ AND HERE IS THE NUMBER, measured on the first green run at this ceiling
+    #   (a927a3ee): the JOB ran 04:35:30 -> 05:04:58 = 29 min 28 s, of which the
+    #   gates step itself was 04:40:50 -> 05:04:51 = 24 min 01 s. So the old
+    #   ceiling of 30 was not merely tight, it was INSIDE the noise band of the
+    #   real cost -- the run it cancelled was going to need about half a minute
+    #   more than it was given, and the next gate added would have pushed it over
+    #   again regardless. 75 is 2.5x the measured job, which is headroom for a
+    #   contended runner without being a licence to hang.
+    #
+    #   For comparison the same suite is ~12.6 min warm on an M4 Max, so this
+    #   runner costs roughly 2.3x local. Keep that ratio in mind before trusting a
+    #   local timing to predict CI.
     #
     # IF THIS IS RAISED AGAIN, raise the question instead: a suite whose runtime
     # grows linearly in gates will outrun any ceiling. Splitting the job or running
