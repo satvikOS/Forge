@@ -1467,11 +1467,35 @@ jobs:
     # compiles on the image the release compiles on: a bottle or toolchain change
     # that breaks the release build turns a PR red instead of a tag.
     #
-    # timeout: 30, against a MEASURED 4 min 29 s on a cold cache -- 6.7x headroom
-    # for a slow bottle mirror or a contended runner. A ceiling is not a budget:
-    # set generously enough that a slow day is not a false red, tight enough
-    # that a hung build is killed rather than billed.
-    timeout-minutes: 30
+    # timeout: 30 -> 75, because THE SUITE OUTGREW ITS CEILING AND CANCELLED THE
+    # TIP. The note this replaces read "timeout: 30, against a MEASURED 4 min 29 s
+    # on a cold cache -- 6.7x headroom", and that was true when it was written.
+    #
+    # MEASURED on b2eacda4: the gates step ran 03:56:31 -> 04:26:51 and GitHub
+    # cancelled it at exactly thirty minutes, with the other TEN jobs of that run
+    # green. A cancelled check is not a pass, so the tip carried a desktop verdict
+    # nobody had.
+    #
+    # WHAT GREW, and it is not a slow runner: this job spawns one gate BINARY per
+    # mutation, and the count moved 143 -> 150 -> 164 -> 169 -> 173 -> 185 -> 188
+    # in a single day as gates were added (render 7, import_reopen 15,
+    # camera_stability 7, quit_guard 19, write_target 15, save_target 7...). The
+    # figure is DERIVED from run_desktop.sh's own run_gate lines, so it will keep
+    # climbing every time a gate earns its place, which is the intended direction.
+    #
+    # ★ I CANNOT CLAIM A HEADROOM MULTIPLE HERE AND I AM NOT GOING TO INVENT ONE.
+    #   The job has never been allowed to FINISH at the current size, so its true
+    #   cold-cache duration on this runner is unknown; 30 minutes is only a lower
+    #   bound. On an M4 Max the same suite is ~12.6 min warm. 75 matches the
+    #   heaviest sibling in this file (the OCCT kernel smoke) and is a ceiling, not
+    #   a budget. THE NEXT GREEN RUN MEASURES IT -- replace this paragraph with the
+    #   number when it does, the way the note it replaced did.
+    #
+    # IF THIS IS RAISED AGAIN, raise the question instead: a suite whose runtime
+    # grows linearly in gates will outrun any ceiling. Splitting the job or running
+    # mutations in parallel is the real answer, and is deliberately NOT done here
+    # because a red tip is not the place to redesign the harness.
+    timeout-minutes: 75
     env:
       CCACHE_DIR: /Users/runner/.ccache
       # CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the identically
