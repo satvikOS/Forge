@@ -1,98 +1,111 @@
-# tools/knowing_train — train ONE checkpoint on `knowing_v1` and score it honestly
+# knowing_train — one checkpoint on the knowing_v1 corpus, scored against a box
 
-Four files, in the order they run:
+Four files, in the order they run.
 
 | file | what it is |
 |---|---|
-| `knowing_v1_lora.yaml` | the configuration, declarative, with the reason beside every value |
-| `launch_vlm_expert_lora.py` | the trainer launcher: `mlx_vlm.lora` plus four patches, each paid for by a measured failure |
-| `train_knowing_v1.sh` | the restartable runner: LAW 8, LAW 7, Guardian registration, resume, checkpoint pruning |
-| `prove_adapter_loaded.py` | four checks that the adapter is on the compute path, before anything is scored |
-| `score_knowing_v1.sh` | proof → all 41 holdout rows → re-score the incumbent under the same pin → compare |
-| `compare_arms.py` | paired, per-family, with an interval clustered on families |
+| `knowing_v1_lora.yaml` | the training configuration, with a reason beside every field |
+| `launch_vlm_expert_lora.py` | `mlx_vlm.lora` + three patches it cannot run without here |
+| `train_knowing_v1.sh` | the restartable runner: LAW 8, LAW 7, resume, checkpoint pruning |
+| `prove_adapter_loaded.py` | four independent checks that the adapter is on the compute path |
+| `compare_arms.py` | paired, per-family comparison with a family-clustered interval |
+| `score_knowing_v1.sh` | proof → sweep → re-score the incumbent → compare |
+| `PROBE.md` | the 40-iteration sizing probe, and what it caught |
 
-Everything runs against `/Users/account_clawteam1/archdisc-Models` (the model repo);
-these scripts live here because this is the repo the work is committed to.
+## Run it
 
----
+```sh
+# 1. train (restartable; retries by itself, resumes from the newest checkpoint)
+bash tools/knowing_train/train_knowing_v1.sh 8000
 
-## The four patches in the launcher, and what each one cost before it existed
+# 2. prove + score + compare
+bash tools/knowing_train/score_knowing_v1.sh adapters/archie-30b-knowing-v1
+```
 
-**1. Eager multimodal RoPE.** mlx_vlm 0.6.2's fused MRoPE is a `mx.fast.metal_kernel`
-— a `CustomKernel` with no registered vjp — and it sits on the LoRA gradient path.
-Without forcing `rope_utils._HAS_METAL = False` the backward pass dies with
-`ValueError: [Primitive::vjp] Not implemented for CustomKernel`. Inherited from
-`scripts/lora_eager_rope.py`, unchanged.
+**Copy these two files somewhere immutable before launching a long run and launch from
+the copy.** Bash reads a script incrementally, at command boundaries, so editing the file
+a supervisor is executing changes what it does next — invariant 8 in `CLAUDE.md`, and it
+happened here mid-run.
 
-**2. Expert LoRA on the RESUME path, not only the fresh one.** 89% of this model's
-bytes are `QuantizedSwitchLinear` experts. `lora_eager_rope.py` patches the fresh path
-(`_apply_language_lora_layers`). The resume path is `_apply_lora_layers → _to_lora`,
-which *raises* on a switch layer, so a resumed run either dies or drops every expert
-tensor — the v4a defect, composite 0.0210 against a 0.3174 baseline, nearly recorded as
-"expert LoRA does not work".
+## The three things that make this different from a plain `mlx_vlm.lora` invocation
 
-**3. Freeze before a resumed apply.** `setup_model_for_training` freezes the towers only
-on the fresh branch. Its resume branch freezes *nothing*. Measured here: a resumed run
-printed `#trainable params: 657.691888 M || trainable% 9.951%` against the fresh run's
-`118.849536 M || 1.798%`, and the adapter came back carrying 544 extra non-LoRA tensors
-— the layer norms and the entire vision tower, trained by accident. The launcher now
-freezes first and then **refuses to start** if the trainable count is not LoRA-sized.
+1. **Eager multimodal RoPE.** The fused MRoPE is a `mx.fast.metal_kernel` — a
+   `CustomKernel` with no registered vjp — and it sits on the LoRA gradient path.
+   Backward dies with `[Primitive::vjp] Not implemented for CustomKernel` without it.
 
-*A second lesson from the same bug:* the first version of that patch was applied to
-`mlx_vlm.lora.apply_lora_layers` and silently did nothing, because this launcher hands
-argv to `runpy.run_module("mlx_vlm.lora", run_name="__main__")`, which re-executes the
-module and rebinds every name it imported. Patch `trainer.utils`, not `lora`.
+2. **Expert LoRA on the resume path as well as the fresh one.** 89% of this model's bytes
+   are `QuantizedSwitchLinear` experts that mlx_vlm cannot see. `lora_eager_rope.py` in
+   the model repo patches the fresh path only; a resumed run drops every expert tensor,
+   which is the exact shape of the defect that produced composite 0.0210 against a 0.3174
+   baseline and was nearly recorded as "expert LoRA does not work".
 
-**4. Guardian's politest signal is the one that kills.**
+3. **Freeze before resume.** mlx_vlm freezes the towers only on the fresh branch. Its
+   resume branch trains the layer norms and the whole vision tower — measured here as
+   657.7 M trainable parameters against the correct 118.8 M, and a saved adapter carrying
+   544 tensors that do not belong to it. The launcher freezes first and then *refuses to
+   train* above a LoRA-sized parameter ceiling.
+
+## Sharing a 36 GB box
+
+Two 30B jobs do not fit. When they collide the failure is not "slower": both processes
+enter uninterruptible wait at 0% CPU and **neither** progresses — measured, 37 s of CPU
+in 9 minutes — and one of them eventually dies with
+`kIOGPUCommandBufferCallbackErrorOutOfMemory`.
+
+`wait_for_box` therefore waits on three things, and each pattern is there because a
+simpler one failed:
+
+* the known trainer/scorer scripts by name — but *a list of script names is not a list of
+  jobs*; a sibling agent's `scratchpad/attack/obedience_probe.py` matched nothing;
+* any **python** process with the base model path on its command line — the process name
+  matters, because `pgrep -f` also matches an observer shell that merely greps for that
+  string, and a guard that counts observers waits for ever;
+* **free memory percentage and swap *growth***, never absolute swap. `vm.swapusage used`
+  is unusable as a readiness signal on macOS: with 4.5 GB of total RSS on the box it
+  still read ~14 GB, and successive samples went 13163M → 14945M → 13674M while the
+  machine was idle, because the swap file is reclaimed lazily. Rising swap means someone
+  is allocating; a high flat level means nothing.
+
+Checkpoints are written every 125 iterations (~6.7 min) rather than every 250, because
+the collision rate sets the cadence: an attempt that dies before its first checkpoint
+loses everything, and three attempts in a row did exactly that.
+
+## Guardian: the politest signal in the system is the one that kills
+
+Registration is not etiquette. Guardian sheds **only registered jobs**, so an
+unregistered 25 GB trainer is simultaneously invisible to the shedder *and* the pressure
+that starves every process politely waiting on `forge-gate`. This run registers.
+
+But registering through `forge-job` is, today, a way to be killed. The evidence is one
+second wide:
 
 ```
 guardian.log  17:31:57  shed sig=USR1 -> job='knowing-v1-lora' pid=78851
-train log     17:31:57  ATTEMPT_DONE rc=158            # 158 = 128 + SIGUSR1(30)
+train log     17:31:57  ATTEMPT_DONE rc=158              # 158 = 128 + SIGUSR1(30)
 ```
 
-Guardian's stage-1 shed is cooperative — its own source says *"SIGUSR1 means checkpoint
-now and reduce your footprint"* — but `forge-job` traps only `EXIT INT TERM`
-(`grep -n USR1 ~/.local/bin/forge-job` finds nothing), so its zsh wrapper takes the
-default disposition and dies, taking the job with it before its first checkpoint. Every
-job registered through that wrapper has this property.
+Guardian's stage-1 shed is **cooperative** — its own source says *"SIGUSR1 means
+checkpoint now and reduce your footprint"* — but `forge-job` traps only `EXIT INT TERM`
+(`grep -n USR1 ~/.local/bin/forge-job` finds nothing), so its zsh wrapper takes SIGUSR1's
+default disposition, terminates, and takes the job with it *before its first checkpoint*.
+Every job registered through that wrapper inherits this. `guardian.log` shows the same
+shape for `kernel-core`, `desktop-gates` and `measure-red`: a stage-1 USR1, then the same
+job name reappearing under a different pid.
 
-The launcher therefore handles `SIGUSR1` by doing what it asks — atomic save, then
-`mx.clear_cache()`, then **continue** — and `SIGTERM` by saving and exiting 143. The
-runner registers the *Python* pid rather than a shell wrapper's, so the signal reaches
-the process that can honour it. The shared wrapper is not edited: other agents' jobs are
-running under it, and editing a live script is a hard invariant here.
+The two halves of the fix here, neither of which edits the shared wrapper (other agents'
+jobs are running under it, and editing a live script is invariant 8):
 
----
+* **`launch_vlm_expert_lora.py`** installs a `SIGUSR1` handler that does what Guardian
+  asks — atomic save of the adapter, `mx.clear_cache()` — and then **continues**. Stage 1
+  is a request, not an eviction. `SIGTERM` (stage 3) saves and exits 143.
+* **`train_knowing_v1.sh`** calls `forge-gate --need orange --wait 900` for admission,
+  exactly as `forge-job` does, then writes the job envelope itself with the **Python**
+  pid rather than a shell wrapper's, and removes it on every exit path including a trap.
+  The signal now reaches a process that can honour it.
 
-## Two guards in the runner that are wrong in the obvious form
+`--need orange`, not green: a job that loads an 18 GB model will never see green on this
+box, and waiting for green is waiting for a condition the job itself prevents.
 
-**LAW 7 cannot be a list of script names.** A sibling agent ran its own inference against
-the same base model from a scratchpad script this guard had never heard of. Two 18 GB
-models on a 36 GB box put *both* processes into uninterruptible wait at 0% CPU — not
-"slower", stopped — and one trainer died of
-`kIOGPUCommandBufferCallbackErrorOutOfMemory`. The guard now also matches **the base
-model path**, which is the thing every such job has in common.
-
-**Readiness cannot be absolute `vm.swapusage used`.** That was the first version and it
-is unreachable on this machine: total RSS across every process was 4.5 GB while swap
-still reported ~14 GB used, because macOS counts pages *written* to the swap file and
-reclaims them lazily. Successive samples read 13163M, 14945M, 13674M, 13866M — rising
-while the box was idle. Waiting for 4500M there is waiting for ever. The guard now uses
-free-memory percentage plus swap **growth** over a 20 s window, because growth tracks
-current demand and level does not.
-
----
-
-## What the scoring path refuses to do
-
-* Score anything before the adapter-loaded proof passes.
-* Report a prefix. The holdout is sorted hardest-first — a prefix reads 0.2423 where the
-  full set reads 0.3617 — so only all-41 runs are reported.
-* Quote a floor without its n. A re-pin moved floor coverage 34 → 19 of 41 while the
-  value moved only 0.4310 → 0.4281; a floor without its n has already produced one wrong
-  conclusion here.
-* Compare arms measured by different kernels. The incumbent's published 0.2394 was
-  measured by verifier `45e9ad9a`, which fabricates geometry for unknown ops. Its
-  persisted IR is re-scored under the current pin instead.
-* Report a difference without an interval clustered on **families**. Three `ball_knob`s
-  are one draw of a difficulty, not three.
+The one-line fix for everybody else lives in `forge-job`, not here: trap `USR1` and
+forward it to the child, or at minimum `trap "" USR1` so the cooperative signal stops
+being fatal.
