@@ -82,6 +82,7 @@
 #include <TColStd_Array1OfReal.hxx>
 #include <TColStd_Array2OfReal.hxx>
 #include <TColgp_Array2OfPnt.hxx>
+#include <BRep_Builder.hxx>
 #include <TopoDS_Shell.hxx>
 #include <gp_Lin.hxx>
 #include <BRepGProp.hxx>
@@ -1108,9 +1109,47 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
         }
     }
     if (coplanar) {
+        // ── A COMPOUND IS NOT A DIFFERENT GEOMETRY, IT IS A WRAPPER ───────────
+        // forge::occtPrism refuses TopAbs_COMPOUND, and this line used to hand it
+        // the RAW INPUT rather than the faces it had just validated above. Every
+        // OCCT boolean returns its result as a compound, so thickening the direct
+        // output of a cut — a plate with a bore, the most ordinary sheet-metal
+        // input there is — declined with "coplanar path: the shell prism failed"
+        // while the IDENTICAL face unwrapped answered exactly.
+        //
+        // MEASURED, on a 200x200x1 plate cut by a r=40 bore
+        // (forge-kernel/test/thicken_compound_input_gate.cpp, both arms in one run):
+        //   the bottom face, bare                 OK   34973.451754256
+        //   the same face in a 1-child COMPOUND   DECLINED  <- the defect
+        //   the same face in a SHELL              OK   34973.451754256
+        // against the closed form (L^2 - pi r^2) t = 34973.451754256, matched to
+        // 2.08e-16 relative. So the geometry was always right; only the wrapper
+        // was fatal.
+        //
+        // WHY THIS IS SAFE RATHER THAN CLEVER: the faces vector is the output of
+        // the Geom_Plane validation loop above, every member is already known
+        // planar and coplanar, and a shell of coplanar faces is what PATH A has
+        // always been given when the caller happened to pass a TopoDS_Shell. The
+        // branch is taken ONLY for TopAbs_COMPOUND, so no input that works today
+        // takes a different path or gets a different answer. It is a widening of
+        // what is accepted, never a change to what is returned.
+        //
+        // Before family I this gap was invisible: thickenSurface fell through to
+        // BRepOffset_MakeOffset, which answered all three forms. With that engine
+        // deleted, a decline here is a hard THROW — so the deletion is what made
+        // a latent engine gap user-visible, and it is closed here rather than
+        // documented.
+        TopoDS_Shape prismInput = shell;
+        if (shell.ShapeType() == TopAbs_COMPOUND) {
+            TopoDS_Shell asShell;
+            BRep_Builder bb;
+            bb.MakeShell(asShell);
+            for (const TopoDS_Face& f : faces) bb.Add(asShell, f);
+            prismInput = asShell;
+        }
         TopoDS_Shape swept;
         try {
-            swept = ::forge::occtPrism(shell, gp_Vec(N[0]) * (sgn * r), /*canonize=*/true);
+            swept = ::forge::occtPrism(prismInput, gp_Vec(N[0]) * (sgn * r), /*canonize=*/true);
         } catch (const std::exception&) {
             return defer("coplanar path: the shell prism failed");
         }
