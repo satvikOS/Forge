@@ -56,6 +56,7 @@
 #include <future>                               // OCCT-fillet watchdog (packaged_task)
 #include <map>                                  // canonical edge ordering
 #include <memory>
+#include <string>                                // offsetSolid: the named-refusal message
 #include <mutex>                                // OCCT-fillet cumulative budget guard
 #include <thread>                               // OCCT-fillet watchdog worker
 #include <unordered_map>                        // edge->faces map
@@ -90,7 +91,6 @@
 #endif
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
-#include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
 // The OCCT thicken baseline (the WHOLE block FORGE_THICKEN_DROP_NATIVE deletes,
 // call AND normalisation) and the orientation post-condition BOTH engines are held
 // to. Defined in a header so the corpus A/B calls the SAME code this does instead
@@ -99,10 +99,6 @@
 // build, so this include is unconditional and the post-condition survives the flag.
 #include "forge/OcctThickenBaseline.hpp"
 #include <BRepOffset.hxx>
-#include <BRepOffset_Mode.hxx>                  // BRepOffset_Skin
-#include <BRepBuilderAPI_MakeSolid.hxx>         // wrap the OCCT offset shell into a solid
-#include <TopoDS_Shell.hxx>
-#include <GeomAbs_JoinType.hxx>
 #include <GeomAbs_Shape.hxx>                 // helixWire: GeomAbs_C1 for BuildCurves3d
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -1340,32 +1336,105 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
 // Move Face > Offset all, Fusion Offset Faces (whole body), NX Offset Region):
 // slide EVERY boundary face along its OWN outward normal by the signed
 // `distance` and re-trim adjacent faces to their new mutual intersections. A box
-// L grown by d becomes L+2d about its centre; shrunk by d becomes L-2d. This is
-// OCCT's BRepOffsetAPI_MakeOffsetShape (BRepOffset_Skin, sharp/Intersection join)
-// — DISTINCT from `shell` (MakeThickSolidByJoin, which HOLLOWS to a wall) and
-// from `thickenSurface` (skins an OPEN shell).
+// L grown by d becomes L+2d about its centre; shrunk by d becomes L-2d. It is
+// the SHARP (intersection) join, and it is DISTINCT from `shell` — which HOLLOWS
+// a solid to a wall — and from `thickenSurface`, which skins an OPEN shell.
 //
-// NATIVE ROUTE (FORGE_NATIVE_BREP + runtime gate): when the input is an analytic
-// NativeSolid whose faces are ALL PLANAR (box, prism, wedge, pyramid — a convex
-// polyhedron), route to the OCCT-FREE analytic offsetSolidShape and return a real
-// analytic NativeSolid (EXACT offset volume + centroid, watertight). We GATE to
-// PLANAR faces on purpose: the analytic planar 3-plane corner meet is exact
-// (A/B == OCCT to machine epsilon in volume AND position), whereas the native
-// QUADRIC (cylinder/cone/sphere) offset — though volume-exact — currently mis-
-// places the offset body along its axis (a centroid/placement discrepancy vs
-// OCCT), so a curved-face solid is HONESTLY DEFERRED to OCCT rather than shipped
-// as a wrong (mispositioned) shape. offsetSolidShape ALSO self-defers (ok=false)
-// on a shrink that would collapse the solid or a re-trim that fails to close; any
-// such case FALLS THROUGH to the byte-for-byte-unchanged OCCT path below.
+// ───────── TKOffset FAMILY H: THERE IS NO OCCT OFFSET IN HERE ANY MORE ───────
+// BRepOffsetAPI_MakeOffsetShape, its PerformByJoin call and the shell->solid
+// wrap-up that followed it are DELETED, not flag-disabled. A compile-time switch
+// that merely stops TAKING a branch leaves that branch's symbols in the object
+// file and the toolkit on the link line; the symbols leave when the CODE leaves.
+//
+// WHAT THIS DELETION ACTUALLY REMOVES, measured with `nm -u | c++filt` on
+// Features.cpp.o built in the ship configuration:
+//     BRepOffsetAPI_MakeOffsetShape::BRepOffsetAPI_MakeOffsetShape()
+//     BRepOffsetAPI_MakeOffsetShape::PerformByJoin(...)
+// — 2 of the 42 TKOffset symbols the shipped libforge_kernel_core.dylib imports.
+//
+// WHAT IT DOES *NOT* REMOVE, AND WHY THE ARITHMETIC MATTERS: the third symbol of
+// family H, `vtable for BRepOffsetAPI_MakeOffsetShape`, stays. It is ALSO
+// referenced by family G's BRepOffsetAPI_MakeThickSolid in `shell()` above,
+// because MakeThickSolid derives from MakeOffsetShape and has no vtable of its
+// own. That was verified directly rather than assumed — two single-class
+// translation units compiled against this OCCT: an H-only TU imports {ctor,
+// PerformByJoin, vtable for MakeOffsetShape}; a G-only TU imports {ctor,
+// MakeThickSolidByJoin, Build, vtable for MakeOffsetShape}. So H alone removes
+// 2, G alone removes 3, and only H **and** G together remove 6. Family G is left
+// untouched here on purpose: its native engine answers 0 of 600 corpus parts
+// where OCCT answers 132, so deleting it today would be a real capability loss,
+// not a parity flip.
+//
+// WHY DELETING THE *H* FALLBACK IS SAFE — MEASURED, NOT ASSERTED. 600-part A/B,
+// test/run_corpus_ab_coverage.sh with FAMILIES=OFFSETSHAPE over
+// expert3d_v5cap_e600/gold_ref_steps, operation = grow by d = 0.02*min_extent:
+//     native  answered 24/600 (4.0%)   BRepCheck-valid 24 of 24
+//     OCCT    answered 38/600 (6.3%)   BRepCheck-valid  5 of 38
+//     OCCT additionally CRASHED on 66/600 and threw on 6/600
+//     parts where BOTH arms answered: 0 — the two answer sets are DISJOINT
+// On the bar that matters for a CAD kernel — a BRepCheck-valid solid, or nothing
+// — native wins 24 to 5 (McNemar exact two-sided p = 0.0005). On the weaker bar
+// "returned something at all" OCCT leads 38 to 24 at p = 0.098, which is NOT
+// significant. Both readings are written down because quoting only one of them
+// misreports the trade.
+//
+// THE DELETION BUCKET IS FIVE PARTS. ho10, ho1129, ho137, ho160 and ho627 are
+// the parts where OCCT produced a BRepCheck-valid solid and the native engine
+// declines; they are named so the next increment has a work list, and the guard
+// each one hits is in the A/B's `note` column (corner_cyl_solve_failed,
+// result_not_valid, face_null, line_edge_offsets_do_not_meet, face_null).
+// Against that, 33 BRepCheck-INVALID solids and 66 hard crashes stop being
+// handed downstream as successes. Two of the 33 are precisely the failure this
+// repository has shipped before and paid for: on ho310 the deleted call returns
+// volume 1.58e-16 and on ho445 it returns volume -3.41e-16 — an empty, reversed
+// body, reported with IsDone() == true.
+//
+// WHAT RUNS INSTEAD. Two native routes, both TKOffset-free, tried in order:
+//   1. an analytic NativeSolid whose faces are ALL PLANAR goes to
+//      forge::native::brep::offsetSolidShape and stays an analytic NativeSolid;
+//   2. everything else goes to forge::occtoffset::offsetSolidShape (PART 5b of
+//      src/native/brep/NativeThickSolid.cpp), which displaces each face's own
+//      analytic surface along its outward normal and re-trims adjacent offset
+//      surfaces to their new mutual intersections.
+// Both are the normal-displacement-with-re-intersection offset of Rossignac &
+// Requicha, "Offsetting operations in solid modelling", Computer Aided Geometric
+// Design 3(2):129-148, 1986, taken with the INTERSECTION join rather than that
+// paper's arc join — so a convex corner is the exact meet of the incident offset
+// surfaces rather than a rolled ball. The re-trim step is the standard
+// surface/surface-intersection rebuild described for offset boundaries in
+// Maekawa, "An overview of offset curves and surfaces", Computer-Aided Design
+// 31(3):165-173, 1999, §4 (self-intersection and re-trimming of offset
+// surfaces). No line of either engine is derived from OCCT source; OCCT is the
+// oracle the A/B above compares against, never the source.
+//
+// AND IF NEITHER ROUTE APPLIES, THIS FUNCTION REFUSES BY NAME. It does not
+// approximate and it does not return a shape it cannot stand behind. The
+// engine's own per-call guard label (occtoffset::lastOffsetDeferReason — e.g.
+// "quadric/line_edge_offsets_do_not_meet") is carried into the exception, so a
+// caller is told WHICH precondition failed instead of a list of everything that
+// might have. A wrong solid that reports success is worse than a refusal.
 ShapeHandle offsetSolid(ShapeHandle shape, double distance) {
     requirePositive(std::abs(distance), "offsetSolid distance");
+
 #ifdef FORGE_NATIVE_BREP
+    // Why the declined-route label is carried rather than dropped: a refusal is
+    // only useful if it says which precondition failed. The old fall-through
+    // discarded OffsetShapeResult::reason and then threw a message listing every
+    // cause it might have been, which is one notch above the empty reason string
+    // this repository has already shipped once.
+    std::string analyticWhy;
+
+    // ── ROUTE 1 — analytic NativeSolid, ALL-PLANAR faces -------------------
+    // Gated to planar faces on purpose: the analytic planar corner is the exact
+    // meet of the incident offset planes, whereas this engine's QUADRIC branch
+    // is volume-exact but mis-places the offset body along its axis, so a curved
+    // face is handed to route 2 rather than shipped as a mispositioned shape.
     if (native::brep::forgeNativeFeaturesEnabled() &&
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
         namespace nb = ::forge::native::brep;
         const nb::Solid& srcSolid = ShapeRegistry::instance().getNativeSolid(shape);
         // Eligibility: every face must carry a PLANAR analytic surface. Any curved
-        // (cylinder/cone/sphere/torus) or NURBS face => defer to OCCT.
+        // (cylinder/cone/sphere/torus) or NURBS face => route 2.
         bool allPlanar = !srcSolid.shells.empty();
         for (const nb::Shell* sh : srcSolid.shells) {
             if (!sh) { allPlanar = false; break; }
@@ -1375,7 +1444,9 @@ ShapeHandle offsetSolid(ShapeHandle shape, double distance) {
             }
             if (!allPlanar) break;
         }
-        if (allPlanar) {
+        if (!allPlanar) {
+            analyticWhy = "analytic/not_all_planar";
+        } else {
             // Clone into a fresh builder (offsetSolidShape allocates the offset
             // faces onto it) so the input handle is never mutated.
             const double I[9] = {1,0,0, 0,1,0, 0,0,1};
@@ -1385,78 +1456,79 @@ ShapeHandle offsetSolid(ShapeHandle shape, double distance) {
             nb::OffsetShapeOptions opt;
             opt.distance = distance;
             nb::OffsetShapeResult r = nb::offsetSolidShape(*owner, clone, opt);
-            // Only accept a CLOSED (watertight) analytic offset solid.
+            // Only accept a CLOSED (watertight) analytic offset solid. A shell
+            // that did not close is not a solid, and its volume integral is
+            // meaningless — accepting it is the class of defect that volume
+            // alone cannot catch.
             if (r.ok && r.solid && r.closedManifold) {
                 return ShapeRegistry::instance().addNativeSolid(owner, r.solid);
             }
-            // else: honest fall-through to the unchanged OCCT offset path below.
+            if (r.reason != nullptr && *r.reason != '\0') {
+                analyticWhy = std::string("analytic/") + r.reason;
+            } else if (r.ok && r.solid != nullptr && !r.closedManifold) {
+                analyticWhy = "analytic/offset_shell_did_not_close";
+            } else {
+                analyticWhy = "analytic/declined_without_a_label";
+            }
+            // Honest fall-through to route 2, carrying the label.
         }
+    } else {
+        analyticWhy = "analytic/input_is_not_an_analytic_native_solid";
     }
-#endif
+
     const TopoDS_Shape& src = fetch(shape);
 
-#ifdef FORGE_NATIVE_BREP
-    // ── TKOffset family H — the TKOffset-FREE whole-solid offset on the OCCT
-    // shape itself (forge::occtoffset::offsetSolidShape, PART 5b of
-    // src/native/brep/NativeThickSolid.cpp). It is the SAME corner solve and the
-    // SAME closed-form circle re-trim the native thick-solid already uses, with
-    // the retained/removed split dropped and the displacement taken ALONG the
-    // outward normal instead of into the material.
-    //
-    // This runs UNCONDITIONALLY (not behind an env switch) because a null return
-    // is an HONEST DEFER and the OCCT path below is untouched — it can only ever
-    // ADD coverage. Proven equivalent to BRepOffsetAPI_MakeOffsetShape on volume
-    // AND centre of mass AND bounding box AND face/edge/vertex/shell counts over
-    // box / triangular prism / NON-CONVEX L-prism (grow and shrink) / capped
-    // cylinder (grow and shrink) / sphere / torus / cone frustum, and against an
-    // INDEPENDENT closed form wherever one exists, by
-    // test/run_ab_native_offsetshape.sh (206/206). That test also carries a
-    // negative control — two solids matching on volume to 1e-16 that the same
-    // comparator rejects — because volume alone proves nothing here.
+    // ── ROUTE 2 — the TKOffset-FREE whole-solid offset on the OCCT shape ----
+    // forge::occtoffset::offsetSolidShape, PART 5b of NativeThickSolid.cpp: the
+    // SAME corner solve and the SAME closed-form circle re-trim the native
+    // thick-solid uses, with the retained/removed split dropped and the
+    // displacement taken ALONG the outward normal instead of into the material.
+    // Proven equivalent to the deleted BRepOffsetAPI_MakeOffsetShape on volume
+    // AND centre of mass AND all six bbox bounds AND face/edge/vertex/shell
+    // counts over box / triangular prism / non-convex L-prism (grow and shrink)
+    // / capped cylinder (grow and shrink) / sphere / torus / cone frustum, and
+    // against an INDEPENDENT closed form wherever one exists, by
+    // test/run_ab_native_offsetshape.sh. That test carries a negative control —
+    // two solids matching on volume to 1e-16 that the same comparator rejects —
+    // because volume alone proves nothing here.
     {
         const TopoDS_Shape nat = ::forge::occtoffset::offsetSolidShape(src, distance, 1.0e-7);
         if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
     }
-#endif
 
-#ifdef FORGE_OFFSETSHAPE_DROP_NATIVE
-    // The OCCT fallback is compiled out: a native defer is an error, never a
-    // silently-substituted OCCT answer. See CMakeLists.txt for why this is OFF
-    // by default (the native engine declines NURBS faces, faces with holes, and
-    // corners with no exact sharp-join meet — Law 9 forbids deleting those).
-    throw std::runtime_error(
-        "forge.part.offsetSolid: native whole-solid offset DECLINED this shape "
-        "(non-analytic face, face with a hole, rank-deficient or over-determined "
-        "corner, collapsed offset, or a sew that did not close) — the OCCT "
-        "BRepOffsetAPI_MakeOffsetShape fallback is compiled out "
-        "(FORGE_OFFSETSHAPE_DROP_NATIVE=ON)");
-#else
-    // OCCT whole-solid offset: BRepOffset_Skin with the sharp INTERSECTION join
-    // (matches the native intersection-join corner re-trim). PerformByJoin
-    // delivers a SHELL; wrap it into a solid so mass/tessellation integrate the
-    // enclosed (offset) volume.
-    BRepOffsetAPI_MakeOffsetShape mk;
-    mk.PerformByJoin(src, distance, 1.0e-7, BRepOffset_Skin,
-                     /*Intersection*/ Standard_False,
-                     /*SelfInter*/    Standard_False,
-                     GeomAbs_Intersection);
-    if (!mk.IsDone()) {
-        throw std::runtime_error("forge.part.offsetSolid: MakeOffsetShape build failed "
-                                 "(distance may collapse a feature or exceed geometry limits)");
-    }
-    TopoDS_Shape off = mk.Shape();
-    if (off.ShapeType() == TopAbs_SHELL) {
-        BRepBuilderAPI_MakeSolid ms(TopoDS::Shell(off));
-        if (ms.IsDone()) off = ms.Solid();
-    } else if (off.ShapeType() == TopAbs_COMPOUND) {
-        TopExp_Explorer ex(off, TopAbs_SHELL);
-        if (ex.More()) {
-            BRepBuilderAPI_MakeSolid ms(TopoDS::Shell(ex.Current()));
-            if (ms.IsDone()) off = ms.Solid();
+    // ── NAMED REFUSAL ------------------------------------------------------
+    // Both native routes declined. There is no third route: the OCCT offset is
+    // gone from this translation unit. Report WHICH guard fired, in the engine's
+    // own vocabulary, and fail — never approximate.
+    {
+        const char* why = ::forge::occtoffset::lastOffsetDeferReason();
+        std::string msg =
+            "forge.part.offsetSolid: the native whole-solid offset DECLINED this shape "
+            "(TKOffset family H is deleted, so there is no OCCT fallback to fall back to "
+            "— this is a refusal, not a silent approximation). Declined at guard: ";
+        msg += (why != nullptr && *why != '\0') ? why
+                                                : "<engine returned null with no guard label>";
+        if (!analyticWhy.empty()) {
+            msg += "; the analytic route had already declined at ";
+            msg += analyticWhy;
         }
+        msg += ". Supported today: solids whose faces are Geom_{Plane, Cylindrical, "
+               "Conical, Spherical, Toroidal} with full-revolution curved faces and "
+               "circular or mixed straight/arc planar wires. NURBS faces, corners with "
+               "no exact sharp-join meet, and offsets that collapse a feature are "
+               "declined by design.";
+        throw std::runtime_error(msg);
     }
-    return ShapeRegistry::instance().add(off);
-#endif  // !FORGE_OFFSETSHAPE_DROP_NATIVE
+#else
+    // No native B-rep in this configuration, and the OCCT offset has been
+    // deleted. Refuse by name rather than return a shape nobody computed.
+    (void)shape;
+    throw std::runtime_error(
+        "forge.part.offsetSolid: unavailable in this build — FORGE_NATIVE_BREP is OFF, "
+        "which compiles out both native whole-solid offset routes, and the OCCT "
+        "whole-solid-offset fallback (MakeOffsetShape) has been DELETED from "
+        "Features.cpp (TKOffset family H). Rebuild with FORGE_NATIVE_BREP=ON.");
+#endif
 }
 
 // ============================================================ filletEdges
