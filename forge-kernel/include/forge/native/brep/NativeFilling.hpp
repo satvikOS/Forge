@@ -88,16 +88,48 @@
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
 
+#include <string>
+
 namespace forge {
 namespace occtfill {
 
-// Is the native attempt live at the call site? Two states, mirroring the
-// family-D/E/F routing in src/native/brep/NativeLoftPipe.cpp:
-//   * FORGE_FILLING_DROP_NATIVE defined -> ALWAYS true: the OCCT fallback is
-//     compiled out, so the native engine is the only path.
-//   * otherwise -> the environment opt-in FORGE_FILLING_NATIVE=1, DEFAULT OFF,
-//     so the shipped kernel is unchanged.
+// ── RETIRED GATE (2026-09-14, family-C drop) ────────────────────────────────
+// This predicate used to choose between the native cap and an OCCT
+// BRepOffsetAPI_MakeFilling fallback. THAT FALLBACK NO LONGER EXISTS: the OCCT
+// code was DELETED from src/Healing.cpp, not flag-disabled, which is what
+// actually removed the 5 TKOffset symbols from the binary. With one path left
+// there is nothing to select, so this now returns true unconditionally.
+//
+// It is kept (rather than removed) only because out-of-tree callers and the A/B
+// harnesses reference it; it is deprecated and callers should simply call
+// fillC0BoundaryDiag directly. It must NEVER be reintroduced as an env-gated
+// switch: with the OCCT path gone, a false return would mean
+// autoFillMissingFaces caps NOTHING while still reporting success — exactly the
+// silent-wrong-answer failure this drop exists to avoid.
 bool fillingNativeEnabled();
+
+// Why one cap attempt declined. `ok == true` means `shape` holds the trimmed
+// planar face; `ok == false` is an HONEST DEFER and `reason` NAMES the predicate
+// that failed. `reason` is empty if and only if `ok` is true — a defer with an
+// empty reason is the defect this struct exists to make impossible.
+struct FillDiagnosis {
+    bool         ok = false;
+    TopoDS_Shape shape;                // null unless ok
+    bool         planar = false;       // boundary was planar within tol
+    double       planeResidual = 0.0;  // max |orthogonal distance| from a boundary
+                                       // sample to the fitted plane, in model
+                                       // units. REPORTED EVEN ON DEFER, so the
+                                       // capability frontier is measurable rather
+                                       // than merely asserted.
+    int          edgeCount = 0;
+    std::string  reason;               // empty iff ok
+};
+
+// Diagnosing form of fillC0Boundary: byte-identical geometry and identical
+// accept/defer decisions, plus the named reason on a defer. fillC0Boundary is a
+// thin wrapper over THIS function, so there is exactly one code path and the two
+// cannot drift apart.
+FillDiagnosis fillC0BoundaryDiag(const TopoDS_Wire& w, double tol = 1.0e-6);
 
 // Fill the closed boundary `w` with a C0-interpolating patch. 1:1 drop-in for
 //   BRepOffsetAPI_MakeFilling f;

@@ -1511,7 +1511,7 @@ option(FORGE_PIPE_DROP_NATIVE
 #   plane while the engine at tol=1e-9 declines it. That control is what makes the
 #   engine's own residual test provably load-bearing.
 option(FORGE_FILLING_DROP_NATIVE
-       "route the free-wire cap in autoFillMissingFaces through the native planar fill & compile out the OCCT BRepOffsetAPI_MakeFilling fallback (TKOffset family C, 5 symbols)"
+       "RETIRED 2026-09-14 — NO EFFECT. TKOffset family C is unconditionally native: the OCCT BRepOffsetAPI_MakeFilling path was deleted from src/Healing.cpp, not gated. Kept only so an existing -D on a command line stays harmless."
        OFF)
 
 # ─────────────────────────────────────────────────────────────────────────────────
@@ -1682,9 +1682,14 @@ endif()
 #
 # The condition is therefore ALL of the families, enumerated so a future family
 # cannot be forgotten: adding one to this list is what keeps the drop honest.
+# ★ FAMILY C IS NO LONGER LISTED (2026-09-14). Its OCCT code was DELETED from
+#   src/Healing.cpp rather than flag-disabled, so there is no configuration in
+#   which this build still calls BRepOffsetAPI_MakeFilling — the condition is
+#   permanently satisfied and listing it here would make the TKOffset drop wait
+#   on an option nobody can turn off. Verified on the object file:
+#   src/Healing.cpp.o imported 5 TKOffset symbols before and imports 0 after.
 set(_FORGE_TKOFFSET_FAMILIES
     FORGE_OFFSET_DROP_MAKEOFFSET    # A  BRepOffsetAPI_MakeOffset      Cam.cpp
-    FORGE_FILLING_DROP_NATIVE       # C  BRepOffsetAPI_MakeFilling     Healing.cpp
     FORGE_THRUSECTIONS_DROP_NATIVE  # D  BRepOffsetAPI_ThruSections    5 call sites
     FORGE_PIPE_DROP_NATIVE          # E  BRepOffsetAPI_MakePipe        Features.cpp
     FORGE_PIPESHELL_DROP_NATIVE     # F  BRepOffsetAPI_MakePipeShell   3 call sites
@@ -1711,14 +1716,15 @@ if(FORGE_NATIVE_BREP AND NOT _forge_tkoffset_open)
 else()
     message(STATUS "TKOffset KEPT on the link line — still called by: ${_forge_tkoffset_open}")
 endif()
-if(FORGE_NATIVE_BREP AND FORGE_FILLING_DROP_NATIVE)
-    add_compile_definitions(FORGE_FILLING_DROP_NATIVE=1)
-    message(WARNING "FORGE_FILLING_DROP_NATIVE=ON — BRepOffsetAPI_MakeFilling fallback compiled out "
-                    "(TKOffset family C, 5 symbols: 16 -> 11). TKOffset STILL LINKED and "
-                    "OCCT_CLOSURE UNCHANGED at 14. A NON-PLANAR free wire is now SKIPPED rather "
-                    "than capped — the same path a failed OCCT filling already takes, reported "
-                    "honestly in AutoFillReport.openEdgesAfter.")
-endif()
+# FORGE_FILLING_DROP_NATIVE is RETIRED (2026-09-14) and intentionally defines
+# nothing. src/Healing.cpp no longer references the macro: the OCCT
+# BRepOffsetAPI_MakeFilling path it used to guard has been deleted outright, so
+# family C's 5 symbols are gone from every configuration rather than from one.
+# The option() above is kept only so an existing -DFORGE_FILLING_DROP_NATIVE=ON
+# on somebody's command line is a harmless no-op instead of a hard CMake error.
+# A NON-PLANAR free wire is now declined with a NAMED reason in
+# AutoFillReport.deferReasons and left as a residual open edge in
+# openEdgesAfter — the same outcome a failed OCCT filling always produced.
 if(FORGE_NATIVE_BREP AND FORGE_PIPE_DROP_NATIVE)
     add_compile_definitions(FORGE_PIPE_DROP_NATIVE=1)
     message(WARNING "FORGE_PIPE_DROP_NATIVE=ON — BRepOffsetAPI_MakePipe fallback compiled out "
