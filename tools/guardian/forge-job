@@ -36,7 +36,29 @@ gpu=$GPU
 started=$(date +%s)
 cmd=$*
 J
-"$@"
-rc=$?
+# Run the command as a CHILD and forward Guardian's signals to it.
+#
+# Guardian's stage-1 shed is SIGUSR1, documented in forge-guardian as "checkpoint
+# now and reduce your footprint" -- the COOPERATIVE step before the coercive TERM.
+# The default disposition of SIGUSR1 is *terminate*, so a wrapper that does not trap
+# it dies on the politest signal in the system and takes the job with it, before the
+# job can checkpoint. Measured 2026-09-14: guardian.log "shed sig=USR1 ->
+# job='knowing-v1-lora' pid=78851" at 17:31:57 and the trainer recording rc=158
+# (128+30, SIGUSR1) in the same second; 'measure-red' shows the same shape with a
+# USR1 at 17:21:22 and a different pid under the same name 22s later. Every job
+# registered through this wrapper had that property, which is a large part of why
+# "registered jobs" read 0 all session: jobs registered, were asked to checkpoint,
+# and died.
+"$@" &
+CHILD=$!
+forward_usr1() { kill -USR1 "$CHILD" 2>/dev/null }
+forward_term() { kill -TERM "$CHILD" 2>/dev/null }
+trap forward_usr1 USR1
+trap forward_term TERM INT
+rc=0
+while :; do
+  wait "$CHILD"; rc=$?
+  kill -0 "$CHILD" 2>/dev/null || break   # a signal interrupted wait; child lives, resume
+done
 cleanup
 exit $rc
