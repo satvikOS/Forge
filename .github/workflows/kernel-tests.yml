@@ -1163,6 +1163,17 @@ jobs:
         # was PASS, so the gate can only ever have got stricter. Pure node, no
         # build, ~2s; it rides this job because this is where the A/B lives.
         run: node forge-kernel/test/corpus_ab_gate_selftest.mjs
+      - name: thick-solid multibody gate (family G's drop, proved on multi-body input)
+        # THE GATE THAT GUARDS THE FAMILY-G DROP. It was committed unwired AND
+        # non-executable, which the kernel registration ratchet caught
+        # (measured=11 pinned=10). A gate that compiles, commits and stays green
+        # while never running once is the exact shape this repo has shipped before.
+        #
+        # SKIP_ARCHIVE=1 reuses libforge_native_ab.a built two steps above, so this
+        # measures the SAME engine objects as the 600-part A/B rather than a
+        # separately-built tree -- a gate built from a different tree than the
+        # number it guards has already cost this repo one discarded corpus run.
+        run: SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicksolid_multibody_gate.sh
       - name: plane-vs-spline consumer equivalence (the rule, and its negative controls)
         # THE MEASUREMENT BEHIND THE ONE RELAXATION THE FLIP GATE MAKES. The gate
         # compares faces binned by surface KIND, and that term reds FILLING on 407
