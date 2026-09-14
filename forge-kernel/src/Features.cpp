@@ -89,7 +89,17 @@
 #include <BRepOffsetAPI_MakePipe.hxx>
 #endif
 #include <BRepOffsetAPI_MakePipeShell.hxx>
-#include <BRepOffsetAPI_MakeThickSolid.hxx>
+// TKOffset family G: <BRepOffsetAPI_MakeThickSolid.hxx> IS DELETED, not commented
+// out and not guarded. Its three symbols
+//   BRepOffsetAPI_MakeThickSolid::BRepOffsetAPI_MakeThickSolid()
+//   BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin(...)
+//   BRepOffsetAPI_MakeThickSolid::Build(Message_ProgressRange const&)
+// left this TU with the three call sites (shell, shellMultiThickness base, and
+// shellMultiThickness per-face override). The header has to go with them: an
+// #include alone is enough to emit the class's vtable reference into the object,
+// which is exactly how family H's `vtable for BRepOffsetAPI_MakeOffsetShape`
+// survives below — MakeThickSolid DERIVES from MakeOffsetShape and has no vtable
+// of its own, so that fourth symbol is family H's to remove, not family G's.
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
 // The thicken ORIENTATION POST-CONDITION. The header's name is history: it no
 // longer holds an OCCT baseline — TKOffset family I was deleted from it, and the
@@ -1163,73 +1173,72 @@ ShapeHandle shell(ShapeHandle shape,
     }
 
 #ifdef FORGE_NATIVE_BREP
-    // TKOffset family G — the TKOffset-FREE thick-solid on the OCCT shape itself
-    // (src/native/brep/NativeThickSolid.cpp). Exact planar + quadric hollow; a
-    // null return is an HONEST DEFER and we fall through to OCCT below, so this
-    // can only ever ADD coverage, never remove it.
+    // TKOffset family G — THE ONLY THICK-SOLID PATH. The OCCT
+    // BRepOffsetAPI_MakeThickSolid fallback that used to stand below this block
+    // is DELETED, not flag-disabled: a branch nothing takes still emits the
+    // symbol, and family G's three TKOffset symbols only leave the binary when
+    // the code that calls them leaves the file.
     //
-    // OPT-IN (FORGE_THICKSOLID_NATIVE=1) while the corpus A/B demanded by
-    // reports/TKOFFSET_DECOMPOSITION.md §5 step 6 is outstanding: the flip gate
-    // is "native success rate >= the measured OCCT baseline", not "it compiles".
-    // The engine itself is always built and is gated directly, without this
-    // switch, by forge::part::shellNativeThick + test/native_thicksolid_closedform.mjs.
+    // WHY THE INCUMBENT COULD GO, MEASURED ON THE 600-PART CORPUS RATHER THAN
+    // ARGUED (test/run_corpus_ab_coverage.sh, FAMILIES=THICKSOLID, the derivation
+    // being "remove the largest planar face, wall = 0.05 * min bbox extent"):
     //
-    // FORGE_THICKSOLID_DROP_NATIVE (CMake option, DEFAULT OFF) is the compile-time
-    // form of the same routing: it makes the native attempt UNCONDITIONAL and
-    // COMPILES OUT the BRepOffsetAPI_MakeThickSolid fallback below, which is what
-    // actually removes family G's three symbols from the binary. It is OFF by
-    // default for the reason stated above — the flip gate is the corpus A/B, not
-    // a compile — and because with the fallback gone a native defer becomes a
-    // thrown error rather than an OCCT answer.
-    static const bool kThickSolidNative = [] {
-        const char* v = std::getenv("FORGE_THICKSOLID_NATIVE");
-        return v && (*v == '1' || *v == 'y' || *v == 'Y' || *v == 't' || *v == 'T');
-    }();
-#ifdef FORGE_THICKSOLID_DROP_NATIVE
-    (void)kThickSolidNative;
-    if (multiThickness.empty()) {
+    //     arm     built      BRepCheck-VALID
+    //     OCCT    133/600    0
+    //     native    8/600    8
+    //
+    // OCCT's 133 answers are 133 INVALID solids — not one passes
+    // BRepCheck_Analyzer — and reports/TKOFFSET_GH_DEFER_CENSUS.md §4 measured
+    // the same zero independently, plus 18 of 87 re-measured whose volume is
+    // above 90% of the source solid, i.e. barely hollowed at all, plus SIGSEGVs
+    // on 46 of 142 parts when the two families run in one process. So the
+    // dependency being removed here is not a working capability that native has
+    // to match; it is a call that returns a shape rather than a correct one.
+    // Keeping it would have cost three symbols to defend zero valid answers.
+    //
+    // WHAT IS GENUINELY LOST: 125 parts where OCCT returned an (invalid) shape
+    // and the native engine refuses. Every one of those refusals now NAMES its
+    // cause — see the throw below. That is the deliberate trade: 133 invalid
+    // solids and a silent success become 8 valid solids and 592 named refusals.
+    //
+    // multiThickness has never been honoured on this path (the OCCT join API
+    // exposes no per-face offset either, and the code that stood here applied the
+    // dominant thickness and dropped the overrides with a `(void)` cast). It is
+    // now REFUSED rather than silently ignored: shellMultiThickness below is the
+    // entry point that materialises overrides, and answering a per-face request
+    // with a uniform wall is the class of silent substitution this engine exists
+    // to stop.
+    if (!multiThickness.empty()) {
+        throw std::runtime_error(
+            "forge.part.shell: per-face thickness overrides are not supported on "
+            "this entry point — call forge.part.shellMultiThickness, which "
+            "materialises them. (The OCCT path this replaced accepted the "
+            "argument and silently built a UNIFORM wall.)");
+    }
+    {
         TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
             src, wall, facesToRemove, 1.0e-3);
         if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
     }
+    // A DEFER IS NAMED, NEVER SILENT. The engine records which precondition
+    // declined — an unsupported (NURBS) surface, a planar wire mixing lines and
+    // arcs, a wall at least as deep as the body's half-extent, or a result whose
+    // own BRepCheck says the inward offset folded over itself. Passing that
+    // through is the difference between "shell failed" and a message a caller can
+    // act on, and it is why this is a refusal rather than an approximation: a
+    // wrong solid reporting success is worse than no solid.
     throw std::runtime_error(
-        "forge.part.shell: native thick-solid DECLINED this shape and the OCCT "
-        "BRepOffsetAPI_MakeThickSolid fallback is compiled out "
-        "(FORGE_THICKSOLID_DROP_NATIVE=ON)");
+        std::string("forge.part.shell: the native thick-solid DECLINED this shape (") +
+        ::forge::occtoffset::lastThickSolidDeferReason() +
+        ") — there is no OCCT MakeThickSolid fallback; "
+        "family G was dropped against a measured OCCT baseline of 0 valid "
+        "results in 133 on the 600-part corpus");
 #else
-    if (multiThickness.empty() && kThickSolidNative) {
-        TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
-            src, wall, facesToRemove, 1.0e-3);
-        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
-    }
+    (void)wall; (void)facesToRemove; (void)multiThickness;
+    throw std::runtime_error(
+        "forge.part.shell: built without FORGE_NATIVE_BREP, and the OCCT "
+        "OCCT MakeThickSolid path has been removed (TKOffset family G)");
 #endif
-#endif
-
-#ifndef FORGE_THICKSOLID_DROP_NATIVE
-    BRepOffsetAPI_MakeThickSolid mk;
-    // -wall, NOT +wall: MakeThickSolidByJoin with a POSITIVE offset grows the
-    // retained faces OUTWARD with a rounded (GeomAbs_Arc) join — a different
-    // operation from the hollow this entry point promises. Negative insets the
-    // cavity and preserves the outer envelope, which is what every other route
-    // here does. MEASURED on box(10^3), top face removed, |t| = 1:
-    //   -1 -> 424.00000 == 1000 - 8*8*9   (exact inward wall)
-    //   +1 -> 564.92625 == 500 + 20*pi + 2*pi/3
-    //         (= the Minkowski sum box(+)ball(1), 1000+600+30pi+4pi/3, minus the
-    //          cap above z=10, 100+10pi+2pi/3, minus the 1000 that became void)
-    mk.MakeThickSolidByJoin(src, facesToRemove, -wall, 1.0e-3);
-    // Per-face thickness overrides aren't natively supported by the join
-    // API — we approximate by applying the dominant `thickness` here and
-    // re-shelling any overridden face with its own thickness on the
-    // result. For multiThickness entries we just record them via a no-op
-    // (drawings/FEA can read them from the JS facade).
-    (void)multiThickness;
-
-    mk.Build();
-    if (!mk.IsDone()) {
-        throw std::runtime_error("forge.part.shell: ThickSolid build failed");
-    }
-    return ShapeRegistry::instance().add(mk.Shape());
-#endif  // !FORGE_THICKSOLID_DROP_NATIVE
 }
 
 // ============================================================ shellNativeThick
@@ -3026,30 +3035,20 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
     TopTools_ListOfShape facesToRemove;
     for (auto id : faceIdsToRemove) facesToRemove.Append(faceById(src, id));
 
-    // TKOffset family G — the same routing shell() carries. With
-    // FORGE_THICKSOLID_DROP_NATIVE the native engine is the ONLY path and the OCCT
-    // fallback is compiled out; this second site has to move with the first or the
-    // three MakeThickSolid symbols stay in the binary (MEASURED: dropping only the
-    // shell() site left TKOffset at 36, not 32).
-#ifdef FORGE_THICKSOLID_DROP_NATIVE
+    // TKOffset family G — the same routing shell() carries, and this second site
+    // HAD to move with the first: the three MakeThickSolid symbols are emitted by
+    // whichever call site survives, so dropping only the shell() site left
+    // TKOffset at 36 instead of 32 (MEASURED). The OCCT construction is deleted
+    // here too, for the same reason it was deleted there.
     TopoDS_Shape acc = ::forge::occtoffset::makeThickSolid(
         src, baseWall, facesToRemove, 1.0e-3);
     if (acc.IsNull()) {
         throw std::runtime_error(
-            "forge.part.shellMultiThickness: native thick-solid DECLINED the base "
-            "shell and the OCCT BRepOffsetAPI_MakeThickSolid fallback is compiled "
-            "out (FORGE_THICKSOLID_DROP_NATIVE=ON)");
+            std::string("forge.part.shellMultiThickness: the native thick-solid "
+                        "DECLINED the base shell (") +
+            ::forge::occtoffset::lastThickSolidDeferReason() +
+            ") — there is no OCCT MakeThickSolid fallback");
     }
-#else
-    BRepOffsetAPI_MakeThickSolid baseMk;
-    baseMk.MakeThickSolidByJoin(src, facesToRemove, -baseWall, 1.0e-3);
-    baseMk.Build();
-    if (!baseMk.IsDone()) {
-        throw std::runtime_error(
-            "forge.part.shellMultiThickness: base ThickSolid build failed");
-    }
-    TopoDS_Shape acc = baseMk.Shape();
-#endif
 
     // ---- 2) per-face overrides ------------------------------------------
     // For each override, build a single-face removal at the override
@@ -3080,17 +3079,13 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
         } catch (...) {
             continue;
         }
-#ifdef FORGE_THICKSOLID_DROP_NATIVE
+        // Third and last family-G construction site. The skip-this-override
+        // contract is unchanged: a null native result is skipped exactly as
+        // !IsDone() was, so an override the engine cannot build leaves the base
+        // wall standing rather than aborting the whole shell.
         const TopoDS_Shape ovrShape = ::forge::occtoffset::makeThickSolid(
             src, std::abs(ovr.thickness), ovrRemove, 1.0e-3);
-        if (ovrShape.IsNull()) continue;   // same skip-this-override contract as !IsDone()
-#else
-        BRepOffsetAPI_MakeThickSolid ovrMk;
-        ovrMk.MakeThickSolidByJoin(src, ovrRemove, -std::abs(ovr.thickness), 1.0e-3);
-        ovrMk.Build();
-        if (!ovrMk.IsDone()) continue;
-        const TopoDS_Shape ovrShape = ovrMk.Shape();
-#endif
+        if (ovrShape.IsNull()) continue;
         BRepAlgoAPI_Fuse fuse(acc, ovrShape);
         fuse.Build();
         if (fuse.IsDone()) {
