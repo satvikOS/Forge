@@ -1640,24 +1640,48 @@ option(FORGE_FILLING_DROP_NATIVE
 #   nothing the supported cases need. A mutant that fails to COMPILE is reported as
 #   NOBUILD and never counted as a kill; two mutants in the first draft did exactly
 #   that (an unused variable under -Werror) and were rewritten.
+# ★ FAMILY I IS NOT A SWITCH ANY MORE — IT IS DONE, AND THIS IS WHY IT READS ON.
+#   The OCCT skin-offset fallback in part::thickenSurface is DELETED from the
+#   source, not compiled out of it: include/forge/OcctThickenBaseline.hpp no
+#   longer contains an OCCT engine and src/Features.cpp no longer has a second
+#   branch. Nothing in src/ or include/ reads this macro.
+#
+#   IT STAYS DEFINED, AND IT STAYS ON, FOR ONE REASON: the link-record block below
+#   drops TKOffset only when every entry of _FORGE_TKOFFSET_FAMILIES is set. An
+#   option left OFF for a family whose code is gone would block that drop for ever
+#   — a finished family looking unfinished to the only logic that can act on it.
+#   Forcing it OFF now yields a kernel with no thicken fallback AND no flag saying
+#   so; there is nothing to go back to, which is the intended end state.
+#
+#   MEASURED, on the only translation unit in src/ or include/ that ever reached
+#   the class (all 468 objects of libforge_kernel_core were scanned with nm; exactly
+#   one carried it):
+#     src/Features.cpp.o TKOffset undefined symbols     31 -> 26
+#     BRepOffset_MakeOffset::{ctor,Initialize,MakeThickSolid,Shape,IsDone}  5 -> 0
+#   OCCT remains the ORACLE: the baseline moved to test/OcctThickenOracle.hpp,
+#   which no target here compiles into libforge_kernel_core.
 option(FORGE_THICKEN_DROP_NATIVE
-       "route part::thickenSurface through the native shell thicken & compile out the OCCT BRepOffset_MakeOffset fallback (TKOffset family I, 5 symbols)"
-       OFF)
+       "TKOffset family I (BRepOffset_MakeOffset, 5 symbols) is DELETED from the kernel. Kept ON and enumerated so the TKOffset link-record block below can complete; no code in src/ or include/ reads it."
+       ON)
 option(FORGE_DRAFT_DROP_NATIVE
        "route part::draftFaces through the native TopoDS draft & compile out the OCCT BRepOffsetAPI_DraftAngle fallback (TKOffset family J, 6 symbols)"
        OFF)
 if(FORGE_NATIVE_BREP AND FORGE_THICKEN_DROP_NATIVE)
     add_compile_definitions(FORGE_THICKEN_DROP_NATIVE=1)
-    message(WARNING "FORGE_THICKEN_DROP_NATIVE=ON — BRepOffset_MakeOffset fallback compiled out "
-                    "(TKOffset family I, 5 symbols: 42 -> 37 measured). TKOffset is STILL LINKED "
-                    "and OCCT_CLOSURE is UNCHANGED at 14 — the block below removes the toolkit "
-                    "only when all nine families are out, and eight are still open. This family "
-                    "PASSES its flip gate: 600/600 native against 600/600 OCCT over the gold "
-                    "corpus, deletion bucket 0. A shell the native thicken still declines — a "
-                    "curved FOLD, a non-manifold edge, or a convex fold ending at a "
-                    "3-or-more-plate corner — now THROWS, quoting the engine's own defer reason, "
-                    "instead of falling back to OCCT. A lone CURVED FACE is no longer in that "
-                    "list: a cylindrical one is built by paths C and D.")
+    message(STATUS "TKOffset family I (thicken) — DELETED, not compiled out. The OCCT "
+                   "skin-offset fallback is gone from include/forge/OcctThickenBaseline.hpp "
+                   "and src/Features.cpp; 5 symbols left src/Features.cpp.o (31 -> 26 TKOffset "
+                   "undefined, measured with nm against the shipped libTKOffset export set). "
+                   "The macro is defined only so this file's nine-family list can complete — "
+                   "no code in src/ or include/ reads it. TKOffset is STILL LINKED and "
+                   "OCCT_CLOSURE is UNCHANGED at 14: the block below removes the toolkit only "
+                   "when all nine families are out, and eight are still open, so the SHIPPED "
+                   "toolkit count does not move on this change alone. The family passes its "
+                   "flip gate (600/600 native against 600/600 OCCT over the gold corpus, "
+                   "deletion bucket 0). A shell the native thicken declines — a curved FOLD, a "
+                   "non-manifold edge, or a convex fold ending at a 3-or-more-plate corner — "
+                   "now THROWS, quoting the engine's own defer reason. There is no fallback to "
+                   "fall back to.")
 endif()
 if(FORGE_NATIVE_BREP AND FORGE_DRAFT_DROP_NATIVE)
     add_compile_definitions(FORGE_DRAFT_DROP_NATIVE=1)
@@ -1695,7 +1719,7 @@ set(_FORGE_TKOFFSET_FAMILIES
     FORGE_PIPESHELL_DROP_NATIVE     # F  BRepOffsetAPI_MakePipeShell   3 call sites
     FORGE_THICKSOLID_DROP_NATIVE    # G  BRepOffsetAPI_MakeThickSolid  Features.cpp
     FORGE_OFFSETSHAPE_DROP_NATIVE   # H  BRepOffsetAPI_MakeOffsetShape Features.cpp
-    FORGE_THICKEN_DROP_NATIVE       # I  BRepOffset_MakeOffset         Features.cpp
+    FORGE_THICKEN_DROP_NATIVE       # I  (DELETED — default ON, see above)
     FORGE_DRAFT_DROP_NATIVE         # J  BRepOffsetAPI_DraftAngle      Features.cpp
 )
 set(_forge_tkoffset_open "")
@@ -3188,6 +3212,16 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         ab_native_offsetshape_occt
         ab_native_sweep_occt
         ab_native_thicken_occt
+        # TKOffset family I, AFTER the drop: with the OCCT fallback DELETED, every
+        # input the native engine declines has to become something. This asserts it
+        # becomes a REFUSAL that quotes the engine's own reason and says there is no
+        # fallback — never a plausible wrong solid reported ok. It carries its own
+        # negative control (the supported side of the same fixture must still BUILD),
+        # because a gate that only ever sees a throw cannot tell "refuses correctly"
+        # from "refuses everything". Registered HERE rather than left as a loose .cpp:
+        # test/gate_registration_ratchet.sh exists because this repository has shipped
+        # gates that compiled, were committed, stayed green and never executed once.
+        thicken_refusal_gate
         # regression gates
         heal_destruction_refusal_gate   # T-137: a heal that empties a thin-walled part
                                         # (all 8 side triangles of a 100x100x0.001 plate

@@ -43,21 +43,30 @@
 // indistinguishable from one that cannot. So every predicate this gate uses is
 // also fired against a deliberately reversed copy of a known-good solid:
 //
-//   RAW      BRepOffset_MakeOffset's own output MUST still be negative, and MUST
-//            still classify its own interior as OUT. If either flips, the
-//            normalisation downstream is dead code and this gate says so rather
-//            than silently passing.
+//   RAW      the OCCT oracle's own output MUST still be negative, and MUST still
+//            classify its own interior as OUT. If either flips, the normalisation
+//            downstream is dead code and this gate says so rather than silently
+//            passing.
 //   NATIVE   forge::occtthicken::thickenShell MUST be positive and classify IN.
-//   BASELINE forge::part::occtThickenBaseline (the whole block the drop deletes)
-//            MUST be positive and classify IN.
-//   AGREE    native and baseline MUST agree on SIGNED volume — the fix itself.
+//   ORACLE   forge::testoracle::occtThickenOracle — what production DID before
+//            TKOffset family I was deleted — MUST be positive and classify IN.
+//   AGREE    native and oracle MUST agree on SIGNED volume. This is now the
+//            PARITY ASSERTION for the drop, not merely a fix for a harness bug:
+//            it is the check that says the engine which replaced OCCT answers
+//            the same question OCCT answered.
 //   PROD     forge::part::thickenSurface's registered result MUST be positive and
-//            classify IN. Run twice by the driver: once with the OCCT branch live
-//            and once with FORGE_THICKEN_NATIVE=1, so the hoisted post-condition
-//            is exercised on BOTH branches. The gate prints which branch it took.
+//            classify IN.
 //   NEG      the reversed copy of a known-good solid MUST read negative, MUST
 //            classify OUT, and MUST come back positive from orientedPositiveSolid.
 //            These are the checks that prove the instrument is not stuck at PASS.
+//
+// ★ THIS GATE USED TO RUN TWICE, and now runs once, because production now has
+//   ONE engine. TKOffset family I (BRepOffset_MakeOffset, 5 symbols) is DELETED
+//   from the kernel: there is no second branch for FORGE_THICKEN_NATIVE to select
+//   and the variable is inert. The OCCT side of every comparison below comes from
+//   test/OcctThickenOracle.hpp, which is TEST-ONLY — it is linked into this gate
+//   binary on purpose and into nothing that ships. OCCT is still the oracle; it is
+//   no longer the answer.
 //
 // exit 0 iff every one of them holds.
 
@@ -68,7 +77,8 @@
 
 #include "forge/Features.hpp"
 #include "forge/ShapeRegistry.hpp"
-#include "forge/OcctThickenBaseline.hpp"
+#include "forge/OcctThickenBaseline.hpp"   // orientedPositiveSolid (ships)
+#include "OcctThickenOracle.hpp"            // the OCCT answer (TEST-ONLY)
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeThickenShell.hpp"
 #endif
@@ -143,7 +153,10 @@ int main() {
     const double wantVol = w * h * t;          // a flat prism's volume IS area * thickness
     const TopoDS_Shape shell = planarShell(w, h);
 
-    // ── RAW ── OCCT's own output, the exact call the baseline makes, un-normalised.
+    // ── RAW ── OCCT's own output, the exact call the oracle makes, un-normalised.
+    // Written out here rather than delegated, so that if the oracle header ever
+    // drifts from what production used to do, these two disagree and the gate says
+    // so instead of comparing the oracle against itself.
     TopoDS_Shape raw;
     {
         BRepOffset_MakeOffset mk;
@@ -166,12 +179,13 @@ int main() {
                "RAW solid classifies its own interior as OUT (wrong)",
                classifyInteriorPoint(raw, w, h, t));
 
-    // ── BASELINE ── the WHOLE block FORGE_THICKEN_DROP_NATIVE deletes.
-    const TopoDS_Shape base = forge::part::occtThickenBaseline(shell, t, 1.0e-4);
+    // ── ORACLE ── the WHOLE block TKOffset family I deleted from production:
+    // the OCCT call AND the normalisation, now living in test/ and shipped nowhere.
+    const TopoDS_Shape base = forge::testoracle::occtThickenOracle(shell, t, 1.0e-4);
     const double baseVol = signedVolume(base);
-    check(baseVol > 0.0, "BASELINE occtThickenBaseline volume is POSITIVE", baseVol);
+    check(baseVol > 0.0, "ORACLE occtThickenOracle volume is POSITIVE", baseVol);
     checkState(classifyInteriorPoint(base, w, h, t) == TopAbs_IN,
-               "BASELINE classifies its interior as IN",
+               "ORACLE classifies its interior as IN",
                classifyInteriorPoint(base, w, h, t));
     check(std::fabs(std::fabs(rawVol) - baseVol) <= 1.0e-9 * wantVol,
           "|volume| UNCHANGED by the normalisation", baseVol - std::fabs(rawVol));
@@ -191,25 +205,32 @@ int main() {
                    classifyInteriorPoint(nat, w, h, t));
         check(std::fabs(natVol - wantVol) <= 1.0e-6 * wantVol,
               "NATIVE volume is area*thickness", natVol - wantVol);
-        // ── AGREE ── THE FIX ITSELF, stated as one number: the two engines must
-        // now agree on SIGNED volume, not merely on |volume|. Before the
-        // normalisation was hoisted out of the drop flag this ratio was -1.
+        // ── AGREE ── THE PARITY ASSERTION FOR THE DROP, stated as one number:
+        // the engine that replaced OCCT and OCCT itself must agree on SIGNED
+        // volume, not merely on |volume|. Before the normalisation was hoisted out
+        // of the drop flag this ratio read -1, and that was a harness artefact,
+        // not geometry — see OcctThickenBaseline.hpp.
         const double ratio = natVol / baseVol;
         check(std::fabs(ratio - 1.0) <= 1.0e-6,
-              "NATIVE / BASELINE SIGNED volume ratio is +1 (was -1)", ratio);
+              "NATIVE / ORACLE SIGNED volume ratio is +1", ratio);
     }
 #else
     std::printf("  note  built without FORGE_NATIVE_BREP: the NATIVE and AGREE "
                 "checks are not compiled\n");
 #endif
 
-    // ── PROD ── what the ShapeRegistry actually receives. Which engine answers is
-    // decided by the environment (FORGE_THICKEN_NATIVE=1) and PRINTED, because a
-    // gate that does not say which branch it took proves nothing about the other.
+    // ── PROD ── what the ShapeRegistry actually receives.
+    //
+    // There is exactly ONE production engine now. FORGE_THICKEN_NATIVE used to
+    // select between the native engine and the OCCT fallback; the fallback is
+    // deleted, so the variable selects nothing. It is still READ and still
+    // PRINTED — silently ignoring an environment variable a driver is still
+    // setting is how a gate comes to run one arm twice and report two passes.
     const char* envNat = std::getenv("FORGE_THICKEN_NATIVE");
-    const bool wantNative = envNat && envNat[0] && std::strcmp(envNat, "0") != 0;
-    std::printf("  ----  production branch under test: %s\n",
-                wantNative ? "NATIVE (FORGE_THICKEN_NATIVE=1)" : "OCCT baseline");
+    const bool envSet = envNat && envNat[0];
+    std::printf("  ----  production engine under test: NATIVE (the only one; "
+                "TKOffset family I is deleted)%s\n",
+                envSet ? "  [FORGE_THICKEN_NATIVE is set and is INERT]" : "");
     forge::ShapeHandle in = forge::ShapeRegistry::instance().add(shell);
     forge::ShapeHandle out = forge::part::thickenSurface(in, t, +1);
     const TopoDS_Shape prod = forge::ShapeRegistry::instance().get(out);
