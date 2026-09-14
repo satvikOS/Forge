@@ -91,12 +91,12 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
-// The OCCT thicken baseline (the WHOLE block FORGE_THICKEN_DROP_NATIVE deletes,
-// call AND normalisation) and the orientation post-condition BOTH engines are held
-// to. Defined in a header so the corpus A/B calls the SAME code this does instead
-// of re-implementing half of it — see the banner there for the measurement that
-// forced it. The header's own #ifndef keeps the TKOffset reference out of a drop
-// build, so this include is unconditional and the post-condition survives the flag.
+// The thicken ORIENTATION POST-CONDITION. The header's name is history: it no
+// longer holds an OCCT baseline — TKOffset family I was deleted from it, and the
+// OCCT answer now lives in test/OcctThickenOracle.hpp, which nothing under src/
+// or include/ may include. What is left is orientedPositiveSolid, which uses only
+// BRepGProp/GProp (unconditionally in the closure) and is the ONLY orientation
+// guarantee thickenSurface has now that the second branch is gone.
 #include "forge/OcctThickenBaseline.hpp"
 #include <BRepOffset.hxx>
 #include <BRepOffset_Mode.hxx>                  // BRepOffset_Skin
@@ -1275,8 +1275,10 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
     requirePositive(std::abs(thickness), "thicken thickness");
     const TopoDS_Shape& src = fetch(shape);
 
-    // BRepOffset_MakeOffset in Skin mode with makeThickSolid=true turns an
-    // open shell into a solid. Offset value sign chooses the side.
+    // The native shell thicken (src/native/brep/NativeThickenShell.cpp) turns an
+    // open shell into a solid. Offset value sign chooses the side. `tol` is the
+    // build tolerance; it retains the value the deleted OCCT baseline passed to
+    // BRepOffset_MakeOffset::Initialize so the two are measured on equal terms.
     const double tol = 1.0e-4;
     double offset = thickness;
     if (side < 0) offset = -std::abs(thickness);
@@ -1285,32 +1287,57 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
     TopoDS_Shape out;
 
 #ifdef FORGE_NATIVE_BREP
-    // TKOffset family I — TKOffset-free thicken on the OCCT shell itself.
-    // See NativeThickenShell.hpp; a defer returns a null shape and falls through.
-    if (::forge::occtthicken::thickenNativeEnabled())
-        out = ::forge::occtthicken::thickenShell(src, offset, tol);
+    // ═══════════════════════════════════════════════════════════════════════
+    // TKOffset FAMILY I — ONE ENGINE. THE OCCT FALLBACK IS DELETED, NOT GUARDED.
+    // ═══════════════════════════════════════════════════════════════════════
+    // This call is the whole of thicken. Underneath it there used to be
+    //     out = ::forge::part::occtThickenBaseline(src, offset, tol);
+    // inside `#ifndef FORGE_THICKEN_DROP_NATIVE`, and that block is the ONLY
+    // reason libforge_kernel_core carried BRepOffset_MakeOffset's five symbols.
+    // The block is GONE. A flag that stops taking a branch leaves the symbol in
+    // the binary — measured on this very TU: 31 TKOffset undefined symbols
+    // before, 26 after, and the 5 that left are exactly
+    // BRepOffset_MakeOffset::{ctor,Initialize,MakeThickSolid,Shape,IsDone}.
+    //
+    // THE RUNTIME GATE WENT WITH IT, and it had to. The call used to read
+    //     if (::forge::occtthicken::thickenNativeEnabled()) out = ...
+    // where thickenNativeEnabled() is an env opt-in defaulting to OFF. With a
+    // fallback underneath, OFF meant "use OCCT". With no fallback, OFF would mean
+    // "always throw" — so the gate is not merely redundant, keeping it would be a
+    // correctness bug. The engine is now unconditional.
+    //
+    // A defer returns a null shape; the refusal below owns it.
+    out = ::forge::occtthicken::thickenShell(src, offset, tol);
 #endif
 
     if (out.IsNull()) {
-#ifndef FORGE_THICKEN_DROP_NATIVE
-        // THE OCCT BASELINE. One call, defined once, in OcctThickenBaseline.hpp, so
-        // the 600-part corpus A/B measures THIS and not a hand-copy of it. Its own
-        // banner carries the measurement and the four independent reasons the
-        // positive orientation is the correct one rather than a house style.
-        out = ::forge::part::occtThickenBaseline(src, offset, tol);
-#else
-        // The engine NAMES why it declined; passing that through is the difference
-        // between "thicken failed" and a message a caller can act on.
+        // ═══════════════════════════════════════════════════════════════════
+        // REFUSE, BY NAME. A wrong solid that reports success is worse than a
+        // refusal — this kernel has already shipped exactly that defect (a valid
+        // thin plate healed to volume 0 while reporting ok=TRUE with an empty
+        // reason string). The engine records WHY it declined; quoting it is the
+        // difference between "thicken failed" and a message a caller can act on.
+        // The reasons it can give are enumerated in NativeThickenShell.hpp's
+        // HONEST DEFER list (a curved fold, a non-manifold edge, a convex fold
+        // ending at a 3-or-more-plate corner, a non-planar face on the planar
+        // paths, and the path-C/D certificate failures).
+        // ═══════════════════════════════════════════════════════════════════
+#ifdef FORGE_NATIVE_BREP
         throw std::runtime_error(
-            std::string("forge.part.thickenSurface: the native thicken declined this "
-                        "input (") + ::forge::occtthicken::thickenLastDeferReason() +
-            ") and the OCCT BRepOffset_MakeOffset fallback is compiled out "
-            "(FORGE_THICKEN_DROP_NATIVE=ON)");
+            std::string("forge.part.thickenSurface: the native shell thicken DECLINED "
+                        "this input (") + ::forge::occtthicken::thickenLastDeferReason() +
+            "). There is NO OCCT fallback: the TKOffset skin-offset baseline was removed "
+            "from the kernel (TKOffset family I), so this is a refusal and not a failure "
+            "to reach a second engine");
+#else
+        throw std::runtime_error(
+            "forge.part.thickenSurface: built without FORGE_NATIVE_BREP, and the OCCT "
+            "skin-offset fallback has been removed from the kernel (TKOffset family I) "
+            "— no thicken engine is compiled in");
 #endif
     }
 
-    // ONE ORIENTATION POST-CONDITION, FOR WHICHEVER ENGINE ANSWERED — and the reason
-    // it is HERE and not inside either branch.
+    // THE ORIENTATION POST-CONDITION — now the ONLY one, which is why it stays.
     //
     // It used to live inside the `#ifndef FORGE_THICKEN_DROP_NATIVE` block, which
     // meant the guarantee a caller received depended on a BUILD FLAG: with the drop
@@ -1318,9 +1345,12 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
     // engine's positive result was incidental (path A inherits it from
     // OcctPrimBuilder's sew; the folded and full-rectangle-cylinder paths only ever
     // took std::fabs(Mass()) and never normalised). A post-condition a flag can
-    // delete is not a post-condition. The native engine now asserts its own
-    // orientation too — the two together are belt and braces, on purpose, because
-    // this is a SIGN BIT that every |volume| check in the tree is blind to.
+    // delete is not a post-condition. It was hoisted here before the drop, and the
+    // drop is exactly the event that hoist was insurance against: the branch that
+    // used to carry a normalisation is the branch that no longer exists. The native
+    // engine asserts its own orientation too — the two together are belt and braces,
+    // on purpose, because this is a SIGN BIT that every |volume| check in the tree
+    // is blind to.
     //
     // POSITIVE is not a house style. BRepClass3d_SolidClassifier answers TopAbs_IN
     // for an interior point of the positively-oriented solid and TopAbs_OUT for the

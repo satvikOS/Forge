@@ -237,7 +237,9 @@
 #include "forge/native/brep/NativeThickSolid.hpp"      // families G, H
 #include "forge/native/brep/NativeLoftPipe.hpp"        // families D, E, F
 #include "forge/native/brep/NativeThickenShell.hpp"    // family  I
-#include "forge/OcctThickenBaseline.hpp"               // family  I, the OCCT arm
+#include "OcctThickenOracle.hpp"                       // family  I, the OCCT arm
+                                                     // (TEST-ONLY: production no
+                                                     // longer has an OCCT arm)
 #include "forge/native/brep/NativeDraft.hpp"           // family  J
 #include "forge/native/brep/NativeFilling.hpp"         // family  B/C
 #include "forge/native/brep/NativeFilletChamfer.hpp"   // TKFillet
@@ -2663,21 +2665,31 @@ int main(int argc, char** argv) {
     }
 
     // ═════════════════════════════════════════ THICKEN (TKOffset family I)
-    // native  occtthicken::thickenShell(src, t, 1e-4)                Features.cpp:1212
-    // occt    BRepOffset_MakeOffset Initialize(Skin,Arc,thick=true)  Features.cpp:1219
-    // ★ THE OCCT ARM CALLS PRODUCTION, IT DOES NOT RE-IMPLEMENT IT.
+    // native  occtthicken::thickenShell(src, t, 1e-4)         Features.cpp, thickenSurface
+    // occt    testoracle::occtThickenOracle(...)              test/OcctThickenOracle.hpp
     //
-    // What FORGE_THICKEN_DROP_NATIVE=ON deletes from Features.cpp is the WHOLE
-    // baseline block — the BRepOffset_MakeOffset call AND the normalising
-    // Reverse() that follows it — so the only faithful OCCT arm is that whole
-    // block. This arm used to be a hand-copy of the FIRST HALF of it, and the
-    // cost was a measured, reproducible, and entirely spurious result: over the
-    // 600-part reference corpus the two arms disagreed on 600 of 600 at signed
-    // volume ratio EXACTLY -1.000000, with area ratio exactly 1.000000 and 595
-    // of 600 identical on every other observable. All of that was the Reverse()
-    // this arm did not have. Calling forge::part::occtThickenBaseline — the same
-    // inline function Features.cpp calls — makes the drift structurally
-    // impossible rather than merely fixed once.
+    // ★ THE OCCT ARM IS NOW AN ORACLE, NOT A SECOND PRODUCTION PATH, AND SAYING SO
+    //   IS THE POINT. TKOffset family I (BRepOffset_MakeOffset, 5 symbols) has been
+    //   DELETED from the kernel: forge::part::thickenSurface has one engine and
+    //   REFUSES BY NAME when it declines. There is no longer any Features.cpp line
+    //   for this arm to quote, and a comment that kept quoting one would be
+    //   describing a branch that does not exist. The arm below calls the test-only
+    //   header that preserves exactly what production used to do.
+    //
+    //   WHAT THAT CHANGES ABOUT READING THIS TABLE: the THICKEN row is no longer a
+    //   FLIP GATE ("may we turn the option on?") — it is a REGRESSION GATE ("is the
+    //   engine that replaced OCCT still level with it?"). The deletion bucket is
+    //   still the number that matters, and it is now the count of parts on which
+    //   production would THROW where OCCT would have answered.
+    //
+    // The whole-block fidelity rule still governs the oracle and is the reason it
+    // is a shared header rather than a hand-copy: this arm once reproduced only the
+    // FIRST HALF of the production block — the OCCT call without the normalising
+    // Reverse() — and the cost was a measured, reproducible and entirely spurious
+    // result. Over the 600-part reference corpus the two arms disagreed on 600 of
+    // 600 at signed volume ratio EXACTLY -1.000000, with area ratio exactly
+    // 1.000000 and 595 of 600 identical on every other observable. All of it was
+    // that missing Reverse().
     //
     // NOTHING IS HIDDEN BY THE CORRECTION. The RAW, un-normalised OCCT answer is
     // still measured, in full, and still emitted — under the family name
@@ -2696,7 +2708,7 @@ int main(int argc, char** argv) {
                 return forge::occtthicken::thickenShell(f, t, 1.0e-4);
             }, true, T, NF, &forge::occtthicken::thickenLastDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
-                return forge::part::occtThickenBaseline(f, t, 1.0e-4);
+                return forge::testoracle::occtThickenOracle(f, t, 1.0e-4);
             }, true, T, NF);
             emit("THICKEN", true, "", nat, oc, od);
 
@@ -2711,7 +2723,7 @@ int main(int argc, char** argv) {
             std::snprintf(odr, sizeof odr,
                           "skin the largest face t=%.6g (OCCT arm RAW, normalisation omitted)", t);
             const ArmResult ocRaw = runArm([&]() -> TopoDS_Shape {
-                return forge::part::occtThickenBaselineRaw(f, t, 1.0e-4);
+                return forge::testoracle::occtThickenOracleRaw(f, t, 1.0e-4);
             }, true, T, NF);
             emit("THICKEN_RAWOCCT", true, "", nat, ocRaw, odr);
         }
