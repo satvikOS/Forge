@@ -95,21 +95,52 @@ say "LAW 8: clean"
 # The pattern demands the "<python> <script>.py" form. A bare `pgrep -f composite_score`
 # also matches every SHELL waiting with that pattern on ITS OWN command line, so the loop
 # would see processes that are only watching and block for ever.
-# A PROCESS THAT MENTIONS THE MODEL IS NOT A PROCESS THAT LOADED IT.
-# `pgrep -f qwen3-vl-30b-a3b-4bit` matches any command line containing that string,
-# which on this box includes the coordinator's own diagnostic shell — observed
-# 2026-09-14, a `/bin/zsh -c` whose body greps for exactly this pattern. A guard that
-# counts it waits for ever on an observer. Only a PYTHON process can hold 18 GB of
-# weights, so the process NAME is the discriminator, not the command line alone.
+# THE ONLY RELIABLE SIGNAL IS FOOTPRINT, NOT IDENTITY.
+#
+# Three versions of this guard failed, each in a different way, and the sequence is the
+# argument for the fourth:
+#
+#   v1  a list of known script names          — a sibling agent ran a scratchpad script
+#                                               this guard had never heard of.
+#   v2  + `pgrep -f qwen3-vl-30b-a3b-4bit`    — matched an OBSERVER: a `/bin/zsh -c`
+#                                               whose body greps for that same string.
+#                                               A guard that counts watchers waits for ever.
+#   v3  + require the process be named python — correct as far as it goes, and still
+#                                               BLIND. Measured 2026-09-14 17:54: pid
+#                                               78484 was `python -u confirm_truncation.py`
+#                                               holding 18 GB of this exact base model.
+#                                               Its command line never names the model,
+#                                               so no command-line pattern can see it.
+#                                               `pgrep -f qwen3-vl-...` returned only my
+#                                               own trainer while the box held two 30B
+#                                               models, both wedged at 0% CPU.
+#
+# What a competitor has in common is not a name, a path or a script. It is EIGHTEEN
+# GIGABYTES. `ps -o rss=` cannot see it — MLX arrays are Metal buffers and my own
+# trainer reported 0.04 GB RSS while `top` showed 18 G — so read `top`'s MEM column,
+# which is the one that counts them.
+HEAVY_GB="${FORGE_HEAVY_GB:-8}"
+HEAVY_WHO=""
 other_model_job() {
-  local p comm
-  for p in $(pgrep -f "qwen3-vl-30b-a3b-4bit" 2>/dev/null); do
-    [ "$p" = "$$" ] && continue
-    comm="$(ps -o comm= -p "$p" 2>/dev/null)"
-    case "${comm##*/}" in
-      *[Pp]ython*) return 0 ;;
-    esac
-  done
+  local line pid mem unit gb
+  # top's MEM column is like "18G", "793M", "1024K". Only G matters at this threshold.
+  while read -r pid mem; do
+    [ -z "${pid:-}" ] && continue
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    [ "$pid" = "$$" ] && continue
+    [ -n "${TRAIN_PID:-}" ] && [ "$pid" = "$TRAIN_PID" ] && continue
+    unit="${mem##*[0-9]}"
+    gb="${mem%$unit}"
+    [ "$unit" = "G" ] || continue
+    gb="${gb%%.*}"
+    case "$gb" in ''|*[!0-9]*) continue ;; esac
+    if [ "$gb" -ge "$HEAVY_GB" ]; then
+      HEAVY_WHO="pid $pid holding ${mem} ($(ps -o comm= -p "$pid" 2>/dev/null | sed 's|.*/||'))"
+      return 0
+    fi
+  done <<EOF
+$(top -l 1 -n 12 -o mem -stats pid,mem 2>/dev/null | awk 'NF==2 && $1 ~ /^[0-9]+$/ {print $1, $2}')
+EOF
   return 1
 }
 
@@ -128,8 +159,8 @@ wait_for_box() {
   while pgrep -f "[Pp]ython[^ ]* (scripts/|tools/knowing_train/)(lora_eager_rope|launch_vlm_expert_lora|archie_loop|score_benchmarks|composite_score)[.]py" >/dev/null 2>&1 \
      || pgrep -x forge_verify >/dev/null 2>&1 \
      || other_model_job; do
-    [ $waited -eq 0 ] && say "LAW 7: another GPU/kernel job is resident — waiting for the box"
-    [ $((waited % 600)) -eq 0 ] && [ $waited -gt 0 ] && say "LAW 7: still waiting (${waited}s)"
+    [ $waited -eq 0 ] && say "LAW 7: another GPU/kernel job is resident — waiting for the box${HEAVY_WHO:+ (${HEAVY_WHO})}"
+    [ $((waited % 600)) -eq 0 ] && [ $waited -gt 0 ] && say "LAW 7: still waiting (${waited}s)${HEAVY_WHO:+ (${HEAVY_WHO})}"
     sleep 60; waited=$((waited + 60))
   done
   # ---- MEMORY READINESS ---------------------------------------------------- #
