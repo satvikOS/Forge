@@ -11,6 +11,10 @@
 #   phase 3  the loopback live check — the ONE place a real POSIX socket is
 #            opened, against a stub sidecar on 127.0.0.1, and the ONE place the
 #            redaction assertion is made from the FAR END of the socket
+#   phase 4  the executor (forge_retrieve), in its --mutations form
+#   phase 5  the Archie-side Python bridge, in its --mutations form
+#   phase 6  the injection gate: hostile retrieved text -> geometry, including
+#            the source-classifier hostile-hostname corpus
 #
 # Nothing leaves the machine in any phase: phase 3 is loopback-only, the same
 # destination class 20.2 permits, and the transport refuses anything else.
@@ -153,15 +157,16 @@ if [ ! -x "$LIVE" ]; then
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   if [ "${FORGE_ALLOW_NO_LIVE_LOOPBACK:-0}" = "1" ]; then
-    echo "[retrieval] phases 3, 4 and 5 SKIPPED: python3 is not on PATH."
+    echo "[retrieval] phases 3, 4, 5 and 6 SKIPPED: python3 is not on PATH."
     echo "[retrieval] FORGE_ALLOW_NO_LIVE_LOOPBACK=1 was set, so this is an explicit, recorded"
     echo "[retrieval] opt-out. THIS RUN DOES NOT EXERCISE THE REAL SOCKET PATH, does not make"
     echo "[retrieval] the far-end redaction assertion, AND DOES NOT TEST THE EXECUTOR OR THE"
     echo "[retrieval] ARCHIE-SIDE BRIDGE AT ALL — phases 4 and 5 need python3 for their stub"
     echo "[retrieval] sidecar and for the bridge itself. The send path Archie uses is UNPROVEN"
-    echo "[retrieval] in this run."
+    echo "[retrieval] in this run, and phase 6 (the injection gate, whose RED-proof phase"
+    echo "[retrieval] applies its weakenings with python3) did not run either."
     echo
-    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-5 opted out)"
+    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-6 opted out)"
     exit 0
   fi
   echo "[retrieval] FATAL: phase 3 needs python3 for retrieval/test/stub_sidecar.py." >&2
@@ -254,6 +259,43 @@ if ! grep -q '^\[python-gate\] GATE PASSED (green, and every check demonstrated 
   exit 1
 fi
 echo "[retrieval] phase 5 (bridge) PASSED"
+
+# ── phase 6: the injection gate ──────────────────────────────────────────────
+# Hostile retrieved text driven through the whole path, with its own negative-
+# compilation phase and its own RED proof. It is CHAINED FROM HERE, deliberately.
+#
+# The gate-registration ratchet that catches an unwired gate
+# (forge-kernel/test/gate_registration_ratchet.sh) only scans
+# forge-kernel/test/run_*.sh and build_*.sh. A gate living under retrieval/test/
+# is outside its scope entirely, so it would be invisible to that check — green,
+# and never run. Chaining it to this script, which .github/workflows/
+# kernel-tests.yml already executes, is what makes it actually happen.
+INJ="$ROOT/retrieval/test/run_injection_gate.sh"
+if [ ! -x "$INJ" ]; then
+  echo "[retrieval] FATAL: $INJ is missing or not executable." >&2
+  echo "[retrieval] The injection boundary would ship unexercised." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 6: injection gate (hostile evidence -> geometry)"
+"$INJ" > "$OUT/injection.log" 2>&1
+rc6=$?
+if [ ! -s "$OUT/injection.log" ]; then
+  echo "[retrieval] FATAL: the injection gate wrote an empty log. It did not run." >&2
+  exit 1
+fi
+if [ "$rc6" -ne 0 ]; then
+  echo "[retrieval] PHASE 6 FAILED (exit $rc6) — see below"
+  cat "$OUT/injection.log"
+  exit "$rc6"
+fi
+grep -E '^\[injection\] phase [0-9] .* PASSED' "$OUT/injection.log"
+if ! grep -q '^\[injection\] INJECTION GATE PASSED' "$OUT/injection.log"; then
+  echo "[retrieval] phase 6 exited 0 without declaring a pass. Refusing to report one."
+  cat "$OUT/injection.log"
+  exit 1
+fi
+echo "[retrieval] phase 6 (injection gate) PASSED"
 
 echo
 echo "[retrieval] GATE PASSED"

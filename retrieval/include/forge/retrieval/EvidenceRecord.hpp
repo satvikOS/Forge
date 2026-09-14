@@ -51,8 +51,16 @@ public:
   bool empty() const { return bytes_.empty(); }
   std::size_t size() const { return bytes_.size(); }
 
-  // For rendering to a human, with control characters neutralized so retrieved
-  // text cannot rewrite a terminal or a log line.
+  // For rendering to a human, with everything that can move a cursor, reorder a
+  // line or hide inside one neutralized: C0 controls and DEL, the bidi overrides
+  // and isolates (U+202A..U+202E, U+2066..U+2069), the zero-width characters
+  // (U+200B..U+200F, U+FEFF) and the line/paragraph separators. NBSP folds to a
+  // plain space so a marker cannot hide behind an exotic blank.
+  //
+  // MEASURED 2026-09-14, before this was widened: U+202E survived display()
+  // byte-for-byte, so a retrieved span could reverse the rendering of the
+  // operator's own approval line. The operator is the LAST gate; text aimed at
+  // them is worse than text aimed at the model.
   std::string display() const;
 
   // Escape hatch for storage/hashing ONLY. Named so that any use is visible in
@@ -60,9 +68,20 @@ public:
   const std::string& rawForStorage() const { return bytes_; }
 
   // Heuristic report that this span is shaped like an instruction aimed at the
-  // agent ("ignore previous instructions", "you must call", fenced tool blocks).
-  // Retrieval never obeys it either way; a positive result is recorded on the
-  // evidence so a reviewer can see the source tried.
+  // agent ("ignore previous instructions", "you must call", fenced tool blocks,
+  // a forged chat-template frame such as <|im_start|>).
+  //
+  // THIS IS NOT A CONTROL AND NOTHING MAY DEPEND ON IT. Retrieval never obeys a
+  // span either way; a positive result is recorded on the evidence so a reviewer
+  // can see the source tried, and is carried onto any CitedCandidate so the
+  // operator binding can refuse it. The structural defences live in PlanValue.hpp.
+  //
+  // The scan runs over a normalized form (case-folded, zero-width and bidi
+  // characters removed, NBSP and full-width ASCII folded). MEASURED 2026-09-14
+  // before that normalization existed: "ignore previous instructions" was
+  // flagged, and the same bytes with one U+200B after the "i", or with the
+  // spaces as U+00A0, were NOT. A marker list matched against raw bytes is
+  // defeated by a character the reader cannot see.
   bool looksLikeInjectionAttempt() const;
 
 private:
@@ -70,16 +89,47 @@ private:
 };
 
 // The only route from retrieved text to a usable engineering number.
+//
+// A CitedCandidate is still UNTRUSTED. It is a parsed reading of an attacker-
+// controlled page, not a fact and not a plan input. It becomes usable only after
+// an operator binds it (see BoundCitation in PlanValue.hpp), and it is the
+// operator's approval — never this struct — that authorizes a number.
 struct CitedCandidate {
   double value = 0.0;
-  std::string unit;
+  std::string unit;                      // READ FROM THE PAGE, adjacent to the number
   std::string normalized_claim;
   std::string applicability_conditions;  // 12.3: candidates carry their conditions
   std::string source_url;
   std::string content_hash;
   SourceType source_type = SourceType::SecondaryTechnical;
-  bool requires_corroboration = false;   // true for community-led sources
+  // True for community-led sources AND for any source that tried to issue
+  // instructions, at any authority tier. Attempted injection is evidence about
+  // the publisher: it costs them sole-authority standing.
+  bool requires_corroboration = false;
+  // The source's span was shaped like an instruction. Carried here so a binding
+  // decision can see it; a flagged candidate is never silently discarded and
+  // never silently accepted.
+  bool from_flagged_source = false;
 };
+
+// A number found in retrieved text together with the unit token written NEXT TO
+// IT ON THE PAGE. `unit` is empty when the number carries no adjacent unit.
+//
+// This exists because the unit has to be read from the source. A unit copied
+// from the caller's own request and then compared against the caller's own
+// expectation is a comparison of a value with itself, which is how a page
+// reading "276 MPa" produced CitedCandidate{value=276, unit="furlongs"}.
+struct NumericSpan {
+  double value = 0.0;
+  std::string unit;
+  std::size_t begin = 0;   // byte offset of the first digit (or sign)
+  std::size_t end = 0;     // byte offset one past the unit, or past the number
+};
+
+// Scans for every standalone number in `text` and the unit token adjacent to it.
+// A digit run glued to a letter ("T6", "6061-T6") is an identifier, not a number,
+// and is not reported.
+std::vector<NumericSpan> scanNumericSpans(const std::string& text);
 
 // ── 12.2 evidence record ────────────────────────────────────────────────────
 enum class AssertionRelation { Supports, Contradicts, Unrelated };
@@ -93,6 +143,9 @@ struct EvidenceRecord {
   std::string publication_time_utc;   // ISO-8601 when the source reports one
   UntrustedText quoted_span;          // truncated to the fair-use budget below
   UntrustedText normalized_claim;
+  // The unit READ OFF THE PAGE, next to the first number in the claim. Empty
+  // when the claim states no unit. It is NEVER the unit the caller asked for:
+  // see NumericSpan above for why that distinction is the whole check.
   std::string units;
   SourceType source_type = SourceType::SecondaryTechnical;
   std::string applicable_terms_note;  // licence/terms observed for this source
@@ -103,8 +156,24 @@ struct EvidenceRecord {
   bool injection_attempt_flagged = false;
 
   // 12.3: turn this record into a usable number only via an explicit parse.
-  // Returns nullopt when the claim does not parse as `expected_unit`.
+  //
+  // THE CHECK READS THE PAGE. The unit is taken from the claim text next to the
+  // number and compared against `expected_unit`; the record's own `units` field
+  // is not consulted, because on the live path that field was being filled in
+  // from the caller's own request.
+  //
+  // Returns nullopt when: the expectation is empty; the claim carries no
+  // standalone number; the number has no adjacent unit; the adjacent unit is not
+  // the expected one; or the claim is AMBIGUOUS — several numbers with differing
+  // adjacent units, or several different values under the expected unit.
+  // Ambiguity is not a value.
   std::optional<CitedCandidate> validateAsNumericFact(const std::string& expected_unit,
+                                                      const std::string& applicability) const;
+
+  // Same check against a set of acceptable units. A request declaring
+  // {"MPa","ksi"} must not reject a legitimately-ksi source, which the
+  // single-unit form did by only ever being handed expected_units.front().
+  std::optional<CitedCandidate> validateAsNumericFact(const std::vector<std::string>& expected_units,
                                                       const std::string& applicability) const;
 };
 

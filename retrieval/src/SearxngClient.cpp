@@ -521,7 +521,22 @@ RetrievalStatus SearxngClient::parseSearxngResults(const std::string& json_body,
     rec.relation = AssertionRelation::Unrelated;  // set by the ESG reconciler, not by the page
     rec.injection_attempt_flagged = rec.quoted_span.looksLikeInjectionAttempt() ||
                                     rec.title.looksLikeInjectionAttempt();
-    if (!handling.expected_units.empty()) rec.units = handling.expected_units.front();
+    // 12.3: the unit is READ OFF THE PAGE, never copied from the request.
+    //
+    // This line used to be `rec.units = handling.expected_units.front()`, which
+    // made the one unit check in the system a tautology: validateAsNumericFact()
+    // compared the caller's own expectation against a field the caller had just
+    // filled in. MEASURED on this fixture 2026-09-14 — asking for "furlongs"
+    // turned the page text "276 MPa" into CitedCandidate{value=276,
+    // unit="furlongs"}, and the sibling line "I just use 240 MPa" into 240
+    // furlongs. It is the same mutable-field-compared-against-itself defect the
+    // digest gate's own comments (see search(), gate 2) were written to avoid.
+    //
+    // Leaving it empty when the page states no unit is the fail-closed answer:
+    // a claim with no unit yields no candidate.
+    for (const NumericSpan& s : scanNumericSpans(rec.normalized_claim.rawForStorage())) {
+      if (!s.unit.empty()) { rec.units = s.unit; break; }
+    }
     out.push_back(std::move(rec));
   }
 
