@@ -1,25 +1,24 @@
 {
   "binaries": {
-    "forge_desktop": [
+    "forge_desktop": [],
+    "forge_kernel_worker": [],
+    "forge_update": [],
+    "libforge_kernel_core.dylib": [
+      "TKBO",
       "TKBRep",
+      "TKFillet",
+      "TKG2d",
       "TKG3d",
-      "TKGeomBase",
       "TKMath",
+      "TKOffset",
+      "TKPrim",
+      "TKShHealing",
       "TKTopAlgo",
       "TKernel"
-    ],
-    "forge_kernel_worker": [
-      "TKBRep",
-      "TKG3d",
-      "TKGeomBase",
-      "TKMath",
-      "TKTopAlgo",
-      "TKernel"
-    ],
-    "forge_update": []
+    ]
   },
   "bundle": "/Applications/Forge.app",
-  "measured_at": "2026-09-11",
+  "measured_at": "2026-09-14",
   "shipped_dylibs": [
     "TKBO",
     "TKBRep",
@@ -36,5 +35,5 @@
     "TKTopAlgo",
     "TKernel"
   ],
-  "version": "0.1.3329"
+  "version": "0.1.3380"
 }

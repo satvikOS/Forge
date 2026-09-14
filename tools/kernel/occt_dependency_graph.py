@@ -409,6 +409,12 @@ def render():
         for b, tk in sorted(snap.get('binaries', {}).items()):
             w(f'| {b} | **{len(tk)}** — {", ".join(tk) if tk else "none"} |')
         w('')
+        w('AN EXECUTABLE AT **0** IS NOT AN EXECUTABLE FREE OF OCCT. The desktop and')
+        w('worker binaries link `libforge_kernel_core.dylib`, which is listed above and')
+        w('is where the toolkits actually are; their own 0 is a layering fact, not a')
+        w('removal. THE LINE THAT COUNTS IS THE ONE BELOW: what the bundle still ships,')
+        w('and therefore what still loads.')
+        w('')
         shipped = snap.get('shipped_dylibs', [])
         w(f'Bundle ships **{len(shipped)}** OCCT dylibs: '
           + (', '.join(shipped) if shipped else 'none') + '.')
@@ -718,6 +724,18 @@ def main():
                       file=sys.stderr)
                 return 1
             bins[b] = tk
+        # ★ THE SHIPPED LIBRARY IS A SHIPPED BINARY. Measuring only Contents/MacOS
+        #   made this table read 0 / 0 / 0 on 2026-09-14 the moment the executables
+        #   stopped linking OCCT directly and started reaching it through
+        #   Contents/Frameworks/libforge_kernel_core.dylib -- while the bundle still
+        #   shipped 14 toolkits and ELEVEN still loaded. A re-layering read as a
+        #   removal is exactly the accounting error this programme keeps catching
+        #   itself in, and the north star is the one place it must not happen. The
+        #   library the executables link is now measured beside them.
+        for lib in ('libforge_kernel_core.dylib',):
+            tk = measure_linked(os.path.join(bundle, 'Contents', 'Frameworks', lib))
+            if tk is not None:
+                bins[lib] = tk
         fw = os.path.join(bundle, 'Contents', 'Frameworks')
         shipped = sorted(f[3:].split('.')[0] for f in os.listdir(fw)
                          if f.startswith('libTK')) if os.path.isdir(fw) else []

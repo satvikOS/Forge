@@ -14,9 +14,9 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1399 | YES |
+| KERNEL | 1397 | YES |
 | TOOLING | 23 | yes, last |
-| ORACLE | 1919 | no — by design |
+| ORACLE | 1990 | no — by design |
 | SCRATCH | 0 | no — by design |
 | OTHER | 0 | no — by design |
 
@@ -25,13 +25,20 @@ overstate the work by roughly threefold on this tree.
 `otool -L`, not the build files. What a binary records is the fact; what CMake
 says is the intent, and the two have diverged here before.
 
-Snapshot recorded 2026-09-11 from `/Applications/Forge.app` at version 0.1.3329.
+Snapshot recorded 2026-09-14 from `/Applications/Forge.app` at version 0.1.3380.
 
 | binary | OCCT toolkits linked |
 |---|---|
-| forge_desktop | **6** — TKBRep, TKG3d, TKGeomBase, TKMath, TKTopAlgo, TKernel |
-| forge_kernel_worker | **6** — TKBRep, TKG3d, TKGeomBase, TKMath, TKTopAlgo, TKernel |
+| forge_desktop | **0** — none |
+| forge_kernel_worker | **0** — none |
 | forge_update | **0** — none |
+| libforge_kernel_core.dylib | **11** — TKBO, TKBRep, TKFillet, TKG2d, TKG3d, TKMath, TKOffset, TKPrim, TKShHealing, TKTopAlgo, TKernel |
+
+AN EXECUTABLE AT **0** IS NOT AN EXECUTABLE FREE OF OCCT. The desktop and
+worker binaries link `libforge_kernel_core.dylib`, which is listed above and
+is where the toolkits actually are; their own 0 is a layering fact, not a
+removal. THE LINE THAT COUNTS IS THE ONE BELOW: what the bundle still ships,
+and therefore what still loads.
 
 Bundle ships **14** OCCT dylibs: TKBO, TKBRep, TKBool, TKFillet, TKG2d, TKG3d, TKGeomAlgo, TKGeomBase, TKMath, TKOffset, TKPrim, TKShHealing, TKTopAlgo, TKernel.
 
@@ -46,10 +53,10 @@ Status is DERIVED from the tree on every run, never typed in.
 | [ ] | Geometry primitives | 77 | 6 | `forge-kernel/include/forge/native/geom, forge-kernel/src/native/geom` |
 | [x] | Transforms | 0 | 0 | `forge-kernel/include/forge/math` |
 | [x] | Predicates | 0 | 0 | `forge-kernel/include/forge/native/Predicates.hpp, forge-kernel/include/forge/native/ExactPredicates3D.hpp` |
-| [ ] | Topology / B-Rep | 578 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
+| [ ] | Topology / B-Rep | 581 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
 | [x] | Tessellation | 0 | 0 | `forge-kernel/src/native/mesh, forge-kernel/include/forge/native/mesh` |
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
-| [ ] | Kernel core (rest) | 1304 | 62 | `forge-kernel/src` |
+| [ ] | Kernel core (rest) | 1305 | 62 | `forge-kernel/src` |
 
 ## The drop order is a CHAIN, and the demand is GROWING
 
@@ -132,7 +139,7 @@ migration:
 | distinct `struct Vec3` declarations in the tree | **1** |
 | files including `forge/math/Vec3.hpp` | 15 |
 | of those, under `native/` | **9** |
-| `gp_Pnt` uses in `src/native/brep` | **594** |
+| `gp_Pnt` uses in `src/native/brep` | **595** |
 | `Vec3` uses there (now the canonical type) | **2440** |
 
 Vec3 HAD ten layout-identical declarations in ten namespaces, and the canonical
@@ -258,10 +265,10 @@ It was invisible here until it was fixed.
 | file | OCCT include lines |
 |---|---:|
 | `forge-kernel/src/native/brep/StepReadOcct.cpp` | 71 |
-| `forge-kernel/src/Features.cpp` | 63 |
-| `forge-kernel/src/native/brep/NativeThickenShell.cpp` | 55 |
+| `forge-kernel/src/Features.cpp` | 62 |
+| `forge-kernel/src/native/brep/NativeThickenShell.cpp` | 56 |
+| `forge-kernel/src/native/brep/NativeThickSolid.cpp` | 55 |
 | `forge-kernel/src/native/brep/NativeLoftPipe.cpp` | 54 |
-| `forge-kernel/src/native/brep/NativeThickSolid.cpp` | 53 |
 | `forge-kernel/src/native/brep/NativeFilletChamfer.cpp` | 52 |
 | `forge-kernel/src/OcctImport.cpp` | 48 |
 | `forge-kernel/src/native/brep/StepWriteOcct.cpp` | 46 |
