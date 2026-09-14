@@ -368,7 +368,9 @@ run_gate forge_desktop_save_target_gate 1 2
 #   3 the supplied path is the copy's name, not the part's; 4 the renamed decoy
 #   is really STEP; 5 the re-export goes somewhere fresh; 6 the CAM panels are
 #   never drawn, so the walk finds three commands instead of four.
-run_gate forge_desktop_write_target_gate 1 2 3 4 5 6 7 8 9 10 11 12
+#   13-15 are T-130's: the caller walk is handed a consent, the typed box answers
+#   Keep instead of Replace, and the native panel is steered onto a free name.
+run_gate forge_desktop_write_target_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25
 run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.

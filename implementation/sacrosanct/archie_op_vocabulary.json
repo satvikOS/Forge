@@ -54,9 +54,9 @@
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "0519cb4f6ae0ebe3d9811816dba4acb913e0e5da4d210d1d762b51a47a60f1ca",
-        "bytes": 79180,
-        "lines": 1667
+        "sha256": "d22702eb9939ae85f60c8e40c5c4e01a064fb008f6db2a6d977fd0b406206366",
+        "bytes": 82125,
+        "lines": 1714
       }
     ],
     "build_configuration": {

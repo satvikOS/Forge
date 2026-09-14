@@ -326,7 +326,11 @@ class ForgeShell {
   // about one, and treating the two the same is how T-124 destroyed a part
   // through the shipping CoPilot Apply button with errors +0.
   //
-  // It lifts OCCUPANCY. It NEVER lifts a binding: see writeTarget().
+  // It lifts OCCUPANCY. It NEVER lifts a binding: see writeTarget(). ★ T-130 is
+  // what made the first half of that sentence literally true -- until clause (5)
+  // existed, this token lifted occupancy only for a target that was a FORGE
+  // PART, and a save onto anything else needed no token at all because nothing
+  // asked for one.
   void consentToReplace(const std::string& path) { consentedPath_ = path; }
   const std::string& consentedReplacePath() const noexcept { return consentedPath_; }
 
@@ -499,6 +503,18 @@ class ForgeShell {
   // a file that is NOT the original" -- true, and irrelevant: not-the-original
   // is not not-someone's-part, and one Run took a stranger's part from 2 NOTE /
   // 5 FEATURE / 738 B to 1 / 5 / 635 B with errors +0.
+  //
+  // AND OCCUPANCY IS NOW ANSWERED RATHER THAN MERELY ASKED -- FOR THE SAVE
+  // HALF (T-130). T-128 left "the target is merely OCCUPIED" a STATED LIMIT for
+  // every intent, and one file.save_as through the shipping CoPilot Apply
+  // button then took a hand-authored STEP from 173 B of ISO-10303-21 to 591 B
+  // of FORGE-PART with dispatch ok and errors +0, while the write-target gate
+  // printed green beside it. Clause (5) closes it for WriteIntent::DocumentSave
+  // and for that intent ONLY: a Save As has no "my last save_as" to overwrite,
+  // so nothing legitimate needs the hole, while a re-export over yesterday's
+  // copy is ordinary and every script in the product does it. The split is
+  // INTENT-SHAPED, and W10 pins both halves in ONE population so they cannot
+  // come apart.
   //
   // `writing` is the exchange format being written, or NULLPTR for the machine
   // program and for the document saves -- neither is an ExchangeFormat and

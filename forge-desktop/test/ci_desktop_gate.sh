@@ -255,7 +255,13 @@ set -uo pipefail
 #    document READS, the save waist and the CoPilot route, and a REFUSED export
 #    leaving the target alone. The same awk now prints 185, READ OFF THIS TREE:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
-EXPECTED_MUTATIONS=185
+#  * 2026-09-13, T-130: forge_desktop_write_target_gate gained THREE more
+#    (13-15) with the population that closes the SAVE half of the occupancy
+#    limit -- a save onto a file that is not a part at all, which the gate
+#    printed GREEN beside while a hand-authored STEP became a Forge part. The
+#    same awk now prints 188, READ OFF THIS TREE with that command:
+#      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
+EXPECTED_MUTATIONS=188
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

@@ -3,6 +3,15 @@
 // THE WRITE-TARGET GATE — WHAT DOES A *COPY* LAND ON, AND WHAT WILL FORGE
 // REFUSE TO WRITE OVER?
 //
+// ★ AND THIS GATE HAS NOW BEEN THE BLIND ONE ITSELF. At 2b5e61d3 it printed
+//   "9 populations run, all green / WRITE-TARGET GATE GREEN", 0 FAIL lines,
+//   while one file.save_as from the shipping CoPilot Apply button turned a
+//   hand-authored 173-byte STEP into 591 bytes of FORGE-PART with errors +0 --
+//   because every population asked whether the target was a PART and none asked
+//   whether it was merely TAKEN. W10 is that question, and it was measured RED
+//   on the parent commit before the product was touched. When this file grows
+//   again, the thing to ask is what a green run does NOT cover.
+//
 // T-122 asked what a SAVE PANEL points at and pinned the answer in two gates.
 // Both of them printed GREEN — 243 checks / 0 failures, and "7 populations, all
 // green" — on the very tree where one Run in the TYPED-PATH BOX turned a user's
@@ -50,13 +59,16 @@
 // worst of the four is the exact shape of the hole this file exists to close.
 //
 // ── RUN ONE POPULATION PER PROCESS ─────────────────────────────────────────
-//     forge_desktop_write_target_gate --pop typed-box|typed-path|renamed|allows|native-panel
+//     forge_desktop_write_target_gate --pop <one of kPopulations>
+// The list is kPopulations, immediately above runEveryPopulation(); it is not
+// repeated here, because a list in a comment is a list that goes stale -- this
+// one already named five populations while the binary ran nine.
 // With NO --pop the binary re-execs ITSELF once per population and fails if any
 // child does. One per process for the reason save_target_gate gives: the OCCT
 // path enforces a PROCESS-GLOBAL wall-clock window and every seeded application
 // spends some of it.
 //
-// --mutate 1..6 proves the gate can fail; see kMutations in main().
+// --mutate 1..15 proves the gate can fail; see the mutation list in main().
 #include <algorithm>
 #include <cstddef>
 #include <cstdio>
@@ -850,9 +862,14 @@ void popAllows(const std::string& root) {
         "★ and re-exporting over the earlier copy REPLACED it",
         std::to_string(firstCopy.bytes) + " -> " + std::to_string(secondCopy.bytes));
 
-  // (c) a file Forge has no opinion about is still written over. STATED here,
-  //     because it is the limit of this fix: the guard asks whether the target
-  //     is a Forge part, not whether it is occupied. See the commit message.
+  // (c) a file Forge has no opinion about is still written over BY A COPY.
+  //     STATED here, because it is the surviving limit: for an EXPORT the guard
+  //     asks whether the target is a Forge part, not whether it is occupied.
+  //     ★ T-130 CLOSED THE OTHER HALF -- a DOCUMENT SAVE onto this same shape of
+  //       target is now refused unless a surface asked a person first. The split
+  //       is intent-shaped, and W10 pins both halves in one body: widening the
+  //       new clause from DocumentSave to every intent reddens THIS check and
+  //       W10(e) together. MEASURED by source mutation, both populations red.
   const std::string notes = work + "/notes.txt";
   check(writeWholeFile(notes, "the user's own notes\n"), "an ordinary file is in the way");
   {
@@ -1472,6 +1489,338 @@ void popFailedExport(const std::string& root) {
         "★ and no staging sibling is left beside it", hand + ".forge-tmp");
 }
 
+// ── THE DOCUMENT-SAVE COMMANDS, DERIVED FROM THE REGISTRY ──────────────────
+// Not a list of two ids. `writes == WriteIntent::DocumentSave` is the SAME
+// declaration ForgeShell::writeTarget() judges a target by, so a third
+// document-save command is inside this walk THE DAY IT IS REGISTERED -- which
+// is the whole of what T-124 was: a third handler nobody remembered to add a
+// call to, twenty lines above the guard the other two used.
+std::vector<std::string> documentSaveCommands(const forge::ui::CommandRegistry& registry) {
+  std::vector<std::string> out;
+  for (const std::string& id : registry.ids()) {
+    const forge::ui::CommandDescriptor* d = registry.find(id);
+    if (d == nullptr) continue;
+    if (d->writes != forge::ui::WriteIntent::DocumentSave) continue;
+    out.push_back(id);
+  }
+  return out;
+}
+
+// ── W10 ────────────────────────────────────────────────────────────────────
+// T-130: A SAVE ONTO A FILE THAT IS NOT A PART AT ALL.
+//
+// writeTarget() refuses a target that IS a Forge part -- by IDENTITY (the open
+// document), by CONTENT (the first bytes are the document magic) and by BINDING
+// (a file the document reads). It did not ask whether the target was merely
+// OCCUPIED, and 2b5e61d3 wrote that down as clause (5), a STATED LIMIT, with
+// one reason: "refusing would break 'export over my last export' for every
+// script". THAT IS AN EXPORT'S REASON. A re-export over yesterday's out.step is
+// idempotent re-export and a script naming a path is its author naming it; a
+// Save As has no "my last save_as" to overwrite, so nothing legitimate needs
+// the hole on the SAVE side.
+//
+// ★ AND THIS GATE PRINTED "9 populations run, all green / WRITE-TARGET GATE
+//   GREEN", 0 FAIL lines, WHILE THAT HAPPENED -- the third time in this family
+//   that a gate inherited its guard's blind spot. So this population is written
+//   to be RED on the parent commit, and it was MEASURED red there.
+//
+// MEASURED at 2b5e61d3 BY THIS POPULATION, before the clause existed -- and
+// nothing else in the gate moved:
+//   file.save / file.save_as, from a CALLER, on an untitled document:
+//     handauthored.step  |ISO-10303-21;|                    -> |FORGE-PART 4|
+//     thesis.txt         |MY MEASUREMENTS -- DO NOT DELETE| -> |FORGE-PART 4|
+//     notes.md           |# notes|                          -> |FORGE-PART 4|
+//   and through the SHIPPING CoPilot Apply button:
+//     plot.csv           |x,y|                              -> "Applied 1 of 1 step"
+//   each with dispatch ok, documentErrorSeq UNCHANGED and an EMPTY error string.
+//   The exact byte counts are in the commit message; they are printed by the
+//   [raw] lines below on every run, so they are never a number in prose.
+//
+// SIX LEGS, and three of them exist so "refuse every occupied save" -- the
+// cheapest wrong fix available -- cannot pass:
+//   (a) the DERIVED walk of every DocumentSave command x three real victims
+//   (b) the shipping Apply button, on the LIVE registry
+//   (c) the SYMMETRIC ALLOWS -- a caller saving to a FREE name, and Save
+//       writing the document back over ITS OWN occupied file
+//   (d) the CONSENT arm through the shipping typed box, whose question already
+//       asked about a non-part and whose answer is now load-bearing
+//   (e) ★ THE SPLIT ITSELF: a COPY onto that same shape of target STILL
+//       WRITES. Asserted here, beside the half that closed, so a later
+//       widening to every intent reddens the population that OWNS the split
+//       rather than a check three hundred lines away
+//   (f) the OTHER MINTER: a native Save panel accepting an occupied NON-PART
+//       still writes -- a class W6(f) never covered, because it only ever
+//       steered the panel onto a part
+void popStrangerFile(const std::string& root) {
+  std::printf("\n== W10: a SAVE onto a file that is NOT a part ==========================\n");
+  const std::string work = root + "/work";
+  std::error_code ec;
+  std::filesystem::create_directories(work, ec);
+
+  // Three victims with DISTINCT bytes and distinct first lines, so
+  // "byte-identical" is a fact about CONTENT and never about two files that
+  // happen to weigh the same -- the note-on-method W6 pays for with mutation 7.
+  struct Victim {
+    const char* leaf;
+    const char* text;
+  };
+  const Victim victims[] = {
+      {"handauthored.step",
+       "ISO-10303-21;\n/* HAND AUTHORED -- DO NOT REGENERATE */\nHEADER;\n"
+       "FILE_NAME('bracket','2026-09-13');\nENDSEC;\nDATA;\n"
+       "#1=CARTESIAN_POINT('',(0.,0.,0.));\nENDSEC;\nEND-ISO-10303-21;\n"},
+      {"thesis.txt", "MY MEASUREMENTS -- DO NOT DELETE\n"},
+      {"notes.md", "# notes\nbracket, rev C\n"},
+  };
+
+  App b;
+  started(b, "a launch with its own UNTITLED part");
+  b.oneFrame();
+  checkStrEq(b.frame->documentPath(), std::string(),
+             "the document is untitled, so no victim is its own file");
+
+  // ── (a) EVERY DOCUMENT-SAVE COMMAND, DERIVED, ON EVERY VICTIM ──────────
+  const std::vector<std::string> saves = documentSaveCommands(b.shell.registry());
+  std::printf("   [walk] document-save commands, DERIVED from descriptor.writes:");
+  for (const std::string& id : saves) std::printf(" %s", id.c_str());
+  std::printf("  (%zu)\n", saves.size());
+  // Load-bearing rather than decoration, the way W1's `walked == 4` is: a walk
+  // that silently skipped one of the two saves is the exact shape of the hole
+  // this file exists to close, and a THIRD document-save command must be looked
+  // at rather than absorbed.
+  check(saves.size() == 2, "★ the walk finds BOTH document saves and no others",
+        std::to_string(saves.size()));
+
+  for (const std::string& id : saves) {
+    for (const Victim& v : victims) {
+      const std::string path = work + "/" + v.leaf;
+      // RE-SEEDED BEFORE EVERY DISPATCH. On a tree without the fix the first
+      // command replaces the file with a Forge part, and the second would then
+      // be refused by the PART clause -- a green check for a reason that has
+      // nothing to do with this population's question.
+      check(writeWholeFile(path, v.text), "the user's own file is on disk", path);
+      const Seen before = look(path);
+      const std::size_t seq = b.shell.documentErrorSeq();
+      const std::size_t mark = logMark(b.shell);
+      // MUTATION 13: the caller is handed a consent before the dispatch, so
+      // every refusal below must go red. Mutation 11's shape for the target
+      // class T-130 is about, and it is what proves the rule turns on WHO WAS
+      // ASKED and not merely on occupancy.
+      if (g_mutation == 13) b.shell.consentToReplace(path);
+      forge::ui::CommandParams params;
+      params.setText("path", path);
+      const forge::ui::DispatchResult r = b.shell.run(id, params);
+      sayLog(b.shell, mark, std::string("what ") + id + " said about " + v.leaf);
+      const Seen now = look(path);
+      std::printf("   [ask] %-13s %-18s dispatch %-7s refused=%-3s  file %s\n", id.c_str(),
+                  v.leaf, r.ok() ? "ok" : "NOT-ok",
+                  b.shell.documentErrorSeq() != seq ? "yes" : "no",
+                  now.text == before.text ? "byte-identical" : "REPLACED");
+      say(v.leaf, path, now);
+      check(!r.ok(),
+            std::string("★ ") + id + " on " + v.leaf + ": a CALLER may not write over it",
+            forge::ui::machineName(r.status));
+      check(b.shell.documentErrorSeq() != seq,
+            std::string("★ ") + id + " on " + v.leaf + ": and it SAID so",
+            b.shell.lastDocumentError());
+      check(now.text == before.text,
+            std::string("★ ") + id + " on " + v.leaf + ": AND IT IS BYTE-IDENTICAL",
+            std::to_string(before.bytes) + " B |" + before.head + "| -> " +
+                std::to_string(now.bytes) + " B |" + now.head + "|");
+    }
+  }
+  check(forge::ui::isUserReadable(b.shell.lastDocumentError()),
+        "and the sentence is one a user can read", b.shell.lastDocumentError());
+  check(b.shell.lastDocumentError().find(victims[2].leaf) != std::string::npos,
+        "and it NAMES the file it would not write over", b.shell.lastDocumentError());
+
+  // ── (b) THE SHIPPING APPLY BUTTON, ON THE LIVE REGISTRY ────────────────
+  // ZERO LINES OF ArchieCopilot ARE TOUCHED BY THE FIX, which is the point of
+  // asserting it here: validatePlan still accepts the step, and the bytes still
+  // do not move, because the dispatch it makes is the dispatch the waist guards.
+  const std::string plot = work + "/plot.csv";
+  check(writeWholeFile(plot, "x,y\n0,0\n1,1\n"), "a CSV the user plotted from", plot);
+  const Seen plotBefore = look(plot);
+  say("plot.csv, before the Apply button", plot, plotBefore);
+  {
+    forge::ui::Plan plan;
+    forge::ui::PlanStep step;
+    step.commandId = "file.save_as";
+    step.args.push_back(forge::ui::PlanArg::str("path", plot));
+    plan.steps.push_back(step);
+    const forge::ui::OpConstraintBridge bridge;
+    const forge::ui::PlanVerdict verdict =
+        forge::ui::validatePlan(plan, b.shell.registry(), bridge);
+    std::printf("   [plan] validatePlan accepted=%s |%s|\n",
+                verdict.accepted() ? "true" : "false", verdict.explanation.c_str());
+    check(verdict.accepted(),
+          "★ validatePlan still accepts it -- the fix is at the WRITE, not the plan",
+          verdict.explanation);
+    const forge::ui::ApplyOutcome applied =
+        forge::ui::applyPlan(plan, b.shell, b.frame->document(), bridge);
+    std::printf("   [plan] applyPlan: %s\n", applied.summary().c_str());
+    check(applied.applied == 0, "★ Applied 0 of 1 step", std::to_string(applied.applied));
+  }
+  checkUntouched(plotBefore, look(plot), plot,
+                 "★ AND plot.csv IS BYTE-IDENTICAL AFTER THE SHIPPING APPLY BUTTON");
+
+  // ── (c) THE SYMMETRIC ALLOWS ───────────────────────────────────────────
+  // Without these two, a Forge that refused EVERY save from a caller passes
+  // everything above.
+  const std::string fresh = work + "/fresh.fpart";
+  check(!std::filesystem::exists(fresh, ec), "nothing is at fresh.fpart", fresh);
+  {
+    forge::ui::CommandParams params;
+    params.setText("path", fresh);
+    check(b.ran("file.save_as", params), "★ a caller CAN still save to a FREE name",
+          b.shell.lastDocumentError());
+  }
+  const Seen wrote = look(fresh);
+  say("fresh.fpart", fresh, wrote);
+  check(wrote.exists && wrote.head.rfind("FORGE-PART", 0) == 0,
+        "★ and what landed is a Forge part", wrote.head);
+  check(b.note("A SECOND NOTE"), "the user edits the part", b.frame->noteRefusal());
+  {
+    forge::ui::CommandParams params;
+    params.setText("path", fresh);
+    check(b.ran("file.save", params),
+          "★ and Save still writes the part back over ITS OWN occupied file",
+          b.shell.lastDocumentError());
+  }
+  const Seen againSaved = look(fresh);
+  say("fresh.fpart, saved again", fresh, againSaved);
+  check(againSaved.exists && againSaved.head.rfind("FORGE-PART", 0) == 0 &&
+            againSaved.notes > wrote.notes,
+        "★ and it is a BIGGER part than before, not a refusal",
+        std::to_string(wrote.notes) + " NOTE -> " + std::to_string(againSaved.notes));
+
+  // ── (d) THE CONSENT ARM, THROUGH THE SHIPPING TYPED BOX ────────────────
+  // ★ NO UI CHANGE WAS NEEDED FOR THIS, AND THAT IS THE FINDING.
+  //   ForgeFrame::wantsReplaceQuestion() has ALWAYS tested pathIsOccupied()
+  //   rather than part-ness, and drawReplacePrompt already has the sentence "a
+  //   file Forge did not write". The question existed, the consent was minted
+  //   and the token was accepted -- writeTarget() simply never CONSULTED it for
+  //   a target that was not a part. The fix makes an existing answer
+  //   load-bearing; it does not build a new one.
+  {
+    App d;
+    started(d, "a launch that will replace a file of its own ON PURPOSE");
+    check(d.note("REPLACING MY OWN NOTES ON PURPOSE"), "a part to save",
+          d.frame->noteRefusal());
+    const std::string mine = work + "/my-notes.txt";
+    check(writeWholeFile(mine, "MY OLD NOTES -- I WILL REPLACE THESE MYSELF\n"),
+          "a file of the user's own is in the way", mine);
+    const Seen beforeAsk = look(mine);
+    say("my-notes.txt, before the box", mine, beforeAsk);
+    const std::size_t raised = d.frame->replacePromptsRaised();
+    const std::size_t seq = d.shell.documentErrorSeq();
+    d.frame->invoke("file.save_as");
+    d.oneFrame();
+    check(d.frame->promptOpen(), "the typed Save As box is up", d.shell.lastDocumentError());
+    check(d.frame->setPromptValue("path", mine), "the user types their own file's name");
+    d.frame->submitPrompt();
+    d.oneFrame();
+    check(d.frame->replacePromptsRaised() == raised + 1,
+          "★ Forge ASKS before it replaces a file it did not write",
+          std::to_string(d.frame->replacePromptsRaised() - raised));
+    checkStrEq(d.frame->replacePromptWhat(), "a file Forge did not write",
+               "★ and the question says WHAT is sitting there -- not 'another Forge part'");
+    check(d.shell.documentErrorSeq() == seq,
+          "and NOTHING was dispatched while the question stands", d.shell.lastDocumentError());
+    checkUntouched(beforeAsk, look(mine), mine,
+                   "★ and the file is untouched while the question stands");
+    // MUTATION 14: the answer is "Keep the Old File", so nothing is written and
+    // the check below goes red. This leg is what refuses a Forge that simply
+    // refuses everything -- and the mutation is what proves the leg is live.
+    if (g_mutation == 14) {
+      d.frame->answerReplaceCancel();
+    } else {
+      d.frame->answerReplaceYes();
+    }
+    d.oneFrame();
+    const Seen afterAnswer = look(mine);
+    say("my-notes.txt, after the answer", mine, afterAnswer);
+    check(afterAnswer.exists && afterAnswer.head.rfind("FORGE-PART", 0) == 0 &&
+              afterAnswer.text != beforeAsk.text,
+          "★ a person CAN still save over their own file -- it was WRITTEN",
+          std::to_string(beforeAsk.bytes) + " B -> " + std::to_string(afterAnswer.bytes) +
+              " B |" + afterAnswer.head + "|");
+  }
+
+  // ── (e) ★ THE SPLIT, PINNED IN THE POPULATION THAT OWNS IT ─────────────
+  // WriteIntent::Copy onto the SAME shape of target -- occupied, not a part,
+  // not bound, named by a CALLER with nobody there to ask -- STILL WRITES.
+  // That is clause (6)'s stated limit and it is kept ON PURPOSE. Widening the
+  // new clause from DocumentSave to every intent turns THIS check red, here,
+  // instead of turning W4(c) red three hundred lines away.
+  {
+    const std::string source = makeUserPart(work, "bracket.fpart", "BRACKET -- RELEASED");
+    App e;
+    started(e, "a launch that will export a copy");
+    check(e.open(source), "File > Open bracket.fpart", e.shell.lastDocumentError());
+    e.oneFrame();
+    e.sayScene("the part this copy is made from");
+    check(e.scene.lastBuild().ok(), "the part COMPILES, so nothing below can refuse for that",
+          e.scene.lastBuild().error);
+    const std::string keep = work + "/keep.txt";
+    check(writeWholeFile(keep, "AN ORDINARY FILE, IN THE WAY OF AN EXPORT\n"),
+          "an ordinary file is in the way", keep);
+    const Seen keepBefore = look(keep);
+    say("keep.txt, before the export", keep, keepBefore);
+    forge::ui::CommandParams params;
+    params.setText("path", keep);
+    check(e.ran("file.export_step", params),
+          "★ THE EXPORT HALF IS UNCHANGED: a COPY onto an occupied non-part is STILL "
+          "WRITTEN",
+          e.shell.lastDocumentError());
+    const Seen keepAfter = look(keep);
+    say("keep.txt, after the export", keep, keepAfter);
+    check(keepAfter.exists && keepAfter.head.rfind("ISO-10303-21", 0) == 0,
+          "★ and what landed is STEP text -- the stated limit, kept on purpose",
+          std::to_string(keepBefore.bytes) + " B -> " + std::to_string(keepAfter.bytes) +
+              " B |" + keepAfter.head + "|");
+  }
+
+  // ── (f) THE OTHER MINTER, ON A CLASS W6(f) NEVER COVERED ───────────────
+  // W6(f) steers a native panel onto an existing PART. Nothing steered one onto
+  // an existing NON-PART, which is the class this round is about: an NSSavePanel
+  // cannot come back ACCEPTED on a path that already exists without having shown
+  // its own Replace sheet, so that IS a person having been asked -- and if the
+  // new clause refused it, Save As through the panel onto a file of the user's
+  // own would stop working.
+  {
+    App f;
+    started(f, "a launch with a native panel installed");
+    check(f.note("SAVED THROUGH THE PLATFORM'S OWN PANEL"), "a part to save",
+          f.frame->noteRefusal());
+    const std::string steered = work + "/steered.txt";
+    check(writeWholeFile(steered, "THE USER STEERED THE PANEL ONTO THIS\n"),
+          "an ordinary file for the panel to land on", steered);
+    AnswerWithDialog panel;
+    // MUTATION 15: the panel is steered onto a FREE name instead, so the
+    // occupied file is never written and the check below goes red -- which is
+    // what proves this leg is about an OCCUPIED target and not merely about a
+    // panel that ran.
+    panel.answer = (g_mutation == 15) ? (work + "/steered-free.fpart") : steered;
+    f.frame->setFileDialog(&panel);
+    const Seen panelBefore = look(steered);
+    say("steered.txt, before the panel route", steered, panelBefore);
+    f.frame->invoke("file.save_as");
+    f.oneFrame();
+    std::printf("   [panel] runs=%zu shown=%zu\n", panel.runs, f.frame->fileDialogsShown());
+    check(panel.runs == 1, "the panel was raised exactly once", std::to_string(panel.runs));
+    check(!f.frame->replacePromptOpen(),
+          "★ and Forge does NOT ask a second time -- the platform already did");
+    const Seen panelAfter = look(steered);
+    say("steered.txt, after", steered, panelAfter);
+    check(panelAfter.exists && panelAfter.head.rfind("FORGE-PART", 0) == 0 &&
+              panelAfter.text != panelBefore.text,
+          "★ a native Save panel accepting an EXISTING NON-PART still writes it",
+          std::to_string(panelBefore.bytes) + " B -> " + std::to_string(panelAfter.bytes) +
+              " B |" + panelAfter.head + "|");
+  }
+}
+
 // ── W5 ─────────────────────────────────────────────────────────────────────
 // THE NEGATIVE CONTROL: the native panel route, which was already safe. A guard
 // that fired here would break the one route a macOS user actually takes.
@@ -1525,9 +1874,10 @@ void popNativePanel(const std::string& root) {
 }  // namespace
 
 // Every population, one per process. See the file header for why.
-const char* const kPopulations[] = {"typed-box",   "typed-path",  "renamed",
+const char* const kPopulations[] = {"typed-box",   "typed-path",   "renamed",
                                     "allows",      "native-panel", "occupied",
-                                    "bound-input", "save-waist",  "failed-export"};
+                                    "bound-input", "save-waist",   "failed-export",
+                                    "stranger-file"};
 
 // ── THE SELF-EXEC LOOP ─────────────────────────────────────────────────────
 // fork + execv + waitpid, and the status is read FROM THE PROCESS. A system()
@@ -1624,6 +1974,17 @@ int main(int argc, char** argv) {
   //      another user's part" goes red -- the caller/human distinction.
   //  12  W9 leaves the folder writable, so the export succeeds and both "it
   //      refused" and "the bytes survived" go red.
+  //  13  W10's caller walk is handed a consent before EVERY dispatch, so every
+  //      refusal in leg (a) goes red. Mutation 11's shape for the target class
+  //      T-130 is about -- it is what proves the OCCUPANCY clause turns on WHO
+  //      WAS ASKED and not merely on the file being there.
+  //  14  W10's typed box answers "Keep the Old File" instead of "Replace the
+  //      File", so "a person CAN still save over their own file" goes red. This
+  //      is the one that refuses a Forge which simply refuses EVERYTHING -- the
+  //      cheapest wrong fix available for this round.
+  //  15  W10's native panel is steered onto a FREE name, so "a panel accepting
+  //      an EXISTING non-part still writes it" goes red -- which proves that leg
+  //      is about an OCCUPIED target and not merely about a panel that ran.
   if (population.empty()) return runEveryPopulation(argv[0], g_mutation);
 
   const char* tmp = std::getenv("TMPDIR");
@@ -1673,6 +2034,8 @@ int main(int argc, char** argv) {
     popSaveWaist(root);
   } else if (population == "failed-export") {
     popFailedExport(root);
+  } else if (population == "stranger-file") {
+    popStrangerFile(root);
   } else {
     std::printf("[gate] unknown population '%s'\n", population.c_str());
     return 2;

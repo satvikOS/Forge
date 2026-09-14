@@ -1152,20 +1152,67 @@ std::optional<std::string> ForgeShell::writeTarget(CommandContext& ctx, const st
     return std::nullopt;
   }
 
-  // (5) OCCUPIED BY SOMETHING FORGE HAS NO OPINION ABOUT -- and this is the ONE
-  //     branch that is a STATED LIMIT rather than a rule.
+  // (5) OCCUPIED, AND NOBODY WAS ASKED. T-130 -- the SAVE half of what the
+  //     clause below states as a limit.
+  //
+  //     A DOCUMENT SAVE may not land on a name that is already taken unless a
+  //     surface has put that exact file in front of a person and read their
+  //     answer. The token is the same one-shot, path-scoped consent clause (4)
+  //     already reads, and it is the ONLY thing this function can see that
+  //     separates a person from a caller: a `path` in a CommandParams is a
+  //     macro, a plan step or an Archie tool call naming a file, and there is
+  //     nobody there to ask. THIS FUNCTION DOES NOT KNOW ITS ROUTE AND MUST NOT
+  //     TRY -- the token IS the route, minted by ForgeFrame's own Replace
+  //     question and by a native Save panel, and by nothing else.
+  //
+  //     FOUR CASES THIS CANNOT REACH, each a real thing a user does:
+  //       * the document's own file      -- clause (1), the first judgement in
+  //                                         this function, so a plain Ctrl+S is
+  //                                         never an interrogation
+  //       * an empty path (bare Ctrl+S)  -- returned above every clause; the
+  //                                         host picks a free name in ~/.forge
+  //       * a free name                  -- falls through to the return below
+  //       * a COPY over yesterday's copy -- clause (6), deliberately unchanged
+  //
+  //     MEASURED at 2b5e61d3 by write_target_gate's W10, on the parent commit:
+  //     file.save and file.save_as from a CALLER, on an untitled document, took
+  //     a hand-authored STEP 173 B |ISO-10303-21;| -> 591 B |FORGE-PART 4|,
+  //     thesis.txt 33 -> 585 and notes.md 23 -> 584, each with dispatch ok, the
+  //     error sequence UNMOVED and an EMPTY error string -- and applyPlan took
+  //     plot.csv 12 -> 583 through the shipping Apply button, reporting
+  //     "Applied 1 of 1 step". The write-target gate printed GREEN beside it.
+  if (intent == WriteIntent::DocumentSave && pathIsOccupied(path)) {
+    if (pathNamesSameFile(path, consentedPath_)) return path;
+    documentError_ = "There is already something at \"" + path +
+                     "\", and Forge did not write it. Saving the part there would replace "
+                     "it, and Forge cannot bring it back. Choose a name that is free, or "
+                     "save there from the Save As box, which asks first.";
+    ++documentErrorSeq_;
+    ctx.fail(documentError_);
+    return std::nullopt;
+  }
+
+  // (6) A COPY ONTO AN OCCUPIED NAME -- and this is the ONE branch that is
+  //     still a STATED LIMIT rather than a rule.
   //
   //     Through a SURFACE, a person has already been asked: ForgeFrame raises its
   //     Replace question before this command is ever dispatched, and a native
   //     Save panel showed AppKit's Replace sheet. Through a CALLER -- a macro, a
   //     plan step, `--open` -- nobody was asked and nobody is there to ask, and
-  //     this is still allowed. Re-exporting over yesterday's copy is ordinary
-  //     intent and a script that names a path is its author naming it; refusing
-  //     here would break "export over my last export" for every caller in the
-  //     product and is the bigger hammer, not the better question.
+  //     for a COPY this is still allowed. Re-exporting over yesterday's copy is
+  //     ordinary intent and a script that names a path is its author naming it;
+  //     refusing here would break "export over my last export" for every caller
+  //     in the product and is the bigger hammer, not the better question.
   //
-  //     It is written down rather than left to be discovered, and the gate pins
-  //     BOTH halves: the box asks, the caller writes.
+  //     FOR A SAVE IT IS NOT. Clause (5) closed that half, because Save As is
+  //     not re-export and there is no "my last save_as" to overwrite -- so
+  //     nothing legitimate needed the hole on that side. The split is
+  //     INTENT-SHAPED and that is the whole of the difference.
+  //
+  //     It is written down rather than left to be discovered, and ONE population
+  //     pins both halves so they cannot drift apart: W10(e) re-exports over an
+  //     occupied non-part and W10(a) refuses a save onto that identical shape of
+  //     target.
   return path;
 }
 

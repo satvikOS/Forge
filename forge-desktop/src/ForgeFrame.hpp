@@ -531,6 +531,13 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   bool replacePromptOpen() const noexcept { return replacePrompt_; }
   const std::string& replacePromptPath() const noexcept { return replacePromptPath_; }
   const std::string& replacePromptCommand() const noexcept { return replacePromptCommand_; }
+  // WHAT the question says is sitting there, in the words the user reads --
+  // "another Forge part" or "a file Forge did not write". A gate that only knew
+  // a question had been RAISED could not tell the two branches of the sniffer
+  // apart, and T-130 is entirely about the second one: the box has always asked
+  // about a file Forge did not write, and until this round the shell then wrote
+  // over it whether or not anybody answered.
+  const std::string& replacePromptWhat() const noexcept { return replacePromptWhat_; }
   std::size_t replacePromptsRaised() const noexcept { return replacePromptsRaised_; }
   // The two answers. Deferred and applied after the dock walk exactly as the
   // quit answers are, and for the same reason: Replace dispatches a command that

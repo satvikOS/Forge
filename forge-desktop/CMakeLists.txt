@@ -1113,8 +1113,8 @@ foreach(_st 1 2)
     set_tests_properties(forge_desktop_save_target_mutation_${_st}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
-# ── the WRITE-TARGET gate (T-123, extended by T-128) ─────────────────────────
-# NINE populations, one process each. The first five are T-123's: the typed box
+# ── the WRITE-TARGET gate (T-123, extended by T-128 and T-130) ───────────────
+# TEN populations, one process each. The first five are T-123's: the typed box
 # on every copy command, the same commands with the path SUPPLIED (a macro, an
 # Archie tool call, --open), a part renamed bracket.step, the allow branch that
 # stops "refuse everything" from passing, and the native panel as the negative
@@ -1122,7 +1122,10 @@ endforeach()
 # rather than difference-from-the-original: two parts in one folder and what the
 # Save As box takes (W6), the file the open document READS (W7), the save waist
 # and the CoPilot route that reaches it (W8), and a REFUSED export leaving the
-# target's bytes alone (W9).
+# target's bytes alone (W9). T-130 added the tenth: a save onto a file that is
+# NOT A PART AT ALL (W10), which the other nine printed green beside while a
+# hand-authored STEP became a Forge part -- and which pins the EXPORT half of
+# that same limit, unchanged, in the same body.
 add_test(NAME forge_desktop_write_target_gate COMMAND forge_desktop_write_target_gate)
 #   1  the scripted panel answers the user's own document instead of the seed
 #   2  the typed box is never Run, so nothing is written at all
@@ -1140,7 +1143,14 @@ add_test(NAME forge_desktop_write_target_gate COMMAND forge_desktop_write_target
 #  10  W7 is handed an EMPTY binding list -- T-127's blindness restored
 #  11  W8's caller route is handed a consent -- the caller/human distinction
 #  12  W9 leaves the folder writable, so the export succeeds
-foreach(_wt 1 2 3 4 5 6 7 8 9 10 11 12)
+#  13  W10's caller walk is handed a consent before every dispatch -- the
+#      caller/human distinction, for a target that is not a part at all
+#  14  W10's typed box answers "Keep the Old File" instead of "Replace the
+#      File", so "a person CAN still save over their own file" goes red: the
+#      leg that refuses a Forge which simply refuses everything
+#  15  W10's native panel is steered onto a FREE name, so "a panel accepting an
+#      EXISTING non-part still writes it" goes red
+foreach(_wt 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15)
     add_test(NAME forge_desktop_write_target_mutation_${_wt}
              COMMAND forge_desktop_write_target_gate --mutate ${_wt})
     set_tests_properties(forge_desktop_write_target_mutation_${_wt}
