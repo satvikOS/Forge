@@ -3,22 +3,43 @@
 //
 //   node test/cam_native_offset_ab.mjs
 //
-// WHAT THIS PROVES
+// WHAT THIS PROVES  (REWRITTEN 2026-09-14 — read this before trusting an old run)
 // ----------------
-// forge::cam::inwardOffset is the ONE call site of BRepOffsetAPI_MakeOffset in the
-// whole tree (TKOffset family A: 4 symbols). FORGE_OFFSET_DROP_MAKEOFFSET compiles the
-// OCCT branch out and routes it through the in-house PolygonOffset2D. Law 9 forbids
-// dropping a library by deleting the capability it provided, so the native path must do
-// the SAME WORK — proven by the SAME test.
+// forge::cam::inwardOffset WAS the one call site of BRepOffsetAPI_MakeOffset in the
+// whole tree (TKOffset family A: 4 symbols). That call is now DELETED from
+// src/Cam.cpp — not gated behind FORGE_OFFSET_DROP_MAKEOFFSET, deleted — because a
+// flag that stops taking a branch leaves the symbols in the binary.
 //
-// This gate runs the toolpath BOTH ways in the SAME process — OCCT
-// (setNativeBrep(false)) and native (setNativeBrep(true)) — on identical profiles, and
-// measures the DIRECTED HAUSDORFF distance between the two resulting XY traces.
+// THAT BREAKS THIS GATE'S OLD CONSTRUCTION, and the break had to be repaired rather
+// than papered over. It used to run each profile TWICE, setNativeBrep(false) for
+// "OCCT" and (true) for "native", and compare the two traces. With the OCCT branch
+// gone BOTH calls take the same code, so that comparison is now the native path
+// measured against itself: it would report a cross-deviation of exactly 0.000 on
+// every case and print PASS. A gate that cannot fail is not a gate, and one that
+// cannot fail while LOOKING like it passed is worse than none.
 //
-// It must therefore be run against a build with FORGE_OFFSET_DROP_MAKEOFFSET=OFF, which
-// is the only configuration where both implementations exist to be compared. Against a
-// drop build the OCCT side is gone; the script detects that and says so rather than
-// silently comparing native against itself.
+// WHAT IT MEASURES INSTEAD — and it is the stronger of the two things it used to do.
+// The old script already scored both arms against the CLOSED-FORM area of the exact
+// inward offset wherever that is known (`truth` below), and observed that on the
+// curved cases the native answer was the closer of the two. Truth does not need an
+// OCCT arm. So this gate now scores the SHIPPED path against the closed form and
+// against nothing else:
+//
+//   PASS   |area(trace) - truth| / truth  <=  the sampling bound derived below
+//
+// For the cross-check against OCCT — which is still worth having, and still exists —
+// see test/cam_family_a_offset_ab.cpp, where the deleted OCCT block is kept verbatim
+// as a TEST-ONLY oracle (test/cam_family_a_occt_oracle.hpp) and the two are compared
+// over the 600-part corpus with the full observable vector.
+//
+// THE SAMPLING BOUND, DERIVED NOT GUESSED. profile() reports its contour as a
+// polyline sampled at kSampleDeflection = 0.05 mm of chord deviation. A closed convex
+// contour of perimeter L, sampled to chord deviation d, loses area approximately
+// (2/3) d L — the sum over chords of the circular-segment area (2/3) d s, which is
+// exact in the limit of small sagitta (see any treatment of the circular segment;
+// e.g. Bronshtein & Semendyayev, "Handbook of Mathematics", 5th ed., §3.1.4). The
+// polygon is INSCRIBED, so the measured area is BELOW truth by that much and never
+// above it. Both halves of that prediction are checked.
 //
 // THE TOLERANCE, AND WHY IT IS THE RIGHT ONE
 // ------------------------------------------
@@ -47,8 +68,13 @@ if (typeof f.setNativeBrep !== 'function') {
   process.exit(1);
 }
 
-const TOL_CONSUMER = 0.05;        // kSampleDeflection — the budget that must be met
+const TOL_CONSUMER = 0.05;        // kSampleDeflection — the reporting budget
 const TOL_INPUT    = 0.05 / 16;   // kOffsetInputDeflection — reported, not enforced
+// Area tolerance = the (2/3)dL sampling deficit above, with a x3 margin for the
+// non-convex cases where the bound is not tight, floored at 1e-9 so the exact
+// straight-edge cases cannot fail on rounding.
+const areaBound = (truth, perimeter) =>
+  Math.max(1e-9, 3 * (2 / 3) * TOL_CONSUMER * perimeter / truth);
 
 // ----------------------------------------------------------------- geometry
 // Each case builds a prismatic solid whose TOP face is the profile to offset, then
@@ -191,6 +217,9 @@ function traceOf(tp) {
 }
 
 // ----------------------------------------------------------------- run
+// There is only one implementation now, so there is only one run. setNativeBrep is
+// still toggled and BOTH results are taken, for one reason: if they ever differ,
+// something other than family A is switching under this flag and the gate says so.
 function run(native, mk) {
   f.setNativeBrep(native);
   try {
@@ -201,70 +230,80 @@ function run(native, mk) {
     f.setNativeBrep(false);
   }
 }
-
-// Detect a drop build: with FORGE_OFFSET_DROP_MAKEOFFSET the OCCT branch is gone, so
-// "OCCT" and "native" are the same code and the comparison is vacuous. We surface that
-// rather than printing a meaningless 0.000.
-const DROP_BUILD = process.env.FORGE_OFFSET_DROP === '1';
+function perimeter(P) {
+  let L = 0;
+  for (let i = 0; i + 1 < P.length; i++) L += Math.hypot(P[i + 1][0] - P[i][0], P[i + 1][1] - P[i][1]);
+  return L;
+}
 
 console.log('=== TKOffset family A — cam::inwardOffset native vs OCCT ===');
 console.log(`kernel        : ${KERNEL}`);
 console.log(`consumer tol  : ${TOL_CONSUMER} mm  (kSampleDeflection, the PASS budget)`);
 console.log(`input-sample  : ${TOL_INPUT.toFixed(6)} mm  (kOffsetInputDeflection, reported)`);
-if (DROP_BUILD) {
-  console.log('\nFORGE_OFFSET_DROP=1 — this is a DROP build: the OCCT branch is compiled out,');
-  console.log('so both sides of the A/B are the same code. Run this gate on a NON-drop build');
-  console.log('for the capability comparison. Here we only assert the native path PRODUCES a');
-  console.log('trace for every case (i.e. it does not silently defer to nothing).\n');
-}
+console.log('arms          : ONE — the OCCT branch is deleted from src/Cam.cpp. This gate');
+console.log('                scores the shipped path against CLOSED-FORM truth, not against');
+console.log('                OCCT. For the OCCT cross-check see test/cam_family_a_offset_ab.cpp.\n');
 
-let fails = 0, maxDev = 0;
+let fails = 0, maxDev = 0, scored = 0;
 for (const c of cases) {
-  let occt = [], nat = [], err = null;
-  try { occt = run(false, c.make); } catch (e) { err = 'OCCT: ' + (e.message || e); }
-  try { nat  = run(true,  c.make); } catch (e) { err = (err ? err + ' | ' : '') + 'NATIVE: ' + (e.message || e); }
+  let offTrace = [], onTrace = [], err = null;
+  try { offTrace = run(false, c.make); } catch (e) { err = 'setNativeBrep(false): ' + (e.message || e); }
+  try { onTrace  = run(true,  c.make); } catch (e) { err = (err ? err + ' | ' : '') + 'setNativeBrep(true): ' + (e.message || e); }
 
   if (err) { console.log(`  FAIL  ${c.name}\n        ${err}`); fails++; continue; }
-  if (nat.length < 3) { console.log(`  FAIL  ${c.name}: native trace has ${nat.length} pts`); fails++; continue; }
-  if (occt.length < 3) { console.log(`  FAIL  ${c.name}: OCCT trace has ${occt.length} pts`); fails++; continue; }
+  if (onTrace.length < 3) { console.log(`  FAIL  ${c.name}: trace has ${onTrace.length} pts`); fails++; continue; }
 
-  const d = Math.max(directedHausdorff(nat, occt), directedHausdorff(occt, nat));
-  const aO = area(occt), aN = area(nat);
-  const areaRel = aO > 0 ? Math.abs(aN - aO) / aO : (aN > 0 ? 1 : 0);
+  // The flag must no longer select anything on this path.
+  const d = Math.max(directedHausdorff(onTrace, offTrace), directedHausdorff(offTrace, onTrace));
+  if (d > maxDev) maxDev = d;
+  const flagInert = (d === 0);
 
-  // Accuracy against closed form, where it is known. This is the Law-9 measurement:
-  // "does the native path do the same work?" is answered by comparing BOTH against
-  // truth, not by comparing native against OCCT (which is itself only approximate).
+  const aN = area(onTrace);
+  const L  = perimeter(onTrace);
+
   let truthNote = '';
   let truthOk = true;
   if (typeof c.truth === 'number') {
-    const eO = Math.abs(aO - c.truth) / c.truth;
-    const eN = Math.abs(aN - c.truth) / c.truth;
-    // Law 9: the native path must not be LESS accurate than the OCCT it replaces.
-    // 1e-9 absolute slack so an exact tie (the straight-edge cases) cannot fail.
-    truthOk = eN <= eO + 1e-9;
-    truthNote = `  truth=${c.truth.toFixed(4)} errOCCT=${(eO * 100).toFixed(4)}% errNAT=${(eN * 100).toFixed(4)}%` +
-                (eO > 0 ? ` [native ${(eO / Math.max(eN, 1e-12)).toFixed(1)}x closer]` : ' [exact both]');
+    scored++;
+    const bound  = areaBound(c.truth, L);
+    const signed = (aN - c.truth) / c.truth;          // negative == inscribed, as predicted
+    const eN     = Math.abs(signed);
+    // Two clauses, both from the derivation: the magnitude is within the sampling
+    // bound, AND the sign is the one an INSCRIBED polyline must have (a polygon that
+    // came out BIGGER than the exact offset is not a sampling artefact, it is a wrong
+    // offset, and the old relative-only test could not tell those apart).
+    truthOk = (eN <= bound) && (signed <= 1e-12);
+    truthNote = `  truth=${c.truth.toFixed(4)} err=${(signed * 100).toFixed(4)}% ` +
+                `bound=${(bound * 100).toFixed(4)}%`;
   }
 
-  const ok = DROP_BUILD ? true : (d <= TOL_CONSUMER && areaRel <= 0.01 && truthOk);
+  const ok = truthOk && flagInert;
   if (!ok) fails++;
-  if (d > maxDev) maxDev = d;
   console.log(
     `  ${ok ? 'PASS' : 'FAIL'}  ${c.name.padEnd(38)} ` +
-    `xdev=${d.toFixed(6)} mm  area occt=${aO.toFixed(3)} nat=${aN.toFixed(3)}  ` +
-    `pts ${occt.length}/${nat.length}${c.curved ? '  [CURVED — old code deferred 100%]' : ''}${truthNote}`);
+    `area=${aN.toFixed(3)} pts=${onTrace.length}` +
+    `${flagInert ? '' : `  [setNativeBrep STILL SWITCHES SOMETHING: ${d.toFixed(6)} mm]`}` +
+    `${c.curved ? '  [CURVED]' : ''}${truthNote}`);
+}
+if (scored === 0) {
+  console.log('\n  FAIL  no case carried a closed-form truth — this gate scored nothing.');
+  fails++;
 }
 
 console.log();
-console.log(`max native-vs-OCCT cross-deviation: ${maxDev.toFixed(6)} mm  ` +
-            `(${(maxDev / TOL_CONSUMER * 100).toFixed(2)}% of the consumer's own 0.05 mm tolerance)`);
+console.log(`setNativeBrep(true) vs (false) deviation: ${maxDev.toFixed(6)} mm  ` +
+            `(must be exactly 0 — the flag no longer selects an offset implementation)`);
 console.log(
-  'READ THAT NUMBER CORRECTLY: it is dominated by OCCT\'s OWN output discretisation, not\n' +
-  'by native error. For circle R40 the offset is R37; OCCT returns an exact arc which the\n' +
-  'consumer then samples into a 65-gon at 0.05 mm, whose sagitta is 37*(1-cos(pi/65)) =\n' +
-  '0.04321 mm — essentially the whole cross-deviation. The truth columns above settle it:\n' +
-  'on every curved case the NATIVE trace is closer to the closed-form offset than the\n' +
-  'trace OCCT actually delivers.');
+  'WHY THERE IS NO OCCT COLUMN ANY MORE. The OCCT wire offset was deleted from\n' +
+  'src/Cam.cpp, so this process contains one implementation and a cross-deviation\n' +
+  'here would be native measured against itself. The comparison against OCCT still\n' +
+  'exists and is stronger than this one was — test/cam_family_a_offset_ab.cpp keeps\n' +
+  'the deleted block verbatim as an oracle and compares the two over 600 parts on the\n' +
+  'full observable vector. MEASURED THERE, 2026-09-14: native answers 600/600 where\n' +
+  'OCCT answers 594/600, the deletion bucket is EMPTY, and on the 556 parts where the\n' +
+  'two offset in the same direction the worst two-sided Hausdorff is 9.72e-3 mm.\n' +
+  'What this gate adds that no cross-comparison can: OCCT is itself only approximate,\n' +
+  'so agreeing with it is not the same as being right. The truth columns above are\n' +
+  'measured against the closed form.');
 if (fails === 0) { console.log('===== ALL PASS ====='); process.exit(0); }
 console.log(`===== ${fails} FAILED =====`); process.exit(1);

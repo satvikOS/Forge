@@ -15,17 +15,24 @@
 // is textually included rather than copied precisely so that what runs here is
 // the shipped code and the shipped #ifdef, not a replica that could drift.
 //
-// The two arms are two BINARIES of this same file:
-//   stock : compiled WITHOUT the drop -> BRepOffsetAPI_MakeOffset (the FEAT gate
-//           is default OFF, so this is the OCCT baseline the option must beat)
-//   drop  : compiled WITH -DFORGE_OFFSET_DROP_MAKEOFFSET -> PolygonOffset2D only
-// A defer is an empty TopoDS_Shape, which is exactly what the call sites treat
-// as "re-use the unoffset wire".
+// UPDATED 2026-09-14 (TKOffset family A). The two arms used to be two BINARIES of
+// this file separated by -DFORGE_OFFSET_DROP_MAKEOFFSET. That macro no longer
+// selects anything: the OCCT branch was DELETED from src/Cam.cpp rather than
+// gated, which is what takes its four symbols out of the shipped library, so both
+// builds would now be byte-identical. The arms are selected here instead:
+//   FORGE_AB_ARM_OCCT   -> test/cam_family_a_occt_oracle.hpp (the deleted OCCT
+//                          block, verbatim) — the baseline the native must beat
+//   (default)           -> the shipped forge::cam::inwardOffset
+// A defer is now an explicit ok=false with a NAMED REASON rather than an empty
+// shape; this harness scores it the same way (not OK) and prints the reason, and
+// the call sites no longer "re-use the unoffset wire" — they refuse.
 #include "../src/Cam.cpp"   // NOLINT — see the note above
+#include "cam_family_a_occt_oracle.hpp"
 
 #include <cstdio>
 #include <cstring>
 #include <cmath>
+#include <string>
 
 #include <STEPControl_Reader.hxx>
 #include <IFSelect_ReturnStatus.hxx>
@@ -80,10 +87,10 @@ bool abBetterFace(const TopoDS_Face& cand, double candArea,
 
 int main(int argc, char** argv) {
     int nOk = 0, nDefer = 0, nSkip = 0;
-#if defined(FORGE_OFFSET_DROP_MAKEOFFSET)
-    const char* arm = "drop  (PolygonOffset2D only)";
+#if defined(FORGE_AB_ARM_OCCT)
+    const char* arm = "occt  (BRepOffsetAPI_MakeOffset, the oracle)";
 #else
-    const char* arm = "stock (BRepOffsetAPI_MakeOffset)";
+    const char* arm = "native (shipped cam::inwardOffset)";
 #endif
     std::printf("# arm: %s\n", arm);
     for (int i = 1; i < argc; ++i) {
@@ -126,16 +133,25 @@ int main(int argc, char** argv) {
 
         const double d = 0.05 * std::sqrt(bigArea);
         TopoDS_Shape res;
+        std::string why;
+#if defined(FORGE_AB_ARM_OCCT)
+        try { res = forge::camtest::occtInwardOffset(TopoDS::Wire(moved), d); }
+        catch (...) { res = TopoDS_Shape(); why = "oracle threw"; }
+        if (res.IsNull() && why.empty()) why = "oracle returned nothing";
+#else
         try {
-            res = forge::cam::inwardOffset(TopoDS::Wire(moved), d,
-                                           gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
-        } catch (...) { res = TopoDS_Shape(); }
+            forge::cam::InwardOffsetResult r = forge::cam::inwardOffset(
+                TopoDS::Wire(moved), d, gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)));
+            if (r.ok) res = r.shape; else why = r.reason;
+        } catch (...) { res = TopoDS_Shape(); why = "native threw"; }
+#endif
 
         const char* base = std::strrchr(argv[i], '/');
         base = base ? base + 1 : argv[i];
         const bool ok = !res.IsNull();
         ok ? ++nOk : ++nDefer;
-        std::printf("%-16s %s\n", base, ok ? "OK" : "DEFER");
+        std::printf("%-16s %s%s%s\n", base, ok ? "OK" : "DEFER",
+                    ok ? "" : "  ", ok ? "" : why.c_str());
         std::fflush(stdout);
     }
     std::printf("TOTAL ok=%d defer=%d skipped=%d\n", nOk, nDefer, nSkip);

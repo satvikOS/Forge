@@ -2,11 +2,15 @@
 // non-null? A defer that becomes an OK is only progress if the geometry it now
 // produces is the geometry OCCT produces.
 //
-// Compiled WITHOUT the drop macro, so `forge::cam::inwardOffset` takes its OCCT
-// branch (the FEAT gate is default OFF), while `tryNativeInwardOffset` — the
-// same static function the drop build calls — is invoked directly from the same
-// process on the same wire. Both results are reduced to the same observable
-// vector and compared:
+// UPDATED 2026-09-14 (TKOffset family A). `forge::cam::inwardOffset` no longer
+// has an OCCT branch to take and `tryNativeInwardOffset` no longer exists — the
+// OCCT wire offset was DELETED from src/Cam.cpp, which is what removes its four
+// TKOffset symbols from the shipped library. The two arms this probe compares are
+// therefore now: the shipped `inwardOffset` (native), and
+// test/cam_family_a_occt_oracle.hpp, which holds the deleted OCCT block verbatim
+// as the ORACLE. Same two answers, same process, same wire; only the name of
+// where the OCCT code lives has changed. Both results are reduced to the same
+// observable vector and compared:
 //
 //   * total wire length (the offset contour's perimeter),
 //   * planar bounding box, reported as a fraction of its own diagonal,
@@ -16,7 +20,8 @@
 // Face selection, the plane frame and d = 0.05*sqrt(area) are byte-for-byte
 // test/cam_inwardoffset_coverage_ab.cpp's, so the operation compared here is the
 // operation that harness scores.
-#include "../src/Cam.cpp"   // NOLINT — tryNativeInwardOffset has internal linkage
+#include "../src/Cam.cpp"   // NOLINT — inwardOffset has internal linkage
+#include "cam_family_a_occt_oracle.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -149,8 +154,14 @@ int main(int argc, char** argv) {
         const bool onlyNative = nativeOnly && nativeOnly[0] == '1';
 
         TopoDS_Shape occt, nat;
-        if (!onlyNative) { try { occt = forge::cam::inwardOffset(wl, d, flat); } catch (...) {} }
-        try { nat  = forge::cam::tryNativeInwardOffset(wl, d, flat); } catch (...) {}
+        if (!onlyNative) { try { occt = forge::camtest::occtInwardOffset(wl, d); } catch (...) {} }
+        // A refusal carries a named reason; this probe's observable vector has no
+        // column for it, so a refusal presents as ok=0 exactly as an empty shape
+        // used to. test/cam_family_a_offset_ab.cpp is the harness that prints it.
+        try {
+            forge::cam::InwardOffsetResult r = forge::cam::inwardOffset(wl, d, flat);
+            if (r.ok) nat = r.shape;
+        } catch (...) {}
 
         const Obs a = observe(occt), b = observe(nat);
         const char* base = std::strrchr(argv[i], '/'); base = base ? base + 1 : argv[i];

@@ -9,14 +9,15 @@
 //      the inner wires too so the offset boundary respects pre-existing
 //      pockets / holes.
 //   3. For each Z level (top → bottom in stepdown increments):
-//        * profile: offset the outer wire INWARD by tool radius using
-//          BRepOffsetAPI_MakeOffset, then sample with QuasiUniformDeflection
-//          and emit one trace at this Z. Lead-in is added as a straight
-//          tangential segment before the first cutting vertex.
+//        * profile: offset the outer wire INWARD by tool radius using the
+//          in-house forge::native::geom::PolygonOffset2D, then sample with
+//          nativeQuasiUniformDeflectionParams and emit one trace at this Z.
+//          Lead-in is added as a straight tangential segment before the first
+//          cutting vertex.
 //        * pocket: same offset as profile, plus zigzag rasters clipped by
 //          the offset boundary on the Y axis at stepover spacing.
-//   4. drill / faceMill build their move lists directly without OCCT
-//      offset machinery — they only need the face's planar bbox + center.
+//   4. drill / faceMill build their move lists directly without any wire-offset
+//      machinery — they only need the face's planar bbox + center.
 //
 // All moves are 3D. The post-processor (GcodePost.cpp) consumes Moves and
 // emits dialect-specific G-code.
@@ -27,17 +28,18 @@
 //   * Inner wires of the face are ignored for `profile` and `faceMill`;
 //     `pocket` keeps them only as additional offset sources so the pocket
 //     does not overrun an existing hole.
-//   * BRepOffsetAPI_MakeOffset on closed planar wires reliably produces
-//     an inward offset when fed a negative offset value (we negate
-//     toolRadius). If the offset comes back empty (e.g. wire too small),
-//     we fall back to "no offset" so the operation still emits a path.
+//   * The inward wire offset REFUSES with a named reason when it cannot be
+//     computed. It does NOT fall back to "no offset": a toolpath that traces
+//     the UNOFFSET boundary gouges the part by one tool radius while reporting
+//     success, and that is the single worst failure this module can ship.
+//     profile() and pocket() therefore propagate the refusal as an exception.
 
 #include "forge/Cam.hpp"
 #include "forge/ShapeRegistry.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
-#include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <Bnd_Box.hxx>
@@ -54,6 +56,7 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
@@ -61,30 +64,74 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>     // snprintf, for the refusal reasons
 #include <limits>
+#include <string>
+#include <utility>
 #include <stdexcept>
 #include <vector>
 
-// PHASE-D wiring (2026-06-25) — route the Cam 2.5D toolpath wire-offset
-// (inwardOffset, currently OCCT BRepOffsetAPI_MakeOffset on a planar wire) through
-// the ALREADY-BUILT, gate-tested native 2D polygon offset
-// (forge::native::geom::PolygonOffset2D — PolygonOffset2D.cpp) behind a GATE.
-// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the
-// FEAT gate forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or
-// the A/B harness's setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP
-// together). PRODUCTION DEFAULT IS OFF: with the gate off, the original OCCT
-// BRepOffsetAPI_MakeOffset path below runs byte-for-byte unchanged. This mirrors
-// the just-landed Sewing.cpp (commit 19840b66) / ShapeFix.cpp (commit 8d5f2ae1)
-// wires: the native branch is taken only when the planar wire can be expressed as
-// a TRUE 2D polygon (EVERY edge is a straight GeomAbs_Line segment). A wire with
-// ANY curved edge (arc / circle / B-spline) HONESTLY DEFERS to OCCT — PolygonOffset2D
-// consumes a straight-segment Loop2 only and there is no analytic-arc offset in it
-// (the explicit GAP, surfaced not silently degraded — see RETURN risks).
-#ifdef FORGE_NATIVE_BREP
-#include "forge/native/brep/NativeRoute.hpp"          // forgeNativeFeaturesEnabled()
-#include "forge/native/geom/PolygonOffset2D.hpp"      // PolygonOffset2D, Loop2, OffsetOptions/Result
-#include "forge/native/geom/Geom.hpp"                 // Point2 (shared 2D point)
-#endif
+// ── TKOffset FAMILY A — the OCCT wire offset is GONE from this file ────────────
+// (2026-09-14.) `forge::cam::inwardOffset` used to call
+// BRepOffsetAPI_MakeOffset(wire, GeomAbs_Arc).Perform(-r) behind a default-OFF
+// compile flag. The class, its header and the flag's branch are DELETED, not
+// gated: a flag that stops taking a branch leaves the symbols in the binary, and
+// the four TKOffset symbols this file owned — BRepOffsetAPI_MakeOffset's
+// ctor(TopoDS_Wire const&, GeomAbs_JoinType, bool), Init(GeomAbs_JoinType, bool),
+// Perform(double, double) and its vtable — leave only when the code that calls
+// them leaves. This was the ONLY call site of that class in the tree, so family A
+// is closed by this file alone.
+//
+// WHAT COMPUTES THE OFFSET NOW: forge::native::geom::PolygonOffset2D
+// (src/native/geom/PolygonOffset2D.cpp), compiled unconditionally into
+// FORGE_KERNEL_SOURCES (CMakeLists.txt:2452), so this path does not depend on
+// FORGE_NATIVE_BREP. It is a Minkowski-with-a-disk polygon offset: each edge is
+// displaced |d| along its outward normal, convex corners are bridged by a
+// tessellated circular arc, and the self-overlap a reflex corner creates is
+// removed by non-zero-winding region extraction whose ray-crossing tests use a
+// robust orient2d predicate. Published provenance, as cited in that file:
+//   * loop removal / winding: X. Chen & S. McMains, "Polygon offsetting by
+//     computing winding numbers", ASME IDETC/CIE 2005, DETC2005-85513.
+//   * exact orientation predicate: J. R. Shewchuk, "Adaptive precision
+//     floating-point arithmetic and fast robust geometric predicates",
+//     Discrete & Computational Geometry 18(3):305-363, 1997.
+//   * the closed-form area law the engine's gate checks against (a CCW square of
+//     side s grown by d with round joins has area s^2 + 4sd + pi d^2) is the
+//     planar Steiner formula — see e.g. Schneider & Weil, "Stochastic and
+//     Integral Geometry", Springer 2008, §14.2.
+//
+// THE ONE APPROXIMATION, STATED: PolygonOffset2D consumes and returns a POLYGON
+// (Loop2 = std::vector<Point2>). A curved input edge is therefore discretised
+// before the offset and the answer comes back as a polyline, where OCCT returned
+// analytic Geom_OffsetCurve / Geom_Circle edges. That is invisible to every
+// consumer of this function and the bound is derived, not asserted:
+//   * the only two callers are profile() and pocket() in this file, and BOTH
+//     immediately discard the exact geometry by calling
+//     sampleWireXY(w, kSampleDeflection = 0.05 mm) — only that polyline reaches
+//     the toolpath and the G-code;
+//   * the input is discretised at kOffsetInputDeflection = kSampleDeflection/16
+//     and the round joins are tessellated to the SAME budget (arcTolerance is set
+//     explicitly below rather than left to the engine's |d|-proportional default,
+//     so the bound does not grow with tool size), giving a worst-case departure
+//     from the exact offset of 2 * 3.125e-3 = 6.25e-3 mm, i.e. 1/8 of the
+//     tolerance the caller itself already spends.
+// Measured against OCCT over 600 parts, the two answers coincide to 9.72e-3 mm
+// worst case on every part where they offset in the same direction
+// (reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md, T2).
+// A boundary that is ONE FULL CIRCLE needs no approximation at all and does not
+// take that path — see the exact analytic case in inwardOffset below.
+//
+// WHERE IT CANNOT MATCH OCCT IT REFUSES. Every failure returns ok=false with a
+// NAMED reason and a null shape, and profile()/pocket() turn that into an
+// exception. The previous behaviour — return an empty shape, let the caller
+// re-use the UNOFFSET wire (the `if (wires.empty()) wires.push_back(outer);`
+// that stood at Cam.cpp:427/529) — is what forge-kernel/CMakeLists.txt:960-964
+// names as the reason this family could not ship: on the parts where the offset
+// was unavailable the cutter would gouge the part by a full tool radius and the
+// call would report ok:true. A refusal is strictly better than that, and it is
+// the reason the deletion is safe to make unconditional.
+#include "forge/native/geom/PolygonOffset2D.hpp"   // PolygonOffset2D, Loop2, OffsetOptions/Result
+#include "forge/native/geom/Geom.hpp"              // Point2 (shared 2D point)
 
 namespace forge::cam {
 
@@ -144,9 +191,11 @@ TopoDS_Face resolveFace(const TopoDS_Shape& shape, std::uint32_t faceId) {
 //
 // We walk via BRepTools_WireExplorer rather than TopExp_Explorer so that
 // adjacent edges are returned in topological order (head-to-tail). A plain
-// TopExp_Explorer returns subshapes in registration order, which for the
-// output of BRepOffsetAPI_MakeOffset is not necessarily wire order — that
-// gave us a zigzag toolpath in the first cut of this slice.
+// TopExp_Explorer returns subshapes in registration order, which for an
+// offset result is not necessarily wire order — that gave us a zigzag
+// toolpath in the first cut of this slice, when the offset still came from
+// OCCT's BRepOffsetAPI_MakeOffset. The hazard is a property of the explorer,
+// not of the engine, so the traversal stays as it is.
 std::vector<std::array<double, 2>>
 sampleWireXY(const TopoDS_Wire& wire, double deflection) {
     std::vector<std::array<double, 2>> out;
@@ -192,82 +241,244 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
     return out;
 }
 
-#ifdef FORGE_NATIVE_BREP
-// Try the native 2D polygon offset (geom::PolygonOffset2D) for the Cam wire
-// inward-offset. Returns a non-null TopoDS_Shape (a compound of offset wires) on
-// success; returns a NULL shape (NEVER throws) when the native path HONESTLY
-// DEFERS so the caller falls through to the OCCT BRepOffsetAPI_MakeOffset path.
+// ---------------------------------------------------------- inward wire offset
+
+// Outcome of an inward wire offset.
 //
-// ── TKOffset FAMILY A (2026-07-31): the curved-edge GAP is CLOSED ───────────────
-// The comment block that used to stand here said a curved edge must DEFER because
-// "we must NOT silently flatten an arc to a polygon (that would change the
-// toolpath)". That reasoning does not survive reading the CONSUMERS. Both — and
-// they are the only two — are:
+// `ok == false` ALWAYS carries a non-empty, NAMED `reason` and a null `shape`.
+// There is deliberately no "empty means try something else" encoding: an empty
+// result used to mean "re-use the unoffset wire", which emits a gouging toolpath
+// under an ok:true report. Callers must either use `shape` or propagate `reason`.
+struct InwardOffsetResult {
+    TopoDS_Shape shape;
+    bool         ok{false};
+    std::string  reason;
+};
+
+InwardOffsetResult offsetRefused(std::string why) {
+    InwardOffsetResult r;
+    r.ok     = false;
+    r.reason = std::move(why);
+    return r;
+}
+
+InwardOffsetResult offsetDone(TopoDS_Shape sh) {
+    InwardOffsetResult r;
+    r.ok    = true;
+    r.shape = std::move(sh);
+    return r;
+}
+
+// Format a double into a reason string without dragging in <sstream>.
+std::string num(double v) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%.6g", v);
+    return std::string(buf);
+}
+
+// If the wire is exactly ONE full circular edge, return its circle. This is the
+// only input shape for which the offset has a closed form, and it is worth
+// detecting because it is 38 of the 600 corpus parts' outer wire.
+bool wireIsFullCircle(const TopoDS_Wire& wire, gp_Circ& out) {
+    int nEdges = 0;
+    TopoDS_Edge only;
+    for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
+        if (++nEdges > 1) return false;
+        only = ex.Current();
+    }
+    if (nEdges != 1 || only.IsNull()) return false;
+    try {
+        BRepAdaptor_Curve ad(only);
+        if (ad.GetType() != GeomAbs_Circle) return false;
+        // A full circle, not an arc: the edge must span the whole 2*pi period.
+        const double span = std::abs(ad.LastParameter() - ad.FirstParameter());
+        if (span < 2.0 * M_PI - 1.0e-9) return false;
+        out = ad.Circle();
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// ── POST-CONDITION: the answer must satisfy the definition of the operation ───
+// The inward offset of a region P at distance d is, by definition,
 //
-//     Cam.cpp:426  profile():  offShape = inwardOffset(...); sampleWireXY(w, kSampleDeflection)
-//     Cam.cpp:528  pocket() :  offShape = inwardOffset(...); sampleWireXY(w, kSampleDeflection)
+//     O_d = { x in P : dist(x, boundary(P)) >= d }
 //
-// i.e. the offset wire's exact geometry is NEVER used. It is immediately
-// discretised to a polyline at kSampleDeflection = 0.05 mm chord deviation, and
-// only that polyline reaches the toolpath / G-code. OCCT's arc-exact
-// BRepOffsetAPI(GeomAbs_Arc) result is polygonised at 0.05 mm just the same.
+// so EVERY point on the boundary of O_d lies at distance exactly d from
+// boundary(P). That is checkable in a few microseconds and it is checked here
+// rather than trusted, because the engine can return a non-empty answer that
+// does not satisfy it.
 //
-// So the honest formulation is not "arc vs polygon" but "how much error does the
-// INPUT discretisation add on top of the 0.05 mm the consumer already spends?".
-// We sample the input at kOffsetInputDeflection = kSampleDeflection / 16 =
-// 3.125e-3 mm, so the added deviation is bounded by 1/16 of the tolerance the
-// caller itself imposes. That is a measurement, not an assertion — see
-// test/cam_native_offset_ab.mjs, which compares the two paths' final 0.05 mm
-// traces on line, arc, circle and mixed profiles.
+// MEASURED 2026-09-14, forge::native::geom::PolygonOffset2D, CCW 10x10 square,
+// arcTolerance 3.125e-3:
+//     d = -5.0 .. -10.0   ok=1, 0 loops, "loop collapsed under inward offset"   CORRECT
+//     d = -10.5           ok=1, 1 loop,  area 0.5,  vertices 4.5 mm from the boundary
+//     d = -12.0           ok=1, 1 loop,  area 8,    vertices 3.0 mm from the boundary
+//     d = -20.0           ok=1, 1 loop,  area 200,  vertices 5.0 mm from the boundary,
+//                                                   and OUTSIDE the square (winding 0)
+// i.e. for |d| greater than the square's SIDE (not its inradius) a ghost loop of
+// area 2(|d|-10)^2 comes back with ok=true. Reached through profile(), a 24 mm
+// tool on a 10 mm boss would have emitted a toolpath 3 mm from the boundary when
+// 12 mm of standoff was asked for -- a gouge reported as success, which is the
+// exact failure this whole change exists to remove. The defect is in the engine
+// and is reported there; this file does not rely on it being absent.
 //
-// This is NOT "delete the capability to drop the library" (Law 9): the native
-// path now accepts every wire the OCCT path accepted, and produces the same
-// toolpath to well inside the consumer's own tolerance.
+// SAMPLING, STATED HONESTLY: at most kClearanceProbes vertices per result loop
+// are probed (evenly spaced, always including the first). The check is therefore
+// a NECESSARY condition evaluated on a sample -- it can miss a violation that
+// touches no probed vertex, and it can NEVER refuse a result that satisfies the
+// definition. Every ghost measured above is caught by any sample, because the
+// whole loop violates.
+constexpr int kClearanceProbes = 256;
+
+double distPointToSegment2D(const forge::native::geom::Point2& p,
+                            const forge::native::geom::Point2& a,
+                            const forge::native::geom::Point2& b) {
+    const double vx = b.x - a.x, vy = b.y - a.y;
+    const double wx = p.x - a.x, wy = p.y - a.y;
+    const double vv = vx * vx + vy * vy;
+    double t = (vv > 0.0) ? (wx * vx + wy * vy) / vv : 0.0;
+    t = std::max(0.0, std::min(1.0, t));
+    const double dx = wx - t * vx, dy = wy - t * vy;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+// Smallest probed clearance between the offset result and the source boundary.
+// Returns +inf when there is nothing to probe.
+double worstOffsetClearance(const forge::native::geom::Loop2& src,
+                            const std::vector<forge::native::geom::Loop2>& out) {
+    using forge::native::geom::Point2;
+    double worst = std::numeric_limits<double>::infinity();
+    const std::size_t ns = src.pts.size();
+    if (ns < 2) return worst;
+    for (const auto& L : out) {
+        const std::size_t n = L.pts.size();
+        if (n == 0) continue;
+        const std::size_t step = (n > static_cast<std::size_t>(kClearanceProbes))
+                                     ? (n / static_cast<std::size_t>(kClearanceProbes)) : 1;
+        for (std::size_t i = 0; i < n; i += step) {
+            const Point2& q = L.pts[i];
+            double best = std::numeric_limits<double>::infinity();
+            for (std::size_t j = 0; j < ns; ++j) {
+                best = std::min(best, distPointToSegment2D(q, src.pts[j], src.pts[(j + 1) % ns]));
+            }
+            worst = std::min(worst, best);
+        }
+    }
+    return worst;
+}
+
+// Offset a closed planar wire INWARD (into the region it bounds) by offsetMm.
 //
-// Remaining honest deferrals (unchanged in kind — each returns a NULL shape and
-// NEVER throws, so the caller falls back to the unoffset wire exactly as it
-// already does when OCCT's MakeOffset fails):
-//   * fewer than 3 distinct points after sampling (cannot form a polygon).
-//   * PolygonOffset2D returns ok==false (degenerate input) or every loop collapsed
-//     past the inradius (loops empty).
+// CONTRACT, unchanged from the OCCT original in everything a caller can observe
+// except the failure channel: input is the outer wire of a planar face, output is
+// a TopoDS_Wire, or a TopoDS_Compound of wires when the offset splits the region
+// into several. wiresOf() + sampleWireXY() consume either unchanged.
 //
-// CONVERSION (wire -> Loop2 -> wire), all in the face's planar XY:
-//   forward : STRAIGHT-ONLY wires keep the exact vertex walk they have always used
-//             (byte-identical to the shipped, gate-tested path — a polygon gains no
-//             sampled points). A wire with ANY curved edge is discretised with
-//             sampleWireXY, i.e. the SAME traversal, the SAME native
-//             nativeQuasiUniformDeflectionParams sampler and the SAME orientation
-//             handling the consumer applies to the RESULT, at 1/16 the deflection.
-//   offset  : signed distance. OCCT's path negates (off.Perform(-offsetMm)) which
-//             moves INWARD for a CCW wire. PolygonOffset2D shrinks a CCW loop with
-//             d<0 and a CW loop with d>0, so we sign |offsetMm| by the loop's own
-//             orientation to ALWAYS move inward (into the closed wire) — matching
-//             OCCT's inward intent regardless of the wire's winding.
-//   inverse : each surviving Loop2 -> a closed planar TopoDS_Wire at the plane Z
-//             via BRepBuilderAPI_MakePolygon; many loops -> a TopoDS_Compound. The
-//             return type is byte-identical to the OCCT path (wiresOf + sampleWireXY
-//             consume it unchanged).
-TopoDS_Shape tryNativeInwardOffset(const TopoDS_Wire& wire, double offsetMm,
-                                   const gp_Pln& plane) {
+// -- THE INWARD SIGN, AND A DEFECT THIS FIXES ---------------------------------
+// PolygonOffset2D's `d` is NOT winding-relative: d<0 shrinks the region a loop
+// encloses and d>0 grows it, for BOTH windings. The code that stood here read
+//
+//     const double signedDist = loop.isCCW() ? -offsetMm : offsetMm;
+//
+// which is correct for a CCW loop and BACKWARDS for a CW one -- a wire presenting
+// CW offset OUTWARD under a function named inwardOffset. That was measured on the
+// engine directly (a 10 mm square: CCW d=-1 -> |area| 64.00000 SHRANK, CW d=+1 ->
+// |area| 143.13761 GREW, CW d=-1 -> 64.00000 SHRANK) and pinned rather than fixed
+// on 2026-09-03 because a measurement change must not carry a behaviour change
+// (reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md section 6). It is
+// fixed here, where the behaviour change belongs. The 600-part corpus CANNOT see
+// it: all 594 outer wires present CCW in their face's own plane frame, so the
+// corpus A/B is blind by construction and only a direct CW input reaches it --
+// test/cam_family_a_offset_gate.cpp exercises exactly that.
+//   * NOTE FOR THE HARNESS OWNER: test/corpus_ab_coverage.cpp:1112 carries a
+//     REPLICA of the old rule and :1639 pins it at 143.13761. That replica now
+//     differs from this shipped function. No corpus number moves either way (the
+//     branch is never taken on the corpus), but the replica should be brought
+//     back into line when that harness is next touched.
+InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
+                                const gp_Pln& plane) {
     using forge::native::geom::Loop2;
     using forge::native::geom::Point2;
     using forge::native::geom::PolygonOffset2D;
     using forge::native::geom::OffsetOptions;
     using forge::native::geom::OffsetResult;
 
-    // Is every edge a straight segment? If so we take the exact vertex walk and
-    // the result is bit-for-bit what this function returned before family A.
+    if (wire.IsNull()) return offsetRefused("outer wire is null");
+    if (!std::isfinite(offsetMm)) {
+        return offsetRefused("tool radius is not finite");
+    }
+    if (offsetMm < kEps) {
+        return offsetRefused("tool radius " + num(offsetMm) +
+                             " mm is below the " + num(kEps) +
+                             " mm floor -- no standoff to compute");
+    }
+
+    // -- EXACT ANALYTIC CASE: the boundary is one full circle ------------------
+    // The parallel (offset) curve of a plane curve p(s) with unit normal n(s) at
+    // signed distance t is p(s) + t n(s). For a circle n is the radial direction
+    // everywhere, so the offset is the CONCENTRIC circle of radius R - d exactly
+    // -- no discretisation, no tessellation, no tolerance. (do Carmo,
+    // "Differential Geometry of Curves and Surfaces", Prentice-Hall 1976, section
+    // 1-5, parallel curves; the general case is not of this kind because the
+    // offset of a rational curve is in general irrational -- Farouki & Neff,
+    // "Analytic properties of plane offset curves", CAGD 7(1-4):83-99, 1990,
+    // which is why everything else below goes through the polygonal engine.)
+    gp_Circ circ;
+    if (wireIsFullCircle(wire, circ)) {
+        const double r0 = circ.Radius();
+        const double r1 = r0 - offsetMm;
+        if (r1 <= kEps) {
+            return offsetRefused("tool radius " + num(offsetMm) +
+                                 " mm meets or exceeds the boundary circle radius " +
+                                 num(r0) + " mm -- the region has no interior left");
+        }
+        try {
+            gp_Circ inner(circ.Position(), r1);
+            BRepBuilderAPI_MakeEdge me(inner);
+            if (!me.IsDone()) {
+                return offsetRefused("could not build the offset circle edge at radius " +
+                                     num(r1) + " mm");
+            }
+            // Assemble the wire with BRep_Builder (already needed below for the
+            // compound) rather than BRepBuilderAPI_MakeWire: a single closed
+            // circular edge IS the ring, so there is no chaining to do and the
+            // extra header buys nothing.
+            TopoDS_Wire w;
+            BRep_Builder wb;
+            wb.MakeWire(w);
+            wb.Add(w, me.Edge());
+            if (w.IsNull()) {
+                return offsetRefused("could not close the offset circle into a wire");
+            }
+            return offsetDone(w);
+        } catch (...) {
+            return offsetRefused("offset circle construction threw at radius " + num(r1) + " mm");
+        }
+    }
+
+    // -- GENERAL CASE: polygonal offset ---------------------------------------
+    // Forward map (wire -> Loop2) in the face's planar XY.
+    //  * a wire whose every edge is a straight segment keeps its EXACT vertex walk
+    //    (a polygon gains nothing from sampling);
+    //  * any curved edge is discretised with the consumer's own sampler at 1/16 of
+    //    the consumer's own deflection -- see the bound derived in the block above.
     bool allLines = true;
     for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
-        BRepAdaptor_Curve adaptor(ex.Current());
-        if (adaptor.GetType() != GeomAbs_Line) { allLines = false; break; }
+        try {
+            BRepAdaptor_Curve adaptor(ex.Current());
+            if (adaptor.GetType() != GeomAbs_Line) { allLines = false; break; }
+        } catch (...) {
+            allLines = false;
+            break;
+        }
     }
 
     Loop2 loop;
     if (allLines) {
-        // Forward (exact): ex.CurrentVertex() is the edge's start vertex in
-        // head-to-tail wire order; taking the start vertex of every edge walks the
-        // ring exactly once.
+        // ex.CurrentVertex() is the edge's start vertex in head-to-tail wire
+        // order, so taking it for every edge walks the ring exactly once.
         for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
             gp_Pnt p = BRep_Tool::Pnt(ex.CurrentVertex());
             Point2 q{p.X(), p.Y()};
@@ -278,29 +489,60 @@ TopoDS_Shape tryNativeInwardOffset(const TopoDS_Wire& wire, double offsetMm,
             loop.pts.push_back(q);
         }
     } else {
-        // Forward (curved): discretise with the consumer's own sampler at 1/16 the
-        // consumer's own deflection. sampleWireXY already walks head-to-tail,
-        // honours TopAbs_REVERSED, and de-dups shared vertices.
         for (const auto& p : sampleWireXY(wire, kOffsetInputDeflection)) {
             loop.pts.push_back(Point2{p[0], p[1]});
         }
     }
-    // Drop a trailing vertex coincident with the first (Loop2 must NOT repeat it;
-    // sampleWireXY deliberately closes the ring, so this always fires on that path).
+    // Loop2 must NOT repeat the first vertex at the end; sampleWireXY closes the
+    // ring deliberately, so this always fires on that path.
     if (loop.pts.size() >= 2) {
         const Point2& f = loop.pts.front();
         const Point2& l = loop.pts.back();
         if (std::abs(f.x - l.x) < kEps && std::abs(f.y - l.y) < kEps) loop.pts.pop_back();
     }
-    if (loop.pts.size() < 3) return TopoDS_Shape();   // not a polygon -> defer
+    if (loop.pts.size() < 3) {
+        return offsetRefused("boundary reduced to " + num(static_cast<double>(loop.pts.size())) +
+                             " distinct vertices -- not a polygon");
+    }
 
-    // Sign |offsetMm| to move INWARD regardless of the wire's winding (see above).
-    const double signedDist = loop.isCCW() ? -offsetMm : offsetMm;
-    OffsetOptions opts;                       // Round joins, auto arc tolerance
+    // Inward is d < 0 for BOTH windings -- see the sign note above.
+    const double signedDist = -offsetMm;
+
+    OffsetOptions opts;
+    opts.join = forge::native::geom::JoinType::Round;
+    // Tessellate the round joins to the SAME budget the input was sampled at,
+    // rather than the engine's |d|-proportional default, so the total departure
+    // from the exact offset is bounded by 2*kOffsetInputDeflection independently
+    // of the tool size.
+    opts.arcTolerance = kOffsetInputDeflection;
+
     OffsetResult r = PolygonOffset2D::offsetLoop(loop, signedDist, opts);
-    if (!r.ok || r.loops.empty()) return TopoDS_Shape();  // degenerate/collapsed -> defer
+    if (!r.ok) {
+        return offsetRefused("PolygonOffset2D declined: " +
+                             (r.reason.empty() ? std::string("unstated reason") : r.reason));
+    }
+    if (r.loops.empty()) {
+        return offsetRefused("the boundary collapsed under an inward offset of " +
+                             num(offsetMm) + " mm -- the tool does not fit inside it (" +
+                             num(static_cast<double>(r.droppedLoops)) + " loop(s) dropped)");
+    }
 
-    // Inverse: each surviving Loop2 -> a closed planar wire at the face plane Z.
+    // Post-condition (see the block above): every probed vertex of the answer
+    // must stand at least `offsetMm` clear of the source boundary. The slack
+    // covers the round-join chord sagitta (bounded by arcTolerance) plus
+    // rounding, and is 4*3.125e-3 = 0.0125 mm plus a part per million of d --
+    // a quarter of the tolerance the consumer itself spends, and three orders
+    // of magnitude below the 3 mm error the ghost above would have shipped.
+    const double clearanceSlack = 4.0 * opts.arcTolerance + 1.0e-6 * offsetMm + 1.0e-9;
+    const double worstClear = worstOffsetClearance(loop, r.loops);
+    if (std::isfinite(worstClear) && worstClear < offsetMm - clearanceSlack) {
+        return offsetRefused("the offset engine returned a region only " + num(worstClear) +
+                             " mm clear of the boundary when " + num(offsetMm) +
+                             " mm of standoff was required -- refusing it rather than "
+                             "cutting there");
+    }
+
+    // Inverse map (Loop2 -> wire) at the face plane's Z.
     const double zPlane = plane.Location().Z();
     std::vector<TopoDS_Wire> outWires;
     outWires.reserve(r.loops.size());
@@ -311,73 +553,18 @@ TopoDS_Shape tryNativeInwardOffset(const TopoDS_Wire& wire, double offsetMm,
         poly.Close();
         if (poly.IsDone()) outWires.push_back(poly.Wire());
     }
-    if (outWires.empty()) return TopoDS_Shape();      // nothing built -> defer
+    if (outWires.empty()) {
+        return offsetRefused("the offset produced " +
+                             num(static_cast<double>(r.loops.size())) +
+                             " loop(s) but none closed into a wire");
+    }
 
-    if (outWires.size() == 1) return outWires.front();
+    if (outWires.size() == 1) return offsetDone(outWires.front());
     TopoDS_Compound comp;
     BRep_Builder bb;
     bb.MakeCompound(comp);
     for (const TopoDS_Wire& w : outWires) bb.Add(comp, w);
-    return comp;
-}
-#endif
-
-// Negative offset = inward for a CCW outer wire (OCCT convention). If
-// BRepOffsetAPI_MakeOffset fails (small wire, self-intersection), we
-// return an empty result; callers fall back to the unoffset wire.
-//
-// ── TKOffset FAMILY A drop seam ────────────────────────────────────────────────
-// With -DFORGE_OFFSET_DROP_MAKEOFFSET the OCCT branch below is COMPILED OUT and
-// this is the ONLY implementation. That removes all 4 of TKOffset's
-// BRepOffsetAPI_MakeOffset symbols (ctor(Wire,JoinType,bool), Init, Perform, and
-// the vtable) from the binary — the whole of family A, which has exactly this one
-// call site.
-//
-// The failure semantics are UNCHANGED by the drop, which is what makes the seam
-// safe: this function has never thrown and never signalled an error. Its contract
-// is "return an empty shape and let the caller re-use the unoffset wire"
-// (Cam.cpp:427/529: `if (wires.empty()) wires.push_back(outer);`). A native defer
-// is therefore indistinguishable, to every caller, from an OCCT MakeOffset failure
-// — a case the shipped kernel already handles by design.
-TopoDS_Shape inwardOffset(const TopoDS_Wire& wire, double offsetMm,
-                          const gp_Pln& plane) {
-    if (wire.IsNull() || offsetMm < kEps) return TopoDS_Shape();
-
-#if defined(FORGE_NATIVE_BREP) && defined(FORGE_OFFSET_DROP_MAKEOFFSET)
-    // DROP BUILD: native unconditionally. The FEAT gate is deliberately NOT
-    // consulted here — with the OCCT branch compiled out there is nothing to gate
-    // BETWEEN, and honouring a default-OFF gate would leave the function returning
-    // an empty shape for every input, which is capability deletion by another name.
-    return tryNativeInwardOffset(wire, offsetMm, plane);
-#else
-
-#ifdef FORGE_NATIVE_BREP
-    // GATE: the native 2D polygon offset is opt-in via the FEAT gate (default OFF).
-    // When on, offset via PolygonOffset2D (straight AND curved wires — family A
-    // closed the curved gap on 2026-07-31); a degenerate/collapsed result still
-    // HONESTLY DEFERS to OCCT below. A NULL native result == defer.
-    if (native::brep::forgeNativeFeaturesEnabled()) {
-        TopoDS_Shape nativeOut = tryNativeInwardOffset(wire, offsetMm, plane);
-        if (!nativeOut.IsNull()) return nativeOut;
-        // native deferred -> OCCT path below (unchanged).
-    }
-#endif
-
-    try {
-        BRepOffsetAPI_MakeOffset off(wire, GeomAbs_Arc);
-        off.Init(GeomAbs_Arc);
-        // Negate so the offset moves *into* the closed wire.
-        off.Perform(-offsetMm);
-        if (off.IsDone()) {
-            TopoDS_Shape sh = off.Shape();
-            if (!sh.IsNull()) return sh;
-        }
-    } catch (...) {
-        // fall through — return empty.
-    }
-    (void)plane;
-#endif  // FORGE_OFFSET_DROP_MAKEOFFSET
-    return TopoDS_Shape();
+    return offsetDone(comp);
 }
 
 // Collect every wire from a (possibly compound) offset result.
@@ -478,13 +665,27 @@ Toolpath profile(ShapeHandle h, std::uint32_t faceId,
         throw std::runtime_error("forge.cam.profile: face has no outer wire");
     }
 
-    // Offset the outer wire inward by the tool radius. If OCCT refuses
-    // (very small wire), fall back to the unoffset wire so the tool still
-    // describes the boundary (the user gets a usable path with a comment
-    // in the G-code header that radius compensation was clipped).
-    TopoDS_Shape offShape = inwardOffset(outer, toolRadius, info.plane);
-    std::vector<TopoDS_Wire> wires = wiresOf(offShape);
-    if (wires.empty()) wires.push_back(outer);
+    // Offset the outer wire inward by the tool radius.
+    //
+    // REFUSAL, NOT FALLBACK. What stood here re-used the UNOFFSET wire when the
+    // offset was unavailable, and said so in a comment about "a usable path".
+    // It is not a usable path: tracing the boundary itself drives the cutter
+    // centre along the finished edge, so the part is gouged by a full tool
+    // radius (3 mm for the 6 mm tool this corpus uses) while profile() returns
+    // a Toolpath that reports success. forge-kernel/CMakeLists.txt:960-964 names
+    // exactly that as the reason family A could not ship. An offset that cannot
+    // be computed is now an error carrying the engine's own named reason.
+    InwardOffsetResult off = inwardOffset(outer, toolRadius, info.plane);
+    if (!off.ok) {
+        throw std::runtime_error(
+            "forge.cam.profile: refusing to emit a toolpath with no tool-radius "
+            "standoff -- inward offset unavailable: " + off.reason);
+    }
+    std::vector<TopoDS_Wire> wires = wiresOf(off.shape);
+    if (wires.empty()) {
+        throw std::runtime_error(
+            "forge.cam.profile: inward offset reported success but yielded no wire");
+    }
 
     // Choose the largest wire by point count — for a simple outer profile
     // this is the correct trace.
@@ -584,9 +785,18 @@ Toolpath pocket(ShapeHandle h, std::uint32_t faceId,
         throw std::runtime_error("forge.cam.pocket: face has no outer wire");
     }
 
-    TopoDS_Shape offShape = inwardOffset(outer, toolRadius, info.plane);
-    std::vector<TopoDS_Wire> wires = wiresOf(offShape);
-    if (wires.empty()) wires.push_back(outer);
+    // REFUSAL, NOT FALLBACK -- see the note at the same point in profile().
+    InwardOffsetResult off = inwardOffset(outer, toolRadius, info.plane);
+    if (!off.ok) {
+        throw std::runtime_error(
+            "forge.cam.pocket: refusing to emit a toolpath with no tool-radius "
+            "standoff -- inward offset unavailable: " + off.reason);
+    }
+    std::vector<TopoDS_Wire> wires = wiresOf(off.shape);
+    if (wires.empty()) {
+        throw std::runtime_error(
+            "forge.cam.pocket: inward offset reported success but yielded no wire");
+    }
 
     std::vector<std::array<double, 2>> trace;
     for (const auto& w : wires) {
