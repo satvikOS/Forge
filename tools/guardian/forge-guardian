@@ -376,6 +376,20 @@ O_VMP=1; O_FREE=100; O_SWU=0; O_SWT=1; O_PORATE=0; O_DISK=999; O_LOAD=0; O_THERM
 ESCALATE_N=2      # 2 polls (~10s) to escalate — fast enough to beat an OOM
 DEESCALATE_N=6    # 6 polls (~30s) to relax — slow, so we do not flap
 RED_STAGE=0
+# ---- eviction grace windows -------------------------------------------------
+# SETTLE: forge-gate ADMITS a job on its declared peak_gb. Evicting it for
+# reaching that envelope is not shedding load, it is a livelock: admission and
+# actuation disagree about the same contract. A 30B model load trips
+# vm_pressure=CRITICAL ~40s in, before a single iteration, so every such job was
+# unwinnable. Measured 2026-09-14: 3 attempts, 0 of 8000 iterations banked.
+# TERM_GRACE: one eviction DECISION must produce one TERM. The ladder reset
+# RED_STAGE to 1 after a stage-3 TERM, so it re-reached 3 in two polls and
+# re-signalled the same pid ~11s later -- 'knowing-v1-lora' took 5 TERMs in 44s,
+# 'kernel-core' 6 and 'desktop-gates' 5. The header already promised "a TERM and
+# a grace period"; this is that grace period, which had no implementation.
+GRACE_SETTLE=${FORGE_GUARDIAN_SETTLE:-180}
+GRACE_TERM=${FORGE_GUARDIAN_TERM_GRACE:-45}
+typeset -A TERMED_AT
 
 trap 'publish "GREEN" "guardian stopped" "$(build_jobs_for GREEN)"; log "guardian stopped"; exit 0' TERM INT
 
@@ -441,10 +455,30 @@ while true; do
         for f in $(shed_order); do signal_job "$f" USR1; done
         emit "🔴 GUARDIAN RED stage1: all registered jobs asked to checkpoint"
       elif (( RED_STAGE >= 3 )); then
+        local _now=$(date +%s) _jpid _jstart _jname
         for f in $(shed_order); do
           [[ "$(job_field "$f" can_restart)" == "1" ]] || continue
+          _jpid=$(job_field "$f" pid)
+          _jstart=$(job_field "$f" started)
+          _jname=$(job_field "$f" name)
+
+          # SETTLING GRACE. The gate accepted this job's declared envelope; it may
+          # not be evicted while it is still reaching it.
+          if [[ -n "$_jstart" ]] && (( _now - _jstart < GRACE_SETTLE )); then
+            emit "🔴 GUARDIAN RED stage${RED_STAGE}: '$_jname' is settling ($(( _now - _jstart ))s < ${GRACE_SETTLE}s) — not evicting a job for filling the envelope admission accepted"
+            continue
+          fi
+
+          # ONE TERM PER DECISION. A pid already inside its TERM grace is being
+          # asked to die; re-signalling it does not make it die faster.
+          if [[ -n "$_jpid" && -n "${TERMED_AT[$_jpid]}" ]] \
+             && (( _now - ${TERMED_AT[$_jpid]} < GRACE_TERM )); then
+            continue
+          fi
+
           if signal_job "$f" TERM; then
-            emit "🔴 GUARDIAN RED stage${RED_STAGE}: terminated '$(job_field "$f" name)' to relieve pressure"
+            [[ -n "$_jpid" ]] && TERMED_AT[$_jpid]=$_now
+            emit "🔴 GUARDIAN RED stage${RED_STAGE}: terminated '$_jname' to relieve pressure"
             break
           fi
         done
