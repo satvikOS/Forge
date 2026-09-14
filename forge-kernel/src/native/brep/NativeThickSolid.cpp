@@ -96,6 +96,8 @@
 #ifdef FORGE_NATIVE_BREP
 
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_ListOfStatus.hxx>
+#include <BRepCheck_Result.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -3739,6 +3741,200 @@ const char* lastThickSolidDeferReason() { return g_tsReason; }
 //   PART 6 — the public entry point: dispatch planar vs quadric
 // ===========================================================================
 
+// ---- NAME the topological defect behind an invalid result ------------------
+//
+// BRepCheck_Analyzer answers a bool; BRepCheck_Result carries the reason, per
+// sub-shape. Reporting "invalid" alone has already cost this engine one round of
+// guessing, so the defer label carries the FIRST failing sub-shape's type and
+// status — e.g. "entry_invalid_FACE:IntersectingWires", which says the cavity
+// face's wires cross, against "entry_invalid_SHELL:NotClosed", which says the
+// sew left a gap. Those are different defects with different fixes.
+//
+// DIAGNOSTIC ONLY: it changes no predicate. The caller sees a null shape either
+// way; only the string differs.
+// ★ THE SCAN IS ASSEMBLY-FIRST, AND THE ORDER IS THE WHOLE POINT. A face inside
+//   a shell that cannot be oriented is reported invalid TOO, so a FACE-first scan
+//   names the symptom (FACE/UnorientableShape) and hides the cause
+//   (SHELL/UnorientableShape). SOLID and SHELL are therefore asked first, and
+//   every distinct (type, status) pair is recorded rather than only the first —
+//   one defect class per label is what made the first reading of this ambiguous.
+void firstInvalidSubshape(const TopoDS_Shape& s, char* out, int n) {
+    static const TopAbs_ShapeEnum kOrder[] = {TopAbs_SOLID, TopAbs_SHELL, TopAbs_FACE,
+                                              TopAbs_WIRE, TopAbs_EDGE};
+    static const char* const kName[] = {"SO", "SH", "F", "W", "E"};
+    char buf[160] = {0};
+    std::size_t used = 0;
+    int seen[64] = {0};
+    try {
+        BRepCheck_Analyzer an(s);
+        for (int k = 0; k < 5; ++k) {
+            TopTools_IndexedMapOfShape m;
+            TopExp::MapShapes(s, kOrder[k], m);
+            for (int i = 1; i <= m.Extent(); ++i) {
+                const TopoDS_Shape& sub = m.FindKey(i);
+                if (an.IsValid(sub)) continue;
+                Handle(BRepCheck_Result) r = an.Result(sub);
+                if (r.IsNull()) continue;
+                for (BRepCheck_ListIteratorOfListOfStatus it(r->Status()); it.More(); it.Next()) {
+                    const int st = static_cast<int>(it.Value());
+                    if (st <= 0 || st >= 64) continue;
+                    const int bit = 1 << k;
+                    if (seen[st] & bit) continue;          // this pair already named
+                    seen[st] |= bit;
+                    const int w = std::snprintf(buf + used, sizeof buf - used,
+                                                "%s%s%d", used ? "," : "", kName[k], st);
+                    if (w <= 0 || used + static_cast<std::size_t>(w) >= sizeof buf - 1) {
+                        used = sizeof buf - 1;
+                        k = 5; i = m.Extent() + 1;          // buffer full; stop scanning
+                        break;
+                    }
+                    used += static_cast<std::size_t>(w);
+                }
+            }
+        }
+    } catch (...) {
+        // An analyzer that throws is itself the finding; keep the generic label.
+        return;
+    }
+    if (used) std::snprintf(out, static_cast<std::size_t>(n), "entry_invalid[%s]", buf);
+}
+
+// ---- ONE BODY: the planar / quadric dispatch -------------------------------
+//
+// Does NOT clear the defer trail, so the multi-body path below can report which
+// body declined and why — the same contract offsetOneBody carries for family H.
+TopoDS_Shape thickenOneBody(const TopoDS_Shape& body, double t,
+                            const TopTools_MapOfShape& removedSet, double tol) {
+    const TopoDS_Shape kNull;
+
+    bool allPlanar = true;
+    int nFaces = 0;
+    for (TopExp_Explorer ex(body, TopAbs_FACE); ex.More(); ex.Next()) {
+        ++nFaces;
+        if (surfKind(basisSurface(BRep_Tool::Surface(TopoDS::Face(ex.Current())))) != SK::Plane) {
+            allPlanar = false;
+            break;
+        }
+    }
+    if (nFaces == 0) FK_DEFER("entry_no_faces");
+
+    // A wall at least as deep as the body's smallest HALF-extent leaves no cavity
+    // to inset: the inward offsets of a pair of opposite faces have crossed, and
+    // every face-by-face construction below is still exact while the assembled
+    // shape is inside-out. planarThickSolid has carried this guard since it was
+    // written (p_wall_ge_half_extent); the mouthless route below now sends
+    // all-planar bodies to the QUADRIC path instead, which never had one, so the
+    // guard is lifted here to cover that route too.
+    //
+    // ★ IT IS APPLIED ONLY TO AN ALL-PLANAR BODY, AND THAT RESTRICTION IS THE
+    //   WHOLE CORRECTNESS OF IT. The extent is measured over the body's VERTICES,
+    //   which is exact for a polyhedron and MEANINGLESS for a curved body: a full
+    //   cylinder's B-Rep carries vertices only on its SEAM, so every one of them
+    //   has y = 0 and the vertex box has a ZERO y-extent. halfMin then collapses
+    //   to 0 and `t >= halfMin` refuses everything.
+    //   MEASURED: lifting this guard unconditionally made
+    //   test/run_thicksolid_nesting_gate.sh fail 5 of 10 — its fixture is a
+    //   cylinder R=10 H=30 that must BUILD at t=0.2, and it was refused because
+    //   its vertex box is flat. Bnd_Box is not the fix either (it inflates by the
+    //   shape tolerance, which this file's family-H comment already records as
+    //   making a separation test read satisfied when it is not); the fix is to
+    //   ask the question only where the measurement means something. A curved
+    //   body's collapsed cavity is caught instead by the two checks that do not
+    //   depend on an extent at all: step 5a's volume identity and the BRepCheck
+    //   gate at the public entry.
+    if (allPlanar) {
+        TopTools_IndexedMapOfShape vmap;
+        TopExp::MapShapes(body, TopAbs_VERTEX, vmap);
+        if (vmap.Extent() == 0) FK_DEFER("entry_body_has_no_vertices");
+        double lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+        for (int i = 1; i <= vmap.Extent(); ++i) {
+            const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vmap.FindKey(i)));
+            const double c[3] = {p.X(), p.Y(), p.Z()};
+            for (int k = 0; k < 3; ++k) {
+                if (i == 1) { lo[k] = hi[k] = c[k]; }
+                else { lo[k] = std::min(lo[k], c[k]); hi[k] = std::max(hi[k], c[k]); }
+            }
+        }
+        const double halfMin =
+            0.5 * std::min(std::min(hi[0] - lo[0], hi[1] - lo[1]), hi[2] - lo[2]);
+        if (t >= halfMin) FK_DEFER("entry_wall_ge_half_extent");
+    }
+
+    // ALL-PLANAR WITH A MOUTH keeps the proven prismatic construction.
+    //
+    // ALL-PLANAR WITH NO MOUTH goes to the QUADRIC path, because that is the only
+    // one of the two that implements the CLOSED hollow: quadricThickSolid step 5a
+    // assembles the outer shell plus the REVERSED inner shell and self-checks the
+    // result against the identity wall == outer_volume - cavity_volume, whereas
+    // planarThickSolid declines a mouthless body outright (p_no_mouth_face, its
+    // very first line). The quadric path handles a planar face BY CONSTRUCTION —
+    // SK::Plane is one of its five analytic kinds, a polygon wire takes the same
+    // intersectPlanes corner solve the prismatic path uses, and its step 4
+    // rebuilds a polygon loop through planarLoopFace — so this is a ROUTE to
+    // proven code, not a new construction.
+    //
+    // MEASURED on the 600-part corpus: 198 bodies died on p_no_mouth_face, and
+    // every one of them is a body of a MULTI-BODY part whose single removed face
+    // belongs to the OTHER body. Closed-hollow was never a corner case here; it
+    // is what the second body of a two-body part always asks for.
+    if (allPlanar && !removedSet.IsEmpty())
+        return planarThickSolid(body, t, removedSet, tol);
+    return quadricThickSolid(body, t, removedSet, tol);
+}
+
+// ---- MANY BODIES ------------------------------------------------------------
+//
+// Hollow each body independently and return the compound. Family H's
+// offsetManyBodies needs a separation precondition (gap > 2*|dist|) because it
+// GROWS every body outward, so two bodies nearer than that would interpenetrate.
+// A HOLLOW cannot do that: the wall is a strict subset of the body it was cut
+// from, so disjoint bodies give disjoint walls and there is nothing to check
+// between them. The precondition is deliberately absent, not forgotten.
+TopoDS_Shape thickenManyBodies(const TopTools_IndexedMapOfShape& bodies, double t,
+                               const TopTools_MapOfShape& removedSet, double tol) {
+    const TopoDS_Shape kNull;
+    BRep_Builder bb;
+    TopoDS_Compound comp;
+    bb.MakeCompound(comp);
+
+    double vIn = 0.0, vOut = 0.0;
+    int nBuilt = 0;
+    for (int i = 1; i <= bodies.Extent(); ++i) {
+        const TopoDS_Shape& body = bodies.FindKey(i);
+
+        // This body's OWN share of the removed-face list. The caller names faces
+        // of the WHOLE shape; each face belongs to exactly the body carrying it,
+        // and a body naming none of them is a CLOSED hollow, which is a legitimate
+        // request and not an error.
+        TopTools_MapOfShape mine;
+        for (TopExp_Explorer ex(body, TopAbs_FACE); ex.More(); ex.Next())
+            if (removedSet.Contains(ex.Current())) mine.Add(ex.Current());
+
+        const TopoDS_Shape r = thickenOneBody(body, t, mine, tol);
+        if (r.IsNull()) {
+            // The trail already names the guard; this says WHICH body hit it.
+            char tag[24];
+            std::snprintf(tag, sizeof tag, "body%d", i);
+            FK_DEFER(tag);
+        }
+        GProp_GProps gi, go;
+        BRepGProp::VolumeProperties(body, gi);
+        BRepGProp::VolumeProperties(r, go);
+        vIn  += std::fabs(gi.Mass());
+        vOut += std::fabs(go.Mass());
+        bb.Add(comp, r);
+        ++nBuilt;
+    }
+    if (nBuilt == 0) FK_DEFER("entry_multibody_no_bodies");
+
+    // SELF-CHECK, the multi-body form of step 5b's: a wall is a strict subset of
+    // the body it came from, so the total wall volume is positive and cannot
+    // exceed the total body volume.
+    if (!(vOut > 1.0e-12)) FK_DEFER("entry_multibody_zero_volume");
+    if (vOut > vIn * (1.0 + 1.0e-9)) FK_DEFER("entry_multibody_wall_exceeds_body");
+    return comp;
+}
+
 TopoDS_Shape makeThickSolid(const TopoDS_Shape& shape, double t,
                             const TopTools_ListOfShape& facesToRemove,
                             double tol) {
@@ -3750,21 +3946,47 @@ TopoDS_Shape makeThickSolid(const TopoDS_Shape& shape, double t,
     for (TopTools_ListIteratorOfListOfShape it(facesToRemove); it.More(); it.Next())
         removedSet.Add(it.Value());
 
-    // ALL-PLANAR solids keep the proven prismatic construction; anything with a
-    // quadric face goes to the exact-surface path.
-    bool allPlanar = true;
-    int nFaces = 0;
-    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
-        ++nFaces;
-        if (surfKind(basisSurface(BRep_Tool::Surface(TopoDS::Face(ex.Current())))) != SK::Plane) {
-            allPlanar = false;
-            break;
-        }
-    }
-    if (nFaces == 0) FK_DEFER("entry_no_faces");
+    // MULTI-BODY DISPATCH. A shape carrying more than one TopAbs_SOLID was
+    // previously fed to a single face-gathering pass, which built every body's
+    // faces into ONE sewing and then declined because the sew closed into as many
+    // shells as there were bodies (q_sew_shell_count). MEASURED before this
+    // change: 198 of 600 corpus parts died there and 198 of those 198 are
+    // two-solid inputs — not one single-solid part reached that guard. It was a
+    // missing dispatch, never a geometry defect. Family H has had the same
+    // dispatch since offsetManyBodies; family G did not.
+    TopTools_IndexedMapOfShape bodies;
+    TopExp::MapShapes(shape, TopAbs_SOLID, bodies);
+    const TopoDS_Shape out = (bodies.Extent() > 1)
+        ? thickenManyBodies(bodies, t, removedSet, tol)
+        : thickenOneBody(shape, t, removedSet, tol);
+    if (out.IsNull()) return kNull;   // the trail already names the guard
 
-    if (allPlanar) return planarThickSolid(shape, t, removedSet, tol);
-    return quadricThickSolid(shape, t, removedSet, tol);
+    // FINAL GATE: A BRepCheck-INVALID SOLID IS A WRONG ANSWER, NOT A RESULT.
+    //
+    // Family H added exactly this gate for exactly this reason — see
+    // offsetResultIsSound above, where 12 of 36 results were invalid with
+    // IntersectingWires from inputs that were all valid. Family G never got it,
+    // and it needs it MORE: measured per body over the 600-part corpus, 63 of the
+    // 229 bodies this engine answers are BRepCheck-INVALID. Every one of those
+    // would otherwise be returned as a plausible wrong shape, which is the one
+    // thing this engine's header promises it never does.
+    //
+    // This is why the face-level and volume-level self-checks already in the two
+    // paths are not enough, and the reason is on the record: both are ALGEBRAIC
+    // IDENTITIES IN THE RADII and are blind to containment — a cavity face whose
+    // holes reach past their own rim passed its area check to 2e-7 relative while
+    // its wires crossed (reports/TKOFFSET_GH_DEFER_CENSUS.md §5). Volume cannot
+    // validate geometry; a topological check has to.
+    if (!offsetResultIsSound(out)) {
+        // NAME THE DEFECT, not just the verdict. "invalid" tells a caller nothing
+        // it can act on and tells the next person measuring this engine nothing
+        // about which construction is wrong; the first failing sub-shape and its
+        // BRepCheck status do both.
+        char tag[192] = "entry_result_brepcheck_invalid";
+        firstInvalidSubshape(out, tag, sizeof tag);
+        FK_DEFER(tag);
+    }
+    return out;
 }
 
 // ===========================================================================
