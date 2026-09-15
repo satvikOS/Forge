@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "742197d1c2763cfd0a1f4d87b36e5388dec9f0ef3f63304c236c32882530661a",
-        "bytes": 554310,
-        "lines": 11289
+        "sha256": "ab81bff149f2a2f0cb458aa6b9de19dd2b34f342cc83396ce091eeeb933a35ac",
+        "bytes": 557639,
+        "lines": 11341
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "d84772c2f81649494b5295f0d77661d7a546dd7778fd5d68f754a4457ea83d24",
-        "bytes": 207461,
-        "lines": 3540
+        "sha256": "d3b877a7058077c69a229939c031c28d46cbdbf0ded9f5fa6cc83a5b3adc122c",
+        "bytes": 222951,
+        "lines": 3819
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -764,7 +764,7 @@
           "arguments": [
             "%body",
             "distance",
-            "ALL|RIM|VERTICAL"
+            "ALL|HORIZONTAL|RIM|VERTICAL"
           ],
           "argument_count": {
             "min": 3,
@@ -2025,7 +2025,7 @@
           "arguments": [
             "%body",
             "radius",
-            "ALL|RIM|VERTICAL"
+            "ALL|HORIZONTAL|RIM|VERTICAL"
           ],
           "argument_count": {
             "min": 3,
@@ -8092,7 +8092,15 @@
         ],
         "unparsed_terms": []
       },
-      "produces_value_kind": "Solid"
+      "produces_value_kind": "Solid",
+      "viewport_pick_rewrites": [
+        {
+          "rewrite": "edge_selector",
+          "selector_argument": 2,
+          "applies_when": "edges were picked in the viewport",
+          "effect": "the selector becomes VERTICAL or HORIZONTAL when the picked edges are every edge of that class on the body, written in place or appended; any other pick is REFUSED and nothing is emitted"
+        }
+      ]
     },
     {
       "id": "part.counterbore",
@@ -8182,7 +8190,24 @@
         ],
         "unparsed_terms": []
       },
-      "produces_value_kind": "Solid"
+      "produces_value_kind": "Solid",
+      "viewport_pick_rewrites": [
+        {
+          "rewrite": "placement",
+          "point_arguments": [
+            4,
+            5,
+            6
+          ],
+          "axis_arguments": [
+            7,
+            8,
+            9
+          ],
+          "applies_when": "the focused face was picked in the viewport",
+          "effect": "x, y, z become the point where the face was hit unless any of them is typed; the three arguments after them become the picked face's OUTWARD normal, replacing an axis the statement already carries or appended when it carries none"
+        }
+      ]
     },
     {
       "id": "part.defeature",
@@ -8454,7 +8479,15 @@
         ],
         "unparsed_terms": []
       },
-      "produces_value_kind": "Solid"
+      "produces_value_kind": "Solid",
+      "viewport_pick_rewrites": [
+        {
+          "rewrite": "edge_selector",
+          "selector_argument": 2,
+          "applies_when": "edges were picked in the viewport",
+          "effect": "the selector becomes VERTICAL or HORIZONTAL when the picked edges are every edge of that class on the body, written in place or appended; any other pick is REFUSED and nothing is emitted"
+        }
+      ]
     },
     {
       "id": "part.fold_flange",
@@ -8658,7 +8691,24 @@
         ],
         "unparsed_terms": []
       },
-      "produces_value_kind": "Solid"
+      "produces_value_kind": "Solid",
+      "viewport_pick_rewrites": [
+        {
+          "rewrite": "placement",
+          "point_arguments": [
+            2,
+            3,
+            4
+          ],
+          "axis_arguments": [
+            5,
+            6,
+            7
+          ],
+          "applies_when": "the focused face was picked in the viewport",
+          "effect": "x, y, z become the point where the face was hit unless any of them is typed; the three arguments after them become the picked face's INWARD normal, replacing an axis the statement already carries or appended when it carries none"
+        }
+      ]
     },
     {
       "id": "part.input_solid",
@@ -11570,7 +11620,15 @@
         ],
         "unparsed_terms": []
       },
-      "produces_value_kind": "Solid"
+      "produces_value_kind": "Solid",
+      "viewport_pick_rewrites": [
+        {
+          "rewrite": "edge_selector",
+          "selector_argument": 3,
+          "applies_when": "edges were picked in the viewport",
+          "effect": "the selector becomes VERTICAL or HORIZONTAL when the picked edges are every edge of that class on the body, written in place or appended; any other pick is REFUSED and nothing is emitted"
+        }
+      ]
     },
     {
       "id": "part.verify",

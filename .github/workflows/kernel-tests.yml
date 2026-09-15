@@ -149,7 +149,17 @@ jobs:
     #   build saves 33% per build (24.1s -> 16.2s) but only ~1 min across the
     #   job, and it breaks the shared -Wall -Wextra -Werror -O2 convention that
     #   three gate scripts rely on.
-    timeout-minutes: 45
+    #
+    # ── 45 -> 60, MEASURED, because 45 had seven seconds left ──────────────
+    # archdisc's own ui job, 2026-09-14: 44m54s (run 34901884079), 44m53s and
+    # 44m53s, all green, against 45. The time is real work, not a hang -- on
+    # 34901884079: prose proof 18m53, panel ratchet 9m08, model-tree 6m31,
+    # desktop type-check 4m26, run_ui.sh 2m05. Every one of those proofs
+    # rebuilds every ui/ source, so ANY branch that adds ui/ code makes each of
+    # them slower and the next push `cancelled`. The change that raised this
+    # added ~300 lines to ui/src and one test to the run_ui.sh glob; its own
+    # mutation proof runs in the separate `ui_selection` job below.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - name: forge::ui gates
@@ -316,6 +326,32 @@ jobs:
         # classified as checked or as skipped-with-the-SDK-it-needs, so a new
         # translation unit cannot join the application unnoticed.
         run: bash forge-desktop/test/run_syntax_gate.sh --mutations
+
+  ui_selection:
+    name: a pick places the feature (selection gate, mutation-proved)
+    # run_ui.sh in the `ui` job above already runs ui/test/selection_consumed_test.cpp
+    # -- it globs ui/test/*_test.cpp -- so this job is the half a clean pass cannot
+    # give: six mutations in the real sources must each turn it red, and a
+    # comment-only control must leave it green.
+    #
+    # THE DEFECT, MEASURED ON THE SHIPPED REGISTRY: part.hole emitted
+    # HOLE(%N, 9, 0, 0, 0) for a click on ANY face, part.counterbore made a plain
+    # hole, and picking 3 of 8 edges rounded all 8. Forty-five green UI gates sat
+    # over that, because none of them ever dispatched one command under two
+    # different picks and compared.
+    #
+    # ★ ITS OWN JOB, NOT A STEP IN `ui`, BECAUSE `ui` IS AT ITS BUDGET. MEASURED on
+    #   archdisc's own runs of 2026-09-14: 44m54s, 44m53s and 44m53s against what
+    #   was then timeout-minutes: 45 (see the note on `ui`). This one compiles the
+    #   ui sources ONCE and recompiles only the file a mutation edits, so it costs
+    #   one parallel build plus seven single-file rebuilds, not a full rebuild per
+    #   mutation, and it does not spend the budget of the job that is already full.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: prove the selection gate can fail (6 mutations + 1 control)
+        run: bash ui/test/run_selection_consumed_gate.sh --mutations
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)

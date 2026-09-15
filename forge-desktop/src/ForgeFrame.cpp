@@ -45,6 +45,7 @@
 #include "forge/ui/Material.hpp"
 #include "forge/ui/PanelCatalog.hpp"
 #include "forge/ui/MeasureModel.hpp"
+#include "forge/ui/PickModel.hpp"
 #include "forge/ui/ModelTree.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/RecentDocuments.hpp"
@@ -3107,7 +3108,25 @@ forge::ui::EntityRef ForgeFrame::faceRefFor(std::uint32_t faceId) const {
   return ref;
 }
 
-void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
+// THE SIGN OF EVERY NORMAL COMES FROM HERE, and it is measured rather than
+// assumed. meshMeasure_ is already computed beside the triangle soup, so this
+// costs nothing per pick; a body that is not watertight encloses no material and
+// is honestly given no winding, which makes faceOutwardNormal decline instead of
+// pointing an axis into the part.
+forge::ui::MeshWinding ForgeFrame::pickWinding() {
+  const forge::ui::MeshMeasure& m = modelMeasure();
+  if (!m.watertight) return forge::ui::MeshWinding::Unknown;
+  return m.outward ? forge::ui::MeshWinding::Outward : forge::ui::MeshWinding::Inward;
+}
+
+forge::ui::EntityRef ForgeFrame::faceRefAt(std::uint32_t faceId, const double* hit) {
+  forge::ui::EntityRef ref = faceRefFor(faceId);
+  if (hit == nullptr || faceId == 0) return ref;
+  ref.pick = forge::ui::faceEvidence(measureMesh(), faceId, pickWinding(), hit);
+  return ref;
+}
+
+void ForgeFrame::setPreselectedFace(std::uint32_t faceId, const double* hit) {
   hoverFace_ = faceId;
   // ONE hover at a time. Leaving the edge hover set would keep an edge lit under
   // the cursor while the HUD names a face, which is the disagreement the single
@@ -3117,10 +3136,15 @@ void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
     shell_.selection().clearPreselection();
     return;
   }
-  shell_.selection().setPreselection(faceRefFor(faceId));
+  // The hover reference is built by the same faceRefAt as the click, so there is
+  // one builder rather than two. NOTHING PLACES A FEATURE FROM IT: the commands
+  // read the SELECTION (the click), and SelectionService::setPreselection keeps
+  // the first reference while the cursor stays on one face -- identity ignores
+  // the evidence -- so a hover's hit point is where the cursor ENTERED the face.
+  shell_.selection().setPreselection(faceRefAt(faceId, hit));
 }
 
-void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
+void ForgeFrame::clickFace(std::uint32_t faceId, bool additive, const double* hit) {
   if (faceId == 0) {
     if (!additive) {
       shell_.selection().clearSelection();
@@ -3129,7 +3153,7 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
     }
     return;
   }
-  const forge::ui::EntityRef ref = faceRefFor(faceId);
+  const forge::ui::EntityRef ref = faceRefAt(faceId, hit);
   if (!shell_.selection().accepts(ref.kind)) {
     note("The pick filter is not set to face, so this face was not picked");
     return;
@@ -3373,7 +3397,27 @@ forge::ui::EdgeMeasure ForgeFrame::edgeMeasure() {
   return forge::ui::measureEdges(edges(), selectedEdgeIndices());
 }
 
-void ForgeFrame::setPreselectedEdge(std::size_t index) {
+// ONE place builds an edge reference, for the reason faceRefFor exists: the
+// evidence and the name have to be attached together or a pick that is selected
+// and a pick that is hovered disagree about which edges the kernel can name.
+forge::ui::EntityRef ForgeFrame::edgeRefAt(std::size_t index, const double* rayOrigin,
+                                           const double* rayDir) {
+  const forge::ui::EdgeSet& set = edges();
+  forge::ui::EntityRef ref;
+  if (index >= set.size()) return ref;
+  ref.bodyId = activeBodyNode();
+  ref.kind = forge::ui::EntityKind::Edge;
+  ref.persistentName = set.edges[index].key();
+  // The class this edge falls in, and how many edges of the body share it. That
+  // second number is what lets part.fillet tell "every upright edge" -- which the
+  // kernel's VERTICAL keyword says exactly -- from "three of the eight", which it
+  // cannot say at all, and which it used to answer by rounding all of them.
+  ref.pick = forge::ui::edgeEvidence(set, index, rayOrigin, rayDir);
+  return ref;
+}
+
+void ForgeFrame::setPreselectedEdge(std::size_t index, const double* rayOrigin,
+                                    const double* rayDir) {
   const forge::ui::EdgeSet& set = edges();
   hoverFace_ = 0;  // ONE hover at a time; see setPreselectedFace.
   if (index >= set.size()) {
@@ -3382,14 +3426,11 @@ void ForgeFrame::setPreselectedEdge(std::size_t index) {
     return;
   }
   hoverEdge_ = index;
-  forge::ui::EntityRef ref;
-  ref.bodyId = activeBodyNode();
-  ref.kind = forge::ui::EntityKind::Edge;
-  ref.persistentName = set.edges[index].key();
-  shell_.selection().setPreselection(ref);
+  shell_.selection().setPreselection(edgeRefAt(index, rayOrigin, rayDir));
 }
 
-void ForgeFrame::clickEdge(std::size_t index, bool additive) {
+void ForgeFrame::clickEdge(std::size_t index, bool additive, const double* rayOrigin,
+                           const double* rayDir) {
   const forge::ui::EdgeSet& set = edges();
   if (index >= set.size()) {
     if (!additive) {
@@ -3399,10 +3440,7 @@ void ForgeFrame::clickEdge(std::size_t index, bool additive) {
     }
     return;
   }
-  forge::ui::EntityRef ref;
-  ref.bodyId = activeBodyNode();
-  ref.kind = forge::ui::EntityKind::Edge;
-  ref.persistentName = set.edges[index].key();
+  const forge::ui::EntityRef ref = edgeRefAt(index, rayOrigin, rayDir);
   if (!shell_.selection().accepts(ref.kind)) {
     note("The pick filter is not set to edge, so this edge was not picked");
     return;
@@ -4605,10 +4643,10 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
           static_cast<double>(std::max(1.0f, h));
       const forge::ui::EdgePick p =
           forge::ui::pickEdge(edges(), origin3, dir3, kEdgePickPixels * worldPerPixel);
-      setPreselectedEdge(p.hit() ? p.index : forge::ui::kNoEdge);
+      setPreselectedEdge(p.hit() ? p.index : forge::ui::kNoEdge, origin3, dir3);
       if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         clickEdge(p.hit() ? p.index : forge::ui::kNoEdge,
-                  ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
+                  ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl, origin3, dir3);
       }
     } else if (bodyPickMode()) {
       // The ray still strikes a FACE -- that is what the triangle soup can
@@ -4620,9 +4658,23 @@ void ForgeFrame::drawViewportPanel(std::uint64_t viewportTexture) {
       }
     } else {
       const PickResult pick = scene_.pick(ro, rd);
-      setPreselectedFace(pick.faceId);
+      // ★ THE POINT THE APPLICATION USED TO THROW AWAY. PickResult::point is the
+      // ray/triangle intersection, computed on the line above, and a grep for
+      // readers of it across forge-desktop and ui returned ZERO. Passing it on is
+      // the difference between "a hole in this face" and "a hole at the world
+      // origin".
+      //
+      // Widened to double at the boundary: the scene stream is float
+      // (SceneVertex is the worker wire record and must stay 32 bytes), and
+      // forge::ui measures in double. faceEvidence snaps the result back onto the
+      // face's own plane, which is what makes the float round trip harmless.
+      const double hit[3] = {static_cast<double>(pick.point[0]),
+                             static_cast<double>(pick.point[1]),
+                             static_cast<double>(pick.point[2])};
+      setPreselectedFace(pick.faceId, pick.hit() ? hit : nullptr);
       if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        clickFace(pick.faceId, ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl);
+        clickFace(pick.faceId, ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl,
+                  pick.hit() ? hit : nullptr);
       }
     }
   } else if (!hovered && (hoverFace_ != 0 || hoverEdge_ != forge::ui::kNoEdge ||

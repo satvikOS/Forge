@@ -548,4 +548,186 @@ ScenePick pickScene(const PickScene& scene, const PickRequest& request) {
   return out;
 }
 
+// ── FROM A PICK TO A FEATURE ARGUMENT ───────────────────────────────────────
+
+MeshWinding meshWinding(const MeasureMesh& mesh) {
+  const MeshMeasure m = measureMesh(mesh);
+  // Not watertight means the signed-volume test has no meaning: an open sheet
+  // encloses nothing, so "which side is the material" is not a question the mesh
+  // can answer. Unknown, and every caller declines rather than guesses.
+  if (!m.watertight) return MeshWinding::Unknown;
+  return m.outward ? MeshWinding::Outward : MeshWinding::Inward;
+}
+
+bool faceOutwardNormal(const MeasureMesh& mesh, std::uint32_t faceId, MeshWinding winding,
+                       double out[3]) {
+  if (winding == MeshWinding::Unknown) return false;
+  FaceMeasure fm;
+  if (!measureFace(mesh, faceId, fm)) return false;
+  // measureFace documents an all-zero normal as "degenerate", which is also what
+  // a closed curved face gives: every triangle normal on a full cylinder has an
+  // opposite, and the area-weighted sum is zero. Both are the same answer here --
+  // this face has no single direction, so no axis can be derived from it.
+  const double n2 = fm.normal[0] * fm.normal[0] + fm.normal[1] * fm.normal[1] +
+                    fm.normal[2] * fm.normal[2];
+  if (n2 <= 0.0) return false;
+  const double len = std::sqrt(n2);
+  // measureFace already unitises, so `len` is 1 to rounding; dividing anyway
+  // costs nothing and makes this correct if that ever stops being true.
+  const double sign = (winding == MeshWinding::Outward) ? 1.0 : -1.0;
+  for (int i = 0; i < 3; ++i) out[i] = sign * fm.normal[i] / len;
+  return true;
+}
+
+EdgeAxisClass classifyEdgeAxis(const MeshEdge& edge) noexcept {
+  // The kernel's own guard: an edge with no usable polyline is in NO class. It
+  // writes `if (p.size() < 6) { if (sel == "ALL") ...; continue; }` -- so such an
+  // edge is reachable by ALL and by nothing else, which is exactly None here.
+  if (edge.points.size() < 6) return EdgeAxisClass::None;
+  // A chain that branches, or has more than two loose ends, is not the shape of
+  // any one edge, so there is no chord to take and no class to claim.
+  if (!edge.simple) return EdgeAxisClass::None;
+  // ★ THE CHORD RUNS BETWEEN THE CHAIN'S ENDS, NOT BETWEEN THE FIRST AND LAST
+  //   ENTRIES OF `points`. The kernel's polyline is a walk, so its first and last
+  //   points ARE the edge's ends; MeshEdge::points is a segment soup in welded-id
+  //   order, so its first and last entries are two arbitrary vertices. Read off
+  //   the soup, a two-segment upright edge measured as FLAT (both entries were its
+  //   middle vertex) and a bore rim in a side face as NO CLASS -- and a pick of
+  //   "every flat edge" was then compared against the wrong count. deriveEdges
+  //   records the ends from the vertex degrees; see MeshEdge::simple.
+  const double* a = edge.endA;
+  const double* b = edge.endB;
+  const double dx = b[0] - a[0];
+  const double dy = b[1] - a[1];
+  const double dz = b[2] - a[2];
+  const double len = std::sqrt(dx * dx + dy * dy + dz * dz);
+  // A CLOSED edge's chord is a point: first and last coincide, len collapses, and
+  // the kernel calls that horizontal (it is how a bore rim is selected by RIM).
+  if (len < 1e-9) return EdgeAxisClass::Horizontal;
+  const double ratio = std::fabs(dz) / len;
+  if (std::fabs(ratio - 1.0) < 1e-2) return EdgeAxisClass::Vertical;
+  if (ratio < 1e-2) return EdgeAxisClass::Horizontal;
+  // A slant: the chamfer face's boundary, a loft silhouette, a draft line. The
+  // kernel's vocabulary has no word for it, and saying so is the point.
+  return EdgeAxisClass::None;
+}
+
+std::uint32_t edgesInAxisClass(const EdgeSet& set, EdgeAxisClass cls) noexcept {
+  std::uint32_t n = 0;
+  for (const MeshEdge& e : set.edges) {
+    if (classifyEdgeAxis(e) == cls) ++n;
+  }
+  return n;
+}
+
+PickEvidence faceEvidence(const MeasureMesh& mesh, std::uint32_t faceId, MeshWinding winding,
+                          const double hitPoint[3]) {
+  PickEvidence ev;
+  ev.valid = true;
+  for (int i = 0; i < 3; ++i) ev.point[i] = hitPoint[i];
+  // A face has no axis class; leaving axisClass None and classMembers 0 is the
+  // truthful record, and the edge commands check the kind before reading either.
+
+  FaceMeasure fm;
+  if (winding == MeshWinding::Unknown || !measureFace(mesh, faceId, fm)) return ev;
+  const double n2 = fm.normal[0] * fm.normal[0] + fm.normal[1] * fm.normal[1] +
+                    fm.normal[2] * fm.normal[2];
+  if (n2 <= 0.0) return ev;  // see faceOutwardNormal: no single direction to give
+  const double inv = 1.0 / std::sqrt(n2);
+  const double sign = (winding == MeshWinding::Outward) ? 1.0 : -1.0;
+  for (int i = 0; i < 3; ++i) ev.normal[i] = sign * fm.normal[i] * inv;
+
+  // ── SNAP THE HIT ONTO THE FACE'S OWN PLANE ────────────────────────────────
+  // The caller's hit point came out of a ray/triangle solve, usually in float:
+  // a click on a face at z = 10 arrives as z = 9.9999994. Left alone that is not
+  // a rounding curiosity, it is a WRONG SOLID. CBORE places its recess from
+  // (p - axis*depth) to p (forge-kernel/src/ft/FeatureTreeCompiler.cpp opCbore),
+  // so a point 0.6 um below the face leaves a 0.6 um film of material roofing
+  // the counterbore -- a face that should not exist, on a part that measures
+  // almost right.
+  //
+  // The face is a plane through its own area-weighted centroid with the normal
+  // above, so the fix is the orthogonal projection of the point onto it:
+  //
+  //     p' = p - n * dot(p - c, n)          (n unit)
+  //
+  // which is the standard point-to-plane projection and is exact for any planar
+  // face at any orientation -- it is not a z-snap and does not assume the face is
+  // axis-aligned.
+  //
+  // ONLY WHEN THE FACE IS PLANAR. FaceMeasure::planar means every triangle normal
+  // agreed with the average; when it is false the face is curved and there is no
+  // plane to project onto, so the raw hit stands. Projecting a bore wall onto its
+  // average plane would move the point INTO the material, which is worse than the
+  // micron it would have fixed.
+  if (!fm.planar) return ev;
+  double d = 0.0;
+  for (int i = 0; i < 3; ++i) d += (ev.point[i] - fm.centroid[i]) * ev.normal[i];
+  for (int i = 0; i < 3; ++i) ev.point[i] -= d * ev.normal[i];
+  return ev;
+}
+
+namespace {
+
+// Closest point on segment [a,b] to the line through `origin` with direction `d`.
+// The standard two-line-segment closest-approach solve (Ericson, *Real-Time
+// Collision Detection*, s5.1.9), specialised to one infinite line and one
+// segment: minimise |(a + s*(b-a)) - (origin + t*d)|^2 over s in [0,1] and t
+// free. Writing it out rather than reusing pickEdge's version because that one
+// answers a DISTANCE and this one answers a POINT, and the point is the thing
+// a command needs.
+void closestOnSegmentToRay(const double a[3], const double b[3], const double origin[3],
+                           const double d[3], double& bestS, double& bestD2, double out[3]) {
+  const double u[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+  const double w[3] = {a[0] - origin[0], a[1] - origin[1], a[2] - origin[2]};
+  const double uu = dot3(u, u);
+  const double ud = dot3(u, d);
+  const double dd = dot3(d, d);
+  const double uw = dot3(u, w);
+  const double dw = dot3(d, w);
+  const double den = uu * dd - ud * ud;
+  double s = 0.0;
+  // den == 0 means the segment is parallel to the ray (or degenerate): every
+  // point of it is the same distance away, so s = 0 is as good an answer as any
+  // and is the one that does not divide by zero.
+  if (den > 1e-18) s = (ud * dw - dd * uw) / den;
+  s = std::min(1.0, std::max(0.0, s));
+  const double q[3] = {a[0] + s * u[0], a[1] + s * u[1], a[2] + s * u[2]};
+  const double qw[3] = {q[0] - origin[0], q[1] - origin[1], q[2] - origin[2]};
+  const double t = (dd > 1e-18) ? dot3(qw, d) / dd : 0.0;
+  const double r[3] = {origin[0] + t * d[0] - q[0], origin[1] + t * d[1] - q[1],
+                       origin[2] + t * d[2] - q[2]};
+  const double d2 = dot3(r, r);
+  if (d2 < bestD2) {
+    bestD2 = d2;
+    bestS = s;
+    for (int i = 0; i < 3; ++i) out[i] = q[i];
+  }
+}
+
+}  // namespace
+
+PickEvidence edgeEvidence(const EdgeSet& set, std::size_t index, const double* origin,
+                          const double* direction) {
+  PickEvidence ev;
+  if (index >= set.edges.size()) return ev;
+  const MeshEdge& e = set.edges[index];
+  ev.valid = true;
+  ev.axisClass = classifyEdgeAxis(e);
+  ev.classMembers = edgesInAxisClass(set, ev.axisClass);
+  if (origin == nullptr || direction == nullptr) return ev;
+  double bestD2 = std::numeric_limits<double>::infinity();
+  double bestS = 0.0;
+  const std::size_t segs = e.points.size() / 6;
+  for (std::size_t i = 0; i < segs; ++i) {
+    const double* a = &e.points[i * 6];
+    const double* b = &e.points[i * 6 + 3];
+    closestOnSegmentToRay(a, b, origin, direction, bestS, bestD2, ev.point);
+  }
+  // No segments at all: the polyline is empty, so there is no point to report.
+  // The class above is still the truth about the edge, so the record stays valid
+  // and only the position is left at the origin -- which no edge command reads.
+  return ev;
+}
+
 }  // namespace forge::ui

@@ -743,6 +743,77 @@ def slot_of(call):
     raise DeriveError("unknown IrArg factory %r" % kind)
 
 
+# ── VIEWPORT PICK REWRITES ─────────────────────────────────────────────────
+# A Part command may rewrite the statement its typed parameters built, from the
+# evidence a VIEWPORT PICK left on the selection: the point where a face was hit,
+# that face's normal, or the kernel class of the picked edges. Archie has no ray,
+# so its selections never carry that evidence and the forms derived above are
+# exactly what it can author -- but a user clicking in the viewport can make the
+# app emit more (a HOLE along a side face's normal, FILLET ... VERTICAL for a
+# whole-class pick), and a vocabulary that did not say so would describe a
+# narrower application than the one that ships.
+#
+# So each rewrite is recorded BY NAME. The C++ confines pick-evidence reads to the
+# two helpers below; a handler that reads the evidence any other way (the
+# identifiers in PICK_EVIDENCE_READS) is a hard error, because the generator could
+# not describe what it emits -- which is the one failure this file exists to make
+# loud.
+PICK_REWRITES = {
+    "placeOnPickedFace": {
+        "IntoMaterial": "the picked face's INWARD normal",
+        "OutOfMaterial": "the picked face's OUTWARD normal",
+    },
+    "narrowToPickedEdges": None,
+}
+PICK_EVIDENCE_READS = re.compile(
+    r"(\bfocusFaceHit\b|\bplanEdgeSelector\b|\bPickEvidence\b|(?:\.|->)pick\b)")
+
+
+def scan_pick_rewrites(cid, body):
+    """The viewport-pick rewrites one handler applies, in call order."""
+    helpers = "|".join(sorted(PICK_REWRITES))
+    rest = re.sub(r"\b(%s)\s*\(" % helpers, "", body)
+    stray = PICK_EVIDENCE_READS.search(rest)
+    if stray:
+        raise DeriveError("%s reads viewport pick evidence (%r) outside %s; the vocabulary "
+                          "cannot describe what that emits" % (cid, stray.group(1), helpers))
+    out = []
+    for m in re.finditer(r"\b(%s)\s*\(" % helpers, body):
+        inner, _ = balanced(body, m.end() - 1)
+        parts = [squash(x) for x in split_top(inner)]
+        if m.group(1) == "placeOnPickedFace":
+            sense = re.match(r"^PickedAxis::(\w+)$", parts[3]) if len(parts) == 4 else None
+            if (len(parts) != 4 or parts[:2] != ["ctx", "args"] or not parts[2].isdigit()
+                    or not sense or sense.group(1) not in PICK_REWRITES["placeOnPickedFace"]):
+                raise DeriveError("%s: unparsed placeOnPickedFace(%s)" % (cid, inner))
+            at = int(parts[2])
+            out.append({
+                "rewrite": "placement",
+                "point_arguments": [at, at + 1, at + 2],
+                "axis_arguments": [at + 3, at + 4, at + 5],
+                "applies_when": "the focused face was picked in the viewport",
+                "effect": ("x, y, z become the point where the face was hit unless any of "
+                           "them is typed; the three arguments after them become %s, "
+                           "replacing an axis the statement already carries or appended "
+                           "when it carries none"
+                           % PICK_REWRITES["placeOnPickedFace"][sense.group(1)]),
+            })
+        else:
+            if (len(parts) != 5 or parts[:2] != ["ctx", "args"] or not parts[2].isdigit()
+                    or not re.match(r'^"[^"]+"$', parts[3]) or not re.match(r'^"\w+"$', parts[4])):
+                raise DeriveError("%s: unparsed narrowToPickedEdges(%s)" % (cid, inner))
+            out.append({
+                "rewrite": "edge_selector",
+                "selector_argument": int(parts[2]),
+                "applies_when": "edges were picked in the viewport",
+                "effect": ("the selector becomes VERTICAL or HORIZONTAL when the picked "
+                           "edges are every edge of that class on the body, written in "
+                           "place or appended; any other pick is REFUSED and nothing is "
+                           "emitted"),
+            })
+    return out
+
+
 def parse_part_commands(cpp):
     src = strip_comments(cpp)
     fn, base_off, _ = block_after(src, r"std::size_t registerPartCommands\s*\([^)]*\)\s*")
@@ -782,6 +853,7 @@ def parse_part_commands(cpp):
             enabled = squash(eb).replace("return ", "").rstrip(";").strip()
         ex, _, _ = block_after(block, r"c\.execute\s*=\s*\[[^\]]*\]\s*\([^)]*\)\s*")
         slots = scan_emission(ex)
+        pick_rewrites = scan_pick_rewrites(ids[0], ex)
         # A handler EMITS A STATEMENT iff it calls the emit() helper -- that is the
         # only thing in registerPartCommands() that appends to the document.
         # `bool(slots)` was the proxy for it, and it was exact right up until a
@@ -814,6 +886,7 @@ def parse_part_commands(cpp):
                 "emits_ir": emits,
                 "emitted_args": slots if emits else [],
                 "produces_value_kind": produces.group(1) if produces else None,
+                "viewport_pick_rewrites": pick_rewrites,
                 "source": SOURCES["ui_part_commands"],
             })
     declared, _, _ = block_after(src, r"const std::vector<std::string>& partCommandIds\(\)\s*")
@@ -1996,6 +2069,10 @@ def command_record(c):
     if c["emits_ir"]:
         rec["constraints"] = parse_constraints(c["enabled_predicate_source"], c["parameters"])
         rec["produces_value_kind"] = c["produces_value_kind"]
+    if c.get("viewport_pick_rewrites"):
+        # Not part of any emitted form above: a selection Archie builds carries no
+        # pick evidence, so none of these can apply to a statement it authors.
+        rec["viewport_pick_rewrites"] = c["viewport_pick_rewrites"]
     return rec
 
 

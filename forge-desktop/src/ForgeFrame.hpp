@@ -50,6 +50,7 @@
 #include "forge/ui/MachineProgram.hpp"
 #include "forge/ui/Manipulator.hpp"
 #include "forge/ui/MeasureModel.hpp"
+#include "forge/ui/PickModel.hpp"
 #include "forge/ui/ModelTree.hpp"
 #include "forge/ui/Onboarding.hpp"
 #include "forge/ui/PartCommands.hpp"
@@ -985,14 +986,29 @@ class ForgeFrame final : public forge::ui::DocumentHost,
 
   // Selection round-trip: the viewport writes a pick here, the frame turns it
   // into a typed EntityRef through SelectionService and re-flags the mesh.
-  void setPreselectedFace(std::uint32_t faceId);
-  void clickFace(std::uint32_t faceId, bool additive);
+  //
+  // `hit` is WHERE ON THE FACE the ray struck, in model units, or nullptr when
+  // the pick did not come from a ray. It is not decoration: a located feature --
+  // a hole, a counterbore -- has to be placed somewhere, and without it
+  // part.hole emitted HOLE(%N, dia, 0, 0, 0) for a click on any face of any body,
+  // sending every hole through the world origin on a hard-coded +Z axis. The
+  // viewport computed this point four lines before calling clickFace and threw it
+  // away; PickResult::point had no readers in the tree.
+  void setPreselectedFace(std::uint32_t faceId, const double* hit = nullptr);
+  void clickFace(std::uint32_t faceId, bool additive, const double* hit = nullptr);
   // The same round trip for an EDGE. `index` indexes edges(); kNoEdge clears.
   // Without this pair the app could produce no EntityRef of kind Edge at all,
   // and the three edge-signature commands in the registry -- part.fillet,
   // part.chamfer, part.variable_fillet -- were unreachable from every gesture.
-  void setPreselectedEdge(std::size_t index);
-  void clickEdge(std::size_t index, bool additive);
+  //
+  // The ray is optional for the reason forge::ui::edgeEvidence documents: an edge
+  // chosen from a panel list is just as much the user naming that edge, and what
+  // the dress-up commands read off it -- the kernel class it falls in, and how
+  // many edges share that class -- needs no ray.
+  void setPreselectedEdge(std::size_t index, const double* rayOrigin = nullptr,
+                          const double* rayDir = nullptr);
+  void clickEdge(std::size_t index, bool additive, const double* rayOrigin = nullptr,
+                 const double* rayDir = nullptr);
 
   // THE THIRD PRODUCER, and the one the other two could not stand in for.
   // clickFace makes an EntityKind::Face and clickEdge an EntityKind::Edge, and
@@ -1287,6 +1303,21 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // the datums and the notes all have to name a face the same way or a drawing
   // saved today stops resolving tomorrow.
   forge::ui::EntityRef faceRefFor(std::uint32_t faceId) const;
+  // The same reference WITH the geometry the pick found attached -- the hit point
+  // snapped onto the face's own plane, and the face's outward normal. Built on
+  // top of faceRefFor rather than beside it, so there is still exactly one place
+  // that decides what a face is CALLED. Non-const because the evidence is derived
+  // from measureMesh(), whose first call builds the cache.
+  forge::ui::EntityRef faceRefAt(std::uint32_t faceId, const double* hit);
+  // The edge equivalent: the persistent name plus the class evidence the dress-up
+  // commands read. One place, for the same reason.
+  forge::ui::EntityRef edgeRefAt(std::size_t index, const double* rayOrigin,
+                                 const double* rayDir);
+  // Which way the current tessellation is wound, from the measurement cache that
+  // measureMesh() already fills -- so a pick costs no extra pass over the soup.
+  // It is what decides the SIGN of every face normal, and an open body honestly
+  // has none.
+  forge::ui::MeshWinding pickWinding();
   void drawRestraintsPanel();
   void drawLoadsPanel();
   // The material, the mesh density, the Run button and the last answer. Drawn at
