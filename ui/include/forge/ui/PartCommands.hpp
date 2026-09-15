@@ -42,11 +42,13 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/Material.hpp"
+#include "forge/ui/ParameterSet.hpp"
 
 namespace forge::ui {
 
@@ -296,6 +298,16 @@ class PartDocument {
   // no two panels can compute a mass two different ways.
   MassProperties massProperties(double volumeMm3) const;
 
+  // ── THE PART'S PARAMETERS AND THE NUMBERS THEY DRIVE ──────────────────────
+  //
+  // Named parameters and feature-number bindings (ParameterSet.hpp). Like the
+  // material, NOT part of Snapshot: undoing a fillet must not change what `wall`
+  // means. Only forge::ui::ParameterEdit (Parameters.hpp) sets it, and only after
+  // recomputing the whole candidate set -- this setter validates nothing, because
+  // one record cannot be validated without all the others.
+  const ParameterSet& parameters() const noexcept { return parameters_; }
+  void setParameters(ParameterSet value) { parameters_ = std::move(value); }
+
   // GoF Memento. Small by construction: a record count plus the binding table.
   struct Snapshot {
     std::size_t records = 0;
@@ -310,6 +322,7 @@ class PartDocument {
   IrCheck lastCheck_ = IrCheck::Ok;
   EditCheck lastEdit_ = EditCheck::Ok;
   Material material_ = unassignedMaterial();
+  ParameterSet parameters_;
 };
 
 // ── the concrete command ────────────────────────────────────────────────────
