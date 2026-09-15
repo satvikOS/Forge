@@ -7737,6 +7737,17 @@ void ForgeFrame::pumpCopilotModel() {
     return;
   }
   copilotSource_ = CopilotSource::Model;
+  if (!response.ok) {
+    // ARCHIE SAID NO. That is the answer, and it is shown as Archie's -- but in a
+    // sentence a person can act on. The service's own reason ("emission contains
+    // no feature-IR statements", "the model emitted op 'SLOT' and no offered
+    // command declares it") is an internal cause and goes to the Console.
+    shell_.log().warning("Archie", "Archie could not turn a request into steps Forge can run.",
+                         response.error);
+    response.error = "I could not turn that into steps Forge can run, so nothing was offered. "
+                     "Try giving the sizes and where each feature goes. " +
+                     std::string(forge::ui::userFacingDetailPointer());
+  }
   // THE PANEL'S WORDS, NOT THE SERVICE'S. serve.py summarises a plan as "2
   // step(s) from 2 feature-IR statement(s)" -- an internal term, in the chat.
   // The steps themselves are the facts; the sentence is composed from the tools
@@ -7763,6 +7774,15 @@ void ForgeFrame::runCopilotApply() {
   // dispatches have already re-derived the geometry through documentChanged(),
   // so the scene's last build IS the answer to the second question, and it is
   // read here rather than assumed from the first.
+  //
+  // A step's INTERNAL cause (a selection resolution, a dispatch detail) is for
+  // the Console's detail column; the panel draws the status sentence only.
+  for (const forge::ui::StepOutcome& s : out.steps) {
+    if (s.ok()) continue;
+    shell_.log().warning("Archie", "A step of Archie's plan could not run.",
+                         s.commandId + ": " + (s.detail.empty() ? s.dispatch.detail : s.detail));
+    break;
+  }
   if (out.applied == 0) return;  // nothing changed; the outcome already says why
 
   // A COPY: the undo below rebuilds the scene and replaces the report this reads.
@@ -7985,11 +8005,10 @@ void ForgeFrame::drawCopilotPanel() {
         if (ran->blocked()) {
           ImGui::TextColored(rgb(230, 190, 90), "  %s", ran->constraintReason.c_str());
         } else {
+          // The sentence for the status only; the internal cause went to the
+          // Console's detail column when the plan ran (runCopilotApply).
           ImGui::TextColored(rgb(230, 190, 90), "  %s",
                              forge::ui::userText(ran->dispatch.status));
-          if (!ran->detail.empty()) {
-            ImGui::TextColored(rgb(230, 190, 90), "  %s", ran->detail.c_str());
-          }
         }
         ImGui::PopTextWrapPos();
       } else if (!appliedView && !sv.accepted()) {

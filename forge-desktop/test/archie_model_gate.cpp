@@ -662,8 +662,16 @@ int main(int argc, char** argv) {
     for (const auto& l : frame.copilot().transcript()) {
       if (l.role == forge::ui::TranscriptRole::Copilot) lastCopilot = l.text;
     }
-    check(lastCopilot.find("no offered command declares it") != std::string::npos,
-          "  ...and the model's reason is what the transcript says", lastCopilot);
+    check(lastCopilot.rfind("I could not turn that into steps Forge can run", 0) == 0,
+          "  ...said to the user in words they can act on", lastCopilot);
+    check(lastCopilot.find("feature-IR") == std::string::npos &&
+              lastCopilot.find("SLOT") == std::string::npos,
+          "  ...without the service's internal vocabulary", lastCopilot);
+    bool logged = false;
+    for (const auto& e : shell.log().entries()) {
+      if (e.detail.find("no offered command declares it") != std::string::npos) logged = true;
+    }
+    check(logged, "  ...and the service's own reason is in the Console's detail column");
   }
 
   // ── 11. THE MODEL STOPS: said at once, and the built-in commands stand in ─
