@@ -1217,9 +1217,14 @@ jobs:
         # skin-offset fallback, and the native engine's coplanar path prismed the
         # RAW input -- which forge::occtPrism refuses for a compound -- so thickening
         # the direct output of a cut became a hard THROW. Proved RED on the pre-fix
-        # engine object: 7 passed, 8 failed ("coplanar path: the shell prism
-        # failed"); 15/0 after. Same archive as the A/B above, for the same reason
-        # as the multibody gate.
+        # engine object with the gate's first 15 checks: 7 passed, 8 failed
+        # ("coplanar path: the shell prism failed"). Widening that path exposed a
+        # second defect (the same pair of faces is NOT refused as a SHELL either,
+        # so it predates the widening), now also pinned
+        # here: coplanar faces of OPPOSITE orientation were all swept along the
+        # first face's normal, putting the reversed slab on the wrong side as a
+        # "success" (RED 17 passed / 3 failed before the refusal; 20/0 after).
+        # Same archive as the A/B above, for the same reason as the multibody gate.
         run: SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicken_compound_input_gate.sh
       - name: plane-vs-spline consumer equivalence (the rule, and its negative controls)
         # THE MEASUREMENT BEHIND THE ONE RELAXATION THE FLIP GATE MAKES. The gate

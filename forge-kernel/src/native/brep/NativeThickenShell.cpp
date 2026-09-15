@@ -1109,6 +1109,28 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
         }
     }
     if (coplanar) {
+        // ── ONE SWEEP VECTOR CANNOT SERVE TWO NORMALS ─────────────────────────
+        // The coplanarity test above deliberately compares PLANES, so two faces
+        // of one plane with OPPOSITE orientation pass it. This path then sweeps
+        // EVERY face along N[0] — but thicken's side convention is per face, along
+        // that face's own outward normal (path B and the lone-face call both honour
+        // it). So the reversed face's slab landed on the WRONG side while the
+        // volume check below still read area * thickness exactly.
+        // MEASURED (two disjoint coplanar 10x10 squares, the second REVERSED,
+        // t = +2, built from the libforge_native_ab archive):
+        //   the reversed square ALONE        z in [-2, 0]   (its own normal)
+        //   the same pair in a COMPOUND      z in [ 0, 2]   <- wrong side, "success"
+        //   the same pair in a SHELL         z in [ 0, 2]   <- wrong side, "success"
+        //   OCCT BRepOffset_MakeOffset       declines both (test/OcctThickenOracle.hpp)
+        // A consistently oriented sheet never reaches this: faces sharing an edge
+        // in a valid shell agree in orientation, so only DISJOINT faces can mix.
+        // Refused rather than re-swept per face — a refusal the caller can act on
+        // (reorient the faces) beats a second construction nobody has gated.
+        for (std::size_t i = 1; i < faces.size(); ++i) {
+            if (N[i].Dot(N[0]) < 0.0)
+                return defer("coplanar path: faces of one plane have opposite "
+                             "orientations, and a single sweep cannot honour both normals");
+        }
         // ── A COMPOUND IS NOT A DIFFERENT GEOMETRY, IT IS A WRAPPER ───────────
         // forge::occtPrism refuses TopAbs_COMPOUND, and this line used to hand it
         // the RAW INPUT rather than the faces it had just validated above. Every
