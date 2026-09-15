@@ -3262,6 +3262,17 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         # negative control -- a non-planar face in the same wrapper must still be
         # DECLINED by name -- so it cannot pass by having become 'accept anything'.
         thicken_compound_input_gate
+        # TKOffset family I, the 3-OR-MORE-PLATE CORNER. Family I was deleted on a
+        # "600/600 parity" corpus that thickens ONE face per part, so it held no
+        # vertex where three plates meet -- and the OCCT kernel smoke then lost
+        # THICKEN on every closed box sheet (UNFOLD(BOX) -> THICKEN). This gate runs
+        # the four smoke programs through forge::ft::compileText against CLOSED
+        # FORMS (Steiner's parallel-body formula), every convex 3/4/5-plate corner
+        # OUTWARD against closed forms on the full vector, and the same corners
+        # INWARD as correct-or-refused -- a success there must stay inside the
+        # corner's cone AND equal a VALID OCCT answer, because the inward apex is
+        # the class that returned wrong geometry as success.
+        thicken_corner_parity_gate
         # regression gates
         heal_destruction_refusal_gate   # T-137: a heal that empties a thin-walled part
                                         # (all 8 side triangles of a 100x100x0.001 plate
