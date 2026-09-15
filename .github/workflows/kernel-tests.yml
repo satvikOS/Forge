@@ -998,6 +998,25 @@ jobs:
           cmake --build forge-kernel/build-verify -j3 --target forge_gate_thicken_refusal_gate
           ./forge-kernel/build-verify/forge_gate_thicken_refusal_gate
 
+      - name: THICKEN at 3+-plate corners — correct against closed forms, or refused
+        # Family I was deleted on a 600-part corpus with NO vertex where three plates
+        # meet, and this job then lost THICKEN on every closed box sheet (UNFOLD(BOX)
+        # -> THICKEN, part.thicken, part.surf_trim). This gate runs those four smoke
+        # programs through compileText against Steiner's closed form on the full
+        # vector (volume, area, centroid, six bbox bounds, validity, shells, Euler),
+        # every convex 3/4/5-plate corner OUTWARD at t = 0.01..50 against closed
+        # forms, the same corners INWARD as correct-or-refused (a success must stay
+        # inside the corner's cone AND equal a VALID OCCT answer), the closed box
+        # sheet inward, and the saddle / open-fan declines. RED on the wedge engine
+        # before DERIVATION 5 (508 checks, 12 failed: box inward t=5 -> V=19200 with
+        # material below the sheet, cube corner inward t=50 -> V=13000, both as
+        # success). One TU against the library built above.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_thicken_corner_parity_gate
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_thicken_corner_parity_gate
+          ./forge-kernel/build-verify/forge_gate_thicken_corner_parity_gate
+
       - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
         # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,
         # so a foreign file declaring SI_UNIT($,.METRE.) was read RAW. It refused

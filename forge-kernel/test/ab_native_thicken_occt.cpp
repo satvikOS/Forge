@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "forge/native/brep/NativeThickenShell.hpp"
+#include "forge/OcctThickenBaseline.hpp"   // orientedPositiveSolid: the oracle's post-condition
 
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -271,15 +272,25 @@ bool occtThicken(const TopoDS_Shape& shell, double t, TopoDS_Shape& out) {
                   GeomAbs_Arc, /*makeThickSolid*/ Standard_True);
     mk.MakeThickSolid();
     if (!mk.IsDone()) return false;
-    out = mk.Shape();
+    // THE WHOLE ORACLE, NOT HALF OF IT. test/OcctThickenOracle.hpp records that
+    // this family's most expensive mistake was an A/B arm that hand-copied the
+    // BRepOffset_MakeOffset call WITHOUT the orientation normalisation production
+    // applied after it -- and this function was still that half-copy. MEASURED on
+    // case9 (the closed 10x6x4 box sheet, t = +1): the raw answer is a REVERSED
+    // solid, signed volume -315.020643, and BRepCheck flags its SOLID with
+    // BRepCheck_SubshapeNotInShape; the SAME shape after orientedPositiveSolid is
+    // +315.020643 and BRepCheck-VALID. So "OCCT solid is BRepCheck-VALID" failing
+    // there was neither an inverted assertion nor an invalid OCCT answer: it was
+    // this arm skipping the post-condition. The waiver case9 carried for it is
+    // removed; the validity assertion is unconditional again.
+    out = ::forge::part::orientedPositiveSolid(mk.Shape());
     return !out.IsNull();
 }
 
 // One A/B case. Returns the native volume (0 if it deferred) so the caller can
 // assert the closed form for whichever side of the shell it landed on.
 double abCase(const std::string& label, const TopoDS_Shape& shell, double t,
-              double tol = 1.0e-6, bool compareTypes = true,
-              bool requireOcctValid = true) {
+              double tol = 1.0e-6, bool compareTypes = true) {
     TopoDS_Shape occt;
     const bool occtOk = occtThicken(shell, t, occt);
     ok(occtOk, label + " : OCCT built the reference");
@@ -291,13 +302,7 @@ double abCase(const std::string& label, const TopoDS_Shape& shell, double t,
 
     const Obs a = observe(nat), b = observe(occt);
     ok(a.valid, label + " : native solid is BRepCheck-VALID");
-    // The ORACLE's own validity. Asserted by default; a case may waive it only
-    // where OCCT is MEASURED to return an invalid solid, and that case must then
-    // carry an independent closed form, because an invalid reference cannot be
-    // the only witness.
-    if (requireOcctValid) ok(b.valid, label + " : OCCT solid is BRepCheck-VALID");
-    else std::printf("  [%s] OCCT reference BRepCheck-valid = %d (waived; the closed form is the witness)\n",
-                     label.c_str(), b.valid ? 1 : 0);
+    ok(b.valid, label + " : OCCT solid is BRepCheck-VALID");
     compareSolids(a, b, label, tol, /*report*/ true, compareTypes);
     std::printf("  [%s] native raw F/E = %d/%d, OCCT raw F/E = %d/%d;"
                 " canonical F/E/V = %d/%d/%d both\n",
@@ -827,10 +832,7 @@ void runAll() {
         std::vector<double> vols;
         for (double t : {t9, -t9}) {
             const std::string lab = "case9 closed box sheet t=" + std::to_string(t);
-            // MEASURED: OCCT's outward skin of the closed box is BRepCheck-INVALID
-            // (same volume, F/E/V and census as native). Waived for t > 0 only; the
-            // Steiner closed form below is the independent witness.
-            const double v = abCase(lab, box, t, 1.0e-6, true, /*requireOcctValid*/ t < 0.0);
+            const double v = abCase(lab, box, t);
             if (v > 0.0) {
                 vols.push_back(v);
                 const TopoDS_Shape nat = forge::occtthicken::thickenShell(box, t);
@@ -841,7 +843,7 @@ void runAll() {
         if (vols.size() == 2) {
             std::sort(vols.begin(), vols.end());
             okNear(vols[0], a * b * c - (a - 2 * t9) * (b - 2 * t9) * (c - 2 * t9), 1.0e-6,
-                   "case9 : INWARD == abc - (a-2t)(b-2t)(c-2t) = 144");
+                   "case9 : INWARD == abc - (a-2t)(b-2t)(c-2t) = 176");
             okNear(vols[1], 2 * (a * b + b * c + c * a) * t9 + kPi * (a + b + c) * t9 * t9 +
                                 4.0 / 3.0 * kPi * t9 * t9 * t9, 1.0e-6,
                    "case9 : OUTWARD == Steiner 2(ab+bc+ca)t + pi(a+b+c)t^2 + 4/3 pi t^3");
@@ -1034,6 +1036,91 @@ void runAll() {
         ok((plus && rPlus.find(want) != std::string::npos) ||
                (minus && rMinus.find(want) != std::string::npos),
            "defer(c2) : an OPEN-fan convex corner is DECLINED, naming the free rim");
+    }
+
+    {
+        // case 14 — AN INWARD THICKNESS PAST A FACE'S EXTENT (DERIVATION 5a). Before
+        // the rule, thicken_corner_parity_gate MEASURED these shipping as success:
+        // UNFOLD(BOX(60,40,2)) inward by 5 -> V=19200, bbox z down to -3 (below the
+        // sheet); the 10 mm cube corner inward by 50 -> V=13000, bbox -40..10. No
+        // skin of that thickness exists, so each must DECLINE, naming it; and just
+        // short of the event the same inputs must still BUILD and match OCCT.
+        const double a = 10.0, b = 6.0, c = 4.0;
+        const gp_Pnt p[8] = {gp_Pnt(0,0,0), gp_Pnt(a,0,0), gp_Pnt(a,b,0), gp_Pnt(0,b,0),
+                             gp_Pnt(0,0,c), gp_Pnt(a,0,c), gp_Pnt(a,b,c), gp_Pnt(0,b,c)};
+        std::vector<TopoDS_Face> fs;
+        fs.push_back(quadFace(p[0], p[3], p[2], p[1]));
+        fs.push_back(quadFace(p[4], p[5], p[6], p[7]));
+        fs.push_back(quadFace(p[0], p[1], p[5], p[4]));
+        fs.push_back(quadFace(p[2], p[3], p[7], p[6]));
+        fs.push_back(quadFace(p[0], p[4], p[7], p[3]));
+        fs.push_back(quadFace(p[1], p[2], p[6], p[5]));
+        const TopoDS_Shape box = sewShell(fs);
+        // Which sign is inward depends on the sew; ask the engine at a thickness
+        // both sides build, then pick the side whose volume is the INWARD closed form.
+        const double vPlus = [&] { const TopoDS_Shape s = forge::occtthicken::thickenShell(box, 1.0);
+                                   GProp_GProps g; if (!s.IsNull()) BRepGProp::VolumeProperties(s, g);
+                                   return s.IsNull() ? 0.0 : g.Mass(); }();
+        const double inSign = std::fabs(vPlus - (a * b * c - (a - 2) * (b - 2) * (c - 2))) < 1.0e-6 ? 1.0 : -1.0;
+        const double tNear = 1.9;   // c - 2t = 0.2 > 0: the 4 mm faces survive
+        const double vNear = abCase("case14 closed box INWARD t=1.9 (just short of the event)", box, inSign * tNear);
+        okNear(vNear, a * b * c - (a - 2 * tNear) * (b - 2 * tNear) * (c - 2 * tNear), 1.0e-6,
+               "case14 : INWARD t=1.9 == abc - (a-2t)(b-2t)(c-2t)");
+        for (double tt : {2.0, 2.5, 5.0}) {
+            const std::string lab = "case14 closed box INWARD t=" + std::to_string(tt);
+            ok(forge::occtthicken::thickenShell(box, inSign * tt).IsNull(),
+               lab + " : DECLINED (the 4 mm faces are consumed; no skin exists)");
+            okReason("the thickness CONSUMES A FACE: on the concave side a fold trims the offset of "
+                     "a neighbouring face down to nothing, so no skin of this thickness exists (use a "
+                     "thinner thickness, or thicken to the other side)", lab);
+        }
+        // the three-plate corner of case 8, plates 10: inward by 12 declines, by 9 builds
+        std::vector<TopoDS_Face> cf;
+        cf.push_back(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0), gp_Pnt(10, 10, 0), gp_Pnt(0, 10, 0)));
+        cf.push_back(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(0, 10, 0), gp_Pnt(0, 10, 10), gp_Pnt(0, 0, 10)));
+        cf.push_back(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 10), gp_Pnt(10, 0, 10), gp_Pnt(10, 0, 0)));
+        const TopoDS_Shape corner = sewShell(cf);
+        int declinedFar = 0, builtFarConvex = 0;
+        for (double sgn : {1.0, -1.0}) {
+            const TopoDS_Shape s9 = forge::occtthicken::thickenShell(corner, sgn * 9.0);
+            const TopoDS_Shape s12 = forge::occtthicken::thickenShell(corner, sgn * 12.0);
+            if (s12.IsNull()) {
+                if (std::string(forge::occtthicken::thickenLastDeferReason()).find("CONSUMES A FACE") !=
+                    std::string::npos)
+                    ++declinedFar;
+                // the same (concave) side just short of the event: exact, 3*10^2*9 - 3*9^2*10 + 9^3
+                ok(!s9.IsNull(), "case14 : the concave corner side at t=9 (< plate 10) still BUILDS");
+                if (!s9.IsNull()) {
+                    GProp_GProps g;
+                    BRepGProp::VolumeProperties(s9, g);
+                    okNear(g.Mass(), 3.0 * 100.0 * 9.0 - 3.0 * 81.0 * 10.0 + 729.0, 1.0e-6,
+                           "case14 : concave corner t=9 == 3*A*t - 3*t^2*L + t^3");
+                }
+            } else {
+                ++builtFarConvex;
+                abCase("case14 three-plate corner CONVEX t=12 (past the plate size)", corner, sgn * 12.0);
+            }
+        }
+        ok(declinedFar == 1, "case14 : the CONCAVE corner at t=12 (> plate 10) DECLINES, naming the consumed face");
+        ok(builtFarConvex == 1, "case14 : the CONVEX corner at t=12 still builds (the outward body is exact at any t)");
+    }
+    {
+        // case 15 — A PRISM THROUGH ANOTHER PART OF THE SHEET (DERIVATION 5b). Two
+        // parallel 10x10 plates 1 apart, no shared edge: at t = 2 each plate's prism
+        // passes through the other plate, the fused body is ONE solid of 300 mm^3 and
+        // every earlier self-check passes (300 is inside [200, 400]). The sheet is
+        // buried inside its own body; it must DECLINE on both sides, naming it.
+        std::vector<TopoDS_Face> pf;
+        pf.push_back(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0), gp_Pnt(10, 10, 0), gp_Pnt(0, 10, 0)));
+        pf.push_back(quadFace(gp_Pnt(0, 0, 1), gp_Pnt(10, 0, 1), gp_Pnt(10, 10, 1), gp_Pnt(0, 10, 1)));
+        const TopoDS_Shape two = sewShell(pf);
+        for (double tt : {2.0, -2.0}) {
+            const std::string lab = "case15 stacked plates t=" + std::to_string(tt);
+            ok(forge::occtthicken::thickenShell(two, tt).IsNull(),
+               lab + " : DECLINED (a prism passes through the other plate)");
+            okReason("a face prism PASSES THROUGH another part of the sheet (the sheet is buried "
+                     "inside its own thickened body; use a thinner thickness)", lab);
+        }
     }
 
 }
