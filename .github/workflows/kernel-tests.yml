@@ -422,6 +422,16 @@ jobs:
       - name: SECTION op gate (geometry + IR round trip + 3 mutations)
         run: bash forge-kernel/test/build_section_op_gate.sh
 
+      # Features.cpp must COMPILE with FORGE_NATIVE_BREP undefined. TKOffset family
+      # G left shellMultiThickness calling a native-only engine with no guard (3
+      # errors), on top of 11 older errors from watchdog headers included only in
+      # the native block -- a configuration CMakeLists.txt promises to keep free of
+      # undefined-symbol landmines, and one no job compiled. -fsyntax-only on one
+      # TU, headers only (this job installs them), a few seconds; its two mutations
+      # re-expose each defect on a temp copy and must turn it red.
+      - name: Features.cpp compiles without FORGE_NATIVE_BREP (+ 2 mutations)
+        run: bash forge-kernel/test/features_native_brep_off_gate.sh --mutations
+
       - name: NAFEMS ratchet self-test
         run: bash forge-kernel/test/fea_nafems_ratchet_selftest.sh
 
