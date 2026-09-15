@@ -567,7 +567,8 @@ int main() {
   // branch adds exactly FIFTEEN the base lacks -- the eight of the 2D sketch +
   // constraint family, the six SURFACE commands, and part.section_curve -- so 58
   // is |ours union theirs|.
-  CHECK_EQ_INT(partAdded, 71);
+  // 73: part.mass_properties and part.check_mass arrived as queries (no op emitted).
+  CHECK_EQ_INT(partAdded, 73);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
   CHECK_EQ_INT(liveIds.size(), static_cast<long long>(j.num(counts, "registry_commands")));

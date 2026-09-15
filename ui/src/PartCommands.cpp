@@ -3211,6 +3211,10 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.sideEffect = SideEffectClass::ViewOnly;
     c.undo = UndoContract::NotUndoable;
     const std::function<GeometricIntegrals()> measured = services.measuredIntegrals;
+    // No structural precondition: whether there is a mass to report is the
+    // execute's answer, given as a refusal with its reason, never a greyed item
+    // that cannot say why.
+    c.enabled = [](const CommandContext&) { return true; };
     c.execute = [d, measured](CommandContext& ctx) {
       if (!measured) {
         ctx.fail("nothing measures the shape in this session, so it has no mass to report");
@@ -3226,19 +3230,22 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // ── CHECK WEIGHT ──────────────────────────────────────────────────────────
   // The assertion form of the query above, for a plan that must keep a part
   // inside a mass budget: it succeeds only when the measured mass is within
-  // `tolerance_percent` of `expected_kg`, and it records the measurement either
+  // `percent` of `kilograms`, and it records the measurement either
   // way so a refusal says what the part actually weighs.
   //
-  // `expected_kg` is REQUIRED and has NO default: there is no honest guess at what
-  // a part should weigh. The tolerance defaults to half a per cent, which is
-  // tighter than the scatter of a handbook density and looser than rounding.
+  // `kilograms` is REQUIRED and has NO default: there is no honest guess at what a
+  // part should weigh. `percent`, the tolerance, defaults to half a per cent, which
+  // is tighter than the scatter of a handbook density and looser than rounding.
+  // Each parameter is NAMED FOR ITS UNIT: a parameter name is drawn in the prompt
+  // that asks for it, so "kilograms" is both the word a person reads and the unit
+  // a caller cannot mistake.
   {
     CommandDescriptor c = base("part.check_mass", "Check Weight", "",
                                SelectionSignature::none());
-    c.schema.push_back(ParamSpec{.name = "expected_kg", .type = ParamType::Number,
+    c.schema.push_back(ParamSpec{.name = "kilograms", .type = ParamType::Number,
                                  .required = true, .defaultNumber = 0.0,
                                  .defaultText = "", .hasDefault = false});
-    c.schema.push_back(ParamSpec{.name = "tolerance_percent", .type = ParamType::Number,
+    c.schema.push_back(ParamSpec{.name = "percent", .type = ParamType::Number,
                                  .required = false, .defaultNumber = 0.5,
                                  .defaultText = "", .hasDefault = true});
     c.preview = PreviewPolicy::None;
@@ -3246,7 +3253,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.undo = UndoContract::NotUndoable;
     const std::function<GeometricIntegrals()> measured = services.measuredIntegrals;
     c.enabled = [](const CommandContext& ctx) {
-      return num(ctx, "expected_kg", 0.0) > 0.0 && num(ctx, "tolerance_percent", 0.5) >= 0.0;
+      return num(ctx, "kilograms", 0.0) > 0.0 && num(ctx, "percent", 0.5) >= 0.0;
     };
     c.execute = [d, measured](CommandContext& ctx) {
       if (!measured) {
@@ -3259,8 +3266,8 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         ctx.fail(r.refusal);
         return;
       }
-      const double expected = num(ctx, "expected_kg", 0.0);
-      const double tolerance = num(ctx, "tolerance_percent", 0.5);
+      const double expected = num(ctx, "kilograms", 0.0);
+      const double tolerance = num(ctx, "percent", 0.5);
       if (std::fabs(r.massKg - expected) > expected * tolerance / 100.0) {
         char why[192];
         std::snprintf(why, sizeof(why),

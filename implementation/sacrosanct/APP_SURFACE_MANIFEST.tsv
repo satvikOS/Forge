@@ -23,6 +23,7 @@ part.boolean_subtract	Part	CUT	document	transaction	none	1	-
 part.boolean_union	Part	FUSE	document	transaction	none	1	-
 part.cap	Part	CAP	document	transaction	ondemand	1	tol:number:optional
 part.chamfer	Part	CHAMFER	document	transaction	live	1	distance:number:required:hasdefault,selector:text:optional
+part.check_mass	Part	-	view	none	none	1	kilograms:number:required,percent:number:optional:hasdefault
 part.counterbore	Part	CBORE	document	transaction	ondemand	1	diameter:number:required:hasdefault,cbore_diameter:number:required:hasdefault,cbore_depth:number:required:hasdefault,x:number:optional,y:number:optional,z:number:optional
 part.defeature	Part	DEFEATURE	document	transaction	ondemand	1	selector:text:required:hasdefault
 part.draft	Part	DRAFT	document	transaction	live	1	angle:number:required:hasdefault,pull_dir:text:optional:hasdefault
@@ -35,6 +36,7 @@ part.heal	Part	HEAL	document	transaction	ondemand	1	-
 part.hole	Part	HOLE	document	transaction	ondemand	1	diameter:number:required:hasdefault,x:number:optional,y:number:optional,z:number:optional,depth:number:optional
 part.input_solid	Part	INPUT	document	transaction	none	1	-
 part.loft	Part	LOFT	document	transaction	ondemand	1	ruled:flag:optional,open:flag:optional
+part.mass_properties	Part	-	view	none	none	1	-
 part.measure	Part	MEASURE	document	transaction	none	1	property:text:optional:hasdefault
 part.mirror	Part	MIRROR	document	transaction	ondemand	1	plane:text:required:hasdefault
 part.move	Part	TRANSLATE	document	transaction	live	1	dx:number:optional,dy:number:optional,dz:number:optional

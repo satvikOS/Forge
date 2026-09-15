@@ -362,11 +362,11 @@ int main(int argc, char** argv) {
     std::printf("[gate] evidence: %s\n", q.evidence.c_str());
 
     forge::ui::CommandParams budget;
-    budget.setNumber("expected_kg", report.massKg);
+    budget.setNumber("kilograms", report.massKg);
     const forge::ui::DispatchResult pass = shell.run("part.check_mass", budget);
     check(pass.ok(), "part.check_mass passes the true mass", pass.detail);
     forge::ui::CommandParams wrong;
-    wrong.setNumber("expected_kg", g_mutation == 5 ? report.massKg : 0.2);
+    wrong.setNumber("kilograms", g_mutation == 5 ? report.massKg : 0.2);
     const forge::ui::DispatchResult fail = shell.run("part.check_mass", wrong);
     check(!fail.ok(), "part.check_mass refuses a budget the part does not meet", "");
     check(fail.detail.find("0.39") != std::string::npos,
@@ -508,7 +508,9 @@ int main(int argc, char** argv) {
     step(frame);
     std::size_t matching = 0;
     for (const forge::ui::MaterialCard& c : frame.materialCards().cards()) {
-      std::string hay = c.name + " " + c.id;
+      // Mutation 7 compares case-sensitively against the display name alone, which
+      // is the reference a filter that forgot to fold case would agree with.
+      std::string hay = g_mutation == 7 ? c.name : c.name + " " + c.id;
       if (g_mutation != 7) {
         for (char& ch : hay) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
       }

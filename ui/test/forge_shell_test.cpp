@@ -349,7 +349,18 @@ int main() {
       if (!c->featureIrOp.empty()) ++documentCommandsWithIr;
     }
   }
-  CHECK_EQ_INT(documentCommands, app.partCommands + 1);  // + edit.delete
+  // + edit.delete, - part.mass_properties and part.check_mass: those two are
+  // QUERIES (NotUndoable, ViewOnly). They measure the document and change nothing,
+  // so they are not document commands and must not claim an undo transaction.
+  CHECK_EQ_INT(documentCommands, app.partCommands + 1 - 2);
+  for (const char* query : {"part.mass_properties", "part.check_mass"}) {
+    const CommandDescriptor* q = shell.registry().find(query);
+    CHECK(q != nullptr);
+    if (q == nullptr) continue;
+    CHECK_EQ_INT(static_cast<int>(q->undo), static_cast<int>(UndoContract::NotUndoable));
+    CHECK_EQ_INT(static_cast<int>(q->sideEffect), static_cast<int>(SideEffectClass::ViewOnly));
+    CHECK(q->featureIrOp.empty());
+  }
   // Every document command emits feature IR except TWO, and both exceptions are
   // structural rather than oversights. part.edit_feature MUTATES an existing
   // statement's argument in place, so it has no op of its own to emit -- the

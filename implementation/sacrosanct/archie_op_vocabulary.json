@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "320ef6e7ab7e603a39b79877dd6fda83db606978c9a34ea66599f4188de86dd7",
-        "bytes": 566474,
-        "lines": 11530
+        "sha256": "fe31c6cc4a23b163ed4ee8ceb29acd451579c6b4b23daaee72a10b92ebb3a614",
+        "bytes": 567075,
+        "lines": 11544
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "dec11c86471abb96380f327cc04b90164472cabbb28f6a33fa2f29fbbfec21bf",
-        "bytes": 212493,
-        "lines": 3636
+        "sha256": "e702e9411ce33da379c5484667238ff9e0151aa4a33ade6af86dc58ec32e4c10",
+        "bytes": 212896,
+        "lines": 3643
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -8107,7 +8107,7 @@
       },
       "parameters": [
         {
-          "name": "expected_kg",
+          "name": "kilograms",
           "type": "Number",
           "required": true,
           "default_number": 0.0,
@@ -8115,7 +8115,7 @@
           "has_default": false
         },
         {
-          "name": "tolerance_percent",
+          "name": "percent",
           "type": "Number",
           "required": false,
           "default_number": 0.5,
@@ -11925,7 +11925,7 @@
       "parameters": [
         "value (part.edit_feature)",
         "material (part.set_material)",
-        "expected_kg (part.check_mass)"
+        "kilograms (part.check_mass)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"

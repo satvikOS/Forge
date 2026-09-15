@@ -431,14 +431,14 @@ void commands(Harness& H) {
   CHECK(mp.ok());
   CHECK(mp.evidence.find("mass_kg=0.135 ") != std::string::npos);
   CommandParams budget;
-  budget.setNumber("expected_kg", 0.135);
+  budget.setNumber("kilograms", 0.135);
   CHECK(registry.dispatch("part.check_mass", selection, budget).ok());
-  budget.setNumber("expected_kg", 0.2);
+  budget.setNumber("kilograms", 0.2);
   const DispatchResult over = registry.dispatch("part.check_mass", selection, budget);
   CHECK(!over.ok() && over.detail.find("0.135") != std::string::npos);
   CHECK(over.evidence.find("mass_kg=") != std::string::npos);
   // A zero or negative budget is not a budget: the command does not offer itself.
-  budget.setNumber("expected_kg", 0.0);
+  budget.setNumber("kilograms", 0.0);
   CHECK(registry.dispatch("part.check_mass", selection, budget).status == DispatchStatus::Disabled);
 
   // No services: the handbook still resolves, the card does not, the query refuses.

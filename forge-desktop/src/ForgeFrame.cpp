@@ -9783,12 +9783,12 @@ void ForgeFrame::drawMaterialsPanel() {
     // dispatching here would rebuild the document while the walk still holds
     // references into it -- the shape that has already shipped three crashes in
     // this class.
-    const auto row = [this, &material](const forge::ui::Material& m, const std::string& group,
-                                       const std::string& extra) {
-      if (!containsFolded(m.name, materialFilter_) && !containsFolded(m.id, materialFilter_) &&
-          !containsFolded(group, materialFilter_) && !containsFolded(extra, materialFilter_)) {
-        return;
-      }
+    const auto matches = [this](const forge::ui::Material& m, const std::string& group,
+                                const std::string& extra) {
+      return containsFolded(m.name, materialFilter_) || containsFolded(m.id, materialFilter_) ||
+             containsFolded(group, materialFilter_) || containsFolded(extra, materialFilter_);
+    };
+    const auto row = [this, &material](const forge::ui::Material& m, const std::string& group) {
       char text[160];
       if (m.hasDensity()) {
         std::snprintf(text, sizeof(text), "%-30s %6.0f kg/m3##%s", m.name.c_str(),
@@ -9801,16 +9801,29 @@ void ForgeFrame::drawMaterialsPanel() {
       ++materialPickerRowsDrawn_;
       ++camMaterialRowsDrawn_;
     };
-    ImGui::TextDisabled("Forge");
-    for (const forge::ui::Material& m : forge::ui::materialLibrary()) row(m, "Forge", "");
+    // A group's heading is drawn only above a row that survived the filter, so a
+    // search for "S235" does not leave a column of empty headings behind it.
+    bool headed = false;
+    for (const forge::ui::Material& m : forge::ui::materialLibrary()) {
+      if (!matches(m, "Forge", "")) continue;
+      if (!headed) ImGui::TextDisabled("Forge");
+      headed = true;
+      row(m, "Forge");
+    }
     std::string lastCategory;
+    bool categoryHeaded = false;
     for (std::size_t i = 0; i < cards.cards().size(); ++i) {
       const forge::ui::MaterialCard& c = cards.cards()[i];
-      if (c.category != lastCategory) {
+      if (i == 0 || c.category != lastCategory) {
         lastCategory = c.category;
-        ImGui::TextDisabled("%s", c.category.empty() ? "Library" : c.category.c_str());
+        categoryHeaded = false;
       }
-      row(cards.materials()[i], c.category, c.text("KindOfMaterial"));
+      if (!matches(cards.materials()[i], c.category, c.text("KindOfMaterial"))) continue;
+      if (!categoryHeaded) {
+        ImGui::TextDisabled("%s", c.category.empty() ? "Library" : c.category.c_str());
+        categoryHeaded = true;
+      }
+      row(cards.materials()[i], c.category);
     }
   }
   ImGui::EndChild();
@@ -9890,8 +9903,9 @@ void ForgeFrame::drawMaterialsPanel() {
     ++materialCardPropertyRowsDrawn_;
   }
   const std::string hardness = card->text("Hardness");
+  const std::string hardnessScale = card->text("HardnessUnits");
   if (!hardness.empty()) {
-    ImGui::Text("%-26s %12s %s", "hardness", hardness.c_str(), card->text("HardnessUnits").c_str());
+    ImGui::Text("%-26s %12s %s", "hardness", hardness.c_str(), hardnessScale.c_str());
     ++materialCardPropertyRowsDrawn_;
   }
   ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);

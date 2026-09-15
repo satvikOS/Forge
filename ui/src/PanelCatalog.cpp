@@ -133,8 +133,8 @@ constexpr Row kRows[] = {
      "lands on and how the study shares it out.",
      PanelContent::Live},
     {"materials",
-     "What this part is made of, what that makes it weigh, and the whole list you can choose "
-     "from.",
+     "What this part is made of, its mass, centre of mass and inertia in that material, and "
+     "every material you can choose from with its published properties.",
      PanelContent::Live},
     {"mates",
      "Where the bodies of this model line up: which of them turn about one axis, which sit flush "

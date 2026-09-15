@@ -17,6 +17,13 @@ These files exist to be copied into `Forge.app/Contents/Resources/licenses/` by
 | `SDL2-zlib.txt` | SDL2 | dynamic (dylib in Frameworks) | copied from `/opt/homebrew/opt/sdl2/LICENSE.txt`, 884 B |
 | `MoltenVK-Apache-2.0.txt` | MoltenVK | dynamic, staged explicitly by the packager | copied from `/opt/homebrew/opt/molten-vk/LICENSE`, 11358 B |
 
+**FreeCAD-derived components** carry their licence files IN their own directory,
+not here: `third_party/freecad-derived/<name>/{COPYING.LGPL,MODIFICATIONS.md,README.md}`,
+staged by the packager into `Contents/Resources/licenses/freecad-derived/<name>/`.
+Today that is `materials` — FreeCAD's material cards, LGPL, **dynamic**
+(`libforge_fcmaterials.dylib` in Frameworks). `tools/gates/freecad_derived_compliance_gate.sh`
+refuses a component without them, and `verify_bundle_licences.sh` checks the bundle.
+
 Every file above was copied from a real file on this machine. Nothing was
 transcribed from memory — the same rule `forge_deps.py notices` states in its own
 header, and the reason `INCOMPLETE.md` exists rather than a reconstructed MIT text.
