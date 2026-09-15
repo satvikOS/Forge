@@ -1,0 +1,793 @@
+{
+  "schema": "forge.freecad_derived.component/1",
+  "component": "materials",
+  "path": "third_party/freecad-derived/materials",
+  "upstream": {
+    "repository": "https://github.com/FreeCAD/FreeCAD",
+    "commit": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
+    "subtree": "src/Mod/Material/Resources/"
+  },
+  "license": {
+    "spdx": "LGPL-2.1-or-later",
+    "card_licences_accepted": [
+      "LGPL-2.0-or-later",
+      "LGPL-2.1-or-later"
+    ],
+    "text": "COPYING.LGPL"
+  },
+  "linkage": {
+    "kind": "shared",
+    "cmake_target": "forge_fcmaterials",
+    "library": "libforge_fcmaterials.dylib",
+    "installed_to": "Forge.app/Contents/Frameworks"
+  },
+  "skipped_cards_by_licence": {
+    "CC-BY-3.0": 18,
+    "CC-BY-4.0": 3,
+    "CC-BY-SA-4.0": 4
+  },
+  "files": [
+    {
+      "path": "Resources/Materials/Standard/Carbon/Graphite.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "a2acbde5f3de7cf10d8f85cd9e0cd6f4c92a9ff39112bc7b681b14097c0beb03"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Alloys/Invar-Generic.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "5e38e3ba83533ed89677b1d17790e58c8b3743ba9d2dcada22e99c47f10a7985"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Aluminum/AlMg3F24.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "1581a070bdd2f16f5b9bbb3c8047f6a61ee59eeb697f6483d68616cc24969f56"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Aluminum/AlMgSi1F31.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "46971b79db9f49ca5e5b1432bb2b036520f603f4e8de25a7039620b616b45635"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Aluminum/AlZn4-5Mg1F35.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "f1f9252076ae413229fd4a39e8b4af41745127b3c10569db7f735671a3588c4d"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Aluminum/Aluminum-Generic.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "4aca403398e91c7faec514fa6f9439a6894894fa7705bba6fb194950a775c127"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-102.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "26955533ec355547761b23ede206d11dedb7ef43869521265f04779d56e076fb"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-122a.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "51e8cab8e194f08c46ad4442c8c1088711368f602736a165d9a75c7eacec2bed"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-122b.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "c3e6b64254b67212208bfd34627ae69704bfcc523ecd3ad107de9dd529f41ee0"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-150.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "b8f46099751e7a96d327e73879ba9728cc3eaadc46f20b4d2e08e315aa8506ed"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-220.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "ac7a04bb02077c0bb5d22a1fb9ce45b800f3b3b8e6d056a4eda4c15cc8acf686"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-230.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "b50782daccd77d3de3d17b7f6ed2a87592439a1221eaa4e7a28c1bcac41b98dc"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-443.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "b95ca9641621c43d61d26f730da9a892b0e0619c1c97769a62d7a1528a67e83b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-464.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "36272d8da7546fc096262d0d13112ccbe8d3916d1b821194a75e04dcf5f1c8cf"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-510.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "28c1872f63dc6af10ef747cfd7630c54aca7c4545091c1e6eb144983102b8a0b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-614.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "c852593184fae6194b037045a35924db2a53dfd8c13e472b5c7384c451e0c6bb"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-647.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "711fca6ac3ff4285beda3250b55f9775293dd6d9bcd312ef76d58480773b093b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-655.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "53cf58daa849c2fded31aeacbe9f54f842d27fb0ed90817a146c9c79aa7f42cc"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-706.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "cc67fc2088d191890d42b88e9f88e50cd960e0535e4cc4cc62e49807550bac30"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-715.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "386d29a952a9bc22e46c0b0da45f96341e580320d1681b244ed6fb846acfb7dd"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-955.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "e559e6720fa2949a4a3bc1b0562cd20968a4b0a75d9c0cb291afc93b054e3707"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Copper/Copper-Generic.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "5e5a724bf267e61f79bc87df74904161af029b7676014c9bf617e7d7e1ec27a1"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Iron/Iron-Generic.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "fca0520e99c749f88fedc6a27aa74707456fb10dfa72470a9e76801581736c67"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-15CrNi6.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "7fd717c1b8039d3713acad671e40eb3fd9adf575b58ebd17bfd6ea36013b5eff"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-17CrNiMo6.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "d8918b1957cd76a17cf3805d06256f0bc5b32c74d751b84cd0a916a54098c158"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-1C22.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "2264661eb983aa44929a40db1d40e3ddfed9dc38e53a88f76e1da69a54cdf8cf"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-1C35.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "ec8c8f4e1fe1558246c5aeda4ee9e12f4a5671b4924b00c9d3feec3a8f5d445d"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-1C45.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "49b771ff97283bc4ab10f6d490e97e92b79b5babb26e61c41d09b60ee903998a"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-1C60.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "31eb450b87f827fe1b246584b39b36298cf10d0eb6fbad57266a634bea349964"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-20NiCrMo2.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "a5f94852fc26719e7d878e55525334c14be934b15b82392f5166b00f1fa20938"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-28Mn6.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "8c0fe4ce27833f825b5652b7f805fb8f0fe63fe217261ba4411fd079d88c2b12"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-2C10.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "6ce945bcc20fa347e548b94a018163faa1616e3df5d74e68f4ff86fcf1ecbb3b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-30CrNiMo8.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "8eb1c5abc82ae18c9a58c90ae70729948ac84f0b661f0d14090525aeeb2a166f"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-34CrNiMo6.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "2d9bf6d2dbbdbdf5f618c90ee7e4f785d17d901f4cf6181bd80a5e5325ef5491"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-36CrNiMo4.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "e9b2dd6a8ba8161b4cc52b9610719cd3a4353a6f4217552b33c30dc139f32199"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-36NiCrMo16.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "6d47900e0f09f64aee5e94255066e7ad6398177ce518ed271049c1fd4deebe3d"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-3C15.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "8988c5b6cb47e5e5cea39136bef5a041c882a42899c35ee57861ec6f5fb2848b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-3C22.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "715fe232802f66a4d619f00c58df4cc9f61493ac6897cf15bf2899f3e119c514"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-3C35.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "2626c0f77fd7ec1bc5f40330808fddf97c2917f0b2313f4d8a6082a649a97149"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-3V45.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "baa0ca1673fa60568ce9db8db85b7d840000eb6fb358d74e95e68f5a0b669b88"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C10.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "186b7392193d6202d167d2fa934a375e7efe7a5b58e34f3dc574f608e8814e31"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C15.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "beb19c52c5a2da21d61edfa22e9389b4c4fd40630ee26b35cc3a5dea59d6bd77"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C22E.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "f915a04ae51337078ae990d7a36e6883059a8572f62d1644877f2165aa344e95"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C25E.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "4e6d7865d8c2a5aee765c56cd31816be70c56cade94177d27d2e6adb5e441ccc"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C30E.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "58fed40cdfc01b8471672f02ec0d0a95c54886e97a5c5c35669115726613a13e"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C40E.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "3ba3491e5f91701664564196cb437125bf01135931c70a14b751c8a02ee3d5c5"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C50E.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "a5dc90402b3e08c36bf993fe57a698b3ae1fc9f982f049845122dc610ab9c086"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C55E.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "e0bd95be424be63a9e039cd11d919c46894acda7616f7d8afecfd01449ca29ba"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-C60E.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "77511f5ceb7f9220184f861b4e4e2ddf4b9b4d5616c7c3d6e67932ef51dc3602"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-E295-GC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "919919a967671ac278906682df60f06534756e637e40ec07c13419a117921843"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-E295.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "27fb1799e8a2dd0de9e95ceb6f4a3a213607b3e98c8fbe728804bd2bc71c8a2f"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-E335-GC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "46a91d652716eee30c79e647f5267bf255c97820e12ede96591ba6b1d113785b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-E335.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "bf73f1dede2b920aab7bfe398dd9c7be71bdd0b388e0e2967fa3fa8449d7ca0c"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-E360-GC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "aab3abfdd0d206bac5ad766ea3ea6960843e17c0f4f5e19ad8bd04502e147dc0"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-E360.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "8598af1a996e0a5dc2dfd1a279180f7c4f4c10d6ba850da8393c0416ef6d1663"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJL-100.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "b420be3bf6cd2d419e92a7885440e42c9309d7ce929e2028933d253112b0f3ad"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJL-150.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "976e3a83b3540bef059cb28ecec514e58a7a90b7fbee4c13fdd17ed5d4b19a40"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJL-200.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "6e30683e34ce122b059ce3633d428544cdb0d686e3f13d7c8d261f7522e29793"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJL-250.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "f24a17621e8ca06aa8a47d41ec1cab80e51662841d78bdfc5144524197cacf07"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJL-300.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "350187738e2a643cc01572334533fa5897c3056e7b72e48a01cd280ff6ee13df"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJL-350.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "7f225c0f9f3cfed66c17eb9201a7405fb96c3d1119f53bdb8e843ffc90df7a0f"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJMB-350-10.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "aa619f4e179da09efd594bc30a0ad4aba807ee4be942c9f8c636b81e99e7716b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJMB-550-4.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "bc37d555e08b76d55ab5ea783de3ab9cf3f5ebd9950a866817beca7dffcd3b44"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJMB-650-2.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "34926d7177296378c3a8b8ec21781d441479dc890f605af2d5f4b8dcf10dee32"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJMW-350-4.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "da44f55987fe46c82bd9a418a026044eaa1c68863d45ebe4fe8ecfcb12e1e611"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJMW-360-12.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "16c5b4227e8a3431177f4cb95c2e76ce7edfac8942214e8324d7d9a0ab2dadd8"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJMW-400-5.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "91a8decab462d0419e1a974b5fe80f1531388a3cc7a91f86692c585f540e0d3c"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJMW-450-7.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "dcca8fd34610649175d95835bb67b9fefc9c1c2a90d6ef578bc39edce926b2e4"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJS-400-15.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "ebe7df75957538f084f035e5eb744881d0c9d5c0471f2a79b18f59e8472af9a2"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJS-500-7.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "c7bd15769cfab93644bacd4deab1eeabf090311a338f3f05a918a3ef7c91f9bb"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJS-600-3.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "676f76d55e40bdf6a315f13415a2ec5d98f553d2077def29fea92dfed1584a7b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJS-700-2.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "878cca617228df21a9ff9cace3cea583daabe8d76aecc1371a1ec2061e37ffab"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-EN-GJS-800-1.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "7dc7cf306fa7ae1ab4ecfac5fd1a06e6c80d484bbf599c3f08e1cd7e8bb34d1a"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-G16Mn5.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "21542235ddbe6cf4e419c19b4e5dbdb1f142bca1f3acf39d7953f72fa28bd86b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-G200.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "558bcf7004726940f49096af48b949862cadfb683a0f6cd91a2fa526f7ce9ca4"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-G20Mn5.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "b28e9d2a12d5109c525f797d795e0d04f22b325de4807773e1802a1a71706411"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-G230.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "1ef74d3f9f5ba19e8beedf0a08c7508825b51780f46621d39063477bcf05a88b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-G260.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "69b3608a009c250d4c30d86b075a308ef287df6e0ad8839e521c5b03f76e09db"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-G300.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "179c0120982a700c4ff09eb9879733217d529ccba9e5bf9d456dab4b5d5cd15c"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-G30Mn5.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "7c1aea5ad38a44ae325c58404d39150ce9a388f224b3d9be8a19804975d7e946"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S185.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "a37f92540ce285cfa3401013afbe2ec9d91cdd35065c90c3ad109909e01efdd6"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S235JO.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "28bfeb95b919e80a72c2064565a6440c7d5d5fdf2385c4a68e65d5aa5ea817c8"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S235JR.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "beb77dcf5220c31244c3f84aa80b2b189cde3d791c06c22f1a47a19ebe6bf399"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S235JRG1.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "c812923a5dd48b2b379c0d95053fa562e463f0e03e85a5c42baa23d0441bca61"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S260NC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "9544d2aa7f8510f916cc3864103df5169a6fa01a8d456318da72ffd19946dbfb"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S275JO.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "3963787598f8af662372825676cecaa1c19783af5cc66edba3d9c6eae2f02d07"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S275JR.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "9a5b4ba261a0e98842e022e561185fa9815785637ba55f64c56eeda50b8b242e"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S275N.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "384e7d2ae8f436ea5985cddde900f9cb3a58a25f59d2a49d1db39182c7482843"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S335JO.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "5908b01b1efd719abf46d5d557103fa815b1a6dbdcdba1b50718d38591b4d824"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S335JR.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "64049ac5801bcb68c6bd84618ea14aebc728437e28ba5fc80fb0dc866e6b29ec"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S335N.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "86138b9c44c91523cdb3671414d1088844787e19467270733b66b291ebb7f2f1"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S340MC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "634d3a9110c7d088b2144a6cfb5178b4856c90aa9874d665e6a7204fe31dfb27"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S355J2G3.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "e081ef862ac7d3d17b262e2cdd88a76b4620336149fc11b7f1bf5c5afd2aea17"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S380MC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "fb2c725fd8757bff8e7c39e3ffaab33f6474c94d17b42e9213fdf1f8327d3c4a"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S420MC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "6f188d59f1e6e1cbfa76ce25a5f25b579153cf10ca1197833382158704c1eb5f"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S420N.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "0e518f0db33c1eedaa4650be7fc975897218599f49784b064846a14af8a4a329"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S460MC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "8fb2cc8f9670bcb9059ebfb955c8504f3dc381c3cafdb91a68bd0cb48ebf20a6"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S460N.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "1d5495db83d8dabaffa31427b4572240b5c5e9a772069e938353d773568a31c5"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S500MC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "cd11dbf0b6b49558b7430da396085bc65efc322d7580065a11e138414b281445"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S550MC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "d61a5e0f4a969e7278103f65be496ecf7db899c4f739bcf12fb2a364f5b9d5ca"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-S690MC.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "7484823e5cf2a515a37ba4528848cea252e79597ec8c3bf8ea56f03a4a5d0f64"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-St-37-2K.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "9f4e3d114f7d5a6ca5d5f3c0e9ef7dafabd30622653328b6813befa183a62fea"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-St-E-255.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "0ab7e687189b45024b164dc7e0b02435a1af73ffbc6e399f242848f2ca63f456"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-St-E-315.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "a4ac842640ef926a42eb49f4b344f5740d974bbaf34790560afbe7d7ef2abb78"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-St-E-380.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "341dcefdc01df4c460fc5cb159a4dd2ed3dfbcadade4d63265a35d40feda975b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-St-E-460.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "95cefd993f99025aea5544f473ca4909488d5c8d505c8d2abeba9e9fcaeeab5d"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-St-E-500.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "ef8955b5cb8c4dee5f2c4f4f86862eb1edb21ad35b0f6494d42863d418a9ffca"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-X2CrNiMoN17-13-3.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "efde5b611da897bcea1da223a459ad6177605fd2ec2a65b08781f616ee1245e9"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-X2CrNiN24-4.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "140ccec63d6695442213ffaf272b161b4b45c3ff4f3bf98f6af38f07278a617e"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-X39CrMo17-1.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "b72ae7273dc2158f1245c6f033552deebfa37a6c39c73d1347120b09b9c1d5e9"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-X3CrNiMo13-14.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "ae6276fa1b7435c94e87f52ea374b91c637ecdaecadb606ac71c73577b8de2bc"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-X5CrNi18-10.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "e43bd15ad063a779752c24e38d021adf4c62ea7495e89220f33d2584dac6d0a5"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-X5CrNiMo17-12-2.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "43ebdb0e4d9ab11ad2c891e51c6e48e5de07eeba4eec18b2ab6840a79e852214"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Steel/Steel-X6CrNiTi18-10.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "4c18385962870e948d9193aa9b9dcb538c6a13d1206fa2d7ea2284da27e1a85b"
+    },
+    {
+      "path": "Resources/Materials/Standard/Metal/Titanium/Ti-6Al-4V.FCMat",
+      "kind": "card",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "f7d866fd359eba6d0eac38da63f0640851ba45a37cd7ed4f0294cfa60ca5e070"
+    },
+    {
+      "path": "Resources/Models/Electromagnetic/Electromagnetic.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "473dec600f3c0270d46fa647835fcc3f3d1b07fdd634bcd5b7fb432a9e308d81"
+    },
+    {
+      "path": "Resources/Models/Legacy/Father.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "e9ba8c0f14e5976297a10c5b2333a2280fd64a1a1832a31d0c76c15ae815c034"
+    },
+    {
+      "path": "Resources/Models/Legacy/MaterialStandard.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "af47c48ef01ed993e00d035dd965c5e7b50479ac7121df241cf3389ea86c987c"
+    },
+    {
+      "path": "Resources/Models/Mechanical/Density.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "8d7f3effdd9415633af51225169e7dd8d80ae93f33307b262684c425e95be4ba"
+    },
+    {
+      "path": "Resources/Models/Mechanical/Hardness.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "fee3cb680c4c97c53d370923e2fdded7809186c2bac0d13b135c6e1ddcef2c40"
+    },
+    {
+      "path": "Resources/Models/Mechanical/IsotropicLinearElastic.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "97bed3484dca5ecf4afdbb2a419884914b5640dd397f107a82670300314cd3a7"
+    },
+    {
+      "path": "Resources/Models/Mechanical/IsotropicLinearElasticArrays.yml",
+      "kind": "model",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "756bb26fbd5e9d18f1a0567b6f43aaeebfb562f9333e71e48181ef34c442b6a3"
+    },
+    {
+      "path": "Resources/Models/Mechanical/LinearElastic.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "baa57ebceac8518902b7bef2bdc0624b2ec79236269f62708387fb50983b4dd7"
+    },
+    {
+      "path": "Resources/Models/Mechanical/LinearElasticArrays.yml",
+      "kind": "model",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "30713876ec6b9f900f29fb88f465160c02822c5ace4c78e1d88e38629a3c3962"
+    },
+    {
+      "path": "Resources/Models/Mechanical/Toughness.yml",
+      "kind": "model",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "2bc6693190fa6fd33812da35e3c8faac7f5d19480175c080ef4314f356b83b6b"
+    },
+    {
+      "path": "Resources/Models/Mechanical/ToughnessArrays.yml",
+      "kind": "model",
+      "license": "LGPL-2.0-or-later",
+      "sha256": "10d77390a7235c9b297ebf7a714d1c60880e44843ba98c9eb69e08f1412cc445"
+    },
+    {
+      "path": "Resources/Models/Thermal/Thermal.yml",
+      "kind": "model",
+      "license": "LGPL-2.1-or-later",
+      "sha256": "4108f1173295667598d68c2d422fd0b8205296466d7a6cc840e733ab7c2e4a44"
+    }
+  ]
+}
