@@ -245,12 +245,95 @@ const char* const kIntent =
 
 }  // namespace
 
+// ── --live: EVIDENCE, NOT A GATE ────────────────────────────────────────────
+// The same headless app path against whatever model service is REALLY running
+// (FORGE_ARCHIE_ENDPOINT, else 127.0.0.1:8731): discover it, send one prompt,
+// print the plan, Forge's verdict, what Accept did and the measured part. CI
+// never runs this -- a runner has no model -- and its exit status says only
+// whether the path completed, not whether the model was right.
+//   --live "<prompt>" [--empty]   --empty starts from an emptied document
+static int runLive(const std::string& prompt, bool emptyDocument, int waitReadySeconds) {
+  forge::desktop::KernelScene scene;
+  scene.build();
+  HeadlessImGui gui(1680.0f, 1000.0f);
+  forge::ui::ForgeShell shell;
+  forge::desktop::ForgeFrame frame(shell, scene);
+  frame.wirePartCommands();
+  shell.setWorkspace(forge::ui::WorkspaceProfile::Archie);
+  frame.setActiveTabAt({1, 1}, 1);
+  if (emptyDocument) {
+    std::string err;
+    if (!frame.documentReset(err)) std::printf("[live] could not empty the document: %s\n", err.c_str());
+  }
+  buildOneFrame(frame);
+
+  const forge::archie::LinkConfig cfg =
+      forge::archie::configFromEnvironment(std::getenv("FORGE_ARCHIE_ENDPOINT"));
+  std::printf("[live] %s\n", cfg.why.c_str());
+  forge::archie::ArchieLink link(cfg);
+  frame.setCopilotModel(&link);
+  const bool ready = waitFor([&] { return link.state() == forge::ui::ModelState::Ready; },
+                             waitReadySeconds * 1000);
+  const forge::archie::Health h = link.lastHealth();
+  std::printf("[live] model state %s  model=%s adapter=%s  (%s)\n",
+              forge::ui::machineName(link.state()), h.model.c_str(), h.adapter.c_str(),
+              h.detail.c_str());
+  buildOneFrame(frame);
+  std::printf("[live] panel header: %s\n", forge::ui::userText(frame.copilotModelState()));
+  if (!ready) return 3;
+
+  const std::string before = frame.document().irProgram();
+  std::printf("[live] document before:\n%s", before.c_str());
+  frame.copilotType(prompt);
+  frame.copilotSubmit();
+  const auto t0 = Clock::now();
+  buildOneFrame(frame);
+  std::printf("[live] submit frame took %.1f ms; awaiting model: %s\n", msSince(t0),
+              frame.copilotAwaitingModel() ? "yes" : "no");
+  driveUntilAnswered(frame, 600000);
+  buildOneFrame(frame);
+  std::printf("[live] answered after %.1f s, source=%s\n", msSince(t0) / 1000.0,
+              frame.copilotSource() == forge::desktop::ForgeFrame::CopilotSource::Model ? "model"
+                                                                                     : "built-in");
+  for (const forge::ui::TranscriptLine& l : frame.copilot().transcript()) {
+    std::printf("[live] transcript %s: %s\n", forge::ui::toString(l.role), l.text.c_str());
+  }
+  const forge::ui::PlanVerdict& v = frame.copilot().verdict();
+  std::printf("[live] verdict: %s  %s\n%s", forge::ui::machineName(v.check), v.explanation.c_str(),
+              v.report().c_str());
+  if (!frame.copilot().hasPlan()) return 4;
+  for (const forge::ui::PlanStep& s : frame.copilot().plan().steps) {
+    std::printf("[live] step %s  works on: %s\n", s.display().c_str(), forge::ui::toString(s.select));
+  }
+  frame.copilotApplyPlan();
+  buildOneFrame(frame);
+  buildOneFrame(frame);
+  std::printf("[live] apply: %s\n", frame.copilot().lastOutcome().summary().c_str());
+  std::printf("[live] build: %s\n", frame.copilot().lastBuildSentence().c_str());
+  const std::string after = frame.document().irProgram();
+  std::printf("[live] document after:\n%s", after.c_str());
+  const Measure m = measure(after);
+  std::printf("[live] measured: ok=%d valid=%d V=%s bbox %s x %s x %s faces=%d reconciled=%d %s\n",
+              m.ok, m.valid, num(m.volume).c_str(), num(m.dx).c_str(), num(m.dy).c_str(),
+              num(m.dz).c_str(), m.faces, m.reconciled, m.error.c_str());
+  std::printf("[live] feature tree rows: %zu\n", frame.treeRowCount());
+  frame.setCopilotModel(nullptr);
+  return frame.copilot().lastBuildOk() ? 0 : 5;
+}
+
 int main(int argc, char** argv) {
   std::string dumpRequestPath;
+  std::string livePrompt;
+  bool liveEmpty = false;
+  int liveWait = 900;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--mutate") == 0 && i + 1 < argc) g_mutation = std::atoi(argv[++i]);
     if (std::strcmp(argv[i], "--dump-request") == 0 && i + 1 < argc) dumpRequestPath = argv[++i];
+    if (std::strcmp(argv[i], "--live") == 0 && i + 1 < argc) livePrompt = argv[++i];
+    if (std::strcmp(argv[i], "--empty") == 0) liveEmpty = true;
+    if (std::strcmp(argv[i], "--wait-ready") == 0 && i + 1 < argc) liveWait = std::atoi(argv[++i]);
   }
+  if (!livePrompt.empty()) return runLive(livePrompt, liveEmpty, liveWait);
   if (g_mutation != 0) std::printf("[archie-model] MUTATION %d ACTIVE\n", g_mutation);
 
   const std::string fixtureDir = repoRoot() + "/forge-desktop/test/fixtures/archie";
@@ -458,6 +541,8 @@ int main(int argc, char** argv) {
             frame.copilot().verdict().explanation);
   check(offered.steps.size() == 2, "  ...two steps, one per HOLE statement",
         std::to_string(offered.steps.size()));
+  check(offered.summary == "Archie proposes 2 steps: Hole, Hole",
+        "  ...summarised in the app's words, not the service's", offered.summary);
   if (offered.steps.size() == 2) {
     const forge::ui::PlanStep& s0 = offered.steps[0];
     double diameter = -1.0, x0 = 0.0;

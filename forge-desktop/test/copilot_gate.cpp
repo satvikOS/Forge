@@ -757,8 +757,11 @@ int main(int argc, char** argv) {
     check(!frame.copilotAwaitingModel(), "the model's answer is collected by a frame", "");
     check(frame.copilotSource() == forge::desktop::ForgeFrame::CopilotSource::Model,
           "  ...and it is shown as the model's", "");
-    check(frame.copilot().hasPlan() && frame.copilot().plan().summary == "from the model",
-          "  ...its plan is offered AS IS", frame.copilot().plan().summary);
+    check(frame.copilot().hasPlan() && frame.copilot().plan().steps.size() == 1 &&
+              frame.copilot().plan().steps[0].commandId == "part.fillet",
+          "  ...its plan's steps are offered AS IS", frame.copilot().plan().summary);
+    checkStr(frame.copilot().plan().summary, "Archie proposes 1 step: Edge Fillet",
+             "  ...summarised in the app's own tool labels");
     frame.copilotDiscardPlan();
     buildOneFrame(frame);
 

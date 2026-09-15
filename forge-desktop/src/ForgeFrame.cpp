@@ -7714,7 +7714,13 @@ void ForgeFrame::runCopilotSubmit() {
 }
 
 void ForgeFrame::pumpCopilotModel() {
-  if (!copilotAwaitingModel_ || copilotModel_ == nullptr) return;
+  if (!copilotAwaitingModel_) return;
+  if (copilotModel_ == nullptr) {
+    // The host removed the service while it was thinking. The ask cannot come
+    // back, and a panel left saying "working on it" for ever is a silence.
+    answerCopilotLocally(forge::ui::userText(forge::ui::ModelState::NotRunning));
+    return;
+  }
   forge::ui::PlanResponse response;
   bool transportFailed = false;
   if (!copilotModel_->poll(response, transportFailed)) return;
@@ -7731,6 +7737,21 @@ void ForgeFrame::pumpCopilotModel() {
     return;
   }
   copilotSource_ = CopilotSource::Model;
+  // THE PANEL'S WORDS, NOT THE SERVICE'S. serve.py summarises a plan as "2
+  // step(s) from 2 feature-IR statement(s)" -- an internal term, in the chat.
+  // The steps themselves are the facts; the sentence is composed from the tools
+  // they name, in this app's own labels.
+  if (response.ok && !response.plan.steps.empty()) {
+    std::string tools;
+    for (const forge::ui::PlanStep& step : response.plan.steps) {
+      const forge::ui::CommandDescriptor* d = shell_.registry().find(step.commandId);
+      if (!tools.empty()) tools += ", ";
+      tools += (d != nullptr && !d->label.empty()) ? d->label : std::string("an unknown tool");
+    }
+    const std::size_t n = response.plan.steps.size();
+    response.plan.summary = "Archie proposes " + std::to_string(n) +
+                            (n == 1 ? " step: " : " steps: ") + tools;
+  }
   deliverCopilotPlan(response);
 }
 
