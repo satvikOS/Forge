@@ -1350,10 +1350,25 @@ int main(int argc, char** argv) {
       // map it to an IR value and every solid command greys out.
       check(f.bodyId == frame.activeBodyNode(), "the ref names the document's live body",
             f.bodyId + " vs " + frame.activeBodyNode());
+      // WHAT THE DRESS-UP COMMANDS DECIDE ON travels with the pick: the kernel
+      // class the edge falls in and how many edges of THIS body share it. Without
+      // it part.fillet cannot tell "every upright edge" from "three of them", and
+      // it used to answer both by rounding the whole body. The reference numbers
+      // are the frame's own edge set, not restated here.
+      const forge::ui::EdgeAxisClass cls = forge::ui::classifyEdgeAxis(set.edges.front());
+      check(f.pick.valid, "an edge pick carries its class evidence", "the focus has none");
+      check(f.pick.axisClass == cls, "the evidence names the picked edge's own class",
+            std::to_string(static_cast<int>(f.pick.axisClass)) + " vs " +
+                std::to_string(static_cast<int>(cls)));
+      checkEq(f.pick.classMembers, forge::ui::edgesInAxisClass(set, cls),
+              "the evidence counts that class on this body");
     } else {
       check(false, "the focus is typed as an Edge", "no focus");
       check(false, "the selection stores the edge's PERSISTENT NAME", "no focus");
       check(false, "the ref names the document's live body", "no focus");
+      check(false, "an edge pick carries its class evidence", "no focus");
+      check(false, "the evidence names the picked edge's own class", "no focus");
+      check(false, "the evidence counts that class on this body", "no focus");
     }
 
     // ── THE PAYOFF: the edge tools are now callable ───────────────────────
@@ -1392,6 +1407,28 @@ int main(int argc, char** argv) {
       check(false, "Edge Fillet is CALLABLE with an edge picked", "not listed");
       check(false, "and the panel says Available by name", "not listed");
     }
+    // ── ONE EDGE OF A LARGER CLASS IS REFUSED, THROUGH THE SHELL'S OWN RUN ──
+    // The same ForgeShell::run a Run button reaches, on the selection the click
+    // above produced. The plate's classes all hold more than one edge, so a
+    // single pick is PART of a class: no keyword says it, and rounding the whole
+    // class -- or the whole body -- is the silent widening this closes. Nothing
+    // may be written, and the reason has to offer the route that does run.
+    {
+      const std::optional<forge::ui::EntityRef>& f = shell.selection().focus();
+      const std::uint32_t members = (f.has_value() && f->pick.valid) ? f->pick.classMembers : 0u;
+      checkGe(members, 2u, "the picked edge's class holds more than one edge");
+      const std::size_t before = frame.document().records().size();
+      forge::ui::CommandParams radius;
+      radius.setNumber("radius", 1.0);
+      const forge::ui::DispatchResult refused = shell.run("part.fillet", radius);
+      checkEq(static_cast<int>(refused.status),
+              static_cast<int>(forge::ui::DispatchStatus::EditRefused),
+              "Edge Fillet on one edge of a larger class is REFUSED, not widened");
+      checkEq(frame.document().records().size(), before, "and the refusal wrote nothing");
+      check(refused.detail.find("selector box") != std::string::npos,
+            "the refusal offers the selector box, which does run", refused.detail);
+    }
+
     // ...and a FACE tool must now be refused, or the signature means nothing.
     const forge::ui::ToolEntry* shellTool = live.find("part.shell");
     check(shellTool != nullptr, "part.shell is still listed", "");
