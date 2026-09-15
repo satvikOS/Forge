@@ -72,8 +72,10 @@ set_target_properties(forge_gcs PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN ON
     OUTPUT_NAME "forge_gcs"
-    VERSION 1.0.0
-    SOVERSION 1
+    # No VERSION / SOVERSION: the file is libforge_gcs.dylib and its install name
+    # @rpath/libforge_gcs.dylib, the same as build_forge_gcs.sh produces and the name
+    # manifest.json records. The interface version is forge_gcs_abi_version(),
+    # which Forge checks at run time; a symlink chain would add nothing to that.
     # Found at run time through the loader's rpath: beside the kernel core in a
     # build tree, in Contents/Frameworks inside Forge.app.
     INSTALL_NAME_DIR "@rpath"

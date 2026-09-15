@@ -275,7 +275,9 @@ def binary_mode(binaries: list[Path], libraries: list[Path], g: Gate) -> None:
             g.check(not static_copies,
                     f"{b.name} DEFINES {len(static_copies)} symbol(s) of {lib.name} "
                     f"(e.g. {static_copies[:3]}) -- the LGPL library is compiled into it")
-            if exported & undefined:
+            # An object file has no load commands to carry; for it the static-copy
+            # check above is the whole question.
+            if exported & undefined and b.suffix != ".o":
                 load = subprocess.run(["otool", "-L", str(b)], capture_output=True, text=True).stdout
                 g.check(lib.name in load,
                         f"{b.name} imports {lib.name}'s symbols and carries its load command")

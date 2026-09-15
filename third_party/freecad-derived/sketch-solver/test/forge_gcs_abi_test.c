@@ -171,7 +171,8 @@ int main(int argc, char** argv)
         check(forge_gcs_solve(s, FORGE_GCS_DOGLEG, &st) == FORGE_GCS_OK && st == FORGE_GCS_SOLVE_SUCCESS,
               "it solves to success");
         forge_gcs_get_point(s, p[2], &x, &y);
-        check(fabs(x - 50.0) < 1e-12 && fabs(y - 30.0) < 1e-12, "geometry does not move before apply_solution");
+        check(fabs(x - 49.0) < 1e-12 && fabs(y - 30.0) < 1e-12,
+              "geometry does not move before apply_solution (still the drawn 49, 30)");
         forge_gcs_apply_solution(s);
         forge_gcs_get_point(s, p[2], &x, &y);
         check(fabs(x - 60.0) < 1e-9 && fabs(y - 40.0) < 1e-9, "the far corner lands at (60, 40)");
