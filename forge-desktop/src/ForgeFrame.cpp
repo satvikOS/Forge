@@ -3675,6 +3675,9 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingCopilotDiscard_ = false;
     runCopilotDiscard();
   }
+  // The model's answer, when it is in. After the walk for the same reason as the
+  // three buttons: delivering a plan re-seats the rows the panel just walked.
+  pumpCopilotModel();
   // The Dimensions panel's Apply, deferred for the reason every mutation in this
   // class is: it rewrites a statement, which rebuilds the document, the feature
   // tree and the scene, and the walk that drew the button was indexing the tree.
@@ -7591,36 +7594,45 @@ void ForgeFrame::drawToolsPanel() {
 // ── the Archie CoPilot ──────────────────────────────────────────────────────
 //
 // THE SEAM. forge::ui is headless and this frame builder opens no socket, so a
-// request is RAISED and a response is DELIVERED; the transport between them is
-// the host's. copilotAutoPlan_ answers in process with forge::ui::LocalPlanner
-// so the panel is a working surface with no model configured.
-// Ask the model-backed planner first when one is installed; fall back to the
-// deterministic one when it refuses, and SAY SO in the summary. A silent fallback
-// is the worst of both: the user believes Archie answered, and the plan they are
-// reading came from somewhere else.
-forge::ui::PlanResponse ForgeFrame::planWithFallback(const forge::ui::PlanRequest& request) {
+// request is RAISED and a response is DELIVERED. The model is reached through
+// the host's PlannerService, which is asked on submit and polled once per frame;
+// the built-in commands answer in process when the model is not Ready.
+namespace {
+
+double copilotNowSeconds() {
+  using clock = std::chrono::steady_clock;
+  return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
+}
+
+}  // namespace
+
+forge::ui::ModelState ForgeFrame::copilotModelState() const {
+  return copilotModel_ != nullptr ? copilotModel_->state() : forge::ui::ModelState::NotRunning;
+}
+
+forge::ui::PlanRequest ForgeFrame::copilotOutgoingRequest() const {
   // Show the model the part, not just a sentence about it. Archie is a VLM and
   // until PlanRequest carried an image the app could only ever send it text;
   // T-084 measured both arms of an image ablation and the missing input is the
-  // IMAGE. A planner that ignores the field is still correct -- LocalPlanner is
-  // deterministic and does -- so this is attached once, for whoever answers.
-  forge::ui::PlanRequest req = request;
+  // IMAGE. The built-in commands ignore the field, so it is attached for whoever
+  // answers -- and the host's live frame wins over anything already on the request.
+  forge::ui::PlanRequest req = copilot_.request();
   if (!copilotFramePath_.empty()) req.imagePath = copilotFramePath_;
-  if (copilotRemote_ != nullptr) {
-    forge::ui::PlanResponse remote = copilotRemote_->plan(req);
-    if (remote.ok) return remote;
-    forge::ui::PlanResponse local = copilotPlanner_.plan(req);
-    const std::string why = remote.error.empty() ? std::string("no reason given")
-                                                 : remote.error;
-    if (local.ok) {
-      local.plan.summary += (local.plan.summary.empty() ? "" : "  ");
-      local.plan.summary += "[deterministic fallback: Archie " + why + "]";
-    } else if (local.error.empty()) {
-      local.error = "Archie " + why + ", and the deterministic planner also declined";
-    }
-    return local;
-  }
-  return copilotPlanner_.plan(req);
+  return req;
+}
+
+// THE BUILT-IN COMMANDS, NAMED AS SUCH. This used to append
+// "[deterministic fallback: Archie sidecar unreachable: connect_failed (...)]" to
+// the plan's summary -- a socket error, in the chat window -- and only when a
+// remote planner had been installed at all. With none installed, which was every
+// launch from the Finder, it said nothing, and the verb matcher's plan read as
+// Archie's. Now the sentence is always said, before the plan it explains.
+void ForgeFrame::answerCopilotLocally(const std::string& sentence) {
+  if (!copilot_.requestPending()) return;
+  copilotAwaitingModel_ = false;
+  copilotSource_ = CopilotSource::BuiltIn;
+  if (!sentence.empty()) copilot_.inform(sentence);
+  deliverCopilotPlan(copilotPlanner_.plan(copilotOutgoingRequest()));
 }
 
 const forge::ui::PlanRequest* ForgeFrame::copilotRequest() const noexcept {
@@ -7634,7 +7646,10 @@ forge::ui::PlanCheck ForgeFrame::deliverCopilotPlan(const forge::ui::PlanRespons
   return copilot_.deliver(response, shell_.registry());
 }
 
-void ForgeFrame::failCopilotRequest(const std::string& why) { copilot_.failRequest(why); }
+void ForgeFrame::failCopilotRequest(const std::string& why) {
+  copilotAwaitingModel_ = false;
+  copilot_.failRequest(why);
+}
 
 void ForgeFrame::copilotType(const std::string& text) { copilotInput_ = text; }
 
@@ -7678,18 +7693,102 @@ void ForgeFrame::runCopilotSubmit() {
                       forge::ui::planTools(shell_.registry(), shell_.selection()), picked, doc);
   if (id == 0) return;  // blank, or a request already in flight
   copilotInput_.clear();
-  // ANSWERED IN PROCESS, or left pending for the host to answer. Either way the
-  // reply comes back through deliverCopilotPlan(), so there is one validation
-  // path and not two.
-  if (copilotAutoPlan_) deliverCopilotPlan(planWithFallback(copilot_.request()));
+  copilotSource_ = CopilotSource::None;
+  // Left pending for the host to answer. Either way the reply comes back through
+  // deliverCopilotPlan(), so there is one validation path and not two.
+  if (!copilotAutoPlan_) return;
+
+  // ARCHIE IS THE MODEL WHEN THE MODEL IS THERE. start() returns at once; the
+  // answer is collected by pumpCopilotModel() on the frame that finds it ready.
+  const forge::ui::ModelState state = copilotModelState();
+  if (copilotModel_ != nullptr && state == forge::ui::ModelState::Ready &&
+      copilotModel_->start(copilotOutgoingRequest())) {
+    copilotAwaitingModel_ = true;
+    copilotAskedAt_ = copilotNowSeconds();
+    copilotSource_ = CopilotSource::Model;
+    return;
+  }
+  answerCopilotLocally(forge::ui::userText(state == forge::ui::ModelState::Ready
+                                               ? forge::ui::ModelState::NotRunning
+                                               : state));
+}
+
+void ForgeFrame::pumpCopilotModel() {
+  if (!copilotAwaitingModel_ || copilotModel_ == nullptr) return;
+  forge::ui::PlanResponse response;
+  bool transportFailed = false;
+  if (!copilotModel_->poll(response, transportFailed)) return;
+  copilotAwaitingModel_ = false;
+  if (transportFailed) {
+    // The model could not be REACHED -- it was stopped, or crashed, mid-ask. That
+    // is the one case the built-in commands stand in for, and the reason is said.
+    // The socket error goes to the Console's detail column, never the chat.
+    shell_.log().warning("Archie",
+                         "Archie's model stopped answering, so the built-in commands answered "
+                         "instead.",
+                         response.error);
+    answerCopilotLocally("Archie's model stopped answering — using built-in commands.");
+    return;
+  }
+  copilotSource_ = CopilotSource::Model;
+  deliverCopilotPlan(response);
 }
 
 void ForgeFrame::runCopilotApply() {
   if (!copilot_.hasPlan()) return;
-  copilot_.apply(shell_, partDoc_);
-  // A dispatch that changed the document already re-derived the geometry through
-  // documentChanged(); a plan that was refused at the door changed nothing, and
-  // rebuilding for it would report progress that did not happen.
+  const std::string programBefore = partDoc_.irProgram();
+  const forge::ui::ApplyOutcome out = copilot_.apply(shell_, partDoc_);
+  // Every step dispatched is not the same fact as "Forge built the part". The
+  // dispatches have already re-derived the geometry through documentChanged(),
+  // so the scene's last build IS the answer to the second question, and it is
+  // read here rather than assumed from the first.
+  if (out.applied == 0) return;  // nothing changed; the outcome already says why
+
+  const IrBuildReport& r = scene_.lastBuild();
+  const bool built = out.allOk() && rebuildError_.empty() && r.ok() && r.valid;
+  if (built) {
+    char volume[64];
+    std::snprintf(volume, sizeof volume, "%.1f", r.volume);
+    copilot_.recordBuildResult(true, "Forge rebuilt the part: " + std::to_string(r.faceCount) +
+                                         " faces, volume " + volume + " mm³.");
+    return;
+  }
+
+  // ── A PLAN IS ACCEPTED WHOLE, SO IT IS TAKEN BACK WHOLE ───────────────────
+  // A user editing a feature by hand keeps a failing statement to fix -- that is
+  // syncSceneToDocument()'s policy and it is right for a hand edit. A plan is
+  // different: the user accepted N steps as ONE edit, and a document holding the
+  // first k of them, or holding all N of a part the kernel refuses, is not the
+  // edit they accepted and not the part they had. Every dispatched step went
+  // through the undo stack, so each one is undone, newest first.
+  std::size_t undone = 0;
+  for (std::size_t i = 0; i < out.applied; ++i) {
+    if (!documentUndo()) break;
+    ++undone;
+  }
+  const bool restored = partDoc_.irProgram() == programBefore;
+  std::string sentence;
+  if (!out.allOk()) {
+    std::size_t failedStep = 0;
+    for (std::size_t n = 0; n < out.steps.size(); ++n) {
+      if (!out.steps[n].ok()) { failedStep = n + 1; break; }
+    }
+    sentence = "Step " + std::to_string(failedStep) + " could not run, so ";
+  } else {
+    sentence = "Forge could not build a valid part from these steps, so ";
+  }
+  sentence += restored ? std::string("all ") + std::to_string(undone) +
+                             (undone == 1 ? " applied step was" : " applied steps were") +
+                             " taken back and your part is as it was."
+                       : std::string("Forge tried to take the steps back and could not "
+                                     "restore every one; use Undo to finish.");
+  // A step that could not run already explained itself in the transcript line
+  // apply() said; a part the kernel refused has its reason in the Console.
+  if (out.allOk() && !r.error.empty()) {
+    sentence += " " + std::string(forge::ui::userFacingDetailPointer());
+    shell_.log().error("Archie", "Forge could not build the part Archie's plan made.", r.error);
+  }
+  copilot_.recordBuildResult(false, sentence);
 }
 
 void ForgeFrame::runCopilotDiscard() { copilot_.discardPlan(); }
@@ -7704,13 +7803,15 @@ void ForgeFrame::drawCopilotPanel() {
                      "applied",
                      copilot_.plansAccepted(), copilot_.plansRefused(),
                      copilot_.plansRejectedByUser(), copilot_.stepsApplied());
-  // "planner: LocalPlanner (offline, deterministic) | 84 tools from the live
-  // registry" -- a C++ class name and the name of an internal object, on the
-  // header line of the panel a user talks to.
-  ImGui::TextColored(rgb(130, 137, 148), "%s   |   %zu tools Archie can use",
-                     copilotAutoPlan_ ? "Working offline, on this computer"
-                                      : "Connected",
-                     shell_.registry().size());
+  // WHERE ANSWERS COME FROM, in one sentence. This line read "Working offline, on
+  // this computer" whenever auto-plan was on -- whichever planner was answering,
+  // and whether or not any model existed.
+  const forge::ui::ModelState modelState = copilotModelState();
+  ImGui::PushTextWrapPos(0.0f);
+  ImGui::TextColored(modelState == forge::ui::ModelState::Ready ? rgb(120, 200, 130)
+                                                                : rgb(230, 190, 90),
+                     "%s", forge::ui::userText(modelState));
+  ImGui::PopTextWrapPos();
   ImGui::Separator();
 
   // ── the ask ───────────────────────────────────────────────────────────────
@@ -7760,23 +7861,47 @@ void ForgeFrame::drawCopilotPanel() {
   // Two ways to press one button is two behaviours to keep in step.
   if (entered || sent) copilotSubmit();
   if (copilot_.requestPending()) {
-    ImGui::TextColored(rgb(230, 190, 90), "Thinking...");
+    if (copilotAwaitingModel_) {
+      const double waited = copilotNowSeconds() - copilotAskedAt_;
+      ImGui::TextColored(rgb(230, 190, 90), "Archie is working on it… %.0f s",
+                         waited > 0.0 ? waited : 0.0);
+    } else {
+      ImGui::TextColored(rgb(230, 190, 90), "Thinking...");
+    }
   }
 
-  // ── the verdict, LINE BY LINE ─────────────────────────────────────────────
-  // Shown whether the plan was accepted or refused. A user deciding whether to
-  // accept is entitled to see what was checked, and a user whose plan was
-  // refused is entitled to see WHICH line and by WHICH constraint -- an empty
-  // panel is not a refusal, it is a silence.
+  // ── the lifecycle, LINE BY LINE ───────────────────────────────────────────
+  // Three moments, each with its own header, all drawn from the same verdict
+  // rows: OFFERED (the plan, each step's ruling), NOT OFFERED (which line was
+  // refused, by which constraint and why), and APPLIED (what each step then did,
+  // and whether Forge rebuilt the part). The third did not exist: apply()
+  // consumed the plan and kept the verdict, so a plan that had just run was
+  // drawn as "NOT OFFERED — accepted".
   const forge::ui::PlanVerdict& verdict = copilot_.verdict();
-  if (!verdict.steps.empty()) {
+  const forge::ui::ApplyOutcome& outcome = copilot_.lastOutcome();
+  const bool appliedView = !copilot_.hasPlan() && outcome.requested > 0;
+  const char* source = copilotSource_ == CopilotSource::Model     ? "from Archie's model"
+                       : copilotSource_ == CopilotSource::BuiltIn ? "from built-in commands"
+                                                                  : "";
+  if (!verdict.steps.empty() || appliedView) {
     ImGui::Separator();
     if (copilot_.hasPlan()) {
       const forge::ui::Plan& plan = copilot_.plan();
-      ImGui::TextColored(rgb(120, 200, 130), "PLAN  %s",
+      ImGui::TextColored(rgb(120, 200, 130), "PLAN %s  %s", source,
                          plan.summary.empty() ? plan.intent.c_str() : plan.summary.c_str());
+    } else if (appliedView) {
+      const bool kept = copilot_.lastBuildChecked() ? copilot_.lastBuildOk() : outcome.allOk();
+      ImGui::TextColored(kept ? rgb(120, 200, 130) : rgb(230, 120, 110),
+                         kept ? "APPLIED  %zu of %zu steps" : "NOT KEPT  %zu of %zu steps ran",
+                         outcome.applied, outcome.requested);
+      if (!copilot_.lastBuildSentence().empty()) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextColored(kept ? rgb(120, 200, 130) : rgb(230, 190, 90), "%s",
+                           copilot_.lastBuildSentence().c_str());
+        ImGui::PopTextWrapPos();
+      }
     } else {
-      ImGui::TextColored(rgb(230, 120, 110), "NOT OFFERED  —  %s",
+      ImGui::TextColored(rgb(230, 120, 110), "NOT OFFERED %s  —  %s", source,
                          forge::ui::userText(verdict.check));
       if (!verdict.explanation.empty()) ImGui::TextWrapped("%s", verdict.explanation.c_str());
     }
@@ -7795,17 +7920,53 @@ void ForgeFrame::drawCopilotPanel() {
       const std::string toolName = (tool != nullptr && !tool->label.empty())
                                        ? tool->label
                                        : std::string("this step");
-      ImGui::TextColored(sv.accepted() ? rgb(120, 200, 130) : rgb(230, 120, 110), "%zu  %s  %s",
-                         sv.index, toolName.c_str(),
-                         sv.accepted() ? "will run" : "will not run");
+      // What the row says about the step: before Accept, its ruling; after, what
+      // it did. A step past the one that stopped the plan never ran at all.
+      const forge::ui::StepOutcome* ran =
+          appliedView && i < outcome.steps.size() ? &outcome.steps[i] : nullptr;
+      std::string status;
+      ImVec4 colour = rgb(120, 200, 130);
+      if (!appliedView) {
+        status = sv.accepted() ? "will run" : "will not run";
+        if (!sv.accepted()) colour = rgb(230, 120, 110);
+      } else if (ran == nullptr) {
+        status = "did not run";
+        colour = rgb(150, 157, 168);
+      } else if (ran->ok()) {
+        status = copilot_.lastBuildChecked() && !copilot_.lastBuildOk() ? "ran, then taken back"
+                                                                        : "applied";
+        if (copilot_.lastBuildChecked() && !copilot_.lastBuildOk()) colour = rgb(230, 190, 90);
+      } else {
+        status = ran->blocked() ? "refused" : "could not run";
+        colour = rgb(230, 120, 110);
+      }
+      ImGui::TextColored(colour, "%zu  %s  %s", sv.index, toolName.c_str(), status.c_str());
       // The step as it would run, when the plan is still on offer.
       if (i < plan.steps.size()) {
-        if (!plan.steps[i].note.empty()) {
-          ImGui::TextDisabled("  %s", plan.steps[i].note.c_str());
+        const forge::ui::PlanStep& step = plan.steps[i];
+        std::string values;
+        for (const forge::ui::PlanArg& a : step.args) {
+          if (!values.empty()) values += ", ";
+          values += a.display();
         }
-        ImGui::TextDisabled("  works on: %s", forge::ui::toString(plan.steps[i].select));
+        if (!values.empty()) ImGui::TextDisabled("  %s", values.c_str());
+        if (!step.note.empty()) ImGui::TextDisabled("  %s", step.note.c_str());
+        ImGui::TextDisabled("  works on: %s", forge::ui::toString(step.select));
       }
-      if (!sv.accepted()) {
+      if (ran != nullptr && !ran->ok()) {
+        // WHY IT DID NOT RUN, in words a person can act on.
+        ImGui::PushTextWrapPos(0.0f);
+        if (ran->blocked()) {
+          ImGui::TextColored(rgb(230, 190, 90), "  %s", ran->constraintReason.c_str());
+        } else {
+          ImGui::TextColored(rgb(230, 190, 90), "  %s",
+                             forge::ui::userText(ran->dispatch.status));
+          if (!ran->detail.empty()) {
+            ImGui::TextColored(rgb(230, 190, 90), "  %s", ran->detail.c_str());
+          }
+        }
+        ImGui::PopTextWrapPos();
+      } else if (!appliedView && !sv.accepted()) {
         // WHICH CONSTRAINT, and WHY. Both, always: the constraint's name is what
         // a planner can act on, and the reason is what a person can act on.
         if (sv.constraint != forge::ui::OpConstraint::Ok) {
