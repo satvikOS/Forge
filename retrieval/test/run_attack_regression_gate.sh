@@ -356,6 +356,11 @@ mutate "gov.uk missing from the multi-label public suffixes" "$C" \
   '    "ac.uk", "co.uk",' \
   H12 P01
 
+mutate "min_distinct_publishers counts display hosts, not registrants" "$C" \
+  '      const std::string who = corroborationPublisher(e.url);' \
+  '      const std::string who = publisherFromUrl(e.url);' \
+  H17 H18
+
 mutate "an unidentifiable publisher still corroborates" "$P" \
   '    if (primary_publisher.empty() || corroborating_publisher.empty()) {' \
   '    if (false) {' \
@@ -374,7 +379,7 @@ mutate "PlanValue gets its own URL parser back (the 1dd9ed9b hostOf)" "$P" \
   H01 H02 H03 H16
 
 echo "[attack] mutations: $MUT_CAUGHT of $MUT_TOTAL caught by their named case"
-if [ "$MUT_BAD" -ne 0 ] || [ "$MUT_CAUGHT" -ne "$MUT_TOTAL" ] || [ "$MUT_TOTAL" -lt 18 ]; then
+if [ "$MUT_BAD" -ne 0 ] || [ "$MUT_CAUGHT" -ne "$MUT_TOTAL" ] || [ "$MUT_TOTAL" -lt 19 ]; then
   echo "[attack] PHASE 3 FAILED — $MUT_BAD mutation(s) not demonstrated RED."
   exit 1
 fi

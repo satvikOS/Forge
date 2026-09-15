@@ -515,6 +515,53 @@ int main() {
             std::string(c.what) + " (bind=" + (bound ? "BOUND" : "refused") + " " + why + ")");
     }
 
+    // min_distinct_publishers is the SAME rule applied to a result set. It used to
+    // count display hosts, so one registrant met a 3-publisher requirement with
+    // three spellings of itself.
+    auto diversityOf = [](const std::vector<const char*>& urls, std::size_t required, std::size_t& counted) {
+      std::string body = "{\"results\":[";
+      for (std::size_t i = 0; i < urls.size(); ++i) {
+        if (i) body += ",";
+        body += std::string("{\"url\":\"") + urls[i] + "\",\"title\":\"t\",\"content\":\"yield 276 MPa\"}";
+      }
+      body += "]}";
+      class Fixed final : public HttpTransport {
+       public:
+        explicit Fixed(std::string b) : body_(std::move(b)) {}
+        HttpResponse send(const HttpRequest&, std::uint32_t) override {
+          HttpResponse r;
+          r.status = TransportStatus::Ok;
+          r.status_code = 200;
+          r.body = body_;
+          return r;
+        }
+       private:
+        std::string body_;
+      };
+      const SearxngClient client(std::make_shared<Fixed>(body), Redactor(attackLexicon()));
+      SearchRequest req = request("6061-T6 yield strength");
+      req.min_distinct_publishers = required;
+      const QueryPreview p = client.preview(req);
+      const RetrievalResult r = client.search(p, SendApproval::grant(p));
+      counted = r.distinct_publishers;
+      return r.status;
+    };
+    std::size_t n = 0;
+    RetrievalStatus st = diversityOf({"https://a.evil.example/1", "https://b.evil.example/2",
+                                      "https://evil.example./3", "https://x@EVIL.example:8443/4"},
+                                     3, n);
+    check(st == RetrievalStatus::INSUFFICIENT_DIVERSITY && n == 1, "H17",
+          std::string("one registrant spelled four ways does not meet min_distinct_publishers=3 (status=") +
+              retrievalStatusName(st) + " counted=" + std::to_string(n) + ")");
+    st = diversityOf({"https://203.0.113.7/a", "https://203.0.113.8/b", "https://www.iso.org/x"}, 2, n);
+    check(st == RetrievalStatus::INSUFFICIENT_DIVERSITY && n == 1, "H18",
+          std::string("IP-literal results are not publishers (status=") + retrievalStatusName(st) +
+              " counted=" + std::to_string(n) + ")");
+    st = diversityOf({"https://www.iso.org/standard/6392.html", "https://docs.example-machining.com/h"}, 2, n);
+    check(st == RetrievalStatus::Ok && n == 2, "H19",
+          std::string("positive control: two registrants meet a 2-publisher requirement (status=") +
+              retrievalStatusName(st) + " counted=" + std::to_string(n) + ")");
+
     // The operator is shown the publisher the rule decided on — not the host an
     // attacker wrote into the userinfo.
     const std::string render =

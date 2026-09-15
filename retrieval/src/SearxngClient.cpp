@@ -790,7 +790,21 @@ RetrievalResult SearxngClient::search(const QueryPreview& preview,
     // and attached whether or not anyone downstream asks for them.
     result.contradictions = findContradictions(result.evidence);
   }
-  result.distinct_publishers = distinctPublishers(result.evidence);
+  // The diversity requirement the operator approved is judged on REGISTRANTS,
+  // by the same identity BoundCitation::bind's "different publisher" rule uses.
+  // rec.publisher is the lenient display host, and counting it let ONE attacker
+  // meet min_distinct_publishers=3 with a.evil.example, b.evil.example and
+  // evil.example. — three strings, one registrant. A result whose URL names no
+  // identifiable registrant (an IP literal, a single label, a host with no
+  // canonical form) is retained as evidence and counts as no publisher at all.
+  {
+    std::set<std::string> registrants;
+    for (const EvidenceRecord& e : result.evidence) {
+      const std::string who = corroborationPublisher(e.url);
+      if (!who.empty()) registrants.insert(who);
+    }
+    result.distinct_publishers = registrants.size();
+  }
 
   // 12.1 source-diversity requirement. Evidence is RETAINED so the operator can
   // see what was found, but the status says it does not meet the bar it was

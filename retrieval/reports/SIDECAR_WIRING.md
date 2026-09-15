@@ -84,10 +84,15 @@ the three gated lines.
 
 **Why two invocations and not one.** `preview` and `search` are separate processes.
 `search` refuses unless handed an approval record from outside carrying the exact
-encoded body and its digest, re-derives the preview from the request, and rejects
-unless the re-derived bytes are byte-identical and the digest matches. A request
-cannot be edited after approval, and a caller cannot approve a request it never
-previewed.
+encoded body, its digest, and the SHA-256 `request_digest` over the COMPLETE
+request the operator render lists item by item (scheme, host, port, method, path,
+query, headers, body, the exact wire bytes, and every result-handling field). It
+re-derives the preview from the request and rejects unless the re-derived bytes
+are byte-identical and both digests match. Neither the query, nor where it is
+sent, nor how the answer is judged can be edited after approval, and a caller
+cannot approve a request it never previewed. (Until PR #246's review the record
+bound the body only: an approval for POST 127.0.0.1:8888/search was spent as GET
+127.0.0.1:9/autocompleter, and on a lowered min_distinct_publishers.)
 
 **Stated honestly:** this enforces *the bytes sent are the bytes approved*. It
 cannot prove a human did the approving — a process boundary is not a person. What

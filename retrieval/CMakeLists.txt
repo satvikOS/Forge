@@ -108,7 +108,7 @@ if(BUILD_TESTING)
     add_test(NAME retrieval_executor_python_gate
              COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/test/executor_python_gate.py" --mutations)
     # The attacks proved against 1dd9ed9b (PR #246), the fold tables against the
-    # UCD, and an 18-mutation RED proof. Registered in its mutating form for the
+    # UCD, and a 19-mutation RED proof. Registered in its mutating form for the
     # same reason as the two above.
     add_test(NAME retrieval_attack_regression_gate
              COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/test/run_attack_regression_gate.sh")
