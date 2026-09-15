@@ -42,6 +42,7 @@
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
+#include "forge/ui/UserFacingText.hpp"
 
 using namespace forge::ui;
 
@@ -159,6 +160,15 @@ int main() {
   ForgeShell shell;
   PartDocument doc;
   UndoStack undo;
+  // Every parameter command goes through P, which keeps each refusal's sentence:
+  // the Parameters panel SHOWS these to a person, so section H requires every one
+  // of them to pass the same prose judge the application's own text is held to.
+  std::vector<std::string> refusals;
+  const auto P = [&shell, &refusals](const std::string& id, const CommandParams& p) {
+    DispatchResult r = shell.run(id, p);
+    if (!r.ok()) refusals.push_back(r.detail);
+    return r;
+  };
   CHECK(registerPartCommands(shell.registry(), doc, undo) > 0);
   const std::size_t added =
       registerParameterCommands(shell.registry(), doc, undo, [&host]() -> const ExpressionEngine* {
@@ -209,15 +219,15 @@ int main() {
 
   // ── A. ONE PARAMETER, THREE FEATURES ──────────────────────────────────────
   {
-    DispatchResult r = shell.run("part.parameter_set", texts({{"name", "wall"}, {"expression", "3 mm"}}));
+    DispatchResult r = P("part.parameter_set", texts({{"name", "wall"}, {"expression", "3 mm"}}));
     CHECK(r.ok());
-    r = shell.run("part.parameter_bind", bindParams(2, "wall", "wall"));
+    r = P("part.parameter_bind", bindParams(2, "wall", "wall"));
     CHECK(r.ok());
     if (!r.ok()) std::printf("  bind shell: %s\n", r.detail.c_str());
-    r = shell.run("part.parameter_bind", bindParams(3, "dia", "wall * 0.5 + 2 mm"));
+    r = P("part.parameter_bind", bindParams(3, "dia", "wall * 0.5 + 2 mm"));
     CHECK(r.ok());
     if (!r.ok()) std::printf("  bind hole: %s\n", r.detail.c_str());
-    r = shell.run("part.parameter_bind", bindParams(4, "radius", "wall / 2"));
+    r = P("part.parameter_bind", bindParams(4, "radius", "wall / 2"));
     CHECK(r.ok());
     if (!r.ok()) std::printf("  bind fillet: %s\n", r.detail.c_str());
 
@@ -228,7 +238,7 @@ int main() {
 
     // THE ACCEPTANCE STEP: one command.
     const std::size_t before = undo.undoDepth();
-    r = shell.run("part.parameter_set", texts({{"name", "wall"}, {"expression", "4 mm"}}));
+    r = P("part.parameter_set", texts({{"name", "wall"}, {"expression", "4 mm"}}));
     CHECK(r.ok());
     CHECK_NEAR(argNumber(doc, 2, 1), 4.0, 1e-12);  // SHELL wall   = wall
     CHECK_NEAR(argNumber(doc, 3, 1), 4.0, 1e-12);  // HOLE dia     = wall * 0.5 + 2 mm
@@ -240,7 +250,7 @@ int main() {
     CHECK_EQ_STR(undo.undoLabel(), "Set wall");
 
     // Units convert, they do not merely pass through: 0.25 in is 6.35 mm.
-    r = shell.run("part.parameter_set", texts({{"name", "wall"}, {"expression", "0.25 in"}}));
+    r = P("part.parameter_set", texts({{"name", "wall"}, {"expression", "0.25 in"}}));
     CHECK(r.ok());
     CHECK_NEAR(argNumber(doc, 2, 1), 6.35, 1e-9);
     CHECK_NEAR(argNumber(doc, 3, 1), 5.175, 1e-9);
@@ -263,7 +273,7 @@ int main() {
     const std::string was = fingerprint(doc);
     const std::size_t depth = undo.undoDepth();
     DispatchResult r =
-        shell.run("part.parameter_set", texts({{"name", "bad"}, {"expression", "3 mm + 2 kg"}}));
+        P("part.parameter_set", texts({{"name", "bad"}, {"expression", "3 mm + 2 kg"}}));
     CHECK(!r.ok());
     CHECK(r.status == DispatchStatus::EditRefused);
     CHECK(contains(r.detail, "Unit mismatch"));
@@ -274,10 +284,10 @@ int main() {
 
     // ... and a mismatch reached THROUGH names, into a parameter that already drives
     // three features, is refused without touching any of them.
-    r = shell.run("part.parameter_set", texts({{"name", "mass"}, {"expression", "2 kg"}}));
+    r = P("part.parameter_set", texts({{"name", "mass"}, {"expression", "2 kg"}}));
     CHECK(r.ok());
     const std::string withMass = fingerprint(doc);
-    r = shell.run("part.parameter_set", texts({{"name", "wall"}, {"expression", "3 mm + mass"}}));
+    r = P("part.parameter_set", texts({{"name", "wall"}, {"expression", "3 mm + mass"}}));
     CHECK(!r.ok());
     CHECK(contains(r.detail, "Unit mismatch"));
     CHECK_EQ_STR(fingerprint(doc), withMass);
@@ -286,12 +296,12 @@ int main() {
 
   // ── C. a -> b -> a IS REFUSED, NAMING BOTH ────────────────────────────────
   {
-    CHECK(shell.run("part.parameter_set", texts({{"name", "a"}, {"expression", "1 mm"}})).ok());
-    CHECK(shell.run("part.parameter_set", texts({{"name", "b"}, {"expression", "a * 2"}})).ok());
+    CHECK(P("part.parameter_set", texts({{"name", "a"}, {"expression", "1 mm"}})).ok());
+    CHECK(P("part.parameter_set", texts({{"name", "b"}, {"expression", "a * 2"}})).ok());
     const std::string was = fingerprint(doc);
     const std::size_t depth = undo.undoDepth();
     DispatchResult r =
-        shell.run("part.parameter_set", texts({{"name", "a"}, {"expression", "b + 1 mm"}}));
+        P("part.parameter_set", texts({{"name", "a"}, {"expression", "b + 1 mm"}}));
     CHECK(!r.ok());
     CHECK(r.status == DispatchStatus::EditRefused);
     CHECK(contains(r.detail, "a -> b -> a"));
@@ -315,10 +325,10 @@ int main() {
     CHECK(rc.updates.empty());
 
     // A self-reference is a cycle of one, and a longer one names every member.
-    r = shell.run("part.parameter_set", texts({{"name", "b"}, {"expression", "b"}}));
+    r = P("part.parameter_set", texts({{"name", "b"}, {"expression", "b"}}));
     CHECK(!r.ok() && contains(r.detail, "b -> b"));
-    CHECK(shell.run("part.parameter_set", texts({{"name", "c"}, {"expression", "b"}})).ok());
-    r = shell.run("part.parameter_set", texts({{"name", "a"}, {"expression", "c"}}));
+    CHECK(P("part.parameter_set", texts({{"name", "c"}, {"expression", "b"}})).ok());
+    r = P("part.parameter_set", texts({{"name", "a"}, {"expression", "c"}}));
     CHECK(!r.ok() && contains(r.detail, "a -> c -> b -> a"));
     std::printf("  refusal (3-cycle): %s\n", r.detail.c_str());
   }
@@ -326,24 +336,24 @@ int main() {
   // ── D. THE WRONG DIMENSION FOR THE NUMBER ─────────────────────────────────
   {
     const std::string was = fingerprint(doc);
-    DispatchResult r = shell.run("part.parameter_bind", bindParams(3, "dia", "mass"));
+    DispatchResult r = P("part.parameter_bind", bindParams(3, "dia", "mass"));
     CHECK(!r.ok());
     CHECK(contains(r.detail, "length"));
     CHECK(contains(r.detail, "mass"));
     std::printf("  refusal (dimension): %s\n", r.detail.c_str());
-    r = shell.run("part.parameter_bind", bindParams(3, "dia", "5"));
+    r = P("part.parameter_bind", bindParams(3, "dia", "5"));
     CHECK(!r.ok() && contains(r.detail, "mm"));  // says how to write it
-    r = shell.run("part.parameter_bind", bindParams(3, "diameter", "5 mm"));
+    r = P("part.parameter_bind", bindParams(3, "diameter", "5 mm"));
     CHECK(!r.ok() && contains(r.detail, "dia"));  // names the numbers HOLE does have
-    r = shell.run("part.parameter_bind", bindParams(9, "dia", "5 mm"));
+    r = P("part.parameter_bind", bindParams(9, "dia", "5 mm"));
     CHECK(!r.ok() && contains(r.detail, "no feature 9"));
-    r = shell.run("part.parameter_bind", bindParams(3, "depth", "5 mm"));
+    r = P("part.parameter_bind", bindParams(3, "depth", "5 mm"));
     CHECK(!r.ok() && contains(r.detail, "without"));  // HOLE 3 was made with no depth
-    r = shell.run("part.parameter_set", texts({{"name", "mm"}, {"expression", "5 mm"}}));
+    r = P("part.parameter_set", texts({{"name", "mm"}, {"expression", "5 mm"}}));
     CHECK(!r.ok());  // a unit's spelling is not a name
-    r = shell.run("part.parameter_set", texts({{"name", "gap"}, {"expression", "nowhere * 2"}}));
+    r = P("part.parameter_set", texts({{"name", "gap"}, {"expression", "nowhere * 2"}}));
     CHECK(!r.ok() && contains(r.detail, "nowhere"));
-    r = shell.run("part.parameter_set", texts({{"name", "gap"}, {"expression", "4 mm / 0"}}));
+    r = P("part.parameter_set", texts({{"name", "gap"}, {"expression", "4 mm / 0"}}));
     CHECK(!r.ok() && contains(r.detail, "zero"));
     CHECK_EQ_STR(fingerprint(doc), was);
   }
@@ -379,7 +389,7 @@ int main() {
     CHECK_NEAR(argNumber(doc, 3, 1), 40.0 / 3.0, 1e-9);     // HOLE dia = Box1.dx / 3
 
     // One parameter now moves FOUR numbers, two of them through another feature.
-    CHECK(shell.run("part.parameter_set", texts({{"name", "wall"}, {"expression", "5 mm"}})).ok());
+    CHECK(P("part.parameter_set", texts({{"name", "wall"}, {"expression", "5 mm"}})).ok());
     CHECK_NEAR(argNumber(doc, 1, 0), 50.0, 1e-12);
     CHECK_NEAR(argNumber(doc, 2, 1), 5.0, 1e-12);
     CHECK_NEAR(argNumber(doc, 3, 1), 50.0 / 3.0, 1e-9);
@@ -400,6 +410,9 @@ int main() {
     w1.args = {PlanArg::str("name", "wall"), PlanArg::str("expression", "5 kg")};
     wrong.steps = {w1};
     const ApplyOutcome wo = applyPlan(wrong, shell, doc, bridge);
+    for (const StepOutcome& s : wo.steps) {
+      if (!s.dispatch.detail.empty()) refusals.push_back(s.dispatch.detail);
+    }
     CHECK(!wo.allOk());
     CHECK(wo.steps.size() == 1 && !wo.steps[0].ok() && contains(wo.steps[0].dispatch.detail, "mass"));
     CHECK_NEAR(argNumber(doc, 2, 1), 5.0, 1e-12);
@@ -423,24 +436,24 @@ int main() {
   // ── G. REFERENCES, REMOVAL, UNBIND, UNDO OF EVERYTHING ────────────────────
   {
     // Removing a parameter something uses is refused, naming every user.
-    DispatchResult r = shell.run("part.parameter_remove", texts({{"name", "wall"}}));
+    DispatchResult r = P("part.parameter_remove", texts({{"name", "wall"}}));
     CHECK(!r.ok());
     CHECK(contains(r.detail, "length") && contains(r.detail, "Shell Body 2") &&
           contains(r.detail, "Edge Fillet 4"));
     std::printf("  refusal (still used): %s\n", r.detail.c_str());
 
     // Unbinding keeps the number and drops only the link.
-    r = shell.run("part.parameter_unbind", bindParams(4, "radius", ""));
+    r = P("part.parameter_unbind", bindParams(4, "radius", ""));
     CHECK(r.ok());
     CHECK_NEAR(argNumber(doc, 4, 1), 2.5, 1e-12);
-    CHECK(shell.run("part.parameter_set", texts({{"name", "wall"}, {"expression", "6 mm"}})).ok());
+    CHECK(P("part.parameter_set", texts({{"name", "wall"}, {"expression", "6 mm"}})).ok());
     CHECK_NEAR(argNumber(doc, 4, 1), 2.5, 1e-12);  // no longer driven
     CHECK_NEAR(argNumber(doc, 2, 1), 6.0, 1e-12);  // still driven
-    r = shell.run("part.parameter_unbind", bindParams(4, "radius", ""));
+    r = P("part.parameter_unbind", bindParams(4, "radius", ""));
     CHECK(!r.ok() && contains(r.detail, "not driven"));
 
     // An unused parameter can go.
-    CHECK(shell.run("part.parameter_remove", texts({{"name", "mass"}})).ok());
+    CHECK(P("part.parameter_remove", texts({{"name", "mass"}})).ok());
     CHECK(doc.parameters().find("mass") == nullptr);
 
     // The recompute view the panel draws agrees with the document.
@@ -467,6 +480,23 @@ int main() {
                                   "%3 = HOLE(%2, 6, 0, 0, 20)\n%4 = FILLET(%3, 1, ALL)\n");
     CHECK(doc.parameters().empty());
   }
+
+  // ── H. EVERY REFUSAL IS A SENTENCE A PERSON CAN READ ──────────────────────
+  // No class names, no parser vocabulary, no status spellings: the panel draws
+  // these, so they are held to forge::ui::scanUserFacingProse().
+  CHECK(refusals.size() >= 12);
+  std::size_t prosy = 0;
+  for (const std::string& sentence : refusals) {
+    CHECK(!sentence.empty());
+    const std::vector<ProseFinding> findings = scanUserFacingProse(sentence);
+    if (!findings.empty()) {
+      std::printf("  refusal is not prose: \"%s\"\n        %s\n", sentence.c_str(),
+                  describeProseFindings(findings).c_str());
+      ++prosy;
+    }
+  }
+  CHECK_EQ_INT(prosy, 0);
+  std::printf("[parameters_gate] %zu refusals, every one a readable sentence\n", refusals.size());
 
   return H.finish();
 }

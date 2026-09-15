@@ -82,7 +82,7 @@ bool commit(CommandContext& ctx, PartDocument& doc, UndoStack& stack,
             const ExpressionEngine& engine, const ParameterSet& candidate, std::string label) {
   const RecomputeResult r = recomputeParameters(doc, candidate, engine);
   if (!r.ok) {
-    ctx.fail(r.error);
+    ctx.fail(r.reason);
     return false;
   }
   if (candidate == doc.parameters() && r.updates.empty()) return true;  // already so

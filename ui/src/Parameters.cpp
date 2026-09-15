@@ -394,7 +394,7 @@ class Solver final : public ExprNameResolver {
 void Solver::setProblem(ParameterProblem problem, const std::string& error) {
   if (result_.problem != ParameterProblem::None) return;  // the first reason is the cause
   result_.problem = problem;
-  result_.error = error;
+  result_.reason = error;
 }
 
 void Solver::buildNodes() {
@@ -685,7 +685,7 @@ RecomputeResult Solver::run() {
       v.quantity = n.value;
       v.uses = n.uses;
       v.problem = n.problem;
-      v.error = n.error;
+      v.reason = n.error;
       result_.parameters.push_back(std::move(v));
     }
   }
@@ -697,7 +697,7 @@ RecomputeResult Solver::run() {
     v.reference = n.key;
     v.uses = n.uses;
     v.problem = n.problem;
-    v.error = n.error;
+    v.reason = n.error;
     v.ok = n.ok;
     v.quantity = n.value;
     if (const FeatureRecord* rec = doc_.featureAt(b.irId)) {

@@ -1302,7 +1302,8 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   void drawSketchTreePanel();
   void drawPropertiesPanel();
   void drawParametersPanel();
-  void queueParameterCommand(const std::string& id, forge::ui::CommandParams params);
+  void queueParameterCommand(const std::string& id, forge::ui::CommandParams params,
+                             std::string success);
   void runPendingParameterCommand();
   void drawConsolePanel();
   void drawTimelinePanel();
@@ -2224,6 +2225,7 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   bool pendingParameterValid_ = false;
   std::string pendingParameterCommand_;
   forge::ui::CommandParams pendingParameterParams_;
+  std::string pendingParameterSuccess_;  // the sentence shown if the command succeeds
   std::string parametersMessage_;
   bool parametersLastOk_ = false;
   std::size_t parameterRowsDrawn_ = 0;

@@ -449,9 +449,22 @@ int main() {
   //                          moment a user cannot check the result. It is a literal because the
   //                          button is answering a QUESTION, not offering a command surface --
   //                          there is nothing to derive.
+  //   part.parameter_set / part.parameter_bind / part.parameter_unbind /
+  //   part.parameter_remove
+  //                       -- the Parameters panel dispatches exactly these four commands,
+  //                          each ONCE, through shell_.run(), with what the user typed or
+  //                          picked -- a parameter's name and formula, a feature's
+  //                          statement number and one of its argument names -- as the
+  //                          PARAMETERS. They are literals for the reason part.edit_feature
+  //                          and part.set_material are: the arguments decide WHICH
+  //                          parameter or dimension, and a derived SurfaceItem carries no
+  //                          argument. They are also on every ribbon and in the palette
+  //                          like any Part command, which the checks above prove.
   const std::set<std::string> allowedLiterals = {"app.command_palette", "app.load_sample",
                                                  "file.open", "file.save",
-                                                 "part.edit_feature", "part.set_material"};
+                                                 "part.edit_feature", "part.set_material",
+                                                 "part.parameter_bind", "part.parameter_remove",
+                                                 "part.parameter_set", "part.parameter_unbind"};
   const std::set<std::string> literals = hardcodedCommandIds(frame, all);
   for (const std::string& id : literals)
     if (allowedLiterals.count(id) == 0)

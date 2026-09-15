@@ -39,6 +39,10 @@ part.measure	Part	MEASURE	document	transaction	none	1	property:text:optional:has
 part.mirror	Part	MIRROR	document	transaction	ondemand	1	plane:text:required:hasdefault
 part.move	Part	TRANSLATE	document	transaction	live	1	dx:number:optional,dy:number:optional,dz:number:optional
 part.offset_solid	Part	OFFSETSOLID	document	transaction	live	1	distance:number:required:hasdefault
+part.parameter_bind	Part	-	document	transaction	none	1	feature:number:required,argument:text:required,expression:text:required
+part.parameter_remove	Part	-	document	transaction	none	1	name:text:required
+part.parameter_set	Part	-	document	transaction	none	1	name:text:required,expression:text:required,comment:text:optional
+part.parameter_unbind	Part	-	document	transaction	none	1	feature:number:required,argument:text:required
 part.pattern_circular	Part	PATTERN	document	transaction	ondemand	1	count:number:required:hasdefault,total_angle:number:optional
 part.pattern_grid	Part	PATTERN	document	transaction	ondemand	1	nx:number:required:hasdefault,ny:number:required:hasdefault,dx:number:required:hasdefault,dy:number:required:hasdefault
 part.pattern_linear	Part	PATTERN	document	transaction	ondemand	1	count:number:required:hasdefault,dx:number:required:hasdefault,dy:number:optional,dz:number:optional

@@ -6699,7 +6699,7 @@ void ForgeFrame::drawParametersPanel() {
         ImGui::TextUnformatted(exprEngine_->describe(v.quantity).c_str());
       } else {
         ImGui::TextColored(rgb(235, 105, 95), "no value");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", v.error.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", v.reason.c_str());
       }
       ImGui::PopID();
       ++parameterRowsDrawn_;
@@ -6760,7 +6760,7 @@ void ForgeFrame::drawParametersPanel() {
         ImGui::TextUnformatted(exprEngine_->describe(b.quantity).c_str());
       } else {
         ImGui::TextColored(rgb(235, 105, 95), "not applied");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", b.error.c_str());
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", b.reason.c_str());
       }
       ImGui::TableSetColumnIndex(3);
       if (ImGui::SmallButton("Stop")) parametersUnbind(b.binding.irId, b.binding.argument);
@@ -6861,17 +6861,20 @@ void ForgeFrame::drawParametersPanel() {
   }
 }
 
-void ForgeFrame::queueParameterCommand(const std::string& id, forge::ui::CommandParams params) {
+void ForgeFrame::queueParameterCommand(const std::string& id, forge::ui::CommandParams params,
+                                       std::string success) {
   pendingParameterValid_ = true;
   pendingParameterCommand_ = id;
   pendingParameterParams_ = std::move(params);
+  pendingParameterSuccess_ = std::move(success);
 }
 
 void ForgeFrame::parametersSet(const std::string& name, const std::string& expression) {
   forge::ui::CommandParams p;
   p.setText("name", name);
   p.setText("expression", expression);
-  queueParameterCommand("part.parameter_set", std::move(p));
+  queueParameterCommand("part.parameter_set", std::move(p),
+                        "Updated. Every dimension that depends on it follows.");
 }
 
 void ForgeFrame::parametersBind(int feature, const std::string& argument,
@@ -6880,20 +6883,22 @@ void ForgeFrame::parametersBind(int feature, const std::string& argument,
   p.setNumber("feature", static_cast<double>(feature));
   p.setText("argument", argument);
   p.setText("expression", expression);
-  queueParameterCommand("part.parameter_bind", std::move(p));
+  queueParameterCommand("part.parameter_bind", std::move(p),
+                        "That dimension now follows its formula.");
 }
 
 void ForgeFrame::parametersUnbind(int feature, const std::string& argument) {
   forge::ui::CommandParams p;
   p.setNumber("feature", static_cast<double>(feature));
   p.setText("argument", argument);
-  queueParameterCommand("part.parameter_unbind", std::move(p));
+  queueParameterCommand("part.parameter_unbind", std::move(p),
+                        "That dimension keeps its number and no longer follows a formula.");
 }
 
 void ForgeFrame::parametersRemove(const std::string& name) {
   forge::ui::CommandParams p;
   p.setText("name", name);
-  queueParameterCommand("part.parameter_remove", std::move(p));
+  queueParameterCommand("part.parameter_remove", std::move(p), "Deleted.");
 }
 
 void ForgeFrame::runPendingParameterCommand() {
@@ -6904,13 +6909,7 @@ void ForgeFrame::runPendingParameterCommand() {
   const forge::ui::DispatchResult r = shell_.run(pendingParameterCommand_, pendingParameterParams_);
   parametersLastOk_ = r.ok();
   if (r.ok()) {
-    parametersMessage_ = pendingParameterCommand_ == "part.parameter_set"
-                             ? std::string("Updated. Every dimension that depends on it follows.")
-                         : pendingParameterCommand_ == "part.parameter_bind"
-                             ? std::string("That dimension now follows its formula.")
-                         : pendingParameterCommand_ == "part.parameter_unbind"
-                             ? std::string("That dimension keeps its number and no longer follows a formula.")
-                             : std::string("Deleted.");
+    parametersMessage_ = pendingParameterSuccess_;
     syncSceneToDocument();
   } else {
     parametersMessage_ = r.detail.empty() ? std::string(forge::ui::userText(r.status)) : r.detail;

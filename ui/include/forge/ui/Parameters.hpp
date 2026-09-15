@@ -121,7 +121,10 @@ struct ParameterValue {
   ExprQuantity quantity;
   std::vector<std::string> uses;  // the names its formula uses
   ParameterProblem problem = ParameterProblem::None;
-  std::string error;
+  // Why it has no value, AS A SENTENCE FOR A PERSON. Every reason this file
+  // writes is prose a panel may show; forge-desktop/test/parameters_gate.cpp runs
+  // each one it provokes through forge::ui::scanUserFacingProse().
+  std::string reason;
 };
 
 struct BoundSlotValue {
@@ -135,7 +138,7 @@ struct BoundSlotValue {
   double target = 0.0;    // the number it must hold
   std::vector<std::string> uses;
   ParameterProblem problem = ParameterProblem::None;
-  std::string error;
+  std::string reason;  // why it is not applied, as a sentence (see ParameterValue::reason)
 };
 
 struct ArgumentUpdate {
@@ -148,7 +151,7 @@ struct ArgumentUpdate {
 struct RecomputeResult {
   bool ok = false;
   ParameterProblem problem = ParameterProblem::None;  // the first refusal, in document order
-  std::string error;                                 // ... as a sentence
+  std::string reason;                                // ... as a sentence for a person
   std::vector<std::string> cycle;  // Cycle: the members in order, the first repeated last
   std::vector<ParameterValue> parameters;  // one per ParameterDef, document order
   std::vector<BoundSlotValue> bindings;    // one per DimensionBinding, document order
