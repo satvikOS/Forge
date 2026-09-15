@@ -83,6 +83,20 @@ jobs:
       - name: Every gate CMake builds is a gate run_desktop.sh runs
         run: bash forge-desktop/test/gate_registration_check.sh
 
+      # ── FreeCAD-DERIVED LIBRARIES CARRY THEIR LGPL-2.1 OBLIGATIONS ──────────
+      # Forge adapts FreeCAD code under third_party/freecad-derived/, each piece a
+      # SEPARATE SHARED LIBRARY the app loads from Contents/Frameworks. These two
+      # steps are hermetic (bash + python3, no build) and run in seconds: the
+      # selftest first injects 18 compliance defects -- a missing licence text, an
+      # undated modification record, an OCCT / Qt / Python include, a STATIC
+      # library, an LGPL source compiled into the app, a packager that forgets the
+      # notices -- and requires each to turn the gate red; then the gate runs on
+      # the tree.
+      - name: Prove the FreeCAD-derived LGPL gate can fail (18 defects + control)
+        run: bash tools/gates/freecad_derived_lgpl_selftest.sh
+      - name: FreeCAD-derived libraries are shared, dynamically linked and carry their LGPL notices
+        run: bash tools/gates/freecad_derived_lgpl_gate.sh
+
   kernel_gate_registration:
     name: every forge-kernel gate is executed, not merely built
     runs-on: ubuntu-latest

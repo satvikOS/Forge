@@ -97,12 +97,17 @@ run_tree() {
     names="$(otool -L "$bin" | tail -n +2 | awk '{print $1}')"
     echo "[params:$label] otool -L parameters_gate:"; echo "$names" | sed 's/^/    /'
     echo "$names" | grep -qx '@rpath/libforge_expr.dylib' || { echo "[params:$label] RED: the executable does not load @rpath/libforge_expr.dylib"; return 1; }
-    defined="$(nm -gU "$bin" 2>/dev/null | c++filt | grep -c 'forge::expr::' || true)"
+    # STRONG definitions only. An inline member of a library header (Value::
+    # isNumber, Quantity::getValue) may legitimately be emitted into Forge's own
+    # object as a WEAK coalesced symbol; that is the header, not the library.
+    # Library CODE -- Quantity::operator+, the parser -- is a strong definition.
+    defined="$(nm -gUm "$bin" 2>/dev/null | grep -v 'weak' | c++filt | grep -c 'forge::expr::' || true)"
   else
     names="$(readelf -d "$bin" | grep NEEDED)"
     echo "[params:$label] readelf -d NEEDED:"; echo "$names" | sed 's/^/    /'
     echo "$names" | grep -q 'libforge_expr.so' || { echo "[params:$label] RED: the executable does not load libforge_expr.so"; return 1; }
-    defined="$(nm -C --defined-only "$bin" 2>/dev/null | grep -c ' [TWV] forge::expr::' || true)"
+    # ' T ' only: a weak ' W ' is an inline header member, see the macOS branch.
+    defined="$(nm -C --defined-only "$bin" 2>/dev/null | grep -c ' T forge::expr::' || true)"
   fi
   defined="${defined:-0}"
   if [ "$defined" != "0" ]; then

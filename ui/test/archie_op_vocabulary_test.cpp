@@ -39,6 +39,8 @@
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/ExpressionEngine.hpp"
+#include "forge/ui/Parameters.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -568,6 +570,13 @@ int main() {
   // constraint family, the six SURFACE commands, and part.section_curve -- so 58
   // is |ours union theirs|.
   CHECK_EQ_INT(partAdded, 71);
+  // The PARAMETER commands are registry commands too, and Archie can call them, so
+  // the app registers them beside the Part commands (ForgeFrame::wirePartCommands)
+  // and this gate must build the same registry. No engine is needed to DESCRIBE
+  // them: with none, they register and are disabled.
+  const std::size_t parameterAdded = registerParameterCommands(
+      shell.registry(), partDoc, partUndo, []() -> const ExpressionEngine* { return nullptr; });
+  CHECK_EQ_INT(parameterAdded, 4);
   const std::vector<std::string> liveIds = shell.registry().ids();
   const JsonValue& counts = j.at(doc, "counts");
   CHECK_EQ_INT(liveIds.size(), static_cast<long long>(j.num(counts, "registry_commands")));

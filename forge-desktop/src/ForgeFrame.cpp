@@ -458,8 +458,17 @@ std::size_t ForgeFrame::wirePartCommands() {
   builtProgram_ = partDoc_.irProgram();
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
 
-  const std::size_t added =
+  std::size_t added =
       forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
+  // The PARAMETER commands, over the same document and the same undo stack. The
+  // engine is read through `this` at every execution, not captured now, because
+  // main.cpp installs it after the frame exists (setExpressionEngine) and a gate
+  // that never installs one must get disabled commands rather than a dangling
+  // pointer. forge-desktop/test/parameters_gate.cpp and the vocabulary gates build
+  // the registry the same way.
+  added += forge::ui::registerParameterCommands(
+      shell_.registry(), partDoc_, partUndo_,
+      [this]() -> const forge::ui::ExpressionEngine* { return exprEngine_; });
   partWired_ = true;
   // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
   // act on this document, and the status strip's counters are read from it.
@@ -764,6 +773,9 @@ bool ForgeFrame::documentNew(std::string& error) {
   // is aluminium because the last one was would put a weight on it that nobody
   // chose.
   partDoc_.setMaterial(forge::ui::unassignedMaterial());
+  // Nor does Snapshot carry the parameters, for the same reason, and a NEW part's
+  // formulas would otherwise name features of the part that was thrown away.
+  partDoc_.setParameters(forge::ui::ParameterSet{});
   partUndo_.clear();
   if (!seedDefaultPart(error)) return false;
   documentPath_.clear();
@@ -849,6 +861,8 @@ void ForgeFrame::bindInputFile(const std::string& path) {
 bool ForgeFrame::documentReset(std::string& error) {
   error.clear();
   partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
+  // The statements are gone, so every formula that drove one is too.
+  partDoc_.setParameters(forge::ui::ParameterSet{});
   partUndo_.clear();
   // ★ THE MIRROR OF THE SEED DEFECT, and a different one: see the block above
   //   for the bytes. refusedSavePath_ is deliberately NOT touched -- it belongs
@@ -3685,6 +3699,12 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
     pendingSketchEditValid_ = false;
     applySketchDimensionEdit(pendingSketchEditIrId_, pendingSketchEditValue_);
   }
+  // The Parameters panel's press, deferred for the same reason: one parameter can
+  // rewrite many statements, and the walk that drew the button was indexing them.
+  if (pendingParameterValid_) {
+    pendingParameterValid_ = false;
+    runPendingParameterCommand();
+  }
   // Run on the parameter prompt, deferred for the same reason: it dispatches a
   // command that can replace the document (file.open, app.load_sample) and
   // rebuild the feature tree the walk was indexing.
@@ -4445,6 +4465,8 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawToolLibraryPanel();
   } else if (panelId == "properties" || panelId == "operation_params") {
     drawPropertiesPanel();
+  } else if (panelId == "parameters") {
+    drawParametersPanel();
   } else if (panelId == "dimensions") {
     drawDimensionsPanel();
     drawSketchDimensionsPanel();
@@ -6614,6 +6636,290 @@ void ForgeFrame::drawPropertiesPanel() {
   // information, named. It is NOT gone: drawConsolePanel() draws it under a
   // collapsed header, in the panel this application already treats as the
   // engineer's. Deleting a capability is not a way to pass a gate.
+}
+
+// ── PARAMETERS: THE NAMED VALUES A PART IS BUILT FROM ───────────────────────
+//
+// Three sections, each a reading of the document and every control a dispatch of
+// a registered command -- the same four commands Archie calls:
+//
+//   Parameters         name | formula | value, and a row to add or change one
+//   Driven dimensions  which feature number each formula drives, and its value
+//   Drive a dimension  pick a feature and one of ITS numbers, type a formula
+//
+// Every value on screen is RECOMPUTED from the formulas each frame by the same
+// forge::ui::recomputeParameters() the commands use to decide whether to accept
+// a change, so the panel cannot show a number the commands would not produce.
+// A change the commands refuse shows the refusal's own sentence and changes
+// nothing.
+void ForgeFrame::drawParametersPanel() {
+  parameterRowsDrawn_ = 0;
+  if (exprEngine_ == nullptr) {
+    ImGui::TextColored(rgb(242, 158, 38), "Parameters");
+    ImGui::Separator();
+    ImGui::TextWrapped("Named values and formulas are not available in this copy of Forge, so "
+                       "every dimension keeps the number it was given.");
+    return;
+  }
+  const forge::ui::ParameterSet& set = partDoc_.parameters();
+  const forge::ui::RecomputeResult view =
+      forge::ui::recomputeParameters(partDoc_, set, *exprEngine_);
+
+  // ── the parameters ─────────────────────────────────────────────────────
+  ImGui::TextColored(rgb(242, 158, 38), "Parameters");
+  ImGui::Separator();
+  if (view.parameters.empty()) {
+    ImGui::TextDisabled("This part has no named values yet.");
+  } else if (ImGui::BeginTable("##parameters", 3,
+                               ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                                   ImGuiTableFlags_SizingStretchProp)) {
+    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+    ImGui::TableSetupColumn("Formula", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+    ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+    ImGui::TableHeadersRow();
+    for (std::size_t i = 0; i < view.parameters.size() && i < set.parameters().size(); ++i) {
+      const forge::ui::ParameterValue& v = view.parameters[i];
+      const forge::ui::ParameterDef& def = set.parameters()[i];
+      ImGui::TableNextRow();
+      ImGui::TableSetColumnIndex(0);
+      ImGui::PushID(static_cast<int>(i));
+      // Picking a row puts it in the edit boxes below: change the formula, press
+      // Set. The name is the key, so editing a row never makes a second one.
+      if (ImGui::Selectable(def.name.c_str(), def.name == std::string(paramNameInput_.data()),
+                            ImGuiSelectableFlags_SpanAllColumns)) {
+        std::snprintf(paramNameInput_.data(), paramNameInput_.size(), "%s", def.name.c_str());
+        std::snprintf(paramFormulaInput_.data(), paramFormulaInput_.size(), "%s",
+                      def.expression.c_str());
+      }
+      if (!def.comment.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", def.comment.c_str());
+      ImGui::TableSetColumnIndex(1);
+      ImGui::TextUnformatted(def.expression.c_str());
+      ImGui::TableSetColumnIndex(2);
+      if (v.ok) {
+        ImGui::TextUnformatted(exprEngine_->describe(v.quantity).c_str());
+      } else {
+        ImGui::TextColored(rgb(235, 105, 95), "no value");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", v.error.c_str());
+      }
+      ImGui::PopID();
+      ++parameterRowsDrawn_;
+    }
+    ImGui::EndTable();
+  }
+  ImGui::Spacing();
+  ImGui::SetNextItemWidth(120.0f * dpiScale_);
+  ImGui::InputTextWithHint("##paramname", "name", paramNameInput_.data(), paramNameInput_.size());
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(-1);
+  ImGui::InputTextWithHint("##paramformula", "value or formula, e.g. wall * 0.5 + 2 mm",
+                           paramFormulaInput_.data(), paramFormulaInput_.size());
+  const bool haveName = paramNameInput_[0] != '\0';
+  const bool haveFormula = paramFormulaInput_[0] != '\0';
+  ImGui::BeginDisabled(!haveName || !haveFormula);
+  if (ImGui::Button("Set")) {
+    parametersSet(std::string(paramNameInput_.data()), std::string(paramFormulaInput_.data()));
+  }
+  ImGui::EndDisabled();
+  ImGui::SameLine();
+  const bool nameExists = haveName && set.find(std::string(paramNameInput_.data())) != nullptr;
+  ImGui::BeginDisabled(!nameExists);
+  if (ImGui::Button("Delete")) parametersRemove(std::string(paramNameInput_.data()));
+  ImGui::EndDisabled();
+
+  // ── the dimensions formulas drive ─────────────────────────────────────
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Driven dimensions");
+  ImGui::Separator();
+  if (view.bindings.empty()) {
+    ImGui::TextDisabled("No dimension is driven by a formula yet.");
+  } else if (ImGui::BeginTable("##driven", 4,
+                               ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                                   ImGuiTableFlags_SizingStretchProp)) {
+    ImGui::TableSetupColumn("Dimension", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+    ImGui::TableSetupColumn("Formula", ImGuiTableColumnFlags_WidthStretch, 2.0f);
+    ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+    ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 48.0f * dpiScale_);
+    ImGui::TableHeadersRow();
+    for (std::size_t i = 0; i < view.bindings.size(); ++i) {
+      const forge::ui::BoundSlotValue& b = view.bindings[i];
+      ImGui::TableNextRow();
+      ImGui::PushID(static_cast<int>(1000 + i));
+      ImGui::TableSetColumnIndex(0);
+      const std::string dimension =
+          (b.feature.empty() ? std::string("a removed feature") : b.feature) + "  " +
+          b.binding.argument;
+      ImGui::TextUnformatted(dimension.c_str());
+      // The name a formula uses for this number, so it can be typed into another.
+      if (!b.reference.empty() && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Use %s in a formula to refer to this number", b.reference.c_str());
+      }
+      ImGui::TableSetColumnIndex(1);
+      ImGui::TextUnformatted(b.binding.expression.c_str());
+      ImGui::TableSetColumnIndex(2);
+      if (b.ok) {
+        ImGui::TextUnformatted(exprEngine_->describe(b.quantity).c_str());
+      } else {
+        ImGui::TextColored(rgb(235, 105, 95), "not applied");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", b.error.c_str());
+      }
+      ImGui::TableSetColumnIndex(3);
+      if (ImGui::SmallButton("Stop")) parametersUnbind(b.binding.irId, b.binding.argument);
+      if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Keep this number as it is and stop driving it by the formula");
+      }
+      ImGui::PopID();
+      ++parameterRowsDrawn_;
+    }
+    ImGui::EndTable();
+  }
+
+  // ── drive a dimension ──────────────────────────────────────────────────
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Drive a dimension");
+  ImGui::Separator();
+  // Only features that HAVE a number a formula can drive are offered, and only
+  // the numbers each one actually has -- the list is the op vocabulary's, so a
+  // choice here is always one the command accepts the shape of.
+  std::vector<const forge::ui::FeatureRecord*> drivable;
+  for (const forge::ui::FeatureRecord& r : partDoc_.records()) {
+    if (!forge::ui::bindableSlotsOf(r.line.op).empty()) drivable.push_back(&r);
+  }
+  if (drivable.empty()) {
+    ImGui::TextDisabled("No feature in this part has a dimension a formula can drive.");
+  } else {
+    const forge::ui::FeatureRecord* chosen = partDoc_.featureAt(bindFeatureId_);
+    if (chosen == nullptr || forge::ui::bindableSlotsOf(chosen->line.op).empty()) {
+      chosen = drivable.back();
+      bindFeatureId_ = chosen->irId;
+      bindSlotIndex_ = 0;
+    }
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##bindfeature", forge::ui::featureReferenceLabel(*chosen).c_str())) {
+      for (const forge::ui::FeatureRecord* r : drivable) {
+        const bool picked = r->irId == bindFeatureId_;
+        if (ImGui::Selectable(forge::ui::featureReferenceLabel(*r).c_str(), picked)) {
+          bindFeatureId_ = r->irId;
+          bindSlotIndex_ = 0;
+        }
+        if (picked) ImGui::SetItemDefaultFocus();
+      }
+      ImGui::EndCombo();
+    }
+    // A number the statement was written without cannot be driven, so the list
+    // is the numbers this feature HAS, each with what it is and what it is now.
+    std::vector<forge::ui::NumericSlot> slots;
+    for (const forge::ui::NumericSlot& s : forge::ui::bindableSlotsOf(chosen->line.op)) {
+      if (s.index < chosen->line.args.size() &&
+          chosen->line.args[s.index].kind == forge::ui::IrArgKind::Number) {
+        slots.push_back(s);
+      }
+    }
+    if (slots.empty()) {
+      ImGui::TextDisabled("This feature was made without a dimension a formula can drive.");
+    } else {
+      if (bindSlotIndex_ < 0 || static_cast<std::size_t>(bindSlotIndex_) >= slots.size()) {
+        bindSlotIndex_ = 0;
+      }
+      const auto slotLabel = [&](const forge::ui::NumericSlot& s) {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf), "%s  (%s, now %s)", s.name.c_str(),
+                      forge::ui::toString(s.unit),
+                      forge::ui::formatIrNumber(chosen->line.args[s.index].number).c_str());
+        return std::string(buf);
+      };
+      ImGui::SetNextItemWidth(-1);
+      if (ImGui::BeginCombo("##bindslot",
+                            slotLabel(slots[static_cast<std::size_t>(bindSlotIndex_)]).c_str())) {
+        for (std::size_t i = 0; i < slots.size(); ++i) {
+          const bool picked = static_cast<int>(i) == bindSlotIndex_;
+          if (ImGui::Selectable(slotLabel(slots[i]).c_str(), picked)) {
+            bindSlotIndex_ = static_cast<int>(i);
+          }
+          if (picked) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::SetNextItemWidth(-1);
+      ImGui::InputTextWithHint("##bindformula", "formula, e.g. wall * 0.5 + 2 mm",
+                               bindFormulaInput_.data(), bindFormulaInput_.size());
+      ImGui::BeginDisabled(bindFormulaInput_[0] == '\0');
+      if (ImGui::Button("Drive")) {
+        parametersBind(bindFeatureId_, slots[static_cast<std::size_t>(bindSlotIndex_)].name,
+                       std::string(bindFormulaInput_.data()));
+      }
+      ImGui::EndDisabled();
+    }
+  }
+
+  // ── the answer to the last change ──────────────────────────────────────
+  if (!parametersMessage_.empty()) {
+    ImGui::Spacing();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextColored(parametersLastOk_ ? rgb(120, 200, 130) : rgb(235, 105, 95), "%s",
+                       parametersMessage_.c_str());
+    ImGui::PopTextWrapPos();
+  }
+}
+
+void ForgeFrame::queueParameterCommand(const std::string& id, forge::ui::CommandParams params) {
+  pendingParameterValid_ = true;
+  pendingParameterCommand_ = id;
+  pendingParameterParams_ = std::move(params);
+}
+
+void ForgeFrame::parametersSet(const std::string& name, const std::string& expression) {
+  forge::ui::CommandParams p;
+  p.setText("name", name);
+  p.setText("expression", expression);
+  queueParameterCommand("part.parameter_set", std::move(p));
+}
+
+void ForgeFrame::parametersBind(int feature, const std::string& argument,
+                                const std::string& expression) {
+  forge::ui::CommandParams p;
+  p.setNumber("feature", static_cast<double>(feature));
+  p.setText("argument", argument);
+  p.setText("expression", expression);
+  queueParameterCommand("part.parameter_bind", std::move(p));
+}
+
+void ForgeFrame::parametersUnbind(int feature, const std::string& argument) {
+  forge::ui::CommandParams p;
+  p.setNumber("feature", static_cast<double>(feature));
+  p.setText("argument", argument);
+  queueParameterCommand("part.parameter_unbind", std::move(p));
+}
+
+void ForgeFrame::parametersRemove(const std::string& name) {
+  forge::ui::CommandParams p;
+  p.setText("name", name);
+  queueParameterCommand("part.parameter_remove", std::move(p));
+}
+
+void ForgeFrame::runPendingParameterCommand() {
+  // THE ONE REGISTRY, as applyFeatureEdit() does: the panel may not reach into
+  // the document, because that would bypass the undo stack, the activity log and
+  // every check the command makes -- and Archie, which has only the registry,
+  // could then do less than the panel.
+  const forge::ui::DispatchResult r = shell_.run(pendingParameterCommand_, pendingParameterParams_);
+  parametersLastOk_ = r.ok();
+  if (r.ok()) {
+    parametersMessage_ = pendingParameterCommand_ == "part.parameter_set"
+                             ? std::string("Updated. Every dimension that depends on it follows.")
+                         : pendingParameterCommand_ == "part.parameter_bind"
+                             ? std::string("That dimension now follows its formula.")
+                         : pendingParameterCommand_ == "part.parameter_unbind"
+                             ? std::string("That dimension keeps its number and no longer follows a formula.")
+                             : std::string("Deleted.");
+    syncSceneToDocument();
+  } else {
+    parametersMessage_ = r.detail.empty() ? std::string(forge::ui::userText(r.status)) : r.detail;
+    if (!parametersMessage_.empty()) {
+      parametersMessage_[0] = static_cast<char>(
+          std::toupper(static_cast<unsigned char>(parametersMessage_[0])));
+    }
+  }
+  note(parametersLastOk_ ? "Parameters changed" : "Parameters not changed");
 }
 
 // ── THE ACTIVITY LOG: WHY A FEATURE FAILED, WITHOUT A DEBUGGER ──────────────

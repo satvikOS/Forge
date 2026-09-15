@@ -59,6 +59,7 @@
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 
+#include "ExpressionHost.hpp"
 #include "FileDialog.hpp"
 #include "FileExchangeHost.hpp"
 #include "ForgeFrame.hpp"
@@ -639,7 +640,15 @@ int main(int argc, char** argv) {
     }
   }
 
+  // ── parameters and expressions ───────────────────────────────────────────
+  // The expression engine is libforge_expr -- FreeCAD's expression language and
+  // unit system, a separate LGPL-2.1 shared library loaded from
+  // Contents/Frameworks. ExpressionHost is the only object that talks to it.
+  // Declared BEFORE the frame so it outlives the frame that points at it.
+  forge::desktop::ExpressionHost expressionHost;
   forge::desktop::ForgeFrame frame(shell, scene);
+  frame.setExpressionEngine(&expressionHost);
+  std::printf("[forge] expressions: %s\n", expressionHost.identity().c_str());
 
   // ── Archie ───────────────────────────────────────────────────────────────
   // ARCHIE IS THE MODEL WHEN THE MODEL IS RUNNING. This block used to install

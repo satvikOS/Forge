@@ -46,6 +46,8 @@
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/ExpressionEngine.hpp"
+#include "forge/ui/Parameters.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/ToolCatalog.hpp"
@@ -213,6 +215,10 @@ int main() {
   CHECK_EQ_INT(doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
                         {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)}), 2);
   CHECK(registerPartCommands(shell.registry(), doc, undo) > 0);
+  // ... and the parameter commands, which wirePartCommands registers beside them.
+  CHECK_EQ_INT(registerParameterCommands(shell.registry(), doc, undo,
+                                         []() -> const ExpressionEngine* { return nullptr; }),
+               4);
 
   const CommandRegistry& reg = shell.registry();
   const std::vector<std::string> all = reg.ids();

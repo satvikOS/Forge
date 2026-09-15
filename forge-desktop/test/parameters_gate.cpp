@@ -42,10 +42,69 @@
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
-#include "ui_test_util.hpp"
 
 using namespace forge::ui;
-using forge::uitest::Harness;
+
+// ── the check harness ───────────────────────────────────────────────────────
+// ui/test/ui_test_util.hpp's contract, local to this file: forge-desktop's syntax
+// gate type-checks every forge-desktop/test translation unit with forge-desktop's
+// include path, and this gate should not be the one that needs ui/test on it.
+namespace {
+
+struct Harness {
+  const char* name;
+  std::size_t checks = 0;
+  std::size_t failures = 0;
+  explicit Harness(const char* n) : name(n) {}
+  int finish() const {
+    std::printf("[%s] %zu checks, %zu failures — %s\n", name, checks, failures,
+                failures == 0 ? "PASS" : "FAIL");
+    return failures == 0 ? 0 : 1;
+  }
+};
+
+void checkTrue(Harness& h, bool value, const char* expr, const char* file, int line) {
+  ++h.checks;
+  if (value) return;
+  ++h.failures;
+  std::printf("  FAIL %s:%d  expected true: %s\n", file, line, expr);
+}
+
+void checkEqInt(Harness& h, long long got, long long want, const char* expr, const char* file,
+                int line) {
+  ++h.checks;
+  if (got == want) return;
+  ++h.failures;
+  std::printf("  FAIL %s:%d  %s\n        got %lld, want %lld\n", file, line, expr, got, want);
+}
+
+void checkEqStr(Harness& h, const std::string& got, const std::string& want, const char* expr,
+                const char* file, int line) {
+  ++h.checks;
+  if (got == want) return;
+  ++h.failures;
+  std::printf("  FAIL %s:%d  %s\n        got \"%s\", want \"%s\"\n", file, line, expr, got.c_str(),
+              want.c_str());
+}
+
+void checkNear(Harness& h, double got, double want, double tol, const char* expr, const char* file,
+               int line) {
+  ++h.checks;
+  if (std::fabs(got - want) <= tol) return;
+  ++h.failures;
+  std::printf("  FAIL %s:%d  %s\n        got %.9g, want %.9g (tol %.3g)\n", file, line, expr, got,
+              want, tol);
+}
+
+}  // namespace
+
+#define CHECK(expr) checkTrue(H, (expr), #expr, __FILE__, __LINE__)
+#define CHECK_EQ_INT(got, want) \
+  checkEqInt(H, static_cast<long long>(got), static_cast<long long>(want), #got " == " #want, \
+             __FILE__, __LINE__)
+#define CHECK_EQ_STR(got, want) checkEqStr(H, (got), (want), #got " == " #want, __FILE__, __LINE__)
+#define CHECK_NEAR(got, want, tol) \
+  checkNear(H, (got), (want), (tol), #got " ~= " #want, __FILE__, __LINE__)
 
 namespace {
 

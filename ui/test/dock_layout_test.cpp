@@ -80,7 +80,9 @@ int main() {
     CHECK(a.valid());
     CHECK_EQ_STR(a.serialize(), b.serialize());  // byte-identical every call
     CHECK_EQ_INT(a.windowCount(), 1);
-    CHECK_EQ_INT(a.panelCount(), 8);
+    // Eight in every workspace, and nine in Part, whose right column also carries
+    // the Parameters tab (WorkspaceProfile.cpp says why).
+    CHECK_EQ_INT(a.panelCount(), p == WorkspaceProfile::Part ? 9 : 8);
     CHECK(a.mainWindow() != nullptr);
   }
   CHECK(defaultLayout(WorkspaceProfile::Part).hasPanel("feature_tree"));

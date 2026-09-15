@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "d72a5126011e0c0c79061a751263510037eb49210a53e1b04abf996bf7889d3a",
-        "bytes": 564602,
-        "lines": 11495
+        "sha256": "0946c8b2fca7691b310cd129c50918062a8e355098ea499c4f17a68d9bed52d0",
+        "bytes": 579753,
+        "lines": 11801
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -45,6 +45,12 @@
         "sha256": "a262bab2f9be07abcf97d4fdcbd2e164a87e957fe5d19a97d7ac27ba9ee758e5",
         "bytes": 12086,
         "lines": 315
+      },
+      {
+        "path": "ui/src/ParameterCommands.cpp",
+        "sha256": "98163f08668a21b649f09ff6b26b3c66837c361c1c6efafd9cedd58a69aaa565",
+        "bytes": 14561,
+        "lines": 309
       },
       {
         "path": "ui/src/PartCommands.cpp",
@@ -78,7 +84,7 @@
   "counts": {
     "kernel_ops": 68,
     "ui_validator_ops": 68,
-    "registry_commands": 100,
+    "registry_commands": 104,
     "commands_emitting_ir": 69,
     "user_invocable_ops": 65,
     "forbidden_ops": 3,
@@ -8895,6 +8901,146 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.parameter_bind",
+      "label": "Drive Dimension by Formula",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "argument",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "expression",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "Transaction",
+      "source": "ui/src/ParameterCommands.cpp"
+    },
+    {
+      "id": "part.parameter_remove",
+      "label": "Delete Parameter",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "name",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "Transaction",
+      "source": "ui/src/ParameterCommands.cpp"
+    },
+    {
+      "id": "part.parameter_set",
+      "label": "Set Parameter",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "name",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "expression",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "comment",
+          "type": "Text",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "Transaction",
+      "source": "ui/src/ParameterCommands.cpp"
+    },
+    {
+      "id": "part.parameter_unbind",
+      "label": "Stop Driving Dimension",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "argument",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "Transaction",
+      "source": "ui/src/ParameterCommands.cpp"
     },
     {
       "id": "part.pattern_circular",

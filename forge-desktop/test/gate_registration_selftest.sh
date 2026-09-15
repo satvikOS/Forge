@@ -46,12 +46,15 @@ RD
   : > "$d/forge-desktop/test/appcast_check.cpp"
   : > "$d/forge-desktop/test/run_differential_solid_gate.sh"
   : > "$d/forge-desktop/test/appcast_selftest.sh"
+  : > "$d/forge-desktop/test/parameters_gate.cpp"
+  : > "$d/forge-desktop/test/run_parameters_gate.sh"
   cat > "$d/.github/workflows/ci.yml" <<'WF'
 jobs:
   x:
     steps:
       - run: bash forge-desktop/test/run_differential_solid_gate.sh
       - run: bash forge-desktop/test/appcast_selftest.sh
+      - run: bash forge-desktop/test/run_parameters_gate.sh
 WF
 
   case "$defect" in
@@ -79,6 +82,7 @@ jobs:
     steps:
       # we used to run forge-desktop/test/run_differential_solid_gate.sh here
       - run: bash forge-desktop/test/appcast_selftest.sh
+      - run: bash forge-desktop/test/run_parameters_gate.sh
 WF2
       ;;
     no_run_desktop) rm -f "$d/forge-desktop/test/run_desktop.sh" ;;

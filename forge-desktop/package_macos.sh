@@ -232,6 +232,14 @@ for _l in "$LIC_SRC"/*.txt "$LIC_SRC"/*.md; do
 done
 [ "$_lic_n" -ge 3 ] || die "only $_lic_n licence file(s) staged -- expected at least the three vendored texts"
 say "staged $_lic_n licence file(s) into Contents/Resources/licenses"
+# ── THE FreeCAD-DERIVED SHARED LIBRARIES (LGPL-2.1-or-later) ─────────────────
+# libforge_expr and every other library under third_party/freecad-derived ships in
+# Contents/Frameworks, dynamically linked, and each carries its full licence text,
+# the dated record of what was changed in FreeCAD's code and its notice.
+# tools/gates/freecad_derived_lgpl_gate.sh runs this same script on a synthetic
+# bundle in CI.
+bash "$ROOT/third_party/freecad-derived/stage_bundle_notices.sh" "$APP" \
+  || die "the FreeCAD-derived libraries' licence obligations could not be staged"
 
 # ── ★ THE KERNEL WORKER — the process the application is allowed to lose ─────
 # forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null Geom2d_Curve
@@ -284,6 +292,7 @@ QUEUE="$WORK/queue"; : > "$QUEUE"
 # Where an @rpath/... dependency can be found. The kernel build dir and OCCT's
 # lib dir are the two that actually matter; the rest are belt and braces.
 RPATH_SEARCH="$FW
+$APP_BUILD
 $KERNEL_BUILD
 $BREW/lib
 $BREW/opt/opencascade/lib
@@ -557,6 +566,21 @@ while IFS= read -r f; do
   fi
 done < "$BUNDLED"
 [ "$LEAKS" -eq 0 ] || die "$LEAKS residual absolute (non-system) references — the bundle is NOT relocatable"
+# ★ libforge_expr IS IN THE BUNDLE AND IS LOADED, NOT LINKED IN. It is LGPL-2.1
+# code; the application must load it from Contents/Frameworks so a user can
+# replace it. So: the file is there, the app's load commands name it through
+# @rpath, and the app DEFINES none of its symbols.
+[ -f "$FW/libforge_expr.dylib" ] || die "libforge_expr.dylib is not in Contents/Frameworks"
+otool -L "$APP/Contents/MacOS/forge_desktop" | awk 'NR>1{print $1}' \
+  | grep -qx '@rpath/libforge_expr.dylib' \
+  || die "forge_desktop does not load @rpath/libforge_expr.dylib -- the LGPL library must be linked dynamically"
+# Strong definitions only: an inline member of the library's public headers may be
+# emitted into ForgeFrame's objects as a weak coalesced symbol, which is the header,
+# not the library's code.
+_expr_defined="$(nm -gUm "$APP/Contents/MacOS/forge_desktop" 2>/dev/null | grep -v 'weak' | c++filt | grep -c 'forge::expr::')"
+[ "${_expr_defined:-0}" -eq 0 ] \
+  || die "forge_desktop DEFINES ${_expr_defined} forge::expr symbol(s) -- LGPL code was compiled into the executable"
+say "libforge_expr.dylib is in Contents/Frameworks and loaded dynamically (0 of its symbols defined in forge_desktop)"
 say "0 residual absolute references across $(wc -l < "$BUNDLED" | tr -d ' ') Mach-O files"
 
 # RELOCATION PROOF. Running it in place proves nothing: the build tree is still

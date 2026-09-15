@@ -2321,12 +2321,14 @@ ExpressionPtr forge::expr::ExpressionParser::parse(const char* buffer)
 
     if (result != 0) {
         ScanResult.reset();
-        // Forge: say WHY and WHERE, not only that it failed.
+        // Forge: say WHY and WHERE, not only that it failed, in words a person
+        // reading a refusal in a CAD panel can act on (upstream: "Failed to parse
+        // expression '...'").
         std::string why = !lexFailure.empty() ? lexFailure
             : !parseFailure.empty()           ? parseFailure
-                                              : std::string("unexpected input");
+                                              : std::string("it stops making sense");
         throw ParserError(
-            "Failed to parse expression '" + std::string(buffer) + "': " + why + " at column "
+            "'" + std::string(buffer) + "' is not a formula: " + why + " at character "
             + std::to_string(last_column + 1)
         );
     }

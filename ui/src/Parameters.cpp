@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <set>
@@ -763,7 +764,10 @@ bool ParameterEdit::apply(PartDocument& doc) {
     args[u.slot] = IrArg::num(u.to);
     if (!doc.editFeatureArgs(u.irId, args)) {
       if (doc.lastEdit() == EditCheck::NoChange) continue;
-      failure_ = featureReferenceLabel(*rec) + " refused the new value: " + toString(doc.lastEdit());
+      failure_ = featureReferenceLabel(*rec) + " cannot take the value " + formatIrNumber(u.to) +
+                 (doc.lastEdit() == EditCheck::InvalidStatement
+                      ? std::string(" -- the feature would no longer be valid")
+                      : std::string(" -- the feature changed underneath the formula"));
       if (failureSink_) *failureSink_ = failure_;
       rollback(doc);
       return false;

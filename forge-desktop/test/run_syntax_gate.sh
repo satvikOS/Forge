@@ -128,6 +128,9 @@ INC="$INC -I forge-kernel/include"
 # The archie module the application links (ArchieLink, RemotePlanner) and the
 # loopback stub its model gate serves from. Header paths only; no SDK.
 INC="$INC -I archie/include -I archie/test -I retrieval/include"
+# libforge_expr's PUBLIC headers (LGPL-2.1, in-tree): ExpressionHost.cpp and
+# parameters_gate.cpp include them. Headers only -- type-checking needs no library.
+INC="$INC -I third_party/freecad-derived/expressions/include"
 FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 
 # The TUs this gate checks. EXPLICIT, not a glob: the skipped four are skipped
@@ -204,6 +207,13 @@ CHECKED=(
   # ── ADDED 2026-09-15 (archie-in-forge). The Archie model gate: forge_desktop_core,
   #    forge/ui, the archie module and a POSIX-socket stub -- no OCCT, no SDK.
   forge-desktop/test/archie_model_gate.cpp
+  # ── ADDED 2026-09-15. Parameters and expressions. ExpressionHost.cpp is the one
+  #    Forge translation unit that includes libforge_expr (the LGPL shared library
+  #    in third_party/freecad-derived/expressions); both files need that library's
+  #    in-tree headers and no SDK, so they type-check here. run_parameters_gate.sh
+  #    builds and RUNS them against the real library.
+  forge-desktop/src/ExpressionHost.cpp
+  forge-desktop/test/parameters_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(

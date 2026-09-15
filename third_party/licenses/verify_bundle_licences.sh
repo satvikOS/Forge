@@ -42,6 +42,29 @@ if [ -s "$LIC/INCOMPLETE.md" ] && ! grep -qi 'dear imgui' "$LIC/INCOMPLETE.md"; 
   MISSING=$((MISSING + 1))
 fi
 
+# ── the FreeCAD-derived shared libraries ─────────────────────────────────────
+# Every Frameworks dylib that third_party/freecad-derived/manifest.json names must
+# ship with its component's LGPL text, modification record and notice. Driven by
+# what is IN the bundle: a library that is shipped is a library that is owed.
+FW="$APP/Contents/Frameworks"
+MANIFEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/../freecad-derived" 2>/dev/null && pwd)/manifest.json"
+if [ -f "$MANIFEST" ]; then
+  while IFS='|' read -r comp lib; do
+    [ -n "$comp" ] || continue
+    [ -f "$FW/$lib" ] || continue
+    for f in COPYING.LGPL MODIFICATIONS.md NOTICE; do
+      need "freecad-derived/$comp/$f" "$lib (LGPL-2.1, dynamic, Contents/Frameworks)"
+    done
+  done < <(python3 -c '
+import json, sys
+for c in json.load(open(sys.argv[1]))["components"]:
+    print("%s|%s" % (c["name"], c["library"]))' "$MANIFEST")
+  need "freecad-derived/THIRD_PARTY_NOTICES.md" "the FreeCAD-derived libraries, one section each"
+else
+  echo "  MISSING third_party/freecad-derived/manifest.json beside this script -- cannot tell which libraries are owed"
+  MISSING=$((MISSING + 1))
+fi
+
 if [ "$MISSING" -gt 0 ]; then
   echo "[licences] RED -- $MISSING required item(s) missing. This artifact must not ship."
   exit 1
