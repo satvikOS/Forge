@@ -988,6 +988,18 @@ jobs:
         run: |
           grep -h OCC_VERSION_COMPLETE \
             /opt/homebrew/opt/opencascade/include/opencascade/Standard_Version.hxx || true
+      - name: CAM inward offset keeps the tool-radius standoff at EVERY scale (1e-3..1e3 mm, 7 mutations)
+        # TKOffset family A replaced BRepOffsetAPI_MakeOffset in src/Cam.cpp with the
+        # native PolygonOffset2D behind a clearance post-condition. An adversarial
+        # review refuted that post-condition BY SCALE: its slack was an ABSOLUTE
+        # 0.0125 mm, so a 0.008 mm square with a 0.012 mm tool radius came back as a
+        # toolpath with ZERO standoff, reported as success. A gouging toolpath is
+        # physical damage. This gate drives the PUBLIC cam::profile / cam::pocket over
+        # squares, an L, discs (both CW constructions) and a stadium at 13 scales and
+        # two positions, and measures every cutting segment against the EXACT source
+        # boundary; --mutations puts each repair back and requires the matching RED.
+        # Needs only OCCT (installed above) and clang: no kernel build, no corpus.
+        run: bash forge-kernel/test/run_cam_offset_scale_gate.sh --mutations
       - name: Install root deps (cmake-js, node-addon-api)
         run: npm install --no-audit --no-fund --ignore-scripts
       - name: Configure + build native kernel (.node)

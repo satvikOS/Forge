@@ -465,6 +465,10 @@ int selftest() {
     // square's SIDE. Each of these must REFUSE; if one starts succeeding, either
     // the engine was fixed (good — check the geometry then) or the post-condition
     // stopped firing (bad).
+    //   ★ ONE SCALE ONLY, and that hid a defect: with an absolute 0.0125 mm slack
+    //     these four passed while a 0.008 mm square came back with zero standoff.
+    //     The scale sweep lives in test/cam_offset_scale_gate.cpp (1e-3..1e3 mm,
+    //     wired into CI with mutations); these stay as the 10 mm regression.
     {
         const double side = 10.0;
         for (double d : {10.5, 12.0, 20.0, 50.0}) {

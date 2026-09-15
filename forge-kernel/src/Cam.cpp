@@ -107,14 +107,15 @@
 // consumer of this function and the bound is derived, not asserted:
 //   * the only two callers are profile() and pocket() in this file, and BOTH
 //     immediately discard the exact geometry by calling
-//     sampleWireXY(w, kSampleDeflection = 0.05 mm) — only that polyline reaches
-//     the toolpath and the G-code;
-//   * the input is discretised at kOffsetInputDeflection = kSampleDeflection/16
-//     and the round joins are tessellated to the SAME budget (arcTolerance is set
-//     explicitly below rather than left to the engine's |d|-proportional default,
-//     so the bound does not grow with tool size), giving a worst-case departure
-//     from the exact offset of 2 * 3.125e-3 = 6.25e-3 mm, i.e. 1/8 of the
-//     tolerance the caller itself already spends.
+//     sampleWireXY(w, min(kSampleDeflection = 0.05 mm, extent/256)) — only that
+//     polyline reaches the toolpath and the G-code;
+//   * the input is discretised, and the round joins are tessellated, to ONE
+//     tolerance tol = min(kOffsetInputDeflection = 3.125e-3 mm, min(d, L)/256)
+//     -- relative to the tool radius d and the feature extent L, capped by 1/16
+//     of what the caller spends -- so the departure from the exact offset is at
+//     most 3 tol at EVERY scale. The first cut of this change used the absolute
+//     3.125e-3 mm alone, which is larger than the whole feature below 0.025 mm;
+//     see SCALE-AWARE OFFSET TOLERANCE below for what that shipped and why.
 // Measured against OCCT over 600 parts, the two answers coincide to 9.72e-3 mm
 // worst case on every part where they offset in the same direction
 // (reports/corpus_ab/MAKEOFFSET_DECOMPOSITION_2026-09-03.md, T2).
@@ -142,12 +143,101 @@ namespace {
 constexpr double kEps      = 1.0e-7;
 constexpr double kSampleDeflection = 0.05; // mm — curve-sampling tolerance
 
-// TKOffset family A. Deflection used to discretise a CURVED input wire before the
-// native 2D offset. Deliberately 1/16 of kSampleDeflection: every consumer of the
-// offset result immediately re-samples it at kSampleDeflection, so the error this
-// discretisation contributes is bounded at 1/16 of the tolerance the caller
-// already spends. Measured, not assumed — test/cam_native_offset_ab.mjs.
+// TKOffset family A. The CAP on the tolerance used to discretise a CURVED input
+// wire, tessellate the round joins and slack the post-condition: 1/16 of
+// kSampleDeflection, the tolerance every consumer already spends. It is a cap and
+// not the tolerance: below d = 0.8 mm the tolerance is d/256 (offsetTolerance).
+// Measured, not assumed — test/cam_native_offset_ab.mjs at the cap,
+// test/run_cam_offset_scale_gate.sh across 1e-3 .. 1e3 mm.
 constexpr double kOffsetInputDeflection = kSampleDeflection / 16.0;  // 3.125e-3 mm
+
+// ── SCALE-AWARE OFFSET TOLERANCE ─────────────────────────────────────────────
+// (2026-09-14, after an adversarial review refuted the first cut of family A.)
+//
+// THE DEFECT. Every tolerance on the offset path was an ABSOLUTE length: curved
+// input was discretised at kOffsetInputDeflection = 3.125e-3 mm, the round joins
+// were tessellated to the same 3.125e-3 mm, and the clearance post-condition
+// refused only when the answer stood less than d - 0.0125 mm clear of the
+// boundary. On a feature a few hundredths of a millimetre across that slack is
+// LARGER than the tool radius, so the check could not fire. Measured on the
+// shipped function through profile(): a 0.008 mm square with a 0.012 mm tool
+// radius came back as a toolpath with ZERO standoff (every vertex ON the
+// boundary); 0.010 mm with 0.0105 and 0.013 came back 57.1% and 84.6% short. The
+// guard only fired when d > 0.75 s + 0.00625 mm, so every feature under 0.025 mm
+// had a band of tool radii whose ghost was accepted. It was not only the ghost:
+// a 1 mm L-shape at d = 0.05 mm had its reflex corner bridged by chords 3.4% of
+// the radius short, a gouge no check was looking at; a 1 mm disc at d = 0.05 mm
+// was traced as a 9-vertex polygon whose flats stood 0.084 mm from the part
+// where 0.05 mm was asked (material left behind); a
+// 0.01 mm square pocket emitted no raster rows; and a 1e-3 mm disc was refused
+// outright because its trace sampled to a single point.
+// test/run_cam_offset_scale_gate.sh measures all of it, 1e-3 mm .. 1e3 mm.
+//
+// THE RULE. One tolerance, relative to the smaller of the two lengths the
+// operation is about, and capped by the absolute budget the consumer spends:
+//
+//     tol(d, L) = min( kOffsetInputDeflection , min(d, L) / 256 )
+//
+// d is the offset distance (the tool radius), L the extent of the source boundary
+// (the longer side of its XY bounding box). tol replaces the old constant in all
+// three places it stood: the curved-input discretisation, the round-join arc
+// tolerance, and the post-condition's slack.
+//   * d governs whenever an offset legitimately exists: a region with any point
+//     at distance d from its boundary is at least 2d across, so L >= 2d. L only
+//     TIGHTENS the tolerance on inputs that must be refused anyway.
+//   * At d >= 0.8 mm the cap binds and the polygon path computes EXACTLY what it
+//     computed before this change; the 600-part corpus (6 mm tool, d = 3 mm) is
+//     not moved by the rule.
+//   * 1/256 is chosen so the shortfall the contract below allows is at most 3/256
+//     (1.2%) of the tool radius, and so tessellation stays bounded: a sagitta of
+//     d/256 is a chord every 0.354 rad, five chords per quarter turn.
+//
+// THE CONTRACT this buys, for the polygon P the offset is computed on:
+//     ok == true  =>  the exact minimum distance from every result loop to P is
+//                     at least d - (2 tol + floor), and every loop lies INSIDE P.
+// One tol is the round-join chord sagitta (a chord of an arc of radius d
+// tessellated to arcTolerance = tol lies at most tol inside the arc); the other
+// is the engine's collapse retry, which may drop source vertices lying within tol
+// of their neighbours' chord. For a CURVED source, P is itself within tol of the
+// true curve (the sampler's deflection), so against the true boundary the bound
+// is d - (3 tol + floor): a shortfall of at most 3/256 of d.
+//
+// THE FLOOR. Rounding: floor = 4096 * DBL_EPSILON * (M + d), M the largest
+// |coordinate| of the boundary. A coordinate of magnitude M carries about
+// M * DBL_EPSILON of representation error and every constructed point (edge
+// displacement, arc vertex, crossing) compounds a few; 4096 is a wide, stated
+// margin. When tol does not exceed the floor the standoff cannot be CERTIFIED at
+// that position and scale, and the offset REFUSES with that reason. At
+// M = 1000 mm the floor is 9.1e-10 mm, so radii down to about 2.3e-7 mm are
+// certifiable there and the kEps = 1e-7 mm radius floor binds first.
+// Vertex welding follows tol (1e-3 of it, never above kEps), so a weld can never
+// be a visible fraction of the tolerance it is welding under.
+constexpr double kOffsetTolRelative    = 1.0 / 256.0;
+constexpr double kOffsetRoundingFactor = 4096.0;
+constexpr double kOffsetWeldRelative   = 1.0e-3;
+
+double offsetTolerance(double d, double featureExtent) {
+    return std::min(kOffsetInputDeflection, kOffsetTolRelative * std::min(d, featureExtent));
+}
+
+double offsetRoundingFloor(double coordMagnitude, double d) {
+    return kOffsetRoundingFactor * std::numeric_limits<double>::epsilon() * (coordMagnitude + d);
+}
+
+double weldFor(double tolerance) {
+    return std::min(kEps, kOffsetWeldRelative * tolerance);
+}
+
+// The deflection profile() and pocket() re-sample an offset RESULT at. For a
+// polygon result it is irrelevant (a straight edge samples to its end points), but
+// the exact-circle path returns an analytic circle, and kSampleDeflection = 0.05 mm
+// on a circle 0.9 mm across is a 2-point "circle" whose trace is its diameter.
+// Same rule, relative to the result's own extent. A chord of a CONVEX result lies
+// inside it — further from the part's boundary — so sampling can never gouge; this
+// bounds the material it leaves behind. Unchanged for any result wider than 12.8 mm.
+double traceDeflectionFor(double resultExtent) {
+    return std::min(kSampleDeflection, kOffsetTolRelative * resultExtent);
+}
 
 inline double dist3(double ax, double ay, double az,
                     double bx, double by, double bz) {
@@ -197,7 +287,7 @@ TopoDS_Face resolveFace(const TopoDS_Shape& shape, std::uint32_t faceId) {
 // OCCT's BRepOffsetAPI_MakeOffset. The hazard is a property of the explorer,
 // not of the engine, so the traversal stays as it is.
 std::vector<std::array<double, 2>>
-sampleWireXY(const TopoDS_Wire& wire, double deflection) {
+sampleWireXY(const TopoDS_Wire& wire, double deflection, double weld = kEps) {
     std::vector<std::array<double, 2>> out;
     if (wire.IsNull()) return out;
 
@@ -218,8 +308,8 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
                 gp_Pnt p = adaptor.Value(ps[idx - 1]);
                 if (!out.empty()) {
                     auto& back = out.back();
-                    if (std::abs(back[0] - p.X()) < kEps &&
-                        std::abs(back[1] - p.Y()) < kEps) {
+                    if (std::abs(back[0] - p.X()) < weld &&
+                        std::abs(back[1] - p.Y()) < weld) {
                         continue;  // duplicate vertex from adjacent edges
                     }
                 }
@@ -233,8 +323,8 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
     if (out.size() >= 2) {
         auto& first = out.front();
         auto& last  = out.back();
-        if (std::abs(first[0] - last[0]) > kEps ||
-            std::abs(first[1] - last[1]) > kEps) {
+        if (std::abs(first[0] - last[0]) > weld ||
+            std::abs(first[1] - last[1]) > weld) {
             out.push_back(first);
         }
     }
@@ -249,10 +339,14 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
 // There is deliberately no "empty means try something else" encoding: an empty
 // result used to mean "re-use the unoffset wire", which emits a gouging toolpath
 // under an ok:true report. Callers must either use `shape` or propagate `reason`.
+//
+// `traceDeflection` is the budget the caller must re-sample `shape` at — see
+// traceDeflectionFor(). It is set on success only.
 struct InwardOffsetResult {
     TopoDS_Shape shape;
     bool         ok{false};
     std::string  reason;
+    double       traceDeflection{kSampleDeflection};
 };
 
 InwardOffsetResult offsetRefused(std::string why) {
@@ -262,10 +356,11 @@ InwardOffsetResult offsetRefused(std::string why) {
     return r;
 }
 
-InwardOffsetResult offsetDone(TopoDS_Shape sh) {
+InwardOffsetResult offsetDone(TopoDS_Shape sh, double traceDeflection) {
     InwardOffsetResult r;
-    r.ok    = true;
-    r.shape = std::move(sh);
+    r.ok              = true;
+    r.shape           = std::move(sh);
+    r.traceDeflection = traceDeflection;
     return r;
 }
 
@@ -276,10 +371,13 @@ std::string num(double v) {
     return std::string(buf);
 }
 
-// If the wire is exactly ONE full circular edge, return its circle. This is the
-// only input shape for which the offset has a closed form, and it is worth
-// detecting because it is 38 of the 600 corpus parts' outer wire.
-bool wireIsFullCircle(const TopoDS_Wire& wire, gp_Circ& out) {
+// If the wire is exactly ONE full circular edge, return its circle and the
+// orientation that edge carries in the wire (composed with the wire's own, as
+// BRepTools_WireExplorer reports it). This is the only input shape for which the
+// offset has a closed form, and it is worth detecting because it is 38 of the 600
+// corpus parts' outer wire.
+bool wireIsFullCircle(const TopoDS_Wire& wire, gp_Circ& out,
+                      TopAbs_Orientation* edgeOrientation = nullptr) {
     int nEdges = 0;
     TopoDS_Edge only;
     for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
@@ -294,6 +392,7 @@ bool wireIsFullCircle(const TopoDS_Wire& wire, gp_Circ& out) {
         const double span = std::abs(ad.LastParameter() - ad.FirstParameter());
         if (span < 2.0 * M_PI - 1.0e-9) return false;
         out = ad.Circle();
+        if (edgeOrientation) *edgeOrientation = only.Orientation();
         return true;
     } catch (...) {
         return false;
@@ -306,32 +405,39 @@ bool wireIsFullCircle(const TopoDS_Wire& wire, gp_Circ& out) {
 //     O_d = { x in P : dist(x, boundary(P)) >= d }
 //
 // so EVERY point on the boundary of O_d lies at distance exactly d from
-// boundary(P). That is checkable in a few microseconds and it is checked here
-// rather than trusted, because the engine can return a non-empty answer that
-// does not satisfy it.
+// boundary(P), and O_d lies inside P. Both are checked here rather than trusted,
+// because the engine can return a non-empty answer that satisfies neither.
 //
-// MEASURED 2026-09-14, forge::native::geom::PolygonOffset2D, CCW 10x10 square,
-// arcTolerance 3.125e-3:
+// MEASURED 2026-09-14, forge::native::geom::PolygonOffset2D, CCW 10x10 square:
 //     d = -5.0 .. -10.0   ok=1, 0 loops, "loop collapsed under inward offset"   CORRECT
 //     d = -10.5           ok=1, 1 loop,  area 0.5,  vertices 4.5 mm from the boundary
 //     d = -12.0           ok=1, 1 loop,  area 8,    vertices 3.0 mm from the boundary
 //     d = -20.0           ok=1, 1 loop,  area 200,  vertices 5.0 mm from the boundary,
 //                                                   and OUTSIDE the square (winding 0)
 // i.e. for |d| greater than the square's SIDE (not its inradius) a ghost loop of
-// area 2(|d|-10)^2 comes back with ok=true. Reached through profile(), a 24 mm
-// tool on a 10 mm boss would have emitted a toolpath 3 mm from the boundary when
-// 12 mm of standoff was asked for -- a gouge reported as success, which is the
-// exact failure this whole change exists to remove. The defect is in the engine
-// and is reported there; this file does not rely on it being absent.
+// area 2(|d|-10)^2 comes back with ok=true. The engine is scale-invariant, so the
+// same ghost exists at every size; the first version of this check caught it at
+// 10 mm and missed it below 0.025 mm (see SCALE-AWARE OFFSET TOLERANCE above).
+// The defect is in the engine and is reported there; this file does not rely on
+// it being absent.
 //
-// SAMPLING, STATED HONESTLY: at most kClearanceProbes vertices per result loop
-// are probed (evenly spaced, always including the first). The check is therefore
-// a NECESSARY condition evaluated on a sample -- it can miss a violation that
-// touches no probed vertex, and it can NEVER refuse a result that satisfies the
-// definition. Every ghost measured above is caught by any sample, because the
-// whole loop violates.
-constexpr int kClearanceProbes = 256;
-
+// THE CHECK IS EXACT, NOT SAMPLED. The first version probed at most 256 result
+// VERTICES, which can miss a violation that touches no probed vertex and never
+// measured a chord's interior at all. This one computes the exact minimum
+// distance between the two polygons: for every pair of segments it is zero if
+// they cross and otherwise the least of the four endpoint-to-segment distances,
+// because the distance between two disjoint segments is always attained at an
+// endpoint of one of them (C. Ericson, "Real-Time Collision Detection", Morgan
+// Kaufmann 2005, section 5.1.9). The crossing decision uses the robust orient2d
+// predicate (Shewchuk 1997, cited above) so a grazing pair cannot read as clear.
+// Cost is O(n m) with a bounding-box reject, the same order as the engine's own
+// all-pairs intersection pass: on the corpus n, m <= ~1400.
+//
+// CONTAINMENT. A loop at distance >= d from boundary(P) that does not touch it
+// lies wholly inside P or wholly outside, so one vertex's winding number decides
+// it. Without this a region OUTSIDE the part at full distance — exactly what the
+// old winding-relative sign produced for a CW boundary — would pass the clearance
+// test.
 double distPointToSegment2D(const forge::native::geom::Point2& p,
                             const forge::native::geom::Point2& a,
                             const forge::native::geom::Point2& b) {
@@ -344,29 +450,65 @@ double distPointToSegment2D(const forge::native::geom::Point2& p,
     return std::sqrt(dx * dx + dy * dy);
 }
 
-// Smallest probed clearance between the offset result and the source boundary.
-// Returns +inf when there is nothing to probe.
-double worstOffsetClearance(const forge::native::geom::Loop2& src,
-                            const std::vector<forge::native::geom::Loop2>& out) {
+double segmentDistance2D(const forge::native::geom::Point2& a,
+                         const forge::native::geom::Point2& b,
+                         const forge::native::geom::Point2& c,
+                         const forge::native::geom::Point2& d) {
+    using forge::native::orient2d;
+    using forge::native::signValue;
+    const int o1 = signValue(orient2d(a.x, a.y, b.x, b.y, c.x, c.y));
+    const int o2 = signValue(orient2d(a.x, a.y, b.x, b.y, d.x, d.y));
+    const int o3 = signValue(orient2d(c.x, c.y, d.x, d.y, a.x, a.y));
+    const int o4 = signValue(orient2d(c.x, c.y, d.x, d.y, b.x, b.y));
+    if (o1 * o2 < 0 && o3 * o4 < 0) return 0.0;   // proper crossing
+    return std::min({distPointToSegment2D(a, c, d), distPointToSegment2D(b, c, d),
+                     distPointToSegment2D(c, a, b), distPointToSegment2D(d, a, b)});
+}
+
+struct OffsetClearance {
+    double worst{std::numeric_limits<double>::infinity()};  // capped at `cap`
+    bool   allInside{true};
+};
+
+// Exact minimum distance from the result loops to the source loop, reported up
+// to `cap` (pairs that cannot come closer than the current worst or `cap` are
+// skipped), and whether every result loop lies inside the source loop.
+OffsetClearance offsetClearance(const forge::native::geom::Loop2& src,
+                                const std::vector<forge::native::geom::Loop2>& out,
+                                double cap) {
     using forge::native::geom::Point2;
-    double worst = std::numeric_limits<double>::infinity();
+    using forge::native::geom::PolygonOffset2D;
+    OffsetClearance rep;
+    rep.worst = cap;
     const std::size_t ns = src.pts.size();
-    if (ns < 2) return worst;
+    if (ns < 3) { rep.allInside = false; rep.worst = 0.0; return rep; }
+
+    struct Box { double x0, y0, x1, y1; };
+    std::vector<Box> sb(ns);
+    for (std::size_t j = 0; j < ns; ++j) {
+        const Point2& a = src.pts[j];
+        const Point2& b = src.pts[(j + 1) % ns];
+        sb[j] = {std::min(a.x, b.x), std::min(a.y, b.y), std::max(a.x, b.x), std::max(a.y, b.y)};
+    }
     for (const auto& L : out) {
         const std::size_t n = L.pts.size();
         if (n == 0) continue;
-        const std::size_t step = (n > static_cast<std::size_t>(kClearanceProbes))
-                                     ? (n / static_cast<std::size_t>(kClearanceProbes)) : 1;
-        for (std::size_t i = 0; i < n; i += step) {
-            const Point2& q = L.pts[i];
-            double best = std::numeric_limits<double>::infinity();
+        if (PolygonOffset2D::windingNumber(src, L.pts[0]) == 0) rep.allInside = false;
+        for (std::size_t i = 0; i < n; ++i) {
+            const Point2& a = L.pts[i];
+            const Point2& b = L.pts[(i + 1) % n];
+            const double x0 = std::min(a.x, b.x), y0 = std::min(a.y, b.y);
+            const double x1 = std::max(a.x, b.x), y1 = std::max(a.y, b.y);
             for (std::size_t j = 0; j < ns; ++j) {
-                best = std::min(best, distPointToSegment2D(q, src.pts[j], src.pts[(j + 1) % ns]));
+                const double gx = std::max({0.0, sb[j].x0 - x1, x0 - sb[j].x1});
+                const double gy = std::max({0.0, sb[j].y0 - y1, y0 - sb[j].y1});
+                if (gx * gx + gy * gy >= rep.worst * rep.worst) continue;
+                rep.worst = std::min(rep.worst,
+                                     segmentDistance2D(a, b, src.pts[j], src.pts[(j + 1) % ns]));
             }
-            worst = std::min(worst, best);
         }
     }
-    return worst;
+    return rep;
 }
 
 // Offset a closed planar wire INWARD (into the region it bounds) by offsetMm.
@@ -374,7 +516,9 @@ double worstOffsetClearance(const forge::native::geom::Loop2& src,
 // CONTRACT, unchanged from the OCCT original in everything a caller can observe
 // except the failure channel: input is the outer wire of a planar face, output is
 // a TopoDS_Wire, or a TopoDS_Compound of wires when the offset splits the region
-// into several. wiresOf() + sampleWireXY() consume either unchanged.
+// into several. wiresOf() + sampleWireXY() consume either unchanged. The result
+// presents the SAME winding as the source, so the cut direction (climb or
+// conventional) is the source's.
 //
 // -- THE INWARD SIGN, AND A DEFECT THIS FIXES ---------------------------------
 // PolygonOffset2D's `d` is NOT winding-relative: d<0 shrinks the region a loop
@@ -391,7 +535,8 @@ double worstOffsetClearance(const forge::native::geom::Loop2& src,
 // fixed here, where the behaviour change belongs. The 600-part corpus CANNOT see
 // it: all 594 outer wires present CCW in their face's own plane frame, so the
 // corpus A/B is blind by construction and only a direct CW input reaches it --
-// test/cam_family_a_offset_gate.cpp exercises exactly that.
+// test/cam_family_a_offset_ab.cpp and test/cam_offset_scale_gate.cpp (a CW square
+// at every scale) exercise exactly that.
 //   * NOTE FOR THE HARNESS OWNER: test/corpus_ab_coverage.cpp:1112 carries a
 //     REPLICA of the old rule and :1639 pins it at 143.13761. That replica now
 //     differs from this shipped function. No corpus number moves either way (the
@@ -426,7 +571,8 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
     // "Analytic properties of plane offset curves", CAGD 7(1-4):83-99, 1990,
     // which is why everything else below goes through the polygonal engine.)
     gp_Circ circ;
-    if (wireIsFullCircle(wire, circ)) {
+    TopAbs_Orientation srcEdgeOrientation = TopAbs_FORWARD;
+    if (wireIsFullCircle(wire, circ, &srcEdgeOrientation)) {
         const double r0 = circ.Radius();
         const double r1 = r0 - offsetMm;
         if (r1 <= kEps) {
@@ -435,12 +581,24 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
                                  num(r0) + " mm -- the region has no interior left");
         }
         try {
+            // SAME axis as the source (circ.Position()), so the new circle's
+            // parametric direction is the source curve's.
             gp_Circ inner(circ.Position(), r1);
             BRepBuilderAPI_MakeEdge me(inner);
             if (!me.IsDone()) {
                 return offsetRefused("could not build the offset circle edge at radius " +
                                      num(r1) + " mm");
             }
+            TopoDS_Edge edge = me.Edge();
+            // PRESERVE THE PRESENTED WINDING. The source edge may sit REVERSED in
+            // its wire; copying that orientation makes the result present the
+            // winding the source presented. The first cut of this path dropped it,
+            // reversing the traversal -- climb milling silently became conventional
+            // -- while the polygon path and OCCT both preserved it. Not a corner
+            // case: on the 600-part corpus every one of the 38 lone-circle outer
+            // wires presents CCW and every one came back wound CW (measured with
+            // the source's own sampled signed area); after this line, 0 of 38.
+            if (srcEdgeOrientation == TopAbs_REVERSED) edge.Reverse();
             // Assemble the wire with BRep_Builder (already needed below for the
             // compound) rather than BRepBuilderAPI_MakeWire: a single closed
             // circular edge IS the ring, so there is no chaining to do and the
@@ -448,22 +606,27 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
             TopoDS_Wire w;
             BRep_Builder wb;
             wb.MakeWire(w);
-            wb.Add(w, me.Edge());
+            wb.Add(w, edge);
             if (w.IsNull()) {
                 return offsetRefused("could not close the offset circle into a wire");
             }
-            return offsetDone(w);
+            return offsetDone(w, traceDeflectionFor(2.0 * r1));
         } catch (...) {
             return offsetRefused("offset circle construction threw at radius " + num(r1) + " mm");
         }
     }
 
     // -- GENERAL CASE: polygonal offset ---------------------------------------
+    // The boundary's extent is not known until it has been read, so it is read at
+    // the tolerance the offset distance alone implies, tol(d, inf). The two differ
+    // only when L < d, where no offset exists and the answer must be a refusal.
+    const double tolD = offsetTolerance(offsetMm, std::numeric_limits<double>::infinity());
+    const double weld = weldFor(tolD);
+
     // Forward map (wire -> Loop2) in the face's planar XY.
     //  * a wire whose every edge is a straight segment keeps its EXACT vertex walk
     //    (a polygon gains nothing from sampling);
-    //  * any curved edge is discretised with the consumer's own sampler at 1/16 of
-    //    the consumer's own deflection -- see the bound derived in the block above.
+    //  * any curved edge is discretised with the consumer's own sampler at tolD.
     bool allLines = true;
     for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
         try {
@@ -484,12 +647,12 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
             Point2 q{p.X(), p.Y()};
             if (!loop.pts.empty()) {
                 const Point2& b = loop.pts.back();
-                if (std::abs(b.x - q.x) < kEps && std::abs(b.y - q.y) < kEps) continue;
+                if (std::abs(b.x - q.x) < weld && std::abs(b.y - q.y) < weld) continue;
             }
             loop.pts.push_back(q);
         }
     } else {
-        for (const auto& p : sampleWireXY(wire, kOffsetInputDeflection)) {
+        for (const auto& p : sampleWireXY(wire, tolD, weld)) {
             loop.pts.push_back(Point2{p[0], p[1]});
         }
     }
@@ -498,11 +661,29 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
     if (loop.pts.size() >= 2) {
         const Point2& f = loop.pts.front();
         const Point2& l = loop.pts.back();
-        if (std::abs(f.x - l.x) < kEps && std::abs(f.y - l.y) < kEps) loop.pts.pop_back();
+        if (std::abs(f.x - l.x) < weld && std::abs(f.y - l.y) < weld) loop.pts.pop_back();
     }
     if (loop.pts.size() < 3) {
         return offsetRefused("boundary reduced to " + num(static_cast<double>(loop.pts.size())) +
                              " distinct vertices -- not a polygon");
+    }
+
+    // The scale this offset is certified at: extent L and coordinate magnitude M
+    // of the boundary as read.
+    double bx0 = loop.pts[0].x, bx1 = bx0, by0 = loop.pts[0].y, by1 = by0;
+    for (const Point2& q : loop.pts) {
+        bx0 = std::min(bx0, q.x); bx1 = std::max(bx1, q.x);
+        by0 = std::min(by0, q.y); by1 = std::max(by1, q.y);
+    }
+    const double extent    = std::max(bx1 - bx0, by1 - by0);
+    const double magnitude = std::max({std::abs(bx0), std::abs(bx1), std::abs(by0), std::abs(by1)});
+    const double tol   = offsetTolerance(offsetMm, extent);
+    const double floor = offsetRoundingFloor(magnitude, offsetMm);
+    if (!(tol > floor)) {
+        return offsetRefused("the " + num(tol) + " mm tolerance a " + num(offsetMm) +
+                             " mm standoff on a " + num(extent) + " mm feature needs is not above the " +
+                             num(floor) + " mm rounding floor at coordinates of " + num(magnitude) +
+                             " mm -- the standoff cannot be certified there");
     }
 
     // Inward is d < 0 for BOTH windings -- see the sign note above.
@@ -510,11 +691,10 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
 
     OffsetOptions opts;
     opts.join = forge::native::geom::JoinType::Round;
-    // Tessellate the round joins to the SAME budget the input was sampled at,
-    // rather than the engine's |d|-proportional default, so the total departure
-    // from the exact offset is bounded by 2*kOffsetInputDeflection independently
-    // of the tool size.
-    opts.arcTolerance = kOffsetInputDeflection;
+    // Tessellate the round joins to tol, not to the engine's |d|-proportional
+    // default and not to an absolute length: the sagitta is then at most d/256
+    // (or the consumer's 3.125e-3 mm cap, whichever is smaller) at every scale.
+    opts.arcTolerance = tol;
 
     OffsetResult r = PolygonOffset2D::offsetLoop(loop, signedDist, opts);
     if (!r.ok) {
@@ -527,29 +707,36 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
                              num(static_cast<double>(r.droppedLoops)) + " loop(s) dropped)");
     }
 
-    // Post-condition (see the block above): every probed vertex of the answer
-    // must stand at least `offsetMm` clear of the source boundary. The slack
-    // covers the round-join chord sagitta (bounded by arcTolerance) plus
-    // rounding, and is 4*3.125e-3 = 0.0125 mm plus a part per million of d --
-    // a quarter of the tolerance the consumer itself spends, and three orders
-    // of magnitude below the 3 mm error the ghost above would have shipped.
-    const double clearanceSlack = 4.0 * opts.arcTolerance + 1.0e-6 * offsetMm + 1.0e-9;
-    const double worstClear = worstOffsetClearance(loop, r.loops);
-    if (std::isfinite(worstClear) && worstClear < offsetMm - clearanceSlack) {
-        return offsetRefused("the offset engine returned a region only " + num(worstClear) +
+    // Post-condition (see the block above), with the slack the contract derives:
+    // one tol of chord sagitta, one tol of collapse-retry vertex removal, and the
+    // rounding floor. Nothing else -- in particular nothing absolute.
+    const double clearanceSlack = 2.0 * tol + floor;
+    const OffsetClearance clr = offsetClearance(loop, r.loops, offsetMm);
+    if (clr.worst < offsetMm - clearanceSlack) {
+        return offsetRefused("the offset engine returned a region only " + num(clr.worst) +
                              " mm clear of the boundary when " + num(offsetMm) +
-                             " mm of standoff was required -- refusing it rather than "
-                             "cutting there");
+                             " mm of standoff was required (tolerance " + num(clearanceSlack) +
+                             " mm) -- refusing it rather than cutting there");
+    }
+    if (!clr.allInside) {
+        return offsetRefused("the offset engine returned a region OUTSIDE the boundary it was "
+                             "asked to offset inward by " + num(offsetMm) +
+                             " mm -- refusing it rather than cutting there");
     }
 
     // Inverse map (Loop2 -> wire) at the face plane's Z.
     const double zPlane = plane.Location().Z();
     std::vector<TopoDS_Wire> outWires;
     outWires.reserve(r.loops.size());
+    double rx0 = std::numeric_limits<double>::infinity(), rx1 = -rx0, ry0 = rx0, ry1 = -rx0;
     for (const Loop2& L : r.loops) {
         if (L.pts.size() < 3) continue;
         BRepBuilderAPI_MakePolygon poly;
-        for (const Point2& pt : L.pts) poly.Add(gp_Pnt(pt.x, pt.y, zPlane));
+        for (const Point2& pt : L.pts) {
+            poly.Add(gp_Pnt(pt.x, pt.y, zPlane));
+            rx0 = std::min(rx0, pt.x); rx1 = std::max(rx1, pt.x);
+            ry0 = std::min(ry0, pt.y); ry1 = std::max(ry1, pt.y);
+        }
         poly.Close();
         if (poly.IsDone()) outWires.push_back(poly.Wire());
     }
@@ -558,13 +745,14 @@ InwardOffsetResult inwardOffset(const TopoDS_Wire& wire, double offsetMm,
                              num(static_cast<double>(r.loops.size())) +
                              " loop(s) but none closed into a wire");
     }
+    const double traceDefl = traceDeflectionFor(std::max(rx1 - rx0, ry1 - ry0));
 
-    if (outWires.size() == 1) return offsetDone(outWires.front());
+    if (outWires.size() == 1) return offsetDone(outWires.front(), traceDefl);
     TopoDS_Compound comp;
     BRep_Builder bb;
     bb.MakeCompound(comp);
     for (const TopoDS_Wire& w : outWires) bb.Add(comp, w);
-    return offsetDone(comp);
+    return offsetDone(comp, traceDefl);
 }
 
 // Collect every wire from a (possibly compound) offset result.
@@ -688,10 +876,11 @@ Toolpath profile(ShapeHandle h, std::uint32_t faceId,
     }
 
     // Choose the largest wire by point count — for a simple outer profile
-    // this is the correct trace.
+    // this is the correct trace. Sampled at the budget the offset reported,
+    // which is relative to the result's size (traceDeflectionFor).
     std::vector<std::array<double, 2>> trace;
     for (const auto& w : wires) {
-        auto pts = sampleWireXY(w, kSampleDeflection);
+        auto pts = sampleWireXY(w, off.traceDeflection, weldFor(off.traceDeflection));
         if (pts.size() > trace.size()) trace = std::move(pts);
     }
     if (trace.size() < 2) {
@@ -800,7 +989,7 @@ Toolpath pocket(ShapeHandle h, std::uint32_t faceId,
 
     std::vector<std::array<double, 2>> trace;
     for (const auto& w : wires) {
-        auto pts = sampleWireXY(w, kSampleDeflection);
+        auto pts = sampleWireXY(w, off.traceDeflection, weldFor(off.traceDeflection));
         if (pts.size() > trace.size()) trace = std::move(pts);
     }
     if (trace.size() < 3) {
@@ -824,6 +1013,13 @@ Toolpath pocket(ShapeHandle h, std::uint32_t faceId,
     const int    levels   = std::max(1, static_cast<int>(std::ceil((zTop - zBottom) / stepdown)));
     const double rowStep  = std::min(params.stepover, tool.diameter * 0.9);
 
+    // Raster spans narrower than this are dropped as no-op pairs. It was an
+    // absolute 0.01 mm, which on a 0.01 mm pocket dropped EVERY row: the pocket
+    // came back as its perimeter alone, interior uncut, reported as success.
+    // Relative to the tool now, capped at the old value (unchanged for any tool
+    // of 2.56 mm diameter or more).
+    const double minSpan = std::min(0.01, kOffsetTolRelative * tool.diameter);
+
     // Even-odd-rule clip: for a single closed trace (convex or moderately
     // concave) this is sufficient. Compounds with holes would need a more
     // careful winding-number test — out of scope here.
@@ -842,7 +1038,7 @@ Toolpath pocket(ShapeHandle h, std::uint32_t faceId,
         std::sort(xs.begin(), xs.end());
         for (std::size_t i = 0; i + 1 < xs.size(); i += 2) {
             // Drop hair-thin spans that would emit a no-op pair.
-            if (xs[i + 1] - xs[i] > 0.01) spans.emplace_back(xs[i], xs[i + 1]);
+            if (xs[i + 1] - xs[i] > minSpan) spans.emplace_back(xs[i], xs[i + 1]);
         }
     };
 

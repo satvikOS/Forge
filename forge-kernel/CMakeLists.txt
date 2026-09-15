@@ -926,75 +926,40 @@ if(FORGE_NATIVE_BREP AND FORGE_SHHEAL_DROP_NATIVE)
                    "ShapeAnalysis_FreeBounds fallbacks compiled out (TKShHealing 20 -> 12 symbols; "
                    "OCCT_CLOSURE UNCHANGED at 14 — see reports/OCCT_CLOSURE_TRUTH.md)")
 endif()
-# ── TKOffset FAMILY A DROP — BRepOffsetAPI_MakeOffset (landed 2026-07-31) ─────────
-# FORGE_OFFSET_DROP_MAKEOFFSET compiles out the OCCT BRepOffsetAPI_MakeOffset branch in
-# forge::cam::inwardOffset (src/Cam.cpp, the ONE call site of this class in the whole
-# tree) and routes it unconditionally through the in-house
-# forge::native::geom::PolygonOffset2D (src/native/geom/PolygonOffset2D.cpp).
-# 4 of TKOffset's 42 symbols leave the binary — the complete family:
-#   BRepOffsetAPI_MakeOffset::BRepOffsetAPI_MakeOffset(TopoDS_Wire const&, GeomAbs_JoinType, bool)
-#   BRepOffsetAPI_MakeOffset::Init(GeomAbs_JoinType, bool)
-#   BRepOffsetAPI_MakeOffset::Perform(double, double)
-#   vtable for BRepOffsetAPI_MakeOffset
+# ── TKOffset FAMILY A — BRepOffsetAPI_MakeOffset: DELETED, and this option is INERT ──
+# (2026-09-14.) src/Cam.cpp was the ONE call site of BRepOffsetAPI_MakeOffset in the
+# tree. The class, its header and the `#ifdef FORGE_OFFSET_DROP_MAKEOFFSET` branch are
+# gone from that file, so the OCCT offset is compiled out in EVERY configuration:
+# Cam.cpp compiled with and without -DFORGE_OFFSET_DROP_MAKEOFFSET=1 produces
+# byte-identical objects, and its object references 0 TKOffset symbols (was 4: the
+# ctor, Init, Perform and the vtable). forge::cam::inwardOffset computes the offset with
+# forge::native::geom::PolygonOffset2D and REFUSES with a named reason where it cannot
+# certify the tool-radius standoff; the old fallback that re-used the UNOFFSET wire
+# (the 3 mm gouge reported as ok:true that the 2026-07-31 note here named as the reason
+# this could not ship) is deleted with it. test/run_cam_offset_scale_gate.sh gates the
+# standoff contract from 1e-3 mm to 1e3 mm with 7 mutations.
 #
-# WHY THE CAPABILITY SURVIVES (Law 9). The wire this offsets is never consumed as
-# exact geometry: both callers (Cam.cpp profile() and pocket()) immediately discretise
-# it with sampleWireXY at kSampleDeflection = 0.05 mm and use only that polyline. The
-# native path discretises the INPUT at kSampleDeflection/16 = 3.125e-3 mm, so the
-# error it adds is bounded at 1/16 of the tolerance the caller already spends.
-# Measured, not asserted — test/cam_native_offset_ab.mjs compares the two paths' final
-# 0.05 mm traces on straight, arc, circle, slot and mixed profiles.
+# ★ WHY THE DEFAULT IS NOW ON. The option no longer selects anything; it survives only
+#   because _FORGE_TKOFFSET_FAMILIES below reads it to decide whether family A still
+#   calls TKOffset. OFF would keep printing "still called by: FORGE_OFFSET_DROP_MAKEOFFSET"
+#   about a family that calls nothing, and would keep TKOffset on the link line after
+#   the other eight families leave. ON is the truth. Setting it OFF changes no object.
 #
-# ★ WHAT THIS IS WORTH — do not mis-score it. TKOffset is NOT removed from OCCT_LIBS:
-#   38 symbols across the other 8 families (ThruSections, MakePipe, MakePipeShell,
-#   MakeThickSolid, MakeOffsetShape, DraftAngle, MakeFilling, BRepOffset_MakeOffset)
-#   still reference it. OCCT_DIRECT stays 8 and OCCT_CLOSURE stays 14 — MEASURED, both
-#   builds, scripts/occt_closure_count.sh. This is blocking-set reduction (42 -> 38)
-#   that makes the eventual TKOffset drop — the only unilateral closure win in the
-#   build, 14 -> 13 — cheaper. It is NOT a drop.
-#
-# ★★ DEFAULT **OFF**, AND THE MEASUREMENT THAT DECIDED IT (2026-07-31).
-#   The curved-input gap IS closed and the native answer is BETTER where both work:
-#   on circle R40 / R12 profiles the native trace is 14.3x / 42.6x CLOSER to the
-#   closed-form offset area than the trace OCCT actually delivers (OCCT returns an
-#   exact arc, but the consumer then samples it into a 65-gon at 0.05 mm, sagitta
-#   0.043 mm). Straight-edge profiles are bit-identical. test/cam_native_offset_ab.mjs.
-#
-#   BUT the OCCT branch still cannot be compiled out, because PolygonOffset2D DEFERS
-#   on real geometry where OCCT succeeds. Measured over the first 382 kernel-verified
-#   trees of data/forge/complex_all.jsonl, running cam.profile with a D6 tool and
-#   detecting "the offset did not happen" as area(D6) == area(unoffset outline):
-#       OCCT   defers  56/382 = 14.7%   (bearing_housing 21, sheet_chassis 31, ribbed_bracket 4)
-#       native defers  73/382 = 19.1%   (bearing_housing 21, sheet_chassis 31, ribbed_bracket 21)
-#       -> 17 parts (4.5%) where NATIVE defers and OCCT SUCCEEDS; 0 the other way.
-#   All 17 are `ribbed_bracket` — an RRECT plate with a fused upstand + gusset and a
-#   final FILLET over every edge, so its top-face outer wire is a non-convex mix of
-#   fillet-tangent B-splines and torus-derived edges. (PolygonOffset2D is NOT at fault
-#   for dense sampling per se: fed a clean rounded rectangle it is stable from 0.05 mm
-#   down to 0.00078 mm deflection, 36 -> 236 pts, every case ok=1.)
-#
-#   Why that forbids the flip (Law 9): cam::profile's documented fallback when
-#   inwardOffset returns empty is to re-use the UNOFFSET wire (Cam.cpp:427/529). With
-#   the OCCT branch compiled out there is no second chance, so those 17 parts would
-#   silently emit a toolpath that is NOT stood off by the tool radius — the cutter
-#   would gouge the part by 3 mm, with ok:true. Dropping a library by deleting the
-#   capability it provided is exactly what Law 9 forbids.
-#
-#   TO FLIP THIS ON, the required evidence is: re-run the 382-part sweep above with
-#   the option ON and show native defers <= the OCCT baseline rate (i.e. the 17
-#   ribbed_bracket wires offset natively), then test/cam_native_offset_ab.mjs ALL PASS
-#   + the five cam smokes byte-identical + the four mandated gates green.
+# ★ NOT RE-MEASURED, AND SAID SO. The 2026-07-31 sweep over the first 382 kernel-verified
+#   trees of data/forge/complex_all.jsonl found PolygonOffset2D deferring on 17
+#   ribbed_bracket outlines where OCCT succeeded. The engine has changed since (collapse
+#   retry, flat sub-chain excision) and the 600-part gold corpus now reads native 600/600
+#   against OCCT 594/600, but that 382-part sweep has NOT been re-run. Where the native
+#   offset still cannot answer on such a part, cam::profile/pocket now THROW with the
+#   engine's reason instead of cutting; that is a refusal, never a gouge.
 option(FORGE_OFFSET_DROP_MAKEOFFSET
-       "route cam::inwardOffset through native PolygonOffset2D & compile out the OCCT BRepOffsetAPI_MakeOffset fallback (TKOffset family A; needs PolygonOffset2D to stop deferring on filleted/fused outlines first)"
-       OFF)
+       "INERT since 2026-09-14: BRepOffsetAPI_MakeOffset is deleted from Cam.cpp in every configuration; kept only so _FORGE_TKOFFSET_FAMILIES records family A as closed"
+       ON)
 if(FORGE_NATIVE_BREP AND FORGE_OFFSET_DROP_MAKEOFFSET)
     add_compile_definitions(FORGE_OFFSET_DROP_MAKEOFFSET=1)
-    message(WARNING "FORGE_OFFSET_DROP_MAKEOFFSET=ON — BRepOffsetAPI_MakeOffset fallback compiled out "
-                    "(TKOffset 42 -> 38 symbols; TKOffset STILL LINKED, OCCT_CLOSURE UNCHANGED at 14). "
-                    "MEASURED 2026-07-31: this loses the offset on 17/382 corpus parts (4.5%, all "
-                    "ribbed_bracket) where OCCT succeeds — those toolpaths silently revert to the "
-                    "UNOFFSET wire. Do not ship this ON until PolygonOffset2D handles filleted/fused "
-                    "outlines; see the block above.")
+    message(STATUS "TKOffset family A (BRepOffsetAPI_MakeOffset) is deleted from src/Cam.cpp "
+                   "(TKOffset 42 -> 38 symbols in the shipped configuration; TKOffset STILL LINKED "
+                   "by the other families, OCCT_CLOSURE unchanged).")
 endif()
 # ── TKOffset FAMILIES G + H — MakeThickSolid / MakeOffsetShape (authored 2026-08-28) ──
 # These two options compile out the two TKOffset classes that share a vtable, and are
