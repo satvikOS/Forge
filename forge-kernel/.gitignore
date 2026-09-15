@@ -6,3 +6,4 @@ test/golden_corpus_steps/
 forge_capi_smoke_box.step
 build-*/
 build-app
+test/.sketch_solver_gate/

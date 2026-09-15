@@ -247,6 +247,15 @@ jobs:
         # of ordinary words naming the program's own machinery. 8 puts that exact
         # defect back.
         run: bash ui/test/run_user_prose_gate.sh --mutations
+      - name: FreeCAD-derived code stays behind its LGPL boundary (+15 mutations)
+        # FreeCAD code (LGPL-2.1-or-later) may be adapted into Forge only under
+        # third_party/freecad-derived/<component>, each component shipping
+        # COPYING.LGPL, a dated MODIFICATIONS.md, a NOTICE, a manifest entry and a
+        # THIRD_PARTY_NOTICES section, and each built as ONE SHARED library that no
+        # Forge target compiles. This checks all of it from the source tree, and
+        # --mutations proves each rule can turn red. RED at b8aefa91, where planegcs
+        # was vendored into forge-kernel/3rdParty and linked statically.
+        run: bash tools/gates/freecad_derived_lgpl_gate.sh --mutations
       - name: how many docked tabs still show nothing (prove the pin can fail)
         # THE MEASUREMENT, on the merge base of the change that added this: the
         # eight default workspaces define 50 distinct panels and 27 of them drew
@@ -849,6 +858,16 @@ jobs:
         # and -- the negative half -- that a TYPE error is still refused, so
         # "tolerant" cannot quietly become "permissive".
         run: bash forge-kernel/test/ft/build_sketch_solve.sh
+      - name: sketch solver library, its LGPL boundary, and FreeCAD's behaviours (+6 mutations)
+        # The solver is libforge_gcs, a SEPARATE LGPL shared library built from
+        # third_party/freecad-derived/sketch-solver. This builds it with its own
+        # script, runs its C interface test IN C, proves on the objects (nm/otool)
+        # that Forge's adapter defines none of its symbols and loads it through
+        # @rpath, then runs the behaviours FreeCAD's own Sketcher tests check (box,
+        # square, circle, slot, clearConstraints) through forge::Sketcher, plus
+        # the conflict groups and the transaction judge that refuses a
+        # contradicting constraint by name.
+        run: bash forge-kernel/test/build_sketch_solver_gate.sh
       - name: Build forge_kernel_core (node-free, for the C++ gates)
         # Same build dir and flags PR #62's forge_verify step uses, so when that merges the
         # second configure is a no-op rather than a second full build.
@@ -1541,9 +1560,16 @@ jobs:
         # boost::math::constants, and two dispatched release dry runs died on
         # "could not resolve 'boost' 1.90.0" before it was added. Do not trim
         # this line.
+        #
+        # eigen is required for the same reason, since 2026-09-15: the sketch
+        # solver is libforge_gcs, built by the kernel configure from
+        # third_party/freecad-derived/sketch-solver against the real Eigen headers
+        # (deps.lock.json `eigen`). ★ desktop-release.yml's install line needs the
+        # same word before the next release dry run; that workflow is the owner's
+        # to change and was deliberately not edited here.
         run: |
           brew update-reset >/dev/null 2>&1 || true
-          brew install opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
+          brew install opencascade boost eigen sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
 
       - name: Record the toolchain that compiled the app
         # A build whose provenance is not written down cannot be debugged later,
@@ -1552,7 +1578,7 @@ jobs:
           sw_vers
           uname -m
           cmake --version | head -1
-          for f in opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang; do
+          for f in opencascade boost eigen sdl2 vulkan-headers vulkan-loader molten-vk glslang; do
             printf '%-16s %s\n' "$f" "$(brew list --versions "$f" || echo MISSING)"
           done
 
@@ -1651,6 +1677,19 @@ jobs:
         run: |
           set -euo pipefail
           bash forge-kernel/test/occt_ledger_gate_fires.sh forge-kernel/build-app
+
+      - name: ★ the LGPL sketch solver is a separate library, not inside the kernel core
+        # Binary mode of the LGPL gate on the artifact the app links: every symbol
+        # libforge_gcs exports must be IMPORTED by libforge_kernel_core, never
+        # defined in it, and the core must carry the load command. A static copy
+        # of the solver inside the core is exactly what this refuses.
+        shell: bash
+        run: |
+          set -euo pipefail
+          otool -L forge-kernel/build-app/libforge_kernel_core.dylib | grep -E 'forge_gcs|forge_kernel_core'
+          bash tools/gates/freecad_derived_lgpl_gate.sh \
+            --binary forge-kernel/build-app/libforge_kernel_core.dylib \
+            --library forge-kernel/build-app/libforge_gcs.dylib
 
       - name: Compile forge-desktop (the application AND all three headless gates)
         # THIS is the step defect #107 could not have survived, and it is kept
