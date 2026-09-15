@@ -239,8 +239,12 @@ PY
        python3 - "$tree/$FRAME" <<'PY'
 import sys
 p=sys.argv[1]; s=open(p).read()
-old='copilotAutoPlan_ ? "Working offline, on this computer"'
-new='copilotAutoPlan_ ? "LocalPlanner (offline, deterministic)"'
+# Re-anchored 2026-09-15 (archie-in-forge): the header line this used to mutate,
+# `copilotAutoPlan_ ? "Working offline, on this computer" : "Connected"`, was the
+# defect itself -- it said "offline" whichever planner answered -- and it is gone.
+# The CoPilot's "working on it" line is the drawn literal that replaced it.
+old='"Archie is working on it… %.0f s"'
+new='"RemotePlanner is working on it… %.0f s"'
 assert old in s, "mutation 11 anchor missing"
 open(p,'w').write(s.replace(old,new,1))
 PY
