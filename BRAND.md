@@ -39,7 +39,7 @@ left off; `Forge-N` is the prefix from this point.
 forge-kernel/          C++ native addon (NEW)
   src/                   Forge kernel API surface
   upstream/              Patches against OCCT/FreeCAD
-  3rdParty/planegcs/     Vendored 2D constraint solver
+  (sketch solver)        libforge_gcs, LGPL shared library: third_party/freecad-derived/sketch-solver
 
 frontend/src/kernel/    JS facade — calls forge-kernel.node
   brep/                  thin wrappers; no oc.* / no WASM imports

@@ -128,7 +128,7 @@ enum class OpCode {
     // The six profile ops above bake COORDINATES. These six plus SOLVE let a
     // tree state RELATIONS instead and have the kernel compute the coordinates,
     // through the planegcs solver that is already vendored, compiled and linked
-    // (3rdParty/planegcs, CMakeLists.txt ~1264-1271) and that nothing in the IR
+    // (libforge_gcs, third_party/freecad-derived/sketch-solver) and that nothing in the IR
     // has ever called.
     //
     // The family bolts on IN FRONT of the existing IR: it terminates in a
