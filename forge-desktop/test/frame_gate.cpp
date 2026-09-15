@@ -82,6 +82,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -498,6 +499,41 @@ int main(int argc, char** argv) {
     } else {
       check(false, "the focus is typed as a Face", "no focus");
       check(false, "the selection stores a PERSISTENT NAME, not an index", "no focus");
+    }
+
+    // WHERE the face was hit travels with the pick. drawViewportPanel hands
+    // clickFace the ray/triangle intersection, and part.hole / part.counterbore
+    // place the feature from it; before that, every hole went through the world
+    // origin whichever face was clicked. A vertex of the picked face is a point ON
+    // it, so it stands in for the ray's hit here.
+    {
+      const forge::desktop::SceneVertex& v0 = scene.vertices().front();
+      const double hit[3] = {static_cast<double>(v0.px), static_cast<double>(v0.py),
+                             static_cast<double>(v0.pz)};
+      shell.selection().clearSelection();
+      frame.clickFace(face, false, hit);
+      const std::optional<forge::ui::EntityRef>& f = shell.selection().focus();
+      const bool located = f.has_value() && f->pick.valid;
+      check(located, "a viewport click records where the face was hit",
+            f.has_value() ? "the focus carries no pick evidence" : "no focus");
+      if (located) {
+        double d2 = 0.0;
+        for (int i = 0; i < 3; ++i) d2 += (f->pick.point[i] - hit[i]) * (f->pick.point[i] - hit[i]);
+        check(d2 < 1e-6, "the recorded point is the hit point, on that face",
+              "off by " + std::to_string(std::sqrt(d2)));
+        if (f->pick.hasNormal()) {
+          const double n2 = f->pick.normal[0] * f->pick.normal[0] +
+                            f->pick.normal[1] * f->pick.normal[1] +
+                            f->pick.normal[2] * f->pick.normal[2];
+          checkNear(n2, 1.0, 1e-9, "a recorded face normal is a unit vector");
+        }
+      }
+      // A face chosen from a LIST went through no ray, so it must carry no
+      // position -- a guessed one would place a hole somewhere nobody pointed.
+      frame.clickFace(face, false);
+      const std::optional<forge::ui::EntityRef>& g = shell.selection().focus();
+      check(g.has_value() && !g->pick.valid, "a pick that came from no ray carries no position",
+            g.has_value() ? "the focus claims a hit point" : "no focus");
     }
 
     // The selection FILTER refuses what it is set to refuse.

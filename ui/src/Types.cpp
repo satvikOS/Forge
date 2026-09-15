@@ -90,6 +90,18 @@ bool namedViewFromSuffix(const std::string& suffix, NamedView& out) noexcept {
   return false;
 }
 
+// IDENTITY IS (bodyId, kind, persistentName) AND NOTHING ELSE, and the two
+// functions below are where that is decided. `generation`, `signature` and
+// `pick` are all deliberately absent from both.
+//
+// For `pick` that omission is load-bearing rather than incidental. A viewport
+// click records WHERE the ray struck, and two clicks on one face land on
+// different pixels, so a key that included the hit point would make the same face
+// two different entities: SelectionService::toggle() would ADD the second click
+// instead of removing the first, and shift-clicking a face to deselect it would
+// silently select it twice. The evidence rides along with the reference; it is
+// not part of what the reference NAMES. selection_consumed_test.cpp asserts this
+// directly, because a comment is not a gate.
 std::string EntityRef::key() const {
   std::string k;
   k.reserve(bodyId.size() + persistentName.size() + 16);

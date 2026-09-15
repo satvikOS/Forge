@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -541,6 +542,253 @@ SolidTarget solidTarget(const PartDocument& doc, const SelectionService& sel) {
   t.value = ids.front();
   t.node = node;
   return t;
+}
+
+// ── WHERE THE USER POINTED ──────────────────────────────────────────────────
+//
+// ★ THE MEASURED DEFECT THIS CLOSES. Driving the real registry headlessly at
+// 488e5328, three DIFFERENT face picks emitted the SAME statement:
+//
+//   part.hole        face@1 -> HOLE(%N, 9, 0, 0, 0)
+//                    face@6 -> HOLE(%N, 9, 0, 0, 0)      identical
+//   part.counterbore face@1 -> CBORE(%N, 10, 18, 5, 0, 0, 0)
+//                    face@6 -> CBORE(%N, 10, 18, 5, 0, 0, 0)   identical
+//   part.fillet      1 edge  -> FILLET(%N, 3, ALL)
+//                    4 edges -> FILLET(%N, 3, ALL)       identical
+//
+// status Ok every time, under 45 green gates. Both hole commands demand a Face
+// selection (SelectionSignature::atLeast(Face, 1)) and then read x/y/z from
+// OPTIONAL parameters defaulting to 0, so every hole went through the world
+// origin on a hard-coded +Z axis -- a hole in a side face was not expressible from
+// the command at all, and a counterbore clicked onto the top face of a plate
+// measured 112852.365373, byte-identical to a plain HOLE of the same pilot.
+//
+// The two functions below are the whole repair on the reading side: they take the
+// evidence the viewport now records on each picked reference (PickEvidence, see
+// Types.hpp) and turn it into feature arguments.
+//
+// ABSENT EVIDENCE IS NOT AN ERROR. A reference from the feature tree, from a
+// macro or from Archie never went through a ray and carries none. Both functions
+// answer "nothing known" for those, every caller falls back to the typed
+// parameters, and the statement emitted is byte-identical to the build before
+// this change -- which is what keeps part_commands_test's existing expectations,
+// and those three paths, exactly as they were.
+
+// The ONE picked face a located feature should be placed on: the FOCUS, which
+// SelectionService documents as "the ONE member of the selection that is current"
+// and which every viewport click sets to the face just clicked. With several
+// faces picked that is the only non-arbitrary choice -- a hole goes in one place,
+// and the last face you clicked is the one you meant.
+// Returned BY VALUE, with PickEvidence::valid as the "there is none" answer. A
+// pointer into SelectionService would be a lifetime question at every call site,
+// and the record is a handful of doubles.
+PickEvidence focusFaceHit(const SelectionService& sel) {
+  const std::optional<EntityRef>& f = sel.focus();
+  if (f.has_value() && f->kind == EntityKind::Face && f->pick.valid) return f->pick;
+  // No focus (a selection built by replaceWith from a panel, or restored from a
+  // document) but exactly one face carrying evidence is still unambiguous.
+  PickEvidence only;
+  for (const EntityRef& r : sel.selection()) {
+    if (r.kind != EntityKind::Face || !r.pick.valid) continue;
+    if (only.valid) return PickEvidence{};  // two located faces, no one answer
+    only = r.pick;
+  }
+  return only;
+}
+
+// Reverse a direction component without producing a NEGATIVE ZERO.
+//
+// -(0.0) is -0.0, formatIrNumber's "%.10g" writes it "-0", and the statement a
+// user reads in the feature tree then says HOLE(..., -0, -0, -1). It parses
+// correctly -- strtod gives -0.0 and forge::ft normalises the vector -- so this is
+// not a geometry bug, but a CAD application does not show anyone a minus zero.
+// Adding nothing to it is the standard IEEE-754 normalisation: -0.0 + 0.0 is +0.0
+// under round-to-nearest, while every other value is unchanged.
+double negated(double v) noexcept { return -v + 0.0; }
+
+// Did the caller place this feature by hand? Typing ANY of x/y/z is an explicit
+// placement and it wins over the pick -- a number a user typed must never be
+// overridden by where they happened to click. All three are read together rather
+// than one at a time, because mixing a typed x with a picked y would put the
+// feature somewhere neither of them asked for.
+bool placedByHand(const CommandContext& ctx) {
+  return hasNumber(ctx, "x") || hasNumber(ctx, "y") || hasNumber(ctx, "z");
+}
+
+// ── what the kernel can be TOLD about a set of picked edges ─────────────────
+// FILLET, CHAMFER and BLEND take a keyword and nothing else: forge::ft
+// selectEdges() resolves ALL | VERTICAL | RIM | HORIZONTAL and refuses every
+// quoted selector by name ("quoted selector ... is NOT APPLIED"). There is no way
+// in the language to say "these three edges".
+//
+// So a picked set can be honoured in exactly one case -- when it IS a whole class
+// -- and the rest of the time the only truthful answers are a refusal or a
+// widening, and a silent widening is how picking three edges rounds all 196.
+struct EdgeSelectorPlan {
+  bool hasPick = false;        // the selection carries viewport-picked edges
+  bool expressible = false;    // ... and a keyword denotes exactly that set
+  const char* keyword = "";    // the keyword to emit when it does
+  std::size_t picked = 0;      // how many edges were picked
+  std::uint32_t members = 0;   // how many edges the nearest class holds
+  EdgeAxisClass cls = EdgeAxisClass::None;
+  bool mixedClasses = false;   // the pick spans more than one class
+};
+
+EdgeSelectorPlan planEdgeSelector(const SelectionService& sel) {
+  EdgeSelectorPlan plan;
+  bool first = true;
+  for (const EntityRef& r : sel.selection()) {
+    if (r.kind != EntityKind::Edge) continue;
+    if (!r.pick.valid) {
+      // An edge reference with no evidence did not come from the viewport. Mixing
+      // one into a picked set would make the count wrong, so the whole selection
+      // is treated as unpicked and the caller keeps its declared selector. This
+      // is the path every existing gate takes.
+      return EdgeSelectorPlan{};
+    }
+    ++plan.picked;
+    if (first) {
+      plan.cls = r.pick.axisClass;
+      plan.members = r.pick.classMembers;
+      first = false;
+    } else if (r.pick.axisClass != plan.cls) {
+      plan.mixedClasses = true;
+    } else if (r.pick.classMembers != plan.members) {
+      // The two picks were taken against different rebuilds of the body, so the
+      // census on one of them is stale. Refuse rather than compare against a
+      // number that was true a rebuild ago.
+      plan.members = 0;
+    }
+  }
+  if (plan.picked == 0) return plan;
+  plan.hasPick = true;
+  if (plan.mixedClasses || plan.cls == EdgeAxisClass::None) return plan;
+  // The whole class, and nothing but the class. The selection is a set, so the
+  // picked edges are distinct and a count comparison is sound.
+  if (plan.members != 0 && plan.picked == static_cast<std::size_t>(plan.members)) {
+    plan.expressible = true;
+    plan.keyword = (plan.cls == EdgeAxisClass::Vertical) ? "VERTICAL" : "HORIZONTAL";
+  }
+  return plan;
+}
+
+// The sentence a professional engineer can act on. It names the number picked,
+// the number the only available keyword would act on, and what to do -- because
+// "this selection is not supported" tells a user nothing about which of the two
+// they should change. `verb` is what the command DOES to an edge -- "round" for a
+// fillet, "chamfer" for a chamfer -- because a chamfer refusal that offers to
+// "round all 8" describes a different command.
+std::string edgeSelectorRefusal(const std::string& what, const char* verb,
+                                const EdgeSelectorPlan& plan) {
+  const std::string picked = std::to_string(plan.picked) +
+                             (plan.picked == 1 ? " edge is picked" : " edges are picked");
+  if (plan.mixedClasses) {
+    return what + " can act on the upright edges of this body, or on the flat ones, but not " +
+           "on a mixture: " + picked +
+           " and they are not all of one kind. Pick one kind at a time, or clear the "
+           "selection to act on every edge.";
+  }
+  if (plan.cls == EdgeAxisClass::None) {
+    return what + " cannot name the edges picked: " + picked +
+           ", and they run neither upright nor flat, which are the only two "
+           "directions Forge can select edges by. Clear the selection to act on every "
+           "edge of the body.";
+  }
+  const char* kind = (plan.cls == EdgeAxisClass::Vertical) ? "upright" : "flat";
+  if (plan.members == 0) {
+    return what + " cannot confirm how many " + kind +
+           " edges this body has, because the selection was made before the last "
+           "rebuild. Pick the edges again.";
+  }
+  return what + " cannot act on part of a set: " + picked + ", and this body has " +
+         std::to_string(plan.members) + " " + kind +
+         " edges. Forge selects edges by direction, not one at a time, so it can " + verb +
+         " all " + std::to_string(plan.members) + " of them or none. Pick all " +
+         std::to_string(plan.members) + " to go ahead, or clear the selection to act on "
+         "every edge of the body.";
+}
+
+// ── APPLYING THE PICK TO A STATEMENT ALREADY BUILT ──────────────────────────
+// Every command below first builds the statement its TYPED parameters describe --
+// textually the same code the feature tree, macros and Archie have always reached
+// -- and only then lets a viewport pick rewrite it. The order is the design, for
+// two reasons:
+//
+//   * It keeps the unpicked path byte-identical by construction rather than by
+//     care: with no evidence on the selection, both helpers return without
+//     touching `args`.
+//   * gen_archie_op_vocabulary.py derives Archie's legal vocabulary by READING the
+//     typed emission in each handler, and it refuses a construct it cannot parse.
+//     A pick is not something Archie can make -- it has no ray -- so the statement
+//     it can author is exactly the typed one, and the generator records each call
+//     to these two helpers by name beside the command, so the rewrite is visible
+//     in the vocabulary rather than hidden from it.
+
+// Which way a picked face's normal must point in the statement, read off the IR.
+enum class PickedAxis : std::uint8_t {
+  // opHole builds a BLIND hole as a cylinder starting at (x,y,z) and running
+  // `depth` along +axis (forge-kernel/src/ft/FeatureTreeCompiler.cpp:2077). The
+  // point is on the surface, so the axis has to point INTO the material or the
+  // cutter hangs in the air above the part. For a THROUGH hole the sign does not
+  // matter -- throughAxis() spans the bounding box both ways -- but one rule is
+  // kept for both, and it is the one that stays right when a depth is added later.
+  IntoMaterial,
+  // opCbore cuts its recess from (at - axis*cbore_depth) TOWARD `at`
+  // (FeatureTreeCompiler.cpp:2093-2095), so the recess lies on the axis-NEGATIVE
+  // side of the point, and the OUTWARD normal is what puts it in the metal. Given
+  // the inward one the recess is cut in air and the result is a plain hole --
+  // which, with a hard-coded +Z and z = 0, is what this command shipped:
+  // 112852.365373 on the reference bracket, equal to a plain HOLE to the last digit.
+  OutOfMaterial,
+};
+
+// Place a located feature where the user clicked. `at` is the index of the x
+// argument in `args`; the axis is the three numbers after the point. When the
+// statement already carries an axis (HOLE's depth form writes +Z there) it is
+// overwritten, and when it does not the axis is appended -- HOLE and CBORE both
+// read an absent depth as "through", so no depth is invented.
+//
+// A typed x, y or z wins over the click outright (placedByHand), but the face's
+// normal still supplies the axis: "this position, drilled into the face I picked"
+// is a complete instruction, and the typed numbers say nothing about direction.
+void placeOnPickedFace(const CommandContext& ctx, std::vector<IrArg>& args, std::size_t at,
+                       PickedAxis sense) {
+  const PickEvidence hit = focusFaceHit(ctx.selection());
+  if (!hit.valid || args.size() < at + 3) return;
+  if (!placedByHand(ctx)) {
+    for (std::size_t i = 0; i < 3; ++i) args[at + i] = IrArg::num(hit.point[i]);
+  }
+  if (!hit.hasNormal()) return;  // a curved face has no single direction to give
+  for (std::size_t i = 0; i < 3; ++i) {
+    const IrArg axis = IrArg::num(sense == PickedAxis::IntoMaterial ? negated(hit.normal[i])
+                                                                    : hit.normal[i]);
+    if (args.size() > at + 3 + i) {
+      args[at + 3 + i] = axis;
+    } else {
+      args.push_back(axis);
+    }
+  }
+}
+
+// Narrow a dress-up statement's edge selector to the picked edges, or refuse.
+// `slot` is the index of the selector argument. Returns false after ctx.fail()
+// when the pick is part of a class, a mixture of classes, or in no class -- the
+// three ways "these edges" cannot be said in the kernel's vocabulary. With no
+// picked edges on the selection it returns true and leaves `args` alone.
+bool narrowToPickedEdges(CommandContext& ctx, std::vector<IrArg>& args, std::size_t slot,
+                         const std::string& what, const char* verb) {
+  const EdgeSelectorPlan plan = planEdgeSelector(ctx.selection());
+  if (!plan.hasPick) return true;
+  if (!plan.expressible) {
+    ctx.fail(edgeSelectorRefusal(what, verb, plan));
+    return false;
+  }
+  if (args.size() > slot) {
+    args[slot] = IrArg::keyword(plan.keyword);
+  } else if (args.size() == slot) {
+    args.push_back(IrArg::keyword(plan.keyword));
+  }
+  return true;
 }
 
 // ── which NUMBER of which statement an edit names ───────────────────────────
@@ -1534,6 +1782,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(1.0));
         args.push_back(IrArg::num(num(ctx, "depth", 0.0)));  // <= 0 => through
       }
+      // WHERE, and ALONG WHAT: the face the user clicked supplies both -- the hit
+      // point is the hole's position and the face's own normal its axis.
+      placeOnPickedFace(ctx, args, 2, PickedAxis::IntoMaterial);
       emit(ctx, *d, *s, "part.hole", "Hole", "HOLE", std::move(args), IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -1571,6 +1822,8 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                               IrArg::num(num(ctx, "x", 0.0)),
                               IrArg::num(num(ctx, "y", 0.0)),
                               IrArg::num(num(ctx, "z", 0.0))};
+      // The OUTWARD normal here and the inward one in part.hole: see PickedAxis.
+      placeOnPickedFace(ctx, args, 4, PickedAxis::OutOfMaterial);
       emit(ctx, *d, *s, "part.counterbore", "Counterbore Hole", "CBORE", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
@@ -1597,11 +1850,27 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       const SolidTarget t = solidTarget(*d, ctx.selection());
       const std::string sel = txt(ctx, "selector", "ALL");
       std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::num(num(ctx, "radius", 1.0))};
-      // ALL|VERTICAL|RIM|CONVEX are bare keywords; anything else is a quoted
-      // face/edge selector resolved against the live inventory at compile time.
-      args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "CONVEX"
+      // ALL|VERTICAL|RIM|HORIZONTAL are the words forge::ft selectEdges() resolves,
+      // and they go in BARE: the kernel refuses a quoted token in a keyword slot by
+      // name, precisely so a misspelling cannot silently act on every edge.
+      //
+      // THE LIST THIS REPLACES WAS WRONG AT BOTH ENDS. It read ALL | VERTICAL | RIM |
+      // CONVEX, so HORIZONTAL -- which the kernel implements -- was quoted and
+      // refused. CONVEX stays bare anyway: it is unimplemented either way, and bare
+      // it earns the kernel's own "selector `CONVEX` is NOT IMPLEMENTED here"
+      // instead of the generic malformed-selector refusal.
+      args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "HORIZONTAL" ||
+                             sel == "CONVEX"
                          ? IrArg::keyword(sel)
                          : IrArg::text(sel));
+      // ── THE PICK DECIDES, OR THE COMMAND REFUSES ─────────────────────────
+      // A typed selector is the user overriding this, and it wins. Otherwise the
+      // edges picked in the viewport decide, and when no keyword denotes them the
+      // command says so instead of quietly rounding the whole body.
+      if (!hasText(ctx, "selector") &&
+          !narrowToPickedEdges(ctx, args, 2, "Edge Fillet", "round")) {
+        return;
+      }
       emit(ctx, *d, *s, "part.fillet", "Edge Fillet", "FILLET", std::move(args), IrValueKind::Solid,
            {}, t.node);
     };
@@ -1624,9 +1893,14 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       const SolidTarget t = solidTarget(*d, ctx.selection());
       const std::string sel = txt(ctx, "selector", "ALL");
       std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::num(num(ctx, "distance", 1.0))};
-      args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "CONVEX"
+      args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "HORIZONTAL" ||
+                             sel == "CONVEX"
                          ? IrArg::keyword(sel)
                          : IrArg::text(sel));
+      if (!hasText(ctx, "selector") &&  // see part.fillet
+          !narrowToPickedEdges(ctx, args, 2, "Edge Chamfer", "chamfer")) {
+        return;
+      }
       emit(ctx, *d, *s, "part.chamfer", "Edge Chamfer", "CHAMFER", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
@@ -1660,6 +1934,11 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::keyword("ALL"));
         args.push_back(IrArg::keyword("SMOOTH"));
       }
+      // BLEND had NO selector slot at all -- not even a parameter -- so it acted on
+      // every edge of the body whatever was picked. It takes the same keywords as
+      // FILLET and CHAMFER (BLEND(%body, rStart, rEnd [, sel=ALL] [, SMOOTH])), so
+      // the pick is honoured the same way, in slot 3, and refused on the same ground.
+      if (!narrowToPickedEdges(ctx, args, 3, "Variable Fillet", "round")) return;
       emit(ctx, *d, *s, "part.variable_fillet", "Variable Fillet", "BLEND", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };

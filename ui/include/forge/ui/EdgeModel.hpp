@@ -69,6 +69,28 @@ struct MeshEdge {
   // when the edge is hovered or picked.
   std::vector<double> points;
 
+  // ── the chain's two ENDS, recovered from its topology ────────────────────
+  // `points` is NOT a walk along the edge. It holds the chain's segments in
+  // welded-vertex-id order, each one oriented however the first triangle to use
+  // it happened to be wound -- so the first and last point stored are two
+  // arbitrary vertices of the chain. That is fine for drawing and picking, and
+  // wrong for anything that needs the edge's ENDS: forge::ft classifies an edge
+  // by the chord between the first and last point of its polyline, and read off
+  // `points` that chord was a point on a two-segment upright edge (so it counted
+  // as flat) and an arbitrary diagonal across a bore rim (so it counted as no
+  // class at all). Both were measured, in ui/test/selection_consumed_test.cpp.
+  //
+  // So deriveEdges records the ends where the vertex degrees are already known:
+  // an open chain that does not branch has exactly two vertices used by one
+  // segment each, and those are the ends. A closed chain's two ends are the same
+  // vertex, which is what makes its chord a point, as the kernel's is.
+  // `simple` is false when the chain BRANCHES (a vertex used by three or more of
+  // its segments) or has more than two loose ends: no single edge has that shape,
+  // and the ends are left at the origin rather than guessed.
+  bool simple = false;
+  double endA[3] = {0.0, 0.0, 0.0};
+  double endB[3] = {0.0, 0.0, 0.0};
+
   // The persistent name an EntityRef carries: "edge@<faceA>_<faceB>#<component>".
   // It is stable under any repermutation that preserves the face ids, which is
   // the same guarantee "face@<id>" already gives the face selection.

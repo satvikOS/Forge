@@ -34,6 +34,10 @@ struct SegRecord {
   std::uint32_t faceB = 0;  // second DISTINCT face id seen, 0 while none
   double a[3] = {0.0, 0.0, 0.0};
   double b[3] = {0.0, 0.0, 0.0};
+  // The welded ids of `a` and `b`, in THAT order. SegKey sorts its pair, so it
+  // cannot say which stored point is which vertex; the chain's ends need to.
+  int ia = -1;
+  int ib = -1;
 };
 
 double distance3(const double p[3], const double q[3]) noexcept {
@@ -145,6 +149,8 @@ EdgeSet deriveEdges(const MeasureMesh& mesh) {
           rec.a[c] = t[k * 3 + c];
           rec.b[c] = t[k2 * 3 + c];
         }
+        rec.ia = id[k];
+        rec.ib = id[k2];
         rec.faceA = faces[tri];
       } else if (rec.faceB == 0 && faces[tri] != rec.faceA) {
         rec.faceB = faces[tri];
@@ -208,6 +214,7 @@ EdgeSet deriveEdges(const MeasureMesh& mesh) {
       edge.faceB = pair.first.second;
       edge.component = component++;
       std::map<int, int> degree;
+      std::map<int, const double*> at;  // welded id -> one stored position of it
       // `comps` is a std::map keyed by the segment's welded ids, so this list is
       // already in a deterministic order; sorting again would only re-state it.
       for (const Kept* k : *c.second) {
@@ -219,10 +226,35 @@ EdgeSet deriveEdges(const MeasureMesh& mesh) {
         for (std::size_t i = 0; i < 3; ++i) edge.points.push_back(k->rec->b[i]);
         ++degree[k->key.first];
         ++degree[k->key.second];
+        at.emplace(k->rec->ia, k->rec->a);
+        at.emplace(k->rec->ib, k->rec->b);
       }
       edge.closed = true;
       for (const auto& d : degree) {
         if (d.second != 2) edge.closed = false;
+      }
+      // The ends. See MeshEdge::simple for why they are taken from the degrees
+      // and never from the order of `points`.
+      std::vector<int> loose;
+      bool branched = false;
+      for (const auto& d : degree) {
+        if (d.second == 1) loose.push_back(d.first);
+        if (d.second > 2) branched = true;
+      }
+      const double* endA = nullptr;
+      const double* endB = nullptr;
+      if (edge.closed && !at.empty()) {
+        endA = endB = at.begin()->second;
+      } else if (!branched && loose.size() == 2) {
+        endA = at[loose[0]];
+        endB = at[loose[1]];
+      }
+      if (endA != nullptr && endB != nullptr) {
+        edge.simple = true;
+        for (std::size_t i = 0; i < 3; ++i) {
+          edge.endA[i] = endA[i];
+          edge.endB[i] = endB[i];
+        }
       }
       out.edges.push_back(std::move(edge));
     }
