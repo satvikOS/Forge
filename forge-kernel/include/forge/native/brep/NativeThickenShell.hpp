@@ -115,10 +115,19 @@
 //   * a fold whose two offset normals are anti-parallel (a 180-degree fold-back),
 //     or whose sector bisector does not point away from BOTH plates — the
 //     self-check that the wedge really is the gap;
-//   * a CONVEX VERTEX where three or more non-coplanar faces meet: the spherical
-//     wedge of the decomposition above is NOT built by this version, so rather
-//     than emit a body missing a corner patch the whole call declines;
-//   * a fuse that fails, a result that is not exactly one solid with one shell,
+//   * an ACUTE CONCAVE fold (offset normals with a1 . a2 < 0): a face prism would
+//     pass through the neighbouring plate, and the bisector-trimmed prism is not
+//     built;
+//   * a CORNER where three or more faces meet that is not admissible: on the
+//     sheet's free rim (an open fan), a SADDLE (convex and concave folds at one
+//     vertex), a CONCAVE corner whose distinct normals are not exactly three
+//     mutually perpendicular ones (the union of prisms overshoots the offset
+//     surface there — measured on pyramid apexes), or a CONVEX corner whose normal
+//     cone is wider than 80 degrees about its mean. A convex corner on a closed
+//     fan IS built: the spherical vertex wedge Ball(v,|t|) ∩ cone(a_1..a_k),
+//     checked against its closed form Omega*|t|^3/3 (DERIVATION 4);
+//   * a fuse that fails, a result that is not exactly one solid with one shell
+//     (two shells are accepted only for a CLOSED input sheet, whose skin has a void),
 //     a non-positive volume, or a volume outside the [max prism, sum of parts]
 //     bracket the decomposition guarantees;
 //   * on path C, an offset radius that reaches the axis, or a PARTIAL u-span (the

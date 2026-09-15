@@ -19,8 +19,8 @@
 // refusal, because a refusal is visible at the call site and a wrong solid is not.
 //
 // So the drop is only safe if the decline path is LOUD. This gate asserts three
-// things that together make it loud, on the very shape the engine's own defer
-// control uses:
+// things that together make it loud, on an input the engine declines on one side
+// and builds on the other:
 //
 //   1. thickenSurface THROWS. It does not return a handle.
 //   2. The message QUOTES THE ENGINE'S OWN REASON — the same sentence
@@ -35,17 +35,27 @@
 //   SUCCEED and return a positively-oriented solid. Without that half, commenting
 //   out the engine entirely would leave this gate green.
 //
-// THE FIXTURE, and why this one. Three mutually perpendicular unit-square plates
-// meeting at the origin. On one offset side the corner is CONCAVE — the per-face
-// prisms already overlap and the union is exact (Rossignac & Requicha, CAGD
-// 3(2):129-148, 1986), so the engine builds it. On the other the corner is CONVEX,
-// which by that same decomposition needs a SPHERICAL VERTEX WEDGE the engine does
-// not build. It therefore declines rather than emit a body missing a corner patch.
-// That is the honest-defer case this whole family turns on, and it is the exact
-// fixture test/ab_native_thicken_occt.cpp uses as its defer(c) control.
+// THE FIXTURE, and why this one. Two 10x10 plates folded at SIXTY degrees along a
+// shared straight edge. On one offset side the fold is CONVEX and the engine builds
+// it exactly (prisms plus the cylindrical sector wedge; test/ab_native_thicken_occt.cpp
+// case 13 matches live OCCT on the full observable vector). On the other side the
+// fold is ACUTE and CONCAVE: a face prism would pass through the neighbouring plate,
+// putting material on the wrong side of the sheet (MEASURED before the rule: native
+// 188.452995 with the bbox reaching z = -0.5, OCCT 182.679492), and the
+// bisector-trimmed prism that would fix it is not built. So it declines.
+//
+// ★ THIS FIXTURE REPLACED THE THREE-PLATE CORNER, AND WHY THAT IS NOT A WEAKENING.
+//   The corner used to decline on its convex side because the spherical vertex
+//   wedge was not built. It IS built now (DERIVATION 4 in NativeThickenShell.cpp,
+//   case 8 of the A/B: both sides match OCCT and the closed forms 488 and
+//   600 + 30pi + 4pi/3), so the corner no longer has a declined side to test. The
+//   property this gate guards — a decline surfaces as a NAMED refusal with a
+//   negative control on the same input — is unchanged; only the input that still
+//   exercises it changed.
 //
 // usage: thicken_refusal_gate      (exit 0 iff every check holds)
 
+#include <cmath>
 #include <cstdio>
 #include <string>
 
@@ -78,12 +88,13 @@ TopoDS_Face quadFace(const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c, const gp
     return BRepBuilderAPI_MakeFace(poly.Wire()).Face();
 }
 
-// Three mutually perpendicular plates meeting at the origin: defer(c)'s fixture.
-TopoDS_Shape threePlateCorner() {
+// Two 10x10 plates folded at 60 degrees about the y axis.
+TopoDS_Shape acuteFold() {
+    const double th = 60.0 * 3.14159265358979323846 / 180.0;
+    const gp_Pnt b1(10.0 * std::cos(th), 0.0, 10.0 * std::sin(th));
     BRepBuilderAPI_Sewing sew(1.0e-6);
     sew.Add(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0), gp_Pnt(10, 10, 0), gp_Pnt(0, 10, 0)));
-    sew.Add(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(0, 10, 0), gp_Pnt(0, 10, 10), gp_Pnt(0, 0, 10)));
-    sew.Add(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 10), gp_Pnt(10, 0, 10), gp_Pnt(10, 0, 0)));
+    sew.Add(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(0, 10, 0), gp_Pnt(b1.X(), 10, b1.Z()), b1));
     sew.Perform();
     return sew.SewedShape();
 }
@@ -100,8 +111,8 @@ int main() {
     std::printf("[thicken-refusal] with the OCCT fallback DELETED, a decline must be a "
                 "NAMED REFUSAL, never a silent answer\n");
 
-    const TopoDS_Shape corner = threePlateCorner();
-    ok(!corner.IsNull(), "the three-plate corner shell sewed");
+    const TopoDS_Shape corner = acuteFold();
+    ok(!corner.IsNull(), "the 60-degree fold shell sewed");
     if (corner.IsNull()) return 1;
 
     const double T = 2.0;
@@ -113,8 +124,8 @@ int main() {
     const bool declineMinus = forge::occtthicken::thickenShell(corner, -T).IsNull();
     const std::string rMinus = forge::occtthicken::thickenLastDeferReason();
     ok(declinePlus != declineMinus,
-       "the engine declines EXACTLY ONE side of the corner (convex needs the "
-       "spherical vertex wedge; concave does not)");
+       "the engine declines EXACTLY ONE side of the fold (the acute concave one; "
+       "the convex one builds)");
     if (declinePlus == declineMinus) return 1;
 
     const int badSide  = declinePlus ?  1 : -1;
