@@ -63,6 +63,13 @@
 #include <vector>
 
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepBndLib.hxx>
+#include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepClass_FaceClassifier.hxx>
+#include <Bnd_Box.hxx>
+#include <GeomAbs_CurveType.hxx>
+#include <gp_Pnt2d.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -475,9 +482,147 @@ TopoDS_Shape sphericalVertexWedge(const gp_Pnt& v, const std::vector<gp_Dir>& a,
     if (nSol != 1) return defer("corner wedge: ball COMMON pyramid is not exactly one solid");
     GProp_GProps gw;
     BRepGProp::VolumeProperties(w, gw);
-    if (std::fabs(std::fabs(gw.Mass()) - volClosedForm) > 1.0e-6 * volClosedForm)
+    // THE TOLERANCE IS A SURFACE TERM, NOT A PURE RATIO. A boundary represented to
+    // within delta (Precision::Confusion(), the vertex/edge tolerance the ball, the
+    // pyramid and the COMMON carry) can move the enclosed volume by at most
+    // delta * (boundary area). The wedge's boundary is the spherical patch
+    // Omega r^2 plus k planar sectors of half-angle phi_i, sum(phi_i) r^2 / 2. That
+    // term is SCALE-DEPENDENT: relative to V = Omega r^3 / 3 it grows like 1/r.
+    // MEASURED on the irregular kite corners of thicken_corner_parity_gate
+    // (built vs closed, relative): r=1 6.9e-9, r=0.1 2.1e-7, r=0.01 2.1e-6,
+    // r=0.001 1.9e-5 -- the 1/r law exactly, and a flat 1e-6 ratio declined every
+    // such corner at t <= 0.01 even though the wedge was right. The absolute error
+    // at r=0.001 was 1.2e-14 against a delta*area bound of ~4e-13. A WRONG wedge
+    // (a missing or extra cone face) is off by a finite fraction at every r, so
+    // this admits no wrong construction the ratio would have caught.
+    double sumPhi = 0.0;
+    for (std::size_t i = 0; i < k; ++i)
+        sumPhi += std::acos(std::max(-1.0, std::min(1.0, a[i].Dot(a[(i + 1) % k]))));
+    const double wedgeArea = (omega + 0.5 * sumPhi) * r * r;
+    const double volTol = std::max(1.0e-6 * volClosedForm, Precision::Confusion() * wedgeArea);
+    if (std::fabs(std::fabs(gw.Mass()) - volClosedForm) > volTol)
         return defer("corner wedge: the built wedge misses the closed form Omega*r^3/3");
     return w;
+}
+
+// ===========================================================================
+// DERIVATION 5 — when the UNION OF PRISMS is the thick body at all
+// ===========================================================================
+// The decomposition (prisms + fold wedges + corner wedges) is the thick body only
+// where the OFFSET SURFACE it bounds exists. Two ways it stops existing were
+// MEASURED shipping as success (thicken_corner_parity_gate, on this engine):
+//   * an inward thickness that CONSUMES A FACE. UNFOLD(BOX(60,40,2)) inward by 5:
+//     V=19200 with the bbox reaching z=-3, below the sheet (true: no skin exists,
+//     the 2 mm walls are gone); by 1: V=4800, the whole box, no skin left. The
+//     10 mm cube corner inward by 50: V=13000, bbox -40..10.
+//   * a face prism that PASSES THROUGH another part of the sheet (the same z=-3
+//     case: the lid's prism runs through the floor).
+//
+// (a) THE TRIMMED OFFSET FACE MUST SURVIVE. At a concave fold between faces f and
+//     g with offset directions a_f, a_g at angle theta, the two offset planes meet
+//     on a line that lies, seen in f's plane, at
+//         delta = |t| tan(theta / 2)
+//     from the fold: in the cross-section normal to the fold the offset lines and
+//     the fold's bisector form a right triangle with leg |t| and half-angle
+//     theta/2 at the offset corner (elementary; 90 degrees gives delta = |t|, 180
+//     would be infinite and is the fold-back already declined). The offset face of
+//     f is therefore f's outer polygon with every concave-fold edge moved INTO the
+//     face by its delta — each new vertex the intersection of two consecutive
+//     moved lines — while a convex fold or a free rim does not move (delta = 0).
+//     The prism union equals the thick body only while that polygon keeps every
+//     edge at POSITIVE length in its original direction and no moved edge sweeps
+//     across another part of the face's boundary (another outer vertex, or a
+//     hole). That is the EDGE EVENT of the polygon's straight skeleton (Aichholzer,
+//     Alberts, Aurenhammer, Gaertner, "A novel type of skeleton for polygons",
+//     J.UCS 1(12):752-761, 1995) arriving before the offset does; past it the true
+//     offset surface is not a trimmed copy of the face and nothing here builds it.
+//     So it declines.
+// (b) THE SHEET MUST STAY ON THE BODY'S BOUNDARY. In the thick body a point just
+//     BEHIND a face — on the side opposite its offset direction, well inside the
+//     face — is outside the body: the body there is the face's own slab, on the
+//     other side. If the fused body classifies it IN, another face's prism or
+//     wedge has crossed this face. Checked once per face, at the grid point
+//     farthest from the face's boundary, at a depth below every feature this
+//     engine builds: min(|t|/4, 1e-5 L + 1e-4), L the sheet's bbox diagonal.
+
+// Strictly inside triangle (a, b, c) in the plane with normal n, by more than
+// `eps` from each side. A degenerate triangle contains nothing.
+bool strictlyInTriangle(const gp_Pnt& x, const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c,
+                        const gp_Dir& n, double eps) {
+    const double area2 = gp_Vec(a, b).Crossed(gp_Vec(a, c)).Dot(gp_Vec(n));
+    if (std::fabs(area2) < 1.0e-300) return false;
+    const double sg = area2 > 0.0 ? 1.0 : -1.0;
+    const gp_Pnt tri[3] = {a, b, c};
+    for (int i = 0; i < 3; ++i) {
+        const gp_Pnt& p = tri[i];
+        const gp_Pnt& q = tri[(i + 1) % 3];
+        const gp_Vec pq(p, q);
+        const double len = pq.Magnitude();
+        if (len < 1.0e-300) return false;
+        const double signedDist = sg * pq.Crossed(gp_Vec(p, x)).Dot(gp_Vec(n)) / len;
+        if (!(signedDist > eps)) return false;
+    }
+    return true;
+}
+
+// Points along an edge: both ends and interior samples (a straight edge needs only
+// its midpoint in between; a curve gets eight intervals).
+void edgeSamples(const TopoDS_Edge& e, std::vector<gp_Pnt>& out) {
+    if (BRep_Tool::Degenerated(e)) return;
+    BRepAdaptor_Curve cu(e);
+    const double f = cu.FirstParameter(), l = cu.LastParameter();
+    const int n = (cu.GetType() == GeomAbs_Line) ? 2 : 8;
+    for (int i = 0; i <= n; ++i)
+        out.push_back(cu.Value(f + (l - f) * (static_cast<double>(i) / n)));
+}
+
+// The point of a face, over an interior 10x10 grid of its UV box, farthest from
+// the face's boundary; `margin` is that distance. False if no grid point is IN.
+bool faceInteriorProbe(const TopoDS_Face& f, gp_Pnt& best, double& margin) {
+    std::vector<gp_Pnt> bnd;
+    for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+        const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+        if (BRep_Tool::Degenerated(e)) continue;
+        BRepAdaptor_Curve cu(e);
+        const double a = cu.FirstParameter(), b = cu.LastParameter();
+        const int n = (cu.GetType() == GeomAbs_Line) ? 1 : 32;
+        gp_Pnt prev = cu.Value(a);
+        for (int i = 1; i <= n; ++i) {
+            const gp_Pnt cur = cu.Value(a + (b - a) * (static_cast<double>(i) / n));
+            bnd.push_back(prev);
+            bnd.push_back(cur);
+            prev = cur;
+        }
+    }
+    if (bnd.empty()) return false;
+    double u0 = 0.0, u1 = 0.0, v0 = 0.0, v1 = 0.0;
+    BRepTools::UVBounds(f, u0, u1, v0, v1);
+    const Handle(Geom_Surface) surf = BRep_Tool::Surface(f);
+    if (surf.IsNull()) return false;
+    margin = -1.0;
+    const int G = 11;
+    for (int i = 1; i < G; ++i) {
+        for (int j = 1; j < G; ++j) {
+            const double u = u0 + (u1 - u0) * (static_cast<double>(i) / G);
+            const double v = v0 + (v1 - v0) * (static_cast<double>(j) / G);
+            BRepClass_FaceClassifier fc(f, gp_Pnt2d(u, v), Precision::Confusion());
+            if (fc.State() != TopAbs_IN) continue;
+            const gp_Pnt x = surf->Value(u, v);
+            double dmin = 1.0e300;
+            for (std::size_t k = 0; k + 1 < bnd.size(); k += 2) {
+                const gp_Vec ab(bnd[k], bnd[k + 1]);
+                const double L2 = ab.SquareMagnitude();
+                double s = L2 > 0.0 ? gp_Vec(bnd[k], x).Dot(ab) / L2 : 0.0;
+                s = std::max(0.0, std::min(1.0, s));
+                dmin = std::min(dmin, x.Distance(bnd[k].Translated(ab * s)));
+            }
+            if (dmin > margin) {
+                margin = dmin;
+                best = x;
+            }
+        }
+    }
+    return margin > 0.0;
 }
 
 // ===========================================================================
@@ -1376,6 +1521,9 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
     TopTools_IndexedMapOfShape concaveVerts;
     // Per efMap index: 0 free rim, 1 convex, 2 concave, 3 coplanar fold.
     std::vector<int> edgeClass(static_cast<std::size_t>(efMap.Extent()) + 1, 0);
+    // Per efMap index: how far a CONCAVE fold trims each neighbour's offset face
+    // back from the fold, in that face's plane (DERIVATION 5). Zero elsewhere.
+    std::vector<double> edgeInset(static_cast<std::size_t>(efMap.Extent()) + 1, 0.0);
     bool closedInput = true;
 
     for (int ei = 1; ei <= efMap.Extent(); ++ei) {
@@ -1407,6 +1555,11 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
 
         if (gp_Vec(a1).Dot(gp_Vec(u2)) > 0.0) {                  // CONCAVE: prisms overlap
             edgeClass[ei] = 2;
+            // The two offset planes meet on a line that lies, in each face's own
+            // plane, at r * tan(theta / 2) from the fold, theta = angle(a1, a2):
+            // tan(theta/2) = sqrt((1 - cos) / (1 + cos)). 90 degrees -> exactly r.
+            edgeInset[static_cast<std::size_t>(ei)] =
+                r * std::sqrt(std::max(0.0, 1.0 - dot) / std::max(1.0e-300, 1.0 + dot));
             // BUT ONLY AN ACUTE ONE LETS A PRISM THROUGH THE OTHER PLATE. With
             // a1 . a2 < 0 the fold's interior angle on the offset side is under 90
             // degrees, and prism 1 crosses plate 2 near the fold: material on the
@@ -1603,6 +1756,116 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
         }
     }
 
+    // ---- 4c. EVERY TRIMMED OFFSET FACE MUST SURVIVE (DERIVATION 5a) -------
+    {
+        const double lenTol = 10.0 * Precision::Confusion();
+        for (std::size_t fi = 0; fi < faces.size(); ++fi) {
+            const TopoDS_Face& F = faces[fi];
+            const TopoDS_Wire ow = BRepTools::OuterWire(F);
+            if (ow.IsNull()) return defer("a face has no outer wire");
+            std::vector<TopoDS_Edge> ring;
+            for (BRepTools_WireExplorer wex(ow, F); wex.More(); wex.Next()) ring.push_back(wex.Current());
+            const std::size_t n = ring.size();
+            std::vector<double> dl(n, 0.0);
+            bool anyInset = false;
+            for (std::size_t k = 0; k < n; ++k) {
+                const int ei = efMap.FindIndex(ring[k]);
+                if (ei == 0) return defer("a face's outer-wire edge is not in the shell's edge map");
+                dl[k] = edgeInset[static_cast<std::size_t>(ei)];
+                anyInset = anyInset || dl[k] > 0.0;
+            }
+            // Boundary points of the HOLES: no moved edge may sweep across them, and
+            // no fold on a hole's rim may trim (that trimmed face is not modelled).
+            std::vector<gp_Pnt> holePts;
+            for (TopExp_Explorer wx(F, TopAbs_WIRE); wx.More(); wx.Next()) {
+                if (wx.Current().IsSame(ow)) continue;
+                for (TopExp_Explorer ex(wx.Current(), TopAbs_EDGE); ex.More(); ex.Next()) {
+                    const int ei = efMap.FindIndex(ex.Current());
+                    if (ei != 0 && edgeInset[static_cast<std::size_t>(ei)] > 0.0)
+                        return defer("a concave fold runs along the rim of a hole in a face "
+                                     "(the trimmed offset face around a hole is not built)");
+                    edgeSamples(TopoDS::Edge(ex.Current()), holePts);
+                }
+            }
+            if (!anyInset) continue;
+            if (n < 3) return defer("a face trimmed by a concave fold has fewer than three edges");
+
+            std::vector<gp_Pnt> P(n);
+            std::vector<gp_Vec> T(n), In(n);
+            std::vector<bool> straight(n, false);
+            gp_Vec twiceArea(0.0, 0.0, 0.0);
+            for (std::size_t k = 0; k < n; ++k) {
+                TopoDS_Vertex va, vb;
+                TopExp::Vertices(ring[k], va, vb, /*CumOri*/ Standard_True);
+                if (va.IsNull() || vb.IsNull()) return defer("a face's outer-wire edge has no end vertices");
+                P[k] = BRep_Tool::Pnt(va);
+                const gp_Pnt pEnd = BRep_Tool::Pnt(vb);
+                const gp_Vec chord(P[k], pEnd);
+                if (chord.Magnitude() < 1.0e-12) return defer("a face's outer-wire edge is degenerate");
+                T[k] = chord.Normalized();
+                In[k] = gp_Vec(N[fi]).Crossed(T[k]);      // DERIVATION 1's interior direction
+                gp_Pnt q0; gp_Dir qd; double ql = 0.0;
+                straight[k] = straightEdge(ring[k], q0, qd, ql);
+                twiceArea += gp_Vec(P[k].XYZ()).Crossed(gp_Vec(pEnd.XYZ()));
+            }
+            if (!(twiceArea.Dot(gp_Vec(N[fi])) > 0.0))
+                return defer("a face's outer wire does not turn counter-clockwise about its "
+                             "outward normal, so the side a fold trims cannot be told");
+
+            // New vertex k = moved line (k-1) meets moved line k.
+            std::vector<gp_Pnt> Q(n);
+            std::vector<bool> moved(n, false);
+            for (std::size_t k = 0; k < n; ++k) {
+                const std::size_t km = (k + n - 1) % n;
+                if (dl[km] == 0.0 && dl[k] == 0.0) { Q[k] = P[k]; continue; }
+                if (!straight[km] || !straight[k])
+                    return defer("a concave fold trims a face next to a curved rim edge (the "
+                                 "trimmed offset face is only checked on straight edges)");
+                moved[k] = true;
+                const gp_Pnt A = P[km].Translated(In[km] * dl[km]);
+                const gp_Pnt B = P[k].Translated(In[k] * dl[k]);
+                const double den = T[km].Dot(In[k]);
+                if (std::fabs(den) < 1.0e-12) {
+                    if (std::fabs(dl[km] - dl[k]) > lenTol)
+                        return defer("two collinear edges of a face are trimmed by different "
+                                     "amounts (the offset face would step)");
+                    Q[k] = B;
+                    continue;
+                }
+                const double sPar = -gp_Vec(B, A).Dot(In[k]) / den;
+                Q[k] = A.Translated(T[km] * sPar);
+            }
+            for (std::size_t k = 0; k < n; ++k) {
+                const std::size_t kp = (k + 1) % n;
+                if (!moved[k] && !moved[kp]) continue;
+                const double newLen = gp_Vec(Q[k], Q[kp]).Dot(T[k]);
+                if (!(newLen > lenTol))
+                    return defer("the thickness CONSUMES A FACE: on the concave side a fold "
+                                 "trims the offset of a neighbouring face down to nothing, so "
+                                 "no skin of this thickness exists (use a thinner thickness, "
+                                 "or thicken to the other side)");
+            }
+            // No moved edge may sweep across another part of this face's boundary.
+            for (std::size_t k = 0; k < n; ++k) {
+                if (!(dl[k] > 0.0)) continue;
+                const std::size_t kp = (k + 1) % n, km = (k + n - 1) % n;
+                std::vector<gp_Pnt> test = holePts;
+                for (std::size_t j = 0; j < n; ++j) {
+                    if (j == k || j == kp) continue;
+                    test.push_back(P[j]);
+                    if (j != km) edgeSamples(ring[j], test);
+                }
+                for (const gp_Pnt& x : test) {
+                    if (strictlyInTriangle(x, P[k], P[kp], Q[kp], N[fi], lenTol) ||
+                        strictlyInTriangle(x, P[k], Q[kp], Q[k], N[fi], lenTol))
+                        return defer("the thickness trims a face past another part of its own "
+                                     "boundary (a notch or a hole lies inside the strip a "
+                                     "concave fold trims away)");
+                }
+            }
+        }
+    }
+
     // ---- 5. fuse, then remove the fuse's coplanar seams -------------------
     // ONE n-ary fuse, not a pairwise chain. MEASURED: chaining fuses on the L
     // shell's CONVEX side deferred, because the two plate prisms sit on OPPOSITE
@@ -1638,6 +1901,28 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
         return defer(closedInput
                          ? "the fused body is not exactly one solid with one or two shells"
                          : "the fused body is not exactly one solid with one shell");
+
+    // ---- 6b. THE SHEET STAYS ON THE BODY'S BOUNDARY (DERIVATION 5b) -------
+    {
+        Bnd_Box sb;
+        BRepBndLib::Add(shell, sb);
+        const double L = sb.IsVoid() ? 1.0 : std::sqrt(sb.SquareExtent());
+        const double depth = std::min(0.25 * r, 1.0e-5 * L + 1.0e-4);
+        BRepClass3d_SolidClassifier behind(out);
+        for (std::size_t fi = 0; fi < faces.size(); ++fi) {
+            gp_Pnt x;
+            double margin = 0.0;
+            if (!faceInteriorProbe(faces[fi], x, margin) || !(margin > 4.0 * depth))
+                return defer("a face is too narrow to verify that no prism crosses it "
+                             "(its most interior point is nearer its boundary than the probe depth)");
+            const gp_Pnt q = x.Translated(gp_Vec(N[fi]) * (-sgn * depth));
+            behind.Perform(q, Precision::Confusion());
+            if (behind.State() == TopAbs_IN)
+                return defer("a face prism PASSES THROUGH another part of the sheet (the "
+                             "sheet is buried inside its own thickened body; use a thinner "
+                             "thickness)");
+        }
+    }
 
     GProp_GProps p;
     BRepGProp::VolumeProperties(out, p);

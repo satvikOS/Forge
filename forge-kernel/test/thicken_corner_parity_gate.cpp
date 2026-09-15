@@ -119,7 +119,7 @@ struct Obs {
     bool built = false;
     std::string reason;
     double V = 0, A = 0, c[3] = {0, 0, 0}, bb[6] = {0, 0, 0, 0, 0, 0};
-    int nF = 0, nE = 0, nV = 0, solids = 0, shells = 0;
+    int nF = 0, nE = 0, nV = 0, nW = 0, solids = 0, shells = 0;
     bool valid = false;
     std::vector<gp_Pnt> probe;   // vertices + edge midpoints, for containment
 };
@@ -142,6 +142,8 @@ Obs observe(const TopoDS_Shape& s) {
     TopExp::MapShapes(s, TopAbs_EDGE, me);
     TopExp::MapShapes(s, TopAbs_VERTEX, mv);
     o.nF = mf.Extent(); o.nE = me.Extent(); o.nV = mv.Extent();
+    for (int i = 1; i <= mf.Extent(); ++i)
+        for (TopExp_Explorer w(mf(i), TopAbs_WIRE); w.More(); w.Next()) ++o.nW;
     for (TopExp_Explorer e(s, TopAbs_SOLID); e.More(); e.Next()) ++o.solids;
     for (TopExp_Explorer e(s, TopAbs_SHELL); e.More(); e.Next()) ++o.shells;
     o.valid = BRepCheck_Analyzer(s).IsValid();
@@ -208,8 +210,14 @@ void checkBuiltAgainst(const std::string& lab, const Obs& o, const Truth& t, dou
     ck(o.solids == 1 && o.shells == wantShells,
        lab + " is one solid with " + std::to_string(wantShells) + " shell(s) (got " +
            std::to_string(o.solids) + "/" + std::to_string(o.shells) + ")");
-    ck(o.nV - o.nE + o.nF == 2 * o.shells,
-       lab + " Euler V-E+F == 2 per shell (got " + std::to_string(o.nV - o.nE + o.nF) + ")");
+    // Euler-Poincare for a genus-0 boundary whose faces may carry holes: each
+    // inner loop (wires beyond one per face) adds one to V - E + F, so the
+    // invariant is V - E + 2F - W == 2 per shell. The first version of this gate
+    // asserted V - E + F == 2 and failed the SURFTRIM skin (a ring face on each
+    // side of the 20 x 20 hole: 40 - 72 + 36 = 4, W = 38, so 40 - 72 + 72 - 38 = 2).
+    ck(o.nV - o.nE + 2 * o.nF - o.nW == 2 * o.shells,
+       lab + " Euler-Poincare V-E+2F-W == 2 per shell (got " +
+           std::to_string(o.nV - o.nE + 2 * o.nF - o.nW) + ")");
 }
 
 // ─── fans ───────────────────────────────────────────────────────────────────
@@ -589,6 +597,16 @@ int main(int argc, char** argv) {
     {
         const gp_Pnt lo(-30, -20, 0);   // FT's BOX(60,40,2) is centred in x and y
         struct Prog { const char* lab; const char* ir; double t; bool hole; int wantF, wantE; };
+        // WHERE THE HOLE IS, and why it is not assumed. The first version of this
+        // gate put the SURFTRIM hole in the TOP face (z = 2) and reported native
+        // WRONG on the centroid (1.117 against 0.883). Measured instead, on the
+        // trimmed sheet itself (the compile's intermediate handle): its four free
+        // edges are the square |x|,|y| = 10 at z = 0 — the tool cube's BOTTOM face
+        // is COPLANAR with the plate's bottom face, and cutting a sheet by a sheet
+        // removes their common coplanar region; the top face is only imprinted
+        // (ring + 400 mm^2 square, both kept). OCCT's thicken of that sheet agrees
+        // with native on V, A, centroid and bbox. So the closed form below is
+        // written for the hole on the BOTTOM face, slab z in [-t, 0].
         const Prog progs[] = {
             {"UNFOLD -> THICKEN(%2, 1)",
              "%1 = BOX(60,40,2)\n%2 = UNFOLD(%1, 0.44)\n%3 = THICKEN(%2, 1)\nRESULT(%3)\n", 1.0, false, 32, 60},
@@ -610,13 +628,15 @@ int main(int argc, char** argv) {
             Truth tr = boxOutward(60, 40, 2, lo, p.t);
             int shells = 2;
             if (p.hole) {
-                // a 20 x 20 hole through the top face: minus that slab, plus its
-                // four walls of height t, and the slab's moment comes out too
+                // a 20 x 20 hole through the BOTTOM face (z = 0): minus that
+                // outward slab z in [-t, 0] (centroid z = -t/2), minus the 400 mm^2
+                // of sheet and 400 of offset face, plus the hole's four walls of
+                // height t
                 const double t = p.t;
                 const double V0 = tr.V;
                 tr.V = V0 - 400.0 * t;
                 tr.A = tr.A - 800.0 + 80.0 * t;
-                tr.c[2] = (V0 * tr.c[2] - 400.0 * t * (2.0 + t / 2.0)) / tr.V;
+                tr.c[2] = (V0 * tr.c[2] - 400.0 * t * (-t / 2.0)) / tr.V;
                 shells = 1;
             }
             checkBuiltAgainst(lab, o, tr, 60.0 + p.t, shells);
