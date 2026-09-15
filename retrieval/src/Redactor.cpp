@@ -456,21 +456,55 @@ bool isWholeAlnumRun(const std::string& s, std::size_t begin, std::size_t end) {
   return true;
 }
 
-// normalizeForMatch() plus the index map that carries a normalized offset back
-// to the byte offset it came from. Both matching layers need the map, because
-// the whole-run test above can only be made in the ORIGINAL bytes: normalization
-// deletes the very punctuation that marks a token boundary.
+// ── THE LEXICON MATCH KEY: a UTS #39 skeleton over the folded ASCII ─────────
+// Folding brings every modelled code point to ASCII, but ASCII has look-alikes
+// of its own, and the Cyrillic/Greek table below has to pick ONE ASCII letter for
+// a glyph that reads as two: PALOCHKA U+04C0 is a capital I to one reader and an
+// l to the next. Written as the only Latin-free spelling of "apollo" it folded to
+// "apoIIo" and met the lexicon as "apoiio". So registered terms are never
+// compared letter-for-letter: BOTH the needle and the haystack are reduced to a
+// skeleton, and two strings whose skeletons agree are the same term.
+//
+// Source: Unicode Technical Standard #39, Unicode Security Mechanisms, §4
+// "Confusable Detection" (skeleton(X) = NFD, map each code point by
+// confusables.txt, NFD again). confusables.txt 16.0.0 maps these ASCII code
+// points, and only these letters, digits and marks, to other ASCII:
+//     0030 '0' -> 004F 'O'        0049 'I' -> 006C 'l'      006D 'm' -> 0072 006E "rn"
+//     0031 '1' -> 006C 'l'        007C '|' -> 006C 'l'
+// (0022, 0025 and 0060 map to punctuation, which the key discards anyway.)
+// This key is CASE-INSENSITIVE, so each class is closed under case before the
+// mapping is applied: 'i' is the lower case of 'I' and joins {1, I, l, |}; 'o'
+// joins {0, O}; 'M' joins 'm'. Merging classes can only make two different
+// strings compare equal, which is a spurious redaction or refusal — never a
+// secret that is missed.
+void appendSkeleton(std::string& out, std::vector<std::size_t>* map, unsigned char c, std::size_t source) {
+  auto put = [&](char k) {
+    out.push_back(k);
+    if (map) map->push_back(source);
+  };
+  if (c == '|') { put('l'); return; }
+  if (!isAsciiAlnum(c)) return;
+  const char lower = static_cast<char>(std::tolower(c));
+  switch (lower) {
+    case '1': case 'i': case 'l': put('l'); return;
+    case '0': case 'o': put('o'); return;
+    case 'm': put('r'); put('n'); return;
+    default: put(lower); return;
+  }
+}
+
+// The skeleton key plus the index map that carries a key offset back to the
+// byte offset it came from. Both matching layers need the map, because the
+// whole-run test above can only be made in the ORIGINAL bytes: the key deletes
+// the very punctuation that marks a token boundary. Every key byte maps to the
+// source byte that produced it ("m" produces two, both mapped to the 'm').
 std::string normalizeWithMap(const std::string& s, std::vector<std::size_t>& map) {
   std::string out;
   out.reserve(s.size());
   map.clear();
   map.reserve(s.size());
   for (std::size_t i = 0; i < s.size(); ++i) {
-    const unsigned char c = static_cast<unsigned char>(s[i]);
-    if (isAsciiAlnum(c)) {
-      out.push_back(static_cast<char>(std::tolower(c)));
-      map.push_back(i);
-    }
+    appendSkeleton(out, &map, static_cast<unsigned char>(s[i]), i);
   }
   return out;
 }
@@ -571,9 +605,14 @@ constexpr StringFold kLatinSpecial[] = {
     {0x017F, "s", FoldScript::Latin},
 };
 
-// (5) CONFUSABLE SKELETON, UTS #39 (Unicode Security Mechanisms) confusables.txt:
+// (5) CONFUSABLE SKELETON, UTS #39 (Unicode Security Mechanisms) confusables.txt,
+// version 16.0.0 (https://www.unicode.org/Public/security/16.0.0/confusables.txt):
 // the Cyrillic, Greek and Armenian letters whose prototype is a single ASCII
 // Latin letter. These are what let "bluefаlcon" (U+0430) look like "bluefalcon".
+// Each entry's ASCII is the prototype, or a letter in the same skeleton class
+// (appendSkeleton: {1 I i l |}, {0 O o}) where the prototype is 'l' and the glyph
+// is a capital I. attack_regression_gate's UCD phase re-derives every entry from
+// retrieval/test/fixtures/unicode/confusables-16.0.0-subset.txt.
 // A token that mixes one of these with a Latin letter is REFUSED by the
 // mixed-script rule before this skeleton is ever relied on; the skeleton is what
 // lets a token written ENTIRELY in look-alikes meet the lexicon as the Latin
@@ -606,9 +645,9 @@ constexpr StringFold kConfusables[] = {
     {0x0474, "V", FoldScript::Cyrillic}, {0x0475, "v", FoldScript::Cyrillic},
     {0x04AE, "Y", FoldScript::Cyrillic}, {0x04AF, "y", FoldScript::Cyrillic},
     {0x04BB, "h", FoldScript::Cyrillic}, {0x04C0, "I", FoldScript::Cyrillic},
-    {0x04CF, "l", FoldScript::Cyrillic}, {0x0501, "d", FoldScript::Cyrillic},
-    {0x050C, "G", FoldScript::Cyrillic}, {0x051A, "Q", FoldScript::Cyrillic},
-    {0x051B, "q", FoldScript::Cyrillic}, {0x051C, "W", FoldScript::Cyrillic},
+    {0x04CF, "i", FoldScript::Cyrillic}, {0x0501, "d", FoldScript::Cyrillic},
+    {0x050C, "G", FoldScript::Cyrillic}, {0x051B, "q", FoldScript::Cyrillic},
+    {0x051C, "W", FoldScript::Cyrillic},
     {0x051D, "w", FoldScript::Cyrillic}, {0x054D, "U", FoldScript::Armenian},
     {0x0555, "O", FoldScript::Armenian}, {0x0570, "h", FoldScript::Armenian},
     {0x0578, "n", FoldScript::Armenian}, {0x057D, "u", FoldScript::Armenian},
@@ -901,6 +940,17 @@ std::string normalizeForMatch(const std::string& s) {
   return out;
 }
 
+std::string lexiconKey(const std::string& s) {
+  // Same fold, then the skeleton key the haystack is reduced to (see
+  // appendSkeleton). A registered term and the text it is looked for in MUST go
+  // through the same two steps, or a class merged on one side only is a miss.
+  const std::string folded = foldForMatch(s).text;
+  std::string out;
+  out.reserve(folded.size());
+  for (const unsigned char c : folded) appendSkeleton(out, nullptr, c, 0);
+  return out;
+}
+
 std::string decodeForResidueScan(const std::string& s) {
   std::string out;
   out.reserve(s.size());
@@ -1074,7 +1124,7 @@ RedactionResult Redactor::redact(const std::string& input) const {
   std::vector<Span> spans;
   auto markCategory = [&](const std::vector<std::string>& terms, RedactionKind kind) {
     for (const std::string& term : terms) {
-      const std::string needle = detail::normalizeForMatch(term);
+      const std::string needle = detail::lexiconKey(term);
       // An empty term would match everywhere; a SHORT one matches whole
       // alphanumeric runs only. Length never buys a term an exemption.
       if (needle.empty()) continue;
@@ -1292,7 +1342,7 @@ bool Redactor::verifyNoResidue(const std::string& wire, std::vector<std::string>
     //     honest answer when a registered secret is a single character.
     auto scanCategory = [&](const std::vector<std::string>& terms, const char* label) {
       for (std::size_t i = 0; i < terms.size(); ++i) {
-        const std::string needle = detail::normalizeForMatch(terms[i]);
+        const std::string needle = detail::lexiconKey(terms[i]);
         if (needle.empty()) continue;
         if (findRegisteredTerm(norm, map, *form, needle, 0) != std::string::npos) {
           // NEVER echo the secret itself into a diagnostic string.

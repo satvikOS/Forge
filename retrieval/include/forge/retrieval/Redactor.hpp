@@ -215,6 +215,12 @@ bool foldCodePoint(char32_t cp, std::string& ascii, FoldScript& script, char32_t
 // Fold (best effort, issues ignored), lowercase, drop every non-alphanumeric
 // byte. "ACME-4471 B" -> "acme4471b", "ＡＣＭＥ-４４７１" -> "acme4471".
 std::string normalizeForMatch(const std::string& s);
+// The key a REGISTERED TERM is matched on, and the key the text is reduced to
+// before it is searched: the same fold, then a case-insensitive UTS #39 skeleton
+// over ASCII ({1 I i l |} -> l, {0 O o} -> o, m -> rn), non-alphanumerics dropped.
+// "B0EING", "b1uefalcon" and "Arnco" meet "Boeing", "BlueFalcon" and "Amco".
+std::string lexiconKey(const std::string& s);
+#define FORGE_RETRIEVAL_HAS_LEXICON_SKELETON 1
 // Undo every encoding this codebase can emit (percent-encoding including '+'
 // for space, and JSON \uXXXX escapes decoded to UTF-8, surrogate pairs joined)
 // so residue cannot hide behind an encoder.

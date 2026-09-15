@@ -109,12 +109,32 @@ std::string alnumLower(const std::string& s) {
   return out;
 }
 
+// How a HUMAN reading the search log reads ASCII: case-blind, punctuation-blind,
+// and unable to tell 1/I/l/| or 0/O apart, or "rn" from "m". Written here from
+// the UTS #39 description, independently of the redactor's own key, because the
+// oracle must not share the failure modes of the code it is judging.
+std::string readerSkeleton(const std::string& s) {
+  std::string out;
+  for (const unsigned char c : s) {
+    char k = 0;
+    if (c >= 'A' && c <= 'Z') k = static_cast<char>(c - 'A' + 'a');
+    else if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) k = static_cast<char>(c);
+    else if (c == '|') k = 'l';
+    else continue;
+    if (k == '1' || k == 'i') k = 'l';
+    if (k == '0') k = 'o';
+    if (k == 'm') { out += "rn"; continue; }
+    out.push_back(k);
+  }
+  return out;
+}
+
 // A secret reached the wire when, after percent-decoding what the transport
 // received: any non-ASCII byte survives (the only bytes this oracle cannot read,
 // so they are a leak by definition — a spelling nobody folded), OR a registered
-// term appears in the letters-and-digits skeleton, OR the secret dimension does.
+// term appears in the reader's skeleton, OR the secret dimension does.
 bool wireLeaks(const CaptureTransport& cap, std::string& why) {
-  static const char* kTerms[] = {"boeing", "bluefalcon", "acme4471b", "lockheed"};
+  static const char* kTerms[] = {"boeing", "bluefalcon", "acme4471b", "lockheed", "apollo"};
   for (const std::string& wire : cap.sent) {
     const std::string decoded = percentDecode(wire);
     for (const unsigned char c : decoded) {
@@ -123,14 +143,15 @@ bool wireLeaks(const CaptureTransport& cap, std::string& why) {
         return true;
       }
     }
-    const std::string skel = alnumLower(decoded);
+    const std::string skel = readerSkeleton(decoded);
+    const std::string numerals = alnumLower(decoded);
     for (const char* t : kTerms) {
-      if (skel.find(t) != std::string::npos) {
+      if (skel.find(readerSkeleton(t)) != std::string::npos) {
         why = std::string("registered term '") + t + "' reached the transport";
         return true;
       }
     }
-    if (decoded.find("47.625") != std::string::npos || skel.find("47625") != std::string::npos) {
+    if (decoded.find("47.625") != std::string::npos || numerals.find("47625") != std::string::npos) {
       why = "the secret dimension 47.625 reached the transport";
       return true;
     }
@@ -142,7 +163,7 @@ bool wireLeaks(const CaptureTransport& cap, std::string& why) {
 PrivateLexicon attackLexicon() {
   PrivateLexicon lex;
   lex.customer_names = {"Boeing"};
-  lex.project_names = {"BlueFalcon"};
+  lex.project_names = {"BlueFalcon", "Apollo"};
   lex.part_numbers = {"ACME-4471-B"};
   lex.secret_dimensions = {47.625};
   return lex;
@@ -336,6 +357,23 @@ int main() {
     residue.clear();
     check(!red.verifyNoResidue("q=\\uFF22\\uFF2F\\uFF25\\uFF29\\uFF2E\\uFF27", residue), "R24",
           "verifyNoResidue decodes \\uXXXX escapes to real code points: escaped fullwidth BOEING is residue");
+
+    // ONE GLYPH, TWO READINGS. PALOCHKA U+04C0 is a capital I to the fold table
+    // and an l to a reader. "аpoӀӀo" — every letter Cyrillic, so not mixed — folds
+    // to "apoIIo", which a letter-for-letter lexicon match does not call Apollo.
+    const Sent r25 = drive(request("6061-T6 yield \xd0\xb0\xd1\x80\xd0\xbe\xd3\x80\xd3\x80\xd0\xbe shaft"));
+    check(!r25.leaked, "R25", "an all-Cyrillic apollo spelled with PALOCHKA does not reach the transport (" +
+                                  describe(r25) + ")");
+    // ASCII has look-alikes of its own (UTS #39: I and 1 -> l, 0 -> O, m -> rn).
+    // Lower-case, digit-free and not a proper noun, so no classifier rule sees it.
+    const Sent r26 = drive(request("6061-T6 yield boelng shaft"));
+    check(!r26.leaked, "R26", "boeing spelled boelng (l for i) does not reach the transport (" + describe(r26) + ")");
+    residue.clear();
+    check(!red.verifyNoResidue("q=b1uefa1con+shaft", residue), "R27",
+          "verifyNoResidue reads b1uefa1con as the registered BlueFalcon (1 for l)");
+    residue.clear();
+    check(!red.verifyNoResidue("q=acrne+447l+b", residue), "R28",
+          "verifyNoResidue reads 'acrne 447l b' as the registered ACME-4471-B (rn for m, l for 1)");
 
     // USABILITY CONTROL: modelled engineering typography is folded, not refused.
     const Sent r19 = drive(request("M8\xc3\x97" "1.25 bolt preload \xe2\x80\x93 A2-70 stainless"));
@@ -643,6 +681,16 @@ int main() {
     check(detail::foldCodePoint(0x0966 + 7, a, s, z) && a == "7" && z == 0x0966 &&
               detail::foldCodePoint(0x1FBF9, a, s, z) && a == "9" && !detail::foldCodePoint(0x1FBFA, a, s, z),
           "F11", "Nd ranges fold by value and end exactly at their tenth code point");
+#ifndef FORGE_RETRIEVAL_HAS_LEXICON_SKELETON
+    check(false, "F13", "this tree has no lexicon skeleton key");
+#else
+    check(detail::lexiconKey("Boeing") == detail::lexiconKey("B0EING") &&
+              detail::lexiconKey("BlueFalcon") == detail::lexiconKey("b1uefa|con") &&
+              detail::lexiconKey("Amco") == detail::lexiconKey("ARNCO") &&
+              detail::lexiconKey("Apollo") == detail::lexiconKey("\xd0\xb0\xd1\x80\xd0\xbe\xd3\x80\xd3\x80\xd0\xbe") &&
+              detail::lexiconKey("Boeing") != detail::lexiconKey("Boring"),
+          "F13", "the lexicon key is a case-blind UTS #39 skeleton: 0/O, 1/I/i/l/|, m/rn meet; other letters do not");
+#endif
     const Redactor bare{};
     std::vector<std::string> residue;
     check(!bare.verifyQueryFullyRedacted("caf\xc3\xa9", {}, residue), "F12",
