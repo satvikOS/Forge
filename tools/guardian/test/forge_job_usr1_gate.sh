@@ -25,10 +25,35 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 CHILD=$HERE/usr1_child.sh
 [[ -x $CHILD ]] || { print "  FAIL harness child missing: $CHILD"; exit 1 }
 
+# HERMETIC GUARDIAN. forge-job admits a job through "$STATE_DIR/bin/forge-gate"
+# and exits 75 (EX_TEMPFAIL) if that refuses or is absent. The first version of
+# this gate used the WORKSTATION's installed Guardian, so it passed here and failed
+# on every CI runner, which has no ~/.forge-health -- and it reported that as "the
+# wrapper DIED on SIGUSR1", because it never checked the job had started. That is a
+# harness failure misreported as the defect, which is worse than no gate.
+# forge-job honours FORGE_HEALTH_DIR, so give it a private state dir whose gate
+# always admits. What is under test is signal forwarding, not admission.
+HEALTH=$WORK/health
+mkdir -p "$HEALTH/bin" "$HEALTH/jobs"
+print '#!/bin/sh\nexit 0' > "$HEALTH/bin/forge-gate"
+chmod +x "$HEALTH/bin/forge-gate"
+
 MARK=$WORK/mark
-"$HERE/../forge-job" --name usr1-gate --peak-gb 1 --need orange -- "$CHILD" "$MARK" &
+FORGE_HEALTH_DIR=$HEALTH "$HERE/../forge-job" --name usr1-gate --peak-gb 1 --need orange -- "$CHILD" "$MARK" &
 WP=$!
 sleep 3
+
+# PRECONDITION: the job must be RUNNING before the signal means anything. If it is
+# not, this is a harness problem and must never be reported as the SIGUSR1 defect.
+if ! grep -q '^tick' "$MARK" 2>/dev/null; then
+  wait "$WP" 2>/dev/null; hrc=$?
+  print "  HARNESS the job never started (wrapper rc=$hrc) -- NOT evidence about SIGUSR1"
+  print "          (75 = forge-job's admission gate refused; check FORGE_HEALTH_DIR)"
+  print "[forge-job-usr1] HARNESS FAILURE -- inconclusive, not a pass"
+  exit 2
+fi
+ok "precondition: the job was running before the signal was sent"
+
 kill -USR1 "$WP" 2>/dev/null
 sleep 4
 
