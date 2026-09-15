@@ -88,30 +88,90 @@ std::string workerSnippet(const std::string& s) {
 // draws the panels must stay compilable without a kernel. This is the ONE place
 // the two are put side by side, so a field added to one and forgotten in the
 // other is a compile error here rather than a column of zeroes in a panel.
+bool finiteMass(const forge::MassProperties& mp) {
+  if (!std::isfinite(mp.volume) || !std::isfinite(mp.cx) || !std::isfinite(mp.cy) ||
+      !std::isfinite(mp.cz)) {
+    return false;
+  }
+  for (int i = 0; i < 9; ++i) {
+    if (!std::isfinite(mp.inertiaCom[i])) return false;
+  }
+  return true;
+}
+
+// Do two integrations of ONE solid agree? Volume to 1e-6 of itself, the centroid to
+// 1e-6 of the solid's size, every inertia entry to 1e-6 of the largest. Far looser
+// than either integrator's own error on an analytic face (1e-12), and far tighter
+// than any real disagreement: a compound the importer read one body of misses by
+// that body's whole volume.
+bool sameIntegration(const forge::MassProperties& a, const forge::MassProperties& b) {
+  const double v = std::max(std::fabs(a.volume), 1e-300);
+  if (std::fabs(a.volume - b.volume) > 1e-6 * v) return false;
+  const double size = std::cbrt(v);
+  const double dc[3] = {a.cx - b.cx, a.cy - b.cy, a.cz - b.cz};
+  if (std::sqrt(dc[0] * dc[0] + dc[1] * dc[1] + dc[2] * dc[2]) > 1e-6 * std::max(size, 1.0)) {
+    return false;
+  }
+  double scale = 0.0;
+  for (int i = 0; i < 9; ++i) scale = std::max(scale, std::fabs(a.inertiaCom[i]));
+  for (int i = 0; i < 9; ++i) {
+    if (std::fabs(a.inertiaCom[i] - b.inertiaCom[i]) > 1e-6 * std::max(scale, 1e-300)) return false;
+  }
+  return true;
+}
+
+// ── THE VOLUME INTEGRALS MASS PROPERTIES ARE MULTIPLIED FROM ───────────────
+// Two kernel calls, compared:
+//   forge::massProperties        the call the compiler made for res.volume; for an
+//                                engine-built solid it is the engine's integration
+//   forge::nativeMassProperties  the native divergence-theorem integrator, through
+//                                the OCCT->native importer when the solid is
+//                                engine-built
+// The NATIVE figures are used whenever they exist and agree with the engine's to
+// 1e-6 -- so the numbers shown are the native kernel's and were checked against a
+// second, independent integration of the same solid. When the native kernel cannot
+// represent the shape, or represents a different one (a compound the importer read
+// one body of), the engine's figures are used and the integrator says so. The
+// integrals are withheld only when the engine's own call disagrees with the
+// volume the build reported, which would mean they belong to another shape.
 void installMassIntegrals(forge::ShapeHandle handle, IrBuildReport& report) {
   report.massIntegralsKnown = false;
   report.massIntegrator = MassIntegrator::None;
-  forge::MassProperties mp{};
+  forge::MassProperties engine{};
   try {
-    mp = forge::massProperties(handle);
+    engine = forge::massProperties(handle);
   } catch (...) {
     return;
   }
   const double tolerance = 1e-9 * std::max(1.0, std::fabs(report.volume));
-  if (!std::isfinite(mp.volume) || std::fabs(mp.volume - report.volume) > tolerance) return;
-  for (int i = 0; i < 9; ++i) {
-    if (!std::isfinite(mp.inertiaCom[i])) return;
-  }
-  if (!std::isfinite(mp.cx) || !std::isfinite(mp.cy) || !std::isfinite(mp.cz)) return;
-  report.centroid[0] = mp.cx;
-  report.centroid[1] = mp.cy;
-  report.centroid[2] = mp.cz;
-  for (int i = 0; i < 9; ++i) report.inertiaUnitDensity[i] = mp.inertiaCom[i];
+  if (!finiteMass(engine) || std::fabs(engine.volume - report.volume) > tolerance) return;
+
+  MassIntegrator how = MassIntegrator::Engine;
   switch (forge::shapeKind(handle)) {
-    case forge::ShapeKind::NativeSolid: report.massIntegrator = MassIntegrator::NativeExact; break;
-    case forge::ShapeKind::NativeMesh: report.massIntegrator = MassIntegrator::Faceted; break;
-    case forge::ShapeKind::Occt: report.massIntegrator = MassIntegrator::Engine; break;
+    case forge::ShapeKind::NativeSolid: how = MassIntegrator::NativeExact; break;
+    case forge::ShapeKind::NativeMesh: how = MassIntegrator::Faceted; break;
+    case forge::ShapeKind::Occt: how = MassIntegrator::Engine; break;
   }
+  const forge::MassProperties* chosen = &engine;
+  forge::MassProperties native{};
+  if (how == MassIntegrator::Engine) {
+    bool haveNative = false;
+    try {
+      haveNative = forge::nativeMassProperties(handle, native);
+    } catch (...) {
+      haveNative = false;
+    }
+    if (haveNative && finiteMass(native) && sameIntegration(engine, native)) {
+      chosen = &native;
+      how = MassIntegrator::NativeExact;
+    }
+  }
+  report.massVolume = chosen->volume;
+  report.centroid[0] = chosen->cx;
+  report.centroid[1] = chosen->cy;
+  report.centroid[2] = chosen->cz;
+  for (int i = 0; i < 9; ++i) report.inertiaUnitDensity[i] = chosen->inertiaCom[i];
+  report.massIntegrator = how;
   report.massIntegralsKnown = true;
 }
 
@@ -631,15 +691,15 @@ bool KernelScene::decodeWorkerPayload(const std::string& payload, IrBuildReport&
     } else if (key == "pairsTruncated" && std::sscanf(val, "%d", &i0) == 1) {
       report.pairsTruncated = i0 != 0;
     } else if (key == "massIntegrals") {
-      // known integrator cx cy cz I0..I8 -- all fourteen or the payload is
+      // known integrator cx cy cz I0..I8 volume -- all fifteen or the payload is
       // refused. A half-read tensor paired with a whole mesh is the kind of
       // defect that looks like a kernel bug and is not one.
       int known = 0;
       int integrator = 0;
-      double v[12] = {0.0};
-      if (std::sscanf(val, "%d %d %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &known,
+      double v[13] = {0.0};
+      if (std::sscanf(val, "%d %d %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &known,
                       &integrator, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7],
-                      &v[8], &v[9], &v[10], &v[11]) != 14 ||
+                      &v[8], &v[9], &v[10], &v[11], &v[12]) != 15 ||
           integrator < 0 || integrator > static_cast<int>(MassIntegrator::Faceted)) {
         error = "the kernel worker's volume integrals could not be read";
         return false;
@@ -648,6 +708,7 @@ bool KernelScene::decodeWorkerPayload(const std::string& payload, IrBuildReport&
       report.massIntegrator = static_cast<MassIntegrator>(integrator);
       for (int i = 0; i < 3; ++i) report.centroid[i] = v[i];
       for (int i = 0; i < 9; ++i) report.inertiaUnitDensity[i] = v[3 + i];
+      report.massVolume = v[12];
     } else if (key == "errorBytes" && std::sscanf(val, "%llu", &u0) == 1) {
       errorBytes = static_cast<std::size_t>(u0);
       sawErrorBytes = true;

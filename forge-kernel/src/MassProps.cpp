@@ -97,4 +97,32 @@ MassProperties massProperties(ShapeHandle h) {
     return out;
 }
 
+bool nativeMassProperties(ShapeHandle h, MassProperties& out) {
+#ifdef FORGE_NATIVE_BREP
+    auto& reg = ShapeRegistry::instance();
+    const ShapeKind k = reg.kindOf(h);
+    const auto fill = [&out](const forge::native::brep::MassProps& mp) {
+        MassProperties r{mp.volume, mp.area, mp.com[0], mp.com[1], mp.com[2], {}};
+        for (int i = 0; i < 9; ++i) r.inertiaCom[i] = mp.inertiaCom[i];
+        out = r;
+    };
+    if (k == ShapeKind::NativeSolid) {
+        fill(forge::native::brep::massProperties(reg.getNativeSolid(h)));
+        return true;
+    }
+    if (k == ShapeKind::Occt) {
+        ImportResult ir = importOcctSolid(reg.get(h));
+        if (!ir.ok || ir.solid == nullptr) return false;
+        fill(forge::native::brep::massProperties(*ir.solid));
+        return true;
+    }
+    // NativeMesh: faceted, so not the exact native integration this promises.
+    return false;
+#else
+    (void)h;
+    (void)out;
+    return false;
+#endif
+}
+
 } // namespace forge

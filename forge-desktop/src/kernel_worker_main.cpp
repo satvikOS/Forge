@@ -116,7 +116,7 @@ void emitHeader(const forge::desktop::IrBuildReport& r, const std::string& backe
   std::printf("massIntegrals %d %d %.17g %.17g %.17g", r.massIntegralsKnown ? 1 : 0,
               static_cast<int>(r.massIntegrator), r.centroid[0], r.centroid[1], r.centroid[2]);
   for (int i = 0; i < 9; ++i) std::printf(" %.17g", r.inertiaUnitDensity[i]);
-  std::printf("\n");
+  std::printf(" %.17g\n", r.massVolume);
   // The error is LAST and length-prefixed, so a newline inside it cannot be read
   // as the start of another field.
   std::printf("errorBytes %zu\n", r.error.size());

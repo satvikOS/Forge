@@ -335,7 +335,16 @@ int main(int argc, char** argv) {
   {
     const forge::ui::MassPropertiesReport report = frame.partMassReport();
     check(report.known, "the report knows the mass", report.refusal);
-    checkNear(report.massKg * 1000.0, frame.partMass().massGrams, 1e-9,
+    // THE NATIVE KERNEL'S INTEGRALS. The block is built by the engine; its mass
+    // properties must still come from the native divergence-theorem integrator,
+    // checked against the engine's integration of the same solid.
+    check(built.massIntegrator == forge::desktop::MassIntegrator::NativeExact,
+          "the block's mass properties are the native kernel's integration", "");
+    checkNear(built.massVolume, built.volume, 1e-6 * built.volume,
+              "the native volume agrees with the engine's");
+    // 1e-6 and not exact: the Properties tab multiplies the build's volume and the
+    // report the native integration's, and the two agree to that bound by rule.
+    checkNear(report.massKg * 1000.0, frame.partMass().massGrams, 1e-6 * frame.partMass().massGrams,
               "the report and the shared weight agree");
     checkNear(report.centreOfMassMm[0], 0.5 * (built.bboxMin[0] + built.bboxMax[0]), 1e-9,
               "a block's centre of mass is the middle of its box (x)");
@@ -361,7 +370,7 @@ int main(int argc, char** argv) {
     check(evidenceNumber(q.evidence, "density_kg_m3", density),
           "the evidence carries density_kg_m3", "");
     checkNear(mass, report.massKg, 0.0, "mass_kg round-trips to the report exactly");
-    checkNear(volume, built.volume, 0.0, "volume_mm3 is the kernel's volume");
+    checkNear(volume, built.massVolume, 0.0, "volume_mm3 is the integration's own volume");
     checkNear(density, steelDensity, 0.0, "density_kg_m3 is the steel card's");
     check(q.evidence.find("material=steel-s235jr") != std::string::npos,
           "the evidence names the material", q.evidence);
@@ -406,7 +415,7 @@ int main(int argc, char** argv) {
     check(fresh.ok(), "after the rebuild it is weighed again", fresh.detail);
     double freshMass = 0.0;
     check(evidenceNumber(fresh.evidence, "mass_kg", freshMass), "and cites a mass", fresh.evidence);
-    checkNear(freshMass, scene.lastBuild().volume * steelDensity * 1e-9, 1e-12,
+    checkNear(freshMass, scene.lastBuild().massVolume * steelDensity * 1e-9, 1e-12,
               "the new mass is the rebuilt shape's volume in steel");
     checkNear(freshMass, 2.0 * steelMass.massGrams / 1000.0, 1e-9,
               "twice the height is twice the mass");
@@ -423,6 +432,8 @@ int main(int argc, char** argv) {
   check(lScene.buildFromIr(lProgram), "the L-shaped solid builds", lScene.error());
   const forge::desktop::IrBuildReport& lr = lScene.lastBuild();
   check(lr.massIntegralsKnown, "its volume integrals were measured", "");
+  check(lr.massIntegrator == forge::desktop::MassIntegrator::NativeExact,
+        "the L's integrals are the native kernel's, agreeing with the engine's", "");
   {
     struct Box { double a, b, c, x, y, z; };
     const Box boxes[] = {{100.0, 20.0, 10.0, 0.0, 0.0, 5.0}, {20.0, 60.0, 10.0, 40.0, 40.0, 5.0}};
@@ -469,7 +480,7 @@ int main(int argc, char** argv) {
     forge::ui::GeometricIntegrals g;
     g.known = true;
     g.program = lProgram;
-    g.volumeMm3 = lr.volume;
+    g.volumeMm3 = lr.massVolume;
     for (std::size_t i = 0; i < 3; ++i) g.centroidMm[i] = lr.centroid[i];
     for (std::size_t i = 0; i < 9; ++i) g.inertiaUnitDensityMm5[i] = lr.inertiaUnitDensity[i];
     const forge::ui::Material* al = frame.materialCards().findMaterial("aluminum-generic");
@@ -503,6 +514,7 @@ int main(int argc, char** argv) {
       bool same = true;
       for (int i = 0; i < 3; ++i) same = same && wr.centroid[i] == lr.centroid[i];
       for (int i = 0; i < 9; ++i) same = same && wr.inertiaUnitDensity[i] == lr.inertiaUnitDensity[i];
+      same = same && wr.massVolume == lr.massVolume;
       check(same, "the integrals cross the process boundary bit for bit", "");
     }
   }

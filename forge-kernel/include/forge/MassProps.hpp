@@ -21,4 +21,17 @@ struct MassProperties {
 
 MassProperties massProperties(ShapeHandle h);
 
+// The NATIVE kernel's answer only: the divergence-theorem integrator of
+// forge::native::brep over the handle's analytic B-rep -- directly for a native
+// solid, through the OCCT->native importer for an engine-built one. Returns false,
+// leaving `out` untouched, whenever the native kernel cannot represent the shape
+// exactly (a faceted native body, a face the importer defers, a build without
+// FORGE_NATIVE_BREP). It never falls back to the engine: a caller that wants the
+// native figure must be able to tell when it did not get one.
+//
+// The importer takes the FIRST solid of a compound, so for a multi-solid shape the
+// answer covers one body. A caller compares it with massProperties() before
+// trusting it -- the desktop's mass properties do exactly that.
+bool nativeMassProperties(ShapeHandle h, MassProperties& out);
+
 } // namespace forge

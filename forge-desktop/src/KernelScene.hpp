@@ -167,7 +167,7 @@ struct SceneBodyAlignment {
 // which is only as good as the facets. The Materials tab says which it used.
 enum class MassIntegrator : std::uint8_t {
   None = 0,
-  NativeExact = 1,   // forge::native::brep divergence-theorem integration
+  NativeExact = 1,   // forge::native::brep divergence-theorem integration (checked against the engine's when there is one)
   Engine = 2,        // the modelling engine's surface integration of its own solid
   Faceted = 3,       // a faceted native body, integrated over its triangles
 };
@@ -223,15 +223,20 @@ struct IrBuildReport {
   std::vector<std::string> checks;
 
   // ── THE SOLID'S VOLUME INTEGRALS, FOR MASS PROPERTIES ───────────────────
-  // Centroid and the inertia tensor about it, at UNIT density, from the same
-  // kernel call (forge::massProperties) that produced `volume` -- so the three
-  // describe one integration of one solid. A material multiplies them into a
+  // Centroid and the inertia tensor about it, at UNIT density, from the native
+  // kernel's integrator when it can represent the solid and agrees with the
+  // engine's integration of it (installMassIntegrals in KernelScene.cpp), and from
+  // the engine's otherwise -- never a mixture. A material multiplies them into a
   // mass, a centre of mass and an inertia in kg mm^2 without touching the
   // geometry again (forge/ui/MassProperties.hpp). `massIntegralsKnown` is false
   // when the integration was not taken or disagreed with `volume`, and then no
   // panel may print a mass.
   bool massIntegralsKnown = false;
   MassIntegrator massIntegrator = MassIntegrator::None;
+  // The volume of the SAME integration as the two below. It equals `volume` to
+  // 1e-6 when the native kernel supplied them, and bit for bit otherwise; mass is
+  // multiplied from this one so mass, centre and inertia describe one integration.
+  double massVolume = 0.0;                    // mm^3
   double centroid[3] = {0.0, 0.0, 0.0};       // mm
   double inertiaUnitDensity[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};  // mm^5, row-major
   bool ok() const noexcept { return parsed && compiled && tessellated && error.empty(); }

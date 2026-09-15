@@ -9664,7 +9664,8 @@ constexpr CardPropertyDisplay kCardPropertyRows[] = {
 const char* integratorSentence(MassIntegrator how) {
   switch (how) {
     case MassIntegrator::NativeExact:
-      return "Measured by exact integration over the part's surfaces.";
+      return "Measured by exact integration over the part's surfaces, and checked against a "
+             "second integration of the same shape.";
     case MassIntegrator::Engine:
       return "Measured by the modelling engine's integration over the part's surfaces.";
     case MassIntegrator::Faceted:
@@ -9714,7 +9715,7 @@ forge::ui::GeometricIntegrals ForgeFrame::measuredIntegrals() const {
     return g;
   }
   g.known = true;
-  g.volumeMm3 = r.volume;
+  g.volumeMm3 = r.massVolume;
   for (int i = 0; i < 3; ++i) g.centroidMm[static_cast<std::size_t>(i)] = r.centroid[i];
   for (int i = 0; i < 9; ++i) {
     g.inertiaUnitDensityMm5[static_cast<std::size_t>(i)] = r.inertiaUnitDensity[i];
