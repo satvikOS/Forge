@@ -1,0 +1,28 @@
+libforge_expr
+=============
+
+Forge uses libforge_expr, a shared library containing a modified copy of the
+expression language and unit system of FreeCAD (https://www.freecad.org),
+upstream commit 0a45a0a008d4af7a85601016c5ab31bd26c25b22.
+
+  Copyright (c) 2002, 2010, 2013 Juergen Riegel
+  Copyright (c) 2015 Eivind Kvedalen
+  Copyright (c) 2019 Zheng Lei (realthunder)
+  and the FreeCAD contributors
+  Modifications Copyright (c) 2026 ArchDisc
+
+libforge_expr is free software; you can redistribute it and/or modify it under
+the terms of the GNU Lesser General Public License as published by the Free
+Software Foundation; either version 2.1 of the License, or (at your option) any
+later version. The full text is in COPYING.LGPL.
+
+libforge_expr is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+
+Forge loads libforge_expr dynamically from Contents/Frameworks/libforge_expr.dylib.
+You may replace that file with your own build of the library. The changes made to
+FreeCAD's code, and their dates, are listed in MODIFICATIONS.md. The complete
+corresponding source code of libforge_expr, including those modifications and the
+scripts that build it, is made available alongside the Forge release that contains
+this notice.
