@@ -28,7 +28,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 99 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 102 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -46,7 +46,7 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **100 commands**; **69 of them emit
+Measured at this revision: the registry holds **103 commands**; **72 of them emit
 feature-IR**, reaching **65 distinct op names**. The kernel defines **68** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
@@ -112,14 +112,16 @@ loud, because the facade throws on a type-mismatched operand and the compiler
 swallows the throw as a `SKIPPED` note, leaving a constraint that silently does
 not apply.
 
-**`CON`'s keyword set is WIDER in the compiler than in the app, and the numbers are
-here so nobody has to guess which.** MEASURED on this tree: `kKinds` in
-`FeatureTreeCompiler.cpp` dispatches **19** keywords; the two `CON` commands above
-offer **9**; so **10** are dispatchable and unreachable -- `ANGLE`, `COLL`, `CONC`,
-`DIAM`, `DISTX`, `DISTY`, `FIX`, `MIDPT`, `RADIUS`, `SYMM`. The reverse direction,
-which would be the DEFECT rather than the gap, is **0**: no command offers a keyword
-the compiler would skip. Archie may emit only the nine, because only the nine are
-reachable through a command; the other ten are app-surface work, not kernel work.
+**`CON`'s keyword set is now the SAME in the compiler and in the app (2026-09-15).**
+This paragraph used to measure a gap: the compiler dispatched **19** keywords and the
+two `CON` commands offered **9**, leaving `ANGLE`, `COLL`, `CONC`, `DIAM`, `DISTX`,
+`DISTY`, `FIX`, `MIDPT`, `RADIUS` and `SYMM` dispatchable and unreachable. Three
+commands closed it -- `part.sketch_constrain_triple` (`SYMM`/`MIDPT`),
+`part.sketch_dimension_single` (`RADIUS`/`DIAM` with a value) and
+`part.sketch_dimension` (`DIST`/`DISTX`/`DISTY`/`ANGLE` with a value) -- and `FIX`,
+`CONC` and `COLL` joined the two existing ones, so all **19** are reachable and Archie
+may emit every one. Each passes the document's semantic judge before it is committed:
+a constraint that contradicts one already on the sketch is refused, naming it.
 
 **Why this family and not another, measured.** Paired over 9,846 real ABC /
 Onshape FeatureScript trees (154,637 features,
@@ -303,7 +305,7 @@ check that silently stops checking is the failure it was written to prevent.
 | `SLINE` | part.sketch_entity_line | `SLINE(%p0, %p1)` — both points of the **same** sketch; the kernel throws on a cross-sketch pair, so the command greys out instead. |
 | `SCIRC` | part.sketch_entity_circle | `SCIRC(%centre, radius)` — a **radius**, where `part.hole` takes a diameter. |
 | `SARC` | part.sketch_entity_arc | `SARC(%centre, %arcStart, %arcEnd)` — centre, start, end, in **selection order**. |
-| `CON` | part.sketch_constrain_single / part.sketch_constrain | `CON(%entity, HORIZ\|VERT)`<br>`CON(%entityA, COINC\|PARA\|PERP\|TANG\|EQUAL\|PTON\|DIST, %entityB)`<br>`CON(%entityA, …, %entityB, distance)` — PASS-THROUGH: it returns the **same** sketch, so the statement rebinds the sketch's node rather than forking it. |
+| `CON` | part.sketch_constrain_single / part.sketch_constrain / part.sketch_constrain_triple / part.sketch_dimension_single / part.sketch_dimension | `CON(%entity, FIX\|HORIZ\|VERT)`<br>`CON(%entityA, COINC\|COLL\|CONC\|DIST\|EQUAL\|PARA\|PERP\|PTON\|TANG, %entityB)`<br>`CON(%entityA, MIDPT\|SYMM, %entityB, %about)`<br>`CON(%entity, DIAM\|RADIUS, value)`<br>`CON(%entityA, ANGLE\|DIST\|DISTX\|DISTY, %entityB, value)` — PASS-THROUGH: it returns the **same** sketch, so the statement rebinds the sketch's node rather than forking it. |
 | `SOLVE` | part.sketch_solve | `SOLVE(%sketch)` — **the exit**: it produces a `PROFILE`, so `part.extrude` / `part.revolve` / `part.loft` consume it unchanged. Consumes nothing: the sketch survives and can be solved again. |
 | `SECTION` | part.section_curve | `SECTION(%bodyA, %bodyB)` — the **fourth** boolean. It produces a **WIRE**, not a solid: the curve where the two bodies' faces cross. It consumes neither operand, so both survive; the wire is consumed by `LOFT`, like `RING`'s. |
 | `DRAFT` | part.draft | `DRAFT(%body, angle, pull_dir)` |
@@ -387,7 +389,7 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 99 on every CI run), not a hand-written illustration.
+dispatches all 102 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement

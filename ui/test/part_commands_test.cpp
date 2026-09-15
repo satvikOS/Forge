@@ -18,6 +18,7 @@
 //   (d) the UNDO CONTRACT holds — undo restores the program, redo replays it
 //       with the SAME statement ids, and a new edit abandons the redo branch.
 #include <cstddef>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -74,8 +75,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 71);
-  CHECK_EQ_INT(registry.size(), 71);
+  CHECK_EQ_INT(added, 74);
+  CHECK_EQ_INT(registry.size(), 74);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +84,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 71);
+  CHECK_EQ_INT(registry.size(), 74);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -372,7 +373,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 71);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 74);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -489,7 +490,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 71);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 74);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -521,7 +522,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 71);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 74);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -574,7 +575,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 71);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 74);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     // EVERY handler that reads a selection-derived vector belongs here, whether it
@@ -798,7 +799,7 @@ int main() {
     PartDocument docN;
     UndoStack stackN;
     SelectionService selN;
-    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 71);
+    CHECK_EQ_INT(registerPartCommands(regN, docN, stackN), 74);
     CHECK_EQ_INT(docN.records().size(), 0);  // EMPTY. no seed.
 
     // ── the minimal form of each: required parameters only ──────────────────
@@ -1056,7 +1057,7 @@ int main() {
     PartDocument docE2;
     UndoStack stackE2;
     SelectionService noneE2;
-    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 71);
+    CHECK_EQ_INT(registerPartCommands(regE2, docE2, stackE2), 74);
     CHECK_EQ_INT(docE2.records().size(), 0);  // EMPTY: INPUT is a creator
 
     // INPUT()  -- "bind the task's input STEP as a solid". No selection, no
@@ -1200,7 +1201,7 @@ int main() {
     PartDocument docS;
     UndoStack stackS;
     SelectionService selS;
-    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 71);
+    CHECK_EQ_INT(registerPartCommands(regS, docS, stackS), 74);
 
     const CommandDescriptor* sc = regS.find("part.section_curve");
     CHECK(sc != nullptr);
@@ -1289,7 +1290,7 @@ int main() {
     PartDocument docF;
     UndoStack stackF;
     SelectionService selF;
-    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 71);
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 74);
 
     // The five statements of the application's own starting part, seeded exactly
     // as the app seeds them: NONE of them is command-authored, so undo cannot
@@ -1488,7 +1489,7 @@ int main() {
     PartDocument docK;
     UndoStack stackK;
     SelectionService selK;
-    CHECK_EQ_INT(registerPartCommands(regK, docK, stackK), 71);
+    CHECK_EQ_INT(registerPartCommands(regK, docK, stackK), 74);
 
     // A CREATOR: no selection, no parameter, and reachable from an empty document
     // exactly as RECT is. The plane is the LITERAL XY -- see part.sketch_new for
@@ -1634,6 +1635,139 @@ int main() {
     CHECK_EQ_INT(docK.valueFor("opensketch_1"), 0);
   }
 
+  // ── THE WHOLE CONSTRAINT VOCABULARY, AND THE JUDGE SEAM ───────────────────
+  // The three commands that made every constraint kind reachable, each emitting
+  // exactly the CON form the kernel dispatches; and the document's change judge,
+  // which forge::ui cannot implement (it has no solver) but must CONSULT: a
+  // refusal fails the command with the judge's own sentence and changes nothing,
+  // no judge admits everything, and a judge that throws is a refusal, not consent.
+  {
+    CommandRegistry regJ;
+    PartDocument docJ;
+    UndoStack stackJ;
+    SelectionService selJ;
+    CHECK_EQ_INT(registerPartCommands(regJ, docJ, stackJ), 74);
+    CHECK(regJ.dispatch("part.sketch_new", selJ, CommandParams()).ok());
+    selectOnly(selJ, {ref("opensketch_1", EntityKind::OpenSketch, "sk")});
+    CHECK(regJ.dispatch("part.sketch_entity_point", selJ, params2("x", 0, "y", 0)).ok());
+    selectOnly(selJ, {ref("opensketch_1", EntityKind::OpenSketch, "sk")});
+    CHECK(regJ.dispatch("part.sketch_entity_point", selJ, params2("x", 10, "y", 0)).ok());
+    selectOnly(selJ, {ref("opensketch_1", EntityKind::OpenSketch, "sk")});
+    CHECK(regJ.dispatch("part.sketch_entity_point", selJ, params2("x", 5, "y", 5)).ok());
+    selectOnly(selJ, {ref("sketchref_4", EntityKind::SketchRef, "c")});
+    CHECK(regJ.dispatch("part.sketch_entity_circle", selJ, params1("radius", 2)).ok());
+    CHECK_EQ_STR(lastLine(docJ), "%5 = SCIRC(%4, 2)");
+
+    // FIX joins the one-entity kinds.
+    CommandParams fix;
+    fix.setText("kind", "FIX");
+    selectOnly(selJ, {ref("sketchref_2", EntityKind::SketchRef, "p")});
+    CHECK(regJ.dispatch("part.sketch_constrain_single", selJ, fix).ok());
+    CHECK_EQ_STR(lastLine(docJ), "%6 = CON(%2, FIX)");
+
+    // SYMM / MIDPT take three, in selection order.
+    CommandParams symm;
+    symm.setText("kind", "MIDPT");
+    selectOnly(selJ, {ref("sketchref_2", EntityKind::SketchRef, "a"),
+                      ref("sketchref_3", EntityKind::SketchRef, "b"),
+                      ref("sketchref_4", EntityKind::SketchRef, "m")});
+    CHECK(regJ.dispatch("part.sketch_constrain_triple", selJ, symm).ok());
+    CHECK_EQ_STR(lastLine(docJ), "%7 = CON(%2, MIDPT, %3, %4)");
+    CommandParams notTriple;
+    notTriple.setText("kind", "COINC");
+    CHECK(!regJ.evaluate("part.sketch_constrain_triple", selJ, notTriple).ok());
+
+    // RADIUS / DIAM carry a value and refuse a non-positive one at the menu.
+    CommandParams diam;
+    diam.setText("kind", "DIAM");
+    diam.setNumber("value", 10);
+    selectOnly(selJ, {ref("sketchref_5", EntityKind::SketchRef, "c")});
+    CHECK(regJ.dispatch("part.sketch_dimension_single", selJ, diam).ok());
+    CHECK_EQ_STR(lastLine(docJ), "%8 = CON(%5, DIAM, 10)");
+    CommandParams zero;
+    zero.setText("kind", "RADIUS");
+    zero.setNumber("value", 0);
+    CHECK(!regJ.evaluate("part.sketch_dimension_single", selJ, zero).ok());
+
+    // DIST / DISTX / DISTY / ANGLE on a pair, signed where the kind is signed.
+    CommandParams dx;
+    dx.setText("kind", "DISTX");
+    dx.setNumber("value", -25);
+    selectOnly(selJ, {ref("sketchref_2", EntityKind::SketchRef, "a"),
+                      ref("sketchref_3", EntityKind::SketchRef, "b")});
+    CHECK(regJ.dispatch("part.sketch_dimension", selJ, dx).ok());
+    CHECK_EQ_STR(lastLine(docJ), "%9 = CON(%2, DISTX, %3, -25)");
+    CommandParams horizOnPair;
+    horizOnPair.setText("kind", "HORIZ");
+    CHECK(!regJ.evaluate("part.sketch_dimension", selJ, horizOnPair).ok());
+
+    // ── the judge ──────────────────────────────────────────────────────────
+    CHECK(!docJ.hasChangeJudge());
+    std::string seenBefore, seenAfter;
+    int seenId = 0;
+    docJ.setChangeJudge([&](const std::string& before, const std::string& after, int irId) {
+      seenBefore = before;
+      seenAfter = after;
+      seenId = irId;
+      ChangeVerdict v;
+      if (after.find("DISTX, %3, 70") != std::string::npos) {
+        v.admitted = false;
+        v.reason = "Not applied: it contradicts constraint 9.";
+        v.implicated = {9};
+      }
+      return v;
+    });
+    CHECK(docJ.hasChangeJudge());
+    const std::size_t recordsBefore = docJ.records().size();
+    const std::size_t undoBefore = stackJ.undoDepth();
+
+    CommandParams clash;
+    clash.setText("kind", "DISTX");
+    clash.setNumber("value", 70);
+    const DispatchResult refused = regJ.dispatch("part.sketch_dimension", selJ, clash);
+    CHECK(!refused.ok());
+    CHECK_EQ_STR(refused.detail, "Not applied: it contradicts constraint 9.");
+    CHECK_EQ_INT(docJ.records().size(), recordsBefore);
+    CHECK_EQ_INT(stackJ.undoDepth(), undoBefore);
+    // The judge saw the document as it is and as the change would leave it.
+    CHECK_EQ_STR(seenBefore, docJ.irProgram());
+    CHECK_EQ_STR(seenAfter, docJ.irProgram() + "%10 = CON(%2, DISTX, %3, 70)\n");
+    CHECK_EQ_INT(seenId, 10);
+
+    // A change the judge admits goes through as before.
+    CommandParams ok60;
+    ok60.setText("kind", "DISTY");
+    ok60.setNumber("value", 3);
+    CHECK(regJ.dispatch("part.sketch_dimension", selJ, ok60).ok());
+    CHECK_EQ_INT(docJ.records().size(), recordsBefore + 1);
+
+    // An EDIT is judged too, on the program with that one statement replaced.
+    CHECK(!regJ.dispatch("part.edit_feature", selJ,
+                         params2("feature", 9, "value", 70)).ok());
+    CHECK_EQ_STR(docJ.featureAt(9)->line.text(), "%9 = CON(%2, DISTX, %3, -25)");
+    CHECK_EQ_INT(seenId, 9);
+    CHECK(seenAfter.find("%9 = CON(%2, DISTX, %3, 70)\n") != std::string::npos);
+    CHECK(regJ.dispatch("part.edit_feature", selJ, params2("feature", 9, "value", 30)).ok());
+    CHECK_EQ_STR(docJ.featureAt(9)->line.text(), "%9 = CON(%2, DISTX, %3, 30)");
+    // ...and UNDO is not judged: putting back a committed state always works.
+    CHECK(stackJ.undo(docJ));
+    CHECK_EQ_STR(docJ.featureAt(9)->line.text(), "%9 = CON(%2, DISTX, %3, -25)");
+
+    // A judge that THROWS has not said yes.
+    docJ.setChangeJudge([](const std::string&, const std::string&, int) -> ChangeVerdict {
+      throw std::runtime_error("solver unavailable");
+    });
+    const DispatchResult threw = regJ.dispatch("part.sketch_dimension", selJ, ok60);
+    CHECK(!threw.ok());
+    CHECK(threw.detail.find("could not be checked") != std::string::npos);
+
+    // No judge: every legal statement is admitted, exactly as before the seam.
+    docJ.setChangeJudge({});
+    CHECK(!docJ.hasChangeJudge());
+    CHECK(regJ.dispatch("part.sketch_dimension", selJ, clash).ok());
+    CHECK_EQ_STR(lastLine(docJ), "%11 = CON(%2, DISTX, %3, 70)");
+  }
+
   // ── the value-kind string layer round-trips, for EVERY kind ───────────────
   // The .fpart writer emits toString(kind) for whatever kind a record holds; the
   // reader turns that string back into a kind. Those were two separate lists --
@@ -1696,7 +1830,7 @@ int main() {
     PartDocument docM;
     UndoStack stackM;
     SelectionService selM;
-    CHECK_EQ_INT(registerPartCommands(regM, docM, stackM), 71);
+    CHECK_EQ_INT(registerPartCommands(regM, docM, stackM), 74);
 
     const CommandDescriptor* d = regM.find("part.set_material");
     CHECK(d != nullptr);

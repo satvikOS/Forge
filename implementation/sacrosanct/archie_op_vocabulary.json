@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "742197d1c2763cfd0a1f4d87b36e5388dec9f0ef3f63304c236c32882530661a",
-        "bytes": 554310,
-        "lines": 11289
+        "sha256": "cf42f0a2f4aa370354fc2e714970199c26bbb316bc01c55f809bc2d7e672e4bd",
+        "bytes": 560325,
+        "lines": 11414
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -24,15 +24,15 @@
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "6544e4a7163c29cf2c8511532fb28a04160ba6acedae5b05683fc06bb397b7a7",
-        "bytes": 209060,
-        "lines": 3287
+        "sha256": "3020c73fd7ce02f5c0d7689af2631ecd98022368f0cdf0b8f7cf7d997e384ff0",
+        "bytes": 211707,
+        "lines": 3320
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "d2e5ea3727b1c0fef3cb35a5e0a5185725ef4ae3b2f07a32376e8706286543d1",
-        "bytes": 226881,
-        "lines": 4155
+        "sha256": "ea385bd2593effd4b73302c8c8facdc51bfe7af086b7c3a340cea8a5bb7d109f",
+        "bytes": 232072,
+        "lines": 4251
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "d84772c2f81649494b5295f0d77661d7a546dd7778fd5d68f754a4457ea83d24",
-        "bytes": 207461,
-        "lines": 3540
+        "sha256": "c0fcebce9aa8d0b2669ae58195fc06b39c8678795e45e7ac0ecf049cd681dd17",
+        "bytes": 217355,
+        "lines": 3717
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,8 +78,8 @@
   "counts": {
     "kernel_ops": 68,
     "ui_validator_ops": 68,
-    "registry_commands": 100,
-    "commands_emitting_ir": 69,
+    "registry_commands": 103,
+    "commands_emitting_ir": 72,
     "user_invocable_ops": 65,
     "forbidden_ops": 3,
     "uncertain_entries": 3,
@@ -1076,7 +1076,10 @@
       ],
       "user_commands": [
         "part.sketch_constrain",
-        "part.sketch_constrain_single"
+        "part.sketch_constrain_single",
+        "part.sketch_constrain_triple",
+        "part.sketch_dimension",
+        "part.sketch_dimension_single"
       ],
       "emitted_forms": [
         {
@@ -1084,7 +1087,7 @@
           "when_human": "always -- this is the form the command emits with only its required parameters",
           "arguments": [
             "%entityA",
-            "COINC|DIST|EQUAL|PARA|PERP|PTON|TANG",
+            "COINC|COLL|CONC|DIST|EQUAL|PARA|PERP|PTON|TANG",
             "%entityB"
           ],
           "argument_count": {
@@ -1111,7 +1114,7 @@
           "when_human": "any of distance is supplied",
           "arguments": [
             "%entityA",
-            "COINC|DIST|EQUAL|PARA|PERP|PTON|TANG",
+            "COINC|COLL|CONC|DIST|EQUAL|PARA|PERP|PTON|TANG",
             "%entityB",
             "distance"
           ],
@@ -1141,7 +1144,7 @@
           "when_human": "always -- this is the form the command emits with only its required parameters",
           "arguments": [
             "%entity",
-            "HORIZ|VERT"
+            "FIX|HORIZ|VERT"
           ],
           "argument_count": {
             "min": 2,
@@ -1160,6 +1163,93 @@
             }
           ],
           "command": "part.sketch_constrain_single"
+        },
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%entityA",
+            "MIDPT|SYMM",
+            "%entityB",
+            "%about"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "SYMM"
+              },
+              "ir_arguments": [
+                "%entityA",
+                "SYMM",
+                "%entityB",
+                "%about"
+              ],
+              "ir_text": "%<id> = CON(%entityA, SYMM, %entityB, %about)"
+            }
+          ],
+          "command": "part.sketch_constrain_triple"
+        },
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%entityA",
+            "ANGLE|DIST|DISTX|DISTY",
+            "%entityB",
+            "value"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "DIST",
+                "value": 10.0
+              },
+              "ir_arguments": [
+                "%entityA",
+                "DIST",
+                "%entityB",
+                "10"
+              ],
+              "ir_text": "%<id> = CON(%entityA, DIST, %entityB, 10)"
+            }
+          ],
+          "command": "part.sketch_dimension"
+        },
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%entity",
+            "DIAM|RADIUS",
+            "value"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "kind": "DIAM",
+                "value": 10.0
+              },
+              "ir_arguments": [
+                "%entity",
+                "DIAM",
+                "10"
+              ],
+              "ir_text": "%<id> = CON(%entity, DIAM, 10)"
+            }
+          ],
+          "command": "part.sketch_dimension_single"
         }
       ]
     },
@@ -10545,7 +10635,7 @@
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
-        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"COINC\" || kind == \"PARA\" || kind == \"PERP\" || kind == \"TANG\" || kind == \"EQUAL\" || kind == \"PTON\" || kind == \"DIST\")",
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"COINC\" || kind == \"PARA\" || kind == \"PERP\" || kind == \"TANG\" || kind == \"EQUAL\" || kind == \"PTON\" || kind == \"CONC\" || kind == \"COLL\" || kind == \"DIST\")",
         "derived": [
           {
             "selection_values_of_kind": "SketchRef",
@@ -10557,6 +10647,8 @@
             "comparison": "one_of",
             "values": [
               "COINC",
+              "COLL",
+              "CONC",
               "DIST",
               "EQUAL",
               "PARA",
@@ -10597,7 +10689,7 @@
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
-        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"HORIZ\" || kind == \"VERT\")",
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"HORIZ\" || kind == \"VERT\" || kind == \"FIX\")",
         "derived": [
           {
             "selection_values_of_kind": "SketchRef",
@@ -10608,9 +10700,174 @@
             "parameter": "kind",
             "comparison": "one_of",
             "values": [
+              "FIX",
               "HORIZ",
               "VERT"
             ]
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
+      "id": "part.sketch_constrain_triple",
+      "label": "Constrain Three Entities",
+      "category": "Part",
+      "feature_ir_op": "CON",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 3,
+        "max": 3
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "SYMM",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 3 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"SYMM\" || kind == \"MIDPT\")",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 3
+          },
+          {
+            "parameter": "kind",
+            "comparison": "one_of",
+            "values": [
+              "MIDPT",
+              "SYMM"
+            ]
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
+      "id": "part.sketch_dimension",
+      "label": "Dimension Entity Pair",
+      "category": "Part",
+      "feature_ir_op": "CON",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 2,
+        "max": 2
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "DIST",
+          "has_default": true
+        },
+        {
+          "name": "value",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"DIST\" || kind == \"DISTX\" || kind == \"DISTY\" || kind == \"ANGLE\")",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 2
+          },
+          {
+            "parameter": "kind",
+            "comparison": "one_of",
+            "values": [
+              "ANGLE",
+              "DIST",
+              "DISTX",
+              "DISTY"
+            ]
+          }
+        ],
+        "unparsed_terms": [
+          "!sharedSketchNode(*d, ctx.selection()).empty()"
+        ]
+      },
+      "produces_value_kind": "Sketch"
+    },
+    {
+      "id": "part.sketch_dimension_single",
+      "label": "Dimension Entity",
+      "category": "Part",
+      "feature_ir_op": "CON",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "SketchRef",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "kind",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "DIAM",
+          "has_default": true
+        },
+        {
+          "name": "value",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const std::string kind = txt(ctx, \"kind\", \"\"); resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 && !sharedSketchNode(*d, ctx.selection()).empty() && (kind == \"RADIUS\" || kind == \"DIAM\") && num(ctx, \"value\", 0.0) > 0.0",
+        "derived": [
+          {
+            "selection_values_of_kind": "SketchRef",
+            "comparison": "==",
+            "value": 1
+          },
+          {
+            "parameter": "kind",
+            "comparison": "one_of",
+            "values": [
+              "DIAM",
+              "RADIUS"
+            ]
+          },
+          {
+            "parameter": "value",
+            "comparison": ">",
+            "value": 0.0
           }
         ],
         "unparsed_terms": [

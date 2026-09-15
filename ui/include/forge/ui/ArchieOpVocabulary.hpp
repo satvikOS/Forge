@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = 10f43618e79ad042d92807a48650f0a6998e0bf925599960a32ff262922e077f
+// sha256(vocabulary) = dce025b53b9d8195bd42bc14dfb0a015b4b051e49b75bd5d8c59f001297944a6
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,15 +35,15 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "10f43618e79ad042d92807a48650f0a6998e0bf925599960a32ff262922e077f";
+inline constexpr std::string_view kVocabularySha256 = "dce025b53b9d8195bd42bc14dfb0a015b4b051e49b75bd5d8c59f001297944a6";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
 inline constexpr std::size_t kKernelOpsCount = 68;
-inline constexpr std::size_t kRegistryCommandsCount = 100;
-inline constexpr std::size_t kCommandsEmittingIrCount = 69;
+inline constexpr std::size_t kRegistryCommandsCount = 103;
+inline constexpr std::size_t kCommandsEmittingIrCount = 72;
 inline constexpr std::size_t kUserInvocableOpsCount = 65;
 inline constexpr std::size_t kForbiddenOpsCount = 3;
 
@@ -107,7 +107,7 @@ struct ArgCountRange {
   std::size_t min = 0;
   std::size_t max = 0;  // kUnboundedArgs when the op is variadic
 };
-inline constexpr std::array<ArgCountRange, 99> kEmittedArgCounts = {{
+inline constexpr std::array<ArgCountRange, 102> kEmittedArgCounts = {{
     ArgCountRange{3, 3},
     ArgCountRange{5, 5},
     ArgCountRange{3, 3},
@@ -122,6 +122,9 @@ inline constexpr std::array<ArgCountRange, 99> kEmittedArgCounts = {{
     ArgCountRange{3, 3},
     ArgCountRange{4, 4},
     ArgCountRange{2, 2},
+    ArgCountRange{4, 4},
+    ArgCountRange{4, 4},
+    ArgCountRange{3, 3},
     ArgCountRange{3, 3},
     ArgCountRange{9, 9},
     ArgCountRange{2, 2},
@@ -209,7 +212,7 @@ inline constexpr std::array<ArgCountRange, 99> kEmittedArgCounts = {{
     ArgCountRange{1, 1},
 }};
 
-inline constexpr std::array<std::string_view, 69> kOpCommandIds = {{
+inline constexpr std::array<std::string_view, 72> kOpCommandIds = {{
     "part.variable_fillet",
     "part.primitive_box",
     "part.cap",
@@ -219,6 +222,9 @@ inline constexpr std::array<std::string_view, 69> kOpCommandIds = {{
     "part.boolean_intersect",
     "part.sketch_constrain",
     "part.sketch_constrain_single",
+    "part.sketch_constrain_triple",
+    "part.sketch_dimension",
+    "part.sketch_dimension_single",
     "part.primitive_cone",
     "part.boolean_subtract",
     "part.primitive_cylinder",
@@ -303,64 +309,64 @@ inline constexpr std::array<OpRow, 65> kAllowedOps = {{
     OpRow{"CHAMFER", "SOLID", 3, 1, 2, 3, true, 7, 1, 4, 1},
     OpRow{"CIRCLE", "PROFILE", 4, 0, 1, 3, false, 8, 2, 5, 1},
     OpRow{"COMMON", "SOLID", 4, 1, 2, 2, true, 10, 1, 6, 1},
-    OpRow{"CON", "SKETCH", 5, 1, 2, 4, true, 11, 3, 7, 2},
-    OpRow{"CONE", "SOLID", 6, 0, 3, 9, false, 14, 2, 9, 1},
-    OpRow{"CUT", "SOLID", 6, 1, 2, 2, true, 16, 1, 10, 1},
-    OpRow{"CYL", "SOLID", 7, 0, 2, 8, false, 17, 2, 11, 1},
-    OpRow{"DEFEATURE", "SOLID", 7, 1, 2, 2, true, 19, 1, 12, 1},
-    OpRow{"DRAFT", "SOLID", 8, 1, 3, 5, true, 20, 1, 13, 1},
-    OpRow{"EXTRUDE", "SOLID", 9, 1, 2, 5, true, 21, 2, 14, 1},
-    OpRow{"FACES", "SURFACE", 10, 1, 2, 2, true, 23, 1, 15, 1},
-    OpRow{"FILLET", "SOLID", 11, 1, 2, 3, true, 24, 1, 16, 1},
-    OpRow{"FOLD", "SOLID", 12, 1, 8, 9, true, 25, 2, 17, 1},
-    OpRow{"FUSE", "SOLID", 13, 1, 2, 2, true, 27, 1, 18, 1},
-    OpRow{"HEAL", "SOLID", 14, 1, 1, 1, true, 28, 1, 19, 1},
-    OpRow{"HOLE", "SOLID", 15, 1, 5, 9, true, 29, 2, 20, 1},
-    OpRow{"INPUT", "SOLID", 16, 0, 0, 0, false, 31, 1, 21, 1},
-    OpRow{"LOFT", "SOLID", 16, 1, 2, kUnboundedArgs, true, 32, 4, 22, 1},
-    OpRow{"MEASURE", "SOLID", 17, 1, 2, kUnboundedArgs, true, 36, 1, 23, 1},
-    OpRow{"MIRROR", "SOLID", 18, 1, 2, 7, true, 37, 1, 24, 1},
-    OpRow{"OFFSETSOLID", "SOLID", 19, 1, 2, 3, true, 38, 1, 25, 1},
-    OpRow{"PATTERN", "SOLID", 20, 1, 4, 10, true, 39, 4, 26, 3},
-    OpRow{"POCKET", "SOLID", 21, 1, 4, 7, true, 43, 1, 29, 1},
-    OpRow{"POLY", "PROFILE", 22, 0, 1, 1, false, 44, 1, 30, 1},
-    OpRow{"PRISM", "SOLID", 22, 0, 3, 6, false, 45, 2, 31, 1},
-    OpRow{"PUSHFACE", "SOLID", 22, 1, 3, 3, true, 47, 1, 32, 1},
-    OpRow{"RECT", "PROFILE", 23, 0, 2, 4, false, 48, 2, 33, 1},
-    OpRow{"REGPOLY", "PROFILE", 23, 0, 2, 5, false, 50, 2, 34, 1},
-    OpRow{"REPLACEFACE", "SOLID", 23, 1, 3, 3, true, 52, 1, 35, 1},
-    OpRow{"RESIZEBORE", "SOLID", 24, 1, 3, 3, true, 53, 1, 36, 1},
-    OpRow{"REVOLVE", "SOLID", 25, 1, 2, 8, true, 54, 2, 37, 1},
-    OpRow{"RIB", "SOLID", 26, 1, 4, 6, true, 56, 1, 38, 1},
-    OpRow{"RING", "WIRE", 27, 0, 3, 7, false, 57, 2, 39, 1},
-    OpRow{"ROTATE", "SOLID", 27, 1, 5, 8, true, 59, 2, 40, 1},
-    OpRow{"RRECT", "PROFILE", 28, 0, 3, 5, false, 61, 2, 41, 1},
-    OpRow{"SARC", "SKETCHREF", 28, 1, 3, 3, true, 63, 1, 42, 1},
-    OpRow{"SCALEUNIFORM", "SOLID", 29, 1, 2, 5, true, 64, 1, 43, 1},
-    OpRow{"SCIRC", "SKETCHREF", 30, 1, 2, 2, true, 65, 1, 44, 1},
-    OpRow{"SECTION", "WIRE", 31, 1, 2, 2, true, 66, 1, 45, 1},
-    OpRow{"SEW", "SURFACE", 32, 1, 1, kUnboundedArgs, true, 67, 2, 46, 1},
-    OpRow{"SHELL", "SOLID", 33, 1, 2, 5, true, 69, 2, 47, 1},
-    OpRow{"SKETCH", "SKETCH", 34, 0, 1, 1, false, 71, 1, 48, 1},
-    OpRow{"SKIN", "SURFACE", 34, 1, 2, kUnboundedArgs, true, 72, 2, 49, 1},
-    OpRow{"SLINE", "SKETCHREF", 35, 1, 2, 2, true, 74, 1, 50, 1},
-    OpRow{"SOLVE", "PROFILE", 36, 1, 1, 1, true, 75, 1, 51, 1},
-    OpRow{"SPHERE", "SOLID", 37, 0, 1, 4, false, 76, 2, 52, 1},
-    OpRow{"SPLITBODY", "SOLID", 37, 1, 2, 3, true, 78, 1, 53, 1},
-    OpRow{"SPT", "SKETCHREF", 38, 1, 3, 3, true, 79, 1, 54, 1},
-    OpRow{"SURFCHECK", "SURFACE", 39, 1, 2, kUnboundedArgs, true, 80, 2, 55, 1},
-    OpRow{"SURFEXTEND", "SURFACE", 40, 1, 2, 4, true, 82, 1, 56, 1},
-    OpRow{"SURFTRIM", "SURFACE", 41, 1, 2, 3, true, 83, 1, 57, 1},
-    OpRow{"SWEEP", "SOLID", 42, 0, 2, 2, false, 84, 2, 58, 2},
-    OpRow{"TAG", "SOLID", 42, 1, 3, 3, true, 86, 1, 60, 1},
-    OpRow{"THICKEN", "SOLID", 43, 1, 2, 3, true, 87, 2, 61, 1},
-    OpRow{"THREAD", "SOLID", 44, 1, 4, 7, true, 89, 1, 62, 1},
-    OpRow{"TORUS", "SOLID", 45, 0, 2, 8, false, 90, 2, 63, 1},
-    OpRow{"TRANSLATE", "SOLID", 45, 1, 4, 4, true, 92, 1, 64, 1},
-    OpRow{"TUBE", "SOLID", 46, 0, 3, 6, false, 93, 2, 65, 1},
-    OpRow{"UNFOLD", "SURFACE", 46, 1, 1, 2, true, 95, 1, 66, 1},
-    OpRow{"VERIFY", "SOLID", 47, 1, 2, kUnboundedArgs, true, 96, 2, 67, 1},
-    OpRow{"WIRE", "WIRE", 48, 0, 1, 1, false, 98, 1, 68, 1},
+    OpRow{"CON", "SKETCH", 5, 1, 2, 4, true, 11, 6, 7, 5},
+    OpRow{"CONE", "SOLID", 6, 0, 3, 9, false, 17, 2, 12, 1},
+    OpRow{"CUT", "SOLID", 6, 1, 2, 2, true, 19, 1, 13, 1},
+    OpRow{"CYL", "SOLID", 7, 0, 2, 8, false, 20, 2, 14, 1},
+    OpRow{"DEFEATURE", "SOLID", 7, 1, 2, 2, true, 22, 1, 15, 1},
+    OpRow{"DRAFT", "SOLID", 8, 1, 3, 5, true, 23, 1, 16, 1},
+    OpRow{"EXTRUDE", "SOLID", 9, 1, 2, 5, true, 24, 2, 17, 1},
+    OpRow{"FACES", "SURFACE", 10, 1, 2, 2, true, 26, 1, 18, 1},
+    OpRow{"FILLET", "SOLID", 11, 1, 2, 3, true, 27, 1, 19, 1},
+    OpRow{"FOLD", "SOLID", 12, 1, 8, 9, true, 28, 2, 20, 1},
+    OpRow{"FUSE", "SOLID", 13, 1, 2, 2, true, 30, 1, 21, 1},
+    OpRow{"HEAL", "SOLID", 14, 1, 1, 1, true, 31, 1, 22, 1},
+    OpRow{"HOLE", "SOLID", 15, 1, 5, 9, true, 32, 2, 23, 1},
+    OpRow{"INPUT", "SOLID", 16, 0, 0, 0, false, 34, 1, 24, 1},
+    OpRow{"LOFT", "SOLID", 16, 1, 2, kUnboundedArgs, true, 35, 4, 25, 1},
+    OpRow{"MEASURE", "SOLID", 17, 1, 2, kUnboundedArgs, true, 39, 1, 26, 1},
+    OpRow{"MIRROR", "SOLID", 18, 1, 2, 7, true, 40, 1, 27, 1},
+    OpRow{"OFFSETSOLID", "SOLID", 19, 1, 2, 3, true, 41, 1, 28, 1},
+    OpRow{"PATTERN", "SOLID", 20, 1, 4, 10, true, 42, 4, 29, 3},
+    OpRow{"POCKET", "SOLID", 21, 1, 4, 7, true, 46, 1, 32, 1},
+    OpRow{"POLY", "PROFILE", 22, 0, 1, 1, false, 47, 1, 33, 1},
+    OpRow{"PRISM", "SOLID", 22, 0, 3, 6, false, 48, 2, 34, 1},
+    OpRow{"PUSHFACE", "SOLID", 22, 1, 3, 3, true, 50, 1, 35, 1},
+    OpRow{"RECT", "PROFILE", 23, 0, 2, 4, false, 51, 2, 36, 1},
+    OpRow{"REGPOLY", "PROFILE", 23, 0, 2, 5, false, 53, 2, 37, 1},
+    OpRow{"REPLACEFACE", "SOLID", 23, 1, 3, 3, true, 55, 1, 38, 1},
+    OpRow{"RESIZEBORE", "SOLID", 24, 1, 3, 3, true, 56, 1, 39, 1},
+    OpRow{"REVOLVE", "SOLID", 25, 1, 2, 8, true, 57, 2, 40, 1},
+    OpRow{"RIB", "SOLID", 26, 1, 4, 6, true, 59, 1, 41, 1},
+    OpRow{"RING", "WIRE", 27, 0, 3, 7, false, 60, 2, 42, 1},
+    OpRow{"ROTATE", "SOLID", 27, 1, 5, 8, true, 62, 2, 43, 1},
+    OpRow{"RRECT", "PROFILE", 28, 0, 3, 5, false, 64, 2, 44, 1},
+    OpRow{"SARC", "SKETCHREF", 28, 1, 3, 3, true, 66, 1, 45, 1},
+    OpRow{"SCALEUNIFORM", "SOLID", 29, 1, 2, 5, true, 67, 1, 46, 1},
+    OpRow{"SCIRC", "SKETCHREF", 30, 1, 2, 2, true, 68, 1, 47, 1},
+    OpRow{"SECTION", "WIRE", 31, 1, 2, 2, true, 69, 1, 48, 1},
+    OpRow{"SEW", "SURFACE", 32, 1, 1, kUnboundedArgs, true, 70, 2, 49, 1},
+    OpRow{"SHELL", "SOLID", 33, 1, 2, 5, true, 72, 2, 50, 1},
+    OpRow{"SKETCH", "SKETCH", 34, 0, 1, 1, false, 74, 1, 51, 1},
+    OpRow{"SKIN", "SURFACE", 34, 1, 2, kUnboundedArgs, true, 75, 2, 52, 1},
+    OpRow{"SLINE", "SKETCHREF", 35, 1, 2, 2, true, 77, 1, 53, 1},
+    OpRow{"SOLVE", "PROFILE", 36, 1, 1, 1, true, 78, 1, 54, 1},
+    OpRow{"SPHERE", "SOLID", 37, 0, 1, 4, false, 79, 2, 55, 1},
+    OpRow{"SPLITBODY", "SOLID", 37, 1, 2, 3, true, 81, 1, 56, 1},
+    OpRow{"SPT", "SKETCHREF", 38, 1, 3, 3, true, 82, 1, 57, 1},
+    OpRow{"SURFCHECK", "SURFACE", 39, 1, 2, kUnboundedArgs, true, 83, 2, 58, 1},
+    OpRow{"SURFEXTEND", "SURFACE", 40, 1, 2, 4, true, 85, 1, 59, 1},
+    OpRow{"SURFTRIM", "SURFACE", 41, 1, 2, 3, true, 86, 1, 60, 1},
+    OpRow{"SWEEP", "SOLID", 42, 0, 2, 2, false, 87, 2, 61, 2},
+    OpRow{"TAG", "SOLID", 42, 1, 3, 3, true, 89, 1, 63, 1},
+    OpRow{"THICKEN", "SOLID", 43, 1, 2, 3, true, 90, 2, 64, 1},
+    OpRow{"THREAD", "SOLID", 44, 1, 4, 7, true, 92, 1, 65, 1},
+    OpRow{"TORUS", "SOLID", 45, 0, 2, 8, false, 93, 2, 66, 1},
+    OpRow{"TRANSLATE", "SOLID", 45, 1, 4, 4, true, 95, 1, 67, 1},
+    OpRow{"TUBE", "SOLID", 46, 0, 3, 6, false, 96, 2, 68, 1},
+    OpRow{"UNFOLD", "SURFACE", 46, 1, 1, 2, true, 98, 1, 69, 1},
+    OpRow{"VERIFY", "SOLID", 47, 1, 2, kUnboundedArgs, true, 99, 2, 70, 1},
+    OpRow{"WIRE", "WIRE", 48, 0, 1, 1, false, 101, 1, 71, 1},
 }};
 
 // ------------------------------------------------------------- forbidden ops
@@ -389,7 +395,7 @@ struct CommandRow {
   std::size_t selectionMax = 0;        // kUnboundedArgs when open-ended
   std::string_view producesValueKind;  // "Profile" | "Wire" | "Solid"
 };
-inline constexpr std::array<CommandRow, 69> kEmittingCommands = {{
+inline constexpr std::array<CommandRow, 72> kEmittingCommands = {{
     CommandRow{"part.boolean_intersect", "COMMON", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_subtract", "CUT", "Body", 2, 2, "Solid"},
     CommandRow{"part.boolean_union", "FUSE", "Body", 2, 2, "Solid"},
@@ -436,6 +442,9 @@ inline constexpr std::array<CommandRow, 69> kEmittingCommands = {{
     CommandRow{"part.sketch_circle", "CIRCLE", "None", 0, kUnboundedArgs, "Profile"},
     CommandRow{"part.sketch_constrain", "CON", "SketchRef", 2, 2, "Sketch"},
     CommandRow{"part.sketch_constrain_single", "CON", "SketchRef", 1, 1, "Sketch"},
+    CommandRow{"part.sketch_constrain_triple", "CON", "SketchRef", 3, 3, "Sketch"},
+    CommandRow{"part.sketch_dimension", "CON", "SketchRef", 2, 2, "Sketch"},
+    CommandRow{"part.sketch_dimension_single", "CON", "SketchRef", 1, 1, "Sketch"},
     CommandRow{"part.sketch_entity_arc", "SARC", "SketchRef", 3, 3, "SketchRef"},
     CommandRow{"part.sketch_entity_circle", "SCIRC", "SketchRef", 1, 1, "SketchRef"},
     CommandRow{"part.sketch_entity_line", "SLINE", "SketchRef", 2, 2, "SketchRef"},
