@@ -149,7 +149,19 @@ jobs:
     #   build saves 33% per build (24.1s -> 16.2s) but only ~1 min across the
     #   job, and it breaks the shared -Wall -Wextra -Werror -O2 convention that
     #   three gate scripts rely on.
-    timeout-minutes: 45
+    # ── 45 -> 90, MEASURED AGAIN: the job grew past its own ceiling ─────────
+    # 45 was set when the measured need was ~28 min. The job has since grown:
+    #   archdisc b8aefa91 (green)   run 34919430987   40m04s  (89% of 45, before any PR)
+    #   PR #245 fc734bd6            success           43m29s
+    #   PR #245 dd4322ce            CANCELLED at      45m07s  -- a timeout, not a
+    #                                                  supersession: dd4322ce was
+    #                                                  still the branch tip.
+    # The same failure the comment above predicted, again. Five PRs are open and the
+    # FreeCAD-adaptation work adds new ui gates to this job, so the budget is raised
+    # well clear of the cliff rather than by a few minutes.
+    # ★ This does not replace the structural fix above (split the mutation proofs into
+    #   parallel jobs); it unblocks the queue while that is done as its own change.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - name: forge::ui gates
