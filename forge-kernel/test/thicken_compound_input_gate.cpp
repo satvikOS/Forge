@@ -188,6 +188,37 @@ int main() {
        "two 10x10 squares thickened 2.0 give exactly 2 * 200 = 400");
     ck(twoV.nf == 12 && twoV.ne == 48 && twoV.nv == 96,
        "and exactly twice one square's 6/24/48 topology — two bodies, not one welded body");
+    ck(twoV.built && std::fabs(twoV.b[2]) < 1.0e-6 && std::fabs(twoV.b[5] - 2.0) < 1.0e-6,
+       "and both slabs sit on the faces' own (+Z) side: z in [0, 2]");
+
+    // ── MIXED ORIENTATION: one sweep vector cannot serve two normals ──────────
+    // Opening the compound up to PATH A exposed this: the coplanarity test compares
+    // PLANES, so a REVERSED coplanar face passes it, and PATH A then swept every
+    // face along the FIRST face's normal. The reversed square's slab landed on the
+    // wrong side while the volume check still read area * thickness. Thicken's side
+    // convention is per face, so the engine must DECLINE, by name — as OCCT's
+    // BRepOffset_MakeOffset does on the same input (test/OcctThickenOracle.hpp).
+    {
+        const TopoDS_Face up   = square(0.0);
+        const TopoDS_Face down = TopoDS::Face(square(50.0).Reversed());
+        const Vec downAlone = measure(down, 2.0);
+        show("reversed square ALONE", downAlone);
+        ck(downAlone.built && std::fabs(downAlone.b[2] + 2.0) < 1.0e-6 &&
+               std::fabs(downAlone.b[5]) < 1.0e-6,
+           "CONTROL: a reversed square alone thickens along ITS OWN normal, z in [-2, 0]");
+
+        TopoDS_Compound mixC; { BRep_Builder b; b.MakeCompound(mixC); b.Add(mixC, up); b.Add(mixC, down); }
+        TopoDS_Shell    mixS; { BRep_Builder b; b.MakeShell(mixS);    b.Add(mixS, up); b.Add(mixS, down); }
+        const Vec mc = measure(mixC, 2.0);
+        const Vec ms = measure(mixS, 2.0);
+        show("MIXED-orientation COMPOUND", mc);
+        show("MIXED-orientation SHELL", ms);
+        ck(!mc.built, "a COMPOUND of opposite-oriented coplanar faces is DECLINED "
+                      "(it used to put the reversed slab on the wrong side)");
+        ck(!ms.built, "the same pair as a SHELL is DECLINED too");
+        ck(!mc.built && mc.reason.find("opposite orientations") != std::string::npos,
+           "and the decline NAMES the cause");
+    }
 
     // ── NEGATIVE CONTROL ──────────────────────────────────────────────────────
     // The widening accepts a WRAPPER. It must not have become "accept anything":

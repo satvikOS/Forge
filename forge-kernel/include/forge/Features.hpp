@@ -82,11 +82,15 @@ struct FaceThickness {
 // the OUTER ENVELOPE IS PRESERVED and the cavity is inset by |thickness|. The
 // sign of the argument is IGNORED (both +t and -t hollow inward), because the
 // two historical callers spell it differently: ft/FeatureTreeCompiler.cpp
-// opShell passes -|wall| while the UI/AI bridges pass +wall. Every internal
-// route -- native shellSolid, native makeThickSolid, and OCCT
-// MakeThickSolidByJoin -- is now driven from that one magnitude with its own
-// spelling of "inward" (OCCT's is NEGATIVE; a positive offset there grows the
-// wall OUTWARD with a rounded join, which is a DIFFERENT operation).
+// opShell passes -|wall| while the UI/AI bridges pass +wall. Both internal
+// routes -- native shellSolid (NativeSolid input, FORGE_NATIVE_FEATURES) and
+// native makeThickSolid (everything else) -- are driven from that one magnitude.
+//
+// NO OCCT FALLBACK (TKOffset family G): BRepOffsetAPI_MakeThickSolid is deleted
+// from the kernel. A shape the native thick-solid declines THROWS, quoting the
+// engine's own defer reason; a non-empty `multiThickness` THROWS and names
+// shellMultiThickness (this entry point never honoured it). Built without
+// FORGE_NATIVE_BREP it always throws.
 ShapeHandle shell(ShapeHandle shape,
                   const std::vector<std::uint32_t>& faceIdsToRemove,
                   double thickness,
@@ -102,16 +106,25 @@ ShapeHandle shell(ShapeHandle shape,
 // It NEVER falls back to BRepOffsetAPI_MakeThickSolid: outside the class it
 // supports it THROWS, so a gate can tell "declined" from "wrong answer". That
 // is what makes it the entry point the closed-form gate
-// (test/native_thicksolid_closedform.mjs) drives; production `shell()` above
-// keeps the OCCT fallback.
+// (test/native_thicksolid_closedform.mjs) drives. Since family G deleted the
+// OCCT fallback, production `shell()` above reaches the same engine for an
+// OCCT-backed solid; the two differ only in shell()'s NativeSolid route and in
+// the wording of the refusal.
 ShapeHandle shellNativeThick(ShapeHandle shape,
                              const std::vector<std::uint32_t>& faceIdsToRemove,
                              double thickness);
 
-// Forge-36: true multi-thickness shell. Each entry in `perFaceOverrides`
-// causes a per-face BRepOffsetAPI_MakeThickSolid pass at the override
-// thickness, and the results are fused into one body. The base `thickness`
-// applies to faces not explicitly overridden.
+// Forge-36: multi-thickness shell. Each entry in `perFaceOverrides` causes a
+// second native thick-solid pass (forge::occtoffset::makeThickSolid) at the
+// override thickness with that face opened, fused into the base shell. The fuse
+// keeps the INTERSECTION of the two cavities, so this is an approximation of a
+// per-face wall, not an exact one (box(10), base 1, override t on one face:
+// V = 1000 - (9-t)(10-2t)^2 — test/shell_override_refusal_gate.cpp).
+//
+// REFUSES, never drops: an override pass the engine declines, or a fuse that
+// does not complete, THROWS naming the face and the engine's reason — it does
+// not return the shell without that override. Built without FORGE_NATIVE_BREP it
+// always throws. (An override whose faceId does not resolve is still skipped.)
 ShapeHandle shellMultiThickness(ShapeHandle shape,
                                 const std::vector<std::uint32_t>& faceIdsToRemove,
                                 double baseThickness,
@@ -119,6 +132,11 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
 
 // Slice-8 surface workbench: thicken an open surface / shell into a solid of
 // the given wall thickness. `side`: -1 inward, +1 outward, 0 symmetric.
+// ONE ENGINE (TKOffset family I): the native shell thicken
+// (forge::occtthicken::thickenShell). An input it declines THROWS, quoting the
+// engine's reason; there is no BRepOffset_MakeOffset fallback. On the coplanar
+// path a COMPOUND input (what every OCCT boolean returns) is thickened as the
+// faces it wraps (test/thicken_compound_input_gate.cpp).
 ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side);
 
 // Whole-solid GROW / SHRINK offset (the "Offset Solid" command): move EVERY
