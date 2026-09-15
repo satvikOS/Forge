@@ -594,7 +594,10 @@ int main(int argc, char** argv) {
     std::printf("[archie-model] --- the program after Archie's plan ---\n%s", program.c_str());
     const Measure after = measure(program);
     const double removed = before.volume - after.volume;
-    const double expected = 2.0 * M_PI * 3.0 * 3.0 * 20.0;  // two d6 x 20 through holes
+    // Not M_PI: that is a POSIX extension glibc hides under -std=c++20, and the
+    // syntax gate type-checks this file on Linux.
+    constexpr double kPi = 3.14159265358979323846;
+    const double expected = 2.0 * kPi * 3.0 * 3.0 * 20.0;  // two d6 x 20 through holes
     check(after.ok && after.valid, "the kernel compiles a VALID solid", after.error);
     check(after.reconciled, "declared == parsed == compiled (s0.4)");
     check(std::fabs(after.dx - before.dx) < 0.01 && std::fabs(after.dy - before.dy) < 0.01 &&
