@@ -16,7 +16,7 @@ overstate the work by roughly threefold on this tree.
 | APP | 0 | YES |
 | KERNEL | 1405 | YES |
 | TOOLING | 23 | yes, last |
-| ORACLE | 2030 | no — by design |
+| ORACLE | 2031 | no — by design |
 | SCRATCH | 0 | no — by design |
 | OTHER | 0 | no — by design |
 
