@@ -46,10 +46,17 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **100 commands**; **69 of them emit
+Measured at this revision: the registry holds **102 commands**; **69 of them emit
 feature-IR**, reaching **65 distinct op names**. The kernel defines **68** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+The two newest commands move the registry and not the emitting count, because
+they are QUERIES: `part.mass_properties` returns the part's mass, centre of mass
+and inertia as typed evidence (`mass_kg=... com_mm=(...) inertia_com_kg_mm2=[...]`)
+and `part.check_mass` asserts a mass budget against the same measurement. Neither
+writes a statement; `part.set_material`, which they weigh with, now also resolves
+the material card library and refuses an unknown name by quoting it.
 
 Two more commands arrived and the EMITTING count did not move again, for the same
 reason: `file.export_stl` and `file.export_gcode` are the two WAYS OUT. STL was

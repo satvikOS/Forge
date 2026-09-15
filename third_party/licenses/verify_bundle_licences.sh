@@ -42,6 +42,16 @@ if [ -s "$LIC/INCOMPLETE.md" ] && ! grep -qi 'dear imgui' "$LIC/INCOMPLETE.md"; 
   MISSING=$((MISSING + 1))
 fi
 
+# FreeCAD-derived components: every LGPL shared library the bundle carries from
+# third_party/freecad-derived must arrive with its licence text, its dated record
+# of modifications and its notice. Enumerated from what is IN THE BUNDLE's
+# Frameworks, so a component that ships is a component that is checked.
+if [ -f "$APP/Contents/Frameworks/libforge_fcmaterials.dylib" ]; then
+  for f in COPYING.LGPL MODIFICATIONS.md README.md; do
+    need "freecad-derived/materials/$f" "FreeCAD material cards (libforge_fcmaterials.dylib, dynamic)"
+  done
+fi
+
 if [ "$MISSING" -gt 0 ]; then
   echo "[licences] RED -- $MISSING required item(s) missing. This artifact must not ship."
   exit 1

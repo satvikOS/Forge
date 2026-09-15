@@ -6,7 +6,7 @@ resolved prefix, hashed from that real file on disk. Nothing here is
 transcribed from memory; a license text that is not on disk is reported as
 an INCOMPLETE record rather than reconstructed.
 
-- Lock: `third_party/manifest/deps.lock.json` (sha256 `a19b841465b4d38d34f74a36feeef9b0d19c84efc782799f6ad71cdddf0516c1`)
+- Lock: `third_party/manifest/deps.lock.json` (sha256 `dc7a99c6056a3bbcc7ff7b47759cbabb1256377adea7682bfe6d993c06973739`)
 - Triplet: `macos-arm64`
 
 ## opencascade 7.9.3
@@ -32,6 +32,14 @@ an INCOMPLETE record rather than reconstructed.
 - Linkage: static (compiled into forge_kernel)
 - Used for: FreeCAD's 2D plane geometric constraint solver, vendored in-tree so Forge ships a sketch solver without depending on the wider FreeCAD codebase.
 - License text: SPDX-License-Identifier header is present in every vendored source file; provenance and the Forge-local edits are documented in forge-kernel/3rdParty/planegcs/UPSTREAM.md.
+
+## freecad-materials freecad-0a45a0a
+
+- SPDX: `LGPL-2.1-or-later`
+- Upstream: https://github.com/FreeCAD/FreeCAD
+- Linkage: dynamic (libforge_fcmaterials.dylib in Contents/Frameworks)
+- Used for: FreeCAD's material cards (115 LGPL cards) and the 12 model definitions they name, built into their own shared library libforge_fcmaterials.dylib and read by Forge's own material reader (ui/src/MaterialCards.cpp). Density, elastic, strength and thermal values for part mass properties and the Materials tab.
+- License text: `COPYING.LGPL` in the resolved prefix (sha256 `e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c`, 26434 bytes)
 
 ## node-addon-api 8.8.0
 

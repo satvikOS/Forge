@@ -317,6 +317,72 @@
       }
     },
     {
+      "name": "freecad-materials",
+      "version": "freecad-0a45a0a",
+      "required": true,
+      "purpose": "FreeCAD's material cards (115 LGPL cards) and the 12 model definitions they name, built into their own shared library libforge_fcmaterials.dylib and read by Forge's own material reader (ui/src/MaterialCards.cpp). Density, elastic, strength and thermal values for part mass properties and the Materials tab.",
+      "source": {
+        "kind": "vendored",
+        "path": "third_party/freecad-derived/materials"
+      },
+      "upstream": {
+        "repository": "https://github.com/FreeCAD/FreeCAD",
+        "revision": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
+        "subtree": "src/Mod/Material/Resources/",
+        "url": null,
+        "archive_sha256": null,
+        "archive_sha256_reason": "Vendored as individual files, not as an archive. Identity is the pinned upstream commit plus the per-file SHA-256 record in third_party/freecad-derived/materials/component.json, which tools/gates/freecad_derived_compliance_gate.sh re-verifies."
+      },
+      "features": {
+        "cards": 115,
+        "model_definitions": 12,
+        "cards_not_taken": "25 Standard cards whose own General.License is CC-BY-3.0 (18), CC-BY-4.0 (3) or CC-BY-SA-4.0 (4)"
+      },
+      "license": {
+        "spdx": "LGPL-2.1-or-later",
+        "linkage": "dynamic (libforge_fcmaterials.dylib in Contents/Frameworks)",
+        "file_in_prefix": "COPYING.LGPL",
+        "note": "Cards are LGPL-2.0-or-later (110) or LGPL-2.1-or-later (5); models LGPL-2.1-or-later (8) or LGPL-2.0-or-later (4). Changes are recorded in MODIFICATIONS.md beside the files."
+      },
+      "installed": {},
+      "layout": {
+        "presence_marker": "component.json",
+        "verify_globs": [
+          "Resources/*",
+          "*.md",
+          "*.json",
+          "COPYING.LGPL",
+          "CMakeLists.txt",
+          "cmake/*",
+          "include/*",
+          "src/*"
+        ],
+        "anchor_globs": [
+          "component.json",
+          "COPYING.LGPL",
+          "MODIFICATIONS.md",
+          "src/*",
+          "include/*"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "aea227381f9b25d61fe7c501be60d3b799e1a8cb48c2a00a5da778b480024cf3",
+          "files": 135,
+          "links": 0,
+          "bytes": 245878
+        },
+        "installed_anchor_sha256": {
+          "sha256": "068c7cab44ff670daf5e058e0095a86e0bbaef9fc48b02081119f5b4591cc022",
+          "files": 5,
+          "links": 0,
+          "bytes": 66918
+        },
+        "computed_from_prefix_source": "vendored"
+      }
+    },
+    {
       "name": "node-addon-api",
       "version": "8.8.0",
       "required": true,

@@ -307,3 +307,32 @@ jobs:
       - name: Every FORGE_* a run block reads is mapped into the shell
         shell: bash
         run: python3 .github/workflows/test/test_env_is_mapped.py
+
+  freecad_derived_compliance:
+    # Code and data taken from FreeCAD (LGPL-2.1-or-later) ship in a commercial
+    # product only as their OWN SHARED LIBRARY under third_party/freecad-derived/,
+    # with the full licence text, a dated record of what was modified, a notice
+    # and a THIRD_PARTY notice entry -- and with no OCCT, Qt, Coin3D or Python
+    # header inside. None of that fails a compile or a test when it is missing, so
+    # this is the check that does. Hermetic: python3 and the tree; the imported
+    # files are verified against the SHA-256 recorded when they were imported.
+    name: every FreeCAD-derived library ships with its licence, changes and notice
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove the compliance check can fail (16 cases)
+        # FIRST, as with every check in this file: a clean copy must pass and each
+        # of sixteen injected defects -- no licence text, a truncated one, no or an
+        # undated modifications record, a STATIC library, a card edited without a
+        # record, a non-LGPL card, an OCCT or a Qt include, no notice entry, derived
+        # sources compiled into the app, the kernel naming it, an unrecorded file,
+        # no manifest, no SPDX header, a packager that stages no licence files --
+        # must turn it red.
+        shell: bash
+        run: bash tools/gates/freecad_derived_compliance_gate.sh --selftest
+
+      - name: Every FreeCAD-derived component is compliant
+        shell: bash
+        run: bash tools/gates/freecad_derived_compliance_gate.sh

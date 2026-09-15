@@ -49,6 +49,8 @@ run "native B-Rep scope note matches the code" \
     python3 tools/kernel/topology_honesty_gate.py
 run "every JS gate reaches CI" \
     python3 tools/kernel/js_gate_registration_gate.py
+run "every FreeCAD-derived library ships with its licence, changes and notice" \
+    bash tools/gates/freecad_derived_compliance_gate.sh
 run "no conflict markers are committed" \
     sh -c '! git grep -nE "^(<<<<<<< |>>>>>>> )" -- . >/dev/null 2>&1'
 

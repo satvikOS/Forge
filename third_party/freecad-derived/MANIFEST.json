@@ -1,0 +1,22 @@
+{
+  "schema": "forge.freecad_derived.manifest/1",
+  "doc": [
+    "Every component Forge derives from FreeCAD (LGPL-2.1-or-later). One entry per directory under",
+    "third_party/freecad-derived/. tools/gates/freecad_derived_compliance_gate.sh requires this list and",
+    "the directories to match exactly, and every component to be a SHARED library carrying COPYING.LGPL,",
+    "MODIFICATIONS.md, a notice (README.md) and a component.json record, with a THIRD_PARTY notice entry."
+  ],
+  "components": [
+    {
+      "name": "materials",
+      "path": "third_party/freecad-derived/materials",
+      "upstream_repository": "https://github.com/FreeCAD/FreeCAD",
+      "upstream_commit": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
+      "upstream_subtree": "src/Mod/Material/Resources/",
+      "license": "LGPL-2.1-or-later",
+      "cmake_target": "forge_fcmaterials",
+      "library": "libforge_fcmaterials.dylib",
+      "notice_entry": "freecad-materials"
+    }
+  ]
+}

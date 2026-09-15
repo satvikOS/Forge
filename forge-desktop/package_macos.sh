@@ -233,6 +233,28 @@ done
 [ "$_lic_n" -ge 3 ] || die "only $_lic_n licence file(s) staged -- expected at least the three vendored texts"
 say "staged $_lic_n licence file(s) into Contents/Resources/licenses"
 
+# ── FreeCAD-derived components travel WITH their own licence files ───────────
+# Each third_party/freecad-derived/<name> is an LGPL shared library in
+# Contents/Frameworks. What LGPL-2.1 asks to accompany it -- the licence text, the
+# dated record of what was modified, and the notice naming the upstream and how
+# to replace the library -- is staged beside the other licences, one folder per
+# component. tools/gates/freecad_derived_compliance_gate.sh --bundle checks the
+# result, and die, not warn: a component shipped without these is the defect.
+FCD_SRC="$ROOT/third_party/freecad-derived"
+if [ -d "$FCD_SRC" ]; then
+  for _c in "$FCD_SRC"/*/; do
+    [ -d "$_c" ] || continue
+    _name="$(basename "$_c")"
+    _dst="$APP/Contents/Resources/licenses/freecad-derived/$_name"
+    mkdir -p "$_dst" || die "mkdir $_dst failed"
+    for _f in COPYING.LGPL MODIFICATIONS.md README.md component.json; do
+      [ -f "$_c/$_f" ] || die "third_party/freecad-derived/$_name has no $_f -- refusing to ship it"
+      cp "$_c/$_f" "$_dst/" || die "cannot stage freecad-derived/$_name/$_f"
+    done
+  done
+  say "staged the licence, modifications record and notice of every freecad-derived component"
+fi
+
 # ── ★ THE KERNEL WORKER — the process the application is allowed to lose ─────
 # forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null Geom2d_Curve
 # dereferenced INSIDE OCCT, on Archie's output AND on the gold reference parts.
@@ -285,6 +307,7 @@ QUEUE="$WORK/queue"; : > "$QUEUE"
 # lib dir are the two that actually matter; the rest are belt and braces.
 RPATH_SEARCH="$FW
 $KERNEL_BUILD
+$APP_BUILD
 $BREW/lib
 $BREW/opt/opencascade/lib
 $BREW/opt/tbb/lib"

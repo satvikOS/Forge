@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "742197d1c2763cfd0a1f4d87b36e5388dec9f0ef3f63304c236c32882530661a",
-        "bytes": 554310,
-        "lines": 11289
+        "sha256": "320ef6e7ab7e603a39b79877dd6fda83db606978c9a34ea66599f4188de86dd7",
+        "bytes": 566474,
+        "lines": 11530
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,15 +48,15 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "d84772c2f81649494b5295f0d77661d7a546dd7778fd5d68f754a4457ea83d24",
-        "bytes": 207461,
-        "lines": 3540
+        "sha256": "dec11c86471abb96380f327cc04b90164472cabbb28f6a33fa2f29fbbfec21bf",
+        "bytes": 212493,
+        "lines": 3636
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "d22702eb9939ae85f60c8e40c5c4e01a064fb008f6db2a6d977fd0b406206366",
-        "bytes": 82125,
-        "lines": 1714
+        "sha256": "48def6c6493469579ad69d01d4caf4b3c09c855769095dec72c6cbc06e1359ab",
+        "bytes": 82389,
+        "lines": 1718
       }
     ],
     "build_configuration": {
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 68,
     "ui_validator_ops": 68,
-    "registry_commands": 100,
+    "registry_commands": 102,
     "commands_emitting_ir": 69,
     "user_invocable_ops": 65,
     "forbidden_ops": 3,
@@ -8095,6 +8095,39 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.check_mass",
+      "label": "Check Weight",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "expected_kg",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "tolerance_percent",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.5,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.counterbore",
       "label": "Counterbore Hole",
       "category": "Part",
@@ -8728,6 +8761,22 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.mass_properties",
+      "label": "Mass Properties",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "None",
+      "undo": "NotUndoable",
+      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.measure",
@@ -11872,10 +11921,11 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 2,
+      "count": 3,
       "parameters": [
         "value (part.edit_feature)",
-        "material (part.set_material)"
+        "material (part.set_material)",
+        "expected_kg (part.check_mass)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"
