@@ -107,6 +107,8 @@
 //   * a thickness of zero, or a non-finite one;
 //   * on the PLANAR paths (A/B), any face that is not a Geom_Plane. A LONE
 //     cylindrical face is NOT declined — it goes to path C or D;
+//   * on path A, faces of ONE plane with OPPOSITE orientations (only disjoint
+//     faces can mix): a single sweep vector cannot honour both normals;
 //   * an edge shared by more than two faces (non-manifold);
 //   * a shared edge that is not a straight segment (a fold about a curve needs a
 //     swept wedge, not a prismed sector);
