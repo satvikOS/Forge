@@ -375,6 +375,11 @@ run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 1
 run_gate forge_desktop_drawing_gate 1 2 3 4 5 6
 # The SKETCH PANELS gate: the four sketching tabs against a real solved sketch.
 run_gate forge_desktop_sketch_panels_gate 1 2 3 4 5 6
+# The SKETCH SOLVER gate: the fully constrained plate with holes, a width edit
+# that moves the solid, and a contradicting constraint refused by name. 1 no
+# judge, 2 no edit, 3 a missing hole dimension, 4 no diameters, 5 a "contradiction"
+# that agrees, 6 no frame.
+run_gate forge_desktop_sketch_solver_gate 1 2 3 4 5 6
 # THE TRUST PANELS: Interference, Verification, Continuity, Draft and Zebra,
 # with every number asserted against the model's own definition -- 500 mm3 of
 # overlap centred at (7.5, 5, 5) between two 10 mm cubes 5 mm apart, a genus of 1

@@ -1857,7 +1857,103 @@ private:
         SketchHandle sk = refProfile(op, 0, env);
         double amount = num(op, 1);
         double dx = numOpt(op, 2, 0), dy = numOpt(op, 3, 0), dz = numOpt(op, 4, 1);
-        return placeOnSketchPlane(sk, forge::part::extrudeProfile(sk, amount, dx, dy, dz));
+        // ── A PROFILE WITH HOLES IN IT ───────────────────────────────────────
+        // extrudeProfile builds the profile's FIRST wire, and the sketcher lists
+        // circles first, so a plate outline with two bolt holes in it came out as
+        // ONE CYLINDER -- the first hole -- with ok=true. A wrong solid reported as
+        // a success. A profile of several closed loops is now built the way every
+        // sketch-based CAD system reads it: loops are classified by nesting, an
+        // even depth is material and an odd one a hole, each loop is extruded
+        // exactly (a circle stays a circle) and the holes are cut from the loop
+        // that contains them. Loops that CROSS each other have no such reading, so
+        // they are refused by name rather than built as something nobody drew.
+        std::vector<forge::SketchLoop> loops = forge::splitClosedLoops(sk);
+        struct LoopGuard {
+            std::vector<forge::SketchLoop>& l;
+            ~LoopGuard() {
+                for (const forge::SketchLoop& x : l) {
+                    try { forge::destroySketch(x.sketch); } catch (...) {}
+                    // SWALLOW-OK: releasing a temporary sketch handle; the solid is already built or the op already failed
+                }
+            }
+        } loopGuard{loops};
+        if (loops.size() <= 1) {
+            return placeOnSketchPlane(sk, forge::part::extrudeProfile(sk, amount, dx, dy, dz));
+        }
+        return placeOnSketchPlane(sk, extrudeNestedLoops(op, loops, amount, dx, dy, dz));
+    }
+
+    // Point-in-polygon (even-odd ray cast) on a sampled ring.
+    static bool insideRing(const std::vector<forge::native::geom::Point2>& ring, double x, double y) {
+        bool in = false;
+        const std::size_t n = ring.size();
+        for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
+            const auto& a = ring[i];
+            const auto& b = ring[j];
+            if (((a.y > y) != (b.y > y)) &&
+                (x < (b.x - a.x) * (y - a.y) / (b.y - a.y) + a.x)) {
+                in = !in;
+            }
+        }
+        return in;
+    }
+
+    Handle extrudeNestedLoops(const Op& op, const std::vector<forge::SketchLoop>& loops,
+                              double amount, double dx, double dy, double dz) {
+        const std::size_t n = loops.size();
+        std::vector<std::size_t> order(n);
+        for (std::size_t i = 0; i < n; ++i) order[i] = i;
+        std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+            return std::fabs(loops[a].area) > std::fabs(loops[b].area);
+        });
+        // parent = the SMALLEST larger loop that contains this one entirely.
+        std::vector<long> parent(n, -1);
+        for (std::size_t oi = 0; oi < n; ++oi) {
+            const std::size_t i = order[oi];
+            if (loops[i].ring.size() < 3)
+                throw OpError(op.id, "EXTRUDE: a closed loop of the profile has no area");
+            for (std::size_t oj = oi; oj-- > 0;) {
+                const std::size_t j = order[oj];
+                std::size_t inside = 0;
+                for (const auto& p : loops[i].ring) inside += insideRing(loops[j].ring, p.x, p.y) ? 1 : 0;
+                if (inside == loops[i].ring.size()) {
+                    parent[i] = static_cast<long>(j);
+                    break;
+                }
+                if (inside != 0)
+                    throw OpError(op.id, "EXTRUDE: two closed loops of the profile cross each "
+                                         "other; the loops of one profile must lie inside one "
+                                         "another or apart");
+            }
+        }
+        std::vector<int> depth(n, 0);
+        for (std::size_t oi = 0; oi < n; ++oi) {
+            const std::size_t i = order[oi];
+            depth[i] = parent[i] < 0 ? 0 : depth[static_cast<std::size_t>(parent[i])] + 1;
+        }
+        // A hole is cut with a tool that stands proud of both caps, so the cut
+        // never has to decide between two coplanar faces.
+        const double dl = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (dl <= 0.0) throw OpError(op.id, "EXTRUDE: direction is zero");
+        const double ux = dx / dl, uy = dy / dl, uz = dz / dl;
+        const double proud = std::max(amount * 1e-3, 1e-3);
+
+        Handle result = 0;
+        for (std::size_t oi = 0; oi < n; ++oi) {
+            const std::size_t i = order[oi];
+            if (depth[i] % 2 != 0) continue;   // a hole: cut from its parent below
+            Handle body = forge::part::extrudeProfile(loops[i].sketch, amount, dx, dy, dz);
+            for (std::size_t k = 0; k < n; ++k) {
+                if (parent[k] != static_cast<long>(i)) continue;
+                Handle tool = forge::part::extrudeProfile(loops[k].sketch, amount + 2.0 * proud,
+                                                          dx, dy, dz);
+                tool = forge::translate(tool, -ux * proud, -uy * proud, -uz * proud);
+                body = forge::cut(body, tool);
+            }
+            result = (result == 0) ? body : forge::fuse(result, body);
+        }
+        if (result == 0) throw OpError(op.id, "EXTRUDE: the profile has no material loop");
+        return result;
     }
     // REVOLVE — partial angle (0<a<=360) about an ARBITRARY axis line. The
     // native revolveProfile already takes (origin, dir, angleRad); this only

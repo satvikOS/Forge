@@ -695,6 +695,21 @@ set_target_properties(forge_desktop_study_gate PROPERTIES
 # `--mutate 1..6` breaks it on purpose; the mutations are registered below as
 # ordinary ctest entries with WILL_FAIL, so a mutation that stops being caught is
 # a red test rather than a line nobody reads.
+# ------------------------------------------------- the SKETCH SOLVER gate
+# HEADLESS, through the one registry: a 60 x 40 plate with two 10 mm holes drawn
+# wrong and dimensioned right is fully constrained (0 DOF from the solver's rank
+# analysis); the extruded plate carries its holes and follows a width edit made
+# through the Dimensions panel; a contradicting width is refused, naming the
+# constraint it contradicts, with the document, undo stack and part untouched.
+# The solver is libforge_gcs, reached through libforge_kernel_core's @rpath.
+# `--mutate 1..6` breaks it on purpose (WILL_FAIL tests below).
+add_executable(forge_desktop_sketch_solver_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/sketch_solver_gate.cpp")
+target_compile_options(forge_desktop_sketch_solver_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_sketch_solver_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_sketch_solver_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 add_executable(forge_desktop_sketch_panels_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/sketch_panels_gate.cpp")
 target_compile_options(forge_desktop_sketch_panels_gate PRIVATE -Wall -Wextra -Werror)
@@ -1181,6 +1196,13 @@ foreach(_cm RANGE 1 7)
     add_test(NAME forge_desktop_cam_panels_mutation_${_cm}
              COMMAND forge_desktop_cam_panels_gate --mutate ${_cm})
     set_tests_properties(forge_desktop_cam_panels_mutation_${_cm}
+                         PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_sketch_solver_gate COMMAND forge_desktop_sketch_solver_gate)
+foreach(_ss RANGE 1 6)
+    add_test(NAME forge_desktop_sketch_solver_mutation_${_ss}
+             COMMAND forge_desktop_sketch_solver_gate --mutate ${_ss})
+    set_tests_properties(forge_desktop_sketch_solver_mutation_${_ss}
                          PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_sketch_panels_gate COMMAND forge_desktop_sketch_panels_gate)

@@ -185,6 +185,9 @@ CHECKED=(
   forge-desktop/test/release_rehearsal.cpp
   forge-desktop/test/study_gate.cpp
   forge-desktop/test/sketch_panels_gate.cpp
+  # ── ADDED 2026-09-15. The sketch SOLVER gate: forge_desktop_core, forge/ui and
+  #    forge/ft/SketchInspect.hpp only -- no OCCT header -- so it is CHECKED.
+  forge-desktop/test/sketch_solver_gate.cpp
   # ── ADDED 2026-09-13 (T-122). The save-target gate: it links forge_desktop_core
   #    and forge/ui only -- no OCCT header anywhere in it -- so it belongs in
   #    CHECKED and the ratchet below is what forced this line to be written in

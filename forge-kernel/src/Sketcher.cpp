@@ -1122,6 +1122,84 @@ extractProfileRings(SketchHandle h, int circleSegments) {
     return rings;
 }
 
+// ----------------------------------------------------------- splitClosedLoops
+//
+// See Sketcher.hpp. Built out of the SAME pieces the two extractors use: circles
+// are loops of their own, lines and arcs are chained by the shared stitcher at
+// the same 10 µm tolerance, and a chain is a loop when it ends where it began.
+std::vector<SketchLoop> splitClosedLoops(SketchHandle h, int circleSegments) {
+    Sketch& s = SketchRegistry::instance().get(h);
+    std::vector<SketchLoop> loops;
+
+    // Registered in `loops` BEFORE anything else can throw, so the cleanup below
+    // destroys it on every path.
+    auto finish = [&](SketchHandle loopSketch) {
+        loops.push_back(SketchLoop{});
+        SketchLoop& loop = loops.back();
+        loop.sketch = loopSketch;
+        auto rings = extractProfileRings(loopSketch, circleSegments);
+        if (!rings.empty()) loop.ring = std::move(rings.front());
+        double a2 = 0.0;
+        const std::size_t n = loop.ring.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto& p = loop.ring[i];
+            const auto& q = loop.ring[(i + 1) % n];
+            a2 += p.x * q.y - q.x * p.y;
+        }
+        loop.area = 0.5 * a2;
+    };
+
+    try {
+        for (const std::int32_t ci : s.entitiesOfKind(SketchEntityKind::Circle)) {
+            const forge_gcs_curve c = s.curveAt(ci);
+            const StitchEnd ctr = s.pointAt(c.center);
+            const SketchHandle one = createSketch();
+            addCircle(one, addPoint(one, ctr.x, ctr.y), c.radius);
+            finish(one);
+        }
+
+        // Open segments, in the order extractProfileRings reads them: lines, then arcs.
+        struct Seg { SketchEntityKind kind; std::int32_t curve; StitchEnd a, b; };
+        std::vector<Seg> segs;
+        for (const std::int32_t li : s.entitiesOfKind(SketchEntityKind::Line)) {
+            const forge_gcs_curve l = s.curveAt(li);
+            segs.push_back({SketchEntityKind::Line, li, s.pointAt(l.p1), s.pointAt(l.p2)});
+        }
+        for (const std::int32_t ai : s.entitiesOfKind(SketchEntityKind::Arc)) {
+            const forge_gcs_curve a = s.curveAt(ai);
+            segs.push_back({SketchEntityKind::Arc, ai, s.pointAt(a.p1), s.pointAt(a.p2)});
+        }
+        std::vector<std::pair<StitchEnd, StitchEnd>> ends;
+        for (const Seg& sg : segs) ends.push_back({sg.a, sg.b});
+        for (const auto& chain : stitchSegments(ends)) {
+            if (chain.size() < 2) continue;
+            const Seg& first = segs[chain.front().seg];
+            const Seg& last = segs[chain.back().seg];
+            const StitchEnd head = chain.front().reversed ? first.b : first.a;
+            const StitchEnd tail = chain.back().reversed ? last.a : last.b;
+            const double gx = head.x - tail.x, gy = head.y - tail.y;
+            if (std::sqrt(gx * gx + gy * gy) >= kSketchStitchTol) continue;  // open: not a loop
+            const SketchHandle one = createSketch();
+            for (const ChainLink& link : chain) {
+                const Seg& sg = segs[link.seg];
+                if (sg.kind == SketchEntityKind::Line) {
+                    addLine(one, addPoint(one, sg.a.x, sg.a.y), addPoint(one, sg.b.x, sg.b.y));
+                } else {
+                    const forge_gcs_curve a = s.curveAt(sg.curve);
+                    const StitchEnd ctr = s.pointAt(a.center);
+                    addArc(one, addPoint(one, ctr.x, ctr.y), addPoint(one, sg.a.x, sg.a.y),
+                           addPoint(one, sg.b.x, sg.b.y));
+                }
+            }
+            finish(one);
+        }
+    } catch (...) {
+        for (const SketchLoop& l : loops) destroySketch(l.sketch);
+        throw;
+    }
+    return loops;
+}
+
 // =================================================================== diagnostics
 //
 // Phase A of sketcher-constraints.md — surface the planegcs diagnose pipeline.

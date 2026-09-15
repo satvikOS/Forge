@@ -281,6 +281,25 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h);
 std::vector<std::vector<native::geom::Point2>>
 extractProfileRings(SketchHandle h, int circleSegments = 96);
 
+// ── ONE CLOSED LOOP PER SKETCH ──────────────────────────────────────────────
+// A profile with a hole in it is several closed loops -- a plate outline and the
+// circles inside it -- and every consumer that takes "the first wire" builds ONE
+// of them and silently drops the rest (extractWires lists circles first, so a
+// plate with two holes extruded as a single cylinder). This splits a sketch into
+// one NEW sketch per closed loop, each holding exactly that loop's curves at
+// their CURRENT (solved) positions and no constraints, so a caller can build each
+// loop exactly -- circles stay circles -- and decide itself which loops are
+// material and which are holes. `ring` is the loop sampled the same way
+// extractProfileRings samples it and `area` its signed area, for that decision.
+// Open chains are not loops and are not returned. The caller owns the returned
+// sketches and must destroySketch() each one.
+struct SketchLoop {
+    SketchHandle sketch = kInvalidSketch;
+    double area = 0.0;
+    std::vector<native::geom::Point2> ring;
+};
+std::vector<SketchLoop> splitClosedLoops(SketchHandle h, int circleSegments = 96);
+
 // ===================================================================
 // Constraint DIAGNOSTICS — sketcher-constraints.md "Phase A".
 //
