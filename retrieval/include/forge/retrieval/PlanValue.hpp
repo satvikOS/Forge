@@ -212,6 +212,10 @@ enum class BindRefusal {
   CorroborationSamePublisher,
   CorroborationUnitMismatch,
   CorroborationValueDisagrees,
+  // APPENDED. Either side's URL names no identifiable registrant (no canonical
+  // host, an IP literal, a single label), so it cannot be shown to be a
+  // DIFFERENT publisher and does not count as corroboration.
+  CorroborationPublisherUnidentifiable,
 };
 const char* bindRefusalName(BindRefusal r);
 

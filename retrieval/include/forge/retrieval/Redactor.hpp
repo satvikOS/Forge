@@ -32,6 +32,24 @@
 // redact() therefore cannot silently leak a registered secret; the client refuses
 // to write the socket when residue is found.
 //
+// UNICODE — NORMALISE FIRST, THEN DENY BY DEFAULT. Every scan in this file was
+// ASCII-only, so a registered secret written as fullwidth "４７．６２５", as fullwidth
+// "ＢＯＥＩＮＧ", or as "bluefаlcon" with ONE Cyrillic letter reached the wire with
+// search=Ok (measured against 1dd9ed9b). There is now ONE normaliser,
+// detail::foldForMatch(), and every scan goes through it:
+//   * every General_Category=Nd code point folds to its ASCII digit;
+//   * fullwidth ASCII variants fold to ASCII (their <wide> decompositions);
+//   * Latin letters with diacritics fold by canonical decomposition;
+//   * Cyrillic, Greek and Armenian letters that are Latin look-alikes fold
+//     through a UTS #39 confusable skeleton;
+//   * a small closed set of spaces, dashes, quotes and engineering symbols fold
+//     to ASCII punctuation or a space.
+// Then deny by default: malformed UTF-8, ANY code point outside those tables, and
+// any token that MIXES scripts (or decimal-digit systems) is refused, and
+// redact() returns a refusal instead of a query. The query that is sent is the
+// FOLDED ASCII text, so what the classifier judged is byte-for-byte what leaves.
+// verifyNoResidue() scans the raw form AND the folded form.
+//
 // Pure C++20 + the standard library.
 // ─────────────────────────────────────────────────────────────────────────────
 #pragma once
@@ -79,7 +97,10 @@ struct PrivateLexicon {
   std::vector<std::string> part_numbers;
   std::vector<std::string> secret_terms;
   // Confidential numeric values (in whatever unit the ESG holds them). Matched
-  // by parsed VALUE, so 47.625 is caught however it is formatted or encoded.
+  // by parsed VALUE after Unicode folding, so 47.625, .47625e2, ４７．６２５ and
+  // ٤٧.٦٢٥ are the same value. What folding cannot model is not "caught" — it is
+  // refused before it can be sent (see UNICODE above). That is the honest form of
+  // "however it is formatted": words ("forty-seven point six") are NOT caught.
   std::vector<double> secret_dimensions;
 };
 
@@ -106,6 +127,14 @@ struct RedactionResult {
   // not re-flagged as a leaked dimension.
   std::vector<std::string> kept_designations;
   bool truncated_by_budget = false;
+
+  // DENY BY DEFAULT. Non-empty when the input could not be normalised: malformed
+  // UTF-8, a code point the normaliser does not model, or a token mixing scripts
+  // or decimal systems. When set, wire_query and preview_form are EMPTY and the
+  // caller must refuse the request. Each entry names the class and byte offset
+  // only — never the text, which is exactly what a refusal ends up logging.
+  std::vector<std::string> refusals;
+  bool refused() const { return !refusals.empty(); }
 
   bool removedAnyOf(RedactionKind kind) const;
   std::size_t countOf(RedactionKind kind) const;
@@ -148,10 +177,47 @@ private:
 
 // Exposed for testing and for the request serializer.
 namespace detail {
-// Lowercase, drop every non-alphanumeric byte. "ACME-4471 B" -> "acme4471b".
+
+// ── the ONE Unicode normaliser ───────────────────────────────────────────────
+enum class FoldScript : unsigned char { Common, Latin, Cyrillic, Greek, Armenian };
+
+enum class FoldIssueKind {
+  InvalidUtf8,          // not well-formed UTF-8 (Unicode §3.9, Table 3-7)
+  UnmodelledCodePoint,  // no table below models it: refused, never guessed at
+  MixedScript,          // one token carries letters from two scripts
+  MixedDecimalSystems,  // one token carries digits from two Nd ranges
+};
+const char* foldIssueName(FoldIssueKind kind);
+
+struct FoldIssue {
+  FoldIssueKind kind{};
+  std::size_t raw_offset = 0;  // byte offset of the offending code point in the input
+};
+
+struct Folded {
+  std::string text;                    // ASCII only
+  std::vector<std::size_t> raw_offset;  // raw byte offset for each text byte, plus a sentinel
+  std::vector<FoldIssue> issues;        // empty = the whole input was modelled
+  bool ok() const { return issues.empty(); }
+};
+
+// Fold `raw` (UTF-8) to ASCII. Tokens for the mixed-script rule are separated by
+// whitespace (ASCII, or a code point that folds to a space).
+Folded foldForMatch(const std::string& raw);
+
+// The table lookup behind foldForMatch, for ONE code point. Returns false when
+// the code point is not modelled. `ascii` receives 1..3 ASCII bytes; `script`
+// the letter's script (Common for everything that is not a letter);
+// `decimal_zero` the zero of the code point's Nd range, or 0 when it is not an
+// Nd digit. Exposed so a gate can check every entry against the UCD.
+bool foldCodePoint(char32_t cp, std::string& ascii, FoldScript& script, char32_t& decimal_zero);
+
+// Fold (best effort, issues ignored), lowercase, drop every non-alphanumeric
+// byte. "ACME-4471 B" -> "acme4471b", "ＡＣＭＥ-４４７１" -> "acme4471".
 std::string normalizeForMatch(const std::string& s);
 // Undo every encoding this codebase can emit (percent-encoding including '+'
-// for space, and JSON \uXXXX escapes) so residue cannot hide behind an encoder.
+// for space, and JSON \uXXXX escapes decoded to UTF-8, surrogate pairs joined)
+// so residue cannot hide behind an encoder.
 std::string decodeForResidueScan(const std::string& s);
 // True when the token is a public standards/material/class designation.
 bool isPublicDesignation(const std::string& token, const std::string& previous_token,

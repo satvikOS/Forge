@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <string>
 
+#include "forge/retrieval/SearxngClient.hpp"
+
 namespace forge::retrieval {
 namespace {
 
@@ -31,16 +33,21 @@ std::string canonicalNumber(double v) {
   return std::string(buf);
 }
 
-// The host part of a URL, for the "different publisher" corroboration rule.
-std::string hostOf(const std::string& url) {
-  std::size_t p = url.find("://");
-  std::size_t b = (p == std::string::npos) ? 0 : p + 3;
-  std::size_t e = url.find_first_of("/?#", b);
-  std::string host = url.substr(b, (e == std::string::npos ? url.size() : e) - b);
-  const std::size_t colon = host.find(':');
-  if (colon != std::string::npos) host = host.substr(0, colon);
-  if (host.rfind("www.", 0) == 0) host = host.substr(4);
-  return toLowerAscii(host);
+// THERE IS NO URL PARSER IN THIS FILE, AND THAT IS THE FIX.
+//
+// A local hostOf() used to decide the "different publisher" corroboration rule:
+// it split the authority at the FIRST '@', kept a trailing dot, ignored the
+// scheme and cut at the first ':' — a third URL parser beside the two
+// SearxngClient.cpp had already had to repair. Against it, ONE attacker host
+// corroborated itself (measured on 1dd9ed9b, all BOUND with forum.evil.example
+// as the primary):
+//     https://iso.org:1@forum.evil.example/t/2   hostOf -> "iso.org"
+//     https://forum.evil.example./t/2            hostOf -> "forum.evil.example."
+//     https://x@forum.evil.example/t/2           hostOf -> "x@forum.evil.example"
+// Publisher identity now comes from SearxngClient::corroborationPublisher(),
+// which is the same authority parse and host canonicaliser classifySource() uses.
+std::string publisherIdentity(const std::string& url) {
+  return SearxngClient::corroborationPublisher(url);
 }
 
 }  // namespace
@@ -138,7 +145,13 @@ CitationPreview CitationPreview::of(const CitedCandidate& candidate) {
   r += "BIND A RETRIEVED NUMBER INTO A PLAN\n";
   r += "  value          : " + canonicalNumber(candidate.value) + " " + candidate.unit + "\n";
   r += "  unit source    : read from the page, adjacent to the number\n";
-  r += "  publisher      : " + hostOf(candidate.source_url) + "\n";
+  // The identity the corroboration rule compares, so the operator is shown the
+  // publisher the decision is made on — never a host written into the userinfo.
+  const std::string publisher = publisherIdentity(candidate.source_url);
+  r += "  publisher      : " +
+       (publisher.empty() ? std::string("(unidentifiable: this URL names no registrant; it cannot corroborate)")
+                          : publisher) +
+       "\n";
   r += "  source type    : " + std::string(sourceTypeName(candidate.source_type)) + " (authority " +
        std::to_string(authorityRank(candidate.source_type)) + ")\n";
   r += "  url            : " + candidate.source_url + "\n";
@@ -180,6 +193,7 @@ const char* bindRefusalName(BindRefusal r) {
     case BindRefusal::CorroborationSamePublisher: return "CorroborationSamePublisher";
     case BindRefusal::CorroborationUnitMismatch: return "CorroborationUnitMismatch";
     case BindRefusal::CorroborationValueDisagrees: return "CorroborationValueDisagrees";
+    case BindRefusal::CorroborationPublisherUnidentifiable: return "CorroborationPublisherUnidentifiable";
   }
   return "Unknown";
 }
@@ -218,7 +232,15 @@ std::optional<BoundCitation> BoundCitation::bind(const CitedCandidate& candidate
       why = BindRefusal::CorroborationMissing;
       return std::nullopt;
     }
-    if (hostOf(corroboration->source_url) == hostOf(candidate.source_url)) {
+    // DENY BY DEFAULT: a side whose publisher cannot be identified cannot be
+    // shown to be a DIFFERENT publisher, so it does not corroborate anything.
+    const std::string primary_publisher = publisherIdentity(candidate.source_url);
+    const std::string corroborating_publisher = publisherIdentity(corroboration->source_url);
+    if (primary_publisher.empty() || corroborating_publisher.empty()) {
+      why = BindRefusal::CorroborationPublisherUnidentifiable;
+      return std::nullopt;
+    }
+    if (corroborating_publisher == primary_publisher) {
       why = BindRefusal::CorroborationSamePublisher;
       return std::nullopt;
     }

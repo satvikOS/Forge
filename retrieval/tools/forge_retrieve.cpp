@@ -20,12 +20,15 @@
 // `preview` and `search` are SEPARATE INVOCATIONS. `preview` touches no socket,
 // prints the operator render on stderr and the previewed bytes on stdout.
 // `search` REFUSES unless it is handed an approval record from outside carrying
-//   (a) the exact encoded body that was approved, and
-//   (b) the digest of those bytes.
+//   (a) the exact encoded body that was approved,
+//   (b) the digest of those bytes, and
+//   (c) the SHA-256 request digest over the COMPLETE request the operator render
+//       lists — destination, method, path, headers, body and result handling.
 // It re-derives the preview from the request and rejects unless the re-derived
-// bytes are byte-identical to the approved bytes AND the supplied digest matches
-// the re-derived digest. So a request cannot be edited after approval, and a
-// caller cannot approve a request it never previewed.
+// bytes are byte-identical to the approved bytes AND both supplied digests match
+// the re-derived ones. So neither the query, nor where it is sent, nor how the
+// answer is judged can be edited after approval, and a caller cannot approve a
+// request it never previewed.
 //
 // STATED HONESTLY, BECAUSE OVER-CLAIMING IS THE FAILURE MODE THIS REPO KNOWS:
 // this executor enforces that the bytes sent are the bytes approved. It cannot
@@ -314,7 +317,11 @@ void writePreview(Out& o, const QueryPreview& p, bool include_operator_render) {
   o.raw("],");
 
   o.key("encoded_body"); o.str(p.encoded_body); o.comma();
-  o.key("body_digest"); o.str(hex64(p.body_digest));
+  o.key("body_digest"); o.str(hex64(p.body_digest)); o.comma();
+  // The SHA-256 over the complete request the operator render lists item by
+  // item: destination, method, path, headers, body AND result handling. An
+  // approval record must carry it back, or `search` refuses.
+  o.key("request_digest"); o.str(p.request_digest);
   if (include_operator_render) {
     o.comma();
     o.key("operator_render"); o.str(p.renderForOperator());
@@ -397,10 +404,12 @@ int usage() {
       "  forge_retrieve search   < approved.json  > result.json     (the ONLY send path)\n"
       "\n"
       "approved.json is {\"request\": <the same request>, \"approval\":\n"
-      "   {\"body_digest\": \"0x...\", \"encoded_body\": \"q=...\"}}\n"
+      "   {\"body_digest\": \"0x...\", \"encoded_body\": \"q=...\", \"request_digest\": \"<sha256>\"}}\n"
       "The approval must come from OUTSIDE this process: search re-derives the preview\n"
-      "and refuses unless the approved bytes are byte-identical to the re-derived bytes\n"
-      "and the digest matches. There is no flag that makes search approve its own request.\n"
+      "and refuses unless the approved bytes are byte-identical to the re-derived bytes,\n"
+      "the body digest matches, and the request digest — over destination, method, path,\n"
+      "headers, body and result handling — matches. There is no flag that makes search\n"
+      "approve its own request.\n"
       "\n"
       "exit: 0 Ok  2 usage  3 RETRIEVAL_UNAVAILABLE  4 REDACTION_REFUSED\n"
       "      5 REQUEST_REJECTED  6 POLICY_LOCAL_ONLY  7 INSUFFICIENT_DIVERSITY\n";
@@ -511,6 +520,25 @@ int main(int argc, char** argv) {
   if (approved_digest != digestBytes(preview.encoded_body)) {
     return emitRefusal(RetrievalStatus::REQUEST_REJECTED,
                        "approval digest does not match the previewed bytes");
+  }
+
+  // THE BODY IS NOT THE REQUEST. The two checks above bind the q=... bytes and
+  // nothing else, and the endpoint and the result handling are read from THIS
+  // invocation's request JSON — so an approval of POST 127.0.0.1:8888/search with
+  // min_distinct_publishers=2 was accepted for the same body sent GET to another
+  // port and path with the diversity requirement removed. The request digest is
+  // re-derived by preview() from THIS invocation's endpoint and handling, and must
+  // equal the digest the operator approved.
+  const std::string approved_request_digest = approval_node.stringField("request_digest");
+  if (approved_request_digest.empty()) {
+    return emitRefusal(RetrievalStatus::REQUEST_REJECTED,
+                       "approval record must carry request_digest: the body alone does not say "
+                       "where it goes or how the answer is judged");
+  }
+  if (approved_request_digest != preview.request_digest) {
+    return emitRefusal(RetrievalStatus::REQUEST_REJECTED,
+                       "the approved request digest does not describe the request this invocation "
+                       "would send (destination, method, path, headers or result handling differ)");
   }
 
   // Only now. grant() is reached on exactly one line in this binary, and only

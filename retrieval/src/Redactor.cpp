@@ -491,6 +491,231 @@ std::size_t findRegisteredTerm(const std::string& norm, const std::vector<std::s
   return std::string::npos;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// THE UNICODE NORMALISER'S TABLES
+//
+// Every table below is written out from a Unicode data definition, cited at the
+// table. No library, no copied code. unicode_fold_ucd_check.py cross-checks every
+// modelled code point against the Unicode Character Database that ships with
+// python3 (unicodedata), in the direction that matters: a fold must never map a
+// code point to the WRONG ASCII. A code point MISSING from a table is not a hole —
+// it is refused — so completeness costs usability, never privacy.
+// ═════════════════════════════════════════════════════════════════════════════
+
+using detail::FoldScript;
+
+// (1) DECIMAL DIGITS. Unicode 16.0.0 UnicodeData.txt, every code point with
+// General_Category=Nd. Each Nd range is exactly ten code points, digit values
+// 0..9 in ascending order — a Unicode stability policy for Numeric_Type=Decimal
+// (UAX #44 §5.7.4) — so each range is listed by its zero. 76 ranges, 760 digits.
+constexpr char32_t kDecimalZeros[] = {
+    0x0030,  0x0660,  0x06F0,  0x07C0,  0x0966,  0x09E6,  0x0A66,  0x0AE6,  0x0B66,  0x0BE6,
+    0x0C66,  0x0CE6,  0x0D66,  0x0DE6,  0x0E50,  0x0ED0,  0x0F20,  0x1040,  0x1090,  0x17E0,
+    0x1810,  0x1946,  0x19D0,  0x1A80,  0x1A90,  0x1B50,  0x1BB0,  0x1C40,  0x1C50,  0xA620,
+    0xA8D0,  0xA900,  0xA9D0,  0xA9F0,  0xAA50,  0xABF0,  0xFF10,  0x104A0, 0x10D30, 0x10D40,
+    0x11066, 0x110F0, 0x11136, 0x111D0, 0x112F0, 0x11450, 0x114D0, 0x11650, 0x116C0, 0x116D0,
+    0x116DA, 0x11730, 0x118E0, 0x11950, 0x11BF0, 0x11C50, 0x11D50, 0x11DA0, 0x11F50, 0x16130,
+    0x16A60, 0x16AC0, 0x16B50, 0x16D70, 0x1CCF0, 0x1D7CE, 0x1D7D8, 0x1D7E2, 0x1D7EC, 0x1D7F6,
+    0x1E140, 0x1E2F0, 0x1E4F0, 0x1E5F1, 0x1E950, 0x1FBF0,
+};
+
+// (2) SUPERSCRIPT AND SUBSCRIPT DIGITS. UnicodeData.txt <super>/<sub>
+// compatibility decompositions to a single ASCII digit (NFKC). "mm²".
+struct DigitAlias {
+  char32_t cp;
+  char digit;
+};
+constexpr DigitAlias kDigitAliases[] = {
+    {0x00B2, '2'}, {0x00B3, '3'}, {0x00B9, '1'}, {0x2070, '0'}, {0x2074, '4'}, {0x2075, '5'},
+    {0x2076, '6'}, {0x2077, '7'}, {0x2078, '8'}, {0x2079, '9'}, {0x2080, '0'}, {0x2081, '1'},
+    {0x2082, '2'}, {0x2083, '3'}, {0x2084, '4'}, {0x2085, '5'}, {0x2086, '6'}, {0x2087, '7'},
+    {0x2088, '8'}, {0x2089, '9'},
+};
+
+// (3) FULLWIDTH ASCII VARIANTS. UnicodeData.txt: U+FF01..U+FF5E carry <wide>
+// decompositions to U+0021..U+007E, offset 0xFEE0. (U+FF10..FF19 are Nd and fold
+// through table 1.) No HALFWIDTH form decomposes to ASCII — U+FF61..U+FFEF are
+// katakana, hangul and symbols — so none is modelled and all are refused.
+constexpr char32_t kFullwidthFirst = 0xFF01;
+constexpr char32_t kFullwidthLast = 0xFF5E;
+constexpr char32_t kFullwidthOffset = 0xFEE0;
+
+// (4) LATIN LETTERS WITH DIACRITICS, U+00C0..U+017F (Latin-1 Supplement letters
+// and Latin Extended-A). UnicodeData.txt canonical decomposition (NFD) with the
+// combining marks removed, where that leaves exactly one ASCII letter. '.' is
+// "does not decompose to one ASCII letter" and is refused — Æ, Ð, Ø, Þ, Ł, Œ and
+// the rest, which no Unicode decomposition maps to ASCII, and × ÷ which are not
+// letters (× is folded by the confusable table instead).
+constexpr char kLatinDecomposed[] =
+    "AAAAAA.CEEEEIIII.NOOOOO..UUUUY.."  // U+00C0..U+00DF
+    "aaaaaa.ceeeeiiii.nooooo..uuuuy.y"  // U+00E0..U+00FF
+    "AaAaAaCcCcCcCcDd..EeEeEeEeEeGgGg"  // U+0100..U+011F
+    "GgGgHh..IiIiIiIiI...JjKk.LlLlLl."  // U+0120..U+013F
+    "...NnNnNn...OoOoOo..RrRrRrSsSsSs"  // U+0140..U+015F
+    "SsTtTt..UuUuUuUuUuUuWwYyYZzZzZz.";  // U+0160..U+017F
+constexpr char32_t kLatinDecomposedFirst = 0x00C0;
+
+struct StringFold {
+  char32_t cp;
+  const char* ascii;
+  FoldScript script;
+};
+
+// (4b) Latin letters whose Unicode mapping to ASCII is not a canonical
+// decomposition: U+00DF from CaseFolding.txt ("00DF; F; 0073 0073"), U+0132,
+// U+0133 and U+017F from their <compat> decompositions (NFKC).
+constexpr StringFold kLatinSpecial[] = {
+    {0x00DF, "ss", FoldScript::Latin},
+    {0x0132, "IJ", FoldScript::Latin},
+    {0x0133, "ij", FoldScript::Latin},
+    {0x017F, "s", FoldScript::Latin},
+};
+
+// (5) CONFUSABLE SKELETON, UTS #39 (Unicode Security Mechanisms) confusables.txt:
+// the Cyrillic, Greek and Armenian letters whose prototype is a single ASCII
+// Latin letter. These are what let "bluefаlcon" (U+0430) look like "bluefalcon".
+// A token that mixes one of these with a Latin letter is REFUSED by the
+// mixed-script rule before this skeleton is ever relied on; the skeleton is what
+// lets a token written ENTIRELY in look-alikes meet the lexicon as the Latin
+// word it imitates. Sorted by code point (binary search).
+constexpr StringFold kConfusables[] = {
+    {0x0391, "A", FoldScript::Greek},    {0x0392, "B", FoldScript::Greek},
+    {0x0395, "E", FoldScript::Greek},    {0x0396, "Z", FoldScript::Greek},
+    {0x0397, "H", FoldScript::Greek},    {0x0399, "I", FoldScript::Greek},
+    {0x039A, "K", FoldScript::Greek},    {0x039C, "M", FoldScript::Greek},
+    {0x039D, "N", FoldScript::Greek},    {0x039F, "O", FoldScript::Greek},
+    {0x03A1, "P", FoldScript::Greek},    {0x03A4, "T", FoldScript::Greek},
+    {0x03A5, "Y", FoldScript::Greek},    {0x03A7, "X", FoldScript::Greek},
+    {0x03B1, "a", FoldScript::Greek},    {0x03B9, "i", FoldScript::Greek},
+    {0x03BD, "v", FoldScript::Greek},    {0x03BF, "o", FoldScript::Greek},
+    {0x03C1, "p", FoldScript::Greek},    {0x03C5, "u", FoldScript::Greek},
+    {0x03F2, "c", FoldScript::Greek},    {0x03F3, "j", FoldScript::Greek},
+    {0x03F9, "C", FoldScript::Greek},    {0x0405, "S", FoldScript::Cyrillic},
+    {0x0406, "I", FoldScript::Cyrillic}, {0x0408, "J", FoldScript::Cyrillic},
+    {0x0410, "A", FoldScript::Cyrillic}, {0x0412, "B", FoldScript::Cyrillic},
+    {0x0415, "E", FoldScript::Cyrillic}, {0x041A, "K", FoldScript::Cyrillic},
+    {0x041C, "M", FoldScript::Cyrillic}, {0x041D, "H", FoldScript::Cyrillic},
+    {0x041E, "O", FoldScript::Cyrillic}, {0x0420, "P", FoldScript::Cyrillic},
+    {0x0421, "C", FoldScript::Cyrillic}, {0x0422, "T", FoldScript::Cyrillic},
+    {0x0423, "Y", FoldScript::Cyrillic}, {0x0425, "X", FoldScript::Cyrillic},
+    {0x0430, "a", FoldScript::Cyrillic}, {0x0435, "e", FoldScript::Cyrillic},
+    {0x043E, "o", FoldScript::Cyrillic}, {0x0440, "p", FoldScript::Cyrillic},
+    {0x0441, "c", FoldScript::Cyrillic}, {0x0443, "y", FoldScript::Cyrillic},
+    {0x0445, "x", FoldScript::Cyrillic}, {0x0455, "s", FoldScript::Cyrillic},
+    {0x0456, "i", FoldScript::Cyrillic}, {0x0458, "j", FoldScript::Cyrillic},
+    {0x0474, "V", FoldScript::Cyrillic}, {0x0475, "v", FoldScript::Cyrillic},
+    {0x04AE, "Y", FoldScript::Cyrillic}, {0x04AF, "y", FoldScript::Cyrillic},
+    {0x04BB, "h", FoldScript::Cyrillic}, {0x04C0, "I", FoldScript::Cyrillic},
+    {0x04CF, "l", FoldScript::Cyrillic}, {0x0501, "d", FoldScript::Cyrillic},
+    {0x050C, "G", FoldScript::Cyrillic}, {0x051A, "Q", FoldScript::Cyrillic},
+    {0x051B, "q", FoldScript::Cyrillic}, {0x051C, "W", FoldScript::Cyrillic},
+    {0x051D, "w", FoldScript::Cyrillic}, {0x054D, "U", FoldScript::Armenian},
+    {0x0555, "O", FoldScript::Armenian}, {0x0570, "h", FoldScript::Armenian},
+    {0x0578, "n", FoldScript::Armenian}, {0x057D, "u", FoldScript::Armenian},
+    {0x0585, "o", FoldScript::Armenian},
+};
+
+// (6) SPACES, DASHES, QUOTES AND ENGINEERING SYMBOLS — script Common, and none
+// can contribute a letter or a digit, so none can spell a name or a number.
+//   * General_Category=Zs spaces whose NFKC form is U+0020.
+//   * Dashes U+2010..U+2015 and MINUS SIGN U+2212: UTS #39 confusables
+//     prototype (or the Pd category) HYPHEN-MINUS. Kept as '-' rather than a
+//     space so "A2–70" stays ONE token, exactly like its ASCII spelling.
+//   * Quotation marks and primes: ASCII apostrophe / quotation mark.
+//   * U+00D7 MULTIPLICATION SIGN: UTS #39 confusables prototype 'x' ("M8×1.25").
+//   * U+2026 HORIZONTAL ELLIPSIS: NFKC "...".
+//   * ° ± · ÷ © ® ™ • ⌀ ≈ ≤ ≥ ≠ : folded to a space. A space ends a token, which
+//     can only split an identifier; a split identifier is still matched by the
+//     lexicon (its match ignores separators) and each half still meets the
+//     classifier — the same exposure as typing the space in ASCII.
+// Sorted by code point (binary search).
+constexpr StringFold kSymbols[] = {
+    {0x00A0, " ", FoldScript::Common},  {0x00A9, " ", FoldScript::Common},
+    {0x00AB, "\"", FoldScript::Common}, {0x00AE, " ", FoldScript::Common},
+    {0x00B0, " ", FoldScript::Common},  {0x00B1, " ", FoldScript::Common},
+    {0x00B4, "'", FoldScript::Common},  {0x00B7, " ", FoldScript::Common},
+    {0x00BB, "\"", FoldScript::Common}, {0x00D7, "x", FoldScript::Common},
+    {0x00F7, " ", FoldScript::Common},  {0x2000, " ", FoldScript::Common},
+    {0x2001, " ", FoldScript::Common},  {0x2002, " ", FoldScript::Common},
+    {0x2003, " ", FoldScript::Common},  {0x2004, " ", FoldScript::Common},
+    {0x2005, " ", FoldScript::Common},  {0x2006, " ", FoldScript::Common},
+    {0x2007, " ", FoldScript::Common},  {0x2008, " ", FoldScript::Common},
+    {0x2009, " ", FoldScript::Common},  {0x200A, " ", FoldScript::Common},
+    {0x2010, "-", FoldScript::Common},  {0x2011, "-", FoldScript::Common},
+    {0x2012, "-", FoldScript::Common},  {0x2013, "-", FoldScript::Common},
+    {0x2014, "-", FoldScript::Common},  {0x2015, "-", FoldScript::Common},
+    {0x2018, "'", FoldScript::Common},  {0x2019, "'", FoldScript::Common},
+    {0x201A, "'", FoldScript::Common},  {0x201B, "'", FoldScript::Common},
+    {0x201C, "\"", FoldScript::Common}, {0x201D, "\"", FoldScript::Common},
+    {0x201E, "\"", FoldScript::Common}, {0x201F, "\"", FoldScript::Common},
+    {0x2022, " ", FoldScript::Common},  {0x2026, "...", FoldScript::Common},
+    {0x202F, " ", FoldScript::Common},  {0x2032, "'", FoldScript::Common},
+    {0x2033, "\"", FoldScript::Common}, {0x205F, " ", FoldScript::Common},
+    {0x2122, " ", FoldScript::Common},  {0x2212, "-", FoldScript::Common},
+    {0x2248, " ", FoldScript::Common},  {0x2260, " ", FoldScript::Common},
+    {0x2264, " ", FoldScript::Common},  {0x2265, " ", FoldScript::Common},
+    {0x2300, " ", FoldScript::Common},  {0x3000, " ", FoldScript::Common},
+};
+
+const StringFold* findFold(const StringFold* first, const StringFold* last, char32_t cp) {
+  const StringFold* it =
+      std::lower_bound(first, last, cp, [](const StringFold& f, char32_t v) { return f.cp < v; });
+  return (it != last && it->cp == cp) ? it : nullptr;
+}
+
+// Strict UTF-8 decode of one code point at `i` (Unicode §3.9, Table 3-7:
+// shortest form only, no surrogates, nothing above U+10FFFF). Returns the byte
+// length, or 0 when the sequence is ill-formed.
+std::size_t decodeUtf8(const std::string& s, std::size_t i, char32_t& cp) {
+  const auto b = [&](std::size_t k) { return static_cast<unsigned char>(s[k]); };
+  const unsigned char c0 = b(i);
+  if (c0 < 0x80) { cp = c0; return 1; }
+  const std::size_t n = s.size() - i;
+  auto cont = [&](std::size_t k) { return k < s.size() && (b(k) & 0xC0) == 0x80; };
+  if (c0 >= 0xC2 && c0 <= 0xDF) {
+    if (n < 2 || !cont(i + 1)) return 0;
+    cp = (static_cast<char32_t>(c0 & 0x1F) << 6) | (b(i + 1) & 0x3F);
+    return 2;
+  }
+  if (c0 >= 0xE0 && c0 <= 0xEF) {
+    if (n < 3 || !cont(i + 1) || !cont(i + 2)) return 0;
+    const unsigned char c1 = b(i + 1);
+    if (c0 == 0xE0 && c1 < 0xA0) return 0;  // overlong
+    if (c0 == 0xED && c1 > 0x9F) return 0;  // UTF-16 surrogate
+    cp = (static_cast<char32_t>(c0 & 0x0F) << 12) | (static_cast<char32_t>(c1 & 0x3F) << 6) |
+         (b(i + 2) & 0x3F);
+    return 3;
+  }
+  if (c0 >= 0xF0 && c0 <= 0xF4) {
+    if (n < 4 || !cont(i + 1) || !cont(i + 2) || !cont(i + 3)) return 0;
+    const unsigned char c1 = b(i + 1);
+    if (c0 == 0xF0 && c1 < 0x90) return 0;  // overlong
+    if (c0 == 0xF4 && c1 > 0x8F) return 0;  // above U+10FFFF
+    cp = (static_cast<char32_t>(c0 & 0x07) << 18) | (static_cast<char32_t>(c1 & 0x3F) << 12) |
+         (static_cast<char32_t>(b(i + 2) & 0x3F) << 6) | (b(i + 3) & 0x3F);
+    return 4;
+  }
+  return 0;
+}
+
+void appendUtf8(std::string& out, char32_t cp) {
+  if (cp < 0x80) {
+    out.push_back(static_cast<char>(cp));
+  } else if (cp < 0x800) {
+    out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  } else if (cp < 0x10000) {
+    out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  } else {
+    out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+    out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+  }
+}
+
 }  // namespace
 
 const char* redactionKindName(RedactionKind kind) {
@@ -523,10 +748,154 @@ std::size_t RedactionResult::countOf(RedactionKind kind) const {
 
 namespace detail {
 
+const char* foldIssueName(FoldIssueKind kind) {
+  switch (kind) {
+    case FoldIssueKind::InvalidUtf8: return "InvalidUtf8";
+    case FoldIssueKind::UnmodelledCodePoint: return "UnmodelledCodePoint";
+    case FoldIssueKind::MixedScript: return "MixedScript";
+    case FoldIssueKind::MixedDecimalSystems: return "MixedDecimalSystems";
+  }
+  return "Unknown";
+}
+
+bool foldCodePoint(char32_t cp, std::string& ascii, FoldScript& script, char32_t& decimal_zero) {
+  ascii.clear();
+  script = FoldScript::Common;
+  decimal_zero = 0;
+  if (cp < 0x80) {
+    ascii.push_back(static_cast<char>(cp));
+    if (isAsciiAlpha(static_cast<unsigned char>(cp))) script = FoldScript::Latin;
+    if (isAsciiDigit(static_cast<unsigned char>(cp))) decimal_zero = 0x30;
+    return true;
+  }
+  // (1) Nd: the greatest range zero <= cp, if cp lies within its ten.
+  {
+    const auto* end = std::end(kDecimalZeros);
+    const auto* it = std::upper_bound(std::begin(kDecimalZeros), end, cp);
+    if (it != std::begin(kDecimalZeros)) {
+      const char32_t zero = *(it - 1);
+      if (cp - zero < 10) {
+        ascii.push_back(static_cast<char>('0' + (cp - zero)));
+        decimal_zero = zero;
+        return true;
+      }
+    }
+  }
+  // (2) superscript / subscript digits
+  for (const DigitAlias& d : kDigitAliases) {
+    if (d.cp == cp) {
+      ascii.push_back(d.digit);
+      return true;
+    }
+  }
+  // (3) fullwidth ASCII variants
+  if (cp >= kFullwidthFirst && cp <= kFullwidthLast) {
+    const char c = static_cast<char>(cp - kFullwidthOffset);
+    ascii.push_back(c);
+    if (isAsciiAlpha(static_cast<unsigned char>(c))) script = FoldScript::Latin;
+    return true;
+  }
+  // (4) Latin letters with diacritics, and the four special Latin folds
+  if (cp >= kLatinDecomposedFirst && cp < kLatinDecomposedFirst + (sizeof(kLatinDecomposed) - 1)) {
+    const char c = kLatinDecomposed[cp - kLatinDecomposedFirst];
+    if (c != '.') {
+      ascii.push_back(c);
+      script = FoldScript::Latin;
+      return true;
+    }
+  }
+  if (const StringFold* f = findFold(std::begin(kLatinSpecial), std::end(kLatinSpecial), cp)) {
+    ascii = f->ascii;
+    script = f->script;
+    return true;
+  }
+  // (5) confusable skeleton
+  if (const StringFold* f = findFold(std::begin(kConfusables), std::end(kConfusables), cp)) {
+    ascii = f->ascii;
+    script = f->script;
+    return true;
+  }
+  // (6) spaces, dashes, quotes, symbols
+  if (const StringFold* f = findFold(std::begin(kSymbols), std::end(kSymbols), cp)) {
+    ascii = f->ascii;
+    script = f->script;
+    return true;
+  }
+  return false;  // NOT MODELLED. The caller refuses; nothing here guesses.
+}
+
+Folded foldForMatch(const std::string& raw) {
+  Folded f;
+  f.text.reserve(raw.size());
+  f.raw_offset.reserve(raw.size() + 1);
+
+  // Per-token state for the mixed-script and mixed-decimal-system rules.
+  FoldScript token_script = FoldScript::Common;
+  char32_t token_zero = 0;
+  bool token_script_flagged = false;
+  bool token_zero_flagged = false;
+  auto endToken = [&]() {
+    token_script = FoldScript::Common;
+    token_zero = 0;
+    token_script_flagged = false;
+    token_zero_flagged = false;
+  };
+
+  std::string ascii;
+  std::size_t i = 0;
+  while (i < raw.size()) {
+    char32_t cp = 0;
+    const std::size_t len = decodeUtf8(raw, i, cp);
+    if (len == 0) {
+      f.issues.push_back(FoldIssue{FoldIssueKind::InvalidUtf8, i});
+      ++i;
+      continue;
+    }
+    FoldScript script = FoldScript::Common;
+    char32_t zero = 0;
+    if (!foldCodePoint(cp, ascii, script, zero)) {
+      f.issues.push_back(FoldIssue{FoldIssueKind::UnmodelledCodePoint, i});
+      i += len;
+      continue;
+    }
+    const bool is_space = ascii.size() == 1 && std::isspace(static_cast<unsigned char>(ascii[0]));
+    if (is_space) {
+      endToken();
+    } else {
+      if (script != FoldScript::Common) {
+        if (token_script == FoldScript::Common) {
+          token_script = script;
+        } else if (token_script != script && !token_script_flagged) {
+          f.issues.push_back(FoldIssue{FoldIssueKind::MixedScript, i});
+          token_script_flagged = true;
+        }
+      }
+      if (zero != 0) {
+        if (token_zero == 0) {
+          token_zero = zero;
+        } else if (token_zero != zero && !token_zero_flagged) {
+          f.issues.push_back(FoldIssue{FoldIssueKind::MixedDecimalSystems, i});
+          token_zero_flagged = true;
+        }
+      }
+    }
+    for (const char c : ascii) {
+      f.text.push_back(c);
+      f.raw_offset.push_back(i);
+    }
+    i += len;
+  }
+  f.raw_offset.push_back(raw.size());  // sentinel: the end of the input
+  return f;
+}
+
 std::string normalizeForMatch(const std::string& s) {
+  // Through the ONE normaliser, so a lexicon term registered as "ＢＯＥＩＮＧ" or
+  // "Böhler" means the same letters the scans are looking at.
+  const std::string folded = foldForMatch(s).text;
   std::string out;
-  out.reserve(s.size());
-  for (const unsigned char c : s) {
+  out.reserve(folded.size());
+  for (const unsigned char c : folded) {
     if (isAsciiAlnum(c)) out.push_back(static_cast<char>(std::tolower(c)));
   }
   return out;
@@ -553,18 +922,38 @@ std::string decodeForResidueScan(const std::string& s) {
       }
     }
     if (s[i] == '\\' && i + 5 < s.size() && (s[i + 1] == 'u' || s[i + 1] == 'U')) {
+      auto hex4 = [&](std::size_t at, int& v) {
+        if (at + 4 > s.size()) return false;
+        v = 0;
+        for (std::size_t k = 0; k < 4; ++k) {
+          const int d = hexVal(s[at + k]);
+          if (d < 0) return false;
+          v = (v << 4) | d;
+        }
+        return true;
+      };
       int v = 0;
-      bool ok = true;
-      for (int k = 0; k < 4; ++k) {
-        const int d = hexVal(s[i + 2 + static_cast<std::size_t>(k)]);
-        if (d < 0) { ok = false; break; }
-        v = (v << 4) | d;
-      }
-      if (ok) {
-        // Only ASCII matters for residue matching; wider code points are kept as
-        // a placeholder byte so surrounding text still lines up.
-        out.push_back(v < 0x80 ? static_cast<char>(v) : '?');
-        i += 6;
+      if (hex4(i + 2, v)) {
+        // Decoded to REAL UTF-8, not to a placeholder. This used to write '?' for
+        // every code point >= 0x80, which made "ＢＯ..." — fullwidth
+        // BOEING — invisible to every scan. The normaliser has to see the code
+        // point to fold it or refuse it.
+        char32_t cp = static_cast<char32_t>(v);
+        std::size_t consumed = 6;
+        if (v >= 0xD800 && v <= 0xDBFF) {
+          int lo = 0;
+          if (i + 7 < s.size() && s[i + 6] == '\\' && (s[i + 7] == 'u' || s[i + 7] == 'U') &&
+              hex4(i + 8, lo) && lo >= 0xDC00 && lo <= 0xDFFF) {
+            cp = 0x10000 + ((static_cast<char32_t>(v) - 0xD800) << 10) + (static_cast<char32_t>(lo) - 0xDC00);
+            consumed = 12;
+          } else {
+            cp = 0xFFFD;  // a lone surrogate: U+FFFD, which is not modelled and so refused
+          }
+        } else if (v >= 0xDC00 && v <= 0xDFFF) {
+          cp = 0xFFFD;
+        }
+        appendUtf8(out, cp);
+        i += consumed;
         continue;
       }
     }
@@ -654,8 +1043,26 @@ bool isPublicDesignation(const std::string& token, const std::string& previous_t
 Redactor::Redactor(PrivateLexicon lexicon, RedactionPolicy policy)
     : lexicon_(std::move(lexicon)), policy_(policy) {}
 
-RedactionResult Redactor::redact(const std::string& raw) const {
+RedactionResult Redactor::redact(const std::string& input) const {
   RedactionResult result;
+
+  // ── phase 0: normalise, or refuse ──────────────────────────────────────────
+  // Everything below reads the FOLDED ASCII text and nothing else, and the wire
+  // query is assembled from it. So the classifier judges exactly the bytes that
+  // leave, and a spelling it cannot read never reaches it at all.
+  const detail::Folded folded = detail::foldForMatch(input);
+  if (!folded.ok()) {
+    for (const detail::FoldIssue& issue : folded.issues) {
+      result.refusals.push_back(std::string(detail::foldIssueName(issue.kind)) + " at byte " +
+                                std::to_string(issue.raw_offset));
+    }
+    return result;  // no wire_query, no preview_form: there is nothing to send
+  }
+  const std::string& raw = folded.text;
+  // Offsets and matched text in events refer to the operator's ORIGINAL input.
+  auto toInput = [&](std::size_t folded_offset) {
+    return folded.raw_offset[std::min(folded_offset, folded.raw_offset.size() - 1)];
+  };
 
   // ── phase 1: registered-phrase pass ────────────────────────────────────────
   // Match every lexicon term against a punctuation- and case-insensitive
@@ -735,10 +1142,12 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   auto emitRedaction = [&](RedactionKind kind, const std::string& matched, std::size_t offset) {
     RedactionEvent ev;
     ev.kind = kind;
-    ev.matched = matched;
+    const std::size_t begin = toInput(offset);
+    const std::size_t end = std::max(begin, toInput(offset + matched.size()));
+    ev.matched = input.substr(begin, end - begin);
     ev.marker = markerFor(kind);
-    ev.offset = offset;
-    ev.length = matched.size();
+    ev.offset = begin;
+    ev.length = end - begin;
     result.events.push_back(std::move(ev));
     if (preview_terms.empty() || preview_terms.back() != markerFor(kind)) {
       preview_terms.emplace_back(markerFor(kind));
@@ -851,44 +1260,63 @@ RedactionResult Redactor::redact(const std::string& raw) const {
 bool Redactor::verifyNoResidue(const std::string& wire, std::vector<std::string>& residue) const {
   residue.clear();
   const std::string decoded = detail::decodeForResidueScan(wire);
-  std::vector<std::size_t> map;
-  const std::string norm = normalizeWithMap(decoded, map);
+  const detail::Folded folded = detail::foldForMatch(decoded);
 
-  // (a) registered terms, by normalized substring — independent of the classifier.
-  //     Short terms use the same whole-alphanumeric-run rule as the classifier,
-  //     so this layer's reach matches what redact() is expected to have removed.
-  //     Note the deliberate consequence for a ONE-character term: `wire` may be a
-  //     whole HTTP request, whose envelope carries runs like "q" and "1", so such
-  //     a term makes the client refuse to send. That is fail-CLOSED, and the only
-  //     honest answer when a registered secret is a single character.
-  auto scanCategory = [&](const std::vector<std::string>& terms, const char* label) {
-    for (std::size_t i = 0; i < terms.size(); ++i) {
-      const std::string needle = detail::normalizeForMatch(terms[i]);
-      if (needle.empty()) continue;
-      if (findRegisteredTerm(norm, map, decoded, needle, 0) != std::string::npos) {
-        // NEVER echo the secret itself into a diagnostic string.
-        residue.push_back(std::string(label) + " lexicon entry #" + std::to_string(i) +
-                          " survives in the outgoing buffer");
-      }
-    }
+  // (0) DENY BY DEFAULT. A buffer carrying a code point the normaliser cannot
+  //     model, or a token mixing scripts, is residue in itself: this layer cannot
+  //     certify bytes it cannot read, and "no match found" over an unreadable
+  //     spelling is exactly the false clean that sent fullwidth BOEING to the wire.
+  if (!folded.ok()) {
+    residue.push_back(std::string("the outgoing buffer is not fully readable by the normaliser (") +
+                      detail::foldIssueName(folded.issues.front().kind) + " at byte " +
+                      std::to_string(folded.issues.front().raw_offset) + ")");
+  }
+
+  auto note = [&](const std::string& line) {
+    if (std::find(residue.begin(), residue.end(), line) == residue.end()) residue.push_back(line);
   };
-  scanCategory(lexicon_.customer_names, "customer");
-  scanCategory(lexicon_.project_names, "project");
-  scanCategory(lexicon_.supplier_names, "supplier");
-  scanCategory(lexicon_.part_numbers, "part-number");
-  scanCategory(lexicon_.secret_terms, "proprietary-term");
 
-  // (b) registered secret dimensions, by parsed VALUE — encoding-proof.
-  if (!lexicon_.secret_dimensions.empty()) {
-    const auto literals = scanNumericLiterals(decoded);
-    for (std::size_t i = 0; i < lexicon_.secret_dimensions.size(); ++i) {
-      const double secret = lexicon_.secret_dimensions[i];
-      for (const auto& [text, value] : literals) {
-        const double scale = std::max(1.0, std::fabs(secret));
-        if (std::fabs(value - secret) <= 1e-9 * scale) {
-          residue.push_back("secret-dimension lexicon entry #" + std::to_string(i) +
-                            " survives in the outgoing buffer");
-          break;
+  // Every check below runs on the RAW decoded form AND on the FOLDED form. The
+  // folded form is what catches ４７．６２５ and ＢＯＥＩＮＧ; the raw form is kept so
+  // this layer never depends on the normaliser being right about ASCII either.
+  for (const std::string* form : {&decoded, &folded.text}) {
+    std::vector<std::size_t> map;
+    const std::string norm = normalizeWithMap(*form, map);
+
+    // (a) registered terms, by normalized substring — independent of the classifier.
+    //     Short terms use the same whole-alphanumeric-run rule as the classifier,
+    //     so this layer's reach matches what redact() is expected to have removed.
+    //     Note the deliberate consequence for a ONE-character term: `wire` may be a
+    //     whole HTTP request, whose envelope carries runs like "q" and "1", so such
+    //     a term makes the client refuse to send. That is fail-CLOSED, and the only
+    //     honest answer when a registered secret is a single character.
+    auto scanCategory = [&](const std::vector<std::string>& terms, const char* label) {
+      for (std::size_t i = 0; i < terms.size(); ++i) {
+        const std::string needle = detail::normalizeForMatch(terms[i]);
+        if (needle.empty()) continue;
+        if (findRegisteredTerm(norm, map, *form, needle, 0) != std::string::npos) {
+          // NEVER echo the secret itself into a diagnostic string.
+          note(std::string(label) + " lexicon entry #" + std::to_string(i) + " survives in the outgoing buffer");
+        }
+      }
+    };
+    scanCategory(lexicon_.customer_names, "customer");
+    scanCategory(lexicon_.project_names, "project");
+    scanCategory(lexicon_.supplier_names, "supplier");
+    scanCategory(lexicon_.part_numbers, "part-number");
+    scanCategory(lexicon_.secret_terms, "proprietary-term");
+
+    // (b) registered secret dimensions, by parsed VALUE.
+    if (!lexicon_.secret_dimensions.empty()) {
+      const auto literals = scanNumericLiterals(*form);
+      for (std::size_t i = 0; i < lexicon_.secret_dimensions.size(); ++i) {
+        const double secret = lexicon_.secret_dimensions[i];
+        for (const auto& [text, value] : literals) {
+          const double scale = std::max(1.0, std::fabs(secret));
+          if (std::fabs(value - secret) <= 1e-9 * scale) {
+            note("secret-dimension lexicon entry #" + std::to_string(i) + " survives in the outgoing buffer");
+            break;
+          }
         }
       }
     }
@@ -900,9 +1328,21 @@ bool Redactor::verifyQueryFullyRedacted(const std::string& query_text,
                                         const std::vector<std::string>& allowed_designations,
                                         std::vector<std::string>& residue) const {
   if (!verifyNoResidue(query_text, residue)) return false;
-  if (!policy_.strip_unallowlisted_numbers) return residue.empty();
 
   const std::string decoded = detail::decodeForResidueScan(query_text);
+  // Every transmitted value is FOLDED TO ASCII by redact() before it is sent. A
+  // byte >= 0x80 in the decoded value therefore means some path skipped the
+  // normaliser — and a value that skipped it is refused here, however harmless
+  // the normaliser might have judged the code point. This is the independent
+  // form of the fold contract, and it does not share the fold tables' failure
+  // modes.
+  for (const unsigned char c : decoded) {
+    if (c >= 0x80) {
+      residue.push_back("a non-ASCII byte survives in the outgoing value: it did not pass the normaliser");
+      return false;
+    }
+  }
+  if (!policy_.strip_unallowlisted_numbers) return residue.empty();
   std::set<std::string> allowed;
   for (const std::string& d : allowed_designations) {
     allowed.insert(detail::normalizeForMatch(d));
