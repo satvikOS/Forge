@@ -656,24 +656,27 @@ constexpr StringFold kConfusables[] = {
 
 // (6) SPACES, DASHES, QUOTES AND ENGINEERING SYMBOLS — script Common, and none
 // can contribute a letter or a digit, so none can spell a name or a number.
-//   * General_Category=Zs spaces whose NFKC form is U+0020.
-//   * Dashes U+2010..U+2015 and MINUS SIGN U+2212: UTS #39 confusables
-//     prototype (or the Pd category) HYPHEN-MINUS. Kept as '-' rather than a
-//     space so "A2–70" stays ONE token, exactly like its ASCII spelling.
-//   * Quotation marks and primes: ASCII apostrophe / quotation mark.
+// Every entry that folds to something other than a space has an ASCII basis in
+// Unicode data, and unicode_fold_ucd_check.py refuses one that does not:
+//   * General_Category=Zs spaces whose NFKC form (or UTS #39 prototype) is U+0020.
+//   * U+2010..U+2013 and MINUS SIGN U+2212: confusables.txt prototype
+//     HYPHEN-MINUS. Kept as '-' rather than a space so "A2–70" stays ONE token,
+//     exactly like its ASCII spelling.
+//   * Quotation marks and primes: their confusables.txt prototype (U+201A is a
+//     COMMA there, and folds to one), or NFKC for U+2026 HORIZONTAL ELLIPSIS.
 //   * U+00D7 MULTIPLICATION SIGN: UTS #39 confusables prototype 'x' ("M8×1.25").
-//   * U+2026 HORIZONTAL ELLIPSIS: NFKC "...".
-//   * ° ± · ÷ © ® ™ • ⌀ ≈ ≤ ≥ ≠ : folded to a space. A space ends a token, which
+//   * « » — ― „ ° ± · ÷ © ® ™ • ⌀ ≈ ≤ ≥ ≠ have no ASCII prototype in either
+//     source and are not letters, numbers or marks: folded to a space. A space ends a token, which
 //     can only split an identifier; a split identifier is still matched by the
 //     lexicon (its match ignores separators) and each half still meets the
 //     classifier — the same exposure as typing the space in ASCII.
 // Sorted by code point (binary search).
 constexpr StringFold kSymbols[] = {
     {0x00A0, " ", FoldScript::Common},  {0x00A9, " ", FoldScript::Common},
-    {0x00AB, "\"", FoldScript::Common}, {0x00AE, " ", FoldScript::Common},
+    {0x00AB, " ", FoldScript::Common},  {0x00AE, " ", FoldScript::Common},
     {0x00B0, " ", FoldScript::Common},  {0x00B1, " ", FoldScript::Common},
     {0x00B4, "'", FoldScript::Common},  {0x00B7, " ", FoldScript::Common},
-    {0x00BB, "\"", FoldScript::Common}, {0x00D7, "x", FoldScript::Common},
+    {0x00BB, " ", FoldScript::Common},  {0x00D7, "x", FoldScript::Common},
     {0x00F7, " ", FoldScript::Common},  {0x2000, " ", FoldScript::Common},
     {0x2001, " ", FoldScript::Common},  {0x2002, " ", FoldScript::Common},
     {0x2003, " ", FoldScript::Common},  {0x2004, " ", FoldScript::Common},
@@ -682,11 +685,11 @@ constexpr StringFold kSymbols[] = {
     {0x2009, " ", FoldScript::Common},  {0x200A, " ", FoldScript::Common},
     {0x2010, "-", FoldScript::Common},  {0x2011, "-", FoldScript::Common},
     {0x2012, "-", FoldScript::Common},  {0x2013, "-", FoldScript::Common},
-    {0x2014, "-", FoldScript::Common},  {0x2015, "-", FoldScript::Common},
+    {0x2014, " ", FoldScript::Common},  {0x2015, " ", FoldScript::Common},
     {0x2018, "'", FoldScript::Common},  {0x2019, "'", FoldScript::Common},
-    {0x201A, "'", FoldScript::Common},  {0x201B, "'", FoldScript::Common},
+    {0x201A, ",", FoldScript::Common},  {0x201B, "'", FoldScript::Common},
     {0x201C, "\"", FoldScript::Common}, {0x201D, "\"", FoldScript::Common},
-    {0x201E, "\"", FoldScript::Common}, {0x201F, "\"", FoldScript::Common},
+    {0x201E, " ", FoldScript::Common},  {0x201F, "\"", FoldScript::Common},
     {0x2022, " ", FoldScript::Common},  {0x2026, "...", FoldScript::Common},
     {0x202F, " ", FoldScript::Common},  {0x2032, "'", FoldScript::Common},
     {0x2033, "\"", FoldScript::Common}, {0x205F, " ", FoldScript::Common},
