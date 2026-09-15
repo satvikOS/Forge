@@ -390,6 +390,16 @@ run_gate forge_desktop_quality_gate 1 2 3 4 5 6 7
 # whose every parameter is declared and correctly typed, carrying a REFUSED op
 # inside a `selector` VALUE. They must be refused before any dispatch is spent.
 run_gate forge_desktop_copilot_gate 1 2 3 4 5 6 7 8
+# The ARCHIE MODEL gate: the same panel, with the model reached over REAL loopback
+# HTTP -- a stub bound to an ephemeral 127.0.0.1 port in-process, answering in
+# serve.py's /plan format with replies recorded from the sidecar's own ir_bridge
+# -- and the plan followed through Forge's validators into a measured solid. No
+# model, no GPU, nothing on port 8731. The four mutations: discovery off (what a
+# Finder launch got before), tool schemas dropped from the request (the old wire
+# format), a planner service that waits inside the frame (the old freeze), and a
+# model that puts both holes off the part (a valid, dispatched, WRONG part that
+# only the measured geometry can catch).
+run_gate forge_desktop_archie_model_gate 1 2 3 4
 # The SIMULATION gate: the Restraints and Loads panels, over a real solve of a
 # real cantilever, checked against the Euler-Bernoulli tip deflection for it. The
 # six mutations break the SET-UP the production code is fed -- the restraint

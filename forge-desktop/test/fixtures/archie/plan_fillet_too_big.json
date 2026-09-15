@@ -1,0 +1,19 @@
+{
+ "ok": true,
+ "plan": {
+  "intent": "drill two 6 mm through holes, 25 mm either side of the centre bore\nSelection: 0 picked\nDocument: untitled: 5 statement(s), 0 command-authored",
+  "summary": "1 step(s) from 1 feature-IR statement(s)",
+  "steps": [
+   {
+    "commandId": "part.fillet",
+    "irOp": "FILLET",
+    "args": [
+     {
+      "name": "radius",
+      "number": 40.0
+     }
+    ]
+   }
+  ]
+ }
+}

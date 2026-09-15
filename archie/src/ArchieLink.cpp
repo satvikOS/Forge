@@ -24,22 +24,14 @@ LinkConfig configFromEnvironment(const char* value) {
     return cfg;
   }
 
-  std::string host;
+  // host[:port]. IPv4 only, because the transport is: isLoopbackLiteral()
+  // admits 127.0.0.0/8 literals and nothing else, and says why.
+  std::string host = spec;
   std::string port;
-  if (spec.front() == '[') {
-    const std::size_t close = spec.find(']');
-    if (close != std::string::npos) {
-      host = spec.substr(1, close - 1);
-      if (close + 1 < spec.size() && spec[close + 1] == ':') port = spec.substr(close + 2);
-    }
-  } else {
-    const std::size_t colon = spec.rfind(':');
-    if (colon == std::string::npos) {
-      host = spec;
-    } else {
-      host = spec.substr(0, colon);
-      port = spec.substr(colon + 1);
-    }
+  const std::size_t colon = spec.rfind(':');
+  if (colon != std::string::npos) {
+    host = spec.substr(0, colon);
+    port = spec.substr(colon + 1);
   }
   long portNumber = cfg.endpoint.port;
   if (!port.empty()) {

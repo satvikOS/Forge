@@ -261,7 +261,10 @@ set -uo pipefail
 #    printed GREEN beside while a hand-authored STEP became a Forge part. The
 #    same awk now prints 188, READ OFF THIS TREE with that command:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
-EXPECTED_MUTATIONS=188
+#  * 2026-09-15, archie-in-forge: forge_desktop_archie_model_gate arrived with 4
+#    -- the CoPilot reaching Archie's model over real loopback HTTP. The same awk
+#    now prints 192, READ OFF THIS TREE with that command.
+EXPECTED_MUTATIONS=192
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

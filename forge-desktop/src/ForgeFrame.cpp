@@ -7744,7 +7744,8 @@ void ForgeFrame::runCopilotApply() {
   // read here rather than assumed from the first.
   if (out.applied == 0) return;  // nothing changed; the outcome already says why
 
-  const IrBuildReport& r = scene_.lastBuild();
+  // A COPY: the undo below rebuilds the scene and replaces the report this reads.
+  const IrBuildReport r = scene_.lastBuild();
   const bool built = out.allOk() && rebuildError_.empty() && r.ok() && r.valid;
   if (built) {
     char volume[64];
@@ -7777,11 +7778,15 @@ void ForgeFrame::runCopilotApply() {
   } else {
     sentence = "Forge could not build a valid part from these steps, so ";
   }
-  sentence += restored ? std::string("all ") + std::to_string(undone) +
-                             (undone == 1 ? " applied step was" : " applied steps were") +
-                             " taken back and your part is as it was."
-                       : std::string("Forge tried to take the steps back and could not "
-                                     "restore every one; use Undo to finish.");
+  if (!restored) {
+    sentence += "Forge tried to take the steps back and could not restore every one; use Undo "
+                "to finish.";
+  } else if (undone == 1) {
+    sentence += "the step that ran was taken back and your part is as it was.";
+  } else {
+    sentence += "all " + std::to_string(undone) +
+                " steps that ran were taken back and your part is as it was.";
+  }
   // A step that could not run already explained itself in the transcript line
   // apply() said; a part the kernel refused has its reason in the Console.
   if (out.allOk() && !r.error.empty()) {

@@ -135,6 +135,10 @@ std::string readFile(const std::string& path) {
   return ss.str();
 }
 
+// CMake defines the root; a type-check with no definition reads "." instead.
+#ifndef FORGE_DESKTOP_REPO_ROOT
+#define FORGE_DESKTOP_REPO_ROOT "."
+#endif
 std::string repoRoot() {
   if (const char* r = std::getenv("FORGE_DESKTOP_ROOT")) return r;
   return FORGE_DESKTOP_REPO_ROOT;
@@ -293,11 +297,8 @@ int main(int argc, char** argv) {
         forge::archie::configFromEnvironment("127.0.0.1:9123");
     check(!elsewhere.off && elsewhere.endpoint.port == 9123,
           "FORGE_ARCHIE_ENDPOINT=127.0.0.1:9123 overrides the port", elsewhere.why);
-    const forge::archie::LinkConfig v6 = forge::archie::configFromEnvironment("[::1]:9124");
-    check(!v6.off && v6.endpoint.host == "::1" && v6.endpoint.port == 9124,
-          "an IPv6 loopback override is read", v6.why);
     for (const char* bad : {"10.0.0.5:8731", "localhost:8731", "example.com:80", "127.0.0.1:0",
-                            "127.0.0.1:99999"}) {
+                            "127.0.0.1:99999", "[::1]:9124", "127.0.0.1:87x1"}) {
       const forge::archie::LinkConfig c = forge::archie::configFromEnvironment(bad);
       check(c.off && !c.why.empty(), "a non-loopback or malformed override is refused, not followed",
             bad);
@@ -474,8 +475,9 @@ int main(int argc, char** argv) {
           "  ...working on the newest solid, as the IR's %ref chain says",
           forge::ui::toString(s0.select));
   }
-  check(frame.copilotRowsDrawn() == 2 || !frame.copilot().hasPlan(),
-        "the panel drew a row per planned step", std::to_string(frame.copilotRowsDrawn()));
+  buildOneFrame(frame);  // the answer landed after the last walk; draw it
+  check(frame.copilotRowsDrawn() == 2, "the panel drew a row per planned step",
+        std::to_string(frame.copilotRowsDrawn()));
 
   // ── 7. ACCEPT: through the one door, into the kernel ──────────────────────
   frame.copilotApplyPlan();
@@ -519,6 +521,12 @@ int main(int argc, char** argv) {
           num(removed) + " mm3 removed, expected " + num(expected));
     check(after.faces >= before.faces + 2, "the solid gained the holes' faces",
           std::to_string(before.faces) + " -> " + std::to_string(after.faces));
+    std::printf("[archie-model] measured: V %s -> %s mm3 (removed %s, expected %s), "
+                "bbox %s x %s x %s, faces %d -> %d\n",
+                num(before.volume).c_str(), num(after.volume).c_str(), num(removed).c_str(),
+                num(expected).c_str(), num(after.dx).c_str(), num(after.dy).c_str(),
+                num(after.dz).c_str(), before.faces, after.faces);
+    std::printf("[archie-model] the panel said: %s\n", frame.copilot().lastBuildSentence().c_str());
   }
 
   // ── 9. THE KERNEL REFUSES A PLAN'S RESULT: taken back, and said ───────────
@@ -545,6 +553,9 @@ int main(int argc, char** argv) {
           frame.document().irProgram());
     check(frame.copilot().lastBuildSentence().find("taken back") != std::string::npos,
           "  ...and the panel says so in words", frame.copilot().lastBuildSentence());
+    check(frame.copilot().lastBuildSentence().find("Console") != std::string::npos,
+          "  ...and points at where the kernel's reason is", frame.copilot().lastBuildSentence());
+    std::printf("[archie-model] the panel said: %s\n", frame.copilot().lastBuildSentence().c_str());
     check(scene.lastBuild().ok(), "the part on screen is a part that builds",
           scene.lastBuild().error);
   }

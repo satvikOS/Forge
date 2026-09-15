@@ -193,15 +193,21 @@ class LoopbackSidecarStub {
                       "\r\nConnection: close\r\n\r\n" + json;
     std::size_t off = 0;
     while (off < out.size()) {
+#ifdef MSG_NOSIGNAL
+      const ssize_t n = ::send(c, out.data() + off, out.size() - off, MSG_NOSIGNAL);
+#else
       const ssize_t n = ::send(c, out.data() + off, out.size() - off, 0);
+#endif
       if (n <= 0) break;
       off += static_cast<std::size_t>(n);
     }
   }
 
   void serve(int c) {
+#ifdef SO_NOSIGPIPE
     int one = 1;
     ::setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof one);
+#endif
     std::string head, body;
     if (!readAll(c, head, body)) { ::close(c); return; }
     Received r;
@@ -253,7 +259,11 @@ class LoopbackSidecarStub {
           const json::Value& id = req.at("id");
           rid = id.isNull() ? std::string("\"\"") : id.dump();
         }
-        reply(c, 200, "{\"id\": " + rid + ", " + bridgeFilter(req, planReply).substr(1));
+        std::string rest = bridgeFilter(req, planReply);
+        if (rest.size() < 2 || rest.front() != '{') {
+          rest = "{\"ok\": false, \"error\": \"the stub has no reply recorded\"}";
+        }
+        reply(c, 200, "{\"id\": " + rid + ", " + rest.substr(1));
       }
     } else {
       reply(c, 404, "{\"ok\": false, \"error\": \"no such path\"}");

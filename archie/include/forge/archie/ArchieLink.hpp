@@ -53,8 +53,9 @@ struct LinkConfig {
 //   unset / ""          -> look on 127.0.0.1:8731, serve.py's default port
 //   "off"               -> never look; the built-in commands answer
 //   "127.0.0.1:9000"    -> look there instead
-//   "[::1]:9000"        -> IPv6 loopback, bracketed
-//   anything else       -> refused: off, with the reason in `why`
+//   anything else       -> refused: off, with the reason in `why` -- a name
+//                          ("localhost"), a remote address, IPv6 (the transport
+//                          is IPv4-only), a bad port
 LinkConfig configFromEnvironment(const char* value);
 
 class ArchieLink final : public forge::ui::PlannerService {
