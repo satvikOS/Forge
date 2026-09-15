@@ -1070,8 +1070,8 @@ void runAll() {
             const std::string lab = "case14 closed box INWARD t=" + std::to_string(tt);
             ok(forge::occtthicken::thickenShell(box, inSign * tt).IsNull(),
                lab + " : DECLINED (the 4 mm faces are consumed; no skin exists)");
-            okReason("the thickness CONSUMES A FACE: on the concave side a fold trims the offset of "
-                     "a neighbouring face down to nothing, so no skin of this thickness exists (use a "
+            okReason("the thickness CONSUMES A FACE: on the concave side a neighbouring face's slab "
+                     "reaches past this face's far edge, so no skin of this thickness exists (use a "
                      "thinner thickness, or thicken to the other side)", lab);
         }
         // the three-plate corner of case 8, plates 10: inward by 12 declines, by 9 builds
@@ -1103,6 +1103,37 @@ void runAll() {
         }
         ok(declinedFar == 1, "case14 : the CONCAVE corner at t=12 (> plate 10) DECLINES, naming the consumed face");
         ok(builtFarConvex == 1, "case14 : the CONVEX corner at t=12 still builds (the outward body is exact at any t)");
+    }
+    {
+        // case 16 — A NEIGHBOUR'S SLAB OVERHANGING THE FACE'S FAR EDGE (DERIVATION 5a,
+        // the w = |t| sin(theta) bound). A 120-degree V of 10 mm plates. On its
+        // concave side at t = 15 the fold's offset trim delta = 15 tan 30 = 8.66 fits
+        // inside the 10 mm plate, but the neighbour's slab reaches w = 15 sin 60 =
+        // 12.99 over it. MEASURED with the first (delta) version of the rule: native
+        // V=1907.477288 with the bbox reaching x = 12.99, OCCT a VALID 1700.961894
+        // ending at x = 10 -- a wrong solid as success. The bound is TIGHT, not
+        // conservative: at t = 11.5 (w = 9.96) both sides build and match OCCT on the
+        // full vector; at t = 11.6 (w = 10.05) the concave side declines.
+        const double th = 120.0 * kPi / 180.0;
+        std::vector<TopoDS_Face> vf;
+        vf.push_back(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0), gp_Pnt(10, 10, 0), gp_Pnt(0, 10, 0)));
+        const gp_Pnt b1(10.0 * std::cos(th), 0, 10.0 * std::sin(th));
+        vf.push_back(quadFace(gp_Pnt(0, 0, 0), gp_Pnt(0, 10, 0), gp_Pnt(b1.X(), 10, b1.Z()), b1));
+        const TopoDS_Shape vee = sewShell(vf);
+        for (double tt : {11.5, -11.5})
+            abCase("case16 120-degree V t=" + std::to_string(tt) + " (w = 9.96 < 10)", vee, tt);
+        int built = 0, declined = 0;
+        for (double tt : {11.6, -11.6, 15.0, -15.0}) {
+            if (forge::occtthicken::thickenShell(vee, tt).IsNull()) {
+                if (std::string(forge::occtthicken::thickenLastDeferReason()).find("CONSUMES A FACE") !=
+                    std::string::npos)
+                    ++declined;
+                continue;
+            }
+            if (abCase("case16 120-degree V t=" + std::to_string(tt) + " (convex side)", vee, tt) > 0.0) ++built;
+        }
+        ok(built == 2, "case16 : the CONVEX side builds and matches OCCT at t = 11.6 and 15");
+        ok(declined == 2, "case16 : the CONCAVE side DECLINES at t = 11.6 and 15 (w > 10), naming it");
     }
     {
         // case 15 — A PRISM THROUGH ANOTHER PART OF THE SHEET (DERIVATION 5b). Two
