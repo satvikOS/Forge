@@ -5,8 +5,13 @@
 #include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <functional>
+#include <iterator>
+#include <optional>
 #include <set>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace forge::retrieval {
@@ -758,7 +763,583 @@ void appendUtf8(std::string& out, char32_t cp) {
   }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// THE NUMERAL READER
+//
+// Every rule below has a twin in retrieval/tools/gen_numeral_lexicon.py, which
+// derived the tables from CLDR by requiring THESE rules to reproduce what CLDR
+// spelled. attack_regression_gate's numeral phase re-reads a CLDR sample fixture
+// through this code, so the twins cannot drift apart silently.
+// ═════════════════════════════════════════════════════════════════════════════
+namespace numerals {
+#include "forge/retrieval/generated/NumeralLexicon.inc"
+}  // namespace numerals
+
+enum NumKind : unsigned char { kCard = 0, kMult = 1, kConj = 2, kDec = 3, kNumx = 4 };
+constexpr std::size_t kMaxNumeralRun = 96;     // longer letter runs are not numerals
+constexpr double kNumeralCeiling = 1e15;       // integers stay exact in a double
+constexpr std::size_t kLocaleBits = 64;        // kNumeralLocales + the Roman pseudo-locale
+constexpr unsigned kRomanLocale = kLocaleBits - 1;
+
+struct NumeralTables {
+  std::unordered_map<std::string_view, std::vector<const numerals::NumeralPieceRow*>> pieces;
+  std::unordered_set<std::string_view> ambiguous;
+  std::size_t max_piece = 0;
+};
+
+const NumeralTables& numeralTables() {
+  static const NumeralTables kTables = [] {
+    NumeralTables t;
+    for (const auto& row : numerals::kNumeralPieces) {
+      const std::string_view text(row.text);
+      t.pieces[text].push_back(&row);
+      t.max_piece = std::max(t.max_piece, text.size());
+    }
+    for (const char* w : numerals::kNumeralAmbiguousWords) t.ambiguous.insert(std::string_view(w));
+    return t;
+  }();
+  return kTables;
+}
+
+struct NumToken {
+  unsigned char kind = kCard;
+  double value = 0.0;
+  bool ordinal = false;
+  std::string digits;  // set for a digit run, so "05" keeps its zero
+};
+
+using TokenSeq = std::vector<NumToken>;
+
+struct WordReading {
+  bool numeral = false;
+  bool weak = false;
+  std::uint64_t num_locales = 0;
+  std::vector<std::pair<unsigned, TokenSeq>> decompositions;  // (locale, tokens)
+  std::uint64_t conj_locales = 0;
+  std::uint64_t dec_locales = 0;
+};
+
+// Canonical Roman numerals I..MMMCMXCIX, lower case, two letters or more.
+bool readRoman(const std::string& w, double& value) {
+  if (w.size() < 2) return false;
+  int total = 0;
+  for (std::size_t i = 0; i < w.size(); ++i) {
+    auto val = [](char c) {
+      switch (c) {
+        case 'i': return 1;
+        case 'v': return 5;
+        case 'x': return 10;
+        case 'l': return 50;
+        case 'c': return 100;
+        case 'd': return 500;
+        case 'm': return 1000;
+        default: return 0;
+      }
+    };
+    const int a = val(w[i]);
+    if (a == 0) return false;
+    const int b = i + 1 < w.size() ? val(w[i + 1]) : 0;
+    total += (b > a) ? -a : a;
+  }
+  if (total <= 0 || total >= 4000) return false;
+  // Canonical only: re-spell the value and compare, so "iiii" and "vx" are not numerals.
+  static const std::pair<int, const char*> kSteps[] = {{1000, "m"}, {900, "cm"}, {500, "d"}, {400, "cd"},
+                                                      {100, "c"},  {90, "xc"},  {50, "l"},  {40, "xl"},
+                                                      {10, "x"},   {9, "ix"},   {5, "v"},   {4, "iv"},
+                                                      {1, "i"}};
+  std::string canon;
+  int rest = total;
+  for (const auto& [n, s] : kSteps) {
+    while (rest >= n) {
+      canon += s;
+      rest -= n;
+    }
+  }
+  if (canon != w) return false;
+  value = total;
+  return true;
+}
+
+// Decompose a lower-case letter run into pieces of ONE locale. States: 0 start,
+// 1 after a number, 2 after a joiner, 3 after an ordinal. A joiner only after a
+// number; a number never after an ordinal; accepted after a number or an
+// ordinal, or after an English ordinal plus a plural 's' ("eighths"). Twin of
+// num_locales() in the generator.
+void decomposeRun(const std::string& w, WordReading& out) {
+  const NumeralTables& t = numeralTables();
+  const std::size_t n = w.size();
+  if (n < 2 || n > kMaxNumeralRun) return;
+  constexpr std::size_t kMaxPerLocale = 4;
+  constexpr std::size_t kMaxTotal = 12;
+
+  for (unsigned loc = 0; loc < std::size(numerals::kNumeralLocales); ++loc) {
+    // failed[(pos * 4) + state]: no accepted completion from here (memo).
+    std::vector<bool> failed((n + 1) * 4, false);
+    std::size_t found_here = 0;
+    TokenSeq path;
+    std::function<bool(std::size_t, int)> walk = [&](std::size_t i, int state) -> bool {
+      if (found_here >= kMaxPerLocale || out.decompositions.size() >= kMaxTotal) return true;
+      if (failed[i * 4 + static_cast<std::size_t>(state)]) return false;
+      bool any = false;
+      if (i == n && (state == 1 || state == 3)) {
+        out.decompositions.emplace_back(loc, path);
+        ++found_here;
+        any = true;
+      }
+      if (i + 1 == n && w[i] == 's' && state == 3 && loc == numerals::kNumeralEnglish) {
+        out.decompositions.emplace_back(loc, path);
+        ++found_here;
+        any = true;
+      }
+      for (std::size_t j = i + 1; j <= n && j - i <= t.max_piece; ++j) {
+        const auto it = t.pieces.find(std::string_view(w).substr(i, j - i));
+        if (it == t.pieces.end()) continue;
+        for (const numerals::NumeralPieceRow* row : it->second) {
+          if (row->locale != loc || row->kind == kDec) continue;
+          int next = 0;
+          if (row->kind == kConj) {
+            if (state != 1) continue;
+            next = 2;
+          } else {
+            if (state == 3) continue;
+            next = row->ordinal ? 3 : 1;
+          }
+          path.push_back(NumToken{row->kind, row->value, row->ordinal, {}});
+          if (walk(j, next)) any = true;
+          path.pop_back();
+          if (found_here >= kMaxPerLocale || out.decompositions.size() >= kMaxTotal) return true;
+        }
+      }
+      if (!any) failed[i * 4 + static_cast<std::size_t>(state)] = true;
+      return any;
+    };
+    if (walk(0, 0) && found_here > 0) out.num_locales |= (std::uint64_t{1} << loc);
+    if (out.decompositions.size() >= kMaxTotal) break;
+  }
+}
+
+WordReading readWord(const std::string& lower) {
+  WordReading r;
+  const NumeralTables& t = numeralTables();
+  const auto it = t.pieces.find(std::string_view(lower));
+  if (it != t.pieces.end()) {
+    for (const numerals::NumeralPieceRow* row : it->second) {
+      if (row->kind == kConj) r.conj_locales |= (std::uint64_t{1} << row->locale);
+      if (row->kind == kDec) r.dec_locales |= (std::uint64_t{1} << row->locale);
+    }
+  }
+  decomposeRun(lower, r);
+  double roman = 0.0;
+  const bool is_roman = readRoman(lower, roman);
+  if (is_roman) {
+    r.num_locales |= (std::uint64_t{1} << kRomanLocale);
+    r.decompositions.emplace_back(kRomanLocale, TokenSeq{NumToken{kCard, roman, false, {}}});
+  }
+  r.numeral = r.num_locales != 0;
+  if (r.numeral) {
+    bool only_single_ordinals = true;
+    for (const auto& [loc, seq] : r.decompositions) {
+      if (!(seq.size() == 1 && seq[0].ordinal)) only_single_ordinals = false;
+    }
+    const bool roman_only = r.num_locales == (std::uint64_t{1} << kRomanLocale);
+    // NEVER STRIPPED ON SIGHT: one or two letters ("to", "on", "en"), a listed
+    // ambiguous word, a short Roman numeral ("mix", "cd"), a bare ordinal.
+    r.weak = lower.size() <= 2 || t.ambiguous.count(std::string_view(lower)) > 0 ||
+             (roman_only && lower.size() <= 3) || only_single_ordinals;
+  }
+  return r;
+}
+
+// ── the grammar (twins: evaluate, evaluate_prefix, concat_groups) ───────────
+std::optional<double> grammarValue(const TokenSeq& t, std::size_t b, std::size_t e) {
+  double total = 0.0, cur = 0.0;
+  bool seen = false;
+  for (std::size_t i = b; i < e; ++i) {
+    const NumToken& k = t[i];
+    if (k.kind == kConj || k.kind == kNumx) continue;
+    if (k.kind == kDec) return std::nullopt;
+    seen = true;
+    if (k.kind == kCard) {
+      cur += k.value;
+    } else if (k.value >= 1000.0) {
+      total += (cur != 0.0 ? cur : 1.0) * k.value;
+      cur = 0.0;
+    } else {
+      const double low = std::fmod(cur, k.value);
+      cur = (low == 0.0) ? cur + k.value : cur - low + low * k.value;
+    }
+    if (total > kNumeralCeiling || cur > kNumeralCeiling) return std::nullopt;
+  }
+  if (!seen) return std::nullopt;
+  return total + cur;
+}
+
+std::optional<double> prefixGrammarValue(const TokenSeq& t, std::size_t b, std::size_t e) {
+  double total = 0.0;
+  bool seen = false;
+  std::size_t i = b;
+  while (i < e) {
+    const NumToken& k = t[i];
+    if (k.kind == kDec) return std::nullopt;
+    if (k.kind == kConj || k.kind == kNumx) { ++i; continue; }
+    seen = true;
+    if (k.kind == kCard) {
+      total += k.value;
+      ++i;
+      continue;
+    }
+    std::size_t j = i + 1;
+    while (j < e && t[j].kind == kCard) ++j;
+    const std::optional<double> m = j > i + 1 ? grammarValue(t, i + 1, j) : std::nullopt;
+    total += k.value * ((m && *m != 0.0) ? *m : 1.0);
+    if (total > kNumeralCeiling) return std::nullopt;
+    i = j;
+  }
+  if (!seen) return std::nullopt;
+  return total;
+}
+
+std::string integerString(double v) {
+  char buf[32];
+  std::snprintf(buf, sizeof buf, "%.0f", v);
+  return buf;
+}
+
+std::optional<std::string> concatGroupsValue(const TokenSeq& t, std::size_t b, std::size_t e) {
+  std::vector<std::pair<std::size_t, std::size_t>> groups;
+  std::size_t gb = b;
+  const NumToken* last = nullptr;
+  for (std::size_t i = b; i < e; ++i) {
+    const NumToken& k = t[i];
+    if (k.kind == kDec) return std::nullopt;
+    if (k.kind == kConj || k.kind == kNumx) { last = nullptr; continue; }
+    bool split = false;
+    if (k.kind == kCard && last != nullptr && last->kind == kCard) {
+      const double a = last->value;
+      if (k.value < 10.0) split = a < 10.0 || std::fmod(a, 10.0) != 0.0;
+      else if (k.value < 100.0) split = !(a >= 100.0 && std::fmod(a, 100.0) == 0.0);
+      else split = true;
+    }
+    if (split && i > gb) {
+      groups.emplace_back(gb, i);
+      gb = i;
+    }
+    last = &k;
+  }
+  if (e > gb) groups.emplace_back(gb, e);
+  std::string out;
+  for (const auto& [x, y] : groups) {
+    std::size_t numbers = 0, digit_run = y;
+    for (std::size_t i = x; i < y; ++i) {
+      if (t[i].kind == kCard || t[i].kind == kMult) {
+        ++numbers;
+        if (!t[i].digits.empty()) digit_run = i;
+      }
+    }
+    if (numbers == 1 && digit_run != y) {
+      out += t[digit_run].digits;
+      continue;
+    }
+    const std::optional<double> gv = grammarValue(t, x, y);
+    if (!gv) return std::nullopt;
+    out += integerString(*gv);
+  }
+  if (out.empty() || out.size() > 15) return std::nullopt;
+  return out;
+}
+
+std::set<std::string> integerReadings(const TokenSeq& t, std::size_t b, std::size_t e) {
+  std::set<std::string> out;
+  if (const auto g = grammarValue(t, b, e)) out.insert(integerString(*g));
+  if (const auto p = prefixGrammarValue(t, b, e)) out.insert(integerString(*p));
+  if (const auto c = concatGroupsValue(t, b, e)) out.insert(*c);
+  return out;
+}
+
+void addReadings(const TokenSeq& t, std::vector<double>& values) {
+  auto push = [&](const std::string& s) {
+    double v = 0.0;
+    if (std::from_chars(s.data(), s.data() + s.size(), v).ec == std::errc()) values.push_back(v);
+  };
+  std::size_t dec = t.size();
+  for (std::size_t i = 0; i < t.size(); ++i) {
+    if (t[i].kind == kDec) { dec = i; break; }
+  }
+  if (dec == t.size()) {
+    for (const std::string& s : integerReadings(t, 0, t.size())) push(s);
+    // A fraction: "five eighths", "forty seven and five eighths", "one half".
+    std::size_t last = t.size();
+    while (last > 0 && (t[last - 1].kind == kConj || t[last - 1].kind == kNumx)) --last;
+    if (last > 0 && t[last - 1].ordinal && t[last - 1].value >= 2.0) {
+      const double denominator = t[last - 1].value;
+      std::size_t conj = t.size();
+      for (std::size_t i = 0; i + 1 < last; ++i) {
+        if (t[i].kind == kConj) conj = i;
+      }
+      const std::size_t num_from = conj == t.size() ? 0 : conj + 1;
+      const auto num = grammarValue(t, num_from, last - 1);
+      const double numerator = num ? *num : 1.0;
+      values.push_back(numerator / denominator);
+      if (conj != t.size()) {
+        if (const auto whole = grammarValue(t, 0, conj)) values.push_back(*whole + numerator / denominator);
+      }
+    }
+    return;
+  }
+  std::size_t frac_from = dec;
+  while (frac_from < t.size() && t[frac_from].kind == kDec) ++frac_from;
+  if (frac_from == t.size()) return;
+  for (std::size_t i = frac_from; i < t.size(); ++i) {
+    if (t[i].kind == kDec) return;  // two decimal separators: no reading
+  }
+  std::set<std::string> ints = dec > 0 ? integerReadings(t, 0, dec) : std::set<std::string>{"0"};
+  std::set<std::string> fracs;
+  bool has_mult = false;
+  std::string digits;
+  for (std::size_t i = frac_from; i < t.size(); ++i) {
+    if (t[i].kind == kMult) has_mult = true;
+    if (t[i].kind == kCard) digits += t[i].digits.empty() ? integerString(t[i].value) : t[i].digits;
+  }
+  if (!has_mult && !digits.empty()) fracs.insert(digits);
+  for (const std::string& s : integerReadings(t, frac_from, t.size())) fracs.insert(s);
+  for (const std::string& a : ints) {
+    for (const std::string& b : fracs) {
+      if (!b.empty() && a.size() + b.size() < 40) push(a + "." + b);
+    }
+  }
+}
+
+// ── atoms and chains ─────────────────────────────────────────────────────────
+struct NumAtom {
+  std::size_t begin = 0, end = 0;
+  bool digits = false;
+  std::string text;  // lower-case letters, or the digit run
+  WordReading word;
+  bool numberCapable() const { return digits || word.numeral; }
+  bool connectorCapable() const { return !digits && (word.conj_locales | word.dec_locales) != 0; }
+};
+
+// How two neighbouring atoms are joined: 0 not joined, 1 plainly (space,
+// hyphen, apostrophe, or nothing between a letter and a digit), 2 by '.' or ','.
+int joinOf(const std::string& s, const NumAtom& a, const NumAtom& b) {
+  const std::string_view gap = std::string_view(s).substr(a.end, b.begin - a.end);
+  if (gap.empty()) return 1;
+  if (gap.size() == 1 && (gap[0] == '.' || gap[0] == ',')) return 2;
+  if (gap.size() == 1 && gap[0] == '\'') return 1;
+  bool hyphen = false;
+  for (const char c : gap) {
+    if (c == '-') {
+      if (hyphen) return 0;
+      hyphen = true;
+    } else if (!std::isspace(static_cast<unsigned char>(c))) {
+      return 0;
+    }
+  }
+  return gap.size() <= 8 ? 1 : 0;
+}
+
 }  // namespace
+
+namespace detail {
+
+NumeralWordInfo classifyNumeralWord(const std::string& word) {
+  std::string lower;
+  for (const unsigned char c : word) {
+    if (!isAsciiAlpha(c)) return {};
+    lower.push_back(static_cast<char>(std::tolower(c)));
+  }
+  const WordReading r = readWord(lower);
+  NumeralWordInfo info;
+  info.numeral = r.numeral;
+  info.ambiguous = r.numeral && r.weak;
+  info.joiner = r.conj_locales != 0;
+  info.decimal = r.dec_locales != 0;
+  for (std::size_t b = 0; b < kLocaleBits; ++b) {
+    if (r.num_locales & (std::uint64_t{1} << b)) ++info.locales;
+  }
+  return info;
+}
+
+std::vector<NumeralSpan> readNumerals(const std::string& s) {
+  std::vector<NumeralSpan> spans;
+  std::vector<NumAtom> atoms;
+  for (std::size_t i = 0; i < s.size();) {
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    if (!isAsciiAlnum(c)) { ++i; continue; }
+    NumAtom a;
+    a.begin = i;
+    a.digits = isAsciiDigit(c);
+    while (i < s.size() && (a.digits ? isAsciiDigit(static_cast<unsigned char>(s[i]))
+                                     : isAsciiAlpha(static_cast<unsigned char>(s[i])))) {
+      a.text.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(s[i]))));
+      ++i;
+    }
+    a.end = i;
+    if (!a.digits) a.word = readWord(a.text);
+    atoms.push_back(std::move(a));
+  }
+
+  // Chains: number-capable atoms, with at most one connector atom or one '.'/','
+  // between two of them. Each chain is [first, last] over `atoms`.
+  std::size_t i = 0;
+  while (i < atoms.size()) {
+    if (!atoms[i].numberCapable()) { ++i; continue; }
+    std::vector<std::size_t> members{i};
+    std::vector<int> links;  // links[k] joins members[k] and members[k+1]: 1 plain, 2 punct, 3 connector
+    std::size_t j = i;
+    while (true) {
+      if (j + 1 < atoms.size()) {
+        const int join = joinOf(s, atoms[j], atoms[j + 1]);
+        if (join != 0 && atoms[j + 1].numberCapable()) {
+          members.push_back(j + 1);
+          links.push_back(join);
+          ++j;
+          continue;
+        }
+        if (join == 1 && atoms[j + 1].connectorCapable() && j + 2 < atoms.size() &&
+            joinOf(s, atoms[j + 1], atoms[j + 2]) == 1 && atoms[j + 2].numberCapable()) {
+          members.push_back(j + 1);
+          members.push_back(j + 2);
+          links.push_back(3);
+          links.push_back(3);
+          j += 2;
+          continue;
+        }
+      }
+      break;
+    }
+    i = j + 1;
+
+    // A digit run is joined to a WEAK word only through a connector or '.'/',':
+    // "ISO 2768 to DIN" must not become the phrase "2768 to".
+    std::vector<std::pair<std::size_t, std::size_t>> pieces;  // [a, b) over members
+    std::size_t from = 0;
+    for (std::size_t k = 0; k + 1 < members.size(); ++k) {
+      const NumAtom& x = atoms[members[k]];
+      const NumAtom& y = atoms[members[k + 1]];
+      if (links[k] != 1) continue;
+      const bool cut = (x.digits && !y.digits && y.word.weak) || (y.digits && !x.digits && x.word.weak);
+      if (cut) {
+        pieces.emplace_back(from, k + 1);
+        from = k + 1;
+      }
+    }
+    pieces.emplace_back(from, members.size());
+
+    for (auto [a, b] : pieces) {
+      // A connector cannot open or close a phrase.
+      while (a < b && !atoms[members[a]].numberCapable()) ++a;
+      while (b > a && !atoms[members[b - 1]].numberCapable()) --b;
+      if (a >= b) continue;
+
+      NumeralSpan span;
+      span.begin = atoms[members[a]].begin;
+      span.end = atoms[members[b - 1]].end;
+      bool strong = false, digits = false;
+      std::uint64_t seen_locales = 0;
+      std::size_t words = 0;
+      bool shared = false;
+      for (std::size_t k = a; k < b; ++k) {
+        const NumAtom& m = atoms[members[k]];
+        if (m.digits) { digits = true; continue; }
+        if (!m.word.numeral) continue;
+        ++words;
+        if (!m.word.weak) strong = true;
+        if (seen_locales & m.word.num_locales) shared = true;
+        seen_locales |= m.word.num_locales;
+      }
+      // A decimal word, or '.'/',', between two numerals of its language.
+      bool decimal_link = false;
+      for (std::size_t k = a; k + 1 < b; ++k) {
+        const NumAtom& m = atoms[members[k]];
+        if (links[k] == 2 && !(m.digits && atoms[members[k + 1]].digits)) decimal_link = true;
+        if (k > a && !m.digits && m.word.dec_locales != 0) {
+          const std::uint64_t around =
+              atoms[members[k - 1]].word.num_locales | atoms[members[k + 1]].word.num_locales;
+          if (m.word.dec_locales & around) decimal_link = true;
+        }
+      }
+      span.has_word = words > 0;
+      span.strip = span.has_word && (strong || digits || shared || decimal_link);
+
+      // Values. One reading per locale in the chain (atoms without a reading in
+      // that locale take their first), plus the all-first reading.
+      if (!(b - a == 1 && atoms[members[a]].digits)) {
+        std::vector<unsigned> locales_to_try{kLocaleBits};  // sentinel: "first option everywhere"
+        for (std::size_t bit = 0; bit < kLocaleBits; ++bit) {
+          if (seen_locales & (std::uint64_t{1} << bit)) locales_to_try.push_back(static_cast<unsigned>(bit));
+        }
+        for (const unsigned want : locales_to_try) {
+          // options per member; product capped
+          std::vector<std::vector<TokenSeq>> options;
+          for (std::size_t k = a; k < b; ++k) {
+            const NumAtom& m = atoms[members[k]];
+            std::vector<TokenSeq> opts;
+            if (m.digits) {
+              double v = 0.0;
+              if (m.text.size() > 15 ||
+                  std::from_chars(m.text.data(), m.text.data() + m.text.size(), v).ec != std::errc()) {
+                opts.push_back(TokenSeq{});
+              } else {
+                opts.push_back(TokenSeq{NumToken{kCard, v, false, m.text}});
+              }
+            } else {
+              for (const auto& [loc, seq] : m.word.decompositions) {
+                if (want == kLocaleBits || loc == want) opts.push_back(seq);
+              }
+              if (m.word.dec_locales != 0) opts.push_back(TokenSeq{NumToken{kDec, 0.0, false, {}}});
+              if (m.word.conj_locales != 0) opts.push_back(TokenSeq{NumToken{kConj, 0.0, false, {}}});
+              if (opts.empty()) {
+                for (const auto& [loc, seq] : m.word.decompositions) {
+                  opts.push_back(seq);
+                  break;
+                }
+              }
+              if (want == kLocaleBits && opts.size() > 1) opts.resize(1);
+            }
+            if (opts.empty()) opts.push_back(TokenSeq{});
+            if (k + 1 < b && links[k] == 2) {
+              // '.' is a decimal point; ',' is a decimal comma or a thousands mark.
+              for (TokenSeq& o : opts) o.push_back(NumToken{kDec, 0.0, false, {}});
+              if (s[atoms[members[k]].end] == ',') {
+                const std::size_t n = opts.size();
+                for (std::size_t q = 0; q < n; ++q) {
+                  TokenSeq plain = opts[q];
+                  plain.pop_back();
+                  opts.push_back(std::move(plain));
+                }
+              }
+            }
+            options.push_back(std::move(opts));
+          }
+          constexpr std::size_t kMaxProduct = 32;
+          std::vector<std::size_t> pick(options.size(), 0);
+          for (std::size_t round = 0; round < kMaxProduct; ++round) {
+            TokenSeq seq;
+            for (std::size_t k = 0; k < options.size(); ++k) {
+              const TokenSeq& o = options[k][pick[k]];
+              seq.insert(seq.end(), o.begin(), o.end());
+            }
+            addReadings(seq, span.values);
+            std::size_t k = 0;
+            while (k < pick.size() && ++pick[k] == options[k].size()) {
+              pick[k] = 0;
+              ++k;
+            }
+            if (k == pick.size()) break;
+          }
+        }
+        std::sort(span.values.begin(), span.values.end());
+        span.values.erase(std::unique(span.values.begin(), span.values.end()), span.values.end());
+        if (span.values.size() > 512) span.values.resize(512);
+      }
+      if (span.has_word || !span.values.empty()) spans.push_back(std::move(span));
+    }
+  }
+  return spans;
+}
+
+}  // namespace detail
 
 const char* redactionKindName(RedactionKind kind) {
   switch (kind) {
@@ -1146,6 +1727,20 @@ RedactionResult Redactor::redact(const std::string& input) const {
   markCategory(lexicon_.part_numbers, RedactionKind::PartNumber);
   markCategory(lexicon_.secret_terms, RedactionKind::RegisteredSecret);
 
+  // ── phase 1b: numbers written as words ─────────────────────────────────────
+  // The default-deny rule is on NUMBERS, not on digits: "forty seven point six
+  // two five" is a DimensionLiteral exactly like "47.625". The span takes one
+  // hyphen on either side with it, so "three-phase" leaves "phase", not "-phase".
+  if (policy_.strip_unallowlisted_numbers) {
+    for (const detail::NumeralSpan& n : detail::readNumerals(raw)) {
+      if (!n.strip) continue;
+      std::size_t b = n.begin, e = n.end;
+      if (b > 0 && raw[b - 1] == '-') --b;
+      if (e < raw.size() && raw[e] == '-') ++e;
+      spans.push_back(Span{b, e, RedactionKind::DimensionLiteral});
+    }
+  }
+
   // Longest-match-wins, then drop overlaps.
   std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) {
     if (a.begin != b.begin) return a.begin < b.begin;
@@ -1162,8 +1757,25 @@ RedactionResult Redactor::redact(const std::string& input) const {
   // Registered spans swallow any word they touch, so a partial hit inside a
   // longer token cannot leave the rest of that token on the wire.
   for (Span& s : kept) {
+    if (s.kind == RedactionKind::DimensionLiteral) continue;  // a numeral span is exact
     while (s.begin > 0 && !std::isspace(static_cast<unsigned char>(raw[s.begin - 1]))) --s.begin;
     while (s.end < raw.size() && !std::isspace(static_cast<unsigned char>(raw[s.end]))) ++s.end;
+  }
+  // Swallowing can make a registered span overlap a numeral span it did not
+  // overlap before; merge them, or the segmentation below would re-emit the
+  // rest of the swallowed token as free text.
+  std::sort(kept.begin(), kept.end(), [](const Span& a, const Span& b) { return a.begin < b.begin; });
+  {
+    std::vector<Span> merged;
+    for (const Span& s : kept) {
+      if (!merged.empty() && s.begin < merged.back().end) {
+        merged.back().end = std::max(merged.back().end, s.end);
+        if (merged.back().kind == RedactionKind::DimensionLiteral) merged.back().kind = s.kind;
+        continue;
+      }
+      merged.push_back(s);
+    }
+    kept.swap(merged);
   }
 
   // ── phase 2: segment into registered spans and free text ───────────────────
@@ -1188,6 +1800,8 @@ RedactionResult Redactor::redact(const std::string& input) const {
 
   // ── phase 3: classify every free token, default-deny on numbers ────────────
   std::vector<std::string> wire_terms;
+  std::vector<std::size_t> wire_offsets;     // folded offset of each wire term
+  std::vector<std::size_t> wire_preview_at;  // its index in preview_terms
   std::vector<std::string> preview_terms;
   std::string previous_kept;   // context for designation lookback
   bool previous_was_dimension = false;
@@ -1237,6 +1851,8 @@ RedactionResult Redactor::redact(const std::string& input) const {
 
       if (detail::isPublicDesignation(token, previous_kept, policy_.allow_public_thread_designations)) {
         result.kept_designations.push_back(token);
+        wire_offsets.push_back(offset);
+        wire_preview_at.push_back(preview_terms.size());
         wire_terms.push_back(token);
         preview_terms.push_back(token);
         previous_kept = token;
@@ -1278,6 +1894,8 @@ RedactionResult Redactor::redact(const std::string& input) const {
         continue;
       }
 
+      wire_offsets.push_back(offset);
+      wire_preview_at.push_back(preview_terms.size());
       wire_terms.push_back(token);
       preview_terms.push_back(token);
       previous_kept = token;
@@ -1294,6 +1912,56 @@ RedactionResult Redactor::redact(const std::string& input) const {
     }
     return out;
   };
+
+  // ── phase 3b: the assembled query, read again ──────────────────────────────
+  // Removing a word between two survivors joins them: "sei Acme due" sends
+  // "sei due", a numeral phrase neither half was alone. The strict scan in
+  // verifyQueryFullyRedacted() reads the query as sent, so the redactor reads it
+  // that way too, until nothing it would strip remains.
+  for (int round = 0; round < 8 && policy_.strip_unallowlisted_numbers; ++round) {
+    const std::string joined = join(wire_terms);
+    std::vector<std::size_t> starts;
+    for (std::size_t k = 0, at = 0; k < wire_terms.size(); ++k) {
+      starts.push_back(at);
+      at += wire_terms[k].size() + 1;
+    }
+    std::vector<bool> drop(wire_terms.size(), false);
+    bool any = false;
+    for (const detail::NumeralSpan& n : detail::readNumerals(joined)) {
+      if (!n.strip) continue;
+      for (std::size_t k = 0; k < wire_terms.size(); ++k) {
+        const std::size_t tb = starts[k], te = starts[k] + wire_terms[k].size();
+        if (tb < n.end && n.begin < te) {
+          drop[k] = true;
+          any = true;
+        }
+      }
+    }
+    if (!any) break;
+    std::vector<std::string> terms;
+    std::vector<std::size_t> offsets, preview_at;
+    for (std::size_t k = 0; k < wire_terms.size(); ++k) {
+      if (!drop[k]) {
+        terms.push_back(wire_terms[k]);
+        offsets.push_back(wire_offsets[k]);
+        preview_at.push_back(wire_preview_at[k]);
+        continue;
+      }
+      RedactionEvent ev;
+      ev.kind = RedactionKind::DimensionLiteral;
+      const std::size_t begin = toInput(wire_offsets[k]);
+      const std::size_t end = std::max(begin, toInput(wire_offsets[k] + wire_terms[k].size()));
+      ev.matched = input.substr(begin, end - begin);
+      ev.marker = markerFor(ev.kind);
+      ev.offset = begin;
+      ev.length = end - begin;
+      result.events.push_back(std::move(ev));
+      preview_terms[wire_preview_at[k]] = markerFor(RedactionKind::DimensionLiteral);
+    }
+    wire_terms.swap(terms);
+    wire_offsets.swap(offsets);
+    wire_preview_at.swap(preview_at);
+  }
 
   if (wire_terms.size() > policy_.max_query_terms) {
     wire_terms.resize(policy_.max_query_terms);
@@ -1372,6 +2040,26 @@ bool Redactor::verifyNoResidue(const std::string& wire, std::vector<std::string>
           }
         }
       }
+      // (c) ...and written as WORDS, in any modelled language, mixed with digits,
+      //     as a fraction, or as numbers side by side. Every reading of every
+      //     numeral phrase counts, including the ambiguous ones redact() leaves
+      //     in place: generosity here can only refuse a send, never make one.
+      const std::vector<detail::NumeralSpan> spans = detail::readNumerals(*form);
+      for (std::size_t i = 0; i < lexicon_.secret_dimensions.size(); ++i) {
+        const double secret = lexicon_.secret_dimensions[i];
+        const double scale = std::max(1.0, std::fabs(secret));
+        bool hit = false;
+        for (const detail::NumeralSpan& n : spans) {
+          for (const double value : n.values) {
+            if (std::fabs(value - secret) <= 1e-9 * scale) { hit = true; break; }
+          }
+          if (hit) break;
+        }
+        if (hit) {
+          note("secret-dimension lexicon entry #" + std::to_string(i) +
+               " survives in the outgoing buffer, written as a numeral phrase");
+        }
+      }
     }
   }
   return residue.empty();
@@ -1423,6 +2111,14 @@ bool Redactor::verifyQueryFullyRedacted(const std::string& query_text,
     const bool covered = allowed.count(normTok) > 0;
     if (!covered) {
       residue.push_back("unallowlisted numeric token survives in the outgoing query");
+    }
+  }
+  // The same default-deny for numbers written as words: a phrase redact() would
+  // strip must not be in a value that is about to be sent.
+  for (const detail::NumeralSpan& n : detail::readNumerals(decoded)) {
+    if (n.strip) {
+      residue.push_back("a numeral written in words survives in the outgoing query");
+      break;
     }
   }
   return residue.empty();

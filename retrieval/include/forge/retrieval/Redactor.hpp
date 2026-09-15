@@ -98,9 +98,14 @@ struct PrivateLexicon {
   std::vector<std::string> secret_terms;
   // Confidential numeric values (in whatever unit the ESG holds them). Matched
   // by parsed VALUE after Unicode folding, so 47.625, .47625e2, ４７．６２５ and
-  // ٤٧.٦٢٥ are the same value. What folding cannot model is not "caught" — it is
-  // refused before it can be sent (see UNICODE above). That is the honest form of
-  // "however it is formatted": words ("forty-seven point six") are NOT caught.
+  // ٤٧.٦٢٥ are the same value, and after NUMERAL READING, so "forty seven point
+  // six two five", "quarante-sept virgule six deux cinq", "siebenundvierzig
+  // Komma sechs zwei fünf", "forty seven and five eighths" and "xlvii point six
+  // two five" are that value too (detail::readNumerals). What folding cannot
+  // model is refused before it can be sent. What the reader does not model — a
+  // language CLDR has no spellout rules for, a misspelling, a riddle ("the
+  // atomic number of silver") — is NOT caught; the operator preview is the
+  // control for those, and the header of NumeralLexicon.inc lists what is read.
   std::vector<double> secret_dimensions;
 };
 
@@ -228,6 +233,46 @@ std::string decodeForResidueScan(const std::string& s);
 // True when the token is a public standards/material/class designation.
 bool isPublicDesignation(const std::string& token, const std::string& previous_token,
                          bool allow_thread_designations);
+
+// ── the numeral reader: the normaliser's second stage ────────────────────────
+// A number written in words is a number. "forty seven point six two five" put
+// a registered secret dimension on the wire with search=Ok, because every scan
+// looked for DIGITS. readNumerals() reads the FOLDED text (foldForMatch's
+// output) for numerals written as words, in every Latin-script locale whose
+// CLDR spellout rules the fold can read (generated/NumeralLexicon.inc, derived
+// from CLDR by retrieval/tools/gen_numeral_lexicon.py), plus Roman numerals,
+// mixed freely with digits ("47 point six two five", "forty-seven.625").
+//
+// A phrase is a chain of numeral words and digit runs joined by spaces,
+// hyphens or apostrophes, with at most one joiner ("and", "und", "y") or
+// decimal word ("point", "Komma") or '.'/',' between two of them.
+//   strip   default-deny: the phrase is removed from outgoing text. True when it
+//           holds a numeral word that is not ALSO an ordinary English word, or a
+//           digit run, or two numeral words of one language, or a decimal word
+//           of the language beside it. An ambiguous word alone ("to", Danish 2;
+//           "one"; "second") is not stripped — but it is still valued below.
+//   values  every value the phrase can mean (grammar, multiplier-first grammar,
+//           numbers written side by side, a fraction "five eighths"). Checked
+//           against EVERY registered secret dimension, strip or not.
+struct NumeralSpan {
+  std::size_t begin = 0;  // byte offsets into the folded text, [begin, end)
+  std::size_t end = 0;
+  bool strip = false;
+  bool has_word = false;       // false for a digits-only chain ("4 7 6 2 5")
+  std::vector<double> values;  // deduplicated
+};
+std::vector<NumeralSpan> readNumerals(const std::string& folded_ascii);
+
+// How the reader classifies ONE word, for gates and the generator's check.
+struct NumeralWordInfo {
+  bool numeral = false;     // a numeral word in some locale, or a Roman numeral
+  bool ambiguous = false;   // numeral, but never stripped on sight
+  bool joiner = false;      // a CONJ piece on its own ("und", "y")
+  bool decimal = false;     // a DEC piece on its own ("point", "virgule")
+  std::size_t locales = 0;  // how many locales read it as a numeral
+};
+NumeralWordInfo classifyNumeralWord(const std::string& word);
+#define FORGE_RETRIEVAL_HAS_NUMERAL_READER 1
 }  // namespace detail
 
 }  // namespace forge::retrieval
