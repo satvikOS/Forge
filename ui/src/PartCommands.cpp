@@ -678,34 +678,49 @@ EdgeSelectorPlan planEdgeSelector(const SelectionService& sel) {
 // they should change. `verb` is what the command DOES to an edge -- "round" for a
 // fillet, "chamfer" for a chamfer -- because a chamfer refusal that offers to
 // "round all 8" describes a different command.
+//
+// ── AND THE WAY OUT HAS TO BE ONE THE USER CAN TAKE ─────────────────────────
+// The first version ended every one of these with "clear the selection to act
+// on every edge of the body". It cannot be done: all three commands declare
+// SelectionSignature::atLeast(Edge, 1), so a cleared selection is refused before
+// the handler runs, and it names no body to act on anyway. What DOES act on every
+// edge is typing ALL into the command's own `overrideParam` box, which the
+// handler honours ahead of the pick. Variable Fillet has no such box, so it is
+// passed nullptr and its refusal offers only the picks that will run.
 std::string edgeSelectorRefusal(const std::string& what, const char* verb,
-                                const EdgeSelectorPlan& plan) {
+                                const char* overrideParam, const EdgeSelectorPlan& plan) {
   const std::string picked = std::to_string(plan.picked) +
                              (plan.picked == 1 ? " edge is picked" : " edges are picked");
+  const std::string everyEdge =
+      overrideParam == nullptr
+          ? std::string()
+          : std::string("type ALL in the ") + overrideParam + " box to " + verb +
+                " every edge of the body";
   if (plan.mixedClasses) {
     return what + " can act on the upright edges of this body, or on the flat ones, but not " +
-           "on a mixture: " + picked +
-           " and they are not all of one kind. Pick one kind at a time, or clear the "
-           "selection to act on every edge.";
+           "on a mixture: " + picked + " and they are not all of one kind. Pick one kind at a " +
+           "time" + (everyEdge.empty() ? std::string() : ", or " + everyEdge) + ".";
   }
   if (plan.cls == EdgeAxisClass::None) {
-    return what + " cannot name the edges picked: " + picked +
-           ", and they run neither upright nor flat, which are the only two "
-           "directions Forge can select edges by. Clear the selection to act on every "
-           "edge of the body.";
+    return what + " cannot name the edges picked: " + picked + ", and " +
+           (plan.picked == 1 ? "it runs" : "they run") +
+           " neither upright nor flat, which are the only two directions Forge can select "
+           "edges by. Pick upright or flat edges instead" +
+           (everyEdge.empty() ? std::string() : ", or " + everyEdge) + ".";
   }
   const char* kind = (plan.cls == EdgeAxisClass::Vertical) ? "upright" : "flat";
   if (plan.members == 0) {
     return what + " cannot confirm how many " + kind +
            " edges this body has, because the selection was made before the last "
-           "rebuild. Pick the edges again.";
+           "rebuild. Pick the edges again" +
+           (everyEdge.empty() ? std::string() : ", or " + everyEdge) + ".";
   }
   return what + " cannot act on part of a set: " + picked + ", and this body has " +
          std::to_string(plan.members) + " " + kind +
          " edges. Forge selects edges by direction, not one at a time, so it can " + verb +
          " all " + std::to_string(plan.members) + " of them or none. Pick all " +
-         std::to_string(plan.members) + " to go ahead, or clear the selection to act on "
-         "every edge of the body.";
+         std::to_string(plan.members) + " to go ahead" +
+         (everyEdge.empty() ? std::string() : ", or " + everyEdge) + ".";
 }
 
 // ── APPLYING THE PICK TO A STATEMENT ALREADY BUILT ──────────────────────────
@@ -775,12 +790,18 @@ void placeOnPickedFace(const CommandContext& ctx, std::vector<IrArg>& args, std:
 // when the pick is part of a class, a mixture of classes, or in no class -- the
 // three ways "these edges" cannot be said in the kernel's vocabulary. With no
 // picked edges on the selection it returns true and leaves `args` alone.
+//
+// `overrideParam` names the command's typed selector parameter, or is nullptr
+// when it has none. A value typed there is the user overriding the pick, so it
+// wins and `args` is left as the typed parameters built it; it is also the route
+// the refusal offers for acting on every edge (see edgeSelectorRefusal).
 bool narrowToPickedEdges(CommandContext& ctx, std::vector<IrArg>& args, std::size_t slot,
-                         const std::string& what, const char* verb) {
+                         const std::string& what, const char* verb, const char* overrideParam) {
+  if (overrideParam != nullptr && hasText(ctx, overrideParam)) return true;
   const EdgeSelectorPlan plan = planEdgeSelector(ctx.selection());
   if (!plan.hasPick) return true;
   if (!plan.expressible) {
-    ctx.fail(edgeSelectorRefusal(what, verb, plan));
+    ctx.fail(edgeSelectorRefusal(what, verb, overrideParam, plan));
     return false;
   }
   if (args.size() > slot) {
@@ -1867,10 +1888,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       // A typed selector is the user overriding this, and it wins. Otherwise the
       // edges picked in the viewport decide, and when no keyword denotes them the
       // command says so instead of quietly rounding the whole body.
-      if (!hasText(ctx, "selector") &&
-          !narrowToPickedEdges(ctx, args, 2, "Edge Fillet", "round")) {
-        return;
-      }
+      if (!narrowToPickedEdges(ctx, args, 2, "Edge Fillet", "round", "selector")) return;
       emit(ctx, *d, *s, "part.fillet", "Edge Fillet", "FILLET", std::move(args), IrValueKind::Solid,
            {}, t.node);
     };
@@ -1897,10 +1915,8 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                              sel == "CONVEX"
                          ? IrArg::keyword(sel)
                          : IrArg::text(sel));
-      if (!hasText(ctx, "selector") &&  // see part.fillet
-          !narrowToPickedEdges(ctx, args, 2, "Edge Chamfer", "chamfer")) {
-        return;
-      }
+      // See part.fillet.
+      if (!narrowToPickedEdges(ctx, args, 2, "Edge Chamfer", "chamfer", "selector")) return;
       emit(ctx, *d, *s, "part.chamfer", "Edge Chamfer", "CHAMFER", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
@@ -1938,7 +1954,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       // every edge of the body whatever was picked. It takes the same keywords as
       // FILLET and CHAMFER (BLEND(%body, rStart, rEnd [, sel=ALL] [, SMOOTH])), so
       // the pick is honoured the same way, in slot 3, and refused on the same ground.
-      if (!narrowToPickedEdges(ctx, args, 3, "Variable Fillet", "round")) return;
+      // It declares no selector parameter, so there is no typed override to honour
+      // and none for its refusal to offer.
+      if (!narrowToPickedEdges(ctx, args, 3, "Variable Fillet", "round", nullptr)) return;
       emit(ctx, *d, *s, "part.variable_fillet", "Variable Fillet", "BLEND", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };

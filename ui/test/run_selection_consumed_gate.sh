@@ -24,9 +24,13 @@
 #   6  the edge class is read off the segment soup's     -> a bore rim is not HORIZONTAL,
 #      first and last points, not the chain's two ends      so 8 of 10 flat edges is
 #                                                           emitted as all of them
-#   7  a comment-only edit to PartCommands.cpp           -> GREEN (the control)
+#   7  a refusal stops offering the selector box         -> the one route to every
+#                                                           edge goes unmentioned
+#   8  a typed selector no longer overrides the pick     -> typing ALL is refused, so
+#                                                           the refusal's advice fails
+#   9  a comment-only edit to PartCommands.cpp           -> GREEN (the control)
 #
-# 7 is not optional: without it, 1-6 would pass just as well over a harness that
+# 9 is not optional: without it, 1-8 would pass just as well over a harness that
 # went red on any rebuild at all.
 #
 # COST. Every ui/ source is compiled ONCE; a mutation recompiles only the one
@@ -178,8 +182,8 @@ swap("placeOnPickedFace(ctx, args, 4, PickedAxis::OutOfMaterial);",
 ' || BAD=$((BAD + 1))
 
 expect 3 red ui/src/PartCommands.cpp '
-swap("  if (!plan.expressible) {\n    ctx.fail(edgeSelectorRefusal(what, verb, plan));\n    return false;\n  }\n",
-     "  if (!plan.expressible) return !edgeSelectorRefusal(what, verb, plan).empty();\n")
+swap("  if (!plan.expressible) {\n    ctx.fail(edgeSelectorRefusal(what, verb, overrideParam, plan));\n    return false;\n  }\n",
+     "  if (!plan.expressible) return !edgeSelectorRefusal(what, verb, overrideParam, plan).empty();\n")
 ' || BAD=$((BAD + 1))
 
 expect 4 red ui/src/PickModel.cpp '
@@ -197,11 +201,21 @@ swap("  const double* a = edge.endA;\n  const double* b = edge.endB;\n",
      "  const double* a = &edge.points[0];\n  const double* b = &edge.points[edge.points.size() - 3];\n")
 ' || BAD=$((BAD + 1))
 
-expect 7 green ui/src/PartCommands.cpp '
+expect 7 red ui/src/PartCommands.cpp '
+swap("    ctx.fail(edgeSelectorRefusal(what, verb, overrideParam, plan));\n",
+     "    ctx.fail(edgeSelectorRefusal(what, verb, nullptr, plan));\n")
+' || BAD=$((BAD + 1))
+
+expect 8 red ui/src/PartCommands.cpp '
+swap("  if (overrideParam != nullptr && hasText(ctx, overrideParam)) return true;\n",
+     "  if (false && overrideParam != nullptr && hasText(ctx, overrideParam)) return true;\n")
+' || BAD=$((BAD + 1))
+
+expect 9 green ui/src/PartCommands.cpp '
 swap("// ── WHERE THE USER POINTED ", "// (control: a comment-only edit)\n// ── WHERE THE USER POINTED ")
 ' || BAD=$((BAD + 1))
 
 if [ "$BAD" -ne 0 ]; then
-  echo "$TAG RED: $BAD of 7 mutations did not prove what they claim"; exit 1
+  echo "$TAG RED: $BAD of 9 mutations did not prove what they claim"; exit 1
 fi
-echo "$TAG GREEN -- clean run passes, all 6 mutations proved red and the control stayed green"
+echo "$TAG GREEN -- clean run passes, all 8 mutations proved red and the control stayed green"
