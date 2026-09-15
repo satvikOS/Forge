@@ -16,6 +16,9 @@
 #   phase 6  the injection gate: hostile retrieved text -> geometry
 #   phase 7  the source classifier: a hostname must not be able to buy an
 #            authority tier (hostile-hostname corpus + guard-removal RED proof)
+#   phase 8  the attacks that broke PR #246: non-ASCII secret spellings, an
+#            approval spent on another endpoint or result handling, and one host
+#            corroborating itself (proved cases + UCD check + mutation RED proof)
 #
 # Nothing leaves the machine in any phase: phase 3 is loopback-only, the same
 # destination class 20.2 permits, and the transport refuses anything else.
@@ -158,17 +161,17 @@ if [ ! -x "$LIVE" ]; then
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   if [ "${FORGE_ALLOW_NO_LIVE_LOOPBACK:-0}" = "1" ]; then
-    echo "[retrieval] phases 3 to 7 SKIPPED: python3 is not on PATH."
+    echo "[retrieval] phases 3 to 8 SKIPPED: python3 is not on PATH."
     echo "[retrieval] FORGE_ALLOW_NO_LIVE_LOOPBACK=1 was set, so this is an explicit, recorded"
     echo "[retrieval] opt-out. THIS RUN DOES NOT EXERCISE THE REAL SOCKET PATH, does not make"
     echo "[retrieval] the far-end redaction assertion, AND DOES NOT TEST THE EXECUTOR OR THE"
     echo "[retrieval] ARCHIE-SIDE BRIDGE AT ALL — phases 4 and 5 need python3 for their stub"
     echo "[retrieval] sidecar and for the bridge itself. The send path Archie uses is UNPROVEN"
-    echo "[retrieval] in this run, and phases 6 and 7 (the injection gate and the source"
-    echo "[retrieval] classifier gate, whose RED proofs apply their mutations with python3) did"
-    echo "[retrieval] not run either."
+    echo "[retrieval] in this run, and phases 6 to 8 (the injection, source classifier and"
+    echo "[retrieval] attack regression gates, whose RED proofs apply their mutations with python3)"
+    echo "[retrieval] did not run either."
     echo
-    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-7 opted out)"
+    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-8 opted out)"
     exit 0
   fi
   echo "[retrieval] FATAL: phase 3 needs python3 for retrieval/test/stub_sidecar.py." >&2
@@ -330,6 +333,39 @@ if ! grep -q '^\[classifier\] SOURCE CLASSIFIER GATE PASSED' "$OUT/classifier.lo
   exit 1
 fi
 echo "[retrieval] phase 7 (source classifier) PASSED"
+
+# ── phase 8: the attacks that broke PR #246 ──────────────────────────────────
+# An adversarial review of 1dd9ed9b transmitted a registered secret in fullwidth
+# and Cyrillic spellings, spent an approval on another endpoint and a rewritten
+# diversity rule, and bound a critical value corroborated by its own publisher
+# through a second URL parser. Each proof is a case here; the fold tables are
+# judged against the UCD and confusables.txt; and 18 mechanisms are removed from
+# copies of the source, each required to turn its named case red.
+ATTACKGATE="$ROOT/retrieval/test/run_attack_regression_gate.sh"
+if [ ! -x "$ATTACKGATE" ]; then
+  echo "[retrieval] FATAL: $ATTACKGATE is missing or not executable." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 8: attack regression (redaction, approval, corroboration), with RED proof"
+"$ATTACKGATE" > "$OUT/attack.log" 2>&1
+rc8=$?
+if [ ! -s "$OUT/attack.log" ]; then
+  echo "[retrieval] FATAL: the attack regression gate wrote an empty log. It did not run." >&2
+  exit 1
+fi
+if [ "$rc8" -ne 0 ]; then
+  echo "[retrieval] PHASE 8 FAILED (exit $rc8) — see below"
+  cat "$OUT/attack.log"
+  exit "$rc8"
+fi
+grep -E '^\[attack\] (phase [0-9] .* PASSED|mutations:)' "$OUT/attack.log"
+if ! grep -q '^\[attack\] ATTACK REGRESSION GATE PASSED' "$OUT/attack.log"; then
+  echo "[retrieval] phase 8 exited 0 without declaring a pass. Refusing to report one."
+  cat "$OUT/attack.log"
+  exit 1
+fi
+echo "[retrieval] phase 8 (attack regression) PASSED"
 
 echo
 echo "[retrieval] GATE PASSED"

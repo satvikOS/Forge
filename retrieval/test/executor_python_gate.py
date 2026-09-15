@@ -239,7 +239,8 @@ def run_all_checks(bridge_path: str, binary: str) -> None:
         # was shown. It does not compute anything.
         assert preview.operator_render, "an approval with no render to approve against"
         return fb.Approval(encoded_body=preview.encoded_body,
-                           body_digest=preview.body_digest)
+                           body_digest=preview.body_digest,
+                           request_digest=preview.request_digest)
 
     with Stub("json") as stub:
         ex = fb.SidecarExecutor(binary=binary, port=stub.port)
@@ -348,7 +349,7 @@ MUTATIONS = [
     ("approve by default (the un-configured caller gets the network)",
      [("    del preview\n    return None",
        "    return Approval(encoded_body=preview.encoded_body, "
-       "body_digest=preview.body_digest)  # MUTANT")],
+       "body_digest=preview.body_digest, request_digest=preview.request_digest)  # MUTANT")],
      "P2.1"),
     # An absent instrument reported as a property of the data: a missing executor
     # comes back looking exactly like a search that found nothing.

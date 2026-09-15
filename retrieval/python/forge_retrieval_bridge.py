@@ -128,6 +128,11 @@ class Preview:
     fields: List[Dict[str, str]]
     encoded_body: str
     body_digest: str
+    # SHA-256 over the COMPLETE request the operator render lists item by item:
+    # destination (scheme, host, port), method, path, query, headers, body and
+    # every result-handling field. The body digest alone did not say where the
+    # body would go or how the answer would be judged.
+    request_digest: str
     operator_render: str
 
     @staticmethod
@@ -146,6 +151,7 @@ class Preview:
             fields=list(d.get("fields", [])),
             encoded_body=d.get("encoded_body", ""),
             body_digest=d.get("body_digest", ""),
+            request_digest=d.get("request_digest", ""),
             operator_render=d.get("operator_render", ""),
         )
 
@@ -162,10 +168,15 @@ class Approval:
 
     encoded_body: str
     body_digest: str
+    # REQUIRED, and deliberately without a default: an approval that names the
+    # bytes but not the request lets the same bytes be sent somewhere else, or
+    # judged by a weaker diversity rule, than the operator was shown.
+    request_digest: str
     approved_by: str = "operator"
 
     def to_json(self) -> Dict[str, str]:
-        return {"encoded_body": self.encoded_body, "body_digest": self.body_digest}
+        return {"encoded_body": self.encoded_body, "body_digest": self.body_digest,
+                "request_digest": self.request_digest}
 
 
 @dataclass(frozen=True)

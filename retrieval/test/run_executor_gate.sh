@@ -124,12 +124,12 @@ print(json.dumps({
 PY
 }
 
-approved_json() {          # $1 request json, $2 encoded_body, $3 digest
+approved_json() {          # $1 request json, $2 encoded_body, $3 digest, $4 request_digest
   python3 -c '
 import json,sys
-req=json.loads(sys.argv[1]); body=sys.argv[2]; dig=sys.argv[3]
-print(json.dumps({"request":req,"approval":{"encoded_body":body,"body_digest":dig}}))
-' "$1" "$2" "$3"
+req=json.loads(sys.argv[1]); body=sys.argv[2]; dig=sys.argv[3]; rdig=sys.argv[4]
+print(json.dumps({"request":req,"approval":{"encoded_body":body,"body_digest":dig,"request_digest":rdig}}))
+' "$1" "$2" "$3" "$4"
 }
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -142,7 +142,8 @@ run_all_checks() {
   run_exec preview "$REQ"
   check "$([ "$RC" -eq 0 ] && echo 1 || echo 0)" "A1 preview exits 0 (rc=$RC)"
   check "$([ "$(jfield sendable)" = "true" ] && echo 1 || echo 0)" "A2 preview is sendable"
-  local BODY DIGEST; BODY="$(jfield encoded_body)"; DIGEST="$(jfield body_digest)"
+  local BODY DIGEST RDIG; BODY="$(jfield encoded_body)"; DIGEST="$(jfield body_digest)"
+  RDIG="$(jfield request_digest)"
   check "$([ -n "$BODY" ] && echo 1 || echo 0)" "A3 preview carries encoded bytes"
 
   # THE CHECK THAT MATTERS MOST HERE. stdout is consumed by Archie, logged, and
@@ -164,7 +165,17 @@ import json,sys; print(json.dumps({"request":json.loads(sys.argv[1])}))' "$REQ")
   check "$([ "$RC" -eq 5 ] && echo 1 || echo 0)" "B1 search with NO approval exits 5 REQUEST_REJECTED (rc=$RC)"
   check "$([ "$(jfield transmit_attempts)" = "0" ] && echo 1 || echo 0)" "B2 and nothing was transmitted"
 
-  local GOOD; GOOD="$(approved_json "$REQ" "$BODY" "$DIGEST")"
+  check "$(printf '%s' "$RDIG" | grep -qE '^[0-9a-f]{64}$' && echo 1 || echo 0)" \
+        "A7 preview carries a SHA-256 request digest over the complete request"
+  check "$(python3 -c '
+import json,sys
+r=json.load(open(sys.argv[1]))["operator_render"]
+need=["connect.host = 127.0.0.1","connect.port = 8888","http.method = POST","http.path = /search",
+      "handling.min_distinct_publishers = 2",sys.argv[2]]
+print(1 if all(n in r for n in need) else 0)' "$WORK/out.json" "$RDIG")" \
+        "A8 the operator render names host, port, method, path, the handling and the request digest"
+
+  local GOOD; GOOD="$(approved_json "$REQ" "$BODY" "$DIGEST" "$RDIG")"
 
   run_exec search "$(python3 -c '
 import json,sys
@@ -230,18 +241,53 @@ import json,sys
 d=json.loads(sys.argv[1]); d.pop("lexicon", None); print(json.dumps(d))' "$REQ_LEX")"
 
   run_exec preview "$REQ_LEX";   local Q_LEX; Q_LEX="$(jfield redacted_query)"
-  local B_LEX D_LEX; B_LEX="$(jfield encoded_body)"; D_LEX="$(jfield body_digest)"
+  local B_LEX D_LEX R_LEX; B_LEX="$(jfield encoded_body)"; D_LEX="$(jfield body_digest)"
+  R_LEX="$(jfield request_digest)"
   run_exec preview "$REQ_NOLEX"; local Q_NOLEX; Q_NOLEX="$(jfield redacted_query)"
   case "$Q_LEX" in *falcon*) local lex_hit=1;; *) local lex_hit=0;; esac
   case "$Q_NOLEX" in *falcon*) local nolex_hit=1;; *) local nolex_hit=0;; esac
   check "$([ "$lex_hit" -eq 0 ] && [ "$nolex_hit" -eq 1 ] && echo 1 || echo 0)" \
         "B10 the probe is valid: 'falcon' is removed WITH the lexicon and survives WITHOUT it"
 
-  run_exec search "$(approved_json "$REQ_NOLEX" "$B_LEX" "$D_LEX")"
+  run_exec search "$(approved_json "$REQ_NOLEX" "$B_LEX" "$D_LEX" "$R_LEX")"
   check "$([ "$RC" -eq 5 ] && echo 1 || echo 0)" \
         "B11 approving the REDACTED query then searching with the lexicon DROPPED exits 5 (rc=$RC)"
   check "$([ "$(jfield transmit_attempts)" = "0" ] && echo 1 || echo 0)" \
         "B12 and nothing was transmitted — the digest binds the redaction policy, not just the text"
+
+  # ── B'. THE BODY IS NOT THE REQUEST ─────────────────────────────────────
+  # PROVED against 1dd9ed9b in-process: an approval for POST 127.0.0.1:8888/search
+  # was spent as GET 127.0.0.1:9/autocompleter, and on min_distinct_publishers
+  # rewritten after approval. This is the cross-process form. Every edit below
+  # leaves q=... byte-identical, so the body digest and the body comparison
+  # both pass — only the request digest can refuse it. Each check also requires
+  # the refusal to NAME the request digest, so a rejection for some other reason
+  # cannot pass for this one.
+  section "B'. an approval covers the destination and the result handling, not just the body"
+  edited() {   # $1 python statement over d["request"] / d["approval"]
+    python3 -c '
+import json,sys
+d=json.loads(sys.argv[1]); exec(sys.argv[2]); print(json.dumps(d))' "$GOOD" "$1"
+  }
+  refused_for_digest() {
+    if [ "$RC" -eq 5 ] && [ "$(jfield transmit_attempts)" = "0" ] &&
+       jfield detail | grep -q 'request digest'; then echo 1; else echo 0; fi
+  }
+  run_exec search "$(edited 'd["request"]["endpoint"].update({"port": 9, "path": "/autocompleter", "use_post": False})')"
+  check "$(refused_for_digest)" \
+        "B13 PROVED ATTACK: approval for POST :8888/search spent as GET :9/autocompleter exits 5, nothing sent (rc=$RC)"
+  run_exec search "$(edited 'd["request"]["endpoint"]["port"] = 9')"
+  check "$(refused_for_digest)" "B14 the same approval on another PORT exits 5, nothing sent (rc=$RC)"
+  run_exec search "$(edited 'd["request"]["endpoint"]["use_post"] = False')"
+  check "$(refused_for_digest)" "B15 the same approval with another METHOD exits 5, nothing sent (rc=$RC)"
+  run_exec search "$(edited 'd["request"]["min_distinct_publishers"] = 1')"
+  check "$(refused_for_digest)" \
+        "B16 PROVED ATTACK: min_distinct_publishers lowered after approval exits 5, nothing sent (rc=$RC)"
+  run_exec search "$(edited 'd["request"]["require_contradiction_check"] = False')"
+  check "$(refused_for_digest)" "B17 require_contradiction_check switched off after approval exits 5 (rc=$RC)"
+  run_exec search "$(edited 'd["approval"].pop("request_digest")')"
+  check "$([ "$RC" -eq 5 ] && [ "$(jfield transmit_attempts)" = "0" ] && echo 1 || echo 0)" \
+        "B18 an approval record with NO request digest exits 5, nothing sent (rc=$RC)"
 
   # ── C. the sidecar is DOWN ───────────────────────────────────────────────
   # Nothing is listening on this port, which is byte-for-byte the code path a
@@ -252,8 +298,9 @@ d=json.loads(sys.argv[1]); d.pop("lexicon", None); print(json.dumps(d))' "$REQ_L
   local DEAD_PORT=9
   local REQD; REQD="$(request_json 127.0.0.1 "$DEAD_PORT" "$SECRET_Q" same_mac_searxng)"
   run_exec preview "$REQD"
-  local BODYD DIGD; BODYD="$(jfield encoded_body)"; DIGD="$(jfield body_digest)"
-  run_exec search "$(approved_json "$REQD" "$BODYD" "$DIGD")"
+  local BODYD DIGD RDIGD; BODYD="$(jfield encoded_body)"; DIGD="$(jfield body_digest)"
+  RDIGD="$(jfield request_digest)"
+  run_exec search "$(approved_json "$REQD" "$BODYD" "$DIGD" "$RDIGD")"
   check "$([ "$RC" -eq 3 ] && echo 1 || echo 0)" "C1 a sidecar that is not listening exits 3 RETRIEVAL_UNAVAILABLE (rc=$RC)"
   check "$([ "$(jfield status)" = "RETRIEVAL_UNAVAILABLE" ] && echo 1 || echo 0)" "C2 the status says so"
   check "$([ "$(jfield ok)" = "false" ] && echo 1 || echo 0)" "C3 ok is false"
@@ -265,8 +312,8 @@ d=json.loads(sys.argv[1]); d.pop("lexicon", None); print(json.dumps(d))' "$REQ_L
   section "D. policy refusals decided before a socket exists"
   local REQX; REQX="$(request_json 93.184.216.34 80 "$SECRET_Q" same_mac_searxng)"
   run_exec preview "$REQX"
-  local BX DX; BX="$(jfield encoded_body)"; DX="$(jfield body_digest)"
-  run_exec search "$(approved_json "$REQX" "$BX" "$DX")"
+  local BX DX RX; BX="$(jfield encoded_body)"; DX="$(jfield body_digest)"; RX="$(jfield request_digest)"
+  run_exec search "$(approved_json "$REQX" "$BX" "$DX" "$RX")"
   check "$([ "$RC" -eq 3 ] && echo 1 || echo 0)" "D1 a NON-LOOPBACK host is refused (rc=$RC)"
   check "$(echo "$OUT_JSON" | grep -q 'RefusedNonLoopback' && echo 1 || echo 0)" \
         "D2 and the refusal names RefusedNonLoopback, not a network error"
@@ -322,10 +369,10 @@ d=json.loads(sys.argv[1]); d["standard_edition"]=""; print(json.dumps(d))' "$REQ
       perl -e 'select(undef,undef,undef,0.05)'
     done
     if [ -z "$port" ]; then bad "$3 (stub never printed a port)"; kill "$stub_pid" 2>/dev/null; return; fi
-    local r b d
+    local r b d rd
     r="$(request_json 127.0.0.1 "$port" "$SECRET_Q" same_mac_searxng)"
-    run_exec preview "$r"; b="$(jfield encoded_body)"; d="$(jfield body_digest)"
-    run_exec search "$(approved_json "$r" "$b" "$d")"
+    run_exec preview "$r"; b="$(jfield encoded_body)"; d="$(jfield body_digest)"; rd="$(jfield request_digest)"
+    run_exec search "$(approved_json "$r" "$b" "$d" "$rd")"
     wait "$stub_pid" 2>/dev/null
     check "$([ "$RC" -eq "$2" ] && echo 1 || echo 0)" "$3 (rc=$RC, want $2)"
     STUB_ERR="$WORK/stub.err"
@@ -519,6 +566,12 @@ mutate "accept any digest (delete the digest comparison)" \
 mutate "accept edited bytes (delete the approved-body comparison)" \
   's%if (approved_body != preview.encoded_body) {%if (false) {%' \
   "B8 an approval recording DIFFERENT bytes"
+
+# 2b. Remove the request-digest comparison: the body still binds, the
+#     destination and the result handling no longer do.
+mutate "accept an approval for another endpoint (delete the request-digest comparison)" \
+  's%if (approved_request_digest != preview.request_digest) {%if (false) {%' \
+  "B13 PROVED ATTACK"
 
 # 3. Self-approve — and this one took three attempts to write, which is itself the
 #    finding. Removing the isObject() guard went uncaught (an absent object yields
