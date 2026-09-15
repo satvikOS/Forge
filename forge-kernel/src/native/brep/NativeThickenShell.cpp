@@ -1989,6 +1989,19 @@ TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
     if (!(vp.Mass() > 0.0))
         return defer("the thickened body has non-positive volume after orientation "
                      "normalisation");
+    // THE VALIDITY POST-CONDITION. Path D (thickenTrimmedCylinder) already checked
+    // it; paths A, B and C never did. MEASURED on a tray whose floor face
+    // carried its hole wire with the WRONG orientation (face area 416 where the
+    // hole should leave 384 -- a malformed input sheet): path B returned
+    // V=427.896753 with BRepCheck_Analyzer INVALID, as a success. OCCT's answer on
+    // that sheet is invalid too, so there is nothing correct to return; a refusal
+    // that points at the input is the only honest answer. The A/B harness and the
+    // corner parity gate already assert native validity on every success they
+    // measure, so this adds no decline on a measured input (re-run: both green).
+    if (!BRepCheck_Analyzer(out).IsValid())
+        return defer("the thickened body is not BRepCheck-valid (the input sheet is "
+                     "probably malformed: run SURFCHECK on it, and SEW or rebuild the "
+                     "offending face)");
     return out;
 }
 

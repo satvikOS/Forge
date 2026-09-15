@@ -71,6 +71,7 @@
 #include <TColStd_Array1OfInteger.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
+#include <TopoDS_Wire.hxx>
 #include <GeomAbs_JoinType.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -1134,6 +1135,55 @@ void runAll() {
         }
         ok(built == 2, "case16 : the CONVEX side builds and matches OCCT at t = 11.6 and 15");
         ok(declined == 2, "case16 : the CONCAVE side DECLINES at t = 11.6 and 15 (w > 10), naming it");
+    }
+    {
+        // case 17 — A HOLE NEAR A CONCAVE FOLD, and a MALFORMED hole. A 20x20 tray,
+        // walls 5, with a 4x4 hole in the floor 1 mm from the x=0 wall.
+        //   * t = +-0.5 and +2 build and match OCCT on the full vector (MEASURED);
+        //   * t = -2 (the concave side): the wall's slab reaches 2 mm over the floor
+        //     and the hole sits inside that strip -- DERIVATION 5a's hole check
+        //     declines it (OCCT's answer there is BRepCheck-INVALID);
+        //   * the same tray with the hole wire REVERSED (floor area 416, not 384 -- a
+        //     malformed sheet): before the validity post-condition native returned an
+        //     INVALID V=427.896753 as success. It must decline, naming validity.
+        const gp_Pnt p[8] = {gp_Pnt(0,0,0), gp_Pnt(20,0,0), gp_Pnt(20,20,0), gp_Pnt(0,20,0),
+                             gp_Pnt(0,0,5), gp_Pnt(20,0,5), gp_Pnt(20,20,5), gp_Pnt(0,20,5)};
+        BRepBuilderAPI_MakePolygon ow;
+        ow.Add(p[0]); ow.Add(p[3]); ow.Add(p[2]); ow.Add(p[1]); ow.Close();
+        BRepBuilderAPI_MakePolygon hw;
+        hw.Add(gp_Pnt(1, 8, 0)); hw.Add(gp_Pnt(5, 8, 0)); hw.Add(gp_Pnt(5, 12, 0)); hw.Add(gp_Pnt(1, 12, 0)); hw.Close();
+        const TopoDS_Wire hole = hw.Wire();
+        BRepBuilderAPI_MakeFace good(ow.Wire(), Standard_True);
+        good.Add(hole);
+        BRepBuilderAPI_MakeFace bad(ow.Wire(), Standard_True);
+        bad.Add(TopoDS::Wire(hole.Reversed()));
+        const TopoDS_Face walls[4] = {quadFace(p[0], p[1], p[5], p[4]), quadFace(p[2], p[3], p[7], p[6]),
+                                      quadFace(p[0], p[4], p[7], p[3]), quadFace(p[1], p[2], p[6], p[5])};
+        std::vector<TopoDS_Face> gf{good.Face()}, bf{bad.Face()};
+        for (const TopoDS_Face& w : walls) { gf.push_back(w); bf.push_back(w); }
+        const TopoDS_Shape tray = sewShell(gf), badTray = sewShell(bf);
+        {
+            GProp_GProps g;
+            BRepGProp::SurfaceProperties(good.Face(), g);
+            okNear(g.Mass(), 384.0, 1.0e-9, "case17 : the holed floor has area 400 - 16");
+        }
+        // which sign is the outward (convex) side: the one whose bbox leaves [0,20]
+        const bool plusOut = [&] {
+            const TopoDS_Shape s = forge::occtthicken::thickenShell(tray, 0.5);
+            return !s.IsNull() && observe(s).lo[0] < -0.25;
+        }();
+        const double out = plusOut ? 1.0 : -1.0;
+        abCase("case17 holed tray OUTWARD t=0.5", tray, out * 0.5);
+        abCase("case17 holed tray INWARD t=0.5 (strip 0.5 < 1 mm to the hole)", tray, -out * 0.5);
+        abCase("case17 holed tray OUTWARD t=2", tray, out * 2.0);
+        ok(forge::occtthicken::thickenShell(tray, -out * 2.0).IsNull(),
+           "case17 holed tray INWARD t=2 : DECLINED (the hole lies in the wall's 2 mm strip)");
+        okReason("the thickness trims a face past another part of its own boundary (a notch or a hole "
+                 "lies inside the strip a concave fold trims away)", "case17 holed tray INWARD t=2");
+        for (double tt : {0.5, -0.5, 2.0}) {
+            const std::string lab = "case17 MALFORMED tray (hole wire reversed) t=" + std::to_string(tt);
+            ok(forge::occtthicken::thickenShell(badTray, tt).IsNull(), lab + " : DECLINED, never an invalid solid");
+        }
     }
     {
         // case 15 — A PRISM THROUGH ANOTHER PART OF THE SHEET (DERIVATION 5b). Two
