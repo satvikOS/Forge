@@ -291,6 +291,13 @@ EntityRef pickedEdge(const EdgeSet& set, const std::string& node, std::size_t in
   return r;
 }
 
+std::string lowerAscii(std::string s) {
+  for (char& ch : s) {
+    if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+  }
+  return s;
+}
+
 std::string lastLine(const PartDocument& doc) {
   const FeatureRecord* f = doc.lastFeature();
   return f == nullptr ? std::string("<no feature>") : f->line.text();
@@ -729,10 +736,48 @@ int main() {
                       describeProseFindings(f).c_str());
         }
         CHECK(f.empty());
-        // A refusal a user cannot act on is a refusal that wastes their time:
-        // every one of these has to end in something to DO.
-        CHECK(r.detail.find("Pick") != std::string::npos ||
-              r.detail.find("Clear the selection") != std::string::npos);
+        // ── THE WAY OUT A REFUSAL OFFERS MUST BE ONE THE USER CAN TAKE ─────────
+        // Checked by TAKING it, not by grepping for an imperative. This used to
+        // accept any refusal containing "Pick" or "Clear the selection", and
+        // every refusal ended "clear the selection to act on every edge" -- while
+        // all three commands declare atLeast(Edge, 1), so a user who followed
+        // that advice was refused again before any handler ran, and a cleared
+        // selection names no body to act on in the first place.
+        const std::string said = lowerAscii(r.detail);
+        if (said.find("clear the selection") != std::string::npos) {
+          const SelectionService cleared;
+          const DispatchResult after = registry.evaluate(id, cleared, p);
+          if (!after.ok()) {
+            std::printf("  %s advises clearing the selection, which is then refused (%d): \"%s\"\n",
+                        id, statusOf(after), r.detail.c_str());
+          }
+          CHECK(after.ok());
+        }
+        // The one route to EVERY edge is typing ALL into the command's own
+        // selector box, which the handler honours ahead of the pick. A refusal
+        // must offer it exactly when the command HAS that box: Variable Fillet
+        // has none, and sending its user to look for one is advice they cannot
+        // take either.
+        bool hasSelectorBox = false;
+        for (const ParamSpec& spec : registry.find(id)->schema) {
+          if (spec.name == "selector") hasSelectorBox = true;
+        }
+        const bool offersSelectorBox = said.find("selector box") != std::string::npos;
+        if (offersSelectorBox != hasSelectorBox) {
+          std::printf("  %s: selector box %s, advice %s: \"%s\"\n", id,
+                      hasSelectorBox ? "exists" : "absent",
+                      offersSelectorBox ? "offers it" : "does not", r.detail.c_str());
+        }
+        CHECK(offersSelectorBox == hasSelectorBox);
+        if (offersSelectorBox) {
+          CommandParams typed = p;
+          typed.setText("selector", "ALL");
+          CHECK(registry.dispatch(id, sel, typed).ok());
+          CHECK(lastLine(doc).find(", ALL)") != std::string::npos);
+          CHECK(undoStack.undo(doc));
+        }
+        // ...and every refusal still ends in something to DO.
+        CHECK(said.find("pick") != std::string::npos || offersSelectorBox);
         ++scanned;
       }
     }

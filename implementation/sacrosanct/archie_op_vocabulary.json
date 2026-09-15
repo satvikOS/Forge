@@ -54,9 +54,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "8bb7c090baa62c10d01aeecc28327e3ad2fdb7108bf41968eb59eeabad10d5fa",
-        "bytes": 223514,
-        "lines": 3828
+        "sha256": "98a91acef222e6490e25eb0c4a9b3e95f1aea9d4b611e1dd6b21700c0797db3a",
+        "bytes": 225119,
+        "lines": 3846
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -8103,7 +8103,8 @@
         {
           "rewrite": "edge_selector",
           "selector_argument": 2,
-          "applies_when": "edges were picked in the viewport",
+          "typed_override_parameter": "selector",
+          "applies_when": "edges were picked in the viewport and nothing is typed in selector",
           "effect": "the selector becomes VERTICAL or HORIZONTAL when the picked edges are every edge of that class on the body, written in place or appended; any other pick is REFUSED and nothing is emitted"
         }
       ]
@@ -8490,7 +8491,8 @@
         {
           "rewrite": "edge_selector",
           "selector_argument": 2,
-          "applies_when": "edges were picked in the viewport",
+          "typed_override_parameter": "selector",
+          "applies_when": "edges were picked in the viewport and nothing is typed in selector",
           "effect": "the selector becomes VERTICAL or HORIZONTAL when the picked edges are every edge of that class on the body, written in place or appended; any other pick is REFUSED and nothing is emitted"
         }
       ]
@@ -11771,6 +11773,7 @@
         {
           "rewrite": "edge_selector",
           "selector_argument": 3,
+          "typed_override_parameter": null,
           "applies_when": "edges were picked in the viewport",
           "effect": "the selector becomes VERTICAL or HORIZONTAL when the picked edges are every edge of that class on the body, written in place or appended; any other pick is REFUSED and nothing is emitted"
         }

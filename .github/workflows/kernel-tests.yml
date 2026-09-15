@@ -523,7 +523,7 @@ jobs:
     name: a pick places the feature (selection gate, mutation-proved)
     # run_ui.sh in the `ui` job above already runs ui/test/selection_consumed_test.cpp
     # -- it globs ui/test/*_test.cpp -- so this job is the half a clean pass cannot
-    # give: six mutations in the real sources must each turn it red, and a
+    # give: eight mutations in the real sources must each turn it red, and a
     # comment-only control must leave it green.
     #
     # THE DEFECT, MEASURED ON THE SHIPPED REGISTRY: part.hole emitted
@@ -536,13 +536,13 @@ jobs:
     #   archdisc's own runs of 2026-09-14: 44m54s, 44m53s and 44m53s against what
     #   was then timeout-minutes: 45 (see the note on `ui`). This one compiles the
     #   ui sources ONCE and recompiles only the file a mutation edits, so it costs
-    #   one parallel build plus seven single-file rebuilds, not a full rebuild per
+    #   one parallel build plus nine single-file rebuilds, not a full rebuild per
     #   mutation, and it does not spend the budget of the job that is already full.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: prove the selection gate can fail (6 mutations + 1 control)
+      - name: prove the selection gate can fail (8 mutations + 1 control)
         run: bash ui/test/run_selection_consumed_gate.sh --mutations
 
   retrieval:

@@ -803,13 +803,22 @@ def scan_pick_rewrites(cid, body):
                            % PICK_REWRITES["placeOnPickedFace"][sense.group(1)]),
             })
         else:
-            if (len(parts) != 5 or parts[:2] != ["ctx", "args"] or not parts[2].isdigit()
-                    or not re.match(r'^"[^"]+"$', parts[3]) or not re.match(r'^"\w+"$', parts[4])):
+            # The sixth argument names the typed selector parameter that overrides
+            # the pick, or is nullptr when the command declares none. It is part of
+            # what the command emits -- a typed selector bypasses the rewrite -- so
+            # it is recorded, and anything else in that position is refused.
+            override = re.match(r'^"(\w+)"$', parts[5]) if len(parts) == 6 else None
+            if (len(parts) != 6 or parts[:2] != ["ctx", "args"] or not parts[2].isdigit()
+                    or not re.match(r'^"[^"]+"$', parts[3]) or not re.match(r'^"\w+"$', parts[4])
+                    or not (override or parts[5] == "nullptr")):
                 raise DeriveError("%s: unparsed narrowToPickedEdges(%s)" % (cid, inner))
             out.append({
                 "rewrite": "edge_selector",
                 "selector_argument": int(parts[2]),
-                "applies_when": "edges were picked in the viewport",
+                "typed_override_parameter": override.group(1) if override else None,
+                "applies_when": ("edges were picked in the viewport and nothing is typed in %s"
+                                 % override.group(1)) if override
+                                else "edges were picked in the viewport",
                 "effect": ("the selector becomes VERTICAL or HORIZONTAL when the picked "
                            "edges are every edge of that class on the body, written in "
                            "place or appended; any other pick is REFUSED and nothing is "
