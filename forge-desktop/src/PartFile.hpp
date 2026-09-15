@@ -44,6 +44,7 @@
 #include "forge/ui/Drawing.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/Material.hpp"
+#include "forge/ui/AssemblyModel.hpp"
 #include "forge/ui/PartCommands.hpp"
 
 namespace forge::desktop {
@@ -88,8 +89,13 @@ namespace forge::desktop {
 //   and the user gets an EMPTY viewport from a Save that reported success. The
 //   file has to carry the path or the most common CAD workflow there is --
 //   import, save, come back tomorrow -- cannot survive a restart.
+//
+// ★ WHY 5. The ASSEMBLY -- the components placed from this part's bodies, the
+//   joints between them and the ids they were issued -- is document state beside
+//   the program, and a version-4 file had nowhere to put it. Without these keys a
+//   Save reported success and the reopened document had no assembly at all.
 inline constexpr const char* kPartFileMagic = "FORGE-PART";
-inline constexpr int kPartFileVersion = 4;
+inline constexpr int kPartFileVersion = 5;
 inline constexpr int kOldestReadablePartFileVersion = 1;
 // The version the DRAWING blocks were introduced in. A file older than this may
 // not contain one.
@@ -97,6 +103,9 @@ inline constexpr int kPartFileDrawingVersion = 3;
 // The version INPUT-FILE was introduced in. A file older than this may not
 // contain one, for the same additive-only reason the drawing blocks carry theirs.
 inline constexpr int kPartFileInputVersion = 4;
+// The version the ASSEMBLY blocks (COMPONENT, JOINT) and ASSEMBLY-IDS were
+// introduced in. A file older than this may not contain one.
+inline constexpr int kPartFileAssemblyVersion = 5;
 inline constexpr const char* kPartFileExtension = ".fpart";
 
 // Whether this build can read a file claiming `version`. The accepted SET, not a
@@ -154,6 +163,12 @@ struct PartFileDoc {
   // and the geometric tolerances. Introduced in format version 2; a version 1
   // file loads with this empty.
   forge::ui::DrawingModel drawing;
+  // ── THE ASSEMBLY (format version 5) ──────────────────────────────────────
+  // Components, joints and the id counters, stored with round-trip numbers so a
+  // placement comes back as the same double it went out as. Written only when
+  // the assembly has ever issued an id, so a part that never had one saves the
+  // same records as before.
+  forge::ui::assembly::Assembly assembly;
   // The version the data was READ from, so a caller can tell a v1 document from
   // a v2 one. The writer always emits kPartFileVersion.
   int version = kPartFileVersion;

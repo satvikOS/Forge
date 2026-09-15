@@ -239,7 +239,7 @@ int main() {
   // reader enforces that, so requiring the v1 probe to carry the drawing keys
   // would require it to be a file the app is right to refuse.
   const std::string everyCurrentKey =
-      "FORGE-PART 4\n"
+      "FORGE-PART 5\n"
       "NAME probe\n"
       "UNITS mm\n"
       // Version 4's one new key: the file an imported body came from. Covered
@@ -306,6 +306,33 @@ int main() {
       "ARG num 1\n"
       "ARG num 2\n"
       "ARG num 3\n"
+      "END\n"
+      // Version 5's keys: the ASSEMBLY -- the id counters, a component placed from
+      // statement 1, and a joint between two components. Covered for the reason
+      // INPUT-FILE is: every key the reader accepts belongs in this contract.
+      "ASSEMBLY-IDS 3 2\n"
+      "COMPONENT\n"
+      "ID 1\n"
+      "NAME Base\n"
+      "BODY 1\n"
+      "PLACE 0 0 0 1 0 0 0 1 0 0 0 1\n"
+      "GROUNDED\n"
+      "END\n"
+      "COMPONENT\n"
+      "ID 2\n"
+      "NAME Arm\n"
+      "BODY 1\n"
+      "PLACE 80 0 5 1 0 0 0 1 0 0 0 1\n"
+      "END\n"
+      "JOINT\n"
+      "ID 1\n"
+      "NAME Hinge\n"
+      "JOINT-KIND REVOLUTE\n"
+      "FIRST 1\n"
+      "SECOND 2\n"
+      "ON-FIRST 40 0 5 1 0 0 0 1 0 0 0 1\n"
+      "ON-SECOND -40 0 0 1 0 0 0 1 0 0 0 1\n"
+      "VALUE 0\n"
       "END\n";
 
   // ONE canonical v1 document exercising EVERY key the shipped writer can emit.
@@ -506,7 +533,8 @@ int main() {
   const bool pinsAcceptedSet =
       source.find("bool partFileVersionIsReadable(int version) noexcept") != std::string::npos &&
       source.find("version == 1 || version == kPartFileDrawingVersion || "
-                  "version == kPartFileVersion") != std::string::npos;
+                  "version == kPartFileInputVersion ||") != std::string::npos &&
+      source.find("version == kPartFileVersion;") != std::string::npos;
   CHECK(pinsAcceptedSet);
   // The app's OWN older files must stay readable. This is the half a version
   // bump is most likely to break, and it is the half users notice.

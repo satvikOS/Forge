@@ -73,7 +73,9 @@ compile() {  # compile <src> <obj>
     echo "[assembly-gate] BUILD FAIL -- $1"; tail -15 "$2.err"; echo "$1" >> "$FAILMARK"
   fi
 }
-SRCS=(ui/src/*.cpp forge-desktop/src/AssemblySolverHost.cpp)
+# PartFile.cpp for the Save/Open section: it is the .fpart reader and writer and
+# names nothing from the kernel.
+SRCS=(ui/src/*.cpp forge-desktop/src/AssemblySolverHost.cpp forge-desktop/src/PartFile.cpp)
 OBJS=()
 for src in "${SRCS[@]}"; do
   o="$OBJ/$(echo "$src" | tr '/.' '__').o"

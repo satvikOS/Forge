@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "AssemblySolverHost.hpp"
+#include "PartFile.hpp"
 #include "forge/ui/AssemblyCommands.hpp"
 #include "forge/ui/AssemblyModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -335,6 +336,43 @@ int main() {
     check(arm != nullptr && std::abs(arm->placement.t[0] - 80.0) < 1e-6 && std::abs(arm->placement.t[1]) < 1e-6 &&
               std::abs(arm->placement.t[2] - 30.0) < 1e-6,
           "Arm rose from z = 5 to z = 30 and moved nowhere else");
+  }
+
+  // ── F ───────────────────────────────────────────────────────────────────────
+  std::printf("[F] the assembly survives Save and Open, exactly\n");
+  {
+    Bench b;
+    check(b.hinged() && b.turn("Hinge", 30.0).ok(), "the hinged plates, turned to 30 degrees");
+    const std::string text = forge::desktop::writePartFile(
+        forge::desktop::capturePartDocument(b.doc, "hinge", forge::ui::DrawingModel{}, std::string()));
+    check(text.rfind("FORGE-PART 5\n", 0) == 0, "the file is format version 5");
+    forge::desktop::PartFileDoc file;
+    std::string why;
+    check(forge::desktop::readPartFile(text, file, why), "it reads back" + (why.empty() ? "" : ": " + why));
+    PartDocument reopened;
+    check(forge::desktop::restorePartDocument(file, reopened, why), "it restores" + (why.empty() ? "" : ": " + why));
+    check(reopened.assembly() == b.doc.assembly(),
+          "the reopened assembly is bit-identical: placements, frames, names, ids, ground");
+    check(asmb::countFreedom(reopened.assembly()).degrees == 1, "and still has 1 degree of freedom");
+    std::string at30;
+    check(armAt(reopened.assembly().componentNamed("Arm"), 30.0, at30), "Arm is still at 30 degrees: " + at30);
+
+    // A version-4 file carrying an assembly is hand-edited, and refused.
+    std::string v4 = text;
+    v4.replace(0, 12, "FORGE-PART 4");
+    check(!forge::desktop::readPartFile(v4, file, why) && why.find("version 5") != std::string::npos,
+          "a version-4 file with an assembly is refused: " + why);
+    // An assembly whose component names a body the file does not build is refused.
+    const std::string badBody = "BODY " + std::to_string(b.plate);
+    std::string orphan = text;
+    const std::size_t at = orphan.find(badBody + "\n");
+    if (at != std::string::npos) orphan.replace(at, badBody.size(), "BODY 99");
+    forge::desktop::PartFileDoc orphanFile;
+    PartDocument orphanDoc;
+    check(forge::desktop::readPartFile(orphan, orphanFile, why) &&
+              !forge::desktop::restorePartDocument(orphanFile, orphanDoc, why) &&
+              why.find("no longer in this part") != std::string::npos,
+          "an assembly naming a body the part does not build is refused: " + why);
   }
 
   std::printf("[assembly-solver-gate] %d checks, %d failed -- %s\n", g_checks, g_failed,

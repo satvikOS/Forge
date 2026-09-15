@@ -280,10 +280,51 @@ std::string drawingText(const forge::ui::DrawingModel& d) {
   return out;
 }
 
+// A placement as twelve round-trip numbers: the translation, then the rotation
+// row by row. Round-trip, not formatIrNumber: a placement read back one bit off
+// is a joint that no longer holds.
+std::string placementText(const forge::ui::assembly::Placement& p) {
+  std::string out;
+  for (double v : p.t) {
+    if (!out.empty()) out += ' ';
+    out += forge::ui::formatRoundTripNumber(v);
+  }
+  for (double v : p.r) {
+    out += ' ';
+    out += forge::ui::formatRoundTripNumber(v);
+  }
+  return out;
+}
+
+bool placementFromText(const std::string& text, forge::ui::assembly::Placement& p) {
+  std::istringstream in(text);
+  std::string token;
+  double v[12] = {};
+  for (int i = 0; i < 12; ++i) {
+    if (!(in >> token) || !forge::ui::parseRoundTripNumber(token, v[i])) return false;
+  }
+  if (in >> token) return false;  // a thirteenth number is a different record
+  for (int i = 0; i < 3; ++i) p.t[static_cast<std::size_t>(i)] = v[i];
+  for (int i = 0; i < 9; ++i) p.r[static_cast<std::size_t>(i)] = v[3 + i];
+  return true;
+}
+
+bool wholeNumber(const std::string& text, int& out) {
+  const char* begin = text.c_str();
+  char* end = nullptr;
+  const long value = std::strtol(begin, &end, 10);
+  if (end == begin || *end != 0 || value <= 0 || value > 1000000000L) return false;
+  out = static_cast<int>(value);
+  return true;
+}
+
 }  // namespace
 
 bool partFileVersionIsReadable(int version) noexcept {
-  return version == 1 || version == kPartFileDrawingVersion || version == kPartFileVersion;
+  // 4 stays readable beside the current 5 for the reason 3 stayed beside 4: a
+  // .fpart the shipped app wrote yesterday claims it.
+  return version == 1 || version == kPartFileDrawingVersion || version == kPartFileInputVersion ||
+         version == kPartFileVersion;
 }
 
 namespace {
@@ -411,6 +452,37 @@ std::string writePartFile(const PartFileDoc& doc) {
     }
     out += "END\n";
   }
+  // ── THE ASSEMBLY (format version 5), after the bodies it is made from ──────
+  // Written whenever the assembly has ISSUED an id, not merely when it holds a
+  // component: a document whose last component was removed must still reopen
+  // with the counters where they were, or a new component could be handed an id
+  // an undo history or an Archie trace already used for a different one.
+  const forge::ui::assembly::Assembly& a = doc.assembly;
+  if (!a.empty() || a.nextComponentId > 1 || a.nextJointId > 1) {
+    out += "ASSEMBLY-IDS " + std::to_string(a.nextComponentId) + " " +
+           std::to_string(a.nextJointId) + "\n";
+    for (const forge::ui::assembly::Component& c : a.components) {
+      out += "COMPONENT\n";
+      out += "ID " + std::to_string(c.id) + "\n";
+      out += "NAME " + c.name + "\n";
+      out += "BODY " + std::to_string(c.body) + "\n";
+      out += "PLACE " + placementText(c.placement) + "\n";
+      if (c.grounded) out += "GROUNDED\n";
+      out += "END\n";
+    }
+    for (const forge::ui::assembly::Joint& j : a.joints) {
+      out += "JOINT\n";
+      out += "ID " + std::to_string(j.id) + "\n";
+      out += "NAME " + j.name + "\n";
+      out += "JOINT-KIND " + std::string(forge::ui::assembly::keyword(j.kind)) + "\n";
+      out += "FIRST " + std::to_string(j.first) + "\n";
+      out += "SECOND " + std::to_string(j.second) + "\n";
+      out += "ON-FIRST " + placementText(j.onFirst) + "\n";
+      out += "ON-SECOND " + placementText(j.onSecond) + "\n";
+      out += "VALUE " + forge::ui::formatRoundTripNumber(j.value) + "\n";
+      out += "END\n";
+    }
+  }
   return out;
 }
 
@@ -427,8 +499,17 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
   // The drawing, accumulated block by block. Held in locals rather than being
   // pushed into `doc.drawing` as it is read, because a file that fails halfway
   // must not half-replace anything -- the same rule the feature list follows.
-  enum class Block { None, TitleBlock, Datum, Note, Control };
+  enum class Block { None, TitleBlock, Datum, Note, Control, Component, Joint };
   Block block = Block::None;
+  // The assembly, accumulated the same way and for the same reason.
+  forge::ui::assembly::Assembly assembly;
+  bool sawAssemblyIds = false;
+  forge::ui::assembly::Component curComponent;
+  forge::ui::assembly::Joint curJoint;
+  bool curComponentPlaced = false;
+  bool curJointKind = false;
+  bool curJointOnFirst = false;
+  bool curJointOnSecond = false;
   forge::ui::TitleBlockData title;
   std::vector<forge::ui::DatumFeature> datums;
   std::vector<forge::ui::Annotation> notes;
@@ -521,12 +602,86 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
             if (!(curControl.toleranceMm > 0.0)) return fail("CONTROL block has no TOL");
             controls.push_back(curControl);
             break;
+          case Block::Component:
+            if (curComponent.id <= 0) return fail("COMPONENT block has no ID");
+            if (curComponent.name.empty()) return fail("COMPONENT block has no NAME");
+            if (curComponent.body <= 0) return fail("COMPONENT block has no BODY");
+            if (!curComponentPlaced) return fail("COMPONENT block has no PLACE");
+            assembly.components.push_back(curComponent);
+            break;
+          case Block::Joint:
+            if (curJoint.id <= 0) return fail("JOINT block has no ID");
+            if (curJoint.name.empty()) return fail("JOINT block has no NAME");
+            if (!curJointKind) return fail("JOINT block has no JOINT-KIND");
+            if (curJoint.first <= 0 || curJoint.second <= 0) {
+              return fail("JOINT block does not name both components");
+            }
+            if (!curJointOnFirst || !curJointOnSecond) return fail("JOINT block is missing a frame");
+            assembly.joints.push_back(curJoint);
+            break;
           case Block::TitleBlock:
           case Block::None:
             break;
         }
         block = Block::None;
         continue;
+      }
+      // ── the assembly blocks (version 5) ────────────────────────────────────
+      if (block == Block::Component) {
+        if (key == "ID") {
+          if (!wholeNumber(rest, curComponent.id)) return fail("component ID is not a whole number: " + rest);
+          continue;
+        }
+        if (key == "NAME") { curComponent.name = rest; continue; }
+        if (key == "BODY") {
+          if (!wholeNumber(rest, curComponent.body)) return fail("BODY is not a statement number: " + rest);
+          continue;
+        }
+        if (key == "PLACE") {
+          if (!placementFromText(rest, curComponent.placement)) {
+            return fail("PLACE needs twelve numbers: " + rest);
+          }
+          curComponentPlaced = true;
+          continue;
+        }
+        if (key == "GROUNDED") {
+          if (!rest.empty()) return fail("GROUNDED takes no value");
+          curComponent.grounded = true;
+          continue;
+        }
+        return fail("unknown key '" + key + "' inside a COMPONENT block");
+      }
+      if (block == Block::Joint) {
+        if (key == "ID") {
+          if (!wholeNumber(rest, curJoint.id)) return fail("joint ID is not a whole number: " + rest);
+          continue;
+        }
+        if (key == "NAME") { curJoint.name = rest; continue; }
+        if (key == "JOINT-KIND") {
+          if (!forge::ui::assembly::jointKindFromKeyword(rest, curJoint.kind)) {
+            return fail("unknown JOINT-KIND '" + rest + "'");
+          }
+          curJointKind = true;
+          continue;
+        }
+        if (key == "FIRST" || key == "SECOND") {
+          int& side = key == "FIRST" ? curJoint.first : curJoint.second;
+          if (!wholeNumber(rest, side)) return fail(key + " is not a component id: " + rest);
+          continue;
+        }
+        if (key == "ON-FIRST" || key == "ON-SECOND") {
+          forge::ui::assembly::Placement& frame = key == "ON-FIRST" ? curJoint.onFirst : curJoint.onSecond;
+          if (!placementFromText(rest, frame)) return fail(key + " needs twelve numbers: " + rest);
+          (key == "ON-FIRST" ? curJointOnFirst : curJointOnSecond) = true;
+          continue;
+        }
+        if (key == "VALUE") {
+          if (!forge::ui::parseRoundTripNumber(rest, curJoint.value)) {
+            return fail("VALUE is not a number: " + rest);
+          }
+          continue;
+        }
+        return fail("unknown key '" + key + "' inside a JOINT block");
       }
       std::string why;
       const int consumed = refKey(key, rest, why);
@@ -712,6 +867,36 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
         current = PartFileFeature{};
         continue;
       }
+      if (key == "ASSEMBLY-IDS" || key == "COMPONENT" || key == "JOINT") {
+        // ADDITIVE-ONLY, like every key before it: the assembly arrived in
+        // version 5, so an older file carrying it has been hand-edited.
+        if (fileVersion < kPartFileAssemblyVersion) {
+          return fail("'" + key + "' was added in format version " +
+                      std::to_string(kPartFileAssemblyVersion) +
+                      ", but this file says it is version " + std::to_string(fileVersion));
+        }
+        if (key == "ASSEMBLY-IDS") {
+          std::istringstream ids(rest);
+          std::string a, b, extra;
+          if (!(ids >> a >> b) || (ids >> extra) || !wholeNumber(a, assembly.nextComponentId) ||
+              !wholeNumber(b, assembly.nextJointId)) {
+            return fail("ASSEMBLY-IDS needs the next component id and the next joint id: " + rest);
+          }
+          sawAssemblyIds = true;
+          continue;
+        }
+        if (!sawAssemblyIds) return fail("'" + key + "' before ASSEMBLY-IDS");
+        if (key == "COMPONENT") {
+          block = Block::Component;
+          curComponent = forge::ui::assembly::Component{};
+          curComponentPlaced = false;
+        } else {
+          block = Block::Joint;
+          curJoint = forge::ui::assembly::Joint{};
+          curJointKind = curJointOnFirst = curJointOnSecond = false;
+        }
+        continue;
+      }
       if (key == "TITLEBLOCK" || key == "DATUM" || key == "NOTE" || key == "CONTROL") {
         // ADDITIVE-ONLY, enforced rather than documented: these blocks were
         // introduced in version 2, so a file that CLAIMS version 1 and contains
@@ -782,6 +967,7 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
   }
   doc.version = fileVersion;
   doc.drawing.restore(std::move(title), std::move(datums), std::move(notes), std::move(controls));
+  doc.assembly = std::move(assembly);
   out = std::move(doc);
   error.clear();
   return true;
@@ -800,6 +986,7 @@ PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::s
   out.units = forge::ui::toString(forge::ui::kInternalLengthUnit);
   out.drawing = drawing;
   out.material = doc.material();
+  out.assembly = doc.assembly();
   // snapshot() is the document's own published view of its node bindings; the
   // reverse index is built here rather than kept in a second place that could
   // fall behind it.
@@ -851,6 +1038,19 @@ bool restorePartDocument(const PartFileDoc& file, forge::ui::PartDocument& doc,
               ") was refused: " + forge::ui::toString(doc.lastCheck());
       return false;
     }
+  }
+  // ── THE ASSEMBLY, checked against the part it was saved with ──────────────
+  // After the statements, because a component names one of them. A file whose
+  // assembly names a body the file does not build, or two components by one
+  // name, is REFUSED by the same validator an assembly command answers to, rather
+  // than opening into an assembly Forge would then have to guess about.
+  if (!file.assembly.empty() || file.assembly.nextComponentId > 1 || file.assembly.nextJointId > 1) {
+    const forge::ui::assembly::AsmVerdict v = forge::ui::assembly::validate(file.assembly, &doc);
+    if (!v.ok()) {
+      error = "the assembly in this file does not fit its part: " + v.reason;
+      return false;
+    }
+    doc.setAssembly(file.assembly);
   }
   error.clear();
   return true;
