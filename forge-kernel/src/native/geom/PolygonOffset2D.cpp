@@ -443,8 +443,20 @@ std::vector<Loop2> PolygonOffset2D::cleanRawLoop(const Loop2& raw,
                 const Point2& X = si.point;
                 double ti = paramOnSeg(segs[i].a, segs[i].b, X);
                 double tj = paramOnSeg(segs[j].a, segs[j].b, X);
-                if (ti > 1e-9 && ti < 1.0 - 1e-9) splits[i].push_back({ti, X});
-                if (tj > 1e-9 && tj < 1.0 - 1e-9) splits[j].push_back({tj, X});
+                // The guard is only "strictly between the end points", not a
+                // PARAMETRIC margin. A margin of 1e-9 of the segment is an
+                // absolute length that grows with the segment: on a 1800 mm side
+                // it is 1.8e-6 mm, and the crossing of that side with the first
+                // chord of a fillet offset inward by 0.005 mm sits 1.1e-6 mm from
+                // the side's end (measured 2026-09-15, 2000 x 1000 mm rounded
+                // rectangle, f = 200). The long side was then NOT split while the
+                // short chord was, the corner's ear never closed into a sub-chain
+                // the excision below can see, and the offset was reported as a
+                // total collapse. A crossing close to an end point needs no
+                // special case: it is welded to that end point's node by the
+                // same snapDist every other vertex is.
+                if (ti > 0.0 && ti < 1.0) splits[i].push_back({ti, X});
+                if (tj > 0.0 && tj < 1.0) splits[j].push_back({tj, X});
             }
         }
     }
