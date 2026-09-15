@@ -1706,9 +1706,12 @@ if(FORGE_NATIVE_BREP AND FORGE_THICKEN_DROP_NATIVE)
                    "when all nine families are out, and eight are still open, so the SHIPPED "
                    "toolkit count does not move on this change alone. The family passes its "
                    "flip gate (600/600 native against 600/600 OCCT over the gold corpus, "
-                   "deletion bucket 0). A shell the native thicken declines — a curved FOLD, a "
-                   "non-manifold edge, an acute concave fold, or a saddle / open-fan / "
-                   "non-perpendicular concave corner — "
+                   "deletion bucket 0) -- a corpus with NO vertex where three plates meet, so "
+                   "3+-plate corners are measured separately by thicken_corner_parity_gate "
+                   "(closed forms + OCCT oracle). A shell the native thicken declines — a "
+                   "curved FOLD, a non-manifold edge, an acute concave fold, a saddle / "
+                   "open-fan / non-perpendicular concave corner, a thickness that consumes a "
+                   "face on the concave side, or a prism through another part of the sheet — "
                    "now THROWS, quoting the engine's own defer reason. There is no fallback to "
                    "fall back to.")
 endif()
