@@ -93,7 +93,7 @@ const char* sketchGeometryWord(SketchGeometryKind kind) noexcept {
 }
 
 std::size_t sketchFreedoms(SketchGeometryKind kind) noexcept {
-  // Sketch::collectUnknowns(), forge-kernel/src/Sketcher.cpp: x and y per point,
+  // collectUnknowns(), in the solver library's third_party/freecad-derived/sketch-solver/src/forge_gcs.cpp: x and y per point,
   // rad per circle, rad + startAngle + endAngle per arc, and nothing at all for a
   // line -- a line is two points that already counted themselves.
   switch (kind) {

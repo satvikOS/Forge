@@ -168,17 +168,28 @@ int main() {
     if (!ok) std::printf("  cannot read forge-kernel/src/Sketcher.cpp -- nothing to derive from\n");
     CHECK(ok);
 
-    // ── the geometry side: Sketch::collectUnknowns() ───────────────────────
+    // ── the geometry side: collectUnknowns() ───────────────────────────────
     // It pushes one unknown per free number, grouped by a loop over each
     // container. The count per kind is how many push_back calls its loop makes.
-    const std::string unknowns = bodyAfter(sketcher, "void collectUnknowns(");
+    //
+    // WHERE IT LIVES MOVED, AND THE RULE DID NOT. Since 2026-09-15 the solver is
+    // libforge_gcs, a separate LGPL shared library, and the function that hands
+    // the solver its unknowns is in that library's C interface implementation
+    // (forge_gcs_solve / forge_gcs_diagnose declare them). Forge's adapter,
+    // Sketcher.cpp, no longer holds a parameter at all. The definition is still
+    // the function that FEEDS THE SOLVER, so that is what is read.
+    bool gcsOk = false;
+    const std::string gcsImpl =
+        readFile(root + "/third_party/freecad-derived/sketch-solver/src/forge_gcs.cpp", gcsOk);
+    CHECK(gcsOk);
+    const std::string unknowns = bodyAfter(gcsImpl, "void collectUnknowns(");
     if (unknowns.empty()) {
-      std::printf("  collectUnknowns() was not found in Sketcher.cpp -- the geometry side of "
-                  "the table cannot be derived and must not be assumed\n");
+      std::printf("  collectUnknowns() was not found in the solver library -- the geometry side "
+                  "of the table cannot be derived and must not be assumed\n");
     }
     CHECK(!unknowns.empty());
     if (!unknowns.empty()) {
-      const std::size_t pointsAt = unknowns.find("gcsPoints");
+      const std::size_t pointsAt = unknowns.find(": points");
       const std::size_t circlesAt = unknowns.find(": circles");
       const std::size_t arcsAt = unknowns.find(": arcs");
       CHECK(pointsAt != std::string::npos);
@@ -245,9 +256,12 @@ int main() {
       // a point coincidence is x AND y, and a point symmetry is two constraints
       // (both read out of GCS.cpp).
       const bool branches = contains(arm, "if (") || contains(arm, "switch (");
-      const std::size_t calls = countOf(arm, "gcs.addConstraint");
-      const std::size_t doubles = countOf(arm, "gcs.addConstraintP2PCoincident") +
-                                  countOf(arm, "gcs.addConstraintP2PSymmetric");
+      // Each call is `s.add(FORGE_GCS_<PRIMITIVE>, ...)` -- one planegcs
+      // System::addConstraint* entry point per primitive, through the library's
+      // C interface (see include/forge_gcs/forge_gcs.h for the mapping).
+      const std::size_t calls = countOf(arm, "s.add(FORGE_GCS_");
+      const std::size_t doubles = countOf(arm, "s.add(FORGE_GCS_P2P_COINCIDENT") +
+                                  countOf(arm, "s.add(FORGE_GCS_P2P_SYMMETRIC_");
       CHECK(calls >= 1);
       std::size_t derived = 0;
       if (!branches) {

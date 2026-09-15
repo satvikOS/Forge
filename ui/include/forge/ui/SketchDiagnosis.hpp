@@ -39,7 +39,9 @@
 // RE-DERIVES both by reading those sources AS DATA -- the same way
 // ui/test/feature_ir_test.cpp re-derives the IR op table.
 //
-//   the geometry side   forge-kernel/src/Sketcher.cpp, Sketch::collectUnknowns().
+//   the geometry side   collectUnknowns() in the solver library
+//                       (third_party/freecad-derived/sketch-solver/src/forge_gcs.cpp;
+//                       until 2026-09-15 Sketch::collectUnknowns() in Sketcher.cpp).
 //                       That function is the definition: it is what hands the
 //                       solver its unknowns. It pushes x and y for every POINT,
 //                       `rad` for every CIRCLE, and `rad`, `startAngle`,

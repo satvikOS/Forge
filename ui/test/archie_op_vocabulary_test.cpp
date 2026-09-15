@@ -474,6 +474,9 @@ std::string resolvePlaceholder(const std::string& token) {
   if (token == "%entity") return "%11";
   if (token == "%entityA") return "%11";
   if (token == "%entityB") return "%12";
+  // SYMM / MIDPT's third operand -- the line or point the other two mirror
+  // about. A DIFFERENT role from both, so it resolves to the third entity.
+  if (token == "%about") return "%13";
   return token;
 }
 
