@@ -460,6 +460,18 @@ std::size_t ForgeFrame::wirePartCommands() {
 
   const std::size_t added =
       forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
+  // THE ASSEMBLY WORKSPACE'S COMMANDS, into the same registry and onto the same
+  // document and undo stack: an assembly edit and a fillet are one linear history,
+  // and edit.undo walks back whichever came last. The solver is installed into the
+  // slot the handlers read, so every assembly edit is solved by the shipped
+  // library and then re-measured by forge::ui before it is committed.
+  //
+  // Counted SEPARATELY from `added`: this function's return value is the Part
+  // command count, and gates compare it with partCommandIds() by that name.
+  const std::size_t assemblyAdded = forge::ui::registerAssemblyCommands(
+      shell_.registry(), partDoc_, partUndo_, assemblySlot_);
+  assemblySlot_.solver = &assemblySolver_;
+  note("Assembly tools ready: " + std::to_string(assemblyAdded));
   partWired_ = true;
   // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
   // act on this document, and the status strip's counters are read from it.
@@ -565,6 +577,18 @@ void ForgeFrame::applyDocumentRefit(bool sceneShowsTheDocument) {
 
 // ── the document -> geometry edge ───────────────────────────────────────────
 bool ForgeFrame::syncSceneToDocument() {
+  // ── AN ASSEMBLY EDIT CHANGES NO STATEMENT ───────────────────────────────
+  // Placing, joining or moving a component leaves irProgram() byte-identical, so
+  // the guard below would see nothing happen and the document would stay CLEAN:
+  // no unsaved-changes mark, no prompt on close, and the assembly lost. The
+  // assembly is compared here, on every path that reaches this function -- a
+  // command, an undo, a redo -- and a change marks the document dirty. Paths that
+  // replace the document (New, Open, recovery) set the flag themselves AFTER
+  // calling this, so a freshly opened file still opens clean.
+  if (!(partDoc_.assembly() == syncedAssembly_)) {
+    syncedAssembly_ = partDoc_.assembly();
+    documentDirty_ = true;
+  }
   const std::string program = partDoc_.irProgram();
   // Guard on what was last ATTEMPTED, not on what last BUILT. A program the kernel
   // refused is still "already tried", and retrying it every frame is a spin.
@@ -3741,6 +3765,9 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   // touches the document, and the combo that asks for it is drawn inside the
   // dock walk.
   runPendingMaterial();
+  // The Assembly tab's gestures -- ground, release, remove, move a joint -- on the
+  // same deferral, for the same reason.
+  runPendingPanelCommand();
   // The quality check, deferred like every other mutation: it runs the kernel
   // (in the worker, when one is configured), can take seconds and pumps this
   // host while it waits, so it must not run with a dock node held open.
@@ -5894,28 +5921,152 @@ forge::ui::StudyPlan ForgeFrame::studyPlan() {
 
 // ── the assembly ────────────────────────────────────────────────────────────
 //
-// WHAT IS PLACED WHERE. Every body the program builds, nested under the body
-// that absorbed it, and under each one the statements that place counted copies
-// of it. Clicking a row selects that body through the SAME clickFeature() a
-// feature-tree row uses, so a component picked here satisfies a boolean's
-// signature exactly as one picked in the history does.
+// ★ WHAT THIS TAB USED TO ANSWER. It drew the part's own bodies nested under
+//   the booleans that absorbed them -- a reading of the FEATURE HISTORY, under a
+//   tab that promises an assembly. Nothing in the application could place a
+//   component, join two of them or say how free they were.
+//
+// It now draws THE ASSEMBLY: the components placed in this document, the joints
+// between them, how many degrees of freedom are left, and the parts list, every
+// string of it from forge::ui::buildAssemblyTreeView (pinned by
+// ui/test/assembly_model_test.cpp). Every gesture on it -- ground, release,
+// remove, move a joint -- is a registry command run after the dock walk, the
+// same one a macro or an Archie plan step runs.
+//
+// Below it stays the one part of the old reading that serves this tab: the
+// bodies this part builds, because a body picked there is what Insert Component
+// places.
 void ForgeFrame::drawAssemblyTreePanel() {
   assemblyRowsDrawn_ = 0;
-  const forge::ui::AssemblyTree tree = assemblyTree();
+  const forge::ui::AssemblyTreeView view = forge::ui::buildAssemblyTreeView(partDoc_);
 
   ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
   ImGui::Separator();
 
+  if (view.empty) {
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("Nothing is placed in this assembly yet. Pick a body below and choose "
+                       "Insert Component, then join components with Add Joint or Mate "
+                       "Components.");
+    ImGui::PopTextWrapPos();
+  } else {
+    ImGui::TextColored(view.trouble ? rgb(235, 175, 95) : rgb(130, 137, 148), "%s",
+                       view.summary.c_str());
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(242, 158, 38), "Components");
+    for (const forge::ui::AssemblyTreeRow& row : view.components) {
+      ++assemblyRowsDrawn_;
+      ImGui::PushID(row.id);
+      char line[200];
+      std::snprintf(line, sizeof(line), "%s%s   %s", row.grounded ? "[grounded] " : "",
+                    row.label.c_str(), row.detail.c_str());
+      if (row.problem) ImGui::PushStyleColor(ImGuiCol_Text, rgb(235, 175, 95));
+      ImGui::Selectable(line, false);
+      if (row.problem) ImGui::PopStyleColor();
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", row.statement.c_str());
+      if (ImGui::BeginPopupContextItem("##component")) {
+        if (ImGui::MenuItem(row.grounded ? "Release" : "Ground")) {
+          forge::ui::CommandParams p;
+          p.setText("component", row.label);
+          p.setFlag("grounded", !row.grounded);
+          queuePanelCommand("assembly.ground", p);
+        }
+        if (ImGui::MenuItem("Remove")) {
+          forge::ui::CommandParams p;
+          p.setText("name", row.label);
+          queuePanelCommand("assembly.remove", p);
+        }
+        ImGui::EndPopup();
+      }
+      ImGui::PopID();
+    }
+    if (!view.joints.empty()) {
+      ImGui::Spacing();
+      ImGui::TextColored(rgb(242, 158, 38), "Joints");
+    }
+    for (const forge::ui::AssemblyTreeRow& row : view.joints) {
+      ++assemblyRowsDrawn_;
+      ImGui::PushID(10000 + row.id);
+      char line[220];
+      std::snprintf(line, sizeof(line), "%s   %s", row.label.c_str(), row.detail.c_str());
+      if (row.problem) ImGui::PushStyleColor(ImGuiCol_Text, rgb(235, 175, 95));
+      ImGui::Selectable(line, false);
+      if (row.problem) ImGui::PopStyleColor();
+      if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", row.statement.c_str());
+      if (ImGui::BeginPopupContextItem("##joint")) {
+        if (ImGui::MenuItem("Remove")) {
+          forge::ui::CommandParams p;
+          p.setText("name", row.label);
+          queuePanelCommand("assembly.remove", p);
+        }
+        ImGui::EndPopup();
+      }
+      // A turning or sliding joint can be MOVED from here: the box starts at
+      // where the joint is now, and Move runs the same command Archie would.
+      if (row.turns || row.slides) {
+        ImGui::Indent();
+        // The box shows where the joint IS until the user types into it, and then
+        // keeps what they typed until Move sends it -- a box that snapped back to
+        // the current angle between the keystroke and the click would send the
+        // wrong number.
+        JointMoveBox& box = jointMoveBoxes_[row.id];
+        if (!box.touched) box.value = row.turns ? row.turnDeg : row.slideMm;
+        ImGui::SetNextItemWidth(110.0f);
+        if (ImGui::InputDouble(row.turns ? "degrees##move" : "mm##move", &box.value, 0.0, 0.0,
+                               "%.3f")) {
+          box.touched = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Move")) {
+          forge::ui::CommandParams p;
+          p.setText("joint", row.label);
+          p.setNumber("value", box.value);
+          if (row.turns && row.slides) p.setFlag("slide", false);
+          queuePanelCommand("assembly.move_joint", p);
+          box.touched = false;
+        }
+        ImGui::Unindent();
+      }
+      ImGui::PopID();
+    }
+    if (!view.bom.empty()) {
+      ImGui::Spacing();
+      ImGui::TextColored(rgb(242, 158, 38), "Parts list");
+      for (const forge::ui::assembly::BomRow& b : view.bom) {
+        ++assemblyRowsDrawn_;
+        std::string names;
+        for (std::size_t i = 0; i < b.instances.size(); ++i) {
+          if (i > 0) names += ", ";
+          names += b.instances[i];
+        }
+        ImGui::BulletText("%s  x %zu   %s", b.part.c_str(), b.quantity, names.c_str());
+      }
+    }
+  }
+  ImGui::Spacing();
+  ImGui::Separator();
+  drawPlaceableBodies();
+}
+
+// WHAT THIS PART BUILDS, AND WHAT CAN BE PLACED. Every body the program builds,
+// nested under the body that absorbed it, and under each one the statements that
+// place counted copies of it. Clicking a row selects that body through the SAME
+// clickFeature() a feature-tree row uses, so a body picked here satisfies Insert
+// Component's signature exactly as one picked in the history does.
+void ForgeFrame::drawPlaceableBodies() {
+  const forge::ui::AssemblyTree tree = assemblyTree();
+  ImGui::TextColored(rgb(242, 158, 38), "Bodies in this part");
+
   if (tree.empty()) {
     ImGui::PushTextWrapPos(0.0f);
-    ImGui::TextWrapped("There are no components in this document yet. Draw a shape from the "
-                       "toolbar, or open a part, and every body it contains is listed here with "
-                       "what went into it.");
+    ImGui::TextWrapped("There are no bodies in this part yet. Draw a shape from the toolbar, or "
+                       "open a part, and every body it contains is listed here with what went "
+                       "into it.");
     ImGui::PopTextWrapPos();
     return;
   }
 
-  ImGui::TextColored(rgb(130, 137, 148), "%zu components | %zu you can still pick | %zu placed "
+  ImGui::TextColored(rgb(130, 137, 148), "%zu bodies | %zu you can still pick | %zu placed "
                                          "copies",
                      tree.components.size(), tree.liveComponents, tree.placedCopies);
 
@@ -9337,6 +9488,30 @@ forge::ui::MassProperties ForgeFrame::partMass() const {
   // Measure panel reports the mesh's volume and labels it as the mesh's; a mass
   // is a property of the solid, so it is computed from the solid's.
   return partDoc_.massProperties(scene_.lastBuild().volume);
+}
+
+void ForgeFrame::queuePanelCommand(const std::string& id, const forge::ui::CommandParams& params) {
+  // ONE slot: a second gesture in the same frame replaces the first rather than
+  // queueing behind it, because two menu picks in one frame are one intent.
+  pendingPanelCommand_ = id;
+  pendingPanelParams_ = params;
+}
+
+void ForgeFrame::runPendingPanelCommand() {
+  const std::string id = pendingPanelCommand_;
+  pendingPanelCommand_.clear();
+  if (id.empty()) return;
+  const forge::ui::CommandParams params = pendingPanelParams_;
+  pendingPanelParams_ = forge::ui::CommandParams{};
+  // Through the registry, so the undo stack, the activity log and the rebuild
+  // all see it exactly as they see a menu click or an Archie plan step.
+  const forge::ui::DispatchResult r = shell_.run(id, params);
+  lastInvokeOk_ = r.ok();
+  const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
+  const std::string label = d != nullptr ? d->label : id;
+  if (!r.ok()) {
+    note(label + " — " + (r.detail.empty() ? std::string(forge::ui::userText(r.status)) : r.detail));
+  }
 }
 
 void ForgeFrame::runPendingMaterial() {

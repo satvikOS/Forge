@@ -1100,8 +1100,19 @@ int main(int argc, char** argv) {
             "the Part ribbon category holds every Part command");
     checkEq(keyShell.registry().idsInCategory("Model").size(), 0u,
             "and no command is filed under the retired Model category");
-    checkEq(ribbonCommands, keyShell.registry().size(),
-            "every registered command is reachable from the Part workspace ribbon");
+    // The Assembly workspace's commands are registered by the same wiring and
+    // live on THAT workspace's ribbon, so they are counted there and the sum is
+    // still every command in the registry.
+    const std::vector<std::string> asmCats =
+        forge::ui::workspaceCategories(forge::ui::WorkspaceProfile::Assembly);
+    check(std::find(asmCats.begin(), asmCats.end(), "Assembly") != asmCats.end(),
+          "the Assembly workspace claims the Assembly category", "");
+    checkEq(keyShell.registry().idsInCategory("Assembly").size(),
+            forge::ui::assemblyCommandIds().size(),
+            "the Assembly ribbon category holds every Assembly command");
+    checkEq(ribbonCommands + keyShell.registry().idsInCategory("Assembly").size(),
+            keyShell.registry().size(),
+            "every registered command is reachable from the Part or the Assembly ribbon");
   }
 
   std::remove(path.c_str());

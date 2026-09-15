@@ -101,6 +101,11 @@ struct AssemblyTreeRow {
   std::string statement; // the typed statement, for a tooltip
   bool grounded = false;
   bool problem = false;  // a joint that does not hold, a component whose body is gone
+  // A joint's free coordinates, as they are now: what a Move gesture starts from.
+  bool turns = false;
+  bool slides = false;
+  double turnDeg = 0.0;
+  double slideMm = 0.0;
 };
 
 struct AssemblyTreeView {

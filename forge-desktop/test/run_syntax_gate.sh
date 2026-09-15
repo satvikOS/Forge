@@ -125,6 +125,9 @@ fi
 
 INC="-I forge-desktop/src -I forge-desktop/third_party/imgui -I ui/include -I forge-desktop/test"
 INC="$INC -I forge-kernel/include"
+# The assembly solver's ONE public header. The LGPL library's sources are never
+# on this path -- only the plain-data facade Forge's adapter is written against.
+INC="$INC -I third_party/freecad-derived/assembly-solver/include"
 FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 
 # The TUs this gate checks. EXPLICIT, not a glob: the skipped four are skipped
@@ -198,6 +201,11 @@ CHECKED=(
   #    the census at the bottom of this file is what forced this line into the same
   #    commit as the gate.
   forge-desktop/test/write_target_gate.cpp
+  # ── ADDED 2026-09-15. Forge's adapter onto libforge_asmsolver and the assembly
+  #    acceptance gate. Both see only forge/ui and the solver's plain-data header
+  #    (on INC above); no SDK, no OCCT.
+  forge-desktop/src/AssemblySolverHost.cpp
+  forge-desktop/test/assembly_solver_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(
@@ -314,6 +322,10 @@ if [ "$MUTATE" -ne 0 ]; then
   cp -R ui/include "$WORK/ui/" || { echo "[syntax] cannot copy ui/include"; exit 1; }
   cp -R forge-kernel/include "$WORK/forge-kernel/" || {
     echo "[syntax] cannot copy forge-kernel/include"; exit 1; }
+  mkdir -p "$WORK/third_party/freecad-derived/assembly-solver" &&
+    cp -R third_party/freecad-derived/assembly-solver/include \
+          "$WORK/third_party/freecad-derived/assembly-solver/" || {
+    echo "[syntax] cannot copy the assembly solver's header"; exit 1; }
   case "$MUTATE" in
     1)
       # Drop ForgeFrame's documentReset override: DocumentHost keeps the pure

@@ -208,6 +208,22 @@ else()
         "ui/test/run_op_constraint_gate.sh manually.")
 endif()
 
+# ------------------------------------------- the assembly solver (LGPL, SHARED)
+# libforge_asmsolver is Forge's modified OndselSolver. It is LGPL-2.1, so it is
+# built by ITS OWN CMakeLists as a SHARED library and linked dynamically: a
+# recipient must be able to rebuild that directory and replace the .dylib in
+# Contents/Frameworks without relinking Forge (LGPL-2.1 s6). Nothing in this file
+# may compile one of its sources into another target, and
+# third_party/freecad-derived/lgpl_compliance_gate.sh fails CI if one does.
+#
+# The .dylib is written beside this project's executables, so every gate below
+# finds it through the build rpath CMake already gives a linked shared library,
+# and package_macos.sh finds it in $APP_BUILD to copy into Contents/Frameworks.
+add_subdirectory("${FORGE_ROOT}/third_party/freecad-derived/assembly-solver"
+                 "${CMAKE_BINARY_DIR}/forge_asmsolver")
+set_target_properties(forge_asmsolver PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
 # ---------------------------------------------------------------- Dear ImGui
 # Vendored, third-party: warnings are NOT errors here, and -Werror is not applied
 # to code this project does not own.
@@ -250,6 +266,7 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/AssemblySolverHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -322,6 +339,9 @@ endforeach()
 
 target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
                       "${FORGE_KERNEL_CORE_LIB}")
+# DYNAMIC: forge_asmsolver is a SHARED target, so this records a load command
+# for @rpath/libforge_asmsolver.dylib and copies no object of it.
+target_link_libraries(forge_desktop_core PUBLIC forge_asmsolver)
 
 # ---------------------------------------------------------------- the app
 # ── the NATIVE FILE PANEL is in the app and in nothing else ────────────────
@@ -843,6 +863,7 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/AssemblySolverHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core_asan PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -853,7 +874,7 @@ target_compile_options(forge_desktop_core_asan PRIVATE -Wall -Wextra -Werror ${F
 # FORGE_DESKTOP_OCCT_PATHS dropped here too — see the note above. It is now unset,
 # so leaving it would expand to nothing while reading as though it linked something.
 target_link_libraries(forge_desktop_core_asan
-    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}")
+    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}" forge_asmsolver)
 
 add_executable(forge_desktop_click_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/click_gate.cpp")

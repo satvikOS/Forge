@@ -361,8 +361,15 @@ int main(int argc, char** argv) {
 
   // The Part commands went into THE SAME registry the shell dispatches. The
   // count is READ from partCommandIds(), never spelled here.
-  checkEq(shell.registry().size(), shellCommands + forge::ui::partCommandIds().size(),
-          "Part commands joined the shell's one registry");
+  // wirePartCommands() also registers the Assembly workspace's commands on the
+  // same document, so both published id lists are in the identity.
+  checkEq(shell.registry().size(),
+          shellCommands + forge::ui::partCommandIds().size() +
+              forge::ui::assemblyCommandIds().size(),
+          "Part and Assembly commands joined the shell's one registry");
+  for (const std::string& id : forge::ui::assemblyCommandIds()) {
+    check(shell.registry().contains(id), "registry holds an Assembly command", id);
+  }
   for (const std::string& id : forge::ui::partCommandIds()) {
     check(shell.registry().contains(id), "registry holds a Part command", id);
   }

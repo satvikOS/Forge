@@ -953,6 +953,9 @@ EditVerdict solveAndVerify(const Assembly& candidate, const PartDocument* docume
       v.reason = "the solver's answer moves " + quoted(before.name) + ", which is grounded";
       return v;
     }
+    // Within tolerance is not the same as unmoved. A grounded part is put back
+    // EXACTLY where it was, so round-off cannot creep it across a thousand edits.
+    result.components[i].placement = before.placement;
   }
   const std::vector<JointMeasure> measures = measureJoints(result, tol);
   std::vector<int> broken;

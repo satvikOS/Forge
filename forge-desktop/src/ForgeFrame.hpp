@@ -29,10 +29,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "AssemblySolverHost.hpp"
 #include "Camera.hpp"
 #include "FileDialog.hpp"
 #include "DrawingGdt.hpp"
@@ -40,6 +42,7 @@
 #include "KernelScene.hpp"
 #include "forge/ui/ActivityLog.hpp"
 #include "forge/ui/ArchieCopilot.hpp"
+#include "forge/ui/AssemblyCommands.hpp"
 #include "forge/ui/CommandSurface.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/DocumentStore.hpp"
@@ -1301,6 +1304,10 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // every row and every number is one a headless gate has already asserted --
   // ui/test/workspace_trees_test.cpp -- rather than one this file invented.
   void drawAssemblyTreePanel();
+  // The bodies this part builds, nested as the history built them -- what the
+  // Assembly tab used to be, kept under the assembly because a body picked there
+  // is what Insert Component places.
+  void drawPlaceableBodies();
   void drawOperationTreePanel();
   void drawSheetTreePanel();
   void drawStudyTreePanel();
@@ -1365,6 +1372,10 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // Dispatches the material the Materials panel asked for, through the ONE
   // registry. Deferred like every other mutation in this class.
   void runPendingMaterial();
+  // A command a panel gesture asked for (the Assembly tab's ground, remove and
+  // move), dispatched through the ONE registry after the dock walk.
+  void queuePanelCommand(const std::string& id, const forge::ui::CommandParams& params);
+  void runPendingPanelCommand();
 
   // The four sketch panels. They share one reading of the sketch and one header,
   // so "which sketch am I looking at" and "how is it doing" cannot be answered
@@ -1473,6 +1484,12 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   forge::ui::PartDocument partDoc_;
   forge::ui::UndoStack partUndo_;
   bool partWired_ = false;
+  // ── the assembly solver seam ────────────────────────────────────────────
+  // The assembly commands capture the SLOT by reference, the slot points at the
+  // adapter onto libforge_asmsolver (the LGPL solver, loaded from
+  // Contents/Frameworks). Both live as long as the frame, like the document.
+  forge::ui::AssemblySolverSlot assemblySlot_;
+  AssemblySolverHost assemblySolver_;
 
   SceneFeatureTreeSource treeSource_;
   forge::ui::FeatureTreeModel tree_;
@@ -1680,6 +1697,17 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // reason every other mutation in this class is: it runs a command that touches
   // the document while the walk still holds references into it.
   std::string pendingMaterialId_;
+  std::string pendingPanelCommand_;
+  forge::ui::CommandParams pendingPanelParams_;
+  // The Assembly tab's Move boxes, per joint id.
+  struct JointMoveBox {
+    double value = 0.0;
+    bool touched = false;
+  };
+  std::map<int, JointMoveBox> jointMoveBoxes_;
+  // The assembly as of the last syncSceneToDocument(): an assembly edit changes
+  // no statement, so this is how one marks the document dirty.
+  forge::ui::assembly::Assembly syncedAssembly_;
 
   // ── the trust panels' state ─────────────────────────────────────────────
   // `qualityProgram_` is the IR the last check measured. Comparing it with

@@ -724,6 +724,9 @@ AssemblyTreeView buildAssemblyTreeView(const PartDocument& document) {
     row.detail = std::string(assembly::userWord(j.kind)) + ": " +
                  (f != nullptr ? f->name : std::string("?")) + " to " +
                  (s != nullptr ? s->name : std::string("?"));
+    row.turns = assembly::jointTurns(j.kind);
+    row.slides = assembly::jointSlides(j.kind);
+    assembly::jointCoordinates(a, j, row.turnDeg, row.slideMm);
     if (j.kind == JointKind::Distance) row.detail += ", " + formatIrNumber(j.value) + " mm apart";
     if (j.kind == JointKind::Angle) row.detail += ", " + formatIrNumber(j.value) + " degrees";
     const bool holds = i < status.joints.size() && status.joints[i].holds;
