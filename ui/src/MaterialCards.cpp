@@ -153,6 +153,17 @@ class YamlReader {
  private:
   std::vector<RawLine> lines_;
   std::string error_;
+  // NESTING IS BOUNDED. The library is a file a user may replace, and a reader
+  // that recursed once per bracket or indent would let a crafted card exhaust the
+  // stack of the application that opened it. No FreeCAD file nests beyond 6.
+  static constexpr int kMaxDepth = 64;
+  int depth_ = 0;
+  struct DepthGuard {
+    YamlReader& r;
+    bool ok;
+    explicit DepthGuard(YamlReader& reader) : r(reader), ok(++reader.depth_ <= kMaxDepth) {}
+    ~DepthGuard() { --r.depth_; }
+  };
 
   void fail(const RawLine& l, const std::string& what) {
     if (error_.empty()) error_ = "line " + std::to_string(l.number) + " " + what;
@@ -297,6 +308,11 @@ class YamlReader {
   }
 
   YNode flowValue(const RawLine& l, const std::string& s, std::size_t& at) {
+    DepthGuard guard(*this);
+    if (!guard.ok) {
+      fail(l, "nests brackets deeper than any material file does");
+      return YNode{};
+    }
     while (at < s.size() && isSpace(s[at])) ++at;
     if (at >= s.size()) {
       fail(l, "ends inside a bracketed list");
@@ -418,8 +434,13 @@ class YamlReader {
 
   // parseBlock leaves `i` on the first line it did not consume.
   YNode parseBlock(std::size_t& i, int indent) {
+    DepthGuard guard(*this);
     i = skipBlank(i);
     if (i >= lines_.size()) return YNode{};
+    if (!guard.ok) {
+      fail(lines_[i], "nests entries deeper than any material file does");
+      return YNode{};
+    }
     if (isSeqItem(lines_[i].text)) return parseSeq(i, indent);
     if (keyColon(lines_[i].text) != std::string::npos) return parseMap(i, indent);
     // A plain or quoted scalar on its own line(s) under a key.

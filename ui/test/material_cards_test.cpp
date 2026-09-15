@@ -247,6 +247,16 @@ void cards(Harness& H) {
   const CardRead open = parseMaterialCard(
       "Resources/Materials/T.FCMat", "General:\n  UUID: \"a\n", models);
   CHECK(!open.ok);
+  // A crafted card nesting ten thousand brackets is refused, not recursed into.
+  const CardRead deep = parseMaterialCard(
+      "Resources/Materials/T.FCMat",
+      "General:\n  UUID: \"a\"\n  Tags: " + std::string(10000, '[') + std::string(10000, ']') + "\n",
+      models);
+  CHECK(!deep.ok && deep.refusal.find("deeper") != std::string::npos);
+  std::string indented = "General:\n  UUID: \"a\"\nX:\n";
+  for (int k = 1; k < 200; ++k) indented += std::string(static_cast<std::size_t>(k), ' ') + "k:\n";
+  const CardRead tower = parseMaterialCard("Resources/Materials/T.FCMat", indented, models);
+  CHECK(!tower.ok && tower.refusal.find("deeper") != std::string::npos);
 
   // ── the catalogue ──────────────────────────────────────────────────────
   std::vector<MaterialLibraryFile> files{
