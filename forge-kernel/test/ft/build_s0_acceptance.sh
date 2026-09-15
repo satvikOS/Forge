@@ -43,8 +43,7 @@ fi
 
 CXX="${CXX:-clang++}"
 FLAGS=(-std=c++20 -O0 -g -Wall
-       -I"$KERNEL/include" -I"$OCCT_INC"
-       -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
+       -I"$KERNEL/include" -I"$OCCT_INC")
 
 # ---- ONE OCCT LIBRARY, AND ONLY BECAUSE IT IS A *DATA* SYMBOL ---------------
 # FeatureTreeCompiler.cpp now catches Standard_Failure (an OCCT raise is not a

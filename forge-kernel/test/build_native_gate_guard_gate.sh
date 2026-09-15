@@ -64,8 +64,7 @@ OUT="${OUT:-$KERNEL/test/.gate_guard}"
 rm -rf "$OUT"; mkdir -p "$OUT" || exit 2
 
 FLAGS=(-std=c++20 -O1 -g0 -DFORGE_NATIVE_BREP=1
-       -I"$KERNEL/include" -I"$OCCT/include/opencascade"
-       -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
+       -I"$KERNEL/include" -I"$OCCT/include/opencascade")
 
 COMPILER_SRC="$KERNEL/src/ft/FeatureTreeCompiler.cpp"
 

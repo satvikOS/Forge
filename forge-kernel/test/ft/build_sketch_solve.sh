@@ -15,9 +15,11 @@
 # time. This is the same shape as build_s0_acceptance.sh, for the same reason,
 # and it keeps the gate runnable without a full OCCT kernel build.
 #
-# planegcs itself is compiled from source here (5 TUs) against the IN-HOUSE
-# Eigen shim -- 3rdParty/planegcs_eigen_shim, backed by forge::native::linalg.
-# There is no real Eigen anywhere in this link.
+# The solver itself is NOT compiled into this gate. It is libforge_gcs -- FreeCAD's
+# planegcs, modified for Forge, under third_party/freecad-derived/sketch-solver
+# (LGPL-2.1-or-later) -- built as a SHARED library by that component's own script
+# and LINKED here, the same dynamic boundary the application ships. Sketcher.cpp
+# reaches it only through forge_gcs/forge_gcs.h.
 #
 # Exit code is the test's.
 set -uo pipefail
@@ -41,26 +43,11 @@ fi
 if [ -z "${OCCT_INC:-}" ] || [ ! -d "${OCCT_INC:-}" ]; then
   echo "OCCT headers not found. Set OCCT_INC=/path/to/include/opencascade" >&2; exit 2
 fi
-if [ -z "${BOOST_INC:-}" ]; then
-  for _b in /opt/homebrew/opt/boost/include /opt/homebrew/include \
-            /usr/local/opt/boost/include /usr/include ; do
-    [ -d "$_b/boost/graph" ] && { BOOST_INC="$_b"; break; }
-  done
-fi
-if [ -z "${BOOST_INC:-}" ]; then
-  echo "Boost headers not found (planegcs needs boost::graph). Set BOOST_INC=..." >&2; exit 2
-fi
+GCS_DIR="$(cd "$KERNEL/../third_party/freecad-derived/sketch-solver" && pwd)"
 
 CXX="${CXX:-clang++}"
 FLAGS=(-std=c++20 -O1 -g -Wall
-       -I"$KERNEL/include" -I"$OCCT_INC" -I"$BOOST_INC"
-       -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
-
-# The vendored solver is third-party source: compile it warning-quiet, but keep
-# -Wall on everything Forge actually owns.
-VENDOR_FLAGS=(-std=c++20 -O1 -g -w
-       -I"$KERNEL/include" -I"$OCCT_INC" -I"$BOOST_INC"
-       -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
+       -I"$KERNEL/include" -I"$OCCT_INC" -I"$GCS_DIR/include")
 
 # The newest header these TUs consume. The cache below used to compare an object
 # against its .cpp ALONE, so editing Sketcher.hpp -- which is where this family's
@@ -75,29 +62,24 @@ while IFS= read -r _h; do
   _m="$(stat -f '%m' "$_h" 2>/dev/null || stat -c '%Y' "$_h" 2>/dev/null || echo 0)"
   if [ "${_m:-0}" -gt "$_newest" ]; then _newest="$_m"; NEWEST_HDR="$_h"; fi
 done <<EOF
-$(find "$KERNEL/include" "$KERNEL/3rdParty/planegcs" "$KERNEL/3rdParty/planegcs_eigen_shim" \
+$(find "$KERNEL/include" "$GCS_DIR/include" \
        \( -name '*.h' -o -name '*.hpp' \) 2>/dev/null)
 EOF
 
-compile_one() {  # $1=src $2=obj $3=vendor?
+compile_one() {  # $1=src $2=obj
   if [ -f "$2" ] && [ "$2" -nt "$1" ] &&
      { [ -z "$NEWEST_HDR" ] || [ "$2" -nt "$NEWEST_HDR" ]; }; then
     echo "  [cached] $(basename "$1")"; return 0
   fi
   echo "  [cc] $(basename "$1")"
-  if [ "${3:-}" = vendor ]; then "$CXX" "${VENDOR_FLAGS[@]}" -c "$1" -o "$2"
-  else                          "$CXX" "${FLAGS[@]}"        -c "$1" -o "$2"; fi
+  "$CXX" "${FLAGS[@]}" -c "$1" -o "$2"
 }
 
-echo "[1/4] vendored planegcs (5 TUs, in-house Eigen shim, NO real Eigen)"
-PG_OBJS=()
-for f in Constraints GCS Geo SubSystem qp_eq; do
-  compile_one "$KERNEL/3rdParty/planegcs/$f.cpp" "$OUT/$f.o" vendor || exit 2
-  PG_OBJS+=("$OUT/$f.o")
-done
+echo "[1/4] libforge_gcs (the SHARED solver library, built by its own script)"
+GCS_LIB="$(bash "$GCS_DIR/build_forge_gcs.sh" "$OUT/gcs" | tail -1)"
+[ -f "$GCS_LIB" ] || { echo "libforge_gcs did not build" >&2; exit 2; }
 
-echo "[2/4] forge::native::linalg (what the Eigen shim is backed by)"
-compile_one "$KERNEL/src/native/linalg/LinAlg.cpp" "$OUT/LinAlg.o" || exit 2
+echo "[2/4] (no in-tree solver objects: the kernel compiles none)"
 
 echo "[3/4] forge::Sketcher facade + forge::ft compiler + graph audit"
 compile_one "$KERNEL/src/Sketcher.cpp"               "$OUT/Sketcher.o" || exit 2
@@ -138,7 +120,8 @@ fi
 
 "$CXX" -std=c++20 "$OUT/sketch_solve_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/Sketcher.o" \
     "$OUT/SketchInspect.o" "$OUT/GraphAudit.o" \
-    "${PG_OBJS[@]}" "$OUT/LinAlg.o" -o "$OUT/sketch_solve" "${LIBS[@]}" "${UNDEF[@]}" || exit 2
+    -o "$OUT/sketch_solve" "${LIBS[@]}" \
+    -L"$(dirname "$GCS_LIB")" -lforge_gcs -Wl,-rpath,"$(dirname "$GCS_LIB")" "${UNDEF[@]}" || exit 2
 
 echo
 "$OUT/sketch_solve"

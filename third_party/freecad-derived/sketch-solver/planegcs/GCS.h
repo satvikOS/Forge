@@ -22,11 +22,30 @@
  *                                                                         *
  ***************************************************************************/
 
+/***************************************************************************
+ *   MODIFIED FOR FORGE -- the LGPL-2.1 section 2(a) change notice.        *
+ *   This file differs from FreeCAD commit 0a45a0a008d4 (full hash and     *
+ *   per-file detail: ../MODIFICATIONS.md), src/Mod/Sketcher/App/planegcs/.*
+ *   The changes, each with its date:                                      *
+ *   2026-09-15: the FreeCAD-tree include "../../SketcherGlobal.h" is      *
+ *   replaced by "SketcherGlobal.h", which ../compat/ supplies so the      *
+ *   solver builds outside the FreeCAD tree.                               *
+ *   2026-09-15: System keeps the conflict GROUPS and the removal          *
+ *   proposals diagnose() computes (conflictingTagGroups,                  *
+ *   proposedRemovalTags) and exposes them through getConflictingGroups()  *
+ *   and getProposedRemovals(), so a conflict can be reported as the       *
+ *   constraints that contradict each other rather than as one flattened   *
+ *   list.                                                                 *
+ *   2026-09-15: the declaration of the debugging-only extractSubsystem()  *
+ *   is removed; defining _GCS_EXTRACT_SOLVER_SUBSYSTEM_ is now a compile  *
+ *   error.                                                                *
+ ***************************************************************************/
+
 #pragma once
 
 #include <Eigen/QR>
 
-#include "../../SketcherGlobal.h"
+#include "SketcherGlobal.h"
 #include "SubSystem.h"
 
 
@@ -138,6 +157,12 @@ private:
     int dofs;
     std::set<Constraint*> redundant;
     VEC_I conflictingTags, redundantTags, partiallyRedundantTags;
+    // FORGE (2026-09-15): conflictingTags above is the UNION of every conflict
+    // group, which cannot say which constraints conflict WITH WHICH. These keep
+    // the groups diagnose() already computes, and the tags its own removal
+    // heuristic chose, so a caller can name the conflicting pair to a user.
+    std::vector<VEC_I> conflictingTagGroups;
+    VEC_I proposedRemovalTags;
 
     bool hasUnknowns;   // if plist is filled with the unknown parameters
     bool hasDiagnosis;  // if dofs, conflictingTags, redundantTags are up to date
@@ -228,7 +253,9 @@ private:
     );
 
 #ifdef _GCS_EXTRACT_SOLVER_SUBSYSTEM_
-    void extractSubsystem(SubSystem* subsys, bool isRedundantsolving);
+    // FORGE (2026-09-15): the subsystem file dumper this macro enabled was a
+    // debugging aid for filing Eigen bug reports and has been removed.
+# error "_GCS_EXTRACT_SOLVER_SUBSYSTEM_ is not available in libforge_gcs"
 #endif
 public:
     int maxIter;
@@ -640,6 +667,20 @@ public:
     void getConflicting(VEC_I& conflictingOut) const
     {
         conflictingOut = hasDiagnosis ? conflictingTags : VEC_I(0);
+    }
+    // FORGE (2026-09-15): one entry per conflict group, each the sorted tags of
+    // the constraints in that group (tag 0 and internal alignment excluded, as
+    // for getConflicting). Empty when there is no diagnosis.
+    void getConflictingGroups(std::vector<VEC_I>& groupsOut) const
+    {
+        groupsOut = hasDiagnosis ? conflictingTagGroups : std::vector<VEC_I>();
+    }
+    // FORGE (2026-09-15): the tags diagnose()'s removal heuristic picked from the
+    // conflicting/redundant groups (most popular, then most solver equations,
+    // then latest). Empty when there is no diagnosis.
+    void getProposedRemovals(VEC_I& tagsOut) const
+    {
+        tagsOut = hasDiagnosis ? proposedRemovalTags : VEC_I(0);
     }
     void getRedundant(VEC_I& redundantOut) const
     {

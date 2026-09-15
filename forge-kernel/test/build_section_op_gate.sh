@@ -50,8 +50,7 @@ OUT="${OUT:-$KERNEL/test/.section_gate}"
 mkdir -p "$OUT" || exit 2
 
 FLAGS=(-std=c++20 -O1 -g0
-       -I"$KERNEL/include" -I"$OCCT/include/opencascade"
-       -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
+       -I"$KERNEL/include" -I"$OCCT/include/opencascade")
 
 # FORGE_NATIVE_BREP is deliberately NOT defined. The native route is a separate
 # engine with its own gates; this gate is about the OCCT operator that SECTION is

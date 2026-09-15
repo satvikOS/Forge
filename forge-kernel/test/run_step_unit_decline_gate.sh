@@ -65,7 +65,6 @@ link_gate() {
   # kernel, so a dynamic_lookup harness would SIGSEGV instead of failing to link.
   "$CXX" -std=c++20 -O1 -DFORGE_NATIVE_BREP=1 \
     -Iforge-kernel/include -I"$OCCT/include/opencascade" \
-    -Iforge-kernel/3rdParty/planegcs -Iforge-kernel/3rdParty/planegcs_eigen_shim \
     forge-kernel/test/step_unit_decline_gate.cpp -o /tmp/step_unit_gate \
     -L "$BUILD" -lforge_kernel_core -Wl,-rpath,"$BUILD" \
     -L "$OCCT/lib" -Wl,-rpath,"$OCCT/lib" 2> /tmp/su_link.log \

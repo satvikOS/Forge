@@ -1,23 +1,21 @@
 #pragma once
 
-// Sketcher — Forge-native facade over the vendored planegcs constraint solver.
+// Sketcher — Forge-native facade over the libforge_gcs constraint solver.
 //
 // The goal is a tiny, stable, handle-based API that the N-API binding can
-// forward to JS verbatim. Inside, each `forge::Sketch` owns:
-//   - a planegcs `GCS::System` that holds the constraint network
-//   - a pool of heap-allocated `double` parameters (point coords, radii, etc.)
-//     — planegcs takes raw `double*` and edits them in place during solve()
-//   - vectors of `Point`, `Line`, `Circle`, `Arc` instances whose internal
-//     pointers tie back into the parameter pool
-//   - a parallel vector of "distance value" parameters for value-bearing
-//     constraints (Distance, Equal w/ value, etc.)
+// forward to JS verbatim. Inside, each `forge::Sketch` owns one solver system in
+// libforge_gcs — FreeCAD's planegcs, modified for Forge and shipped as a SEPARATE
+// SHARED LIBRARY (third_party/freecad-derived/sketch-solver, LGPL-2.1-or-later).
+// Forge reaches it only through that library's C ABI (forge_gcs/forge_gcs.h):
+// the solver's parameter storage, geometry and constraint network all live on
+// the library's side of that boundary, and no solver source is compiled into
+// Forge.
 //
 // IDs returned by add* are dense uint32 indices, NOT raw pointers — the JS
 // side never sees a C++ pointer. The same is true for the SketchHandle.
 //
 // Lifetimes: a Sketch lives until destroySketch() is called or the process
-// exits. Destruction frees the planegcs heap allocations and clears the
-// parameter pool.
+// exits. Destruction destroys its solver system.
 
 #include <cstdint>
 #include <memory>
@@ -35,15 +33,6 @@
 // into this header (it is ALWAYS compiled — only the native ROUTING that uses
 // the rings is gated behind FORGE_NATIVE_BREP).
 #include "forge/native/geom/Geom.hpp"   // forge::native::geom::Point2
-
-// Forward-declare planegcs types to avoid bleeding their headers into binding.cpp.
-namespace GCS {
-class System;
-class Point;
-class Line;
-class Circle;
-class Arc;
-}  // namespace GCS
 
 namespace forge {
 
@@ -366,6 +355,18 @@ struct SketchDiagnostics {
     //                            BETWEEN groups exactly as the coupling does.
     std::vector<SketchDependentParam>              distinctDependentParams;
     std::vector<std::vector<SketchDependentParam>> dependentParamGroups;
+    // ── WHO CONFLICTS WITH WHOM ─────────────────────────────────────────────
+    // `conflicting` above is the UNION of every conflict the rank analysis
+    // found, so a sketch with two unrelated contradictions reads as one list of
+    // four tags and nobody can say which constraint contradicts which. These
+    // are the engine's own groups, kept apart by the solver library: each entry
+    // is the sorted tags of ONE set of constraints that cannot all hold (the
+    // new DISTX 70 and the old DISTX 60 on the same two points form one group).
+    // `proposedRemovals` is the engine's own choice of which tag in those
+    // groups to drop — most shared between groups, then most equations, then
+    // the most recently added.
+    std::vector<std::vector<int>> conflictingGroups;
+    std::vector<int>              proposedRemovals;
     // Classification derived from the above (DCM-style):
     //   "well"       — dof == 0, no conflicts/redundancy
     //   "under"      — dof  > 0

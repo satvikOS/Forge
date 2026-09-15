@@ -75,10 +75,10 @@ BASE_DEFS=(-DFORGE_NATIVE_BREP=1 -DFORGE_NATIVE_LAW=1 -DFORGE_NATIVE_NURBS_CONVE
            -DFORGE_SHHEAL_DROP_NATIVE=1 -DNAPI_CPP_EXCEPTIONS -DNAPI_VERSION=8
            -DBUILDING_NODE_EXTENSION -DNDEBUG)
 
-INCS=(-I"$NODE_INC" -I"$ADDON_INC" -I"$OCCT_INC"
-      -I"$ROOT/forge-kernel/3rdParty/planegcs_eigen_shim" -I/opt/homebrew/include
-      -I/opt/homebrew/opt/boost/include
-      -I"$ROOT/forge-kernel/3rdParty/planegcs" -I"$ROOT/forge-kernel/include")
+# No sketch-solver include paths: the solver is libforge_gcs (a separate shared
+# library under third_party/freecad-derived) and no kernel header reaches it.
+INCS=(-I"$NODE_INC" -I"$ADDON_INC" -I"$OCCT_INC" -I/opt/homebrew/include
+      -I"$ROOT/forge-kernel/include")
 
 nm -gU "$OCCT_LIB"/libTKOffset.*.dylib 2>/dev/null \
   | awk 'NF>=3{print $3} NF==2{print $2}' | sort -u > "$OUT/tkoffset.exports"

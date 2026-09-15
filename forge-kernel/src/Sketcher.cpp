@@ -1,21 +1,25 @@
-// Sketcher.cpp — Forge-native facade over planegcs.
+// Sketcher.cpp — Forge-native facade over the libforge_gcs constraint solver.
 //
-// Each `forge::Sketch` owns the planegcs GCS::System and the storage for the
-// raw doubles that planegcs's pointer-based Point/Line/Circle/Arc structs
-// reference. Solving in planegcs mutates those doubles in place; we read
-// them back through the same storage.
+// Each `forge::Sketch` owns one solver system inside libforge_gcs — FreeCAD's
+// planegcs, modified for Forge and built as a SEPARATE SHARED LIBRARY under
+// third_party/freecad-derived/sketch-solver (LGPL-2.1-or-later). This file is
+// Forge's own adapter: it maps Forge's sketch model (points, lines, circles,
+// arcs, the SketchConstraintKind vocabulary) onto the library's C ABI and never
+// compiles a line of the solver itself. The solver's parameter storage lives in
+// the library; everything here reads and writes it through that interface.
 //
 // We tag the 32-bit IDs that JS sees so we can disambiguate "point id"
 // (a ParamId) from "entity id" (a Line/Circle/Arc) in addConstraint without
 // requiring a separate type argument:
 //   - param IDs use bit 31 = 0
 //   - entity IDs use bit 31 = 1
-// The remaining 31 bits index into per-sketch vectors.
+// The remaining 31 bits index into per-sketch vectors. A point id's index IS
+// the library's point index and an entity id's index IS its curve index,
+// because every point and curve is created through the library in id order.
 
 #include "forge/Sketcher.hpp"
 
-#include "GCS.h"
-#include "Geo.h"
+#include "forge_gcs/forge_gcs.h"
 
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -119,140 +123,114 @@ enum class SketchEntityKind : std::uint8_t {
     Arc    = 3,
 };
 
-struct SketchEntityRecord {
-    SketchEntityKind kind;
-    // Index into kind-specific vector (lines_, circles_, arcs_). We keep
-    // them separated so the planegcs pointer fields stay stable across
-    // additions — std::vector reallocations would invalidate Point&.
-    std::uint32_t    typedIndex;
-};
-
 struct Sketch {
-    // GCS::System holds the constraint network. ~System frees all
-    // GCS::Constraint*s registered through addConstraint; we own everything
-    // else (Point/Line/... structs and the raw doubles they point at).
-    GCS::System gcs;
-
-    // The unknown parameter storage. We allocate doubles via unique_ptrs so
-    // their addresses are stable for the lifetime of the sketch.
-    std::vector<std::unique_ptr<double>> params;
-
-    // Parallel: each entry is a (px, py) pair into params[].
-    struct PointRec {
-        std::uint32_t xIdx;
-        std::uint32_t yIdx;
+    struct SolverDeleter {
+        void operator()(forge_gcs_system* g) const noexcept { forge_gcs_destroy(g); }
     };
-    std::vector<PointRec>       points;
-    std::vector<GCS::Point>     gcsPoints;   // mirrors points; planegcs reads from here
+    // The solver system. It owns the constraint network AND the parameter
+    // storage (every point coordinate, radius and arc angle); this struct holds
+    // only what Forge needs to address it.
+    std::unique_ptr<forge_gcs_system, SolverDeleter> gcs{forge_gcs_create()};
 
-    // Geometry objects (we own them; planegcs's constraints reference them
-    // by pointer/reference so they must live as long as the sketch does).
-    std::vector<std::unique_ptr<GCS::Line>>   lines;
-    std::vector<std::unique_ptr<GCS::Circle>> circles;
-    std::vector<std::unique_ptr<GCS::Arc>>    arcs;
-
-    // Flat list mapping SketchEntityId index → (kind, typedIndex).
-    std::vector<SketchEntityRecord> entityIndex;
-
-    // "Value" parameters used by constraints that hold a target value
-    // (e.g. Distance) — stored separately so they aren't part of the
-    // unknowns vector handed to declareUnknowns().
-    std::vector<std::unique_ptr<double>> constraintValues;
+    // Kind of each entity, indexed by the entity id's index — which is also the
+    // library's curve index.
+    std::vector<SketchEntityKind> entityKinds;
+    std::uint32_t pointCount = 0;
 
     // Tag counter for constraint registrations.
     int nextConstraintTag = 0;
 
-    // Build the unknowns vector (every point's x,y plus every entity's
-    // intrinsic params — radii and arc angles).
-    void collectUnknowns(GCS::VEC_pD& out) const {
-        out.clear();
-        for (auto const& p : gcsPoints) {
-            out.push_back(p.x);
-            out.push_back(p.y);
-        }
-        for (auto const& c : circles) {
-            out.push_back(c->rad);
-        }
-        for (auto const& a : arcs) {
-            out.push_back(a->rad);
-            out.push_back(a->startAngle);
-            out.push_back(a->endAngle);
-        }
+    forge_gcs_system* sys() {
+        if (!gcs) throw std::runtime_error("forge::sketcher: the constraint solver could not allocate a sketch");
+        return gcs.get();
+    }
+    // A library failure, raised as the facade's usual std::runtime_error with the
+    // library's own sentence attached.
+    [[noreturn]] void raise(const char* what) {
+        throw std::runtime_error(std::string("forge::sketcher: ") + what + ": " +
+                                 forge_gcs_last_error(gcs.get()));
+    }
+    std::int32_t check(std::int32_t rc, const char* what) {
+        if (rc < 0) raise(what);
+        return rc;
     }
 
     // Helpers ------------------------------------------------------------
-    double* allocParam(double initial) {
-        auto p = std::make_unique<double>(initial);
-        double* raw = p.get();
-        params.emplace_back(std::move(p));
-        return raw;
-    }
-    double* allocValue(double initial) {
-        auto p = std::make_unique<double>(initial);
-        double* raw = p.get();
-        constraintValues.emplace_back(std::move(p));
-        return raw;
-    }
-
-    GCS::Point& pointByParamId(std::uint32_t pid) {
+    std::int32_t pointIndex(std::uint32_t pid) const {
         std::uint32_t idx = indexOf(pid);
-        if (isEntity(pid) || idx >= gcsPoints.size()) {
+        if (isEntity(pid) || idx >= pointCount) {
             throw std::runtime_error("forge::sketcher: invalid point id");
         }
-        return gcsPoints[idx];
+        return static_cast<std::int32_t>(idx);
     }
-    GCS::Line&   lineByEntityId(std::uint32_t eid) {
+    std::int32_t typedEntityIndex(std::uint32_t eid, SketchEntityKind want, const char* notMsg) const {
         if (!isEntity(eid)) throw std::runtime_error("forge::sketcher: expected entity id");
         std::uint32_t idx = indexOf(eid);
-        if (idx >= entityIndex.size() || entityIndex[idx].kind != SketchEntityKind::Line)
-            throw std::runtime_error("forge::sketcher: entity is not a Line");
-        return *lines[entityIndex[idx].typedIndex];
+        if (idx >= entityKinds.size() || entityKinds[idx] != want)
+            throw std::runtime_error(notMsg);
+        return static_cast<std::int32_t>(idx);
     }
-    GCS::Circle& circleByEntityId(std::uint32_t eid) {
-        if (!isEntity(eid)) throw std::runtime_error("forge::sketcher: expected entity id");
-        std::uint32_t idx = indexOf(eid);
-        if (idx >= entityIndex.size() || entityIndex[idx].kind != SketchEntityKind::Circle)
-            throw std::runtime_error("forge::sketcher: entity is not a Circle");
-        return *circles[entityIndex[idx].typedIndex];
+    std::int32_t lineIndex(std::uint32_t eid) const {
+        return typedEntityIndex(eid, SketchEntityKind::Line, "forge::sketcher: entity is not a Line");
     }
-    GCS::Arc& arcByEntityId(std::uint32_t eid) {
-        if (!isEntity(eid)) throw std::runtime_error("forge::sketcher: expected entity id");
-        std::uint32_t idx = indexOf(eid);
-        if (idx >= entityIndex.size() || entityIndex[idx].kind != SketchEntityKind::Arc)
-            throw std::runtime_error("forge::sketcher: entity is not an Arc");
-        return *arcs[entityIndex[idx].typedIndex];
+    std::int32_t circleIndex(std::uint32_t eid) const {
+        return typedEntityIndex(eid, SketchEntityKind::Circle, "forge::sketcher: entity is not a Circle");
+    }
+    std::int32_t arcIndex(std::uint32_t eid) const {
+        return typedEntityIndex(eid, SketchEntityKind::Arc, "forge::sketcher: entity is not an Arc");
     }
 
     // What KIND an entity id names, without throwing. The constraint arms below
     // dispatch on this instead of try/catch-ing the typed accessors: a caller
     // that hands RADIUS an arc is not making a mistake, and "try circle, catch,
     // try arc" makes a legal call look like a recovered error in every log.
-    SketchEntityKind kindOfEntity(std::uint32_t eid) {
+    SketchEntityKind kindOfEntity(std::uint32_t eid) const {
         if (!isEntity(eid)) throw std::runtime_error("forge::sketcher: expected entity id");
         std::uint32_t idx = indexOf(eid);
-        if (idx >= entityIndex.size())
+        if (idx >= entityKinds.size())
             throw std::runtime_error("forge::sketcher: invalid entity id");
-        return entityIndex[idx].kind;
+        return entityKinds[idx];
     }
 
-    // A CIRCLE OR AN ARC, as one reference.
-    //
-    // This is not a shortcut: GCS::Arc DERIVES from GCS::Circle (Geo.h:228), so
-    // `center` and `rad` are literally the same members on both, and planegcs's
-    // own Circle/Arc overloads have byte-identical bodies —
-    //   addConstraintCircleRadius   -> addConstraintEqual(c.rad, radius)
-    //   addConstraintArcRadius      -> addConstraintEqual(a.rad, radius)
-    //   addConstraintCircleDiameter -> addConstraintProportional(c.rad, d, 0.5)
-    //   addConstraintArcDiameter    -> addConstraintProportional(a.rad, d, 0.5)
-    // (GCS.cpp:1188-1206). Writing a dispatch whose two arms cannot differ would
-    // be a branch that can never be covered by a test, so there is one arm.
-    GCS::Circle& conicByEntityId(std::uint32_t eid) {
+    // A CIRCLE OR AN ARC, as one reference. planegcs's Arc derives from its
+    // Circle, and the radius / diameter / equal-radius primitives take either
+    // (the library's "conic" operand), so there is one arm and not two that
+    // could never differ.
+    std::int32_t conicIndex(std::uint32_t eid) const {
         switch (kindOfEntity(eid)) {
-            case SketchEntityKind::Circle: return circleByEntityId(eid);
-            case SketchEntityKind::Arc:    return arcByEntityId(eid);
+            case SketchEntityKind::Circle:
+            case SketchEntityKind::Arc:    return static_cast<std::int32_t>(indexOf(eid));
             case SketchEntityKind::Line:   break;
         }
         throw std::runtime_error("forge::sketcher: entity is a Line, expected a Circle or an Arc");
+    }
+
+    // Live reads of the library's parameter storage.
+    StitchEnd pointAt(std::int32_t idx) {
+        double x = 0.0, y = 0.0;
+        check(forge_gcs_get_point(sys(), idx, &x, &y), "reading a point");
+        return StitchEnd{x, y};
+    }
+    forge_gcs_curve curveAt(std::int32_t idx) {
+        forge_gcs_curve c{};
+        check(forge_gcs_get_curve(sys(), idx, &c), "reading a curve");
+        return c;
+    }
+    // Every entity of one kind, in creation order.
+    std::vector<std::int32_t> entitiesOfKind(SketchEntityKind k) const {
+        std::vector<std::int32_t> out;
+        for (std::size_t i = 0; i < entityKinds.size(); ++i)
+            if (entityKinds[i] == k) out.push_back(static_cast<std::int32_t>(i));
+        return out;
+    }
+
+    // One solver primitive under `tag`.
+    void add(std::int32_t primitive, std::initializer_list<std::int32_t> refs, int tag,
+             double value = 0.0, std::int32_t flags = 0) {
+        const std::vector<std::int32_t> r(refs);
+        check(forge_gcs_add_constraint(sys(), primitive, r.data(), static_cast<std::int32_t>(r.size()),
+                                       value, flags, tag),
+              "the solver refused a constraint");
     }
 };
 
@@ -263,6 +241,17 @@ SketchRegistry& SketchRegistry::instance() {
 }
 
 SketchHandle SketchRegistry::createSketch() {
+    // THE SOLVER IS A REPLACEABLE LIBRARY. libforge_gcs is LGPL and loaded
+    // dynamically, so the copy in Frameworks may be one a user rebuilt. A library
+    // speaking a different interface version would be misread silently -- struct
+    // layouts and enumerator values are the interface -- so it is refused here,
+    // with the reason, before a single sketch is built on it.
+    if (forge_gcs_abi_version() != FORGE_GCS_ABI_VERSION) {
+        throw std::runtime_error(
+            "forge::sketcher: the sketch solver library (libforge_gcs) speaks interface version " +
+            std::to_string(forge_gcs_abi_version()) + " but this build of Forge needs version " +
+            std::to_string(FORGE_GCS_ABI_VERSION) + "; reinstall the library that shipped with Forge");
+    }
     std::lock_guard<std::mutex> g(mtx_);
     SketchHandle h = next_++;
     if (h == kInvalidSketch) h = next_++;  // never hand out 0
@@ -304,66 +293,53 @@ void destroySketch(SketchHandle h) {
 
 SketchParamId addPoint(SketchHandle h, double x, double y) {
     Sketch& s = SketchRegistry::instance().get(h);
-    double* px = s.allocParam(x);
-    double* py = s.allocParam(y);
-    s.points.push_back({static_cast<std::uint32_t>(s.params.size() - 2),
-                        static_cast<std::uint32_t>(s.params.size() - 1)});
-    GCS::Point gp; gp.x = px; gp.y = py;
-    s.gcsPoints.push_back(gp);
-    return toParamId(static_cast<std::uint32_t>(s.gcsPoints.size() - 1));
+    const std::int32_t idx = s.check(forge_gcs_add_point(s.sys(), x, y), "adding a point");
+    s.pointCount = static_cast<std::uint32_t>(idx) + 1;
+    return toParamId(static_cast<std::uint32_t>(idx));
 }
 
 SketchEntityId addLine(SketchHandle h, SketchParamId p0, SketchParamId p1) {
     Sketch& s = SketchRegistry::instance().get(h);
-    auto& a = s.pointByParamId(p0);
-    auto& b = s.pointByParamId(p1);
-    auto line = std::make_unique<GCS::Line>();
-    line->p1 = a;
-    line->p2 = b;
-    s.lines.push_back(std::move(line));
-    SketchEntityRecord rec{SketchEntityKind::Line, static_cast<std::uint32_t>(s.lines.size() - 1)};
-    s.entityIndex.push_back(rec);
-    return toEntityId(static_cast<std::uint32_t>(s.entityIndex.size() - 1));
+    const std::int32_t a = s.pointIndex(p0);
+    const std::int32_t b = s.pointIndex(p1);
+    const std::int32_t idx = s.check(forge_gcs_add_line(s.sys(), a, b), "adding a line");
+    s.entityKinds.push_back(SketchEntityKind::Line);
+    return toEntityId(static_cast<std::uint32_t>(idx));
 }
 
 SketchEntityId addCircle(SketchHandle h, SketchParamId center, double radius) {
     Sketch& s = SketchRegistry::instance().get(h);
-    auto& c = s.pointByParamId(center);
-    auto circle = std::make_unique<GCS::Circle>();
-    circle->center = c;
-    circle->rad = s.allocParam(radius);
-    s.circles.push_back(std::move(circle));
-    SketchEntityRecord rec{SketchEntityKind::Circle, static_cast<std::uint32_t>(s.circles.size() - 1)};
-    s.entityIndex.push_back(rec);
-    return toEntityId(static_cast<std::uint32_t>(s.entityIndex.size() - 1));
+    const std::int32_t c = s.pointIndex(center);
+    const std::int32_t idx = s.check(forge_gcs_add_circle(s.sys(), c, radius), "adding a circle");
+    s.entityKinds.push_back(SketchEntityKind::Circle);
+    return toEntityId(static_cast<std::uint32_t>(idx));
 }
 
 SketchEntityId addArc(SketchHandle h, SketchParamId center, SketchParamId p0, SketchParamId p1) {
     Sketch& s = SketchRegistry::instance().get(h);
-    auto& cp = s.pointByParamId(center);
-    auto& sp = s.pointByParamId(p0);
-    auto& ep = s.pointByParamId(p1);
-    double cx = *cp.x, cy = *cp.y;
-    double sx = *sp.x, sy = *sp.y;
-    double ex = *ep.x, ey = *ep.y;
+    const std::int32_t ci = s.pointIndex(center);
+    const std::int32_t si = s.pointIndex(p0);
+    const std::int32_t ei = s.pointIndex(p1);
+    const StitchEnd cp = s.pointAt(ci), sp = s.pointAt(si), ep = s.pointAt(ei);
+    double cx = cp.x, cy = cp.y;
+    double sx = sp.x, sy = sp.y;
+    double ex = ep.x, ey = ep.y;
     double dx = sx - cx, dy = sy - cy;
     double r0 = std::sqrt(dx * dx + dy * dy);
     double ang0 = std::atan2(sy - cy, sx - cx);
     double ang1 = std::atan2(ey - cy, ex - cx);
-    auto arc = std::make_unique<GCS::Arc>();
-    arc->center = cp;
-    arc->start  = sp;
-    arc->end    = ep;
-    arc->rad        = s.allocParam(r0);
-    arc->startAngle = s.allocParam(ang0);
-    arc->endAngle   = s.allocParam(ang1);
-    s.arcs.push_back(std::move(arc));
-    SketchEntityRecord rec{SketchEntityKind::Arc, static_cast<std::uint32_t>(s.arcs.size() - 1)};
-    s.entityIndex.push_back(rec);
-    return toEntityId(static_cast<std::uint32_t>(s.entityIndex.size() - 1));
+    const std::int32_t idx =
+        s.check(forge_gcs_add_arc(s.sys(), ci, si, ei, r0, ang0, ang1), "adding an arc");
+    s.entityKinds.push_back(SketchEntityKind::Arc);
+    return toEntityId(static_cast<std::uint32_t>(idx));
 }
 
 // ---------------------------------------------------------------- constraints
+//
+// Every arm below RESOLVES its operands first — each resolution throws the
+// facade's own message on a wrong id or a wrong kind — and only then hands
+// primitives to the solver, so a refused constraint never leaves half of itself
+// behind (COLL and FIX each add two primitives under one tag).
 std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
                             const std::vector<std::uint32_t>& refs, double value) {
     Sketch& s = SketchRegistry::instance().get(h);
@@ -386,40 +362,51 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
     switch (kind) {
     case SketchConstraintKind::Coincident: {
         need(2);
-        s.gcs.addConstraintP2PCoincident(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]), tag);
+        const auto a = s.pointIndex(refs[0]);
+        const auto b = s.pointIndex(refs[1]);
+        s.add(FORGE_GCS_P2P_COINCIDENT, {a, b}, tag);
         break;
     }
     case SketchConstraintKind::Parallel: {
         need(2);
-        s.gcs.addConstraintParallel(s.lineByEntityId(refs[0]), s.lineByEntityId(refs[1]), tag);
+        const auto a = s.lineIndex(refs[0]);
+        const auto b = s.lineIndex(refs[1]);
+        s.add(FORGE_GCS_PARALLEL, {a, b}, tag);
         break;
     }
     case SketchConstraintKind::Perpendicular: {
         need(2);
-        s.gcs.addConstraintPerpendicular(s.lineByEntityId(refs[0]), s.lineByEntityId(refs[1]), tag);
+        const auto a = s.lineIndex(refs[0]);
+        const auto b = s.lineIndex(refs[1]);
+        s.add(FORGE_GCS_PERPENDICULAR, {a, b}, tag);
         break;
     }
     case SketchConstraintKind::Distance: {
         need(2);
-        double* d = s.allocValue(value);
-        s.gcs.addConstraintP2PDistance(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]), d, tag);
+        const auto a = s.pointIndex(refs[0]);
+        const auto b = s.pointIndex(refs[1]);
+        s.add(FORGE_GCS_P2P_DISTANCE, {a, b}, tag, value);
         break;
     }
     case SketchConstraintKind::Horizontal: {
         if (refs.size() >= 1 && isEntity(refs[0])) {
-            s.gcs.addConstraintHorizontal(s.lineByEntityId(refs[0]), tag);
+            s.add(FORGE_GCS_HORIZONTAL_LINE, {s.lineIndex(refs[0])}, tag);
         } else {
             need(2);
-            s.gcs.addConstraintHorizontal(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]), tag);
+            const auto a = s.pointIndex(refs[0]);
+            const auto b = s.pointIndex(refs[1]);
+            s.add(FORGE_GCS_HORIZONTAL_POINTS, {a, b}, tag);
         }
         break;
     }
     case SketchConstraintKind::Vertical: {
         if (refs.size() >= 1 && isEntity(refs[0])) {
-            s.gcs.addConstraintVertical(s.lineByEntityId(refs[0]), tag);
+            s.add(FORGE_GCS_VERTICAL_LINE, {s.lineIndex(refs[0])}, tag);
         } else {
             need(2);
-            s.gcs.addConstraintVertical(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]), tag);
+            const auto a = s.pointIndex(refs[0]);
+            const auto b = s.pointIndex(refs[1]);
+            s.add(FORGE_GCS_VERTICAL_POINTS, {a, b}, tag);
         }
         break;
     }
@@ -431,23 +418,25 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         // one of three keywords for a distinction planegcs does not make either
         // — it has all three primitives and the target's kind already says which.
         // Before this, PTON onto a circle or an arc THREW.
-        GCS::Point& p = s.pointByParamId(refs[0]);
+        const auto p = s.pointIndex(refs[0]);
         switch (s.kindOfEntity(refs[1])) {
             case SketchEntityKind::Line:
-                s.gcs.addConstraintPointOnLine(p, s.lineByEntityId(refs[1]), tag);
+                s.add(FORGE_GCS_POINT_ON_LINE, {p, s.lineIndex(refs[1])}, tag);
                 break;
             case SketchEntityKind::Circle:
-                s.gcs.addConstraintPointOnCircle(p, s.circleByEntityId(refs[1]), tag);
+                s.add(FORGE_GCS_POINT_ON_CIRCLE, {p, s.circleIndex(refs[1])}, tag);
                 break;
             case SketchEntityKind::Arc:
-                s.gcs.addConstraintPointOnArc(p, s.arcByEntityId(refs[1]), tag);
+                s.add(FORGE_GCS_POINT_ON_ARC, {p, s.arcIndex(refs[1])}, tag);
                 break;
         }
         break;
     }
     case SketchConstraintKind::PointOnCircle: {
         need(2);
-        s.gcs.addConstraintPointOnCircle(s.pointByParamId(refs[0]), s.circleByEntityId(refs[1]), tag);
+        const auto p = s.pointIndex(refs[0]);
+        const auto c = s.circleIndex(refs[1]);
+        s.add(FORGE_GCS_POINT_ON_CIRCLE, {p, c}, tag);
         break;
     }
     case SketchConstraintKind::Equal: {
@@ -456,20 +445,23 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         // looking up the entity kinds of refs[0] / refs[1].
         std::uint32_t idx0 = indexOf(refs[0]);
         if (!isEntity(refs[0]) || !isEntity(refs[1]) ||
-            idx0 >= s.entityIndex.size()) {
+            idx0 >= s.entityKinds.size()) {
             throw std::runtime_error("forge::sketcher: Equal requires two entities");
         }
-        SketchEntityKind k0 = s.entityIndex[idx0].kind;
+        SketchEntityKind k0 = s.entityKinds[idx0];
         if (k0 == SketchEntityKind::Line) {
-            s.gcs.addConstraintEqualLength(s.lineByEntityId(refs[0]), s.lineByEntityId(refs[1]), tag);
+            const auto a = s.lineIndex(refs[0]);
+            const auto b = s.lineIndex(refs[1]);
+            s.add(FORGE_GCS_EQUAL_LENGTH, {a, b}, tag);
         } else {
             // "Equal not supported for arcs (use circles)" was a REFUSAL with a
-            // primitive sitting right there: GCS.h declares EqualRadius for
+            // primitive sitting right there: planegcs has EqualRadius for
             // (Circle,Circle), (Circle,Arc) and (Arc,Arc). An arc's radius is a
             // radius. Equal fillets on a bracket are among the commonest sketch
             // constraints there are, and this said no to all of them.
-            s.gcs.addConstraintEqualRadius(s.conicByEntityId(refs[0]),
-                                           s.conicByEntityId(refs[1]), tag);
+            const auto a = s.conicIndex(refs[0]);
+            const auto b = s.conicIndex(refs[1]);
+            s.add(FORGE_GCS_EQUAL_RADIUS, {a, b}, tag);
         }
         break;
     }
@@ -477,7 +469,7 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         need(2);
         // line-circle was "the most common sketcher use", and it was the ONLY
         // one wired — so a fillet arc tangent to the wall it fillets, which is
-        // what tangency is FOR, threw. GCS.h has (Line,Circle), (Line,Arc),
+        // what tangency is FOR, threw. planegcs has (Line,Circle), (Line,Arc),
         // (Circle,Circle), (Arc,Arc) and (Circle,Arc); dispatch on the pair.
         //
         // The operands may arrive either way round (a drawing says "this arc is
@@ -494,77 +486,70 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         if (k0 == SketchEntityKind::Line || k1 == SketchEntityKind::Line) {
             const std::uint32_t lineRef  = (k0 == SketchEntityKind::Line) ? refs[0] : refs[1];
             const std::uint32_t conicRef = (k0 == SketchEntityKind::Line) ? refs[1] : refs[0];
-            GCS::Line& l = s.lineByEntityId(lineRef);
+            const auto l = s.lineIndex(lineRef);
             if (s.kindOfEntity(conicRef) == SketchEntityKind::Arc) {
-                s.gcs.addConstraintTangent(l, s.arcByEntityId(conicRef), /*ccw=*/true, tag);
+                s.add(FORGE_GCS_TANGENT_LINE_ARC, {l, s.arcIndex(conicRef)}, tag, 0.0,
+                      FORGE_GCS_FLAG_CCW);
             } else {
-                s.gcs.addConstraintTangent(l, s.circleByEntityId(conicRef), /*ccw=*/true, tag);
+                s.add(FORGE_GCS_TANGENT_LINE_CIRCLE, {l, s.circleIndex(conicRef)}, tag, 0.0,
+                      FORGE_GCS_FLAG_CCW);
             }
         } else if (k0 == SketchEntityKind::Arc && k1 == SketchEntityKind::Arc) {
-            s.gcs.addConstraintTangent(s.arcByEntityId(refs[0]), s.arcByEntityId(refs[1]), tag);
+            const auto a = s.arcIndex(refs[0]);
+            const auto b = s.arcIndex(refs[1]);
+            s.add(FORGE_GCS_TANGENT_ARC_ARC, {a, b}, tag);
         } else if (k0 == SketchEntityKind::Circle && k1 == SketchEntityKind::Circle) {
-            s.gcs.addConstraintTangent(s.circleByEntityId(refs[0]), s.circleByEntityId(refs[1]), tag);
+            const auto a = s.circleIndex(refs[0]);
+            const auto b = s.circleIndex(refs[1]);
+            s.add(FORGE_GCS_TANGENT_CIRCLE_CIRCLE, {a, b}, tag);
         } else {
             const std::uint32_t circRef = (k0 == SketchEntityKind::Circle) ? refs[0] : refs[1];
             const std::uint32_t arcRef  = (k0 == SketchEntityKind::Circle) ? refs[1] : refs[0];
-            s.gcs.addConstraintTangent(s.circleByEntityId(circRef), s.arcByEntityId(arcRef), tag);
+            const auto c = s.circleIndex(circRef);
+            const auto a = s.arcIndex(arcRef);
+            s.add(FORGE_GCS_TANGENT_CIRCLE_ARC, {c, a}, tag);
         }
         break;
     }
 
     // =========================================================================
     // THE TEN THE CENSUS DESIGNED AND THE FACADE NEVER WIRED. Every arm is a
-    // call into the vendored engine; nothing below computes geometry.
+    // call into the solver library; nothing below computes geometry.
     // =========================================================================
     case SketchConstraintKind::Radius: {
         need(1);
-        s.gcs.addConstraintCircleRadius(s.conicByEntityId(refs[0]), s.allocValue(value), tag);
+        s.add(FORGE_GCS_CIRCLE_RADIUS, {s.conicIndex(refs[0])}, tag, value);
         break;
     }
     case SketchConstraintKind::Diameter: {
         need(1);
-        s.gcs.addConstraintCircleDiameter(s.conicByEntityId(refs[0]), s.allocValue(value), tag);
+        s.add(FORGE_GCS_CIRCLE_DIAMETER, {s.conicIndex(refs[0])}, tag, value);
         break;
     }
     case SketchConstraintKind::Angle: {
         need(2);
         // RADIANS. The IR converts from degrees at its own boundary; see the
         // enumerator comment in Sketcher.hpp, which names the same seam.
-        double* a = s.allocValue(value);
         if (isEntity(refs[0]) && isEntity(refs[1])) {
-            s.gcs.addConstraintL2LAngle(s.lineByEntityId(refs[0]), s.lineByEntityId(refs[1]), a, tag);
+            const auto a = s.lineIndex(refs[0]);
+            const auto b = s.lineIndex(refs[1]);
+            s.add(FORGE_GCS_L2L_ANGLE, {a, b}, tag, value);
         } else if (!isEntity(refs[0]) && !isEntity(refs[1])) {
             // The angle of the DIRECTION p0->p1 from +x: how a drawing dimensions
             // a single sloped edge, which has no second line to measure against.
             //
-            // ★ THE FIVE-ARGUMENT OVERLOAD IS CALLED DELIBERATELY. The obvious
-            // four-argument one, addConstraintP2PAngle(p1, p2, angle, tagId),
-            // THROWS THE TAG AWAY — vendored GCS.cpp:655 reads
-            //
-            //     int System::addConstraintP2PAngle(Point& p1, Point& p2,
-            //                                       double* angle,
-            //                                       int /*tagId*/, bool driving)
-            //     { return addConstraintP2PAngle(p1, p2, angle, 0., 0, driving); }
-            //
-            // with the parameter commented out and 0 — planegcs's "no tag"
-            // sentinel — hard-coded in its place. It is the ONLY delegating
-            // overload in that file that does this. Counted: 34 delegating
-            // definitions, 33 of which forward tagId (the three
-            // addConstraintTangentCircumf calls do too -- they are multi-line,
-            // so a one-line grep MISSES them and a first count said 30/29).
-            //
-            // A constraint left on tag 0 is invisible to getConflicting(),
-            // clearByTag() and calculateConstraintErrorByTag(), so the geometry
-            // would still solve while the repair loop could never demote this
-            // constraint and its residual would read NaN. Passing incrAngle = 0.0
-            // explicitly reaches the implementation that honours the tag.
-            //
-            // MEASURED both ways: through the four-argument call the residual for
-            // the returned tag is NaN; through this one it is finite.
-            // 3rdParty is a verbatim vendor copy (see UPSTREAM.md), so the fix
-            // belongs here rather than in the vendored file.
-            s.gcs.addConstraintP2PAngle(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]),
-                                        a, /*incrAngle=*/0.0, tag);
+            // ★ planegcs's four-argument addConstraintP2PAngle(p1, p2, angle,
+            // tagId) THROWS THE TAG AWAY — it hard-codes 0, planegcs's "no tag"
+            // sentinel — and a constraint on tag 0 is invisible to the conflict
+            // report, to removal by tag and to the per-tag residual. The
+            // library's P2P_ANGLE primitive calls the five-argument overload
+            // that honours the tag (see src/forge_gcs.cpp), which is the call
+            // this facade has always made. MEASURED both ways when it was first
+            // found: through the four-argument call the residual for the
+            // returned tag is NaN; through the five-argument one it is finite.
+            const auto a = s.pointIndex(refs[0]);
+            const auto b = s.pointIndex(refs[1]);
+            s.add(FORGE_GCS_P2P_ANGLE, {a, b}, tag, value);
         } else {
             throw std::runtime_error(
                 "forge::sketcher: Angle takes two lines or two points, not one of each");
@@ -575,9 +560,10 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         need(2);
         // Concentric IS coincident centres. planegcs has no separate primitive
         // because there is no separate constraint — FreeCAD spells it the same
-        // way. `.center` is a member of Circle, and Arc derives from Circle.
-        s.gcs.addConstraintP2PCoincident(s.conicByEntityId(refs[0]).center,
-                                         s.conicByEntityId(refs[1]).center, tag);
+        // way.
+        const auto ca = s.curveAt(s.conicIndex(refs[0])).center;
+        const auto cb = s.curveAt(s.conicIndex(refs[1])).center;
+        s.add(FORGE_GCS_P2P_COINCIDENT, {ca, cb}, tag);
         break;
     }
     case SketchConstraintKind::Collinear: {
@@ -588,20 +574,21 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         // as the single statement the author wrote, never half of it — a line
         // left parallel-but-offset would be a geometry error the verify channel
         // would report as a satisfied constraint.
-        GCS::Line& a = s.lineByEntityId(refs[0]);
-        GCS::Line& b = s.lineByEntityId(refs[1]);
-        s.gcs.addConstraintParallel(a, b, tag);
-        s.gcs.addConstraintPointOnLine(b.p1, a, tag);
+        const auto a = s.lineIndex(refs[0]);
+        const auto b = s.lineIndex(refs[1]);
+        const auto bStart = s.curveAt(b).p1;
+        s.add(FORGE_GCS_PARALLEL, {a, b}, tag);
+        s.add(FORGE_GCS_POINT_ON_LINE, {bStart, a}, tag);
         break;
     }
     case SketchConstraintKind::Symmetric: {
         need(3);
-        GCS::Point& a = s.pointByParamId(refs[0]);
-        GCS::Point& b = s.pointByParamId(refs[1]);
+        const auto a = s.pointIndex(refs[0]);
+        const auto b = s.pointIndex(refs[1]);
         if (isEntity(refs[2])) {
-            s.gcs.addConstraintP2PSymmetric(a, b, s.lineByEntityId(refs[2]), tag);
+            s.add(FORGE_GCS_P2P_SYMMETRIC_LINE, {a, b, s.lineIndex(refs[2])}, tag);
         } else {
-            s.gcs.addConstraintP2PSymmetric(a, b, s.pointByParamId(refs[2]), tag);
+            s.add(FORGE_GCS_P2P_SYMMETRIC_POINT, {a, b, s.pointIndex(refs[2])}, tag);
         }
         break;
     }
@@ -615,8 +602,10 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
                 "forge::sketcher: Midpoint's third operand is the MIDPOINT (a point), "
                 "not a line — mirroring about a line is SYMM");
         }
-        s.gcs.addConstraintP2PSymmetric(s.pointByParamId(refs[0]), s.pointByParamId(refs[1]),
-                                        s.pointByParamId(refs[2]), tag);
+        const auto a = s.pointIndex(refs[0]);
+        const auto b = s.pointIndex(refs[1]);
+        const auto m = s.pointIndex(refs[2]);
+        s.add(FORGE_GCS_P2P_SYMMETRIC_POINT, {a, b, m}, tag);
         break;
     }
     case SketchConstraintKind::Fix: {
@@ -625,29 +614,32 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
         // took coordinates would be a move disguised as a constraint, and CON is
         // pass-through precisely so that no constraint statement moves geometry
         // before the solve.
-        GCS::Point& p = s.pointByParamId(refs[0]);
-        s.gcs.addConstraintCoordinateX(p, s.allocValue(*p.x), tag);
-        s.gcs.addConstraintCoordinateY(p, s.allocValue(*p.y), tag);
+        const auto p = s.pointIndex(refs[0]);
+        const StitchEnd at = s.pointAt(p);
+        s.add(FORGE_GCS_COORDINATE_X, {p}, tag, at.x);
+        s.add(FORGE_GCS_COORDINATE_Y, {p}, tag, at.y);
         break;
     }
     case SketchConstraintKind::DistanceX: {
         need(2);
-        // SIGNED: ConstraintDifference::value() is *param2 - *param1
-        // (Constraints.cpp:645), so this enforces bx - ax == value. A DISTX
-        // dimension on a drawing is signed, and an unsigned one would make
-        // "B is 25 to the LEFT of A" unstateable.
-        s.gcs.addConstraintDifference(s.pointByParamId(refs[0]).x, s.pointByParamId(refs[1]).x,
-                                      s.allocValue(value), tag);
+        // SIGNED: planegcs's ConstraintDifference::value() is *param2 - *param1,
+        // so this enforces bx - ax == value. A DISTX dimension on a drawing is
+        // signed, and an unsigned one would make "B is 25 to the LEFT of A"
+        // unstateable.
+        const auto a = s.pointIndex(refs[0]);
+        const auto b = s.pointIndex(refs[1]);
+        s.add(FORGE_GCS_DIFFERENCE_X, {a, b}, tag, value);
         break;
     }
     case SketchConstraintKind::DistanceY: {
         need(2);
-        s.gcs.addConstraintDifference(s.pointByParamId(refs[0]).y, s.pointByParamId(refs[1]).y,
-                                      s.allocValue(value), tag);
+        const auto a = s.pointIndex(refs[0]);
+        const auto b = s.pointIndex(refs[1]);
+        s.add(FORGE_GCS_DIFFERENCE_Y, {a, b}, tag, value);
         break;
     }
     // NO `default:` ARM, DELIBERATELY. With one, -Wswitch goes quiet, and the
-    // 11th kind added to SketchConstraintKind would compile into a silent
+    // next kind added to SketchConstraintKind would compile into a silent
     // "registered nothing, returned a tag" — a constraint the caller believes it
     // applied, that the solver has never heard of, and that a residual query
     // reports as NaN rather than as missing. The two hazards are different and
@@ -661,25 +653,27 @@ std::uint32_t addConstraint(SketchHandle h, SketchConstraintKind kind,
 SketchSolveResult solve(SketchHandle h) {
     Sketch& s = SketchRegistry::instance().get(h);
 
-    GCS::VEC_pD unknowns;
-    s.collectUnknowns(unknowns);
-
-    s.gcs.declareUnknowns(unknowns);
-    s.gcs.initSolution();
-    int rc = s.gcs.solve(/*isFine=*/true, GCS::DogLeg);
-    if (rc == GCS::Success || rc == GCS::Converged ||
-        rc == GCS::SuccessfulSolutionInvalid) {
-        s.gcs.applySolution();
+    // Declares every point coordinate, circle radius and arc radius/angle as an
+    // unknown (points, then circles, then arcs), prepares the solution — which
+    // runs the rank diagnosis when none is held — and solves with DogLeg.
+    std::int32_t rc = FORGE_GCS_SOLVE_FAILED;
+    s.check(forge_gcs_solve(s.sys(), FORGE_GCS_DOGLEG, &rc), "solving");
+    if (rc == FORGE_GCS_SOLVE_SUCCESS || rc == FORGE_GCS_SOLVE_CONVERGED ||
+        rc == FORGE_GCS_SOLVE_SUCCESS_INVALID) {
+        s.check(forge_gcs_apply_solution(s.sys()), "applying the solution");
     }
 
-    int dof = s.gcs.dofsNumber();
-    bool hasConflicting = s.gcs.hasConflicting();
-    bool hasRedundant   = s.gcs.hasRedundant();
+    // The diagnosis the solve itself made — read, not recomputed.
+    forge_gcs_diagnosis diag{};
+    s.check(forge_gcs_get_diagnosis(s.sys(), &diag), "reading the diagnosis");
+    int dof = diag.dof;
+    bool hasConflicting = diag.has_conflicting != 0;
+    bool hasRedundant   = diag.has_redundant != 0;
 
     SketchSolveResult out{};
     out.dof = dof;
     out.iterations = 0;  // planegcs doesn't expose this through the public API
-    if (rc == GCS::Success || rc == GCS::Converged) {
+    if (rc == FORGE_GCS_SOLVE_SUCCESS || rc == FORGE_GCS_SOLVE_CONVERGED) {
         if (hasConflicting) {
             out.status = SketchSolveStatus::Inconsistent;
         } else {
@@ -700,19 +694,17 @@ SketchSolveResult solve(SketchHandle h) {
 // -------------------------------------------------------------- read / write
 SketchPoint readPoint(SketchHandle h, SketchParamId pid) {
     Sketch& s = SketchRegistry::instance().get(h);
-    GCS::Point& p = s.pointByParamId(pid);
-    return SketchPoint{*p.x, *p.y};
+    const StitchEnd p = s.pointAt(s.pointIndex(pid));
+    return SketchPoint{p.x, p.y};
 }
 
 void writePoint(SketchHandle h, SketchParamId pid, double x, double y) {
     Sketch& s = SketchRegistry::instance().get(h);
-    GCS::Point& p = s.pointByParamId(pid);
-    *p.x = x;
-    *p.y = y;
+    s.check(forge_gcs_set_point(s.sys(), s.pointIndex(pid), x, y), "writing a point");
 }
 
 // The live geometry of one entity. Every number below is READ from the storage
-// planegcs mutates in place; the only arithmetic is the length of the curve
+// the solver mutates in place; the only arithmetic is the length of the curve
 // those numbers define, which is the same formula extractProfileRings uses to
 // sample it.
 SketchEntityGeometry readEntity(SketchHandle h, SketchEntityId eid) {
@@ -721,38 +713,42 @@ SketchEntityGeometry readEntity(SketchHandle h, SketchEntityId eid) {
     SketchEntityGeometry g{};
     switch (s.kindOfEntity(eid)) {
         case SketchEntityKind::Line: {
-            const GCS::Line& l = s.lineByEntityId(eid);
+            const forge_gcs_curve l = s.curveAt(s.lineIndex(eid));
+            const StitchEnd p1 = s.pointAt(l.p1), p2 = s.pointAt(l.p2);
             g.shape = SketchEntityShape::Line;
-            g.x0 = *l.p1.x; g.y0 = *l.p1.y;
-            g.x1 = *l.p2.x; g.y1 = *l.p2.y;
+            g.x0 = p1.x; g.y0 = p1.y;
+            g.x1 = p2.x; g.y1 = p2.y;
             const double dx = g.x1 - g.x0, dy = g.y1 - g.y0;
             g.length = std::sqrt(dx * dx + dy * dy);
             return g;
         }
         case SketchEntityKind::Circle: {
-            const GCS::Circle& c = s.circleByEntityId(eid);
+            const forge_gcs_curve c = s.curveAt(s.circleIndex(eid));
+            const StitchEnd ctr = s.pointAt(c.center);
             g.shape = SketchEntityShape::Circle;
-            g.cx = *c.center.x; g.cy = *c.center.y;
-            g.radius = *c.rad;
+            g.cx = ctr.x; g.cy = ctr.y;
+            g.radius = c.radius;
             g.length = 2.0 * kPi * g.radius;
             return g;
         }
         case SketchEntityKind::Arc: {
-            const GCS::Arc& a = s.arcByEntityId(eid);
+            const forge_gcs_curve a = s.curveAt(s.arcIndex(eid));
+            const StitchEnd ctr = s.pointAt(a.center);
+            const StitchEnd st = s.pointAt(a.p1), en = s.pointAt(a.p2);
             g.shape = SketchEntityShape::Arc;
-            g.cx = *a.center.x; g.cy = *a.center.y;
-            g.radius = *a.rad;
-            g.x0 = *a.start.x; g.y0 = *a.start.y;
-            g.x1 = *a.end.x;   g.y1 = *a.end.y;
+            g.cx = ctr.x; g.cy = ctr.y;
+            g.radius = a.radius;
+            g.x0 = st.x; g.y0 = st.y;
+            g.x1 = en.x; g.y1 = en.y;
             // The SAME minor-arc normalisation extractWires and
             // extractProfileRings apply, for the same reason: a corner arc that
             // straddles the +/-pi branch cut would otherwise report the MAJOR
             // arc's length while the profile bridge builds the minor one, and a
             // length that disagrees with the geometry is worse than none.
-            double sweep = *a.endAngle - *a.startAngle;
+            double sweep = a.end_angle - a.start_angle;
             while (sweep <= -kPi) sweep += 2.0 * kPi;
             while (sweep >   kPi) sweep -= 2.0 * kPi;
-            g.startAngle = *a.startAngle;
+            g.startAngle = a.start_angle;
             g.endAngle   = g.startAngle + sweep;
             g.length = std::abs(g.radius * sweep);
             return g;
@@ -774,11 +770,12 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
     std::vector<TopoDS_Wire> wires;
 
     // ---- (A) closed loops: each circle is its own wire --------------------
-    for (const auto& cptr : s.circles) {
-        const GCS::Circle& c = *cptr;
-        gp_Pnt center(*c.center.x, *c.center.y, 0.0);
+    for (const std::int32_t ci : s.entitiesOfKind(SketchEntityKind::Circle)) {
+        const forge_gcs_curve c = s.curveAt(ci);
+        const StitchEnd cc = s.pointAt(c.center);
+        gp_Pnt center(cc.x, cc.y, 0.0);
         gp_Dir axis(0, 0, 1);
-        gp_Circ circ(gp_Ax2(center, axis), *c.rad);
+        gp_Circ circ(gp_Ax2(center, axis), c.radius);
         TopoDS_Edge e = BRepBuilderAPI_MakeEdge(circ).Edge();
         BRepBuilderAPI_MakeWire mkw(e);
         if (mkw.IsDone()) wires.push_back(mkw.Wire());
@@ -792,25 +789,27 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
     };
     std::vector<Seg> segs;
 
-    for (const auto& lptr : s.lines) {
-        const GCS::Line& l = *lptr;
-        gp_Pnt p1(*l.p1.x, *l.p1.y, 0.0);
-        gp_Pnt p2(*l.p2.x, *l.p2.y, 0.0);
+    for (const std::int32_t li : s.entitiesOfKind(SketchEntityKind::Line)) {
+        const forge_gcs_curve l = s.curveAt(li);
+        const StitchEnd l1 = s.pointAt(l.p1), l2 = s.pointAt(l.p2);
+        gp_Pnt p1(l1.x, l1.y, 0.0);
+        gp_Pnt p2(l2.x, l2.y, 0.0);
         if (p1.Distance(p2) < Precision::Confusion()) continue;  // degenerate
         TopoDS_Edge e = BRepBuilderAPI_MakeEdge(p1, p2).Edge();
         segs.push_back({e, p1, p2});
     }
 
-    for (const auto& aptr : s.arcs) {
-        const GCS::Arc& ar = *aptr;
-        gp_Pnt center(*ar.center.x, *ar.center.y, 0.0);
-        gp_Pnt sp(*ar.start.x, *ar.start.y, 0.0);
-        gp_Pnt ep(*ar.end.x,   *ar.end.y,   0.0);
+    for (const std::int32_t ai : s.entitiesOfKind(SketchEntityKind::Arc)) {
+        const forge_gcs_curve ar = s.curveAt(ai);
+        const StitchEnd ac = s.pointAt(ar.center), as = s.pointAt(ar.p1), ae = s.pointAt(ar.p2);
+        gp_Pnt center(ac.x, ac.y, 0.0);
+        gp_Pnt sp(as.x, as.y, 0.0);
+        gp_Pnt ep(ae.x, ae.y, 0.0);
         // Midpoint on the arc via startAngle/endAngle so OCCT picks the
         // correct arc direction. Fall back to a straight-edge if degenerate.
-        const double r = *ar.rad;
-        const double sa = *ar.startAngle;
-        double ea = *ar.endAngle;
+        const double r = ar.radius;
+        const double sa = ar.start_angle;
+        double ea = ar.end_angle;
         // MINOR-ARC NORMALISATION (fix #1). addArc stores start/end angles via
         // atan2 (each in (-pi, pi]), so a corner arc whose sweep straddles the
         // +/-pi branch cut (e.g. a centred rounded-rect's bottom-left corner:
@@ -1000,7 +999,7 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
 
 // ------------------------------------------------------- extractProfileRings
 //
-// IN-HOUSE KERNEL STEP 3b — OCCT-FREE. Walk the SAME GCS::Line/Circle/Arc data
+// IN-HOUSE KERNEL STEP 3b — OCCT-FREE. Walk the SAME line / circle / arc data
 // extractWires reads, but emit ordered geom::Point2 rings (no OCCT). A circle
 // becomes its own sampled ring; lines + arcs (each sampled into chords) are
 // stitched head-to-tail by endpoint matching into one ring per closed loop.
@@ -1015,9 +1014,10 @@ extractProfileRings(SketchHandle h, int circleSegments) {
     constexpr double kEps   = 1.0e-5;   // match extractWires' 10 µm stitch tol
 
     // ---- (A) closed loops: each circle is its own sampled ring -------------
-    for (const auto& cptr : s.circles) {
-        const GCS::Circle& c = *cptr;
-        const double cx = *c.center.x, cy = *c.center.y, r = *c.rad;
+    for (const std::int32_t ci : s.entitiesOfKind(SketchEntityKind::Circle)) {
+        const forge_gcs_curve c = s.curveAt(ci);
+        const StitchEnd cc = s.pointAt(c.center);
+        const double cx = cc.x, cy = cc.y, r = c.radius;
         if (!(r > Precision::Confusion())) continue;
         std::vector<Point2> ring;
         ring.reserve(static_cast<std::size_t>(segs));
@@ -1037,18 +1037,20 @@ extractProfileRings(SketchHandle h, int circleSegments) {
     };
     std::vector<Seg> segs2;
 
-    for (const auto& lptr : s.lines) {
-        const GCS::Line& l = *lptr;
-        Point2 a{*l.p1.x, *l.p1.y}, b{*l.p2.x, *l.p2.y};
+    for (const std::int32_t li : s.entitiesOfKind(SketchEntityKind::Line)) {
+        const forge_gcs_curve l = s.curveAt(li);
+        const StitchEnd l1 = s.pointAt(l.p1), l2 = s.pointAt(l.p2);
+        Point2 a{l1.x, l1.y}, b{l2.x, l2.y};
         const double dx = b.x - a.x, dy = b.y - a.y;
         if (std::sqrt(dx*dx + dy*dy) < Precision::Confusion()) continue;
         segs2.push_back(Seg{{a, b}});
     }
 
-    for (const auto& aptr : s.arcs) {
-        const GCS::Arc& ar = *aptr;
-        const double cx = *ar.center.x, cy = *ar.center.y, r = *ar.rad;
-        double sa = *ar.startAngle, ea = *ar.endAngle;
+    for (const std::int32_t ai : s.entitiesOfKind(SketchEntityKind::Arc)) {
+        const forge_gcs_curve ar = s.curveAt(ai);
+        const StitchEnd ac = s.pointAt(ar.center), as = s.pointAt(ar.p1), ae = s.pointAt(ar.p2);
+        const double cx = ac.x, cy = ac.y, r = ar.radius;
+        double sa = ar.start_angle, ea = ar.end_angle;
         // MINOR-ARC NORMALISATION (fix #1) — mirror extractWires: bring the sweep
         // into (-pi, pi] so a corner arc straddling the +/-pi branch cut samples
         // the SHORTER (convex) arc, not the major arc (a concave bite). Corner
@@ -1069,12 +1071,12 @@ extractProfileRings(SketchHandle h, int circleSegments) {
         pts.reserve(static_cast<std::size_t>(n) + 1);
         // Exact endpoints from the stored start/end points (so stitching is
         // robust against startAngle/endAngle rounding); interior from angles.
-        pts.push_back(Point2{*ar.start.x, *ar.start.y});
+        pts.push_back(Point2{as.x, as.y});
         for (int i = 1; i < n; ++i) {
             const double a = sa + sweep * (static_cast<double>(i) / n);
             pts.push_back(Point2{cx + r * std::cos(a), cy + r * std::sin(a)});
         }
-        pts.push_back(Point2{*ar.end.x, *ar.end.y});
+        pts.push_back(Point2{ae.x, ae.y});
         segs2.push_back(Seg{std::move(pts)});
     }
 
@@ -1123,39 +1125,40 @@ extractProfileRings(SketchHandle h, int circleSegments) {
 // =================================================================== diagnostics
 //
 // Phase A of sketcher-constraints.md — surface the planegcs diagnose pipeline.
-// All numerics already exist in GCS::System; these functions only re-package the
-// engine's own getters and map the raw double* dependent-parameter pointers back
-// to the point / entity IDs the JS caller holds.
+// All numerics live in the solver library; these functions only re-package its
+// report and map each dependent parameter back to the point / entity IDs the
+// caller holds. The library names a parameter by (role, point-or-curve index),
+// which is the same identity the old pointer comparison established.
 
 namespace {
 
-// Map a raw parameter pointer (as returned by GCS::System::getDependentParams)
-// back to the owning geometry. The Sketch owns every double the engine touches:
-//   - point x/y          → gcsPoints[i].x / .y      → SketchParamId i
-//   - circle rad         → circles[i]->rad          → SketchEntityId for that circle
-//   - arc rad/start/end  → arcs[i]->rad/startAngle/endAngle → SketchEntityId for that arc
-// Returns true on a hit and fills role + ownerId.
-bool mapParamToGeometry(const Sketch& s, const double* p,
-                        SketchParamRole& role, std::uint32_t& ownerId) {
-    // Points first (the common case).
-    for (std::uint32_t i = 0; i < s.gcsPoints.size(); ++i) {
-        if (s.gcsPoints[i].x == p) { role = SketchParamRole::PointX; ownerId = toParamId(i); return true; }
-        if (s.gcsPoints[i].y == p) { role = SketchParamRole::PointY; ownerId = toParamId(i); return true; }
+// Library parameter -> the facade's (role, owner id). Returns false for a
+// parameter the library could not attribute, which leaves the caller's
+// Unknown / 0 defaults in place exactly as an unmatched pointer did.
+bool mapParamToGeometry(const forge_gcs_param& p, SketchParamRole& role, std::uint32_t& ownerId) {
+    if (p.owner < 0) return false;
+    const auto owner = static_cast<std::uint32_t>(p.owner);
+    switch (p.role) {
+        case FORGE_GCS_PARAM_POINT_X:         role = SketchParamRole::PointX;        ownerId = toParamId(owner);  return true;
+        case FORGE_GCS_PARAM_POINT_Y:         role = SketchParamRole::PointY;        ownerId = toParamId(owner);  return true;
+        case FORGE_GCS_PARAM_CIRCLE_RADIUS:   role = SketchParamRole::CircleRadius;  ownerId = toEntityId(owner); return true;
+        case FORGE_GCS_PARAM_ARC_RADIUS:      role = SketchParamRole::ArcRadius;     ownerId = toEntityId(owner); return true;
+        case FORGE_GCS_PARAM_ARC_START_ANGLE: role = SketchParamRole::ArcStartAngle; ownerId = toEntityId(owner); return true;
+        case FORGE_GCS_PARAM_ARC_END_ANGLE:   role = SketchParamRole::ArcEndAngle;   ownerId = toEntityId(owner); return true;
+        default: return false;
     }
-    // Entity-intrinsic params: walk the flat entityIndex so ownerId is the SketchEntityId.
-    for (std::uint32_t e = 0; e < s.entityIndex.size(); ++e) {
-        const auto& rec = s.entityIndex[e];
-        if (rec.kind == SketchEntityKind::Circle) {
-            const GCS::Circle& c = *s.circles[rec.typedIndex];
-            if (c.rad == p) { role = SketchParamRole::CircleRadius; ownerId = toEntityId(e); return true; }
-        } else if (rec.kind == SketchEntityKind::Arc) {
-            const GCS::Arc& a = *s.arcs[rec.typedIndex];
-            if (a.rad == p)        { role = SketchParamRole::ArcRadius;      ownerId = toEntityId(e); return true; }
-            if (a.startAngle == p) { role = SketchParamRole::ArcStartAngle;  ownerId = toEntityId(e); return true; }
-            if (a.endAngle == p)   { role = SketchParamRole::ArcEndAngle;    ownerId = toEntityId(e); return true; }
-        }
-    }
-    return false;
+}
+
+bool sameParam(const forge_gcs_param& a, const forge_gcs_param& b) {
+    return a.role == b.role && a.owner == b.owner;
+}
+
+// The library's size-then-fill list protocol, once.
+std::vector<int> readTagList(Sketch& s, std::int32_t which) {
+    const std::int32_t n = s.check(forge_gcs_get_tags(s.sys(), which, nullptr, 0), "reading a tag list");
+    std::vector<std::int32_t> buf(static_cast<std::size_t>(n));
+    if (n > 0) s.check(forge_gcs_get_tags(s.sys(), which, buf.data(), n), "reading a tag list");
+    return std::vector<int>(buf.begin(), buf.end());
 }
 
 }  // namespace
@@ -1163,76 +1166,84 @@ bool mapParamToGeometry(const Sketch& s, const double* p,
 SketchDiagnostics diagnoseSketch(SketchHandle h) {
     Sketch& s = SketchRegistry::instance().get(h);
 
-    // Make sure the engine has a fresh diagnosis even if solve() was never
-    // called. declareUnknowns + initSolution(DogLeg) runs diagnose() internally
-    // (GCS::System::initSolution → diagnose). diagnose is a Jacobian-rank
+    // A fresh diagnosis even if solve() was never called: the library declares
+    // the unknowns, prepares the solution (which diagnoses) and diagnoses again,
+    // exactly the sequence this facade always ran. diagnose is a Jacobian-rank
     // analysis: it does NOT move geometry.
-    GCS::VEC_pD unknowns;
-    s.collectUnknowns(unknowns);
-    s.gcs.declareUnknowns(unknowns);
-    s.gcs.initSolution(GCS::DogLeg);
-    s.gcs.diagnose(GCS::DogLeg);
+    forge_gcs_diagnosis diag{};
+    s.check(forge_gcs_diagnose(s.sys(), FORGE_GCS_DOGLEG, &diag), "diagnosing");
 
     SketchDiagnostics d{};
-    d.dof                  = s.gcs.dofsNumber();
-    d.emptyDiagnoseMatrix  = s.gcs.isEmptyDiagnoseMatrix();
-    d.hasConflicting       = s.gcs.hasConflicting();
-    d.hasRedundant         = s.gcs.hasRedundant();
-    d.hasPartiallyRedundant= s.gcs.hasPartiallyRedundant();
+    d.dof                  = diag.dof;
+    d.emptyDiagnoseMatrix  = diag.empty_matrix != 0;
+    d.hasConflicting       = diag.has_conflicting != 0;
+    d.hasRedundant         = diag.has_redundant != 0;
+    d.hasPartiallyRedundant= diag.has_partially_redundant != 0;
 
-    GCS::VEC_I conflicting, redundant, partiallyRedundant;
-    s.gcs.getConflicting(conflicting);
-    s.gcs.getRedundant(redundant);
-    s.gcs.getPartiallyRedundant(partiallyRedundant);
-    d.conflicting        = std::vector<int>(conflicting.begin(), conflicting.end());
-    d.redundant          = std::vector<int>(redundant.begin(), redundant.end());
-    d.partiallyRedundant = std::vector<int>(partiallyRedundant.begin(), partiallyRedundant.end());
+    d.conflicting        = readTagList(s, FORGE_GCS_TAGS_CONFLICTING);
+    d.redundant          = readTagList(s, FORGE_GCS_TAGS_REDUNDANT);
+    d.partiallyRedundant = readTagList(s, FORGE_GCS_TAGS_PARTIALLY_REDUNDANT);
+    d.proposedRemovals   = readTagList(s, FORGE_GCS_TAGS_PROPOSED_REMOVAL);
+    {
+        const std::int32_t groups = s.check(forge_gcs_conflict_group_count(s.sys()), "reading conflict groups");
+        for (std::int32_t g = 0; g < groups; ++g) {
+            const std::int32_t n = s.check(forge_gcs_get_conflict_group(s.sys(), g, nullptr, 0), "reading a conflict group");
+            std::vector<std::int32_t> buf(static_cast<std::size_t>(n));
+            if (n > 0) s.check(forge_gcs_get_conflict_group(s.sys(), g, buf.data(), n), "reading a conflict group");
+            d.conflictingGroups.emplace_back(buf.begin(), buf.end());
+        }
+    }
 
-    // Dependent params (still-free geometry). getDependentParamsGroups gives the
-    // coupling groups; we map each pointer to its geometry and record its group.
-    GCS::VEC_pD dependent;
-    s.gcs.getDependentParams(dependent);
-    std::vector<std::vector<double*>> groups;
-    s.gcs.getDependentParamsGroups(groups);
+    // Dependent params (still-free geometry) and the engine's coupling groups.
+    std::vector<forge_gcs_param> dependent;
+    {
+        const std::int32_t n = s.check(forge_gcs_get_dependent_params(s.sys(), nullptr, 0), "reading free parameters");
+        dependent.resize(static_cast<std::size_t>(n));
+        if (n > 0) s.check(forge_gcs_get_dependent_params(s.sys(), dependent.data(), n), "reading free parameters");
+    }
+    std::vector<std::vector<forge_gcs_param>> groups;
+    {
+        const std::int32_t count = s.check(forge_gcs_dependent_group_count(s.sys()), "reading free groups");
+        for (std::int32_t g = 0; g < count; ++g) {
+            const std::int32_t n = s.check(forge_gcs_get_dependent_group(s.sys(), g, nullptr, 0), "reading a free group");
+            std::vector<forge_gcs_param> members(static_cast<std::size_t>(n));
+            if (n > 0) s.check(forge_gcs_get_dependent_group(s.sys(), g, members.data(), n), "reading a free group");
+            groups.push_back(std::move(members));
+        }
+    }
     d.dependentParamGroupCount = static_cast<int>(groups.size());
 
-    auto groupOf = [&](const double* p) -> int {
+    auto groupOf = [&](const forge_gcs_param& p) -> int {
         for (std::size_t g = 0; g < groups.size(); ++g) {
-            for (const double* q : groups[g]) {
-                if (q == p) return static_cast<int>(g);
+            for (const forge_gcs_param& q : groups[g]) {
+                if (sameParam(q, p)) return static_cast<int>(g);
             }
         }
         return -1;
     };
-    for (const double* p : dependent) {
-        SketchDependentParam dp{};
-        dp.role  = SketchParamRole::Unknown;
-        dp.ownerId = 0;
-        SketchParamRole role; std::uint32_t owner;
-        if (mapParamToGeometry(s, p, role, owner)) { dp.role = role; dp.ownerId = owner; }
-        dp.group = groupOf(p);
-        d.dependentParams.push_back(dp);
-    }
-
-    // The two loss-free views. `describe` is the SAME mapping the loop above
-    // uses; it is a lambda rather than a third copy of those five lines.
-    auto describe = [&](const double* p, int group) {
+    auto describe = [&](const forge_gcs_param& p, int group) {
         SketchDependentParam dp{};
         dp.role = SketchParamRole::Unknown;
         dp.ownerId = 0;
         SketchParamRole role;
         std::uint32_t owner;
-        if (mapParamToGeometry(s, p, role, owner)) { dp.role = role; dp.ownerId = owner; }
+        if (mapParamToGeometry(p, role, owner)) { dp.role = role; dp.ownerId = owner; }
         dp.group = group;
         return dp;
     };
-    // EVERY free parameter, ONCE. Deduplicated by POINTER, which is the
-    // parameter's identity here — two entries naming the same double are the
-    // same freedom counted twice, and that is the whole defect.
+    for (const forge_gcs_param& p : dependent) {
+        d.dependentParams.push_back(describe(p, groupOf(p)));
+    }
+
+    // The two loss-free views. EVERY free parameter, ONCE — two entries naming
+    // the same parameter are the same freedom counted twice, and that is the
+    // whole defect these fields exist to avoid.
     {
-        std::vector<const double*> seen;
-        for (const double* p : dependent) {
-            if (std::find(seen.begin(), seen.end(), p) != seen.end()) continue;
+        std::vector<forge_gcs_param> seen;
+        for (const forge_gcs_param& p : dependent) {
+            bool dup = false;
+            for (const forge_gcs_param& q : seen) dup = dup || sameParam(p, q);
+            if (dup) continue;
             seen.push_back(p);
             d.distinctDependentParams.push_back(describe(p, groupOf(p)));
         }
@@ -1243,9 +1254,11 @@ SketchDiagnostics diagnoseSketch(SketchHandle h) {
     // parameter is the coupling this report exists to show.
     for (std::size_t g = 0; g < groups.size(); ++g) {
         std::vector<SketchDependentParam> members;
-        std::vector<const double*> seen;
-        for (const double* p : groups[g]) {
-            if (std::find(seen.begin(), seen.end(), p) != seen.end()) continue;
+        std::vector<forge_gcs_param> seen;
+        for (const forge_gcs_param& p : groups[g]) {
+            bool dup = false;
+            for (const forge_gcs_param& q : seen) dup = dup || sameParam(p, q);
+            if (dup) continue;
             seen.push_back(p);
             members.push_back(describe(p, static_cast<int>(g)));
         }
@@ -1269,7 +1282,7 @@ SketchDiagnostics diagnoseSketch(SketchHandle h) {
 
 double constraintResidual(SketchHandle h, int tag) {
     Sketch& s = SketchRegistry::instance().get(h);
-    return s.gcs.calculateConstraintErrorByTag(tag);
+    return forge_gcs_error_by_tag(s.sys(), tag);
 }
 
 std::vector<SketchConstraintResidual> allConstraintResiduals(SketchHandle h) {
@@ -1278,7 +1291,7 @@ std::vector<SketchConstraintResidual> allConstraintResiduals(SketchHandle h) {
     out.reserve(static_cast<std::size_t>(s.nextConstraintTag));
     // Tags are monotonic positive ints 1..nextConstraintTag (Sketcher.cpp::nextTag).
     for (int t = 1; t <= s.nextConstraintTag; ++t) {
-        out.push_back(SketchConstraintResidual{t, s.gcs.calculateConstraintErrorByTag(t)});
+        out.push_back(SketchConstraintResidual{t, forge_gcs_error_by_tag(s.sys(), t)});
     }
     return out;
 }
@@ -1290,9 +1303,9 @@ SketchAuditResult auditSketch(SketchHandle h) {
     // entity DOF: point 2, line 4, circle 3, arc 5. We can recover the entity
     // breakdown from the Sketch's own storage.
     auto staticEstimate = [&]() -> int {
-        int totalDof = 2 * static_cast<int>(s.gcsPoints.size())
-                     + 1 * static_cast<int>(s.circles.size())   // radius (centre is a point already counted)
-                     + 3 * static_cast<int>(s.arcs.size());      // radius + 2 angles
+        int totalDof = 2 * static_cast<int>(s.pointCount)
+                     + 1 * static_cast<int>(s.entitiesOfKind(SketchEntityKind::Circle).size())   // radius (centre is a point already counted)
+                     + 3 * static_cast<int>(s.entitiesOfKind(SketchEntityKind::Arc).size());      // radius + 2 angles
         // We cannot recover per-constraint static cost without the original kind
         // list, so we approximate "removed DOF" by (totalParams - solverDof);
         // the solver value below is the real one anyway.
@@ -1302,7 +1315,7 @@ SketchAuditResult auditSketch(SketchHandle h) {
     SketchDiagnostics diag = diagnoseSketch(h);
 
     SketchAuditResult r{};
-    r.totalEntities = static_cast<int>(s.entityIndex.size());
+    r.totalEntities = static_cast<int>(s.entityKinds.size());
     r.totalConstraints = s.nextConstraintTag;
     r.staticEstimate = staticEstimate();
     r.solverDof = diag.dof;
@@ -1319,10 +1332,10 @@ SketchAuditResult auditSketch(SketchHandle h) {
 
 void removeConstraintsByTag(SketchHandle h, int tag) {
     Sketch& s = SketchRegistry::instance().get(h);
-    s.gcs.clearByTag(tag);
-    // The cached rank analysis describes a system that no longer exists. Not
+    // The library removes every primitive carrying the tag AND invalidates the
+    // cached rank analysis, which describes a system that no longer exists. Not
     // invalidating it is how a repair loop "converges" against a stale verdict.
-    s.gcs.invalidatedDiagnosis();
+    s.check(forge_gcs_clear_tag(s.sys(), tag), "removing a constraint");
 }
 
 SketchSolveReport solveOrRepair(SketchHandle h, int maxDemotions) {
@@ -1345,7 +1358,7 @@ SketchSolveReport solveOrRepair(SketchHandle h, int maxDemotions) {
         tagOut = 0;
         double worst = 0.0;
         for (int t : live) {
-            const double e = s.gcs.calculateConstraintErrorByTag(t);
+            const double e = forge_gcs_error_by_tag(s.sys(), t);
             if (!std::isfinite(e)) continue;
             if (std::fabs(e) > std::fabs(worst)) { worst = e; tagOut = t; }
         }
@@ -1386,7 +1399,7 @@ SketchSolveReport solveOrRepair(SketchHandle h, int maxDemotions) {
             if (victim == 0) break;   // no live tag carries a finite error
         }
 
-        const double res = s.gcs.calculateConstraintErrorByTag(victim);
+        const double res = forge_gcs_error_by_tag(s.sys(), victim);
         removeConstraintsByTag(h, victim);
         live.erase(std::remove(live.begin(), live.end(), victim), live.end());
         rep.demoted.push_back(SketchDemotion{victim, why, res});

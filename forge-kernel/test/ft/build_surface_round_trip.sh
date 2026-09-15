@@ -44,8 +44,7 @@ fi
 
 CXX="${CXX:-clang++}"
 FLAGS=(-std=c++20 -O0 -g -Wall
-       -I"$KERNEL/include" -I"$REPO/ui/include" -I"$OCCT_INC"
-       -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
+       -I"$KERNEL/include" -I"$REPO/ui/include" -I"$OCCT_INC")
 
 # ---- ONE OCCT LIBRARY: a typeinfo is a DATA symbol -------------------------
 # See the same block in build_s0_acceptance.sh. FeatureTreeCompiler.cpp catches

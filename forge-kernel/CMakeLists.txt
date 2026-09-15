@@ -195,11 +195,12 @@ if(NOT OCCT_VERSION_MAJORMINOR STREQUAL EXPECTED_OCCT_VERSION)
         "-DEXPECTED_OCCT_VERSION=${OCCT_VERSION_MAJORMINOR} once you have verified the TKDE* toolkits link.")
 endif()
 
-# ---------------------------------------------------------------- Eigen: REMOVED
-# Eigen is no longer a dependency. The kernel's own solvers use the in-house
-# forge::native::linalg; the vendored PlaneGCS sketch solver compiles against the
-# drop-in <Eigen/...> shim (3rdParty/planegcs_eigen_shim), itself backed by
-# forge::native::linalg. No real Eigen package is required — zero find_package.
+# ---------------------------------------------------------------- Eigen: not in the kernel
+# The kernel's own solvers use the in-house forge::native::linalg and include no
+# Eigen header. The ONLY Eigen consumer is the sketch solver, which is no longer
+# compiled into the kernel at all: it is libforge_gcs, a separate LGPL shared
+# library under third_party/freecad-derived/sketch-solver (see the planegcs block
+# below), and that project finds its own Eigen headers. No find_package here.
 
 # OCCT 7.9 reorganises the Data Exchange toolkits: TKSTEP / TKSTEPBase /
 # TKSTEPAttr / TKSTEP209 / TKSTEP214 are merged into TKDESTEP, TKSTL → TKDESTL,
@@ -1851,7 +1852,8 @@ endif()
 
 # ---------------------------------------------------------------- Boost
 # planegcs uses boost::graph (connected_components) + boost::math::constants.
-# Header-only on brew. We need *_INC only — no link libs.
+# Header-only on brew. We need *_INC only — no link libs, and only libforge_gcs
+# (below) compiles against it; no kernel translation unit includes Boost.
 #
 # Was, until the dependency-plane track:
 #     set(BOOST_INC "/opt/homebrew/opt/boost/include")
@@ -1865,16 +1867,35 @@ if(NOT EXISTS "${BOOST_INC}/boost/graph/adjacency_list.hpp")
                         "tools/deps/seed, or set -DFORGE_DEPS_PREFIX_BOOST=...")
 endif()
 
-# ---------------------------------------------------------- planegcs (vendored)
-# See forge-kernel/3rdParty/planegcs/UPSTREAM.md for source + edits.
-set(PLANEGCS_DIR "${CMAKE_SOURCE_DIR}/3rdParty/planegcs")
-set(PLANEGCS_SRC
-    "${PLANEGCS_DIR}/Constraints.cpp"
-    "${PLANEGCS_DIR}/GCS.cpp"
-    "${PLANEGCS_DIR}/Geo.cpp"
-    "${PLANEGCS_DIR}/SubSystem.cpp"
-    "${PLANEGCS_DIR}/qp_eq.cpp"
-)
+# ------------------------------------------- libforge_gcs (planegcs, LGPL, SHARED)
+# FreeCAD's planegcs sketch solver, modified for Forge, lives ONLY under
+# third_party/freecad-derived/sketch-solver (LGPL-2.1-or-later; COPYING.LGPL and
+# MODIFICATIONS.md beside it) and builds there as ONE SHARED LIBRARY. Nothing in
+# this file compiles a planegcs source: forge_kernel_core and the .node LINK
+# libforge_gcs, and Sketcher.cpp talks to it only through its C ABI
+# (forge_gcs/forge_gcs.h). That is the LGPL-2.1 section 6 boundary -- a user can
+# rebuild the library from its source and replace it without touching Forge --
+# and third_party/freecad-derived/lgpl_compliance_gate.sh fails the build of a
+# tree that compiles derived code into a Forge target.
+#
+# Its output lands beside libforge_kernel_core (CMAKE_BINARY_DIR), which is where
+# every @rpath consumer in the build tree, and package_macos.sh's dylib walk,
+# already look.
+get_filename_component(FORGE_REPO_ROOT_FOR_GCS "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
+set(FORGE_GCS_SOURCE_DIR "${FORGE_REPO_ROOT_FOR_GCS}/third_party/freecad-derived/sketch-solver")
+# (cmake-js sets CMAKE_LIBRARY_OUTPUT_DIRECTORY to build/Release, where the .node
+# is written; the library goes wherever the kernel's own libraries go.)
+if(DEFINED CMAKE_LIBRARY_OUTPUT_DIRECTORY AND NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY STREQUAL "")
+    set(FORGE_GCS_OUTPUT_DIR "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
+else()
+    set(FORGE_GCS_OUTPUT_DIR "${CMAKE_BINARY_DIR}")
+endif()
+if(NOT TARGET forge_gcs)
+    add_subdirectory("${FORGE_GCS_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/forge_gcs")
+    set_target_properties(forge_gcs PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${FORGE_GCS_OUTPUT_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${FORGE_GCS_OUTPUT_DIR}")
+endif()
 
 # -------------------------------------------------------------- target
 # Track Z1: the source list is a VARIABLE so the node-free core target can reuse it
@@ -2501,7 +2522,8 @@ set(FORGE_KERNEL_SOURCES
     # Fillet/Shell/Sweep/MassProps/Aabb/SolidTessellate/StepAnalytic/StepFaceted +
     # csg/Revolve + mesh/HalfEdgeMesh) are already listed above.
     src/native/capi/forge_capi.cpp
-    ${PLANEGCS_SRC}
+    # NO planegcs sources: the sketch solver is the separate shared library
+    # libforge_gcs, linked below (see the libforge_gcs block above).
 )
 
 # ---- the N-API addon target: OPTIONAL add-on, everything below is gated ----
@@ -2519,13 +2541,6 @@ target_include_directories(forge_kernel PRIVATE
     ${CMAKE_JS_INC}
     "${NODE_ADDON_API_DIR}"
     "${OCCT_INC}"
-    # In-house drop-in <Eigen/...> shim backed by forge::native::linalg — NO real
-    # Eigen. The kernel's own solvers are Eigen-free; the only <Eigen/...> includes
-    # left are in the vendored PlaneGCS sketch solver, which this shim satisfies
-    # byte-identically. Must precede any system include that could carry eigen3.
-    "${CMAKE_SOURCE_DIR}/3rdParty/planegcs_eigen_shim"
-    "${BOOST_INC}"
-    "${PLANEGCS_DIR}"
     "${CMAKE_SOURCE_DIR}/include"
 )
 
@@ -2542,6 +2557,11 @@ endif()
 
 target_link_directories(forge_kernel PRIVATE "${OCCT_LIB}")
 target_link_libraries(forge_kernel PRIVATE ${OCCT_LIBS} ${CMAKE_JS_LIB})
+# The sketch solver, DYNAMICALLY. The .node links `-undefined dynamic_lookup`, so
+# an unlinked solver would still LINK and would fail only when a sketch is first
+# solved; naming the library here is what puts a load command in the binary.
+target_link_libraries(forge_kernel PRIVATE forge_gcs)
+set_property(TARGET forge_kernel APPEND PROPERTY BUILD_RPATH "@loader_path")
 
 # Darwin: bundle loader linkage if not using cmake-js.
 if(APPLE AND NOT DEFINED CMAKE_JS_LIB)
@@ -2598,9 +2618,6 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
     # the proof that the geometry code is node-free.
     target_include_directories(forge_kernel_core PRIVATE
         "${OCCT_INC}"
-        "${CMAKE_SOURCE_DIR}/3rdParty/planegcs_eigen_shim"
-        "${BOOST_INC}"
-        "${PLANEGCS_DIR}"
         "${CMAKE_SOURCE_DIR}/include"
     )
 
@@ -2625,12 +2642,16 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
     # byte-untouched, so the otool-L direct-link series and every OCCT drop gate keep
     # counting exactly what they counted before.
     target_link_libraries(forge_kernel_core PRIVATE ${OCCT_LIBS} TKBO TKG2d)
+    # The sketch solver: libforge_gcs, linked DYNAMICALLY (LGPL-2.1 boundary; see
+    # the libforge_gcs block above). @loader_path lets the core find it beside
+    # itself -- in this build directory, and in Forge.app/Contents/Frameworks.
+    target_link_libraries(forge_kernel_core PRIVATE forge_gcs)
 
     if(APPLE)
         # Normal shared lib: rpath to the OCCT dylibs, but NO `-undefined
         # dynamic_lookup` — every symbol must resolve at link time (the proof).
         set_target_properties(forge_kernel_core PROPERTIES
-            LINK_FLAGS "-Wl,-rpath,${OCCT_LIB}"
+            LINK_FLAGS "-Wl,-rpath,${OCCT_LIB} -Wl,-rpath,@loader_path"
         )
     endif()
 

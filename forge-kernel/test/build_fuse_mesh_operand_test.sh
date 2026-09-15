@@ -31,16 +31,13 @@ if [ ! -e "$OCCT/include/opencascade/Standard_Version.hxx" ]; then
 fi
 OCCT_INC="$OCCT/include/opencascade"
 OCCT_LIB="$OCCT/lib"
-# PLANEGCS (vendored) + its in-house Eigen shim + boost — needed to compile/link
-# src/Sketcher.cpp (Features.cpp references forge::extractProfileRings, which lives
-# there). Same include set CMakeLists.txt uses for the planegcs target.
-PLANEGCS_DIR="$KERNEL/3rdParty/planegcs"
-EIGEN_SHIM="$KERNEL/3rdParty/planegcs_eigen_shim"
-BOOST_INC="${BOOST_INC:-/opt/homebrew/opt/boost/include}"
-if [ ! -e "$BOOST_INC/boost/graph/adjacency_list.hpp" ]; then
-  echo "FATAL: Boost not found at $BOOST_INC (brew install boost or set BOOST_INC)"; exit 2
-fi
-GCS_FLAGS="-I $EIGEN_SHIM -I $BOOST_INC -I $PLANEGCS_DIR"
+# THE SKETCH SOLVER IS A SHARED LIBRARY. src/Sketcher.cpp (Features.cpp references
+# forge::extractProfileRings, which lives there) talks to libforge_gcs through its
+# C ABI, so compiling it needs only that header, and the test binary LINKS the
+# library -- built by the component's own script -- exactly as the application
+# does. No solver source is compiled into this executable.
+GCS_DIR="$KERNEL/../third_party/freecad-derived/sketch-solver"
+GCS_FLAGS="-I $GCS_DIR/include"
 FLAGS="-std=c++20 -O2 -DFORGE_NATIVE_BREP"
 JOBS="${JOBS:-$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )}"
 OBJDIR="$(mktemp -d /tmp/forge_fuse_mesh.XXXXXX)"
@@ -107,7 +104,7 @@ OCCT_SRCS=(
   src/Transform.cpp         # translate (place the cutter / boss)
   src/Sketcher.cpp          # extractProfileRings (Features.cpp dep)
 )
-# Sketcher.cpp needs OCCT + the PLANEGCS/eigen-shim/boost include set (it includes GCS.h).
+# Sketcher.cpp needs OCCT + the libforge_gcs C header (it includes forge_gcs/forge_gcs.h).
 compile_occt() {
   local extra=""
   case "$1" in src/Sketcher.cpp) extra="$GCS_FLAGS";; esac
@@ -121,29 +118,17 @@ done
 drain
 [ -s "$FAIL" ] && { echo "[fuse-mesh-operand] OCCT source compile failed"; exit 1; }
 
-# 2b. compile the vendored PLANEGCS solver TUs (extractProfileRings -> the Sketcher
-#     class -> GCS symbols). OCCT-free; needs the eigen-shim/boost/planegcs includes.
-PLANEGCS_SRCS=(
-  "$PLANEGCS_DIR/Constraints.cpp"
-  "$PLANEGCS_DIR/GCS.cpp"
-  "$PLANEGCS_DIR/Geo.cpp"
-  "$PLANEGCS_DIR/SubSystem.cpp"
-  "$PLANEGCS_DIR/qp_eq.cpp"
-)
-compile_gcs() { if ! $CXX $FLAGS -I "$INC" $GCS_FLAGS -c "$1" -o "$2" 2>"$2.err"; then echo "GCS SRC FAIL: $1"; tail -20 "$2.err"; echo x>>"$FAIL"; fi; }
-for src in "${PLANEGCS_SRCS[@]}"; do
-  [ -e "$src" ] || { echo "MISSING: $src"; echo x>>"$FAIL"; continue; }
-  obj="$OBJDIR/gcs_$(basename "$src" .cpp).o"; OBJS+=("$obj"); cap compile_gcs "$src" "$obj"
-done
-drain
-[ -s "$FAIL" ] && { echo "[fuse-mesh-operand] PLANEGCS source compile failed"; exit 1; }
+# 2b. build libforge_gcs, the SHARED solver library Sketcher.cpp calls into.
+GCS_LIB="$(bash "$GCS_DIR/build_forge_gcs.sh" "$OBJDIR/gcs" | tail -1)"
+[ -f "$GCS_LIB" ] || { echo "[fuse-mesh-operand] libforge_gcs did not build"; exit 1; }
 
 # 3. link + run the gate (OCCT libs). OCCT 7.9 merges GProp into TKTopAlgo.
 OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing -lTKMesh -lTKXSBase -lTKDESTEP -lTKDE -lTKHLR -lTKOffset -lTKFillet"
 BIN="$OBJDIR/native_fuse_mesh_operand_test"
 # shellcheck disable=SC2086
 if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" test/native_fuse_mesh_operand_test.cpp "${OBJS[@]}" \
-     -L "$OCCT_LIB" -Wl,-rpath,"$OCCT_LIB" $OCCT_LIBS -o "$BIN" 2>"$BIN.err"; then
+     -L "$OCCT_LIB" -Wl,-rpath,"$OCCT_LIB" $OCCT_LIBS \
+     -L "$(dirname "$GCS_LIB")" -lforge_gcs -Wl,-rpath,"$(dirname "$GCS_LIB")" -o "$BIN" 2>"$BIN.err"; then
   echo "[fuse-mesh-operand] TEST LINK FAILED:"; tail -60 "$BIN.err"; exit 1
 fi
 "$BIN"; RC=$?

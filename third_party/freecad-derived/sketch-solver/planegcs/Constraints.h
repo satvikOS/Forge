@@ -22,9 +22,19 @@
  *                                                                         *
  ***************************************************************************/
 
+/***************************************************************************
+ *   MODIFIED FOR FORGE -- the LGPL-2.1 section 2(a) change notice.        *
+ *   This file differs from FreeCAD commit 0a45a0a008d4 (full hash and     *
+ *   per-file detail: ../MODIFICATIONS.md), src/Mod/Sketcher/App/planegcs/.*
+ *   The changes, each with its date:                                      *
+ *   2026-09-15: the FreeCAD-tree include "../../SketcherGlobal.h" is      *
+ *   replaced by "SketcherGlobal.h", which ../compat/ supplies so the      *
+ *   solver builds outside the FreeCAD tree.                               *
+ ***************************************************************************/
+
 #pragma once
 
-#include "../../SketcherGlobal.h"
+#include "SketcherGlobal.h"
 #include "Geo.h"
 #include <optional>
 
