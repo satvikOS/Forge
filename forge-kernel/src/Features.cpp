@@ -1338,9 +1338,10 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
         // reason string). The engine records WHY it declined; quoting it is the
         // difference between "thicken failed" and a message a caller can act on.
         // The reasons it can give are enumerated in NativeThickenShell.hpp's
-        // HONEST DEFER list (a curved fold, a non-manifold edge, a convex fold
-        // ending at a 3-or-more-plate corner, a non-planar face on the planar
-        // paths, and the path-C/D certificate failures).
+        // HONEST DEFER list (a curved fold, a non-manifold edge, an acute concave
+        // fold, a saddle / open-fan / non-perpendicular concave corner, a
+        // non-planar face on the planar paths, and the path-C/D certificate
+        // failures).
         // ═══════════════════════════════════════════════════════════════════
 #ifdef FORGE_NATIVE_BREP
         throw std::runtime_error(
