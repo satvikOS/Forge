@@ -14,9 +14,9 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1397 | YES |
+| KERNEL | 1405 | YES |
 | TOOLING | 23 | yes, last |
-| ORACLE | 2013 | no — by design |
+| ORACLE | 2030 | no — by design |
 | SCRATCH | 0 | no — by design |
 | OTHER | 0 | no — by design |
 
@@ -46,10 +46,10 @@ Status is DERIVED from the tree on every run, never typed in.
 | [ ] | Geometry primitives | 77 | 6 | `forge-kernel/include/forge/native/geom, forge-kernel/src/native/geom` |
 | [x] | Transforms | 0 | 0 | `forge-kernel/include/forge/math` |
 | [x] | Predicates | 0 | 0 | `forge-kernel/include/forge/native/Predicates.hpp, forge-kernel/include/forge/native/ExactPredicates3D.hpp` |
-| [ ] | Topology / B-Rep | 581 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
+| [ ] | Topology / B-Rep | 589 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
 | [x] | Tessellation | 0 | 0 | `forge-kernel/src/native/mesh, forge-kernel/include/forge/native/mesh` |
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
-| [ ] | Kernel core (rest) | 1305 | 62 | `forge-kernel/src` |
+| [ ] | Kernel core (rest) | 1313 | 62 | `forge-kernel/src` |
 
 ## The drop order is a CHAIN, and the demand is GROWING
 
@@ -132,7 +132,7 @@ migration:
 | distinct `struct Vec3` declarations in the tree | **1** |
 | files including `forge/math/Vec3.hpp` | 15 |
 | of those, under `native/` | **9** |
-| `gp_Pnt` uses in `src/native/brep` | **595** |
+| `gp_Pnt` uses in `src/native/brep` | **625** |
 | `Vec3` uses there (now the canonical type) | **2440** |
 
 Vec3 HAD ten layout-identical declarations in ten namespaces, and the canonical
@@ -258,8 +258,8 @@ It was invisible here until it was fixed.
 | file | OCCT include lines |
 |---|---:|
 | `forge-kernel/src/native/brep/StepReadOcct.cpp` | 71 |
+| `forge-kernel/src/native/brep/NativeThickenShell.cpp` | 64 |
 | `forge-kernel/src/Features.cpp` | 62 |
-| `forge-kernel/src/native/brep/NativeThickenShell.cpp` | 56 |
 | `forge-kernel/src/native/brep/NativeThickSolid.cpp` | 55 |
 | `forge-kernel/src/native/brep/NativeLoftPipe.cpp` | 54 |
 | `forge-kernel/src/native/brep/NativeFilletChamfer.cpp` | 52 |
