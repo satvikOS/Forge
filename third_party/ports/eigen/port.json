@@ -1,0 +1,33 @@
+{
+  "name": "eigen",
+  "lock_version": "5.0.1",
+  "status": "recipe-authored",
+  "status_note": "NOT yet executed. Eigen is consumed headers-only by libforge_gcs, so the build step is a copy of the header tree. The archive hash IS recorded in deps.lock.json (read from the homebrew-core formula for the installed version), so tools/deps/seed can fetch and verify it.",
+  "triplets": ["macos-arm64"],
+  "acquire": {
+    "kind": "archive",
+    "url": "https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz",
+    "sha256_from": "deps.lock.json dependencies[eigen].upstream.archive_sha256",
+    "into": ".forge-local/sources/eigen/5.0.1/"
+  },
+  "patches": [],
+  "features": {
+    "header_only": true,
+    "consumer": "third_party/freecad-derived/sketch-solver (libforge_gcs) only; no Forge translation unit includes Eigen."
+  },
+  "configure": { "kind": "none", "reason": "header-only" },
+  "build": {
+    "kind": "copy-headers",
+    "from": "Eigen/",
+    "to": "include/eigen3/Eigen/"
+  },
+  "provides": {
+    "presence_marker": "include/eigen3/Eigen/Core",
+    "must_contain": ["include/eigen3/Eigen/Version", "include/eigen3/Eigen/Core", "include/eigen3/Eigen/QR", "include/eigen3/Eigen/Sparse", "COPYING.MPL2"]
+  },
+  "smoke_test": {
+    "description": "libforge_gcs is the only consumer; compiling it is the smoke test.",
+    "command": "cmake --build forge-kernel/build-app --target forge_gcs",
+    "expect": "planegcs/GCS.cpp compiles against include/eigen3 from the activated prefix"
+  }
+}

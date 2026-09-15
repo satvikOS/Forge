@@ -96,5 +96,5 @@ install(TARGETS forge_gcs
     RUNTIME DESTINATION Frameworks)
 install(FILES "${FORGE_GCS_DIR}/include/forge_gcs/forge_gcs.h" DESTINATION include/forge_gcs)
 install(FILES "${FORGE_GCS_DIR}/COPYING.LGPL" "${FORGE_GCS_DIR}/MODIFICATIONS.md"
-              "${FORGE_GCS_DIR}/NOTICE.md"
+              "${FORGE_GCS_DIR}/NOTICE"
         DESTINATION share/licenses/forge_gcs)

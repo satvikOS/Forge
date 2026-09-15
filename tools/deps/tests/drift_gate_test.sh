@@ -11,7 +11,7 @@ set -u
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DEPS="python3 $REPO/tools/deps/forge_deps.py"
-PLANEGCS="$REPO/forge-kernel/3rdParty/planegcs/GCS.cpp"
+PLANEGCS="$REPO/third_party/freecad-derived/sketch-solver/planegcs/GCS.cpp"
 sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 BACKUP="$(mktemp "${TMPDIR:-/tmp}/GCS.cpp.orig.XXXXXX")"
 # Populate the backup IMMEDIATELY. mktemp creates a ZERO-BYTE file, and restore()'s `[ -f ]` guard
@@ -180,8 +180,8 @@ python3 - "$PLANEGCS" <<'PY'
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
 t = p.read_text()
-assert '#include "forge_planegcs_stub.h"' in t, "fixture precondition failed"
-p.write_text(t.replace('#include "forge_planegcs_stub.h"',
+assert '#include "forge_gcs_console.h"' in t, "fixture precondition failed"
+p.write_text(t.replace('#include "forge_gcs_console.h"',
                        '#include <Base/Console.h>', 1))
 PY
 run_case patch_drift fail "PATCH DRIFT" "$NM"

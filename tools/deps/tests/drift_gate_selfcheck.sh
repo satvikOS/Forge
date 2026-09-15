@@ -54,10 +54,10 @@ else
   ok "A: an unbuildable content_drift fixture fails the case by name (rc=$arc)"
 fi
 # The tracked source must be back after that run — case A exercised the real gate.
-if git -C "$REPO" diff --quiet -- forge-kernel/3rdParty/planegcs/GCS.cpp; then
+if git -C "$REPO" diff --quiet -- third_party/freecad-derived/sketch-solver/planegcs/GCS.cpp; then
   ok "A2: the poisoned run left the vendored GCS.cpp unmodified"
 else
-  bad "A2: the poisoned run left forge-kernel/3rdParty/planegcs/GCS.cpp MODIFIED"
+  bad "A2: the poisoned run left third_party/freecad-derived/sketch-solver/planegcs/GCS.cpp MODIFIED"
 fi
 
 # ── B. the EXIT trap must RESTORE, not just report ───────────────────────────

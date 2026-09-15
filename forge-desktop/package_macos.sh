@@ -213,8 +213,9 @@ chmod +x "$APP/Contents/MacOS/forge_desktop"
 # third_party/notices/NOTICES.md records what we use and hashes each licence file
 # IN THE RESOLVED BUILD PREFIX -- a path on the build machine. So every artifact
 # published so far contained no licence text at all, while shipping LGPL-2.1 code
-# (OCCT dynamically; planegcs STATICALLY, five objects inside
-# libforge_kernel_core.dylib) and Apache-2.0 code (MoltenVK).
+# (OCCT dynamically; the FreeCAD-derived libraries such as libforge_gcs dynamically --
+# planegcs used to be compiled STATICALLY into libforge_kernel_core.dylib) and
+# Apache-2.0 code (MoltenVK).
 #
 # Copied, never generated: these are real files vendored from real prefixes, and
 # third_party/licenses/INCOMPLETE.md names what is still missing rather than
@@ -232,6 +233,27 @@ for _l in "$LIC_SRC"/*.txt "$LIC_SRC"/*.md; do
 done
 [ "$_lic_n" -ge 3 ] || die "only $_lic_n licence file(s) staged -- expected at least the three vendored texts"
 say "staged $_lic_n licence file(s) into Contents/Resources/licenses"
+
+# ── THE FreeCAD-DERIVED LGPL LIBRARIES CARRY THEIR OWN PAPERWORK ────────────
+# Each third_party/freecad-derived/<component> is a separate shared library in
+# Contents/Frameworks (found by the dylib walk below). LGPL-2.1 wants the licence
+# text with the distribution and a record of what was changed; both live beside the
+# component's source and are copied here verbatim, never generated. die, not warn:
+# a component that reaches users without them is the defect.
+FD_SRC="$ROOT/third_party/freecad-derived"
+if [ -d "$FD_SRC" ]; then
+  for _comp_dir in "$FD_SRC"/*/; do
+    [ -f "$_comp_dir/COPYING.LGPL" ] || [ -f "$_comp_dir/MODIFICATIONS.md" ] || continue
+    _comp="$(basename "$_comp_dir")"
+    mkdir -p "$APP/Contents/Resources/licenses/freecad-derived/$_comp" || die "mkdir licences for $_comp failed"
+    for _f in COPYING.LGPL MODIFICATIONS.md NOTICE; do
+      [ -s "$_comp_dir/$_f" ] || die "third_party/freecad-derived/$_comp has no $_f -- refusing to ship an LGPL library without it"
+      cp "$_comp_dir/$_f" "$APP/Contents/Resources/licenses/freecad-derived/$_comp/$_f" \
+        || die "cannot stage $_comp/$_f"
+    done
+    say "staged the LGPL paperwork of freecad-derived/$_comp"
+  done
+fi
 
 # ── ★ THE KERNEL WORKER — the process the application is allowed to lose ─────
 # forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null Geom2d_Curve

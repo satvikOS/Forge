@@ -1875,7 +1875,7 @@ endif()
 # libforge_gcs, and Sketcher.cpp talks to it only through its C ABI
 # (forge_gcs/forge_gcs.h). That is the LGPL-2.1 section 6 boundary -- a user can
 # rebuild the library from its source and replace it without touching Forge --
-# and third_party/freecad-derived/lgpl_compliance_gate.sh fails the build of a
+# and tools/gates/freecad_derived_lgpl_gate.sh fails CI on a
 # tree that compiles derived code into a Forge target.
 #
 # Its output lands beside libforge_kernel_core (CMAKE_BINARY_DIR), which is where
@@ -1883,6 +1883,13 @@ endif()
 # already look.
 get_filename_component(FORGE_REPO_ROOT_FOR_GCS "${CMAKE_SOURCE_DIR}/.." ABSOLUTE)
 set(FORGE_GCS_SOURCE_DIR "${FORGE_REPO_ROOT_FOR_GCS}/third_party/freecad-derived/sketch-solver")
+# Eigen headers for libforge_gcs, resolved through the lock like every other
+# dependency (deps.lock.json `eigen`). The kernel's own sources never see them:
+# only the sub-project below puts this directory on an include path.
+forge_deps_require(eigen
+    PREFIX_VAR  EIGEN_ROOT_RESOLVED
+    VERSION_VAR EIGEN_LOCKED_VERSION)
+set(EIGEN3_INCLUDE_DIR "${EIGEN_ROOT_RESOLVED}/include/eigen3")
 # (cmake-js sets CMAKE_LIBRARY_OUTPUT_DIRECTORY to build/Release, where the .node
 # is written; the library goes wherever the kernel's own libraries go.)
 if(DEFINED CMAKE_LIBRARY_OUTPUT_DIRECTORY AND NOT CMAKE_LIBRARY_OUTPUT_DIRECTORY STREQUAL "")

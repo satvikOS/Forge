@@ -2,36 +2,37 @@
   "name": "planegcs",
   "lock_version": "freecad-0a45a0a",
   "status": "proven",
-  "status_note": "This one IS proven, and it is the only one: planegcs is vendored in-tree at forge-kernel/3rdParty/planegcs and compiled directly into forge_kernel by forge-kernel/CMakeLists.txt. There is no acquire step to execute, and `tools/deps/forge_deps.py verify` checks both its content fingerprint and the include-layer patch contract on every run.",
+  "status_note": "Vendored, modified and built in-tree as libforge_gcs, an LGPL SHARED library (third_party/freecad-derived/sketch-solver). There is no acquire step. tools/deps/forge_deps.py verify checks the content fingerprint and the include-layer content checks; tools/gates/freecad_derived_lgpl_gate.sh checks the LGPL paperwork, the verbatim upstream hashes and that no Forge target compiles these sources.",
   "triplets": ["macos-arm64", "any"],
   "acquire": {
     "kind": "vendored",
-    "path": "forge-kernel/3rdParty/planegcs",
+    "path": "third_party/freecad-derived/sketch-solver",
     "upstream_repository": "https://github.com/FreeCAD/FreeCAD",
     "upstream_revision": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
     "upstream_subtree": "src/Mod/Sketcher/App/planegcs/",
-    "note": "Vendored verbatim except for the include-layer edits recorded in third_party/patches/planegcs/0001-standalone-includes.md."
+    "note": "Every change to the upstream files is listed, with its date, in third_party/freecad-derived/sketch-solver/MODIFICATIONS.md; the verbatim import is its own commit on the introducing branch."
   },
-  "patches": ["third_party/patches/planegcs/0001-standalone-includes.md"],
+  "patches": ["third_party/freecad-derived/sketch-solver/MODIFICATIONS.md"],
   "features": {
-    "eigen": "NONE. planegcs upstream expects Eigen; Forge compiles it against the in-house drop-in shim forge-kernel/3rdParty/planegcs_eigen_shim, backed by forge::native::linalg. There is no Eigen package in the dependency plane and no find_package(Eigen3) anywhere in the build.",
+    "eigen": "the real Eigen headers (lock entry eigen), compiled into libforge_gcs only.",
     "boost": "Boost.Graph + Boost.Math headers only, from the boost port."
   },
-  "configure": { "kind": "none", "reason": "compiled as part of forge_kernel, not as a separate library" },
+  "configure": { "kind": "cmake", "source": "third_party/freecad-derived/sketch-solver", "via": "add_subdirectory from forge-kernel/CMakeLists.txt, or standalone" },
   "build": {
-    "kind": "in-tree-sources",
-    "sources": ["Constraints.cpp", "GCS.cpp", "Geo.cpp", "SubSystem.cpp", "qp_eq.cpp"]
+    "kind": "cmake-target",
+    "target": "forge_gcs",
+    "type": "SHARED",
+    "sources": ["planegcs/Constraints.cpp", "planegcs/GCS.cpp", "planegcs/Geo.cpp", "planegcs/SubSystem.cpp", "planegcs/qp_eq.cpp", "src/forge_gcs.cpp"],
+    "script_equivalent": "third_party/freecad-derived/sketch-solver/build_forge_gcs.sh"
   },
   "provides": {
-    "presence_marker": "GCS.cpp",
-    "must_contain": ["GCS.h", "Constraints.h", "Geo.h", "SubSystem.h", "Util.h", "qp_eq.h", "UPSTREAM.md"]
+    "presence_marker": "planegcs/GCS.cpp",
+    "must_contain": ["planegcs/GCS.h", "planegcs/Constraints.h", "planegcs/Geo.h", "planegcs/SubSystem.h", "planegcs/Util.h", "planegcs/qp_eq.h", "include/forge_gcs/forge_gcs.h", "COPYING.LGPL", "MODIFICATIONS.md", "NOTICE"]
   },
   "smoke_test": {
-    "description": "The patch contract is machine-checked, not just documented.",
-    "command": "python3 tools/deps/forge_deps.py verify",
-    "expect": "no PATCH DRIFT finding for planegcs"
+    "description": "The library's C ABI test, compiled as C11 against the plain header.",
+    "command": "bash tools/gates/freecad_derived_lgpl_gate.sh && bash forge-kernel/test/build_sketch_solver_gate.sh",
+    "expect": "both exit 0"
   },
-  "known_gaps": [
-    "No byte-exact diff against upstream FreeCAD exists, because the upstream tree is not in the local mirror. The patch is recorded as an enforced content contract instead — see the patch file for exactly what that does and does not prove."
-  ]
+  "known_gaps": []
 }

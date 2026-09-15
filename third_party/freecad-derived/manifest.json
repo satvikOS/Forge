@@ -1,0 +1,47 @@
+{
+  "$schema_version": "forge-freecad-derived/1",
+  "$doc": [
+    "Every component under third_party/freecad-derived/. One entry per component.",
+    "tools/gates/freecad_derived_lgpl_gate.sh reads this file and fails when a",
+    "component directory exists without an entry, an entry names a directory that",
+    "does not exist, or a component lacks COPYING.LGPL, MODIFICATIONS.md, NOTICE or",
+    "its THIRD_PARTY_NOTICES.md section. A component is always a SHARED library",
+    "linked dynamically by Forge; `library` is its file name in",
+    "Forge.app/Contents/Frameworks."
+  ],
+  "upstream": {
+    "project": "FreeCAD",
+    "repository": "https://github.com/FreeCAD/FreeCAD"
+  },
+  "components": [
+    {
+      "name": "sketch-solver",
+      "path": "third_party/freecad-derived/sketch-solver",
+      "library": "libforge_gcs.dylib",
+      "cmake_target": "forge_gcs",
+      "linkage": "dynamic (SHARED, Contents/Frameworks)",
+      "license": "LGPL-2.1-or-later",
+      "upstream_commit": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
+      "upstream_paths": [
+        "src/Mod/Sketcher/App/planegcs/Constraints.cpp",
+        "src/Mod/Sketcher/App/planegcs/Constraints.h",
+        "src/Mod/Sketcher/App/planegcs/GCS.cpp",
+        "src/Mod/Sketcher/App/planegcs/GCS.h",
+        "src/Mod/Sketcher/App/planegcs/Geo.cpp",
+        "src/Mod/Sketcher/App/planegcs/Geo.h",
+        "src/Mod/Sketcher/App/planegcs/qp_eq.cpp",
+        "src/Mod/Sketcher/App/planegcs/qp_eq.h",
+        "src/Mod/Sketcher/App/planegcs/SubSystem.cpp",
+        "src/Mod/Sketcher/App/planegcs/SubSystem.h",
+        "src/Mod/Sketcher/App/planegcs/Util.h"
+      ],
+      "forge_adapter": [
+        "forge-kernel/include/forge/Sketcher.hpp",
+        "forge-kernel/src/Sketcher.cpp",
+        "forge-kernel/include/forge/ft/SketchAdmission.hpp",
+        "forge-kernel/src/ft/SketchAdmission.cpp"
+      ],
+      "adapted": "2026-09-15"
+    }
+  ]
+}

@@ -3,7 +3,7 @@
 LGPL-2.1 section 2(a) requires a modified file to carry a prominent notice that it
 was changed and the date of the change. Every modified file below carries that
 notice in a `MODIFIED FOR FORGE` box directly under its original licence header, and
-this document is the complete record. `lgpl_compliance_gate.sh` (one directory up)
+this document is the complete record. `tools/gates/freecad_derived_lgpl_gate.sh`
 fails if a file is changed without being listed here, if a file listed as verbatim no
 longer matches upstream byte for byte, or if a modified file loses its notice.
 

@@ -13,7 +13,7 @@ These files exist to be copied into `Forge.app/Contents/Resources/licenses/` by
 
 | file | component | linkage into the shipped app | provenance |
 | --- | --- | --- | --- |
-| `LGPL-2.1.txt` | OpenCascade **and** planegcs | OCCT dynamic; planegcs **static** | copied from `/opt/homebrew/opt/opencascade/share/doc/opencascade/LICENSE_LGPL_21.txt`, 26434 B |
+| `LGPL-2.1.txt` | OpenCascade | dynamic | copied from `/opt/homebrew/opt/opencascade/share/doc/opencascade/LICENSE_LGPL_21.txt`, 26434 B |
 | `SDL2-zlib.txt` | SDL2 | dynamic (dylib in Frameworks) | copied from `/opt/homebrew/opt/sdl2/LICENSE.txt`, 884 B |
 | `MoltenVK-Apache-2.0.txt` | MoltenVK | dynamic, staged explicitly by the packager | copied from `/opt/homebrew/opt/molten-vk/LICENSE`, 11358 B |
 
@@ -29,15 +29,22 @@ on this machine. `forge-desktop/third_party/imgui/imgui.h` says
 License)` — but that `LICENSE.txt` was never vendored with the subtree, and MIT
 requires the notice to accompany the distribution. See `INCOMPLETE.md`.
 
-## planegcs is the heaviest obligation here, and it is not OCCT
+## planegcs WAS the heaviest obligation here — it is now a shared library
 
-OCCT is **dynamically** linked and carries the OCCT LGPL exception. planegcs is
-`LGPL-2.1-or-later` (per the SPDX header in every source file) and is **statically**
-linked: five objects — `GCS.cpp.o`, `Constraints.cpp.o`, `Geo.cpp.o`, `qp_eq.cpp.o`,
-`SubSystem.cpp.o` — are compiled into the shipped `libforge_kernel_core.dylib`.
+Until 2026-09-15 planegcs (`LGPL-2.1-or-later`) was compiled **statically** into the
+shipped `libforge_kernel_core.dylib` — five objects, `GCS.cpp.o`, `Constraints.cpp.o`,
+`Geo.cpp.o`, `qp_eq.cpp.o`, `SubSystem.cpp.o` — and this file recorded that shipping
+the licence text satisfied the notice part of LGPL-2.1 §6 and **not** the relink part.
 
-LGPL-2.1 §6 lets you distribute a work that uses the library, but a **statically**
-linked one is only permitted under §6(a)–(e): the recipient must be able to relink
-the application against a modified library. Shipping this text satisfies the notice
-part and **not** the relink part. Vendoring the licence does not discharge that; it
-is tracked as its own item.
+That item is closed by construction rather than by paperwork. The solver is now
+`libforge_gcs.dylib`, built from `third_party/freecad-derived/sketch-solver` as a
+separate shared library behind a versioned C interface, installed in
+`Contents/Frameworks` and linked dynamically; no Forge target compiles a planegcs
+source. Its own licence text, notice and dated modification record travel with it:
+`forge-desktop/package_macos.sh` copies every `third_party/freecad-derived/*/`
+component's `COPYING.LGPL`, `MODIFICATIONS.md` and `NOTICE` into
+`Contents/Resources/licenses/freecad-derived/<component>/`, and
+`verify_bundle_licences.sh` requires them. What remains is a RELEASE obligation —
+publishing the modified library source with each release — recorded as the
+"Release obligation" line of each component's section in
+`third_party/freecad-derived/THIRD_PARTY_NOTICES.md`.

@@ -129,7 +129,7 @@
       "name": "boost",
       "version": "1.90.0",
       "required": true,
-      "purpose": "Header-only Boost.Graph (connected_components) and Boost.Math constants, used ONLY by the vendored planegcs sketch solver. No Boost library is linked.",
+      "purpose": "Header-only Boost.Graph (connected_components) and Boost.Math constants, used ONLY by libforge_gcs, the LGPL sketch-solver shared library built from third_party/freecad-derived/sketch-solver. No Boost library is linked and no Forge translation unit includes Boost.",
       "source": {
         "kind": "archive",
         "acquired_as": "homebrew bottle (poured_from_bottle=true)"
@@ -201,13 +201,90 @@
       }
     },
     {
+      "name": "eigen",
+      "version": "5.0.1",
+      "required": true,
+      "purpose": "Header-only dense/sparse linear algebra, used ONLY by libforge_gcs (the LGPL sketch-solver shared library, third_party/freecad-derived/sketch-solver), which compiles FreeCAD planegcs against the real Eigen it was written for. No Forge translation unit includes Eigen; the kernel's own solvers use forge::native::linalg.",
+      "source": {
+        "kind": "archive",
+        "acquired_as": "homebrew bottle (poured_from_bottle=true per the Cellar INSTALL_RECEIPT.json)"
+      },
+      "upstream": {
+        "repository": "https://gitlab.com/libeigen/eigen",
+        "revision": "5.0.1",
+        "url": "https://gitlab.com/libeigen/eigen/-/archive/5.0.1/eigen-5.0.1.tar.gz",
+        "archive_sha256": "e9c326dc8c05cd1e044c71f30f1b2e34a6161a3b6ecf445d56b53ff1669e3dec",
+        "archive_sha256_provenance": "homebrew-core formula `eigen` 5.0.1, read offline via `brew info --json=v2 eigen` -> .urls.stable.checksum on 2026-09-15. The INSTALLED version 5.0.1 EQUALS the formula version, so this hash is the archive of what is installed."
+      },
+      "binary_provenance": {
+        "kind": "homebrew-bottle",
+        "tag": "all",
+        "bottle_sha256": null,
+        "note": "Not recorded: header-only bottle; the artifact fingerprint below is what verify checks."
+      },
+      "features": {
+        "header_only": true,
+        "used_headers": [
+          "Eigen/Core",
+          "Eigen/Dense",
+          "Eigen/QR",
+          "Eigen/Sparse",
+          "Eigen/OrderingMethods"
+        ],
+        "consumer": "third_party/freecad-derived/sketch-solver (libforge_gcs) only"
+      },
+      "license": {
+        "spdx": "MPL-2.0 AND Apache-2.0 AND BSD-3-Clause AND Minpack",
+        "linkage": "headers only (compiled into libforge_gcs.dylib; not linked by any Forge target)",
+        "file_in_prefix": "COPYING.MPL2",
+        "note": "SPDX expression as the homebrew-core formula states it. The planegcs sources use only MPL-2.0 parts of Eigen."
+      },
+      "installed": {
+        "system_prefix_template": "{brew_prefix}/opt/eigen",
+        "note": "LAST-RESORT fallback; libforge_gcs's own CMakeLists also accepts -DEIGEN3_INCLUDE_DIR."
+      },
+      "layout": {
+        "presence_marker": "include/eigen3/Eigen/Core",
+        "include_subdir": "include/eigen3",
+        "version_probe": {
+          "file": "include/eigen3/Eigen/Version",
+          "regex": "#define\\s+EIGEN_VERSION_STRING\\s+\"([0-9.]+)\""
+        },
+        "verify_globs": [
+          "include/eigen3/Eigen/*"
+        ],
+        "anchor_globs": [
+          "include/eigen3/Eigen/Version",
+          "include/eigen3/Eigen/Core",
+          "include/eigen3/Eigen/QR",
+          "include/eigen3/Eigen/Sparse"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": "b402a9e61f0de85761a96637ecfeba0a14e32caacd3014242451ea5dac551afb",
+          "files": 408,
+          "links": 0,
+          "bytes": 7523527
+        },
+        "installed_anchor_sha256": {
+          "sha256": "888284395f64a074f5eb072e4943fb9c898a83c0ec0cdf43edc6ea9559346feb",
+          "files": 4,
+          "links": 0,
+          "bytes": 17188
+        },
+        "computed_from_prefix_source": "system-fallback(homebrew)"
+      }
+    },
+    {
       "name": "planegcs",
       "version": "freecad-0a45a0a",
       "required": true,
-      "purpose": "FreeCAD's 2D plane geometric constraint solver, vendored in-tree so Forge ships a sketch solver without depending on the wider FreeCAD codebase.",
+      "purpose": "FreeCAD's 2D plane geometric constraint solver, modified for Forge and built as libforge_gcs, a SEPARATE LGPL SHARED LIBRARY that Forge links dynamically (third_party/freecad-derived/sketch-solver).",
       "source": {
         "kind": "vendored",
-        "path": "forge-kernel/3rdParty/planegcs"
+        "path": "third_party/freecad-derived/sketch-solver"
       },
       "upstream": {
         "repository": "https://github.com/FreeCAD/FreeCAD",
@@ -219,50 +296,62 @@
       },
       "features": {
         "compiled_sources": [
-          "Constraints.cpp",
-          "GCS.cpp",
-          "Geo.cpp",
-          "SubSystem.cpp",
-          "qp_eq.cpp"
+          "planegcs/Constraints.cpp",
+          "planegcs/GCS.cpp",
+          "planegcs/Geo.cpp",
+          "planegcs/SubSystem.cpp",
+          "planegcs/qp_eq.cpp",
+          "src/forge_gcs.cpp"
         ],
-        "eigen": "NONE \u2014 compiled against the in-house drop-in <Eigen/...> shim forge-kernel/3rdParty/planegcs_eigen_shim, backed by forge::native::linalg. No real Eigen package is a dependency."
+        "library": "libforge_gcs (CMake target forge_gcs, add_library SHARED)",
+        "abi": "C, include/forge_gcs/forge_gcs.h, FORGE_GCS_ABI_VERSION 1",
+        "eigen": "the real Eigen headers (lock entry `eigen`), inside libforge_gcs only"
       },
       "license": {
         "spdx": "LGPL-2.1-or-later",
-        "linkage": "static (compiled into forge_kernel)",
-        "file_in_prefix": null,
-        "note": "SPDX-License-Identifier header is present in every vendored source file; provenance and the Forge-local edits are documented in forge-kernel/3rdParty/planegcs/UPSTREAM.md."
+        "linkage": "dynamic (libforge_gcs.dylib in Forge.app/Contents/Frameworks)",
+        "file_in_prefix": "COPYING.LGPL",
+        "note": "Every change to the upstream files is recorded, with its date, in MODIFICATIONS.md and in a MODIFIED FOR FORGE notice in each modified file; tools/gates/freecad_derived_lgpl_gate.sh enforces both."
       },
       "installed": {},
       "layout": {
-        "presence_marker": "GCS.cpp",
+        "presence_marker": "planegcs/GCS.cpp",
         "verify_globs": [
-          "*.cpp",
-          "*.h",
-          "*.md"
+          "planegcs/*.cpp",
+          "planegcs/*.h",
+          "compat/*.h",
+          "include/forge_gcs/*.h",
+          "src/*.cpp",
+          "*.md",
+          "COPYING.LGPL",
+          "NOTICE",
+          "CMakeLists.txt"
         ],
         "anchor_globs": [
-          "GCS.cpp",
-          "Constraints.cpp",
-          "Geo.cpp",
-          "SubSystem.cpp",
-          "qp_eq.cpp"
+          "planegcs/GCS.cpp",
+          "planegcs/Constraints.cpp",
+          "planegcs/Geo.cpp",
+          "planegcs/SubSystem.cpp",
+          "planegcs/qp_eq.cpp",
+          "src/forge_gcs.cpp",
+          "include/forge_gcs/forge_gcs.h"
         ]
       },
       "patches": [
         {
-          "id": "0001-standalone-includes",
-          "path": "third_party/patches/planegcs/0001-standalone-includes.md",
+          "id": "freecad-derived-modifications",
+          "path": "third_party/freecad-derived/sketch-solver/MODIFICATIONS.md",
           "kind": "documented-edit-record",
-          "diffable_against_upstream": false,
-          "reason": "The upstream FreeCAD tree is not present in the local mirror, so a byte-exact reverse diff cannot be produced offline without fabricating the upstream side. Instead the edit is recorded as an executable CONTRACT: the content_checks below are enforced by `tools/deps/forge_deps.py verify` and fail if the vendored sources ever drift back toward, or away from, the recorded state.",
+          "diffable_against_upstream": true,
+          "reason": "The verbatim upstream import is its own commit on the introducing branch, so every change is a real git diff against FreeCAD 0a45a0a. MODIFICATIONS.md records the sha256 of each upstream file and the gate re-hashes the verbatim ones; the content_checks below pin the include-layer edits here too.",
           "content_checks": [
             {
-              "file": "forge-kernel/3rdParty/planegcs/GCS.cpp",
+              "file": "third_party/freecad-derived/sketch-solver/planegcs/GCS.cpp",
               "must_contain": [
-                "#include \"forge_planegcs_stub.h\"",
+                "#include \"forge_gcs_console.h\"",
                 "#include <boost/graph/adjacency_list.hpp>",
-                "#include <boost/graph/connected_components.hpp>"
+                "#include <boost/graph/connected_components.hpp>",
+                "MODIFIED FOR FORGE"
               ],
               "must_not_contain": [
                 "#include <Base/Console.h>",
@@ -271,27 +360,30 @@
               ]
             },
             {
-              "file": "forge-kernel/3rdParty/planegcs/GCS.h",
+              "file": "third_party/freecad-derived/sketch-solver/planegcs/GCS.h",
               "must_contain": [
-                "#include \"SketcherGlobal.h\""
+                "#include \"SketcherGlobal.h\"",
+                "MODIFIED FOR FORGE"
               ],
               "must_not_contain": [
                 "#include \"../../SketcherGlobal.h\""
               ]
             },
             {
-              "file": "forge-kernel/3rdParty/planegcs/Constraints.h",
+              "file": "third_party/freecad-derived/sketch-solver/planegcs/Constraints.h",
               "must_contain": [
-                "#include \"SketcherGlobal.h\""
+                "#include \"SketcherGlobal.h\"",
+                "MODIFIED FOR FORGE"
               ],
               "must_not_contain": [
                 "#include \"../../SketcherGlobal.h\""
               ]
             },
             {
-              "file": "forge-kernel/3rdParty/planegcs/Geo.h",
+              "file": "third_party/freecad-derived/sketch-solver/planegcs/Geo.h",
               "must_contain": [
-                "#include \"SketcherGlobal.h\""
+                "#include \"SketcherGlobal.h\"",
+                "MODIFIED FOR FORGE"
               ],
               "must_not_contain": [
                 "#include \"../../SketcherGlobal.h\""
@@ -302,16 +394,16 @@
       ],
       "fingerprint": {
         "installed_tree_sha256": {
-          "sha256": "05df3d7b314203bb4a094fe5a57cf2d3a6882885fc136f48e4ea74d2354b0ab5",
-          "files": 14,
+          "sha256": "989edfa02bd3e421c3bf40b8fd5696a67255e681b153ac65c4580100756b9ba0",
+          "files": 19,
           "links": 0,
-          "bytes": 460657
+          "bytes": 437009
         },
         "installed_anchor_sha256": {
-          "sha256": "a0ccda28b420b6bdbdd52c99d26a5c06ad687a8571bd60a68a86e2cbcc36d386",
-          "files": 5,
+          "sha256": "98cd879d3f273d820f988110ef79a53762bf2fc360cc141b9f82a72c908d6950",
+          "files": 7,
           "links": 0,
-          "bytes": 372845
+          "bytes": 308524
         },
         "computed_from_prefix_source": "vendored"
       }
@@ -330,10 +422,10 @@
         "revision": "v8.8.0",
         "url": "https://registry.npmjs.org/node-addon-api/-/node-addon-api-8.8.0.tgz",
         "archive_sha256": null,
-        "archive_sha256_reason": "STILL NULL, and the field name is why: no sha256 OF THE TARBALL can be computed on this workstation. package-lock.json is gitignored (.gitignore line 10) and untracked, so nothing in Git states the tarball's hash, and the npm content-addressed cache no longer holds the tarball (~/.npm/_cacache/content-v2/sha512/73/92/a8d5... is absent), so it cannot be hashed locally either. What IS readable offline is npm's own recorded sha512 integrity for the exact installed version — recorded below in archive_integrity_sha512_npm rather than here, because a sha512 of a tarball is not a sha256 of a tarball and writing it into this field would be the conflation this lock exists to prevent. Fix: stop gitignoring package-lock.json, or seed the tarball into .forge-local/sources and record its sha256.",
+        "archive_sha256_reason": "STILL NULL, and the field name is why: no sha256 OF THE TARBALL can be computed on this workstation. package-lock.json is gitignored (.gitignore line 10) and untracked, so nothing in Git states the tarball's hash, and the npm content-addressed cache no longer holds the tarball (~/.npm/_cacache/content-v2/sha512/73/92/a8d5... is absent), so it cannot be hashed locally either. What IS readable offline is npm's own recorded sha512 integrity for the exact installed version \u2014 recorded below in archive_integrity_sha512_npm rather than here, because a sha512 of a tarball is not a sha256 of a tarball and writing it into this field would be the conflation this lock exists to prevent. Fix: stop gitignoring package-lock.json, or seed the tarball into .forge-local/sources and record its sha256.",
         "archive_integrity_sha512_npm": "sha512-c5Ko1fZJIJmzhFIkhRN76WTq+fC6tWnGy9CXA0fA+XygsWZmEwG8vmbkNqxMyoaa0Tin4djul49NzdVcJJcjeA==",
         "archive_integrity_sha512_npm_hex": "7392a8d5f6492099b384522485137be964eaf9f0bab569c6cbd0970347c0f97ca0b166661301bcbe66e436ac4cca869ad138a7e1d8ee978f4dcdd55c24972378",
-        "archive_integrity_sha512_npm_provenance": "WHICH ARTIFACT: the upstream npm TARBALL named by upstream.url (node-addon-api-8.8.0.tgz) — NOT the installed prefix, which is fingerprinted separately under fingerprint.installed_tree_sha256. WHERE READ: the `integrity` field of the `node_modules/node-addon-api` entry in the repo's local, untracked package-lock.json (/Users/account_clawteam1/archdisc-Mech/package-lock.json), read offline. VERSION CHECK: that entry records version 8.8.0, which EQUALS this dependency's pinned version, so the hash describes the archive of what is installed. It was NOT verified against the tarball's bytes — the tarball is absent from the npm cache — so this is npm's recorded integrity, not an independently recomputed digest. UNTRACKED-SOURCE CAVEAT: package-lock.json is gitignored, so this value is not reproducible from a fresh clone and does not by itself make the build verifiable on a clean machine."
+        "archive_integrity_sha512_npm_provenance": "WHICH ARTIFACT: the upstream npm TARBALL named by upstream.url (node-addon-api-8.8.0.tgz) \u2014 NOT the installed prefix, which is fingerprinted separately under fingerprint.installed_tree_sha256. WHERE READ: the `integrity` field of the `node_modules/node-addon-api` entry in the repo's local, untracked package-lock.json (/Users/account_clawteam1/archdisc-Mech/package-lock.json), read offline. VERSION CHECK: that entry records version 8.8.0, which EQUALS this dependency's pinned version, so the hash describes the archive of what is installed. It was NOT verified against the tarball's bytes \u2014 the tarball is absent from the npm cache \u2014 so this is npm's recorded integrity, not an independently recomputed digest. UNTRACKED-SOURCE CAVEAT: package-lock.json is gitignored, so this value is not reproducible from a fresh clone and does not by itself make the build verifiable on a clean machine."
       },
       "features": {
         "header_only": true
@@ -591,7 +683,7 @@
     }
   ],
   "known_gaps": [
-    "SEVEN of eight dependencies carry archive_sha256=null with an explicit reason; only opencascade has one. (An earlier revision of this file and of tools/deps/README.md said 'five of eight' — that was miscounted, corrected 2026-08-28 by counting the field directly.) One of the seven, planegcs, is vendored as a source subtree and has no upstream archive by design, so the archive-bearing deps still null number SIX. Of those six, five (boost, vulkan-headers, vulkan-loader, glslang, molten-vk) are unclosable offline and this was checked, not assumed: the installed Cellar INSTALL_RECEIPT.json for each records source.spec/source.versions but contains no sha256 at all, and no matching archive remains in ~/Library/Caches/Homebrew/downloads. The sixth, node-addon-api, now carries npm's recorded sha512 integrity for the exact installed version under upstream.archive_integrity_sha512_npm — deliberately NOT in archive_sha256. Closing the remaining five needs one ONLINE_SEED run (tools/deps/seed) plus recording the hashes actually observed.",
+    "SEVEN of eight dependencies carry archive_sha256=null with an explicit reason; only opencascade has one. (An earlier revision of this file and of tools/deps/README.md said 'five of eight' \u2014 that was miscounted, corrected 2026-08-28 by counting the field directly.) One of the seven, planegcs, is vendored as a source subtree and has no upstream archive by design, so the archive-bearing deps still null number SIX. Of those six, five (boost, vulkan-headers, vulkan-loader, glslang, molten-vk) are unclosable offline and this was checked, not assumed: the installed Cellar INSTALL_RECEIPT.json for each records source.spec/source.versions but contains no sha256 at all, and no matching archive remains in ~/Library/Caches/Homebrew/downloads. The sixth, node-addon-api, now carries npm's recorded sha512 integrity for the exact installed version under upstream.archive_integrity_sha512_npm \u2014 deliberately NOT in archive_sha256. Closing the remaining five needs one ONLINE_SEED run (tools/deps/seed) plus recording the hashes actually observed.",
     "No dependency is served from .forge-local/prefixes yet, so every resolution today ends at the machine-global fallback and warns. The plane is wired; the mirror is not yet populated.",
     "The Apple SDK / compiler is not pinned. The installed_tree_sha256 fingerprints therefore identify the bottle, not the full toolchain.",
     "Ninja is not installed on this workstation, so the spec-conforming presets cannot be executed here; the -make variants exist as a labelled fallback."
