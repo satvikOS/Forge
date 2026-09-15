@@ -1075,10 +1075,30 @@ jobs:
           bash forge-kernel/test/occt_lib_resolution_gate.sh \
             forge-kernel/build/Release/forge-kernel.node
       - name: OCCT ledger gate — closure, PHANTOM and TKOffset symbols
+        # --max-tkoffset 38 (was 42): TKOffset family A deleted BRepOffsetAPI_MakeOffset
+        # from src/Cam.cpp. This step MEASURED 42 on b8aefa91 and 38 on 918fa759 with
+        # this same script on this same binary; a pre-family-A forge-kernel.node read 42
+        # locally and FAILS the 38 ceiling (rc 1).
+        #
+        # The second command is the control that makes the ceiling mean anything: the
+        # script used to leave the count at 0 whenever libTKOffset.7.9.dylib was not
+        # found (OCCT_LIB_DIR=/nonexistent printed "TKOffset syms = 0 ... PASS", rc 0,
+        # on that 42-symbol binary). With no library it must now REFUSE with exit 2.
+        shell: bash
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --max-closure 14 --max-phantom 2 --max-tkoffset 42
+            --max-closure 14 --max-phantom 2 --max-tkoffset 38
+          set +e
+          OCCT_LIB_DIR="$(mktemp -d)" bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
+            forge-kernel/build/Release/forge-kernel.node --max-tkoffset 38
+          rc=$?
+          set -e
+          if [ "$rc" != "2" ]; then
+            echo "::error::tkoffset_ledger_gate.sh with no libTKOffset exited $rc, not 2 — an unmeasured TKOffset count can pass the ceiling"
+            exit 1
+          fi
+          echo "control: no libTKOffset -> exit 2 (refused, not a fake 0)"
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Physics validation gates (known-answer, against textbook closed forms)

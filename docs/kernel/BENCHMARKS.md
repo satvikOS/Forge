@@ -204,7 +204,7 @@ score. Three steps in the `kernel` job defend it, in this order:
 |---|---|---|
 | `OCCT ledger ratchet (CLOSURE is the number; DIRECT is gameable)` | `forge-kernel/scripts/occt_closure_count.sh` | `--assert-closure 14 --assert-direct 9` |
 | `OCCT libraries actually RESOLVE (the ledger number cannot be faked)` | `forge-kernel/test/occt_lib_resolution_gate.sh` | the closure is not fabricated by a missing library |
-| `OCCT ledger gate — closure, PHANTOM and TKOffset symbols` | `forge-kernel/scripts/tkoffset_ledger_gate.sh` | `--max-closure 14 --max-phantom 2 --max-tkoffset 42` |
+| `OCCT ledger gate — closure, PHANTOM and TKOffset symbols` | `forge-kernel/scripts/tkoffset_ledger_gate.sh` | `--max-closure 14 --max-phantom 2 --max-tkoffset 38` (42 before TKOffset family A; CI read 42 on b8aefa91, 38 on 918fa759) |
 
 The middle one runs before the ceilings for a measured reason recorded in its
 own header: the closure is a BFS that expands a dependency only if it resolves
