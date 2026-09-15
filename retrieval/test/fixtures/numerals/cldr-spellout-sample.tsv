@@ -1,0 +1,1909 @@
+# CLDR 48.0 spellouts formatted by ICU 78.1 (retrieval/tools/gen_numeral_lexicon.py).
+# table-locale	locale	ruleset	value	value-reproduced-by-grammar	text (soft hyphens removed)
+en	en	%spellout-numbering	7.0	1	seven
+en	en	%spellout-numbering	21.0	1	twenty-one
+en	en	%spellout-numbering	47.0	1	forty-seven
+en	en	%spellout-numbering	97.0	1	ninety-seven
+en	en	%spellout-numbering	147.0	1	one hundred forty-seven
+en	en	%spellout-numbering	1947.0	1	one thousand nine hundred forty-seven
+en	en	%spellout-numbering	47625.0	1	forty-seven thousand six hundred twenty-five
+en	en	%spellout-numbering	1000047.0	1	one million forty-seven
+en	en	%spellout-numbering	47.625	1	forty-seven point six two five
+en	en	%spellout-numbering	12.05	1	twelve point zero five
+en	en	%spellout-numbering	1.875	1	one point eight seven five
+en	en	%spellout-numbering-verbose	7.0	1	seven
+en	en	%spellout-numbering-verbose	21.0	1	twenty-one
+en	en	%spellout-numbering-verbose	47.0	1	forty-seven
+en	en	%spellout-numbering-verbose	97.0	1	ninety-seven
+en	en	%spellout-numbering-verbose	147.0	1	one hundred and forty-seven
+en	en	%spellout-numbering-verbose	1947.0	1	one thousand nine hundred and forty-seven
+en	en	%spellout-numbering-verbose	47625.0	1	forty-seven thousand six hundred and twenty-five
+en	en	%spellout-numbering-verbose	1000047.0	1	one million and forty-seven
+en	en	%spellout-numbering-verbose	47.625	1	forty-seven point six two five
+en	en	%spellout-numbering-verbose	12.05	1	twelve point zero five
+en	en	%spellout-numbering-verbose	1.875	1	one point eight seven five
+en	en	%spellout-cardinal	7.0	1	seven
+en	en	%spellout-cardinal	21.0	1	twenty-one
+en	en	%spellout-cardinal	47.0	1	forty-seven
+en	en	%spellout-cardinal	97.0	1	ninety-seven
+en	en	%spellout-cardinal	147.0	1	one hundred forty-seven
+en	en	%spellout-cardinal	1947.0	1	one thousand nine hundred forty-seven
+en	en	%spellout-cardinal	47625.0	1	forty-seven thousand six hundred twenty-five
+en	en	%spellout-cardinal	1000047.0	1	one million forty-seven
+en	en	%spellout-cardinal	47.625	1	forty-seven point six two five
+en	en	%spellout-cardinal	12.05	1	twelve point zero five
+en	en	%spellout-cardinal	1.875	1	one point eight seven five
+en	en	%spellout-cardinal-verbose	7.0	1	seven
+en	en	%spellout-cardinal-verbose	21.0	1	twenty-one
+en	en	%spellout-cardinal-verbose	47.0	1	forty-seven
+en	en	%spellout-cardinal-verbose	97.0	1	ninety-seven
+en	en	%spellout-cardinal-verbose	147.0	1	one hundred and forty-seven
+en	en	%spellout-cardinal-verbose	1947.0	1	one thousand nine hundred and forty-seven
+en	en	%spellout-cardinal-verbose	47625.0	1	forty-seven thousand six hundred and twenty-five
+en	en	%spellout-cardinal-verbose	1000047.0	1	one million and forty-seven
+en	en	%spellout-cardinal-verbose	47.625	1	forty-seven point six two five
+en	en	%spellout-cardinal-verbose	12.05	1	twelve point zero five
+en	en	%spellout-cardinal-verbose	1.875	1	one point eight seven five
+af	af	%spellout-numbering	7.0	1	sewe
+af	af	%spellout-numbering	21.0	1	een-en-twintig
+af	af	%spellout-numbering	47.0	1	sewe-en-veertig
+af	af	%spellout-numbering	97.0	1	sewe-en-negentig
+af	af	%spellout-numbering	147.0	1	honderd sewe-en-veertig
+af	af	%spellout-numbering	1947.0	1	duisend negehonderd sewe-en-veertig
+af	af	%spellout-numbering	47625.0	1	sewe-en-veertig duisend seshonderd vyf-en-twintig
+af	af	%spellout-numbering	1000047.0	1	een miljoen sewe-en-veertig
+af	af	%spellout-numbering	47.625	1	sewe-en-veertig komma ses twee vyf
+af	af	%spellout-numbering	12.05	1	twaalf komma nul vyf
+af	af	%spellout-numbering	1.875	1	een komma agt sewe vyf
+af	af	%spellout-cardinal	7.0	1	sewe
+af	af	%spellout-cardinal	21.0	1	een-en-twintig
+af	af	%spellout-cardinal	47.0	1	sewe-en-veertig
+af	af	%spellout-cardinal	97.0	1	sewe-en-negentig
+af	af	%spellout-cardinal	147.0	1	honderd sewe-en-veertig
+af	af	%spellout-cardinal	1947.0	1	duisend negehonderd sewe-en-veertig
+af	af	%spellout-cardinal	47625.0	1	sewe-en-veertig duisend seshonderd vyf-en-twintig
+af	af	%spellout-cardinal	1000047.0	1	een miljoen sewe-en-veertig
+af	af	%spellout-cardinal	47.625	1	sewe-en-veertig komma ses twee vyf
+af	af	%spellout-cardinal	12.05	1	twaalf komma nul vyf
+af	af	%spellout-cardinal	1.875	1	een komma agt sewe vyf
+ak	ak	%spellout-numbering	7.0	1	asuon
+ak	ak	%spellout-numbering	21.0	1	aduonu-biako
+ak	ak	%spellout-numbering	47.0	1	aduanan-asuon
+ak	ak	%spellout-numbering	97.0	1	aduakron-asuon
+ak	ak	%spellout-numbering	1947.0	1	apem-na-aha-akron-na-aduanan-asuon
+ak	ak	%spellout-numbering	47625.0	1	mpem-aduanan-asuon-na-aha-asia-na-aduonu-anum
+ak	ak	%spellout-cardinal	7.0	1	asuon
+ak	ak	%spellout-cardinal	21.0	1	aduonu-biako
+ak	ak	%spellout-cardinal	47.0	1	aduanan-asuon
+ak	ak	%spellout-cardinal	97.0	1	aduakron-asuon
+ak	ak	%spellout-cardinal	1947.0	1	apem-na-aha-akron-na-aduanan-asuon
+ak	ak	%spellout-cardinal	47625.0	1	mpem-aduanan-asuon-na-aha-asia-na-aduonu-anum
+az	az	%spellout-numbering	7.0	1	yeddi
+az	az	%spellout-numbering	21.0	1	iyirmi bir
+az	az	%spellout-numbering	97.0	1	doxsan yeddi
+az	az	%spellout-cardinal	7.0	1	yeddi
+az	az	%spellout-cardinal	21.0	1	iyirmi bir
+az	az	%spellout-cardinal	97.0	1	doxsan yeddi
+bs	bs	%spellout-numbering	7.0	1	sedam
+bs	bs	%spellout-numbering	21.0	1	dvadeset jedan
+bs	bs	%spellout-numbering	47.0	1	četrdeset sedam
+bs	bs	%spellout-numbering	97.0	1	devedeset sedam
+bs	bs	%spellout-numbering	147.0	1	sto četrdeset sedam
+bs	bs	%spellout-numbering	1947.0	1	jedinica hiljada devetsto četrdeset sedam
+bs	bs	%spellout-numbering	47625.0	1	četrdeset sedam hiljada šesto dvadeset pet
+bs	bs	%spellout-numbering	1000047.0	1	jedan milion četrdeset sedam
+bs	bs	%spellout-numbering	47.625	1	četrdeset sedam zarez šest dva pet
+bs	bs	%spellout-numbering	12.05	1	dvanaest zarez nula pet
+bs	bs	%spellout-numbering	1.875	1	jedan zarez osam sedam pet
+bs	bs	%spellout-cardinal-masculine	7.0	1	sedam
+bs	bs	%spellout-cardinal-masculine	21.0	1	dvadeset jedan
+bs	bs	%spellout-cardinal-masculine	47.0	1	četrdeset sedam
+bs	bs	%spellout-cardinal-masculine	97.0	1	devedeset sedam
+bs	bs	%spellout-cardinal-masculine	147.0	1	sto četrdeset sedam
+bs	bs	%spellout-cardinal-masculine	1947.0	1	jedinica hiljada devetsto četrdeset sedam
+bs	bs	%spellout-cardinal-masculine	47625.0	1	četrdeset sedam hiljada šesto dvadeset pet
+bs	bs	%spellout-cardinal-masculine	1000047.0	1	jedan milion četrdeset sedam
+bs	bs	%spellout-cardinal-masculine	47.625	1	četrdeset sedam zarez šest dva pet
+bs	bs	%spellout-cardinal-masculine	12.05	1	dvanaest zarez nula pet
+bs	bs	%spellout-cardinal-masculine	1.875	1	jedan zarez osam sedam pet
+bs	bs	%spellout-cardinal-neuter	7.0	1	sedam
+bs	bs	%spellout-cardinal-neuter	21.0	1	dvadeset jedno
+bs	bs	%spellout-cardinal-neuter	47.0	1	četrdeset sedam
+bs	bs	%spellout-cardinal-neuter	97.0	1	devedeset sedam
+bs	bs	%spellout-cardinal-neuter	147.0	1	sto četrdeset sedam
+bs	bs	%spellout-cardinal-neuter	1947.0	1	jedinica hiljada devetsto četrdeset sedam
+bs	bs	%spellout-cardinal-neuter	47625.0	1	četrdeset sedam hiljada šesto dvadeset pet
+bs	bs	%spellout-cardinal-neuter	1000047.0	1	jedan milion četrdeset sedam
+bs	bs	%spellout-cardinal-neuter	47.625	1	četrdeset sedam zarez šest dva pet
+bs	bs	%spellout-cardinal-neuter	12.05	1	dvanaest zarez nula pet
+bs	bs	%spellout-cardinal-neuter	1.875	1	jedno zarez osam sedam pet
+bs	bs	%spellout-cardinal-feminine	7.0	1	sedam
+bs	bs	%spellout-cardinal-feminine	21.0	1	dvadeset jedinica
+bs	bs	%spellout-cardinal-feminine	47.0	1	četrdeset sedam
+bs	bs	%spellout-cardinal-feminine	97.0	1	devedeset sedam
+bs	bs	%spellout-cardinal-feminine	147.0	1	sto četrdeset sedam
+bs	bs	%spellout-cardinal-feminine	1947.0	1	jedinica hiljada devetsto četrdeset sedam
+bs	bs	%spellout-cardinal-feminine	47625.0	1	četrdeset sedam hiljada šesto dvadeset pet
+bs	bs	%spellout-cardinal-feminine	1000047.0	1	jedan milion četrdeset sedam
+bs	bs	%spellout-cardinal-feminine	47.625	1	četrdeset sedam zarez šest dve pet
+bs	bs	%spellout-cardinal-feminine	12.05	1	dvanaest zarez nula pet
+bs	bs	%spellout-cardinal-feminine	1.875	1	jedinica zarez osam sedam pet
+ca	ca	%spellout-numbering	7.0	1	set
+ca	ca	%spellout-numbering	21.0	0	vint-i-u
+ca	ca	%spellout-numbering	47.0	1	quaranta-set
+ca	ca	%spellout-numbering	97.0	1	noranta-set
+ca	ca	%spellout-numbering	147.0	1	cent quaranta-set
+ca	ca	%spellout-numbering	1947.0	1	mil nou-cents quaranta-set
+ca	ca	%spellout-numbering	47625.0	1	quaranta-set mil sis-cents vint-i-cinc
+ca	ca	%spellout-numbering	1000047.0	1	un milió quaranta-set
+ca	ca	%spellout-numbering	47.625	1	quaranta-set coma sis dos cinc
+ca	ca	%spellout-numbering	12.05	1	dotze coma zero cinc
+ca	ca	%spellout-numbering	1.875	0	u coma vuit set cinc
+ca	ca	%spellout-cardinal-masculine	7.0	1	set
+ca	ca	%spellout-cardinal-masculine	21.0	1	vint-i-un
+ca	ca	%spellout-cardinal-masculine	47.0	1	quaranta-set
+ca	ca	%spellout-cardinal-masculine	97.0	1	noranta-set
+ca	ca	%spellout-cardinal-masculine	147.0	1	cent quaranta-set
+ca	ca	%spellout-cardinal-masculine	1947.0	1	mil nou-cents quaranta-set
+ca	ca	%spellout-cardinal-masculine	47625.0	1	quaranta-set mil sis-cents vint-i-cinc
+ca	ca	%spellout-cardinal-masculine	1000047.0	1	un milió quaranta-set
+ca	ca	%spellout-cardinal-masculine	47.625	1	quaranta-set coma sis dos cinc
+ca	ca	%spellout-cardinal-masculine	12.05	1	dotze coma zero cinc
+ca	ca	%spellout-cardinal-masculine	1.875	1	un coma vuit set cinc
+ca	ca	%spellout-cardinal-feminine	7.0	1	set
+ca	ca	%spellout-cardinal-feminine	21.0	1	vint-i-una
+ca	ca	%spellout-cardinal-feminine	47.0	1	quaranta-set
+ca	ca	%spellout-cardinal-feminine	97.0	1	noranta-set
+ca	ca	%spellout-cardinal-feminine	147.0	1	cent quaranta-set
+ca	ca	%spellout-cardinal-feminine	1947.0	1	mil nou-centes quaranta-set
+ca	ca	%spellout-cardinal-feminine	47625.0	1	quaranta-set mil sis-centes vint-i-cinc
+ca	ca	%spellout-cardinal-feminine	1000047.0	1	un milió quaranta-set
+ca	ca	%spellout-cardinal-feminine	47.625	1	quaranta-set coma sis dues cinc
+ca	ca	%spellout-cardinal-feminine	12.05	1	dotze coma zero cinc
+ca	ca	%spellout-cardinal-feminine	1.875	1	una coma vuit set cinc
+cs	cs	%spellout-numbering	7.0	1	sedm
+cs	cs	%spellout-numbering	21.0	1	dvacet jeden
+cs	cs	%spellout-numbering	47.0	1	čtyřicet sedm
+cs	cs	%spellout-numbering	97.0	1	devadesát sedm
+cs	cs	%spellout-numbering	147.0	1	sto čtyřicet sedm
+cs	cs	%spellout-numbering	1947.0	1	jedna tisíc devět set čtyřicet sedm
+cs	cs	%spellout-numbering	47625.0	1	čtyřicet sedm tisíc šest set dvacet pět
+cs	cs	%spellout-numbering	1000047.0	1	jeden milión čtyřicet sedm
+cs	cs	%spellout-numbering	47.625	1	čtyřicet sedm čárka šest dva pět
+cs	cs	%spellout-numbering	12.05	1	dvanáct čárka nula pět
+cs	cs	%spellout-numbering	1.875	1	jeden čárka osm sedm pět
+cs	cs	%spellout-cardinal-masculine	7.0	1	sedm
+cs	cs	%spellout-cardinal-masculine	21.0	1	dvacet jeden
+cs	cs	%spellout-cardinal-masculine	47.0	1	čtyřicet sedm
+cs	cs	%spellout-cardinal-masculine	97.0	1	devadesát sedm
+cs	cs	%spellout-cardinal-masculine	147.0	1	sto čtyřicet sedm
+cs	cs	%spellout-cardinal-masculine	1947.0	1	jedna tisíc devět set čtyřicet sedm
+cs	cs	%spellout-cardinal-masculine	47625.0	1	čtyřicet sedm tisíc šest set dvacet pět
+cs	cs	%spellout-cardinal-masculine	1000047.0	1	jeden milión čtyřicet sedm
+cs	cs	%spellout-cardinal-masculine	47.625	1	čtyřicet sedm čárka šest dva pět
+cs	cs	%spellout-cardinal-masculine	12.05	1	dvanáct čárka nula pět
+cs	cs	%spellout-cardinal-masculine	1.875	1	jeden čárka osm sedm pět
+cs	cs	%spellout-cardinal-neuter	7.0	1	sedm
+cs	cs	%spellout-cardinal-neuter	21.0	1	dvacet jedno
+cs	cs	%spellout-cardinal-neuter	47.0	1	čtyřicet sedm
+cs	cs	%spellout-cardinal-neuter	97.0	1	devadesát sedm
+cs	cs	%spellout-cardinal-neuter	147.0	1	sto čtyřicet sedm
+cs	cs	%spellout-cardinal-neuter	1947.0	1	jedna tisíc devět set čtyřicet sedm
+cs	cs	%spellout-cardinal-neuter	47625.0	1	čtyřicet sedm tisíc šest set dvacet pět
+cs	cs	%spellout-cardinal-neuter	1000047.0	1	jeden milión čtyřicet sedm
+cs	cs	%spellout-cardinal-neuter	47.625	1	čtyřicet sedm čárka šest dvě pět
+cs	cs	%spellout-cardinal-neuter	12.05	1	dvanáct čárka nula pět
+cs	cs	%spellout-cardinal-neuter	1.875	1	jedno čárka osm sedm pět
+cs	cs	%spellout-cardinal-feminine	7.0	1	sedm
+cs	cs	%spellout-cardinal-feminine	21.0	1	dvacet jedna
+cs	cs	%spellout-cardinal-feminine	47.0	1	čtyřicet sedm
+cs	cs	%spellout-cardinal-feminine	97.0	1	devadesát sedm
+cs	cs	%spellout-cardinal-feminine	147.0	1	sto čtyřicet sedm
+cs	cs	%spellout-cardinal-feminine	1947.0	1	jedna tisíc devět set čtyřicet sedm
+cs	cs	%spellout-cardinal-feminine	47625.0	1	čtyřicet sedm tisíc šest set dvacet pět
+cs	cs	%spellout-cardinal-feminine	1000047.0	1	jeden milión čtyřicet sedm
+cs	cs	%spellout-cardinal-feminine	47.625	1	čtyřicet sedm čárka šest dvě pět
+cs	cs	%spellout-cardinal-feminine	12.05	1	dvanáct čárka nula pět
+cs	cs	%spellout-cardinal-feminine	1.875	1	jedna čárka osm sedm pět
+cy	cy	%spellout-numbering	7.0	1	saith
+cy	cy	%spellout-numbering	21.0	1	dau ddeg un
+cy	cy	%spellout-numbering	47.0	1	pedwar deg saith
+cy	cy	%spellout-numbering	97.0	1	naw deg saith
+cy	cy	%spellout-numbering	147.0	1	un cant pedwar deg saith
+cy	cy	%spellout-numbering	1947.0	1	un mil naw cant pedwar deg saith
+cy	cy	%spellout-numbering	47625.0	1	pedwar deg saith mil chwe cant dau ddeg pump
+cy	cy	%spellout-numbering	1000047.0	1	un miliwn pedwar deg saith
+cy	cy	%spellout-numbering	47.625	1	pedwar deg saith pwynt chwech dau pump
+cy	cy	%spellout-numbering	12.05	1	un deg dau pwynt dim pump
+cy	cy	%spellout-numbering	1.875	1	un pwynt wyth saith pump
+cy	cy	%spellout-cardinal-masculine	7.0	1	saith
+cy	cy	%spellout-cardinal-masculine	21.0	1	dau ddeg un
+cy	cy	%spellout-cardinal-masculine	47.0	1	pedwar deg saith
+cy	cy	%spellout-cardinal-masculine	97.0	1	naw deg saith
+cy	cy	%spellout-cardinal-masculine	147.0	1	un cant pedwar deg saith
+cy	cy	%spellout-cardinal-masculine	1947.0	1	un mil naw cant pedwar deg saith
+cy	cy	%spellout-cardinal-masculine	47625.0	1	pedwar deg saith mil chwe cant dau ddeg pump
+cy	cy	%spellout-cardinal-masculine	1000047.0	1	un miliwn pedwar deg saith
+cy	cy	%spellout-cardinal-masculine	47.625	1	pedwar deg saith pwynt chwech dau pump
+cy	cy	%spellout-cardinal-masculine	12.05	1	un deg dau pwynt dim pump
+cy	cy	%spellout-cardinal-masculine	1.875	1	un pwynt wyth saith pump
+cy	cy	%spellout-cardinal-masculine-before-consonant	7.0	1	saith
+cy	cy	%spellout-cardinal-masculine-before-consonant	21.0	1	dau ddeg un
+cy	cy	%spellout-cardinal-masculine-before-consonant	47.0	1	pedwar deg saith
+cy	cy	%spellout-cardinal-masculine-before-consonant	97.0	1	naw deg saith
+cy	cy	%spellout-cardinal-masculine-before-consonant	147.0	1	un cant pedwar deg saith
+cy	cy	%spellout-cardinal-masculine-before-consonant	1947.0	1	un mil naw cant pedwar deg saith
+cy	cy	%spellout-cardinal-masculine-before-consonant	47625.0	1	pedwar deg saith mil chwe cant dau ddeg pum
+cy	cy	%spellout-cardinal-masculine-before-consonant	1000047.0	1	un miliwn pedwar deg saith
+cy	cy	%spellout-cardinal-masculine-before-consonant	47.625	1	pedwar deg saith pwynt chwe dau pum
+cy	cy	%spellout-cardinal-masculine-before-consonant	12.05	1	un deg dau pwynt dim pum
+cy	cy	%spellout-cardinal-masculine-before-consonant	1.875	1	un pwynt wyth saith pum
+cy	cy	%spellout-cardinal-feminine	7.0	1	saith
+cy	cy	%spellout-cardinal-feminine	21.0	1	dau ddeg un
+cy	cy	%spellout-cardinal-feminine	47.0	1	pedwar deg saith
+cy	cy	%spellout-cardinal-feminine	97.0	1	naw deg saith
+cy	cy	%spellout-cardinal-feminine	147.0	1	un cant pedwar deg saith
+cy	cy	%spellout-cardinal-feminine	1947.0	1	un mil naw cant pedwar deg saith
+cy	cy	%spellout-cardinal-feminine	47625.0	1	pedwar deg saith mil chwe cant dau ddeg pump
+cy	cy	%spellout-cardinal-feminine	1000047.0	1	un miliwn pedwar deg saith
+cy	cy	%spellout-cardinal-feminine	47.625	1	pedwar deg saith pwynt chwech dwy pump
+cy	cy	%spellout-cardinal-feminine	12.05	1	un deg dwy pwynt dim pump
+cy	cy	%spellout-cardinal-feminine	1.875	1	un pwynt wyth saith pump
+cy	cy	%spellout-cardinal-feminine-before-consonant	7.0	1	saith
+cy	cy	%spellout-cardinal-feminine-before-consonant	21.0	1	dau ddeg un
+cy	cy	%spellout-cardinal-feminine-before-consonant	47.0	1	pedwar deg saith
+cy	cy	%spellout-cardinal-feminine-before-consonant	97.0	1	naw deg saith
+cy	cy	%spellout-cardinal-feminine-before-consonant	147.0	1	un cant pedwar deg saith
+cy	cy	%spellout-cardinal-feminine-before-consonant	1947.0	1	un mil naw cant pedwar deg saith
+cy	cy	%spellout-cardinal-feminine-before-consonant	47625.0	1	pedwar deg saith mil chwe cant dau ddeg pum
+cy	cy	%spellout-cardinal-feminine-before-consonant	1000047.0	1	un miliwn pedwar deg saith
+cy	cy	%spellout-cardinal-feminine-before-consonant	47.625	1	pedwar deg saith pwynt chwe dwy pum
+cy	cy	%spellout-cardinal-feminine-before-consonant	12.05	1	un deg dwy pwynt dim pum
+cy	cy	%spellout-cardinal-feminine-before-consonant	1.875	1	un pwynt wyth saith pum
+da	da	%spellout-numbering	7.0	1	syv
+da	da	%spellout-numbering	21.0	1	enogtyve
+da	da	%spellout-numbering	47.0	1	syvogfyrre
+da	da	%spellout-numbering	97.0	1	syvoghalvfems
+da	da	%spellout-numbering	147.0	1	hundrede og syvogfyrre
+da	da	%spellout-numbering	1947.0	1	tusind nihundrede og syvogfyrre
+da	da	%spellout-numbering	47625.0	1	syvogfyrre tusind sekshundrede og femogtyve
+da	da	%spellout-numbering	1000047.0	1	en million syvogfyrre
+da	da	%spellout-numbering	47.625	1	syvogfyrre komma seks to fem
+da	da	%spellout-numbering	12.05	1	tolv komma nul fem
+da	da	%spellout-numbering	1.875	1	et komma otte syv fem
+da	da	%spellout-cardinal-common	7.0	1	syv
+da	da	%spellout-cardinal-common	21.0	1	enogtyve
+da	da	%spellout-cardinal-common	47.0	1	syvogfyrre
+da	da	%spellout-cardinal-common	97.0	1	syvoghalvfems
+da	da	%spellout-cardinal-common	147.0	1	hundrede og syvogfyrre
+da	da	%spellout-cardinal-common	1947.0	1	tusinde nihundrede og syvogfyrre
+da	da	%spellout-cardinal-common	47625.0	1	syvogfyrre tusinde sekshundrede og femogtyve
+da	da	%spellout-cardinal-common	1000047.0	1	million syvogfyrre
+da	da	%spellout-cardinal-common	47.625	1	syvogfyrre komma seks to fem
+da	da	%spellout-cardinal-common	12.05	1	tolv komma nul fem
+da	da	%spellout-cardinal-common	1.875	1	en komma otte syv fem
+da	da	%spellout-cardinal-neuter	7.0	1	syv
+da	da	%spellout-cardinal-neuter	21.0	1	enogtyve
+da	da	%spellout-cardinal-neuter	47.0	1	syvogfyrre
+da	da	%spellout-cardinal-neuter	97.0	1	syvoghalvfems
+da	da	%spellout-cardinal-neuter	147.0	1	hundrede og syvogfyrre
+da	da	%spellout-cardinal-neuter	1947.0	1	tusind nihundrede og syvogfyrre
+da	da	%spellout-cardinal-neuter	47625.0	1	syvogfyrre tusind sekshundrede og femogtyve
+da	da	%spellout-cardinal-neuter	1000047.0	1	en million syvogfyrre
+da	da	%spellout-cardinal-neuter	47.625	1	syvogfyrre komma seks to fem
+da	da	%spellout-cardinal-neuter	12.05	1	tolv komma nul fem
+da	da	%spellout-cardinal-neuter	1.875	1	et komma otte syv fem
+de	de	%spellout-numbering	7.0	1	sieben
+de	de	%spellout-numbering	21.0	1	einundzwanzig
+de	de	%spellout-numbering	47.0	1	siebenundvierzig
+de	de	%spellout-numbering	97.0	1	siebenundneunzig
+de	de	%spellout-numbering	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-numbering	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-numbering	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-numbering	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-numbering	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-numbering	12.05	1	zwölf Komma null fünf
+de	de	%spellout-numbering	1.875	1	eins Komma acht sieben fünf
+de	de	%spellout-cardinal-neuter	7.0	1	sieben
+de	de	%spellout-cardinal-neuter	21.0	1	einundzwanzig
+de	de	%spellout-cardinal-neuter	47.0	1	siebenundvierzig
+de	de	%spellout-cardinal-neuter	97.0	1	siebenundneunzig
+de	de	%spellout-cardinal-neuter	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-cardinal-neuter	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-cardinal-neuter	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-cardinal-neuter	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-cardinal-neuter	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-cardinal-neuter	12.05	1	zwölf Komma null fünf
+de	de	%spellout-cardinal-neuter	1.875	1	ein Komma acht sieben fünf
+de	de	%spellout-cardinal-masculine	7.0	1	sieben
+de	de	%spellout-cardinal-masculine	21.0	1	einundzwanzig
+de	de	%spellout-cardinal-masculine	47.0	1	siebenundvierzig
+de	de	%spellout-cardinal-masculine	97.0	1	siebenundneunzig
+de	de	%spellout-cardinal-masculine	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-cardinal-masculine	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-cardinal-masculine	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-cardinal-masculine	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-cardinal-masculine	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-cardinal-masculine	12.05	1	zwölf Komma null fünf
+de	de	%spellout-cardinal-masculine	1.875	1	ein Komma acht sieben fünf
+de	de	%spellout-cardinal-feminine	7.0	1	sieben
+de	de	%spellout-cardinal-feminine	21.0	1	einundzwanzig
+de	de	%spellout-cardinal-feminine	47.0	1	siebenundvierzig
+de	de	%spellout-cardinal-feminine	97.0	1	siebenundneunzig
+de	de	%spellout-cardinal-feminine	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-cardinal-feminine	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-cardinal-feminine	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-cardinal-feminine	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-cardinal-feminine	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-cardinal-feminine	12.05	1	zwölf Komma null fünf
+de	de	%spellout-cardinal-feminine	1.875	1	eine Komma acht sieben fünf
+de	de	%spellout-cardinal-n	7.0	1	sieben
+de	de	%spellout-cardinal-n	21.0	1	einundzwanzig
+de	de	%spellout-cardinal-n	47.0	1	siebenundvierzig
+de	de	%spellout-cardinal-n	97.0	1	siebenundneunzig
+de	de	%spellout-cardinal-n	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-cardinal-n	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-cardinal-n	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-cardinal-n	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-cardinal-n	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-cardinal-n	12.05	1	zwölf Komma null fünf
+de	de	%spellout-cardinal-n	1.875	1	einen Komma acht sieben fünf
+de	de	%spellout-cardinal-r	7.0	1	sieben
+de	de	%spellout-cardinal-r	21.0	1	einundzwanzig
+de	de	%spellout-cardinal-r	47.0	1	siebenundvierzig
+de	de	%spellout-cardinal-r	97.0	1	siebenundneunzig
+de	de	%spellout-cardinal-r	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-cardinal-r	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-cardinal-r	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-cardinal-r	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-cardinal-r	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-cardinal-r	12.05	1	zwölf Komma null fünf
+de	de	%spellout-cardinal-r	1.875	1	einer Komma acht sieben fünf
+de	de	%spellout-cardinal-s	7.0	1	sieben
+de	de	%spellout-cardinal-s	21.0	1	einundzwanzig
+de	de	%spellout-cardinal-s	47.0	1	siebenundvierzig
+de	de	%spellout-cardinal-s	97.0	1	siebenundneunzig
+de	de	%spellout-cardinal-s	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-cardinal-s	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-cardinal-s	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-cardinal-s	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-cardinal-s	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-cardinal-s	12.05	1	zwölf Komma null fünf
+de	de	%spellout-cardinal-s	1.875	1	eines Komma acht sieben fünf
+de	de	%spellout-cardinal-m	7.0	1	sieben
+de	de	%spellout-cardinal-m	21.0	1	einundzwanzig
+de	de	%spellout-cardinal-m	47.0	1	siebenundvierzig
+de	de	%spellout-cardinal-m	97.0	1	siebenundneunzig
+de	de	%spellout-cardinal-m	147.0	1	einhundertsiebenundvierzig
+de	de	%spellout-cardinal-m	1947.0	1	eintausendneunhundertsiebenundvierzig
+de	de	%spellout-cardinal-m	47625.0	1	siebenundvierzigtausendsechshundertfünfundzwanzig
+de	de	%spellout-cardinal-m	1000047.0	1	eine Million siebenundvierzig
+de	de	%spellout-cardinal-m	47.625	1	siebenundvierzig Komma sechs zwei fünf
+de	de	%spellout-cardinal-m	12.05	1	zwölf Komma null fünf
+de	de	%spellout-cardinal-m	1.875	1	einem Komma acht sieben fünf
+ee	ee	%spellout-numbering	7.0	1	adre
+ee	ee	%spellout-cardinal	7.0	1	adre
+eo	eo	%spellout-numbering	7.0	1	sep
+eo	eo	%spellout-numbering	21.0	1	dudek unu
+eo	eo	%spellout-numbering	47.0	1	kvardek sep
+eo	eo	%spellout-numbering	97.0	1	naŭdek sep
+eo	eo	%spellout-numbering	147.0	1	cent kvardek sep
+eo	eo	%spellout-numbering	1947.0	1	mil naŭcent kvardek sep
+eo	eo	%spellout-numbering	47625.0	1	kvardek sep mil sescent dudek kvin
+eo	eo	%spellout-numbering	1000047.0	1	miliono kvardek sep
+eo	eo	%spellout-numbering	47.625	1	kvardek sep komo ses du kvin
+eo	eo	%spellout-numbering	12.05	1	dek du komo nulo kvin
+eo	eo	%spellout-numbering	1.875	1	unu komo ok sep kvin
+eo	eo	%spellout-cardinal	7.0	1	sep
+eo	eo	%spellout-cardinal	21.0	1	dudek unu
+eo	eo	%spellout-cardinal	47.0	1	kvardek sep
+eo	eo	%spellout-cardinal	97.0	1	naŭdek sep
+eo	eo	%spellout-cardinal	147.0	1	cent kvardek sep
+eo	eo	%spellout-cardinal	1947.0	1	mil naŭcent kvardek sep
+eo	eo	%spellout-cardinal	47625.0	1	kvardek sep mil sescent dudek kvin
+eo	eo	%spellout-cardinal	1000047.0	1	miliono kvardek sep
+eo	eo	%spellout-cardinal	47.625	1	kvardek sep komo ses du kvin
+eo	eo	%spellout-cardinal	12.05	1	dek du komo nulo kvin
+eo	eo	%spellout-cardinal	1.875	1	unu komo ok sep kvin
+es	es	%spellout-numbering	7.0	1	siete
+es	es	%spellout-numbering	21.0	1	veintiuno
+es	es	%spellout-numbering	47.0	1	cuarenta y siete
+es	es	%spellout-numbering	97.0	1	noventa y siete
+es	es	%spellout-numbering	147.0	1	ciento cuarenta y siete
+es	es	%spellout-numbering	1947.0	1	mil novecientos cuarenta y siete
+es	es	%spellout-numbering	47625.0	1	cuarenta y siete mil seiscientos veinticinco
+es	es	%spellout-numbering	1000047.0	1	un millón cuarenta y siete
+es	es	%spellout-numbering	47.625	1	cuarenta y siete coma seis dos cinco
+es	es	%spellout-numbering	12.05	1	doce coma cero cinco
+es	es	%spellout-numbering	1.875	1	uno coma ocho siete cinco
+es	es	%spellout-cardinal-masculine	7.0	1	siete
+es	es	%spellout-cardinal-masculine	21.0	1	veintiún
+es	es	%spellout-cardinal-masculine	47.0	1	cuarenta y siete
+es	es	%spellout-cardinal-masculine	97.0	1	noventa y siete
+es	es	%spellout-cardinal-masculine	147.0	1	ciento cuarenta y siete
+es	es	%spellout-cardinal-masculine	1947.0	1	mil novecientos cuarenta y siete
+es	es	%spellout-cardinal-masculine	47625.0	1	cuarenta y siete mil seiscientos veinticinco
+es	es	%spellout-cardinal-masculine	1000047.0	1	un millón cuarenta y siete
+es	es	%spellout-cardinal-masculine	47.625	1	cuarenta y siete coma seis dos cinco
+es	es	%spellout-cardinal-masculine	12.05	1	doce coma cero cinco
+es	es	%spellout-cardinal-masculine	1.875	1	un coma ocho siete cinco
+es	es	%spellout-cardinal-feminine	7.0	1	siete
+es	es	%spellout-cardinal-feminine	21.0	1	veintiuna
+es	es	%spellout-cardinal-feminine	47.0	1	cuarenta y siete
+es	es	%spellout-cardinal-feminine	97.0	1	noventa y siete
+es	es	%spellout-cardinal-feminine	147.0	1	ciento cuarenta y siete
+es	es	%spellout-cardinal-feminine	1947.0	1	mil novecientas cuarenta y siete
+es	es	%spellout-cardinal-feminine	47625.0	1	cuarenta y siete mil seiscientas veinticinco
+es	es	%spellout-cardinal-feminine	1000047.0	1	un millón cuarenta y siete
+es	es	%spellout-cardinal-feminine	47.625	1	cuarenta y siete coma seis dos cinco
+es	es	%spellout-cardinal-feminine	12.05	1	doce coma cero cinco
+es	es	%spellout-cardinal-feminine	1.875	1	una coma ocho siete cinco
+et	et	%spellout-numbering	7.0	1	seitse
+et	et	%spellout-numbering	21.0	1	kakskümmend üks
+et	et	%spellout-numbering	47.0	1	nelikümmend seitse
+et	et	%spellout-numbering	97.0	1	üheksakümmend seitse
+et	et	%spellout-numbering	147.0	1	ükssada nelikümmend seitse
+et	et	%spellout-numbering	1947.0	1	üks tuhat üheksasada nelikümmend seitse
+et	et	%spellout-numbering	47625.0	1	nelikümmend seitse tuhat kuussada kakskümmend viis
+et	et	%spellout-numbering	1000047.0	1	üks miljon nelikümmend seitse
+et	et	%spellout-numbering	47.625	1	nelikümmend seitse koma kuus kaks viis
+et	et	%spellout-numbering	12.05	1	kaksteist koma null viis
+et	et	%spellout-numbering	1.875	1	üks koma kaheksa seitse viis
+et	et	%spellout-cardinal	7.0	1	seitse
+et	et	%spellout-cardinal	21.0	1	kakskümmend üks
+et	et	%spellout-cardinal	47.0	1	nelikümmend seitse
+et	et	%spellout-cardinal	97.0	1	üheksakümmend seitse
+et	et	%spellout-cardinal	147.0	1	ükssada nelikümmend seitse
+et	et	%spellout-cardinal	1947.0	1	üks tuhat üheksasada nelikümmend seitse
+et	et	%spellout-cardinal	47625.0	1	nelikümmend seitse tuhat kuussada kakskümmend viis
+et	et	%spellout-cardinal	1000047.0	1	üks miljon nelikümmend seitse
+et	et	%spellout-cardinal	47.625	1	nelikümmend seitse koma kuus kaks viis
+et	et	%spellout-cardinal	12.05	1	kaksteist koma null viis
+et	et	%spellout-cardinal	1.875	1	üks koma kaheksa seitse viis
+ff	ff	%spellout-cardinal-class-o	21.0	1	noogas e gooto
+fi	fi	%spellout-numbering	7.0	1	seitsemän
+fi	fi	%spellout-numbering	21.0	1	kaksikymmentäyksi
+fi	fi	%spellout-numbering	47.0	1	neljäkymmentäseitsemän
+fi	fi	%spellout-numbering	97.0	1	yhdeksänkymmentäseitsemän
+fi	fi	%spellout-numbering	147.0	1	sataneljäkymmentäseitsemän
+fi	fi	%spellout-numbering	1947.0	1	tuhatyhdeksänsataaneljäkymmentäseitsemän
+fi	fi	%spellout-numbering	47625.0	1	neljäkymmentäseitsemäntuhattakuusisataakaksikymmentäviisi
+fi	fi	%spellout-numbering	1000047.0	1	yksi miljoona neljäkymmentäseitsemän
+fi	fi	%spellout-numbering	47.625	1	neljäkymmentäseitsemän pilkku kuusi kaksi viisi
+fi	fi	%spellout-numbering	12.05	1	kaksitoista pilkku nolla viisi
+fi	fi	%spellout-numbering	1.875	1	yksi pilkku kahdeksan seitsemän viisi
+fi	fi	%spellout-cardinal	7.0	1	seitsemän
+fi	fi	%spellout-cardinal	21.0	1	kaksikymmentäyksi
+fi	fi	%spellout-cardinal	47.0	1	neljäkymmentäseitsemän
+fi	fi	%spellout-cardinal	97.0	1	yhdeksänkymmentäseitsemän
+fi	fi	%spellout-cardinal	147.0	1	sataneljäkymmentäseitsemän
+fi	fi	%spellout-cardinal	1947.0	1	tuhatyhdeksänsataaneljäkymmentäseitsemän
+fi	fi	%spellout-cardinal	47625.0	1	neljäkymmentäseitsemäntuhattakuusisataakaksikymmentäviisi
+fi	fi	%spellout-cardinal	1000047.0	1	yksi miljoona neljäkymmentäseitsemän
+fi	fi	%spellout-cardinal	47.625	1	neljäkymmentäseitsemän pilkku kuusi kaksi viisi
+fi	fi	%spellout-cardinal	12.05	1	kaksitoista pilkku nolla viisi
+fi	fi	%spellout-cardinal	1.875	1	yksi pilkku kahdeksan seitsemän viisi
+fi	fi	%spellout-cardinal-genitive	7.0	1	seitsemän
+fi	fi	%spellout-cardinal-genitive	21.0	1	kahdenkymmenenyhden
+fi	fi	%spellout-cardinal-genitive	47.0	1	neljänkymmenenseitsemän
+fi	fi	%spellout-cardinal-genitive	97.0	1	yhdeksänkymmenenseitsemän
+fi	fi	%spellout-cardinal-genitive	147.0	1	sadanneljänkymmenenseitsemän
+fi	fi	%spellout-cardinal-genitive	1947.0	1	tuhannenyhdeksänsadanneljänkymmenenseitsemän
+fi	fi	%spellout-cardinal-genitive	47625.0	1	neljänkymmenenseitsemäntuhannenkuudensadankahdenkymmenenviiden
+fi	fi	%spellout-cardinal-genitive	1000047.0	1	yhden miljoonan neljänkymmenenseitsemän
+fi	fi	%spellout-cardinal-genitive	47.625	1	neljänkymmenenseitsemän pilkku kuuden kahden viiden
+fi	fi	%spellout-cardinal-genitive	12.05	1	kahdentoista pilkku nollan viiden
+fi	fi	%spellout-cardinal-genitive	1.875	1	yhden pilkku kahdeksan seitsemän viiden
+fi	fi	%spellout-cardinal-partitive	7.0	1	seitsemää
+fi	fi	%spellout-cardinal-partitive	21.0	1	kahtakymmentäyhtä
+fi	fi	%spellout-cardinal-partitive	47.0	1	neljääkymmentäseitsemää
+fi	fi	%spellout-cardinal-partitive	97.0	1	yhdeksääkymmentäseitsemää
+fi	fi	%spellout-cardinal-partitive	147.0	1	sataaneljääkymmentäseitsemää
+fi	fi	%spellout-cardinal-partitive	1947.0	1	tuhattayhdeksääsataaneljääkymmentäseitsemää
+fi	fi	%spellout-cardinal-partitive	47625.0	1	neljääkymmentäseitsemäätuhattakuuttasataakahtakymmentäviittä
+fi	fi	%spellout-cardinal-partitive	1000047.0	1	yhtä miljoonaa neljääkymmentäseitsemää
+fi	fi	%spellout-cardinal-partitive	47.625	1	neljääkymmentäseitsemää pilkku kuutta kahta viittä
+fi	fi	%spellout-cardinal-partitive	12.05	1	kahtatoista pilkku nollaa viittä
+fi	fi	%spellout-cardinal-partitive	1.875	1	yhtä pilkku kahdeksaa seitsemää viittä
+fi	fi	%spellout-cardinal-essive	7.0	1	seitsemänä
+fi	fi	%spellout-cardinal-essive	21.0	1	kahtenakymmenenäyhtenä
+fi	fi	%spellout-cardinal-essive	47.0	1	neljänäkymmenenäseitsemänä
+fi	fi	%spellout-cardinal-essive	97.0	1	yhdeksänäkymmenenäseitsemänä
+fi	fi	%spellout-cardinal-essive	147.0	1	satananeljänäkymmenenäseitsemänä
+fi	fi	%spellout-cardinal-essive	1947.0	1	tuhantenayhdeksänäsatananeljänäkymmenenäseitsemänä
+fi	fi	%spellout-cardinal-essive	47625.0	1	neljänäkymmenenäseitsemänätuhantenakuutenasatanakahtenakymmenenäviitenä
+fi	fi	%spellout-cardinal-essive	1000047.0	1	yhtenä miljoonana neljänäkymmenenäseitsemänä
+fi	fi	%spellout-cardinal-essive	47.625	1	neljänäkymmenenäseitsemänä pilkku kuutena kahtena viitenä
+fi	fi	%spellout-cardinal-essive	12.05	1	kahtenatoista pilkku nollana viitenä
+fi	fi	%spellout-cardinal-essive	1.875	1	yhtenä pilkku kahdeksana seitsemänä viitenä
+fi	fi	%spellout-cardinal-translative	7.0	1	seitsemäksi
+fi	fi	%spellout-cardinal-translative	21.0	1	kahdeksikymmeneksiyhdeksi
+fi	fi	%spellout-cardinal-translative	47.0	1	neljäksikymmeneksiseitsemäksi
+fi	fi	%spellout-cardinal-translative	97.0	1	yhdeksäksikymmeneksiseitsemäksi
+fi	fi	%spellout-cardinal-translative	147.0	1	sadaksineljäksikymmeneksiseitsemäksi
+fi	fi	%spellout-cardinal-translative	1947.0	1	tuhanneksiyhdeksäksisadaksineljäksikymmeneksiseitsemäksi
+fi	fi	%spellout-cardinal-translative	47625.0	1	neljäksikymmeneksiseitsemäksituhanneksikuudeksisadaksikahdeksikymmeneksiviideksi
+fi	fi	%spellout-cardinal-translative	1000047.0	1	yhdeksi miljoonaksi neljäksikymmeneksiseitsemäksi
+fi	fi	%spellout-cardinal-translative	47.625	1	neljäksikymmeneksiseitsemäksi pilkku kuudeksi kahdeksi viideksi
+fi	fi	%spellout-cardinal-translative	12.05	1	kahdeksitoista pilkku nollaksi viideksi
+fi	fi	%spellout-cardinal-translative	1.875	1	yhdeksi pilkku kahdeksaksi seitsemäksi viideksi
+fi	fi	%spellout-cardinal-inessive	7.0	1	seitsemässä
+fi	fi	%spellout-cardinal-inessive	21.0	1	kahdessakymmenessäyhdessä
+fi	fi	%spellout-cardinal-inessive	47.0	1	neljässäkymmenessäseitsemässä
+fi	fi	%spellout-cardinal-inessive	97.0	1	yhdeksässäkymmenessäseitsemässä
+fi	fi	%spellout-cardinal-inessive	147.0	1	sadassaneljässäkymmenessäseitsemässä
+fi	fi	%spellout-cardinal-inessive	1947.0	1	tuhannessayhdeksässäsadassaneljässäkymmenessäseitsemässä
+fi	fi	%spellout-cardinal-inessive	47625.0	1	neljässäkymmenessäseitsemässätuhannessakuudessasadassakahdessakymmenessäviidessä
+fi	fi	%spellout-cardinal-inessive	1000047.0	1	yhdessä miljoonassa neljässäkymmenessäseitsemässä
+fi	fi	%spellout-cardinal-inessive	47.625	1	neljässäkymmenessäseitsemässä pilkku kuudessa kahdessa viidessä
+fi	fi	%spellout-cardinal-inessive	12.05	1	kahdessatoista pilkku nollassa viidessä
+fi	fi	%spellout-cardinal-inessive	1.875	1	yhdessä pilkku kahdeksassa seitsemässä viidessä
+fi	fi	%spellout-cardinal-elative	7.0	1	seitsemästä
+fi	fi	%spellout-cardinal-elative	21.0	1	kahdestakymmenestäyhdestä
+fi	fi	%spellout-cardinal-elative	47.0	1	neljästäkymmenestäseitsemästä
+fi	fi	%spellout-cardinal-elative	97.0	1	yhdeksästäkymmenestäseitsemästä
+fi	fi	%spellout-cardinal-elative	147.0	1	sadastaneljästäkymmenestäseitsemästä
+fi	fi	%spellout-cardinal-elative	1947.0	1	tuhannestayhdeksästäsadastaneljästäkymmenestäseitsemästä
+fi	fi	%spellout-cardinal-elative	47625.0	1	neljästäkymmenestäseitsemästätuhannestakuudestasadastakahdestakymmenestäviidestä
+fi	fi	%spellout-cardinal-elative	1000047.0	1	yhdestä miljoonasta neljästäkymmenestäseitsemästä
+fi	fi	%spellout-cardinal-elative	47.625	1	neljästäkymmenestäseitsemästä pilkku kuudesta kahdesta viidestä
+fi	fi	%spellout-cardinal-elative	12.05	1	kahdestatoista pilkku nollasta viidestä
+fi	fi	%spellout-cardinal-elative	1.875	1	yhdestä pilkku kahdeksasta seitsemästä viidestä
+fi	fi	%spellout-cardinal-illative	7.0	1	seitsemään
+fi	fi	%spellout-cardinal-illative	21.0	1	kahteenkymmeneenyhteen
+fi	fi	%spellout-cardinal-illative	47.0	1	neljäänkymmeneenseitsemään
+fi	fi	%spellout-cardinal-illative	97.0	1	yhdeksäänkymmeneenseitsemään
+fi	fi	%spellout-cardinal-illative	147.0	1	sataanneljäänkymmeneenseitsemään
+fi	fi	%spellout-cardinal-illative	1947.0	1	tuhanteenyhdeksäänsataanneljäänkymmeneenseitsemään
+fi	fi	%spellout-cardinal-illative	47625.0	1	neljäänkymmeneenseitsemääntuhanteenkuuteensataankahteenkymmeneenviiteen
+fi	fi	%spellout-cardinal-illative	1000047.0	1	yhteen miljoonaan neljäänkymmeneenseitsemään
+fi	fi	%spellout-cardinal-illative	47.625	1	neljäänkymmeneenseitsemään pilkku kuuteen kahteen viiteen
+fi	fi	%spellout-cardinal-illative	12.05	1	kahteentoista pilkku nollaan viiteen
+fi	fi	%spellout-cardinal-illative	1.875	1	yhteen pilkku kahdeksaan seitsemään viiteen
+fi	fi	%spellout-cardinal-adessive	7.0	1	seitsemällä
+fi	fi	%spellout-cardinal-adessive	21.0	1	kahdellakymmenelläyhdellä
+fi	fi	%spellout-cardinal-adessive	47.0	1	neljälläkymmenelläseitsemällä
+fi	fi	%spellout-cardinal-adessive	97.0	1	yhdeksälläkymmenelläseitsemällä
+fi	fi	%spellout-cardinal-adessive	147.0	1	sadallaneljälläkymmenelläseitsemällä
+fi	fi	%spellout-cardinal-adessive	1947.0	1	tuhannellayhdeksälläsadallaneljälläkymmenelläseitsemällä
+fi	fi	%spellout-cardinal-adessive	47625.0	1	neljälläkymmenelläseitsemällätuhannellakuudellasadallakahdellakymmenelläviidellä
+fi	fi	%spellout-cardinal-adessive	1000047.0	1	yhdellä miljoonalla neljälläkymmenelläseitsemällä
+fi	fi	%spellout-cardinal-adessive	47.625	1	neljälläkymmenelläseitsemällä pilkku kuudella kahdella viidellä
+fi	fi	%spellout-cardinal-adessive	12.05	1	kahdellatoista pilkku nollalla viidellä
+fi	fi	%spellout-cardinal-adessive	1.875	1	yhdellä pilkku kahdeksalla seitsemällä viidellä
+fi	fi	%spellout-cardinal-ablative	7.0	1	seitsemältä
+fi	fi	%spellout-cardinal-ablative	21.0	1	kahdeltakymmeneltäyhdeltä
+fi	fi	%spellout-cardinal-ablative	47.0	1	neljältäkymmeneltäseitsemältä
+fi	fi	%spellout-cardinal-ablative	97.0	1	yhdeksältäkymmeneltäseitsemältä
+fi	fi	%spellout-cardinal-ablative	147.0	1	sadaltaneljältäkymmeneltäseitsemältä
+fi	fi	%spellout-cardinal-ablative	1947.0	1	tuhanneltayhdeksältäsadaltaneljältäkymmeneltäseitsemältä
+fi	fi	%spellout-cardinal-ablative	47625.0	1	neljältäkymmeneltäseitsemältätuhanneltakuudeltasadaltakahdeltakymmeneltäviideltä
+fi	fi	%spellout-cardinal-ablative	1000047.0	1	yhdeltä miljoonalta neljältäkymmeneltäseitsemältä
+fi	fi	%spellout-cardinal-ablative	47.625	1	neljältäkymmeneltäseitsemältä pilkku kuudelta kahdelta viideltä
+fi	fi	%spellout-cardinal-ablative	12.05	1	kahdeltatoista pilkku nollalta viideltä
+fi	fi	%spellout-cardinal-ablative	1.875	1	yhdeltä pilkku kahdeksalta seitsemältä viideltä
+fi	fi	%spellout-cardinal-allative	7.0	1	seitsemälle
+fi	fi	%spellout-cardinal-allative	21.0	1	kahdellekymmenelleyhdelle
+fi	fi	%spellout-cardinal-allative	47.0	1	neljällekymmenelleseitsemälle
+fi	fi	%spellout-cardinal-allative	97.0	1	yhdeksällekymmenelleseitsemälle
+fi	fi	%spellout-cardinal-allative	147.0	1	sadalleneljällekymmenelleseitsemälle
+fi	fi	%spellout-cardinal-allative	1947.0	1	tuhannelleyhdeksällesadalleneljällekymmenelleseitsemälle
+fi	fi	%spellout-cardinal-allative	47625.0	1	neljällekymmenelleseitsemälletuhannellekuudellesadallekahdellekymmenelleviidelle
+fi	fi	%spellout-cardinal-allative	1000047.0	1	yhdelle miljoonalle neljällekymmenelleseitsemälle
+fi	fi	%spellout-cardinal-allative	47.625	1	neljällekymmenelleseitsemälle pilkku kuudelle kahdelle viidelle
+fi	fi	%spellout-cardinal-allative	12.05	1	kahdelletoista pilkku nollalle viidelle
+fi	fi	%spellout-cardinal-allative	1.875	1	yhdelle pilkku kahdeksalle seitsemälle viidelle
+fi	fi	%spellout-cardinal-plural	7.0	1	seitsemät
+fi	fi	%spellout-cardinal-plural	21.0	1	kahdet-kymmenetyhdet
+fi	fi	%spellout-cardinal-plural	47.0	1	neljät-kymmenetseitsemät
+fi	fi	%spellout-cardinal-plural	97.0	1	yhdeksät-kymmenetseitsemät
+fi	fi	%spellout-cardinal-plural	147.0	1	sadatneljät-kymmenetseitsemät
+fi	fi	%spellout-cardinal-plural	1947.0	1	tuhannetyhdeksät-sadatneljät-kymmenetseitsemät
+fi	fi	%spellout-cardinal-plural	47625.0	1	neljät-kymmenetseitsemättuhannetkuudet-sadatkahdet-kymmenetviidet
+fi	fi	%spellout-cardinal-plural	1000047.0	1	yhdet miljoonat neljät-kymmenetseitsemät
+fi	fi	%spellout-cardinal-plural	47.625	1	neljät-kymmenetseitsemät pilkku kuudet kahdet viidet
+fi	fi	%spellout-cardinal-plural	12.05	1	kahdettoista pilkku nollat viidet
+fi	fi	%spellout-cardinal-plural	1.875	1	yhdet pilkku kahdeksat seitsemät viidet
+fi	fi	%spellout-cardinal-genitive-plural	7.0	1	seitsemien
+fi	fi	%spellout-cardinal-genitive-plural	21.0	1	kaksienkymmenienyksien
+fi	fi	%spellout-cardinal-genitive-plural	47.0	1	neljienkymmenienseitsemien
+fi	fi	%spellout-cardinal-genitive-plural	97.0	1	yhdeksienkymmenienseitsemien
+fi	fi	%spellout-cardinal-genitive-plural	147.0	1	satojenneljienkymmenienseitsemien
+fi	fi	%spellout-cardinal-genitive-plural	1947.0	1	tuhansienyhdeksiensatojenneljienkymmenienseitsemien
+fi	fi	%spellout-cardinal-genitive-plural	47625.0	1	neljienkymmenienseitsemientuhansienkuusiensatojenkaksienkymmenienviisien
+fi	fi	%spellout-cardinal-genitive-plural	1000047.0	1	yksien miljoonien neljienkymmenienseitsemien
+fi	fi	%spellout-cardinal-genitive-plural	47.625	1	neljienkymmenienseitsemien pilkku kuusien kaksien viisien
+fi	fi	%spellout-cardinal-genitive-plural	12.05	1	kaksientoista pilkku nollien viisien
+fi	fi	%spellout-cardinal-genitive-plural	1.875	1	yksien pilkku kahdeksien seitsemien viisien
+fi	fi	%spellout-cardinal-partitive-plural	7.0	1	seitsemiä
+fi	fi	%spellout-cardinal-partitive-plural	21.0	1	kaksiakymmeniäyksiä
+fi	fi	%spellout-cardinal-partitive-plural	47.0	1	neljiäkymmeniäseitsemiä
+fi	fi	%spellout-cardinal-partitive-plural	97.0	1	yhdeksiäkymmeniäseitsemiä
+fi	fi	%spellout-cardinal-partitive-plural	147.0	1	satojaneljiäkymmeniäseitsemiä
+fi	fi	%spellout-cardinal-partitive-plural	1947.0	1	tuhansiayhdeksiäsatojaneljiäkymmeniäseitsemiä
+fi	fi	%spellout-cardinal-partitive-plural	47625.0	1	neljiäkymmeniäseitsemiätuhansiakuusiasatojakaksiakymmeniäviisiä
+fi	fi	%spellout-cardinal-partitive-plural	1000047.0	1	yksiä miljoonia neljiäkymmeniäseitsemiä
+fi	fi	%spellout-cardinal-partitive-plural	47.625	1	neljiäkymmeniäseitsemiä pilkku kuusia kaksia viisiä
+fi	fi	%spellout-cardinal-partitive-plural	12.05	1	kaksiatoista pilkku nollia viisiä
+fi	fi	%spellout-cardinal-partitive-plural	1.875	1	yksiä pilkku kahdeksia seitsemiä viisiä
+fi	fi	%spellout-cardinal-essive-plural	7.0	1	seitseminä
+fi	fi	%spellout-cardinal-essive-plural	21.0	1	kaksinakymmeninäyksinä
+fi	fi	%spellout-cardinal-essive-plural	47.0	1	neljinäkymmeninäseitseminä
+fi	fi	%spellout-cardinal-essive-plural	97.0	1	yhdeksinäkymmeninäseitseminä
+fi	fi	%spellout-cardinal-essive-plural	147.0	1	satoinaneljinäkymmeninäseitseminä
+fi	fi	%spellout-cardinal-essive-plural	1947.0	1	tuhansinayhdeksinäsatoinaneljinäkymmeninäseitseminä
+fi	fi	%spellout-cardinal-essive-plural	47625.0	1	neljinäkymmeninäseitseminätuhansinakuusinasatoinakaksinakymmeninäviisinä
+fi	fi	%spellout-cardinal-essive-plural	1000047.0	1	yksinä miljoonina neljinäkymmeninäseitseminä
+fi	fi	%spellout-cardinal-essive-plural	47.625	1	neljinäkymmeninäseitseminä pilkku kuusina kaksina viisinä
+fi	fi	%spellout-cardinal-essive-plural	12.05	1	kaksinatoista pilkku nollina viisinä
+fi	fi	%spellout-cardinal-essive-plural	1.875	1	yksinä pilkku kahdeksina seitseminä viisinä
+fi	fi	%spellout-cardinal-translative-plural	7.0	1	seitsemiksi
+fi	fi	%spellout-cardinal-translative-plural	21.0	1	kaksiksikymmeniksiyksiksi
+fi	fi	%spellout-cardinal-translative-plural	47.0	1	neljiksikymmeniksiseitsemiksi
+fi	fi	%spellout-cardinal-translative-plural	97.0	1	yhdeksiksikymmeniksiseitsemiksi
+fi	fi	%spellout-cardinal-translative-plural	147.0	1	sadoiksineljiksikymmeniksiseitsemiksi
+fi	fi	%spellout-cardinal-translative-plural	1947.0	1	tuhansiksiyhdeksiksisadoiksineljiksikymmeniksiseitsemiksi
+fi	fi	%spellout-cardinal-translative-plural	47625.0	1	neljiksikymmeniksiseitsemiksituhansiksikuusiksisadoiksikaksiksikymmeniksiviisiksi
+fi	fi	%spellout-cardinal-translative-plural	1000047.0	1	yksiksi miljooniksi neljiksikymmeniksiseitsemiksi
+fi	fi	%spellout-cardinal-translative-plural	47.625	1	neljiksikymmeniksiseitsemiksi pilkku kuusiksi kaksiksi viisiksi
+fi	fi	%spellout-cardinal-translative-plural	12.05	1	kaksiksitoista pilkku nolliksi viisiksi
+fi	fi	%spellout-cardinal-translative-plural	1.875	1	yksiksi pilkku kahdeksiksi seitsemiksi viisiksi
+fi	fi	%spellout-cardinal-inessive-plural	7.0	1	seitsemissä
+fi	fi	%spellout-cardinal-inessive-plural	21.0	1	kaksissakymmenissäyksissä
+fi	fi	%spellout-cardinal-inessive-plural	47.0	1	neljissäkymmenissäseitsemissä
+fi	fi	%spellout-cardinal-inessive-plural	97.0	1	yhdeksissäkymmenissäseitsemissä
+fi	fi	%spellout-cardinal-inessive-plural	147.0	1	sadoissaneljissäkymmenissäseitsemissä
+fi	fi	%spellout-cardinal-inessive-plural	1947.0	1	tuhansissayhdeksissäsadoissaneljissäkymmenissäseitsemissä
+fi	fi	%spellout-cardinal-inessive-plural	47625.0	1	neljissäkymmenissäseitsemissätuhansissakuusissasadoissakaksissakymmenissäviisissä
+fi	fi	%spellout-cardinal-inessive-plural	1000047.0	1	yksissä miljoonissa neljissäkymmenissäseitsemissä
+fi	fi	%spellout-cardinal-inessive-plural	47.625	1	neljissäkymmenissäseitsemissä pilkku kuusissa kaksissa viisissä
+fi	fi	%spellout-cardinal-inessive-plural	12.05	1	kaksissatoista pilkku nollissa viisissä
+fi	fi	%spellout-cardinal-inessive-plural	1.875	1	yksissä pilkku kahdeksissa seitsemissä viisissä
+fi	fi	%spellout-cardinal-elative-plural	7.0	1	seitsemistä
+fi	fi	%spellout-cardinal-elative-plural	21.0	1	kaksistakymmenistäyksistä
+fi	fi	%spellout-cardinal-elative-plural	47.0	1	neljistäkymmenistäseitsemistä
+fi	fi	%spellout-cardinal-elative-plural	97.0	1	yhdeksistäkymmenistäseitsemistä
+fi	fi	%spellout-cardinal-elative-plural	147.0	1	sadoistaneljistäkymmenistäseitsemistä
+fi	fi	%spellout-cardinal-elative-plural	1947.0	1	tuhansistayhdeksistäsadoistaneljistäkymmenistäseitsemistä
+fi	fi	%spellout-cardinal-elative-plural	47625.0	1	neljistäkymmenistäseitsemistätuhansistakuusistasadoistakaksistakymmenistäviisistä
+fi	fi	%spellout-cardinal-elative-plural	1000047.0	1	yksistä miljoonista neljistäkymmenistäseitsemistä
+fi	fi	%spellout-cardinal-elative-plural	47.625	1	neljistäkymmenistäseitsemistä pilkku kuusista kaksista viisistä
+fi	fi	%spellout-cardinal-elative-plural	12.05	1	kaksistatoista pilkku nollista viisistä
+fi	fi	%spellout-cardinal-elative-plural	1.875	1	yksistä pilkku kahdeksista seitsemistä viisistä
+fi	fi	%spellout-cardinal-illative-plural	7.0	1	seitsemiin
+fi	fi	%spellout-cardinal-illative-plural	21.0	1	kaksiinkymmeniinyksiin
+fi	fi	%spellout-cardinal-illative-plural	47.0	1	neljiinkymmeniinseitsemiin
+fi	fi	%spellout-cardinal-illative-plural	97.0	1	yhdeksiinkymmeniinseitsemiin
+fi	fi	%spellout-cardinal-illative-plural	147.0	1	satoihinneljiinkymmeniinseitsemiin
+fi	fi	%spellout-cardinal-illative-plural	1947.0	1	tuhansiinyhdeksiinsatoihinneljiinkymmeniinseitsemiin
+fi	fi	%spellout-cardinal-illative-plural	47625.0	1	neljiinkymmeniinseitsemiintuhansiinkuusiinsatoihinkaksiinkymmeniinviisiin
+fi	fi	%spellout-cardinal-illative-plural	1000047.0	1	yksiin miljooniin neljiinkymmeniinseitsemiin
+fi	fi	%spellout-cardinal-illative-plural	47.625	1	neljiinkymmeniinseitsemiin pilkku kuusiin kaksiin viisiin
+fi	fi	%spellout-cardinal-illative-plural	12.05	1	kaksiintoista pilkku nolliin viisiin
+fi	fi	%spellout-cardinal-illative-plural	1.875	1	yksiin pilkku kahdeksiin seitsemiin viisiin
+fi	fi	%spellout-cardinal-adessive-plural	7.0	1	seitsemillä
+fi	fi	%spellout-cardinal-adessive-plural	21.0	1	kaksillakymmenilläyksillä
+fi	fi	%spellout-cardinal-adessive-plural	47.0	1	neljilläkymmenilläseitsemillä
+fi	fi	%spellout-cardinal-adessive-plural	97.0	1	yhdeksilläkymmenilläseitsemillä
+fi	fi	%spellout-cardinal-adessive-plural	147.0	1	sadoillaneljilläkymmenilläseitsemillä
+fi	fi	%spellout-cardinal-adessive-plural	1947.0	1	tuhansillayhdeksilläsadoillaneljilläkymmenilläseitsemillä
+fi	fi	%spellout-cardinal-adessive-plural	47625.0	1	neljilläkymmenilläseitsemillätuhansillakuusillasadoillakaksillakymmenilläviisillä
+fi	fi	%spellout-cardinal-adessive-plural	1000047.0	1	yksillä miljoonilla neljilläkymmenilläseitsemillä
+fi	fi	%spellout-cardinal-adessive-plural	47.625	1	neljilläkymmenilläseitsemillä pilkku kuusilla kaksilla viisillä
+fi	fi	%spellout-cardinal-adessive-plural	12.05	1	kaksillatoista pilkku nollilla viisillä
+fi	fi	%spellout-cardinal-adessive-plural	1.875	1	yksillä pilkku kahdeksilla seitsemillä viisillä
+fi	fi	%spellout-cardinal-ablative-plural	7.0	1	seitsemiltä
+fi	fi	%spellout-cardinal-ablative-plural	21.0	1	kaksiltakymmeniltäyksiltä
+fi	fi	%spellout-cardinal-ablative-plural	47.0	1	neljiltäkymmeniltäseitsemiltä
+fi	fi	%spellout-cardinal-ablative-plural	97.0	1	yhdeksiltäkymmeniltäseitsemiltä
+fi	fi	%spellout-cardinal-ablative-plural	147.0	1	sadoiltaneljiltäkymmeniltäseitsemiltä
+fi	fi	%spellout-cardinal-ablative-plural	1947.0	1	tuhansiltayhdeksiltäsadoiltaneljiltäkymmeniltäseitsemiltä
+fi	fi	%spellout-cardinal-ablative-plural	47625.0	1	neljiltäkymmeniltäseitsemiltätuhansiltakuusiltasadoiltakaksiltakymmeniltäviisiltä
+fi	fi	%spellout-cardinal-ablative-plural	1000047.0	1	yksiltä miljoonilta neljiltäkymmeniltäseitsemiltä
+fi	fi	%spellout-cardinal-ablative-plural	47.625	1	neljiltäkymmeniltäseitsemiltä pilkku kuusilta kaksilta viisiltä
+fi	fi	%spellout-cardinal-ablative-plural	12.05	1	kaksiltatoista pilkku nollilta viisiltä
+fi	fi	%spellout-cardinal-ablative-plural	1.875	1	yksiltä pilkku kahdeksilta seitsemiltä viisiltä
+fi	fi	%spellout-cardinal-allative-plural	7.0	1	seitsemille
+fi	fi	%spellout-cardinal-allative-plural	21.0	1	kaksillekymmenilleyksille
+fi	fi	%spellout-cardinal-allative-plural	47.0	1	neljillekymmenilleseitsemille
+fi	fi	%spellout-cardinal-allative-plural	97.0	1	yhdeksillekymmenilleseitsemille
+fi	fi	%spellout-cardinal-allative-plural	147.0	1	sadoilleneljillekymmenilleseitsemille
+fi	fi	%spellout-cardinal-allative-plural	1947.0	1	tuhansilleyhdeksillesadoilleneljillekymmenilleseitsemille
+fi	fi	%spellout-cardinal-allative-plural	47625.0	1	neljillekymmenilleseitsemilletuhansillekuusillesadoillekaksillekymmenilleviisille
+fi	fi	%spellout-cardinal-allative-plural	1000047.0	1	yksille miljoonille neljillekymmenilleseitsemille
+fi	fi	%spellout-cardinal-allative-plural	47.625	1	neljillekymmenilleseitsemille pilkku kuusille kaksille viisille
+fi	fi	%spellout-cardinal-allative-plural	12.05	1	kaksilletoista pilkku nollille viisille
+fi	fi	%spellout-cardinal-allative-plural	1.875	1	yksille pilkku kahdeksille seitsemille viisille
+fil	fil	%spellout-numbering	7.0	1	pitó
+fil	fil	%spellout-numbering	21.0	0	dalawáng pû’t isá
+fil	fil	%spellout-numbering	47.0	0	ápat na pû’t pitó
+fil	fil	%spellout-numbering	97.0	0	siyám na pû’t pitó
+fil	fil	%spellout-numbering	147.0	0	isáng daán at ápat na pû’t pitó
+fil	fil	%spellout-numbering	1947.0	0	isáng libó’t siyám na daán at ápat na pû’t pitó
+fil	fil	%spellout-numbering	47625.0	0	ápat na pû’t pitóng libó’t anim na daán at dalawáng pû’t limá
+fil	fil	%spellout-numbering	1000047.0	0	isáng milyón at ápat na pû’t pitó
+fil	fil	%spellout-numbering	47.625	0	ápat na pû’t pitó tuldok anim dalawá limá
+fil	fil	%spellout-numbering	12.05	1	labíng-dalawá tuldok walâ limá
+fil	fil	%spellout-numbering	1.875	1	isá tuldok waló pitó limá
+fil	fil	%spellout-cardinal	7.0	1	pitó
+fil	fil	%spellout-cardinal	21.0	0	dalawáng pû’t isá
+fil	fil	%spellout-cardinal	47.0	0	ápat na pû’t pitó
+fil	fil	%spellout-cardinal	97.0	0	siyám na pû’t pitó
+fil	fil	%spellout-cardinal	147.0	0	isáng daán at ápat na pû’t pitó
+fil	fil	%spellout-cardinal	1947.0	0	isáng libó’t siyám na daán at ápat na pû’t pitó
+fil	fil	%spellout-cardinal	47625.0	0	ápat na pû’t pitóng libó’t anim na daán at dalawáng pû’t limá
+fil	fil	%spellout-cardinal	1000047.0	0	isáng milyón at ápat na pû’t pitó
+fil	fil	%spellout-cardinal	47.625	0	ápat na pû’t pitó tuldok anim dalawá limá
+fil	fil	%spellout-cardinal	12.05	1	labíng-dalawá tuldok walâ limá
+fil	fil	%spellout-cardinal	1.875	1	isá tuldok waló pitó limá
+fo	fo	%spellout-numbering	7.0	1	sjey
+fo	fo	%spellout-numbering	21.0	1	tjúgoein
+fo	fo	%spellout-numbering	47.0	1	fýratisjey
+fo	fo	%spellout-numbering	97.0	1	nítisjey
+fo	fo	%spellout-numbering	1000047.0	1	ein millión og fýratisjey
+fo	fo	%spellout-numbering	47.625	1	fýratisjey komma seks tveir fimm
+fo	fo	%spellout-numbering	12.05	1	tólv komma null fimm
+fo	fo	%spellout-numbering	1.875	1	ein komma átta sjey fimm
+fo	fo	%spellout-cardinal-masculine	7.0	1	sjey
+fo	fo	%spellout-cardinal-masculine	21.0	1	tjúgoein
+fo	fo	%spellout-cardinal-masculine	47.0	1	fýratisjey
+fo	fo	%spellout-cardinal-masculine	97.0	1	nítisjey
+fo	fo	%spellout-cardinal-masculine	1000047.0	1	ein millión og fýratisjey
+fo	fo	%spellout-cardinal-masculine	47.625	1	fýratisjey komma seks tveir fimm
+fo	fo	%spellout-cardinal-masculine	12.05	1	tólv komma null fimm
+fo	fo	%spellout-cardinal-masculine	1.875	1	ein komma átta sjey fimm
+fo	fo	%spellout-cardinal-neuter	7.0	1	sjey
+fo	fo	%spellout-cardinal-neuter	21.0	1	tjúgoeitt
+fo	fo	%spellout-cardinal-neuter	47.0	1	fýratisjey
+fo	fo	%spellout-cardinal-neuter	97.0	1	nítisjey
+fo	fo	%spellout-cardinal-neuter	1000047.0	1	ein millión og fýratisjey
+fo	fo	%spellout-cardinal-neuter	47.625	1	fýratisjey komma seks tvey fimm
+fo	fo	%spellout-cardinal-neuter	12.05	1	tólv komma null fimm
+fo	fo	%spellout-cardinal-neuter	1.875	1	eitt komma átta sjey fimm
+fo	fo	%spellout-cardinal-feminine	7.0	1	sjey
+fo	fo	%spellout-cardinal-feminine	21.0	1	tjúgoein
+fo	fo	%spellout-cardinal-feminine	47.0	1	fýratisjey
+fo	fo	%spellout-cardinal-feminine	97.0	1	nítisjey
+fo	fo	%spellout-cardinal-feminine	1000047.0	1	ein millión og fýratisjey
+fo	fo	%spellout-cardinal-feminine	12.05	1	tólv komma null fimm
+fo	fo	%spellout-cardinal-feminine	1.875	1	ein komma átta sjey fimm
+fr	fr	%spellout-numbering	7.0	1	sept
+fr	fr	%spellout-numbering	21.0	1	vingt-et-un
+fr	fr	%spellout-numbering	47.0	1	quarante-sept
+fr	fr	%spellout-numbering	97.0	1	quatre-vingt-dix-sept
+fr	fr	%spellout-numbering	147.0	1	cent quarante-sept
+fr	fr	%spellout-numbering	1947.0	1	mille neuf cent quarante-sept
+fr	fr	%spellout-numbering	47625.0	1	quarante-sept mille six cent vingt-cinq
+fr	fr	%spellout-numbering	1000047.0	1	un million quarante-sept
+fr	fr	%spellout-numbering	47.625	1	quarante-sept virgule six deux cinq
+fr	fr	%spellout-numbering	12.05	1	douze virgule zéro cinq
+fr	fr	%spellout-numbering	1.875	1	un virgule huit sept cinq
+fr	fr	%spellout-cardinal-masculine	7.0	1	sept
+fr	fr	%spellout-cardinal-masculine	21.0	1	vingt-et-un
+fr	fr	%spellout-cardinal-masculine	47.0	1	quarante-sept
+fr	fr	%spellout-cardinal-masculine	97.0	1	quatre-vingt-dix-sept
+fr	fr	%spellout-cardinal-masculine	147.0	1	cent quarante-sept
+fr	fr	%spellout-cardinal-masculine	1947.0	1	mille neuf cent quarante-sept
+fr	fr	%spellout-cardinal-masculine	47625.0	1	quarante-sept mille six cent vingt-cinq
+fr	fr	%spellout-cardinal-masculine	1000047.0	1	un million quarante-sept
+fr	fr	%spellout-cardinal-masculine	47.625	1	quarante-sept virgule six deux cinq
+fr	fr	%spellout-cardinal-masculine	12.05	1	douze virgule zéro cinq
+fr	fr	%spellout-cardinal-masculine	1.875	1	un virgule huit sept cinq
+fr	fr	%spellout-cardinal-feminine	7.0	1	sept
+fr	fr	%spellout-cardinal-feminine	21.0	1	vingt-et-une
+fr	fr	%spellout-cardinal-feminine	47.0	1	quarante-sept
+fr	fr	%spellout-cardinal-feminine	97.0	1	quatre-vingt-dix-sept
+fr	fr	%spellout-cardinal-feminine	147.0	1	cent quarante-sept
+fr	fr	%spellout-cardinal-feminine	1947.0	1	mille neuf cent quarante-sept
+fr	fr	%spellout-cardinal-feminine	47625.0	1	quarante-sept mille six cent vingt-cinq
+fr	fr	%spellout-cardinal-feminine	1000047.0	1	un million quarante-sept
+fr	fr	%spellout-cardinal-feminine	47.625	1	quarante-sept virgule six deux cinq
+fr	fr	%spellout-cardinal-feminine	12.05	1	douze virgule zéro cinq
+fr	fr	%spellout-cardinal-feminine	1.875	1	une virgule huit sept cinq
+ga	ga	%spellout-numbering	7.0	0	a seacht
+ga	ga	%spellout-numbering	21.0	1	fiche a haon
+ga	ga	%spellout-numbering	47.0	0	daichead a seacht
+ga	ga	%spellout-numbering	97.0	0	nócha a seacht
+ga	ga	%spellout-numbering	147.0	0	céad daichead a seacht
+ga	ga	%spellout-numbering	1947.0	0	míle, naoi gcéad daichead a seacht
+ga	ga	%spellout-numbering	47625.0	0	daichead is seacht míle, sé chéad fiche a cúig
+ga	ga	%spellout-numbering	1000047.0	0	milliún, daichead a seacht
+ga	ga	%spellout-numbering	47.625	0	daichead a seacht pointe a sé a dó a cúig
+ga	ga	%spellout-numbering	12.05	0	a dó dhéag pointe a náid a cúig
+ga	ga	%spellout-numbering	1.875	0	a haon pointe a hocht a seacht a cúig
+ga	ga	%spellout-cardinal	7.0	0	a seacht
+ga	ga	%spellout-cardinal	21.0	1	fiche a haon
+ga	ga	%spellout-cardinal	47.0	0	daichead a seacht
+ga	ga	%spellout-cardinal	97.0	0	nócha a seacht
+ga	ga	%spellout-cardinal	147.0	0	céad daichead a seacht
+ga	ga	%spellout-cardinal	1947.0	0	míle, naoi gcéad daichead a seacht
+ga	ga	%spellout-cardinal	47625.0	0	daichead is seacht míle, sé chéad fiche a cúig
+ga	ga	%spellout-cardinal	1000047.0	0	milliún, daichead a seacht
+ga	ga	%spellout-cardinal	47.625	0	daichead a seacht pointe a sé a dó a cúig
+ga	ga	%spellout-cardinal	12.05	0	a dó dhéag pointe a náid a cúig
+ga	ga	%spellout-cardinal	1.875	0	a haon pointe a hocht a seacht a cúig
+hr	hr	%spellout-numbering	7.0	1	sedam
+hr	hr	%spellout-numbering	21.0	1	dvadeset i jedan
+hr	hr	%spellout-numbering	47.0	1	četrdeset i sedam
+hr	hr	%spellout-numbering	97.0	1	devedeset i sedam
+hr	hr	%spellout-numbering	147.0	1	sto četrdeset i sedam
+hr	hr	%spellout-numbering	1947.0	1	tisuću devetsto četrdeset i sedam
+hr	hr	%spellout-numbering	47625.0	1	četrdeset i sedam tisuća šeststo dvadeset i pet
+hr	hr	%spellout-numbering	1000047.0	1	jedan milijun četrdeset i sedam
+hr	hr	%spellout-numbering	47.625	1	četrdeset i sedam zarez šest dva pet
+hr	hr	%spellout-numbering	12.05	1	dvanaest zarez nula pet
+hr	hr	%spellout-numbering	1.875	1	jedan zarez osam sedam pet
+hr	hr	%spellout-cardinal-masculine	7.0	1	sedam
+hr	hr	%spellout-cardinal-masculine	21.0	1	dvadeset i jedan
+hr	hr	%spellout-cardinal-masculine	47.0	1	četrdeset i sedam
+hr	hr	%spellout-cardinal-masculine	97.0	1	devedeset i sedam
+hr	hr	%spellout-cardinal-masculine	147.0	1	sto četrdeset i sedam
+hr	hr	%spellout-cardinal-masculine	1947.0	1	tisuću devetsto četrdeset i sedam
+hr	hr	%spellout-cardinal-masculine	47625.0	1	četrdeset i sedam tisuća šeststo dvadeset i pet
+hr	hr	%spellout-cardinal-masculine	1000047.0	1	jedan milijun četrdeset i sedam
+hr	hr	%spellout-cardinal-masculine	47.625	1	četrdeset i sedam zarez šest dva pet
+hr	hr	%spellout-cardinal-masculine	12.05	1	dvanaest zarez nula pet
+hr	hr	%spellout-cardinal-masculine	1.875	1	jedan zarez osam sedam pet
+hr	hr	%spellout-cardinal-neuter	7.0	1	sedam
+hr	hr	%spellout-cardinal-neuter	21.0	1	dvadeset i jedno
+hr	hr	%spellout-cardinal-neuter	47.0	1	četrdeset i sedam
+hr	hr	%spellout-cardinal-neuter	97.0	1	devedeset i sedam
+hr	hr	%spellout-cardinal-neuter	147.0	1	sto četrdeset i sedam
+hr	hr	%spellout-cardinal-neuter	1947.0	1	tisuću devetsto četrdeset i sedam
+hr	hr	%spellout-cardinal-neuter	47625.0	1	četrdeset i sedam tisuća šeststo dvadeset i pet
+hr	hr	%spellout-cardinal-neuter	1000047.0	1	jedan milijun četrdeset i sedam
+hr	hr	%spellout-cardinal-neuter	47.625	1	četrdeset i sedam zarez šest dva pet
+hr	hr	%spellout-cardinal-neuter	12.05	1	dvanaest zarez nula pet
+hr	hr	%spellout-cardinal-neuter	1.875	1	jedno zarez osam sedam pet
+hr	hr	%spellout-cardinal-feminine	7.0	1	sedam
+hr	hr	%spellout-cardinal-feminine	21.0	1	dvadeset i jedna
+hr	hr	%spellout-cardinal-feminine	47.0	1	četrdeset i sedam
+hr	hr	%spellout-cardinal-feminine	97.0	1	devedeset i sedam
+hr	hr	%spellout-cardinal-feminine	147.0	1	sto četrdeset i sedam
+hr	hr	%spellout-cardinal-feminine	1947.0	1	tisuću devetsto četrdeset i sedam
+hr	hr	%spellout-cardinal-feminine	47625.0	1	četrdeset i sedam tisuća šeststo dvadeset i pet
+hr	hr	%spellout-cardinal-feminine	1000047.0	1	jedan milijun četrdeset i sedam
+hr	hr	%spellout-cardinal-feminine	47.625	1	četrdeset i sedam zarez šest dvije pet
+hr	hr	%spellout-cardinal-feminine	12.05	1	dvanaest zarez nula pet
+hr	hr	%spellout-cardinal-feminine	1.875	1	jedna zarez osam sedam pet
+hu	hu	%spellout-numbering	7.0	1	hét
+hu	hu	%spellout-numbering	21.0	1	huszonegy
+hu	hu	%spellout-numbering	47.0	1	negyvenhét
+hu	hu	%spellout-numbering	97.0	1	kilencvenhét
+hu	hu	%spellout-numbering	147.0	1	száznegyvenhét
+hu	hu	%spellout-numbering	1947.0	1	ezerkilencszáznegyvenhét
+hu	hu	%spellout-numbering	47625.0	1	negyvenhétezerhatszázhuszonöt
+hu	hu	%spellout-numbering	1000047.0	1	egymilliónegyvenhét
+hu	hu	%spellout-numbering	47.625	1	negyvenhét egész hat kettő öt
+hu	hu	%spellout-numbering	12.05	1	tizenkettő egész nulla öt
+hu	hu	%spellout-numbering	1.875	1	egy egész nyolc hét öt
+hu	hu	%spellout-cardinal	7.0	1	hét
+hu	hu	%spellout-cardinal	21.0	1	huszonegy
+hu	hu	%spellout-cardinal	47.0	1	negyvenhét
+hu	hu	%spellout-cardinal	97.0	1	kilencvenhét
+hu	hu	%spellout-cardinal	147.0	1	száznegyvenhét
+hu	hu	%spellout-cardinal	1947.0	1	ezerkilencszáznegyvenhét
+hu	hu	%spellout-cardinal	47625.0	1	negyvenhétezerhatszázhuszonöt
+hu	hu	%spellout-cardinal	1000047.0	1	egymilliónegyvenhét
+hu	hu	%spellout-cardinal	47.625	1	negyvenhét egész hat kettő öt
+hu	hu	%spellout-cardinal	12.05	1	tizenkettő egész nulla öt
+hu	hu	%spellout-cardinal	1.875	1	egy egész nyolc hét öt
+hu	hu	%spellout-cardinal-verbose	7.0	1	hét
+hu	hu	%spellout-cardinal-verbose	21.0	1	huszonegy
+hu	hu	%spellout-cardinal-verbose	47.0	1	negyvenhét
+hu	hu	%spellout-cardinal-verbose	97.0	1	kilencvenhét
+hu	hu	%spellout-cardinal-verbose	147.0	1	egyszáznegyvenhét
+hu	hu	%spellout-cardinal-verbose	1947.0	1	egyezerkilencszáznegyvenhét
+hu	hu	%spellout-cardinal-verbose	47625.0	1	negyvenhétezerhatszázhuszonöt
+hu	hu	%spellout-cardinal-verbose	1000047.0	1	egymilliónegyvenhét
+hu	hu	%spellout-cardinal-verbose	47.625	1	negyvenhét egész hat kettő öt
+hu	hu	%spellout-cardinal-verbose	12.05	1	tizenkettő egész nulla öt
+hu	hu	%spellout-cardinal-verbose	1.875	1	egy egész nyolc hét öt
+id	id	%spellout-numbering	7.0	1	tujuh
+id	id	%spellout-numbering	21.0	1	dua puluh satu
+id	id	%spellout-numbering	47.0	1	empat puluh tujuh
+id	id	%spellout-numbering	97.0	1	sembilan puluh tujuh
+id	id	%spellout-numbering	147.0	1	seratus empat puluh tujuh
+id	id	%spellout-numbering	1947.0	1	seribu sembilan ratus empat puluh tujuh
+id	id	%spellout-numbering	47625.0	1	empat puluh tujuh ribu enam ratus dua puluh lima
+id	id	%spellout-numbering	1000047.0	1	satu juta empat puluh tujuh
+id	id	%spellout-numbering	47.625	1	empat puluh tujuh koma enam dua lima
+id	id	%spellout-numbering	12.05	1	dua belas koma nol lima
+id	id	%spellout-numbering	1.875	1	satu koma delapan tujuh lima
+id	id	%spellout-cardinal	7.0	1	tujuh
+id	id	%spellout-cardinal	21.0	1	dua puluh satu
+id	id	%spellout-cardinal	47.0	1	empat puluh tujuh
+id	id	%spellout-cardinal	97.0	1	sembilan puluh tujuh
+id	id	%spellout-cardinal	147.0	1	seratus empat puluh tujuh
+id	id	%spellout-cardinal	1947.0	1	seribu sembilan ratus empat puluh tujuh
+id	id	%spellout-cardinal	47625.0	1	empat puluh tujuh ribu enam ratus dua puluh lima
+id	id	%spellout-cardinal	1000047.0	1	satu juta empat puluh tujuh
+id	id	%spellout-cardinal	47.625	1	empat puluh tujuh koma enam dua lima
+id	id	%spellout-cardinal	12.05	1	dua belas koma nol lima
+id	id	%spellout-cardinal	1.875	1	satu koma delapan tujuh lima
+is	is	%spellout-numbering	7.0	1	sjó
+is	is	%spellout-numbering	21.0	1	tuttugu og einn
+is	is	%spellout-numbering	47.0	1	fjörutíu og sjó
+is	is	%spellout-numbering	97.0	1	níutíu og sjó
+is	is	%spellout-numbering	1000047.0	1	ein millión og fjörutíu og sjó
+is	is	%spellout-numbering	47.625	1	fjörutíu og sjó komma sex tveir fimm
+is	is	%spellout-numbering	12.05	1	tólf komma núll fimm
+is	is	%spellout-numbering	1.875	1	einn komma átta sjó fimm
+is	is	%spellout-cardinal-masculine	7.0	1	sjó
+is	is	%spellout-cardinal-masculine	21.0	1	tuttugu og einn
+is	is	%spellout-cardinal-masculine	47.0	1	fjörutíu og sjó
+is	is	%spellout-cardinal-masculine	97.0	1	níutíu og sjó
+is	is	%spellout-cardinal-masculine	1000047.0	1	ein millión og fjörutíu og sjó
+is	is	%spellout-cardinal-masculine	47.625	1	fjörutíu og sjó komma sex tveir fimm
+is	is	%spellout-cardinal-masculine	12.05	1	tólf komma núll fimm
+is	is	%spellout-cardinal-masculine	1.875	1	einn komma átta sjó fimm
+is	is	%spellout-cardinal-neuter	7.0	1	sjó
+is	is	%spellout-cardinal-neuter	21.0	1	tuttugu og eitt
+is	is	%spellout-cardinal-neuter	47.0	1	fjörutíu og sjó
+is	is	%spellout-cardinal-neuter	97.0	1	níutíu og sjó
+is	is	%spellout-cardinal-neuter	1000047.0	1	ein millión og fjörutíu og sjó
+is	is	%spellout-cardinal-neuter	47.625	1	fjörutíu og sjó komma sex tvö fimm
+is	is	%spellout-cardinal-neuter	12.05	1	tólf komma núll fimm
+is	is	%spellout-cardinal-neuter	1.875	1	eitt komma átta sjó fimm
+is	is	%spellout-cardinal-feminine	7.0	1	sjó
+is	is	%spellout-cardinal-feminine	21.0	1	tuttugu og ein
+is	is	%spellout-cardinal-feminine	47.0	1	fjörutíu og sjó
+is	is	%spellout-cardinal-feminine	97.0	1	níutíu og sjó
+is	is	%spellout-cardinal-feminine	1000047.0	1	ein millión og fjörutíu og sjó
+is	is	%spellout-cardinal-feminine	12.05	1	tólf komma núll fimm
+is	is	%spellout-cardinal-feminine	1.875	1	ein komma átta sjó fimm
+it	it	%spellout-numbering	7.0	1	sette
+it	it	%spellout-numbering	21.0	1	ventuno
+it	it	%spellout-numbering	47.0	1	quarantasette
+it	it	%spellout-numbering	97.0	1	novantasette
+it	it	%spellout-numbering	147.0	1	centoquarantasette
+it	it	%spellout-numbering	1947.0	1	millenovecentoquarantasette
+it	it	%spellout-numbering	47625.0	1	quarantasettemilaseicentoventicinque
+it	it	%spellout-numbering	1000047.0	1	un milione quarantasette
+it	it	%spellout-numbering	47.625	1	quarantasette virgola sei due cinque
+it	it	%spellout-numbering	12.05	1	dodici virgola zero cinque
+it	it	%spellout-numbering	1.875	1	uno virgola otto sette cinque
+it	it	%spellout-cardinal-masculine	7.0	1	sette
+it	it	%spellout-cardinal-masculine	21.0	1	ventun
+it	it	%spellout-cardinal-masculine	47.0	1	quarantasette
+it	it	%spellout-cardinal-masculine	97.0	1	novantasette
+it	it	%spellout-cardinal-masculine	147.0	1	centoquarantasette
+it	it	%spellout-cardinal-masculine	1947.0	1	millenovecentoquarantasette
+it	it	%spellout-cardinal-masculine	47625.0	1	quarantasettemilaseicentoventicinque
+it	it	%spellout-cardinal-masculine	1000047.0	1	un milione quarantasette
+it	it	%spellout-cardinal-masculine	47.625	1	quarantasette virgola sei due cinque
+it	it	%spellout-cardinal-masculine	12.05	1	dodici virgola zero cinque
+it	it	%spellout-cardinal-masculine	1.875	1	un virgola otto sette cinque
+it	it	%spellout-cardinal-feminine	7.0	1	sette
+it	it	%spellout-cardinal-feminine	21.0	1	ventuna
+it	it	%spellout-cardinal-feminine	47.0	1	quarantasette
+it	it	%spellout-cardinal-feminine	97.0	1	novantasette
+it	it	%spellout-cardinal-feminine	147.0	1	centoquarantasette
+it	it	%spellout-cardinal-feminine	1947.0	1	millenovecentoquarantasette
+it	it	%spellout-cardinal-feminine	47625.0	1	quarantasettemilaseicentoventicinque
+it	it	%spellout-cardinal-feminine	1000047.0	1	un milione quarantasette
+it	it	%spellout-cardinal-feminine	47.625	1	quarantasette virgola sei due cinque
+it	it	%spellout-cardinal-feminine	12.05	1	dodici virgola zero cinque
+it	it	%spellout-cardinal-feminine	1.875	1	una virgola otto sette cinque
+kl	kl	%spellout-numbering	7.0	1	arfineq-marluk
+kl	kl	%spellout-numbering	21.0	0	marlunnik qulillit ataaseq
+kl	kl	%spellout-numbering	47.0	0	sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-numbering	97.0	0	arfineq-sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-numbering	147.0	0	uutritit sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-numbering	1947.0	0	tuusintit arfineq-sisamanik uutritillit sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-numbering	47625.0	0	sisamanik qulillit arfineq-marlunnik tuusintillit arfinilinnik uutritillit marlunnik qulillit tallimat
+kl	kl	%spellout-numbering	1000047.0	0	millionit sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-numbering	47.625	0	sisamanik qulillit arfineq-marluk komma arfinillit marluk tallimat
+kl	kl	%spellout-numbering	12.05	1	aqqaneq-marluk komma nuulu tallimat
+kl	kl	%spellout-numbering	1.875	0	ataaseq komma arfineq-pingasut arfineq-marluk tallimat
+kl	kl	%spellout-cardinal	7.0	1	arfineq-marluk
+kl	kl	%spellout-cardinal	21.0	0	marlunnik qulillit ataaseq
+kl	kl	%spellout-cardinal	47.0	0	sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-cardinal	97.0	0	arfineq-sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-cardinal	147.0	0	uutritit sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-cardinal	1947.0	0	tuusintit arfineq-sisamanik uutritillit sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-cardinal	47625.0	0	sisamanik qulillit arfineq-marlunnik tuusintillit arfinilinnik uutritillit marlunnik qulillit tallimat
+kl	kl	%spellout-cardinal	1000047.0	0	millionit sisamanik qulillit arfineq-marluk
+kl	kl	%spellout-cardinal	47.625	0	sisamanik qulillit arfineq-marluk komma arfinillit marluk tallimat
+kl	kl	%spellout-cardinal	12.05	1	aqqaneq-marluk komma nuulu tallimat
+kl	kl	%spellout-cardinal	1.875	0	ataaseq komma arfineq-pingasut arfineq-marluk tallimat
+lb	lb	%spellout-numbering	7.0	1	siwen
+lb	lb	%spellout-numbering	21.0	1	eenanzwanzeg
+lb	lb	%spellout-numbering	47.0	1	siwenanvéierzeg
+lb	lb	%spellout-numbering	97.0	1	siwenannonzeg
+lb	lb	%spellout-numbering	147.0	1	honnertsiwenanvéierzeg
+lb	lb	%spellout-numbering	1947.0	1	dausendnénghonnertsiwenanvéierzeg
+lb	lb	%spellout-numbering	47625.0	1	siwenanvéierzegdausendsechshonnertfënnefanzwanzeg
+lb	lb	%spellout-numbering	1000047.0	1	eng Millioun siwenanvéierzeg
+lb	lb	%spellout-numbering	47.625	1	siwenanvéierzeg Komma sechs zwee fënnef
+lb	lb	%spellout-numbering	12.05	1	zwielef Komma null fënnef
+lb	lb	%spellout-numbering	1.875	1	eent Komma aacht siwen fënnef
+lb	lb	%spellout-cardinal-masculine	7.0	1	siwen
+lb	lb	%spellout-cardinal-masculine	21.0	1	eenanzwanzeg
+lb	lb	%spellout-cardinal-masculine	47.0	1	siwenanvéierzeg
+lb	lb	%spellout-cardinal-masculine	97.0	1	siwenannonzeg
+lb	lb	%spellout-cardinal-masculine	147.0	1	honnertsiwenanvéierzeg
+lb	lb	%spellout-cardinal-masculine	1947.0	1	dausendnénghonnertsiwenanvéierzeg
+lb	lb	%spellout-cardinal-masculine	47625.0	1	siwenanvéierzegdausendsechshonnertfënnefanzwanzeg
+lb	lb	%spellout-cardinal-masculine	1000047.0	1	eng Millioun siwenanvéierzeg
+lb	lb	%spellout-cardinal-masculine	47.625	1	siwenanvéierzeg Komma sechs zwee fënnef
+lb	lb	%spellout-cardinal-masculine	12.05	1	zwielef Komma null fënnef
+lb	lb	%spellout-cardinal-masculine	1.875	1	eent Komma aacht siwen fënnef
+lb	lb	%spellout-cardinal-feminine	7.0	1	siwen
+lb	lb	%spellout-cardinal-feminine	21.0	1	eenanzwanzeg
+lb	lb	%spellout-cardinal-feminine	47.0	1	siwenanvéierzeg
+lb	lb	%spellout-cardinal-feminine	97.0	1	siwenannonzeg
+lb	lb	%spellout-cardinal-feminine	147.0	1	honnertsiwenanvéierzeg
+lb	lb	%spellout-cardinal-feminine	1947.0	1	dausendnénghonnertsiwenanvéierzeg
+lb	lb	%spellout-cardinal-feminine	47625.0	1	siwenanvéierzegdausendsechshonnertfënnefanzwanzeg
+lb	lb	%spellout-cardinal-feminine	1000047.0	1	eng Millioun siwenanvéierzeg
+lb	lb	%spellout-cardinal-feminine	47.625	1	siwenanvéierzeg Komma sechs zwee fënnef
+lb	lb	%spellout-cardinal-feminine	12.05	1	zwielef Komma null fënnef
+lb	lb	%spellout-cardinal-feminine	1.875	1	eent Komma aacht siwen fënnef
+lb	lb	%spellout-cardinal-neuter	7.0	1	siwen
+lb	lb	%spellout-cardinal-neuter	21.0	1	eenanzwanzeg
+lb	lb	%spellout-cardinal-neuter	47.0	1	siwenanvéierzeg
+lb	lb	%spellout-cardinal-neuter	97.0	1	siwenannonzeg
+lb	lb	%spellout-cardinal-neuter	147.0	1	honnertsiwenanvéierzeg
+lb	lb	%spellout-cardinal-neuter	1947.0	1	dausendnénghonnertsiwenanvéierzeg
+lb	lb	%spellout-cardinal-neuter	47625.0	1	siwenanvéierzegdausendsechshonnertfënnefanzwanzeg
+lb	lb	%spellout-cardinal-neuter	1000047.0	1	eng Millioun siwenanvéierzeg
+lb	lb	%spellout-cardinal-neuter	47.625	1	siwenanvéierzeg Komma sechs zwee fënnef
+lb	lb	%spellout-cardinal-neuter	12.05	1	zwielef Komma null fënnef
+lb	lb	%spellout-cardinal-neuter	1.875	1	eent Komma aacht siwen fënnef
+lt	lt	%spellout-numbering	7.0	1	septyni
+lt	lt	%spellout-numbering	21.0	1	dvidešimt vienas
+lt	lt	%spellout-numbering	47.0	1	keturiasdešimt septyni
+lt	lt	%spellout-numbering	97.0	1	devyniasdešimt septyni
+lt	lt	%spellout-numbering	147.0	1	šimtas keturiasdešimt septyni
+lt	lt	%spellout-numbering	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septyni
+lt	lt	%spellout-numbering	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penki
+lt	lt	%spellout-numbering	1000047.0	1	vienas milijonas keturiasdešimt septyni
+lt	lt	%spellout-numbering	47.625	0	keturiasdešimt septyni ir šeši šimtai dvidešimt penkios tūkstantosios
+lt	lt	%spellout-numbering	12.05	0	dvylika ir penkios šimtosios
+lt	lt	%spellout-numbering	1.875	0	vienas ir aštuoni šimtai septyniasdešimt penkios tūkstantosios
+lt	lt	%spellout-cardinal-masculine	7.0	1	septyni
+lt	lt	%spellout-cardinal-masculine	21.0	1	dvidešimt vienas
+lt	lt	%spellout-cardinal-masculine	47.0	1	keturiasdešimt septyni
+lt	lt	%spellout-cardinal-masculine	97.0	1	devyniasdešimt septyni
+lt	lt	%spellout-cardinal-masculine	147.0	1	šimtas keturiasdešimt septyni
+lt	lt	%spellout-cardinal-masculine	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septyni
+lt	lt	%spellout-cardinal-masculine	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penki
+lt	lt	%spellout-cardinal-masculine	1000047.0	1	vienas milijonas keturiasdešimt septyni
+lt	lt	%spellout-cardinal-masculine	47.625	0	keturiasdešimt septyni ir šeši šimtai dvidešimt penkios tūkstantosios
+lt	lt	%spellout-cardinal-masculine	12.05	0	dvylika ir penkios šimtosios
+lt	lt	%spellout-cardinal-masculine	1.875	0	vienas ir aštuoni šimtai septyniasdešimt penkios tūkstantosios
+lt	lt	%spellout-cardinal-feminine	7.0	1	septynios
+lt	lt	%spellout-cardinal-feminine	21.0	1	dvidešimt viena
+lt	lt	%spellout-cardinal-feminine	47.0	1	keturiasdešimt septynios
+lt	lt	%spellout-cardinal-feminine	97.0	1	devyniasdešimt septynios
+lt	lt	%spellout-cardinal-feminine	147.0	1	šimtas keturiasdešimt septynios
+lt	lt	%spellout-cardinal-feminine	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septynios
+lt	lt	%spellout-cardinal-feminine	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkios
+lt	lt	%spellout-cardinal-feminine	1000047.0	1	vienas milijonas keturiasdešimt septynios
+lt	lt	%spellout-cardinal-feminine	47.625	0	keturiasdešimt septynios ir šeši šimtai dvidešimt penkios tūkstantosios
+lt	lt	%spellout-cardinal-feminine	12.05	0	dvylika ir penkios šimtosios
+lt	lt	%spellout-cardinal-feminine	1.875	0	viena ir aštuoni šimtai septyniasdešimt penkios tūkstantosios
+lt	lt	%spellout-cardinal-masculine-genitive	7.0	1	septynių
+lt	lt	%spellout-cardinal-masculine-genitive	21.0	1	dvidešimt vieno
+lt	lt	%spellout-cardinal-masculine-genitive	47.0	1	keturiasdešimt septynių
+lt	lt	%spellout-cardinal-masculine-genitive	97.0	1	devyniasdešimt septynių
+lt	lt	%spellout-cardinal-masculine-genitive	147.0	1	šimtas keturiasdešimt septynių
+lt	lt	%spellout-cardinal-masculine-genitive	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septynių
+lt	lt	%spellout-cardinal-masculine-genitive	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkių
+lt	lt	%spellout-cardinal-masculine-genitive	1000047.0	1	vienas milijonas keturiasdešimt septynių
+lt	lt	%spellout-cardinal-masculine-genitive	47.625	0	keturiasdešimt septynių ir šeši šimtai dvidešimt penkių tūkstantųjų
+lt	lt	%spellout-cardinal-masculine-genitive	12.05	0	dvylikos ir penkių šimtųjų
+lt	lt	%spellout-cardinal-masculine-genitive	1.875	0	vieno ir aštuoni šimtai septyniasdešimt penkių tūkstantųjų
+lt	lt	%spellout-cardinal-feminine-genitive	7.0	1	septynių
+lt	lt	%spellout-cardinal-feminine-genitive	21.0	1	dvidešimt vienos
+lt	lt	%spellout-cardinal-feminine-genitive	47.0	1	keturiasdešimt septynių
+lt	lt	%spellout-cardinal-feminine-genitive	97.0	1	devyniasdešimt septynių
+lt	lt	%spellout-cardinal-feminine-genitive	147.0	1	šimtas keturiasdešimt septynių
+lt	lt	%spellout-cardinal-feminine-genitive	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septynių
+lt	lt	%spellout-cardinal-feminine-genitive	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkių
+lt	lt	%spellout-cardinal-feminine-genitive	1000047.0	1	vienas milijonas keturiasdešimt septynių
+lt	lt	%spellout-cardinal-feminine-genitive	47.625	0	keturiasdešimt septynių ir šeši šimtai dvidešimt penkių tūkstantųjų
+lt	lt	%spellout-cardinal-feminine-genitive	12.05	0	dvylikos ir penkių šimtųjų
+lt	lt	%spellout-cardinal-feminine-genitive	1.875	0	vienos ir aštuoni šimtai septyniasdešimt penkių tūkstantųjų
+lt	lt	%spellout-cardinal-masculine-dative	7.0	1	septyniems
+lt	lt	%spellout-cardinal-masculine-dative	21.0	1	dvidešimt vienam
+lt	lt	%spellout-cardinal-masculine-dative	47.0	1	keturiasdešimt septyniems
+lt	lt	%spellout-cardinal-masculine-dative	97.0	1	devyniasdešimt septyniems
+lt	lt	%spellout-cardinal-masculine-dative	147.0	1	šimtas keturiasdešimt septyniems
+lt	lt	%spellout-cardinal-masculine-dative	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septyniems
+lt	lt	%spellout-cardinal-masculine-dative	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkiems
+lt	lt	%spellout-cardinal-masculine-dative	1000047.0	1	vienas milijonas keturiasdešimt septyniems
+lt	lt	%spellout-cardinal-masculine-dative	47.625	0	keturiasdešimt septyniems ir šeši šimtai dvidešimt penkioms tūkstantosioms
+lt	lt	%spellout-cardinal-masculine-dative	12.05	0	dvylikai ir penkioms šimtosioms
+lt	lt	%spellout-cardinal-masculine-dative	1.875	0	vienam ir aštuoni šimtai septyniasdešimt penkioms tūkstantosioms
+lt	lt	%spellout-cardinal-feminine-dative	7.0	1	septynioms
+lt	lt	%spellout-cardinal-feminine-dative	21.0	1	dvidešimt vienai
+lt	lt	%spellout-cardinal-feminine-dative	47.0	1	keturiasdešimt septynioms
+lt	lt	%spellout-cardinal-feminine-dative	97.0	1	devyniasdešimt septynioms
+lt	lt	%spellout-cardinal-feminine-dative	147.0	1	šimtas keturiasdešimt septynioms
+lt	lt	%spellout-cardinal-feminine-dative	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septynioms
+lt	lt	%spellout-cardinal-feminine-dative	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkioms
+lt	lt	%spellout-cardinal-feminine-dative	1000047.0	1	vienas milijonas keturiasdešimt septynioms
+lt	lt	%spellout-cardinal-feminine-dative	47.625	0	keturiasdešimt septynioms ir šeši šimtai dvidešimt penkioms tūkstantosioms
+lt	lt	%spellout-cardinal-feminine-dative	12.05	0	dvylikai ir penkioms šimtosioms
+lt	lt	%spellout-cardinal-feminine-dative	1.875	0	vienai ir aštuoni šimtai septyniasdešimt penkioms tūkstantosioms
+lt	lt	%spellout-cardinal-masculine-accusative	7.0	1	septynis
+lt	lt	%spellout-cardinal-masculine-accusative	21.0	1	dvidešimt vieną
+lt	lt	%spellout-cardinal-masculine-accusative	47.0	1	keturiasdešimt septynis
+lt	lt	%spellout-cardinal-masculine-accusative	97.0	1	devyniasdešimt septynis
+lt	lt	%spellout-cardinal-masculine-accusative	147.0	1	šimtas keturiasdešimt septynis
+lt	lt	%spellout-cardinal-masculine-accusative	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septynis
+lt	lt	%spellout-cardinal-masculine-accusative	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkis
+lt	lt	%spellout-cardinal-masculine-accusative	1000047.0	1	vienas milijonas keturiasdešimt septynis
+lt	lt	%spellout-cardinal-masculine-accusative	47.625	0	keturiasdešimt septynis ir šeši šimtai dvidešimt penkias tūkstantąsias
+lt	lt	%spellout-cardinal-masculine-accusative	12.05	0	dvyliką ir penkias šimtąsias
+lt	lt	%spellout-cardinal-masculine-accusative	1.875	0	vieną ir aštuoni šimtai septyniasdešimt penkias tūkstantąsias
+lt	lt	%spellout-cardinal-feminine-accusative	7.0	1	septynias
+lt	lt	%spellout-cardinal-feminine-accusative	21.0	1	dvidešimt vieną
+lt	lt	%spellout-cardinal-feminine-accusative	47.0	1	keturiasdešimt septynias
+lt	lt	%spellout-cardinal-feminine-accusative	97.0	1	devyniasdešimt septynias
+lt	lt	%spellout-cardinal-feminine-accusative	147.0	1	šimtas keturiasdešimt septynias
+lt	lt	%spellout-cardinal-feminine-accusative	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septynias
+lt	lt	%spellout-cardinal-feminine-accusative	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkias
+lt	lt	%spellout-cardinal-feminine-accusative	1000047.0	1	vienas milijonas keturiasdešimt septynias
+lt	lt	%spellout-cardinal-feminine-accusative	47.625	0	keturiasdešimt septynias ir šeši šimtai dvidešimt penkias tūkstantąsias
+lt	lt	%spellout-cardinal-feminine-accusative	12.05	0	dvyliką ir penkias šimtąsias
+lt	lt	%spellout-cardinal-feminine-accusative	1.875	0	vieną ir aštuoni šimtai septyniasdešimt penkias tūkstantąsias
+lt	lt	%spellout-cardinal-masculine-instrumental	7.0	1	septyniais
+lt	lt	%spellout-cardinal-masculine-instrumental	21.0	1	dvidešimt vienu
+lt	lt	%spellout-cardinal-masculine-instrumental	47.0	1	keturiasdešimt septyniais
+lt	lt	%spellout-cardinal-masculine-instrumental	97.0	1	devyniasdešimt septyniais
+lt	lt	%spellout-cardinal-masculine-instrumental	147.0	1	šimtas keturiasdešimt septyniais
+lt	lt	%spellout-cardinal-masculine-instrumental	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septyniais
+lt	lt	%spellout-cardinal-masculine-instrumental	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkiais
+lt	lt	%spellout-cardinal-masculine-instrumental	1000047.0	1	vienas milijonas keturiasdešimt septyniais
+lt	lt	%spellout-cardinal-masculine-instrumental	47.625	0	keturiasdešimt septyniais ir šeši šimtai dvidešimt penkiomis tūkstantosiomis
+lt	lt	%spellout-cardinal-masculine-instrumental	12.05	0	dvylika ir penkiomis šimtosiomis
+lt	lt	%spellout-cardinal-masculine-instrumental	1.875	0	vienu ir aštuoni šimtai septyniasdešimt penkiomis tūkstantosiomis
+lt	lt	%spellout-cardinal-feminine-instrumental	7.0	1	septyniomis
+lt	lt	%spellout-cardinal-feminine-instrumental	21.0	1	dvidešimt viena
+lt	lt	%spellout-cardinal-feminine-instrumental	47.0	1	keturiasdešimt septyniomis
+lt	lt	%spellout-cardinal-feminine-instrumental	97.0	1	devyniasdešimt septyniomis
+lt	lt	%spellout-cardinal-feminine-instrumental	147.0	1	šimtas keturiasdešimt septyniomis
+lt	lt	%spellout-cardinal-feminine-instrumental	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septyniomis
+lt	lt	%spellout-cardinal-feminine-instrumental	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkiomis
+lt	lt	%spellout-cardinal-feminine-instrumental	1000047.0	1	vienas milijonas keturiasdešimt septyniomis
+lt	lt	%spellout-cardinal-feminine-instrumental	47.625	0	keturiasdešimt septyniomis ir šeši šimtai dvidešimt penkiomis tūkstantosiomis
+lt	lt	%spellout-cardinal-feminine-instrumental	12.05	0	dvylika ir penkiomis šimtosiomis
+lt	lt	%spellout-cardinal-feminine-instrumental	1.875	0	viena ir aštuoni šimtai septyniasdešimt penkiomis tūkstantosiomis
+lt	lt	%spellout-cardinal-masculine-locative	7.0	1	septyniuose
+lt	lt	%spellout-cardinal-masculine-locative	21.0	1	dvidešimt viename
+lt	lt	%spellout-cardinal-masculine-locative	47.0	1	keturiasdešimt septyniuose
+lt	lt	%spellout-cardinal-masculine-locative	97.0	1	devyniasdešimt septyniuose
+lt	lt	%spellout-cardinal-masculine-locative	147.0	1	šimtas keturiasdešimt septyniuose
+lt	lt	%spellout-cardinal-masculine-locative	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septyniuose
+lt	lt	%spellout-cardinal-masculine-locative	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkiuose
+lt	lt	%spellout-cardinal-masculine-locative	1000047.0	1	vienas milijonas keturiasdešimt septyniuose
+lt	lt	%spellout-cardinal-masculine-locative	47.625	0	keturiasdešimt septyniuose ir šeši šimtai dvidešimt penkiose tūkstantosiose
+lt	lt	%spellout-cardinal-masculine-locative	12.05	0	dvylikoje ir penkiose šimtosiose
+lt	lt	%spellout-cardinal-masculine-locative	1.875	0	viename ir aštuoni šimtai septyniasdešimt penkiose tūkstantosiose
+lt	lt	%spellout-cardinal-feminine-locative	7.0	1	septyniose
+lt	lt	%spellout-cardinal-feminine-locative	21.0	1	dvidešimt vienoje
+lt	lt	%spellout-cardinal-feminine-locative	47.0	1	keturiasdešimt septyniose
+lt	lt	%spellout-cardinal-feminine-locative	97.0	1	devyniasdešimt septyniose
+lt	lt	%spellout-cardinal-feminine-locative	147.0	1	šimtas keturiasdešimt septyniose
+lt	lt	%spellout-cardinal-feminine-locative	1947.0	1	tūkstantis devyni šimtai keturiasdešimt septyniose
+lt	lt	%spellout-cardinal-feminine-locative	47625.0	1	keturiasdešimt septyni tūkstančiai šeši šimtai dvidešimt penkiose
+lt	lt	%spellout-cardinal-feminine-locative	1000047.0	1	vienas milijonas keturiasdešimt septyniose
+lt	lt	%spellout-cardinal-feminine-locative	47.625	0	keturiasdešimt septyniose ir šeši šimtai dvidešimt penkiose tūkstantosiose
+lt	lt	%spellout-cardinal-feminine-locative	12.05	0	dvylikoje ir penkiose šimtosiose
+lt	lt	%spellout-cardinal-feminine-locative	1.875	0	vienoje ir aštuoni šimtai septyniasdešimt penkiose tūkstantosiose
+lv	lv	%spellout-numbering	7.0	1	septiņi
+lv	lv	%spellout-numbering	21.0	1	divdesmit viens
+lv	lv	%spellout-numbering	47.0	1	četrdesmit septiņi
+lv	lv	%spellout-numbering	97.0	1	deviņdesmit septiņi
+lv	lv	%spellout-numbering	147.0	1	simt četrdesmit septiņi
+lv	lv	%spellout-numbering	1947.0	1	tūkstoš deviņsimt četrdesmit septiņi
+lv	lv	%spellout-numbering	47625.0	1	četrdesmit septiņi tūkstoši sešsimt divdesmit pieci
+lv	lv	%spellout-numbering	1000047.0	1	viens miljons četrdesmit septiņi
+lv	lv	%spellout-numbering	47.625	1	četrdesmit septiņi komats seši divi pieci
+lv	lv	%spellout-numbering	12.05	1	divpadsmit komats nulle pieci
+lv	lv	%spellout-numbering	1.875	1	viens komats astoņi septiņi pieci
+lv	lv	%spellout-cardinal-masculine	7.0	1	septiņi
+lv	lv	%spellout-cardinal-masculine	21.0	1	divdesmit viens
+lv	lv	%spellout-cardinal-masculine	47.0	1	četrdesmit septiņi
+lv	lv	%spellout-cardinal-masculine	97.0	1	deviņdesmit septiņi
+lv	lv	%spellout-cardinal-masculine	147.0	1	simt četrdesmit septiņi
+lv	lv	%spellout-cardinal-masculine	1947.0	1	tūkstoš deviņsimt četrdesmit septiņi
+lv	lv	%spellout-cardinal-masculine	47625.0	1	četrdesmit septiņi tūkstoši sešsimt divdesmit pieci
+lv	lv	%spellout-cardinal-masculine	1000047.0	1	viens miljons četrdesmit septiņi
+lv	lv	%spellout-cardinal-masculine	47.625	1	četrdesmit septiņi komats seši divi pieci
+lv	lv	%spellout-cardinal-masculine	12.05	1	divpadsmit komats nulle pieci
+lv	lv	%spellout-cardinal-masculine	1.875	1	viens komats astoņi septiņi pieci
+lv	lv	%spellout-cardinal-feminine	7.0	1	septiņas
+lv	lv	%spellout-cardinal-feminine	21.0	1	divdesmit viena
+lv	lv	%spellout-cardinal-feminine	47.0	1	četrdesmit septiņas
+lv	lv	%spellout-cardinal-feminine	97.0	1	deviņdesmit septiņas
+lv	lv	%spellout-cardinal-feminine	147.0	1	simt četrdesmit septiņas
+lv	lv	%spellout-cardinal-feminine	1947.0	1	tūkstoš deviņsimt četrdesmit septiņas
+lv	lv	%spellout-cardinal-feminine	47625.0	1	četrdesmit septiņi tūkstoši sešsimt divdesmit piecas
+lv	lv	%spellout-cardinal-feminine	1000047.0	1	viens miljons četrdesmit septiņas
+lv	lv	%spellout-cardinal-feminine	47.625	1	četrdesmit septiņas komats sešas divas piecas
+lv	lv	%spellout-cardinal-feminine	12.05	1	divpadsmit komats nulle piecas
+lv	lv	%spellout-cardinal-feminine	1.875	1	viena komats astoņas septiņas piecas
+ms	ms	%spellout-numbering	7.0	1	tujuh
+ms	ms	%spellout-numbering	21.0	1	dua puluh satu
+ms	ms	%spellout-numbering	47.0	1	empat puluh tujuh
+ms	ms	%spellout-numbering	97.0	1	sembilan puluh tujuh
+ms	ms	%spellout-numbering	147.0	1	seratus empat puluh tujuh
+ms	ms	%spellout-numbering	1947.0	1	seribu sembilan ratus empat puluh tujuh
+ms	ms	%spellout-numbering	47625.0	1	empat puluh tujuh ribu enam ratus dua puluh lima
+ms	ms	%spellout-numbering	1000047.0	1	sejuta empat puluh tujuh
+ms	ms	%spellout-numbering	47.625	1	empat puluh tujuh perpuluhan enam dua lima
+ms	ms	%spellout-numbering	12.05	1	dua belas perpuluhan kosong lima
+ms	ms	%spellout-numbering	1.875	1	satu perpuluhan lapan tujuh lima
+ms	ms	%spellout-cardinal	7.0	1	tujuh
+ms	ms	%spellout-cardinal	21.0	1	dua puluh satu
+ms	ms	%spellout-cardinal	47.0	1	empat puluh tujuh
+ms	ms	%spellout-cardinal	97.0	1	sembilan puluh tujuh
+ms	ms	%spellout-cardinal	147.0	1	seratus empat puluh tujuh
+ms	ms	%spellout-cardinal	1947.0	1	seribu sembilan ratus empat puluh tujuh
+ms	ms	%spellout-cardinal	47625.0	1	empat puluh tujuh ribu enam ratus dua puluh lima
+ms	ms	%spellout-cardinal	1000047.0	1	sejuta empat puluh tujuh
+ms	ms	%spellout-cardinal	47.625	1	empat puluh tujuh perpuluhan enam dua lima
+ms	ms	%spellout-cardinal	12.05	1	dua belas perpuluhan kosong lima
+ms	ms	%spellout-cardinal	1.875	1	satu perpuluhan lapan tujuh lima
+nb	nb	%spellout-numbering	7.0	1	sju
+nb	nb	%spellout-numbering	21.0	1	tjueén
+nb	nb	%spellout-numbering	97.0	1	nittisju
+nb	nb	%spellout-numbering	12.05	1	tolv komma null fem
+nb	nb	%spellout-numbering	1.875	1	én komma åtte sju fem
+nb	nb	%spellout-cardinal-masculine	7.0	1	sju
+nb	nb	%spellout-cardinal-masculine	21.0	1	tjueén
+nb	nb	%spellout-cardinal-masculine	97.0	1	nittisju
+nb	nb	%spellout-cardinal-masculine	12.05	1	tolv komma null fem
+nb	nb	%spellout-cardinal-masculine	1.875	1	én komma åtte sju fem
+nb	nb	%spellout-cardinal-feminine	7.0	1	sju
+nb	nb	%spellout-cardinal-feminine	21.0	1	tjueén
+nb	nb	%spellout-cardinal-feminine	97.0	1	nittisju
+nb	nb	%spellout-cardinal-feminine	12.05	1	tolv komma null fem
+nb	nb	%spellout-cardinal-feminine	1.875	1	ei komma åtte sju fem
+nb	nb	%spellout-cardinal-neuter	7.0	1	sju
+nb	nb	%spellout-cardinal-neuter	21.0	1	tjueett
+nb	nb	%spellout-cardinal-neuter	97.0	1	nittisju
+nb	nb	%spellout-cardinal-neuter	12.05	1	tolv komma null fem
+nb	nb	%spellout-cardinal-neuter	1.875	1	ett komma åtte sju fem
+nl	nl	%spellout-numbering	7.0	1	zeven
+nl	nl	%spellout-numbering	21.0	1	eenentwintig
+nl	nl	%spellout-numbering	47.0	1	zevenenveertig
+nl	nl	%spellout-numbering	97.0	1	zevenennegentig
+nl	nl	%spellout-numbering	147.0	1	honderdzevenenveertig
+nl	nl	%spellout-numbering	1947.0	1	duizendnegenhonderdzevenenveertig
+nl	nl	%spellout-numbering	47625.0	1	zevenenveertigduizendzeshonderdvijfentwintig
+nl	nl	%spellout-numbering	1000047.0	1	een miljoen zevenenveertig
+nl	nl	%spellout-numbering	47.625	1	zevenenveertig komma zes twee vijf
+nl	nl	%spellout-numbering	12.05	1	twaalf komma nul vijf
+nl	nl	%spellout-numbering	1.875	1	een komma acht zeven vijf
+nl	nl	%spellout-cardinal	7.0	1	zeven
+nl	nl	%spellout-cardinal	21.0	1	eenentwintig
+nl	nl	%spellout-cardinal	47.0	1	zevenenveertig
+nl	nl	%spellout-cardinal	97.0	1	zevenennegentig
+nl	nl	%spellout-cardinal	147.0	1	honderdzevenenveertig
+nl	nl	%spellout-cardinal	1947.0	1	duizendnegenhonderdzevenenveertig
+nl	nl	%spellout-cardinal	47625.0	1	zevenenveertigduizendzeshonderdvijfentwintig
+nl	nl	%spellout-cardinal	1000047.0	1	een miljoen zevenenveertig
+nl	nl	%spellout-cardinal	47.625	1	zevenenveertig komma zes twee vijf
+nl	nl	%spellout-cardinal	12.05	1	twaalf komma nul vijf
+nl	nl	%spellout-cardinal	1.875	1	een komma acht zeven vijf
+nl	nl	%spellout-cardinal-stressed	7.0	1	zeven
+nl	nl	%spellout-cardinal-stressed	21.0	1	eenentwintig
+nl	nl	%spellout-cardinal-stressed	47.0	1	zevenenveertig
+nl	nl	%spellout-cardinal-stressed	97.0	1	zevenennegentig
+nl	nl	%spellout-cardinal-stressed	147.0	1	honderdzevenenveertig
+nl	nl	%spellout-cardinal-stressed	1947.0	1	duizendnegenhonderdzevenenveertig
+nl	nl	%spellout-cardinal-stressed	47625.0	1	zevenenveertigduizendzeshonderdvijfentwintig
+nl	nl	%spellout-cardinal-stressed	1000047.0	1	een miljoen zevenenveertig
+nl	nl	%spellout-cardinal-stressed	47.625	1	zevenenveertig komma zes twee vijf
+nl	nl	%spellout-cardinal-stressed	12.05	1	twaalf komma nul vijf
+nl	nl	%spellout-cardinal-stressed	1.875	1	een komma acht zeven vijf
+nn	nn	%spellout-numbering	7.0	1	sju
+nn	nn	%spellout-numbering	21.0	1	tjueéin
+nn	nn	%spellout-numbering	97.0	1	nittisju
+nn	nn	%spellout-numbering	12.05	1	tolv komma null fem
+nn	nn	%spellout-numbering	1.875	1	éin komma åtte sju fem
+nn	nn	%spellout-cardinal-neuter	7.0	1	sju
+nn	nn	%spellout-cardinal-neuter	21.0	1	tjueéin
+nn	nn	%spellout-cardinal-neuter	97.0	1	nittisju
+nn	nn	%spellout-cardinal-neuter	12.05	1	tolv komma null fem
+nn	nn	%spellout-cardinal-neuter	1.875	1	eitt komma åtte sju fem
+nn	nn	%spellout-cardinal-masculine	7.0	1	sju
+nn	nn	%spellout-cardinal-masculine	21.0	1	tjueéin
+nn	nn	%spellout-cardinal-masculine	97.0	1	nittisju
+nn	nn	%spellout-cardinal-masculine	12.05	1	tolv komma null fem
+nn	nn	%spellout-cardinal-masculine	1.875	1	éin komma åtte sju fem
+nn	nn	%spellout-cardinal-feminine	7.0	1	sju
+nn	nn	%spellout-cardinal-feminine	21.0	1	tjueéin
+nn	nn	%spellout-cardinal-feminine	97.0	1	nittisju
+nn	nn	%spellout-cardinal-feminine	12.05	1	tolv komma null fem
+nn	nn	%spellout-cardinal-feminine	1.875	1	éin komma åtte sju fem
+nn	nn	%spellout-cardinal-reale	7.0	1	sju
+nn	nn	%spellout-cardinal-reale	21.0	1	tjueéin
+nn	nn	%spellout-cardinal-reale	97.0	1	nittisju
+nn	nn	%spellout-cardinal-reale	12.05	1	tolv komma null fem
+nn	nn	%spellout-cardinal-reale	1.875	1	éin komma åtte sju fem
+nb	no	%spellout-numbering	7.0	1	sju
+nb	no	%spellout-numbering	21.0	1	tjueén
+nb	no	%spellout-numbering	97.0	1	nittisju
+nb	no	%spellout-numbering	12.05	1	tolv komma null fem
+nb	no	%spellout-numbering	1.875	1	én komma åtte sju fem
+nb	no	%spellout-cardinal-masculine	7.0	1	sju
+nb	no	%spellout-cardinal-masculine	21.0	1	tjueén
+nb	no	%spellout-cardinal-masculine	97.0	1	nittisju
+nb	no	%spellout-cardinal-masculine	12.05	1	tolv komma null fem
+nb	no	%spellout-cardinal-masculine	1.875	1	én komma åtte sju fem
+nb	no	%spellout-cardinal-feminine	7.0	1	sju
+nb	no	%spellout-cardinal-feminine	21.0	1	tjueén
+nb	no	%spellout-cardinal-feminine	97.0	1	nittisju
+nb	no	%spellout-cardinal-feminine	12.05	1	tolv komma null fem
+nb	no	%spellout-cardinal-feminine	1.875	1	ei komma åtte sju fem
+nb	no	%spellout-cardinal-neuter	7.0	1	sju
+nb	no	%spellout-cardinal-neuter	21.0	1	tjueett
+nb	no	%spellout-cardinal-neuter	97.0	1	nittisju
+nb	no	%spellout-cardinal-neuter	12.05	1	tolv komma null fem
+nb	no	%spellout-cardinal-neuter	1.875	1	ett komma åtte sju fem
+pl	pl	%spellout-numbering	7.0	1	siedem
+pl	pl	%spellout-numbering	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-numbering	47.0	1	czterdzieści siedem
+pl	pl	%spellout-numbering	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-numbering	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-numbering	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-numbering	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-numbering	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-numbering	47.625	1	czterdzieści siedem przecinek sześćset dwadzieścia pięć
+pl	pl	%spellout-numbering	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-numbering	1.875	1	jeden przecinek osiemset siedemdziesiąt pięć
+pl	pl	%spellout-cardinal-masculine	7.0	1	siedem
+pl	pl	%spellout-cardinal-masculine	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-cardinal-masculine	47.0	1	czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-cardinal-masculine	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-masculine	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine	47.625	1	czterdzieści siedem przecinek sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-masculine	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-cardinal-masculine	1.875	1	jeden przecinek osiemset siedemdziesiąt pięć
+pl	pl	%spellout-cardinal-masculine-personal	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-masculine-personal	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-masculine-personal	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-personal	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-masculine-personal	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-personal	1947.0	1	tysiąc dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-personal	47625.0	1	czterdzieści siedem tysięcy sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-masculine-personal	1000047.0	1	milion czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-personal	47.625	1	czterdziestu siedmiu przecinek sześciu dwaj pięciu
+pl	pl	%spellout-cardinal-masculine-personal	12.05	1	dwunastu przecinek zero pięciu
+pl	pl	%spellout-cardinal-masculine-personal	1.875	1	jeden przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-feminine	7.0	1	siedem
+pl	pl	%spellout-cardinal-feminine	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-cardinal-feminine	47.0	1	czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-cardinal-feminine	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-feminine	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine	47.625	1	czterdzieści siedem przecinek sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-feminine	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-cardinal-feminine	1.875	1	jedna przecinek osiemset siedemdziesiąt pięć
+pl	pl	%spellout-cardinal-neuter	7.0	1	siedem
+pl	pl	%spellout-cardinal-neuter	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-cardinal-neuter	47.0	1	czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-cardinal-neuter	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-neuter	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter	47.625	1	czterdzieści siedem przecinek sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-neuter	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-cardinal-neuter	1.875	1	jedno przecinek osiemset siedemdziesiąt pięć
+pl	pl	%spellout-cardinal-masculine-genitive	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-masculine-genitive	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-masculine-genitive	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-genitive	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-masculine-genitive	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-genitive	1947.0	1	tysiąca dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-genitive	47625.0	1	czterdziestu siedmiu tysięcy sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-masculine-genitive	1000047.0	1	miliona czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-genitive	47.625	1	czterdziestu siedmiu przecinek sześciu dwóch pięciu
+pl	pl	%spellout-cardinal-masculine-genitive	12.05	1	dwunastu przecinek zera pięciu
+pl	pl	%spellout-cardinal-masculine-genitive	1.875	1	jednego przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-feminine-genitive	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-feminine-genitive	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-feminine-genitive	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-genitive	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-feminine-genitive	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-genitive	1947.0	1	tysiąca dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-genitive	47625.0	1	czterdziestu siedmiu tysięcy sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-feminine-genitive	1000047.0	1	miliona czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-genitive	47.625	1	czterdziestu siedmiu przecinek sześciu dwóch pięciu
+pl	pl	%spellout-cardinal-feminine-genitive	12.05	1	dwunastu przecinek zera pięciu
+pl	pl	%spellout-cardinal-feminine-genitive	1.875	1	jednej przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-neuter-genitive	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-neuter-genitive	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-neuter-genitive	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-genitive	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-neuter-genitive	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-genitive	1947.0	1	tysiąca dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-genitive	47625.0	1	czterdziestu siedmiu tysięcy sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-neuter-genitive	1000047.0	1	miliona czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-genitive	47.625	1	czterdziestu siedmiu przecinek sześciu dwóch pięciu
+pl	pl	%spellout-cardinal-neuter-genitive	12.05	1	dwunastu przecinek zera pięciu
+pl	pl	%spellout-cardinal-neuter-genitive	1.875	1	jednego przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-masculine-dative	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-masculine-dative	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-masculine-dative	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-dative	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-masculine-dative	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-dative	1947.0	1	tysiącowi dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-dative	47625.0	1	czterdziestu siedmiu tysiącom sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-masculine-dative	1000047.0	1	milionowi czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-dative	47.625	1	czterdziestu siedmiu przecinek sześciu dwóm pięciu
+pl	pl	%spellout-cardinal-masculine-dative	12.05	1	dwunastu przecinek zeru pięciu
+pl	pl	%spellout-cardinal-masculine-dative	1.875	1	jednemu przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-feminine-dative	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-feminine-dative	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-feminine-dative	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-dative	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-feminine-dative	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-dative	1947.0	1	tysiącowi dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-dative	47625.0	1	czterdziestu siedmiu tysiącom sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-feminine-dative	1000047.0	1	milionowi czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-dative	47.625	1	czterdziestu siedmiu przecinek sześciu dwóm pięciu
+pl	pl	%spellout-cardinal-feminine-dative	12.05	1	dwunastu przecinek zeru pięciu
+pl	pl	%spellout-cardinal-feminine-dative	1.875	1	jednej przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-neuter-dative	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-neuter-dative	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-neuter-dative	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-dative	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-neuter-dative	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-dative	1947.0	1	tysiącowi dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-dative	47625.0	1	czterdziestu siedmiu tysiącom sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-neuter-dative	1000047.0	1	milionowi czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-dative	47.625	1	czterdziestu siedmiu przecinek sześciu dwóm pięciu
+pl	pl	%spellout-cardinal-neuter-dative	12.05	1	dwunastu przecinek zeru pięciu
+pl	pl	%spellout-cardinal-neuter-dative	1.875	1	jednemu przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-masculine-accusative	7.0	1	siedem
+pl	pl	%spellout-cardinal-masculine-accusative	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-cardinal-masculine-accusative	47.0	1	czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-cardinal-masculine-accusative	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-masculine-accusative	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative	47.625	1	czterdzieści siedem przecinek sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-masculine-accusative	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-cardinal-masculine-accusative	1.875	1	jeden przecinek osiemset siedemdziesiąt pięć
+pl	pl	%spellout-cardinal-masculine-accusative-animate	7.0	1	siedem
+pl	pl	%spellout-cardinal-masculine-accusative-animate	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-cardinal-masculine-accusative-animate	47.0	1	czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative-animate	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-cardinal-masculine-accusative-animate	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative-animate	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative-animate	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-masculine-accusative-animate	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-cardinal-masculine-accusative-animate	47.625	1	czterdzieści siedem przecinek sześć dwa pięć
+pl	pl	%spellout-cardinal-masculine-accusative-animate	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-cardinal-masculine-accusative-animate	1.875	1	jednego przecinek osiem siedem pięć
+pl	pl	%spellout-cardinal-masculine-accusative-personal	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-masculine-accusative-personal	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	1947.0	1	tysiąc dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	47625.0	1	czterdzieści siedem tysięcy sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	1000047.0	1	milion czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	47.625	1	czterdziestu siedmiu przecinek sześciu dwóch pięciu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	12.05	1	dwunastu przecinek zero pięciu
+pl	pl	%spellout-cardinal-masculine-accusative-personal	1.875	1	jednego przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-feminine-accusative	7.0	1	siedem
+pl	pl	%spellout-cardinal-feminine-accusative	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-cardinal-feminine-accusative	47.0	1	czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine-accusative	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-cardinal-feminine-accusative	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine-accusative	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine-accusative	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-feminine-accusative	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-cardinal-feminine-accusative	47.625	1	czterdzieści siedem przecinek sześć dwie pięć
+pl	pl	%spellout-cardinal-feminine-accusative	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-cardinal-feminine-accusative	1.875	1	jedną przecinek osiem siedem pięć
+pl	pl	%spellout-cardinal-neuter-accusative	7.0	1	siedem
+pl	pl	%spellout-cardinal-neuter-accusative	21.0	1	dwadzieścia jeden
+pl	pl	%spellout-cardinal-neuter-accusative	47.0	1	czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter-accusative	97.0	1	dziewięćdziesiąt siedem
+pl	pl	%spellout-cardinal-neuter-accusative	147.0	1	sto czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter-accusative	1947.0	1	tysiąc dziewięćset czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter-accusative	47625.0	1	czterdzieści siedem tysięcy sześćset dwadzieścia pięć
+pl	pl	%spellout-cardinal-neuter-accusative	1000047.0	1	milion czterdzieści siedem
+pl	pl	%spellout-cardinal-neuter-accusative	47.625	1	czterdzieści siedem przecinek sześć dwa pięć
+pl	pl	%spellout-cardinal-neuter-accusative	12.05	1	dwanaście przecinek zero pięć
+pl	pl	%spellout-cardinal-neuter-accusative	1.875	1	jedno przecinek osiem siedem pięć
+pl	pl	%spellout-cardinal-masculine-instrumental	7.0	1	siedmioma
+pl	pl	%spellout-cardinal-masculine-instrumental	21.0	1	dwudziestoma jeden
+pl	pl	%spellout-cardinal-masculine-instrumental	47.0	1	czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-masculine-instrumental	97.0	1	dziewięćdziesięcioma siedmioma
+pl	pl	%spellout-cardinal-masculine-instrumental	147.0	1	stu czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-masculine-instrumental	1947.0	1	tysiącem dziewięciuset czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-masculine-instrumental	47625.0	1	czterdziestoma siedmioma tysiącami sześciuset dwudziestoma pięcioma
+pl	pl	%spellout-cardinal-masculine-instrumental	1000047.0	1	milionem czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-masculine-instrumental	47.625	1	czterdziestoma siedmioma przecinek sześcioma dwoma pięcioma
+pl	pl	%spellout-cardinal-masculine-instrumental	12.05	1	dwunastoma przecinek zerem pięcioma
+pl	pl	%spellout-cardinal-masculine-instrumental	1.875	1	jednym przecinek ośmioma siedmioma pięcioma
+pl	pl	%spellout-cardinal-feminine-instrumental	7.0	1	siedmioma
+pl	pl	%spellout-cardinal-feminine-instrumental	21.0	1	dwudziestoma jeden
+pl	pl	%spellout-cardinal-feminine-instrumental	47.0	1	czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-feminine-instrumental	97.0	1	dziewięćdziesięcioma siedmioma
+pl	pl	%spellout-cardinal-feminine-instrumental	147.0	1	stu czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-feminine-instrumental	1947.0	1	tysiącem dziewięciuset czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-feminine-instrumental	47625.0	1	czterdziestoma siedmioma tysiącami sześciuset dwudziestoma pięcioma
+pl	pl	%spellout-cardinal-feminine-instrumental	1000047.0	1	milionem czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-feminine-instrumental	47.625	1	czterdziestoma siedmioma przecinek sześcioma dwiema pięcioma
+pl	pl	%spellout-cardinal-feminine-instrumental	12.05	1	dwunastoma przecinek zerem pięcioma
+pl	pl	%spellout-cardinal-feminine-instrumental	1.875	1	jedną przecinek ośmioma siedmioma pięcioma
+pl	pl	%spellout-cardinal-neuter-instrumental	7.0	1	siedmioma
+pl	pl	%spellout-cardinal-neuter-instrumental	21.0	1	dwudziestoma jeden
+pl	pl	%spellout-cardinal-neuter-instrumental	47.0	1	czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-neuter-instrumental	97.0	1	dziewięćdziesięcioma siedmioma
+pl	pl	%spellout-cardinal-neuter-instrumental	147.0	1	stu czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-neuter-instrumental	1947.0	1	tysiącem dziewięciuset czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-neuter-instrumental	47625.0	1	czterdziestoma siedmioma tysiącami sześciuset dwudziestoma pięcioma
+pl	pl	%spellout-cardinal-neuter-instrumental	1000047.0	1	milionem czterdziestoma siedmioma
+pl	pl	%spellout-cardinal-neuter-instrumental	47.625	1	czterdziestoma siedmioma przecinek sześcioma dwoma pięcioma
+pl	pl	%spellout-cardinal-neuter-instrumental	12.05	1	dwunastoma przecinek zerem pięcioma
+pl	pl	%spellout-cardinal-neuter-instrumental	1.875	1	jednym przecinek ośmioma siedmioma pięcioma
+pl	pl	%spellout-cardinal-masculine-locative	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-masculine-locative	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-masculine-locative	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-locative	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-masculine-locative	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-locative	1947.0	1	tysiącu dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-locative	47625.0	1	czterdziestu siedmiu tysiącach sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-masculine-locative	1000047.0	1	milionie czterdziestu siedmiu
+pl	pl	%spellout-cardinal-masculine-locative	47.625	1	czterdziestu siedmiu przecinek sześciu dwóch pięciu
+pl	pl	%spellout-cardinal-masculine-locative	12.05	1	dwunastu przecinek zerze pięciu
+pl	pl	%spellout-cardinal-masculine-locative	1.875	1	jednym przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-feminine-locative	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-feminine-locative	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-feminine-locative	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-locative	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-feminine-locative	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-locative	1947.0	1	tysiącu dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-locative	47625.0	1	czterdziestu siedmiu tysiącach sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-feminine-locative	1000047.0	1	milionie czterdziestu siedmiu
+pl	pl	%spellout-cardinal-feminine-locative	47.625	1	czterdziestu siedmiu przecinek sześciu dwóch pięciu
+pl	pl	%spellout-cardinal-feminine-locative	12.05	1	dwunastu przecinek zerze pięciu
+pl	pl	%spellout-cardinal-feminine-locative	1.875	1	jednej przecinek ośmiu siedmiu pięciu
+pl	pl	%spellout-cardinal-neuter-locative	7.0	1	siedmiu
+pl	pl	%spellout-cardinal-neuter-locative	21.0	1	dwudziestu jeden
+pl	pl	%spellout-cardinal-neuter-locative	47.0	1	czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-locative	97.0	1	dziewięćdziesięciu siedmiu
+pl	pl	%spellout-cardinal-neuter-locative	147.0	1	stu czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-locative	1947.0	1	tysiącu dziewięciuset czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-locative	47625.0	1	czterdziestu siedmiu tysiącach sześciuset dwudziestu pięciu
+pl	pl	%spellout-cardinal-neuter-locative	1000047.0	1	milionie czterdziestu siedmiu
+pl	pl	%spellout-cardinal-neuter-locative	47.625	1	czterdziestu siedmiu przecinek sześciu dwóch pięciu
+pl	pl	%spellout-cardinal-neuter-locative	12.05	1	dwunastu przecinek zerze pięciu
+pl	pl	%spellout-cardinal-neuter-locative	1.875	1	jednym przecinek ośmiu siedmiu pięciu
+pt	pt	%spellout-numbering	7.0	1	sete
+pt	pt	%spellout-numbering	21.0	1	vinte e um
+pt	pt	%spellout-numbering	47.0	1	quarenta e sete
+pt	pt	%spellout-numbering	97.0	1	noventa e sete
+pt	pt	%spellout-numbering	147.0	1	cento e quarenta e sete
+pt	pt	%spellout-numbering	1947.0	1	mil novecentos e quarenta e sete
+pt	pt	%spellout-numbering	47625.0	1	quarenta e sete mil seiscentos e vinte e cinco
+pt	pt	%spellout-numbering	1000047.0	1	um milhão e quarenta e sete
+pt	pt	%spellout-numbering	47.625	1	quarenta e sete vírgula seis dois cinco
+pt	pt	%spellout-numbering	12.05	1	doze vírgula zero cinco
+pt	pt	%spellout-numbering	1.875	1	um vírgula oito sete cinco
+pt	pt	%spellout-cardinal-masculine	7.0	1	sete
+pt	pt	%spellout-cardinal-masculine	21.0	1	vinte e um
+pt	pt	%spellout-cardinal-masculine	47.0	1	quarenta e sete
+pt	pt	%spellout-cardinal-masculine	97.0	1	noventa e sete
+pt	pt	%spellout-cardinal-masculine	147.0	1	cento e quarenta e sete
+pt	pt	%spellout-cardinal-masculine	1947.0	1	mil novecentos e quarenta e sete
+pt	pt	%spellout-cardinal-masculine	47625.0	1	quarenta e sete mil seiscentos e vinte e cinco
+pt	pt	%spellout-cardinal-masculine	1000047.0	1	um milhão e quarenta e sete
+pt	pt	%spellout-cardinal-masculine	47.625	1	quarenta e sete vírgula seis dois cinco
+pt	pt	%spellout-cardinal-masculine	12.05	1	doze vírgula zero cinco
+pt	pt	%spellout-cardinal-masculine	1.875	1	um vírgula oito sete cinco
+pt	pt	%spellout-cardinal-feminine	7.0	1	sete
+pt	pt	%spellout-cardinal-feminine	21.0	1	vinte e uma
+pt	pt	%spellout-cardinal-feminine	47.0	1	quarenta e sete
+pt	pt	%spellout-cardinal-feminine	97.0	1	noventa e sete
+pt	pt	%spellout-cardinal-feminine	147.0	1	cento e quarenta e sete
+pt	pt	%spellout-cardinal-feminine	1947.0	1	mil novecentas e quarenta e sete
+pt	pt	%spellout-cardinal-feminine	47625.0	1	quarenta e sete mil seiscentas e vinte e cinco
+pt	pt	%spellout-cardinal-feminine	1000047.0	1	um milhão e quarenta e sete
+pt	pt	%spellout-cardinal-feminine	47.625	1	quarenta e sete vírgula seis duas cinco
+pt	pt	%spellout-cardinal-feminine	12.05	1	doze vírgula zero cinco
+pt	pt	%spellout-cardinal-feminine	1.875	1	uma vírgula oito sete cinco
+qu	qu	%spellout-numbering	7.0	1	qanchis
+qu	qu	%spellout-numbering	21.0	1	iskay chunka huk-ni-yuq
+qu	qu	%spellout-numbering	47.0	1	tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-numbering	97.0	1	isqun chunka qanchis-ni-yuq
+qu	qu	%spellout-numbering	147.0	1	huk pachak tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-numbering	1947.0	1	huk waranqa isqun pachak tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-numbering	47625.0	1	tawa chunka qanchis-ni-yuq waranqa suqta pachak iskay chunka phisqa-yuq
+qu	qu	%spellout-numbering	1000047.0	1	huk hunu tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-numbering	47.625	1	tawa chunka qanchis-ni-yuq comma suqta iskay phisqa
+qu	qu	%spellout-numbering	12.05	1	chunka iskay-ni-yuq comma chusaq phisqa
+qu	qu	%spellout-numbering	1.875	1	huk comma pusaq qanchis phisqa
+qu	qu	%spellout-cardinal	7.0	1	qanchis
+qu	qu	%spellout-cardinal	21.0	1	iskay chunka huk-ni-yuq
+qu	qu	%spellout-cardinal	47.0	1	tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-cardinal	97.0	1	isqun chunka qanchis-ni-yuq
+qu	qu	%spellout-cardinal	147.0	1	huk pachak tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-cardinal	1947.0	1	huk waranqa isqun pachak tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-cardinal	47625.0	1	tawa chunka qanchis-ni-yuq waranqa suqta pachak iskay chunka phisqa-yuq
+qu	qu	%spellout-cardinal	1000047.0	1	huk hunu tawa chunka qanchis-ni-yuq
+qu	qu	%spellout-cardinal	47.625	1	tawa chunka qanchis-ni-yuq comma suqta iskay phisqa
+qu	qu	%spellout-cardinal	12.05	1	chunka iskay-ni-yuq comma chusaq phisqa
+qu	qu	%spellout-cardinal	1.875	1	huk comma pusaq qanchis phisqa
+ro	ro	%spellout-numbering	12.05	1	doisprezece virgulă zero cinci
+ro	ro	%spellout-cardinal-masculine	12.05	1	doisprezece virgulă zero cinci
+ro	ro	%spellout-cardinal-feminine	12.05	1	douăsprezece virgulă zero cinci
+ro	ro	%spellout-cardinal-neuter	12.05	1	douăsprezece virgulă zero cinci
+se	se	%spellout-numbering	7.0	1	čieža
+se	se	%spellout-numbering	21.0	1	guoktelogiokta
+se	se	%spellout-numbering	47.0	1	njealljelogičieža
+se	se	%spellout-numbering	97.0	1	ovccilogičieža
+se	se	%spellout-numbering	1000047.0	1	okta miljon njealljelogičieža
+se	se	%spellout-numbering	47.625	1	njealljelogičieža pilkku guhtta guokte vihtta
+se	se	%spellout-numbering	12.05	1	guoktenuppelohkái pilkku nolla vihtta
+se	se	%spellout-numbering	1.875	1	okta pilkku gávcci čieža vihtta
+se	se	%spellout-cardinal	7.0	1	čieža
+se	se	%spellout-cardinal	21.0	1	guoktelogiokta
+se	se	%spellout-cardinal	47.0	1	njealljelogičieža
+se	se	%spellout-cardinal	97.0	1	ovccilogičieža
+se	se	%spellout-cardinal	1000047.0	1	okta miljon njealljelogičieža
+se	se	%spellout-cardinal	47.625	1	njealljelogičieža pilkku guhtta guokte vihtta
+se	se	%spellout-cardinal	12.05	1	guoktenuppelohkái pilkku nolla vihtta
+se	se	%spellout-cardinal	1.875	1	okta pilkku gávcci čieža vihtta
+sk	sk	%spellout-numbering	7.0	1	sedem
+sk	sk	%spellout-numbering	21.0	1	dvadsaťjeden
+sk	sk	%spellout-numbering	47.0	1	štyridsaťsedem
+sk	sk	%spellout-numbering	97.0	1	deväťdesiatsedem
+sk	sk	%spellout-numbering	147.0	1	jednasto štyridsaťsedem
+sk	sk	%spellout-numbering	1947.0	1	jedna tisíc deväťsto štyridsaťsedem
+sk	sk	%spellout-numbering	47625.0	1	štyridsaťsedem tisíc šesťsto dvadsaťpäť
+sk	sk	%spellout-numbering	1000047.0	1	jeden milión štyridsaťsedem
+sk	sk	%spellout-numbering	47.625	1	štyridsaťsedem čiarka šesť dva päť
+sk	sk	%spellout-numbering	12.05	1	dvanásť čiarka nula päť
+sk	sk	%spellout-numbering	1.875	1	jeden čiarka osem sedem päť
+sk	sk	%spellout-cardinal-masculine	7.0	1	sedem
+sk	sk	%spellout-cardinal-masculine	21.0	1	dvadsaťjeden
+sk	sk	%spellout-cardinal-masculine	47.0	1	štyridsaťsedem
+sk	sk	%spellout-cardinal-masculine	97.0	1	deväťdesiatsedem
+sk	sk	%spellout-cardinal-masculine	147.0	1	jednasto štyridsaťsedem
+sk	sk	%spellout-cardinal-masculine	1947.0	1	jedna tisíc deväťsto štyridsaťsedem
+sk	sk	%spellout-cardinal-masculine	47625.0	1	štyridsaťsedem tisíc šesťsto dvadsaťpäť
+sk	sk	%spellout-cardinal-masculine	1000047.0	1	jeden milión štyridsaťsedem
+sk	sk	%spellout-cardinal-masculine	47.625	1	štyridsaťsedem čiarka šesť dva päť
+sk	sk	%spellout-cardinal-masculine	12.05	1	dvanásť čiarka nula päť
+sk	sk	%spellout-cardinal-masculine	1.875	1	jeden čiarka osem sedem päť
+sk	sk	%spellout-cardinal-neuter	7.0	1	sedem
+sk	sk	%spellout-cardinal-neuter	21.0	1	dvadsaťjedno
+sk	sk	%spellout-cardinal-neuter	47.0	1	štyridsaťsedem
+sk	sk	%spellout-cardinal-neuter	97.0	1	deväťdesiatsedem
+sk	sk	%spellout-cardinal-neuter	147.0	1	jednasto štyridsaťsedem
+sk	sk	%spellout-cardinal-neuter	1947.0	1	jedna tisíc deväťsto štyridsaťsedem
+sk	sk	%spellout-cardinal-neuter	47625.0	1	štyridsaťsedem tisíc šesťsto dvadsaťpäť
+sk	sk	%spellout-cardinal-neuter	1000047.0	1	jeden milión štyridsaťsedem
+sk	sk	%spellout-cardinal-neuter	47.625	1	štyridsaťsedem čiarka šesť dve päť
+sk	sk	%spellout-cardinal-neuter	12.05	1	dvanásť čiarka nula päť
+sk	sk	%spellout-cardinal-neuter	1.875	1	jedno čiarka osem sedem päť
+sk	sk	%spellout-cardinal-feminine	7.0	1	sedem
+sk	sk	%spellout-cardinal-feminine	21.0	1	dvadsaťjedna
+sk	sk	%spellout-cardinal-feminine	47.0	1	štyridsaťsedem
+sk	sk	%spellout-cardinal-feminine	97.0	1	deväťdesiatsedem
+sk	sk	%spellout-cardinal-feminine	147.0	1	jednasto štyridsaťsedem
+sk	sk	%spellout-cardinal-feminine	1947.0	1	jedna tisíc deväťsto štyridsaťsedem
+sk	sk	%spellout-cardinal-feminine	47625.0	1	štyridsaťsedem tisíc šesťsto dvadsaťpäť
+sk	sk	%spellout-cardinal-feminine	1000047.0	1	jeden milión štyridsaťsedem
+sk	sk	%spellout-cardinal-feminine	47.625	1	štyridsaťsedem čiarka šesť dve päť
+sk	sk	%spellout-cardinal-feminine	12.05	1	dvanásť čiarka nula päť
+sk	sk	%spellout-cardinal-feminine	1.875	1	jedna čiarka osem sedem päť
+sl	sl	%spellout-numbering	7.0	1	sedem
+sl	sl	%spellout-numbering	21.0	1	dvaset ena
+sl	sl	%spellout-numbering	47.0	1	štirideset sedem
+sl	sl	%spellout-numbering	97.0	1	devetdeset sedem
+sl	sl	%spellout-numbering	147.0	1	sto štirideset sedem
+sl	sl	%spellout-numbering	1947.0	1	tisuću devetsto štirideset sedem
+sl	sl	%spellout-numbering	47625.0	1	štirideset sedem tisuću šesto dvaset pet
+sl	sl	%spellout-numbering	1000047.0	1	ena milijun štirideset sedem
+sl	sl	%spellout-numbering	47.625	1	štirideset sedem vejica šest dva pet
+sl	sl	%spellout-numbering	12.05	1	dvanajst vejica nič pet
+sl	sl	%spellout-numbering	1.875	1	ena vejica osem sedem pet
+sl	sl	%spellout-cardinal-masculine	7.0	1	sedem
+sl	sl	%spellout-cardinal-masculine	21.0	1	dvaset ena
+sl	sl	%spellout-cardinal-masculine	47.0	1	štirideset sedem
+sl	sl	%spellout-cardinal-masculine	97.0	1	devetdeset sedem
+sl	sl	%spellout-cardinal-masculine	147.0	1	sto štirideset sedem
+sl	sl	%spellout-cardinal-masculine	1947.0	1	tisuću devetsto štirideset sedem
+sl	sl	%spellout-cardinal-masculine	47625.0	1	štirideset sedem tisuću šesto dvaset pet
+sl	sl	%spellout-cardinal-masculine	1000047.0	1	ena milijun štirideset sedem
+sl	sl	%spellout-cardinal-masculine	47.625	1	štirideset sedem vejica šest dva pet
+sl	sl	%spellout-cardinal-masculine	12.05	1	dvanajst vejica nič pet
+sl	sl	%spellout-cardinal-masculine	1.875	1	ena vejica osem sedem pet
+sl	sl	%spellout-cardinal-neuter	7.0	1	sedem
+sl	sl	%spellout-cardinal-neuter	21.0	1	dvaset ena
+sl	sl	%spellout-cardinal-neuter	47.0	1	štirideset sedem
+sl	sl	%spellout-cardinal-neuter	97.0	1	devetdeset sedem
+sl	sl	%spellout-cardinal-neuter	147.0	1	sto štirideset sedem
+sl	sl	%spellout-cardinal-neuter	1947.0	1	tisuću devetsto štirideset sedem
+sl	sl	%spellout-cardinal-neuter	47625.0	1	štirideset sedem tisuću šesto dvaset pet
+sl	sl	%spellout-cardinal-neuter	1000047.0	1	ena milijun štirideset sedem
+sl	sl	%spellout-cardinal-neuter	47.625	1	štirideset sedem vejica šest dve pet
+sl	sl	%spellout-cardinal-neuter	12.05	1	dvanajst vejica nič pet
+sl	sl	%spellout-cardinal-neuter	1.875	1	ena vejica osem sedem pet
+sl	sl	%spellout-cardinal-feminine	7.0	1	sedem
+sl	sl	%spellout-cardinal-feminine	21.0	1	dvaset ena
+sl	sl	%spellout-cardinal-feminine	47.0	1	štirideset sedem
+sl	sl	%spellout-cardinal-feminine	97.0	1	devetdeset sedem
+sl	sl	%spellout-cardinal-feminine	147.0	1	sto štirideset sedem
+sl	sl	%spellout-cardinal-feminine	1947.0	1	tisuću devetsto štirideset sedem
+sl	sl	%spellout-cardinal-feminine	47625.0	1	štirideset sedem tisuću šesto dvaset pet
+sl	sl	%spellout-cardinal-feminine	1000047.0	1	ena milijun štirideset sedem
+sl	sl	%spellout-cardinal-feminine	47.625	1	štirideset sedem vejica šest dvije pet
+sl	sl	%spellout-cardinal-feminine	12.05	1	dvanajst vejica nič pet
+sl	sl	%spellout-cardinal-feminine	1.875	1	ena vejica osem sedem pet
+sq	sq	%spellout-numbering	7.0	1	shtatë
+sq	sq	%spellout-numbering	21.0	1	njëzet e një
+sq	sq	%spellout-numbering	47.0	1	dyzet e shtatë
+sq	sq	%spellout-numbering	97.0	1	nëntëdhjetë e shtatë
+sq	sq	%spellout-numbering	147.0	1	njëqind e dyzet e shtatë
+sq	sq	%spellout-numbering	1947.0	1	një mijë e nëntëqind e dyzet e shtatë
+sq	sq	%spellout-numbering	47625.0	1	dyzet e shtatë mijë e gjashtëqind e njëzet e pesë
+sq	sq	%spellout-numbering	1000047.0	1	një milion e dyzet e shtatë
+sq	sq	%spellout-numbering	47.625	1	dyzet e shtatë presje gjashtë dy pesë
+sq	sq	%spellout-numbering	12.05	1	dymbëdhjetë presje zero pesë
+sq	sq	%spellout-numbering	1.875	1	një presje tetë shtatë pesë
+sq	sq	%spellout-cardinal-masculine	7.0	1	shtatë
+sq	sq	%spellout-cardinal-masculine	21.0	1	njëzet e një
+sq	sq	%spellout-cardinal-masculine	47.0	1	dyzet e shtatë
+sq	sq	%spellout-cardinal-masculine	97.0	1	nëntëdhjetë e shtatë
+sq	sq	%spellout-cardinal-masculine	147.0	1	njëqind e dyzet e shtatë
+sq	sq	%spellout-cardinal-masculine	1947.0	1	një mijë e nëntëqind e dyzet e shtatë
+sq	sq	%spellout-cardinal-masculine	47625.0	1	dyzet e shtatë mijë e gjashtëqind e njëzet e pesë
+sq	sq	%spellout-cardinal-masculine	1000047.0	1	një milion e dyzet e shtatë
+sq	sq	%spellout-cardinal-masculine	47.625	1	dyzet e shtatë presje gjashtë dy pesë
+sq	sq	%spellout-cardinal-masculine	12.05	1	dymbëdhjetë presje zero pesë
+sq	sq	%spellout-cardinal-masculine	1.875	1	një presje tetë shtatë pesë
+sq	sq	%spellout-cardinal-feminine	7.0	1	shtatë
+sq	sq	%spellout-cardinal-feminine	21.0	1	njëzet e një
+sq	sq	%spellout-cardinal-feminine	47.0	1	dyzet e shtatë
+sq	sq	%spellout-cardinal-feminine	97.0	1	nëntëdhjetë e shtatë
+sq	sq	%spellout-cardinal-feminine	147.0	1	njëqind e dyzet e shtatë
+sq	sq	%spellout-cardinal-feminine	1947.0	1	një mijë e nëntëqind e dyzet e shtatë
+sq	sq	%spellout-cardinal-feminine	47625.0	1	dyzet e shtatë mijë e gjashtëqind e njëzet e pesë
+sq	sq	%spellout-cardinal-feminine	1000047.0	1	një milion e dyzet e shtatë
+sq	sq	%spellout-cardinal-feminine	47.625	1	dyzet e shtatë presje gjashtë dy pesë
+sq	sq	%spellout-cardinal-feminine	12.05	1	dymbëdhjetë presje zero pesë
+sq	sq	%spellout-cardinal-feminine	1.875	1	një presje tetë shtatë pesë
+su	su	%spellout-numbering	7.0	1	tujuh
+su	su	%spellout-numbering	21.0	1	dua puluh hiji
+su	su	%spellout-numbering	47.0	1	opat puluh tujuh
+su	su	%spellout-numbering	97.0	1	salapan puluh tujuh
+su	su	%spellout-numbering	147.0	1	saratus opat puluh tujuh
+su	su	%spellout-numbering	1947.0	1	sarebu salapan ratus opat puluh tujuh
+su	su	%spellout-numbering	47625.0	1	opat puluh tujuh rebu genep ratus dua puluh lima
+su	su	%spellout-numbering	1000047.0	1	sajuta opat puluh tujuh
+su	su	%spellout-numbering	47.625	1	opat puluh tujuh titik genep dua lima
+su	su	%spellout-numbering	12.05	1	dua belas titik nol lima
+su	su	%spellout-numbering	1.875	1	hiji titik dalapan tujuh lima
+su	su	%spellout-cardinal	7.0	1	tujuh
+su	su	%spellout-cardinal	21.0	1	dua puluh hiji
+su	su	%spellout-cardinal	47.0	1	opat puluh tujuh
+su	su	%spellout-cardinal	97.0	1	salapan puluh tujuh
+su	su	%spellout-cardinal	147.0	1	saratus opat puluh tujuh
+su	su	%spellout-cardinal	1947.0	1	sarebu salapan ratus opat puluh tujuh
+su	su	%spellout-cardinal	47625.0	1	opat puluh tujuh rebu genep ratus dua puluh lima
+su	su	%spellout-cardinal	1000047.0	1	sajuta opat puluh tujuh
+su	su	%spellout-cardinal	47.625	1	opat puluh tujuh titik genep dua lima
+su	su	%spellout-cardinal	12.05	1	dua belas titik nol lima
+su	su	%spellout-cardinal	1.875	1	hiji titik dalapan tujuh lima
+sv	sv	%spellout-numbering	7.0	1	sju
+sv	sv	%spellout-numbering	21.0	1	tjugoett
+sv	sv	%spellout-numbering	47.0	1	fyrtiosju
+sv	sv	%spellout-numbering	97.0	1	nittiosju
+sv	sv	%spellout-numbering	147.0	1	etthundrafyrtiosju
+sv	sv	%spellout-numbering	1947.0	1	ettusen niohundrafyrtiosju
+sv	sv	%spellout-numbering	47625.0	1	fyrtiosjutusen sexhundratjugofem
+sv	sv	%spellout-numbering	1000047.0	1	en miljon fyrtiosju
+sv	sv	%spellout-numbering	47.625	1	fyrtiosju komma sex två fem
+sv	sv	%spellout-numbering	12.05	1	tolv komma noll fem
+sv	sv	%spellout-numbering	1.875	1	ett komma åtta sju fem
+sv	sv	%spellout-cardinal-neuter	7.0	1	sju
+sv	sv	%spellout-cardinal-neuter	21.0	1	tjugoett
+sv	sv	%spellout-cardinal-neuter	47.0	1	fyrtiosju
+sv	sv	%spellout-cardinal-neuter	97.0	1	nittiosju
+sv	sv	%spellout-cardinal-neuter	147.0	1	etthundrafyrtiosju
+sv	sv	%spellout-cardinal-neuter	1947.0	1	ettusen niohundrafyrtiosju
+sv	sv	%spellout-cardinal-neuter	47625.0	1	fyrtiosjutusen sexhundratjugofem
+sv	sv	%spellout-cardinal-neuter	1000047.0	1	en miljon fyrtiosju
+sv	sv	%spellout-cardinal-neuter	47.625	1	fyrtiosju komma sex två fem
+sv	sv	%spellout-cardinal-neuter	12.05	1	tolv komma noll fem
+sv	sv	%spellout-cardinal-neuter	1.875	1	ett komma åtta sju fem
+sv	sv	%spellout-cardinal-masculine	7.0	1	sju
+sv	sv	%spellout-cardinal-masculine	21.0	1	tjugoen
+sv	sv	%spellout-cardinal-masculine	47.0	1	fyrtiosju
+sv	sv	%spellout-cardinal-masculine	97.0	1	nittiosju
+sv	sv	%spellout-cardinal-masculine	147.0	1	etthundrafyrtiosju
+sv	sv	%spellout-cardinal-masculine	1947.0	1	ettusen niohundrafyrtiosju
+sv	sv	%spellout-cardinal-masculine	47625.0	1	fyrtiosjutusen sexhundratjugofem
+sv	sv	%spellout-cardinal-masculine	1000047.0	1	en miljon fyrtiosju
+sv	sv	%spellout-cardinal-masculine	47.625	1	fyrtiosju komma sex två fem
+sv	sv	%spellout-cardinal-masculine	12.05	1	tolv komma noll fem
+sv	sv	%spellout-cardinal-masculine	1.875	1	en komma åtta sju fem
+sv	sv	%spellout-cardinal-feminine	7.0	1	sju
+sv	sv	%spellout-cardinal-feminine	21.0	1	tjugoen
+sv	sv	%spellout-cardinal-feminine	47.0	1	fyrtiosju
+sv	sv	%spellout-cardinal-feminine	97.0	1	nittiosju
+sv	sv	%spellout-cardinal-feminine	147.0	1	etthundrafyrtiosju
+sv	sv	%spellout-cardinal-feminine	1947.0	1	ettusen niohundrafyrtiosju
+sv	sv	%spellout-cardinal-feminine	47625.0	1	fyrtiosjutusen sexhundratjugofem
+sv	sv	%spellout-cardinal-feminine	1000047.0	1	en miljon fyrtiosju
+sv	sv	%spellout-cardinal-feminine	47.625	1	fyrtiosju komma sex två fem
+sv	sv	%spellout-cardinal-feminine	12.05	1	tolv komma noll fem
+sv	sv	%spellout-cardinal-feminine	1.875	1	en komma åtta sju fem
+sv	sv	%spellout-cardinal-reale	7.0	1	sju
+sv	sv	%spellout-cardinal-reale	21.0	1	tjugoen
+sv	sv	%spellout-cardinal-reale	47.0	1	fyrtiosju
+sv	sv	%spellout-cardinal-reale	97.0	1	nittiosju
+sv	sv	%spellout-cardinal-reale	147.0	1	etthundrafyrtiosju
+sv	sv	%spellout-cardinal-reale	1947.0	1	ettusen niohundrafyrtiosju
+sv	sv	%spellout-cardinal-reale	47625.0	1	fyrtiosjutusen sexhundratjugofem
+sv	sv	%spellout-cardinal-reale	1000047.0	1	en miljon fyrtiosju
+sv	sv	%spellout-cardinal-reale	47.625	1	fyrtiosju komma sex två fem
+sv	sv	%spellout-cardinal-reale	12.05	1	tolv komma noll fem
+sv	sv	%spellout-cardinal-reale	1.875	1	en komma åtta sju fem
+sw	sw	%spellout-numbering	7.0	1	saba
+sw	sw	%spellout-numbering	21.0	1	ishirini na moja
+sw	sw	%spellout-numbering	47.0	1	arobaini na saba
+sw	sw	%spellout-numbering	97.0	1	tisini na saba
+sw	sw	%spellout-numbering	147.0	1	mia moja na arobaini na saba
+sw	sw	%spellout-numbering	1947.0	1	elfu moja, mia tisa na arobaini na saba
+sw	sw	%spellout-numbering	47625.0	0	elfu arobaini na saba, mia sita na ishirini na tano
+sw	sw	%spellout-numbering	1000047.0	0	milioni moja, arobaini na saba
+sw	sw	%spellout-numbering	47.625	1	arobaini na saba nukta sita mbili tano
+sw	sw	%spellout-numbering	12.05	1	kumi na mbili nukta sifuri tano
+sw	sw	%spellout-numbering	1.875	1	moja nukta nane saba tano
+sw	sw	%spellout-cardinal	7.0	1	saba
+sw	sw	%spellout-cardinal	21.0	1	ishirini na moja
+sw	sw	%spellout-cardinal	47.0	1	arobaini na saba
+sw	sw	%spellout-cardinal	97.0	1	tisini na saba
+sw	sw	%spellout-cardinal	147.0	1	mia moja na arobaini na saba
+sw	sw	%spellout-cardinal	1947.0	1	elfu moja, mia tisa na arobaini na saba
+sw	sw	%spellout-cardinal	47625.0	0	elfu arobaini na saba, mia sita na ishirini na tano
+sw	sw	%spellout-cardinal	1000047.0	0	milioni moja, arobaini na saba
+sw	sw	%spellout-cardinal	47.625	1	arobaini na saba nukta sita mbili tano
+sw	sw	%spellout-cardinal	12.05	1	kumi na mbili nukta sifuri tano
+sw	sw	%spellout-cardinal	1.875	1	moja nukta nane saba tano
+tr	tr	%spellout-numbering	7.0	1	yedi
+tr	tr	%spellout-numbering	21.0	1	yirmi bir
+tr	tr	%spellout-numbering	97.0	1	doksan yedi
+tr	tr	%spellout-numbering	1.875	1	bir virgül sekiz yedi beş
+tr	tr	%spellout-cardinal	7.0	1	yedi
+tr	tr	%spellout-cardinal	21.0	1	yirmi bir
+tr	tr	%spellout-cardinal	97.0	1	doksan yedi
+tr	tr	%spellout-cardinal	1.875	1	bir virgül sekiz yedi beş
+vec	vec	%spellout-numbering	7.0	1	sete
+vec	vec	%spellout-numbering	21.0	1	vintiun
+vec	vec	%spellout-numbering	47.0	1	cuarantasete
+vec	vec	%spellout-numbering	97.0	1	novantasete
+vec	vec	%spellout-numbering	147.0	1	sentocuarantasete
+vec	vec	%spellout-cardinal-masculine	7.0	1	sete
+vec	vec	%spellout-cardinal-masculine	21.0	1	vintiun
+vec	vec	%spellout-cardinal-masculine	47.0	1	cuarantasete
+vec	vec	%spellout-cardinal-masculine	97.0	1	novantasete
+vec	vec	%spellout-cardinal-masculine	147.0	1	sentocuarantasete
+vec	vec	%spellout-cardinal-feminine	7.0	1	sete
+vec	vec	%spellout-cardinal-feminine	21.0	1	ventiuna
+vec	vec	%spellout-cardinal-feminine	47.0	1	cuarantasete
+vec	vec	%spellout-cardinal-feminine	97.0	1	novantasete
+vec	vec	%spellout-cardinal-feminine	147.0	1	sentocuarantasete
