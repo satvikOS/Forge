@@ -291,6 +291,13 @@ int main(int argc, char** argv) {
   checkNear(alMass.massGrams / 1000.0, 0.135, 1e-12, "a 100 x 50 x 10 mm aluminium block is 0.135 kg");
   std::printf("[gate] block %.3f x %.3f x %.3f mm, %.3f mm3 of %s: %.9g kg\n", sx, sy, sz,
               built.volume, frame.partDocumentMaterialId().c_str(), alMass.massGrams / 1000.0);
+#ifndef FORGE_MATERIALS_GATE_BASE_PROBE
+  std::printf("[gate] integrals measured by %s\n",
+              built.massIntegrator == forge::desktop::MassIntegrator::NativeExact ? "native exact"
+              : built.massIntegrator == forge::desktop::MassIntegrator::Engine    ? "engine"
+              : built.massIntegrator == forge::desktop::MassIntegrator::Faceted   ? "faceted"
+                                                                                  : "nothing");
+#endif
 
   // ── B. STEEL, WITHOUT A REBUILD ──────────────────────────────────────────
   if (g_mutation != 2) {
@@ -380,14 +387,14 @@ int main(int argc, char** argv) {
 
     // A shape edited and NOT yet rebuilt. registry().dispatch bypasses the shell's
     // document notification, which is how a raw caller reaches the registry.
+    // The block's height goes from 10 mm to 20 mm: BOX's third number (index 2)
+    // of the last statement, the feature part.edit_feature aims at by default.
     forge::ui::CommandParams taller;
-    taller.setNumber("dx", 10.0);
-    taller.setNumber("dy", 10.0);
-    taller.setNumber("dz", 10.0);
-    taller.setNumber("cx", 200.0);
+    taller.setNumber("index", 2.0);
+    taller.setNumber("value", 20.0);
     const forge::ui::DispatchResult edit =
-        shell.registry().dispatch("part.primitive_box", shell.selection(), taller);
-    check(edit.ok(), "a second body is added without a rebuild", edit.detail);
+        shell.registry().dispatch("part.edit_feature", shell.selection(), taller);
+    check(edit.ok(), "the block is made taller without a rebuild", edit.detail);
     if (g_mutation == 4) step(frame);
     const forge::ui::DispatchResult stale =
         shell.registry().dispatch("part.mass_properties", shell.selection(), {});
@@ -401,9 +408,11 @@ int main(int argc, char** argv) {
     check(evidenceNumber(fresh.evidence, "mass_kg", freshMass), "and cites a mass", fresh.evidence);
     checkNear(freshMass, scene.lastBuild().volume * steelDensity * 1e-9, 1e-12,
               "the new mass is the rebuilt shape's volume in steel");
+    checkNear(freshMass, 2.0 * steelMass.massGrams / 1000.0, 1e-9,
+              "twice the height is twice the mass");
     check(std::fabs(freshMass - steelMass.massGrams / 1000.0) > 1e-6,
           "and it is not the old shape's mass", fresh.evidence);
-    check(frame.documentUndo(), "the second body can be undone", "");
+    check(frame.documentUndo(), "the height change can be undone", "");
     step(frame);
   }
 
