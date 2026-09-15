@@ -518,25 +518,32 @@ TopoDS_Shape sphericalVertexWedge(const gp_Pnt& v, const std::vector<gp_Dir>& a,
 //   * a face prism that PASSES THROUGH another part of the sheet (the same z=-3
 //     case: the lid's prism runs through the floor).
 //
-// (a) THE TRIMMED OFFSET FACE MUST SURVIVE. At a concave fold between faces f and
-//     g with offset directions a_f, a_g at angle theta, the two offset planes meet
-//     on a line that lies, seen in f's plane, at
-//         delta = |t| tan(theta / 2)
-//     from the fold: in the cross-section normal to the fold the offset lines and
-//     the fold's bisector form a right triangle with leg |t| and half-angle
-//     theta/2 at the offset corner (elementary; 90 degrees gives delta = |t|, 180
-//     would be infinite and is the fold-back already declined). The offset face of
-//     f is therefore f's outer polygon with every concave-fold edge moved INTO the
-//     face by its delta — each new vertex the intersection of two consecutive
-//     moved lines — while a convex fold or a free rim does not move (delta = 0).
-//     The prism union equals the thick body only while that polygon keeps every
-//     edge at POSITIVE length in its original direction and no moved edge sweeps
-//     across another part of the face's boundary (another outer vertex, or a
-//     hole). That is the EDGE EVENT of the polygon's straight skeleton (Aichholzer,
-//     Alberts, Aurenhammer, Gaertner, "A novel type of skeleton for polygons",
-//     J.UCS 1(12):752-761, 1995) arriving before the offset does; past it the true
-//     offset surface is not a trimmed copy of the face and nothing here builds it.
-//     So it declines.
+// (a) A NEIGHBOUR'S SLAB MUST LAND ON THIS FACE. Work in the cross-section
+//     normal to a concave fold between faces f and g, offset directions a_f, a_g
+//     at angle theta (theta <= 90 degrees: an acute fold is declined before this).
+//     With u_f the interior direction of f at the fold (DERIVATION 1), g's slab
+//     g x [0,|t|] a_g reaches over f's plane as far as
+//         w = |t| (a_g . u_f) = |t| sin(theta)
+//     (its corner fold + |t| a_g), and the two offset lines meet at
+//         delta = |t| tan(theta / 2)  <=  w     (for theta <= 90: 2cos^2(theta/2) >= 1).
+//     The thick body in that section is the polygon  fold, f's far end, its |t|
+//     wall, the offset corner, g's offset line, g's far end  — and g's slab lies
+//     inside it EXACTLY when its corner at distance w is still over f, i.e. w is at
+//     most f's extent from the fold. Past that, g's slab overhangs f's free rim and
+//     the union of prisms holds material the thick body does not. MEASURED on a
+//     120-degree V of 10 mm plates, concave side, t = 15: w = 12.99 > 10 while
+//     delta = 8.66 < 10, and the union gave V=1907.477 with the bbox reaching
+//     x = 12.99, against OCCT's VALID 1700.962 ending at x = 10 — so the first
+//     version of this rule, which moved the fold by delta (the offset face's trim),
+//     let it through. So every concave-fold edge of f's outer polygon is moved INTO
+//     the face by w, each new vertex the intersection of two consecutive moved
+//     lines, a convex fold or free rim not moving; the union is admitted only while
+//     every edge keeps POSITIVE length in its original direction and no moved edge
+//     sweeps across another part of f's boundary (another outer vertex, or a
+//     hole). At 90 degrees w = delta = |t| and this is the offset face's own EDGE
+//     EVENT in the sense of the straight skeleton (Aichholzer, Alberts, Aurenhammer,
+//     Gaertner, "A novel type of skeleton for polygons", J.UCS 1(12):752-761,
+//     1995). Past it nothing here builds the true body, so it declines.
 // (b) THE SHEET MUST STAY ON THE BODY'S BOUNDARY. In the thick body a point just
 //     BEHIND a face — on the side opposite its offset direction, well inside the
 //     face — is outside the body: the body there is the face's own slab, on the
@@ -1521,8 +1528,8 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
     TopTools_IndexedMapOfShape concaveVerts;
     // Per efMap index: 0 free rim, 1 convex, 2 concave, 3 coplanar fold.
     std::vector<int> edgeClass(static_cast<std::size_t>(efMap.Extent()) + 1, 0);
-    // Per efMap index: how far a CONCAVE fold trims each neighbour's offset face
-    // back from the fold, in that face's plane (DERIVATION 5). Zero elsewhere.
+    // Per efMap index: how far a CONCAVE fold's neighbour slab reaches over each
+    // face, in that face's plane (DERIVATION 5a). Zero elsewhere.
     std::vector<double> edgeInset(static_cast<std::size_t>(efMap.Extent()) + 1, 0.0);
     bool closedInput = true;
 
@@ -1555,11 +1562,11 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
 
         if (gp_Vec(a1).Dot(gp_Vec(u2)) > 0.0) {                  // CONCAVE: prisms overlap
             edgeClass[ei] = 2;
-            // The two offset planes meet on a line that lies, in each face's own
-            // plane, at r * tan(theta / 2) from the fold, theta = angle(a1, a2):
-            // tan(theta/2) = sqrt((1 - cos) / (1 + cos)). 90 degrees -> exactly r.
+            // How far each neighbour's slab reaches over this face, measured in
+            // the face's plane perpendicular to the fold: r sin(theta), theta =
+            // angle(a1, a2) (DERIVATION 5a). 90 degrees -> exactly r.
             edgeInset[static_cast<std::size_t>(ei)] =
-                r * std::sqrt(std::max(0.0, 1.0 - dot) / std::max(1.0e-300, 1.0 + dot));
+                r * std::sqrt(std::max(0.0, 1.0 - dot * dot));
             // BUT ONLY AN ACUTE ONE LETS A PRISM THROUGH THE OTHER PLATE. With
             // a1 . a2 < 0 the fold's interior angle on the offset side is under 90
             // degrees, and prism 1 crosses plate 2 near the fold: material on the
@@ -1840,9 +1847,9 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
                 if (!moved[k] && !moved[kp]) continue;
                 const double newLen = gp_Vec(Q[k], Q[kp]).Dot(T[k]);
                 if (!(newLen > lenTol))
-                    return defer("the thickness CONSUMES A FACE: on the concave side a fold "
-                                 "trims the offset of a neighbouring face down to nothing, so "
-                                 "no skin of this thickness exists (use a thinner thickness, "
+                    return defer("the thickness CONSUMES A FACE: on the concave side a "
+                                 "neighbouring face's slab reaches past this face's far edge, "
+                                 "so no skin of this thickness exists (use a thinner thickness, "
                                  "or thicken to the other side)");
             }
             // No moved edge may sweep across another part of this face's boundary.
