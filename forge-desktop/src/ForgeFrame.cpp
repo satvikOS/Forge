@@ -33,6 +33,7 @@
 #include "FileExchangeHost.hpp"
 #include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
+#include "MaterialBundle.hpp"
 #include "StudyHost.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
@@ -42,7 +43,9 @@
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/InspectionReport.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/MassProperties.hpp"
 #include "forge/ui/Material.hpp"
+#include "forge/ui/MaterialCards.hpp"
 #include "forge/ui/PanelCatalog.hpp"
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
@@ -256,6 +259,21 @@ std::string canonicalKeyName(int imguiKey) {
 // ── construction ────────────────────────────────────────────────────────────
 ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
     : shell_(shell), scene_(scene), treeSource_(scene, partDoc_), tree_(treeSource_, 256) {
+  // ── THE MATERIAL CARD LIBRARY ─────────────────────────────────────────────
+  // Read ONCE, before any command is registered, from the separately linked
+  // library (MaterialBundle.cpp). A library that cannot be read leaves an EMPTY
+  // catalogue and a reason in the log: the handbook materials still work, and no
+  // card is offered that was not read.
+  {
+    MaterialBundleLoad library = loadMaterialBundle();
+    materialCards_ = library.catalogue;
+    materialLibraryProblem_ = library.problem;
+    if (!library.problem.empty()) {
+      shell_.log().warning("Materials", "The material library could not be read, so only "
+                                        "Forge's own materials are offered.",
+                           library.problem);
+    }
+  }
   // partDoc_ is EMPTY here and the tree is therefore the bare document root:
   // wirePartCommands() seeds it and calls rebuildTree() again. That is the whole
   // sequence -- there is no row vector to push anywhere.
@@ -458,8 +476,15 @@ std::size_t ForgeFrame::wirePartCommands() {
   builtProgram_ = partDoc_.irProgram();
   scene_.setDocumentLabel(documentName_ + kPartFileExtension);
 
+  // The services the Part commands borrow from this frame: the card library
+  // part.set_material resolves names against, and the measurement
+  // part.mass_properties and part.check_mass weigh. The lambda reads the scene at
+  // CALL time, so a command dispatched after a rebuild sees that rebuild.
+  forge::ui::PartCommandServices services;
+  services.materials = materialCards_;
+  services.measuredIntegrals = [this]() { return measuredIntegrals(); };
   const std::size_t added =
-      forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
+      forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_, services);
   partWired_ = true;
   // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
   // act on this document, and the status strip's counters are read from it.
@@ -9590,52 +9615,215 @@ void ForgeFrame::drawStockPanel() {
 }
 
 // ── MATERIALS ───────────────────────────────────────────────────────────────
+//
+// The `materials` tab: what the part is made of, the whole list it can be made
+// of, and its MASS PROPERTIES -- mass, centre of mass and inertia -- in that
+// material.
+//
+// ── TWO LIBRARIES IN ONE PICKER ─────────────────────────────────────────────
+// Forge's handbook table (Material.cpp) and the material card library read at
+// start-up from libforge_fcmaterials (MaterialBundle.cpp, MaterialCards.hpp).
+// A pick is RECORDED here and applied on the next frame through
+// part.set_material -- the one command Archie also calls -- so the undo stack,
+// the activity log and the refusal of an unknown name are the same for both.
+//
+// ── EVERY NUMBER HAS ITS UNIT BESIDE IT ─────────────────────────────────────
+// Mass in kg (and g), lengths in mm, inertia in kg mm2, density in kg/m3, and
+// each card property in the unit an engineer reads it in, converted from the SI
+// value the reader stored -- never the card's own string re-printed, which would
+// show `70000 MPa` beside `70 GPa` for two materials of the same stiffness.
+//
+// ── A MATERIAL CHANGE IS NOT A REBUILD ──────────────────────────────────────
+// partMassReport() multiplies the integrals the kernel already measured. Choosing
+// steel after aluminium moves every mass number on this tab and leaves
+// rebuilds() where it was; materials_gate proves both halves.
+namespace {
+
+struct CardPropertyDisplay {
+  const char* name;       // the card's property name
+  const char* label;      // what a person calls it
+  const char* unit;       // the unit it is shown in
+  double fromSI;          // multiply the SI value by this
+};
+
+constexpr CardPropertyDisplay kCardPropertyRows[] = {
+    {"YoungsModulus", "stiffness (Young's modulus)", "GPa", 1.0e-9},
+    {"ShearModulus", "shear modulus", "GPa", 1.0e-9},
+    {"BulkModulus", "bulk modulus", "GPa", 1.0e-9},
+    {"PoissonRatio", "Poisson's ratio", "", 1.0},
+    {"YieldStrength", "yield strength", "MPa", 1.0e-6},
+    {"UltimateTensileStrength", "tensile strength", "MPa", 1.0e-6},
+    {"CompressiveStrength", "compressive strength", "MPa", 1.0e-6},
+    {"FractureStrength", "fracture strength", "MPa", 1.0e-6},
+    {"ThermalConductivity", "thermal conductivity", "W/(m K)", 1.0},
+    {"SpecificHeat", "specific heat", "J/(kg K)", 1.0},
+    {"ThermalExpansionCoefficient", "thermal expansion", "um/(m K)", 1.0e6},
+    {"ElectricalConductivity", "electrical conductivity", "MS/m", 1.0e-6},
+};
+
+const char* integratorSentence(MassIntegrator how) {
+  switch (how) {
+    case MassIntegrator::NativeExact:
+      return "Measured by exact integration over the part's surfaces.";
+    case MassIntegrator::Engine:
+      return "Measured by the modelling engine's integration over the part's surfaces.";
+    case MassIntegrator::Faceted:
+      return "Measured over the part's facets, so only as close as the facets are to the "
+             "true surface.";
+    case MassIntegrator::None:
+      break;
+  }
+  return "";
+}
+
+// A refusal is written to be quoted inside a sentence ("refused: the shape did not
+// build"); on its own line it starts with a capital and ends with a full stop.
+std::string sentenceCase(std::string text) {
+  if (!text.empty()) text[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(text[0])));
+  if (!text.empty() && text.back() != '.') text.push_back('.');
+  return text;
+}
+
+bool containsFolded(const std::string& haystack, const char* needle) {
+  if (needle == nullptr || needle[0] == 0) return true;
+  const std::size_t n = std::strlen(needle);
+  if (n > haystack.size()) return false;
+  for (std::size_t i = 0; i + n <= haystack.size(); ++i) {
+    std::size_t k = 0;
+    while (k < n && std::tolower(static_cast<unsigned char>(haystack[i + k])) ==
+                        std::tolower(static_cast<unsigned char>(needle[k]))) {
+      ++k;
+    }
+    if (k == n) return true;
+  }
+  return false;
+}
+
+}  // namespace
+
+forge::ui::GeometricIntegrals ForgeFrame::measuredIntegrals() const {
+  forge::ui::GeometricIntegrals g;
+  g.program = builtProgram_;
+  const IrBuildReport& r = scene_.lastBuild();
+  if (!scene_.built() || !r.ok()) {
+    g.refusal = "the shape did not build, so it has no mass";
+    return g;
+  }
+  if (!r.massIntegralsKnown) {
+    g.refusal = "the shape could not be measured, so it has no mass";
+    return g;
+  }
+  g.known = true;
+  g.volumeMm3 = r.volume;
+  for (int i = 0; i < 3; ++i) g.centroidMm[static_cast<std::size_t>(i)] = r.centroid[i];
+  for (int i = 0; i < 9; ++i) {
+    g.inertiaUnitDensityMm5[static_cast<std::size_t>(i)] = r.inertiaUnitDensity[i];
+  }
+  if (r.bodies.size() > 1) {
+    for (const SceneBody& b : r.bodies) {
+      forge::ui::BodyIntegrals body;
+      body.volumeMm3 = b.volume;
+      for (int i = 0; i < 3; ++i) body.centroidMm[static_cast<std::size_t>(i)] = b.centroid[i];
+      g.bodies.push_back(body);
+    }
+  }
+  return g;
+}
+
+forge::ui::MassPropertiesReport ForgeFrame::partMassReport() const {
+  return forge::ui::massPropertiesFor(partDoc_.material(), measuredIntegrals(),
+                                      partDoc_.irProgram());
+}
+
+void ForgeFrame::setMaterialFilter(const std::string& text) {
+  std::snprintf(materialFilter_, sizeof(materialFilter_), "%s", text.c_str());
+}
+
 void ForgeFrame::drawMaterialsPanel() {
   camMaterialRowsDrawn_ = 0;
   materialRowsDrawn_ = 0;
+  materialPickerRowsDrawn_ = 0;
+  massPropertyRowsDrawn_ = 0;
+  materialCardPropertyRowsDrawn_ = 0;
   for (const forge::ui::Material& mtl : forge::ui::materialLibrary()) {
     if (mtl.hasDensity()) ++materialRowsDrawn_;
   }
   const forge::ui::Material& material = partDoc_.material();
+  const forge::ui::MaterialCatalogue& cards = *materialCards_;
+  const forge::ui::MaterialCard* card = cards.findCard(material.id);
   const IrBuildReport& r = scene_.lastBuild();
 
+  // ── what it is made of ───────────────────────────────────────────────────
   ImGui::TextColored(rgb(242, 158, 38), "This part is made of");
   ImGui::Separator();
   if (material.hasDensity()) {
     ImGui::Text("%s", material.name.c_str());
-    ImGui::Text("density   %.0f kg per cubic metre", material.densityKgPerM3);
+    ImGui::Text("density   %.0f kg/m3", material.densityKgPerM3);
     camMaterialRowsDrawn_ += 2;
+    if (card != nullptr) {
+      ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+      if (!card->category.empty()) ImGui::Text("          %s", card->category.c_str());
+      ImGui::PopStyleColor();
+    }
   } else {
     ImGui::TextWrapped("Nothing yet, so Forge cannot say what this part weighs. Choose one "
                        "below and its weight appears everywhere the part is described.");
   }
 
+  // ── the picker ───────────────────────────────────────────────────────────
   ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Choose a material");
+  ImGui::Separator();
   ImGui::SetNextItemWidth(-1);
-  if (ImGui::BeginCombo("##campickmaterial", material.name.c_str())) {
-    for (const forge::ui::Material& m : forge::ui::materialLibrary()) {
-      const bool chosen = m.id == material.id;
-      char row[96];
-      if (m.hasDensity()) {
-        std::snprintf(row, sizeof(row), "%-24s %6.0f kg/m3", m.name.c_str(), m.densityKgPerM3);
-      } else {
-        std::snprintf(row, sizeof(row), "%-24s", m.name.c_str());
+  ImGui::InputTextWithHint("##materialq", "find a material...", materialFilter_,
+                           sizeof(materialFilter_));
+  const float listHeight = ImGui::GetTextLineHeightWithSpacing() * 10.0f;
+  if (ImGui::BeginChild("##materialpick", ImVec2(0.0f, listHeight), ImGuiChildFlags_Borders)) {
+    // RECORD, do not apply. This list is drawn inside the dock walk, and
+    // dispatching here would rebuild the document while the walk still holds
+    // references into it -- the shape that has already shipped three crashes in
+    // this class.
+    const auto row = [this, &material](const forge::ui::Material& m, const std::string& group,
+                                       const std::string& extra) {
+      if (!containsFolded(m.name, materialFilter_) && !containsFolded(m.id, materialFilter_) &&
+          !containsFolded(group, materialFilter_) && !containsFolded(extra, materialFilter_)) {
+        return;
       }
-      // RECORD, do not apply. This combo is drawn inside the dock walk, and
-      // dispatching here would rebuild the document while the walk still holds
-      // references into it -- the shape that has already shipped three crashes
-      // in this class.
-      if (ImGui::Selectable(row, chosen)) pendingMaterialId_ = m.id;
-      if (chosen) ImGui::SetItemDefaultFocus();
+      char text[160];
+      if (m.hasDensity()) {
+        std::snprintf(text, sizeof(text), "%-30s %6.0f kg/m3##%s", m.name.c_str(),
+                      m.densityKgPerM3, m.id.c_str());
+      } else {
+        std::snprintf(text, sizeof(text), "%-30s##%s", m.name.c_str(), m.id.c_str());
+      }
+      if (ImGui::Selectable(text, m.id == material.id)) pendingMaterialId_ = m.id;
+      if (ImGui::IsItemHovered() && !group.empty()) ImGui::SetTooltip("%s", group.c_str());
+      ++materialPickerRowsDrawn_;
       ++camMaterialRowsDrawn_;
+    };
+    ImGui::TextDisabled("Forge");
+    for (const forge::ui::Material& m : forge::ui::materialLibrary()) row(m, "Forge", "");
+    std::string lastCategory;
+    for (std::size_t i = 0; i < cards.cards().size(); ++i) {
+      const forge::ui::MaterialCard& c = cards.cards()[i];
+      if (c.category != lastCategory) {
+        lastCategory = c.category;
+        ImGui::TextDisabled("%s", c.category.empty() ? "Library" : c.category.c_str());
+      }
+      row(cards.materials()[i], c.category, c.text("KindOfMaterial"));
     }
-    ImGui::EndCombo();
+  }
+  ImGui::EndChild();
+  if (!materialLibraryProblem_.empty()) {
+    ImGui::TextColored(rgb(235, 175, 95), "Only Forge's own materials are offered: the "
+                                          "material library could not be read.");
   }
   ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-  ImGui::TextWrapped("Densities are typical handbook values for the alloy, not certified figures "
-                     "for a particular batch.");
+  ImGui::TextWrapped("Values are typical published figures for the material, not certified "
+                     "figures for a particular batch.");
   ImGui::PopStyleColor();
 
+  // ── mass properties ──────────────────────────────────────────────────────
   ImGui::Spacing();
   ImGui::TextColored(rgb(242, 158, 38), "What it weighs");
   ImGui::Separator();
@@ -9643,24 +9831,77 @@ void ForgeFrame::drawMaterialsPanel() {
     ImGui::TextWrapped("%s", kCamNoPart);
     return;
   }
+  // partMass() is the shared weight the Properties tab also prints, and the
+  // report below is the same density times the same volume, so the two cannot
+  // disagree; materials_gate compares them.
   const forge::ui::MassProperties mass = partMass();
-  ImGui::Text("volume    %.3f mm3", mass.volumeMm3);
-  if (mass.known) {
-    ImGui::Text("weight    %s",
-                forge::ui::describeMass(mass, forge::ui::MassUnit::Gram).c_str());
-    ImGui::Text("          %s",
-                forge::ui::describeMass(mass, forge::ui::MassUnit::Kilogram).c_str());
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
-    ImGui::Text("          volume x %.0f kg per cubic metre", mass.densityKgPerM3);
-    ImGui::PopStyleColor();
-    camMaterialRowsDrawn_ += 3;
-  } else {
-    ImGui::TextColored(rgb(235, 175, 95), "weight    %s",
-                       forge::ui::describeMass(mass, forge::ui::MassUnit::Gram).c_str());
+  const forge::ui::MassPropertiesReport report = partMassReport();
+  if (!report.known) {
+    ImGui::Text("volume    %.3f mm3", mass.volumeMm3);
+    ImGui::TextColored(rgb(235, 175, 95), "mass      --");
+    ImGui::TextWrapped("%s", sentenceCase(report.refusal).c_str());
+    massPropertyRowsDrawn_ += 2;
     camMaterialRowsDrawn_ += 1;
+    return;
+  }
+  ImGui::Text("mass      %.6g kg   (%s)", report.massKg,
+              forge::ui::describeMass(mass, forge::ui::MassUnit::Gram).c_str());
+  ImGui::Text("volume    %.3f mm3", report.volumeMm3);
+  ImGui::Text("density   %.0f kg/m3", report.densityKgPerM3);
+  ImGui::Spacing();
+  ImGui::Text("centre of mass");
+  ImGui::Text("   x %.4f mm   y %.4f mm   z %.4f mm", report.centreOfMassMm[0],
+              report.centreOfMassMm[1], report.centreOfMassMm[2]);
+  ImGui::Text("moments of inertia about the centre of mass, kg mm2");
+  for (int row = 0; row < 3; ++row) {
+    const std::size_t o = static_cast<std::size_t>(row * 3);
+    ImGui::Text("   %12.6g %12.6g %12.6g", report.inertiaKgMm2[o], report.inertiaKgMm2[o + 1],
+                report.inertiaKgMm2[o + 2]);
+  }
+  ImGui::Text("principal moments, kg mm2");
+  ImGui::Text("   %12.6g %12.6g %12.6g", report.principalMomentsKgMm2[0],
+              report.principalMomentsKgMm2[1], report.principalMomentsKgMm2[2]);
+  massPropertyRowsDrawn_ += 10;
+  camMaterialRowsDrawn_ += 3;
+  if (report.bodies.size() > 1) {
+    ImGui::Spacing();
+    ImGui::Text("%zu separate bodies", report.bodies.size());
+    for (std::size_t i = 0; i < report.bodies.size(); ++i) {
+      const forge::ui::BodyMass& b = report.bodies[i];
+      ImGui::Text("   %zu   %.6g kg   centre %.3f, %.3f, %.3f mm", i + 1, b.massKg,
+                  b.centreOfMassMm[0], b.centreOfMassMm[1], b.centreOfMassMm[2]);
+      ++massPropertyRowsDrawn_;
+    }
   }
   ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  ImGui::TextWrapped("%s", integratorSentence(r.massIntegrator));
   ImGui::TextWrapped("The Properties tab reports the same weight from the same measurement.");
+  ImGui::PopStyleColor();
+
+  // ── the card's own figures ───────────────────────────────────────────────
+  if (card == nullptr) return;
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "About this material");
+  ImGui::Separator();
+  for (const CardPropertyDisplay& d : kCardPropertyRows) {
+    const forge::ui::PhysicalQuantity* q = card->quantity(d.name);
+    if (q == nullptr) continue;
+    ImGui::Text("%-26s %12.6g %s", d.label, q->valueSI * d.fromSI, d.unit);
+    ++materialCardPropertyRowsDrawn_;
+  }
+  const std::string hardness = card->text("Hardness");
+  if (!hardness.empty()) {
+    ImGui::Text("%-26s %12s %s", "hardness", hardness.c_str(), card->text("HardnessUnits").c_str());
+    ++materialCardPropertyRowsDrawn_;
+  }
+  ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+  if (!card->description.empty()) ImGui::TextWrapped("%s", card->description.c_str());
+  ImGui::TextWrapped("From the material library. Author: %s. Licence: %s.",
+                     card->author.empty() ? "not named" : card->author.c_str(),
+                     card->license.empty() ? "not stated" : card->license.c_str());
+  if (!card->referenceSource.empty() || !card->sourceUrl.empty()) {
+    ImGui::TextWrapped("Source: %s %s", card->referenceSource.c_str(), card->sourceUrl.c_str());
+  }
   ImGui::PopStyleColor();
 }
 

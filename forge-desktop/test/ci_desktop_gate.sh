@@ -261,7 +261,10 @@ set -uo pipefail
 #    printed GREEN beside while a hand-authored STEP became a Forge part. The
 #    same awk now prints 188, READ OFF THIS TREE with that command:
 #      awk '/^run_gate /{t+=NF-2} END{print t}' forge-desktop/test/run_desktop.sh
-EXPECTED_MUTATIONS=188
+#  * 2026-09-15, materials: forge_desktop_materials_gate arrived with 8 -- the
+#    material card library and mass properties, one mutation per input. The same
+#    awk now prints 196, READ OFF THIS TREE with that command.
+EXPECTED_MUTATIONS=196
 
 ROOT="${FORGE_DESKTOP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 LOG="${FORGE_DESKTOP_GATE_LOG:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/forge_desktop_ci_gate.log}"

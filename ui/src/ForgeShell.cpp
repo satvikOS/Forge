@@ -1396,9 +1396,13 @@ void ForgeShell::recordDispatch(const std::string& id, const CommandDescriptor* 
     log_.warning(id, label + " ran and the document refused it", documentError_);
     return;
   }
+  // A command that MEASURED something puts the measurement in the detail -- the
+  // engineer's column of the Console and Archie's trace -- so what it found is on
+  // record beside the fact that it ran.
   log_.info(id, label + " ran",
-            command != nullptr && !command->featureIrOp.empty() ? command->featureIrOp
-                                                                : std::string());
+            !result.evidence.empty() ? result.evidence
+            : command != nullptr && !command->featureIrOp.empty() ? command->featureIrOp
+                                                                  : std::string());
 }
 
 DispatchResult ForgeShell::run(const std::string& id, const CommandParams& params) {

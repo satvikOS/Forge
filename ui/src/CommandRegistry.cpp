@@ -283,8 +283,10 @@ DispatchResult CommandRegistry::dispatch(const std::string& id, const SelectionS
   // A handler that ran and refused must not report Ok. Before this, every failure status was
   // decided above, so once execute() started the answer was always Ok -- and a refused edit
   // was a silent no-op reported as success.
-  if (ctx.failed()) return DispatchResult{DispatchStatus::EditRefused, ctx.failureDetail()};
-  return DispatchResult{DispatchStatus::Ok, {}};
+  if (ctx.failed()) {
+    return DispatchResult{DispatchStatus::EditRefused, ctx.failureDetail(), ctx.evidence()};
+  }
+  return DispatchResult{DispatchStatus::Ok, {}, ctx.evidence()};
 }
 
 }  // namespace forge::ui

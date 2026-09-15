@@ -22,6 +22,8 @@
 // application; see KernelScene.hpp for why that is deliberate.
 #include "forge/Booleans.hpp"
 #include "forge/BodyInventory.hpp"
+#include "forge/MassProps.hpp"
+#include "forge/ShapeHandle.hpp"
 #include "forge/Tessellate.hpp"
 #include "forge/ft/FeatureTree.hpp"
 
@@ -86,6 +88,33 @@ std::string workerSnippet(const std::string& s) {
 // draws the panels must stay compilable without a kernel. This is the ONE place
 // the two are put side by side, so a field added to one and forgotten in the
 // other is a compile error here rather than a column of zeroes in a panel.
+void installMassIntegrals(forge::ShapeHandle handle, IrBuildReport& report) {
+  report.massIntegralsKnown = false;
+  report.massIntegrator = MassIntegrator::None;
+  forge::MassProperties mp{};
+  try {
+    mp = forge::massProperties(handle);
+  } catch (...) {
+    return;
+  }
+  const double tolerance = 1e-9 * std::max(1.0, std::fabs(report.volume));
+  if (!std::isfinite(mp.volume) || std::fabs(mp.volume - report.volume) > tolerance) return;
+  for (int i = 0; i < 9; ++i) {
+    if (!std::isfinite(mp.inertiaCom[i])) return;
+  }
+  if (!std::isfinite(mp.cx) || !std::isfinite(mp.cy) || !std::isfinite(mp.cz)) return;
+  report.centroid[0] = mp.cx;
+  report.centroid[1] = mp.cy;
+  report.centroid[2] = mp.cz;
+  for (int i = 0; i < 9; ++i) report.inertiaUnitDensity[i] = mp.inertiaCom[i];
+  switch (forge::shapeKind(handle)) {
+    case forge::ShapeKind::NativeSolid: report.massIntegrator = MassIntegrator::NativeExact; break;
+    case forge::ShapeKind::NativeMesh: report.massIntegrator = MassIntegrator::Faceted; break;
+    case forge::ShapeKind::Occt: report.massIntegrator = MassIntegrator::Engine; break;
+  }
+  report.massIntegralsKnown = true;
+}
+
 forge::BodyInventoryOptions inventoryOptions() {
   forge::BodyInventoryOptions options;
   // Left at the kernel's defaults on purpose: the numbers that bound this work
@@ -276,6 +305,15 @@ bool KernelScene::buildInProcess(const std::string& program) {
     report_.bboxMin[i] = res.bboxMin[i];
     report_.bboxMax[i] = res.bboxMax[i];
   }
+
+  // ---- the volume integrals -----------------------------------------------
+  // forge::massProperties is the call the compiler itself made to produce
+  // res.volume, asked again for the centroid and the inertia it computed in the
+  // same pass. The two volumes are COMPARED: if they are not the same number the
+  // integrals are not attributable to the solid the report describes, and they
+  // are withheld rather than paired with the wrong shape. Like the inventory, a
+  // failure here cannot fail the build -- it only means no mass is shown.
+  installMassIntegrals(res.handle, report_);
 
   // ---- the body inventory -------------------------------------------------
   // Taken from the B-REP, which is the only place the exact answer lives, and
@@ -592,6 +630,24 @@ bool KernelScene::decodeWorkerPayload(const std::string& payload, IrBuildReport&
       report.pairsEvaluated = static_cast<std::size_t>(u0);
     } else if (key == "pairsTruncated" && std::sscanf(val, "%d", &i0) == 1) {
       report.pairsTruncated = i0 != 0;
+    } else if (key == "massIntegrals") {
+      // known integrator cx cy cz I0..I8 -- all fourteen or the payload is
+      // refused. A half-read tensor paired with a whole mesh is the kind of
+      // defect that looks like a kernel bug and is not one.
+      int known = 0;
+      int integrator = 0;
+      double v[12] = {0.0};
+      if (std::sscanf(val, "%d %d %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf %lf", &known,
+                      &integrator, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7],
+                      &v[8], &v[9], &v[10], &v[11]) != 14 ||
+          integrator < 0 || integrator > static_cast<int>(MassIntegrator::Faceted)) {
+        error = "the kernel worker's volume integrals could not be read";
+        return false;
+      }
+      report.massIntegralsKnown = known != 0;
+      report.massIntegrator = static_cast<MassIntegrator>(integrator);
+      for (int i = 0; i < 3; ++i) report.centroid[i] = v[i];
+      for (int i = 0; i < 9; ++i) report.inertiaUnitDensity[i] = v[3 + i];
     } else if (key == "errorBytes" && std::sscanf(val, "%llu", &u0) == 1) {
       errorBytes = static_cast<std::size_t>(u0);
       sawErrorBytes = true;

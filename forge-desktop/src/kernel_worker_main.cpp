@@ -111,6 +111,12 @@ void emitHeader(const forge::desktop::IrBuildReport& r, const std::string& backe
   std::printf("bodiesAnalysed %d\n", r.bodiesAnalysed ? 1 : 0);
   std::printf("pairsEvaluated %zu\n", r.pairsEvaluated);
   std::printf("pairsTruncated %d\n", r.pairsTruncated ? 1 : 0);
+  // The volume integrals mass properties are computed from. %.17g, so the
+  // parent multiplies the numbers the kernel integrated and not a re-rounding.
+  std::printf("massIntegrals %d %d %.17g %.17g %.17g", r.massIntegralsKnown ? 1 : 0,
+              static_cast<int>(r.massIntegrator), r.centroid[0], r.centroid[1], r.centroid[2]);
+  for (int i = 0; i < 9; ++i) std::printf(" %.17g", r.inertiaUnitDensity[i]);
+  std::printf("\n");
   // The error is LAST and length-prefixed, so a newline inside it cannot be read
   // as the start of another field.
   std::printf("errorBytes %zu\n", r.error.size());

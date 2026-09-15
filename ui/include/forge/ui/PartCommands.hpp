@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -46,7 +47,9 @@
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
+#include "forge/ui/MassProperties.hpp"
 #include "forge/ui/Material.hpp"
+#include "forge/ui/MaterialCards.hpp"
 
 namespace forge::ui {
 
@@ -421,8 +424,25 @@ int sketchRootOf(const PartDocument& doc, int irId);
 // carry Ctrl+Z, feed the status strip and make the viewport rebuild. A second
 // pair of Part-workspace undo commands over the same stack was two menu entries
 // for one operation, and only one of them did the whole job.
+//
+// ── WHAT THE HOST LENDS THE COMMANDS ───────────────────────────────────────
+// Two things a headless registry cannot know on its own, handed in rather than
+// looked up globally so that no command reads state it was not given:
+//
+//   materials          the material card library the application loaded. With
+//                      none, part.set_material resolves Forge's handbook table
+//                      only -- the state every existing caller is in.
+//   measuredIntegrals  the kernel's volume integrals for the solid the document
+//                      last BUILT, tagged with the program they were taken on.
+//                      With none, part.mass_properties and part.check_mass refuse
+//                      and say that nothing measures the shape here.
+struct PartCommandServices {
+  std::shared_ptr<const MaterialCatalogue> materials;
+  std::function<GeometricIntegrals()> measuredIntegrals;
+};
+
 std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& document,
-                                 UndoStack& undoStack);
+                                 UndoStack& undoStack, PartCommandServices services = {});
 
 // The stable IDs this function registers, sorted. Menus, keymaps, the manifest
 // and Archie's tool list all read this rather than hard-coding strings.

@@ -48,6 +48,8 @@
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MachineProgram.hpp"
+#include "forge/ui/MassProperties.hpp"
+#include "forge/ui/MaterialCards.hpp"
 #include "forge/ui/Manipulator.hpp"
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
@@ -1223,6 +1225,30 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // What the Materials panel and the Properties panel BOTH report. One call, so
   // the two cannot answer the same question differently.
   forge::ui::MassProperties partMass() const;
+  // ── MASS PROPERTIES, AND THE LIBRARY THEY ARE WEIGHED WITH ──────────────
+  // The kernel's volume integrals for the solid the scene last BUILT, tagged with
+  // the program it was built from. What part.mass_properties and the Materials
+  // tab both read, so the command Archie calls and the numbers a person sees
+  // come from one function.
+  forge::ui::GeometricIntegrals measuredIntegrals() const;
+  // Mass, centre of mass and inertia of the open document in its material. A
+  // refusal, never a number, when any input is missing or stale.
+  forge::ui::MassPropertiesReport partMassReport() const;
+  // The material card library loaded at start-up (never null; empty when the
+  // library could not be read, and then materialLibraryProblem() says why).
+  const forge::ui::MaterialCatalogue& materialCards() const noexcept { return *materialCards_; }
+  const std::string& materialLibraryProblem() const noexcept { return materialLibraryProblem_; }
+  // What the Materials tab drew on its last frame, for a gate to compare against
+  // the catalogue and the report: picker rows offered after the filter, and
+  // mass-property rows printed.
+  std::size_t materialPickerRowsDrawn() const noexcept { return materialPickerRowsDrawn_; }
+  std::size_t massPropertyRowsDrawn() const noexcept { return massPropertyRowsDrawn_; }
+  std::size_t materialCardPropertyRowsDrawn() const noexcept { return materialCardPropertyRowsDrawn_; }
+  // The picker's search text, settable so a gate can type into it.
+  void setMaterialFilter(const std::string& text);
+  // Records a pick the way clicking a row does; it is applied on the next frame,
+  // through part.set_material.
+  void pickMaterial(const std::string& id) { pendingMaterialId_ = id; }
   // The id of the material the open document holds. "unassigned" when none has
   // been chosen, which is a real document state and has to be nameable.
   const std::string& partDocumentMaterialId() const noexcept {
@@ -1680,6 +1706,13 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // reason every other mutation in this class is: it runs a command that touches
   // the document while the walk still holds references into it.
   std::string pendingMaterialId_;
+  // Loaded once, in the constructor, from libforge_fcmaterials (MaterialBundle.cpp).
+  std::shared_ptr<const forge::ui::MaterialCatalogue> materialCards_;
+  std::string materialLibraryProblem_;
+  char materialFilter_[64] = {0};
+  std::size_t materialPickerRowsDrawn_ = 0;
+  std::size_t massPropertyRowsDrawn_ = 0;
+  std::size_t materialCardPropertyRowsDrawn_ = 0;
 
   // ── the trust panels' state ─────────────────────────────────────────────
   // `qualityProgram_` is the IR the last check measured. Comparing it with

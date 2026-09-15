@@ -160,6 +160,18 @@ struct SceneBodyAlignment {
 };
 
 
+// WHICH integration produced a build's mass integrals. It is carried because the
+// answer is not always the same kind of number: an analytic native solid is
+// integrated exactly, an engine-built solid by the engine's own surface
+// integration, and a faceted result (a native fillet or chamfer) over its facets,
+// which is only as good as the facets. The Materials tab says which it used.
+enum class MassIntegrator : std::uint8_t {
+  None = 0,
+  NativeExact = 1,   // forge::native::brep divergence-theorem integration
+  Engine = 2,        // the modelling engine's surface integration of its own solid
+  Faceted = 3,       // a faceted native body, integrated over its triangles
+};
+
 // What the LAST document rebuild did — the reconciliation the app shows instead
 // of a silent empty viewport. It carries a VECTOR of observables, never volume
 // alone: a wrong solid reproducing a right volume to ten significant figures has
@@ -209,6 +221,19 @@ struct IrBuildReport {
   // thing a part can say about itself reached no panel and no user. They are
   // carried here and across the worker boundary with everything else.
   std::vector<std::string> checks;
+
+  // ── THE SOLID'S VOLUME INTEGRALS, FOR MASS PROPERTIES ───────────────────
+  // Centroid and the inertia tensor about it, at UNIT density, from the same
+  // kernel call (forge::massProperties) that produced `volume` -- so the three
+  // describe one integration of one solid. A material multiplies them into a
+  // mass, a centre of mass and an inertia in kg mm^2 without touching the
+  // geometry again (forge/ui/MassProperties.hpp). `massIntegralsKnown` is false
+  // when the integration was not taken or disagreed with `volume`, and then no
+  // panel may print a mass.
+  bool massIntegralsKnown = false;
+  MassIntegrator massIntegrator = MassIntegrator::None;
+  double centroid[3] = {0.0, 0.0, 0.0};       // mm
+  double inertiaUnitDensity[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};  // mm^5, row-major
   bool ok() const noexcept { return parsed && compiled && tessellated && error.empty(); }
   // The body a face belongs to, or 0 when the id names no face of this build.
   std::uint32_t bodyForFace(std::uint32_t faceId) const noexcept {

@@ -125,6 +125,9 @@ fi
 
 INC="-I forge-desktop/src -I forge-desktop/third_party/imgui -I ui/include -I forge-desktop/test"
 INC="$INC -I forge-kernel/include"
+# The LGPL material library's C header: MaterialBundle.cpp and materials_gate.cpp
+# name its four functions, and type-checking them needs only the header.
+INC="$INC -I third_party/freecad-derived/materials/include"
 FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 
 # The TUs this gate checks. EXPLICIT, not a glob: the skipped four are skipped
@@ -155,6 +158,8 @@ CHECKED=(
   forge-desktop/test/drawing_gate.cpp
   forge-desktop/test/file_exchange_gate.cpp
   forge-desktop/test/frame_gate.cpp
+  forge-desktop/src/MaterialBundle.cpp
+  forge-desktop/test/materials_gate.cpp
   # ── PROMOTED 2026-09-12 BY THE RATCHET AT THE BOTTOM OF THIS FILE, on its
   #    first run. Both were listed as needing TopoDS_Shape.hxx through
   #    forge/Fea.hpp and forge/CamAdvanced.hpp -> forge/Cam.hpp ->
@@ -314,6 +319,9 @@ if [ "$MUTATE" -ne 0 ]; then
   cp -R ui/include "$WORK/ui/" || { echo "[syntax] cannot copy ui/include"; exit 1; }
   cp -R forge-kernel/include "$WORK/forge-kernel/" || {
     echo "[syntax] cannot copy forge-kernel/include"; exit 1; }
+  mkdir -p "$WORK/third_party/freecad-derived/materials"
+  cp -R third_party/freecad-derived/materials/include "$WORK/third_party/freecad-derived/materials/" || {
+    echo "[syntax] cannot copy the material library header"; exit 1; }
   case "$MUTATE" in
     1)
       # Drop ForgeFrame's documentReset override: DocumentHost keeps the pure

@@ -1,7 +1,10 @@
 #include "forge/ui/PartCommands.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -648,7 +651,7 @@ int sketchRootOf(const PartDocument& doc, int irId) {
 }
 
 std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
-                                 UndoStack& stack) {
+                                 UndoStack& stack, PartCommandServices services) {
   PartDocument* d = &doc;
   UndoStack* s = &stack;
   std::size_t added = 0;
@@ -3152,6 +3155,16 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // `material` is REQUIRED and carries NO default, exactly as part.edit_feature's
   // `value` does. There is no default material for a part somebody is designing,
   // and filling one in would let a menu click silently decide a part is aluminium.
+  //
+  // TWO LIBRARIES, ONE NAME SPACE. Forge's handbook table answers first, then
+  // the material card library the host loaded (services.materials) -- the cards
+  // may not take a handbook name, so a name means one material. An unknown name
+  // is REFUSED BY NAME: the refusal quotes what was asked for, so a caller that
+  // misspelled "steel-s235jr" learns which word was wrong rather than that
+  // something was.
+  //
+  // Changing the material touches no statement, so the shape is not rebuilt: the
+  // weight is re-derived from the integrals already measured (MassProperties.hpp).
   {
     CommandDescriptor c = base("part.set_material", "Set Material", "",
                                SelectionSignature::none());
@@ -3159,20 +3172,101 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                                  .required = true, .defaultNumber = 0.0,
                                  .defaultText = "", .hasDefault = false});
     c.preview = PreviewPolicy::None;
+    const std::shared_ptr<const MaterialCatalogue> cards = services.materials;
     // STRUCTURE only, never the value -- the same rule part.edit_feature is
     // written to. "Is there a table to choose from?" is what a greyed menu item
     // answers; whether a particular name is in it is the execute's answer, and
     // deciding it here would grey out a legal keystroke.
-    c.enabled = [](const CommandContext&) { return !materialLibrary().empty(); };
-    c.execute = [d, s](CommandContext& ctx) {
+    c.enabled = [cards](const CommandContext&) {
+      return !materialLibrary().empty() || (cards != nullptr && !cards->materials().empty());
+    };
+    c.execute = [d, s, cards](CommandContext& ctx) {
       const std::string id = txt(ctx, "material", "");
-      const Material* picked = findMaterial(id);
+      const Material* picked = resolveMaterial(id, cards.get());
       if (picked == nullptr) {
-        ctx.fail("no material is recorded under that name");
+        ctx.fail("no material is recorded under the name \"" + id + "\"");
         return;
       }
       if (!s->perform(*d, std::make_unique<SetMaterialEdit>(*picked))) {
         ctx.fail("this part is already made of that material");
+      }
+    };
+    add(std::move(c));
+  }
+
+  // ── MASS PROPERTIES ───────────────────────────────────────────────────────
+  // A QUERY, not an edit: it changes nothing, pushes no undo step and asks for no
+  // rebuild (ViewOnly, so ForgeShell does not tell the document it changed). What
+  // it returns is the evidence line -- mass in kg, centre of mass in mm, inertia
+  // about the centre of mass in kg mm^2, the material and density it used -- and
+  // that line is how Archie cites a measured mass.
+  //
+  // It REFUSES rather than estimates: no material, no density, a shape that did
+  // not build, or a shape edited since it was measured each produce a refusal
+  // naming the reason, and never a number.
+  {
+    CommandDescriptor c = base("part.mass_properties", "Mass Properties", "",
+                               SelectionSignature::none());
+    c.preview = PreviewPolicy::None;
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    const std::function<GeometricIntegrals()> measured = services.measuredIntegrals;
+    c.execute = [d, measured](CommandContext& ctx) {
+      if (!measured) {
+        ctx.fail("nothing measures the shape in this session, so it has no mass to report");
+        return;
+      }
+      const MassPropertiesReport r = massPropertiesFor(d->material(), measured(), d->irProgram());
+      ctx.record(r.evidence());
+      if (!r.known) ctx.fail(r.refusal);
+    };
+    add(std::move(c));
+  }
+
+  // ── CHECK WEIGHT ──────────────────────────────────────────────────────────
+  // The assertion form of the query above, for a plan that must keep a part
+  // inside a mass budget: it succeeds only when the measured mass is within
+  // `tolerance_percent` of `expected_kg`, and it records the measurement either
+  // way so a refusal says what the part actually weighs.
+  //
+  // `expected_kg` is REQUIRED and has NO default: there is no honest guess at what
+  // a part should weigh. The tolerance defaults to half a per cent, which is
+  // tighter than the scatter of a handbook density and looser than rounding.
+  {
+    CommandDescriptor c = base("part.check_mass", "Check Weight", "",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "expected_kg", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0,
+                                 .defaultText = "", .hasDefault = false});
+    c.schema.push_back(ParamSpec{.name = "tolerance_percent", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.5,
+                                 .defaultText = "", .hasDefault = true});
+    c.preview = PreviewPolicy::None;
+    c.sideEffect = SideEffectClass::ViewOnly;
+    c.undo = UndoContract::NotUndoable;
+    const std::function<GeometricIntegrals()> measured = services.measuredIntegrals;
+    c.enabled = [](const CommandContext& ctx) {
+      return num(ctx, "expected_kg", 0.0) > 0.0 && num(ctx, "tolerance_percent", 0.5) >= 0.0;
+    };
+    c.execute = [d, measured](CommandContext& ctx) {
+      if (!measured) {
+        ctx.fail("nothing measures the shape in this session, so its weight cannot be checked");
+        return;
+      }
+      const MassPropertiesReport r = massPropertiesFor(d->material(), measured(), d->irProgram());
+      ctx.record(r.evidence());
+      if (!r.known) {
+        ctx.fail(r.refusal);
+        return;
+      }
+      const double expected = num(ctx, "expected_kg", 0.0);
+      const double tolerance = num(ctx, "tolerance_percent", 0.5);
+      if (std::fabs(r.massKg - expected) > expected * tolerance / 100.0) {
+        char why[192];
+        std::snprintf(why, sizeof(why),
+                      "the part weighs %.6g kg, which is not within %.6g%% of %.6g kg",
+                      r.massKg, tolerance, expected);
+        ctx.fail(why);
       }
     };
     add(std::move(c));
@@ -3526,6 +3620,8 @@ const std::vector<std::string>& partCommandIds() {
         "part.sweep_profile",      "part.tag_feature",        "part.thicken",
         "part.section_curve",
         "part.set_material",
+        "part.mass_properties",
+        "part.check_mass",
         "part.thread",
         "part.unfold",
         "part.variable_fillet",

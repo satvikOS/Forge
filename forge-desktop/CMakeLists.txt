@@ -208,6 +208,21 @@ else()
         "ui/test/run_op_constraint_gate.sh manually.")
 endif()
 
+# ------------------------------------------- the material card library (LGPL)
+# FreeCAD's material cards, built as their OWN SHARED LIBRARY from
+# third_party/freecad-derived/materials and linked dynamically, never compiled
+# into forge_desktop, forge_kernel_worker or libforge_kernel_core. That is what
+# lets the LGPL part of the product be replaced on its own; the compliance gate
+# (tools/gates/freecad_derived_compliance_gate.sh) refuses any other shape, and
+# `otool -L forge_desktop` shows @rpath/libforge_fcmaterials.dylib.
+#
+# Output beside the executables, so the packager's @rpath walk finds it in
+# APP_BUILD exactly as it finds libforge_kernel_core in the kernel build.
+add_subdirectory("${FORGE_ROOT}/third_party/freecad-derived/materials"
+                 "${CMAKE_BINARY_DIR}/freecad-derived-materials")
+set_target_properties(forge_fcmaterials PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
 # ---------------------------------------------------------------- Dear ImGui
 # Vendored, third-party: warnings are NOT errors here, and -Werror is not applied
 # to code this project does not own.
@@ -250,6 +265,7 @@ add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/MaterialBundle.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -321,7 +337,7 @@ foreach(_tk IN LISTS FORGE_DESKTOP_OCCT_LIBS)
 endforeach()
 
 target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
-                      "${FORGE_KERNEL_CORE_LIB}")
+                      "${FORGE_KERNEL_CORE_LIB}" forge_fcmaterials)
 
 # ---------------------------------------------------------------- the app
 # ── the NATIVE FILE PANEL is in the app and in nothing else ────────────────
@@ -479,6 +495,20 @@ target_compile_options(forge_desktop_cam_panels_gate PRIVATE -Wall -Wextra -Werr
 target_link_libraries(forge_desktop_cam_panels_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_cam_panels_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
+# ------------------------------------------------- the MATERIALS gate
+# The material card library and mass properties, headless, through the real
+# ForgeFrame and part.set_material / part.mass_properties / part.check_mass: a
+# 100 x 50 x 10 mm aluminium block weighs 0.135 kg, steel changes the mass with
+# no rebuild, an unknown material is refused by name, the Materials tab prints
+# what the report holds, and the card set the reader loaded is the one the LGPL
+# library carries. It links the library the same way the application does.
+add_executable(forge_desktop_materials_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/materials_gate.cpp")
+target_compile_options(forge_desktop_materials_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_materials_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_materials_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib;${CMAKE_BINARY_DIR}")
 
 # ---------------------------------------------------------------- the gates
 # ir_pipeline_gate.cpp EXISTED for a while and was built only by a standalone
@@ -843,6 +873,7 @@ add_library(forge_desktop_core_asan STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/DrawingGdt.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/StudyHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/MaterialBundle.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core_asan PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -853,7 +884,7 @@ target_compile_options(forge_desktop_core_asan PRIVATE -Wall -Wextra -Werror ${F
 # FORGE_DESKTOP_OCCT_PATHS dropped here too — see the note above. It is now unset,
 # so leaving it would expand to nothing while reading as though it linked something.
 target_link_libraries(forge_desktop_core_asan
-    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}")
+    PUBLIC forge_ui_asan forge_imgui_asan "${FORGE_KERNEL_CORE_LIB}" forge_fcmaterials)
 
 add_executable(forge_desktop_click_gate
     "${CMAKE_CURRENT_SOURCE_DIR}/test/click_gate.cpp")
@@ -1172,6 +1203,12 @@ foreach(_sm RANGE 1 6)
     add_test(NAME forge_desktop_study_mutation_${_sm}
              COMMAND forge_desktop_study_gate --mutate ${_sm})
     set_tests_properties(forge_desktop_study_mutation_${_sm} PROPERTIES WILL_FAIL TRUE)
+endforeach()
+add_test(NAME forge_desktop_materials_gate COMMAND forge_desktop_materials_gate)
+foreach(_mm RANGE 1 8)
+    add_test(NAME forge_desktop_materials_mutation_${_mm}
+             COMMAND forge_desktop_materials_gate --mutate ${_mm})
+    set_tests_properties(forge_desktop_materials_mutation_${_mm} PROPERTIES WILL_FAIL TRUE)
 endforeach()
 add_test(NAME forge_desktop_cam_panels_gate COMMAND forge_desktop_cam_panels_gate)
 # The negative controls. Each --mutate breaks ONE query the panels depend on, and

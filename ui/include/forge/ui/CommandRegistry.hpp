@@ -152,11 +152,21 @@ class CommandContext {
   bool failed() const noexcept { return failed_; }
   const std::string& failureDetail() const noexcept { return detail_; }
 
+  // WHAT THE HANDLER MEASURED, returned to the caller whether it succeeded or
+  // refused. A query command (part.mass_properties) has nothing to change and
+  // everything to report, and before this its only channel was a refusal: a
+  // successful measurement reached no caller at all. Written as typed
+  // `key=value` text with the unit in each key, so Archie cites a number and its
+  // unit, never a sentence. The last call wins.
+  void record(std::string evidence) { evidence_ = std::move(evidence); }
+  const std::string& evidence() const noexcept { return evidence_; }
+
  private:
   const SelectionService& selection_;
   CommandParams params_;
   bool failed_ = false;
   std::string detail_;
+  std::string evidence_;
 };
 
 struct CommandDescriptor {
@@ -246,6 +256,10 @@ const char* userText(DispatchStatus status) noexcept;
 struct DispatchResult {
   DispatchStatus status = DispatchStatus::Ok;
   std::string detail;
+  // CommandContext::record()'s text, on success AND on a refusal; empty for a
+  // command that measures nothing. Braced so that DispatchResult{status, detail}
+  // stays warning-clean under -Wmissing-field-initializers.
+  std::string evidence{};
   bool ok() const noexcept { return status == DispatchStatus::Ok; }
 };
 

@@ -408,6 +408,13 @@ run_gate forge_desktop_study_gate 1 2 3 4 5 6
 # height, the density, the stock extent, the posted program, the shared-weight
 # scan and the removal arithmetic.
 run_gate forge_desktop_cam_panels_gate 1 2 3 4 5 6 7 8 9 10
+# The MATERIALS gate: the FreeCAD-derived card library (loaded from its own shared
+# library) and mass properties, through the real frame and the three commands
+# Archie drives -- 0.135 kg for the aluminium block, steel with no rebuild, an
+# unknown name refused by name, a stale measurement refused, the L-shape's inertia
+# against the parallel-axis theorem, the worker boundary, the tab, and a density
+# in the wrong dimension refused. Eight mutations, one per input.
+run_gate forge_desktop_materials_gate 1 2 3 4 5 6 7 8
 # The AUTO-UPDATE gate. It needs none of the build above -- libforge_updater
 # links nothing but libc++ -- so it can also be run on its own in seconds with
 # test/run_update_gate.sh --mutations, which is the form CI uses. It runs here
