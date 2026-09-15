@@ -3103,18 +3103,50 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
         } catch (...) {
             continue;
         }
-        // Third and last family-G construction site. The skip-this-override
-        // contract is unchanged: a null native result is skipped exactly as
-        // !IsDone() was, so an override the engine cannot build leaves the base
-        // wall standing rather than aborting the whole shell.
+        // Third and last family-G construction site.
+        //
+        // ★ AN OVERRIDE THE ENGINE CANNOT BUILD IS A REFUSAL, NOT A SKIP. This
+        //   site used to `continue` on a null result ("leaves the base wall
+        //   standing"), inherited from the OCCT path's `!IsDone()` skip. With OCCT
+        //   the skip almost never fired; with the native engine it fires on every
+        //   override it declines, and the caller receives the UNIFORM shell — the
+        //   request with the override silently deleted — reported as success.
+        //   MEASURED on box(10), face 0 removed, base wall 1.0, override on face 1
+        //   (test/shell_override_refusal_gate.cpp):
+        //       override   OCCT (origin/archdisc)   native, skip   native, this
+        //       1.5        632.5                     632.5          632.5
+        //       4.0        980.0                     980.0          980.0
+        //       5.0        809.524                   424.0 (!)      REFUSED
+        //       6.0        1000.0                    424.0 (!)      REFUSED
+        //       20.0       1000.0                    424.0 (!)      REFUSED
+        //   424 = 1000 - 8*8*9 is the shell WITHOUT the override. A wrong solid
+        //   that reports success is worse than no solid, so the engine's own
+        //   reason is passed through instead.
         const TopoDS_Shape ovrShape = ::forge::occtoffset::makeThickSolid(
             src, std::abs(ovr.thickness), ovrRemove, 1.0e-3);
-        if (ovrShape.IsNull()) continue;
+        if (ovrShape.IsNull()) {
+            throw std::runtime_error(
+                std::string("forge.part.shellMultiThickness: the native thick-solid "
+                            "DECLINED the per-face override on face ") +
+                std::to_string(ovr.faceId) + " at thickness " +
+                std::to_string(std::abs(ovr.thickness)) + " (" +
+                ::forge::occtoffset::lastThickSolidDeferReason() +
+                ") — refusing rather than returning the shell without that override; "
+                "there is no OCCT MakeThickSolid fallback");
+        }
         BRepAlgoAPI_Fuse fuse(acc, ovrShape);
         fuse.Build();
-        if (fuse.IsDone()) {
-            acc = fuse.Shape();
+        if (!fuse.IsDone()) {
+            // Same rule for the merge: a fuse that did not complete used to leave
+            // `acc` untouched, i.e. the same silent drop by a second route.
+            throw std::runtime_error(
+                std::string("forge.part.shellMultiThickness: fusing the per-face "
+                            "override on face ") +
+                std::to_string(ovr.faceId) +
+                " into the base shell did not complete — refusing rather than "
+                "returning the shell without that override");
         }
+        acc = fuse.Shape();
     }
     return ShapeRegistry::instance().add(acc);
 #endif  // FORGE_NATIVE_BREP
