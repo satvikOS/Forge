@@ -1184,6 +1184,15 @@ jobs:
         # separately-built tree -- a gate built from a different tree than the
         # number it guards has already cost this repo one discarded corpus run.
         run: SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicksolid_multibody_gate.sh
+      - name: thicken a COMPOUND (family I's drop must not refuse a boolean's output)
+        # Every OCCT boolean returns a TopAbs_COMPOUND. Family I deleted the OCCT
+        # skin-offset fallback, and the native engine's coplanar path prismed the
+        # RAW input -- which forge::occtPrism refuses for a compound -- so thickening
+        # the direct output of a cut became a hard THROW. Proved RED on the pre-fix
+        # engine object: 7 passed, 8 failed ("coplanar path: the shell prism
+        # failed"); 15/0 after. Same archive as the A/B above, for the same reason
+        # as the multibody gate.
+        run: SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicken_compound_input_gate.sh
       - name: plane-vs-spline consumer equivalence (the rule, and its negative controls)
         # THE MEASUREMENT BEHIND THE ONE RELAXATION THE FLIP GATE MAKES. The gate
         # compares faces binned by surface KIND, and that term reds FILLING on 407

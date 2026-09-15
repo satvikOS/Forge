@@ -353,17 +353,32 @@ function circleSketch(r) {
   const REF_VOL  = 1000 - 8 * 8 * 9;              // 424 : outer 10^3 minus the 8x8x9 cavity
   const REF_AREA = 5 * 100 + (4 * 8 * 9 + 8 * 8) + (100 - 8 * 8); // 888 : outer 500 + cavity 352 + lip 36
   const REF_MIN = [0, 0, 0], REF_MAX = [10, 10, 10];
-  // Route face counts DIFFER LEGITIMATELY and are asserted per route, not
-  // across them: OCCT emits the lip as ONE planar face carrying two wires
-  // (5 outer + 5 cavity + 1 lip = 11 faces / 24 edges), the native engine as
-  // one quad per rim edge (5 + 5 + 4 = 14 faces / 28 edges). Volume, area,
-  // position and chi/genus are segmentation-independent and ARE compared.
+  // ★ TKOffset FAMILY G (2026-09-14): part.shell HAS NO OCCT ROUTE ANY MORE.
+  // BRepOffsetAPI_MakeThickSolid is DELETED from Features.cpp, so on an OCCT-backed
+  // box (FORGE_NATIVE_FEATURES unset — the shipped default) part.shell and
+  // part.shellNativeThick now reach the SAME engine,
+  // forge::occtoffset::makeThickSolid, with the same |wall|. This block used to
+  // expect OCCT's segmentation from part.shell — the lip as ONE planar face
+  // carrying two wires, 5 + 5 + 1 = 11 faces / 24 edges — and CI measured 14 on
+  // the first run after the deletion, which is the native engine's one quad per
+  // rim edge (5 + 5 + 4 = 14 faces / 28 edges). The expectation followed the
+  // code; nothing about the SOLID moved: both entry points are still checked
+  // against the CLOSED FORMS above (V = 424, A = 888, bbox, chi, genus), which
+  // never depended on which engine answered.
+  //
+  // What is lost, and said so rather than hidden: the cross-route comparison
+  // below is no longer an A/B between two engines — it is a consistency check
+  // between two ENTRY POINTS over one engine. The engine-vs-OCCT A/B lives where
+  // OCCT is allowed to live, as the oracle in the test harnesses
+  // (test/run_ab_native_thicksolid_*.sh, the 600-part corpus A/B), not in the
+  // shipped kernel.
+  const PROD_FACES = 14, PROD_EDGES = 28;
   for (let id = 0; id < 6; id++) {
     const box = forge.makeBox(10, 10, 10);
-    const occt = shapeSig(part.shell(box, [id], 1.0));
+    const prod = shapeSig(part.shell(box, [id], 1.0));
     const nat  = shapeSig(part.shellNativeThick(box, [id], 1.0));
 
-    for (const [tag, s] of [['occt', occt], ['native', nat]]) {
+    for (const [tag, s] of [['shell', prod], ['shellNativeThick', nat]]) {
       approx(s.vol,  REF_VOL,  1e-12, `shell f${id} ${tag} volume vs 1000-8*8*9`);
       approx(s.area, REF_AREA, 1e-12, `shell f${id} ${tag} area vs 500+352+36`);
       for (let k = 0; k < 3; k++) {
@@ -376,15 +391,15 @@ function circleSketch(r) {
       assert.strictEqual(s.topo.euler, 2, `shell f${id} ${tag}: chi must be 2 (one closed shell)`);
       assert.strictEqual(s.topo.genus, 0, `shell f${id} ${tag}: genus must be 0`);
     }
-    assert.strictEqual(occt.faces, 11, `shell f${id} occt face count`);
-    assert.strictEqual(occt.edges, 24, `shell f${id} occt edge count`);
+    assert.strictEqual(prod.faces, PROD_FACES, `shell f${id} part.shell face count (native engine)`);
+    assert.strictEqual(prod.edges, PROD_EDGES, `shell f${id} part.shell edge count (native engine)`);
     assert.strictEqual(nat.faces, 14, `shell f${id} native face count`);
     assert.strictEqual(nat.edges, 28, `shell f${id} native edge count`);
 
-    const legs = diffLegs(occt, nat);
+    const legs = diffLegs(prod, nat);
     assert.deepStrictEqual(legs, [],
-      `shell f${id}: THE TWO ROUTES COMPUTE DIFFERENT OPERATIONS — disagree on ` +
-      `[${legs.join(',')}]\n    occt   ${sigStr(occt)}\n    native ${sigStr(nat)}`);
+      `shell f${id}: THE TWO ENTRY POINTS COMPUTE DIFFERENT OPERATIONS — disagree on ` +
+      `[${legs.join(',')}]\n    shell            ${sigStr(prod)}\n    shellNativeThick ${sigStr(nat)}`);
 
     tessOk(part.shell(box, [id], 1.0), `shell face${id}`);
   }
