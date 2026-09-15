@@ -5,6 +5,10 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// The redundant-constraint retry loop is bounded: a pass that removes no new constraint is a SimulationStoppingError instead of an endless loop.
 
 #include <assert.h>
 #include <exception>
@@ -17,11 +21,18 @@
 #include "CREATE.h"
 #include "GESpMatParPvPrecise.h"
 #include "GESpMatFullPvPosIC.h"
+#include "System.h"
+#include "SimulationStoppingError.h"
 
 using namespace MbD;
 
 void PosICNewtonRaphson::run()
 {
+	// Forge: this loop used to be unbounded. Each pass that ends in a singular
+	// matrix marks the offending equations redundant and starts again, so a pass
+	// that marks NOTHING new can never make progress -- and would spin for ever
+	// inside an interactive application. It is now a refusal instead.
+	std::size_t redundantBefore = system->system->allRedundantConstraints()->size();
 	while (true) {
 		try {
 			//VectorNewtonRaphson::run();   //Inline to help debugging
@@ -35,6 +46,11 @@ void PosICNewtonRaphson::run()
 		catch (const SingularMatrixError& ex) {
 			auto redundantEqnNos = ex.getRedundantEqnNos();
 			system->partsJointsMotionsLimitsDo([&](std::shared_ptr<Item> item) { item->removeRedundantConstraints(redundantEqnNos); });
+			const std::size_t redundantAfter = system->system->allRedundantConstraints()->size();
+			if (redundantAfter <= redundantBefore) {
+				throw SimulationStoppingError("the constraint equations are singular and no redundant constraint could be removed");
+			}
+			redundantBefore = redundantAfter;
 			system->partsJointsMotionsLimitsDo([&](std::shared_ptr<Item> item) { item->constraintsReport(); });
 			system->partsJointsMotionsLimitsDo([&](std::shared_ptr<Item> item) { item->setqsu(qsuOld); });
 		}

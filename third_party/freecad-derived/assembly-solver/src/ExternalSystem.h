@@ -5,24 +5,23 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
- 
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// The CADSystem demo back-end and the FreeCAD AssemblyObject back-pointer are
+// removed; the ASMT assembly is the only host. logString() no longer writes to
+// std::cout: it appends to a bounded message list the host installs.
+
 #pragma once
 
 #include <memory>
-#include "enum.h"
 #include <string>
+#include <vector>
+#include "enum.h"
 
-//#include "CADSystem.h"
-//#include "ASMTAssembly.h"
 #include "Part.h"
 
-namespace Assembly
-{
-	class AssemblyObject;
-}
-
 namespace MbD {
-	class CADSystem;
 	class ASMTAssembly;
     class System;
 
@@ -36,15 +35,13 @@ namespace MbD {
 		void outputFor(AnalysisType type);
 		void logString(const std::string& str);
 		void logString(double value);
-		void runOndselPiston();
-		void runPiston();
 		void postMbDrun();
 
-
-		CADSystem* cadSystem;
-        ASMTAssembly* asmtAssembly;
-        Assembly::AssemblyObject* freecadAssemblyObject;
-
+        ASMTAssembly* asmtAssembly = nullptr;
+		// Where solver progress messages go. Null means they are discarded. A
+		// library must not write to a process's standard streams: Forge's kernel
+		// worker speaks a protocol on stdout.
+		std::shared_ptr<std::vector<std::string>> messages;
 	};
 }
 

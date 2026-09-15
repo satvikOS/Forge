@@ -5,6 +5,10 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// compareResults()/outputResults() no longer print to std::cout (their reference series came from the removed .asmt reader).
 #include <algorithm>
 #include <fstream>	
 
@@ -430,82 +434,13 @@ void MbD::ASMTSpatialContainer::updateFromMbD()
 
 void MbD::ASMTSpatialContainer::compareResults(AnalysisType)
 {
-	if (inxs == nullptr || inxs->empty()) return;
-	auto mbdUnts = mbdUnits();
-	auto factor = 1.0e-6;
-	auto lengthTol = mbdUnts->length * factor;
-	auto angleTol = mbdUnts->angle * factor;
-	auto velocityTol = mbdUnts->velocity * factor;
-	auto omegaTol = mbdUnts->omega * factor;
-	auto accelerationTol = mbdUnts->acceleration * factor;
-	auto alphaTol = mbdUnts->alpha * factor;
-	auto i = xs->size() - 1;
-	//Pos
-	if (!Numeric::equaltol(xs->at(i), inxs->at(i), lengthTol)) {
-		std::cout << i << " xs " << xs->at(i) << " != " << inxs->at(i) << " tol = " << lengthTol << std::endl;
-	}
-	if (!Numeric::equaltol(ys->at(i), inys->at(i), lengthTol)) {
-		std::cout << i << " ys " << ys->at(i) << " != " << inys->at(i) << " tol = " << lengthTol << std::endl;
-	}
-	if (!Numeric::equaltol(zs->at(i), inzs->at(i), lengthTol)) {
-		std::cout << i << " zs " << zs->at(i) << " != " << inzs->at(i) << " tol = " << lengthTol << std::endl;
-	}
-	if (!Numeric::equaltol(bryxs->at(i), inbryxs->at(i), angleTol)) {
-		std::cout << i << " bryxs " << bryxs->at(i) << " != " << inbryxs->at(i) << " tol = " << angleTol << std::endl;
-	}
-	if (!Numeric::equaltol(bryys->at(i), inbryys->at(i), angleTol)) {
-		std::cout << i << " bryys " << bryys->at(i) << " != " << inbryys->at(i) << " tol = " << angleTol << std::endl;
-	}
-	if (!Numeric::equaltol(bryzs->at(i), inbryzs->at(i), angleTol)) {
-		std::cout << i << " bryzs " << bryzs->at(i) << " != " << inbryzs->at(i) << " tol = " << angleTol << std::endl;
-	}
-	//Vel
-	if (!Numeric::equaltol(vxs->at(i), invxs->at(i), velocityTol)) {
-		std::cout << i << " vxs " << vxs->at(i) << " != " << invxs->at(i) << " tol = " << velocityTol << std::endl;
-	}
-	if (!Numeric::equaltol(vys->at(i), invys->at(i), velocityTol)) {
-		std::cout << i << " vys " << vys->at(i) << " != " << invys->at(i) << " tol = " << velocityTol << std::endl;
-	}
-	if (!Numeric::equaltol(vzs->at(i), invzs->at(i), velocityTol)) {
-		std::cout << i << " vzs " << vzs->at(i) << " != " << invzs->at(i) << " tol = " << velocityTol << std::endl;
-	}
-	if (!Numeric::equaltol(omexs->at(i), inomexs->at(i), omegaTol)) {
-		std::cout << i << " omexs " << omexs->at(i) << " != " << inomexs->at(i) << " tol = " << omegaTol << std::endl;
-	}
-	if (!Numeric::equaltol(omeys->at(i), inomeys->at(i), omegaTol)) {
-		std::cout << i << " omeys " << omeys->at(i) << " != " << inomeys->at(i) << " tol = " << omegaTol << std::endl;
-	}
-	if (!Numeric::equaltol(omezs->at(i), inomezs->at(i), omegaTol)) {
-		std::cout << i << " omezs " << omezs->at(i) << " != " << inomezs->at(i) << " tol = " << omegaTol << std::endl;
-	}
-	//Acc
-	if (!Numeric::equaltol(axs->at(i), inaxs->at(i), accelerationTol)) {
-		std::cout << i << " axs " << axs->at(i) << " != " << inaxs->at(i) << " tol = " << accelerationTol << std::endl;
-	}
-	if (!Numeric::equaltol(ays->at(i), inays->at(i), accelerationTol)) {
-		std::cout << i << " ays " << ays->at(i) << " != " << inays->at(i) << " tol = " << accelerationTol << std::endl;
-	}
-	if (!Numeric::equaltol(azs->at(i), inazs->at(i), accelerationTol)) {
-		std::cout << i << " azs " << azs->at(i) << " != " << inazs->at(i) << " tol = " << accelerationTol << std::endl;
-	}
-	if (!Numeric::equaltol(alpxs->at(i), inalpxs->at(i), alphaTol)) {
-		std::cout << i << " alpxs " << alpxs->at(i) << " != " << inalpxs->at(i) << " tol = " << alphaTol << std::endl;
-	}
-	if (!Numeric::equaltol(alpys->at(i), inalpys->at(i), alphaTol)) {
-		std::cout << i << " alpys " << alpys->at(i) << " != " << inalpys->at(i) << " tol = " << alphaTol << std::endl;
-	}
-	if (!Numeric::equaltol(alpzs->at(i), inalpzs->at(i), alphaTol)) {
-		std::cout << i << " alpzs " << alpzs->at(i) << " != " << inalpzs->at(i) << " tol = " << alphaTol << std::endl;
-	}
+	// Forge: the reference series this compared against came from an .asmt file,
+	// and the file reader is removed. Nothing to compare; nothing is printed.
 }
 
 void MbD::ASMTSpatialContainer::outputResults(AnalysisType)
 {
-	if (inxs != nullptr && !inxs->empty()) return;
-	auto i = xs->size() - 1;
-	std::cout << i << " ";
-	std::cout << xs->at(i) << ", " << ys->at(i) << ", " << zs->at(i) << ", ";
-	std::cout << bryxs->at(i) << ", " << bryys->at(i) << ", " << bryzs->at(i) << std::endl;
+	// Forge: results are read back through the host, never printed.
 }
 
 void MbD::ASMTSpatialContainer::addRefPoint(std::shared_ptr<ASMTRefPoint> refPoint)

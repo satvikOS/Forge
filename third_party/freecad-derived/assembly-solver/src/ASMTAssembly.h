@@ -5,9 +5,12 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// Declarations of the removed file I/O, demo and debug members are removed; solverMessages added.
 
 #pragma once
-#include <fstream>	
 
 #include "ASMTSpatialContainer.h"
 //Required for initialization
@@ -35,48 +38,10 @@ namespace MbD {
 	public:
 		ASMTAssembly();
 		static std::shared_ptr<ASMTAssembly> With();
-		static void runSinglePendulumSuperSimplified();
-		static void runSinglePendulumSuperSimplified2();
-		static void runSinglePendulumSimplified();
-		static void runSinglePendulum();
-		static std::shared_ptr<ASMTAssembly> assemblyFromFile(const std::string& fileName);
-		static void runFile(const std::string& chars);
-		static void runDraggingLogTest();
-		static void runDraggingLogTest2();
-		static void runDraggingLogTest3();
-		static void runDraggingTest();
-		static void runDraggingTest2();
-		static void runDraggingTest3();
     
-		static void readWriteFile(const std::string& chars);
 		void initialize() override;
 		ASMTAssembly* root() override;
 		void setNotes(const std::string& str);
-		void parseASMT(std::vector<std::string>& lines) override;
-		void readNotes(std::vector<std::string>& lines);
-		void readParts(std::vector<std::string>& lines);
-		void readPart(std::vector<std::string>& lines);
-		void readKinematicIJs(std::vector<std::string>& lines);
-		void readKinematicIJ(std::vector<std::string>& lines);
-		void readConstraintSets(std::vector<std::string>& lines);
-		void readJoints(std::vector<std::string>& lines);
-		void readMotions(std::vector<std::string>& lines);
-		void readLimits(std::vector<std::string>& lines);
-		void readGeneralConstraintSets(std::vector<std::string>& lines) const;
-		void readForcesTorques(std::vector<std::string>& lines);
-		void readConstantGravity(std::vector<std::string>& lines);
-		void readSimulationParameters(std::vector<std::string>& lines);
-		void readAnimationParameters(std::vector<std::string>& lines);
-		void readTimeSeries(std::vector<std::string>& lines);
-		void readTimes(std::vector<std::string>& lines);
-		void readAssemblySeries(std::vector<std::string>& lines);
-		void readPartSeriesMany(std::vector<std::string>& lines);
-		void readPartSeries(std::vector<std::string>& lines);
-		void readJointSeriesMany(std::vector<std::string>& lines);
-		void readJointSeries(std::vector<std::string>& lines);
-		void readMotionSeriesMany(std::vector<std::string>& lines);
-		void readMotionSeries(std::vector<std::string>& lines);
-		void runDraggingLog(const std::string& chars);
 
 		void outputFor(AnalysisType type);
 		void preMbDrun(std::shared_ptr<System> mbdSys);
@@ -90,8 +55,6 @@ namespace MbD {
 		std::shared_ptr<std::map<std::string, std::shared_ptr<ASMTMarker>>>markerMap() const;
 		void deleteMbD() override;
 		void createMbD(std::shared_ptr<System> mbdSys, std::shared_ptr<Units> mbdUnits) override;
-		void outputFile(const std::string& filename);
-		void storeOnLevel(std::ofstream& os, size_t level) override;
         size_t numberOfFrames();
 
 		/* This function performs a one shot solve of the assembly.*/
@@ -123,21 +86,8 @@ namespace MbD {
 		void setSimulationParameters(std::shared_ptr<ASMTSimulationParameters> simulationParameters);
 		std::shared_ptr<ASMTPart> partNamed(const std::string& partName) const;
 		std::shared_ptr<ASMTPart> partPartialNamed(const std::string& partialName) const;
-		void storeOnLevelNotes(std::ofstream& os, size_t level);
-		void storeOnLevelParts(std::ofstream& os, size_t level);
-		void storeOnLevelKinematicIJs(std::ofstream& os, size_t level);
-		void storeOnLevelConstraintSets(std::ofstream& os, size_t level);
-		void storeOnLevelForceTorques(std::ofstream& os, size_t level);
-		void storeOnLevelJoints(std::ofstream& os, size_t level);
-		void storeOnLevelMotions(std::ofstream& os, size_t level);
-		void storeOnLevelLimits(std::ofstream& os, size_t level);
-		void storeOnLevelGeneralConstraintSets(std::ofstream& os, size_t level);
-		void storeOnTimeSeries(std::ofstream& os) override;
-		void setFilename(const std::string& filename);
-		void setDebug(bool todebug);
         void updateForFrame(size_t index) override;
 
-		std::string filename = "";
 		std::string notes = "(Text string: '' runs: (Core.RunArray runs: #() values: #()))";
 		std::shared_ptr<std::vector<std::shared_ptr<ASMTPart>>> parts = std::make_shared<std::vector<std::shared_ptr<ASMTPart>>>();
 		std::shared_ptr<std::vector<std::shared_ptr<ASMTKinematicIJ>>> kinematicIJs = std::make_shared<std::vector<std::shared_ptr<ASMTKinematicIJ>>>();
@@ -153,8 +103,10 @@ namespace MbD {
 		std::shared_ptr<ASMTTime> asmtTime = ASMTTime::With();
 		std::shared_ptr<Units> mbdUnits = std::make_shared<Units>();
 		std::shared_ptr<System> mbdSystem;
-		bool debug = false;
         std::shared_ptr<ExternalSystem> externalSystem;
+		// Forge: the solver's progress messages, collected instead of printed. The
+		// host may clear or read it between runs; never null.
+		std::shared_ptr<std::vector<std::string>> solverMessages = std::make_shared<std::vector<std::string>>();
 
 	};
 }

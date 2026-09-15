@@ -5,6 +5,10 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// logString() no longer writes to std::cout; <fstream> included explicitly.
 
 #include "ASMTItem.h"
 #include "CREATE.h"
@@ -12,6 +16,7 @@
 #include "ASMTAssembly.h"
 #include "Constant.h"
 #include <algorithm>
+#include <fstream>
 
 using namespace MbD;
 
@@ -306,5 +311,6 @@ void MbD::ASMTItem::storeOnTimeSeries(std::ofstream&)
 
 void MbD::ASMTItem::logString(const std::string& str)
 {
-	std::cout << str << std::endl;
+	// Forge: a library must not write to the host process's standard streams.
+	(void)str;
 }

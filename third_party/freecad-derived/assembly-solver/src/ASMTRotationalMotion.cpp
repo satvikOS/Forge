@@ -5,6 +5,10 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// An unconditional print of the parsed drive function to std::cout is removed.
 #include <fstream>	
 
 #include "ASMTRotationalMotion.h"
@@ -80,7 +84,6 @@ void MbD::ASMTRotationalMotion::createMbD(std::shared_ptr<System> mbdSys, std::s
 	geoPhi->createMbD(mbdSys, mbdUnits);
 	//std::cout << *geoPhi << std::endl;
 	auto simple = geoPhi->simplified(geoPhi);
-	std::cout << *simple << std::endl;
 	std::static_pointer_cast<ZRotation>(mbdObject)->phiBlk = simple;
 }
 

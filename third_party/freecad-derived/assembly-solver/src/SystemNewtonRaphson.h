@@ -5,6 +5,10 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// outputSpreadsheet() declaration removed.
  
 #pragma once
 
@@ -25,7 +29,6 @@ namespace MbD {
         void calcdxNorm() override;
         void basicSolveEquations() override;
         void handleSingularMatrix() override;
-        void outputSpreadsheet();
 
         SpMatDsptr pypx;
     };

@@ -5,5 +5,6 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
  
 #include "EulerAngleszxzDDot.h"

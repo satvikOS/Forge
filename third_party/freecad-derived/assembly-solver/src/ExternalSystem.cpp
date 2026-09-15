@@ -5,90 +5,70 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
- 
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// Only the ASMT assembly back-end remains; a missing host is a refusal
+// (SimulationStoppingError) rather than a dereference of an unset pointer.
+// logString() records into `messages` (bounded) instead of std::cout.
+
 #include "ExternalSystem.h"
-#include "CADSystem.h"
 #include "ASMTAssembly.h"
-//#include <Mod/Assembly/App/AssemblyObject.h>
 #include "System.h"
+#include "SimulationStoppingError.h"
 
 using namespace MbD;
 
+namespace {
+// Enough to diagnose a failed solve, small enough that a pathological loop
+// cannot grow the host's memory without bound.
+constexpr std::size_t kMaxSolverMessages = 256;
+}
+
 void MbD::ExternalSystem::preMbDrun(std::shared_ptr<System> mbdSys)
 {
-	if (cadSystem) {
-		cadSystem->preMbDrun(mbdSys);
-	}
-    else if (asmtAssembly) {
-        asmtAssembly->preMbDrun(mbdSys);
-        //asmtAssembly->externalSystem->preMbDrun(mbdSys);
+    if (!asmtAssembly) {
+        throw SimulationStoppingError("no assembly is attached to the solver");
     }
-    else if (freecadAssemblyObject) {
-        //freecadAssemblyObject->preMbDrun();
-    }
-    else {
-		throw SimulationStoppingError("To be implemented.");
-	}
+    asmtAssembly->preMbDrun(mbdSys);
 }
 
 void MbD::ExternalSystem::preMbDrunDragStep(std::shared_ptr<System> mbdSys, std::shared_ptr<std::vector<std::shared_ptr<Part>>> dragParts)
 {
+    if (!asmtAssembly) {
+        throw SimulationStoppingError("no assembly is attached to the solver");
+    }
 	asmtAssembly->preMbDrunDragStep(mbdSys, dragParts);
 }
 
 void MbD::ExternalSystem::updateFromMbD()
 {
-	if (cadSystem) {
-		cadSystem->updateFromMbD();
-	}
-	else if (asmtAssembly) {
-		asmtAssembly->updateFromMbD();
-	}
-    else if (freecadAssemblyObject) {
-        //freecadAssemblyObject->updateFromMbD();
+    if (!asmtAssembly) {
+        throw SimulationStoppingError("no assembly is attached to the solver");
     }
-    else {
-		throw SimulationStoppingError("To be implemented.");
-	}
+    asmtAssembly->updateFromMbD();
 }
 
 void MbD::ExternalSystem::outputFor(AnalysisType type)
 {
-	if (cadSystem) {
-		cadSystem->updateFromMbD();
-	}
-	else if (asmtAssembly) {
-		asmtAssembly->updateFromMbD();
-		asmtAssembly->compareResults(type);
-		asmtAssembly->outputResults(type);
-        //asmtAssembly->externalSystem->outputFor(type);
+    if (!asmtAssembly) {
+        throw SimulationStoppingError("no assembly is attached to the solver");
     }
-    else if (freecadAssemblyObject) {
-        //freecadAssemblyObject->outputResults(type);
-    }
-    else {
-		throw SimulationStoppingError("To be implemented.");
-	}
+    asmtAssembly->updateFromMbD();
+    asmtAssembly->compareResults(type);
+    asmtAssembly->outputResults(type);
 }
 
 void MbD::ExternalSystem::logString(const std::string& str)
 {
-	std::cout << str << std::endl;
+	if (messages && messages->size() < kMaxSolverMessages) {
+		messages->push_back(str);
+	}
 }
 
-void MbD::ExternalSystem::logString(double)
+void MbD::ExternalSystem::logString(double value)
 {
-	throw SimulationStoppingError("To be implemented.");
-}
-
-void MbD::ExternalSystem::runOndselPiston()
-{
-	throw SimulationStoppingError("To be implemented.");
-}
-
-void MbD::ExternalSystem::runPiston()
-{
-	throw SimulationStoppingError("To be implemented.");
+	logString(std::to_string(value));
 }
 
 void MbD::ExternalSystem::postMbDrun()

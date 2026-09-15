@@ -5,6 +5,10 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// outputSpreadsheet(), which wrote ../../testapp/spreadsheetcpp.csv, is removed.
 
 #include <fstream>	
 #include <iomanip>
@@ -56,10 +60,6 @@ void SystemNewtonRaphson::calcdxNorm()
 
 void SystemNewtonRaphson::basicSolveEquations()
 {
-	auto debug = false;
-	if (debug) {
-		outputSpreadsheet();
-	}
 	dx = matrixSolver->solvewithsaveOriginal(pypx, y->negated(), false);
 }
 
@@ -84,23 +84,3 @@ void SystemNewtonRaphson::handleSingularMatrix()
 	}
 }
 
-void MbD::SystemNewtonRaphson::outputSpreadsheet()
-{
-	std::ofstream os("../../testapp/spreadsheetcpp.csv");
-	os << std::setprecision(std::numeric_limits<double>::max_digits10);
-	for (size_t i = 0; i < pypx->nrow(); i++)
-	{
-		auto rowi = pypx->at(i);
-		for (size_t j = 0; j < pypx->ncol(); j++)
-		{
-			if (j > 0) os << '\t';
-			if (rowi->find(j) == rowi->end()) {
-				os << 0.0;
-			}
-			else {
-				os << rowi->at(j);
-			}
-		}
-		os << "\t\t" << y->at(i) << std::endl;
-	}
-}

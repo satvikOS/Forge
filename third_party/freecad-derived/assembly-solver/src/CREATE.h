@@ -5,6 +5,7 @@
  *                                                                         *
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
+// SPDX-License-Identifier: LGPL-2.1-only
  
 //This header file causes weird problems in Visual Studio when included in subclasses of std::vector or std::map. Why?
 
