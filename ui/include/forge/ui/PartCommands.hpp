@@ -37,6 +37,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -208,6 +209,40 @@ enum class EditCheck : std::uint8_t {
 
 const char* toString(EditCheck check) noexcept;
 
+// ── SEMANTIC ADMISSION OF ONE CHANGE ────────────────────────────────────────
+//
+// validateIr() answers "is this a legal statement". It cannot answer "does this
+// statement do what the person asked", and for a constrained sketch the two come
+// apart: `CON(%3, DISTX, %4, 70)` is perfectly legal IR on a rectangle that already
+// has `CON(%3, DISTX, %4, 60)`, and the solver will quietly drop one of them. A
+// command that emitted it and said "done" would be reporting a wrong result as a
+// success.
+//
+// The judge that can tell is the constraint solver, and forge::ui has no solver --
+// it is kernel-free by design. So the document carries a JUDGE the application
+// installs: a function over plain text that sees the program before and after the
+// change and returns a verdict. The COMMAND layer consults it before committing an
+// edit (prepare -> dry run -> validate semantics -> commit or refuse). The document
+// layer itself does not: loading a file or undoing an edit restores a state that
+// was already committed, and a judge that could refuse an undo would be worse than
+// no judge. With no judge installed every change is admitted, which is exactly the
+// behaviour forge::ui had before this seam existed.
+struct ChangeVerdict {
+  bool admitted = true;
+  // A sentence a person reads. The judge writes it; commands pass it through
+  // verbatim as the command's failure detail, which is also what Archie receives.
+  std::string reason;
+  // The statement ids the refusal is about -- for a conflict, the statements the
+  // change contradicts -- so a UI can select them and a planner can repair them.
+  std::vector<int> implicated;
+};
+
+// programBefore / programAfter are PartDocument::irProgram() texts; changedIrId is
+// the statement being appended or edited.
+using ChangeJudge = std::function<ChangeVerdict(const std::string& programBefore,
+                                                const std::string& programAfter,
+                                                int changedIrId)>;
+
 // ── the receiver ────────────────────────────────────────────────────────────
 // A headless feature-IR program plus the binding from a UI document-node id
 // (EntityRef::bodyId) to the IR value that node currently IS. The binding is the
@@ -276,6 +311,17 @@ class PartDocument {
   const FeatureRecord* featureAt(int irId) const noexcept;
   EditCheck lastEdit() const noexcept { return lastEdit_; }
 
+  // ── the semantic judge (see ChangeVerdict above) ──────────────────────────
+  // Installing an empty function removes the judge.
+  void setChangeJudge(ChangeJudge judge) { judge_ = std::move(judge); }
+  bool hasChangeJudge() const noexcept { return static_cast<bool>(judge_); }
+  // The verdict on appending `record` / on replacing statement `irId`'s arguments
+  // with `args`, WITHOUT changing anything. A change the grammar already refuses is
+  // admitted here, so the refusal a caller reports is the grammar's own reason; a
+  // judge that throws is treated as a refusal with its message, never as consent.
+  ChangeVerdict judgeAppend(const FeatureRecord& record) const;
+  ChangeVerdict judgeEdit(int irId, const std::vector<IrArg>& args) const;
+
   // ── THE MATERIAL THIS PART IS MADE OF ─────────────────────────────────────
   //
   // A document that has a volume and no material has no WEIGHT, and weight is
@@ -310,6 +356,7 @@ class PartDocument {
   IrCheck lastCheck_ = IrCheck::Ok;
   EditCheck lastEdit_ = EditCheck::Ok;
   Material material_ = unassignedMaterial();
+  ChangeJudge judge_;
 };
 
 // ── the concrete command ────────────────────────────────────────────────────

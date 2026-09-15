@@ -408,6 +408,43 @@ SketchInspection inspectSketches(const FeatureTree& ft) {
     markTags(pre.conflicting, &SketchConstraintInfo::conflicting);
     markTags(pre.redundant, &SketchConstraintInfo::redundant);
     markTags(pre.partiallyRedundant, &SketchConstraintInfo::partiallyRedundant);
+    markTags(pre.proposedRemovals, &SketchConstraintInfo::proposedRemoval);
+    info.dofBeforeRepair = pre.dof;
+
+    // WHO CONFLICTS WITH WHOM, from the solver's own groups. A tag maps to the one
+    // CON statement that carries it; a group that maps to no statement (every
+    // member was a primitive this walk did not create) says nothing and is dropped.
+    auto statementOfTag = [&info](int tag) -> SketchConstraintInfo* {
+      for (SketchConstraintInfo& c : info.constraints) {
+        if (c.tag != 0 && c.tag == tag) return &c;
+      }
+      return nullptr;
+    };
+    for (const std::vector<int>& group : pre.conflictingGroups) {
+      std::vector<int> ids;
+      for (const int tag : group) {
+        const SketchConstraintInfo* c = statementOfTag(tag);
+        if (c != nullptr && std::find(ids.begin(), ids.end(), c->irId) == ids.end()) {
+          ids.push_back(c->irId);
+        }
+      }
+      if (ids.empty()) continue;
+      std::sort(ids.begin(), ids.end());
+      for (const int tag : group) {
+        SketchConstraintInfo* c = statementOfTag(tag);
+        if (c == nullptr) continue;
+        for (const int other : ids) {
+          if (other != c->irId &&
+              std::find(c->conflictsWith.begin(), c->conflictsWith.end(), other) == c->conflictsWith.end()) {
+            c->conflictsWith.push_back(other);
+          }
+        }
+        std::sort(c->conflictsWith.begin(), c->conflictsWith.end());
+      }
+      if (std::find(info.conflictGroups.begin(), info.conflictGroups.end(), ids) == info.conflictGroups.end()) {
+        info.conflictGroups.push_back(std::move(ids));
+      }
+    }
 
     // Run the SAME repair the compiler runs, and only when the program itself
     // asks for it. A sketch the program never solves is reported as drawn,

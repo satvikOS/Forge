@@ -63,6 +63,9 @@
 // C++ over plain data and reaches no OCCT header, which is what lets the frame
 // builder include it at all -- forge/Sketcher.hpp, which it wraps, does not.
 #include "forge/ft/SketchInspect.hpp"
+// The transaction check for one sketch change, over the same solver reading. Plain
+// data like SketchInspect.hpp, for the same reason.
+#include "forge/ft/SketchAdmission.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceTrees.hpp"
 
@@ -819,6 +822,23 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   //   walk. A caller that changes the document must RE-FETCH: the next call
   //   re-takes the reading and the old pointer names freed memory.
   const forge::ft::SketchInfo* activeSketch();
+  // ── THE SKETCH JUDGE ────────────────────────────────────────────────────
+  // Installed on the document by wirePartCommands(). Every constraint a command
+  // adds and every dimension part.edit_feature changes -- from a menu, a panel, the
+  // keyboard or Archie -- is checked against the real solver before it is
+  // committed, and a change that would contradict the sketch, hold nothing, or
+  // leave it unsolvable is refused with a sentence naming what it contradicts.
+  // Public so a gate can call it on two programs directly.
+  forge::ui::ChangeVerdict judgeSketchChange(const std::string& programBefore,
+                                             const std::string& programAfter,
+                                             int changedIrId);
+  // The last refusal in words, for the Solver tab and for a gate; "" when none.
+  const std::string& lastSketchRefusal() const noexcept { return lastSketchRefusal_; }
+  std::size_t sketchRefusals() const noexcept { return sketchRefusals_; }
+  // How a constraint is named to a user: "Horizontal distance 60 mm, Point 3 to
+  // Point 4". Reads the statement's own sketch reading, so a constraint that is
+  // only proposed can be named as well as one already in the document.
+  std::string sketchConstraintName(const forge::ft::SketchInfo& s, int irId) const;
   // Rows each panel drew on its last draw. Four counters, not one: a caller
   // asking "did the Dimensions panel list the dimension" must not be answered by
   // a constraint row drawn in another tab.
@@ -2056,6 +2076,9 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   forge::ft::SketchInspection sketchInspection_;
   std::string sketchProgram_;
   bool sketchInspected_ = false;
+  // The judge's last refusal, in words, and how many it has made.
+  std::string lastSketchRefusal_;
+  std::size_t sketchRefusals_ = 0;
   std::size_t sketchConstraintRows_ = 0;
   std::size_t sketchDimensionRows_ = 0;
   std::size_t sketchRelationRows_ = 0;

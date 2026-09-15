@@ -2507,6 +2507,11 @@ set(FORGE_KERNEL_SOURCES
                                      # It also owns the ONE CON keyword table the
                                      # compiler dispatches through, so a keyword
                                      # cannot mean two things in one build.
+    src/ft/SketchAdmission.cpp       # the transaction check for ONE interactive sketch
+                                     # change: refuses a constraint that conflicts
+                                     # (naming what it contradicts), holds nothing, or
+                                     # leaves the sketch unsolvable. compile() never
+                                     # calls it; the command layer does.
     src/ft/GraphAudit.cpp            # s0.4 graph-quality gate: zero unresolved refs,
                                      # zero duplicate ids, zero unexplained orphans.
                                      # compile() refuses a graph it does not call clean,

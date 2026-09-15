@@ -145,6 +145,15 @@ struct SketchConstraintInfo {
   bool conflicting = false;
   bool redundant = false;
   bool partiallyRedundant = false;
+  // WHICH constraints this one contradicts: the other CON statements in the
+  // solver's conflict group(s) that hold it, each named once. `conflicting` alone
+  // could not say this -- the engine used to hand back one flattened list, so a
+  // sketch with two unrelated contradictions read as four constraints "in
+  // conflict" with nobody able to say which with which.
+  std::vector<int> conflictsWith;
+  // The solver's own pick, among the conflicting and redundant ones, of what to
+  // drop (most shared between groups, then most equations, then the newest).
+  bool proposedRemoval = false;
   // solveOrRepair dropped it to make the sketch solvable. `demotedForConflict`
   // separates the two reasons the repair has.
   bool demoted = false;
@@ -215,6 +224,12 @@ struct SketchInfo {
   std::vector<SketchConstraintInfo> constraints;
   std::vector<SketchDimensionInfo> dimensions;
   std::vector<SketchFreeGroup> freeGroups;
+  // Each set of CON statements that cannot all hold, as the solver grouped them
+  // BEFORE any repair, sorted by statement id. Empty when nothing conflicts.
+  std::vector<std::vector<int>> conflictGroups;
+  // The degrees of freedom BEFORE the program's own SOLVE repaired anything; -1
+  // when the sketch could not be diagnosed. `dof` above is the final state.
+  int dofBeforeRepair = -1;
 };
 
 struct SketchInspection {

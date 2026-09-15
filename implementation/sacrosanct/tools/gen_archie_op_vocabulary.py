@@ -638,6 +638,13 @@ REF_ROLES = {
     "one.front()": "constrained_entity",
     "pair[0]": "constrained_entity_a",
     "pair[1]": "constrained_entity_b",
+    # part.sketch_constrain_triple: SYMM / MIDPT. The third operand is a different
+    # ROLE from the first two -- the mirror line or point, or the bisecting point --
+    # so it has its own name; the first two keep the pair's names because they are
+    # the same two mirrored entities a binary constraint names.
+    "trio[0]": "constrained_entity_a",
+    "trio[1]": "constrained_entity_b",
+    "trio[2]": "constraint_reference",
 }
 
 
@@ -1300,7 +1307,8 @@ REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%
                    "arc_end": "%arcEnd",
                    "constrained_entity": "%entity",
                    "constrained_entity_a": "%entityA",
-                   "constrained_entity_b": "%entityB"}
+                   "constrained_entity_b": "%entityB",
+                   "constraint_reference": "%about"}
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 

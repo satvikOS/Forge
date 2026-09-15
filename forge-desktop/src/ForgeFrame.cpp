@@ -460,6 +460,14 @@ std::size_t ForgeFrame::wirePartCommands() {
 
   const std::size_t added =
       forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
+  // THE SEMANTIC JUDGE. From here a constraint that contradicts one already on its
+  // sketch -- or holds nothing, or leaves the sketch unsolvable -- is refused at the
+  // command, by name, before the document or the undo stack changes. It judges
+  // COMMANDS only: opening a file or undoing restores a state that was already
+  // committed, and neither goes through it.
+  partDoc_.setChangeJudge([this](const std::string& before, const std::string& after, int irId) {
+    return judgeSketchChange(before, after, irId);
+  });
   partWired_ = true;
   // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
   // act on this document, and the status strip's counters are read from it.
@@ -6220,16 +6228,6 @@ ImVec4 faultColour(forge::ui::ConstraintFault fault) {
   return rgb(130, 137, 148);
 }
 
-ImVec4 definitionColour(forge::ui::SketchDefinition definition) {
-  switch (definition) {
-    case forge::ui::SketchDefinition::Empty: return rgb(130, 137, 148);
-    case forge::ui::SketchDefinition::Under: return rgb(235, 175, 95);
-    case forge::ui::SketchDefinition::Fully: return rgb(120, 200, 140);
-    case forge::ui::SketchDefinition::Over:  return rgb(235, 105, 95);
-  }
-  return rgb(130, 137, 148);
-}
-
 // What every sketch panel draws when the document holds no sketch at all. One
 // sentence, in the user's words, saying what would put something here.
 void drawNoSketchYet(const char* what) {
@@ -6386,89 +6384,136 @@ void ForgeFrame::drawRelationsPanel() {
 
 // ── whether the sketch is pinned down ───────────────────────────────────────
 //
-// The one question a sketcher has. What is drawn is the count from the sketch's
-// own geometry and constraints, and the panel SAYS that is what it is: the exact
-// answer is a rank analysis the kernel does when the sketch is solved, and this
-// is what every sketcher shows before that.
+// The one question a sketcher has, ANSWERED BY THE SOLVER. This tab used to count:
+// the free numbers the sketch's geometry carries minus the ones its constraints
+// hold, and it said so at the bottom -- "counted here, and once when the sketch is
+// solved" -- because the exact answer, a rank analysis, lived in the solver and not
+// here. That was the placeholder for this tab, and it was wrong for any coupled
+// sketch: two constraints that say the same thing are two to a count and one to the
+// solver, and a count cannot tell a contradiction from a repeat at all.
+//
+// Everything below is now read from the constraint solver (the sketch-solver
+// library, through the same reading the other sketch tabs share): the degrees of
+// freedom are the Jacobian rank, "fully constrained" is the solver's verdict, and a
+// contradiction is shown as the constraints that contradict EACH OTHER, straight
+// from the solver's conflict groups, with the one it would drop marked.
+namespace {
+const char* sketchFreeRoleWord(forge::ft::SketchFreeRole role);  // defined with the sketch panels
+}  // namespace
+
 void ForgeFrame::drawSolverStatusPanel() {
   solverRowsDrawn_ = 0;
-  const forge::ui::SketchDiagnosisSet set = sketchDiagnosis();
+  const forge::ft::SketchInfo* s = drawSketchHeader(
+      "Solver", "There is no sketch in this part yet.",
+      "Start one with New Sketch. This tab then says whether it is fully defined, what can "
+      "still move, and which constraints contradict each other.");
+  if (s == nullptr) return;
+  ++solverRowsDrawn_;
 
-  ImGui::TextColored(rgb(242, 158, 38), "%s", documentName_.c_str());
-  ImGui::Separator();
-  if (set.empty()) {
-    drawNoSketchYet("whether it is pinned down");
-    return;
+  ImGui::Spacing();
+  if (s->dof >= 0) {
+    ImGui::Text("Degrees of freedom   %d", s->dof);
+  } else {
+    ImGui::TextDisabled("The degrees of freedom of this sketch could not be worked out.");
   }
-  ImGui::TextColored(rgb(130, 137, 148), "%zu of %zu sketches are not fully held yet",
-                     set.unresolved(), set.sketches.size());
-
-  for (const forge::ui::SketchDiagnosis& d : set.sketches) {
+  ++solverRowsDrawn_;
+  if (s->dofBeforeRepair > s->dof && s->dofBeforeRepair >= 0 && s->dof >= 0) {
+    // The program's SOLVE had to drop something, and dropping a constraint frees
+    // what it held. Said, because the number above would otherwise look better
+    // than the sketch the user wrote.
+    ImGui::TextColored(rgb(235, 175, 95), "%d before the solver dropped what it could not meet",
+                       s->dofBeforeRepair);
     ++solverRowsDrawn_;
-    ImGui::PushID(d.irId);
-    if (ImGui::TreeNodeEx("##sketch", ImGuiTreeNodeFlags_DefaultOpen, "%s", d.label.c_str())) {
-      ImGui::TextColored(definitionColour(d.definition), "%s",
-                         forge::ui::toString(d.definition));
-      ++solverRowsDrawn_;
-      ImGui::Text("free numbers   %zu", d.freedoms);
-      ++solverRowsDrawn_;
-      ImGui::Text("held           %zu", d.held);
-      ++solverRowsDrawn_;
-      if (d.stillFree > 0) {
-        ImGui::TextColored(rgb(235, 175, 95), "still free     %d", d.stillFree);
-      } else if (d.stillFree < 0) {
-        ImGui::TextColored(rgb(235, 105, 95), "held more than needed by   %d", -d.stillFree);
-      } else {
-        ImGui::TextColored(rgb(120, 200, 140), "still free     0");
-      }
-      ++solverRowsDrawn_;
+  }
 
-      if (d.untouched > 0) {
-        ImGui::PushTextWrapPos(0.0f);
-        ImGui::TextColored(rgb(235, 175, 95),
-                           "%zu things in this sketch are held by nothing at all:", d.untouched);
-        ImGui::PopTextWrapPos();
-        for (const forge::ui::SketchGeometryRow& row : d.geometry) {
-          if (row.freedoms == 0) continue;
-          bool touched = false;
-          for (std::size_t ci : row.constraints) {
-            if (ci < d.constraints.size() &&
-                d.constraints[ci].fault == forge::ui::ConstraintFault::None) {
-              touched = true;
-            }
+  // ── contradictions, as the solver grouped them ──────────────────────────
+  if (!s->conflictGroups.empty()) {
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(235, 105, 95), "Constraints that contradict each other");
+    ImGui::Separator();
+    ++solverRowsDrawn_;
+    for (std::size_t g = 0; g < s->conflictGroups.size(); ++g) {
+      ImGui::PushID(static_cast<int>(g));
+      std::string names;
+      std::string wouldDrop;
+      const std::vector<int>& group = s->conflictGroups[g];
+      for (std::size_t i = 0; i < group.size(); ++i) {
+        if (i > 0) names += (i + 1 == group.size()) ? " and " : "; ";
+        names += sketchConstraintName(*s, group[i]);
+        for (const forge::ft::SketchConstraintInfo& c : s->constraints) {
+          if (c.irId == group[i] && c.proposedRemoval && wouldDrop.empty()) {
+            wouldDrop = sketchConstraintName(*s, c.irId);
           }
-          if (touched) continue;
-          ++solverRowsDrawn_;
-          ImGui::Bullet();
-          ImGui::TextColored(rgb(235, 175, 95), "%-8s %s",
-                             forge::ui::sketchGeometryWord(row.kind), row.label.c_str());
         }
       }
-      if (d.faults > 0) {
-        ++solverRowsDrawn_;
-        ImGui::TextColored(rgb(235, 105, 95), "%zu constraints hold nothing -- see Constraints",
-                           d.faults);
+      ImGui::Bullet();
+      ImGui::PushTextWrapPos(0.0f);
+      ImGui::TextWrapped("%s", names.c_str());
+      if (!wouldDrop.empty()) {
+        ImGui::TextColored(rgb(150, 157, 168), "If one has to go, the solver drops %s.",
+                           wouldDrop.c_str());
       }
-      if (d.clusters.size() > 1) {
-        ++solverRowsDrawn_;
-        ImGui::TextColored(rgb(235, 175, 95), "%zu groups move independently -- see Relations",
-                           d.clusters.size());
-      }
-      if (d.solvedBy != 0) {
-        ++solverRowsDrawn_;
-        ImGui::TextColored(rgb(120, 200, 140), "solved, and its shape is in use");
-      }
-      ImGui::TreePop();
+      ImGui::PopTextWrapPos();
+      ++solverRowsDrawn_;
+      ImGui::PopID();
     }
-    ImGui::PopID();
   }
 
-  ImGui::Separator();
-  ImGui::PushTextWrapPos(0.0f);
-  ImGui::TextDisabled("Counted from the points, radii and constraints of the sketch itself. "
-                      "Two constraints that happen to say the same thing are counted twice "
-                      "here and once when the sketch is solved.");
-  ImGui::PopTextWrapPos();
+  // ── repeats ─────────────────────────────────────────────────────────────
+  std::vector<int> repeats;
+  for (const forge::ft::SketchConstraintInfo& c : s->constraints) {
+    if ((c.redundant || c.partiallyRedundant) && !c.conflicting) repeats.push_back(c.irId);
+  }
+  if (!repeats.empty()) {
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(235, 175, 95), "Constraints that repeat what others already say");
+    ImGui::Separator();
+    ++solverRowsDrawn_;
+    for (const int id : repeats) {
+      ImGui::BulletText("%s", sketchConstraintName(*s, id).c_str());
+      ++solverRowsDrawn_;
+    }
+  }
+
+  // ── what is still free ──────────────────────────────────────────────────
+  ImGui::Spacing();
+  std::size_t movable = 0;
+  for (const forge::ft::SketchEntityInfo& e : s->entities) {
+    if (!e.freeRoles.empty()) ++movable;
+  }
+  if (movable == 0) {
+    if (s->health == forge::ft::SketchHealth::FullyConstrained) {
+      ImGui::TextColored(rgb(120, 200, 130), "Every point, line and circle is held in place.");
+    } else {
+      ImGui::TextDisabled("The solver reports nothing free to move.");
+    }
+    ++solverRowsDrawn_;
+  } else {
+    ImGui::TextColored(rgb(242, 158, 38), "What can still move");
+    ImGui::Separator();
+    ++solverRowsDrawn_;
+    for (const forge::ft::SketchEntityInfo& e : s->entities) {
+      if (e.freeRoles.empty()) continue;
+      std::string ways;
+      for (const forge::ft::SketchFreeRole role : e.freeRoles) {
+        if (!ways.empty()) ways += ", ";
+        ways += sketchFreeRoleWord(role);
+      }
+      ImGui::BulletText("%s   moves %s", sketchEntityName(*s, e.irId).c_str(), ways.c_str());
+      ++solverRowsDrawn_;
+    }
+  }
+
+  // ── the last change the solver refused ─────────────────────────────────
+  if (!lastSketchRefusal_.empty()) {
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(235, 105, 95), "Last change not applied");
+    ImGui::Separator();
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextWrapped("%s", lastSketchRefusal_.c_str());
+    ImGui::PopTextWrapPos();
+    solverRowsDrawn_ += 2;
+  }
 }
 
 void ForgeFrame::drawPropertiesPanel() {
@@ -9726,6 +9771,80 @@ const forge::ft::SketchInfo* ForgeFrame::activeSketch() {
   return nullptr;
 }
 
+std::string ForgeFrame::sketchConstraintName(const forge::ft::SketchInfo& s, int irId) const {
+  for (const forge::ft::SketchConstraintInfo& c : s.constraints) {
+    if (c.irId != irId) continue;
+    std::string name = sketchConstraintLabel(c.keyword);
+    if (c.hasValue) {
+      char value[48];
+      std::snprintf(value, sizeof(value), c.angular ? " %g°" : " %g mm", c.value);
+      name += value;
+    }
+    std::string on;
+    for (std::size_t i = 0; i < c.operandIrIds.size(); ++i) {
+      on += (i == 0) ? ", " : (i + 1 == c.operandIrIds.size() ? " and " : ", ");
+      on += sketchEntityName(s, c.operandIrIds[i]);
+    }
+    return name + on;
+  }
+  return "constraint " + std::to_string(irId);
+}
+
+forge::ui::ChangeVerdict ForgeFrame::judgeSketchChange(const std::string& programBefore,
+                                                       const std::string& programAfter,
+                                                       int changedIrId) {
+  const forge::ft::SketchChangeVerdict v =
+      forge::ft::judgeSketchChange(programBefore, programAfter, changedIrId);
+  forge::ui::ChangeVerdict out;
+  if (v.admitted) return out;
+
+  const forge::ft::SketchInfo& s = v.sketchAfter;
+  const std::string what = sketchConstraintName(s, changedIrId);
+  out.admitted = false;
+  switch (v.refusal) {
+    case forge::ft::SketchChangeRefusal::Conflicts: {
+      std::string others;
+      for (std::size_t i = 0; i < v.conflictsWith.size(); ++i) {
+        if (i > 0) others += (i + 1 == v.conflictsWith.size()) ? " and " : "; ";
+        others += sketchConstraintName(s, v.conflictsWith[i]) + " (constraint " +
+                  std::to_string(v.conflictsWith[i]) + ")";
+      }
+      out.reason = "Not applied: " + what + " contradicts " +
+                   (others.empty() ? std::string("the other constraints on this sketch") : others) +
+                   ". Change or remove that constraint first, or give this one a value that "
+                   "agrees with it.";
+      out.implicated = v.conflictsWith;
+      break;
+    }
+    case forge::ft::SketchChangeRefusal::NotApplied:
+      out.reason = "Not applied: " + what +
+                   " cannot hold on what it names. Pick entities of the kind this constraint "
+                   "takes.";
+      out.implicated = {changedIrId};
+      break;
+    case forge::ft::SketchChangeRefusal::Unsolvable: {
+      std::string dropped;
+      for (std::size_t i = 0; i < v.dropped.size(); ++i) {
+        if (i > 0) dropped += (i + 1 == v.dropped.size()) ? " and " : "; ";
+        dropped += sketchConstraintName(s, v.dropped[i]);
+      }
+      out.reason = "Not applied: with " + what +
+                   " this sketch cannot be solved — the solver would have to ignore " + dropped +
+                   ". Use a value the other dimensions allow.";
+      out.implicated = v.dropped;
+      break;
+    }
+    case forge::ft::SketchChangeRefusal::None:
+      out.admitted = true;
+      return out;
+  }
+  lastSketchRefusal_ = out.reason;
+  ++sketchRefusals_;
+  // The engineer's version, in IR terms, where the console's detail column keeps it.
+  shell_.log().warning("Sketch", out.reason, v.detail);
+  return out;
+}
+
 std::string ForgeFrame::sketchEntityName(const forge::ft::SketchInfo& s, int irId) const {
   for (const forge::ft::SketchEntityInfo& e : s.entities) {
     if (e.irId != irId) continue;
@@ -9772,9 +9891,15 @@ bool ForgeFrame::applySketchDimensionEdit(int statementIrId, double value) {
   // THE ONE REGISTRY, for the same reason the Properties panel uses it: a panel
   // that wrote to the document itself would bypass the undo stack, the activity
   // log and the enabled predicate.
+  const std::size_t refusalsBefore = sketchRefusals_;
   const forge::ui::DispatchResult r = shell_.run("part.edit_feature", p);
   if (!r.ok()) {
-    note("Edit feature — " + std::string(forge::ui::userText(r.status)));
+    // A dimension the sketch cannot take is refused by the judge, which has
+    // already said why in words; that sentence is what the user needs, not the
+    // generic "could not run".
+    note(sketchRefusals_ != refusalsBefore
+             ? lastSketchRefusal_
+             : "Edit feature — " + std::string(forge::ui::userText(r.status)));
     return false;
   }
   note("Edit feature — done");

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <exception>
 #include <map>
 #include <memory>
 #include <optional>
@@ -216,6 +217,53 @@ bool PartDocument::editFeatureArgs(int irId, const std::vector<IrArg>& args) {
 
   rec.line = candidate;  // no binding, no id and no produces-kind moved
   return true;
+}
+
+// ── the semantic judge ──────────────────────────────────────────────────────
+namespace {
+
+ChangeVerdict consult(const ChangeJudge& judge, const std::string& before,
+                      const std::string& after, int changedIrId) {
+  if (!judge) return ChangeVerdict{};
+  try {
+    return judge(before, after, changedIrId);
+  } catch (const std::exception& e) {
+    // A judge that could not decide has not said yes.
+    ChangeVerdict v;
+    v.admitted = false;
+    v.reason = std::string("the change could not be checked: ") + e.what();
+    return v;
+  } catch (...) {
+    ChangeVerdict v;
+    v.admitted = false;
+    v.reason = "the change could not be checked";
+    return v;
+  }
+}
+
+}  // namespace
+
+ChangeVerdict PartDocument::judgeAppend(const FeatureRecord& record) const {
+  if (!judge_) return ChangeVerdict{};
+  // Grammar first: a statement appendFeature() will refuse anyway is not the
+  // judge's to explain, and its own reason is the more useful one.
+  if (record.irId != nextIrId() || validateIr(record.line) != IrCheck::Ok) return ChangeVerdict{};
+  const std::string before = irProgram();
+  return consult(judge_, before, before + record.line.text() + "\n", record.irId);
+}
+
+ChangeVerdict PartDocument::judgeEdit(int irId, const std::vector<IrArg>& args) const {
+  if (!judge_) return ChangeVerdict{};
+  const FeatureRecord* rec = featureAt(irId);
+  if (rec == nullptr) return ChangeVerdict{};
+  const IrLine candidate{rec->line.id, rec->line.op, args};
+  if (validateIr(candidate) != IrCheck::Ok) return ChangeVerdict{};
+  std::string after;
+  for (const FeatureRecord& r : records_) {
+    after += (r.irId == irId) ? candidate.text() : r.line.text();
+    after += "\n";
+  }
+  return consult(judge_, irProgram(), after, irId);
 }
 
 PartDocument::Snapshot PartDocument::snapshot() const {
@@ -515,6 +563,15 @@ void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* 
   rec.line = IrLine{rec.irId, op, std::move(args)};
   rec.produces = produces;
   const std::string node = producedNode.empty() ? bodyNodeFor(rec.irId) : producedNode;
+  // THE SEMANTIC CHECK, before anything is committed. A statement the grammar
+  // accepts can still be wrong for the document -- a constraint that contradicts
+  // one already on the sketch -- and the judge the application installed says so
+  // here, in words, with nothing changed and nothing pushed onto the undo stack.
+  const ChangeVerdict verdict = doc.judgeAppend(rec);
+  if (!verdict.admitted) {
+    ctx.fail(verdict.reason);
+    return;
+  }
   // perform() returns whether the edit applied. Discarding it is how a refused feature became
   // a command that reported success and did nothing; appendFeature() is documented to refuse
   // and mutate NOTHING, and it was doing exactly that, unheard.
@@ -2800,13 +2857,26 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   // structural reason EntityKind::Wire had to exist before LOFT was reachable
   // and EntityKind::Surface before THICKEN was.
   //
-  // WHAT IS DELIBERATELY NOT HERE, so the vocabulary does not advertise it: the
-  // constraint kinds forge::Sketcher does not dispatch at this SHA (RADIUS,
-  // DIAM, ANGLE, CONC, COLL, SYMM, MIDPT, FIX). Each is one switch arm in the
-  // facade and none is wired, and the compiler SKIPS an unknown keyword with a
-  // verify note rather than throwing. A command offering one would put a keyword
-  // into Archie's training vocabulary that the kernel silently drops, which is
-  // worse than a short vocabulary.
+  // THE WHOLE CONSTRAINT VOCABULARY IS NOW REACHABLE. This block once said the
+  // kinds forge::Sketcher did not dispatch (RADIUS, DIAM, ANGLE, CONC, COLL, SYMM,
+  // MIDPT, FIX) were deliberately absent, because a command offering a keyword the
+  // kernel silently drops is worse than a short vocabulary. The facade has since
+  // wired all nineteen onto the solver library, so the reason is gone and the
+  // kinds are here, split by what they take:
+  //
+  //   part.sketch_constrain_single   HORIZ VERT FIX              one entity
+  //   part.sketch_constrain          COINC PARA PERP TANG EQUAL  two entities
+  //                                  PTON CONC COLL (DIST, with its value, kept
+  //                                  for the programs already written with it)
+  //   part.sketch_constrain_triple   SYMM MIDPT                  three entities
+  //   part.sketch_dimension_single   RADIUS DIAM                 one entity + value
+  //   part.sketch_dimension          DIST DISTX DISTY ANGLE      two entities + value
+  //
+  // Dimensions are their own commands rather than an optional number on the
+  // geometric ones, so a signature can never offer HORIZ with a value or DISTX
+  // without one. Every one of them passes through the document's semantic judge
+  // before it is committed: a constraint that contradicts one already on the
+  // sketch is refused, and the refusal names the constraint it contradicts.
 
   // ── SKETCH ────────────────────────────────────────────────────────────────
   // SKETCH(PLANE) -- opens an empty sketch. Takes NO selection and NO parameter,
@@ -2986,7 +3056,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       // nothing and says so only on the verify channel.
       return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 &&
              !sharedSketchNode(*d, ctx.selection()).empty() &&
-             (kind == "HORIZ" || kind == "VERT");
+             (kind == "HORIZ" || kind == "VERT" || kind == "FIX");
     };
     c.execute = [d, s](CommandContext& ctx) {
       const std::vector<int> one = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
@@ -3017,7 +3087,8 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 &&
              !sharedSketchNode(*d, ctx.selection()).empty() &&
              (kind == "COINC" || kind == "PARA" || kind == "PERP" || kind == "TANG" ||
-              kind == "EQUAL" || kind == "PTON" || kind == "DIST");
+              kind == "EQUAL" || kind == "PTON" || kind == "CONC" || kind == "COLL" ||
+              kind == "DIST");
     };
     c.execute = [d, s](CommandContext& ctx) {
       const std::vector<int> pair = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
@@ -3030,6 +3101,103 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       }
       emit(ctx, *d, *s, "part.sketch_constrain", "Constrain Entity Pair", "CON", std::move(args),
            IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CON, ternary ──────────────────────────────────────────────────────────
+  // SYMM and MIDPT take THREE entities in SELECTION ORDER: the two that mirror
+  // each other, then the line (or point) they mirror about / the point that
+  // bisects them. The order is the constraint, exactly as it is for SARC.
+  {
+    CommandDescriptor c = base("part.sketch_constrain_triple", "Constrain Three Entities", "CON",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 3));
+    c.schema.push_back(ParamSpec{.name = "kind", .type = ParamType::Text,
+                                 .required = true, .defaultText = "SYMM",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const std::string kind = txt(ctx, "kind", "");
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 3 &&
+             !sharedSketchNode(*d, ctx.selection()).empty() &&
+             (kind == "SYMM" || kind == "MIDPT");
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> trio = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, trio, 3)) return;
+      std::vector<IrArg> args{IrArg::valueRef(trio[0]),
+                              IrArg::keyword(txt(ctx, "kind", "SYMM")),
+                              IrArg::valueRef(trio[1]), IrArg::valueRef(trio[2])};
+      emit(ctx, *d, *s, "part.sketch_constrain_triple", "Constrain Three Entities", "CON",
+           std::move(args), IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+  // ── DIMENSION, one entity ─────────────────────────────────────────────────
+  // CON(%circle, RADIUS|DIAM, value): the size of a circle or an arc as a DRIVING
+  // number. It is what a hole callout is, and unlike SCIRC's own radius it survives
+  // being edited through the Dimensions panel as a constraint the solver enforces.
+  // `value` is REQUIRED and must be positive: a zero or negative size is refused at
+  // the menu rather than emitted and left for the solver to fail on.
+  {
+    CommandDescriptor c = base("part.sketch_dimension_single", "Dimension Entity", "CON",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 1));
+    c.schema.push_back(ParamSpec{.name = "kind", .type = ParamType::Text,
+                                 .required = true, .defaultText = "DIAM",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "value", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0, .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const std::string kind = txt(ctx, "kind", "");
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 1 &&
+             !sharedSketchNode(*d, ctx.selection()).empty() &&
+             (kind == "RADIUS" || kind == "DIAM") && num(ctx, "value", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> one = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, one, 1)) return;
+      std::vector<IrArg> args{IrArg::valueRef(one.front()),
+                              IrArg::keyword(txt(ctx, "kind", "DIAM")),
+                              IrArg::num(num(ctx, "value", 10.0))};
+      emit(ctx, *d, *s, "part.sketch_dimension_single", "Dimension Entity", "CON",
+           std::move(args), IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
+    };
+    add(std::move(c));
+  }
+
+  // ── DIMENSION, two entities ───────────────────────────────────────────────
+  // CON(%a, DIST|DISTX|DISTY|ANGLE, %b, value). DISTX / DISTY are SIGNED
+  // (b minus a), which is how a drawing places a hole "25 to the right of" a
+  // corner; ANGLE is in DEGREES, like every other angle in the IR, and between two
+  // lines or along the direction from one point to another. The value may be
+  // negative for the signed kinds; a DIST the solver cannot reach (a negative
+  // length) is refused by the document's judge, which says why.
+  {
+    CommandDescriptor c = base("part.sketch_dimension", "Dimension Entity Pair", "CON",
+                               SelectionSignature::exactly(EntityKind::SketchRef, 2));
+    c.schema.push_back(ParamSpec{.name = "kind", .type = ParamType::Text,
+                                 .required = true, .defaultText = "DIST",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "value", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 10.0, .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      const std::string kind = txt(ctx, "kind", "");
+      return resolveValues(*d, ctx.selection(), IrValueKind::SketchRef).size() == 2 &&
+             !sharedSketchNode(*d, ctx.selection()).empty() &&
+             (kind == "DIST" || kind == "DISTX" || kind == "DISTY" || kind == "ANGLE");
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const std::vector<int> pair = resolveValues(*d, ctx.selection(), IrValueKind::SketchRef);
+      if (!requireValues(ctx, pair, 2)) return;
+      std::vector<IrArg> args{IrArg::valueRef(pair[0]),
+                              IrArg::keyword(txt(ctx, "kind", "DIST")),
+                              IrArg::valueRef(pair[1]),
+                              IrArg::num(num(ctx, "value", 10.0))};
+      emit(ctx, *d, *s, "part.sketch_dimension", "Dimension Entity Pair", "CON",
+           std::move(args), IrValueKind::Sketch, {}, sharedSketchNode(*d, ctx.selection()));
     };
     add(std::move(c));
   }
@@ -3127,6 +3295,13 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       std::vector<IrArg> args = rec->line.args;
       args[t.argIndex] = IrArg::num(num(ctx, "value", 0.0));
       std::string label = "Edit " + (rec->label.empty() ? rec->line.op : rec->label);
+      // The same semantic check emit() makes: changing a driving dimension to a
+      // value the sketch cannot satisfy is refused, by name, before it is applied.
+      const ChangeVerdict verdict = d->judgeEdit(t.irId, args);
+      if (!verdict.admitted) {
+        ctx.fail(verdict.reason);
+        return;
+      }
       if (!s->perform(*d, std::make_unique<EditFeatureArgsEdit>(t.irId, std::move(args),
                                                                std::move(label)))) {
         ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
@@ -3516,8 +3691,10 @@ const std::vector<std::string>& partCommandIds() {
         "part.sew",                "part.shell",              "part.skin",
         "part.sketch_circle",      "part.sketch_poly",        "part.sketch_polygon",
         "part.sketch_rect",        "part.sketch_rounded_rect",
-        // The 2D sketch + constraint family: eight commands, seven ops.
+        // The 2D sketch + constraint family: eleven commands, seven ops.
         "part.sketch_constrain",   "part.sketch_constrain_single",
+        "part.sketch_constrain_triple",
+        "part.sketch_dimension",   "part.sketch_dimension_single",
         "part.sketch_entity_arc",  "part.sketch_entity_circle",
         "part.sketch_entity_line", "part.sketch_entity_point",
         "part.sketch_new",         "part.sketch_solve",
