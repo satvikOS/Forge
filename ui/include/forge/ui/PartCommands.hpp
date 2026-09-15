@@ -44,6 +44,7 @@
 #include <string_view>
 #include <vector>
 
+#include "forge/ui/AssemblyModel.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/Material.hpp"
@@ -296,10 +297,27 @@ class PartDocument {
   // no two panels can compute a mass two different ways.
   MassProperties massProperties(double volumeMm3) const;
 
-  // GoF Memento. Small by construction: a record count plus the binding table.
+  // ── THE ASSEMBLY OF THIS PART'S BODIES ────────────────────────────────────
+  //
+  // Components instance the SOLIDS this document builds and joints hold them
+  // together (forge/ui/AssemblyModel.hpp). It lives in the part document, not
+  // beside it, for one measured reason: every path that replaces or empties this
+  // object -- File > New, Open, Reset, autosave recovery, the undo stack --
+  // already exists and already acts on PartDocument, so an assembly kept anywhere
+  // else is an assembly one of those paths forgets. Only AssemblyEdit sets it.
+  const assembly::Assembly& assembly() const noexcept { return assembly_; }
+  // Refuses a no-op, so an assembly command that changes nothing pushes no undo
+  // step.
+  bool setAssembly(const assembly::Assembly& value);
+
+  // GoF Memento. Small by construction: a record count, the binding table and
+  // the assembly. The assembly is in it so that restore(Snapshot{}) -- the idiom
+  // every "empty this document" path uses -- empties the assembly as well; a
+  // snapshot() taken and restored round-trips it unchanged.
   struct Snapshot {
     std::size_t records = 0;
     std::map<std::string, int> bindings;
+    assembly::Assembly assembly{};
   };
   Snapshot snapshot() const;
   void restore(const Snapshot& state);
@@ -310,6 +328,7 @@ class PartDocument {
   IrCheck lastCheck_ = IrCheck::Ok;
   EditCheck lastEdit_ = EditCheck::Ok;
   Material material_ = unassignedMaterial();
+  assembly::Assembly assembly_;
 };
 
 // ── the concrete command ────────────────────────────────────────────────────

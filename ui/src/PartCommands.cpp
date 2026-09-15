@@ -219,7 +219,7 @@ bool PartDocument::editFeatureArgs(int irId, const std::vector<IrArg>& args) {
 }
 
 PartDocument::Snapshot PartDocument::snapshot() const {
-  return Snapshot{records_.size(), bindings_};
+  return Snapshot{records_.size(), bindings_, assembly_};
 }
 
 void PartDocument::restore(const Snapshot& state) {
@@ -227,6 +227,13 @@ void PartDocument::restore(const Snapshot& state) {
     records_.resize(state.records);
   }
   bindings_ = state.bindings;
+  assembly_ = state.assembly;
+}
+
+bool PartDocument::setAssembly(const assembly::Assembly& value) {
+  if (value == assembly_) return false;  // a no-op is not an edit
+  assembly_ = value;
+  return true;
 }
 
 // ── the material ────────────────────────────────────────────────────────────
