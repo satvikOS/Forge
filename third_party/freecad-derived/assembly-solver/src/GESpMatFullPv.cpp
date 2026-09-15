@@ -6,7 +6,10 @@
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
 // SPDX-License-Identifier: LGPL-2.1-only
- 
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// backSubstituteIntoDU() read one past the end of three arrays; fixed to n-1/m-1.
+
 #include <cassert>
 
 #include "GESpMatFullPv.h"
@@ -116,8 +119,13 @@ void GESpMatFullPv::backSubstituteIntoDU()
 //    assert(n < localLen);
 
 	answerX = std::make_shared<FullColumn<double>>(m);
-	auto jn = colOrder->at(n);
-	answerX->at(jn) = rightHandSideB->at(m) / matrixA->at(m)->at(jn);
+	// Forge: the last row and column are n - 1 and m - 1. Upstream indexed n and m
+	// (Chapra's 1-based formula ported unchanged), which reads one element past
+	// the end and throws std::out_of_range the first time this runs -- measured
+	// on an over-constrained assembly, where redundancy detection falls through
+	// to this back-substitution.
+	auto jn = colOrder->at(n - 1);
+	answerX->at(jn) = rightHandSideB->at(m - 1) / matrixA->at(m - 1)->at(jn);
 	//auto rhsZeroElement = this->rhsZeroElement();
 	for (ssize_t i = (ssize_t)n - 2; i >= 0; i--)	//Use ssize_t because of decrement
 	{

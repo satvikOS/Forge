@@ -6,7 +6,10 @@
  *   See LICENSE file for details about copyright.                         *
  ***************************************************************************/
 // SPDX-License-Identifier: LGPL-2.1-only
- 
+//
+// MODIFIED for Forge (ArchDisc), 2026-09-15 -- see ../MODIFICATIONS.md.
+// backSubstituteIntoDU() read one past the end of a row; fixed.
+
 #include <cassert>
 
 #include "GEFullMat.h"
@@ -25,8 +28,10 @@ void GEFullMat::backSubstituteIntoDU()
 	for (ssize_t i = (ssize_t)n - 2; i >= 0; i--)	//Use ssize_t because of decrement
 	{
 		auto rowi = matrixA->at(i);
-		double sum = answerX->at(n) * rowi->at(n);
-		for (size_t j = i + 1; j < n - 1; j++)
+		// Forge: upstream seeded the sum with element n (one past the end) and then
+		// stopped the loop one short; this is the same sum over j = i+1 .. n-1.
+		double sum = 0.0;
+		for (size_t j = (size_t)i + 1; j < n; j++)
 		{
 			sum += answerX->at(j) * rowi->at(j);
 		}

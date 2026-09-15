@@ -404,7 +404,48 @@ Result runOnce(const Request& req, double scale) {
         }
     }
 
-    assembly->runPreDrag();
+    // A solve that stops early still leaves every constraint object in place, so
+    // the joints are measured either way: when the solver gives up, WHICH joints
+    // do not hold is the most useful thing it can say.
+    std::string stopped;
+    try {
+        assembly->runPreDrag();
+    } catch (const MbD::MaximumIterationError&) {
+        stopped = "the solver could not find a position that satisfies the joints";
+    } catch (const MbD::TooManyTriesError&) {
+        stopped = "the solver could not find a position that satisfies the joints";
+    } catch (const MbD::SingularMatrixError&) {
+        stopped = "the joints leave the solver no single answer to move towards";
+    } catch (const MbD::SimulationStoppingError& e) {
+        stopped = std::string("the solver stopped: ") + e.what();
+    }
+    if (!stopped.empty()) {
+        out.status = Status::DidNotConverge;
+        out.reason = stopped;
+        out.joints.resize(req.joints.size());
+        std::string names;
+        try {
+            for (std::size_t k = 0; k < joints.size(); ++k) {
+                const EquationCount c = measure(joints[k]->mbdObject);
+                JointOutcome& o = out.joints[k];
+                o.equations = c.equations;
+                o.redundantEquations = c.redundant;
+                o.largestError = c.largestError;
+                o.holds = c.equations > 0 && c.largestError <= tol;
+                if (!o.holds) {
+                    if (!names.empty()) names += ", ";
+                    names += "\"" + req.joints[k].name + "\"";
+                }
+            }
+        } catch (...) {
+            // The objects were never fully built; there is nothing to measure.
+            out.joints.assign(req.joints.size(), JointOutcome{});
+            names.clear();
+        }
+        if (!names.empty()) out.reason = "the solver could not make these joints hold: " + names;
+        if (assembly->solverMessages) out.messages = *assembly->solverMessages;
+        return out;
+    }
 
     out.placements.resize(req.bodies.size());
     for (std::size_t i = 0; i < parts.size(); ++i) {

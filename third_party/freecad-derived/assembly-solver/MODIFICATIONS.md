@@ -80,6 +80,15 @@ applies.
 * **`PosICNewtonRaphson::run` is bounded.** It retried for ever while each pass
   ended in a singular matrix. A pass that marks no new equation redundant cannot
   make progress, and now stops with a `SimulationStoppingError`.
+* **Two out-of-bounds reads fixed.** `GESpMatFullPv::backSubstituteIntoDU`
+  started back-substitution at `colOrder->at(n)`, `rightHandSideB->at(m)` and
+  `matrixA->at(m)` -- one past the end of each, Chapra's 1-based formula ported
+  unchanged. `std::vector::at` throws, so the first time redundancy detection
+  fell through to that back-substitution the solve died with
+  `std::out_of_range("vector")`. MEASURED: a fixed joint that disagrees with a
+  hinge on the same pair did exactly that. Now `n - 1` and `m - 1`.
+  `GEFullMat::backSubstituteIntoDU` had the same seed one past the end of a row
+  and a loop that stopped one short; it now sums `j = i+1 .. n-1`.
 * `ASMTItem.cpp` includes `<fstream>` itself instead of receiving it through
   `ASMTAssembly.h`.
 * Builds as C++20 (upstream: C++17). No source change was needed for that.

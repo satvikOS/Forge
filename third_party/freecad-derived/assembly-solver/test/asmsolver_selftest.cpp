@@ -160,9 +160,15 @@ int main() {
         fix.frameOnSecond = at(0, 0, 0);
         req.joints.push_back(fix);
         const Result res = solve(req);
-        check(res.status == Status::Conflicting, "conflicting: " + std::string(toString(res.status)) + " " + res.reason);
+        // Either the solver converges on the independent equations and reports the
+        // redundant one violated (Conflicting), or it cannot converge at all
+        // (DidNotConverge). What it may never do is report Solved.
+        check(res.status == Status::Conflicting || res.status == Status::DidNotConverge,
+              "refused, not solved: " + std::string(toString(res.status)) + " " + res.reason);
         check(res.reason.find("\"hinge\"") != std::string::npos || res.reason.find("\"fix\"") != std::string::npos,
               "the reason names a joint: " + res.reason);
+        check(res.placements.empty() || res.status == Status::Conflicting,
+              "no placements are offered for a solve that did not finish");
     }
 
     std::printf("[6] refusals\n");

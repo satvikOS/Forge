@@ -893,15 +893,24 @@ EditVerdict solveAndVerify(const Assembly& candidate, const PartDocument* docume
       const SolveOutcome out = solver->solve(candidate, drives);
       if (!out.solved) {
         v.reason = out.reason.empty() ? std::string("the assembly could not be solved") : out.reason;
-        // Name the joints the engine could not satisfy, and what they collide
-        // with: the rows the rank count says already hold what they repeat.
-        std::vector<int> named = out.conflictingJoints;
+        // Name the joints the engine could not satisfy -- or, when it named none,
+        // the ones that do not hold where the parts are now -- and what they
+        // collide with: the rows the rank count says already hold what they repeat.
+        std::vector<int> suspects = out.conflictingJoints;
+        if (suspects.empty()) {
+          for (const JointMeasure& m : measureJoints(candidate, tol)) {
+            if (!m.holds) suspects.push_back(m.jointId);
+          }
+        }
+        std::vector<int> named = suspects;
+        bool collides = false;
         const Freedom f = countFreedom(candidate);
         std::vector<std::string> alsoGrounded;
-        for (int id : out.conflictingJoints) {
+        for (int id : suspects) {
           for (const Freedom::Redundancy& r : f.redundancies) {
             if (r.jointId != id) continue;
             for (int h : r.heldBy) {
+              collides = true;
               if (h > 0) {
                 if (std::find(named.begin(), named.end(), h) == named.end()) named.push_back(h);
               } else if (const Component* g = candidate.component(-h)) {
@@ -913,7 +922,14 @@ EditVerdict solveAndVerify(const Assembly& candidate, const PartDocument* docume
             }
           }
         }
-        if (!named.empty()) {
+        // "Cannot all hold at once" is a claim about the joints, and it is made only
+        // when there is evidence for it: the rank count found a joint that does not
+        // hold repeating what others already hold, or the engine itself found the
+        // joints inconsistent. A solve that merely failed to converge keeps the
+        // engine's own sentence, which names the joints it could not make hold.
+        const bool engineSaysConflict =
+            out.reason.rfind("these joints cannot all hold at once", 0) == 0;
+        if (!named.empty() && (collides || engineSaysConflict)) {
           std::vector<std::string> words;
           for (int id : named) words.push_back(jointName(id));
           for (const std::string& g : alsoGrounded) words.push_back(g);
