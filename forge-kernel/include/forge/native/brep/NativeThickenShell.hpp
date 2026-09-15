@@ -126,6 +126,14 @@
 //     cone is wider than 80 degrees about its mean. A convex corner on a closed
 //     fan IS built: the spherical vertex wedge Ball(v,|t|) ∩ cone(a_1..a_k),
 //     checked against its closed form Omega*|t|^3/3 (DERIVATION 4);
+//   * a thickness that CONSUMES A FACE on the concave side: a concave fold trims a
+//     neighbour's offset face back by |t| tan(theta/2), and if that trim reaches
+//     non-positive edge length or sweeps over another part of the face's boundary
+//     no skin of that thickness exists (MEASURED before the rule: UNFOLD(BOX(60,40,2))
+//     inward by 5 returned V=19200 with material below the sheet) (DERIVATION 5a);
+//   * a face prism that PASSES THROUGH another part of the sheet — a point just
+//     behind a face classifies IN the fused body (two stacked plates at t=2 returned
+//     V=300 before the rule), or a face too narrow to probe that way (DERIVATION 5b);
 //   * a fuse that fails, a result that is not exactly one solid with one shell
 //     (two shells are accepted only for a CLOSED input sheet, whose skin has a void),
 //     a non-positive volume, or a volume outside the [max prism, sum of parts]
