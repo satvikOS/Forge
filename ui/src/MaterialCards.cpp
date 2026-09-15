@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <cstdint>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <set>
 #include <string>
 #include <utility>

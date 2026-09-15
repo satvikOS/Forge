@@ -128,6 +128,7 @@ void step(forge::desktop::ForgeFrame& frame) {
   ImGui::Render();
 }
 
+#ifndef FORGE_MATERIALS_GATE_BASE_PROBE
 bool showPanel(forge::desktop::ForgeFrame& frame, const std::string& panelId) {
   step(frame);
   step(frame);
@@ -141,6 +142,7 @@ bool showPanel(forge::desktop::ForgeFrame& frame, const std::string& panelId) {
   }
   return false;
 }
+#endif
 
 std::string repoRoot() {
   std::string here = __FILE__;
@@ -222,13 +224,17 @@ int main(int argc, char** argv) {
     workerPath = (slash == std::string::npos ? std::string(".") : self.substr(0, slash)) +
                  "/forge_kernel_worker";
   }
+  // --root names the tree the material cards are read from. It defaults to the
+  // tree this file was compiled from; the base probe points it at a tree that has
+  // the cards while the build under test does not.
+  std::string root = repoRoot();
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--mutate") == 0 && i + 1 < argc) g_mutation = std::atoi(argv[++i]);
     if (std::strcmp(argv[i], "--worker") == 0 && i + 1 < argc) workerPath = argv[++i];
+    if (std::strcmp(argv[i], "--root") == 0 && i + 1 < argc) root = argv[++i];
   }
   if (g_mutation != 0) std::printf("[gate] MUTATION %d ACTIVE\n", g_mutation);
 
-  const std::string root = repoRoot();
   bool haveAl = false;
   bool haveSteel = false;
   const std::string alText = readWholeFile(root + kAluminiumCard, haveAl);
