@@ -985,6 +985,19 @@ jobs:
           FORGE_KERNEL_BUILD_DIR: forge-kernel/build-verify
         run: bash forge-kernel/test/run_shell_override_refusal_gate.sh
 
+      - name: THICKEN refusal — a declined thicken is a NAMED refusal, with a negative control
+        # Family I deleted the OCCT skin-offset fallback, so every input the native
+        # thicken declines must THROW quoting the engine's reason. This gate asserts
+        # that on the three-plate convex corner, and that the concave side of the same
+        # fixture still BUILDS a positively oriented solid. It was registered only in
+        # FORGE_AB_GATES, i.e. ctest -- and no workflow runs ctest, so it had never
+        # executed in CI. One TU against the library built above.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_thicken_refusal_gate
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_thicken_refusal_gate
+          ./forge-kernel/build-verify/forge_gate_thicken_refusal_gate
+
       - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
         # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,
         # so a foreign file declaring SI_UNIT($,.METRE.) was read RAW. It refused
