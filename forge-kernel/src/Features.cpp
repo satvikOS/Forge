@@ -61,6 +61,17 @@
 #include <unordered_map>                        // edge->faces map
 #include <unordered_set>                      // selected-face id set (draftFaces)
 #endif
+// The OCCT-fillet watchdog in filletEdges (packaged_task + worker thread + a
+// cumulative budget under a mutex) sits OUTSIDE the FORGE_NATIVE_BREP block, so
+// its standard headers must too. Included only inside that block, a build with
+// FORGE_NATIVE_BREP undefined failed with 11 errors here before it reached a
+// single OCCT call (measured: test/features_native_brep_off_gate.sh). Standard
+// headers carry no OCCT dependency, so including them unconditionally costs the
+// native build nothing.
+#include <chrono>
+#include <future>
+#include <mutex>
+#include <thread>
 
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -3026,6 +3037,19 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
                                 double baseThickness,
                                 const std::vector<FaceThickness>& perFaceOverrides) {
     requirePositive(baseThickness, "shell base thickness");
+#ifndef FORGE_NATIVE_BREP
+    // TKOffset family G left this entry point with ONE engine, and that engine
+    // (forge::occtoffset::makeThickSolid, NativeThickSolid.hpp) is declared only
+    // under FORGE_NATIVE_BREP. shell() above already refuses by name in this
+    // configuration; this entry point referenced the engine UNGUARDED and so did
+    // not compile at all without FORGE_NATIVE_BREP (3 errors, "no member named
+    // 'occtoffset' in namespace 'forge'" — test/features_native_brep_off_gate.sh
+    // pins it). A build that cannot hollow must say so, never fail to link.
+    (void)shape; (void)faceIdsToRemove; (void)perFaceOverrides;
+    throw std::runtime_error(
+        "forge.part.shellMultiThickness: built without FORGE_NATIVE_BREP, and the "
+        "OCCT MakeThickSolid path has been removed (TKOffset family G)");
+#else
     // SAME SIGN CONTRACT as shell() above — a wall thickness, hollowed INWARD.
     // Both routes are spelled from this one magnitude (native +, OCCT -).
     const double baseWall = std::abs(baseThickness);
@@ -3093,6 +3117,7 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
         }
     }
     return ShapeRegistry::instance().add(acc);
+#endif  // FORGE_NATIVE_BREP
 }
 
 }}  // namespace forge::part
