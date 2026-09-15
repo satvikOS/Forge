@@ -331,6 +331,15 @@ mutate "the manifest omits the port" "$C" \
   '' \
   M03
 
+mutate "the render summarises the destination from editable fields, not the manifest" \
+  retrieval/src/SearchRequest.cpp \
+  '    out += "  destination   : " + destination_class + " " + escapeManifestValue(*m_scheme) + "://" +
+           escapeManifestValue(*m_host) + ":" + escapeManifestValue(*m_port) + "\n";
+    out += "  request       : " + escapeManifestValue(*m_method) + " " + escapeManifestValue(*m_path) + "\n";' \
+  '    out += "  destination   : " + destination_class + " " + destination_origin + "\n";
+    out += "  request       : " + http_method + " " + path + "\n";' \
+  M18
+
 mutate "grant() trusts the preview's own digest field" "$C" \
   '  if (covered != preview.request_digest) return a;' \
   '' \
@@ -379,7 +388,7 @@ mutate "PlanValue gets its own URL parser back (the 1dd9ed9b hostOf)" "$P" \
   H01 H02 H03 H16
 
 echo "[attack] mutations: $MUT_CAUGHT of $MUT_TOTAL caught by their named case"
-if [ "$MUT_BAD" -ne 0 ] || [ "$MUT_CAUGHT" -ne "$MUT_TOTAL" ] || [ "$MUT_TOTAL" -lt 19 ]; then
+if [ "$MUT_BAD" -ne 0 ] || [ "$MUT_CAUGHT" -ne "$MUT_TOTAL" ] || [ "$MUT_TOTAL" -lt 20 ]; then
   echo "[attack] PHASE 3 FAILED — $MUT_BAD mutation(s) not demonstrated RED."
   exit 1
 fi

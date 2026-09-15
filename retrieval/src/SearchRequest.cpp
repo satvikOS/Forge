@@ -220,8 +220,31 @@ std::string QueryPreview::renderForOperator() const {
     out += " (" + status_detail + ")";
   }
   out += "\n";
-  out += "  destination   : " + destination_class + " " + destination_origin + "\n";
-  out += "  request       : " + http_method + " " + path + "\n";
+  // WHERE and HOW are read out of the approval manifest whenever there is one,
+  // never out of the free-standing destination_origin / http_method / path
+  // fields: those are not covered by the request digest, so a preview edited
+  // after it was built could otherwise SUMMARISE one destination above an
+  // itemised list that approves another. With no manifest (an unsendable
+  // preview) there is nothing to approve, and the summary says so.
+  auto item = [&](const char* name) -> const std::string* {
+    for (const auto& [k, v] : approval_manifest) {
+      if (k == name) return &v;
+    }
+    return nullptr;
+  };
+  const std::string* m_scheme = item("scheme");
+  const std::string* m_host = item("connect.host");
+  const std::string* m_port = item("connect.port");
+  const std::string* m_method = item("http.method");
+  const std::string* m_path = item("http.path");
+  if (m_scheme && m_host && m_port && m_method && m_path) {
+    out += "  destination   : " + destination_class + " " + escapeManifestValue(*m_scheme) + "://" +
+           escapeManifestValue(*m_host) + ":" + escapeManifestValue(*m_port) + "\n";
+    out += "  request       : " + escapeManifestValue(*m_method) + " " + escapeManifestValue(*m_path) + "\n";
+  } else {
+    out += "  destination   : (none: this preview describes no approvable request)\n";
+    out += "  request       : (none)\n";
+  }
   out += "  query sent    : " + redacted_query + "\n";
   out += "  query removed : " + annotated_query + "\n";
   out += "  removals      : " + std::to_string(removals.size()) + "\n";

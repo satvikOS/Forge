@@ -339,7 +339,7 @@ echo "[retrieval] phase 7 (source classifier) PASSED"
 # and Cyrillic spellings, spent an approval on another endpoint and a rewritten
 # diversity rule, and bound a critical value corroborated by its own publisher
 # through a second URL parser. Each proof is a case here; the fold tables are
-# judged against the UCD and confusables.txt; and 19 mechanisms are removed from
+# judged against the UCD and confusables.txt; and 20 mechanisms are removed from
 # copies of the source, each required to turn its named case red.
 ATTACKGATE="$ROOT/retrieval/test/run_attack_regression_gate.sh"
 if [ ! -x "$ATTACKGATE" ]; then

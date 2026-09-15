@@ -692,6 +692,18 @@ int main() {
       if (k == "http.body") body = val;
     }
     check(q == pg.encoded_body && body.empty(), "M17", "for GET the manifest records the query in http.query");
+
+    // The summary lines at the top of the render are not a second, uncovered
+    // description of the destination: edit the free-standing fields to claim
+    // another endpoint and the render still names the one the digest covers.
+    QueryPreview liar = base;
+    liar.destination_origin = "http://127.0.0.1:9";
+    liar.http_method = "GET";
+    liar.path = "/autocompleter";
+    const std::string lr = liar.renderForOperator();
+    check(lr.find("127.0.0.1:9\n") == std::string::npos && lr.find("/autocompleter") == std::string::npos &&
+              lr.find("http://127.0.0.1:8888\n") != std::string::npos && lr.find("request       : POST /search\n") != std::string::npos,
+          "M18", "the render's destination and request lines are read from the digested manifest, not from editable fields");
   }
 
   section("F. the one Unicode normaliser");

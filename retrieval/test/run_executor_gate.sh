@@ -144,6 +144,8 @@ run_all_checks() {
   check "$([ "$(jfield sendable)" = "true" ] && echo 1 || echo 0)" "A2 preview is sendable"
   local BODY DIGEST RDIG; BODY="$(jfield encoded_body)"; DIGEST="$(jfield body_digest)"
   RDIG="$(jfield request_digest)"
+  # Kept: section B below overwrites out.json before A7/A8 read the render.
+  cp "$WORK/out.json" "$WORK/preview_a.json"
   check "$([ -n "$BODY" ] && echo 1 || echo 0)" "A3 preview carries encoded bytes"
 
   # THE CHECK THAT MATTERS MOST HERE. stdout is consumed by Archie, logged, and
@@ -172,7 +174,7 @@ import json,sys
 r=json.load(open(sys.argv[1]))["operator_render"]
 need=["connect.host = 127.0.0.1","connect.port = 8888","http.method = POST","http.path = /search",
       "handling.min_distinct_publishers = 2",sys.argv[2]]
-print(1 if all(n in r for n in need) else 0)' "$WORK/out.json" "$RDIG")" \
+print(1 if all(n in r for n in need) else 0)' "$WORK/preview_a.json" "$RDIG")" \
         "A8 the operator render names host, port, method, path, the handling and the request digest"
 
   local GOOD; GOOD="$(approved_json "$REQ" "$BODY" "$DIGEST" "$RDIG")"
