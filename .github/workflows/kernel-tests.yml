@@ -970,6 +970,21 @@ jobs:
           JOBS: 3
         run: bash forge-kernel/test/build_thicken_orientation_gate.sh --mutations
 
+      - name: SHELL per-face override — a declined override is refused, never dropped
+        # TKOffset family G left part::shellMultiThickness on the native engine, and
+        # its override loop still did `continue` when a construction came back null
+        # (a skip inherited from OCCT's !IsDone). So box(10), base wall 1, override
+        # 5 / 6 / 20 on one face returned 424 -- the uniform shell with the override
+        # DELETED -- as a success, where OCCT had answered 809.5 / 1000 / 1000.
+        # Proved RED against a library built from the unfixed Features.cpp (24
+        # checks, 12 failed, every refusal arm returning V=424) and GREEN after
+        # (24/0). Controls t = 1.5, -1.5, 4.0, 4.9 must still BUILD to the closed
+        # form 1000 - (9-t)(10-2t)^2 with the envelope exactly [0,10]^3, so it cannot
+        # pass by refusing everything. Links the library built above; builds nothing.
+        env:
+          FORGE_KERNEL_BUILD_DIR: forge-kernel/build-verify
+        run: bash forge-kernel/test/run_shell_override_refusal_gate.sh
+
       - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
         # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,
         # so a foreign file declaring SI_UNIT($,.METRE.) was read RAW. It refused
