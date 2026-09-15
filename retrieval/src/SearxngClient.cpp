@@ -5,6 +5,8 @@
 #include <chrono>
 #include <ctime>
 #include <set>
+#include <span>
+#include <string_view>
 
 #include "forge/retrieval/Json.hpp"
 
@@ -16,12 +18,187 @@ std::string toLower(std::string s) {
   return s;
 }
 
-bool endsWith(const std::string& s, const std::string& suffix) {
+bool endsWith(const std::string& s, std::string_view suffix) {
   return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 bool contains(const std::string& s, const char* needle) {
   return s.find(needle) != std::string::npos;
+}
+
+// ── URL authority → host ─────────────────────────────────────────────────────
+// Implemented from the documented grammar, not from any library:
+//   RFC 3986 §3.1   scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ), and it
+//                   is case-insensitive.
+//   RFC 3986 §3.2   authority = [ userinfo "@" ] host [ ":" port ], and it ends
+//                   at the first "/", "?" or "#".
+//   WHATWG URL Standard §4.4 (authority state): for special schemes "\" also
+//                   ends it, and the userinfo ends at the LAST "@".
+// The previous parser ended the authority at "/" only and split at the FIRST
+// "@", so "https://evil.example#@iso.org" and "https://evil.example?@iso.org"
+// both named iso.org as their host — the host an attacker writes into a
+// fragment. Browsers take evil.example from both.
+struct UrlAuthority {
+  bool scheme_valid = false;  // a syntactically valid scheme preceded "://"
+  bool http_scheme = false;   // ... and it was http or https
+  std::string host;           // raw bytes between userinfo and port, case kept
+  bool port_valid = true;     // the port, if present, is *DIGIT
+};
+
+bool isSchemeChar(unsigned char c, bool first) {
+  if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) return true;
+  if (first) return false;
+  return (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.';
+}
+
+UrlAuthority splitAuthority(const std::string& url) {
+  UrlAuthority a;
+  std::size_t start = 0;
+  const std::size_t sep = url.find("://");
+  if (sep != std::string::npos && sep > 0) {
+    bool ok = true;
+    for (std::size_t i = 0; i < sep; ++i) {
+      if (!isSchemeChar(static_cast<unsigned char>(url[i]), i == 0)) { ok = false; break; }
+    }
+    if (ok) {
+      a.scheme_valid = true;
+      const std::string scheme = toLower(url.substr(0, sep));
+      a.http_scheme = scheme == "http" || scheme == "https";
+      start = sep + 3;
+    }
+  }
+  std::size_t end = url.find_first_of("/?#\\", start);
+  if (end == std::string::npos) end = url.size();
+  std::string authority = url.substr(start, end - start);
+
+  const std::size_t at = authority.rfind('@');
+  if (at != std::string::npos) authority = authority.substr(at + 1);
+
+  if (!authority.empty() && authority.front() == '[') {
+    // IP literal (RFC 3986 §3.2.2). Kept whole; it is never an allowlisted name.
+    const std::size_t close = authority.find(']');
+    a.host = authority.substr(0, close == std::string::npos ? authority.size() : close + 1);
+    return a;
+  }
+  const std::size_t colon = authority.find(':');
+  if (colon != std::string::npos) {
+    for (std::size_t i = colon + 1; i < authority.size(); ++i) {
+      const unsigned char c = static_cast<unsigned char>(authority[i]);
+      if (c < '0' || c > '9') { a.port_valid = false; break; }
+    }
+    authority = authority.substr(0, colon);
+  }
+  a.host = std::move(authority);
+  return a;
+}
+
+// The host a source-authority grant may be decided on, or "" when there is none.
+//
+// Canonical means: an http(s) URL with a well-formed port, whose host is ASCII
+// letters/digits/hyphens in dot-separated labels (RFC 1035 §2.3.1 as relaxed by
+// RFC 1123 §2.1), lower-cased (DNS names are case-insensitive, RFC 4343), with
+// exactly one trailing dot removed (an absolute name, RFC 1034 §3.1), each label
+// 1..63 octets and the whole name at most 253 (RFC 1035 §2.3.4).
+//
+// IDN. The host is IDN-normalised in the only direction that can be done without
+// the Unicode tables: a name is either already in IDNA's ASCII form and eligible,
+// or it is REFUSED any grant.
+//  * Any byte >= 0x80 (a raw U-label, a fullwidth letter, U+3002/U+FF0E/U+FF61
+//    dot equivalents). UTS #46 maps some of these to ASCII and Punycode-encodes
+//    the rest (RFC 3492); neither mapping is carried here, so neither is guessed.
+//  * Any R-LDH label, i.e. "--" in the 3rd and 4th positions (RFC 5891 §4.2.3.1),
+//    which includes every IDNA A-label ("xn--"). What an A-label DISPLAYS as can
+//    only be judged with the UTS #39 confusables data, which is also not carried.
+// Both refusals cost a real internationalised host its tier. That false negative
+// is the safe direction; the false positive — xn--nst-jhd.gov, Cyrillic "nіst",
+// classifying as a regulator — is the vulnerability this closes.
+std::string canonicalHost(const std::string& url) {
+  const UrlAuthority a = splitAuthority(url);
+  if (!a.scheme_valid || !a.http_scheme || !a.port_valid) return "";
+  std::string host = a.host;
+  for (char& ch : host) {  // ASCII-only fold; a byte >= 0x80 is refused by the LDH test below
+    if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+  }
+  if (!host.empty() && host.back() == '.') host.pop_back();
+  if (host.empty() || host.size() > 253) return "";
+
+  std::size_t label_start = 0;
+  while (label_start <= host.size()) {
+    std::size_t dot = host.find('.', label_start);
+    if (dot == std::string::npos) dot = host.size();
+    const std::size_t len = dot - label_start;
+    if (len == 0 || len > 63) return "";
+    for (std::size_t i = label_start; i < dot; ++i) {
+      // Letters, digits, hyphen. This one test refuses every byte >= 0x80, '%',
+      // '@', whitespace and control characters; each guard below is kept single
+      // so the gate's mutation phase can show that removing it is observable.
+      const char c = host[i];
+      const bool ldh = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+      if (!ldh) return "";
+    }
+    if (host[label_start] == '-' || host[dot - 1] == '-') return "";
+    if (len >= 4 && host[label_start + 2] == '-' && host[label_start + 3] == '-') return "";
+    label_start = dot + 1;
+  }
+  return host;
+}
+
+// Registrable-domain match: the host IS the domain, or is a subdomain of it — a
+// name only the domain's registrant can create. Never a substring, never a
+// suffix without a label boundary ("noteuropa.eu" is not "europa.eu").
+bool withinDomain(const std::string& host, std::string_view domain) {
+  if (host == domain) return true;
+  return host.size() > domain.size() && endsWith(host, domain) &&
+         host[host.size() - domain.size() - 1] == '.';
+}
+
+bool onAllowlist(const std::string& host, std::span<const std::string_view> domains) {
+  for (const std::string_view d : domains) {
+    if (withinDomain(host, d)) return true;
+  }
+  return false;
+}
+
+// ── 12.2 authority allowlists ────────────────────────────────────────────────
+// EXPLICIT, and each entry is a registrable domain or a registry-controlled
+// suffix whose registrants are vetted by the registry itself (.gov, .mil, .edu,
+// gov.uk, ac.uk, edu.au). An entry grants its tier to the domain and to every
+// subdomain under it, because only the registrant can create those. Anything not
+// listed gets SecondaryTechnical — the absence of a grant, not a verdict.
+//
+// Adding an entry is a security decision: it hands that registrant's pages the
+// standing to settle an engineering number. source_classifier_gate.cpp pins the
+// hostile forms; add the new domain's positive control there.
+constexpr std::string_view kLawOrRegulatorDomains[] = {
+    "gov", "gov.uk", "mil",  // registry-controlled; covers ecfr.gov, federalregister.gov, nist.gov
+    "europa.eu",
+    "legislation.gov.au", "legislation.govt.nz",
+    "iso.org", "asme.org", "astm.org", "ansi.org", "iec.ch", "din.de", "bsigroup.com",
+    "nfpa.org", "sae.org", "cen.eu", "aws.org",
+};
+constexpr std::string_view kPeerReviewedDomains[] = {
+    "doi.org", "arxiv.org", "sciencedirect.com", "springer.com", "springeropen.com",
+    "wiley.com", "ieee.org", "nature.com", "acm.org", "ncbi.nlm.nih.gov", "tandfonline.com",
+};
+constexpr std::string_view kInstitutionalDomains[] = {
+    "edu", "ac.uk", "edu.au",  // registry-controlled
+    "esa.int", "wikipedia.org",
+};
+// Manufacturer documentation was "any .com/.de/.co.jp host containing docs.,
+// support., catalog or datasheet" — so docs.<anything-you-registered>.com bought
+// tier 1, ABOVE a peer-reviewed paper. It is now the vendors named here.
+constexpr std::string_view kManufacturerDomains[] = {
+    "skf.com", "timken.com", "schaeffler.com", "thk.com", "igus.com", "boschrexroth.com",
+    "parker.com", "festo.com", "swagelok.com", "kennametal.com",
+};
+
+// Community discussion is lead-only standing (never sole authority). A match here
+// can only REMOVE standing, so it may stay a heuristic; it reads the real host.
+bool looksLikeCommunityDiscussion(const std::string& host) {
+  return contains(host, "stackexchange") || contains(host, "stackoverflow") ||
+         contains(host, "reddit.com") || contains(host, "quora.com") ||
+         contains(host, "eng-tips.com") || contains(host, "practicalmachinist") ||
+         contains(host, "forum") || contains(host, "discourse.");
 }
 
 }  // namespace
@@ -75,61 +252,45 @@ SearxngClient::SearxngClient(std::shared_ptr<HttpTransport> transport, Redactor 
     : transport_(std::move(transport)), redactor_(std::move(redactor)), endpoint_(std::move(endpoint)) {}
 
 std::string SearxngClient::publisherFromUrl(const std::string& url) {
-  std::size_t start = url.find("://");
-  start = (start == std::string::npos) ? 0 : start + 3;
-  std::size_t end = url.find('/', start);
-  if (end == std::string::npos) end = url.size();
-  std::string host = toLower(url.substr(start, end - start));
-  const std::size_t at = host.find('@');
-  if (at != std::string::npos) host = host.substr(at + 1);
-  const std::size_t colon = host.find(':');
-  if (colon != std::string::npos) host = host.substr(0, colon);
+  // Publisher identity feeds min_distinct_publishers and corroboration, so it is
+  // read from the same authority parse as the classifier: a host smuggled through
+  // a fragment, query or userinfo must not become the publisher, and one name
+  // spelled with a trailing dot or in capitals must not count as a second one.
+  // Unlike canonicalHost() this is lenient — it names a publisher for display and
+  // counting even when the host earns no authority grant.
+  std::string host = toLower(splitAuthority(url).host);
+  if (!host.empty() && host.back() == '.') host.pop_back();
   if (host.rfind("www.", 0) == 0) host = host.substr(4);
   return host;
 }
 
 SourceType SearxngClient::classifySource(const std::string& url, const std::string& engine) {
-  // Derived from the URL HOST, never from text the page supplied about itself.
-  const std::string host = publisherFromUrl(url);
+  // Derived from the URL HOST, never from text the page supplied about itself,
+  // and granted only by an EXACT registrable-domain match against the explicit
+  // allowlists above. This used to be a set of host SUBSTRING tests, so
+  // ecfr.attacker-cdn.example classified as LawOrRegulator (measured 2026-09-14)
+  // and rendered on the operator's approval screen identically to ecfr.gov.
   (void)engine;  // engine name is a hint only; it is not authority evidence
+  const std::string host = canonicalHost(url);  // "" = eligible for no grant
 
-  // 1. applicable law / regulator / authorized standard
-  if (endsWith(host, ".gov") || endsWith(host, ".gov.uk") || endsWith(host, ".mil") ||
-      endsWith(host, "europa.eu") || contains(host, "legislation.") || contains(host, "ecfr.") ||
-      contains(host, "federalregister.") || host == "iso.org" || endsWith(host, ".iso.org") ||
-      host == "asme.org" || host == "astm.org" || host == "ansi.org" || host == "iec.ch" ||
-      host == "din.de" || host == "bsigroup.com" || host == "nfpa.org" || host == "sae.org" ||
-      host == "cen.eu" || host == "aws.org") {
-    return SourceType::LawOrRegulator;
+  // The tiers are tested in the order the substring version tested them, so a
+  // legitimate host keeps the tier it had (pubmed.ncbi.nlm.nih.gov is still .gov).
+  if (!host.empty()) {
+    // 1. applicable law / regulator / authorized standard
+    if (onAllowlist(host, kLawOrRegulatorDomains)) return SourceType::LawOrRegulator;
+    // 3. peer-reviewed / official dataset
+    if (onAllowlist(host, kPeerReviewedDomains)) return SourceType::PeerReviewed;
   }
-  // 3. peer-reviewed / official dataset
-  if (contains(host, "doi.org") || contains(host, "arxiv.org") || contains(host, "sciencedirect") ||
-      contains(host, "springer") || contains(host, "wiley") || contains(host, "ieee.org") ||
-      contains(host, "nature.com") || contains(host, "acm.org") || contains(host, "pubmed") ||
-      contains(host, "ncbi.nlm.nih.gov") || contains(host, "tandfonline")) {
-    return SourceType::PeerReviewed;
-  }
-  // 6. community discussion — lead only
-  if (contains(host, "stackexchange") || contains(host, "stackoverflow") ||
-      contains(host, "reddit.com") || contains(host, "quora.com") ||
-      contains(host, "eng-tips.com") || contains(host, "practicalmachinist") ||
-      contains(host, "forum") || contains(host, "discourse.")) {
-    return SourceType::CommunityDiscussion;
-  }
-  // 4. reputable institutional reference
-  if (endsWith(host, ".edu") || endsWith(host, ".ac.uk") || endsWith(host, ".edu.au") ||
-      contains(host, "nist.") || contains(host, "nasa.gov") || contains(host, "esa.int") ||
-      contains(host, "wikipedia.org")) {
-    return SourceType::InstitutionalReference;
-  }
-  // 2. original manufacturer / project documentation
-  if (contains(host, "docs.") || contains(host, "support.") || contains(host, "catalog") ||
-      contains(host, "datasheet") || endsWith(host, ".com") || endsWith(host, ".de") ||
-      endsWith(host, ".co.jp")) {
-    // A commercial host is manufacturer documentation only when the path or host
-    // looks like product documentation; otherwise it is a secondary source.
-    if (contains(host, "docs.") || contains(host, "support.") || contains(host, "catalog") ||
-        contains(host, "datasheet")) {
+  // 6. community discussion — lead only. A downgrade, so it also applies to a host
+  //    that earned no grant.
+  if (looksLikeCommunityDiscussion(publisherFromUrl(url))) return SourceType::CommunityDiscussion;
+  if (!host.empty()) {
+    // 4. reputable institutional reference
+    if (onAllowlist(host, kInstitutionalDomains)) {
+      return SourceType::InstitutionalReference;
+    }
+    // 2. original manufacturer / project documentation
+    if (onAllowlist(host, kManufacturerDomains)) {
       return SourceType::ManufacturerDocument;
     }
   }

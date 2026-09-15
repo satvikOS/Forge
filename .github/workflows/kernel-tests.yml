@@ -331,7 +331,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: retrieval gates (phase 1 + network-denied phase 2)
+      - name: retrieval gates (fixtures, network-denied, loopback, executor, bridge, injection, source classifier)
+        # Seven phases, each of which must DECLARE its pass. Phase 7 is the
+        # source-classifier gate (chained from the script, deliberately not
+        # named here so a comment cannot satisfy the shell registration
+        # ratchet if the chain is ever removed): hostile hostnames
+        # (ecfr.attacker-cdn.example, nist.gov.evil.example, xn-- homoglyphs,
+        # user@host, fragment/query smuggling, ports, case, trailing dots) must
+        # not buy an authority tier, with a guard-removal RED proof on every run.
         run: bash retrieval/run_retrieval_tests.sh
 
       - name: durable-workflow orchestration gate (fixtures + network denied)

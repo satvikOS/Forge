@@ -13,8 +13,9 @@
 #            redaction assertion is made from the FAR END of the socket
 #   phase 4  the executor (forge_retrieve), in its --mutations form
 #   phase 5  the Archie-side Python bridge, in its --mutations form
-#   phase 6  the injection gate: hostile retrieved text -> geometry, including
-#            the source-classifier hostile-hostname corpus
+#   phase 6  the injection gate: hostile retrieved text -> geometry
+#   phase 7  the source classifier: a hostname must not be able to buy an
+#            authority tier (hostile-hostname corpus + guard-removal RED proof)
 #
 # Nothing leaves the machine in any phase: phase 3 is loopback-only, the same
 # destination class 20.2 permits, and the transport refuses anything else.
@@ -157,16 +158,17 @@ if [ ! -x "$LIVE" ]; then
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   if [ "${FORGE_ALLOW_NO_LIVE_LOOPBACK:-0}" = "1" ]; then
-    echo "[retrieval] phases 3, 4, 5 and 6 SKIPPED: python3 is not on PATH."
+    echo "[retrieval] phases 3 to 7 SKIPPED: python3 is not on PATH."
     echo "[retrieval] FORGE_ALLOW_NO_LIVE_LOOPBACK=1 was set, so this is an explicit, recorded"
     echo "[retrieval] opt-out. THIS RUN DOES NOT EXERCISE THE REAL SOCKET PATH, does not make"
     echo "[retrieval] the far-end redaction assertion, AND DOES NOT TEST THE EXECUTOR OR THE"
     echo "[retrieval] ARCHIE-SIDE BRIDGE AT ALL — phases 4 and 5 need python3 for their stub"
     echo "[retrieval] sidecar and for the bridge itself. The send path Archie uses is UNPROVEN"
-    echo "[retrieval] in this run, and phase 6 (the injection gate, whose RED-proof phase"
-    echo "[retrieval] applies its weakenings with python3) did not run either."
+    echo "[retrieval] in this run, and phases 6 and 7 (the injection gate and the source"
+    echo "[retrieval] classifier gate, whose RED proofs apply their mutations with python3) did"
+    echo "[retrieval] not run either."
     echo
-    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-6 opted out)"
+    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-7 opted out)"
     exit 0
   fi
   echo "[retrieval] FATAL: phase 3 needs python3 for retrieval/test/stub_sidecar.py." >&2
@@ -296,6 +298,38 @@ if ! grep -q '^\[injection\] INJECTION GATE PASSED' "$OUT/injection.log"; then
   exit 1
 fi
 echo "[retrieval] phase 6 (injection gate) PASSED"
+
+# ── phase 7: the source classifier ───────────────────────────────────────────
+# classifySource() decides the authority tier the operator sees on the approval
+# screen and the model sees as may_be_sole_authority. It matched host SUBSTRINGS,
+# so ecfr.attacker-cdn.example classified as LawOrRegulator, and nothing above
+# could see it: retrieval_gate only asserted what the classifier must ACCEPT.
+# This phase asserts what it must REFUSE, and always runs its RED proof.
+CLASSGATE="$ROOT/retrieval/test/run_source_classifier_gate.sh"
+if [ ! -x "$CLASSGATE" ]; then
+  echo "[retrieval] FATAL: $CLASSGATE is missing or not executable." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 7: source classifier (hostile hostnames), with RED proof"
+"$CLASSGATE" > "$OUT/classifier.log" 2>&1
+rc7=$?
+if [ ! -s "$OUT/classifier.log" ]; then
+  echo "[retrieval] FATAL: the classifier gate wrote an empty log. It did not run." >&2
+  exit 1
+fi
+if [ "$rc7" -ne 0 ]; then
+  echo "[retrieval] PHASE 7 FAILED (exit $rc7) — see below"
+  cat "$OUT/classifier.log"
+  exit "$rc7"
+fi
+grep -E '^\[classifier\] (phase [0-9] .* PASSED|mutations:)' "$OUT/classifier.log"
+if ! grep -q '^\[classifier\] SOURCE CLASSIFIER GATE PASSED' "$OUT/classifier.log"; then
+  echo "[retrieval] phase 7 exited 0 without declaring a pass. Refusing to report one."
+  cat "$OUT/classifier.log"
+  exit 1
+fi
+echo "[retrieval] phase 7 (source classifier) PASSED"
 
 echo
 echo "[retrieval] GATE PASSED"
