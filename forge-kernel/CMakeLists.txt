@@ -1707,7 +1707,8 @@ if(FORGE_NATIVE_BREP AND FORGE_THICKEN_DROP_NATIVE)
                    "toolkit count does not move on this change alone. The family passes its "
                    "flip gate (600/600 native against 600/600 OCCT over the gold corpus, "
                    "deletion bucket 0). A shell the native thicken declines — a curved FOLD, a "
-                   "non-manifold edge, or a convex fold ending at a 3-or-more-plate corner — "
+                   "non-manifold edge, an acute concave fold, or a saddle / open-fan / "
+                   "non-perpendicular concave corner — "
                    "now THROWS, quoting the engine's own defer reason. There is no fallback to "
                    "fall back to.")
 endif()

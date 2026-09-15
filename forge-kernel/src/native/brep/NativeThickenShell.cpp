@@ -62,6 +62,7 @@
 #include <string>
 #include <vector>
 
+#include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -331,6 +332,152 @@ TopoDS_Shape sectorWedge(const gp_Pnt& p0, const gp_Dir& dir, double len,
     }
     if (wedge.IsNull()) return defer("wedge: the sector prism could not be built");
     return wedge;
+}
+
+// ===========================================================================
+// DERIVATION 4 — the SPHERICAL vertex wedge at a convex corner
+// ===========================================================================
+// Rossignac & Requicha's decomposition (CAGD 3(2):129-148, 1986; header banner)
+// has a third term: at a CONVEX VERTEX v the offset body needs the set of points
+// within |t| of v whose direction from v lies in the vertex's NORMAL CONE — the
+// cone spanned by the offset directions a_1..a_k of the k faces around v. That
+// set is
+//     W = Ball(v, |t|)  ∩  cone(a_1, ..., a_k) .
+// The face prisms cover directions inside each face's own normal ray and the
+// cylindrical edge wedges cover the arcs a_i -> a_{i+1}; what is left is exactly
+// the open spherical polygon with vertices a_1..a_k, which is what W adds.
+//
+// ADMISSIBLE ONLY WHERE IT IS EXACT. W is the whole missing piece only when the
+// vertex is locally convex, so the caller admits it only when:
+//   * the faces around v form ONE CLOSED FAN (every edge at v shared by exactly
+//     two of them, k edges for k faces, one cycle) — at a rim vertex of an open
+//     sheet the free edges cap the prisms instead and W is not the right piece;
+//   * EVERY fold of that fan is convex for this offset side.
+// Then the Gauss image is a strictly convex spherical polygon in fan order; that
+// is RE-CHECKED here (consistent turn sign and every a_i within 80 degrees of
+// their mean direction), and anything else declines.
+//
+// VOLUME, IN CLOSED FORM, so the construction is checked rather than trusted:
+//     V(W) = Omega * |t|^3 / 3 ,
+// Omega the polygon's solid angle, summed over the fan triangles (a_1, a_i,
+// a_{i+1}) with the Van Oosterom & Strackee formula (IEEE Trans. Biomed. Eng.
+// BME-30(2):125-126, 1983):
+//     tan(Omega_T / 2) = |a . (b x c)| / (1 + a.b + b.c + c.a) .
+// Box corner: a = x, y, z gives Omega = pi/2 and V = (4/3 pi r^3)/8.
+//
+// CONSTRUCTION. W is built as Ball COMMON Pyramid, where the pyramid has apex v
+// and lateral faces in the planes through v spanned by (a_i, a_{i+1}) — exactly
+// the cone's faces — and a base plane beyond the ball. The ball is
+// forge::occtSphereSolid (no TKPrim) with its poles at 90 degrees and its seam
+// through the antipode of the mean direction, so neither lies on the patch.
+// Null (with a named reason) on any failure or if the built volume misses V(W).
+TopoDS_Shape sphericalVertexWedge(const gp_Pnt& v, const std::vector<gp_Dir>& a,
+                                  double r, double& volClosedForm) {
+    const std::size_t k = a.size();
+    if (k < 3) return defer("corner wedge: fewer than three face normals");
+
+    gp_Vec sum(0.0, 0.0, 0.0);
+    for (const gp_Dir& d : a) sum += gp_Vec(d);
+    if (sum.Magnitude() < 1.0e-9) return defer("corner wedge: the face normals have no mean direction");
+    const gp_Dir c(sum);
+    const double cos80 = std::cos(80.0 * 3.14159265358979323846 / 180.0);
+    for (const gp_Dir& d : a)
+        if (!(d.Dot(c) > cos80))
+            return defer("corner wedge: the corner's normal cone is wider than 80 degrees "
+                         "about its mean direction");
+
+    // Strict convexity in fan order: every turn has the same sign.
+    int turnSign = 0;
+    for (std::size_t i = 0; i < k; ++i) {
+        const gp_Vec p(a[(i + k - 1) % k]), q(a[i]), s(a[(i + 1) % k]);
+        const double tr = p.Crossed(q).Dot(s);
+        if (std::fabs(tr) < 1.0e-12)
+            return defer("corner wedge: two consecutive face normals are coplanar with a third");
+        const int sg = tr > 0.0 ? 1 : -1;
+        if (turnSign == 0) turnSign = sg;
+        else if (sg != turnSign)
+            return defer("corner wedge: the corner's normals do not form a convex spherical polygon");
+    }
+
+    // Omega by the fan of Van Oosterom-Strackee triangles.
+    double omega = 0.0;
+    const gp_Vec a0(a[0]);
+    for (std::size_t i = 1; i + 1 < k; ++i) {
+        const gp_Vec b(a[i]), d(a[i + 1]);
+        const double num = std::fabs(a0.Dot(b.Crossed(d)));
+        const double den = 1.0 + a0.Dot(b) + b.Dot(d) + d.Dot(a0);
+        omega += 2.0 * std::atan2(num, den);
+    }
+    if (!(omega > 0.0)) return defer("corner wedge: the corner's solid angle is not positive");
+    volClosedForm = omega * r * r * r / 3.0;
+
+    // The pyramid: apex v, base in the plane (x - v).c = 2r, which the ball
+    // cannot reach (every ball point in the cone has (x - v).c <= r).
+    const double H = 2.0 * r;
+    std::vector<gp_Pnt> base;
+    base.reserve(k);
+    for (const gp_Dir& d : a) base.push_back(v.Translated(gp_Vec(d) * (H / d.Dot(c))));
+
+    BRepBuilderAPI_Sewing sew(1.0e-9 * std::max(1.0, r));
+    for (std::size_t i = 0; i < k; ++i) {
+        BRepBuilderAPI_MakePolygon tri(v, base[i], base[(i + 1) % k], Standard_True);
+        if (!tri.IsDone()) return defer("corner wedge: a pyramid side could not be built");
+        BRepBuilderAPI_MakeFace mf(tri.Wire(), Standard_True);
+        if (!mf.IsDone()) return defer("corner wedge: a pyramid side face could not be built");
+        sew.Add(mf.Face());
+    }
+    {
+        BRepBuilderAPI_MakePolygon cap;
+        for (const gp_Pnt& p : base) cap.Add(p);
+        cap.Close();
+        if (!cap.IsDone()) return defer("corner wedge: the pyramid base could not be built");
+        BRepBuilderAPI_MakeFace mf(cap.Wire(), Standard_True);
+        if (!mf.IsDone()) return defer("corner wedge: the pyramid base face could not be built");
+        sew.Add(mf.Face());
+    }
+    sew.Perform();
+    TopoDS_Shell pyrShell;
+    {
+        int nSh = 0;
+        for (TopExp_Explorer ex(sew.SewedShape(), TopAbs_SHELL); ex.More(); ex.Next()) {
+            pyrShell = TopoDS::Shell(ex.Current());
+            ++nSh;
+        }
+        if (nSh != 1) return defer("corner wedge: the pyramid did not sew into one shell");
+    }
+    BRepBuilderAPI_MakeSolid mks(pyrShell);
+    if (!mks.IsDone()) return defer("corner wedge: the pyramid solid could not be built");
+    TopoDS_Shape pyramid = mks.Solid();
+    {
+        GProp_GProps gp;
+        BRepGProp::VolumeProperties(pyramid, gp);
+        if (gp.Mass() < 0.0) pyramid.Reverse();
+    }
+
+    // Ball: poles at 90 degrees from c, seam meridian through -c.
+    gp_Vec pole = gp_Vec(c).Crossed(gp_Vec(1.0, 0.0, 0.0));
+    if (pole.Magnitude() < 0.5) pole = gp_Vec(c).Crossed(gp_Vec(0.0, 1.0, 0.0));
+    const gp_Ax2 frame(v, gp_Dir(pole), gp_Dir(gp_Vec(c).Reversed()));
+    TopoDS_Shape ball;
+    try {
+        ball = ::forge::occtSphereSolid(frame, r);
+    } catch (const std::exception&) {
+        return defer("corner wedge: the ball could not be built");
+    }
+    if (ball.IsNull()) return defer("corner wedge: the ball could not be built");
+
+    BRepAlgoAPI_Common common(ball, pyramid);
+    common.Build();
+    if (!common.IsDone()) return defer("corner wedge: ball COMMON pyramid failed");
+    TopoDS_Shape w = common.Shape();
+    int nSol = 0;
+    for (TopExp_Explorer ex(w, TopAbs_SOLID); ex.More(); ex.Next()) ++nSol;
+    if (nSol != 1) return defer("corner wedge: ball COMMON pyramid is not exactly one solid");
+    GProp_GProps gw;
+    BRepGProp::VolumeProperties(w, gw);
+    if (std::fabs(std::fabs(gw.Mass()) - volClosedForm) > 1.0e-6 * volClosedForm)
+        return defer("corner wedge: the built wedge misses the closed form Omega*r^3/3");
+    return w;
 }
 
 // ===========================================================================
@@ -1212,17 +1359,30 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
     TopTools_IndexedMapOfShape faceIndex;
     for (const TopoDS_Face& f : faces) faceIndex.Add(f);
 
-    // Vertices touched by a CONVEX fold: if three or more non-coplanar faces meet
-    // there the decomposition needs a SPHERICAL wedge this version does not build,
-    // so the whole call declines rather than emit a body missing a corner patch.
+    // Vertices touched by a CONVEX fold where three or more faces meet need the
+    // SPHERICAL vertex wedge (DERIVATION 4). They are COLLECTED here and resolved
+    // after every edge has been classified, because admitting a corner depends on
+    // the class of EVERY fold around it, not just the one that found it.
     TopTools_IndexedDataMapOfShapeListOfShape vfMap;
     TopExp::MapShapesAndAncestors(shell, TopAbs_VERTEX, TopAbs_FACE, vfMap);
+    TopTools_IndexedMapOfShape cornerVerts;
+    // ...and vertices a CONCAVE fold reaches where three or more faces meet. The
+    // union of prisms is exact at a concave fold, but NOT at every concave corner:
+    // MEASURED against OCCT on n-gonal pyramid sheets (n = 3, 4, 6; h = 2..30),
+    // every concave apex whose faces are not mutually perpendicular came out
+    // larger than OCCT's thick solid (e.g. n=3 h=10: 250.615 vs 241.611), because
+    // a prism runs past the neighbouring faces' offset planes near the apex. The
+    // box corner (three mutually perpendicular faces) matches exactly.
+    TopTools_IndexedMapOfShape concaveVerts;
+    // Per efMap index: 0 free rim, 1 convex, 2 concave, 3 coplanar fold.
+    std::vector<int> edgeClass(static_cast<std::size_t>(efMap.Extent()) + 1, 0);
+    bool closedInput = true;
 
     for (int ei = 1; ei <= efMap.Extent(); ++ei) {
         const TopoDS_Edge e = TopoDS::Edge(efMap.FindKey(ei));
         const TopTools_ListOfShape& adj = efMap.FindFromIndex(ei);
         const int nAdj = adj.Extent();
-        if (nAdj == 1) continue;                 // free rim: the prism caps it
+        if (nAdj == 1) { closedInput = false; continue; }   // free rim: the prism caps it
         if (nAdj != 2)
             return defer("an edge is shared by more than two faces (non-manifold)");
 
@@ -1236,7 +1396,7 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
         const gp_Dir a1(gp_Vec(N[f1]) * sgn);
         const gp_Dir a2(gp_Vec(N[f2]) * sgn);
         const double dot = std::max(-1.0, std::min(1.0, a1.Dot(a2)));
-        if (dot > 1.0 - kPara) continue;         // coplanar fold: nothing to add
+        if (dot > 1.0 - kPara) { edgeClass[ei] = 3; continue; }  // coplanar fold: nothing to add
         if (dot < -1.0 + 1.0e-9)
             return defer("a 180-degree fold-back");
 
@@ -1245,7 +1405,32 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
             !interiorDirAt(faces[f2], e, N[f2], u2))
             return defer("a shared edge is not on a face's outer wire");
 
-        if (gp_Vec(a1).Dot(gp_Vec(u2)) > 0.0) continue;   // CONCAVE: prisms overlap
+        if (gp_Vec(a1).Dot(gp_Vec(u2)) > 0.0) {                  // CONCAVE: prisms overlap
+            edgeClass[ei] = 2;
+            // BUT ONLY AN ACUTE ONE LETS A PRISM THROUGH THE OTHER PLATE. With
+            // a1 . a2 < 0 the fold's interior angle on the offset side is under 90
+            // degrees, and prism 1 crosses plate 2 near the fold: material on the
+            // WRONG side of the sheet, reported as success. MEASURED on a 60-degree
+            // V of 10x10 plates, t=1: native 188.452995 with the bbox reaching
+            // z = -0.5 below plate A, OCCT 182.679492 inside the fold. 90, 120 and
+            // 150 degrees, and slanted rims at 90 and 120, match OCCT exactly. A
+            // bisector-trimmed prism is not built, so this declines.
+            if (dot < -1.0e-9)
+                return defer("an acute concave fold: a face prism would pass through the "
+                             "neighbouring plate (the bisector-trimmed prism is not built)");
+            TopoDS_Vertex ca, cb;
+            TopExp::Vertices(e, ca, cb);
+            for (const TopoDS_Vertex& cv : {ca, cb}) {
+                const int vi = vfMap.FindIndex(cv);
+                if (vi == 0) return defer("a fold endpoint is not in the vertex map");
+                TopTools_MapOfShape distinct;
+                for (TopTools_ListIteratorOfListOfShape fit(vfMap.FindFromIndex(vi)); fit.More(); fit.Next())
+                    distinct.Add(fit.Value());
+                if (distinct.Extent() > 2) concaveVerts.Add(cv);
+            }
+            continue;
+        }
+        edgeClass[ei] = 1;
 
         // CONVEX: build the wedge.
         gp_Pnt p0; gp_Dir edir; double len = 0.0;
@@ -1259,8 +1444,8 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
         if (!(b.Dot(u1) < 0.0 && b.Dot(u2) < 0.0))
             return defer("the wedge bisector does not point away from both plates");
 
-        // Every vertex of a convex fold must be an endpoint of exactly this fold,
-        // not a meeting of three plates (which would need a spherical wedge).
+        // A vertex of a convex fold where three or more plates meet needs a
+        // spherical wedge: collect it, resolve it after the loop.
         TopoDS_Vertex va, vb;
         TopExp::Vertices(e, va, vb);
         for (const TopoDS_Vertex& v : {va, vb}) {
@@ -1275,9 +1460,7 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
             for (TopTools_ListIteratorOfListOfShape fit(vfMap.FindFromIndex(vi));
                  fit.More(); fit.Next())
                 distinct.Add(fit.Value());
-            if (distinct.Extent() > 2)
-                return defer("a convex fold ends at a 3-or-more-plate corner "
-                             "(the spherical vertex wedge is not built)");
+            if (distinct.Extent() > 2) cornerVerts.Add(v);
         }
 
         const double theta = std::acos(dot);
@@ -1285,6 +1468,139 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
         if (wedge.IsNull()) return kNull;   // sectorWedge already named the reason
         parts.push_back(wedge);
         sumParts += 0.5 * theta * r * r * len;
+    }
+
+    // ---- 4b. CORNERS: a spherical wedge where convex, a check where concave --
+    // Every vertex where three or more faces meet and a fold (convex or concave)
+    // arrives. Admitted only on a CLOSED FAN (no free rim at the corner) that is
+    // not a saddle. Coplanar folds at the corner are allowed: a face split into
+    // coplanar pieces contributes ONE normal to the corner's Gauss image.
+    //   convex   -> the spherical vertex wedge (DERIVATION 4) is added;
+    //   concave  -> nothing is added, and the union of prisms is exact only when
+    //               the corner's distinct normals are at most two, or exactly
+    //               three MUTUALLY PERPENDICULAR ones (the box corner); anything
+    //               else declines (see concaveVerts above for the measurement).
+    TopTools_IndexedMapOfShape allCorners;
+    for (int i = 1; i <= cornerVerts.Extent(); ++i) allCorners.Add(cornerVerts.FindKey(i));
+    for (int i = 1; i <= concaveVerts.Extent(); ++i) allCorners.Add(concaveVerts.FindKey(i));
+    if (allCorners.Extent() > 0) {
+        TopTools_IndexedDataMapOfShapeListOfShape veMap;
+        TopExp::MapShapesAndAncestors(shell, TopAbs_VERTEX, TopAbs_EDGE, veMap);
+        for (int ci = 1; ci <= allCorners.Extent(); ++ci) {
+            const TopoDS_Vertex v = TopoDS::Vertex(allCorners.FindKey(ci));
+            const gp_Pnt vp = BRep_Tool::Pnt(v);
+
+            // distinct faces around v, as indices into `faces`
+            std::vector<std::size_t> fanFaces;
+            {
+                TopTools_MapOfShape seen;
+                for (TopTools_ListIteratorOfListOfShape fit(vfMap.FindFromKey(v)); fit.More(); fit.Next()) {
+                    if (!seen.Add(fit.Value())) continue;
+                    const int fi = faceIndex.FindIndex(fit.Value());
+                    if (fi == 0) return defer("a corner names a face not in the shell");
+                    fanFaces.push_back(static_cast<std::size_t>(fi) - 1);
+                }
+            }
+            // distinct edges at v. Classified in passes so the named reason does
+            // not depend on the order OCCT lists the edges in.
+            std::vector<int> atV;
+            {
+                TopTools_MapOfShape seen;
+                for (TopTools_ListIteratorOfListOfShape eit(veMap.FindFromKey(v)); eit.More(); eit.Next()) {
+                    if (!seen.Add(eit.Value())) continue;
+                    const int ei = efMap.FindIndex(eit.Value());
+                    if (ei == 0) return defer("a corner names an edge not in the shell");
+                    atV.push_back(ei);
+                }
+            }
+            bool hasConvex = false, hasConcave = false;
+            for (int ei : atV) {
+                const int cls = edgeClass[static_cast<std::size_t>(ei)];
+                hasConvex  = hasConvex  || cls == 1;
+                hasConcave = hasConcave || cls == 2;
+            }
+            for (int ei : atV)
+                if (edgeClass[static_cast<std::size_t>(ei)] == 0)
+                    return defer(hasConvex
+                        ? "a convex fold ends at a 3-or-more-plate corner on the "
+                          "sheet's free rim (the spherical vertex wedge is built "
+                          "only where the faces close a fan around the corner)"
+                        : "a concave fold ends at a 3-or-more-plate corner on the "
+                          "sheet's free rim (the union of prisms is not proven exact there)");
+            if (hasConvex && hasConcave)
+                return defer("a convex fold ends at a 3-or-more-plate corner that is "
+                             "not convex at every fold (a saddle corner; the spherical "
+                             "vertex wedge is built only at a convex one)");
+            std::vector<std::pair<std::size_t, std::size_t>> links;
+            for (int ei : atV) {
+                const TopTools_ListOfShape& adj = efMap.FindFromIndex(ei);
+                TopTools_ListIteratorOfListOfShape it(adj);
+                const int i1 = faceIndex.FindIndex(it.Value()); it.Next();
+                const int i2 = faceIndex.FindIndex(it.Value());
+                links.emplace_back(static_cast<std::size_t>(i1) - 1,
+                                   static_cast<std::size_t>(i2) - 1);
+            }
+            if (links.size() != fanFaces.size())
+                return defer("corner: the faces around a corner do not close a single fan");
+            // walk the cycle
+            std::vector<std::size_t> order;
+            order.reserve(fanFaces.size());
+            std::vector<bool> used(links.size(), false);
+            std::size_t cur = links[0].first;
+            order.push_back(cur);
+            for (std::size_t step = 0; step < links.size(); ++step) {
+                bool advanced = false;
+                for (std::size_t li = 0; li < links.size(); ++li) {
+                    if (used[li]) continue;
+                    if (links[li].first == cur || links[li].second == cur) {
+                        used[li] = true;
+                        cur = (links[li].first == cur) ? links[li].second : links[li].first;
+                        advanced = true;
+                        break;
+                    }
+                }
+                if (!advanced) return defer("corner: the faces around a corner do not close a single fan");
+                if (step + 1 < links.size()) order.push_back(cur);
+            }
+            if (cur != order.front() || order.size() != fanFaces.size())
+                return defer("corner: the faces around a corner do not close a single fan");
+            {
+                std::vector<std::size_t> sa = order, sb = fanFaces;
+                std::sort(sa.begin(), sa.end());
+                std::sort(sb.begin(), sb.end());
+                if (sa != sb || std::adjacent_find(sa.begin(), sa.end()) != sa.end())
+                    return defer("corner: the faces around a corner do not close a single fan");
+            }
+            // the corner's Gauss image: distinct offset normals in fan order
+            std::vector<gp_Dir> normals;
+            normals.reserve(order.size());
+            for (std::size_t fi : order) {
+                const gp_Dir d(gp_Vec(N[fi]) * sgn);
+                if (!normals.empty() && normals.back().Dot(d) > 1.0 - kPara) continue;
+                normals.push_back(d);
+            }
+            while (normals.size() > 1 && normals.back().Dot(normals.front()) > 1.0 - kPara)
+                normals.pop_back();
+
+            if (hasConvex) {
+                if (normals.size() < 3) continue;   // a straight fold through split faces
+                double vW = 0.0;
+                const TopoDS_Shape sw = sphericalVertexWedge(vp, normals, r, vW);
+                if (sw.IsNull()) return kNull;      // it named the reason
+                parts.push_back(sw);
+                sumParts += vW;
+            } else {
+                if (normals.size() <= 2) continue;  // a concave fold through split faces
+                bool orthogonal = normals.size() == 3;
+                for (std::size_t i = 0; orthogonal && i < normals.size(); ++i)
+                    for (std::size_t j = i + 1; orthogonal && j < normals.size(); ++j)
+                        orthogonal = std::fabs(normals[i].Dot(normals[j])) < 1.0e-9;
+                if (!orthogonal)
+                    return defer("a concave corner of three or more faces that are not "
+                                 "mutually perpendicular: a face prism overshoots the offset "
+                                 "surface there (the trimmed corner is not built)");
+            }
+        }
     }
 
     // ---- 5. fuse, then remove the fuse's coplanar seams -------------------
@@ -1313,8 +1629,15 @@ TopoDS_Shape thickenShellImpl(const TopoDS_Shape& shell, double t, double tol) {
     int nSolid = 0, nShell = 0;
     for (TopExp_Explorer ex(out, TopAbs_SOLID); ex.More(); ex.Next()) ++nSolid;
     for (TopExp_Explorer ex(out, TopAbs_SHELL); ex.More(); ex.Next()) ++nShell;
-    if (nSolid != 1 || nShell != 1)
-        return defer("the fused body is not exactly one solid with one shell");
+    // A CLOSED input sheet (no free rim) thickens into a skin with a VOID: one
+    // solid bounded by an outer and an inner shell — what OCCT returns for the
+    // same input (UNFOLD(BOX) -> THICKEN: 5524.631241 mm^3, 32 faces, two
+    // shells). An open sheet has no enclosed void, so it must still be one shell.
+    const bool shellsOk = (nShell == 1) || (closedInput && nShell == 2);
+    if (nSolid != 1 || !shellsOk)
+        return defer(closedInput
+                         ? "the fused body is not exactly one solid with one or two shells"
+                         : "the fused body is not exactly one solid with one shell");
 
     GProp_GProps p;
     BRepGProp::VolumeProperties(out, p);
