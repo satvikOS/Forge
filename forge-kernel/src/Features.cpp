@@ -1340,8 +1340,9 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
         // The reasons it can give are enumerated in NativeThickenShell.hpp's
         // HONEST DEFER list (a curved fold, a non-manifold edge, an acute concave
         // fold, a saddle / open-fan / non-perpendicular concave corner, a
-        // non-planar face on the planar paths, and the path-C/D certificate
-        // failures).
+        // thickness that consumes a face on the concave side, a prism through
+        // another part of the sheet, a non-planar face on the planar paths, and
+        // the path-C/D certificate failures).
         // ═══════════════════════════════════════════════════════════════════
 #ifdef FORGE_NATIVE_BREP
         throw std::runtime_error(
