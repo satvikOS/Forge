@@ -181,9 +181,38 @@ struct ShellClosure {
     // Zero unless `verdict` is Closed or InconsistentlyWound.
     double boundedVolume = 0.0;
     // SUM of |per-face volume contribution| about the bounding-box centre — the
-    // scale `boundedVolume` is judged non-zero against, so the judgement is
-    // units-free and position-free.
+    // scale `boundedVolume` AND `resolvedVolume` are judged non-zero against, so the
+    // judgement is units-free and position-free.
     double volumeScale = 0.0;
+
+    // THE SAME 2-CYCLE, MEASURED AT THE HEAL'S OWN TOLERANCE.
+    //
+    // `boundedVolume` is measured at `pairingTol`, which the SWEEP below may drive
+    // far FINER than the tolerance the heal will actually run at. That makes it the
+    // right number for "is a body there at all" and the WRONG number to subtract a
+    // heal's output from, because the two are then measurements of different bodies.
+    // MEASURED (T-137 round 3, fp_probe3 [F1]): a 10x10x10 box plus a 10x10x0.2 slab
+    // separated by a 0.001 gap, healed at tol=0.25. The sweep settles at
+    // pairingTol=9.77e-4, where the two are separate closed bodies, so
+    // boundedVolume=1020; the heal at 0.25 welds the gap, collapses a slab 0.2 thick
+    // — thinner than its own coincidence tolerance — and returns a clean watertight
+    // 12-face box of 1000. The material leg then read a 1.96% loss and REFUSED a
+    // correct result. The identical body with the slab TOUCHING EXACTLY reads
+    // NonManifold, never arms, and is accepted with the same output: identical
+    // result, opposite verdicts, decided by a gap 250x below the tolerance.
+    //
+    // `resolvedVolume` is the fix: the same faces, the same pairing, the same
+    // orientation, but the ring GEOMETRY re-welded at the heal's own opt.tol before
+    // the divergence sum. It is how much material the soup bounds AS THE HEAL SEES
+    // IT. It equals `boundedVolume` exactly whenever the sweep did not fire (the two
+    // tolerances are then the same number and the arithmetic is the same arithmetic).
+    double resolvedVolume = 0.0;
+    // TRUE when `resolvedVolume` is non-zero against `volumeScale` — i.e. the heal's
+    // own tolerance can still see material in this body. FALSE means the tolerance
+    // dissolves the WHOLE part (the T-137 plate at precision == its wall thickness),
+    // which is not a licence to return nothing: the destruction guard falls back to
+    // `boundedVolume` there. See healBRep's leg B.
+    bool resolvesMaterial = false;
 
     // THE ARMING CONDITION: a closed 2-cycle (either winding verdict) that bounds a
     // NON-ZERO volume. A degenerate closed body with no material in it — the
@@ -351,6 +380,15 @@ struct HealReport {
     // |volumeBefore| exactly whenever the input winding IS consistent. Zero when
     // the input is not a closed 2-cycle.
     double boundedVolumeBefore = 0.0;
+    // (9) The same quantity measured at the heal's OWN opt.tol
+    // (ShellClosure::resolvedVolume) — the only "before" the material leg may
+    // subtract `volumeAfter` from, because `volumeAfter` is produced at opt.tol.
+    // Equal to boundedVolumeBefore whenever the tolerance sweep did not fire.
+    double resolvedVolumeBefore = 0.0;
+    // (9) TRUE when the heal's own tolerance can still see material in the input
+    // (ShellClosure::resolvesMaterial). FALSE means opt.tol dissolves the entire
+    // part, and the material leg then falls back to boundedVolumeBefore.
+    bool inputResolvesVolume = false;
     // (9) TRUE when the destruction post-condition REFUSED this heal (ok==false
     // and `reason` is the named refusal). Diagnostics above stay populated on the
     // refusal path so the caller can log exactly what the heal was about to do.

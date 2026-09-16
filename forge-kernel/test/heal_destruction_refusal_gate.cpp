@@ -1037,6 +1037,185 @@ static void runReasonLiteralArm() {
     }
 }
 
+// ===========================================================================
+// THE TOLERANCE-CONSISTENCY ARM — leg B's "before" must be measured at the
+// tolerance the heal RAN at.
+//
+// THE DEFECT THIS EXISTS FOR (T-137 round 3, measured). shellClosure sweeps the
+// coincidence tolerance DOWNWARDS from opt.tol until some rung sees a closed body,
+// and round 2 handed leg B that rung's volume. Leg B then subtracted an output
+// produced at opt.tol from a volume measured at a tolerance up to 256x finer —
+// which is not the same body. MEASURED: a 10x10x10 box plus a 10x10x0.2 slab
+// separated by a 0.001 gap, healed at tol=0.25. The sweep settles at
+// pairingTol=9.7656e-4, where the two are SEPARATE closed bodies (1000 + 20), so
+// the "before" read 1020. The heal at 0.25 welds the gap, collapses a slab 0.2
+// thick — thinner than its own coincidence tolerance — and returns a clean
+// watertight 12-face box of 1000. Leg A passed. LEG B REFUSED a correct result on
+// a 1.96% loss; base 02de2e15 returns this body with ok=1.
+//
+// AND THE SIGNATURE THAT MAKES IT A DEFECT RATHER THAN A JUDGEMENT CALL: the same
+// body with the slab TOUCHING EXACTLY reads NonManifold at every rung, never arms,
+// and is ACCEPTED — with the identical output. Same result, opposite verdicts,
+// decided by a gap 250x below the tolerance. That is round 1's own "identical
+// defect, opposite verdicts" signature, reproduced in round 2's code.
+//
+// So the fixture below is a PAIR, and its first assertion is that the two agree.
+// A guard whose verdict can be flipped by closing a sub-tolerance gap is not
+// measuring the part.
+// ===========================================================================
+
+// An axis-aligned plate as SIX QUADS (one face per side) — deliberately not the
+// triangulated builder above. Needed by the fallback fixture at the bottom of this
+// arm: when opt.tol welds the plate flat, its two coincident quad caps form a
+// closed 2-cycle, where the triangulated version's caps are exact duplicates that
+// pass (8) removes, leaving an OPEN shell that leg A catches instead.
+static std::vector<Face*> quadPlate(TopologyBuilder& tb, double X, double Y, double Z) {
+    const Point3 P[8] = {{0,0,0},{X,0,0},{X,Y,0},{0,Y,0},{0,0,Z},{X,0,Z},{X,Y,Z},{0,Y,Z}};
+    const int r[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
+    std::vector<Face*> f;
+    for (int i = 0; i < 6; ++i)
+        f.push_back(faceFromRing(tb, {P[r[i][0]], P[r[i][1]], P[r[i][2]], P[r[i][3]]}));
+    return f;
+}
+
+static void runToleranceConsistencyArm() {
+    std::printf("-- TOLERANCE CONSISTENCY: leg B's \"before\" is measured at opt.tol --\n");
+    {   // (1) THE PAIR. Identical bodies but for a 0.001 gap, identical outputs;
+        //     the verdicts must be identical too, and must be "not refused".
+        const double frac = HealOptions{}.maxMaterialLossFrac;
+        HealReport rep[2];
+        for (int i = 0; i < 2; ++i) {
+            TopologyBuilder tb;
+            const double gap = (i == 0) ? 0.001 : 0.0;
+            std::vector<Face*> f = triBoxAt(tb, 0, 0, 0, 10, 10, 10);
+            std::vector<Face*> s = triBoxAt(tb, 0, 0, 10.0 + gap, 10, 10, 0.2);
+            f.insert(f.end(), s.begin(), s.end());
+            HealOptions opt; opt.tol = 0.25;
+            rep[i] = healBRep(tb, f, opt);
+            std::printf("    box 10^3 + 0.2 slab, gap %-5.3g at tol=0.25: armed=%d resolves=%d "
+                        "ok=%d refused=%d closed=%d faces=%zu free=%zu  bounded=%.8g "
+                        "resolved=%.8g  V %.8g -> %.8g\n",
+                        gap, rep[i].inputBoundsVolume ? 1 : 0, rep[i].inputResolvesVolume ? 1 : 0,
+                        rep[i].ok ? 1 : 0, rep[i].destructionRefused ? 1 : 0,
+                        rep[i].after.closed ? 1 : 0, rep[i].after.faces,
+                        rep[i].unfixedFreeEdgeIds.size(), rep[i].boundedVolumeBefore,
+                        rep[i].resolvedVolumeBefore, rep[i].volumeBefore, rep[i].volumeAfter);
+        }
+        const HealReport& G = rep[0];   // gapped
+        const HealReport& T = rep[1];   // touching
+
+        // The two really are the same repair — asserted, not assumed, because the
+        // whole claim is "same result, and therefore it must be the same verdict".
+        check(G.after.closed && T.after.closed,
+              "pair: BOTH heal to a CLOSED shell");
+        check(G.unfixedFreeEdgeIds.empty() && T.unfixedFreeEdgeIds.empty(),
+              "pair: BOTH leave zero unfixed free edges");
+        check(G.after.faces == T.after.faces,
+              "pair: BOTH return the same number of faces (the slab is gone from both)");
+        check(std::fabs(std::fabs(G.volumeAfter) - std::fabs(T.volumeAfter)) <= 1e-9,
+              "pair: BOTH return the SAME volume — it is one repair, twice");
+        check(std::fabs(std::fabs(G.volumeAfter) - 1000.0) <= 1e-9,
+              "pair: and that volume is the 10x10x10 box, 1000, intact");
+
+        // THE ASSERTION THE DEFECT FAILED.
+        check(G.destructionRefused == T.destructionRefused && G.ok == T.ok,
+              "pair: the two verdicts AGREE — a 0.001 gap, 250x below the tolerance, "
+              "cannot decide whether a repair is destruction");
+        check(G.ok && !G.destructionRefused, "pair/gapped: NOT refused");
+        check(T.ok && !T.destructionRefused, "pair/touching: NOT refused");
+
+        // WHY it is not refused — pinned, so that a future "fix" that relaxes the
+        // threshold instead of fixing the measurement cannot pass this fixture.
+        check(G.inputBoundsVolume, "pair/gapped: the sweep DID arm the guard");
+        check(std::fabs(G.boundedVolumeBefore - 1020.0) <= 1e-6,
+              "pair/gapped: the sweep's own before is 1020 — box AND slab, two bodies "
+              "at a tolerance 256x finer than the heal's");
+        check(std::fabs(G.resolvedVolumeBefore - 1000.0) <= 1e-6,
+              "pair/gapped: the before AT opt.tol is 1000 — the slab is 0.2 thick and "
+              "opt.tol is 0.25, so the heal's own weld cannot represent it");
+        check(G.resolvedVolumeBefore < G.boundedVolumeBefore,
+              "pair/gapped: the two numbers really do differ (the sweep fired)");
+        // THE MUTATION TRIP-WIRE: reverting leg B to the sweep's before re-refuses.
+        check((G.boundedVolumeBefore - std::fabs(G.volumeAfter)) > frac * G.boundedVolumeBefore,
+              "pair/gapped: measured against the SWEEP's before the loss is ABOVE the "
+              "threshold — so a leg B that used it would refuse, and this check would "
+              "have caught that");
+        check((G.resolvedVolumeBefore - std::fabs(G.volumeAfter)) <= frac * G.resolvedVolumeBefore,
+              "pair/gapped: measured against opt.tol's before the loss is within the "
+              "threshold — stated against the option's own default, not a literal");
+        check(!T.inputBoundsVolume,
+              "pair/touching: the touching twin is NONMANIFOLD at every rung and never "
+              "arms — which is exactly why it was accepted while its twin was refused");
+    }
+    {   // (2) THE NO-SWEEP INVARIANT. When the guard arms at opt.tol itself there is
+        //     only one tolerance in play and the two "befores" must be the SAME
+        //     NUMBER — not approximately, bit-for-bit, because it is the same
+        //     arithmetic on the same rings. If they ever diverge, the second
+        //     measurement has acquired a bug of its own and every verdict below is
+        //     suspect. Checked on a body that is refused (the quiet variant) and on
+        //     one that is not (a clean box), so neither verdict can hide it.
+        {   TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+            std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06);
+            f.insert(f.end(), w.begin(), w.end());
+            HealOptions opt; opt.tol = 0.05;
+            HealReport r = healBRep(tb, f, opt);
+            check(r.resolvedVolumeBefore == r.boundedVolumeBefore,
+                  "no-sweep: quiet variant — the two befores are the SAME number");
+            check(r.inputResolvesVolume && r.destructionRefused,
+                  "no-sweep: and the whisker (0.06 thick, ABOVE opt.tol 0.05) is still "
+                  "resolvable material that leg B refuses to lose");
+        }
+        {   TopologyBuilder tb;
+            HealOptions opt; opt.tol = 1e-6;
+            HealReport r = healBRep(tb, triBox(tb, 3.0, 3.0, 3.0), opt);
+            check(r.resolvedVolumeBefore == r.boundedVolumeBefore,
+                  "no-sweep: clean box — the two befores are the SAME number");
+            check(r.ok && std::fabs(r.resolvedVolumeBefore - 27.0) <= 1e-9,
+                  "no-sweep: clean box heals, and its before is L^3");
+        }
+    }
+    {   // (3) THE FALLBACK, and why it needs a fixture of its own.
+        //     When opt.tol dissolves the WHOLE part there is no tolerance-consistent
+        //     before to compare against — resolvedVolumeBefore is 0 — and "the
+        //     tolerance cannot represent this part" is not a licence to return
+        //     nothing. Leg B therefore falls back to the material that is really
+        //     there. MEASURED: on every naturally-shaped body that dissolves whole
+        //     (36 plate/prism constructions swept across L, thickness and tol) the
+        //     heal OPENS the shell or empties it, so leg A or the total-destruction
+        //     branch answers first and the fallback never runs — i.e. it would have
+        //     shipped as a branch no gate covers. The mechanism is pass (8): the
+        //     flattened plate's two coincident caps are exact DUPLICATES and one is
+        //     removed, leaving 4 free edges. Turn that one pass off — a real public
+        //     option, not a test hook — and the closed zero-volume shell appears,
+        //     with zero residuals, and leg B's fallback is the only thing between the
+        //     user and an empty part reported as a clean repair.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 0.001;      // == the plate's own thickness
+        opt.resolveNonManifold = false;        // (8) off: keep the duplicate cap
+        HealReport r = healBRep(tb, quadPlate(tb, 100.0, 100.0, 0.001), opt);
+        std::printf("    flattened quad plate 100x100x0.001 at tol=0.001, pass (8) OFF: "
+                    "armed=%d resolves=%d closed=%d faces=%zu free=%zu bounded=%.8g "
+                    "resolved=%.8g V %.8g -> %.8g\n",
+                    r.inputBoundsVolume ? 1 : 0, r.inputResolvesVolume ? 1 : 0,
+                    r.after.closed ? 1 : 0, r.after.faces, r.unfixedFreeEdgeIds.size(),
+                    r.boundedVolumeBefore, r.resolvedVolumeBefore,
+                    r.volumeBefore, r.volumeAfter);
+        check(r.inputBoundsVolume, "fallback: armed — the sweep sees the 10 mm^3 plate");
+        check(!r.inputResolvesVolume,
+              "fallback: and opt.tol resolves NONE of it — the weld folds the plate flat");
+        check(r.after.closed && !r.faces.empty(),
+              "fallback: the output is a CLOSED, non-empty shell — leg A is silent and "
+              "the total-destruction branch is not reached");
+        check(r.unfixedFreeEdgeIds.empty(), "fallback: with zero unfixed residuals");
+        check(std::fabs(r.volumeAfter) < 0.01 * r.boundedVolumeBefore,
+              "fallback: and the material is gone");
+        check(!r.ok && r.destructionRefused, "fallback: REFUSED anyway");
+        check(std::string(r.reason).find("consumed the body") != std::string::npos,
+              "fallback: by LEG B, comparing against the material that is really there");
+    }
+}
+
 int main() {
     std::printf("=== heal destruction-refusal gate (T-137) ===\n");
     std::printf("A repair that empties the user's part must REFUSE, not report success.\n\n");
@@ -1045,6 +1224,8 @@ int main() {
     runNegativeArm();
     std::printf("\n");
     runArmingArm();
+    std::printf("\n");
+    runToleranceConsistencyArm();
     std::printf("\n");
     runReasonLiteralArm();
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);

@@ -325,18 +325,21 @@ double shellSurfaceArea(const std::vector<Face*>& faces) {
 // ===========================================================================
 namespace {
 
-// One closedness verdict at ONE coincidence tolerance. shellClosure below drives it.
-ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
-    ShellClosure sc;
-    sc.pairingTol = tol;
+// [face][ring][corner] — one face's rings, outer first then inners.
+using WeldedRings = std::vector<std::vector<std::vector<Point3>>>;
+
+// Steps 0-2 of the closedness question, isolated so they can be asked at TWO
+// different tolerances in one verdict (see closureAt's `volTol` below): extract
+// every face's boundary rings, weld the corner positions at `tol` the way heal
+// pass (4)/(1) does, and normalise each ring the way heal pass (2) does.
+WeldedRings weldedRings(const std::vector<Face*>& faces, double tol) {
     if (!(tol > 0.0)) tol = 1e-12;
-    if (faces.empty()) return sc;
 
     // --- 0. every face to its boundary rings (outer first, then inners) --------
     // Inner (hole) loops are boundary too: their edges must pair like any other,
     // and a flip flips a whole FACE — outer and inners together — which is why the
     // owning face index travels with every edge use below.
-    std::vector<std::vector<std::vector<Point3>>> frs;   // [face][ring][corner]
+    WeldedRings frs;
     frs.reserve(faces.size());
     for (Face* f : faces) {
         std::vector<std::vector<Point3>> rings;
@@ -357,7 +360,7 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
                 pts.push_back(frs[fi][ri][k]);
                 refs.push_back({fi, ri, k});
             }
-    if (pts.empty()) return sc;
+    if (pts.empty()) return frs;
 
     DSU dsu;
     clusterPositionsWithin(pts, tol, dsu);
@@ -380,6 +383,35 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
     for (auto& rings : frs)
         for (auto& ring : rings)
             cleanRingPositions(ring, tol, nullptr);
+    return frs;
+}
+
+// One closedness verdict, with TWO tolerances (shellClosure below drives it):
+//
+//   pairTol — the coincidence tolerance the TOPOLOGY is decided at: which corners
+//             are one point, and therefore which directed boundary edges pair.
+//             The verdict, the edge counts and `boundedVolume` are all at pairTol.
+//   volTol  — the coincidence tolerance the RESOLVED volume is measured at, i.e.
+//             the heal's own opt.tol. Same pairing (same faces, same orientation
+//             propagation), but the ring GEOMETRY is re-welded at volTol first, so
+//             `resolvedVolume` is how much material the soup bounds AS THE HEAL AT
+//             opt.tol SEES IT. When the two tolerances are equal — which is every
+//             case where the sweep did not fire — this is the identical arithmetic
+//             on the identical rings and resolvedVolume == boundedVolume exactly.
+//
+// See Heal.hpp (ShellClosure::resolvedVolume) for the measured defect that made
+// two tolerances necessary.
+ShellClosure closureAt(const std::vector<Face*>& faces, double pairTol, double volTol) {
+    ShellClosure sc;
+    sc.pairingTol = pairTol;
+    double tol = pairTol;
+    if (!(tol > 0.0)) tol = 1e-12;
+    if (faces.empty()) return sc;
+
+    WeldedRings frs = weldedRings(faces, tol);
+    std::size_t nCorners = 0;
+    for (const auto& rings : frs) for (const auto& r : rings) nCorners += r.size();
+    if (nCorners == 0) return sc;
 
     // --- 3. compact ids for the surviving positions ---------------------------
     // Every remaining corner is a bit-identical copy of a survivor position, so
@@ -401,7 +433,7 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
         }
     };
     std::unordered_map<PKey, std::uint32_t, PKeyHash> idOf;
-    idOf.reserve(pts.size() * 2);
+    idOf.reserve(nCorners * 2);
     auto idFor = [&](const Point3& p) -> std::uint32_t {
         PKey k{p.x, p.y, p.z};
         auto it = idOf.find(k);
@@ -415,7 +447,7 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
     struct Use { std::size_t face; bool forward; };
     struct EdgeRec { int uses = 0; Use u[2]{}; };
     std::unordered_map<std::uint64_t, EdgeRec> em;
-    em.reserve(pts.size() * 2);
+    em.reserve(nCorners * 2);
     for (std::size_t fi = 0; fi < frs.size(); ++fi) {
         for (const auto& ring : frs[fi]) {
             const std::size_t L = ring.size();
@@ -465,42 +497,13 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
     }
     std::vector<int> rel(nF, 0);
 
-    // Per-face volume contribution and area weight, measured about the BOUNDING-BOX
-    // CENTRE: for a closed surface the divergence sum is translation-invariant, and
-    // recentring minimises the per-face magnitudes, so `volumeScale` is a
-    // position-free scale to judge "is there any material here" against.
-    Point3 lo{0,0,0}, hi{0,0,0};
-    bool first = true;
-    for (const auto& rings : frs)
-        for (const auto& ring : rings)
-            for (const Point3& p : ring) {
-                if (first) { lo = hi = p; first = false; continue; }
-                lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
-                hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
-            }
-    const Point3 c{(lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, (lo.z + hi.z) * 0.5};
-    auto recentred = [&](const std::vector<Point3>& ring) {
-        std::vector<Point3> out; out.reserve(ring.size());
-        for (const Point3& p : ring) out.push_back(Point3{p.x - c.x, p.y - c.y, p.z - c.z});
-        return out;
-    };
-    std::vector<double> vOf(nF, 0.0), wOf(nF, 0.0);
-    for (std::size_t fi = 0; fi < nF; ++fi) {
-        for (std::size_t ri = 0; ri < frs[fi].size(); ++ri) {
-            if (frs[fi][ri].size() < 3) continue;
-            const std::vector<Point3> r = recentred(frs[fi][ri]);
-            const double v = polyVolumeContribution(r);
-            const double w = polyArea(r);
-            if (ri == 0) { vOf[fi] += v; wOf[fi] += w; }
-            else         { vOf[fi] -= v; wOf[fi] -= w; }   // inner loops subtract
-        }
-        sc.volumeScale += std::fabs(vOf[fi]);
-    }
-
-    double total = 0.0;
+    // The CONNECTED COMPONENTS of the dual graph, and the per-face relative
+    // orientation inside each. Both are properties of the PAIRING alone — they do
+    // not depend on where the corners ended up — which is what lets the same
+    // 2-cycle be measured at a second tolerance below.
+    std::vector<std::vector<std::size_t>> comps;
     for (std::size_t seed = 0; seed < nF && !conflict; ++seed) {
         if (rel[seed] != 0) continue;
-        // One connected component of the dual graph.
         std::vector<std::size_t> comp;
         std::queue<std::size_t> q;
         rel[seed] = +1; q.push(seed); comp.push_back(seed);
@@ -512,18 +515,76 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
                 else if (rel[e.first] != want) { conflict = true; }
             }
         }
-        // The component's GLOBAL sign is free (a closed shell may be read either way
-        // round). Choose it to agree, BY AREA, with the input's own winding: that
-        // makes a minority of backwards faces read as the error they are, while a
-        // hollow enclosure's deliberately inward-wound void still subtracts.
-        double agree = 0.0, vol = 0.0;
-        for (std::size_t f : comp) { agree += rel[f] * wOf[f]; vol += rel[f] * vOf[f]; }
-        total += (agree < 0.0) ? -vol : vol;
+        comps.push_back(std::move(comp));
     }
     if (conflict) return sc;                        // non-orientable: no volume is defined
 
-    sc.boundedVolume = std::fabs(total);
+    // How much material this 2-cycle bounds when its corners sit where a weld at
+    // ONE given tolerance put them. Per-face volume contribution and area weight
+    // are measured about that ring set's own BOUNDING-BOX CENTRE: for a closed
+    // surface the divergence sum is translation-invariant, and recentring minimises
+    // the per-face magnitudes, so `scaleOut` is a position-free scale to judge "is
+    // there any material here" against.
+    auto measure = [&](const WeldedRings& rs, double* scaleOut) -> double {
+        Point3 lo{0,0,0}, hi{0,0,0};
+        bool first = true;
+        for (const auto& rings : rs)
+            for (const auto& ring : rings)
+                for (const Point3& p : ring) {
+                    if (first) { lo = hi = p; first = false; continue; }
+                    lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
+                    hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
+                }
+        const Point3 c{(lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, (lo.z + hi.z) * 0.5};
+        auto recentred = [&](const std::vector<Point3>& ring) {
+            std::vector<Point3> out; out.reserve(ring.size());
+            for (const Point3& p : ring) out.push_back(Point3{p.x - c.x, p.y - c.y, p.z - c.z});
+            return out;
+        };
+        std::vector<double> vOf(nF, 0.0), wOf(nF, 0.0);
+        double scale = 0.0;
+        for (std::size_t fi = 0; fi < nF && fi < rs.size(); ++fi) {
+            for (std::size_t ri = 0; ri < rs[fi].size(); ++ri) {
+                if (rs[fi][ri].size() < 3) continue;
+                const std::vector<Point3> r = recentred(rs[fi][ri]);
+                const double v = polyVolumeContribution(r);
+                const double w = polyArea(r);
+                if (ri == 0) { vOf[fi] += v; wOf[fi] += w; }
+                else         { vOf[fi] -= v; wOf[fi] -= w; }   // inner loops subtract
+            }
+            scale += std::fabs(vOf[fi]);
+        }
+        if (scaleOut != nullptr) *scaleOut = scale;
+        double total = 0.0;
+        for (const auto& comp : comps) {
+            // The component's GLOBAL sign is free (a closed shell may be read either
+            // way round). Choose it to agree, BY AREA, with the input's own winding:
+            // that makes a minority of backwards faces read as the error they are,
+            // while a hollow enclosure's deliberately inward-wound void still subtracts.
+            double agree = 0.0, vol = 0.0;
+            for (std::size_t f : comp) { agree += rel[f] * wOf[f]; vol += rel[f] * vOf[f]; }
+            total += (agree < 0.0) ? -vol : vol;
+        }
+        return std::fabs(total);
+    };
+
+    sc.boundedVolume = measure(frs, &sc.volumeScale);
     sc.boundsMaterial = (sc.volumeScale > 0.0) && (sc.boundedVolume > 1e-9 * sc.volumeScale);
+
+    // The SECOND measurement: the same 2-cycle, its corners welded at the heal's own
+    // tolerance instead. Skipped (and simply copied) when the two tolerances are the
+    // same number, so the common path costs nothing and is bit-identical; skipped
+    // entirely when this rung bounds nothing, because nothing downstream reads a
+    // resolved volume for a body the guard does not arm on.
+    if (volTol == pairTol || !sc.boundsMaterial) {
+        sc.resolvedVolume = sc.boundedVolume;
+    } else {
+        sc.resolvedVolume = measure(weldedRings(faces, volTol), nullptr);
+    }
+    // Judged against the SAME scale as boundedVolume — the scale of the body that is
+    // really there — so that a collapsed ring set's floating-point residue reads as
+    // the zero it is, rather than as material relative to its own vanished scale.
+    sc.resolvesMaterial = (sc.volumeScale > 0.0) && (sc.resolvedVolume > 1e-9 * sc.volumeScale);
     return sc;
 }
 
@@ -534,7 +595,7 @@ ShellClosure shellClosure(const std::vector<Face*>& faces, double tol) {
 
     // The verdict AT the heal's own tolerance is the primary one, and the one
     // reported when nothing arms: it is the input as the healer will see it.
-    ShellClosure atTol = closureAt(faces, tol);
+    ShellClosure atTol = closureAt(faces, tol, tol);
     if (atTol.boundsMaterial) return atTol;
 
     // ---- THE TOLERANCE SWEEP, and the measured reason it is here -------------
@@ -593,7 +654,11 @@ ShellClosure shellClosure(const std::vector<Face*>& faces, double tol) {
     for (int step = 0; step < 24; ++step) {
         t *= 0.5;
         if (t < floorTol) break;
-        ShellClosure c = closureAt(faces, t);
+        // pairTol = t (the rung that can see the body), volTol = tol (the heal's own
+        // coincidence). The rung decides WHETHER a body is there; the heal's own
+        // tolerance decides HOW MUCH OF IT the heal is able to see — which is the
+        // only "before" the material leg may legitimately subtract its output from.
+        ShellClosure c = closureAt(faces, t, tol);
         if (c.boundsMaterial) return c;
         // Only a RIM (freeEdges > 0) counts toward the early exit. A verdict of Open
         // with NO edges at all is the opposite signal — the tolerance collapsed every
@@ -667,8 +732,10 @@ HealReport healBRep(TopologyBuilder& tb,
     // post-condition at the bottom of this function.
     const ShellClosure inputClosure = shellClosure(faces, tol);
     rep.inputClosure        = inputClosure.verdict;
-    rep.boundedVolumeBefore = inputClosure.boundedVolume;
-    rep.inputBoundsVolume   = inputClosure.boundsMaterial;
+    rep.boundedVolumeBefore  = inputClosure.boundedVolume;
+    rep.inputBoundsVolume    = inputClosure.boundsMaterial;
+    rep.resolvedVolumeBefore = inputClosure.resolvedVolume;
+    rep.inputResolvesVolume  = inputClosure.resolvesMaterial;
 
     // --- 0. extract every face to vertex-position rings ------------------------
     std::vector<FaceRings> frs;
@@ -1392,7 +1459,36 @@ HealReport healBRep(TopologyBuilder& tb,
                          "than returning a solid that is not one";
             return rep;
         }
-        const double before = rep.boundedVolumeBefore;
+        // THE BEFORE MUST BE MEASURED AT THE TOLERANCE THE HEAL RAN AT (T-137 r3).
+        // `volumeAfter` is what the heal produced at opt.tol, so the only volume it
+        // may be subtracted from is the input as opt.tol sees it —
+        // `resolvedVolumeBefore`. `boundedVolumeBefore` is measured at the sweep's
+        // pairing tolerance, which may be hundreds of times finer, and a volume
+        // measured at a finer tolerance is a volume of a DIFFERENT body: two pieces
+        // rather than one welded piece, or a feature the heal's own coincidence
+        // cannot represent. Subtracting across that gap refused a correct result
+        // (see ShellClosure::resolvedVolume for the measured case) and, worse,
+        // decided it by a 0.001 gap 250x below the tolerance: the same body with the
+        // parts touching exactly was accepted with the identical output.
+        //
+        // THE ONE EXCEPTION, and it is the T-137 headline itself: when opt.tol
+        // dissolves the WHOLE part (`inputResolvesVolume` false — the 100x100x0.001
+        // plate healed at precision 0.001 welds its own two faces together), there
+        // is no tolerance-consistent comparison to make, and "the tolerance cannot
+        // represent this part" is emphatically not a licence to hand back nothing.
+        // The material that is really there is then the honest measure, and the
+        // refusal routes the part to the OCCT fallback, which is the whole point.
+        //
+        // WHAT THIS LETS THROUGH, stated plainly: material that lies entirely below
+        // opt.tol is now free, however much of it there is — a 1x1x1 box carrying a
+        // 100x100x0.0005 sheet healed at tol=0.001 may lose the sheet (83% of the
+        // total) without refusal. That is a property of the tolerance, not a hole in
+        // the guard: a heal asked to treat 0.001 as coincident cannot represent a
+        // 0.0005-thick sheet at all, and pass (3) reports what it dropped in
+        // `sliverFacesRemoved`. The guard keeps its opinion where it is meaningful —
+        // the body opt.tol CAN see must survive, and leg A's closure is unconditional.
+        const double before = rep.inputResolvesVolume ? rep.resolvedVolumeBefore
+                                                      : rep.boundedVolumeBefore;
         const double after  = std::fabs(rep.volumeAfter);
         if (opt.maxMaterialLossFrac > 0.0 && before > 0.0 &&
             (before - after) > opt.maxMaterialLossFrac * before) {
