@@ -187,6 +187,104 @@ fullwidth = [(cp, cp - 0xFEE0) for cp in range(0xFF01, 0xFF5F)]
 # Arabic decimal and thousands separators.
 fullwidth += [(0x066B, ord(".")), (0x066C, ord(","))]
 
+# ── ROUND 3, defect 3c: DASHES ──────────────────────────────────────────────
+# `a one<EN DASH>two punch of tolerance stackup` lost "one two", and the plain
+# ASCII `a one-two punch` does not. An en dash was UNMODELLED, so it folded to
+# \x01, which made the run carry an unmodelled code point and the policy refused
+# it. A dash is not an unnameable byte: it is the ASCII hyphen, typeset.
+#
+# DERIVED from the Unicode category, not typed out: EVERY code point in category
+# Pd is an ASCII '-', plus U+2212 MINUS SIGN, which is Sm but is the same mark.
+# Folding it means the typographic spelling is judged EXACTLY as the ASCII
+# spelling is — the same principle the confusable table applies to letters.
+#
+# SOFT HYPHEN U+00AD IS DEDUCTED DELIBERATELY: it is category Cf and belongs to
+# the INVISIBLE table. Folding it to '-' would break "for<SHY>ty" into "for" and
+# "ty" and reopen the round-1 soft-hyphen bypass, which round 2 closed.
+_dash_cps = set()
+for cp in range(0x80, 0x110000):
+    if unicodedata.category(chr(cp)) == "Pd":
+        _dash_cps.add(cp)
+_dash_cps.add(0x2212)  # MINUS SIGN (Sm), the same mark in a different category
+_dash_cps -= {cp for cp, _ in fullwidth}
+for cp in sorted(_dash_cps):
+    if unicodedata.category(chr(cp)) in ("Cf", "Mn", "Me"):
+        raise SystemExit(f"dash U+{cp:04X} is also an invisible code point")
+    fullwidth.append((cp, ord("-")))
+
+# ── ROUND 3, defect 2: DIGITS THAT ARE NOT CATEGORY Nd ──────────────────────
+# `thickness <circled 4><circled 7>.<circled 6><circled 2><circled 5> mm` reached
+# the wire VERBATIM with status=Ok and the post-condition reporting CLEAN, with
+# 47.625 registered. The Nd sweep above closed the DECIMAL DIGIT case and these
+# are not Nd: a circled, superscript, subscript, parenthesised or dingbat digit
+# is category No. Six of ten such forms transmitted at round 2.
+#
+# DERIVED, NOT HAND-LISTED — the same move the confusable table already makes for
+# accented Latin ("a code point whose compatibility decomposition is one ASCII
+# letter is that letter"). Two mechanical rules, in order:
+#
+#   D1  COMPATIBILITY DECOMPOSITION. Take NFKD, drop combining marks. If what is
+#       left is pure ASCII, carries at least one digit, carries NO ASCII letter
+#       and is built only from digits and the punctuation a number may contain,
+#       the code point folds to that decomposition. This is what turns U+2463
+#       CIRCLED DIGIT FOUR into "4", U+2477 PARENTHESIZED DIGIT FOUR into "(4)",
+#       U+2488 DIGIT ONE FULL STOP into "1." and U+00B2 into "2". The ASCII-letter
+#       exclusion is what keeps ROMAN NUMERAL TWELVE (NFKD "XII") out: those are
+#       letters, and they are already refused as an unmodelled run.
+#   D2  NUMERIC PROPERTY, for the No code points that do not decompose at all —
+#       the dingbat negative circled digits U+2776.. and the negative circled
+#       numbers U+24EB.. Unicode still gives them an integer value, so they fold
+#       to its ASCII spelling. Category No only: Nl (roman numerals) is excluded
+#       by D1's reasoning and stays unmodelled.
+#
+# A code point already claimed by the Nd sweep, the fullwidth table or the
+# fraction table is left alone, so no rule here can displace an existing fold.
+#
+# THE SUPER/SUBSCRIPT SPLIT, and why it is a separate table. mm², mm⁴ and H₂O are
+# ordinary engineering typography, not a disguise: they must FOLD, so the value
+# layer can read a superscripted number, but they must not by themselves make a
+# buffer unsendable — the residue scan's blanket "a decimal digit that is not an
+# ASCII digit is on the wire" verdict is right for a circled or fullwidth digit
+# and wrong for an exponent. The split is DERIVED too: it is exactly the
+# <super>/<sub> compatibility tag Unicode already publishes.
+_claimed = {cp for cp, _ in nd} | {cp for cp, _ in fullwidth}
+
+
+def _compat_digit_fold(cp):
+    """(fold_text, is_typographic) or None. D1 then D2; never overrides a claim."""
+    ch = chr(cp)
+    if cp in _claimed or unicodedata.category(ch) == "Nd":
+        return None
+    name = unicodedata.name(ch, "")
+    if "FRACTION" in name:
+        return None  # the fraction table values these exactly; do not truncate
+    tag = unicodedata.decomposition(ch).split(" ")[0] if unicodedata.decomposition(ch) else ""
+    typographic = tag in ("<super>", "<sub>")
+    d = unicodedata.normalize("NFKD", ch)
+    d = "".join(c for c in d if not unicodedata.combining(c))
+    if (d and d.isascii() and any(c.isdigit() for c in d)
+            and not any(c.isalpha() for c in d)
+            and all(c in "0123456789().,/+-" for c in d)):
+        return (d, typographic)
+    if unicodedata.category(ch) == "No":
+        try:
+            v = unicodedata.numeric(ch)
+        except (ValueError, TypeError):
+            return None
+        if v == int(v) and 0 <= v < 1000:
+            return (str(int(v)), typographic)
+    return None
+
+
+compat_digits = []      # blanket-refusable: circled, parenthesised, dingbat, ...
+typographic_digits = []  # superscript / subscript: fold, but never refuse alone
+for cp in range(0x80, 0x110000):
+    got = _compat_digit_fold(cp)
+    if got is None:
+        continue
+    text, typographic = got
+    (typographic_digits if typographic else compat_digits).append((cp, text))
+
 # Vulgar fractions and other No code points with a rational value, folded to an
 # ASCII "n/d" so the reader values them exactly (0.625, not a truncated decimal).
 fractions = []
@@ -310,7 +408,8 @@ w = lines.append
 w("// GENERATED BY retrieval/tools/gen_numeral_lexicon.py — DO NOT EDIT BY HAND.")
 w(f"// generator sha256[:16] = {digest}")
 w(f"// {len(MERGED)} numeral words (en/de/fr), {len(nd)} non-ASCII decimal digits,")
-w(f"// {len(fullwidth)} fullwidth/separator folds, {len(fractions)} vulgar fractions.")
+w(f"// {len(fullwidth)} fullwidth/separator folds, {len(fractions)} vulgar fractions,")
+w(f"// {len(compat_digits)} non-Nd compatibility digits, {len(typographic_digits)} super/subscript digits.")
 w("//")
 w("// Regenerate: python3 retrieval/tools/gen_numeral_lexicon.py")
 w("")
@@ -358,6 +457,32 @@ for cp, text in fractions:
     w(f'    {{0x{cp:04X}u, "{text}"}},')
 w("};")
 w("")
+# ROUND 3, defect 2. Membership is the test here too: a code point may be claimed
+# by exactly one fold table, so a later rule can never silently displace an
+# earlier one.
+_frac_cps = {cp for cp, _ in fractions}
+for cp, _text in compat_digits + typographic_digits:
+    if cp in _frac_cps or cp in _claimed or cp in confusables:
+        raise SystemExit(f"compat-digit U+{cp:04X} collides with another fold table")
+w("// ROUND 3, defect 2 — DIGITS THAT ARE NOT CATEGORY Nd, derived from the")
+w("// compatibility decomposition (D1) and from the Unicode numeric property (D2).")
+w("// Circled, parenthesised, dingbat, enclosed and full-stop digit forms. These")
+w("// carry the SAME weight as a fullwidth or Arabic-Indic digit: seeing one in an")
+w("// outgoing buffer means the redactor did not read the number it was looking at.")
+w("inline constexpr CodePointFold kCompatDigitFolds[] = {")
+for cp, text in compat_digits:
+    w(f'    {{0x{cp:04X}u, "{text}"}},')
+w("};")
+w("")
+w("// Superscript and subscript digits — the <super>/<sub> compatibility tag. They")
+w("// FOLD, so 'thickness <sup4><sup7>.<sup6><sup2><sup5> mm' is read as a number")
+w("// and stripped, but they are NOT on their own grounds to refuse a buffer: mm2,")
+w("// mm4 and H2O are ordinary engineering typography.")
+w("inline constexpr CodePointFold kTypographicDigitFolds[] = {")
+for cp, text in typographic_digits:
+    w(f'    {{0x{cp:04X}u, "{text}"}},')
+w("};")
+w("")
 w("// Script tags for the confusable fold. A token that mixes ASCII letters with a")
 w("// NON-ZERO script tag is a mixed-script token: 'f<U+043E>rty' reads as 'forty'")
 w("// and is not one. kScriptLatin is accented Latin and ligatures — an ordinary")
@@ -389,4 +514,5 @@ OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text("\n".join(lines) + "\n")
 print(f"wrote {OUT}", file=sys.stderr)
 print(f"  {len(MERGED)} numeral words, {len(nd)} Nd digits, "
-      f"{len(fullwidth)} punct folds, {len(fractions)} fractions", file=sys.stderr)
+      f"{len(fullwidth)} punct folds, {len(fractions)} fractions, "
+      f"{len(compat_digits)} compat digits, {len(typographic_digits)} super/sub digits", file=sys.stderr)

@@ -258,9 +258,13 @@ struct Folded {
   //   0          the byte is ASCII and came from an ASCII code point
   //   1..5       a confusable fold, value = generated script tag + 1
   //   kSrcFold   a digit / punctuation / vulgar-fraction fold
+  //   kSrcTypoDigit a superscript or subscript digit fold
   //   kSrcUnknown a code point NO table names; the text byte is \x01
   std::vector<unsigned char> source;
   static constexpr unsigned char kSrcFold = 250;
+  // ROUND 3: a super/subscript digit fold. A DIGIT for every value purpose, but
+  // never on its own grounds to refuse a buffer — mm2 and H2O are typography.
+  static constexpr unsigned char kSrcTypoDigit = 249;
   static constexpr unsigned char kSrcUnknown = 255;
 };
 Folded foldForMatch(const std::string& raw);

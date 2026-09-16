@@ -696,6 +696,191 @@ int main() {
           accented_clean ? "" : residue.front());
   }
 
+  // ── ROUND 3, defect 1: THE POST-CONDITION MUST NOT SCAN ITS OWN ENVELOPE ──
+  // THE FIXTURE THAT WOULD HAVE CAUGHT THIS. Every row registers a secret that
+  // appears ONLY in the transport frame the client wraps around the query, and
+  // NEVER in the question. The frame is not the operator's text: pageno=1 and
+  // safesearch=1 are literals in SearxngClient.cpp, HTTP/1.1 is the protocol,
+  // 127.0.0.1:8888 is the sidecar, forge-retrieval/1.0 is this client's name,
+  // and Content-Length is a count of the bytes, not a number anybody wrote.
+  //
+  // Measured identically at pristine HEAD, at round 1 and at round 2: a
+  // registered 1.0 REFUSED EVERY QUERY IN EXISTENCE, because pageno=1 is always
+  // present. Eight of eight rows here failed; at the three-value set {1, 2, 3}
+  // all 127 honest control queries refused and nothing transmitted at all.
+  //
+  // THE RULE THIS PINS (see THE PAYLOAD BOUNDARY in SearxngClient.cpp): the
+  // protected payload is the percent-decoded value of every request-derived wire
+  // field, and nothing else. The frame is out of scope, and what licenses that is
+  // GATE 3's byte-for-byte reconstruction of the frame — not an assumption.
+  {
+    std::printf("\nROUND 3 / DEFECT 1 — the envelope is not the payload\n");
+    struct Row { const char* why; std::vector<double> secrets; const char* q; };
+    const Row kRows[] = {
+        {"pageno=1 is in every request", {1.0}, "flange face finish for a raised face joint"},
+        {"safesearch=1 is in every request", {1.0}, "weld symbol for a fillet all around"},
+        {"the HTTP/1.1 minor version", {1.1}, "what surface finish suits a dynamic seal"},
+        {"the loopback host 127.0.0.1", {127.0}, "dowel pin press fit allowance guidance"},
+        {"the sidecar port 8888", {8888.0}, "keyway width tolerance for a parallel key"},
+        {"the User-Agent forge-retrieval/1.0", {1.0}, "helicoil insert tap drill guidance"},
+        // THIS ROW IS THE PROOF THAT THE FRAME IS NOT THE PAYLOAD. The question
+        // contains no "100" anywhere; the request it produces is 100 bytes long.
+        {"Content-Length of this very body", {100.0},
+         "schedule eighty pipe versus schedule forty"},
+        {"the worst realistic set, {1, 2, 3}", {1.0, 2.0, 3.0},
+         "flange face finish for a raised face joint"},
+    };
+    for (const Row& r : kRows) {
+      const Outcome o = drive(r.q, r.secrets);
+      check(o.transmitted, std::string("envelope value is not payload: ") + r.why,
+            "status=" + o.status);
+    }
+    // And the boundary still BITES where it should: the same value written in
+    // the QUESTION is payload, and is refused or stripped.
+    const Outcome in_query = drive("the bore is one hundred mm", {100.0});
+    check(!in_query.transmitted || lower(in_query.q).find("hundred") == std::string::npos,
+          "the same value in the QUESTION is still caught", "wire q=" + in_query.q);
+  }
+
+  // ── ROUND 3, defect 2: DIGITS THAT ARE NOT CATEGORY Nd ────────────────────
+  // The Nd sweep closed the decimal-digit case and these are not Nd. Measured at
+  // round 2: `thickness <circled 4><circled 7>.<circled 6><circled 2><circled 5>
+  // mm` reached the wire VERBATIM with status=Ok and verifyNoResidue reporting
+  // CLEAN, with 47.625 registered. Six of ten such forms transmitted.
+  {
+    std::printf("\nROUND 3 / DEFECT 2 — circled, superscript and parenthesised digits\n");
+    const std::vector<double> s = {47.625, 47.0, 8.5};
+    struct Row { const char* label; const char* q; const char* must_go; };
+    const Row kRows[] = {
+        {"circled digits, unit context",
+         "thickness \xE2\x91\xA3\xE2\x91\xA6.\xE2\x91\xA5\xE2\x91\xA1\xE2\x91\xA4 mm",
+         "\xE2\x91\xA3"},
+        {"circled digits, ASCII decimal point",
+         "the bore is \xE2\x91\xA3\xE2\x91\xA6.\xE2\x91\xA5\xE2\x91\xA1\xE2\x91\xA4",
+         "\xE2\x91\xA3"},
+        {"circled digits glued to the unit", "thickness \xE2\x91\xA3\xE2\x91\xA6mm",
+         "\xE2\x91\xA3"},
+        {"superscript digits",
+         "thickness \xE2\x81\xB4\xE2\x81\xB7.\xE2\x81\xB6\xC2\xB2\xE2\x81\xB5 mm",
+         "\xE2\x81\xB4"},
+        {"subscript digits", "thickness \xE2\x82\x84\xE2\x82\x87 mm", "\xE2\x82\x84"},
+        {"parenthesised digits", "thickness \xE2\x91\xB7\xE2\x91\xBA mm", "\xE2\x91\xB7"},
+        {"dingbat negative circled digits", "bore \xE2\x9D\xB9\xE2\x9D\xBC mm", "\xE2\x9D\xB9"},
+        {"digit-with-full-stop forms", "bore \xE2\x92\x8B\xE2\x92\x8E mm", "\xE2\x92\x8B"},
+        {"circled mixed with ASCII digits", "thickness 4\xE2\x91\xA6.625 mm", "\xE2\x91\xA6"},
+    };
+    for (const Row& r : kRows) {
+      const Outcome o = drive(r.q, s);
+      const bool leaked = o.transmitted && o.q.find(r.must_go) != std::string::npos;
+      check(!leaked, std::string("non-Nd digit form is blocked: ") + r.label,
+            "wire q=" + o.q);
+    }
+    // DERIVED, NOT LISTED: the same must hold for a decomposable digit class
+    // nobody wrote a row for. Enclosed alphanumeric supplement U+1F10B DINGBAT
+    // CIRCLED SANS-SERIF DIGIT ZERO is reached by the numeric-property rule only.
+    const Outcome exotic = drive("bore \xF0\x9F\x84\x8B\xE2\x9D\xBC mm", s);
+    check(!exotic.transmitted || exotic.q.find("\xE2\x9D\xBC") == std::string::npos,
+          "a decomposable digit class with no hand-written row is blocked too",
+          "wire q=" + exotic.q);
+  }
+
+  // ── ROUND 3, defect 3: ORDINARY ENGINEERING TYPOGRAPHY SURVIVES ───────────
+  // Round 2 bounded the mixed-script arm's cost as "0 damage across the 47-row
+  // control set" — a control set NONE of whose rows contains a non-ASCII code
+  // point. The instrument could not see the cost it was used to bound. These
+  // rows are that instrument.
+  {
+    std::printf("\nROUND 3 / DEFECT 3 — typography is not a disguise\n");
+    const std::vector<double> s = kNegativeArmSecrets;
+
+    // 3b. GREEK MU beside ASCII 'm' must behave like MICRO SIGN U+00B5, which
+    // already passed — not because U+00B5 is safer, but because it happens to be
+    // unmodelled. Two spellings of the same micrometre cannot differ.
+    const Outcome greek_mu = drive("\xCE\xBCm surface finish on the ground journal", s);
+    const Outcome micro = drive("\xC2\xB5m surface finish on the ground journal", s);
+    check(greek_mu.transmitted && lower(greek_mu.q).find("surface finish") != std::string::npos,
+          "GREEK MU beside ASCII m is technical typography, not a disguise",
+          "status=" + greek_mu.status + " wire q=" + greek_mu.q);
+    check(micro.transmitted == greek_mu.transmitted,
+          "MICRO SIGN and GREEK MU get the SAME verdict", "micro=" + micro.status +
+              " greek=" + greek_mu.status);
+
+    // 3a. THE VERDICT MUST NOT DEPEND ON WORD ORDER. At round 2 the residue scan
+    // was handed `q=<query>` and tokenized on whitespace, so the prefix glued an
+    // ASCII 'q' onto the first token: "<alpha> taper" was REFUSED and "taper
+    // <alpha> angle" was SENT.
+    const Outcome first = drive("\xCE\xB1 taper on the mating face", s);
+    const Outcome later = drive("taper \xCE\xB1 angle on the mating face", s);
+    check(first.transmitted == later.transmitted,
+          "the same token gets the same verdict at the START and in the MIDDLE",
+          "first=" + first.status + " later=" + later.status);
+    check(first.transmitted, "a lone Greek symbol in first position transmits",
+          "status=" + first.status);
+
+    // 3c. A DEGREE SIGN AND AN EN DASH MUST NOT BREAK OR CAPTURE A NUMERAL RUN.
+    // Both rows are asserted against their ASCII spellings, which is the whole
+    // property: a typeset mark is judged exactly as the ASCII mark is.
+    const Outcome deg = drive("a ninety\xC2\xB0 elbow in the pipe run", s);
+    const Outcome deg_ascii = drive("a ninety elbow in the pipe run", s);
+    check(deg.transmitted && lower(deg.q).find("ninety") != std::string::npos,
+          "a trailing degree sign does not capture the numeral before it",
+          "status=" + deg.status + " wire q=" + deg.q);
+    check(lower(deg.q).find("ninety") != std::string::npos ==
+              (lower(deg_ascii.q).find("ninety") != std::string::npos),
+          "the degree spelling matches the ASCII spelling");
+    // The intactness claim is made at a secret set that does NOT register 1, 2 or
+    // 12, because at kNegativeArmSecrets the ASCII spelling is stripped too — by
+    // LAYER A, correctly, and the point here is the DASH, not the value.
+    const std::vector<double> no_small = {47.625, 8.5, 0.75};
+    const Outcome dash = drive("a one\xE2\x80\x93two punch of tolerance stackup", no_small);
+    const Outcome dash_ascii = drive("a one-two punch of tolerance stackup", no_small);
+    check(dash.transmitted && lower(dash.q).find("one") != std::string::npos &&
+              lower(dash.q).find("two") != std::string::npos,
+          "an en dash between numeral words reads as the ASCII hyphen",
+          "status=" + dash.status + " wire q=" + dash.q);
+    check((lower(dash_ascii.q).find("one") != std::string::npos) ==
+              (lower(dash.q).find("one") != std::string::npos),
+          "the en-dash spelling matches the ASCII spelling");
+    // And where the ASCII spelling IS stripped, so is the en-dash spelling: the
+    // dash fold must not become a way to carry a registered value past LAYER A.
+    const Outcome dash_secret = drive("a one\xE2\x80\x93two punch of tolerance stackup", s);
+    const Outcome dash_secret_ascii = drive("a one-two punch of tolerance stackup", s);
+    check((lower(dash_secret.q).find("one") != std::string::npos) ==
+              (lower(dash_secret_ascii.q).find("one") != std::string::npos),
+          "and it matches the ASCII spelling when the value IS registered",
+          "dash=" + dash_secret.q + " ascii=" + dash_secret_ascii.q);
+
+    // An EXPONENT is not a value: mm2 and mm4 must survive whole.
+    const Outcome sq = drive("area in mm\xC2\xB2 for the third section", s);
+    const Outcome quart = drive("second moment in mm\xE2\x81\xB4 units", s);
+    check(sq.transmitted && sq.q.find("mm\xC2\xB2") != std::string::npos,
+          "a superscript exponent on a unit survives", "status=" + sq.status + " wire q=" + sq.q);
+    check(quart.transmitted && quart.q.find("mm\xE2\x81\xB4") != std::string::npos,
+          "and so does a fourth-power unit", "status=" + quart.status + " wire q=" + quart.q);
+    // ...but a superscripted NUMBER is still a number. The exponent exemption is
+    // POSITIONAL — after a letter — and must not become a channel.
+    const Outcome sup_value =
+        drive("thickness \xE2\x81\xB4\xE2\x81\xB7.\xE2\x81\xB6\xC2\xB2\xE2\x81\xB5 mm",
+              {47.625, 8.5});
+    check(!sup_value.transmitted || sup_value.q.find("\xE2\x81\xB4") == std::string::npos,
+          "a superscripted NUMBER is still stripped", "wire q=" + sup_value.q);
+    const Outcome sup_glued = drive("thickness \xE2\x81\xB4\xE2\x81\xB7mm", {47.0, 8.5});
+    check(!sup_glued.transmitted || sup_glued.q.find("\xE2\x81\xB4") == std::string::npos,
+          "and so is a superscripted number glued to its unit", "wire q=" + sup_glued.q);
+
+    // THE HOMOGLYPH CHANNEL IS STILL CLOSED. Narrowing the mixed-script rule must
+    // not reopen it; the value layer carries the short leading-look-alike forms.
+    const Outcome cyr_six = drive("the bore is \xD1\x95" "ix point five mm", {6.5});
+    check(!cyr_six.transmitted || lower(cyr_six.q).find("ix") == std::string::npos,
+          "a SHORT leading look-alike carrying a registered value is still blocked",
+          "wire q=" + cyr_six.q);
+    const Outcome cyr_forty =
+        drive("thickness f\xD0\xBE" "rty \xD1\x81" "even p\xD0\xBE" "int six two five mm", {47.625});
+    check(!cyr_forty.transmitted || lower(cyr_forty.q).find("even") == std::string::npos,
+          "and the full one-look-alike-per-word spelling is still blocked",
+          "wire q=" + cyr_forty.q);
+  }
+
   std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
   return g_fail == 0 ? 0 : 1;
 }
