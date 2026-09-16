@@ -3166,6 +3166,12 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         ab_native_sweep_occt
         ab_native_thicken_occt
         # regression gates
+        heal_destruction_refusal_gate   # T-137: a heal that empties a thin-walled part
+                                        # (all 8 side triangles of a 100x100x0.001 plate
+                                        # dropped as aspect-ratio slivers) used to return
+                                        # ok=true reason="ok". Two-sided: five thin bodies
+                                        # must REFUSE, the existing heal fixtures must
+                                        # still be healed with their volume intact.
         io_stl_binary_solid_header      # binary STL whose 80-byte header says "solid"
         matelib_quat_ab                 # in-house quaternion rotate vs the rotation matrix
         sarc_ring_gate                  # SARC's silently dropped arc + the ok:true that hid it

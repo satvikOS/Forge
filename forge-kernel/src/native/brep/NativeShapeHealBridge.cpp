@@ -163,8 +163,21 @@ TopoDS_Shape fixShapeGeneral(const TopoDS_Shape& shape,
         r.reason = "healBRep threw";
         return shape;
     }
+    // Mirror the material-conservation measurement whatever the verdict, so a caller
+    // that DEFERRED can still see what the native healer measured (house style: keep
+    // the diagnostics populated on the refusal path).
+    r.volumeBefore      = hp.volumeBefore;
+    r.volumeAfter       = hp.volumeAfter;
+    r.inputBoundsVolume = hp.inputBoundsVolume;
+    r.destructionRefused = hp.destructionRefused;
     if (!hp.ok || hp.faces.empty()) {
-        r.reason = hp.ok ? "healBRep produced no surviving faces" : "healBRep: malformed input";
+        // T-137: healBRep's ok=false is no longer only "malformed input" — it is also
+        // the DESTRUCTION REFUSAL, whose `reason` names what the repair did to the
+        // part. Quote it verbatim; reporting it as "malformed input" would hide the
+        // one message the user needs. Either way we return the INPUT unchanged and
+        // the OCCT ShapeFix fallback stays authoritative.
+        if (!hp.ok && hp.reason && hp.reason[0] != '\0') r.reason = hp.reason;
+        else r.reason = hp.ok ? "healBRep produced no surviving faces" : "healBRep: malformed input";
         return shape;
     }
     r.healed = true;

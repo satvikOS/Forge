@@ -170,13 +170,43 @@ struct HealOptions {
 
     // Interior mid-curve samples handed to the re-sew step (Sew's confirm match).
     std::size_t sewMidSamples = 3;
+
+    // ---- (9) DESTRUCTION REFUSAL — the material-conservation post-condition ---
+    // T-137: a repair may not consume the user's part. A 100 x 100 x 0.001 plate
+    // (V = 10, a VALID closed solid) went in and an EMPTY body came out, reported
+    // as a clean fix, because pass (3) classifies every side face of a thin-walled
+    // body a sliver by ASPECT (L/t > aspectMax is scale-free, so a foil, a gasket
+    // or a membrane trips it at any size) and the sliver-restore net at the bottom
+    // of healBRep is structurally dead (it keys off `before.closed`, and every
+    // caller hands healBRep an independently-cloned fragment SOUP whose every edge
+    // is free, so before.closed is always false).
+    //
+    // So the heal is held to a POST-CONDITION on its own output, in the house
+    // style of Chamfer/Draft/Boolean ("never fake a closed solid"): WHEN THE INPUT
+    // FACE SOUP BOUNDS A VOLUME (shellBoundsVolume below — a purely geometric test
+    // that needs no topology and therefore still works on the soup):
+    //   * the healed shell must still be CLOSED, and
+    //   * it must not have lost more than maxMaterialLossFrac of its volume.
+    // Either violation sets ok=false with a named reason, so all three callers
+    // (ShapeFix::tryNativeRepair, Healing::tryNativeHeal, fixShapeGeneral) DEFER
+    // and the OCCT fallback answers — coverage falls, validity rises.
+    //
+    // Set <= 0 to disable the material-loss leg ONLY (for a deliberate A/B of the
+    // threshold). There is no switch that lets a heal empty a bounded body: the
+    // closure leg is unconditional.
+    double maxMaterialLossFrac = 0.01;
 };
 
 // ---------------------------------------------------------------------------
 // HealReport — what the heal did + the before/after signature + unfixed defects.
 // ---------------------------------------------------------------------------
 struct HealReport {
-    bool ok = false;             // false only on malformed input (null/empty/no loop)
+    // false on malformed input (null/empty/no loop) OR on the (9) DESTRUCTION
+    // REFUSAL — the heal ran but its own output failed the material-conservation
+    // post-condition, so it declines rather than hand back a hollowed/emptied
+    // body. `reason` names which, in the user's nouns. Every caller treats
+    // ok==false as DEFER (return the input / let the OCCT fallback answer).
+    bool ok = false;
     const char* reason = "";
 
     // ---- counts of fixes ACTUALLY applied -------------------------------------
@@ -202,6 +232,18 @@ struct HealReport {
     double volumeAfter  = 0.0;
     double areaBefore   = 0.0;   // total polygonal surface area before
     double areaAfter    = 0.0;   // total polygonal surface area after
+
+    // (9) TRUE when the INPUT face soup is a closed 2-cycle in the purely
+    // geometric sense (shellBoundsVolume) — i.e. volumeBefore is a real enclosed
+    // volume and not an origin-dependent surface integral over an open patch.
+    // This is the LIVE replacement for `before.closed`, which is always false for
+    // every production caller (they hand healBRep an independently-cloned soup).
+    // The destruction post-condition is armed only when this is true.
+    bool inputBoundsVolume = false;
+    // (9) TRUE when the destruction post-condition REFUSED this heal (ok==false
+    // and `reason` is the named refusal). Diagnostics above stay populated on the
+    // refusal path so the caller can log exactly what the heal was about to do.
+    bool destructionRefused = false;
 
     // ---- defects left UNFIXED (honest, no fabrication) ------------------------
     // Free edges still open after every enabled pass (gap too wide to snap, or a
@@ -279,6 +321,29 @@ HealReport healBRep(TopologyBuilder& tb,
 // required — the faceted / box gate).
 double shellSignedVolume(const std::vector<Face*>& faces);
 double shellSurfaceArea(const std::vector<Face*>& faces);
+
+// ---------------------------------------------------------------------------
+// shellBoundsVolume — does this face set BOUND a volume, geometrically?
+// ---------------------------------------------------------------------------
+// The divergence-theorem volume above is the enclosed volume of a CLOSED surface
+// and an origin-dependent surface integral of an OPEN one, so it may only be read
+// as "how much material is here" when the surface closes. The usual way to ask
+// that is topological (SewDiagnosis::closed), but a heal caller hands in a
+// fragment SOUP with no shared edges at all, where the topological answer is
+// always "open" — which is precisely why the sliver-restore safety net at the end
+// of healBRep has never once executed.
+//
+// This asks the same question with NO topology: a surface is a closed 2-cycle iff
+// its total signed area vector vanishes, SUM over faces of the Newell area vector
+// == 0 (Gauss: ∮ n dA = 0 over any closed surface; a boundary leaves a residual
+// proportional to the rim). Returns true iff ‖SUM A‖ <= relEps * SUM ‖A‖ — a
+// scale-free, units-free, orientation-consistent test. A soup whose faces are the
+// complete boundary of a solid passes even with every edge duplicated, split,
+// gapped below tol or wound as loose triangles; a soup missing a face, or an open
+// sheet, does not. Inner loops subtract, exactly as shellSurfaceArea treats them.
+//
+// Returns false for an empty / zero-area set (nothing to conserve).
+bool shellBoundsVolume(const std::vector<Face*>& faces, double relEps = 1e-9);
 
 } // namespace brep
 } // namespace native

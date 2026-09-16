@@ -235,6 +235,31 @@ double shellSurfaceArea(const std::vector<Face*>& faces) {
     return area;
 }
 
+bool shellBoundsVolume(const std::vector<Face*>& faces, double relEps) {
+    // SUM of the signed area vectors vs the SUM of their magnitudes. Gauss says the
+    // first is exactly zero for a closed surface; the second is the scale the
+    // comparison is made relative to, so the verdict is units- and size-free.
+    Point3 total{0, 0, 0};
+    double magnitude = 0.0;
+    for (Face* f : faces) {
+        if (f == nullptr) continue;
+        const Point3 a = newellAreaVec(loopRing(f->outerLoop));
+        total.x += a.x; total.y += a.y; total.z += a.z;
+        magnitude += plen(a);
+        for (Loop* il : f->innerLoops) {
+            // Inner loops are wound opposite the outer, so their Newell vector
+            // already points the other way — ADD it (matching the subtraction
+            // shellSurfaceArea/shellSignedVolume perform on the magnitudes).
+            const Point3 b = newellAreaVec(loopRing(il));
+            total.x += b.x; total.y += b.y; total.z += b.z;
+            magnitude += plen(b);
+        }
+    }
+    if (!(magnitude > 0.0)) return false;   // empty / zero-area: nothing to conserve
+    if (relEps <= 0.0) relEps = 1e-9;
+    return plen(total) <= relEps * magnitude;
+}
+
 // ===========================================================================
 // healBRep — THE HEAL OP.
 // ===========================================================================
@@ -259,6 +284,10 @@ HealReport healBRep(TopologyBuilder& tb,
     rep.before = diagnoseShell(faces);
     rep.volumeBefore = shellSignedVolume(faces);
     rep.areaBefore   = shellSurfaceArea(faces);
+    // (9) Does the INPUT bound a volume? Asked geometrically, because `before.closed`
+    // cannot answer it for any real caller (they all hand in a cloned fragment soup).
+    // This is what arms the destruction post-condition at the bottom of this function.
+    rep.inputBoundsVolume = shellBoundsVolume(faces);
 
     // --- 0. extract every face to vertex-position rings ------------------------
     std::vector<FaceRings> frs;
@@ -612,6 +641,19 @@ HealReport healBRep(TopologyBuilder& tb,
         // Everything was a sliver — honest report, nothing to sew.
         rep.after = SewDiagnosis{};
         rep.faces = healed;
+        rep.volumeAfter = 0.0;
+        rep.areaAfter   = 0.0;
+        if (rep.inputBoundsVolume) {
+            // (9) TOTAL DESTRUCTION of a body that bounded a volume. This branch used
+            // to return ok=TRUE — a successful repair that produced nothing at all.
+            rep.ok = false;
+            rep.destructionRefused = true;
+            rep.reason = "repair emptied the body: every face of a solid was classified a "
+                         "sliver and dropped (a thin-walled part — foil, gasket, membrane — "
+                         "whose walls exceed the aspect-ratio limit) — refusing rather than "
+                         "returning an empty shell";
+            return rep;
+        }
         rep.ok = true;
         rep.reason = "all faces removed as slivers";
         return rep;
@@ -967,6 +1009,56 @@ HealReport healBRep(TopologyBuilder& tb,
                 rep.unfixedFreeEdgeIds        = rep.after.freeEdgeIds;
                 rep.unfixedNonManifoldEdgeIds = rep.after.nonManifoldEdgeIds;
             }
+        }
+    }
+
+    // --- 7. (9) DESTRUCTION POST-CONDITION — refuse on the OUTPUT (T-137). -----
+    // Every other refusal in this file is about the INPUT, or about a stage that
+    // failed to run; none of them looks at what the heal actually produced. That is
+    // how a 100 x 100 x 0.001 plate (a VALID closed solid, V = 10) came back empty
+    // with reason "ok". So, in the house style of Chamfer/Draft/Boolean — build the
+    // answer, validate it, and DECLINE it if it is not one:
+    //
+    //   ARMED ONLY WHEN THE INPUT BOUNDED A VOLUME (rep.inputBoundsVolume). If the
+    //   caller handed in an open patch or an incomplete body, volumeBefore is an
+    //   origin-dependent surface integral, not an amount of material, and there is
+    //   nothing here to conserve — we do not invent a claim about it.
+    //
+    //   LEG A — CLOSURE. A body that came in closed must not go out open. This is
+    //   what the sliver-restore net at lines above was FOR; it keys off
+    //   before.closed, which no caller can ever make true, so it has never run.
+    //   Leg A asks the same question with the instrument that works on a soup.
+    //
+    //   LEG B — MATERIAL. |volumeAfter| must be within maxMaterialLossFrac of
+    //   |volumeBefore|. ABSOLUTE values and LOSS ONLY, deliberately: pass (6) may
+    //   flip a globally-inverted shell (|V| unchanged) or repair a partly-misoriented
+    //   one (where volumeBefore is an under-count and the delta is a GAIN), and
+    //   neither of those is destruction. Leg B is the only leg that can see the
+    //   quiet version of this defect — the variant that loses 83% of the material
+    //   and still returns a CLOSED, BRepCheck-VALID body with zero unfixed residuals.
+    //
+    // A refusal is a routing decision: ok=false makes all three callers return the
+    // input, so the OCCT ShapeFix fallback answers. Coverage falls, validity rises.
+    // The diagnostics above stay fully populated — only `ok`/`reason` refuse.
+    if (rep.inputBoundsVolume) {
+        if (!rep.after.closed) {
+            rep.ok = false;
+            rep.destructionRefused = true;
+            rep.reason = "repair opened a closed body: the healed shell is no longer watertight "
+                         "(walls of a thin-walled part dropped as slivers) — refusing rather "
+                         "than returning a solid that is not one";
+            return rep;
+        }
+        const double before = std::fabs(rep.volumeBefore);
+        const double after  = std::fabs(rep.volumeAfter);
+        if (opt.maxMaterialLossFrac > 0.0 && before > 0.0 &&
+            (before - after) > opt.maxMaterialLossFrac * before) {
+            rep.ok = false;
+            rep.destructionRefused = true;
+            rep.reason = "repair consumed the body: a closed solid lost most of its material "
+                         "(a thin-walled feature — foil, gasket, web, whisker — removed as "
+                         "slivers) — refusing rather than returning a hollowed solid";
+            return rep;
         }
     }
 
