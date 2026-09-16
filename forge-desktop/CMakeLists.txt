@@ -513,6 +513,27 @@ target_link_libraries(forge_desktop_copilot_input_gate PRIVATE forge_desktop_cor
 set_target_properties(forge_desktop_copilot_input_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# THE LIVE ARCHIE gate. The one question no other gate here answers: with
+# FORGE_ARCHIE_ENDPOINT set, does the CoPilot actually reach the model, or does it
+# go on using the deterministic LocalPlanner? It drives the real
+# ForgeFrame::planWithFallback branch headlessly and reads WHICH planner answered
+# out of the plan's own summary stamp.
+#
+# DELIBERATELY NOT add_test(): arm C needs a sidecar listening and arm B needs a
+# port with nothing on it, so a clean checkout with no model running would go red
+# for a reason that is not a defect. Run it by hand:
+#
+#   FORGE_ARCHIE_ENDPOINT=127.0.0.1:8731 ./forge_desktop_archie_live_gate
+#
+# It links forge_archie -- the same library forge_desktop links -- so a build of
+# this target that succeeds while the app's Archie path is missing is impossible.
+add_executable(forge_desktop_archie_live_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/archie_live_gate.cpp")
+target_compile_options(forge_desktop_archie_live_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_archie_live_gate PRIVATE forge_archie forge_desktop_core forge_imgui)
+set_target_properties(forge_desktop_archie_live_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 # The DOCUMENT gate: the user-launchable slice, headless. It drives the real
 # registry, rebuilds the real kernel geometry from the document, and round-trips
 # the document through a real .fpart file on disk.
