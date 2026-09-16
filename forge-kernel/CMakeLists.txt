@@ -855,9 +855,26 @@ endif()
 #   OCCT_CLOSURE at 14, because TKPrim already loads via TKBO/TKBool/TKFillet/
 #   TKOffset. DIRECT is the explicitly gameable number; refusing to hide a real call
 #   behind dynamic_lookup is worth more than the cosmetic 8.
-if(FORGE_NATIVE_BREP)
-    list(APPEND OCCT_LIBS TKPrim)
-endif()
+# ★ REMOVED 2026-09-16 — THE CALL THIS COVERED NO LONGER EXISTS.
+#   The note above is stale on its own premise. NativeLoftPipe.cpp stopped calling
+#   BRepPrimAPI on 2026-08-07 and says so itself, twice, in the only two places the
+#   string still appears in it:
+#     :2470  "TKPrim IS NOT ON THE LINK LINE (removed 2026-08-07), so BRepPrimAPI_MakeHalfSpace..."
+#     :2970  "references no BRepPrimAPI symbol. TKPrim is not on the link line."
+#   Both are COMMENTS. MEASURED 2026-09-16 on the default build (FORGE_NATIVE_BREP=ON):
+#     nm -u libforge_kernel_core.dylib | c++filt | grep -c BRepPrimAPI     -> 0
+#     every .o in forge_kernel_core.dir INTERSECTED with libTKPrim exports -> 0 files
+#     comm -12 (dylib undefined) (libTKPrim exports)                       -> 0 symbols
+#   while otool -l still carried an LC_LOAD_DYLIB record for it. So this entry named a
+#   library nothing calls — the exact inverse of the phantom it was added to prevent:
+#   not a masked call, a link record with no call behind it.
+#   A/B on ONE tree with ONE flag set, only this block differing:
+#     DIRECT 11 -> 10, CLOSURE 14 -> 14, PHANTOM 0 -> 0, OCCT_SYMBOLS 550 -> 550
+#   CLOSURE is unchanged because TKPrim still loads transitively via TKBO/TKBool/
+#   TKFillet/TKOffset, exactly as the note above predicted; PHANTOM staying 0 is the
+#   proof that removing the record did not unmask a real call.
+#   If a future engine reintroduces a BRepPrimAPI call, --assert-no-phantom fails and
+#   this block comes back with a measurement beside it.
 # ── TKShHealing PARTIAL DROP — P1 (landed 2026-07-31; DEFAULT ON) ─────────────────
 # FORGE_SHHEAL_DROP_NATIVE routes the NON-STEP-PATH TKShHealing call sites in
 # src/Healing.cpp onto the in-house forge::occtheal peers
