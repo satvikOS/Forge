@@ -122,6 +122,105 @@ namespace native {
 namespace brep {
 
 // ---------------------------------------------------------------------------
+// ShellClosure — DOES THIS FACE SOUP BOUND A BODY, and how much material?
+// ---------------------------------------------------------------------------
+// This is the arming instrument for the (9) destruction post-condition below, and
+// it exists because the obvious cheap test is WRONG.
+//
+// THE CHEAP TEST AND WHY IT IS NOT THE ANSWER. Gauss gives, for any closed
+// surface, SUM of the face area vectors == 0. `shellBoundsVolume` (still below,
+// still correct as far as it goes) measures exactly that. But the implication runs
+// one way only, and asserting its converse was a measured defect: a rectangular
+// open TUBE (four walls, no caps) has +x/-x and +y/-y cancelling exactly, so it
+// passes the Newell test while being as open as a body can be. MEASURED false
+// verdicts from arming on it: an open tube, an open tube with a repairable split
+// edge, a hexagonal extruded profile shell, a pair of parallel opposite-facing
+// plates, and a zero-thickness sandwich were every one of them declared "this
+// bounded a volume". Worse, the same sum is DISARMED by the two defect classes the
+// healer exists to repair: one face wound backwards breaks the cancellation (so
+// the guard stands down on exactly the input it is needed for — measured: the
+// original T-137 signature reproduced, V 8.333 -> 0, ok=true), and a sub-tolerance
+// gap does too (the sum is exact arithmetic against input the healer treats as
+// approximate).
+//
+// THE ANSWER. Closedness is a TOPOLOGICAL question, so ask it topologically. The
+// faces arrive as an unwelded SOUP with private vertices per corner (which is why
+// SewDiagnosis::closed — Edge*-identity based — reports everything free and why the
+// old sliver-restore net keyed off `before.closed` never once executed). So:
+//   1. weld the corner positions at `tol` — the SAME clustering healBRep's own
+//      pass (4)/(1) performs, so the guard's notion of "one point" cannot drift
+//      from the healer's (this is the tolerance half of the fix: nothing here is
+//      hard-wired, the coincidence tolerance IS opt.tol);
+//   2. normalise each ring the way pass (2) does (drop sub-tol edges, merge
+//      collinear T-vertices), so a SPLIT EDGE — a real, repairable defect — does
+//      not read as an open one;
+//   3. pair the directed boundary edges by welded endpoint id. The soup is CLOSED
+//      iff every edge is used exactly twice AND the two uses run OPPOSITE ways.
+// Used once => a rim (Open). Used 3+ times => NonManifold. Used twice but the two
+// uses agree in direction => InconsistentlyWound: a distinct verdict from "open",
+// and the one that defeats the reversed-face disarm.
+enum class ShellClosureVerdict {
+    Open = 0,             // some boundary edge is used ONCE — a rim, a missing face
+    NonManifold,          // some boundary edge is used 3+ times — not a 2-manifold
+    InconsistentlyWound,  // a closed 2-cycle, but some edge's two uses agree in direction
+    Closed,               // every edge used exactly twice, oppositely — a closed 2-manifold
+};
+
+struct ShellClosure {
+    ShellClosureVerdict verdict = ShellClosureVerdict::Open;
+
+    std::size_t edges            = 0;  // distinct welded boundary edges
+    std::size_t freeEdges        = 0;  // used exactly once
+    std::size_t nonManifoldEdges = 0;  // used 3+ times
+    std::size_t misorientedEdges = 0;  // used twice, both uses the SAME way round
+
+    // How much material the soup bounds, measured with a CONSISTENT orientation
+    // propagated across the pairing (so one backwards face does not corrupt it) and
+    // with each connected component's global sign chosen to agree, by area, with the
+    // input's own winding (so a hollow enclosure's inward-wound void still subtracts).
+    // Zero unless `verdict` is Closed or InconsistentlyWound.
+    double boundedVolume = 0.0;
+    // SUM of |per-face volume contribution| about the bounding-box centre — the
+    // scale `boundedVolume` is judged non-zero against, so the judgement is
+    // units-free and position-free.
+    double volumeScale = 0.0;
+
+    // THE ARMING CONDITION: a closed 2-cycle (either winding verdict) that bounds a
+    // NON-ZERO volume. A degenerate closed body with no material in it — the
+    // zero-thickness sandwich, a pair of coincident opposite squares — has nothing
+    // to conserve, and refusing on it would be inventing a measurement.
+    bool boundsMaterial = false;
+
+    // The coincidence tolerance this verdict was reached at. Equal to the `tol`
+    // argument unless the SWEEP fired: see shellClosure's implementation for the
+    // measured reason a single tolerance is not enough (when opt.tol reaches the
+    // part's own wall thickness the weld folds the body flat before it can be
+    // paired, and the T-137 plate then reads NonManifold and is destroyed silently).
+    double pairingTol = 0.0;
+
+    bool isClosedCycle() const {
+        return verdict == ShellClosureVerdict::Closed ||
+               verdict == ShellClosureVerdict::InconsistentlyWound;
+    }
+};
+
+// `tol` is REQUIRED and is the COARSEST coincidence tolerance considered: pass the
+// same opt.tol the heal will run at. There is deliberately no default — a hard-wired
+// one is how the previous version came to compare exact arithmetic (relEps = 1e-9)
+// against input the healer treats as approximate (tol = 1e-6 .. 1e-2).
+//
+// THE PREDICATE, in one sentence: the face set bounds a body iff it forms a
+// material-enclosing closed 2-cycle at SOME coincidence tolerance no coarser than
+// `tol`. The verdict at `tol` itself is tried first and is what gets reported when
+// nothing arms; finer tolerances are then swept, because a tol that reaches the
+// part's own wall thickness folds the body flat before it can be paired (measured:
+// the T-137 plate at the production setting precision=0.001 reads NonManifold).
+// Sweeping FINER can only un-merge what a coarse tolerance fused — it can never
+// close a gap `tol` left open — so it adds arming in that one situation and in no
+// other, and an open body stays open at every tolerance.
+ShellClosure shellClosure(const std::vector<Face*>& faces, double tol);
+
+// ---------------------------------------------------------------------------
 // HealOptions — the tolerances / toggles for the five heal passes.
 // ---------------------------------------------------------------------------
 struct HealOptions {
@@ -183,10 +282,12 @@ struct HealOptions {
     //
     // So the heal is held to a POST-CONDITION on its own output, in the house
     // style of Chamfer/Draft/Boolean ("never fake a closed solid"): WHEN THE INPUT
-    // FACE SOUP BOUNDS A VOLUME (shellBoundsVolume below — a purely geometric test
-    // that needs no topology and therefore still works on the soup):
+    // FACE SOUP ENCLOSES MATERIAL (shellClosure below — a TOPOLOGICAL closedness
+    // test run on the welded soup, because that is the question being asked; see
+    // its contract for why the Newell-sum test that used to arm this was wrong):
     //   * the healed shell must still be CLOSED, and
-    //   * it must not have lost more than maxMaterialLossFrac of its volume.
+    //   * it must not have lost more than maxMaterialLossFrac of the volume the
+    //     input actually bounded (ShellClosure::boundedVolume).
     // Either violation sets ok=false with a named reason, so all three callers
     // (ShapeFix::tryNativeRepair, Healing::tryNativeHeal, fixShapeGeneral) DEFER
     // and the OCCT fallback answers — coverage falls, validity rises.
@@ -233,13 +334,23 @@ struct HealReport {
     double areaBefore   = 0.0;   // total polygonal surface area before
     double areaAfter    = 0.0;   // total polygonal surface area after
 
-    // (9) TRUE when the INPUT face soup is a closed 2-cycle in the purely
-    // geometric sense (shellBoundsVolume) — i.e. volumeBefore is a real enclosed
-    // volume and not an origin-dependent surface integral over an open patch.
-    // This is the LIVE replacement for `before.closed`, which is always false for
-    // every production caller (they hand healBRep an independently-cloned soup).
-    // The destruction post-condition is armed only when this is true.
+    // (9) TRUE when the INPUT face soup ENCLOSES MATERIAL: every boundary edge of
+    // the welded soup is used exactly twice (a closed 2-cycle — `inputClosure` says
+    // whether the two uses also agree on orientation) AND the volume it bounds is
+    // non-zero. This is the LIVE replacement for `before.closed`, which is always
+    // false for every production caller (they hand healBRep an independently-cloned
+    // soup). The destruction post-condition is armed only when this is true.
     bool inputBoundsVolume = false;
+    // (9) The topological verdict on the INPUT soup (shellClosure, at opt.tol).
+    ShellClosureVerdict inputClosure = ShellClosureVerdict::Open;
+    // (9) How much material the input actually bounded — |volume| measured with a
+    // CONSISTENT orientation propagated across the edge pairing, so it is the
+    // part's real volume even when the input's own winding is not consistent (one
+    // face wound backwards is the defect pass (6) exists to repair; it must not be
+    // allowed to corrupt the number the material leg compares against). Equals
+    // |volumeBefore| exactly whenever the input winding IS consistent. Zero when
+    // the input is not a closed 2-cycle.
+    double boundedVolumeBefore = 0.0;
     // (9) TRUE when the destruction post-condition REFUSED this heal (ok==false
     // and `reason` is the named refusal). Diagnostics above stay populated on the
     // refusal path so the caller can log exactly what the heal was about to do.
@@ -323,26 +434,23 @@ double shellSignedVolume(const std::vector<Face*>& faces);
 double shellSurfaceArea(const std::vector<Face*>& faces);
 
 // ---------------------------------------------------------------------------
-// shellBoundsVolume — does this face set BOUND a volume, geometrically?
+// shellBoundsVolume — Gauss's NECESSARY condition. NOT a closedness test.
 // ---------------------------------------------------------------------------
-// The divergence-theorem volume above is the enclosed volume of a CLOSED surface
-// and an origin-dependent surface integral of an OPEN one, so it may only be read
-// as "how much material is here" when the surface closes. The usual way to ask
-// that is topological (SewDiagnosis::closed), but a heal caller hands in a
-// fragment SOUP with no shared edges at all, where the topological answer is
-// always "open" — which is precisely why the sliver-restore safety net at the end
-// of healBRep has never once executed.
+// Returns true iff ‖SUM of the face area vectors‖ <= relEps * SUM ‖A‖ — the
+// divergence-theorem residual, scale-free and units-free. Gauss says a CLOSED
+// surface has zero total area vector, so a false here is a PROOF that the set is
+// not a consistently-wound closed surface.
 //
-// This asks the same question with NO topology: a surface is a closed 2-cycle iff
-// its total signed area vector vanishes, SUM over faces of the Newell area vector
-// == 0 (Gauss: ∮ n dA = 0 over any closed surface; a boundary leaves a residual
-// proportional to the rim). Returns true iff ‖SUM A‖ <= relEps * SUM ‖A‖ — a
-// scale-free, units-free, orientation-consistent test. A soup whose faces are the
-// complete boundary of a solid passes even with every edge duplicated, split,
-// gapped below tol or wound as loose triangles; a soup missing a face, or an open
-// sheet, does not. Inner loops subtract, exactly as shellSurfaceArea treats them.
+// READ THE IMPLICATION ONE WAY ONLY. The converse is false and asserting it was a
+// measured defect (T-137 round 1): an open rectangular TUBE, a hexagonal extruded
+// profile shell, two parallel opposite-facing plates and a zero-thickness sandwich
+// all return TRUE while being open, and one backwards face or a sub-tolerance gap
+// makes a genuinely closed body return FALSE. Never use this to decide whether a
+// soup bounds a body — that is `shellClosure`, which asks the topological question
+// topologically. This function is kept because it is a cheap, sound NECESSARY
+// check and because the gate measures both of them against each other.
 //
-// Returns false for an empty / zero-area set (nothing to conserve).
+// Returns false for an empty / zero-area set.
 bool shellBoundsVolume(const std::vector<Face*>& faces, double relEps = 1e-9);
 
 } // namespace brep

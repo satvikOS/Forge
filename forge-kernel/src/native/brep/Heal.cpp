@@ -45,6 +45,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <queue>
 #include <string>
@@ -88,6 +89,36 @@ struct DSU {
     int find(int a) { while (parent[a] != a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; }
     void unite(int a, int b) { int ra = find(a), rb = find(b); if (ra != rb) parent[ra] = rb; }
 };
+
+// Cluster corner POSITIONS within tol (tolerance spatial hash + union-find, the
+// same scheme as Sew::weldNearVertices applied to raw positions). THE single
+// implementation of "which of these corner positions are the same point": both
+// healBRep's weld pass (4)/(1) and shellClosure call it, so the destruction
+// guard's notion of coincidence cannot drift from the healer's own. Cells are
+// tol-sided and the 27-cell neighbourhood is searched, so a pair straddling a cell
+// wall is still found.
+void clusterPositionsWithin(const std::vector<Point3>& pts, double tol, DSU& dsu) {
+    const std::size_t n = pts.size();
+    dsu.init(n);
+    if (n == 0) return;
+    const double cell = (tol > 0.0) ? tol : 1e-12;
+    const double t2 = cell * cell;
+    std::unordered_map<CellKey, std::vector<int>, CellKeyHash> grid;
+    grid.reserve(n * 2);
+    for (std::size_t i = 0; i < n; ++i) {
+        const Point3& p = pts[i];
+        const long long cx = qcell(p.x, cell), cy = qcell(p.y, cell), cz = qcell(p.z, cell);
+        for (long long dx = -1; dx <= 1; ++dx)
+          for (long long dy = -1; dy <= 1; ++dy)
+            for (long long dz = -1; dz <= 1; ++dz) {
+                auto it = grid.find({cx + dx, cy + dy, cz + dz});
+                if (it == grid.end()) continue;
+                for (int j : it->second)
+                    if (dist2(pts[i], pts[j]) <= t2) dsu.unite(static_cast<int>(i), j);
+            }
+        grid[{cx, cy, cz}].push_back(static_cast<int>(i));
+    }
+}
 
 // A face decomposed into its boundary VERTEX-POSITION rings: outer first, then any
 // inner (hole) rings. Each ring is the ordered corner positions of one loop.
@@ -165,6 +196,58 @@ bool degenerateAspect(const std::vector<Point3>& ring, double area, double aspec
     return (longest / meanAltitude) > aspectMax;
 }
 
+// Perpendicular distance from c to the segment a-b (a T-vertex test).
+double perpDistToSeg(const Point3& c, const Point3& a, const Point3& b) {
+    Point3 ab = psub(b, a), ac = psub(c, a);
+    double ab2 = pdot(ab, ab);
+    if (ab2 <= 0.0) return plen(ac);                 // degenerate segment
+    double t = pdot(ac, ab) / ab2;                   // projection parameter
+    Point3 proj{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
+    return plen(psub(c, proj));
+}
+
+// Normalise one boundary ring, exactly as heal pass (2) does — the two
+// topology-faithful sub-steps, extracted here so shellClosure can ask its
+// closedness question about the ring the heal will ACTUALLY work on:
+//   (a) consecutive/closing duplicate drop: a corner within tol of the previous
+//       surviving corner is a ZERO-LENGTH / sub-tol edge and is removed;
+//   (b) collinear T-vertex removal: a corner whose perpendicular distance to the
+//       segment between its two ring neighbours is < tol adds no geometry — it is
+//       the artefact of a SPLIT EDGE, and removing it re-merges the two collinear
+//       edges so the face re-mates with its neighbour across the FULL edge.
+//       Never taken below a triangle.
+// `collapsed`, when non-null, is incremented once per removed corner.
+void cleanRingPositions(std::vector<Point3>& ring, double tol, std::size_t* collapsed) {
+    if (ring.empty()) return;
+    const double tol2 = tol * tol;
+    {   // (a) consecutive + closing duplicates.
+        std::vector<Point3> out; out.reserve(ring.size());
+        for (const Point3& p : ring) {
+            if (!out.empty() && dist2(out.back(), p) <= tol2) { if (collapsed) ++*collapsed; continue; }
+            out.push_back(p);
+        }
+        while (out.size() >= 2 && dist2(out.front(), out.back()) <= tol2) { out.pop_back(); if (collapsed) ++*collapsed; }
+        ring.swap(out);
+    }
+    // (b) collinear corners (iterate until stable; never below a triangle).
+    bool changed = true;
+    while (changed && ring.size() > 3) {
+        changed = false;
+        const std::size_t L = ring.size();
+        for (std::size_t i = 0; i < L; ++i) {
+            const Point3& a = ring[(i + L - 1) % L];
+            const Point3& c = ring[i];
+            const Point3& b = ring[(i + 1) % L];
+            if (perpDistToSeg(c, a, b) < tol) {
+                ring.erase(ring.begin() + static_cast<long>(i));
+                if (collapsed) ++*collapsed;
+                changed = true;
+                break;
+            }
+        }
+    }
+}
+
 // ---- (7) self-intersection helpers ---------------------------------------
 // A fan-triangulated outer ring (each tri = ring[0], ring[i], ring[i+1]) as the
 // tessellated boundary the EXACT tri-tri test runs against.
@@ -235,6 +318,298 @@ double shellSurfaceArea(const std::vector<Face*>& faces) {
     return area;
 }
 
+// ===========================================================================
+// shellClosure — THE ARMING INSTRUMENT: is this soup a closed body, and how
+// much material does it bound? See Heal.hpp for the contract and for the
+// measured reason the Newell-sum test below cannot answer this question.
+// ===========================================================================
+namespace {
+
+// One closedness verdict at ONE coincidence tolerance. shellClosure below drives it.
+ShellClosure closureAt(const std::vector<Face*>& faces, double tol) {
+    ShellClosure sc;
+    sc.pairingTol = tol;
+    if (!(tol > 0.0)) tol = 1e-12;
+    if (faces.empty()) return sc;
+
+    // --- 0. every face to its boundary rings (outer first, then inners) --------
+    // Inner (hole) loops are boundary too: their edges must pair like any other,
+    // and a flip flips a whole FACE — outer and inners together — which is why the
+    // owning face index travels with every edge use below.
+    std::vector<std::vector<std::vector<Point3>>> frs;   // [face][ring][corner]
+    frs.reserve(faces.size());
+    for (Face* f : faces) {
+        std::vector<std::vector<Point3>> rings;
+        if (f != nullptr) {
+            rings.push_back(loopRing(f->outerLoop));
+            for (Loop* il : f->innerLoops) rings.push_back(loopRing(il));
+        }
+        frs.push_back(std::move(rings));
+    }
+
+    // --- 1. WELD the corner positions at tol (the healer's own coincidence) ----
+    struct Ref { std::size_t f, r, k; };
+    std::vector<Point3> pts;
+    std::vector<Ref> refs;
+    for (std::size_t fi = 0; fi < frs.size(); ++fi)
+        for (std::size_t ri = 0; ri < frs[fi].size(); ++ri)
+            for (std::size_t k = 0; k < frs[fi][ri].size(); ++k) {
+                pts.push_back(frs[fi][ri][k]);
+                refs.push_back({fi, ri, k});
+            }
+    if (pts.empty()) return sc;
+
+    DSU dsu;
+    clusterPositionsWithin(pts, tol, dsu);
+    {   // rewrite every corner to its cluster's survivor position
+        std::vector<int> firstOf(pts.size(), -1);
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            const int r = dsu.find(static_cast<int>(i));
+            if (firstOf[r] < 0) firstOf[r] = static_cast<int>(i);
+        }
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            const Ref& r = refs[i];
+            frs[r.f][r.r][r.k] = pts[firstOf[dsu.find(static_cast<int>(i))]];
+        }
+    }
+
+    // --- 2. NORMALISE each ring the way heal pass (2) does ---------------------
+    // Without this a split edge (a collinear T-vertex on one side of a shared
+    // boundary) would read as two edges against one, i.e. as an OPEN body — the
+    // healer would then be unguarded on exactly the defect class it repairs.
+    for (auto& rings : frs)
+        for (auto& ring : rings)
+            cleanRingPositions(ring, tol, nullptr);
+
+    // --- 3. compact ids for the surviving positions ---------------------------
+    // Every remaining corner is a bit-identical copy of a survivor position, so
+    // exact equality is the right (and only correct) key here.
+    struct PKey {
+        double x, y, z;
+        bool operator==(const PKey& o) const { return x == o.x && y == o.y && z == o.z; }
+    };
+    struct PKeyHash {
+        std::size_t operator()(const PKey& k) const {
+            std::uint64_t h = 1469598103934665603ull;
+            auto mix = [&](double v) {
+                std::uint64_t b = 0;
+                std::memcpy(&b, &v, sizeof(double));
+                h ^= b + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+            };
+            mix(k.x); mix(k.y); mix(k.z);
+            return static_cast<std::size_t>(h);
+        }
+    };
+    std::unordered_map<PKey, std::uint32_t, PKeyHash> idOf;
+    idOf.reserve(pts.size() * 2);
+    auto idFor = [&](const Point3& p) -> std::uint32_t {
+        PKey k{p.x, p.y, p.z};
+        auto it = idOf.find(k);
+        if (it != idOf.end()) return it->second;
+        const std::uint32_t id = static_cast<std::uint32_t>(idOf.size());
+        idOf.emplace(k, id);
+        return id;
+    };
+
+    // --- 4. PAIR the directed boundary edges ----------------------------------
+    struct Use { std::size_t face; bool forward; };
+    struct EdgeRec { int uses = 0; Use u[2]{}; };
+    std::unordered_map<std::uint64_t, EdgeRec> em;
+    em.reserve(pts.size() * 2);
+    for (std::size_t fi = 0; fi < frs.size(); ++fi) {
+        for (const auto& ring : frs[fi]) {
+            const std::size_t L = ring.size();
+            if (L < 3) continue;                    // collapsed away — carries no boundary
+            for (std::size_t i = 0; i < L; ++i) {
+                const std::uint32_t a = idFor(ring[i]);
+                const std::uint32_t b = idFor(ring[(i + 1) % L]);
+                if (a == b) continue;               // (2) already removed these; belt and braces
+                const std::uint32_t lo = (a < b) ? a : b;
+                const std::uint32_t hi = (a < b) ? b : a;
+                const std::uint64_t key = (static_cast<std::uint64_t>(lo) << 32) | hi;
+                EdgeRec& rec = em[key];
+                if (rec.uses < 2) rec.u[rec.uses] = Use{fi, (a < b)};
+                ++rec.uses;
+            }
+        }
+    }
+    sc.edges = em.size();
+    if (sc.edges == 0) return sc;                   // nothing bounded (Open, the default)
+
+    for (const auto& kv : em) {
+        const EdgeRec& rec = kv.second;
+        if (rec.uses == 1)      ++sc.freeEdges;
+        else if (rec.uses >= 3) ++sc.nonManifoldEdges;
+        else if (rec.u[0].forward == rec.u[1].forward) ++sc.misorientedEdges;
+    }
+    if (sc.freeEdges > 0)             { sc.verdict = ShellClosureVerdict::Open;          return sc; }
+    if (sc.nonManifoldEdges > 0)      { sc.verdict = ShellClosureVerdict::NonManifold;   return sc; }
+    sc.verdict = (sc.misorientedEdges > 0) ? ShellClosureVerdict::InconsistentlyWound
+                                           : ShellClosureVerdict::Closed;
+
+    // --- 5. PROPAGATE a consistent orientation across the pairing --------------
+    // Every edge is used exactly twice, so the dual graph is well defined. rel[f]
+    // is +1 to keep face f's input winding and -1 to flip it; two uses of an edge
+    // are consistent iff they run OPPOSITE ways, so rel[b] = rel[a] * (opposite ? +1 : -1).
+    // A conflict means the 2-cycle is non-orientable (no volume is defined) — we
+    // then bound nothing and stand down, which is the no-false-refusal direction.
+    const std::size_t nF = frs.size();
+    std::vector<std::vector<std::pair<std::size_t, int>>> adj(nF);
+    bool conflict = false;
+    for (const auto& kv : em) {
+        const EdgeRec& rec = kv.second;
+        const int sgn = (rec.u[0].forward != rec.u[1].forward) ? +1 : -1;
+        if (rec.u[0].face == rec.u[1].face) { if (sgn < 0) conflict = true; continue; }
+        adj[rec.u[0].face].push_back({rec.u[1].face, sgn});
+        adj[rec.u[1].face].push_back({rec.u[0].face, sgn});
+    }
+    std::vector<int> rel(nF, 0);
+
+    // Per-face volume contribution and area weight, measured about the BOUNDING-BOX
+    // CENTRE: for a closed surface the divergence sum is translation-invariant, and
+    // recentring minimises the per-face magnitudes, so `volumeScale` is a
+    // position-free scale to judge "is there any material here" against.
+    Point3 lo{0,0,0}, hi{0,0,0};
+    bool first = true;
+    for (const auto& rings : frs)
+        for (const auto& ring : rings)
+            for (const Point3& p : ring) {
+                if (first) { lo = hi = p; first = false; continue; }
+                lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
+                hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
+            }
+    const Point3 c{(lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, (lo.z + hi.z) * 0.5};
+    auto recentred = [&](const std::vector<Point3>& ring) {
+        std::vector<Point3> out; out.reserve(ring.size());
+        for (const Point3& p : ring) out.push_back(Point3{p.x - c.x, p.y - c.y, p.z - c.z});
+        return out;
+    };
+    std::vector<double> vOf(nF, 0.0), wOf(nF, 0.0);
+    for (std::size_t fi = 0; fi < nF; ++fi) {
+        for (std::size_t ri = 0; ri < frs[fi].size(); ++ri) {
+            if (frs[fi][ri].size() < 3) continue;
+            const std::vector<Point3> r = recentred(frs[fi][ri]);
+            const double v = polyVolumeContribution(r);
+            const double w = polyArea(r);
+            if (ri == 0) { vOf[fi] += v; wOf[fi] += w; }
+            else         { vOf[fi] -= v; wOf[fi] -= w; }   // inner loops subtract
+        }
+        sc.volumeScale += std::fabs(vOf[fi]);
+    }
+
+    double total = 0.0;
+    for (std::size_t seed = 0; seed < nF && !conflict; ++seed) {
+        if (rel[seed] != 0) continue;
+        // One connected component of the dual graph.
+        std::vector<std::size_t> comp;
+        std::queue<std::size_t> q;
+        rel[seed] = +1; q.push(seed); comp.push_back(seed);
+        while (!q.empty()) {
+            const std::size_t cur = q.front(); q.pop();
+            for (const auto& e : adj[cur]) {
+                const int want = rel[cur] * e.second;
+                if (rel[e.first] == 0) { rel[e.first] = want; q.push(e.first); comp.push_back(e.first); }
+                else if (rel[e.first] != want) { conflict = true; }
+            }
+        }
+        // The component's GLOBAL sign is free (a closed shell may be read either way
+        // round). Choose it to agree, BY AREA, with the input's own winding: that
+        // makes a minority of backwards faces read as the error they are, while a
+        // hollow enclosure's deliberately inward-wound void still subtracts.
+        double agree = 0.0, vol = 0.0;
+        for (std::size_t f : comp) { agree += rel[f] * wOf[f]; vol += rel[f] * vOf[f]; }
+        total += (agree < 0.0) ? -vol : vol;
+    }
+    if (conflict) return sc;                        // non-orientable: no volume is defined
+
+    sc.boundedVolume = std::fabs(total);
+    sc.boundsMaterial = (sc.volumeScale > 0.0) && (sc.boundedVolume > 1e-9 * sc.volumeScale);
+    return sc;
+}
+
+} // anonymous namespace
+
+ShellClosure shellClosure(const std::vector<Face*>& faces, double tol) {
+    if (!(tol > 0.0)) tol = 1e-12;
+
+    // The verdict AT the heal's own tolerance is the primary one, and the one
+    // reported when nothing arms: it is the input as the healer will see it.
+    ShellClosure atTol = closureAt(faces, tol);
+    if (atTol.boundsMaterial) return atTol;
+
+    // ---- THE TOLERANCE SWEEP, and the measured reason it is here -------------
+    // A single scalar tolerance cannot separate "close this 1e-4 gap" from "do not
+    // merge this 0.001 wall thickness". When opt.tol reaches the part's own
+    // thickness the weld folds the body flat before it can be paired, and the
+    // verdict comes back NonManifold (coincident faces) or Open — which would
+    // stand the guard down on exactly the input that is about to be destroyed.
+    // MEASURED: the T-137 plate (100 x 100 x 0.001) at the production quiet
+    // setting precision=0.001 read NONMANIFOLD and returned ok=true with 100% of
+    // the material gone, and the whole sub-tolerance-gap sweep (nudge 1e-4 at
+    // tol 1e-3) read NONMANIFOLD 12/12 and was silent 12/12.
+    //
+    // So the predicate is stated over the whole range instead of one point: THE
+    // INPUT BOUNDED A BODY IF ITS FACES FORM A MATERIAL-ENCLOSING CLOSED 2-CYCLE
+    // AT SOME COINCIDENCE TOLERANCE NO COARSER THAN THE HEAL'S OWN. Going FINER
+    // can only ever un-merge things the coarse tolerance fused — it can never
+    // close a gap that tol left open — so the sweep adds arming in exactly one
+    // situation (the tolerance dissolved the body) and in no other. It therefore
+    // cannot manufacture a false refusal on a genuinely open input: an open tube
+    // is open at every tolerance.
+    //
+    // The floor is 1e-9 of the bounding-box diagonal — the scale at which two
+    // corner positions are the same point to double precision — so the sweep is
+    // units-free and stops rather than running away.
+    double lo3[3] = {0, 0, 0}, hi3[3] = {0, 0, 0};
+    bool first = true;
+    auto seePt = [&](const Point3& p) {
+        const double v[3] = {p.x, p.y, p.z};
+        if (first) { for (int i = 0; i < 3; ++i) { lo3[i] = hi3[i] = v[i]; } first = false; return; }
+        for (int i = 0; i < 3; ++i) { lo3[i] = std::min(lo3[i], v[i]); hi3[i] = std::max(hi3[i], v[i]); }
+    };
+    for (Face* f : faces) {
+        if (f == nullptr) continue;
+        for (const Point3& p : loopRing(f->outerLoop)) seePt(p);
+        for (Loop* il : f->innerLoops) for (const Point3& p : loopRing(il)) seePt(p);
+    }
+    const double dx = hi3[0] - lo3[0], dy = hi3[1] - lo3[1], dz = hi3[2] - lo3[2];
+    const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const double floorTol = (diag > 0.0) ? (1e-9 * diag) : 1e-12;
+
+    // HALVING, not decades: the gap that has to be closed and the thickness that
+    // must NOT be merged can sit inside one decade of each other, and a decade
+    // ladder then steps straight over the window between them. MEASURED with a
+    // x0.1 ladder on the sub-tolerance sweep (nudge 1e-4 at tol 1e-3, where 1e-4
+    // is not exactly representable so the single rung at 1e-4 misses by an ulp):
+    // 8 of 12 armed, 4 still silent. Halving closes the window.
+    //
+    // EARLY EXIT: making the tolerance finer can only ever un-merge, so free edges
+    // do not decrease as it falls — once two consecutive rungs come back OPEN,
+    // every finer rung is open too and the walk is pointless. This keeps the sweep
+    // off the hot path for the common case (a genuinely open soup costs two extra
+    // linear passes; a healthy closed one costs none, because it armed at `tol`).
+    double t = tol;
+    int consecutiveOpen = 0;
+    for (int step = 0; step < 24; ++step) {
+        t *= 0.5;
+        if (t < floorTol) break;
+        ShellClosure c = closureAt(faces, t);
+        if (c.boundsMaterial) return c;
+        // Only a RIM (freeEdges > 0) counts toward the early exit. A verdict of Open
+        // with NO edges at all is the opposite signal — the tolerance collapsed every
+        // ring below a triangle, so there is nothing left to pair and the walk must
+        // keep going. MEASURED: a 0.01 x 0.01 x 1e-7 body at tol 0.05 (the gate's
+        // total-destruction fixture) reports edges=0 for the first ~19 rungs and only
+        // then pairs; bailing on it left the guard unarmed on an emptied part.
+        if (c.verdict == ShellClosureVerdict::Open && c.freeEdges > 0) {
+            if (++consecutiveOpen >= 2) break;
+        } else {
+            consecutiveOpen = 0;
+        }
+    }
+    return atTol;
+}
+
 bool shellBoundsVolume(const std::vector<Face*>& faces, double relEps) {
     // SUM of the signed area vectors vs the SUM of their magnitudes. Gauss says the
     // first is exactly zero for a closed surface; the second is the scale the
@@ -276,7 +651,7 @@ HealReport healBRep(TopologyBuilder& tb,
     }
 
     const double tol  = (opt.tol > 0.0) ? opt.tol : 1e-12;
-    const double tol2 = tol * tol;
+    [[maybe_unused]] const double tol2 = tol * tol;
     const double sliverAreaEps = (opt.sliverAreaEps > 0.0) ? opt.sliverAreaEps : (tol * tol);
     const double aspectMax = (opt.aspectMax > 0.0) ? opt.aspectMax : 1e4;
 
@@ -284,10 +659,16 @@ HealReport healBRep(TopologyBuilder& tb,
     rep.before = diagnoseShell(faces);
     rep.volumeBefore = shellSignedVolume(faces);
     rep.areaBefore   = shellSurfaceArea(faces);
-    // (9) Does the INPUT bound a volume? Asked geometrically, because `before.closed`
-    // cannot answer it for any real caller (they all hand in a cloned fragment soup).
-    // This is what arms the destruction post-condition at the bottom of this function.
-    rep.inputBoundsVolume = shellBoundsVolume(faces);
+    // (9) Does the INPUT enclose material? Asked TOPOLOGICALLY on the welded soup,
+    // at the heal's own tolerance, because `before.closed` cannot answer it for any
+    // real caller (they all hand in an independently-cloned fragment soup) and
+    // because the divergence residual cannot answer it either (an open tube passes
+    // it; one backwards face fails it). This is what arms the destruction
+    // post-condition at the bottom of this function.
+    const ShellClosure inputClosure = shellClosure(faces, tol);
+    rep.inputClosure        = inputClosure.verdict;
+    rep.boundedVolumeBefore = inputClosure.boundedVolume;
+    rep.inputBoundsVolume   = inputClosure.boundsMaterial;
 
     // --- 0. extract every face to vertex-position rings ------------------------
     std::vector<FaceRings> frs;
@@ -312,24 +693,10 @@ HealReport healBRep(TopologyBuilder& tb,
     const std::size_t nPts = allPts.size();
 
     DSU dsu; dsu.init(nPts);
-    if (opt.weldDuplicateVertices || opt.fillGaps) {
-        const double cell = tol;
-        std::unordered_map<CellKey, std::vector<int>, CellKeyHash> grid;
-        grid.reserve(nPts * 2);
-        for (std::size_t i = 0; i < nPts; ++i) {
-            const Point3& p = allPts[i];
-            const long long cx = qcell(p.x, cell), cy = qcell(p.y, cell), cz = qcell(p.z, cell);
-            for (long long dx = -1; dx <= 1; ++dx)
-              for (long long dy = -1; dy <= 1; ++dy)
-                for (long long dz = -1; dz <= 1; ++dz) {
-                    auto it = grid.find({cx + dx, cy + dy, cz + dz});
-                    if (it == grid.end()) continue;
-                    for (int j : it->second)
-                        if (dist2(allPts[i], allPts[j]) <= tol2) dsu.unite(static_cast<int>(i), j);
-                }
-            grid[{cx, cy, cz}].push_back(static_cast<int>(i));
-        }
-    }
+    // The SHARED coincidence clustering (clusterPositionsWithin) — the same call
+    // shellClosure makes, so the destruction guard and the healer agree by
+    // construction on which corners are one point.
+    if (opt.weldDuplicateVertices || opt.fillGaps) clusterPositionsWithin(allPts, tol, dsu);
     // Survivor position per cluster (representative = lowest index in the cluster).
     std::vector<Point3> survivorPos(nPts);
     {
@@ -380,43 +747,10 @@ HealReport healBRep(TopologyBuilder& tb,
     //       the FULL edge (the spec's merge-collinear / same-domain-edge heal). Only
     //       removed while the ring stays >= 3 corners (never pinch a face away here;
     //       a genuinely degenerate ring falls to the sliver pass).
-    auto perpDistToSeg = [&](const Point3& c, const Point3& a, const Point3& b) -> double {
-        Point3 ab = psub(b, a), ac = psub(c, a);
-        double ab2 = pdot(ab, ab);
-        if (ab2 <= 0.0) return plen(ac);                 // degenerate segment
-        double t = pdot(ac, ab) / ab2;                   // projection parameter
-        Point3 proj{a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t};
-        return plen(psub(c, proj));
-    };
+    // The SHARED ring normalisation (cleanRingPositions) — the same call
+    // shellClosure makes, so a SPLIT EDGE reads the same way to both.
     auto cleanRing = [&](std::vector<Point3>& ring, bool count) {
-        if (ring.empty()) return;
-        // (a) consecutive + closing duplicates.
-        {
-            std::vector<Point3> out; out.reserve(ring.size());
-            for (const Point3& p : ring) {
-                if (!out.empty() && dist2(out.back(), p) <= tol2) { if (count) ++rep.shortEdgesCollapsed; continue; }
-                out.push_back(p);
-            }
-            while (out.size() >= 2 && dist2(out.front(), out.back()) <= tol2) { out.pop_back(); if (count) ++rep.shortEdgesCollapsed; }
-            ring.swap(out);
-        }
-        // (b) collinear corners (iterate until stable; never below a triangle).
-        bool changed = true;
-        while (changed && ring.size() > 3) {
-            changed = false;
-            const std::size_t L = ring.size();
-            for (std::size_t i = 0; i < L; ++i) {
-                const Point3& a = ring[(i + L - 1) % L];
-                const Point3& c = ring[i];
-                const Point3& b = ring[(i + 1) % L];
-                if (perpDistToSeg(c, a, b) < tol) {
-                    ring.erase(ring.begin() + static_cast<long>(i));
-                    if (count) ++rep.shortEdgesCollapsed;
-                    changed = true;
-                    break;
-                }
-            }
-        }
+        cleanRingPositions(ring, tol, count ? &rep.shortEdgesCollapsed : nullptr);
     };
     if (opt.collapseShortEdges) {
         for (auto& fr : frs) { cleanRing(fr.outer, true); for (auto& ir : fr.inners) cleanRing(ir, true); }
@@ -1019,23 +1353,32 @@ HealReport healBRep(TopologyBuilder& tb,
     // with reason "ok". So, in the house style of Chamfer/Draft/Boolean — build the
     // answer, validate it, and DECLINE it if it is not one:
     //
-    //   ARMED ONLY WHEN THE INPUT BOUNDED A VOLUME (rep.inputBoundsVolume). If the
-    //   caller handed in an open patch or an incomplete body, volumeBefore is an
-    //   origin-dependent surface integral, not an amount of material, and there is
-    //   nothing here to conserve — we do not invent a claim about it.
+    //   ARMED ONLY WHEN THE INPUT ENCLOSED MATERIAL (rep.inputBoundsVolume, i.e.
+    //   shellClosure says every welded boundary edge is used exactly twice AND the
+    //   body so bounded is not empty). If the caller handed in an open patch, an
+    //   incomplete body, a non-manifold join or a zero-thickness degenerate,
+    //   volumeBefore is an origin-dependent surface integral, not an amount of
+    //   material, and there is nothing here to conserve — we do not invent a claim
+    //   about it. NOTE that an INCONSISTENTLY WOUND closed body IS armed: one face
+    //   wound backwards is a defect pass (6) exists to repair, not a licence to
+    //   destroy the part, and it was the measured disarm of the previous predicate.
     //
     //   LEG A — CLOSURE. A body that came in closed must not go out open. This is
     //   what the sliver-restore net at lines above was FOR; it keys off
     //   before.closed, which no caller can ever make true, so it has never run.
     //   Leg A asks the same question with the instrument that works on a soup.
     //
-    //   LEG B — MATERIAL. |volumeAfter| must be within maxMaterialLossFrac of
-    //   |volumeBefore|. ABSOLUTE values and LOSS ONLY, deliberately: pass (6) may
-    //   flip a globally-inverted shell (|V| unchanged) or repair a partly-misoriented
-    //   one (where volumeBefore is an under-count and the delta is a GAIN), and
-    //   neither of those is destruction. Leg B is the only leg that can see the
-    //   quiet version of this defect — the variant that loses 83% of the material
-    //   and still returns a CLOSED, BRepCheck-VALID body with zero unfixed residuals.
+    //   LEG B — MATERIAL. |volumeAfter| must be within maxMaterialLossFrac of what
+    //   the input actually bounded. ABSOLUTE values and LOSS ONLY, deliberately:
+    //   pass (6) may flip a globally-inverted shell (|V| unchanged) or repair a
+    //   partly-misoriented one (where the delta is a GAIN), and neither of those is
+    //   destruction. The "before" is shellClosure's ORIENTATION-INDEPENDENT
+    //   boundedVolume, not the raw signed sum, precisely so that a backwards face
+    //   cannot make the part look smaller than it is and thereby hide a loss; the
+    //   two are identical whenever the input winding is already consistent. Leg B
+    //   is the only leg that can see the quiet version of this defect — the variant
+    //   that loses 83% of the material and still returns a CLOSED, BRepCheck-VALID
+    //   body with zero unfixed residuals.
     //
     // A refusal is a routing decision: ok=false makes all three callers return the
     // input, so the OCCT ShapeFix fallback answers. Coverage falls, validity rises.
@@ -1049,7 +1392,7 @@ HealReport healBRep(TopologyBuilder& tb,
                          "than returning a solid that is not one";
             return rep;
         }
-        const double before = std::fabs(rep.volumeBefore);
+        const double before = rep.boundedVolumeBefore;
         const double after  = std::fabs(rep.volumeAfter);
         if (opt.maxMaterialLossFrac > 0.0 && before > 0.0 &&
             (before - after) > opt.maxMaterialLossFrac * before) {
