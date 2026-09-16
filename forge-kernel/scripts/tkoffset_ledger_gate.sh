@@ -17,8 +17,19 @@
 #   OCCT_CLOSURE <= 14   the ledger number; falls only when a library stops loading
 #   OCCT_PHANTOM <= 2    TKBO and TKG2d, both pre-existing
 #   TKOffset     <= 42   the default build; a drop build is far lower
-#   OCCT_SYMBOLS <= 546  the TOTAL over all toolkits -- measured 2026-09-16, and the only
-#                        ceiling a symbol RELOCATING between files cannot satisfy
+#   OCCT_SYMBOLS <= 550  the TOTAL over all toolkits, and the only ceiling a symbol
+#                        RELOCATING between files cannot satisfy.
+#   ★550 IS THE DEFAULT BUILD. The first value written here was 546, measured on the
+#   Sep-11 build/Release/libforge_kernel_core.dylib -- which was configured with
+#   FORGE_OFFSET_DROP_MAKEOFFSET=ON and so was already missing family A's 4
+#   BRepOffsetAPI_MakeOffset symbols. CI configures with DEFAULTS, reads 550, and this
+#   gate correctly failed PR #251 with "OCCT_SYMBOLS 550 exceeds ceiling 546".
+#   That is the ceiling being WRONG, not the tree regressing: grep the drop options out
+#   of a CMakeCache before baselining anything from a dylib you did not configure.
+#     comm -12 (nm -u dylib) (nm -gU every libTK*) on a default build -> 550
+#     TKG3d 152 / TKTopAlgo 110 / TKBRep 103 / TKOffset 42 / TKMath 34 / TKBO 32 /
+#     TKG2d 27 / TKernel 27 / TKShHealing 12 / TKFillet 11
+#   Lower it as families land; never raise it to make a build pass.
 # Lower them as the programme moves; never raise one to make a build pass.
 #
 # usage:
@@ -32,7 +43,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COUNT="$ROOT/forge-kernel/scripts/occt_closure_count.sh"
 OCCT_LIB="${OCCT_LIB_DIR:-/opt/homebrew/opt/opencascade/lib}"
 
-BIN=""; MAX_CLOSURE=14; MAX_PHANTOM=2; MAX_TKOFFSET=42; MAX_SYMBOLS=546
+BIN=""; MAX_CLOSURE=14; MAX_PHANTOM=2; MAX_TKOFFSET=42; MAX_SYMBOLS=550
 while [ $# -gt 0 ]; do
   case "$1" in
     --max-closure)  MAX_CLOSURE="${2:?}"; shift ;;
