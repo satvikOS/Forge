@@ -53,6 +53,7 @@
 #include "forge/native/brep/IgesRead.hpp"           // OCCT-zero B1 — native foreign-IGES reader
 #include "forge/native/brep/MeshExchange.hpp"        // OCCT-zero B2 — native ASCII STL codec
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
+#include "forge/NativeShapeAccess.hpp"              // nativeSolidOf / nativeMeshOf — OCCT-free registry reads
 #endif
 
 namespace forge::io {
@@ -143,23 +144,28 @@ ShapeHandle importStep(const std::string& filepath) {
 bool exportStep(ShapeHandle h, const std::string& filepath) {
 #ifdef FORGE_NATIVE_BREP
     auto& reg = ShapeRegistry::instance();
+    // KEPT DELIBERATELY, and it is not the pair T-129 removes. This kindOf() is
+    // (a) the OCCT-kind question further down, which the OCCT-free seam cannot and
+    // must not answer, and (b) this function's invalid-handle throw, which fires
+    // here on the same line it always has — so the two native arms below can use
+    // the never-throwing seam without changing what an unknown handle does.
     const ShapeKind k = reg.kindOf(h);
     if (native::brep::forgeNativeStepEnabled()) {
-        if (k == ShapeKind::NativeSolid) {
+        if (const native::brep::Solid* ns = nativeSolidOf(h)) {
             // ANALYTIC route: emit real CYLINDRICAL/CONICAL/SPHERICAL/TOROIDAL/
             // PLANE surfaces + LINE/CIRCLE edges (NOT a tessellation).
-            auto wr = native::brep::StepAnalytic::write(reg.getNativeSolid(h));
+            auto wr = native::brep::StepAnalytic::write(*ns);
             if (!wr.ok) {
                 throw std::runtime_error("forge.io native STEP export: " + wr.reason);
             }
             spillFile(filepath, wr.text);
             return true;
         }
-        if (k == ShapeKind::NativeMesh) {
+        if (const native::mesh::HalfEdgeMesh* hemp = nativeMeshOf(h)) {
             // FACETED route (HONEST): a fillet/chamfer/sweep/loft RESULT carries no
             // analytic surface, so it serialises as a tessellated MANIFOLD_SOLID_BREP
             // (every face a flat PLANE triangle) via StepFaceted — stated plainly.
-            const auto& hem = reg.getNativeMesh(h);
+            const auto& hem = *hemp;
             native::brep::StepMesh sm;
             std::vector<double> pos; std::vector<std::uint32_t> idx;
             hem.toSoup(pos, idx);
@@ -361,16 +367,24 @@ bool exportStl(ShapeHandle h, const std::string& filepath,
     // tessellates at its own as-built resolution (exact for planar faces).
     (void)linearTol; (void)angularTol; (void)ascii;
     auto& reg = ShapeRegistry::instance();
-    const ShapeKind k = reg.kindOf(h);
     native::brep::TriMesh tm;
-    if (k == ShapeKind::NativeSolid) {
-        native::brep::tessellateSolid(reg.getNativeSolid(h), tm.positions, tm.indices, /*weldTol*/ 1e-7);
-    } else if (k == ShapeKind::NativeMesh) {
-        reg.getNativeMesh(h).toSoup(tm.positions, tm.indices);
+    // T-129: both native arms are ONE question each, through the OCCT-free seam.
+    if (const native::brep::Solid* ns = nativeSolidOf(h)) {
+        native::brep::tessellateSolid(*ns, tm.positions, tm.indices, /*weldTol*/ 1e-7);
+    } else if (const native::mesh::HalfEdgeMesh* nm = nativeMeshOf(h)) {
+        nm->toSoup(tm.positions, tm.indices);
     } else {
         // Occt-backed handle (e.g. a BREP import): no native tessellation exists for
         // an arbitrary OCCT shape and the OCCT mesher has been retired here. Surface
         // the truth (Bible §0/§9) rather than fake a mesh.
+        //
+        // INVALID HANDLE, restored explicitly. The seam answers nullptr for a handle
+        // that names nothing as well as for an OCCT-backed one, so without this line
+        // an unknown handle would be reported as "OCCT-backed" — a false statement
+        // about a body that is not there. The kindOf() that used to open this
+        // function still runs, on the deferral path only, and still throws
+        // ShapeRegistry's own "invalid handle" error for it.
+        (void)reg.kindOf(h);
         throw std::runtime_error(
             "forge.io: native STL export covers native-kernel bodies; this handle is "
             "OCCT-backed and has no native tessellation. Export STEP (AP242) instead, "

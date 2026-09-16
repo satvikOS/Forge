@@ -67,6 +67,7 @@
 #include "forge/ShapeRegistry.hpp"
 
 #ifdef FORGE_NATIVE_BREP
+#include "forge/NativeShapeAccess.hpp"         // nativeSolidOf — the OCCT-free registry read
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled(), transformSolid
 #include "forge/native/brep/Primitives.hpp"    // SolidFactory::buildBox (flange/filler brick)
 #include "forge/native/brep/Boolean.hpp"       // booleanSolid, BoolOp (lineage-carrying fuse)
@@ -299,8 +300,20 @@ bool tryNativeFuseBrick(ShapeHandle shape,
     // The native boolean takes two analytic Solid& operands. Today every sheet-metal
     // body is an OCCT TopoDS_Shape (baseFlange defers, so the chain stays OCCT), so
     // kindOf(shape) != NativeSolid -> defer to OCCT's BRepAlgoAPI_Fuse.
-    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
-    const Solid& body = reg.getNativeSolid(shape);
+    // T-129: asked as ONE question through the OCCT-free seam. nativeSolidOf() is
+    // nullptr both for a non-NativeSolid entry and for a handle that names nothing;
+    // the kindOf() this replaces THREW on the second. Deferring instead is what the
+    // documented contract above already claims ("HONESTLY DEFERS (false)"), and an
+    // unknown handle still raises at the OCCT fuse below, which calls
+    // ShapeRegistry::get(shape) — the same exception the default build (native FEAT
+    // gate OFF) has always produced for it. MEASURED per caller: edgeFlange()
+    // already did ShapeRegistry::get(shape) at line 426, BEFORE this try, so an
+    // unknown handle never reaches here at all; closedCorner() reaches its own
+    // get(shape) on the deferral path. Both still throw, and both now throw the
+    // SAME exception the default build throws.
+    const Solid* bodyp = nativeSolidOf(shape);
+    if (!bodyp) return false;
+    const Solid& body = *bodyp;
 
     if (!(lx > kEps && ly > kEps && lz > kEps)) return false;  // degenerate -> defer
 

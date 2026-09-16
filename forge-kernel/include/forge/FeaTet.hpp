@@ -47,7 +47,17 @@
 //
 // All quantities are SI (m, kg, s, N, Pa).
 
-#include "forge/ShapeRegistry.hpp"
+// T-129: this was `#include "forge/ShapeRegistry.hpp"`, and it is the entire
+// reason OCCT_REMOVAL_TRACKER listed FeaTet.hpp under "public headers that reach
+// OCCT only THROUGH another Forge header". MEASURED before changing it: the only
+// two names this header takes from that include are `::forge::ShapeHandle` (which
+// lives in ShapeHandle.hpp, and names no OCCT type) and `::TopoDS_Shape`, which is
+// FORWARD-DECLARED below and needs no definition to appear in a reference
+// parameter. Nothing else in this file mentions ShapeRegistry, ShapeKind, or any
+// OCCT type. All three includers (src/FeaTet.cpp, src/binding.cpp,
+// test/native_occt_wire_activation_test.cpp) include ShapeRegistry.hpp directly
+// already, so none of them was relying on this line transitively.
+#include "forge/ShapeHandle.hpp"
 
 #include <array>
 #include <vector>

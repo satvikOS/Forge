@@ -9,6 +9,7 @@
 #include "forge/math/Vec3.hpp"
 #include "forge/FeaTet.hpp"
 #include "forge/ShapeRegistry.hpp"
+#include "forge/NativeShapeAccess.hpp"  // nativeSolidOf — the OCCT-free registry read
 #include "forge/OcctNativeMesh.hpp"   // K5 — native surface mesher (no TKMesh)
 #include <cstdio>
 #include <cstdlib>
@@ -1125,8 +1126,13 @@ bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, int seedGridB
     // -> defer to OCCT. `imported` keeps the imported topology alive for this call.
     ::forge::ImportResult imported;
     const Solid* solidPtr = nullptr;
-    if (reg.kindOf(h) == ::forge::ShapeKind::NativeSolid) {
-        solidPtr = &reg.getNativeSolid(h);
+    // T-129: the NativeSolid arm is ONE question through the OCCT-free seam.
+    // INVALID HANDLE: unchanged. nativeSolidOf() answers nullptr instead of
+    // throwing, and control then falls into the `else if (reg.kindOf(h) ...)`
+    // below — the SAME kindOf() call that used to be first — so an unknown handle
+    // still raises ShapeRegistry's "invalid handle" error here, unchanged.
+    if (const Solid* ns = ::forge::nativeSolidOf(h)) {
+        solidPtr = ns;
     } else if (reg.kindOf(h) == ::forge::ShapeKind::Occt) {
         imported = ::forge::importOcctSolid(reg.get(h));
         if (!imported.ok || imported.solid == nullptr) return false;     // defer to OCCT
