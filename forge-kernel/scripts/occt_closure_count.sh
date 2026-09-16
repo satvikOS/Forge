@@ -46,10 +46,13 @@ SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 KROOT="$(cd "$SELF_DIR/.." && pwd)"
 
 BIN=""; JSON=0; QUIET=0; AS_CLOSURE=""; AS_DIRECT=""; AS_PHANTOM=0
+DO_SYMBOLS=0; AS_SYMBOLS=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --json)              JSON=1 ;;
     --quiet)             QUIET=1 ;;
+    --symbols)           DO_SYMBOLS=1 ;;
+    --assert-symbols)    AS_SYMBOLS="${2:?--assert-symbols needs N}"; DO_SYMBOLS=1; shift ;;
     --assert-closure)    AS_CLOSURE="${2:?--assert-closure needs N}"; shift ;;
     --assert-direct)     AS_DIRECT="${2:?--assert-direct needs N}";  shift ;;
     --assert-no-phantom) AS_PHANTOM=1 ;;
@@ -59,8 +62,44 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$BIN" ] || BIN="${FORGE_KERNEL:-$KROOT/build/Release/forge-kernel.node}"
-[ -f "$BIN" ] || { echo "FATAL: binary not found: $BIN" >&2; exit 2; }
+# THE LEDGER MUST MEASURE AN ARTIFACT THAT EXISTS.
+# This defaulted to build/Release/forge-kernel.node, which THIS TREE DOES NOT BUILD --
+# build/Release/ holds only libforge_kernel_core.dylib. Every invocation without an
+# explicit BINARY therefore died "FATAL: binary not found", and tkoffset_ledger_gate.sh
+# calls this script, so the gate the programme quotes its OCCT numbers from had nothing
+# to measure. Measured 2026-09-16: the dylib carries 546 OCCT symbols across 10 toolkits
+# while the ledger reported on a file that is not in the tree. The header's own warning
+# about "the stale-artifact trap" was about exactly this and it happened anyway.
+# So: prefer an artifact that IS present, in build order, and if none is, name every
+# path that was tried rather than the one that happened to be first.
+if [ -z "$BIN" ] && [ -n "${FORGE_KERNEL:-}" ]; then BIN="$FORGE_KERNEL"; fi
+if [ -z "$BIN" ]; then
+  for cand in "$KROOT/build/Release/libforge_kernel_core.dylib" \
+              "$KROOT/build/libforge_kernel_core.dylib" \
+              "$KROOT/build-app/libforge_kernel_core.dylib" \
+              "$KROOT/build/Release/libforge_kernel_core.so" \
+              "$KROOT/build/Release/forge-kernel.node"; do
+    [ -f "$cand" ] && { BIN="$cand"; break; }
+  done
+fi
+if [ -z "$BIN" ] || [ ! -f "$BIN" ]; then
+  {
+    echo "FATAL: no kernel artifact to measure."
+    [ -n "$BIN" ] && echo "  requested: $BIN"
+    echo "  tried:"
+    for cand in "$KROOT/build/Release/libforge_kernel_core.dylib" \
+                "$KROOT/build/libforge_kernel_core.dylib" \
+                "$KROOT/build-app/libforge_kernel_core.dylib" \
+                "$KROOT/build/Release/libforge_kernel_core.so" \
+                "$KROOT/build/Release/forge-kernel.node"; do
+      printf '    %-58s %s\n' "$cand" "$([ -f "$cand" ] && echo present || echo absent)"
+    done
+    echo
+    echo "  A ledger that measures a missing artifact reports no progress and no regression."
+    echo "  Build the kernel, or pass the artifact explicitly / set FORGE_KERNEL."
+  } >&2
+  exit 2
+fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 UNAME="$(uname -s)"
@@ -246,6 +285,70 @@ elif [ "$QUIET" = 0 ]; then
     echo "  ⚠ $N_PHANTOM phantom-direct librar(ies). A drop that only converts DIRECT → PHANTOM"
     echo "    leaves OCCT_CLOSURE unchanged and is worth ZERO. Rank drops by OCCT_CLOSURE."
     echo
+  fi
+fi
+
+# ── 4b. SYMBOL CENSUS ─────────────────────────────────────────────────────────
+# OCCT_CLOSURE counts LIBRARIES; this counts SYMBOLS, and they move independently.
+# Measured 2026-09-16: closure 14 and direct 11 had been flat for weeks while the real
+# surface was 546 symbols over 10 toolkits — and the ladder is so coarse that all nine
+# offset families at parity would move closure only 14 -> 13. Worse, per-FILE symbol
+# assertions go green on RELOCATION: move a BRepOffsetAPI_* call out of Features.cpp
+# into an engine that still speaks OCCT and the file check passes while the dylib total
+# is unchanged. Only a total on ONE artifact catches that, so this is the number to
+# ratchet.
+#
+# Intersect against EVERY installed toolkit, not just the load graph: if a migration
+# reaches for a toolkit the closure never named, a graph-scoped census would not see it.
+symbol_census() {
+  : > "$TMP/allexp"
+  found=0
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    for f in "$d"/libTK*; do
+      [ -f "$f" ] || continue
+      case "$f" in *.dSYM*) continue ;; esac
+      rp="$(readlink -f "$f" 2>/dev/null || echo "$f")"
+      grep -qxF "$rp" "$TMP/seen" 2>/dev/null && continue
+      echo "$rp" >> "$TMP/seen"; found=$((found+1))
+      t="$(tkname "$rp")"; [ -n "$t" ] || continue
+      exports_of "$rp" | sed "s|^|$t\t|" >> "$TMP/allexp"
+    done
+  done <<EOF
+$SEARCH
+EOF
+  [ "$found" -gt 0 ] || { echo "FATAL: no libTK* found to census" >&2; return 2; }
+  undef_of "$BIN" > "$TMP/undef"
+  # symbol -> owning toolkit(s); a symbol exported by several toolkits counts ONCE in the
+  # total (sort -u on the symbol) but is listed under each owner in the breakdown.
+  sort -u "$TMP/allexp" > "$TMP/allexp.s"
+  awk -F'\t' 'NR==FNR{u[$0]=1;next} ($2 in u){print $1"\t"$2}' "$TMP/undef" "$TMP/allexp.s" \
+    | sort -u > "$TMP/census"
+  N_SYM=$(cut -f2 "$TMP/census" | sort -u | wc -l | tr -d ' ')
+  return 0
+}
+: > "$TMP/seen"
+N_SYM=0
+if [ "$DO_SYMBOLS" = 1 ]; then
+  symbol_census || exit 2
+  if [ "$JSON" = 1 ]; then
+    printf '{"occt_symbols":%s,"by_toolkit":{' "$N_SYM"
+    cut -f1 "$TMP/census" | sort | uniq -c | sort -rn \
+      | awk '{printf "%s\"%s\":%s", (NR>1?",":""), $2, $1}'
+    printf '}}\n'
+  elif [ "$QUIET" != 1 ]; then
+    echo "  OCCT_SYMBOLS = $N_SYM   ★ undefined symbols the binary takes from OCCT — ratchet THIS"
+    echo
+    cut -f1 "$TMP/census" | sort | uniq -c | sort -rn \
+      | awk '{printf "    %-16s %4s\n", $2, $1}'
+    echo
+    echo "  A per-file assertion goes green when a symbol RELOCATES between files."
+    echo "  This total does not. Baseline it and refuse any commit that raises it."
+    echo
+  fi
+  if [ -n "$AS_SYMBOLS" ] && [ "$N_SYM" -gt "$AS_SYMBOLS" ]; then
+    echo "FAIL: OCCT_SYMBOLS=$N_SYM exceeds --assert-symbols $AS_SYMBOLS" >&2
+    exit 1
   fi
 fi
 

@@ -17,11 +17,24 @@
 #   OCCT_CLOSURE <= 14   the ledger number; falls only when a library stops loading
 #   OCCT_PHANTOM <= 2    TKBO and TKG2d, both pre-existing
 #   TKOffset     <= 42   the default build; a drop build is far lower
+#   OCCT_SYMBOLS <= 550  the TOTAL over all toolkits, and the only ceiling a symbol
+#                        RELOCATING between files cannot satisfy.
+#   ★550 IS THE DEFAULT BUILD. The first value written here was 546, measured on the
+#   Sep-11 build/Release/libforge_kernel_core.dylib -- which was configured with
+#   FORGE_OFFSET_DROP_MAKEOFFSET=ON and so was already missing family A's 4
+#   BRepOffsetAPI_MakeOffset symbols. CI configures with DEFAULTS, reads 550, and this
+#   gate correctly failed PR #251 with "OCCT_SYMBOLS 550 exceeds ceiling 546".
+#   That is the ceiling being WRONG, not the tree regressing: grep the drop options out
+#   of a CMakeCache before baselining anything from a dylib you did not configure.
+#     comm -12 (nm -u dylib) (nm -gU every libTK*) on a default build -> 550
+#     TKG3d 152 / TKTopAlgo 110 / TKBRep 103 / TKOffset 42 / TKMath 34 / TKBO 32 /
+#     TKG2d 27 / TKernel 27 / TKShHealing 12 / TKFillet 11
+#   Lower it as families land; never raise it to make a build pass.
 # Lower them as the programme moves; never raise one to make a build pass.
 #
 # usage:
 #   bash forge-kernel/scripts/tkoffset_ledger_gate.sh BINARY
-#        [--max-closure N] [--max-phantom N] [--max-tkoffset N]
+#        [--max-closure N] [--max-phantom N] [--max-tkoffset N] [--max-symbols N]
 #
 # exit: 0 every ceiling held / 1 a ceiling was exceeded / 2 binary or tools missing.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -30,12 +43,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COUNT="$ROOT/forge-kernel/scripts/occt_closure_count.sh"
 OCCT_LIB="${OCCT_LIB_DIR:-/opt/homebrew/opt/opencascade/lib}"
 
-BIN=""; MAX_CLOSURE=14; MAX_PHANTOM=2; MAX_TKOFFSET=42
+BIN=""; MAX_CLOSURE=14; MAX_PHANTOM=2; MAX_TKOFFSET=42; MAX_SYMBOLS=550
 while [ $# -gt 0 ]; do
   case "$1" in
     --max-closure)  MAX_CLOSURE="${2:?}"; shift ;;
     --max-phantom)  MAX_PHANTOM="${2:?}"; shift ;;
     --max-tkoffset) MAX_TKOFFSET="${2:?}"; shift ;;
+    --max-symbols)  MAX_SYMBOLS="${2:?}"; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     -*) echo "unknown flag: $1" >&2; exit 2 ;;
     *)  BIN="$1" ;;
@@ -62,13 +76,37 @@ if [ -f "$OCCT_LIB/libTKOffset.7.9.dylib" ]; then
   rm -f "${TMPDIR:-/tmp}/.tko.exp.$$" "${TMPDIR:-/tmp}/.tko.und.$$"
 fi
 
+# ── the TOTAL, which is the only thing relocation cannot fool ─────────────────
+# TKOffset alone is 38 of 546. MEASURED 2026-09-16: finishing all nine offset families
+# perfectly leaves 441 symbols across all TEN toolkits — zero dropped — because the
+# symbols are feature-layer CALL SITES, not the engines the families rewrite. A ceiling
+# on one toolkit cannot see that, and a per-FILE assertion goes green when a symbol
+# merely MOVES between files. The dylib-wide total does not move on relocation, so it
+# is the number to ratchet.
+SYMJSON="$("$COUNT" "$BIN" --json --symbols 2>/dev/null)" || SYMJSON=""
+SYMS="$(printf '%s' "$SYMJSON" | sed -n 's/.*"occt_symbols":\([0-9]*\).*/\1/p')"
+
 echo "== TKOffset ledger gate: $(basename "$BIN") =="
 printf '  OCCT_DIRECT   = %-4s\n' "$DIRECT"
 printf '  OCCT_CLOSURE  = %-4s (ceiling %s)\n' "$CLOSURE"  "$MAX_CLOSURE"
 printf '  OCCT_PHANTOM  = %-4s (ceiling %s)\n' "$PHANTOM"  "$MAX_PHANTOM"
 printf '  TKOffset syms = %-4s (ceiling %s)\n' "$TKO"      "$MAX_TKOFFSET"
+if [ -n "$SYMS" ]; then
+  printf '  OCCT_SYMBOLS  = %-4s (ceiling %s)  ★ the total; relocation cannot lower it\n' \
+         "$SYMS" "$MAX_SYMBOLS"
+fi
 
 RC=0
+if [ -z "$SYMS" ]; then
+  # Refuse to pass on a census that did not run. A gate whose headline number is silently
+  # absent reports PASS while measuring nothing -- which is the failure this file is fixing.
+  echo "FAIL: the symbol census did not run; OCCT_SYMBOLS is unknown and cannot be gated" >&2
+  RC=1
+elif [ "$SYMS" -gt "$MAX_SYMBOLS" ]; then
+  echo "FAIL: OCCT_SYMBOLS $SYMS exceeds ceiling $MAX_SYMBOLS" >&2
+  echo "      Per-toolkit: $(printf '%s' "$SYMJSON" | sed -n 's/.*"by_toolkit":{\(.*\)}}/\1/p')" >&2
+  RC=1
+fi
 if [ "$CLOSURE" -gt "$MAX_CLOSURE" ]; then
   echo "FAIL: OCCT_CLOSURE $CLOSURE exceeds ceiling $MAX_CLOSURE" >&2; RC=1
 fi
