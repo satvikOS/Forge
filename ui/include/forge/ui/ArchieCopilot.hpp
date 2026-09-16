@@ -97,9 +97,52 @@ enum class PlanSelect : std::uint8_t {
   // REPAIR / TOLERATE, never refuse. MEASURED as unreachable by
   // ui/test/differential_gate_test.cpp before this value existed.
   LatestWire,     // the newest still-bound WIRE value (a RING / WIRE section)
+  // APPENDED AGAIN, and the note above was wrong about the count: IrValueKind
+  // has SIX kinds, not three. SURFACE is the fourth, and its absence was the
+  // same refusal-by-omission one more time -- six registered commands
+  // (CAP, SEW, THICKEN, SURFCHECK, SURFTRIM, SURFEXTEND) consume a sheet, four
+  // of them over a REAL kernel (forge::heal::sewShape, forge::part::thicken-
+  // Surface, forge::heal::autoFillMissingFaces, forge::surf::statsOf), and a
+  // plan could already CREATE a sheet through FACES / SKIN / UNFOLD and then
+  // never consume one. wantedKind() has answered IrValueKind::Surface off the
+  // SIGNATURE since D-023's fix; boundValues() has been kind-generic all along.
+  // The only missing piece was a name a plan could write down.
+  //
+  // MEASURED before this value existed, by ir_bridge.to_plan against the pinned
+  // vocabulary: BOX -> FACES -> THICKEN, BOX -> FACES -> SEW -> CAP and
+  // RING,RING -> SKIN -> THICKEN were all refused with "part.thicken consumes a
+  // surface value and the app's plan format has no way to select one"; all three
+  // are accepted with it. ui/test/differential_corpus.hpp tree `sheet_thicken`
+  // is the standing falsifier -- it reports NoPlanSelectForKind without this row.
+  //
+  // THE RESOLUTION RULE, stated because every selection kind owes one: "the
+  // newest still-bound SURFACE value in the document", which is the same rule
+  // the other three carry and is safe for the same reason -- it is not a guess.
+  // ir_bridge proves, statement by statement, that the values the IR NAMES are
+  // exactly the newest N of that kind, and refuses the whole plan when they are
+  // not ("it would build a different part"), so a plan only ever reaches
+  // applyPlan when latest-N and the named operands are the same set.
+  LatestSurface,  // the newest still-bound SURFACE value (a sheet: FACES / SKIN / SEW)
 };
 
 const char* toString(PlanSelect select) noexcept;
+
+// The WIRE SPELLING of a PlanSelect, and its only parser.
+//
+// It exists because `toString` above is PROSE for the panel ("the newest solid in
+// the document") and can never be a wire format, while RemotePlanner has to read
+// a `select` field off the sidecar's JSON. Without one parser owning both halves,
+// the sidecar's string table (ir_bridge.PLAN_SELECT) and the app's enum can drift
+// apart with nothing to notice -- and the failure mode of that drift is silent:
+// an unknown spelling degrades to PlanSelect::Keep, which means "run against
+// whatever the user has picked in the viewport".
+//
+// Returns false and leaves `out` untouched for a spelling it does not know, so a
+// caller can refuse rather than fall back to Keep.
+bool planSelectFromName(const std::string& name, PlanSelect& out) noexcept;
+
+// The inverse, for anything that must WRITE the wire spelling.
+const char* planSelectName(PlanSelect select) noexcept;
 
 // ── one argument of one step ────────────────────────────────────────────────
 struct PlanArg {

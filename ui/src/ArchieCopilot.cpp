@@ -26,8 +26,41 @@ const char* toString(PlanSelect select) noexcept {
     case PlanSelect::LatestProfile: return "the newest profile in the document";
     case PlanSelect::LatestSolid:   return "the newest solid in the document";
     case PlanSelect::LatestWire:    return "the newest section wire in the document";
+    case PlanSelect::LatestSurface: return "the newest sheet in the document";
   }
   return "keep the live selection";
+}
+
+// ── the wire spelling, and it has exactly one owner ─────────────────────────
+// These strings are a PROTOCOL: the sidecar writes them (ir_bridge.PLAN_SELECT)
+// and RemotePlanner::parseReply reads them. They are deliberately NOT the prose
+// toString() above -- prose is for the panel and is free to be rewritten, and a
+// protocol that moves when someone improves a sentence is not a protocol.
+const char* planSelectName(PlanSelect select) noexcept {
+  switch (select) {
+    case PlanSelect::Keep:          return "Keep";
+    case PlanSelect::None:          return "None";
+    case PlanSelect::LatestProfile: return "LatestProfile";
+    case PlanSelect::LatestSolid:   return "LatestSolid";
+    case PlanSelect::LatestWire:    return "LatestWire";
+    case PlanSelect::LatestSurface: return "LatestSurface";
+  }
+  return "Keep";
+}
+
+bool planSelectFromName(const std::string& name, PlanSelect& out) noexcept {
+  // Walked off planSelectName itself, so a value appended to the enum is
+  // parseable the moment -Wswitch forces it into that function. A hand-written
+  // second table here is how the two halves would drift.
+  for (const PlanSelect candidate :
+       {PlanSelect::Keep, PlanSelect::None, PlanSelect::LatestProfile, PlanSelect::LatestSolid,
+        PlanSelect::LatestWire, PlanSelect::LatestSurface}) {
+    if (name == planSelectName(candidate)) {
+      out = candidate;
+      return true;
+    }
+  }
+  return false;
 }
 
 const char* toString(TranscriptRole role) noexcept {
@@ -746,6 +779,14 @@ IrValueKind wantedKind(const CommandDescriptor& cmd, PlanSelect select) {
   switch (select) {
     case PlanSelect::LatestProfile: return IrValueKind::Profile;
     case PlanSelect::LatestWire:    return IrValueKind::Wire;
+    // Reached only for a GENERIC signature (Any / Body / Face) -- the six surface
+    // commands all declare EntityKind::Surface and are answered above, before
+    // this switch. It is here anyway, for the same reason LatestWire is: the
+    // fallback that "answers SOLID for every value the enum can name but the
+    // ternary cannot" is precisely the shape that hid the last two gaps, and an
+    // arm that is currently unreachable costs nothing while a silent SOLID costs
+    // a destructive edit bound to the wrong body.
+    case PlanSelect::LatestSurface: return IrValueKind::Surface;
     case PlanSelect::LatestSolid:
     case PlanSelect::Keep:
     case PlanSelect::None:          break;

@@ -133,6 +133,114 @@ int main() {
        fake->seen.path == "/v1/chat/completions", fake->seen.path);
   }
 
+  // ── THE SELECTION FIELDS, which were being SILENTLY DROPPED ──────────────
+  // THIS BLOCK IS THE FALSIFIER. Against the code before this change every
+  // check in it FAILS, because parseReply read neither "select" nor
+  // "selectCount" -- `grep -c selectCount archie/src/RemotePlanner.cpp` was 0 --
+  // so every step the sidecar produced reached applyPlan as the default
+  // PlanSelect::Keep. applyPlan's whole selection branch is
+  // `if (step.select != PlanSelect::Keep)`, so it never ran: the step dispatched
+  // against whatever the user had picked in the viewport, on a document the plan
+  // had just changed. Not a refusal, not a crash -- the wrong body, quietly.
+  //
+  // Which is why unlocking a value kind at the bridge is not the unlock. This is.
+  {
+    auto fake = std::make_shared<FakeTransport>();
+    fake->reply = okBody(
+        "{\"ok\":true,\"plan\":{\"steps\":["
+        "{\"commandId\":\"part.extract_faces\",\"irOp\":\"FACES\",\"select\":\"LatestSolid\","
+        "\"selectCount\":1,\"args\":[{\"name\":\"selector\",\"text\":\"ALL\"}]},"
+        "{\"commandId\":\"part.thicken\",\"irOp\":\"THICKEN\",\"select\":\"LatestSurface\","
+        "\"selectCount\":1,\"args\":[{\"name\":\"wall\",\"number\":2}]}]}}");
+    forge::archie::RemotePlanner p(fake, {});
+    const forge::ui::PlanResponse r = p.plan(makeRequest());
+    ck("a reply carrying select/selectCount is accepted", r.ok, r.error);
+    ck("  ...the first step's select survives the wire",
+       r.plan.steps.size() == 2 && r.plan.steps[0].select == forge::ui::PlanSelect::LatestSolid,
+       r.plan.steps.empty() ? "no steps"
+                            : forge::ui::planSelectName(r.plan.steps[0].select));
+    ck("  ...and its count, so an open-ended signature is not silently minimised",
+       r.plan.steps.size() == 2 && r.plan.steps[0].selectCount == 1);
+    // The reason this whole task exists: a SHEET named by a plan.
+    ck("  ...and LatestSurface parses, so the surface lane reaches applyPlan",
+       r.plan.steps.size() == 2 && r.plan.steps[1].select == forge::ui::PlanSelect::LatestSurface,
+       r.plan.steps.size() < 2 ? "no second step"
+                               : forge::ui::planSelectName(r.plan.steps[1].select));
+  }
+  {
+    // A step that says nothing keeps today's answer EXACTLY. This is the
+    // behaviour-preservation check for the three kinds that already worked: a
+    // reply with no `select` field must still arrive as Keep, so nothing that
+    // was passing before this change can be changed by it.
+    auto fake = std::make_shared<FakeTransport>();
+    fake->reply = okBody("{\"ok\":true,\"plan\":{\"steps\":[{\"commandId\":\"part.box\","
+                         "\"irOp\":\"BOX\",\"args\":[{\"name\":\"dx\",\"number\":40}]}]}}");
+    forge::archie::RemotePlanner p(fake, {});
+    const forge::ui::PlanResponse r = p.plan(makeRequest());
+    ck("a step with no select field is still Keep, unchanged",
+       r.ok && r.plan.steps.size() == 1 &&
+           r.plan.steps[0].select == forge::ui::PlanSelect::Keep &&
+           r.plan.steps[0].selectCount == 0, r.error);
+  }
+  {
+    // AN UNKNOWN SPELLING IS A REFUSAL, NOT A FALLBACK. Coercing it to Keep is
+    // the defect above wearing a default's clothes: a newer sidecar naming a
+    // kind this build does not have would run every such step against the live
+    // viewport selection instead of saying so.
+    auto fake = std::make_shared<FakeTransport>();
+    fake->reply = okBody("{\"ok\":true,\"plan\":{\"steps\":[{\"commandId\":\"part.box\","
+                         "\"irOp\":\"BOX\",\"select\":\"LatestDatum\"}]}}");
+    forge::archie::RemotePlanner p(fake, {});
+    const forge::ui::PlanResponse r = p.plan(makeRequest());
+    ck("a select spelling this build does not know is refused, never coerced to Keep",
+       !r.ok && r.error.find("LatestDatum") != std::string::npos, r.error);
+  }
+  {
+    auto fake = std::make_shared<FakeTransport>();
+    fake->reply = okBody("{\"ok\":true,\"plan\":{\"steps\":[{\"commandId\":\"part.box\","
+                         "\"irOp\":\"BOX\",\"selectCount\":\"two\"}]}}");
+    forge::archie::RemotePlanner p(fake, {});
+    const forge::ui::PlanResponse r = p.plan(makeRequest());
+    ck("a selectCount that is not a count is refused", !r.ok && !r.error.empty(), r.error);
+  }
+  {
+    // THE FLAG ARGUMENT, also dropped. ir_bridge.arg_json emits
+    // {"name":..,"flag":true} for a Bool parameter and the old `else` turned it
+    // into a Text arg holding "" -- a declared-Bool parameter arriving as an
+    // empty string.
+    auto fake = std::make_shared<FakeTransport>();
+    fake->reply = okBody("{\"ok\":true,\"plan\":{\"steps\":[{\"commandId\":\"part.loft\","
+                         "\"irOp\":\"LOFT\",\"args\":[{\"name\":\"ruled\",\"flag\":true}]}]}}");
+    forge::archie::RemotePlanner p(fake, {});
+    const forge::ui::PlanResponse r = p.plan(makeRequest());
+    ck("a flag argument arrives as a flag, not as empty text",
+       r.ok && r.plan.steps.size() == 1 && r.plan.steps[0].args.size() == 1 &&
+           r.plan.steps[0].args[0].type == forge::ui::ParamType::Flag &&
+           r.plan.steps[0].args[0].flag, r.error);
+  }
+  {
+    // THE PROTOCOL HAS ONE OWNER, and this is what keeps it that way: every
+    // value the enum holds must round-trip through its wire spelling. A value
+    // appended to PlanSelect without a planSelectName arm fails here rather
+    // than degrading to Keep in the field.
+    std::size_t roundTripped = 0;
+    for (const forge::ui::PlanSelect v :
+         {forge::ui::PlanSelect::Keep, forge::ui::PlanSelect::None,
+          forge::ui::PlanSelect::LatestProfile, forge::ui::PlanSelect::LatestSolid,
+          forge::ui::PlanSelect::LatestWire, forge::ui::PlanSelect::LatestSurface}) {
+      forge::ui::PlanSelect back = forge::ui::PlanSelect::Keep;
+      if (forge::ui::planSelectFromName(forge::ui::planSelectName(v), back) && back == v) {
+        ++roundTripped;
+      }
+    }
+    ck("every PlanSelect round-trips through its wire spelling", roundTripped == 6,
+       std::to_string(roundTripped) + " of 6");
+    forge::ui::PlanSelect ignored = forge::ui::PlanSelect::LatestSolid;
+    ck("  ...and an unknown spelling leaves the caller's value untouched",
+       !forge::ui::planSelectFromName("nonsense", ignored) &&
+           ignored == forge::ui::PlanSelect::LatestSolid);
+  }
+
   // ── every failure names itself ────────────────────────────────────────────
   struct Case { TransportStatus st; const char* what; };
   for (const Case& c : {Case{TransportStatus::ConnectFailed, "sidecar not listening"},

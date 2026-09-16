@@ -162,7 +162,15 @@ int main(int argc, char** argv) {
   // The corpus must not be able to shrink to nothing and report a pass: an empty
   // sweep is not a green sweep. Pinned EXACTLY so adding a tree is a deliberate,
   // reviewed act.
-  CHECK_EQ_INT(corpus.size(), 9u);
+  //
+  // 9 -> 10, 2026-09-16, and this line is why the pin is written this way: adding
+  // `sheet_thicken` failed HERE first, before it could quietly become one more
+  // green row. The tenth tree is the only path in the corpus that CONSUMES a
+  // SURFACE value (BOX -> FACES -> THICKEN); SOLID -> SURFACE was already
+  // reachable from a plan and SURFACE -> SOLID was not, because PlanSelect could
+  // not name a sheet. Delete PlanSelect::LatestSurface and this tree's CoPilot arm
+  // reports `unreachable (no PlanSelect names that kind)` instead of agreeing.
+  CHECK_EQ_INT(corpus.size(), 10u);
 
   std::size_t agreed = 0;
   for (const forge::difftest::Tree& t : corpus) {

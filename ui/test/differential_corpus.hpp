@@ -355,6 +355,73 @@ inline const std::vector<Tree>& trees() {
        "%3 = FUSE(%1, %2)\n"
        "%4 = SPHERE(10)\n"
        "%5 = COMMON(%3, %4)\n"},
+
+      // -- 9. the SURFACE kind: a sheet made, then CONSUMED ------------------
+      // THE FOURTH VALUE KIND, and the corpus had no path through it in the
+      // direction that matters. SOLID -> SURFACE (FACES) was reachable from a
+      // plan already; SURFACE -> SOLID (THICKEN / CAP) was not, because
+      // PlanSelect could not name a sheet -- so `planSelectFor` answered false
+      // and the CoPilot arm reported NoPlanSelectForKind. A format that can make
+      // a value it can never consume is an unfinished format, and a gate that
+      // only ever makes one cannot tell you so.
+      //
+      // THIS TREE IS THE FALSIFIER FOR PlanSelect::LatestSurface: delete that
+      // enum value and the CoPilot arm here goes unreachable, which the gate
+      // reports rather than passing over.
+      //
+      // THICKEN, not CAP, because THICKEN's signature is exactly(Surface, 1) and
+      // CAP's is too -- but THICKEN is the op D-030's 193-part deletion bucket
+      // turned back on, and its kernel handler is real
+      // (forge::part::thickenSurface, FeatureTreeCompiler.cpp opThicken) rather
+      // than a stand-in. SURFEXTEND is deliberately absent from this corpus: its
+      // handler is `forge::scaleUniform(surf, 1.0 + dist * 0.01, 0,0,0)` -- a
+      // millimetre distance read as a percentage scale about the world origin --
+      // so a tree exercising it would be gating a wrong answer as a right one.
+      {"sheet_thicken",
+       "a plate's faces extracted to a sheet and thickened back to a wall -- the "
+       "only path that CONSUMES a SURFACE value",
+       {},
+       {
+           {"part.primitive_box", EntityKind::None, {}, {{"dx", 60}, {"dy", 40}, {"dz", 4}},
+            {}, {}},
+           {"part.extract_faces", EntityKind::Face, {"body_1"},
+            {}, {{"selector", "plane:largest"}}, {}},
+           {"part.thicken", EntityKind::Surface, {"surface_2"}, {{"wall", 2}}, {}, {}},
+       },
+       "%1 = BOX(60, 40, 4)\n"
+       "%2 = FACES(%1, \"plane:largest\")\n"
+       "%3 = THICKEN(%2, 2)\n"},
+      // THE SELECTOR IS `plane:largest` AND NOT `all`, WHICH IS A MEASURED FACT
+      // ABOUT THE KERNEL, not a preference. This tree was first written with the
+      // selector part.extract_faces itself DEFAULTS to ("all",
+      // ui/src/PartCommands.cpp:2579) and it passed tier 1 green -- tier 1 is
+      // kernel-free, so nothing in it can know what a selector means. Run through
+      // the real verifier the same three statements give:
+      //
+      //   forge_verify <<< {"id":"sheet_thicken","ir":"%1 = BOX(60, 40, 4)\n
+      //                     %2 = FACES(%1, \"all\")\n%3 = THICKEN(%2, 2)\n"}
+      //   -> ok:false  "op %3 (line 3): THICKEN: %2 is an EMPTY sheet (0 faces)
+      //      -- nothing to offset; selector `all` matched nothing: unknown
+      //      selector kind in `all`; expected one of bore|hole|boss|shaft|fillet|
+      //      blend, or plane:largest / plane:max-area / face:<n> / radial|blade|
+      //      lug|spoke, or an axis like +Z"
+      //
+      // So the corpus would have carried a tree that is green in the fast job and
+      // red in the slow one (differential_solid_gate, behind an OCCT build).
+      // `plane:largest` measures ok:true, volume 4800 = 60 x 40 x 2, genus 0 --
+      // the largest planar face offset to a 2 mm wall, which is what the tree says
+      // it is. `plane:max-area` and `+Z` also build; `face:0` does not.
+      //
+      // TWO THINGS FALL OUT OF THAT AND ARE NOT THIS TREE'S TO FIX:
+      //   * part.extract_faces DEFAULTS to a selector the kernel matches nothing
+      //     with, so a user pressing Extract Faces and changing nothing gets an
+      //     empty sheet. It is tolerated rather than refused ON PURPOSE (the
+      //     command's own comment: "a selector matching NOTHING returns an empty
+      //     SURFACE and records the miss; it does not abort the tree"), which is
+      //     defensible for a mis-typed selector and much less so for the default.
+      //   * A single flat face also avoids the convex 3-plate corner case that
+      //     THICKEN is known to lose when OCCT is dropped -- so this tree measures
+      //     the SELECTION lane it was added for, and not that.
   };
   return corpus;
 }
@@ -590,6 +657,14 @@ inline bool planSelectFor(forge::ui::EntityKind kind, forge::ui::PlanSelect& out
       return true;
     case EntityKind::Wire:
       out = PlanSelect::LatestWire;
+      return true;
+    // The FOURTH value kind, and it reached the `default` below until
+    // PlanSelect::LatestSurface existed -- so corpus tree `sheet_thicken`
+    // reported NoPlanSelectForKind and the six sheet commands were undrivable
+    // from any plan however it was written, while FACES / SKIN / UNFOLD could
+    // already MAKE a sheet from one.
+    case EntityKind::Surface:
+      out = PlanSelect::LatestSurface;
       return true;
     default:
       // Vertex, SketchCurve, Feature, Component, Datum. No IR-emitting command

@@ -1,5 +1,7 @@
 #include "forge/archie/RemotePlanner.hpp"
 
+#include <cstddef>
+#include <string>
 #include <utility>
 
 #include "forge/retrieval/Json.hpp"
@@ -98,6 +100,46 @@ bool parseReply(const std::string& body, Plan& out, std::string& error) {
     if (step.commandId.empty()) {
       error = "sidecar returned a step with no commandId"; return false;
     }
+    // ── WHAT THE STEP WILL HAVE PICKED, and it was being DROPPED ────────────
+    // MEASURED, 2026-09-16: `grep -c selectCount archie/src/RemotePlanner.cpp`
+    // answered 0, and no other writer sets PlanStep::select on a remote reply
+    // (`grep -n "\.select *=" forge-desktop/src/ForgeFrame.cpp` -> no hits). So
+    // EVERY step the sidecar produced arrived here with the default
+    // PlanSelect::Keep, and applyPlan's entire selection branch
+    // (`if (step.select != PlanSelect::Keep)`) was skipped for all of them: an
+    // Archie-planned step ran against whatever the user happened to have picked
+    // in the viewport, whatever the plan said.
+    //
+    // That is the worst shape a defect of this kind can take. It is not a
+    // refusal and not a crash -- the command dispatches, the document changes,
+    // and the body it changed is the one under the mouse. The sidecar has been
+    // computing `select` and `selectCount` correctly and shipping them in every
+    // reply the whole time (ir_bridge.to_plan writes both on every step); this
+    // end simply never read the fields.
+    //
+    // A SPELLING THIS END DOES NOT KNOW IS A REFUSAL, never a fallback. Coercing
+    // an unknown `select` to Keep is exactly the behaviour above, reintroduced
+    // as a default -- and the next value appended to PlanSelect would land in it
+    // silently. `selectCount` absent means 0, which PlanStep already documents as
+    // "the signature's own minimum"; a field that is present but not a number is
+    // a malformed reply and is reported as one.
+    if (s.has("select")) {
+      const Value& sel = s.at("select");
+      if (!sel.isString() || !forge::ui::planSelectFromName(sel.str(), step.select)) {
+        error = "sidecar step names a selection target this build does not know: " +
+                (sel.isString() ? sel.str() : std::string("(not a string)"));
+        return false;
+      }
+    }
+    if (s.has("selectCount")) {
+      const Value& n = s.at("selectCount");
+      if (!n.isNumber() || n.number(-1.0) < 0.0) {
+        error = "sidecar step carries a selectCount that is not a count";
+        return false;
+      }
+      step.selectCount = static_cast<std::size_t>(n.number(0.0));
+    }
+
     const Value& args = s.at("args");
     if (args.isArray()) {
       for (const Value& arg : args.items()) {
@@ -106,9 +148,19 @@ bool parseReply(const std::string& body, Plan& out, std::string& error) {
         const Value& num = arg.at("number");
         if (num.isNumber()) {
           step.args.push_back(PlanArg::num(name, num.number(0.0)));
-        } else {
-          step.args.push_back(PlanArg::str(name, arg.stringField("text", "")));
+          continue;
         }
+        // THE FLAG BRANCH, which was also missing. `arg_json()` in ir_bridge
+        // emits {"name":..,"flag":true} for a Bool parameter, and without this
+        // the `else` below turned it into a Text arg holding "" -- a
+        // WrongParameterType refusal at the gate at best, and at worst a
+        // declared-Text parameter silently receiving an empty string.
+        const Value& flag = arg.at("flag");
+        if (flag.kind() == forge::retrieval::json::Kind::Bool) {
+          step.args.push_back(PlanArg::on(name, flag.boolean(false)));
+          continue;
+        }
+        step.args.push_back(PlanArg::str(name, arg.stringField("text", "")));
       }
     }
     out.steps.push_back(std::move(step));
