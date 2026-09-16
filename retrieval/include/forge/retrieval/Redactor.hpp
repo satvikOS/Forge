@@ -146,8 +146,87 @@ private:
   RedactionPolicy policy_;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NUMERALS WRITTEN IN WORDS, AND IN SCRIPTS THAT ARE NOT ASCII
+//
+// The numeric grammar above is DIGIT-ONLY. Measured at 02de2e15 on the real
+// preview->search path, 30 of 42 spellings of a REGISTERED secret dimension
+// reached the wire buffer with status Ok: every English number word
+// ("thickness forty seven point six two five mm"), every ordinal, every
+// word/digit mix, spelled fractions, other Latin-script languages, and every
+// non-ASCII decimal digit (fullwidth, Arabic-Indic, Devanagari). Two classes:
+//
+//   A. NUMBER WORDS. The per-token classifier in redact() splits on whitespace
+//      and decides one token at a time, so a six-token run can never be seen by
+//      any rule living inside that loop. The fix is a SPAN PRODUCER that runs
+//      before the longest-match sort, not another token rule.
+//   B. NON-ASCII DIGITS. normalizeForMatch() keeps only isAsciiAlnum bytes, so
+//      every other code point is DELETED before the value scan ever sees it.
+//      The fix is a fold that runs UPSTREAM of normalization.
+//
+// MATCHING POLICY FOR WORDS — stated, because it differs from the digit stance.
+// Default-deny is free on digits (no ordinary engineering question is made of
+// bare numbers) and RUINOUS on words: measured, a blanket deny over the modelled
+// numeral words destroys 42 of 42 ordinary queries ("one-piece housing",
+// "six degrees of freedom", "nine to five duty cycle"). A numeral-word run is
+// therefore stripped on either of two grounds, NOT on sight:
+//   LAYER A — VALUE MATCH. The run composes to a value registered in
+//             PrivateLexicon::secret_dimensions. Unconditional, context-free,
+//             and re-checked independently in verifyNoResidue().
+//   LAYER B — DIMENSIONAL CONTEXT. The run is immediately preceded by a
+//             dimension noun or immediately followed by a unit word, and is not
+//             one of a closed list of public numeric idioms. Heuristic
+//             defence-in-depth for a secret nobody registered.
+// Layer B's idiom exemptions never apply to Layer A: an exemption can weaken the
+// heuristic layer, never the registered one.
+//
+// Non-ASCII DIGITS keep the digit stance — default-deny — because they cost
+// nothing on the control set and are indistinguishable from an evasion attempt.
+//
+// RESIDUAL RISK, in one sentence: a secret dimension that is NOT registered and
+// is spelled in a numeral word this generated lexicon does not model (a language
+// outside en/de/fr, or a novel spelling) is stripped only if it lands in a
+// dimensional context, so it can still reach the wire.
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Exposed for testing and for the request serializer.
 namespace detail {
+// ASCII fold used ONLY by the numeral reader. Unicode decimal digits become
+// their ASCII digit, fullwidth forms become their ASCII counterpart, and vulgar
+// fractions expand to "n/d". Everything else is passed through byte for byte.
+//
+// THE SENTINEL IS LOAD-BEARING. A folded byte can come from a multi-byte code
+// point and one code point can fold to several bytes, so `raw_offset` carries
+// the RAW byte index each folded byte came from PLUS a terminal entry equal to
+// raw.size(). A span's raw end is raw_offset[span.end] read DIRECTLY — never
+// raw_offset[span.end - 1] + 1, which lands inside a UTF-8 sequence.
+//
+// This is deliberately NOT normalizeForMatch/normalizeWithMap. Those two are a
+// strict 1:1 bijection on kept bytes and are the registered-term key; collapsing
+// "forty seven" to "47" inside them would displace every registered-term offset
+// they produce and make redaction delete the wrong bytes.
+struct Folded {
+  std::string text;
+  std::vector<std::size_t> raw_offset;   // text.size() + 1 entries
+  std::vector<unsigned char> synthetic;  // 1 when the byte came from a non-ASCII code point
+};
+Folded foldForMatch(const std::string& raw);
+
+// One maximal run of adjacent numeral tokens, in FOLDED byte offsets. Offsets
+// MUST be carried back through Folded::raw_offset before they touch any span
+// vector that indexes the raw string; folded-space and raw-space offsets are
+// both std::size_t and the compiler cannot tell them apart.
+struct NumeralRun {
+  std::size_t begin = 0;
+  std::size_t end = 0;
+  std::vector<double> values;   // every reading the run admits
+  bool has_word = false;        // at least one token was a spelled numeral
+  bool has_nonascii = false;    // at least one byte came from a folded code point
+  bool dimension_context = false;
+  bool public_idiom = false;    // exempt from LAYER B only
+};
+std::vector<NumeralRun> readNumerals(const Folded& folded);
+
 // Lowercase, drop every non-alphanumeric byte. "ACME-4471 B" -> "acme4471b".
 std::string normalizeForMatch(const std::string& s);
 // Undo every encoding this codebase can emit (percent-encoding including '+'

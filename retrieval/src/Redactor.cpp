@@ -7,9 +7,14 @@
 #include <cstdint>
 #include <set>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace forge::retrieval {
+namespace generated {
+#include "forge/retrieval/generated/NumeralLexicon.inc"
+}  // namespace generated
+
 namespace {
 
 using StrSet = std::unordered_set<std::string>;
@@ -491,6 +496,353 @@ std::size_t findRegisteredTerm(const std::string& norm, const std::vector<std::s
   return std::string::npos;
 }
 
+// ── NUMERALS IN WORDS AND IN OTHER SCRIPTS ──────────────────────────────────
+// See the long note in Redactor.hpp for the policy. Everything below is either
+// a closed generated table or a reader over it.
+
+const std::unordered_map<std::string, generated::NumeralWordEntry>& numeralWords() {
+  static const auto* kMap = [] {
+    auto* m = new std::unordered_map<std::string, generated::NumeralWordEntry>();
+    for (const auto& e : generated::kNumeralWords) m->emplace(e.word, e);
+    return m;
+  }();
+  return *kMap;
+}
+
+// code point -> the ASCII text it folds to.
+const std::unordered_map<unsigned int, std::string>& codePointFolds() {
+  static const auto* kMap = [] {
+    auto* m = new std::unordered_map<unsigned int, std::string>();
+    for (const auto& e : generated::kDigitFolds) m->emplace(e.cp, e.ascii);
+    for (const auto& e : generated::kPunctFolds) m->emplace(e.cp, e.ascii);
+    for (const auto& e : generated::kFractionFolds) m->emplace(e.cp, e.ascii);
+    return m;
+  }();
+  return *kMap;
+}
+
+// LAYER B, left half: a noun that means "this next thing is a measurement".
+const StrSet& dimensionNouns() {
+  static const StrSet kNouns = {
+      "thickness", "width", "height", "depth", "length", "span", "bore", "diameter", "dia",
+      "radius", "gap", "clearance", "pitch", "offset", "spacing", "stroke", "travel", "rib",
+      "web", "wall", "boss", "chamfer", "fillet", "hole", "slot", "groove", "counterbore",
+      "countersink", "backlash", "runout", "flatness", "roughness", "allowance", "interference",
+      "preload", "torque", "load", "force", "pressure", "stress", "strain", "mass", "speed",
+      "feed", "temperature", "hardness", "voltage", "current", "power", "flow", "volume",
+      "area", "weight", "dicke", "breite", "laenge", "epaisseur", "largeur", "longueur"};
+  return kNouns;
+}
+
+// LAYER B, right half: a unit word that means "the thing before me was a value".
+// This is unitWords() MINUS the members that are ordinary English words or bare
+// single letters ("in", "a", "n", "s", "h", "c", "m", ...), because those turn
+// "one in ten" and "a two-stage map" into over-redaction, PLUS the spelled-out
+// unit names a dictated query produces. Every omission here is a false-positive
+// decision; the census row it costs is still caught by LAYER A.
+//
+// "bar" IS EXCLUDED, and it was excluded by MEASUREMENT, not by taste: with the
+// pressure unit "bar" in this set, the control query "four-bar linkage
+// synthesis" went to the wire as "linkage synthesis" — the run "four" was
+// stripped and the word-boundary widening then swallowed "-bar" with it. That is
+// precisely the silent product failure this arm exists to catch. A pressure
+// written "forty seven bar" is consequently reached only by LAYER A.
+const StrSet& numeralContextUnits() {
+  static const StrSet kUnits = {
+      "mm", "cm", "km", "um", "nm", "micron", "microns", "inch", "inches", "ft", "feet", "foot",
+      "mil", "mils", "thou", "deg", "degree", "degrees", "rad", "radian", "radians",
+      "millimetre", "millimetres", "millimeter", "millimeters", "centimetre", "centimetres",
+      "centimeter", "centimeters", "metre", "metres", "meter", "meters", "micrometre",
+      "micrometres", "micrometer", "micrometers", "kg", "mg", "lb", "lbs", "oz", "gram", "grams",
+      "kilogram", "kilograms", "pound", "pounds", "kn", "lbf", "ftlb", "newton", "newtons",
+      "kilonewton", "kilonewtons", "mpa", "gpa", "kpa", "psi", "ksi", "pascal", "pascals",
+      "megapascal", "megapascals", "atm", "mm2", "mm3", "cm2", "cm3", "hz", "khz", "rpm",
+      "kw", "volt", "volts", "amp", "amps", "ampere", "amperes", "joule", "joules", "watt",
+      "watts"};
+  return kUnits;
+}
+
+// PUBLIC NUMERIC IDIOMS — closed list, LAYER B ONLY.
+// A fixed engineering phrase in which a number word sits next to a unit word
+// without expressing a dimension. "six degrees of freedom" is the measured
+// collision: without this exemption the only cost of LAYER B on the 42-query
+// control set is that one row, rendered as "of freedom kinematics".
+// Membership is the test, exactly as for isPublicDesignation(). These exemptions
+// are deliberately powerless against LAYER A: an idiom can stop a GUESS, never a
+// registered secret.
+const StrSet& publicNumeralIdioms() {
+  static const StrSet kIdioms = {"degrees of freedom", "degree of freedom",
+                                 "degrees of rotational freedom"};
+  return kIdioms;
+}
+
+// Decode one UTF-8 sequence at `i`. Returns the code point and advances `len`.
+// An invalid byte decodes as itself in one byte, so the fold never desynchronizes.
+unsigned int decodeUtf8(const std::string& s, std::size_t i, std::size_t& len) {
+  const unsigned char c0 = static_cast<unsigned char>(s[i]);
+  auto cont = [&](std::size_t k) {
+    return i + k < s.size() && (static_cast<unsigned char>(s[i + k]) & 0xC0) == 0x80;
+  };
+  auto bits = [&](std::size_t k) { return static_cast<unsigned int>(s[i + k]) & 0x3Fu; };
+  if (c0 < 0x80) { len = 1; return c0; }
+  if ((c0 & 0xE0) == 0xC0 && cont(1)) { len = 2; return ((c0 & 0x1Fu) << 6) | bits(1); }
+  if ((c0 & 0xF0) == 0xE0 && cont(1) && cont(2)) {
+    len = 3;
+    return ((c0 & 0x0Fu) << 12) | (bits(1) << 6) | bits(2);
+  }
+  if ((c0 & 0xF8) == 0xF0 && cont(1) && cont(2) && cont(3)) {
+    len = 4;
+    return ((c0 & 0x07u) << 18) | (bits(1) << 12) | (bits(2) << 6) | bits(3);
+  }
+  len = 1;
+  return c0;
+}
+
+// One token of the folded text, in FOLDED byte offsets.
+struct FoldTok {
+  std::size_t begin = 0;
+  std::size_t end = 0;
+  std::string text;      // lowercased
+  bool is_word = false;  // [a-z]+
+  bool is_num = false;   // starts with a digit
+};
+
+std::vector<FoldTok> tokenizeFolded(const std::string& t) {
+  std::vector<FoldTok> out;
+  std::size_t i = 0;
+  while (i < t.size()) {
+    const unsigned char c = static_cast<unsigned char>(t[i]);
+    if (isAsciiAlpha(c)) {
+      const std::size_t b = i;
+      while (i < t.size() && isAsciiAlpha(static_cast<unsigned char>(t[i]))) ++i;
+      out.push_back(FoldTok{b, i, toLower(t.substr(b, i - b)), true, false});
+      continue;
+    }
+    if (isAsciiDigit(c)) {
+      const std::size_t b = i;
+      // A numeric token absorbs the separators that live INSIDE a number, but a
+      // trailing separator belongs to the sentence, not to the value.
+      while (i < t.size() && (isAsciiDigit(static_cast<unsigned char>(t[i])) || t[i] == '.' ||
+                              t[i] == ',' || t[i] == '/')) {
+        ++i;
+      }
+      std::size_t e = i;
+      while (e > b && !isAsciiDigit(static_cast<unsigned char>(t[e - 1]))) --e;
+      out.push_back(FoldTok{b, e, t.substr(b, e - b), false, true});
+      i = e > b ? i : b + 1;
+      continue;
+    }
+    ++i;
+  }
+  return out;
+}
+
+// The material between two tokens. Whitespace and hyphens keep a run together
+// ("forty-seven", "twenty-three point five"); anything else ends it.
+bool adjacencyHolds(const std::string& t, std::size_t from, std::size_t to) {
+  for (std::size_t k = from; k < to; ++k) {
+    const unsigned char c = static_cast<unsigned char>(t[k]);
+    if (std::isspace(c) || c == '-') continue;
+    return false;
+  }
+  return true;
+}
+
+// A numeral token: either a spelled numeral from the closed lexicon, or digits.
+struct RunTok {
+  unsigned char roles = 0;
+  double value = 0.0;
+  std::string digits;  // digit characters, for the concatenated reading
+  bool is_num = false;
+};
+
+// Parse a digit token. "1/2" is a fraction, "47,625" a thousands-separated
+// integer, "47.625" a decimal.
+bool parseNumericToken(const std::string& s, double& value_out, std::string& digits_out) {
+  const std::size_t slash = s.find('/');
+  auto plain = [](const std::string& x, double& v) {
+    std::string cleaned;
+    for (const char c : x) {
+      if (c != ',') cleaned.push_back(c);
+    }
+    if (cleaned.empty()) return false;
+    return std::from_chars(cleaned.data(), cleaned.data() + cleaned.size(), v).ec == std::errc();
+  };
+  if (slash != std::string::npos) {
+    double num = 0.0, den = 0.0;
+    if (!plain(s.substr(0, slash), num)) return false;
+    if (!plain(s.substr(slash + 1), den)) return false;
+    if (den == 0.0) return false;
+    value_out = num / den;
+    digits_out.clear();
+    return true;
+  }
+  if (!plain(s, value_out)) return false;
+  digits_out.clear();
+  for (const char c : s) {
+    if (isAsciiDigit(static_cast<unsigned char>(c))) digits_out.push_back(c);
+  }
+  return true;
+}
+
+// Decompose an unknown all-alphabetic token into >= 2 lexicon numeral words that
+// cover it completely: "fortyseven" -> forty seven, "siebenundvierzig" ->
+// sieben und vierzig, "sechsundneunzig" -> sechs und neunzig. FULL coverage is
+// required, which is what keeps ordinary words ("tension", "onerous") out.
+bool splitRunOnNumeral(const std::string& word, std::vector<RunTok>& out) {
+  const std::size_t n = word.size();
+  if (n < 6) return false;
+  const auto& lex = numeralWords();
+  // dp[k] = length of the lexicon word ending at k, 0 when unreachable.
+  std::vector<std::size_t> dp(n + 1, 0);
+  std::vector<bool> reach(n + 1, false);
+  reach[0] = true;
+  for (std::size_t k = 1; k <= n; ++k) {
+    for (std::size_t len = 2; len <= k; ++len) {
+      if (!reach[k - len]) continue;
+      auto it = lex.find(word.substr(k - len, len));
+      if (it == lex.end()) continue;
+      reach[k] = true;
+      dp[k] = len;
+      break;
+    }
+  }
+  if (!reach[n]) return false;
+  std::vector<std::string> parts;
+  for (std::size_t k = n; k > 0; k -= dp[k]) parts.push_back(word.substr(k - dp[k], dp[k]));
+  if (parts.size() < 2) return false;
+  std::reverse(parts.begin(), parts.end());
+  for (const std::string& p : parts) {
+    const auto& e = lex.find(p)->second;
+    RunTok rt;
+    rt.roles = e.roles;
+    rt.value = e.value;
+    if (e.value >= 0.0 && e.value <= 9.0 && (e.roles & generated::kRoleUnit)) {
+      rt.digits = std::to_string(static_cast<int>(e.value));
+    }
+    out.push_back(rt);
+  }
+  return true;
+}
+
+// Standard cardinal composition. Returns false when a token has no cardinal
+// reading (a bare denominator, a decimal-point word).
+bool composeCardinal(const std::vector<RunTok>& toks, std::size_t from, std::size_t to,
+                     double& out) {
+  double total = 0.0, cur = 0.0;
+  bool any = false;
+  for (std::size_t i = from; i < to; ++i) {
+    const RunTok& t = toks[i];
+    if (t.roles & generated::kRoleAnd) continue;
+    if (t.is_num) { cur += t.value; any = true; continue; }
+    if (t.roles & generated::kRoleScale) {
+      if (t.value <= 100.0) cur = (cur == 0.0 ? 1.0 : cur) * t.value;
+      else { total += (cur == 0.0 ? 1.0 : cur) * t.value; cur = 0.0; }
+      any = true;
+      continue;
+    }
+    if (t.roles & (generated::kRoleUnit | generated::kRoleTeen | generated::kRoleTens)) {
+      cur += t.value;
+      any = true;
+      continue;
+    }
+    return false;
+  }
+  if (!any) return false;
+  out = total + cur;
+  return true;
+}
+
+// The concatenated reading: "four seven point six two five" is 47.625 because a
+// dictated number is a sequence of DIGITS, not a sum.
+bool concatDigits(const std::vector<RunTok>& toks, std::size_t from, std::size_t to,
+                  std::string& out) {
+  out.clear();
+  for (std::size_t i = from; i < to; ++i) {
+    const RunTok& t = toks[i];
+    if (t.roles & generated::kRoleAnd) continue;
+    if (t.digits.empty()) return false;
+    out += t.digits;
+  }
+  return !out.empty();
+}
+
+void addCandidate(std::vector<double>& values, double v) {
+  if (!std::isfinite(v)) return;
+  for (const double existing : values) {
+    if (std::fabs(existing - v) <= 1e-12 * std::max(1.0, std::fabs(v))) return;
+  }
+  values.push_back(v);
+}
+
+// Every value a run of numeral tokens admits.
+std::vector<double> readingsOf(const std::vector<RunTok>& toks) {
+  std::vector<double> values;
+  const std::size_t n = toks.size();
+  if (n == 0) return values;
+
+  std::size_t point = n;
+  for (std::size_t i = 0; i < n; ++i) {
+    if ((toks[i].roles & generated::kRolePoint) != 0 && !toks[i].is_num) { point = i; break; }
+  }
+
+  auto withDecimal = [&](double whole, std::size_t dec_from) {
+    std::string dec;
+    if (!concatDigits(toks, dec_from, n, dec)) return;
+    const std::string joined = std::to_string(static_cast<long long>(whole)) + "." + dec;
+    double v = 0.0;
+    if (std::from_chars(joined.data(), joined.data() + joined.size(), v).ec == std::errc()) {
+      addCandidate(values, whole < 0 ? -v : v);
+    }
+  };
+
+  if (point < n) {
+    double whole = 0.0;
+    if (point == 0) {
+      withDecimal(0.0, point + 1);
+    } else {
+      if (composeCardinal(toks, 0, point, whole)) withDecimal(whole, point + 1);
+      std::string ints;
+      if (concatDigits(toks, 0, point, ints)) {
+        double w = 0.0;
+        if (std::from_chars(ints.data(), ints.data() + ints.size(), w).ec == std::errc()) {
+          withDecimal(w, point + 1);
+        }
+      }
+    }
+    return values;
+  }
+
+  // Trailing fraction: "three quarters", "forty seven and five eighths", "half".
+  if ((toks[n - 1].roles & generated::kRoleFracDen) != 0 && toks[n - 1].value != 0.0) {
+    const double den = toks[n - 1].value;
+    std::size_t split = n - 1;  // index of the "and", or n-1 when there is none
+    for (std::size_t i = 0; i + 1 < n; ++i) {
+      if (toks[i].roles & generated::kRoleAnd) split = i;
+    }
+    const bool has_and = split < n - 1;
+    double num = 1.0;
+    const std::size_t num_from = has_and ? split + 1 : 0;
+    if (num_from < n - 1 && !composeCardinal(toks, num_from, n - 1, num)) num = 1.0;
+    double whole = 0.0;
+    if (has_and) {
+      if (!composeCardinal(toks, 0, split, whole)) whole = 0.0;
+    }
+    addCandidate(values, whole + num / den);
+  }
+
+  double card = 0.0;
+  if (composeCardinal(toks, 0, n, card)) addCandidate(values, card);
+  std::string ints;
+  if (concatDigits(toks, 0, n, ints)) {
+    double v = 0.0;
+    if (std::from_chars(ints.data(), ints.data() + ints.size(), v).ec == std::errc()) {
+      addCandidate(values, v);
+    }
+  }
+  return values;
+}
+
 }  // namespace
 
 const char* redactionKindName(RedactionKind kind) {
@@ -530,6 +882,163 @@ std::string normalizeForMatch(const std::string& s) {
     if (isAsciiAlnum(c)) out.push_back(static_cast<char>(std::tolower(c)));
   }
   return out;
+}
+
+Folded foldForMatch(const std::string& raw) {
+  Folded f;
+  f.text.reserve(raw.size());
+  f.raw_offset.reserve(raw.size() + 1);
+  f.synthetic.reserve(raw.size() + 1);
+  const auto& folds = codePointFolds();
+  std::size_t i = 0;
+  while (i < raw.size()) {
+    const unsigned char c = static_cast<unsigned char>(raw[i]);
+    if (c < 0x80) {
+      f.text.push_back(raw[i]);
+      f.raw_offset.push_back(i);
+      f.synthetic.push_back(0);
+      ++i;
+      continue;
+    }
+    std::size_t len = 1;
+    const unsigned int cp = decodeUtf8(raw, i, len);
+    const auto it = folds.find(cp);
+    if (it != folds.end()) {
+      // One code point can fold to SEVERAL bytes ("½" -> "1/2"). Every byte of
+      // the expansion points at the FIRST raw byte of the code point it came
+      // from, and the sentinel below is what makes a span's end readable.
+      for (const char b : it->second) {
+        f.text.push_back(b);
+        f.raw_offset.push_back(i);
+        f.synthetic.push_back(1);
+      }
+    } else {
+      // DENY-BY-DEFAULT ON UNMODELLED CODE POINTS, expressed structurally: an
+      // unmodelled code point becomes a byte that is neither alphanumeric nor a
+      // space, so it BREAKS a numeral run instead of silently vanishing from it.
+      // (normalizeForMatch deletes it, which is how "47<middot>625" became two
+      // unrelated values rather than one.)
+      f.text.push_back('\x01');
+      f.raw_offset.push_back(i);
+      f.synthetic.push_back(1);
+    }
+    i += len;
+  }
+  // THE SENTINEL. A span's raw end is raw_offset[span.end], read directly.
+  f.raw_offset.push_back(raw.size());
+  f.synthetic.push_back(0);
+  return f;
+}
+
+std::vector<NumeralRun> readNumerals(const Folded& folded) {
+  std::vector<NumeralRun> runs;
+  const std::string& t = folded.text;
+  const std::vector<FoldTok> toks = tokenizeFolded(t);
+  const auto& lex = numeralWords();
+
+  // Which tokens are numeral tokens, and what they contribute.
+  struct Classified {
+    bool numeral = false;
+    bool connector_only = false;  // "and"/"point": may sit inside a run, never bound it
+    std::vector<RunTok> parts;    // usually one; a run-on compound expands to several
+  };
+  std::vector<Classified> cls(toks.size());
+  for (std::size_t i = 0; i < toks.size(); ++i) {
+    const FoldTok& tk = toks[i];
+    if (tk.is_num) {
+      RunTok rt;
+      rt.is_num = true;
+      if (!parseNumericToken(tk.text, rt.value, rt.digits)) continue;
+      cls[i].numeral = true;
+      cls[i].parts.push_back(rt);
+      continue;
+    }
+    if (!tk.is_word) continue;
+    const auto it = lex.find(tk.text);
+    if (it != lex.end()) {
+      RunTok rt;
+      rt.roles = it->second.roles;
+      rt.value = it->second.value;
+      if (it->second.value >= 0.0 && it->second.value <= 9.0 &&
+          (it->second.roles & generated::kRoleUnit) != 0) {
+        rt.digits = std::to_string(static_cast<int>(it->second.value));
+      }
+      cls[i].numeral = true;
+      cls[i].connector_only =
+          (rt.roles & (generated::kRoleAnd | generated::kRolePoint)) != 0 &&
+          (rt.roles & (generated::kRoleUnit | generated::kRoleTeen | generated::kRoleTens |
+                       generated::kRoleScale | generated::kRoleFracDen)) == 0;
+      cls[i].parts.push_back(rt);
+      continue;
+    }
+    std::vector<RunTok> split;
+    if (splitRunOnNumeral(tk.text, split)) {
+      cls[i].numeral = true;
+      cls[i].parts = std::move(split);
+    }
+  }
+
+  // Maximal adjacent runs. A run may not begin or end on a bare connector.
+  std::size_t i = 0;
+  while (i < toks.size()) {
+    if (!cls[i].numeral || cls[i].connector_only) { ++i; continue; }
+    std::size_t j = i + 1;
+    while (j < toks.size() && adjacencyHolds(t, toks[j - 1].end, toks[j].begin)) {
+      if (cls[j].numeral) { ++j; continue; }
+      // THE ONE FILLER WORD. "eight and a half mm" is a dimension and the "a"
+      // is part of the number, but "a" is far too common to put in the lexicon.
+      // It is absorbed ONLY between an and-connector and a fraction word, so it
+      // can neither begin nor end a run and cannot appear without both
+      // neighbours. Without this, "eight and a half" composes to nothing and
+      // only LAYER B's context rule stands between 8.5 and the wire.
+      if (toks[j].is_word && (toks[j].text == "a" || toks[j].text == "an") &&
+          !cls[j - 1].parts.empty() && (cls[j - 1].parts.back().roles & generated::kRoleAnd) &&
+          j + 1 < toks.size() && cls[j + 1].numeral &&
+          adjacencyHolds(t, toks[j].end, toks[j + 1].begin) && !cls[j + 1].parts.empty() &&
+          (cls[j + 1].parts.back().roles & generated::kRoleFracDen)) {
+        j += 2;
+        continue;
+      }
+      break;
+    }
+    while (j > i + 1 && cls[j - 1].connector_only) --j;
+
+    NumeralRun run;
+    run.begin = toks[i].begin;
+    run.end = toks[j - 1].end;
+    std::vector<RunTok> flat;
+    for (std::size_t k = i; k < j; ++k) {
+      run.has_word |= !toks[k].is_num;
+      for (const RunTok& p : cls[k].parts) flat.push_back(p);
+    }
+    for (std::size_t b = run.begin; b < run.end && b < folded.synthetic.size(); ++b) {
+      if (folded.synthetic[b]) { run.has_nonascii = true; break; }
+    }
+    run.values = readingsOf(flat);
+
+    // ── LAYER B context, decided on the folded text ──────────────────────────
+    std::string prev_word;
+    if (i > 0 && toks[i - 1].is_word && adjacencyHolds(t, toks[i - 1].end, toks[i].begin)) {
+      prev_word = toks[i - 1].text;
+    }
+    std::string next1, following;
+    if (j < toks.size() && adjacencyHolds(t, toks[j - 1].end, toks[j].begin) && toks[j].is_word) {
+      next1 = toks[j].text;
+      for (std::size_t k = j; k < toks.size() && k < j + 3; ++k) {
+        if (!toks[k].is_word) break;
+        if (!following.empty()) following.push_back(' ');
+        following += toks[k].text;
+        if (publicNumeralIdioms().count(following)) run.public_idiom = true;
+      }
+    }
+    run.dimension_context =
+        (!prev_word.empty() && dimensionNouns().count(prev_word) > 0) ||
+        (!next1.empty() && numeralContextUnits().count(next1) > 0);
+
+    runs.push_back(std::move(run));
+    i = j;
+  }
+  return runs;
 }
 
 std::string decodeForResidueScan(const std::string& s) {
@@ -685,6 +1194,54 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   markCategory(lexicon_.supplier_names, RedactionKind::RegisteredSupplier);
   markCategory(lexicon_.part_numbers, RedactionKind::PartNumber);
   markCategory(lexicon_.secret_terms, RedactionKind::RegisteredSecret);
+
+  // ── phase 1b: numerals written in WORDS, and digits written in other scripts
+  // A SPAN PRODUCER, not another token rule. The classifier below tokenizes on
+  // whitespace and decides one token at a time with one token of lookback, so
+  // "forty seven point six two five" — six tokens — can never be seen whole by
+  // anything inside it. Pushing raw-offset spans into the SAME vector the
+  // registered-phrase pass uses means the sort, the overlap drop, the
+  // word-boundary widening and the phase-2 slicing all keep working unchanged.
+  if (policy_.strip_unallowlisted_numbers) {
+    const detail::Folded folded = detail::foldForMatch(raw);
+    for (const detail::NumeralRun& run : detail::readNumerals(folded)) {
+      // A run of PURE ASCII DIGITS with no numeral word is left alone: the
+      // token classifier already strips it, and re-deciding it here would
+      // change behaviour that 193 existing assertions pin down.
+      if (!run.has_word && !run.has_nonascii) continue;
+
+      // LAYER A — value match against the registered secrets. Context-free and
+      // idiom-proof: a registered secret is removed however it is spelled.
+      bool strip = false;
+      for (const double secret : lexicon_.secret_dimensions) {
+        const double scale = std::max(1.0, std::fabs(secret));
+        for (const double v : run.values) {
+          if (std::fabs(v - secret) <= 1e-9 * scale) { strip = true; break; }
+        }
+        if (strip) break;
+      }
+      // Non-ASCII digits keep the DIGIT stance — default-deny. They cost nothing
+      // on the false-positive control set and a fullwidth 4 in an engineering
+      // question is not an innocent spelling.
+      if (!strip && run.has_nonascii && !run.values.empty()) strip = true;
+      // LAYER B — dimensional context, for a secret nobody registered.
+      if (!strip && run.has_word && run.dimension_context && !run.public_idiom &&
+          !run.values.empty()) {
+        strip = true;
+      }
+      if (!strip) continue;
+
+      // FOLDED-SPACE OFFSETS MUST BE CARRIED BACK. Both are std::size_t and the
+      // compiler cannot tell them apart; the end is read from the SENTINEL map
+      // directly, never as raw_offset[end - 1] + 1, which for a multi-byte code
+      // point lands inside the UTF-8 sequence.
+      const std::size_t raw_begin = folded.raw_offset[run.begin];
+      const std::size_t raw_end = folded.raw_offset[run.end];
+      if (raw_end > raw_begin && raw_end <= raw.size()) {
+        spans.push_back(Span{raw_begin, raw_end, RedactionKind::DimensionLiteral});
+      }
+    }
+  }
 
   // Longest-match-wins, then drop overlaps.
   std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) {
@@ -879,17 +1436,42 @@ bool Redactor::verifyNoResidue(const std::string& wire, std::vector<std::string>
   scanCategory(lexicon_.secret_terms, "proprietary-term");
 
   // (b) registered secret dimensions, by parsed VALUE — encoding-proof.
+  //
+  // THE SCAN RUNS OVER THE FOLD, NOT THE RAW BYTES. decodeForResidueScan undoes
+  // the encoders; the fold undoes the SCRIPT. Without it every non-ASCII decimal
+  // digit is invisible here for the same reason it is invisible to the
+  // classifier — normalizeForMatch keeps only isAsciiAlnum — and a fullwidth or
+  // Arabic-Indic spelling of a registered secret passes both layers.
+  //
+  // THE WORD LAYER IS OFFSET-FREE ON PURPOSE. A residue report names the lexicon
+  // index and nothing else, so this half needs no map back to the original bytes
+  // and cannot inherit a mapping bug from redact(). That independence is the
+  // whole point of the post-condition (see the header): a bug in the classifier
+  // must not be able to silently leak a registered secret.
   if (!lexicon_.secret_dimensions.empty()) {
-    const auto literals = scanNumericLiterals(decoded);
+    const detail::Folded folded = detail::foldForMatch(decoded);
+    const auto literals = scanNumericLiterals(folded.text);
+    std::vector<double> spelled;
+    for (const detail::NumeralRun& run : detail::readNumerals(folded)) {
+      if (!run.has_word) continue;  // digit forms are already covered by `literals`
+      for (const double v : run.values) spelled.push_back(v);
+    }
     for (std::size_t i = 0; i < lexicon_.secret_dimensions.size(); ++i) {
       const double secret = lexicon_.secret_dimensions[i];
+      const double scale = std::max(1.0, std::fabs(secret));
+      bool hit = false;
       for (const auto& [text, value] : literals) {
-        const double scale = std::max(1.0, std::fabs(secret));
-        if (std::fabs(value - secret) <= 1e-9 * scale) {
-          residue.push_back("secret-dimension lexicon entry #" + std::to_string(i) +
-                            " survives in the outgoing buffer");
-          break;
+        (void)text;
+        if (std::fabs(value - secret) <= 1e-9 * scale) { hit = true; break; }
+      }
+      if (!hit) {
+        for (const double value : spelled) {
+          if (std::fabs(value - secret) <= 1e-9 * scale) { hit = true; break; }
         }
+      }
+      if (hit) {
+        residue.push_back("secret-dimension lexicon entry #" + std::to_string(i) +
+                          " survives in the outgoing buffer");
       }
     }
   }
@@ -918,8 +1500,21 @@ bool Redactor::verifyQueryFullyRedacted(const std::string& query_text,
     std::size_t lead = 0;
     const std::string token = trimPunctuation(decoded.substr(start, pos - start), lead);
     if (token.empty()) continue;
+    // FOLD BEFORE ASKING "does this carry a digit?". The default-deny numeric
+    // rule was ASCII-only, so ４７．６２５ carried no digit by this test and the
+    // strict scan waved it through. The fold costs nothing on ordinary text —
+    // ASCII passes through byte for byte — and it is free on the false-positive
+    // control set, none of whose 42 queries contains a digit in any script.
+    // NOTE the deliberate asymmetry with number WORDS: they are NOT denied here.
+    // Measured, extending this blanket deny to the modelled numeral words turns
+    // every one of those 42 ordinary queries into REDACTION_REFUSED, because the
+    // allow-set at the bottom of this function licenses a token only by EXACT
+    // membership and there is no way to bless "one" for "one-piece housing"
+    // without blessing it everywhere. Words are handled by value match and
+    // dimensional context in redact(), and by the offset-free value scan in
+    // verifyNoResidue() above.
     bool hasDigit = false;
-    for (const unsigned char c : token) {
+    for (const unsigned char c : detail::foldForMatch(token).text) {
       if (isAsciiDigit(c)) { hasDigit = true; break; }
     }
     if (!hasDigit) continue;
