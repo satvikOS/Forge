@@ -214,6 +214,37 @@ struct ShellClosure {
     // `boundedVolume` there. See healBRep's leg B.
     bool resolvesMaterial = false;
 
+    // ---- IS THE SUM A UNION? (T-137 round 4) --------------------------------
+    // Both volumes above are a SUM over the connected components of the edge
+    // pairing, each component counted IN FULL. That sum is the material actually
+    // present only when the components do not overlap each other. When they do, it
+    // OVER-COUNTS, and every subsequent comparison against a healed output reads a
+    // loss that never happened.
+    //
+    // MEASURED (T-137 round 4, fp4 [A]): two coincident 10x10x10 boxes — the most
+    // ordinary real defect there is, a solid emitted twice by an exporter with float
+    // noise — are two components bounding 1000 each. The sum says 2000. The heal
+    // correctly welds the duplicate and returns a watertight 12-face body of 1000 —
+    // the very repair heal_test [6b] blesses one level down — and the material leg
+    // saw a 50% loss and refused, at tol 0.25 / 0.1 / 0.05 / 0.01 / 1e-6, on an
+    // offset 2500x BELOW the tolerance. The EXACTLY coincident twin reads
+    // NonManifold, never arms, and is accepted with byte-identical output.
+    //
+    // `components` is how many connected components the pairing found.
+    // `boundedVolumeIsDisjointSum` / `resolvedVolumeIsDisjointSum` are TRUE when
+    // those components' axis-aligned bounding boxes are PAIRWISE DISJOINT at the
+    // tolerance the corresponding volume was welded at — the cheap SUFFICIENT
+    // condition for "the sum is the union". Trivially true for a single component,
+    // which is every ordinary single-solid input.
+    //
+    // WHEN THE BOXES OVERLAP the solids still may not, and we do not know which:
+    // the flag is then FALSE and healBRep's leg B STANDS DOWN (leg A, which is
+    // unconditional, still runs). Refusing on a number that cannot be justified is
+    // precisely the defect rounds 1, 2 and 3 each shipped.
+    std::size_t components = 0;
+    bool boundedVolumeIsDisjointSum  = false;
+    bool resolvedVolumeIsDisjointSum = false;
+
     // THE ARMING CONDITION: a closed 2-cycle (either winding verdict) that bounds a
     // NON-ZERO volume. A degenerate closed body with no material in it — the
     // zero-thickness sandwich, a pair of coincident opposite squares — has nothing
@@ -389,6 +420,14 @@ struct HealReport {
     // (ShellClosure::resolvesMaterial). FALSE means opt.tol dissolves the entire
     // part, and the material leg then falls back to boundedVolumeBefore.
     bool inputResolvesVolume = false;
+    // (9) How many connected components the input pairing found, and whether each
+    // "before" volume above is a DISJOINT SUM — i.e. whether the sum over those
+    // components is the material actually present, or an over-count of overlapping
+    // copies (ShellClosure::components / ...IsDisjointSum). The material leg arms
+    // only on the flag matching the `before` it uses; the closure leg does not care.
+    std::size_t inputComponents = 0;
+    bool boundedVolumeIsDisjointSum  = false;
+    bool resolvedVolumeIsDisjointSum = false;
     // (9) TRUE when the destruction post-condition REFUSED this heal (ok==false
     // and `reason` is the named refusal). Diagnostics above stay populated on the
     // refusal path so the caller can log exactly what the heal was about to do.

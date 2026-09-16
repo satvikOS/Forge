@@ -568,7 +568,62 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double pairTol, double v
         return std::fabs(total);
     };
 
+    // --- 6. IS THE SUM A UNION? (T-137 round 4) -------------------------------
+    // `measure` sums each component's bounded volume, each counted IN FULL. That is
+    // the material present only when the components do not overlap; when they do it
+    // OVER-COUNTS. Two coincident 10x10x10 boxes are two components of 1000 each and
+    // the sum says 2000, where the weld the heal performs — correctly — returns 1000.
+    //
+    // AABB-disjointness is the cheap SUFFICIENT condition: if two components' boxes
+    // do not overlap, neither does their material, and their volumes add. It is not
+    // NECESSARY — two interlocked rings have overlapping boxes and disjoint material
+    // — and the converse is not decidable without a boolean engine, which this file
+    // does not have and will not grow. So when the boxes overlap the answer is "not
+    // proven", the flag is false, and the caller must stand its material leg down.
+    // Refusing on an unproven number is the shape of all three previous defects.
+    //
+    // `slack` is the tolerance the rings were welded at: an overlap thinner than the
+    // coincidence tolerance is not material the heal can represent, so it does not
+    // count as an overlap (and, as a side effect, exact face-to-face contact and
+    // floating-point residue at a shared plane both read as disjoint, as they must).
+    auto componentsDisjoint = [&](const WeldedRings& rs, double slack) -> bool {
+        if (comps.size() < 2) return true;          // nothing to over-count
+        // O(k^2) over components. A soup with more disconnected closed pieces than
+        // this is not a part; refuse to claim disjointness rather than spend the time.
+        if (comps.size() > 4096) return false;
+        struct CBox { double lo[3], hi[3]; bool any; };
+        std::vector<CBox> bx(comps.size(), CBox{{0,0,0},{0,0,0},false});
+        for (std::size_t ci = 0; ci < comps.size(); ++ci) {
+            CBox& b = bx[ci];
+            for (std::size_t f : comps[ci]) {
+                if (f >= rs.size()) continue;
+                for (const auto& ring : rs[f]) {
+                    if (ring.size() < 3) continue;  // collapsed by the weld: bounds nothing
+                    for (const Point3& p : ring) {
+                        const double v[3] = {p.x, p.y, p.z};
+                        if (!b.any) { for (int i = 0; i < 3; ++i) { b.lo[i] = b.hi[i] = v[i]; } b.any = true; continue; }
+                        for (int i = 0; i < 3; ++i) { b.lo[i] = std::min(b.lo[i], v[i]); b.hi[i] = std::max(b.hi[i], v[i]); }
+                    }
+                }
+            }
+        }
+        for (std::size_t i = 0; i + 1 < bx.size(); ++i) {
+            if (!bx[i].any) continue;               // contributes nothing to the sum
+            for (std::size_t j = i + 1; j < bx.size(); ++j) {
+                if (!bx[j].any) continue;
+                bool separated = false;
+                for (int k = 0; k < 3 && !separated; ++k)
+                    separated = (bx[i].hi[k] - bx[j].lo[k] <= slack) ||
+                                (bx[j].hi[k] - bx[i].lo[k] <= slack);
+                if (!separated) return false;
+            }
+        }
+        return true;
+    };
+
+    sc.components = comps.size();
     sc.boundedVolume = measure(frs, &sc.volumeScale);
+    sc.boundedVolumeIsDisjointSum = componentsDisjoint(frs, tol);
     sc.boundsMaterial = (sc.volumeScale > 0.0) && (sc.boundedVolume > 1e-9 * sc.volumeScale);
 
     // The SECOND measurement: the same 2-cycle, its corners welded at the heal's own
@@ -578,8 +633,11 @@ ShellClosure closureAt(const std::vector<Face*>& faces, double pairTol, double v
     // resolved volume for a body the guard does not arm on.
     if (volTol == pairTol || !sc.boundsMaterial) {
         sc.resolvedVolume = sc.boundedVolume;
+        sc.resolvedVolumeIsDisjointSum = sc.boundedVolumeIsDisjointSum;
     } else {
-        sc.resolvedVolume = measure(weldedRings(faces, volTol), nullptr);
+        const WeldedRings vrs = weldedRings(faces, volTol);
+        sc.resolvedVolume = measure(vrs, nullptr);
+        sc.resolvedVolumeIsDisjointSum = componentsDisjoint(vrs, volTol);
     }
     // Judged against the SAME scale as boundedVolume — the scale of the body that is
     // really there — so that a collapsed ring set's floating-point residue reads as
@@ -736,6 +794,9 @@ HealReport healBRep(TopologyBuilder& tb,
     rep.inputBoundsVolume    = inputClosure.boundsMaterial;
     rep.resolvedVolumeBefore = inputClosure.resolvedVolume;
     rep.inputResolvesVolume  = inputClosure.resolvesMaterial;
+    rep.inputComponents      = inputClosure.components;
+    rep.boundedVolumeIsDisjointSum  = inputClosure.boundedVolumeIsDisjointSum;
+    rep.resolvedVolumeIsDisjointSum = inputClosure.resolvedVolumeIsDisjointSum;
 
     // --- 0. extract every face to vertex-position rings ------------------------
     std::vector<FaceRings> frs;
@@ -1487,10 +1548,38 @@ HealReport healBRep(TopologyBuilder& tb,
         // 0.0005-thick sheet at all, and pass (3) reports what it dropped in
         // `sliverFacesRemoved`. The guard keeps its opinion where it is meaningful —
         // the body opt.tol CAN see must survive, and leg A's closure is unconditional.
+        //
+        // AND IT MUST BE A UNION, NOT A SUM (T-137 round 4). Both "before" numbers
+        // are a sum over the connected components of the input pairing, each counted
+        // in full. `volumeAfter` is the volume of what the heal returned, which is a
+        // UNION: the weld is entitled to merge overlapping copies into one body. The
+        // two are only comparable when the components do not overlap, and the leg
+        // arms only when that is PROVED — pairwise-disjoint component AABBs, which is
+        // trivially true of the single-component input every ordinary part is.
+        //
+        // MEASURED (fp4 [A]): two coincident 10x10x10 boxes, the commonest real
+        // defect there is — a solid emitted twice by an exporter with float noise —
+        // bound 1000, sum to 2000, weld correctly to a watertight 12-face 1000, and
+        // were refused on a 50% "loss" at every tolerance from 0.25 down to 1e-6,
+        // decided by an offset 2500x below the tolerance: the exactly-coincident twin
+        // reads NonManifold, never arms, and is accepted with byte-identical output.
+        // Same body, same output, opposite verdicts — rounds 1, 2 and 3's signature
+        // for the third time, and the last place it can hide.
+        //
+        // WHAT STANDING DOWN COSTS, stated plainly: on an input whose components
+        // overlap — duplicated solids, nested shells, a body inside a cavity, a
+        // hollow enclosure's void — the material leg has no opinion at all, so the
+        // QUIET destruction (closed, valid, zero residuals, material gone) is
+        // unguarded THERE. It is fully guarded on the single-component bodies that
+        // are the overwhelming majority, and LEG A — which is unconditional and has
+        // survived three rounds of attack — still runs on every input. The
+        // alternative is refusing correct repairs, which is what shipped three times.
+        const bool   beforeIsUnion = rep.inputResolvesVolume ? rep.resolvedVolumeIsDisjointSum
+                                                             : rep.boundedVolumeIsDisjointSum;
         const double before = rep.inputResolvesVolume ? rep.resolvedVolumeBefore
                                                       : rep.boundedVolumeBefore;
         const double after  = std::fabs(rep.volumeAfter);
-        if (opt.maxMaterialLossFrac > 0.0 && before > 0.0 &&
+        if (beforeIsUnion && opt.maxMaterialLossFrac > 0.0 && before > 0.0 &&
             (before - after) > opt.maxMaterialLossFrac * before) {
             rep.ok = false;
             rep.destructionRefused = true;

@@ -1216,6 +1216,265 @@ static void runToleranceConsistencyArm() {
     }
 }
 
+// ===========================================================================
+// SUM vs UNION — the fixture that would have caught round 3's defect.
+// ===========================================================================
+// Round 3 shipped, for the third consecutive time, the signature every adversary
+// has found: A BODY IS REFUSED WHILE A NEAR-IDENTICAL BODY PRODUCING BYTE-IDENTICAL
+// OUTPUT IS ACCEPTED, AND THE DIFFERENCE BETWEEN THEM IS FAR BELOW THE TOLERANCE.
+// Two coincident 10x10x10 boxes offset by (d,d,d) — a solid emitted twice by an
+// exporter with float noise, the most ordinary real defect there is — were refused
+// at tol 0.25 / 0.1 / 0.05 / 0.01 / 1e-6 on an offset 2500x below the tolerance,
+// while the EXACTLY coincident twin (d = 0) reads NonManifold, never arms, and is
+// accepted with byte-identical output. Base 02de2e15 returns ok=1 on both.
+//
+// THE ROOT CAUSE, and it is one sentence: LEG B COMPARES A SUM AGAINST A UNION.
+// Both "before" volumes are a sum over the connected components of the edge
+// pairing, each component counted IN FULL, so two coincident boxes bounding 1000
+// report 2000. `volumeAfter` is a UNION — the weld is entitled, and correct, to
+// merge the duplicate into one watertight 12-face body of 1000, which is the very
+// repair heal_test [6b] blesses one level down. Leg B read a 50% loss. EVERY input
+// with overlapping, duplicated or nested components has an over-counted before.
+//
+// THE PRECONDITION: leg B arms only when the components are PROVABLY pairwise
+// disjoint, because only then is the sum the material actually present. Pairwise
+// disjoint AABBs is the cheap sufficient condition; when they overlap the solids
+// still may not, and we cannot tell without a boolean engine, so the leg stands
+// down — and LEG A, which is unconditional, still runs. That last clause is the
+// point, and check (4) below is its fixture.
+static void runUnionSumArm() {
+    std::printf("-- SUM vs UNION: leg B's \"before\" must be material, not a count of copies --\n");
+
+    auto dupBoxes = [](TopologyBuilder& tb, double d) {
+        std::vector<Face*> f = triBoxAt(tb, 0, 0, 0, 10, 10, 10);
+        std::vector<Face*> g = triBoxAt(tb, d, d, d, 10, 10, 10);
+        f.insert(f.end(), g.begin(), g.end());
+        return f;
+    };
+
+    {   // (1) THE PAIR, over the whole grid. Every (tol, d) row must land the SAME
+        //     verdict as its EXACTLY-coincident twin at the same tolerance, and that
+        //     verdict must be ACCEPT — which is what base 02de2e15 returns for both.
+        //     `d` runs from 2500x below the coarsest tolerance up to the tolerance
+        //     itself, so no row can be dismissed as "outside the modelling tolerance".
+        int twinAccepted = 0, agreed = 0, accepted = 0, sameRepair = 0, weldRows = 0;
+        for (double tol : {1e-6, 0.01, 0.05, 0.1, 0.25}) {
+            TopologyBuilder tw;
+            HealOptions opt; opt.tol = tol;
+            const HealReport twin = healBRep(tw, dupBoxes(tw, 0.0), opt);
+            if (twin.ok && !twin.destructionRefused) ++twinAccepted;
+            for (double d : {1e-4, 1e-3, 1e-2}) {
+                TopologyBuilder tb;
+                const HealReport r = healBRep(tb, dupBoxes(tb, d), opt);
+                if (r.ok == twin.ok && r.destructionRefused == twin.destructionRefused) ++agreed;
+                if (r.ok && !r.destructionRefused) ++accepted;
+                // WHERE opt.tol ACTUALLY WELDS THE DUPLICATE (every d here is at least
+                // 5x below these tolerances) the two are not merely the same verdict,
+                // they are the same repair, down to the face count and the volume.
+                if (tol >= 0.05) {
+                    ++weldRows;
+                    if (r.after.closed == twin.after.closed &&
+                        r.after.faces  == twin.after.faces  &&
+                        r.unfixedFreeEdgeIds.size() == twin.unfixedFreeEdgeIds.size() &&
+                        std::fabs(std::fabs(r.volumeAfter) - std::fabs(twin.volumeAfter))
+                            <= 1e-9 * std::fabs(twin.volumeAfter) &&
+                        r.after.closed && r.after.faces == 12 &&
+                        r.unfixedFreeEdgeIds.empty() &&
+                        std::fabs(std::fabs(r.volumeAfter) - 1000.0) <= 1e-9 * 1000.0)
+                        ++sameRepair;
+                }
+            }
+        }
+        std::printf("    duplicate-box grid (5 tol x 3 offsets): twin accepted %d/5, "
+                    "verdict agrees with twin %d/15, accepted %d/15, same repair %d/%d\n",
+                    twinAccepted, agreed, accepted, sameRepair, weldRows);
+        check(twinAccepted == 5,
+              "pair: the EXACTLY-coincident twin is accepted at all 5 tolerances "
+              "(it reads NonManifold and never arms) — so it is the bar the others must meet");
+        check(agreed == 15,
+              "pair: all 15 near-coincident rows land the SAME VERDICT as their twin "
+              "(was 11/15 refused where the twin was accepted)");
+        check(accepted == 15,
+              "pair: and that verdict is ACCEPT, matching base 02de2e15 on every row");
+        check(sameRepair == 9 && weldRows == 9,
+              "pair: where opt.tol welds the duplicate the output is the SAME REPAIR as "
+              "the twin's — closed, 12 faces, zero free edges, |V| == 1000");
+    }
+
+    {   // (2) AND WHY — the one row in full, stated against the option's OWN DEFAULT
+        //     so that a future "fix" which relaxes maxMaterialLossFrac instead of
+        //     fixing the measurement cannot pass this check.
+        const double frac = HealOptions{}.maxMaterialLossFrac;
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 0.25;
+        const HealReport r = healBRep(tb, dupBoxes(tb, 0.001), opt);
+        TopologyBuilder tw;
+        const HealReport twin = healBRep(tw, dupBoxes(tw, 0.0), opt);
+        const double before = r.resolvedVolumeBefore, after = std::fabs(r.volumeAfter);
+        std::printf("    dup boxes, offset 0.001 at tol=0.25: components=%zu disjointB=%d "
+                    "disjointR=%d armed=%d bounded=%.8g resolved=%.8g -> |V|=%.8g "
+                    "(loss %.4g vs threshold %.4g)  ok=%d refused=%d\n",
+                    r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                    r.resolvedVolumeIsDisjointSum ? 1 : 0, r.inputBoundsVolume ? 1 : 0,
+                    r.boundedVolumeBefore, r.resolvedVolumeBefore, after,
+                    (before > 0.0) ? (before - after) / before : 0.0, frac,
+                    r.ok ? 1 : 0, r.destructionRefused ? 1 : 0);
+        check(r.inputComponents == 2,
+              "why: the input pairs into TWO components — two closed copies of one box");
+        check(!r.boundedVolumeIsDisjointSum && !r.resolvedVolumeIsDisjointSum,
+              "why: whose bounding boxes OVERLAP, so neither before-volume is a "
+              "disjoint sum and neither is the material present");
+        check(std::fabs(r.boundedVolumeBefore - 2000.0) <= 1e-9 * 2000.0 &&
+              std::fabs(r.resolvedVolumeBefore - 2000.0) <= 1e-9 * 2000.0,
+              "why: both read 2000 — the SUM, each copy counted in full");
+        check(std::fabs(after - 1000.0) <= 1e-9 * 1000.0,
+              "why: while the heal returns 1000 — the UNION, which is the CORRECT repair");
+        check(r.after.closed && r.unfixedFreeEdgeIds.empty() && r.after.faces == 12,
+              "why: and it is a clean watertight 12-face body, not a damaged one");
+        check(before > 0.0 && (before - after) > frac * before,
+              "why: so an armed leg B would refuse it on a 50% 'loss' — measured against "
+              "HealOptions' OWN default, so relaxing the threshold cannot pass this check");
+        check(r.inputBoundsVolume,
+              "why: the input DOES bound material, so leg A is armed and did run");
+        check(r.ok && !r.destructionRefused,
+              "why: and the heal is ACCEPTED — the material leg stood down, it did not "
+              "get a softer threshold");
+        check(!twin.inputBoundsVolume && twin.ok,
+              "why: the twin's acceptance comes from never arming at all (NonManifold), "
+              "which is exactly why the two used to disagree");
+        check(twin.after.closed && twin.after.faces == r.after.faces &&
+              std::fabs(std::fabs(twin.volumeAfter) - after) <= 1e-9 * after,
+              "why: on byte-identical output — same closure, same face count, same volume");
+    }
+
+    {   // (3) THE PRECONDITION COSTS AN ORDINARY PART NOTHING. One solid is ONE
+        //     component, so it is trivially a disjoint sum and leg B is unchanged;
+        //     and a genuinely separated multi-body (the whisker, cube at x<=1 and
+        //     whisker at x>=10) is disjoint too, so leg B still refuses it. This is
+        //     the check a mutant that disarms leg B unconditionally dies on.
+        {
+            TopologyBuilder tb;
+            HealOptions opt; opt.tol = 1e-6;
+            const HealReport r = healBRep(tb, triBox(tb, 100.0, 100.0, 0.001), opt);
+            std::printf("    plate 100x100x0.001 at tol=1e-6: components=%zu disjointB=%d "
+                        "disjointR=%d ok=%d refused=%d\n", r.inputComponents,
+                        r.boundedVolumeIsDisjointSum ? 1 : 0,
+                        r.resolvedVolumeIsDisjointSum ? 1 : 0, r.ok ? 1 : 0,
+                        r.destructionRefused ? 1 : 0);
+            check(r.inputComponents == 1,
+                  "single: an ordinary solid is ONE component — nothing to over-count");
+            check(r.boundedVolumeIsDisjointSum && r.resolvedVolumeIsDisjointSum,
+                  "single: so both before-volumes are disjoint sums, trivially");
+            check(!r.ok && r.destructionRefused,
+                  "single: and the T-137 headline is still refused");
+        }
+        {
+            TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+            std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06);
+            f.insert(f.end(), w.begin(), w.end());
+            HealOptions opt; opt.tol = 0.05;
+            const HealReport r = healBRep(tb, f, opt);
+            std::printf("    cube + whisker at tol=0.05: components=%zu disjointB=%d "
+                        "disjointR=%d closed=%d free=%zu V %.6g -> %.6g ok=%d\n",
+                        r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                        r.resolvedVolumeIsDisjointSum ? 1 : 0, r.after.closed ? 1 : 0,
+                        r.unfixedFreeEdgeIds.size(), r.volumeBefore, r.volumeAfter,
+                        r.ok ? 1 : 0);
+            check(r.inputComponents == 2,
+                  "whisker: TWO components — a 1 mm cube and a whisker 9 mm away");
+            check(r.boundedVolumeIsDisjointSum && r.resolvedVolumeIsDisjointSum,
+                  "whisker: separated in x, so the sum IS the material — leg B stays armed");
+            check(r.after.closed && r.unfixedFreeEdgeIds.empty(),
+                  "whisker: the output is closed with zero residuals — leg A is silent");
+            check(!r.ok && r.destructionRefused &&
+                  std::string(r.reason).find("consumed the body") != std::string::npos,
+                  "whisker: and LEG B still refuses the 78% loss — the precondition did "
+                  "NOT disarm the one case only volume can see");
+        }
+    }
+
+    {   // (4) WHEN LEG B STANDS DOWN, LEG A STILL RUNS. This is the whole reason a
+        //     disjointness PRECONDITION is admissible rather than a loss of the guard:
+        //     two 100x100x0.001 plates offset 1e-4 at tol=1e-6 overlap by 0.0009 (900x
+        //     the tolerance), so leg B has no measurement it can justify — and the heal
+        //     drops the walls of both, opens the body, and leg A refuses it anyway.
+        TopologyBuilder tb;
+        std::vector<Face*> f = triBox(tb, 100.0, 100.0, 0.001);
+        std::vector<Face*> g = triBoxAt(tb, 1e-4, 1e-4, 1e-4, 100.0, 100.0, 0.001);
+        f.insert(f.end(), g.begin(), g.end());
+        HealOptions opt; opt.tol = 1e-6;
+        const HealReport r = healBRep(tb, f, opt);
+        std::printf("    two overlapping plates, offset 1e-4 at tol=1e-6: components=%zu "
+                    "disjointB=%d disjointR=%d armed=%d closed=%d free=%zu V %.6g -> %.6g "
+                    "ok=%d reason=\"%.40s\"\n",
+                    r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                    r.resolvedVolumeIsDisjointSum ? 1 : 0, r.inputBoundsVolume ? 1 : 0,
+                    r.after.closed ? 1 : 0, r.unfixedFreeEdgeIds.size(),
+                    r.volumeBefore, r.volumeAfter, r.ok ? 1 : 0, r.reason ? r.reason : "");
+        check(r.inputComponents == 2 && !r.boundedVolumeIsDisjointSum &&
+              !r.resolvedVolumeIsDisjointSum,
+              "legA-survives: the components OVERLAP, so the material leg stands down");
+        check(r.inputBoundsVolume,
+              "legA-survives: but the guard is still ARMED — the precondition gates leg B "
+              "only, never the arming and never leg A");
+        check(!r.after.closed && !r.unfixedFreeEdgeIds.empty(),
+              "legA-survives: and the heal really did open the body");
+        check(!r.ok && r.destructionRefused &&
+              std::string(r.reason).find("opened a closed body") != std::string::npos,
+              "legA-survives: so LEG A refuses it — standing leg B down is not standing "
+              "the guard down");
+    }
+
+    {   // (5) THE OVERLAP IS JUDGED AT opt.tol, LIKE EVERY OTHER DISTANCE IN THIS
+        //     FILE. Two bodies that interfere by LESS THAN the coincidence tolerance
+        //     are not overlapping as far as the heal can tell — the sum over-counts
+        //     by a sliver the heal cannot represent — so they still read as a
+        //     disjoint sum and leg B stays armed. Without this, the commonest real
+        //     assembly defect (a hair of interference between two mating solids)
+        //     would silently switch leg B off, and the switch would be invisible.
+        //
+        //     NOTE WHERE THE BOUNDARY IS, because it is the point: the verdict
+        //     changes between interference 0.01 and 0.06 at opt.tol = 0.05 — AT the
+        //     tolerance, which is where a modelling tolerance is entitled to decide
+        //     things. It does not change on a 0.001 difference 250x below it. That
+        //     is the distinction between a tolerance and the defect this round fixed.
+        int armedDisjoint = 0, refusedBelow = 0, stoodDown = 0;
+        for (double ov : {0.0, 1e-3, 1e-2, 0.06, 0.2}) {
+            TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+            std::vector<Face*> w = triBoxAt(tb, 1.0 - ov, 0.0, 0.0, 1000.0, 0.06, 0.06);
+            f.insert(f.end(), w.begin(), w.end());
+            HealOptions opt; opt.tol = 0.05;
+            const HealReport r = healBRep(tb, f, opt);
+            std::printf("    cube + whisker, interference %-6.4g at tol=0.05: components=%zu "
+                        "disjointB=%d disjointR=%d ok=%d refused=%d  V %.6g -> %.6g\n",
+                        ov, r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                        r.resolvedVolumeIsDisjointSum ? 1 : 0, r.ok ? 1 : 0,
+                        r.destructionRefused ? 1 : 0, r.volumeBefore, r.volumeAfter);
+            if (ov <= 0.05) {
+                if (r.boundedVolumeIsDisjointSum && r.resolvedVolumeIsDisjointSum) ++armedDisjoint;
+                if (!r.ok && r.destructionRefused &&
+                    std::string(r.reason).find("consumed the body") != std::string::npos)
+                    ++refusedBelow;
+            } else {
+                if (!r.boundedVolumeIsDisjointSum && !r.resolvedVolumeIsDisjointSum &&
+                    r.ok && !r.destructionRefused) ++stoodDown;
+            }
+        }
+        check(armedDisjoint == 3,
+              "slack: an interference AT OR BELOW opt.tol still reads as a disjoint sum "
+              "(0, 0.001 and 0.01 against tol 0.05) — the over-count is a sliver the heal "
+              "cannot represent");
+        check(refusedBelow == 3,
+              "slack: so leg B stays armed there and still refuses the destroyed whisker — "
+              "a hair of interference does not silently switch the material leg off");
+        check(stoodDown == 2,
+              "slack: while an interference ABOVE opt.tol (0.06 and 0.2) does stand leg B "
+              "down — the boundary sits AT the tolerance, not 250x below it");
+    }
+}
+
 int main() {
     std::printf("=== heal destruction-refusal gate (T-137) ===\n");
     std::printf("A repair that empties the user's part must REFUSE, not report success.\n\n");
@@ -1226,6 +1485,8 @@ int main() {
     runArmingArm();
     std::printf("\n");
     runToleranceConsistencyArm();
+    std::printf("\n");
+    runUnionSumArm();
     std::printf("\n");
     runReasonLiteralArm();
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
