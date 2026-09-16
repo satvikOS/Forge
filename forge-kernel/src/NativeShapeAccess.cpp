@@ -67,4 +67,40 @@ native::shape::Shape nativeShapeOf(ShapeHandle h) {
 #endif
 }
 
+const native::brep::Solid* nativeSolidOf(ShapeHandle h) {
+#ifdef FORGE_NATIVE_BREP
+  try {
+    const ShapeRegistry& reg = ShapeRegistry::instance();
+    // The kind check is KEPT for the reason nativeShapeOf() states above: not
+    // correctness (getNativeSolid() refuses a wrong-kind entry by throwing, so
+    // the ANSWER is the same either way) but COST. An OCCT-backed handle is the
+    // default kind and the majority of entries today; making every one of those
+    // lookups raise and catch a C++ exception on what is meant to become the
+    // kernel's interchange read would be paying for a branch with a throw.
+    if (reg.kindOf(h) != ShapeKind::NativeSolid) return nullptr;
+    return &reg.getNativeSolid(h);
+  } catch (...) {
+    return nullptr;
+  }
+#else
+  (void)h;
+  return nullptr;
+#endif
+}
+
+const native::mesh::HalfEdgeMesh* nativeMeshOf(ShapeHandle h) {
+#ifdef FORGE_NATIVE_BREP
+  try {
+    const ShapeRegistry& reg = ShapeRegistry::instance();
+    if (reg.kindOf(h) != ShapeKind::NativeMesh) return nullptr;
+    return &reg.getNativeMesh(h);
+  } catch (...) {
+    return nullptr;
+  }
+#else
+  (void)h;
+  return nullptr;
+#endif
+}
+
 }  // namespace forge
