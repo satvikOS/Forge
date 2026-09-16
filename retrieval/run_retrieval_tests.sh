@@ -56,6 +56,13 @@ if ! "$CXX" $FLAGS $INC retrieval/test/retrieval_gate.cpp "${OBJS[@]}" -o "$OUT/
   exit 1
 fi
 echo "[retrieval] linked $OUT/retrieval_gate"
+
+if ! "$CXX" $FLAGS $INC retrieval/test/numeral_redaction_gate.cpp "${OBJS[@]}" \
+     -o "$OUT/numeral_redaction_gate"; then
+  echo "[retrieval] LINK FAILED: numeral_redaction_gate"
+  exit 1
+fi
+echo "[retrieval] linked $OUT/numeral_redaction_gate"
 echo
 
 "$OUT/retrieval_gate" "$ROOT/retrieval/test/fixtures"
@@ -66,6 +73,30 @@ if [ "$rc" -ne 0 ]; then
   exit "$rc"
 fi
 echo "[retrieval] phase 1 (fixtures) PASSED"
+
+# ── phase 1b: numerals that are not ASCII digits, BOTH SIDES ─────────────────
+# A number spelled in words ("forty seven point six two five") and a number
+# spelled in another script ("４７．６２５") were both invisible to the shipped
+# digit-only grammar: measured at 02de2e15, 30 of 42 spellings of a registered
+# secret dimension reached the wire buffer with status=Ok.
+#
+# This gate has TWO arms and needs both. The POSITIVE arm proves the secret no
+# longer leaves in any spelling. The NEGATIVE arm proves 42 ordinary engineering
+# queries that contain number words innocently ("one-piece housing", "six
+# degrees of freedom", "four-bar linkage") still reach the wire with every word
+# intact — because the cheap way to pass the positive arm is to strip every
+# number word on sight, which silently destroys the retrieval result for a reason
+# no user can see. Reporting either arm without the other is a false pass.
+echo
+echo "[retrieval] phase 1b: numeral redaction (word forms + non-ASCII digits), both arms"
+"$OUT/numeral_redaction_gate"
+rc1b=$?
+echo
+if [ "$rc1b" -ne 0 ]; then
+  echo "[retrieval] NUMERAL GATE FAILED (exit $rc1b)"
+  exit "$rc1b"
+fi
+echo "[retrieval] phase 1b (numeral redaction) PASSED"
 
 # ── phase 2: prove the gate is offline, don't just assert it ─────────────────
 # A dyld interposer turns socket()/connect()/getaddrinfo()/gethostbyname() into
@@ -126,6 +157,18 @@ if [ "$(uname -s)" = "Darwin" ]; then
     echo "[retrieval] OFFLINE PHASE FAILED (exit $rc2) — see below"
     cat "$OUT/offline.log"
     exit "$rc2"
+  fi
+  # The numeral gate drives the same send path, so it belongs under the same
+  # proof. A gate that only runs with the network available is a gate that has
+  # never shown the send path is offline.
+  DYLD_INSERT_LIBRARIES="$OUT/net_denied.dylib" \
+    "$OUT/numeral_redaction_gate" > "$OUT/offline_numeral.log" 2>&1
+  rc2b=$?
+  tail -1 "$OUT/offline_numeral.log"
+  if [ "$rc2b" -ne 0 ]; then
+    echo "[retrieval] OFFLINE NUMERAL PHASE FAILED (exit $rc2b) — see below"
+    cat "$OUT/offline_numeral.log"
+    exit "$rc2b"
   fi
   echo "[retrieval] phase 2 (network denied) PASSED"
 else
