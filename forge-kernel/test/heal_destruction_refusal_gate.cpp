@@ -198,6 +198,35 @@ static std::vector<Face*> triLBracket(TopologyBuilder& tb, double span, double a
     return f;
 }
 
+// A LARGE cube with ONE vertical edge chamfered by `w`. The point of this body is
+// the ratio between two quantities: the chamfer facet is L long and w wide, so its
+// aspect is L/w and it is dropped as a sliver — which OPENS the shell — while the
+// material that leaves with it is O(w*L^2) against a body of L^3, i.e. a loss of
+// order w/L. At L=1000, w=0.01 that is 3.3e-06, more than three orders of magnitude
+// under leg B's 1% threshold. It is therefore a body on which LEG A IS THE ONLY
+// DEFENCE, which is the one thing the other five positive fixtures could not show.
+static std::vector<Face*> chamferedCube(TopologyBuilder& tb, double L, double w) {
+    // Footprint pentagon, CCW seen from +Z: A(w,0) B(L,0) C(L,L) D(0,L) E(0,w).
+    const Point3 A{w, 0, 0}, B{L, 0, 0}, C{L, L, 0}, D{0, L, 0}, E{0, w, 0};
+    auto up = [&](const Point3& p) { return Point3{p.x, p.y, L}; };
+    std::vector<Face*> f;
+    // bottom cap (-Z), fanned from C so it is wound CW seen from +Z
+    f.push_back(faceFromRing(tb, {C, D, E}));
+    f.push_back(faceFromRing(tb, {C, E, A}));
+    f.push_back(faceFromRing(tb, {C, A, B}));
+    // top cap (+Z), fanned from C, CCW
+    f.push_back(faceFromRing(tb, {up(C), up(E), up(D)}));
+    f.push_back(faceFromRing(tb, {up(C), up(A), up(E)}));
+    f.push_back(faceFromRing(tb, {up(C), up(B), up(A)}));
+    // five outward walls; the last is the chamfer facet.
+    pushQuadAsTris(tb, f, A, B, up(B), up(A));
+    pushQuadAsTris(tb, f, B, C, up(C), up(B));
+    pushQuadAsTris(tb, f, C, D, up(D), up(C));
+    pushQuadAsTris(tb, f, D, E, up(E), up(D));
+    pushQuadAsTris(tb, f, E, A, up(A), up(E));
+    return f;
+}
+
 // Defined with the ARMING ARM at the bottom; the instrument checks in the negative
 // arm need the open-tube counterexample too.
 static std::vector<Face*> openTube(TopologyBuilder& tb, double L, bool splitOneEdge);
@@ -326,6 +355,64 @@ static void runPositiveArm() {
         check(r.ok && !r.destructionRefused,
               "quiet/control: threshold relaxed past the loss -> NOT refused "
               "(it really is leg B that fires, not leg A)");
+    }
+    // ---- LEG A ALONE — a body that OPENS while losing almost NO material ------
+    // WHY THIS FIXTURE EXISTS, and it is the sharpest gap the round-2 attack found.
+    // On all five bodies above BOTH legs would fire: dropping their walls opens them
+    // AND eats most of their material, so deleting leg A outright still left them
+    // refused — by leg B — and only the "which leg spoke" assertion turned the
+    // mutant red. That is real coverage but it is coverage of a STRING. Nothing
+    // showed that leg A ever changes a VERDICT.
+    //
+    // A 1 m cube with one vertical edge chamfered by 0.01 mm does. The chamfer facet
+    // is 1000 long and 0.01 wide, aspect 1e5, so it and the two cap corner triangles
+    // go as slivers and the shell OPENS with six free edges. The material that left
+    // with them is 3.3e-06 of the body — leg B's threshold is 1e-2, so leg B is
+    // FOUR ORDERS OF MAGNITUDE from firing. MEASURED: bounded 1e9, after 999996666.7.
+    //
+    // And this is not an exotic body. A chamfer or fillet whose width is small
+    // against the part is the single commonest thin feature in mechanical CAD; the
+    // failure mode is "an imported bracket comes back with its chamfer missing and
+    // the shell open", reported as a clean success.
+    {
+        TopologyBuilder tb;
+        const double L = 1000.0, w = 0.01;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, chamferedCube(tb, L, w), opt);
+        const double lossFrac = (r.boundedVolumeBefore - std::fabs(r.volumeAfter))
+                              / r.boundedVolumeBefore;
+        std::printf("    chamfered cube 1000, chamfer 0.01 (LEG A ALONE): armed=%d ok=%d "
+                    "refused=%d closed=%d slivers=%zu free=%zu  bounded %.10g -> %.10g "
+                    "loss=%.3e  reason=\"%s\"\n",
+                    r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0, r.destructionRefused ? 1 : 0,
+                    r.after.closed ? 1 : 0, r.sliverFacesRemoved, r.unfixedFreeEdgeIds.size(),
+                    r.boundedVolumeBefore, r.volumeAfter, lossFrac, r.reason ? r.reason : "");
+        check(r.inputBoundsVolume, "legA-alone: input encloses material (armed)");
+        check(std::fabs(r.boundedVolumeBefore - L * L * L) <= 1e-3 * L * L * L,
+              "legA-alone: the fixture really is a 1 m cube");
+        check(r.sliverFacesRemoved > 0, "legA-alone: the chamfer facet IS dropped as a sliver");
+        check(!r.after.closed, "legA-alone: and the shell is OPENED by the drop");
+        // THE POINT. Leg B's condition is (before - after) > frac * before with
+        // frac defaulting to 0.01. Assert the measured loss is far under it, so
+        // "leg B did not fire" is a computed fact and not a hope.
+        check(lossFrac < 1e-4,
+              "legA-alone: the material loss is BELOW leg B's threshold — leg B CANNOT fire");
+        check(lossFrac < HealOptions{}.maxMaterialLossFrac,
+              "legA-alone: ... stated against the option's own default, not a literal");
+        check(!r.ok && r.destructionRefused, "legA-alone: REFUSED anyway");
+        check(std::string(r.reason).find("opened a closed body") != std::string::npos,
+              "legA-alone: and it is LEG A that says so");
+        // The decisive independence proof, inside the gate rather than only in a
+        // mutant: disable leg B outright (frac = 1.0 makes its test unsatisfiable
+        // for any non-negative loss) and require the refusal to SURVIVE.
+        TopologyBuilder tb2;
+        HealOptions noB; noB.tol = 1e-6; noB.maxMaterialLossFrac = 1.0;
+        HealReport r2 = healBRep(tb2, chamferedCube(tb2, L, w), noB);
+        check(!r2.ok && r2.destructionRefused,
+              "legA-alone: with leg B DISABLED the body is still refused — leg A is "
+              "load-bearing on its own");
+        check(std::string(r2.reason).find("opened a closed body") != std::string::npos,
+              "legA-alone: ... by leg A, named");
     }
     // ---- THE TOTAL-DESTRUCTION BRANCH — every face removed as a sliver --------
     // healBRep has an early exit for "nothing survived the sliver pass" that used
@@ -541,6 +628,55 @@ static void runNegativeArm() {
         // load-bearing again.
         check(r.volumeAfter > 0.0, "neg/inverted-box: pass (6) normalises the shell OUTWARD");
         check(r.facesFlipped == 6, "neg/inverted-box: and it flipped all six faces to do it");
+    }
+    {   // (7b) THE EQUIVALENCE CLAIM ABOVE, EXECUTED. The paragraph in (7) asserts a
+        //      MEASUREMENT — "across all 64 face-winding masks of a box at two origin
+        //      offsets: 0 of 128 armed+closed outputs had a negative volume" — and a
+        //      measurement that lives only in a comment is a measurement nobody will
+        //      ever repeat. It is what makes the gain-sensitive leg-B mutant
+        //      (|before - after| instead of before - after) an EQUIVALENT mutant
+        //      rather than a survivor the gate cannot see, so it is the one claim in
+        //      this file that a reader has to take on trust. Not any more: the sweep
+        //      runs here, and if the orientation pass ever stops normalising outward
+        //      — or a heal ever returns MORE material than the input bounded — this
+        //      goes red and says the fabs() has become load-bearing.
+        int armedClosed = 0, negative = 0, gainedOverThreshold = 0;
+        const double frac = HealOptions{}.maxMaterialLossFrac;
+        for (int origin = 0; origin < 2; ++origin) {
+            for (int mask = 0; mask < 64; ++mask) {
+                TopologyBuilder tb;
+                const double L = 3.0, o = (origin == 0) ? 0.0 : -1.75;
+                const Point3 P[8] = {
+                    {o,o,o}, {o+L,o,o}, {o+L,o+L,o}, {o,o+L,o},
+                    {o,o,o+L}, {o+L,o,o+L}, {o+L,o+L,o+L}, {o,o+L,o+L},
+                };
+                const int rings[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},
+                                         {2,3,7,6},{0,4,7,3},{1,2,6,5}};
+                std::vector<Face*> f;
+                for (int fi = 0; fi < 6; ++fi) {
+                    std::vector<Point3> ring = {P[rings[fi][0]], P[rings[fi][1]],
+                                                P[rings[fi][2]], P[rings[fi][3]]};
+                    if (mask & (1 << fi)) std::reverse(ring.begin(), ring.end());
+                    f.push_back(faceFromRing(tb, ring));
+                }
+                HealOptions opt; opt.tol = 1e-6;
+                HealReport rr = healBRep(tb, f, opt);
+                if (!rr.inputBoundsVolume || !rr.after.closed) continue;
+                ++armedClosed;
+                if (rr.volumeAfter < 0.0) ++negative;
+                if (rr.volumeAfter - rr.boundedVolumeBefore > frac * rr.boundedVolumeBefore)
+                    ++gainedOverThreshold;
+            }
+        }
+        std::printf("    winding sweep: %d of 128 outputs armed+closed; %d negative, "
+                    "%d gained more than %.3g of the bounded volume\n",
+                    armedClosed, negative, gainedOverThreshold, frac);
+        check(armedClosed == 128, "neg/winding-sweep: every one of the 128 heals is armed and closes");
+        check(negative == 0, "neg/winding-sweep: NOT ONE armed+closed output has a negative volume "
+                             "— which is why leg B's fabs() cannot change a verdict");
+        check(gainedOverThreshold == 0, "neg/winding-sweep: and not one GAINS past the threshold "
+                                        "— which is why a gain-sensitive leg B is an EQUIVALENT "
+                                        "mutant here, not an uncovered one");
     }
     {   // (8) BOTH instruments, both ways. A predicate only ever observed saying
         //     "not armed" would be unfalsifiable — and the pair matters here,
@@ -789,6 +925,118 @@ static void runArmingArm() {
     }
 }
 
+// ===========================================================================
+// THE REASON LITERALS — pinned WHOLE, not by substring.
+//
+// WHY A SEPARATE ARM. Every assertion above matches a short fragment of a reason
+// ("opened a closed body", "consumed the body", "emptied the body"). That is the
+// right check for "which leg fired" and the wrong check for "what does the user
+// read", because the rest of each sentence — the part that names the part class,
+// says what the healer refused to return, and is the only explanation a caller
+// ever sees — can be reworded to anything at all and every one of those
+// assertions still passes.
+//
+// AND TWO OF THE FIVE LITERALS WERE PINNED BY NOTHING AT ALL:
+//   * "all faces removed as slivers" — the UNARMED half of the total-destruction
+//     branch. It sits two lines below the refusal, shares its `if`, and is what
+//     that branch reverts to. The mutant that reverts the refusal (measured:
+//     kills 3 checks via the armed path) would be INVISIBLE on any input that
+//     does not bound material, and nothing asserted this string existed.
+//   * "ok" — the success literal. The gate asserted only `reason != "ok"` on the
+//     refusals, so nothing at all required a SUCCESS to say "ok". Renaming it
+//     would have left 137/137 green while NativeShapeHealBridge.hpp's contract —
+//     an empty or unrecognised reason is "an exact pass" — quietly changed
+//     meaning for every caller.
+//
+// These are compared with ==, deliberately. A reason is a user-facing string in a
+// repository whose standing order is that no developer prose reaches the app; if
+// one is reworded that should be a decision someone made, visible in this diff.
+// ===========================================================================
+static void expectReason(const char* what, const HealReport& r, const char* literal) {
+    const std::string got = r.reason ? r.reason : "";
+    const bool eq = (got == literal);
+    if (!eq) std::printf("      expected: \"%s\"\n         actual: \"%s\"\n", literal, got.c_str());
+    check(eq, std::string(what) + ": reason is the pinned literal, WHOLE");
+}
+
+static void runReasonLiteralArm() {
+    std::printf("[REASONS] the five literals, pinned whole\n");
+    {   // (1) LEG A. The T-137 plate itself.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, triBox(tb, 100, 100, 0.001), opt);
+        expectReason("legA", r,
+            "repair opened a closed body: the healed shell is no longer watertight "
+            "(walls of a thin-walled part dropped as slivers) — refusing rather "
+            "than returning a solid that is not one");
+    }
+    {   // (2) LEG B. The part-plus-whisker quiet variant.
+        TopologyBuilder tb;
+        std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+        std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06);
+        f.insert(f.end(), w.begin(), w.end());
+        HealOptions opt; opt.tol = 0.05;
+        HealReport r = healBRep(tb, f, opt);
+        expectReason("legB", r,
+            "repair consumed the body: a closed solid lost most of its material "
+            "(a thin-walled feature — foil, gasket, web, whisker — removed as "
+            "slivers) — refusing rather than returning a hollowed solid");
+    }
+    {   // (3) TOTAL DESTRUCTION, armed.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 0.05;
+        HealReport r = healBRep(tb, triBox(tb, 0.01, 0.01, 1e-7), opt);
+        expectReason("total-destruction", r,
+            "repair emptied the body: every face of a solid was classified a "
+            "sliver and dropped (a thin-walled part — foil, gasket, membrane — "
+            "whose walls exceed the aspect-ratio limit) — refusing rather than "
+            "returning an empty shell");
+    }
+    {   // (4) TOTAL DESTRUCTION, **UNARMED** — the first of the two literals that
+        //     nothing pinned. A lone needle triangle (1000 long, 0.01 tall, aspect
+        //     1e5) bounds nothing, so every face goes and the honest non-refusal
+        //     answer is returned. MEASURED: armed=0 ok=1 slivers=1.
+        TopologyBuilder tb;
+        std::vector<Face*> f;
+        f.push_back(faceFromRing(tb, {{0, 0, 0}, {1000, 0, 0}, {500, 0.01, 0}}));
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, f, opt);
+        std::printf("    lone needle (unarmed all-sliver): armed=%d ok=%d refused=%d "
+                    "survivors=%zu slivers=%zu  reason=\"%s\"\n",
+                    r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0, r.destructionRefused ? 1 : 0,
+                    r.faces.size(), r.sliverFacesRemoved, r.reason ? r.reason : "");
+        check(!r.inputBoundsVolume, "unarmed-slivers: bounds nothing, so the guard stands down");
+        check(r.faces.empty() && r.sliverFacesRemoved == 1,
+              "unarmed-slivers: the all-slivers branch really is the one reached");
+        check(r.ok && !r.destructionRefused,
+              "unarmed-slivers: NOT refused — there was no body to destroy");
+        expectReason("unarmed-slivers", r, "all faces removed as slivers");
+    }
+    {   // (5) SUCCESS — the second unpinned literal. NativeShapeHealBridge.hpp reads
+        //     an empty/unknown reason as "an exact pass", so what a SUCCESS says is
+        //     part of the contract, not decoration.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, boxRings(tb, 2.0, -1, -1), opt);
+        check(r.ok && !r.destructionRefused, "success-literal: the clean box really does heal");
+        expectReason("success", r, "ok");
+    }
+    {   // (6) The malformed-input literal, for completeness: it is the one reason a
+        //     caller can get with ok == false that is NOT a destruction refusal, and
+        //     the three callers route both the same way. If it ever merged with the
+        //     refusal vocabulary the routing would stop being distinguishable.
+        TopologyBuilder tb;
+        std::vector<Face*> none;
+        HealOptions opt;
+        HealReport r = healBRep(tb, none, opt);
+        check(!r.ok, "empty-input: still ok == false");
+        check(!r.destructionRefused,
+              "empty-input: but NOT a destruction refusal — malformed input is a "
+              "different answer from a destroyed body");
+        expectReason("empty-input", r, "empty face set");
+    }
+}
+
 int main() {
     std::printf("=== heal destruction-refusal gate (T-137) ===\n");
     std::printf("A repair that empties the user's part must REFUSE, not report success.\n\n");
@@ -797,6 +1045,8 @@ int main() {
     runNegativeArm();
     std::printf("\n");
     runArmingArm();
+    std::printf("\n");
+    runReasonLiteralArm();
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
 }
