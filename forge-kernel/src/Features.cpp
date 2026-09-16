@@ -57,6 +57,7 @@
 #include <map>                                  // canonical edge ordering
 #include <memory>
 #include <mutex>                                // OCCT-fillet cumulative budget guard
+#include <sstream>                              // shell no-op refusal message
 #include <thread>                               // OCCT-fillet watchdog worker
 #include <unordered_map>                        // edge->faces map
 #include <unordered_set>                      // selected-face id set (draftFaces)
@@ -239,6 +240,59 @@ double volumeOf(const TopoDS_Shape& s) {
     GProp_GProps g;
     BRepGProp::VolumeProperties(s, g);
     return g.Mass();
+}
+
+// ---- A SHELL THAT REMOVES NOTHING IS NOT A SHELL -------------------------
+//
+// MEASURED 2026-09-16 (scratchpad/shell_probe2.cpp, OCCT 7.9.3). Hand
+// BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin a body whose OPENED face is
+// coplanar-adjacent to a RETAINED face — exactly what a FUSE leaves behind when it
+// splits a planar face and nothing merges the pieces again — and it returns
+//   IsDone()             = TRUE
+//   MakeOffset().Error() = BRepOffset_NoError
+//   Shape()              = a REBUILT copy of the input, same face count, same volume
+// so neither of the two verdicts OCCT publishes can see it. On the shipped
+// holdout row h39_rib that made `SHELL(FUSE(BOX(125,26,48), rib), 8)` return
+// 156000 mm^3 — the un-hollowed web — and report SUCCESS. The identical
+// SHELL(BOX(125,26,48), 8) removes 43600.
+//
+// The invariant this restores is the op's own contract: shell() is an INWARD
+// hollow (see the SIGN block in shell(), below), so the result volume MUST be
+// strictly less than the input's. Equal volume means the cavity was never cut.
+// `IsSame` is NOT the test — OCCT returns a fresh TShape, measured false above —
+// so the check is on the measurement, which is the only thing that moved.
+//
+// Refusing, not returning: a no-op reported as success is the T-137 failure class
+// (an operation that does nothing and says it worked), and it is strictly worse
+// than a refusal because the user cannot see it. The message names the op, the
+// numbers, and what happened to THEIR part.
+void requireHollowed(const TopoDS_Shape& src,
+                     const TopoDS_Shape& out,
+                     double wall,
+                     const char* route) {
+    if (out.IsNull()) {
+        throw std::runtime_error(
+            std::string("forge.part.shell: the ") + route +
+            " thick-solid returned nothing at wall " + std::to_string(wall) + " mm");
+    }
+    const double vIn  = volumeOf(src);
+    const double vOut = volumeOf(out);
+    // Relative, because the absolute volume of a part is unbounded. 1e-9 of the
+    // input is far below any real cavity and far above float noise on a GProp sum.
+    const double removed = vIn - vOut;
+    if (removed > std::fabs(vIn) * 1.0e-9) return;          // a real hollow: pass
+    std::ostringstream m;
+    m.setf(std::ios::fixed);
+    m.precision(3);
+    m << "forge.part.shell: the " << route << " thick-solid reported success but "
+      << "hollowed NOTHING — your part still measures " << vOut
+      << " mm^3, the same solid you handed in (" << vIn << " mm^3), so the "
+      << wall << " mm wall was never cut. This happens when the face being opened "
+      << "is coplanar with a face that is kept — a boolean (FUSE/CUT) that split a "
+      << "flat face and left the pieces unmerged is the usual cause. Merge the "
+      << "coplanar faces first (direct.unifyFaces / HEAL simplify) and shell again, "
+      << "or open the whole face rather than one piece of it.";
+    throw std::runtime_error(m.str());
 }
 
 #ifdef FORGE_NATIVE_BREP
@@ -1190,7 +1244,10 @@ ShapeHandle shell(ShapeHandle shape,
     if (multiThickness.empty()) {
         TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
             src, wall, facesToRemove, 1.0e-3);
-        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+        if (!nat.IsNull()) {
+            requireHollowed(src, nat, wall, "native");   // see requireHollowed
+            return ShapeRegistry::instance().add(nat);
+        }
     }
     throw std::runtime_error(
         "forge.part.shell: native thick-solid DECLINED this shape and the OCCT "
@@ -1200,7 +1257,10 @@ ShapeHandle shell(ShapeHandle shape,
     if (multiThickness.empty() && kThickSolidNative) {
         TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
             src, wall, facesToRemove, 1.0e-3);
-        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+        if (!nat.IsNull()) {
+            requireHollowed(src, nat, wall, "native");   // see requireHollowed
+            return ShapeRegistry::instance().add(nat);
+        }
     }
 #endif
 #endif
@@ -1228,7 +1288,12 @@ ShapeHandle shell(ShapeHandle shape,
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.part.shell: ThickSolid build failed");
     }
-    return ShapeRegistry::instance().add(mk.Shape());
+    // IsDone() is NOT the whole verdict on this call, and neither is
+    // MakeOffset().Error(): both read clean on a join that hollowed nothing.
+    // See requireHollowed for the measurement that does see it.
+    const TopoDS_Shape thick = mk.Shape();
+    requireHollowed(src, thick, wall, "OCCT MakeThickSolidByJoin");
+    return ShapeRegistry::instance().add(thick);
 #endif  // !FORGE_THICKSOLID_DROP_NATIVE
 }
 

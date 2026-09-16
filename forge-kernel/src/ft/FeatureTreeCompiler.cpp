@@ -2205,6 +2205,34 @@ private:
 
     Handle opShell(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
+        // MERGE WHAT THE BOOLEAN SPLIT, BEFORE choosing the face to open.
+        //
+        // MEASURED 2026-09-16 (scratchpad/shell_probe2.cpp). A FUSE leaves a flat
+        // face cut into coplanar pieces that nothing merges again — BOX(125,26,48)
+        // fused with a rib comes back as TEN faces for a solid that is still a
+        // six-faced box. The loop below then opens ONE of the two coplanar bottom
+        // pieces, and BRepOffsetAPI_MakeThickSolid cannot offset a wall that is
+        // coplanar-adjacent to the opening: it returns IsDone()==TRUE,
+        // Error()==NoError, and the INPUT VOLUME UNCHANGED. That is the shipped
+        // h39_rib defect — `SHELL(FUSE(web, rib), 8)` measured 156000 mm^3, the
+        // un-hollowed web, and reported success.
+        //   fused, as emitted   : 10 faces -> dV =      0.000   (silent no-op)
+        //   fused, unified first:  6 faces -> dV = -43600.000   (correct, and
+        //                                     identical to the primitive's shell)
+        // forge::unifyFaces (DirectEdit.hpp) is the in-house merge that already carries the
+        // mixed-representation SIGSEGV guard (DirectEdit.cpp) and returns the body
+        // untouched wherever it cannot merge, so this can only ever ADD coverage.
+        // The face chosen below is chosen GEOMETRICALLY (normal, then area), never
+        // by index, so re-indexing by the merge cannot move the opening.
+        // forge::part::shell still refuses a no-op if some other body defeats the
+        // join anyway (Features.cpp requireHollowed) — the merge fixes the common
+        // case, the refusal covers the rest.
+        try {
+            body = forge::unifyFaces(body);
+        } catch (...) {
+            // A merge that cannot run is not a reason to fail the shell: fall
+            // through on the body as emitted and let the no-op refusal decide.
+        }
         double wall = num(op, 1);
         double ax = numOpt(op, 2, 0), ay = numOpt(op, 3, 0), az = numOpt(op, 4, -1);
         double L = std::sqrt(ax * ax + ay * ay + az * az);

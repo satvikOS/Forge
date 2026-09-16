@@ -3284,4 +3284,22 @@ if(FORGE_BASH)
             ENVIRONMENT "FORGE_KERNEL_BUILD_DIR=${CMAKE_BINARY_DIR}")
     endif()
 
+    # test/shell_after_boolean_gate.sh — SHELL must never hollow NOTHING and
+    # report success. MEASURED on SHA 02de2e15: SHELL after a FUSE returned the
+    # UNCHANGED input volume with ok:true (holdout row h39_rib, 156000 mm^3 — the
+    # un-hollowed web), because BRepOffsetAPI_MakeThickSolid cannot offset a wall
+    # that is coplanar-adjacent to the opening and says IsDone()==TRUE /
+    # Error()==NoError anyway. 4 no-op cases (all ok:true with dV==0 before, and
+    # one of them carries NO boolean at all — a 15 mm wall in a 20 mm cube) and 4
+    # must-not-move cases asserted on valid+volume+faceCount against closed forms.
+    # Drives forge_verify, so registered only when this configure built one and
+    # pointed at THIS build's binary.
+    if(TARGET forge_verify)
+        add_test(NAME kernel.shell_after_boolean
+                 COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/shell_after_boolean_gate.sh")
+        set_tests_properties(kernel.shell_after_boolean PROPERTIES
+            TIMEOUT 900
+            ENVIRONMENT "FORGE_KERNEL_BUILD_DIR=${CMAKE_BINARY_DIR}")
+    endif()
+
 endif()
