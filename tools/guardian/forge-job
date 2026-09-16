@@ -7,8 +7,27 @@ set -u
 STATE_DIR=${FORGE_HEALTH_DIR:-$HOME/.forge-health}
 JOBS_DIR="$STATE_DIR/jobs"; mkdir -p "$JOBS_DIR"
 NAME="job"; PRIO=5; PEAK=2; RESTART=0; NEED=green; GPU=0
+
+usage() {
+  print -r -- "forge-job — run a heavy command under Guardian supervision."
+  print -r -- "usage: forge-job [--name N] [--priority P] [--peak-gb G] [--restartable]"
+  print -r -- "                 [--gpu] [--need green|yellow|orange|red] -- cmd args..."
+  print -r -- ""
+  print -r -- "Registers an envelope so Guardian can shed THIS job under pressure, then"
+  print -r -- "deregisters on exit. Guardian sheds only REGISTERED jobs, so unregistered"
+  print -r -- "heavy work starves every polite waiter."
+}
+
+# ASKING WHAT THIS DOES MUST NOT COST FIFTEEN MINUTES.
+# An unrecognised flag used to fall through `*) break` and be treated as the COMMAND,
+# so `forge-job --help` reached the gate call below and blocked on `--wait 900`.
+# Measured 2026-09-16: six `forge-job --help`/`--list` processes alive simultaneously,
+# the oldest at 13m21s, each holding a gate slot while an agent waited on a usage
+# string. An unknown flag is now a usage error, not a command -- exiting 2 immediately
+# is both correct and the only behaviour that cannot silently consume a quarter hour.
 while (( $# )); do
   case "$1" in
+    -h|--help|help) usage; exit 0 ;;
     --name) NAME="$2"; shift 2 ;;
     --priority) PRIO="$2"; shift 2 ;;
     --peak-gb) PEAK="$2"; shift 2 ;;
@@ -16,10 +35,11 @@ while (( $# )); do
     --gpu) GPU=1; shift ;;
     --need) NEED="$2"; shift 2 ;;
     --) shift; break ;;
+    -*) print -u2 "forge-job: unknown option '$1'"; usage >&2; exit 2 ;;
     *) break ;;
   esac
 done
-(( $# )) || { print -u2 "forge-job: no command given"; exit 2; }
+(( $# )) || { print -u2 "forge-job: no command given"; usage >&2; exit 2; }
 
 "$STATE_DIR/bin/forge-gate" --need "$NEED" --wait 900 --why "$NAME" || exit 75   # EX_TEMPFAIL
 
@@ -36,7 +56,29 @@ gpu=$GPU
 started=$(date +%s)
 cmd=$*
 J
-"$@"
-rc=$?
+# Run the command as a CHILD and forward Guardian's signals to it.
+#
+# Guardian's stage-1 shed is SIGUSR1, documented in forge-guardian as "checkpoint
+# now and reduce your footprint" -- the COOPERATIVE step before the coercive TERM.
+# The default disposition of SIGUSR1 is *terminate*, so a wrapper that does not trap
+# it dies on the politest signal in the system and takes the job with it, before the
+# job can checkpoint. Measured 2026-09-14: guardian.log "shed sig=USR1 ->
+# job='knowing-v1-lora' pid=78851" at 17:31:57 and the trainer recording rc=158
+# (128+30, SIGUSR1) in the same second; 'measure-red' shows the same shape with a
+# USR1 at 17:21:22 and a different pid under the same name 22s later. Every job
+# registered through this wrapper had that property, which is a large part of why
+# "registered jobs" read 0 all session: jobs registered, were asked to checkpoint,
+# and died.
+"$@" &
+CHILD=$!
+forward_usr1() { kill -USR1 "$CHILD" 2>/dev/null }
+forward_term() { kill -TERM "$CHILD" 2>/dev/null }
+trap forward_usr1 USR1
+trap forward_term TERM INT
+rc=0
+while :; do
+  wait "$CHILD"; rc=$?
+  kill -0 "$CHILD" 2>/dev/null || break   # a signal interrupted wait; child lives, resume
+done
 cleanup
 exit $rc

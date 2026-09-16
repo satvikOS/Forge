@@ -560,6 +560,23 @@ jobs:
           GATE_BUDGET: '1080'
         run: zsh tools/guardian/test/guardian_single_instance_gate.sh
 
+      # Guardian's stage-1 shed is SIGUSR1, documented as "checkpoint now and reduce
+      # your footprint". The default disposition of SIGUSR1 is TERMINATE, so an
+      # untrapped wrapper dies on the politest signal in the system and takes the job
+      # with it. Measured in production 2026-09-14: guardian.log "shed sig=USR1 ->
+      # job='knowing-v1-lora'" with the trainer logging rc=158 (128+30) the same
+      # second. Every job registered through forge-job had that property.
+      - name: A cooperative shed must not kill the job (forge-job SIGUSR1)
+        run: zsh tools/guardian/test/forge_job_usr1_gate.sh
+
+      # forge-job's argument loop ended in `*) break`, so an unrecognised flag became
+      # the COMMAND: `forge-job --help` reached `forge-gate --wait 900` and blocked for
+      # up to fifteen minutes. Measured 2026-09-16: six such processes alive at once,
+      # oldest 13m21s, each holding a gate slot while an agent waited on a usage
+      # string, with two real builds queued behind them.
+      - name: Asking forge-job what it does must not cost fifteen minutes
+        run: zsh tools/guardian/test/forge_job_usage_gate.sh
+
   release_visibility:
     name: could an installed Forge actually SEE the latest release?
     # SEPARATE from desktop_update on purpose. That job documents itself as
