@@ -1,6 +1,49 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // numeral_redaction_gate.cpp — TWO-SIDED gate for numerals that are not ASCII
-// digits: numbers spelled in WORDS, and digits spelled in other SCRIPTS.
+// digits: numbers spelled in WORDS, digits spelled in other SCRIPTS, and words
+// wearing a LOOK-ALIKE code point from another script.
+//
+// ROUND 2 — WHAT WAS WRONG WITH THIS FILE, and why the fix to the file matters
+// more than the fix to the redactor.
+//
+//   THE NEGATIVE ARM RAN UNDER A CONDITION THAT NEVER HOLDS. Every row of it
+//   called drive(s, {}) — NOTHING REGISTERED — so LAYER A, the context-free
+//   value match that is the redactor's PRIMARY mechanism, never fired once in
+//   the entire control set. "false positives introduced: 0" and "42 of 42
+//   intact" were therefore true only for an empty secret lexicon, which is never
+//   the production condition. Re-run at an ordinary secret set
+//   {12, 3, 0.75, 47.625, 8.5, 2}, the same code damaged 15 of 47 control rows:
+//   "what is the second moment of area" went to the wire as "what is the moment
+//   of area". A gate that cannot see its own primary mechanism fire is not
+//   measuring the thing it is named after.
+//
+// Two structural rules now make that unrepeatable, and they are the durable half
+// of round 2:
+//   1. kNegativeArmSecrets is asserted NON-EMPTY before the arm runs.
+//   2. A WITNESS PAIR proves LAYER A actually fired somewhere in this suite: the
+//      same query, with and without the value registered, must come out
+//      DIFFERENTLY. Nothing but a context-free value match can produce that
+//      difference, so the assertion cannot be satisfied by a redactor in which
+//      Layer A is dead.
+//
+// RED PROOF, honestly counted. This file uses PUBLIC API ONLY so it compiles
+// unchanged against pre-fix sources. Of its 140 assertions, 50 are new in round
+// 2; 41 of those 50 FAIL on a pre-fix tree (70 of 140 fail at pristine
+// 02de2e15, 26 of 140 at the round-1 fix d7a44ede). The 9 without a red are
+// named rather than hidden: three control rows that were already intact, the
+// "look-alike splitting a digit run" row that the old code happened to block,
+// the non-empty-secret-set guard (an invariant, not a behaviour), the surviving
+// half of the witness pair, the DIGIT-2 bound, "accented Latin is not flagged"
+// (a false-positive guard on a new arm), and the HONEST row that records a
+// vocabulary gap as still OPEN.
+//
+// THE TRADE-OFF IS DATA IN THIS FILE, NOT A CLAIM. Layer A is context-free on
+// purpose and that same property is what strips "second" out of "second moment
+// of area" when 2.0 is registered. The two properties cannot both be had in
+// full. The line drawn — see detail::isValueExpression — leaves exactly two
+// control rows damaged, and both are listed below as DECLARED COLLISIONS with
+// the reason. They are ASSERTED TO BE DAMAGED, so the trade-off cannot silently
+// widen and cannot silently be papered over either.
 //
 // WHY THIS FILE EXISTS. Measured at 02de2e15 on this exact path, 30 of the 42
 // spellings below carried a REGISTERED secret dimension into the wire buffer
@@ -253,10 +296,80 @@ const LeakCase kLeakCases[] = {
      "\xEF\xBC\x94"},
 };
 
+// ── HOMOGLYPH ARM (round 2, defect 1) ───────────────────────────────────────
+// One look-alike code point per numeral word. Every row below is visually
+// identical to a plain English, German or French spelling of the registered
+// secret and, measured on this seam before the fold became a confusable
+// skeleton, 10 of these 16 transmitted VERBATIM with status=Ok while the clean
+// spelling of the same query was reduced to one word.
+//
+// The last rows carry code points NO fold table names, which is the point: the
+// safety property is not the confusable table's completeness — no curated table
+// is ever complete — it is that an unmodelled code point now JOINS the numeral
+// run instead of breaking it, and a run carrying one is refused.
+#define CY_O "\xD0\xBE"      // U+043E CYRILLIC SMALL LETTER O
+#define CY_E "\xD0\xB5"      // U+0435 CYRILLIC SMALL LETTER IE
+#define CY_S "\xD1\x81"      // U+0441 CYRILLIC SMALL LETTER ES   (glyph: c)
+#define CY_R "\xD1\x80"      // U+0440 CYRILLIC SMALL LETTER ER   (glyph: p)
+#define CY_I "\xD1\x96"      // U+0456 CYRILLIC SMALL LETTER UKRAINIAN I
+#define CY_H "\xD2\xBB"      // U+04BB CYRILLIC SMALL LETTER SHHA (glyph: h)
+#define GR_O "\xCE\xBF"      // U+03BF GREEK SMALL LETTER OMICRON
+#define FW_M "\xEF\xBD\x8D"  // U+FF4D FULLWIDTH LATIN SMALL LETTER M
+#define ZWSP "\xE2\x80\x8B"  // U+200B ZERO WIDTH SPACE
+// Code points deliberately OUTSIDE every confusable table in this build:
+#define UNMODELLED_1 "\xE1\x8E\xAA"      // U+13AA CHEROKEE LETTER GO (glyph: A)
+#define UNMODELLED_2 "\xEA\x93\xB3"      // U+A4F3 LISU LETTER O      (glyph: O)
+
+const LeakCase kHomoglyphCases[] = {
+    {"homoglyph", "one cyrillic look-alike per numeral word",
+     "thickness f" CY_O "rty " CY_S "even " CY_R "oint " CY_S "ix tw" CY_O " f" CY_I "ve mm",
+     47.625, "rty"},
+    {"homoglyph", "cyrillic o in forty only", "web thickness f" CY_O "rty seven mm", 47.0, "seven"},
+    {"homoglyph", "cyrillic in the german form", "dicke s" CY_I "ebenundv" CY_I "erzig mm", 47.0,
+     "ebenundv"},
+    {"homoglyph", "cyrillic in the french form", "epaisseur quarant" CY_E "-s" CY_E "pt mm", 47.0,
+     "pt mm"},
+    {"homoglyph", "cyrillic in a teen word", "b" CY_O "re twelv" CY_E " mm", 12.0, "twelv"},
+    {"homoglyph", "cyrillic in the spelled fraction", "gap thr" CY_E "e quart" CY_E "rs inch", 0.75,
+     "quart"},
+    {"homoglyph", "greek omicron instead of cyrillic",
+     "thickness f" GR_O "rty seven p" GR_O "int six two five mm", 47.625, "rty"},
+    {"homoglyph", "two scripts inside one run",
+     "thickness f" CY_O "rty s" GR_O "ven p" CY_O "int six tw" GR_O " five mm", 47.625, "ven"},
+    {"homoglyph", "look-alike in the UNIT, numerals clean",
+     "thickness forty seven point six two five " FW_M FW_M, 47.625, "forty seven point"},
+    {"homoglyph", "look-alike in the DIMENSION NOUN, numerals clean",
+     "thi" CY_S "kness forty seven point six two five mm", 47.625, "forty seven point"},
+    {"homoglyph", "look-alike splitting a digit run", "thickness 47" CY_O "625 mm", 47.0, "47"},
+    {"homoglyph", "cyrillic in a run-on compound", "web thickness f" CY_O "rtyseven mm", 47.0,
+     "rtyseven"},
+    {"homoglyph", "zero-width space inside the run",
+     "thickness forty" ZWSP " seven point six two five mm", 47.625, "forty"},
+    {"homoglyph", "cyrillic in every word of a scale form",
+     "span " CY_O "ne hundr" CY_E "d and twelv" CY_E " mm", 112.0, "hundr"},
+    {"homoglyph", "cyrillic in the ordinal", "the forty-sevent" CY_H " station offset", 47.0,
+     "sevent"},
+    {"homoglyph", "cyrillic in the fraction denominator",
+     "thickness forty seven and five eight" CY_H "s inches", 47.625, "eight"},
+    // ── the unmodelled half: NOT in any fold table in this build ─────────────
+    {"unmodelled", "cherokee look-alike substituted for a letter",
+     "web thickness f" UNMODELLED_1 "rty seven mm", 47.0, "rty"},
+    {"unmodelled", "lisu look-alike substituted for a letter",
+     "b" UNMODELLED_2 "re twelve mm", 12.0, "twelve"},
+    {"unmodelled", "unmodelled code point INSERTED, not substituted",
+     "web thickness forty" UNMODELLED_1 " seven mm", 47.0, "seven"},
+    {"unmodelled", "unmodelled code point BETWEEN two numeral words",
+     "thickness forty" UNMODELLED_2 "seven point six two five mm", 47.625, "six two five"},
+};
+
 // ── NEGATIVE ARM ────────────────────────────────────────────────────────────
-// Ordinary engineering queries that contain number words innocently. NOTHING is
-// registered, so nothing here may be touched. These are the control; if the
-// numeral reader learns to fire on sight, this is what it destroys.
+// Ordinary engineering queries that contain number words innocently.
+//
+// ROUND 2: these run at kNegativeArmSecrets, a NON-EMPTY ordinary secret set, so
+// LAYER A is live for every row. At an empty set this arm cannot fail for the
+// one reason it exists to catch.
+const std::vector<double> kNegativeArmSecrets = {12.0, 3.0, 0.75, 47.625, 8.5, 2.0};
+
 const char* const kInnocent[] = {
     "one-piece housing stiffness",
     "no one reported a fatigue crack",
@@ -309,6 +422,33 @@ const char* const kInnocent[] = {
     "forty seven percent duty cycle",
 };
 
+// ── DECLARED COLLISIONS ─────────────────────────────────────────────────────
+// The rows of kInnocent that the chosen trade-off DOES damage at
+// kNegativeArmSecrets, each with the reason. Both are the word "twelve" with
+// 12.0 registered, in prose where nothing marks it as a measurement.
+//
+// They are asserted TO BE DAMAGED, not excused. If a later change saves one, this
+// gate fails and the list must be shortened deliberately; if a later change
+// damages a row that is not on this list, the gate fails too. The trade-off can
+// therefore only ever move on purpose.
+//
+// WHY NOT SAVE THEM. Nothing structural separates "twelve-point flange head
+// bolt" from the POSITIVE row "the twelfth rib pitch", which this same suite
+// requires to be stripped when 12.0 is registered: article, one bare numeral
+// word, a non-unit noun. Any context-free rule that saves one leaks the other.
+// That is the trade-off, and this pair of rows is where you can see it.
+const char* const kDeclaredCollisions[] = {
+    "twelve-point flange head bolt",
+    "a one-piece six-bolt flange with twelve holes",
+};
+
+bool isDeclaredCollision(const std::string& row) {
+  for (const char* c : kDeclaredCollisions) {
+    if (row == c) return true;
+  }
+  return false;
+}
+
 // Every alphabetic word of the input must still be on the wire. (Digits are
 // legitimately stripped; this arm is about collateral damage to WORDS.)
 bool everyWordSurvives(const std::string& input, const std::string& q, std::string& missing) {
@@ -340,14 +480,129 @@ int main() {
           "wire q=[" + o.q + "] status=" + o.status);
   }
 
+  std::printf("\n== 12.1 HOMOGLYPH: a look-alike code point is not a spelling we accept ==\n");
+  for (const LeakCase& c : kHomoglyphCases) {
+    const Outcome o = drive(c.question, {c.secret});
+    const bool leaked = o.transmitted && lower(o.q).find(lower(c.marker)) != std::string::npos;
+    check(!leaked, std::string(c.cls) + ": " + c.label,
+          "wire q=[" + o.q + "] status=" + o.status);
+  }
+
+  std::printf("\n== THE NEGATIVE ARM CANNOT RUN BLIND ==\n");
+  {
+    // RULE 1. An empty secret set makes LAYER A — the context-free value match
+    // that is the redactor's primary mechanism — unable to fire at all, and the
+    // whole control arm below then measures nothing. It ran that way for a full
+    // round and reported "0 false positives"; at an ordinary secret set the same
+    // code damaged 15 of these 47 rows.
+    check(!kNegativeArmSecrets.empty(),
+          "the control arm's secret set is NON-EMPTY (Layer A is live for every row)",
+          "kNegativeArmSecrets.size()=" + std::to_string(kNegativeArmSecrets.size()));
+
+    // RULE 2. THE WITNESS PAIR. The same query, driven with and without the value
+    // registered, must come out DIFFERENTLY. There is no dimension noun before
+    // the run and no unit after it, so LAYER B cannot touch it and the digit
+    // classifier cannot see it: only a context-free VALUE MATCH can produce a
+    // difference here. A redactor whose Layer A is dead — or whose control arm
+    // is run at an empty lexicon — cannot satisfy both halves.
+    const std::string witness = "the answer is forty seven point six two five";
+    const Outcome registered = drive(witness, kNegativeArmSecrets);
+    const Outcome unregistered = drive(witness, {});
+    check(registered.transmitted &&
+              lower(registered.q).find("forty seven point") == std::string::npos,
+          "witness: the run IS removed when its value is in kNegativeArmSecrets",
+          "wire q=[" + registered.q + "] status=" + registered.status);
+    check(unregistered.transmitted &&
+              lower(unregistered.q).find("forty seven point") != std::string::npos,
+          "witness: the SAME run survives when nothing is registered — so the removal",
+          "wire q=[" + unregistered.q + "] status=" + unregistered.status);
+    check(registered.q != unregistered.q,
+          "witness: ...was LAYER A, and Layer A demonstrably fired in this suite",
+          "registered=[" + registered.q + "] unregistered=[" + unregistered.q + "]");
+  }
+
   std::printf("\n== 12.1 NEGATIVE: ordinary number words are NOT collateral damage ==\n");
+  std::printf("   (driven at a NON-EMPTY secret set: {12, 3, 0.75, 47.625, 8.5, 2})\n");
   for (const char* s : kInnocent) {
-    const Outcome o = drive(s, {});
+    const Outcome o = drive(s, kNegativeArmSecrets);
     std::string missing;
     const bool intact = o.transmitted && everyWordSurvives(s, o.q, missing);
+    if (isDeclaredCollision(s)) {
+      // Asserted DAMAGED. See kDeclaredCollisions for why this cannot be saved
+      // without leaking the positive row it is structurally identical to.
+      check(!intact, std::string("declared collision, still damaged: ") + s,
+            "wire q=[" + o.q + "] status=" + o.status +
+                " — if this now PASSES, the trade-off moved; update kDeclaredCollisions");
+      continue;
+    }
     check(intact, std::string("intact: ") + s,
           "wire q=[" + o.q + "] status=" + o.status +
               (missing.empty() ? "" : " lost word: " + missing));
+  }
+
+  std::printf("\n== THE TRADE-OFF, PINNED IN BOTH DIRECTIONS ==\n");
+  {
+    // What the chosen line COSTS, stated as an assertion so it cannot widen in
+    // silence: a bare numeral word for a value of 3 or less, in prose, with no
+    // unit and no dimension noun, is NOT removed even when that value is
+    // registered. An attacker can use this, and the next two checks bound
+    // exactly how far: one small value per query, and only while nothing marks
+    // it as a measurement.
+    const Outcome prose = drive("the recommended count is two", {2.0});
+    check(prose.transmitted && lower(prose.q).find("two") != std::string::npos,
+          "COST: a bare 'two' in prose survives even with 2.0 registered",
+          "wire q=[" + prose.q + "] status=" + prose.status);
+
+    const Outcome measured = drive("bore two mm", {2.0});
+    check(measured.transmitted && lower(measured.q).find("two") == std::string::npos,
+          "BOUND: the same word in measurement context is still removed",
+          "wire q=[" + measured.q + "] status=" + measured.status);
+
+    const Outcome composed = drive("the recommended value is two point zero", {2.0});
+    check(composed.transmitted && lower(composed.q).find("two point") == std::string::npos,
+          "BOUND: and a DECIMAL composition of the same value is still removed",
+          "wire q=[" + composed.q + "] status=" + composed.status);
+
+    const Outcome idiom = drive("six degrees of freedom kinematics", {6.0});
+    check(idiom.transmitted && lower(idiom.q).find("six") == std::string::npos,
+          "BOUND: Layer B's idiom exemption is still powerless against a registered value",
+          "wire q=[" + idiom.q + "] status=" + idiom.status);
+
+    // THE EXEMPTION IS FOR WORDS ONLY. It must never reach the digit path, whose
+    // stance is unconditional default-deny, nor the non-ASCII path. If either of
+    // these ever passes, the prose bound has leaked out of the class it was
+    // measured on and into the two classes that have no false-positive cost.
+    const Outcome digits = drive("the recommended count is 2", {2.0});
+    check(digits.transmitted && digits.q.find('2') == std::string::npos,
+          "BOUND: the DIGIT 2 in the same sentence is still default-denied",
+          "wire q=[" + digits.q + "] status=" + digits.status);
+
+    const Outcome disguised = drive("the recommended count is tw\xD0\xBE", {2.0});
+    check(disguised.transmitted && lower(disguised.q).find("tw") == std::string::npos,
+          "BOUND: and 'two' wearing a look-alike cannot borrow the prose exemption",
+          "wire q=[" + disguised.q + "] status=" + disguised.status);
+
+    const Outcome fullwidth = drive("the recommended count is \xEF\xBC\x92", {2.0});
+    check(fullwidth.transmitted && fullwidth.q.find("\xEF\xBC\x92") == std::string::npos,
+          "BOUND: nor can a fullwidth digit for the same value",
+          "wire q=[" + fullwidth.q + "] status=" + fullwidth.status);
+
+    // A SECOND, OLDER RESIDUAL, pinned here so nobody reads the row above as the
+    // whole story. LAYER B reads only the token IMMEDIATELY before the run, so a
+    // dimension noun separated from it by any word is not measurement context —
+    // "thickness two" is caught and "the thickness we use is two" is not. That
+    // gap predates round 2; what round 2 changed is that Layer A no longer backs
+    // it up for values of 3 or less. Widening the window is a separate change
+    // with its own false-positive cost and has NOT been measured, so it is
+    // recorded as open rather than quietly assumed shut.
+    const Outcome far_noun = drive("the thickness we use is two", {2.0});
+    check(far_noun.transmitted && lower(far_noun.q).find("two") != std::string::npos,
+          "RESIDUAL (open): a non-adjacent dimension noun is not measurement context",
+          "wire q=[" + far_noun.q + "] status=" + far_noun.status);
+    const Outcome near_noun = drive("thickness two", {2.0});
+    check(near_noun.transmitted && lower(near_noun.q).find("two") == std::string::npos,
+          "RESIDUAL: ...but an ADJACENT one is, and still removes the same value",
+          "wire q=[" + near_noun.q + "] status=" + near_noun.status);
   }
 
   std::printf("\n== 20.2 a folded multi-byte numeral does not displace its neighbours ==\n");
@@ -387,6 +642,58 @@ int main() {
     const bool clean2 = red.verifyNoResidue("q=thickness%20bracket%20stiffness", residue);
     check(clean2, "and a buffer with no secret in it is not falsely flagged",
           clean2 ? "" : residue.front());
+  }
+
+  std::printf("\n== 20.2 the residue layer has ONE arm that is independent of the VOCABULARY ==\n");
+  {
+    // THE CORRECTION. verifyNoResidue's value arm calls readNumerals over the
+    // SAME closed lexicon the classifier uses. It is independent of the
+    // classifier's CODE and NOT of its WORDS, so it cannot catch a vocabulary
+    // gap — and round 1 called it "independent" without that qualification.
+    //
+    // "quarantasette" is Italian for 47. This build models en/de/fr only, so it
+    // is a REAL vocabulary gap, and the first check below is the honest proof
+    // that the gap is still open rather than a claim that it is closed.
+    PrivateLexicon lex;
+    lex.secret_dimensions = {47.0};
+    const Redactor red(lex, RedactionPolicy{});
+    std::vector<std::string> residue;
+
+    const bool plain_clean = red.verifyNoResidue("q=thickness+quarantasette+mm", residue);
+    check(plain_clean,
+          "HONEST: a numeral word outside the lexicon is NOT caught by the value arm",
+          plain_clean ? "vocabulary gap is open, as documented" : residue.front());
+
+    // What the NEW arm adds is orthogonal: it catches the DISGUISE, not the
+    // word. It shares nothing with the numeral lexicon — it asks whether the
+    // outgoing bytes contain a token mixing ASCII letters with look-alike code
+    // points from another script — so it fires here even though no layer in this
+    // build can read "quarantasette" as a number.
+    residue.clear();
+    const bool disguised_clean =
+        red.verifyNoResidue("q=thickness+quarantas\xD0\xB5tte+mm", residue);
+    check(!disguised_clean,
+          "a mixed-script look-alike IS caught, on a word no numeral layer can read",
+          disguised_clean ? "verifyNoResidue called it clean" : residue.front());
+
+    residue.clear();
+    const bool fw_clean = red.verifyNoResidue("q=thickness+\xEF\xBC\x94\xEF\xBC\x97+mm", residue);
+    check(!fw_clean, "and a decimal digit that is not an ASCII digit is caught the same way",
+          fw_clean ? "verifyNoResidue called it clean" : residue.front());
+
+    residue.clear();
+    const bool zw_clean = red.verifyNoResidue("q=thickness+for\xE2\x80\x8Bty+mm", residue);
+    check(!zw_clean, "and a zero-width code point wedged inside a word is caught too",
+          zw_clean ? "verifyNoResidue called it clean" : residue.front());
+
+    // AND IT MUST NOT FIRE ON ORDINARY TEXT. Accented Latin is a spelling, not a
+    // disguise: flagging it would turn every French or German query into a
+    // refused send, which is over-redaction wearing a security badge.
+    residue.clear();
+    const bool accented_clean =
+        red.verifyNoResidue("q=\xC3\xA9paisseur+de+la+t\xC3\xB4le+et+H\xC3\xB6he", residue);
+    check(accented_clean, "accented Latin is NOT flagged as a look-alike",
+          accented_clean ? "" : residue.front());
   }
 
   std::printf("\n%d passed, %d failed\n", g_pass, g_fail);

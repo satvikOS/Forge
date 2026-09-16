@@ -206,6 +206,98 @@ for cp in range(0x110000):
         continue
     fractions.append((cp, f"{fr.numerator}/{fr.denominator}"))
 
+# ── confusable skeleton fold, and the invisible fold ────────────────────────
+# ROUND 2, defect 1. A homoglyph is not a numeral problem, it is a FOLD problem:
+# "f<U+043E>rty <U+0441>even <U+0440>oint ..." is one Cyrillic look-alike per
+# numeral word and is visually identical to the plain English spelling. At round
+# 1 an unmodelled code point folded to \x01, which BROKE the numeral run, so the
+# run was never FORMED and neither the value layer nor the context layer ever saw
+# a number. Deny-by-default on an unmodelled code point is right for MATCHING and
+# exactly backwards for FORMING A RUN.
+#
+# EXHAUSTIVENESS IS NOT THE SAFETY PROPERTY HERE, and it must not be, because no
+# curated confusable table is ever complete. The C++ reader treats an unmodelled
+# code point inside a word as a WILDCARD over ASCII letters (and over the empty
+# string), so "f?rty" is recognised as a numeral token whether or not "?" is in
+# any table below, and a numeral run carrying such a code point is REFUSED. These
+# tables buy PRECISION — the right skeleton, so the right VALUE is composed and
+# named in the audit trail — not safety.
+SCRIPT_LATIN = 0     # accented Latin, ligatures: a spelling, not a disguise
+SCRIPT_CYRILLIC = 1
+SCRIPT_GREEK = 2
+SCRIPT_FORM = 3      # fullwidth/halfwidth, mathematical alphanumerics, enclosed
+SCRIPT_OTHER = 4
+
+
+def script_of(cp):
+    if 0x0400 <= cp <= 0x052F or 0x2DE0 <= cp <= 0x2DFF or 0xA640 <= cp <= 0xA69F:
+        return SCRIPT_CYRILLIC
+    if 0x0370 <= cp <= 0x03FF or 0x1F00 <= cp <= 0x1FFF:
+        return SCRIPT_GREEK
+    if (0xFF00 <= cp <= 0xFFEF or 0x1D400 <= cp <= 0x1D7FF or 0x2460 <= cp <= 0x24FF
+            or 0x2100 <= cp <= 0x214F or 0x1F100 <= cp <= 0x1F1FF):
+        return SCRIPT_FORM
+    if (0x0080 <= cp <= 0x024F or 0x1E00 <= cp <= 0x1EFF or 0x2C60 <= cp <= 0x2C7F
+            or 0xA720 <= cp <= 0xA7FF or 0xFB00 <= cp <= 0xFB06):
+        return SCRIPT_LATIN
+    return SCRIPT_OTHER
+
+
+# 1. MECHANICAL. Every code point whose Unicode compatibility decomposition, with
+#    combining marks discarded, is exactly one ASCII letter. This is what folds
+#    "é", the fullwidth letters, the mathematical alphanumerics and the enclosed
+#    forms, and it is derived, not typed.
+confusables = {}
+for cp in range(0x80, 0x1FB00):
+    ch = chr(cp)
+    if unicodedata.category(ch)[0] != "L":
+        continue
+    d = unicodedata.normalize("NFKD", ch)
+    d = "".join(c for c in d if not unicodedata.combining(c))
+    if len(d) == 1 and d.isascii() and d.isalpha():
+        confusables[cp] = (d, script_of(cp))
+
+# 2. CURATED, and only for the two scripts that produce look-alikes a reader
+#    cannot tell apart from Latin at all: Cyrillic and Greek. Nothing here
+#    decomposes, so nothing here can be derived. Every entry is a lowercase or
+#    uppercase letter whose glyph IS the ASCII letter it maps to.
+_CYRILLIC = {
+    0x0430: "a", 0x0432: "b", 0x0435: "e", 0x0433: "r", 0x043A: "k", 0x043C: "m",
+    0x043D: "h", 0x043E: "o", 0x043F: "n", 0x0440: "p", 0x0441: "c", 0x0442: "t",
+    0x0443: "y", 0x0445: "x", 0x0455: "s", 0x0456: "i", 0x0458: "j", 0x0473: "o",
+    0x04BB: "h", 0x04CF: "l", 0x0501: "d", 0x051B: "q", 0x051D: "w",
+    0x0410: "A", 0x0412: "B", 0x0415: "E", 0x0405: "S", 0x0406: "I", 0x0408: "J",
+    0x041A: "K", 0x041C: "M", 0x041D: "H", 0x041E: "O", 0x0420: "P", 0x0421: "C",
+    0x0422: "T", 0x0423: "Y", 0x0425: "X", 0x0472: "O", 0x04AE: "Y", 0x04C0: "I",
+    0x051A: "Q", 0x051C: "W", 0x0500: "D",
+}
+_GREEK = {
+    0x03B1: "a", 0x03B3: "y", 0x03B5: "e", 0x03B7: "n", 0x03B9: "i", 0x03BA: "k",
+    0x03BC: "u", 0x03BD: "v", 0x03BF: "o", 0x03C1: "p", 0x03C3: "o", 0x03C4: "t",
+    0x03C5: "u", 0x03C7: "x", 0x03C9: "w", 0x03F2: "c", 0x03F3: "j",
+    0x0391: "A", 0x0392: "B", 0x0395: "E", 0x0396: "Z", 0x0397: "H", 0x0399: "I",
+    0x039A: "K", 0x039C: "M", 0x039D: "N", 0x039F: "O", 0x03A1: "P", 0x03A4: "T",
+    0x03A5: "Y", 0x03A7: "X", 0x03A9: "O", 0x03F9: "C",
+}
+for table, want in ((_CYRILLIC, SCRIPT_CYRILLIC), (_GREEK, SCRIPT_GREEK)):
+    for cp, ascii_ch in table.items():
+        # Membership is the test, and so is the BLOCK: a typo in a hex literal
+        # here would silently fold a code point from the wrong script.
+        if script_of(cp) != want:
+            raise SystemExit(f"curated confusable U+{cp:04X} is not in the expected script")
+        if unicodedata.category(chr(cp))[0] != "L":
+            raise SystemExit(f"curated confusable U+{cp:04X} is not a letter")
+        confusables[cp] = (ascii_ch, want)
+
+# 3. INVISIBLES. A zero-width or combining code point inside a word is a run
+#    breaker at round 1 and a disguise in general; it folds to NOTHING, so
+#    "forty<ZWSP>seven" reads exactly as "fortyseven" does.
+invisible = []
+for cp in range(0x80, 0x110000):
+    cat = unicodedata.category(chr(cp))
+    if cat in ("Cf", "Mn", "Me"):
+        invisible.append(cp)
+
 digest = hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()[:16]
 
 
@@ -264,6 +356,32 @@ w("")
 w("inline constexpr CodePointFold kFractionFolds[] = {")
 for cp, text in fractions:
     w(f'    {{0x{cp:04X}u, "{text}"}},')
+w("};")
+w("")
+w("// Script tags for the confusable fold. A token that mixes ASCII letters with a")
+w("// NON-ZERO script tag is a mixed-script token: 'f<U+043E>rty' reads as 'forty'")
+w("// and is not one. kScriptLatin is accented Latin and ligatures — an ordinary")
+w("// spelling, never on its own a disguise.")
+w("inline constexpr unsigned char kScriptLatin    = 0;")
+w("inline constexpr unsigned char kScriptCyrillic = 1;")
+w("inline constexpr unsigned char kScriptGreek    = 2;")
+w("inline constexpr unsigned char kScriptForm     = 3;")
+w("inline constexpr unsigned char kScriptOther    = 4;")
+w("")
+w("struct ConfusableFold { unsigned int cp; const char* ascii; unsigned char script; };")
+w("")
+w("inline constexpr ConfusableFold kConfusableFolds[] = {")
+for cp in sorted(confusables):
+    ascii_ch, sc = confusables[cp]
+    w(f'    {{0x{cp:04X}u, "{ascii_ch}", {sc}}},')
+w("};")
+w("")
+w("// Zero-width, format and combining code points. They fold to NOTHING: a")
+w("// zero-width space inside a numeral run must not break the run, and a")
+w("// combining acute must not make 'f<e-acute>rty' a different word from 'forty'.")
+w("inline constexpr unsigned int kInvisibleCodePoints[] = {")
+for cp in invisible:
+    w(f"    0x{cp:04X}u,")
 w("};")
 w("")
 
