@@ -25,13 +25,38 @@ ipcMain.handle('io:openDialog', async (_evt, opts) => {
   });
   return r.canceled ? null : r.filePaths[0];
 });
+// T-131 — CONSENT TRAVELS WITH THE PATH.
+//
+// io:writeBlob below used to write ANY string the renderer handed it. The
+// legitimate flow through this bridge is two steps -- io:saveDialog puts a
+// native panel in front of the user, the user picks a path, and the renderer
+// then ships the bytes to io:writeBlob for that path. The user consented to the
+// path by choosing it.
+//
+// The illegitimate flow is one step: frontend/src/ai/ForgeToolBridge.js reaches
+// forge.dialog.writeBlob with a path that came out of an ARCHIE TOOL CALL. No
+// panel was raised, nobody chose anything, and the write happened anyway. That
+// is T-124's shape exactly -- there, `wantsFileDialog()` returned false the
+// moment the dispatch carried its own path, "so the dispatch reaches
+// documentSave with no panel and no sheet".
+//
+// So main remembers the paths IT returned from a panel, and writeBlob accepts
+// nothing else. The renderer cannot add to this set; only the user can, by
+// answering a dialog. It is not cleared after a write: re-exporting over the
+// path you just chose is the normal workflow, and T-130 settled that exports may
+// overwrite ("a Save As onto someone's thesis has no idempotent-re-export story.
+// Fix the SAVE half; leave the export half as designed").
+const { rememberConsent, consentedFor } = require('./writeConsent.js');
+
 ipcMain.handle('io:saveDialog', async (_evt, opts) => {
   const r = await dialog.showSaveDialog({
     title: opts.title || 'Save',
     defaultPath: opts.defaultPath || 'untitled',
     filters: opts.filters || [],
   });
-  return r.canceled ? null : r.filePath;
+  if (r.canceled) return null;
+  rememberConsent(r.filePath);
+  return r.filePath;
 });
 
 // Forge-103 — project-bundle ZIP exporter blob writer.
@@ -45,6 +70,14 @@ ipcMain.handle('io:writeBlob', async (_evt, { filepath, base64, bytes }) => {
   try {
     if (!filepath || typeof filepath !== 'string') {
       throw new Error('io:writeBlob: filepath required');
+    }
+    if (!consentedFor(filepath)) {
+      throw new Error(
+        `io:writeBlob: ${filepath} is NOT APPLIED -- no save panel ever returned `
+        + 'this path or its directory, so nobody chose it. This bridge writes only '
+        + 'where the user has pointed it (io:saveDialog). A caller holding a path '
+        + 'it generated itself -- an Archie tool call, a macro -- must raise the '
+        + 'panel first.');
     }
     let buf;
     if (base64 != null) {
