@@ -283,6 +283,30 @@ jobs:
       - name: ForgeCADScore mechanism-axis self-test
         run: node forge-kernel/test/mechanism_axis_selftest.mjs
 
+  toolwrite:
+    name: can an Archie tool call write where it likes? (T-131)
+    # The JS app is legacy and the release does not package it, but `npm start`
+    # runs it and its tool bridge is reachable by an agent -- so the same guard
+    # the C++ shell got in T-124/T-130 has to exist here or the second product
+    # ships the first product's closed defect.
+    #
+    # No install step and none needed: the whole transitive import chain of
+    # ForgeToolBridge.js is 32 relative source files with ZERO package imports,
+    # so a bare checkout plus Node runs it in under a second. The gate measures
+    # the WRITE (a stub kernel records every path it is asked to write), never
+    # `ok:false` -- on an unguarded tree the attack ALSO returns ok:false,
+    # because with no kernel loaded the verb throws for an unrelated reason, and
+    # a gate asserting ok:false would be green on the live defect.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: tool-call write intent + the Electron consent ledger
+        run: node --test frontend/test/tool_write_intent_gate.mjs
+
   parameters:
     name: parameters and expressions (libforge_expr, LGPL, dynamic)
     # Named parameters, formulas driving feature dimensions, unit-checked

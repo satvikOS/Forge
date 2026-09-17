@@ -21,6 +21,7 @@
  * in the system prompt (matching Studio's 8-discipline pattern).
  */
 
+import { guardFileArgs, assertFileIntentDeclared } from './fileIntent.js';
 import { getForge } from '../kernel/forge/index.js';
 import { simSetup } from '../forge-v4/simulationStore.js';
 import { exportRobot } from '../forge-v4/io/robotExport.js';
@@ -4182,6 +4183,46 @@ export const FORGE_TOOLS = [
 ];
 
 // ===================================================================
+//     FILE INTENT (T-131) -- a verb that declares nothing cannot write
+// ===================================================================
+//
+// Declared HERE rather than inline on each spec so the whole disk surface of
+// this module is one readable table: thirteen verbs, and you can see at a glance
+// that ten of them write STEP. assertFileIntentDeclared() then sweeps
+// FORGE_TOOLS for any string parameter whose name is path-shaped and refuses to
+// load if one is missing from this table -- so the table cannot silently fall
+// behind the verbs. See frontend/src/ai/fileIntent.js for why this is a
+// chokepoint and not thirteen edits.
+
+const STEP = ['.step', '.stp'];
+
+const FILE_INTENT = {
+  'io.import':                     { filepath: { mode: 'read',  ext: [...STEP, '.stl', '.brep', '.brp', '.iges', '.igs'] } },
+  'io.export-step':                { filepath: { mode: 'write', ext: STEP } },
+  'io.export-stl':                 { filepath: { mode: 'write', ext: ['.stl'] } },
+  // format: urdf | sdf | usd | mjcf -- mjcf is XML, usd has two text spellings
+  'io.export-robot':               { filepath: { mode: 'write', ext: ['.urdf', '.sdf', '.usd', '.usda', '.xml', '.mjcf'] } },
+  'io.export-archival':            { filepath: { mode: 'write', ext: STEP } },
+  'ecad.import-board':             { filepath: { mode: 'read',  ext: ['.emn'] } },
+  'ecad.export-board':             { filepath: { mode: 'write', ext: ['.emn'] } },
+  'part.annotate-pmi':             { filepath: { mode: 'write', ext: STEP } },
+  'gdt.datum':                     { filepath: { mode: 'write', ext: STEP } },
+  'gdt.feature-control-frame':     { filepath: { mode: 'write', ext: STEP } },
+  'gdt.position-relative-to-mate': { filepath: { mode: 'write', ext: STEP } },
+  'gdt.concentric-to-mate':        { filepath: { mode: 'write', ext: STEP } },
+  'gdt.write-step':                { filepath: { mode: 'write', ext: STEP } },
+};
+
+for (const [verb, files] of Object.entries(FILE_INTENT)) {
+  const spec = FORGE_TOOLS.find((t) => t.name === verb);
+  // A declaration for a verb that no longer exists is as wrong as a missing one:
+  // it reads as coverage and guards nothing.
+  if (!spec) throw new Error(`FILE_INTENT declares file access for unknown verb '${verb}'`);
+  spec.files = files;
+}
+assertFileIntentDeclared(FORGE_TOOLS);
+
+// ===================================================================
 //                          dispatch + validation
 // ===================================================================
 
@@ -4216,6 +4257,10 @@ export async function dispatchToolCall({ name, arguments: args }, opts = {}) {
   if (!spec) return { ok: false, tool: name, args, error: `unknown tool id '${name}'` };
   const val = validateArguments(spec, args);
   if (!val.ok) return { ok: false, tool: name, args, error: val.error };
+  // Before `run` is entered, never inside it: a path the model chose is checked
+  // against what the verb DECLARED it touches. T-131.
+  const fileOk = guardFileArgs(spec, args);
+  if (!fileOk.ok) return { ok: false, tool: name, args, error: fileOk.error };
   const forge = opts.forge || getForge();
   // Per-sequence context for the handle-free CONTEXT/PATTERN verbs (part.begin/
   // add/subtract/intersect/finish + the pattern verbs). `ctx.current` is the
