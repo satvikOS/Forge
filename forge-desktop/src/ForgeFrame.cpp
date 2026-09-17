@@ -6941,7 +6941,13 @@ void ForgeFrame::runPendingParameterCommand() {
     parametersMessage_ = pendingParameterSuccess_;
     syncSceneToDocument();
   } else {
-    parametersMessage_ = r.detail.empty() ? std::string(forge::ui::userText(r.status)) : r.detail;
+    // NOT r.detail. DispatchResult::detail is the PROGRAM's description of the
+    // failure -- it has carried "1..n edge (homogeneous)" and a command's own id --
+    // and ui/test/user_facing_text_test.cpp lists `detail` as an internal member
+    // precisely because it reached note() from two places in this file before. This
+    // panel would have been the third. userText(status) is the sentence written for
+    // a person; the detail belongs in the activity log, which already records it.
+    parametersMessage_ = std::string(forge::ui::userText(r.status));
     if (!parametersMessage_.empty()) {
       parametersMessage_[0] = static_cast<char>(
           std::toupper(static_cast<unsigned char>(parametersMessage_[0])));

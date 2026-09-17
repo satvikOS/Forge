@@ -142,13 +142,34 @@ open(p,'w').write(s.replace(old,new,1))
 PY
        ;;
     3) # a panel in a shipped workspace that the catalogue has never heard of
-       python3 - "$tree/$PROFILE" <<'PY'
-import sys
-p=sys.argv[1]; s=open(p).read()
-old='{"feature_tree", "model_browser"}, {"viewport_3d"},\n                                  {"properties", "measure", "appearance"},'
-new='{"feature_tree", "model_browser"}, {"viewport_3d"},\n                                  {"properties", "measure", "flange_wizard"},'
-assert old in s, "mutation 3 anchor missing"
-open(p,'w').write(s.replace(old,new,1))
+       # DO NOT HARD-CODE THE PANEL LIST -- the same lesson mutation 4 below already
+       # records, and this case had not learned it. It pinned the literal
+       #   {"properties", "measure", "appearance"},
+       # so the moment a workspace gained a panel the anchor vanished, python raised
+       # "mutation 3 anchor missing", and the harness called the check UNFALSIFIABLE
+       # -- accusing the branch that did the work. It happened exactly as predicted:
+       # adding "parameters" to the Part workspace's right column broke it.
+       # Selecting the row STRUCTURALLY keeps the same property under test.
+       python3 - "$tree/$PROFILE" "$tree/$CAT" <<'PY'
+import sys, re
+p, cat = sys.argv[1], sys.argv[2]
+s = open(p).read()
+INVENTED = "flange_wizard"
+# It must be a panel the catalogue really has never heard of, or the mutation is
+# testing nothing. Assert that rather than assuming it.
+assert f'"{INVENTED}"' not in open(cat).read(), \
+    f"{INVENTED} is now a real panel -- pick an id the catalogue does not define"
+# addWindow(mainWindow( ... )); -- the CALL, not the definition at the top of the
+# file, which `mainWindow\(` alone would match first and which names no panels.
+m = re.search(r'addWindow\(mainWindow\(.*?\)\);', s, re.S)
+assert m, "no addWindow(mainWindow(...)) call in the workspace profile -- this needs rethinking, not deleting"
+call = m.group(0)
+ids = list(re.finditer(r'"[a-z_0-9]+"', call))
+assert ids, "the first mainWindow() call names no panels"
+last = ids[-1]                      # rename ONE shipped panel to the invented id
+mutated = call[:last.start()] + f'"{INVENTED}"' + call[last.end():]
+assert mutated != call
+open(p, 'w').write(s.replace(call, mutated, 1))
 PY
        ;;
     4) # a promise the frame builder does not keep
