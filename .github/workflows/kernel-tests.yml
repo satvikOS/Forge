@@ -1165,6 +1165,38 @@ jobs:
         # It does NOT run the corpus: 600 parts is ~4 minutes for one family and
         # there is no corpus in CI.
         run: JOBS=4 bash forge-kernel/test/build_corpus_ab_coverage.sh
+      - name: TKOffset families G and I — the two gates their drops rest on
+        # BOTH OF THESE WERE COMMITTED WITHOUT A CI STEP and were caught by
+        # forge-kernel/test/gate_registration_ratchet.sh, which exists because this
+        # repository has shipped gates that compiled, stayed green and never ran once.
+        # They share the archive the step above has just warmed, so they cost seconds.
+        #
+        # thicksolid_multibody_gate (family G) pins the finding that made the family's
+        # drop possible at all: makeThickSolid gathered EVERY body's faces into one
+        # sewing, so a two-solid input closed into as many shells as there were bodies
+        # and 198 corpus parts died on one rung that was a missing dispatch, never a
+        # geometry defect. Its closed forms are derived, not fitted (two boxes = 2332
+        # exactly; a mouthless box = 488; a cylinder = pi R^2 H - pi (R-t)^2 (H-t)), and
+        # it is PROVED FALSIFIABLE: against the pre-change engine it scores 9/11,
+        # failing exactly the two assertions it exists for.
+        #
+        # thicken_compound_input_gate (family I) pins a regression the DROP created
+        # rather than found. PATH A prismed the RAW INPUT, which forge::occtPrism
+        # refuses when it is a TopAbs_COMPOUND — the shape EVERY OCCT boolean returns —
+        # so thickening the direct output of a cut declined while the identical face
+        # unwrapped answered exactly. Before family I that fell through to
+        # BRepOffset_MakeOffset; with that engine deleted it is a hard THROW. The gate
+        # asserts the compound answer equals the unwrapped answer on the WHOLE
+        # observable vector (a wrapper is not a geometry), scores the unwrapped arm
+        # against the closed form (L^2 - pi r^2) t so neither engine is its own oracle,
+        # and carries a negative control — a non-planar face in the same wrapper must
+        # still be DECLINED by name — so it cannot pass by having become "accept
+        # anything". Mutation-tested: restoring the pre-fix line gives 7 passed,
+        # 8 FAILED, exit 1, with every control still green.
+        run: |
+          set -e
+          SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicksolid_multibody_gate.sh
+          SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicken_compound_input_gate.sh
       - name: corpus A/B flip-gate terms (each added term is driven to FAIL and back)
         # THE GATE THAT DECIDES WHETHER OCCT MAY BE DROPPED, tested. Until
         # 2026-09-03 the per-family verdict was one line -- `natOk >= occtOk` --
