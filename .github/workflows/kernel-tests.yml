@@ -283,6 +283,42 @@ jobs:
       - name: ForgeCADScore mechanism-axis self-test
         run: node forge-kernel/test/mechanism_axis_selftest.mjs
 
+  toolwrite:
+    name: can an Archie tool call write where it likes? (T-131)
+    # The JS app is legacy and the release does not package it, but `npm start`
+    # runs it and its tool bridge is reachable by an agent -- so the same guard
+    # the C++ shell got in T-124/T-130 has to exist here or the second product
+    # ships the first product's closed defect.
+    #
+    # No install step and none needed: the whole transitive import chain of
+    # ForgeToolBridge.js is 32 relative source files with ZERO package imports,
+    # so a bare checkout plus Node runs it in under a second. The gate measures
+    # the WRITE (a stub kernel records every path it is asked to write), never
+    # `ok:false` -- on an unguarded tree the attack ALSO returns ok:false,
+    # because with no kernel loaded the verb throws for an unrelated reason, and
+    # a gate asserting ok:false would be green on the live defect.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # This job's whole purpose is to execute code from the pull request, so it
+      # must not keep a credentialed git remote around while doing it, and it
+      # must not resolve its actions through a mutable tag.
+      #
+      # ★THE OTHER 22 `uses:` IN THIS REPOSITORY ARE STILL MUTABLE TAGS -- 17
+      # actions/checkout@v4, 3 actions/cache@v4, 2 actions/upload-artifact@v4 --
+      # and pinning only this job does NOT make the repository safe. It is
+      # recorded here rather than left to look handled: a supply-chain policy
+      # covering 2 of 24 entry points is the kind of partial measure that stops
+      # the next person looking. T-142 tracks the repo-wide change.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
+        with:
+          node-version: '22'
+      - name: tool-call write intent + the Electron consent ledger
+        run: node --test frontend/test/tool_write_intent_gate.mjs
+
   parameters:
     name: parameters and expressions (libforge_expr, LGPL, dynamic)
     # Named parameters, formulas driving feature dimensions, unit-checked
