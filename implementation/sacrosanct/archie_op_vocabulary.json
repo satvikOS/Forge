@@ -30,9 +30,9 @@
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
-        "sha256": "d2e5ea3727b1c0fef3cb35a5e0a5185725ef4ae3b2f07a32376e8706286543d1",
-        "bytes": 226881,
-        "lines": 4155
+        "sha256": "a45d91723fef126f45409f79dfac191e3f48cbd46539e021386b2edf6aec2fe3",
+        "bytes": 247049,
+        "lines": 4516
       },
       {
         "path": "forge-kernel/include/forge/ft/FeatureTree.hpp",
@@ -770,7 +770,7 @@
           "arguments": [
             "%body",
             "distance",
-            "ALL|HORIZONTAL|RIM|VERTICAL"
+            "ALL|CONVEX|HORIZONTAL|RIM|VERTICAL|\"edge:<faceA>_<faceB>[#k]\"|\"edge:<n>\""
           ],
           "argument_count": {
             "min": 3,
@@ -788,22 +788,21 @@
                 "ALL"
               ],
               "ir_text": "%<id> = CHAMFER(%body, 1, ALL)"
-            }
-          ],
-          "refused_app_emissions": [
+            },
             {
               "parameters": {
                 "distance": 1.0,
-                "selector": "CONVEX"
+                "selector": "edge:1"
               },
               "ir_arguments": [
                 "%body",
                 "1",
-                "CONVEX"
+                "\"edge:1\""
               ],
-              "ir_text": "%<id> = CHAMFER(%body, 1, CONVEX)",
-              "refused_because": "selectEdges resolves ALL | VERTICAL | RIM | HORIZONTAL only, so the keyword has no resolver"
-            },
+              "ir_text": "%<id> = CHAMFER(%body, 1, \"edge:1\")"
+            }
+          ],
+          "refused_app_emissions": [
             {
               "parameters": {
                 "distance": 1.0,
@@ -815,7 +814,7 @@
                 "\"face:top\""
               ],
               "ir_text": "%<id> = CHAMFER(%body, 1, \"face:top\")",
-              "refused_because": "the slot is keyword-only; a quoted selector used to fall through kwOpt() to the slot default and act on every edge"
+              "refused_because": "the quoted selector grammar is edge:<faceA>_<faceB>[#k] | edge:<n>, and this form is none of them -- it is refused BY NAME, never widened to ALL"
             }
           ],
           "command": "part.chamfer"
@@ -2031,7 +2030,7 @@
           "arguments": [
             "%body",
             "radius",
-            "ALL|HORIZONTAL|RIM|VERTICAL"
+            "ALL|CONVEX|HORIZONTAL|RIM|VERTICAL|\"edge:<faceA>_<faceB>[#k]\"|\"edge:<n>\""
           ],
           "argument_count": {
             "min": 3,
@@ -2049,22 +2048,21 @@
                 "ALL"
               ],
               "ir_text": "%<id> = FILLET(%body, 1, ALL)"
-            }
-          ],
-          "refused_app_emissions": [
+            },
             {
               "parameters": {
                 "radius": 1.0,
-                "selector": "CONVEX"
+                "selector": "edge:1"
               },
               "ir_arguments": [
                 "%body",
                 "1",
-                "CONVEX"
+                "\"edge:1\""
               ],
-              "ir_text": "%<id> = FILLET(%body, 1, CONVEX)",
-              "refused_because": "selectEdges resolves ALL | VERTICAL | RIM | HORIZONTAL only, so the keyword has no resolver"
-            },
+              "ir_text": "%<id> = FILLET(%body, 1, \"edge:1\")"
+            }
+          ],
+          "refused_app_emissions": [
             {
               "parameters": {
                 "radius": 1.0,
@@ -2076,7 +2074,7 @@
                 "\"face:top\""
               ],
               "ir_text": "%<id> = FILLET(%body, 1, \"face:top\")",
-              "refused_because": "the slot is keyword-only; a quoted selector used to fall through kwOpt() to the slot default and act on every edge"
+              "refused_because": "the quoted selector grammar is edge:<faceA>_<faceB>[#k] | edge:<n>, and this form is none of them -- it is refused BY NAME, never widened to ALL"
             }
           ],
           "command": "part.fillet"
