@@ -11,6 +11,14 @@
 #   phase 3  the loopback live check — the ONE place a real POSIX socket is
 #            opened, against a stub sidecar on 127.0.0.1, and the ONE place the
 #            redaction assertion is made from the FAR END of the socket
+#   phase 4  the executor (forge_retrieve), in its --mutations form
+#   phase 5  the Archie-side Python bridge, in its --mutations form
+#   phase 6  the injection gate: hostile retrieved text -> geometry
+#   phase 7  the source classifier: a hostname must not be able to buy an
+#            authority tier (hostile-hostname corpus + guard-removal RED proof)
+#   phase 8  the attacks that broke PR #246: non-ASCII secret spellings, an
+#            approval spent on another endpoint or result handling, and one host
+#            corroborating itself (proved cases + UCD check + mutation RED proof)
 #
 # Nothing leaves the machine in any phase: phase 3 is loopback-only, the same
 # destination class 20.2 permits, and the transport refuses anything else.
@@ -153,12 +161,17 @@ if [ ! -x "$LIVE" ]; then
 fi
 if ! command -v python3 >/dev/null 2>&1; then
   if [ "${FORGE_ALLOW_NO_LIVE_LOOPBACK:-0}" = "1" ]; then
-    echo "[retrieval] phase 3 SKIPPED: python3 (the stub sidecar) is not on PATH."
+    echo "[retrieval] phases 3 to 8 SKIPPED: python3 is not on PATH."
     echo "[retrieval] FORGE_ALLOW_NO_LIVE_LOOPBACK=1 was set, so this is an explicit, recorded"
-    echo "[retrieval] opt-out. THIS RUN DOES NOT EXERCISE THE REAL SOCKET PATH and does not"
-    echo "[retrieval] make the far-end redaction assertion."
+    echo "[retrieval] opt-out. THIS RUN DOES NOT EXERCISE THE REAL SOCKET PATH, does not make"
+    echo "[retrieval] the far-end redaction assertion, AND DOES NOT TEST THE EXECUTOR OR THE"
+    echo "[retrieval] ARCHIE-SIDE BRIDGE AT ALL — phases 4 and 5 need python3 for their stub"
+    echo "[retrieval] sidecar and for the bridge itself. The send path Archie uses is UNPROVEN"
+    echo "[retrieval] in this run, and phases 6 to 8 (the injection, source classifier and"
+    echo "[retrieval] attack regression gates, whose RED proofs apply their mutations with python3)"
+    echo "[retrieval] did not run either."
     echo
-    echo "[retrieval] GATE PASSED (phases 1-2; phase 3 opted out)"
+    echo "[retrieval] GATE PASSED (phases 1-2; phases 3-8 opted out)"
     exit 0
   fi
   echo "[retrieval] FATAL: phase 3 needs python3 for retrieval/test/stub_sidecar.py." >&2
@@ -185,6 +198,174 @@ if ! grep -q '^\[live\] LOOPBACK LIVE CHECK PASSED' "$OUT/live.log"; then
   exit 1
 fi
 echo "[retrieval] phase 3 (loopback live) PASSED"
+
+# ── phase 4: the EXECUTOR ────────────────────────────────────────────────────
+# Phases 1-3 prove the CLIENT. They say nothing about forge_retrieve, the binary
+# Archie actually invokes — and a gated library called by an ungated wrapper is
+# an ungated system. Phase 4 drives the real executable through a real loopback
+# socket: that it refuses to approve its own request, that a registered secret
+# never reaches its stdout, and that every way the sidecar can be absent or wrong
+# comes back RETRIEVAL_UNAVAILABLE with nothing transmitted.
+#
+# IT RUNS IN ITS --mutations FORM, ALWAYS. After the clean run it injects five
+# defects into a COPY of the executor and requires each to turn a NAMED check
+# red. That costs ~49s measured, which the 20-minute job affords, and it is the
+# difference between a green check and an earned one. Two of those five defects
+# went UNCAUGHT when first written — the checks they were aimed at were being
+# satisfied by a redundant guard one line further down — so this is not a
+# formality; it has already found holes in its own gate.
+EXECGATE="$ROOT/retrieval/test/run_executor_gate.sh"
+if [ ! -f "$EXECGATE" ]; then
+  echo "[retrieval] FATAL: $EXECGATE is missing." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 4: the executor (forge_retrieve), with mutations"
+bash "$EXECGATE" --mutations > "$OUT/executor.log" 2>&1
+rc4=$?
+if [ "$rc4" -ne 0 ]; then
+  echo "[retrieval] PHASE 4 FAILED (exit $rc4) — see below"
+  cat "$OUT/executor.log"
+  exit "$rc4"
+fi
+grep -E '^\[executor\] (mutations|clean run)' "$OUT/executor.log"
+# Exit 0 is not a pass unless the script SAID so. An empty log is a run that did
+# not run, and a suite that reads only $? cannot tell the two apart.
+if ! grep -q '^\[executor\] GATE PASSED (green, and every check demonstrated red)' "$OUT/executor.log"; then
+  echo "[retrieval] phase 4 exited 0 without declaring a mutation-proved pass. Refusing to report one."
+  cat "$OUT/executor.log"
+  exit 1
+fi
+echo "[retrieval] phase 4 (executor) PASSED"
+
+# ── phase 5: the Archie-side bridge ──────────────────────────────────────────
+# forge_retrieval_bridge.py is what Archie imports. Its load-bearing property is
+# NEGATIVE — that it is not a second send path — so the gate reads the module's
+# own AST for every networking import and every way it could mint an approval,
+# and then drives the real executor against a real stub to prove the rest.
+PYGATE="$ROOT/retrieval/test/executor_python_gate.py"
+if [ ! -f "$PYGATE" ]; then
+  echo "[retrieval] FATAL: $PYGATE is missing." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 5: the Archie-side bridge, with mutations"
+python3 "$PYGATE" --mutations > "$OUT/bridge.log" 2>&1
+rc5=$?
+if [ "$rc5" -ne 0 ]; then
+  echo "[retrieval] PHASE 5 FAILED (exit $rc5) — see below"
+  cat "$OUT/bridge.log"
+  exit "$rc5"
+fi
+grep -E '^(mutations|\[python-gate\] clean run)' "$OUT/bridge.log"
+if ! grep -q '^\[python-gate\] GATE PASSED (green, and every check demonstrated red)' "$OUT/bridge.log"; then
+  echo "[retrieval] phase 5 exited 0 without declaring a mutation-proved pass. Refusing to report one."
+  cat "$OUT/bridge.log"
+  exit 1
+fi
+echo "[retrieval] phase 5 (bridge) PASSED"
+
+# ── phase 6: the injection gate ──────────────────────────────────────────────
+# Hostile retrieved text driven through the whole path, with its own negative-
+# compilation phase and its own RED proof. It is CHAINED FROM HERE, deliberately.
+#
+# The gate-registration ratchet that catches an unwired gate
+# (forge-kernel/test/gate_registration_ratchet.sh) only scans
+# forge-kernel/test/run_*.sh and build_*.sh. A gate living under retrieval/test/
+# is outside its scope entirely, so it would be invisible to that check — green,
+# and never run. Chaining it to this script, which .github/workflows/
+# kernel-tests.yml already executes, is what makes it actually happen.
+INJ="$ROOT/retrieval/test/run_injection_gate.sh"
+if [ ! -x "$INJ" ]; then
+  echo "[retrieval] FATAL: $INJ is missing or not executable." >&2
+  echo "[retrieval] The injection boundary would ship unexercised." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 6: injection gate (hostile evidence -> geometry)"
+"$INJ" > "$OUT/injection.log" 2>&1
+rc6=$?
+if [ ! -s "$OUT/injection.log" ]; then
+  echo "[retrieval] FATAL: the injection gate wrote an empty log. It did not run." >&2
+  exit 1
+fi
+if [ "$rc6" -ne 0 ]; then
+  echo "[retrieval] PHASE 6 FAILED (exit $rc6) — see below"
+  cat "$OUT/injection.log"
+  exit "$rc6"
+fi
+grep -E '^\[injection\] phase [0-9] .* PASSED' "$OUT/injection.log"
+if ! grep -q '^\[injection\] INJECTION GATE PASSED' "$OUT/injection.log"; then
+  echo "[retrieval] phase 6 exited 0 without declaring a pass. Refusing to report one."
+  cat "$OUT/injection.log"
+  exit 1
+fi
+echo "[retrieval] phase 6 (injection gate) PASSED"
+
+# ── phase 7: the source classifier ───────────────────────────────────────────
+# classifySource() decides the authority tier the operator sees on the approval
+# screen and the model sees as may_be_sole_authority. It matched host SUBSTRINGS,
+# so ecfr.attacker-cdn.example classified as LawOrRegulator, and nothing above
+# could see it: retrieval_gate only asserted what the classifier must ACCEPT.
+# This phase asserts what it must REFUSE, and always runs its RED proof.
+CLASSGATE="$ROOT/retrieval/test/run_source_classifier_gate.sh"
+if [ ! -x "$CLASSGATE" ]; then
+  echo "[retrieval] FATAL: $CLASSGATE is missing or not executable." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 7: source classifier (hostile hostnames), with RED proof"
+"$CLASSGATE" > "$OUT/classifier.log" 2>&1
+rc7=$?
+if [ ! -s "$OUT/classifier.log" ]; then
+  echo "[retrieval] FATAL: the classifier gate wrote an empty log. It did not run." >&2
+  exit 1
+fi
+if [ "$rc7" -ne 0 ]; then
+  echo "[retrieval] PHASE 7 FAILED (exit $rc7) — see below"
+  cat "$OUT/classifier.log"
+  exit "$rc7"
+fi
+grep -E '^\[classifier\] (phase [0-9] .* PASSED|mutations:)' "$OUT/classifier.log"
+if ! grep -q '^\[classifier\] SOURCE CLASSIFIER GATE PASSED' "$OUT/classifier.log"; then
+  echo "[retrieval] phase 7 exited 0 without declaring a pass. Refusing to report one."
+  cat "$OUT/classifier.log"
+  exit 1
+fi
+echo "[retrieval] phase 7 (source classifier) PASSED"
+
+# ── phase 8: the attacks that broke PR #246 ──────────────────────────────────
+# An adversarial review of 1dd9ed9b transmitted a registered secret in fullwidth
+# and Cyrillic spellings, spent an approval on another endpoint and a rewritten
+# diversity rule, and bound a critical value corroborated by its own publisher
+# through a second URL parser. Each proof is a case here; the fold tables are
+# judged against the UCD and confusables.txt; and 20 mechanisms are removed from
+# copies of the source, each required to turn its named case red.
+ATTACKGATE="$ROOT/retrieval/test/run_attack_regression_gate.sh"
+if [ ! -x "$ATTACKGATE" ]; then
+  echo "[retrieval] FATAL: $ATTACKGATE is missing or not executable." >&2
+  exit 1
+fi
+echo
+echo "[retrieval] phase 8: attack regression (redaction, approval, corroboration), with RED proof"
+"$ATTACKGATE" > "$OUT/attack.log" 2>&1
+rc8=$?
+if [ ! -s "$OUT/attack.log" ]; then
+  echo "[retrieval] FATAL: the attack regression gate wrote an empty log. It did not run." >&2
+  exit 1
+fi
+if [ "$rc8" -ne 0 ]; then
+  echo "[retrieval] PHASE 8 FAILED (exit $rc8) — see below"
+  cat "$OUT/attack.log"
+  exit "$rc8"
+fi
+grep -E '^\[attack\] (phase [0-9] .* PASSED|mutations:)' "$OUT/attack.log"
+if ! grep -q '^\[attack\] ATTACK REGRESSION GATE PASSED' "$OUT/attack.log"; then
+  echo "[retrieval] phase 8 exited 0 without declaring a pass. Refusing to report one."
+  cat "$OUT/attack.log"
+  exit 1
+fi
+echo "[retrieval] phase 8 (attack regression) PASSED"
 
 echo
 echo "[retrieval] GATE PASSED"

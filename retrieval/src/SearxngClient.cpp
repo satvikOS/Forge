@@ -1,10 +1,13 @@
 #include "forge/retrieval/SearxngClient.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <ctime>
 #include <set>
+#include <span>
+#include <string_view>
 
 #include "forge/retrieval/Json.hpp"
 
@@ -16,12 +19,201 @@ std::string toLower(std::string s) {
   return s;
 }
 
-bool endsWith(const std::string& s, const std::string& suffix) {
+bool endsWith(const std::string& s, std::string_view suffix) {
   return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 bool contains(const std::string& s, const char* needle) {
   return s.find(needle) != std::string::npos;
+}
+
+// ── URL authority → host ─────────────────────────────────────────────────────
+// Implemented from the documented grammar, not from any library:
+//   RFC 3986 §3.1   scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ), and it
+//                   is case-insensitive.
+//   RFC 3986 §3.2   authority = [ userinfo "@" ] host [ ":" port ], and it ends
+//                   at the first "/", "?" or "#".
+//   WHATWG URL Standard §4.4 (authority state): for special schemes "\" also
+//                   ends it, and the userinfo ends at the LAST "@".
+// The previous parser ended the authority at "/" only and split at the FIRST
+// "@", so "https://evil.example#@iso.org" and "https://evil.example?@iso.org"
+// both named iso.org as their host — the host an attacker writes into a
+// fragment. Browsers take evil.example from both.
+struct UrlAuthority {
+  bool scheme_valid = false;  // a syntactically valid scheme preceded "://"
+  bool http_scheme = false;   // ... and it was http or https
+  std::string host;           // raw bytes between userinfo and port, case kept
+  bool port_valid = true;     // the port, if present, is *DIGIT
+};
+
+bool isSchemeChar(unsigned char c, bool first) {
+  if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) return true;
+  if (first) return false;
+  return (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.';
+}
+
+UrlAuthority splitAuthority(const std::string& url) {
+  UrlAuthority a;
+  std::size_t start = 0;
+  const std::size_t sep = url.find("://");
+  if (sep != std::string::npos && sep > 0) {
+    bool ok = true;
+    for (std::size_t i = 0; i < sep; ++i) {
+      if (!isSchemeChar(static_cast<unsigned char>(url[i]), i == 0)) { ok = false; break; }
+    }
+    if (ok) {
+      a.scheme_valid = true;
+      const std::string scheme = toLower(url.substr(0, sep));
+      a.http_scheme = scheme == "http" || scheme == "https";
+      start = sep + 3;
+    }
+  }
+  std::size_t end = url.find_first_of("/?#\\", start);
+  if (end == std::string::npos) end = url.size();
+  std::string authority = url.substr(start, end - start);
+
+  const std::size_t at = authority.rfind('@');
+  if (at != std::string::npos) authority = authority.substr(at + 1);
+
+  if (!authority.empty() && authority.front() == '[') {
+    // IP literal (RFC 3986 §3.2.2). Kept whole; it is never an allowlisted name.
+    const std::size_t close = authority.find(']');
+    a.host = authority.substr(0, close == std::string::npos ? authority.size() : close + 1);
+    return a;
+  }
+  const std::size_t colon = authority.find(':');
+  if (colon != std::string::npos) {
+    for (std::size_t i = colon + 1; i < authority.size(); ++i) {
+      const unsigned char c = static_cast<unsigned char>(authority[i]);
+      if (c < '0' || c > '9') { a.port_valid = false; break; }
+    }
+    authority = authority.substr(0, colon);
+  }
+  a.host = std::move(authority);
+  return a;
+}
+
+// The host a source-authority grant may be decided on, or "" when there is none.
+//
+// Canonical means: an http(s) URL with a well-formed port, whose host is ASCII
+// letters/digits/hyphens in dot-separated labels (RFC 1035 §2.3.1 as relaxed by
+// RFC 1123 §2.1), lower-cased (DNS names are case-insensitive, RFC 4343), with
+// exactly one trailing dot removed (an absolute name, RFC 1034 §3.1), each label
+// 1..63 octets and the whole name at most 253 (RFC 1035 §2.3.4).
+//
+// IDN. The host is IDN-normalised in the only direction that can be done without
+// the Unicode tables: a name is either already in IDNA's ASCII form and eligible,
+// or it is REFUSED any grant.
+//  * Any byte >= 0x80 (a raw U-label, a fullwidth letter, U+3002/U+FF0E/U+FF61
+//    dot equivalents). UTS #46 maps some of these to ASCII and Punycode-encodes
+//    the rest (RFC 3492); neither mapping is carried here, so neither is guessed.
+//  * Any R-LDH label, i.e. "--" in the 3rd and 4th positions (RFC 5891 §4.2.3.1),
+//    which includes every IDNA A-label ("xn--"). What an A-label DISPLAYS as can
+//    only be judged with the UTS #39 confusables data, which is also not carried.
+// Both refusals cost a real internationalised host its tier. That false negative
+// is the safe direction; the false positive — xn--nst-jhd.gov, Cyrillic "nіst",
+// classifying as a regulator — is the vulnerability this closes.
+std::string canonicalHost(const std::string& url) {
+  const UrlAuthority a = splitAuthority(url);
+  if (!a.scheme_valid || !a.http_scheme || !a.port_valid) return "";
+  std::string host = a.host;
+  for (char& ch : host) {  // ASCII-only fold; a byte >= 0x80 is refused by the LDH test below
+    if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+  }
+  if (!host.empty() && host.back() == '.') host.pop_back();
+  if (host.empty() || host.size() > 253) return "";
+
+  std::size_t label_start = 0;
+  while (label_start <= host.size()) {
+    std::size_t dot = host.find('.', label_start);
+    if (dot == std::string::npos) dot = host.size();
+    const std::size_t len = dot - label_start;
+    if (len == 0 || len > 63) return "";
+    for (std::size_t i = label_start; i < dot; ++i) {
+      // Letters, digits, hyphen. This one test refuses every byte >= 0x80, '%',
+      // '@', whitespace and control characters; each guard below is kept single
+      // so the gate's mutation phase can show that removing it is observable.
+      const char c = host[i];
+      const bool ldh = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-';
+      if (!ldh) return "";
+    }
+    if (host[label_start] == '-' || host[dot - 1] == '-') return "";
+    if (len >= 4 && host[label_start + 2] == '-' && host[label_start + 3] == '-') return "";
+    label_start = dot + 1;
+  }
+  return host;
+}
+
+// Registrable-domain match: the host IS the domain, or is a subdomain of it — a
+// name only the domain's registrant can create. Never a substring, never a
+// suffix without a label boundary ("noteuropa.eu" is not "europa.eu").
+bool withinDomain(const std::string& host, std::string_view domain) {
+  if (host == domain) return true;
+  return host.size() > domain.size() && endsWith(host, domain) &&
+         host[host.size() - domain.size() - 1] == '.';
+}
+
+bool onAllowlist(const std::string& host, std::span<const std::string_view> domains) {
+  for (const std::string_view d : domains) {
+    if (withinDomain(host, d)) return true;
+  }
+  return false;
+}
+
+// ── 12.2 authority allowlists ────────────────────────────────────────────────
+// EXPLICIT, and each entry is a registrable domain or a registry-controlled
+// suffix whose registrants are vetted by the registry itself (.gov, .mil, .edu,
+// gov.uk, ac.uk, edu.au). An entry grants its tier to the domain and to every
+// subdomain under it, because only the registrant can create those. Anything not
+// listed gets SecondaryTechnical — the absence of a grant, not a verdict.
+//
+// Adding an entry is a security decision: it hands that registrant's pages the
+// standing to settle an engineering number. source_classifier_gate.cpp pins the
+// hostile forms; add the new domain's positive control there.
+constexpr std::string_view kLawOrRegulatorDomains[] = {
+    "gov", "gov.uk", "mil",  // registry-controlled; covers ecfr.gov, federalregister.gov, nist.gov
+    "europa.eu",
+    "legislation.gov.au", "legislation.govt.nz",
+    "iso.org", "asme.org", "astm.org", "ansi.org", "iec.ch", "din.de", "bsigroup.com",
+    "nfpa.org", "sae.org", "cen.eu", "aws.org",
+};
+constexpr std::string_view kPeerReviewedDomains[] = {
+    "doi.org", "arxiv.org", "sciencedirect.com", "springer.com", "springeropen.com",
+    "wiley.com", "ieee.org", "nature.com", "acm.org", "ncbi.nlm.nih.gov", "tandfonline.com",
+};
+constexpr std::string_view kInstitutionalDomains[] = {
+    "edu", "ac.uk", "edu.au",  // registry-controlled
+    "esa.int", "wikipedia.org",
+};
+// Manufacturer documentation was "any .com/.de/.co.jp host containing docs.,
+// support., catalog or datasheet" — so docs.<anything-you-registered>.com bought
+// tier 1, ABOVE a peer-reviewed paper. It is now the vendors named here.
+constexpr std::string_view kManufacturerDomains[] = {
+    "skf.com", "timken.com", "schaeffler.com", "thk.com", "igus.com", "boschrexroth.com",
+    "parker.com", "festo.com", "swagelok.com", "kennametal.com",
+};
+
+// Multi-label public suffixes under which a registrant owns the THIRD label from
+// the right. Taken from the ICANN section of the Public Suffix List
+// (https://publicsuffix.org/list/public_suffix_list.dat). The list is only ever
+// used to LENGTHEN a publisher identity from two labels to three, so the failure
+// directions are asymmetric, and the safe one is chosen:
+//   * a suffix MISSING from here merges every registrant under it into one
+//     "publisher" — hse.gov.uk and legislation.gov.uk would stop corroborating
+//     each other. A false refusal.
+//   * an entry that is NOT a public suffix splits one registrant into many — the
+//     vulnerability. So nothing goes in here that is not on the PSL's ICANN list.
+constexpr std::string_view kMultiLabelPublicSuffixes[] = {
+    "gov.uk", "ac.uk", "co.uk", "org.uk", "gov.au", "edu.au", "com.au", "govt.nz", "co.nz", "co.jp", "ac.jp",
+};
+
+// Community discussion is lead-only standing (never sole authority). A match here
+// can only REMOVE standing, so it may stay a heuristic; it reads the real host.
+bool looksLikeCommunityDiscussion(const std::string& host) {
+  return contains(host, "stackexchange") || contains(host, "stackoverflow") ||
+         contains(host, "reddit.com") || contains(host, "quora.com") ||
+         contains(host, "eng-tips.com") || contains(host, "practicalmachinist") ||
+         contains(host, "forum") || contains(host, "discourse.");
 }
 
 }  // namespace
@@ -47,13 +239,38 @@ SendApproval SendApproval::grant(const QueryPreview& preview) {
   // A preview that did not build cleanly cannot be approved at all: there is no
   // "approve anyway" path for a redaction residue or a privacy-class refusal.
   if (!preview.sendable()) return a;
+  // A preview with no approval manifest describes no request, so there is
+  // nothing an operator could have been shown. A default-constructed
+  // QueryPreview is "sendable" by its status field and used to be approvable.
+  if (preview.approval_manifest.empty() || preview.client_instance == 0) return a;
+  // The digest is RE-DERIVED from the manifest the render prints. If the
+  // preview's own request_digest field disagrees, the struct was edited after it
+  // was built and the operator cannot know which of the two they approved.
+  const std::string covered = manifestDigestHex(preview.approval_manifest);
+  if (covered != preview.request_digest) return a;
   // Bind to the BYTES, not to body_digest. body_digest is a mutable field of a
   // struct the caller owns; encoded_body is the thing that reaches the socket.
   // Deriving the token from the payload is what makes it a capability over
   // those bytes rather than an assertion about a number next to them.
   a.digest_ = digestBytes(preview.encoded_body);
+  a.request_digest_ = covered;
+  a.client_instance_ = preview.client_instance;
   a.granted_ = true;
   return a;
+}
+
+// Process-unique, never reused, never 0 (0 is "no client built this preview").
+namespace {
+std::uint64_t nextClientInstanceId() {
+  static std::atomic<std::uint64_t> next{1};
+  return next.fetch_add(1, std::memory_order_relaxed);
+}
+}  // namespace
+SearxngClient::InstanceId::InstanceId() : value_(nextClientInstanceId()) {}
+SearxngClient::InstanceId::InstanceId(const InstanceId&) : value_(nextClientInstanceId()) {}
+SearxngClient::InstanceId& SearxngClient::InstanceId::operator=(const InstanceId&) {
+  value_ = nextClientInstanceId();
+  return *this;
 }
 
 std::string utcTimestampNow() {
@@ -75,61 +292,83 @@ SearxngClient::SearxngClient(std::shared_ptr<HttpTransport> transport, Redactor 
     : transport_(std::move(transport)), redactor_(std::move(redactor)), endpoint_(std::move(endpoint)) {}
 
 std::string SearxngClient::publisherFromUrl(const std::string& url) {
-  std::size_t start = url.find("://");
-  start = (start == std::string::npos) ? 0 : start + 3;
-  std::size_t end = url.find('/', start);
-  if (end == std::string::npos) end = url.size();
-  std::string host = toLower(url.substr(start, end - start));
-  const std::size_t at = host.find('@');
-  if (at != std::string::npos) host = host.substr(at + 1);
-  const std::size_t colon = host.find(':');
-  if (colon != std::string::npos) host = host.substr(0, colon);
+  // Publisher identity feeds min_distinct_publishers and corroboration, so it is
+  // read from the same authority parse as the classifier: a host smuggled through
+  // a fragment, query or userinfo must not become the publisher, and one name
+  // spelled with a trailing dot or in capitals must not count as a second one.
+  // Unlike canonicalHost() this is lenient — it names a publisher for display and
+  // counting even when the host earns no authority grant.
+  std::string host = toLower(splitAuthority(url).host);
+  if (!host.empty() && host.back() == '.') host.pop_back();
   if (host.rfind("www.", 0) == 0) host = host.substr(4);
   return host;
 }
 
-SourceType SearxngClient::classifySource(const std::string& url, const std::string& engine) {
-  // Derived from the URL HOST, never from text the page supplied about itself.
-  const std::string host = publisherFromUrl(url);
-  (void)engine;  // engine name is a hint only; it is not authority evidence
+std::string SearxngClient::corroborationPublisher(const std::string& url) {
+  // canonicalHost() is the one host canonicaliser in this module: the strict
+  // form, "" for anything that could not earn an authority grant either.
+  const std::string host = canonicalHost(url);
+  if (host.empty()) return "";
+  std::vector<std::string_view> labels;
+  std::size_t start = 0;
+  while (start <= host.size()) {
+    std::size_t dot = host.find('.', start);
+    if (dot == std::string::npos) dot = host.size();
+    labels.emplace_back(std::string_view(host).substr(start, dot - start));
+    start = dot + 1;
+  }
+  // A single label names no registrant (and resolves, if at all, by search list).
+  if (labels.size() < 2) return "";
+  // An all-numeric last label is an IPv4 literal: an address, not a registrant,
+  // and one attacker holds a whole block of them. No TLD is all-numeric
+  // (RFC 3696 §2), so this never discards a real name.
+  bool numeric_tld = true;
+  for (const char c : labels.back()) {
+    if (c < '0' || c > '9') { numeric_tld = false; break; }
+  }
+  if (numeric_tld) return "";
+  std::size_t keep = 2;
+  const std::string last_two = std::string(labels[labels.size() - 2]) + "." + std::string(labels.back());
+  for (const std::string_view suffix : kMultiLabelPublicSuffixes) {
+    if (last_two == suffix) { keep = 3; break; }
+  }
+  // The bare suffix itself ("gov.uk") is not a registrant either.
+  if (labels.size() < keep) return "";
+  std::string out;
+  for (std::size_t i = labels.size() - keep; i < labels.size(); ++i) {
+    if (!out.empty()) out.push_back('.');
+    out += labels[i];
+  }
+  return out;
+}
 
-  // 1. applicable law / regulator / authorized standard
-  if (endsWith(host, ".gov") || endsWith(host, ".gov.uk") || endsWith(host, ".mil") ||
-      endsWith(host, "europa.eu") || contains(host, "legislation.") || contains(host, "ecfr.") ||
-      contains(host, "federalregister.") || host == "iso.org" || endsWith(host, ".iso.org") ||
-      host == "asme.org" || host == "astm.org" || host == "ansi.org" || host == "iec.ch" ||
-      host == "din.de" || host == "bsigroup.com" || host == "nfpa.org" || host == "sae.org" ||
-      host == "cen.eu" || host == "aws.org") {
-    return SourceType::LawOrRegulator;
+SourceType SearxngClient::classifySource(const std::string& url, const std::string& engine) {
+  // Derived from the URL HOST, never from text the page supplied about itself,
+  // and granted only by an EXACT registrable-domain match against the explicit
+  // allowlists above. This used to be a set of host SUBSTRING tests, so
+  // ecfr.attacker-cdn.example classified as LawOrRegulator (measured 2026-09-14)
+  // and rendered on the operator's approval screen identically to ecfr.gov.
+  (void)engine;  // engine name is a hint only; it is not authority evidence
+  const std::string host = canonicalHost(url);  // "" = eligible for no grant
+
+  // The tiers are tested in the order the substring version tested them, so a
+  // legitimate host keeps the tier it had (pubmed.ncbi.nlm.nih.gov is still .gov).
+  if (!host.empty()) {
+    // 1. applicable law / regulator / authorized standard
+    if (onAllowlist(host, kLawOrRegulatorDomains)) return SourceType::LawOrRegulator;
+    // 3. peer-reviewed / official dataset
+    if (onAllowlist(host, kPeerReviewedDomains)) return SourceType::PeerReviewed;
   }
-  // 3. peer-reviewed / official dataset
-  if (contains(host, "doi.org") || contains(host, "arxiv.org") || contains(host, "sciencedirect") ||
-      contains(host, "springer") || contains(host, "wiley") || contains(host, "ieee.org") ||
-      contains(host, "nature.com") || contains(host, "acm.org") || contains(host, "pubmed") ||
-      contains(host, "ncbi.nlm.nih.gov") || contains(host, "tandfonline")) {
-    return SourceType::PeerReviewed;
-  }
-  // 6. community discussion — lead only
-  if (contains(host, "stackexchange") || contains(host, "stackoverflow") ||
-      contains(host, "reddit.com") || contains(host, "quora.com") ||
-      contains(host, "eng-tips.com") || contains(host, "practicalmachinist") ||
-      contains(host, "forum") || contains(host, "discourse.")) {
-    return SourceType::CommunityDiscussion;
-  }
-  // 4. reputable institutional reference
-  if (endsWith(host, ".edu") || endsWith(host, ".ac.uk") || endsWith(host, ".edu.au") ||
-      contains(host, "nist.") || contains(host, "nasa.gov") || contains(host, "esa.int") ||
-      contains(host, "wikipedia.org")) {
-    return SourceType::InstitutionalReference;
-  }
-  // 2. original manufacturer / project documentation
-  if (contains(host, "docs.") || contains(host, "support.") || contains(host, "catalog") ||
-      contains(host, "datasheet") || endsWith(host, ".com") || endsWith(host, ".de") ||
-      endsWith(host, ".co.jp")) {
-    // A commercial host is manufacturer documentation only when the path or host
-    // looks like product documentation; otherwise it is a secondary source.
-    if (contains(host, "docs.") || contains(host, "support.") || contains(host, "catalog") ||
-        contains(host, "datasheet")) {
+  // 6. community discussion — lead only. A downgrade, so it also applies to a host
+  //    that earned no grant.
+  if (looksLikeCommunityDiscussion(publisherFromUrl(url))) return SourceType::CommunityDiscussion;
+  if (!host.empty()) {
+    // 4. reputable institutional reference
+    if (onAllowlist(host, kInstitutionalDomains)) {
+      return SourceType::InstitutionalReference;
+    }
+    // 2. original manufacturer / project documentation
+    if (onAllowlist(host, kManufacturerDomains)) {
       return SourceType::ManufacturerDocument;
     }
   }
@@ -162,7 +401,25 @@ QueryPreview SearxngClient::preview(const SearchRequest& request) const {
   p.handling.expected_units = request.expected_units;
 
   // ── redact ────────────────────────────────────────────────────────────────
+  // A field the Unicode normaliser refuses — a code point it does not model, a
+  // token mixing scripts or decimal systems, malformed UTF-8 — is not redacted
+  // "as best we can" and sent. The whole request is REDACTION_REFUSED: nothing
+  // about a spelling the redactor cannot read is a basis for transmitting it.
+  auto refuseUnreadable = [&](const char* field, const RedactionResult& r) {
+    p.status = RequestBuildStatus::RedactionResidueDetected;
+    p.status_detail = std::string(field) + ": ";
+    for (std::size_t i = 0; i < r.refusals.size(); ++i) {
+      if (i) p.status_detail += "; ";
+      p.status_detail += r.refusals[i];
+    }
+    p.fields.clear();
+    p.redacted_query.clear();
+    p.annotated_query.clear();
+    return p;
+  };
+
   const RedactionResult red = redactor_.redact(request.engineering_question);
+  if (red.refused()) return refuseUnreadable("engineering_question", red);
   p.redacted_query = red.wire_query;
   p.annotated_query = red.preview_form;
   p.removals = red.events;
@@ -176,16 +433,38 @@ QueryPreview SearxngClient::preview(const SearchRequest& request) const {
   // through the same redactor so an edition string carrying a project code name
   // cannot ride along.
   std::string scope;
-  auto appendScope = [&](const std::string& text) {
-    if (text.empty()) return;
-    const RedactionResult r = redactor_.redact(text);
-    if (r.wire_query.empty()) return;
+  const std::pair<const char*, const std::string*> scope_fields[] = {
+      {"standard_edition", &request.standard_edition},
+      {"jurisdiction", &request.jurisdiction},
+  };
+  for (const auto& [field, text] : scope_fields) {
+    if (text->empty()) continue;
+    const RedactionResult r = redactor_.redact(*text);
+    if (r.refused()) return refuseUnreadable(field, r);
+    if (r.wire_query.empty()) continue;
     scope += " " + r.wire_query;
     allowed.insert(allowed.end(), r.kept_designations.begin(), r.kept_designations.end());
     p.removals.insert(p.removals.end(), r.events.begin(), r.events.end());
-  };
-  appendScope(request.standard_edition);
-  appendScope(request.jurisdiction);
+  }
+
+  // `language` reaches the socket verbatim. It used to meet only the lexicon and
+  // numeric scans, never the classifier, so language="Lockheed" put an
+  // unregistered proper noun on the wire. It now gets the include_domains rule:
+  // it is transmitted only if it survives the redactor BYTE FOR BYTE, with no
+  // removal and nothing the normaliser refused. "en", "de-CH", "all" survive.
+  {
+    const RedactionResult r = redactor_.redact(request.language);
+    if (r.refused()) return refuseUnreadable("language", r);
+    if (r.wire_query != request.language || !r.events.empty()) {
+      p.removals.insert(p.removals.end(), r.events.begin(), r.events.end());
+      p.status = RequestBuildStatus::RedactionResidueDetected;
+      p.status_detail = "language: the tag did not survive redaction intact, so it is not sent";
+      p.fields.clear();
+      p.redacted_query.clear();
+      p.annotated_query.clear();
+      return p;
+    }
+  }
 
   std::string q = p.redacted_query + scope;
   while (!q.empty() && q.back() == ' ') q.pop_back();
@@ -208,6 +487,7 @@ QueryPreview SearxngClient::preview(const SearchRequest& request) const {
   std::string sites;
   for (const std::string& d : request.include_domains) {
     const RedactionResult r = redactor_.redact(d);
+    if (r.refused()) return refuseUnreadable("include_domains", r);
     if (r.wire_query == d && r.events.empty()) {
       if (!sites.empty()) sites += ",";
       sites += d;
@@ -314,8 +594,50 @@ QueryPreview SearxngClient::preview(const SearchRequest& request) const {
 
   p.encoded_body = body;
   p.body_digest = digestBytes(body);
+  // The approval surface: the manifest of the request search() WOULD build from
+  // this preview on this client, and the digest over it. The render prints this
+  // vector; grant() digests this vector; search() rebuilds it from the wire.
+  p.client_instance = instance_.value();
+  p.approval_manifest = describeRequest(buildHttpRequest(p), p.handling);
+  p.request_digest = manifestDigestHex(p.approval_manifest);
   p.status = RequestBuildStatus::Ok;
   return p;
+}
+
+RequestManifest SearxngClient::describeRequest(const HttpRequest& request, const ResultHandling& handling) {
+  // STRUCTURED BINDINGS PIN THE MEMBER COUNT. Adding a member to HttpRequest or
+  // to ResultHandling without deciding here whether an approval covers it is a
+  // COMPILE ERROR, not a field that silently rides along unapproved — which is
+  // exactly how ResultHandling came to be mutable after approval.
+  const auto& [method, path, host, port, headers, body] = request;
+  const auto& [max_results, min_distinct_publishers, require_contradiction_check, esg_assertion_id,
+               expected_units] = handling;
+
+  RequestManifest m;
+  // LoopbackHttpTransport speaks plaintext HTTP/1.1 and nothing else: there is no
+  // TLS stack to select, so the scheme is a property of the transport, stated.
+  m.emplace_back("scheme", "http");
+  m.emplace_back("connect.host", host);
+  m.emplace_back("connect.port", std::to_string(port));
+  m.emplace_back("http.method", method);
+  const std::size_t q = path.find('?');
+  m.emplace_back("http.path", path.substr(0, q));
+  m.emplace_back("http.query", q == std::string::npos ? std::string() : path.substr(q + 1));
+  m.emplace_back("http.header_count", std::to_string(headers.size()));
+  for (const auto& [name, value] : headers) m.emplace_back("http.header." + name, value);
+  m.emplace_back("http.body", body);
+  // The exact bytes serialize() hands the socket, including the headers it adds
+  // itself (Host, Content-Length, Connection). Nothing on the wire is outside this.
+  m.emplace_back("http.wire_bytes", request.serialize());
+  m.emplace_back("handling.max_results", std::to_string(max_results));
+  m.emplace_back("handling.min_distinct_publishers", std::to_string(min_distinct_publishers));
+  m.emplace_back("handling.require_contradiction_check", require_contradiction_check ? "true" : "false");
+  m.emplace_back("handling.esg_assertion_id", esg_assertion_id);
+  m.emplace_back("handling.expected_units.count", std::to_string(expected_units.size()));
+  for (std::size_t i = 0; i < expected_units.size(); ++i) {
+    m.emplace_back("handling.expected_units[" + std::to_string(i) + "]", expected_units[i]);
+  }
+  return m;
 }
 
 HttpRequest SearxngClient::buildHttpRequest(const QueryPreview& preview) const {
@@ -386,6 +708,31 @@ RetrievalResult SearxngClient::search(const QueryPreview& preview,
 
   const HttpRequest req = buildHttpRequest(preview);
 
+  // ── GATE 2b: the approval must cover THIS REQUEST, from THIS CLIENT ───────
+  // Gate 2 binds the body. It never bound where the body went or how the answer
+  // is judged: an approval minted on a client whose render said POST
+  // 127.0.0.1:8888/search executed unchanged on a client set to GET
+  // 127.0.0.1:9/autocompleter, and ResultHandling rewritten to
+  // min_distinct_publishers=0 after approval still returned Ok (measured against
+  // 1dd9ed9b). The manifest is rebuilt HERE, from `req` — the object about to be
+  // handed to the transport, built on this client's endpoint — and from the
+  // handling that will judge the response. Nothing is read from the preview's
+  // own approval_manifest or request_digest fields: those are what was approved,
+  // not what is being sent.
+  if (approval.client_instance() != instance_.value()) {
+    result.status = RetrievalStatus::REQUEST_REJECTED;
+    result.detail = "the approval was granted on a different client instance";
+    stamp();
+    return result;
+  }
+  if (approval.request_digest() != manifestDigestHex(describeRequest(req, preview.handling))) {
+    result.status = RetrievalStatus::REQUEST_REJECTED;
+    result.detail = "the approval does not cover the request about to be sent: the destination, "
+                    "method, path, headers, body or result handling differ from what was approved";
+    stamp();
+    return result;
+  }
+
   // ── GATE 3: envelope-safe residue scan on the FINAL serialized request ────
   // This is the last thing before the socket. It re-derives its verdict from the
   // lexicon and from parsed numeric values, not from the classifier that built
@@ -443,7 +790,21 @@ RetrievalResult SearxngClient::search(const QueryPreview& preview,
     // and attached whether or not anyone downstream asks for them.
     result.contradictions = findContradictions(result.evidence);
   }
-  result.distinct_publishers = distinctPublishers(result.evidence);
+  // The diversity requirement the operator approved is judged on REGISTRANTS,
+  // by the same identity BoundCitation::bind's "different publisher" rule uses.
+  // rec.publisher is the lenient display host, and counting it let ONE attacker
+  // meet min_distinct_publishers=3 with a.evil.example, b.evil.example and
+  // evil.example. — three strings, one registrant. A result whose URL names no
+  // identifiable registrant (an IP literal, a single label, a host with no
+  // canonical form) is retained as evidence and counts as no publisher at all.
+  {
+    std::set<std::string> registrants;
+    for (const EvidenceRecord& e : result.evidence) {
+      const std::string who = corroborationPublisher(e.url);
+      if (!who.empty()) registrants.insert(who);
+    }
+    result.distinct_publishers = registrants.size();
+  }
 
   // 12.1 source-diversity requirement. Evidence is RETAINED so the operator can
   // see what was found, but the status says it does not meet the bar it was
@@ -521,7 +882,22 @@ RetrievalStatus SearxngClient::parseSearxngResults(const std::string& json_body,
     rec.relation = AssertionRelation::Unrelated;  // set by the ESG reconciler, not by the page
     rec.injection_attempt_flagged = rec.quoted_span.looksLikeInjectionAttempt() ||
                                     rec.title.looksLikeInjectionAttempt();
-    if (!handling.expected_units.empty()) rec.units = handling.expected_units.front();
+    // 12.3: the unit is READ OFF THE PAGE, never copied from the request.
+    //
+    // This line used to be `rec.units = handling.expected_units.front()`, which
+    // made the one unit check in the system a tautology: validateAsNumericFact()
+    // compared the caller's own expectation against a field the caller had just
+    // filled in. MEASURED on this fixture 2026-09-14 — asking for "furlongs"
+    // turned the page text "276 MPa" into CitedCandidate{value=276,
+    // unit="furlongs"}, and the sibling line "I just use 240 MPa" into 240
+    // furlongs. It is the same mutable-field-compared-against-itself defect the
+    // digest gate's own comments (see search(), gate 2) were written to avoid.
+    //
+    // Leaving it empty when the page states no unit is the fail-closed answer:
+    // a claim with no unit yields no candidate.
+    for (const NumericSpan& s : scanNumericSpans(rec.normalized_claim.rawForStorage())) {
+      if (!s.unit.empty()) { rec.units = s.unit; break; }
+    }
     out.push_back(std::move(rec));
   }
 

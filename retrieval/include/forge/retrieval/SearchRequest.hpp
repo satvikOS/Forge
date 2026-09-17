@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "forge/retrieval/Redactor.hpp"
@@ -105,6 +106,32 @@ struct ResultHandling {
   std::vector<std::string> expected_units;
 };
 
+// Feature marker for retrieval/test/attack_regression_gate.cpp, which is built
+// against trees that predate the request manifest to prove it goes RED there.
+#define FORGE_RETRIEVAL_HAS_REQUEST_MANIFEST 1
+
+// THE APPROVAL SURFACE. An ordered list of (item, value) pairs describing the
+// COMPLETE request: the connection target (scheme, host, port), the HTTP method,
+// path, query, every header, the body, the exact serialized bytes, and every
+// ResultHandling field. The request digest is SHA-256 over exactly these items
+// and the operator render prints exactly these items, from the same vector — so
+// "what the operator saw" and "what the approval covers" cannot drift apart.
+using RequestManifest = std::vector<std::pair<std::string, std::string>>;
+
+// SHA-256 (FIPS 180-4) over an unambiguous encoding of the manifest: for each
+// item, the item name and the value are each preceded by their length as a
+// 64-bit big-endian integer. Lower-case hex.
+std::string manifestDigestHex(const RequestManifest& manifest);
+
+// SHA-256 of arbitrary bytes, lower-case hex. Implemented from FIPS 180-4 in
+// SearchRequest.cpp; no library.
+std::string sha256Hex(const std::string& bytes);
+
+// The lossless display form of one manifest value: printable ASCII except '\'
+// verbatim, "\\" for '\', "\r" "\n" "\t", and "\xHH" for every other byte. The
+// render uses it, and so can a checker that re-derives the digest from the render.
+std::string escapeManifestValue(const std::string& value);
+
 // Everything the operator must see BEFORE a byte is transmitted (20.2: "the UI
 // previews the query, destination class, and fields before transmission").
 struct QueryPreview {
@@ -133,6 +160,18 @@ struct QueryPreview {
   // Stable digest of encoded_body; approval is bound to this value so an
   // approved preview cannot be swapped for a different request before send.
   std::uint64_t body_digest = 0;
+
+  // What an approval of this preview covers, and the SHA-256 over it. The body
+  // digest above binds the body only; it said nothing about WHERE the body went
+  // or how the answer would be judged, so an approval minted for POST :8888/search
+  // was spent on GET :9/autocompleter and on a rewritten diversity requirement.
+  // search() rebuilds this manifest from the request it is about to hand the
+  // transport and refuses unless the digests match.
+  RequestManifest approval_manifest;
+  std::string request_digest;
+  // The SearxngClient object that built this preview. An approval is valid on
+  // that object only; a second client — or a copy of this one — refuses it.
+  std::uint64_t client_instance = 0;
 
   bool sendable() const { return status == RequestBuildStatus::Ok; }
   std::string renderForOperator() const;
