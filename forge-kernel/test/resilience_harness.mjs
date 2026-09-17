@@ -424,8 +424,15 @@ function d2_admission_vs_eviction(TOOLS) {
   const repeats = firstB == null ? 0 : B.termStamps.filter((t) => t > firstB && t - firstB < 30).length;
 
   checks.push({
-    name: 'ANTI-DISARM: pressure persisting past the settling window STILL evicts',
-    ok: B.termStamps.length >= 1,
+    // ★ HARD, and it was documented as hard long before it was implemented as hard.
+    // The header has always claimed "a ladder that stops evicting → D2 zeroed"; the
+    // flag was simply missing, so the claim was prose. Measured cost of the gap: a
+    // guardian whose eviction is replaced by `if false` — one that can NEVER shed
+    // under RED — scored 0.795, ABOVE the shipped tree's 0.617 and above the
+    // all-fixes-on-branches 0.750. Writing a counter-observable down is not
+    // implementing one.
+    name: '★ ANTI-DISARM: pressure persisting past the settling window STILL evicts',
+    ok: B.termStamps.length >= 1, hard: true,
     detail: `TERMs after settling = ${B.termStamps.length} (logged ${B.shedTerms})`,
   });
   checks.push({
@@ -645,12 +652,20 @@ kill -KILL $SPEC 2>/dev/null
 // ═════════════════════════════════════════════════════════════════════════════
 //  scoring
 // ═════════════════════════════════════════════════════════════════════════════
+// ★ THE WEIGHT IS DECLARED HERE, OUTSIDE THE PROBE, AND THAT IS THE WHOLE POINT.
+// A probe that throws cannot tell us its own weight, and the first version of this
+// harness gave a crashed dimension `weight: 0.0` — which removes it from the
+// DENOMINATOR as well as the numerator. Measured consequence: deleting
+// tools/guardian/forge-gate raised the composite 0.617 → 0.822, exit 0, and at
+// `--gate 0.70` the SABOTAGED tree PASSED while the honest shipped tree FAILED.
+// A scoring system that drops what it could not measure pays you to break the
+// instrument. A dimension that did not run must score ZERO at its full weight.
 const DIMENSIONS = [
-  ['cooperative_shed', d1_cooperative_shed],
-  ['admission_vs_eviction', d2_admission_vs_eviction],
-  ['query_costs_no_slot', d3_query_costs_no_slot],
-  ['green_is_reachable', d4_green_is_reachable],
-  ['shed_targeting', d5_shed_targeting],
+  ['cooperative_shed', d1_cooperative_shed, 0.30],
+  ['admission_vs_eviction', d2_admission_vs_eviction, 0.25],
+  ['query_costs_no_slot', d3_query_costs_no_slot, 0.20],
+  ['green_is_reachable', d4_green_is_reachable, 0.15],
+  ['shed_targeting', d5_shed_targeting, 0.10],
 ];
 
 function scoreDimension(dim) {
@@ -669,16 +684,37 @@ function scoreDimension(dim) {
 
 function runAll(TOOLS, label) {
   const dims = [];
-  for (const [id, fn] of DIMENSIONS) {
+  for (const [id, fn, declaredWeight] of DIMENSIONS) {
     if (ONLY && ONLY !== id) continue;
     process.stderr.write(`  · ${id} …\n`);
     let d;
-    try { d = fn(TOOLS); } catch (e) { d = { id, weight: 0.0, checks: [{ name: 'probe crashed', ok: false, detail: String(e && e.message) }], evidence: 'crash' }; }
+    try {
+      d = fn(TOOLS);
+      // The table and the probe must agree, or the table silently stops being the
+      // authority it was introduced to be. This is cheap and it is a real guard:
+      // without it, editing a probe's weight would quietly change the denominator
+      // for crashed runs only.
+      if (Math.abs(d.weight - declaredWeight) > 1e-9) {
+        throw new Error(`weight disagreement: ${id} probe says ${d.weight}, DIMENSIONS says ${declaredWeight}`);
+      }
+    } catch (e) {
+      // FULL declared weight, score zero, and the crash is a HARD check so
+      // scoreDimension() gates the dimension to 0 rather than averaging it away.
+      d = {
+        id, weight: declaredWeight, evidence: 'crash',
+        checks: [{ name: '★ the probe ran at all (a crashed dimension scores zero, it does not vanish)', ok: false, hard: true, detail: String(e && e.message) }],
+      };
+    }
     dims.push(scoreDimension(d));
   }
-  const wsum = dims.reduce((a, d) => a + d.weight, 0) || 1;
-  const composite = dims.reduce((a, d) => a + d.weight * d.score, 0) / wsum;
-  return { label, tools: TOOLS, dims, composite };
+  // ★ THE DENOMINATOR IS THE DECLARED TOTAL, NOT THE TOTAL THAT HAPPENED TO RUN.
+  // With --only, dims holds one dimension; dividing by its own weight would renormalise
+  // a single dimension to a composite of 1.000 under an unchanged "RESILIENCE" label.
+  const declaredSum = DIMENSIONS.reduce((a, [, , w]) => a + w, 0);
+  const ranSum = dims.reduce((a, d) => a + d.weight, 0);
+  const partial = !!ONLY || Math.abs(ranSum - declaredSum) > 1e-9;
+  const composite = dims.reduce((a, d) => a + d.weight * d.score, 0) / declaredSum;
+  return { label, tools: TOOLS, dims, composite, partial, ranSum, declaredSum };
 }
 
 function report(run) {
@@ -693,7 +729,14 @@ function report(run) {
       pad(`${d.passed}/${d.total}`, 9) + (d.gate ? 'ok' : 'ZEROED ✗'));
   }
   console.log(rule(60));
-  console.log(pad('RESILIENCE', 26) + pad('1.00', 7) + pad(f3(run.composite), 9));
+  // A partial run is never labelled RESILIENCE: the number is a FRACTION OF THE WHOLE
+  // family, so it is reported against the weight that actually ran and named as partial.
+  if (run.partial) {
+    console.log(pad('RESILIENCE (PARTIAL)', 26) + pad(run.ranSum.toFixed(2), 7) + pad(f3(run.composite), 9) +
+      `  ← ${run.dims.length}/${DIMENSIONS.length} dimensions, ${f3(run.declaredSum - run.ranSum)} of the weight NOT RUN and scored zero`);
+  } else {
+    console.log(pad('RESILIENCE', 26) + pad('1.00', 7) + pad(f3(run.composite), 9));
+  }
 
   for (const d of run.dims) {
     console.log(`\n ${d.id}  (${f3(d.score)})`);
@@ -985,8 +1028,18 @@ if (has('--reintroduce')) {
   // it into a release gate at an explicit floor, per doc 08.
   const floor = parseFloat(getFlag('--gate', 'NaN'));
   if (isFinite(floor)) {
-    console.log(` GATE: ${f3(run.composite)} vs floor ${f3(floor)} → ${run.composite >= floor ? 'PASS ✓' : 'FAIL ✗'}`);
-    code = run.composite >= floor ? 0 : 1;
+    if (run.partial) {
+      // ★ A PARTIAL RUN CANNOT PASS A RELEASE GATE, and refusing is the only safe
+      // answer. `--only shed_targeting --gate 0.70` used to renormalise one 0.10
+      // dimension to a composite of 1.000 and exit 0 — a release gate satisfied by
+      // choosing which dimension to measure.
+      console.log(` GATE: REFUSED — this was a PARTIAL run (${run.dims.length}/${DIMENSIONS.length} dimensions).`);
+      console.log(`       A floor may only be applied to a full run; drop --only.`);
+      code = 2;
+    } else {
+      console.log(` GATE: ${f3(run.composite)} vs floor ${f3(floor)} → ${run.composite >= floor ? 'PASS ✓' : 'FAIL ✗'}`);
+      code = run.composite >= floor ? 0 : 1;
+    }
   }
 }
 const after = witness();
