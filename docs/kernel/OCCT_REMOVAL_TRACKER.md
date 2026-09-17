@@ -14,9 +14,9 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1405 | YES |
+| KERNEL | 1406 | YES |
 | TOOLING | 23 | yes, last |
-| ORACLE | 2031 | no — by design |
+| ORACLE | 2063 | no — by design |
 | SCRATCH | 0 | no — by design |
 | OTHER | 0 | no — by design |
 
@@ -49,7 +49,7 @@ Status is DERIVED from the tree on every run, never typed in.
 | [ ] | Topology / B-Rep | 589 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
 | [x] | Tessellation | 0 | 0 | `forge-kernel/src/native/mesh, forge-kernel/include/forge/native/mesh` |
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
-| [ ] | Kernel core (rest) | 1313 | 62 | `forge-kernel/src` |
+| [ ] | Kernel core (rest) | 1314 | 62 | `forge-kernel/src` |
 
 ## The drop order is a CHAIN, and the demand is GROWING
 
