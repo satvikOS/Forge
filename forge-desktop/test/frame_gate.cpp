@@ -670,9 +670,15 @@ int main(int argc, char** argv) {
           std::to_string(sel.angleDegrees));
 
     // ...and the PANEL draws a row per picked face. The Part workspace's right
-    // column is the tab group at path {1,1}; Measure is its second tab.
+    // column is the tab group at path {1,1}. Measure is its THIRD tab: the column
+    // is {"properties", "parameters", "measure", "appearance"} in
+    // ui/src/WorkspaceProfile.cpp -- Parameters was inserted beside Properties and
+    // pushed Measure from index 1 to 2. These indices are literals with no lookup
+    // behind them, so ANY change to that column's order must be mirrored here and
+    // in the `panels` table in 12c; the source of truth is the mainWindow() call
+    // for WorkspaceProfile::Part.
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
-    frame.setActiveTabAt({1, 1}, 1);
+    frame.setActiveTabAt({1, 1}, 2);
     ImDrawData* d = buildOneFrame(frame, 0);
     check(d != nullptr && d->TotalVtxCount > 500, "the Measure panel draws a real frame", "");
     checkEq(frame.measureFaceRowsDrawn(), 2u, "the Measure panel drew a row per picked face");
@@ -704,7 +710,7 @@ int main(int argc, char** argv) {
       const char* id;
     };
     const std::vector<NewPanel> panels = {
-        {forge::ui::WorkspaceProfile::Part, {1, 1}, 2, "appearance"},
+        {forge::ui::WorkspaceProfile::Part, {1, 1}, 3, "appearance"},  // 2 -> 3: Parameters inserted at index 1
         {forge::ui::WorkspaceProfile::Simulation, {0}, 1, "materials"},
         {forge::ui::WorkspaceProfile::Surface, {0}, 1, "curve_list"},
         {forge::ui::WorkspaceProfile::Archie, {1, 0, 1}, 1, "verify_report"},
