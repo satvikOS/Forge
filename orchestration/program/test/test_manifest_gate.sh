@@ -33,6 +33,7 @@ BASE=$(git rev-parse HEAD)
 print "== manifest that declares src/geometry only =="
 "$BIN" write --worktree "$R" >/dev/null <<YAML
 task_id: FG-123
+resource: peak_ram_gb_estimate=2, build_class=incremental, max_threads=2
 objective: "prove the gate"
 write_set:
   - src/geometry/*
@@ -94,6 +95,7 @@ mv "$WORK/held.json" "$R/.forge-manifest.json"
 print "== a manifest that cannot be obeyed is refused at write time =="
 expect 2 "path in BOTH sets is refused" "$BIN" write --worktree "$R" <<'Y'
 task_id: FG-9
+resource: peak_ram_gb_estimate=2, build_class=incremental, max_threads=2
 write_set:
   - src/a.cpp
 forbidden_write_set:
@@ -103,6 +105,7 @@ acceptance:
 Y
 expect 2 "missing required key is refused" "$BIN" write --worktree "$R" <<'Y'
 task_id: FG-9
+resource: peak_ram_gb_estimate=2, build_class=incremental, max_threads=2
 objective: "no write_set, no acceptance"
 Y
 
@@ -112,6 +115,7 @@ git -C "$R" worktree add -q "$A" -b wa "$BASE" 2>/dev/null || cp -R "$R"/.git "$
 git -C "$R" worktree add -q "$B" -b wb "$BASE" 2>/dev/null || cp -R "$R"/.git "$B/.git" 2>/dev/null
 "$BIN" write --worktree "$A" >/dev/null <<'Y'
 task_id: FG-1
+resource: peak_ram_gb_estimate=2, build_class=incremental, max_threads=2
 write_set:
   - src/geometry/Extrude.cpp
 acceptance:
@@ -119,6 +123,7 @@ acceptance:
 Y
 "$BIN" write --worktree "$B" >/dev/null <<'Y'
 task_id: FG-2
+resource: peak_ram_gb_estimate=2, build_class=incremental, max_threads=2
 write_set:
   - src/document/Doc.cpp
 acceptance:
@@ -127,6 +132,7 @@ Y
 expect 0 "disjoint manifests may run in parallel" "$BIN" overlap "$A" "$B"
 "$BIN" write --worktree "$B" >/dev/null <<'Y'
 task_id: FG-2
+resource: peak_ram_gb_estimate=2, build_class=incremental, max_threads=2
 write_set:
   - src/geometry/Extrude.cpp
 acceptance:
@@ -138,6 +144,7 @@ expect 1 "COLLIDING manifests are refused" "$BIN" overlap "$A" "$B"
 # a glob on one side must still catch a literal on the other
 "$BIN" write --worktree "$B" >/dev/null <<'Y'
 task_id: FG-2
+resource: peak_ram_gb_estimate=2, build_class=incremental, max_threads=2
 write_set:
   - src/geometry/*
 acceptance:
