@@ -283,6 +283,30 @@ jobs:
       - name: ForgeCADScore mechanism-axis self-test
         run: node forge-kernel/test/mechanism_axis_selftest.mjs
 
+  parameters:
+    name: parameters and expressions (libforge_expr, LGPL, dynamic)
+    # Named parameters, formulas driving feature dimensions, unit-checked
+    # arithmetic, cycle refusal and recompute propagation -- through the ONE
+    # registry, against the REAL expression library: libforge_expr, FreeCAD's
+    # expression language adapted in third_party/freecad-derived/expressions and
+    # built here as a SHARED library. No OCCT, no SDK: a compiler and the checkout.
+    #
+    # Its own job rather than a step of `ui`, because it rebuilds forge::ui five
+    # times (clean + four mutations) and `ui` is already most of its budget.
+    #
+    # --mutations proves the gate can fail: units stop being checked, the cycle
+    # search goes blind, the edit stops rewriting statements, and the library is
+    # linked STATICALLY -- each must turn it red. The last is the LGPL half: the
+    # gate asserts on the binary it ran that libforge_expr is a load command
+    # (readelf -d here, otool -L on macOS) and that no forge::expr symbol is
+    # defined in the executable.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: one parameter drives three features; mm + kg refused; a -> b -> a refused naming both
+        run: bash forge-desktop/test/run_parameters_gate.sh --mutations
+
   ui:
     name: forge::ui workstation gates (headless, no ImGui, no GPU)
     # Pure C++20 services — command registry, typed selection, keymap, dock model, feature-tree
@@ -2135,6 +2159,27 @@ jobs:
             echo "::error::the build exited 0 without producing every binary (marked MISSING above)"
             exit 1
           fi
+
+      - name: libforge_expr (LGPL) is a separate dylib the app loads, and pulls in no OCCT
+        # The APPLICATION half of the dynamic-link proof that run_parameters_gate.sh
+        # makes on its own binary: the forge_desktop just built names
+        # @rpath/libforge_expr.dylib among its load commands, defines none of the
+        # library's strong symbols (its code is not compiled in), and the library's
+        # own OCCT closure is ZERO -- a FreeCAD-derived library must not move the
+        # OCCT-zero ledger. package_macos.sh repeats the first two on the bundle.
+        shell: bash
+        run: |
+          set -uo pipefail
+          B=forge-desktop/build
+          test -f "$B/libforge_expr.dylib" || { echo "::error::libforge_expr.dylib was not built beside forge_desktop"; exit 1; }
+          echo "otool -L $B/forge_desktop:"; otool -L "$B/forge_desktop"
+          otool -L "$B/forge_desktop" | awk 'NR>1{print $1}' | grep -qx '@rpath/libforge_expr.dylib' \
+            || { echo "::error::forge_desktop does not load @rpath/libforge_expr.dylib"; exit 1; }
+          echo "otool -L $B/libforge_expr.dylib:"; otool -L "$B/libforge_expr.dylib"
+          strong="$(nm -gUm "$B/forge_desktop" | grep -v weak | c++filt | grep -c 'forge::expr::' || true)"
+          echo "strong forge::expr symbols defined in forge_desktop: ${strong:-0}"
+          [ "${strong:-0}" -eq 0 ] || { echo "::error::forge_desktop defines $strong forge::expr symbol(s) -- LGPL code compiled in"; exit 1; }
+          bash forge-kernel/scripts/occt_closure_count.sh "$B/libforge_expr.dylib" --assert-closure 0 --assert-direct 0
 
       - name: forge-desktop gates + mutation proofs (headless -- no window; ONE gate wants a GPU)
         # ci_desktop_gate.sh runs run_desktop.sh -- the missing-include

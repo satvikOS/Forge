@@ -78,6 +78,7 @@
 #include "KernelScene.hpp"
 #include "PartFile.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/Parameters.hpp"      // parameterCommandIds -- the SECOND family wirePartCommands registers
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -269,8 +270,16 @@ int main(int argc, char** argv) {
   forge::ui::ForgeShell shell;
   forge::desktop::ForgeFrame frame(shell, scene);
   const std::size_t partCommands = frame.wirePartCommands();
-  checkEq(partCommands, forge::ui::partCommandIds().size(),
-          "every Part command went into the shell's ONE registry");
+  // wirePartCommands() registers TWO families and returns their sum:
+  // registerPartCommands() + registerParameterCommands(). Comparing it against
+  // partCommandIds() alone read `got 75 want 71` the moment the parameter family
+  // landed -- and the honest reading is that the ASSERTION was one family short,
+  // not that either list was wrong. The two id lists are separately paired with
+  // their own register functions (the vocabulary generator enforces exactly that
+  // and REFUSES to derive if either pair disagrees), so the sum is what balances.
+  checkEq(partCommands,
+          forge::ui::partCommandIds().size() + forge::ui::parameterCommandIds().size(),
+          "every Part and Parameter command went into the shell's ONE registry");
   check(shell.documentHost() == &frame, "the frame is installed as the document host", "");
 
   // The document the app SEEDED and the program the scene BUILT are the same
@@ -1095,9 +1104,11 @@ int main(int argc, char** argv) {
     for (const std::string& cat : cats) {
       ribbonCommands += keyShell.registry().idsInCategory(cat).size();
     }
+    // The parameter commands set c.category = "Part" (ParameterCommands.cpp:73),
+    // so the ribbon's Part category holds both families too.
     checkEq(keyShell.registry().idsInCategory("Part").size(),
-            forge::ui::partCommandIds().size(),
-            "the Part ribbon category holds every Part command");
+            forge::ui::partCommandIds().size() + forge::ui::parameterCommandIds().size(),
+            "the Part ribbon category holds every Part and Parameter command");
     checkEq(keyShell.registry().idsInCategory("Model").size(), 0u,
             "and no command is filed under the retired Model category");
     checkEq(ribbonCommands, keyShell.registry().size(),

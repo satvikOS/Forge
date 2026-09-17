@@ -50,6 +50,7 @@ constexpr NameRow kCuratedNames[] = {
     {"model_browser", "Model Browser"},
     {"operation_params", "Operation Parameters"},
     {"operation_tree", "Operation Tree"},
+    {"parameters", "Parameters"},
     {"post_output", "Post-processor Output"},
     {"properties", "Properties"},
     {"relations", "Sketch Relations"},

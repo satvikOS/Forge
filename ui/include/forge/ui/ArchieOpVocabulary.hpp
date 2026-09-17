@@ -2,7 +2,7 @@
 //
 // Written by implementation/sacrosanct/tools/gen_op_constraint_table.py
 // from implementation/sacrosanct/archie_op_vocabulary.json
-// sha256(vocabulary) = 354526f78beedb147fb97e5de8e4298f35403d5ae972e0111523f6641d406065
+// sha256(vocabulary) = 90d3e29c35d843f7144b4deced634774d9e3147c7fc8ac8e5024e1e8183df43f
 //
 // This is the ALLOWED OP SET made compilable: the feature-IR ops a USER of the
 // Forge app can reach through the forge::ui command registry, and the reason each
@@ -35,14 +35,14 @@ namespace forge::ui::vocab {
 inline constexpr std::size_t kUnboundedArgs = static_cast<std::size_t>(-1);
 
 inline constexpr std::string_view kVocabularyPath = "implementation/sacrosanct/archie_op_vocabulary.json";
-inline constexpr std::string_view kVocabularySha256 = "354526f78beedb147fb97e5de8e4298f35403d5ae972e0111523f6641d406065";
+inline constexpr std::string_view kVocabularySha256 = "90d3e29c35d843f7144b4deced634774d9e3147c7fc8ac8e5024e1e8183df43f";
 inline constexpr std::string_view kVocabularySchema = "forge.archie.op_vocabulary/1";
 
 // The counts the vocabulary computes about itself.  A gate that re-derives
 // these from the LIVE registry is the check that the file is not merely
 // self-consistent.
 inline constexpr std::size_t kKernelOpsCount = 68;
-inline constexpr std::size_t kRegistryCommandsCount = 100;
+inline constexpr std::size_t kRegistryCommandsCount = 104;
 inline constexpr std::size_t kCommandsEmittingIrCount = 69;
 inline constexpr std::size_t kUserInvocableOpsCount = 65;
 inline constexpr std::size_t kForbiddenOpsCount = 3;
@@ -459,6 +459,190 @@ inline constexpr std::array<CommandRow, 69> kEmittingCommands = {{
     CommandRow{"part.unfold", "UNFOLD", "Body", 1, 1, "Surface"},
     CommandRow{"part.variable_fillet", "BLEND", "Edge", 1, kUnboundedArgs, "Solid"},
     CommandRow{"part.verify", "VERIFY", "Body", 1, 1, "Solid"},
+}};
+
+// ------------------------------------------------ numeric arguments and units
+// Every NUMBER argument of every allowed op, by position, with the unit the
+// vocabulary derived for its kernel name: "mm" | "deg" | "count" |
+// "dimensionless", or "" when unclassified. `ambiguous` marks a position the
+// op's kernel forms disagree about; it carries no unit and must not be bound.
+// Read by forge::ui's parameter bindings (ui/src/Parameters.cpp).
+struct NumericSlotRow {
+  std::string_view op;
+  std::size_t index = 0;               // position in the statement's arguments
+  std::string_view name;               // the kernel header's argument name
+  std::string_view unit;
+  bool ambiguous = false;
+};
+inline constexpr std::array<NumericSlotRow, 168> kNumericSlots = {{
+    NumericSlotRow{"BLEND", 1, "rStart", "mm", false},
+    NumericSlotRow{"BLEND", 2, "rEnd", "mm", false},
+    NumericSlotRow{"BOX", 0, "dx", "mm", false},
+    NumericSlotRow{"BOX", 1, "dy", "mm", false},
+    NumericSlotRow{"BOX", 2, "dz", "mm", false},
+    NumericSlotRow{"BOX", 3, "cx", "mm", false},
+    NumericSlotRow{"BOX", 4, "cy", "mm", false},
+    NumericSlotRow{"BOX", 5, "cz", "mm", false},
+    NumericSlotRow{"CAP", 1, "tol", "", false},
+    NumericSlotRow{"CBORE", 1, "dia", "mm", false},
+    NumericSlotRow{"CBORE", 2, "cboreDia", "mm", false},
+    NumericSlotRow{"CBORE", 3, "cboreDepth", "mm", false},
+    NumericSlotRow{"CBORE", 4, "cx", "mm", false},
+    NumericSlotRow{"CBORE", 5, "cy", "mm", false},
+    NumericSlotRow{"CBORE", 6, "cz", "mm", false},
+    NumericSlotRow{"CBORE", 7, "axx", "dimensionless", false},
+    NumericSlotRow{"CBORE", 8, "axy", "dimensionless", false},
+    NumericSlotRow{"CBORE", 9, "axz", "dimensionless", false},
+    NumericSlotRow{"CHAMFER", 1, "dist", "mm", false},
+    NumericSlotRow{"CIRCLE", 0, "r", "mm", false},
+    NumericSlotRow{"CIRCLE", 1, "cx", "mm", false},
+    NumericSlotRow{"CIRCLE", 2, "cy", "mm", false},
+    NumericSlotRow{"CON", 3, "value", "mm", false},
+    NumericSlotRow{"CONE", 0, "r1", "mm", false},
+    NumericSlotRow{"CONE", 1, "r2", "mm", false},
+    NumericSlotRow{"CONE", 2, "h", "mm", false},
+    NumericSlotRow{"CONE", 3, "cx", "mm", false},
+    NumericSlotRow{"CONE", 4, "cy", "mm", false},
+    NumericSlotRow{"CONE", 5, "cz", "mm", false},
+    NumericSlotRow{"CONE", 6, "axx", "dimensionless", false},
+    NumericSlotRow{"CONE", 7, "axy", "dimensionless", false},
+    NumericSlotRow{"CONE", 8, "axz", "dimensionless", false},
+    NumericSlotRow{"CYL", 0, "r", "mm", false},
+    NumericSlotRow{"CYL", 1, "h", "mm", false},
+    NumericSlotRow{"CYL", 2, "cx", "mm", false},
+    NumericSlotRow{"CYL", 3, "cy", "mm", false},
+    NumericSlotRow{"CYL", 4, "cz", "mm", false},
+    NumericSlotRow{"CYL", 5, "axx", "dimensionless", false},
+    NumericSlotRow{"CYL", 6, "axy", "dimensionless", false},
+    NumericSlotRow{"CYL", 7, "axz", "dimensionless", false},
+    NumericSlotRow{"DRAFT", 1, "angleDeg", "deg", false},
+    NumericSlotRow{"EXTRUDE", 1, "amount", "mm", false},
+    NumericSlotRow{"EXTRUDE", 2, "dirx", "dimensionless", false},
+    NumericSlotRow{"EXTRUDE", 3, "diry", "dimensionless", false},
+    NumericSlotRow{"EXTRUDE", 4, "dirz", "dimensionless", false},
+    NumericSlotRow{"FILLET", 1, "radius", "mm", false},
+    NumericSlotRow{"FOLD", 1, "hx", "mm", false},
+    NumericSlotRow{"FOLD", 2, "hy", "mm", false},
+    NumericSlotRow{"FOLD", 3, "hz", "mm", false},
+    NumericSlotRow{"FOLD", 4, "len", "mm", false},
+    NumericSlotRow{"FOLD", 5, "flangeH", "mm", false},
+    NumericSlotRow{"FOLD", 6, "thk", "mm", false},
+    NumericSlotRow{"FOLD", 7, "angleDeg", "deg", false},
+    NumericSlotRow{"FOLD", 8, "runDeg", "deg", false},
+    NumericSlotRow{"HOLE", 1, "dia", "mm", false},
+    NumericSlotRow{"HOLE", 2, "cx", "mm", false},
+    NumericSlotRow{"HOLE", 3, "cy", "mm", false},
+    NumericSlotRow{"HOLE", 4, "cz", "mm", false},
+    NumericSlotRow{"HOLE", 5, "axx", "dimensionless", false},
+    NumericSlotRow{"HOLE", 6, "axy", "dimensionless", false},
+    NumericSlotRow{"HOLE", 7, "axz", "dimensionless", false},
+    NumericSlotRow{"HOLE", 8, "depth", "mm", false},
+    NumericSlotRow{"MIRROR", 1, "px", "", true},
+    NumericSlotRow{"MIRROR", 2, "py", "", true},
+    NumericSlotRow{"MIRROR", 3, "pz", "", true},
+    NumericSlotRow{"MIRROR", 4, "nx", "", true},
+    NumericSlotRow{"MIRROR", 5, "ny", "", true},
+    NumericSlotRow{"MIRROR", 6, "nz", "", true},
+    NumericSlotRow{"OFFSETSOLID", 1, "dist", "mm", false},
+    NumericSlotRow{"OFFSETSOLID", 2, "tol", "mm", false},
+    NumericSlotRow{"PATTERN", 2, "n", "", true},
+    NumericSlotRow{"PATTERN", 3, "dx", "", true},
+    NumericSlotRow{"PATTERN", 4, "dy", "", true},
+    NumericSlotRow{"PATTERN", 5, "dz", "", true},
+    NumericSlotRow{"PATTERN", 6, "oz", "", true},
+    NumericSlotRow{"PATTERN", 7, "axx", "", true},
+    NumericSlotRow{"PATTERN", 8, "axy", "", true},
+    NumericSlotRow{"PATTERN", 9, "axz", "", true},
+    NumericSlotRow{"POCKET", 2, "depth", "mm", false},
+    NumericSlotRow{"POCKET", 4, "taperDeg", "deg", false},
+    NumericSlotRow{"POCKET", 5, "cornerR", "mm", false},
+    NumericSlotRow{"POCKET", 6, "floorR", "mm", false},
+    NumericSlotRow{"PRISM", 0, "nSides", "count", false},
+    NumericSlotRow{"PRISM", 1, "circumR", "mm", false},
+    NumericSlotRow{"PRISM", 2, "h", "mm", false},
+    NumericSlotRow{"PRISM", 3, "cx", "mm", false},
+    NumericSlotRow{"PRISM", 4, "cy", "mm", false},
+    NumericSlotRow{"PRISM", 5, "cz", "mm", false},
+    NumericSlotRow{"PUSHFACE", 2, "dist", "mm", false},
+    NumericSlotRow{"RECT", 0, "w", "mm", false},
+    NumericSlotRow{"RECT", 1, "h", "mm", false},
+    NumericSlotRow{"RECT", 2, "cx", "mm", false},
+    NumericSlotRow{"RECT", 3, "cy", "mm", false},
+    NumericSlotRow{"REGPOLY", 0, "r", "mm", false},
+    NumericSlotRow{"REGPOLY", 1, "n", "count", false},
+    NumericSlotRow{"REGPOLY", 2, "cx", "mm", false},
+    NumericSlotRow{"REGPOLY", 3, "cy", "mm", false},
+    NumericSlotRow{"REGPOLY", 4, "rotDeg", "deg", false},
+    NumericSlotRow{"RESIZEBORE", 2, "newRadius", "mm", false},
+    NumericSlotRow{"REVOLVE", 1, "angleDeg", "deg", false},
+    NumericSlotRow{"REVOLVE", 2, "ox", "mm", false},
+    NumericSlotRow{"REVOLVE", 3, "oy", "mm", false},
+    NumericSlotRow{"REVOLVE", 4, "oz", "mm", false},
+    NumericSlotRow{"REVOLVE", 5, "axx", "dimensionless", false},
+    NumericSlotRow{"REVOLVE", 6, "axy", "dimensionless", false},
+    NumericSlotRow{"REVOLVE", 7, "axz", "dimensionless", false},
+    NumericSlotRow{"RIB", 2, "thk", "mm", false},
+    NumericSlotRow{"RIB", 4, "taperDeg", "deg", false},
+    NumericSlotRow{"RING", 0, "rx", "mm", false},
+    NumericSlotRow{"RING", 1, "ry", "mm", false},
+    NumericSlotRow{"RING", 2, "z", "mm", false},
+    NumericSlotRow{"RING", 3, "cx", "mm", false},
+    NumericSlotRow{"RING", 4, "cy", "mm", false},
+    NumericSlotRow{"RING", 5, "p", "dimensionless", false},
+    NumericSlotRow{"RING", 6, "seg", "count", false},
+    NumericSlotRow{"ROTATE", 1, "angleDeg", "deg", false},
+    NumericSlotRow{"ROTATE", 2, "axx", "dimensionless", false},
+    NumericSlotRow{"ROTATE", 3, "axy", "dimensionless", false},
+    NumericSlotRow{"ROTATE", 4, "axz", "dimensionless", false},
+    NumericSlotRow{"ROTATE", 5, "ox", "mm", false},
+    NumericSlotRow{"ROTATE", 6, "oy", "mm", false},
+    NumericSlotRow{"ROTATE", 7, "oz", "mm", false},
+    NumericSlotRow{"RRECT", 0, "w", "mm", false},
+    NumericSlotRow{"RRECT", 1, "h", "mm", false},
+    NumericSlotRow{"RRECT", 2, "r", "mm", false},
+    NumericSlotRow{"RRECT", 3, "cx", "mm", false},
+    NumericSlotRow{"RRECT", 4, "cy", "mm", false},
+    NumericSlotRow{"SCALEUNIFORM", 1, "factor", "dimensionless", false},
+    NumericSlotRow{"SCALEUNIFORM", 2, "cx", "mm", false},
+    NumericSlotRow{"SCALEUNIFORM", 3, "cy", "mm", false},
+    NumericSlotRow{"SCALEUNIFORM", 4, "cz", "mm", false},
+    NumericSlotRow{"SCIRC", 1, "r", "mm", false},
+    NumericSlotRow{"SEW", 2, "tol", "", false},
+    NumericSlotRow{"SHELL", 1, "wall", "mm", false},
+    NumericSlotRow{"SHELL", 2, "openAxx", "dimensionless", false},
+    NumericSlotRow{"SHELL", 3, "openAxy", "dimensionless", false},
+    NumericSlotRow{"SHELL", 4, "openAxz", "dimensionless", false},
+    NumericSlotRow{"SPHERE", 0, "r", "mm", false},
+    NumericSlotRow{"SPHERE", 1, "cx", "mm", false},
+    NumericSlotRow{"SPHERE", 2, "cy", "mm", false},
+    NumericSlotRow{"SPHERE", 3, "cz", "mm", false},
+    NumericSlotRow{"SPT", 1, "x", "mm", false},
+    NumericSlotRow{"SPT", 2, "y", "mm", false},
+    NumericSlotRow{"SURFEXTEND", 1, "dist", "mm", false},
+    NumericSlotRow{"SWEEP", 0, "r", "", true},
+    NumericSlotRow{"THICKEN", 1, "wall", "mm", false},
+    NumericSlotRow{"THREAD", 1, "dia", "mm", false},
+    NumericSlotRow{"THREAD", 2, "pitch", "mm", false},
+    NumericSlotRow{"THREAD", 3, "depth", "mm", false},
+    NumericSlotRow{"THREAD", 5, "startAngleDeg", "deg", false},
+    NumericSlotRow{"TORUS", 0, "major", "mm", false},
+    NumericSlotRow{"TORUS", 1, "minor", "mm", false},
+    NumericSlotRow{"TORUS", 2, "cx", "mm", false},
+    NumericSlotRow{"TORUS", 3, "cy", "mm", false},
+    NumericSlotRow{"TORUS", 4, "cz", "mm", false},
+    NumericSlotRow{"TORUS", 5, "axx", "dimensionless", false},
+    NumericSlotRow{"TORUS", 6, "axy", "dimensionless", false},
+    NumericSlotRow{"TORUS", 7, "axz", "dimensionless", false},
+    NumericSlotRow{"TRANSLATE", 1, "dx", "mm", false},
+    NumericSlotRow{"TRANSLATE", 2, "dy", "mm", false},
+    NumericSlotRow{"TRANSLATE", 3, "dz", "mm", false},
+    NumericSlotRow{"TUBE", 0, "rOuter", "mm", false},
+    NumericSlotRow{"TUBE", 1, "rInner", "mm", false},
+    NumericSlotRow{"TUBE", 2, "h", "mm", false},
+    NumericSlotRow{"TUBE", 3, "cx", "mm", false},
+    NumericSlotRow{"TUBE", 4, "cy", "mm", false},
+    NumericSlotRow{"TUBE", 5, "cz", "mm", false},
+    NumericSlotRow{"UNFOLD", 1, "kFactor", "dimensionless", false},
 }};
 
 }  // namespace forge::ui::vocab

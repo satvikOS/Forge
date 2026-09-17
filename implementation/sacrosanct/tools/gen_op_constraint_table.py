@@ -111,6 +111,35 @@ def render(doc, vocab_sha):
             k_first, len(op["user_commands"]),
         ))
 
+    # Every NUMBER argument of every allowed op, with the unit the vocabulary
+    # derived for its kernel name. forge::ui's parameter bindings read this to know
+    # that a HOLE's `dia` is a length and a DRAFT's `angleDeg` an angle -- the same
+    # classification Archie is trained on, not a second transcription of it.
+    #
+    # An op with several kernel forms (PATTERN LINEAR / POLAR / GRID, MIRROR's
+    # keyword and point-normal forms, SWEEP's two profiles) can give one position
+    # different meanings. Such a position is emitted AMBIGUOUS with no unit, and is
+    # not bindable: guessing which form a statement uses is how a pattern's angle
+    # would be checked as a length.
+    slots = []
+    for op in ops:
+        sig_forms = op["kernel_signature"]
+        by_index = {}
+        for form in sig_forms:
+            for param in form["parameters"]:
+                if param["token"] != "number":
+                    continue
+                if not isinstance(param.get("index"), int) or param["index"] < 0:
+                    raise DeriveError("%s: number argument %r has no index" % (op["op"], param))
+                by_index.setdefault(param["index"], []).append(
+                    (param["name"], param.get("unit") or ""))
+        for index in sorted(by_index):
+            entries = by_index[index]
+            meanings = set(entries)
+            ambiguous = len(meanings) > 1 or len(entries) != len(sig_forms)
+            name, unit = entries[0]
+            slots.append((op["op"], index, name, "" if ambiguous else unit, ambiguous))
+
     L = []
     a = L.append
     a("// %s -- GENERATED FILE. DO NOT EDIT." % HEADER_REL)
@@ -236,6 +265,26 @@ def render(doc, vocab_sha):
           % (cxx_string(c["id"]), cxx_string(c["feature_ir_op"]),
              cxx_string(sel["kind"]), bound(sel["min"]), bound(sel["max"]),
              cxx_string(str(c["produces_value_kind"]))))
+    a("}};")
+    a("")
+    a("// ------------------------------------------------ numeric arguments and units")
+    a("// Every NUMBER argument of every allowed op, by position, with the unit the")
+    a("// vocabulary derived for its kernel name: \"mm\" | \"deg\" | \"count\" |")
+    a("// \"dimensionless\", or \"\" when unclassified. `ambiguous` marks a position the")
+    a("// op's kernel forms disagree about; it carries no unit and must not be bound.")
+    a("// Read by forge::ui's parameter bindings (ui/src/Parameters.cpp).")
+    a("struct NumericSlotRow {")
+    a("  std::string_view op;")
+    a("  std::size_t index = 0;               // position in the statement's arguments")
+    a("  std::string_view name;               // the kernel header's argument name")
+    a("  std::string_view unit;")
+    a("  bool ambiguous = false;")
+    a("};")
+    a("inline constexpr std::array<NumericSlotRow, %d> kNumericSlots = {{" % len(slots))
+    for op_name, index, name, unit, ambiguous in slots:
+        a("    NumericSlotRow{%s, %d, %s, %s, %s},"
+          % (cxx_string(op_name), index, cxx_string(name), cxx_string(unit),
+             "true" if ambiguous else "false"))
     a("}};")
     a("")
     a("}  // namespace forge::ui::vocab")

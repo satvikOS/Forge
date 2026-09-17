@@ -372,8 +372,27 @@ target_include_directories(forge_desktop_render PUBLIC
 target_compile_options(forge_desktop_render PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(forge_desktop_render PUBLIC forge_desktop_core)
 
+# ------------------------------------------- libforge_expr (LGPL-2.1, SHARED)
+# FreeCAD's expression language and unit system, adapted, in
+# third_party/freecad-derived/expressions. It is LGPL-2.1-or-later code, so it is
+# built as its OWN SHARED LIBRARY and the application links it DYNAMICALLY: the
+# packager copies libforge_expr.dylib into Contents/Frameworks, and a user may
+# replace that file with their own build (LGPL-2.1 s6). No source of it is ever
+# added to a Forge target -- tools/gates/freecad_derived_lgpl_gate.sh fails CI if
+# one is -- and the only Forge translation unit that includes its headers is
+# src/ExpressionHost.cpp, which is compiled into the APPLICATION below and into
+# nothing every headless gate links.
+#
+# Output beside forge_desktop so package_macos.sh finds it in the build directory
+# the same way it finds the executables.
+add_subdirectory("${FORGE_ROOT}/third_party/freecad-derived/expressions"
+                 "${CMAKE_BINARY_DIR}/freecad-derived/expressions")
+set_target_properties(forge_expr PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+
 set(FORGE_DESKTOP_APP_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/ExpressionHost.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PlatformSDL2.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateService.cpp")
 if(APPLE)
@@ -407,10 +426,10 @@ endif()
 # updater symbols -- the library, the CLI and its 130-check gate were all real, and
 # none of them was in the thing users install.
 target_link_libraries(forge_desktop PRIVATE forge_archie forge_desktop_core
-                      forge_desktop_render forge_updater
+                      forge_desktop_render forge_updater forge_expr
                       "${SDL2_LIB}" "${VK_LOADER_LIB}")
 set_target_properties(forge_desktop PROPERTIES
-    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib;${CMAKE_BINARY_DIR}")
 
 # ------------------------------------------------------- the isolated worker
 # ★ THE PROCESS THE APPLICATION IS ALLOWED TO LOSE.

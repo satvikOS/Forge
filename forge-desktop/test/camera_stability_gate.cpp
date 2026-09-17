@@ -426,6 +426,19 @@ std::vector<std::string> cameraMethodNames(const std::string& hdr) {
     pos = nl;
     if (line.rfind("//", 0) == 0) continue;
     if (line.find(") const") != std::string::npos) continue;
+    // ★ STATIC METHODS ARE NOT CAMERA MUTATIONS. The sweep below looks for
+    //   ".name(" and "->name(" -- an INSTANCE call on ANY receiver -- so a static
+    //   helper's name turns every unrelated object that happens to share it into a
+    //   false accusation. `static void identity(float out[16])` writes an identity
+    //   matrix and touches no Camera at all; it made this gate red on a branch whose
+    //   main.cpp prints `expressionHost.identity()`, a provenance STRING (the call
+    //   site ends in .c_str(), so it is not even the same signature).
+    //   The property under test is "the host must not MOVE the camera", and a
+    //   function with no camera to move cannot be how that happens.
+    //   The 11 methods that remain are all real mutations -- frame, orbit, pan,
+    //   zoom, setAspect, setNamedView, setFront, setTop, setRight, setIsometric,
+    //   ray -- so the non-vacuity floor of 8 below is still met with room to spare.
+    if (line.rfind("static ", 0) == 0) continue;
     const std::size_t v = line.find("void ");
     if (v == std::string::npos) continue;
     const std::size_t paren = line.find('(', v);

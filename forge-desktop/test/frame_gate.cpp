@@ -106,6 +106,7 @@
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
+#include "forge/ui/Parameters.hpp"      // parameterCommandIds -- the SECOND family wirePartCommands registers
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/ToolCatalog.hpp"
@@ -360,9 +361,15 @@ int main(int argc, char** argv) {
   if (g_mutation != 2) frame.wirePartCommands();
 
   // The Part commands went into THE SAME registry the shell dispatches. The
-  // count is READ from partCommandIds(), never spelled here.
-  checkEq(shell.registry().size(), shellCommands + forge::ui::partCommandIds().size(),
-          "Part commands joined the shell's one registry");
+  // count is READ from the id lists, never spelled here -- and there are TWO of
+  // them, because wirePartCommands() registers registerPartCommands() AND
+  // registerParameterCommands() and returns their sum. Reading only
+  // partCommandIds() gave `got 104 want 100` the moment the parameter family
+  // landed: the assertion was one family short, not the lists wrong.
+  checkEq(shell.registry().size(),
+          shellCommands + forge::ui::partCommandIds().size()
+                        + forge::ui::parameterCommandIds().size(),
+          "Part and Parameter commands joined the shell's one registry");
   for (const std::string& id : forge::ui::partCommandIds()) {
     check(shell.registry().contains(id), "registry holds a Part command", id);
   }
@@ -670,9 +677,15 @@ int main(int argc, char** argv) {
           std::to_string(sel.angleDegrees));
 
     // ...and the PANEL draws a row per picked face. The Part workspace's right
-    // column is the tab group at path {1,1}; Measure is its second tab.
+    // column is the tab group at path {1,1}. Measure is its THIRD tab: the column
+    // is {"properties", "parameters", "measure", "appearance"} in
+    // ui/src/WorkspaceProfile.cpp -- Parameters was inserted beside Properties and
+    // pushed Measure from index 1 to 2. These indices are literals with no lookup
+    // behind them, so ANY change to that column's order must be mirrored here and
+    // in the `panels` table in 12c; the source of truth is the mainWindow() call
+    // for WorkspaceProfile::Part.
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
-    frame.setActiveTabAt({1, 1}, 1);
+    frame.setActiveTabAt({1, 1}, 2);
     ImDrawData* d = buildOneFrame(frame, 0);
     check(d != nullptr && d->TotalVtxCount > 500, "the Measure panel draws a real frame", "");
     checkEq(frame.measureFaceRowsDrawn(), 2u, "the Measure panel drew a row per picked face");
@@ -704,7 +717,7 @@ int main(int argc, char** argv) {
       const char* id;
     };
     const std::vector<NewPanel> panels = {
-        {forge::ui::WorkspaceProfile::Part, {1, 1}, 2, "appearance"},
+        {forge::ui::WorkspaceProfile::Part, {1, 1}, 3, "appearance"},  // 2 -> 3: Parameters inserted at index 1
         {forge::ui::WorkspaceProfile::Simulation, {0}, 1, "materials"},
         {forge::ui::WorkspaceProfile::Surface, {0}, 1, "curve_list"},
         {forge::ui::WorkspaceProfile::Archie, {1, 0, 1}, 1, "verify_report"},
@@ -1372,7 +1385,7 @@ int main(int argc, char** argv) {
     check(em.length <= totalLength + 1e-9, "one edge cannot out-length the whole body",
           std::to_string(em.length));
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
-    frame.setActiveTabAt({1, 1}, 1);  // Measure
+    frame.setActiveTabAt({1, 1}, 2);  // Measure — third tab since Parameters was inserted at 1
     ImDrawData* d = buildOneFrame(frame, 0);
     check(d != nullptr && d->TotalVtxCount > 500, "the Measure panel draws a real frame", "");
     checkEq(frame.measureEdgeRowsDrawn(), 1u, "the Measure panel drew a row per picked edge");

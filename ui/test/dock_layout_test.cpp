@@ -80,7 +80,9 @@ int main() {
     CHECK(a.valid());
     CHECK_EQ_STR(a.serialize(), b.serialize());  // byte-identical every call
     CHECK_EQ_INT(a.windowCount(), 1);
-    CHECK_EQ_INT(a.panelCount(), 8);
+    // Eight in every workspace, and nine in Part, whose right column also carries
+    // the Parameters tab (WorkspaceProfile.cpp says why).
+    CHECK_EQ_INT(a.panelCount(), p == WorkspaceProfile::Part ? 9 : 8);
     CHECK(a.mainWindow() != nullptr);
   }
   CHECK(defaultLayout(WorkspaceProfile::Part).hasPanel("feature_tree"));
@@ -91,14 +93,15 @@ int main() {
   const DockLayout original = threeScreenLayout();
   CHECK(original.valid());
   CHECK_EQ_INT(original.windowCount(), 3);
-  CHECK_EQ_INT(original.panelCount(), 13);
+  // 9 in the Part main window (8 + Parameters), 3 torn off, 2 on the drawing screen.
+  CHECK_EQ_INT(original.panelCount(), 14);
 
   const std::string text = original.serialize();
   DockLayout reloaded;
   CHECK(DockLayout::parse(text, reloaded));
   CHECK_EQ_STR(reloaded.serialize(), text);  // serialize -> parse -> serialize
   CHECK(reloaded == original);               // and structurally equal
-  CHECK_EQ_INT(reloaded.panelCount(), 13);
+  CHECK_EQ_INT(reloaded.panelCount(), 14);
   CHECK(reloaded.valid());
 
   // deep structure really survived, not just the panel names

@@ -155,6 +155,10 @@ constexpr Row kRows[] = {
     {"operation_tree",
      "The machining operations for this part, in the order the machine will run them.",
      PanelContent::Live},
+    {"parameters",
+     "The named values this part is built from, and the formulas that tie its dimensions to "
+     "them, so changing one number changes every feature that depends on it.",
+     PanelContent::Live},
     {"post_output",
      "The machine code produced for this setup, ready to read before you send it to the machine.",
      PanelContent::Live},

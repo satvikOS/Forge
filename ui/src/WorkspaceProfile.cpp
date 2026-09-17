@@ -61,7 +61,8 @@ namespace {
 // The NX/CATIA/Blender shell shape, and the same shape in every workspace so a
 // user's spatial memory carries across them: a left browser column, a central
 // viewport over a docked bottom strip, and a right properties column.
-// Every workspace therefore has exactly 2 + 1 + 3 + 2 = 8 default panels.
+// Every workspace therefore has 2 + 1 + 3 + 2 = 8 default panels, except Part,
+// whose right column carries a fourth (Parameters): 9.
 DockWindow mainWindow(std::vector<PanelId> left, std::vector<PanelId> centre,
                       std::vector<PanelId> right, std::vector<PanelId> bottom) {
   DockWindow w;
@@ -85,8 +86,14 @@ DockLayout defaultLayout(WorkspaceProfile profile) {
   DockLayout layout;
   switch (profile) {
     case WorkspaceProfile::Part:
+      // "parameters" sits beside Properties: the part's named values and the
+      // formulas driving its dimensions. It is the ONE workspace with a ninth
+      // default tab, because parameters belong to the part document and the Part
+      // workspace is where a part's dimensions are authored -- there was no empty
+      // tab here for it to take over, and taking a live one would have removed a
+      // working panel from the default layout.
       layout.addWindow(mainWindow({"feature_tree", "model_browser"}, {"viewport_3d"},
-                                  {"properties", "measure", "appearance"},
+                                  {"properties", "parameters", "measure", "appearance"},
                                   {"timeline", "console"}));
       break;
     case WorkspaceProfile::Sketch:

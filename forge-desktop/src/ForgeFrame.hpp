@@ -52,6 +52,8 @@
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
 #include "forge/ui/Onboarding.hpp"
+#include "forge/ui/ExpressionEngine.hpp"
+#include "forge/ui/Parameters.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SketchDiagnosis.hpp"
 #include "forge/ui/StatusModel.hpp"
@@ -324,6 +326,34 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   std::size_t copilotTranscriptRowsDrawn() const noexcept {
     return copilotTranscriptRowsDrawn_;
   }
+
+  // ── parameters and expressions ─────────────────────────────────────────
+  // The expression library the Parameters panel and the parameter commands read
+  // formulas with. INJECTED, not constructed here: the engine the application
+  // ships (forge::desktop::ExpressionHost) is the only code that links
+  // libforge_expr, and ForgeFrame.cpp is compiled by gates that must not have to
+  // link it. With none installed the parameter commands are disabled and the
+  // panel says parameters are unavailable -- never a wrong number.
+  //
+  // The pointer is read at every command execution, so installing it after the
+  // commands were registered is correct. It must outlive this frame.
+  void setExpressionEngine(const forge::ui::ExpressionEngine* engine) noexcept {
+    exprEngine_ = engine;
+  }
+  const forge::ui::ExpressionEngine* expressionEngine() const noexcept { return exprEngine_; }
+
+  // The Parameters panel's controls, reachable without a mouse -- for a host, a
+  // macro and a gate. Like the CoPilot's, they RECORD INTENT and build() runs it
+  // after the dock walk, through the ONE registry: each becomes a dispatch of
+  // part.parameter_set / _bind / _unbind / _remove.
+  void parametersSet(const std::string& name, const std::string& expression);
+  void parametersBind(int feature, const std::string& argument, const std::string& expression);
+  void parametersUnbind(int feature, const std::string& argument);
+  void parametersRemove(const std::string& name);
+  // The last answer the panel shows: empty until a change was asked for.
+  const std::string& parametersMessage() const noexcept { return parametersMessage_; }
+  bool parametersLastOk() const noexcept { return parametersLastOk_; }
+  std::size_t parameterRowsDrawn() const noexcept { return parameterRowsDrawn_; }
 
   // ── the document ────────────────────────────────────────────────────────
   const forge::ui::PartDocument& document() const noexcept { return partDoc_; }
@@ -1271,6 +1301,10 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   void drawModelBrowserPanel();
   void drawSketchTreePanel();
   void drawPropertiesPanel();
+  void drawParametersPanel();
+  void queueParameterCommand(const std::string& id, forge::ui::CommandParams params,
+                             std::string success);
+  void runPendingParameterCommand();
   void drawConsolePanel();
   void drawTimelinePanel();
   void drawMeasurePanel();
@@ -2184,6 +2218,22 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   int editFeatureId_ = 0;
   std::size_t editParamIndex_ = 0;
   float editValue_ = 0.0f;
+
+  // ── the Parameters panel ────────────────────────────────────────────────
+  const forge::ui::ExpressionEngine* exprEngine_ = nullptr;
+  // One recorded press, run by build() after the walk (see parametersSet).
+  bool pendingParameterValid_ = false;
+  std::string pendingParameterCommand_;
+  forge::ui::CommandParams pendingParameterParams_;
+  std::string pendingParameterSuccess_;  // the sentence shown if the command succeeds
+  std::string parametersMessage_;
+  bool parametersLastOk_ = false;
+  std::size_t parameterRowsDrawn_ = 0;
+  std::array<char, 128> paramNameInput_{};
+  std::array<char, 512> paramFormulaInput_{};
+  std::array<char, 512> bindFormulaInput_{};
+  int bindFeatureId_ = 0;
+  int bindSlotIndex_ = 0;
 
   void note(const std::string& line);
 };

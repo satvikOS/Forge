@@ -27,6 +27,8 @@
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/ExpressionEngine.hpp"
+#include "forge/ui/Parameters.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "ui_test_util.hpp"
 
@@ -130,6 +132,10 @@ int main() {
   CHECK_EQ_INT(doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
                         {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)}), 2);
   const std::size_t partAdded = registerPartCommands(shell.registry(), doc, undo);
+  // The parameter commands are part of what Archie is told exists.
+  CHECK_EQ_INT(registerParameterCommands(shell.registry(), doc, undo,
+                                         []() -> const ExpressionEngine* { return nullptr; }),
+               4);
 
   const CommandRegistry& reg = shell.registry();
   // ids() and find() must agree, or the manifest silently omits rows.

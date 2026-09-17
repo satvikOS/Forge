@@ -1,0 +1,57 @@
+{
+  "$schema_version": "forge-freecad-derived/1",
+  "$doc": [
+    "Every component under third_party/freecad-derived/. One entry per component.",
+    "tools/gates/freecad_derived_lgpl_gate.sh reads this file and fails when a",
+    "component directory exists without an entry, an entry names a directory that",
+    "does not exist, or a component lacks COPYING.LGPL, MODIFICATIONS.md, NOTICE or",
+    "its THIRD_PARTY_NOTICES.md section. A component is always a SHARED library",
+    "linked dynamically by Forge; `library` is its file name in",
+    "Forge.app/Contents/Frameworks."
+  ],
+  "upstream": {
+    "project": "FreeCAD",
+    "repository": "https://github.com/FreeCAD/FreeCAD"
+  },
+  "components": [
+    {
+      "name": "expressions",
+      "path": "third_party/freecad-derived/expressions",
+      "library": "libforge_expr.dylib",
+      "cmake_target": "forge_expr",
+      "linkage": "dynamic (SHARED, Contents/Frameworks)",
+      "license": "LGPL-2.1-or-later",
+      "upstream_commit": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
+      "upstream_paths": [
+        "src/App/Expression.h",
+        "src/App/Expression.cpp",
+        "src/App/Expression.y",
+        "src/App/Expression.l",
+        "src/App/ExpressionParser.h",
+        "src/App/ExpressionParser.sh",
+        "src/App/ObjectIdentifier.cpp (App::quote only)",
+        "src/Base/Unit.h",
+        "src/Base/Unit.cpp",
+        "src/Base/Quantity.h",
+        "src/Base/Quantity.cpp",
+        "src/Base/UnitsConvData.h",
+        "src/Base/Exception.h (subset)",
+        "tests/src/App/Expression.cpp (cases)",
+        "tests/src/App/ExpressionParser.cpp (cases)",
+        "tests/src/Base/Quantity.cpp (cases)",
+        "tests/src/Base/Unit.cpp (cases)"
+      ],
+      "forge_adapter": [
+        "ui/include/forge/ui/ExpressionEngine.hpp",
+        "ui/include/forge/ui/Parameters.hpp",
+        "ui/src/Parameters.cpp",
+        "ui/src/ParameterCommands.cpp",
+        "forge-desktop/src/ExpressionHost.hpp",
+        "forge-desktop/src/ExpressionHost.cpp",
+        "forge-desktop/src/PartFile.cpp (PARAMETER / BINDING records, format version 5)",
+        "forge-desktop/src/ForgeFrame.cpp (the Parameters panel)"
+      ],
+      "adapted": "2026-09-15"
+    }
+  ]
+}

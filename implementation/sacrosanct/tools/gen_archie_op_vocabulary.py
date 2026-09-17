@@ -131,6 +131,10 @@ SOURCES = {
     "ui_ir_table": "ui/src/FeatureIr.cpp",
     "ui_part_commands": "ui/src/PartCommands.cpp",
     "ui_shell_commands": "ui/src/ForgeShell.cpp",
+    # The parameter commands (part.parameter_set / _bind / _unbind / _remove). They
+    # emit no statement -- they rewrite numbers of statements that exist -- but they
+    # are registry commands Archie can invoke, so they belong in the tool list.
+    "ui_parameter_commands": "ui/src/ParameterCommands.cpp",
     "desktop_frame": "forge-desktop/src/ForgeFrame.cpp",
     "ir_doc": "forge-kernel/docs/feature_tree_ir.md",
 }
@@ -898,6 +902,62 @@ def parse_shell_commands(cpp):
             "produces_value_kind": None,
             "source": SOURCES["ui_shell_commands"],
         })
+    return cmds
+
+
+def parse_parameter_commands(cpp):
+    """registerParameterCommands() in ui/src/ParameterCommands.cpp.
+
+    Same brittleness contract as parse_part_commands: every descriptor is
+    `CommandDescriptor c = base("id", "label");` with its schema pushed below it,
+    and the parsed ids must equal parameterCommandIds(). These commands must EMIT
+    NOTHING -- a parameter command that appended a statement would be an op the
+    vocabulary cannot see -- so an emission construct in a handler is refused.
+    """
+    src = strip_comments(cpp)
+    base_fn, _, _ = block_after(src, r"CommandDescriptor base\s*\([^)]*\)\s*")
+    base_undo = re.search(r"c\.undo\s*=\s*UndoContract::(\w+)", base_fn)
+    base_preview = re.search(r"c\.preview\s*=\s*PreviewPolicy::(\w+)", base_fn)
+    base_category = re.search(r'c\.category\s*=\s*"([^"]*)"', base_fn)
+    if not base_category:
+        raise DeriveError("ParameterCommands.cpp base() sets no category")
+    fn, _, _ = block_after(src, r"std::size_t registerParameterCommands\s*\([^)]*\)\s*")
+    cmds = []
+    for m in re.finditer(r"CommandDescriptor c = base\(", fn):
+        args, close = balanced(fn, m.end() - 1)
+        end = fn.index("add(std::move(c));", close)
+        block = fn[close + 1:end]
+        parts = [p.strip() for p in split_top(args)]
+        if len(parts) != 2:
+            raise DeriveError("parameter base() with %d arguments: %r" % (len(parts), args))
+        ex, _, _ = block_after(block, r"c\.execute\s*=\s*\[[^\]]*\]\s*\([^)]*\)\s*")
+        if "emit(" in ex or IRARG_RE.search(ex) or "IrLine" in ex or "AppendFeatureEdit" in ex:
+            raise DeriveError("parameter command %s appends a statement; it must only rewrite "
+                              "numbers through ParameterEdit" % parts[0])
+        undo = re.search(r"c\.undo\s*=\s*UndoContract::(\w+)", block) or base_undo
+        preview = re.search(r"c\.preview\s*=\s*PreviewPolicy::(\w+)", block) or base_preview
+        cmds.append({
+            "id": parts[0].strip('"'),
+            "label": parts[1].strip('"'),
+            "category": base_category.group(1),
+            "feature_ir_op": "",
+            "selection": {"kind": "None", "min": 0, "max": None},
+            "parameters": parse_param_specs(block),
+            "preview": preview.group(1) if preview else "None",
+            "undo": undo.group(1) if undo else "SingleStep",
+            "enabled_predicate_source": None,
+            "emits_ir": False,
+            "emitted_args": [],
+            "produces_value_kind": None,
+            "source": SOURCES["ui_parameter_commands"],
+        })
+    declared, _, _ = block_after(src, r"const std::vector<std::string>& parameterCommandIds\(\)\s*")
+    listed = sorted(re.findall(r'"([\w.]+)"', declared))
+    if sorted(c["id"] for c in cmds) != listed:
+        raise DeriveError("registerParameterCommands and parameterCommandIds disagree: %r vs %r"
+                          % (sorted(c["id"] for c in cmds), listed))
+    if not cmds:
+        raise DeriveError("registerParameterCommands registers nothing the parser can see")
     return cmds
 
 
@@ -1731,6 +1791,7 @@ def build():
         op["produces_kind"] = produced_kinds.get(op["enum"], produced_default)
     part = parse_part_commands(src["ui_part_commands"])
     shell = parse_shell_commands(src["ui_shell_commands"])
+    parameter_commands = parse_parameter_commands(src["ui_parameter_commands"])
     seeds = parse_desktop_seeds(src["desktop_frame"])
     archelix = archelix_config(src["kernel_cmake"], src["kernel_header"], src["kernel_compiler"])
     SELECTOR_RULES.update(parse_selector_rules(src["kernel_compiler"], spellings))
@@ -1800,7 +1861,7 @@ def build():
                               % (op["name"], derived_arity["min_args"], derived_arity["max_args"],
                                  ui["min_args"], ui["max_args"]))
 
-    commands = sorted(part + shell, key=lambda c: c["id"])
+    commands = sorted(part + shell + parameter_commands, key=lambda c: c["id"])
     emitting = [c for c in commands if c["emits_ir"]]
     allowed = sorted({c["feature_ir_op"] for c in emitting})
 

@@ -46,10 +46,20 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **100 commands**; **69 of them emit
+Measured at this revision: the registry holds **104 commands**; **69 of them emit
 feature-IR**, reaching **65 distinct op names**. The kernel defines **68** ops
 (`opFromName`), so **3 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+The registry grew from 100 to 104 and the EMITTING count did not move: the four are
+the PARAMETER commands (`ui/src/ParameterCommands.cpp`). `part.parameter_set`
+creates or changes a named parameter (`wall = 3 mm`), `part.parameter_bind` drives
+one number of an existing statement by a formula (feature 5, argument `dia`,
+`wall * 0.5 + 2 mm`), and `part.parameter_unbind` / `part.parameter_remove` undo
+those. None appends a statement: each rewrites numbers of statements already in
+the program, the way `part.edit_feature` does, so a plan uses them to say HOW a
+part's dimensions relate rather than to emit new ops. The unit of every bindable
+argument is the one this file derives (`kNumericSlots` in the generated header).
 
 Two more commands arrived and the EMITTING count did not move again, for the same
 reason: `file.export_stl` and `file.export_gcode` are the two WAYS OUT. STL was

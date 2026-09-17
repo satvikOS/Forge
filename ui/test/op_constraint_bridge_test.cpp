@@ -69,6 +69,8 @@
 #include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/OpConstraintBridge.hpp"
+#include "forge/ui/ExpressionEngine.hpp"
+#include "forge/ui/Parameters.hpp"
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
@@ -347,6 +349,11 @@ int main(int argc, char** argv) {
   UndoStack undo;
   const std::size_t partAdded = registerPartCommands(shell.registry(), doc, undo);
   CHECK(partAdded >= 20);
+  // The app registers the parameter commands beside the Part commands; they
+  // declare no feature-IR op, so every op check below skips them.
+  CHECK_EQ_INT(registerParameterCommands(shell.registry(), doc, undo,
+                                         []() -> const ExpressionEngine* { return nullptr; }),
+               4);
   {
     const std::vector<std::string> liveIds = shell.registry().ids();
     CHECK_EQ_INT(liveIds.size(), V.registryCommandCount);

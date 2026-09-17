@@ -1,5 +1,7 @@
 #include "PartFile.hpp"
 
+#include "forge/ui/ParameterSet.hpp"
+#include "forge/ui/Parameters.hpp"
 #include "forge/ui/Units.hpp"
 
 #include <fcntl.h>
@@ -283,7 +285,9 @@ std::string drawingText(const forge::ui::DrawingModel& d) {
 }  // namespace
 
 bool partFileVersionIsReadable(int version) noexcept {
-  return version == 1 || version == kPartFileDrawingVersion || version == kPartFileVersion;
+  // One line on purpose: ui/test/document_format_compat_test.cpp reads this set
+  // out of the source as a literal, so the policy and its gate cannot drift.
+  return version == 1 || version == kPartFileDrawingVersion || version == kPartFileInputVersion || version == kPartFileVersion;
 }
 
 namespace {
@@ -411,6 +415,31 @@ std::string writePartFile(const PartFileDoc& doc) {
     }
     out += "END\n";
   }
+  // ── the parameters and the formulas driving dimensions (format version 5) ─
+  //
+  // AFTER the features, so a reader meets every statement a binding names before
+  // the binding. Written only when there are any, so a part without parameters
+  // writes exactly the records the version 4 writer did.
+  //
+  // Free text goes through writeField like every other value here: control
+  // characters would break the one-record-per-line rule, and the commands that
+  // create these records refuse a formula or a name containing a line break in
+  // the first place (ui/src/ParameterCommands.cpp).
+  for (const forge::ui::ParameterDef& p : doc.parameters.parameters()) {
+    out += "PARAMETER\n";
+    writeField(out, "PNAME", p.name);
+    writeField(out, "PEXPR", p.expression);
+    writeField(out, "PNOTE", p.comment);
+    out += "END\n";
+  }
+  for (const forge::ui::DimensionBinding& b : doc.parameters.bindings()) {
+    out += "BINDING\n";
+    out += "BFEATURE " + std::to_string(b.irId) + "\n";
+    writeField(out, "BARG", b.argument);
+    out += "BSLOT " + std::to_string(b.slot) + "\n";
+    writeField(out, "BEXPR", b.expression);
+    out += "END\n";
+  }
   return out;
 }
 
@@ -427,8 +456,14 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
   // The drawing, accumulated block by block. Held in locals rather than being
   // pushed into `doc.drawing` as it is read, because a file that fails halfway
   // must not half-replace anything -- the same rule the feature list follows.
-  enum class Block { None, TitleBlock, Datum, Note, Control };
+  enum class Block { None, TitleBlock, Datum, Note, Control, Parameter, Binding };
   Block block = Block::None;
+  // The version-5 records, accumulated the same way and for the same reason.
+  forge::ui::ParameterSet parameters;
+  forge::ui::ParameterDef curParam;
+  forge::ui::DimensionBinding curBinding;
+  bool sawBindingFeature = false;
+  bool sawBindingSlot = false;
   forge::ui::TitleBlockData title;
   std::vector<forge::ui::DatumFeature> datums;
   std::vector<forge::ui::Annotation> notes;
@@ -521,12 +556,58 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
             if (!(curControl.toleranceMm > 0.0)) return fail("CONTROL block has no TOL");
             controls.push_back(curControl);
             break;
+          case Block::Parameter:
+            if (curParam.name.empty()) return fail("PARAMETER block has no PNAME");
+            if (curParam.expression.empty()) return fail("PARAMETER block has no PEXPR");
+            if (parameters.find(curParam.name) != nullptr) {
+              return fail("a second PARAMETER is called '" + curParam.name + "'");
+            }
+            parameters.upsertParameter(curParam);
+            break;
+          case Block::Binding:
+            if (!sawBindingFeature) return fail("BINDING block has no BFEATURE");
+            if (curBinding.argument.empty()) return fail("BINDING block has no BARG");
+            if (!sawBindingSlot) return fail("BINDING block has no BSLOT");
+            if (curBinding.expression.empty()) return fail("BINDING block has no BEXPR");
+            if (parameters.bindingFor(curBinding.irId, curBinding.slot) != nullptr) {
+              return fail("feature " + std::to_string(curBinding.irId) + "'s " +
+                          curBinding.argument + " is bound twice");
+            }
+            parameters.upsertBinding(curBinding);
+            break;
           case Block::TitleBlock:
           case Block::None:
             break;
         }
         block = Block::None;
         continue;
+      }
+      if (block == Block::Parameter) {
+        if (key == "PNAME") { curParam.name = rest; continue; }
+        if (key == "PEXPR") { curParam.expression = rest; continue; }
+        if (key == "PNOTE") { curParam.comment = rest; continue; }
+        return fail("unknown key '" + key + "' inside a PARAMETER block");
+      }
+      if (block == Block::Binding) {
+        if (key == "BFEATURE" || key == "BSLOT") {
+          char* end = nullptr;
+          const long long v = std::strtoll(rest.c_str(), &end, 10);
+          if (rest.empty() || end == rest.c_str() || *end != 0 || v < 0 ||
+              (key == "BFEATURE" && (v < 1 || v > 1000000000LL))) {
+            return fail(key + " is not a statement position: " + rest);
+          }
+          if (key == "BFEATURE") {
+            curBinding.irId = static_cast<int>(v);
+            sawBindingFeature = true;
+          } else {
+            curBinding.slot = static_cast<std::size_t>(v);
+            sawBindingSlot = true;
+          }
+          continue;
+        }
+        if (key == "BARG") { curBinding.argument = rest; continue; }
+        if (key == "BEXPR") { curBinding.expression = rest; continue; }
+        return fail("unknown key '" + key + "' inside a BINDING block");
       }
       std::string why;
       const int consumed = refKey(key, rest, why);
@@ -712,6 +793,25 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
         current = PartFileFeature{};
         continue;
       }
+      if (key == "PARAMETER" || key == "BINDING") {
+        // ADDITIVE-ONLY, the rule every later block follows: version 5 added
+        // these, so an older file carrying one is refused as the corruption it is.
+        if (fileVersion < kPartFileParametersVersion) {
+          return fail("'" + key + "' was added in format version " +
+                      std::to_string(kPartFileParametersVersion) +
+                      ", but this file says it is version " + std::to_string(fileVersion));
+        }
+        if (key == "PARAMETER") {
+          block = Block::Parameter;
+          curParam = forge::ui::ParameterDef{};
+        } else {
+          block = Block::Binding;
+          curBinding = forge::ui::DimensionBinding{};
+          sawBindingFeature = false;
+          sawBindingSlot = false;
+        }
+        continue;
+      }
       if (key == "TITLEBLOCK" || key == "DATUM" || key == "NOTE" || key == "CONTROL") {
         // ADDITIVE-ONLY, enforced rather than documented: these blocks were
         // introduced in version 2, so a file that CLAIMS version 1 and contains
@@ -776,10 +876,15 @@ bool readPartFile(const std::string& text, PartFileDoc& out, std::string& error)
     error = "file ends inside a FEATURE block (truncated write?)";
     return false;
   }
+  if (block == Block::Parameter || block == Block::Binding) {
+    error = "file ends inside a PARAMETER or BINDING block (truncated write?)";
+    return false;
+  }
   if (block != Block::None) {
     error = "file ends inside a drawing block (truncated write?)";
     return false;
   }
+  doc.parameters = std::move(parameters);
   doc.version = fileVersion;
   doc.drawing.restore(std::move(title), std::move(datums), std::move(notes), std::move(controls));
   out = std::move(doc);
@@ -800,6 +905,7 @@ PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::s
   out.units = forge::ui::toString(forge::ui::kInternalLengthUnit);
   out.drawing = drawing;
   out.material = doc.material();
+  out.parameters = doc.parameters();
   // snapshot() is the document's own published view of its node bindings; the
   // reverse index is built here rather than kept in a second place that could
   // fall behind it.
@@ -852,7 +958,37 @@ bool restorePartDocument(const PartFileDoc& file, forge::ui::PartDocument& doc,
       return false;
     }
   }
+  // ── the parameters, checked against the statements just restored ─────────
+  // STRUCTURE only: every binding must name a statement this file holds, an
+  // argument that statement's op has, at the position that argument occupies,
+  // holding a number. A binding that fails any of those would drive a number
+  // that is not there, and opening the part as if it did would be reporting a
+  // relationship the file cannot support. Evaluating the formulas needs the
+  // expression library, which this layer does not link: the Parameters panel and
+  // the parameter commands recompute them.
+  if (!partFileParametersFit(file.parameters, doc, error)) return false;
+  doc.setParameters(file.parameters);
   error.clear();
+  return true;
+}
+
+bool partFileParametersFit(const forge::ui::ParameterSet& parameters,
+                           const forge::ui::PartDocument& doc, std::string& why) {
+  for (const forge::ui::DimensionBinding& b : parameters.bindings()) {
+    const forge::ui::FeatureRecord* rec = doc.featureAt(b.irId);
+    if (rec == nullptr) {
+      why = "a formula drives feature " + std::to_string(b.irId) + ", which this part does not have";
+      return false;
+    }
+    const forge::ui::NumericSlot slot = forge::ui::numericSlotByName(rec->line.op, b.argument);
+    if (!slot.found || slot.index != b.slot || b.slot >= rec->line.args.size() ||
+        rec->line.args[b.slot].kind != forge::ui::IrArgKind::Number) {
+      why = "a formula drives '" + b.argument + "' of feature " + std::to_string(b.irId) +
+            ", which that feature does not have";
+      return false;
+    }
+  }
+  why.clear();
   return true;
 }
 

@@ -81,6 +81,9 @@ WORKFLOW_DIR="$ROOT/.github/workflows"
 AD_HOC=(
   "differential_solid_gate.cpp|run_differential_solid_gate.sh"
   "appcast_check.cpp|appcast_selftest.sh"
+  # Built against the LGPL shared library libforge_expr, which its runner builds
+  # from third_party/freecad-derived -- no OCCT, no SDK, so it runs on ubuntu.
+  "parameters_gate.cpp|run_parameters_gate.sh"
 )
 
 FAIL=0
