@@ -118,6 +118,22 @@ jobs:
       - name: Every action is pinned to a commit and every checkout drops its credential
         run: bash tools/gates/actions_pinned_gate.sh
 
+      # ── THE COMPOSITION CENSUS CHECKS ITS OWN LEXER ─────────────────────────
+      # tools/kernel/native_engine_composition.py decides, per Native* engine,
+      # whether OCCT PRODUCES the answer or merely carries it -- and the report
+      # built on it (forge-kernel/reports/NATIVE_ENGINE_COMPOSITION.md) is only
+      # worth as much as its comment/string/include stripping. Four of the twelve
+      # review findings against that tool were the stripper: a `//` containing
+      # `/*` opened a phantom block comment that deleted code, an `#include`
+      # counted as a use, the include step shifted every later offset, and the
+      # offset check said "byte" while measuring characters.
+      #
+      # --selftest carries those five properties as fixtures. It is python3 only,
+      # runs in milliseconds, and is here because a self-test nobody executes is
+      # the same as no self-test.
+      - name: The Native* composition census can still read C++ (5 lexical properties)
+        run: python3 tools/kernel/native_engine_composition.py --selftest
+
   kernel_gate_registration:
     name: every forge-kernel gate is executed, not merely built
     runs-on: ubuntu-latest
