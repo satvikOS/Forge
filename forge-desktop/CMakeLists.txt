@@ -568,6 +568,17 @@ target_link_libraries(forge_desktop_file_dialog_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_file_dialog_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# SCRATCH, not a gate: T-122's follow-up hunt. Built by hand, never wired into
+# run_desktop.sh, and removed before anything is proposed.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../scratchpad/t122hunt/export_target_probe.cpp")
+    add_executable(forge_t122_export_probe EXCLUDE_FROM_ALL
+        "${CMAKE_CURRENT_SOURCE_DIR}/../scratchpad/t122hunt/export_target_probe.cpp")
+    target_compile_options(forge_t122_export_probe PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(forge_t122_export_probe PRIVATE forge_desktop_core)
+    set_target_properties(forge_t122_export_probe PROPERTIES
+        BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+endif()
+
 # ------------------------------------------- the SAVE-TARGET gate  (T-122)
 # WHAT A SAVE PANEL POINTS AT, measured on RAW BYTES. The file-dialog gate above
 # pins that File > Save RAISES a panel and never what the panel is POINTED AT,
