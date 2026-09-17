@@ -300,7 +300,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # This job's whole purpose is to execute code from the pull request, so it
+      # must not keep a credentialed git remote around while doing it.
+      # desktop-release.yml:296 already does this; the rest of the file does not,
+      # and that is worth fixing as its own change rather than here.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
