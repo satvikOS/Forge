@@ -116,7 +116,7 @@ off the code on every run.
 | a seam exists: `ShapeHandle` -> `shape::Shape` | **yes** |
 | OCCT include lines in that seam's header | **0** |
 | PRODUCTION files naming `shape::Shape` outside its own directory | **1** |
-| oracle/test files naming it | 2 |
+| oracle/test files naming it | 3 |
 
 The seam is built, gated and ADOPTED by 1 production file(s). This row is the
 adoption curve for steps 5-7; the OCCT symbol census above is the result.
@@ -247,10 +247,9 @@ and that one line was the ENTIRE OCCT dependency of
 `forge-desktop/src/KernelScene.cpp` -- a file that names no OCCT type either.
 It was invisible here until it was fixed.
 
-| public headers that reach OCCT only THROUGH another Forge header | **2** |
+| public headers that reach OCCT only THROUGH another Forge header | **1** |
 |---|---:|
 
-- `forge-kernel/include/forge/FeaTet.hpp` -> `forge/ShapeRegistry.hpp`
 - `forge-kernel/include/forge/Features.hpp` -> `forge/Sketcher.hpp`
 
 ## Heaviest production kernel files

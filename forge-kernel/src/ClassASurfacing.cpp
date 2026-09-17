@@ -60,7 +60,8 @@
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
-#include "forge/ShapeRegistry.hpp"             // ShapeKind, getNativeSolid
+#include "forge/ShapeRegistry.hpp"             // addNativeSolid (the WRITE side — still OCCT-typed)
+#include "forge/NativeShapeAccess.hpp"         // nativeSolidOf — the READ side, OCCT-free
 #include "forge/native/brep/NativeLoftPipe.hpp" // TKOffset family F: pipe-shell on OCCT wires
 
 #include <unordered_set>
@@ -247,8 +248,17 @@ bool tryNativeStitchG2(const std::vector<ShapeHandle>& faces,
     auto owner = std::make_shared<TopologyBuilder>();
     std::vector<Face*> frags;
     for (ShapeHandle h : faces) {
-        if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;  // defer to OCCT
-        const Solid& s = reg.getNativeSolid(h);
+        // T-129: ONE question, asked without naming an OCCT type. nativeSolidOf()
+        // is nullptr for an entry that is not NativeSolid-backed AND for a handle
+        // that names nothing — the pair below asked those as two, and the first of
+        // them (kindOf) THREW on the second case. This function's own contract
+        // above says it "NEVER throws" when it defers; it now keeps that promise,
+        // and an unknown handle still raises further down the OCCT path
+        // (fetch() -> ShapeRegistry::get), which is exactly what the default build
+        // — where this native branch is gated OFF — has always done.
+        const Solid* sp = nativeSolidOf(h);
+        if (!sp) return false;                                      // defer to OCCT
+        const Solid& s = *sp;
         for (Shell* sh : s.shells) {
             for (Face* sf : sh->faces) {
                 if (Face* nf = cloneFaceIndependent(*owner, sf)) frags.push_back(nf);
