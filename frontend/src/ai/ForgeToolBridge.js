@@ -4196,12 +4196,21 @@ export const FORGE_TOOLS = [
 
 const STEP = ['.step', '.stp'];
 
+// mjcf is MuJoCo XML; usd has two text spellings.
+const ROBOT_EXT = {
+  urdf: ['.urdf'], sdf: ['.sdf'], usd: ['.usd', '.usda'], mjcf: ['.xml', '.mjcf'],
+};
+
 const FILE_INTENT = {
   'io.import':                     { filepath: { mode: 'read',  ext: [...STEP, '.stl', '.brep', '.brp', '.iges', '.igs'] } },
   'io.export-step':                { filepath: { mode: 'write', ext: STEP } },
   'io.export-stl':                 { filepath: { mode: 'write', ext: ['.stl'] } },
-  // format: urdf | sdf | usd | mjcf -- mjcf is XML, usd has two text spellings
-  'io.export-robot':               { filepath: { mode: 'write', ext: ['.urdf', '.sdf', '.usd', '.usda', '.xml', '.mjcf'] } },
+  // ★PER-FORMAT, not a union. The union accepted {format:'sdf',
+  // filepath:'/tmp/model.urdf'} -- SDF content in a .urdf file -- which is the
+  // very misrepresentation this guard exists to stop. The default mirrors
+  // exportRobot's own `(format || 'urdf')`.
+  'io.export-robot':               { filepath: { mode: 'write', ext: (a) => ROBOT_EXT[
+      String(a && a.format ? a.format : 'urdf').toLowerCase()] || [] } },
   'io.export-archival':            { filepath: { mode: 'write', ext: STEP } },
   'ecad.import-board':             { filepath: { mode: 'read',  ext: ['.emn'] } },
   'ecad.export-board':             { filepath: { mode: 'write', ext: ['.emn'] } },

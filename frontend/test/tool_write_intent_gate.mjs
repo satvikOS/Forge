@@ -139,6 +139,52 @@ test('the path policy, term by term', { skip: !intent && 'fileIntent.js absent (
   assert.equal(extensionOf('/tmp/a.b.STEP'), '.step');
 });
 
+test('a verb may not misrepresent the file type it produces',
+  { skip: !intent && 'fileIntent.js absent (parent tree)' }, async () => {
+    // The union form of this declaration accepted SDF content in a .urdf file.
+    const cases = [
+      ['sdf', '/tmp/model.urdf', false, 'SDF content into a .urdf file'],
+      [undefined, '/tmp/model.sdf', false, 'the urdf default into a .sdf file'],
+      ['urdf', '/tmp/model.urdf', true, 'urdf into .urdf'],
+      ['sdf', '/tmp/model.sdf', true, 'sdf into .sdf'],
+      ['mjcf', '/tmp/model.xml', true, 'mjcf into .xml (MuJoCo is XML)'],
+    ];
+    for (const [format, filepath, allowed, what] of cases) {
+      const forge = recordingForge();
+      const res = await dispatchToolCall(
+        { name: 'io.export-robot',
+          arguments: { assembly: { parts: [], mates: [] }, format, filepath } }, { forge });
+      const refusedByGuard = !res.ok && /NOT APPLIED/.test(String(res.error));
+      assert.equal(refusedByGuard, !allowed,
+        `${what}: expected ${allowed ? 'allowed' : 'refused'}, got ${res.error || 'ok'}`);
+    }
+  });
+
+test('the Electron bridge keeps a trusted path for generated staging files',
+  { skip: !intent && 'fileIntent.js absent (parent tree)' }, async () => {
+    // REGRESSION: requiring a panel for every writeBlob broke project OPEN.
+    // projectFile.js writeTmpStep stages /tmp/forge-project-*.step with no
+    // dialog, loadProject catches the throw into restoreErrors and continues,
+    // so every native body vanished while loadProject returned ok:true.
+    const { createRequire } = await import('node:module');
+    let consent;
+    try { consent = createRequire(import.meta.url)('../../electron/writeConsent.js'); }
+    catch { return; }
+    const os = await import('node:os');
+    consent.resetConsentForTests();
+    for (const [p, want, what] of [
+      ['/tmp/forge-project-1-b1-abc.step', true, 'the project-open stager'],
+      ['/tmp/forge-brepcache-1-x-q.brep', true, 'the brep cache stager'],
+      [`${os.tmpdir()}/forge-thing.step`, true, 'os.tmpdir() staging'],
+      ['/tmp/evil.step', false, 'temp without the forge- prefix'],
+      ['/tmp/forge-sub/evil.plist', false, 'nested below temp'],
+      ['/Users/v/Library/LaunchAgents/forge-evil.plist', false, 'forge- prefix, wrong directory'],
+      ['/Users/v/.zshrc', false, 'a dotfile'],
+    ]) {
+      assert.equal(consent.consentedFor(p), want, `${what}: ${p}`);
+    }
+  });
+
 test('consent travels with the path (the Electron write bridge)',
   { skip: !intent && 'fileIntent.js absent (parent tree)' }, async () => {
     const { createRequire } = await import('node:module');

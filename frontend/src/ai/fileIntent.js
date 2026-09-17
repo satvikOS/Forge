@@ -84,7 +84,7 @@ export function hasTraversal(p) {
  * Check one path argument against what its verb declared.
  * Returns null when the path is allowed, or a refusal string.
  */
-export function checkPathArg(spec, key, raw) {
+export function checkPathArg(spec, key, raw, args = {}) {
   const decl = (spec && spec.files && spec.files[key]) || null;
   if (!decl) {
     return `${spec.name}: parameter '${key}' is a filesystem path and this verb `
@@ -107,7 +107,13 @@ export function checkPathArg(spec, key, raw) {
          + `than normalised: '${p}'`;
   }
   const ext = extensionOf(p);
-  const allowed = decl.ext || [];
+  // ★THE ALLOWED SET CAN DEPEND ON THE CALL, not only on the verb. A flat union
+  // for io.export-robot accepted {format:'sdf', filepath:'/tmp/model.urdf'} --
+  // SDF content written into a .urdf file, which is exactly the invariant this
+  // guard states it enforces: the path a tool call picks may not change or
+  // MISREPRESENT what the verb produces. Declaring `ext` as a function of the
+  // arguments is what makes the per-format case expressible.
+  const allowed = typeof decl.ext === 'function' ? (decl.ext(args) || []) : (decl.ext || []);
   if (allowed.length && !allowed.includes(ext)) {
     return `${spec.name}: this verb ${decl.mode === 'read' ? 'reads' : 'writes'} `
          + `${allowed.join(' | ')} and '${key}' names ${ext ? `a ${ext} file` : 'a file with no extension'}`
@@ -123,7 +129,7 @@ export function checkPathArg(spec, key, raw) {
  */
 export function guardFileArgs(spec, args = {}) {
   for (const key of pathParams(spec)) {
-    const bad = checkPathArg(spec, key, args ? args[key] : undefined);
+    const bad = checkPathArg(spec, key, args ? args[key] : undefined, args || {});
     if (bad) return { ok: false, error: bad };
   }
   return { ok: true };
@@ -140,7 +146,8 @@ export function assertFileIntentDeclared(tools) {
   for (const spec of tools) {
     for (const key of pathParams(spec)) {
       const d = spec.files && spec.files[key];
-      if (!d || (d.mode !== 'read' && d.mode !== 'write') || !Array.isArray(d.ext)) {
+      const extOk = d && (Array.isArray(d.ext) || typeof d.ext === 'function');
+      if (!d || (d.mode !== 'read' && d.mode !== 'write') || !extOk) {
         undeclared.push(`${spec.name}.${key}`);
       }
     }
