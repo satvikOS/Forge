@@ -171,6 +171,22 @@ def strip_noncode(text):
             j = text.find("*/", i + 2)
             j = n if j == -1 else j + 2
             out.append("".join(ch if ch == "\n" else " " for ch in text[i:j])); i = j
+        elif c == "R" and text[i + 1:i + 2] == '"':
+            # A C++ RAW string: R"delim( ... )delim". Treated as an ordinary
+            # literal it ends at the next `"`, so a raw body containing a quote
+            # followed by // or /* terminates early and the scanner eats real
+            # source as a comment. No Native*.cpp carries one today -- this is
+            # the same latent shape as the phantom block comment, and the tool
+            # takes its directory by argument. Found in review.
+            k = text.find("(", i + 2)
+            if k == -1:
+                out.append(c); i += 1; continue
+            delim = text[i + 2:k]
+            close = ")" + delim + '"'
+            j = text.find(close, k + 1)
+            j = n if j == -1 else j + len(close)
+            out.append("".join(ch if ch == "\n" else " " for ch in text[i:j]))
+            i = j
         elif c in "\"'":
             quote = c
             j = i + 1
@@ -190,15 +206,34 @@ def strip_noncode(text):
 
 
 def classify(path):
-    code = strip_noncode(open(path).read())
+    return classify_text(open(path).read())
+
+
+def classify_text(text):
+    code = strip_noncode(text)
     counts = collections.Counter()
     producing = collections.Counter()
     unclassified = collections.Counter()
     # A PRODUCING class counts only where it is CONSTRUCTED or declared as an
     # instance -- `BRepAlgoAPI_Fuse(a, b)` or `BRepAlgoAPI_Fuse fuse;` -- never
     # from a bare mention. See the note on #include in strip_noncode.
+    #
+    # ★A DECLARATION IS NOT A CONSTRUCTION, and the only safe discriminator here
+    # is SCOPE. `BRepAlgoAPI_Fuse makeFuse(const TopoDS_Shape&);` at namespace
+    # scope declares a function; `BRepAlgoAPI_Fuse fu(a, b);` inside a body
+    # constructs one, and the two are the same shape. MEASURED before choosing a
+    # rule: all 26 declarator-shaped producing uses in this corpus are genuine
+    # constructions, indented 4/8/12/16, and NONE sits at column 0 -- so a naive
+    # "exclude Type name(" would have dropped every one and collapsed the counts
+    # to near zero. Excluding only column 0 costs nothing here and catches the
+    # case that would actually be wrong. Found in review.
     built = set()
     for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+)\s*(?:\(|[A-Za-z_]\w*)", code):
+        line_start = code.rfind("\n", 0, m.start()) + 1
+        if m.start() == line_start and not code[m.start():].startswith(tuple()):
+            # at column 0: namespace scope, a declaration rather than a local
+            if re.match(r"[A-Za-z0-9_]+\s+[A-Za-z_]\w*\s*\(", code[m.start():]):
+                continue
         built.add(m.start())
     for m in OCCTISH.finditer(code):
         tok = m.group(1)
@@ -233,6 +268,21 @@ SELFTEST = [
     ("an #include is not a use",
      '#include <BRepAlgoAPI_Fuse.hxx>\n',
      [], ["BRepAlgoAPI_Fuse"]),
+    ("a raw string carrying a quote and a comment marker opens nothing",
+     'const char* s = R"(a " b // not a comment /* nor this */)";\n'
+     'BRepAlgoAPI_Section sec(a, b);\n',
+     ["BRepAlgoAPI_Section"], ["not a comment"]),
+]
+
+# Scope fixtures for the PRODUCES rule: the same token shape means different
+# things at column 0 and inside a body, and only the second is a construction.
+SCOPE_TEST = [
+    ("a namespace-scope declaration is not a construction",
+     'BRepAlgoAPI_Fuse makeFuse(const TopoDS_Shape& a);\n', 0),
+    ("an indented local IS a construction",
+     'void f() {\n    BRepAlgoAPI_Fuse fu(a, b);\n}\n', 1),
+    ("an indented default-constructed local IS a construction",
+     'void f() {\n    ShapeUpgrade_UnifySameDomain uni;\n}\n', 1),
 ]
 
 
@@ -258,6 +308,13 @@ def selftest():
     if not bad:
         print("  ok   stripping preserves every CHARACTER offset (not byte: "
               "blanking non-ASCII with a space shrinks the UTF-8 length)")
+    for name, src, want in SCOPE_TEST:
+        got = classify_text(src)[1]
+        n = sum(got.values())
+        if n != want:
+            print("  FAIL %s -- counted %d producing, wanted %d" % (name, n, want)); bad += 1
+        else:
+            print("  ok   %s" % name)
     for name, src, survive, gone in SELFTEST:
         out = strip_noncode(src)
         for t in survive:
