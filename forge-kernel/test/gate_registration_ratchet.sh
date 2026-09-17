@@ -22,13 +22,13 @@
 # written to answer one question, and an investigation that answered its question
 # need not run for ever. The class that matters is the one whose own NAME claims
 # it guards something: *_gate. Of 13 such scripts, NINE did not run when this was
-# written; the ALLOW list below is the live count and this sentence is history.
+# written; the ALLOW lists below are the live count and this sentence is history.
 #
 # So this pins whatever is in ALLOW. The count may FALL (wire one up) but never
 # RISE. One more unwired gate turns this red on the PR that introduces it — which
-# is precisely the case nothing in this repository caught before. THE COUNT IS NOT
-# TYPED ANYWHERE: PINNED is derived from ALLOW, because a number written beside a
-# list is only true on the day it is written.
+# is precisely the case nothing in this repository caught before. THE COUNTS ARE
+# NOT TYPED ANYWHERE: each PINNED is derived from its ALLOW list, because a number
+# written beside a list is only true on the day it is written.
 #
 # ★ IT HAS ALREADY FALLEN ONCE, which is the point: build_thicken_orientation_gate
 #   was wired into .github/workflows/kernel-tests.yml (the OCCT kernel smoke job,
@@ -38,11 +38,51 @@
 # ★ IT IS RED IN BOTH DIRECTIONS. If an allowlisted gate becomes reachable, that
 #   is PROGRESS and this still goes red, telling you to remove it from the list.
 #   A ratchet that cannot notice improvement stops being evidence.
+#
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUND 2 (T-137 defect C). TWO THINGS THIS COULD NOT SEE, AND ONE IT GOT WRONG.
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# ★ (1) IT ENUMERATED ONLY *_gate.sh, SO EVERY GATE WRITTEN IN C++ WAS INVISIBLE.
+#   This is the same class of hole the file's own comment below warns about —
+#   "a check whose enumeration cannot see a thing cannot report on it" — one
+#   level up. forge-kernel/test holds EIGHTEEN *_gate.cpp files. Four of them
+#   were reachable from no CI job at all, and one, heal_destruction_refusal_gate,
+#   carried the only assertion in the repository that stops a native heal from
+#   silently emptying a user's imported part. It was committed, it compiled, it
+#   was registered in CMake, every check stayed green, and it had run zero times.
+#   The check built to catch exactly that could not see the file.
+#
+# ★ (2) CMake `add_test()` REGISTRATION IS NOT EXECUTION, AND NOTHING SAID SO.
+#   forge-kernel/CMakeLists.txt registers 47 test executables with
+#   add_executable() + add_test(NAME kernel.ab.<g>). `ctest` is invoked by NO
+#   workflow, NO script and NO npm target in this repository — three grep hits,
+#   every one a comment — and every forge-kernel CI build names an explicit
+#   `--target`. MEASURED when this section was written: 45 of those 47 gates were
+#   reachable from no CI job. Registration looks like wiring in a diff and is not,
+#   which is why the third enumeration below reads CMakeLists.txt directly.
+#
+# ★ (3) "REACHABLE" MEANT "NAMED BY SOME FILE", NOT "REACHABLE FROM A CI JOB".
+#   The old search asked whether ANY .sh or .yml in the tree mentioned the gate.
+#   That makes a gate invoked only by a second script which is itself invoked by
+#   nothing read as WIRED. It is a one-hop answer to a transitive question.
+#   Phase 1 below now computes the actual closure: seed with the workflow files,
+#   then repeatedly admit any script a file already in the set names. A gate is
+#   reachable iff some file IN THAT SET names it.
+#   VERIFIED before and after: the closure reproduces the ten-entry *_gate.sh
+#   ALLOW list exactly, so this is a strictly sharper question with the same
+#   answer on the shell half — and a different, correct answer on the C++ half.
+#
+# COST. MEASURED on a workstation: ~5 s, dominated by the closure's greps (the
+# one-hop version was 0.22 s). It remains text processing only — bash, grep, sed,
+# find, basename. No compiler, no SDK, no network. An unaffordable gate gets
+# disabled, and five seconds per pull request is not that.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 
-# The known-unregistered gates, each with the reason it is not wired.
-# REMOVE an entry when you wire the gate up. Do NOT add one without a reason.
+# ── THE KNOWN-UNREGISTERED GATES ──────────────────────────────────────────────
+# Each list is the live measurement. REMOVE an entry when you wire the gate up.
+# Do NOT add one without a reason.
 #
 # ★ run_pcurve_fit_gate LEFT THIS LIST on 2026-09-03 and the ratchet is what said
 #   so — it went RED ON THE IMPROVEMENT, which is the half of a ratchet nobody
@@ -50,7 +90,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 #   run_ab_all.sh, and it in turn runs test/pcurve_geometry_gate.cpp, which no
 #   script, no CMake target and no workflow named AT ALL. The count is lowered in
 #   the same commit that wires it, which is this file's own rule.
-ALLOW="\
+ALLOW_SH="\
 run_ft_edge_selector_gate
 run_pipe_drop_gate
 run_pipeshell_guided_gate
@@ -62,67 +102,169 @@ build_hlr_import_gate
 build_import_surfaces_gate
 build_kernel_correctness_gate"
 
-reachable() {   # reachable <basename>
-  local b="$1"
-  # ★ EXCLUDE gate-registration.yml. It is the CHECKER, not a consumer -- no gate
-  #   is ever RUN from it -- and its own mutation-proof step necessarily NAMES
-  #   gates (it creates run_phantom_ci_gate and mentions run_pipe_drop_gate). Left
-  #   in, the search finds those names THERE, calls them reachable, and every
-  #   proof case silently no-ops. That is exactly what happened: all three cases
-  #   reported failure in CI while passing locally, because locally the mutations
-  #   came from the shell and not from a file the search reads.
-  # ★ A COMMENT IS NOT AN INVOCATION. This matched the basename as a SUBSTRING
-  #   ANYWHERE, so `# TODO: wire probe_todo_gate into CI one day` -- a line whose
-  #   plain meaning is "this gate is NOT wired" -- turned the ratchet GREEN for
-  #   that gate. MEASURED: phantom gate with no mention = RED; add only that
-  #   comment = GREEN. The sentence stating the problem silenced the check.
-  #   Comments are stripped before searching. `#` inside a quoted string would be
-  #   stripped too, which can only make a gate look LESS reachable -- the safe
-  #   direction for a ratchet, because it errs toward flagging work, never toward
-  #   hiding it.
-  uncommented_has() {   # uncommented_has <dir-or-file...> ; uses $b
-    local f
-    for f in "$@"; do
-      [ -e "$f" ] || continue
-      # NOT `sed ... | grep -q`. `grep -q` exits at the FIRST match, `sed` is still
-      # writing, takes SIGPIPE and exits 141 -- and `set -o pipefail` above makes
-      # THAT the pipeline's status, so a SUCCESSFUL MATCH reads as a failure. It
-      # only bites on a file long enough that sed has not finished, which is why it
-      # missed kernel-tests.yml (1400+ lines) while the same pipeline matched fine
-      # on a short one. Reading from a process substitution takes grep's own status.
-      grep -q -- "$b" <(sed 's/#.*$//' "$f" 2>/dev/null) && return 0
-    done
-    return 1
-  }
-  local wf
-  for wf in .github/workflows/*.yml .github/workflows/*.yaml; do
-    [ -e "$wf" ] || continue
-    case "$wf" in */gate-registration.yml) continue ;; esac
-    uncommented_has "$wf" && return 0
-  done
-  # invoked by any OTHER script or workflow in the tree
-  # ★ EXCLUDE THIS SCRIPT. Its own ALLOW list names every pinned gate, so without
-  #   this the search finds each name HERE and calls it reachable -- measured
-  #   collapses to 0 and the ratchet reports a permanent phantom "improvement".
-  #   Caught by running it: the first version printed measured=0 against pinned=9.
-  local cand
-  while IFS= read -r cand; do
-    uncommented_has "$cand" && return 0
-  done < <(grep -rl "$b" --include="*.sh" --include="*.yml" . 2>/dev/null \
-    | grep -v "/$b\.sh$" \
-    | grep -v "/gate_registration_ratchet\.sh$" \
-    | grep -v "/gate-registration\.yml$")
-  # run_ab_all.sh CONSTRUCTS run_ab_native_<t>.sh from its HARNESSES list, so a
-  # name never appears literally. This is the only dynamic construction in the
-  # tree — verified by grepping for any other interpolated gate name.
-  case "$b" in run_ab_native_*)
-    local t=${b#run_ab_native_}
-    grep -qE "HARNESSES=.*\b$t\b" forge-kernel/test/run_ab_all.sh 2>/dev/null && return 0 ;;
-  esac
-  return 1
-}
+# forge-kernel/test/*_gate.cpp that no CI job reaches. Each of these is built only
+# by a build_*_gate.sh wrapper that is ITSELF on the list above, so wiring the
+# wrapper clears both entries at once — which is why the two lists move together.
+#
+# ★ heal_destruction_refusal_gate LEFT THIS LIST on the commit that created the
+#   list, and that is the whole point of the enumeration existing: it is the gate
+#   whose absence from CI this section was written about. It is now compiled and
+#   run — with four source mutations that must turn it red — by the `native` job
+#   in kernel-tests.yml, which needs no OCCT for it.
+#
+# MEASURED SHAPE OF THIS LIST, so nobody has to re-derive it: SIX of the eight are
+# the C++ body of a shell gate already pinned in ALLOW_SH above — wiring that
+# wrapper clears both entries at once, which is why the two lists move together.
+# The remaining TWO, sarc_ring_gate and step_read_occt_projection_gate, are
+# reachable through CMake registration ONLY and so are pinned in ALLOW_CMAKE too;
+# they are the gates for which "registered" and "run" are furthest apart.
+ALLOW_CPP="\
+kernel_correctness_gate
+native_aabb_bridge_gate
+native_thicksolid_nesting_gate
+pipeshell_guided_gate
+sarc_ring_gate
+step_read_occt_projection_gate
+thrusections_quadrature_gate
+thrusections_xlate_label_gate"
 
-UNREG=""
+# CMake-REGISTERED test executables (FORGE_AB_GATES: add_executable + add_test)
+# that no CI job reaches. THE REASON IS THE SAME FOR EVERY ENTRY and it is
+# structural, not per-gate: they are registered with add_test() and nothing in
+# this repository invokes ctest, so the registration reaches no runner. They are
+# pinned rather than failed because wiring 40-odd OCCT A/B oracles into a macOS
+# job is a scheduling decision with a real minute cost, not a one-line fix — but
+# the list must never GROW, and today it is the honest size of the hole.
+#
+# ★ FOUR ENTRIES ARE ABSENT THAT A ONE-HOP SEARCH WOULD HAVE LISTED:
+#   ab_native_{draft,filling,sweep,thicken}_occt. They are reachable, but only
+#   through run_ab_all.sh, which builds `run_ab_native_<t>.sh` from a HARNESSES
+#   string — a name that appears literally nowhere. Phase 1 honours that
+#   construction, and only once run_ab_all.sh is itself CI-reachable. If this
+#   list ever grows those four back, the thing that broke is the ab-all wiring,
+#   not the gates.
+ALLOW_CMAKE="\
+io_stl_binary_solid_header
+matelib_quat_ab
+sarc_ring_gate
+native_vs_occt_allbox
+native_vs_occt_chamfer
+native_vs_occt_chamfer_asym
+native_vs_occt_convexhull
+native_vs_occt_dataexchange_write
+native_vs_occt_draft
+native_vs_occt_exact_boolean
+native_vs_occt_fillet
+native_vs_occt_fillet_curved
+native_vs_occt_fillet_ext
+native_vs_occt_fuzzy_boolean
+native_vs_occt_gear
+native_vs_occt_gregory_nsided
+native_vs_occt_helical
+native_vs_occt_hlr
+native_vs_occt_hlr_import
+native_vs_occt_hlr_persp
+native_vs_occt_import_surfaces
+native_vs_occt_interference
+native_vs_occt_loftsweep
+native_vs_occt_nurbs_ssi
+native_vs_occt_offset_shape
+native_vs_occt_pattern
+native_vs_occt_query
+native_vs_occt_section
+native_vs_occt_sew
+native_vs_occt_shell
+native_vs_occt_step_read
+native_vs_occt_stl
+native_vs_occt_surfacefill
+native_vs_occt_surfacefill_g2
+native_vs_occt_trimmed_face
+native_vs_occt_validator
+native_vs_occt_validator_ext
+step_read_occt_projection_gate"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 1 — THE CI-REACHABLE FILE SET.
+# ══════════════════════════════════════════════════════════════════════════════
+# Seed: every workflow EXCEPT gate-registration.yml.
+#
+# ★ EXCLUDE gate-registration.yml. It is the CHECKER, not a consumer -- no gate
+#   is ever RUN from it -- and its own mutation-proof step necessarily NAMES
+#   gates (it creates run_phantom_ci_gate and mentions run_pipe_drop_gate). Left
+#   in, the search finds those names THERE, calls them reachable, and every
+#   proof case silently no-ops. That is exactly what happened: all three cases
+#   reported failure in CI while passing locally, because locally the mutations
+#   came from the shell and not from a file the search reads.
+#
+# ★ A COMMENT IS NOT AN INVOCATION. The search matched the basename as a
+#   SUBSTRING ANYWHERE, so `# TODO: wire probe_todo_gate into CI one day` -- a
+#   line whose plain meaning is "this gate is NOT wired" -- turned the ratchet
+#   GREEN for that gate. MEASURED: phantom gate with no mention = RED; add only
+#   that comment = GREEN. The sentence stating the problem silenced the check.
+#   Comments are stripped before searching. `#` inside a quoted string would be
+#   stripped too, which can only make a gate look LESS reachable -- the safe
+#   direction for a ratchet, because it errs toward flagging work, never toward
+#   hiding it.
+#
+# ★ THIS SCRIPT IS NEVER IN THE SET, and now by construction rather than by a
+#   special case. Its ALLOW lists name every pinned gate, so if it were admitted
+#   each gate would find its own name HERE and report itself wired -- measured on
+#   the one-hop version, which collapsed to 0 against pinned=9 until it was
+#   excluded. Nothing in the seed names it except gate-registration.yml, which is
+#   not in the seed, so the closure cannot reach it.
+TMP=$(mktemp -d) || exit 2
+trap 'rm -rf "$TMP"' EXIT
+BLOB="$TMP/ci.txt"; : > "$BLOB"
+REACH=""
+
+admit() {   # admit <path> — add a file to the CI-reachable set and its text to the blob
+  REACH="$REACH$1
+"
+  sed 's/#.*$//' "$1" >> "$BLOB" 2>/dev/null
+}
+in_reach() { printf '%s' "$REACH" | grep -qxF -- "$1"; }
+
+for wf in .github/workflows/*.yml .github/workflows/*.yaml; do
+  [ -e "$wf" ] || continue
+  case "$wf" in */gate-registration.yml) continue ;; esac
+  admit "$wf"
+done
+
+CANDIDATES=$(find . -path ./.git -prune -o \( -name '*.sh' -o -name '*.py' \) -print \
+             | sed 's|^\./||')
+
+# Iterate to a fixed point: a script named by anything already in the set joins it.
+# ★ run_ab_all.sh CONSTRUCTS run_ab_native_<t>.sh from its HARNESSES list, so those
+#   names never appear literally anywhere. This is the only dynamic construction in
+#   the tree -- verified by grepping for any other interpolated gate name -- and it
+#   is honoured only once run_ab_all.sh is ITSELF reachable, which is the whole
+#   difference between this and the one-hop search it replaces.
+while : ; do
+  added=0
+  for f in $CANDIDATES; do
+    in_reach "$f" && continue
+    hit=0
+    grep -qF -- "$(basename "$f")" "$BLOB" && hit=1
+    if [ "$hit" -eq 0 ]; then
+      case "$(basename "$f" .sh)" in
+        run_ab_native_*)
+          t=$(basename "$f" .sh); t=${t#run_ab_native_}
+          if in_reach "forge-kernel/test/run_ab_all.sh"; then
+            grep -qE "HARNESSES=.*[\" ]$t[\" ]" forge-kernel/test/run_ab_all.sh 2>/dev/null && hit=1
+          fi ;;
+      esac
+    fi
+    [ "$hit" -eq 1 ] && { admit "$f"; added=1; }
+  done
+  [ "$added" -eq 0 ] && break
+done
+
+# named_by_ci <name> — does any file in the CI-reachable set mention this name?
+named_by_ci() { grep -qF -- "$1" "$BLOB"; }
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PHASE 2 — THE THREE ENUMERATIONS.
+# ══════════════════════════════════════════════════════════════════════════════
 # ★ ENUMERATE ON THE NAME THIS CHECK IS ABOUT, NOT ON A PREFIX.
 #   This globbed run_*.sh and build_*.sh and THEN filtered to the *_gate suffix, so
 #   a gate carrying neither prefix was never even considered. SIX were invisible --
@@ -133,35 +275,67 @@ UNREG=""
 #   the glob for as long as it existed.
 #   A check whose enumeration cannot see a thing cannot report on it. A gate that
 #   passes because it never looked is not evidence.
+
+UNREG_SH=""
 for f in forge-kernel/test/*_gate.sh; do
   [ -e "$f" ] || continue
   b=$(basename "$f" .sh)
-  reachable "$b" || UNREG="$UNREG$b\n"
+  in_reach "$f" || UNREG_SH="$UNREG_SH$b
+"
 done
-MEASURED=$(printf "%b" "$UNREG" | grep -c . || true)
-PINNED=$(printf '%s\n' "$ALLOW" | grep -c . || true)
 
-echo "[gate-registration] gates named *_gate that CI does not execute:"
-printf "%b" "$UNREG" | sed 's/^/    /'
-echo "[gate-registration] measured=$MEASURED  pinned=$PINNED"
+# A C++ gate reaches CI under any of three spellings -- its own basename (a
+# hand-written compile naming <b>.cpp), the CMake target forge_gate_<b>, or the
+# older forge_<b> -- so the substring test covers all of them at once.
+UNREG_CPP=""
+for f in forge-kernel/test/*_gate.cpp; do
+  [ -e "$f" ] || continue
+  b=$(basename "$f" .cpp)
+  named_by_ci "$b" || UNREG_CPP="$UNREG_CPP$b
+"
+done
 
-NEW=$(printf "%b" "$UNREG" | grep -vxF "$ALLOW" || true)
-GONE=$(printf '%s\n' "$ALLOW" | grep -vxF "$(printf "%b" "$UNREG")" || true)
+# The CMake-registered set, read out of CMakeLists.txt rather than typed here, so
+# adding a target to FORGE_AB_GATES without wiring it turns this red on that PR.
+UNREG_CMAKE=""
+CMAKE_GATES=$(sed -n '/set(FORGE_AB_GATES/,/^    )$/p' forge-kernel/CMakeLists.txt 2>/dev/null \
+              | sed 's/#.*$//' | grep -oE '^ *[a-z0-9_]+ *$' | tr -d ' ')
+for g in $CMAKE_GATES; do
+  named_by_ci "$g" || UNREG_CMAKE="$UNREG_CMAKE$g
+"
+done
 
 rc=0
-if [ -n "$NEW" ]; then
-  echo "[gate-registration] RED — a NEW gate is not wired into CI:"
-  printf '%s\n' "$NEW" | sed 's/^/    /'
-  echo "[gate-registration] It will compile, commit, and stay green while never running once."
-  echo "[gate-registration] Wire it into .github/workflows/, or add it to ALLOW with a reason."
-  rc=1
-fi
-if [ -n "$GONE" ]; then
-  echo "[gate-registration] RED ON AN IMPROVEMENT — these are now reachable:"
-  printf '%s\n' "$GONE" | sed 's/^/    /'
-  echo "[gate-registration] Remove them from ALLOW. A ratchet that cannot notice"
-  echo "[gate-registration] progress is not evidence."
-  rc=1
-fi
-[ $rc -eq 0 ] && echo "[gate-registration] GREEN — no unwired gate beyond the $PINNED pinned."
+verdict() {   # verdict <label> <unreg-text> <allow-text>
+  local label="$1" unreg="$2" allow="$3"
+  local measured pinned new gone
+  measured=$(printf '%b' "$unreg" | grep -c . || true)
+  pinned=$(printf '%s\n' "$allow" | grep -c . || true)
+  echo "[gate-registration] $label — not reachable from any CI job:"
+  printf '%b' "$unreg" | sed 's/^/    /'
+  echo "[gate-registration] $label measured=$measured  pinned=$pinned"
+  new=$(printf '%b' "$unreg" | grep -vxF "$allow" || true)
+  gone=$(printf '%s\n' "$allow" | grep -vxF "$(printf '%b' "$unreg")" || true)
+  if [ -n "$new" ]; then
+    echo "[gate-registration] RED — a NEW $label gate is not wired into CI:"
+    printf '%s\n' "$new" | sed 's/^/    /'
+    echo "[gate-registration] It will compile, commit, and stay green while never running once."
+    echo "[gate-registration] Wire it into .github/workflows/, or add it to ALLOW with a reason."
+    rc=1
+  fi
+  if [ -n "$gone" ]; then
+    echo "[gate-registration] RED ON AN IMPROVEMENT — these $label gates are now reachable:"
+    printf '%s\n' "$gone" | sed 's/^/    /'
+    echo "[gate-registration] Remove them from ALLOW. A ratchet that cannot notice"
+    echo "[gate-registration] progress is not evidence."
+    rc=1
+  fi
+}
+
+echo "[gate-registration] CI-reachable file set: $(printf '%s' "$REACH" | grep -c .) files"
+verdict "shell gates (*_gate.sh)"        "$UNREG_SH"    "$ALLOW_SH"
+verdict "C++ gates (*_gate.cpp)"         "$UNREG_CPP"   "$ALLOW_CPP"
+verdict "CMake-registered (add_test)"    "$UNREG_CMAKE" "$ALLOW_CMAKE"
+
+[ $rc -eq 0 ] && echo "[gate-registration] GREEN — no unwired gate beyond those pinned."
 exit $rc

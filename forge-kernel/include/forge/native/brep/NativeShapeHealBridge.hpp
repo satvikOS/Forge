@@ -95,8 +95,9 @@ struct GeneralFixReport {
     bool exported = false;   // stage 3: occtFromNativeSolid produced a non-null shape
     bool changed  = false;   // healBRep applied >= 1 structural fix (else input is returned)
     bool faceted  = false;   // the EXPORTED shape faceted curved/holed geometry (fidelity loss)
-    // Cause when the returned shape is the INPUT unchanged (import/heal/export defer),
-    // or the honest limitation note when it changed but faceted. Empty on an exact pass.
+    // Cause when the returned shape is the INPUT unchanged (import/heal/export defer
+    // — INCLUDING the heal's destruction refusal, see `destructionRefused`), or the
+    // honest limitation note when it changed but faceted. Empty on an exact pass.
     std::string reason;
 
     // Counts of fixes actually applied (mirrored from HealReport for the caller's log).
@@ -115,6 +116,21 @@ struct GeneralFixReport {
     bool anyUnfixed() const {
         return unfixedFreeEdges != 0 || unfixedNonManifoldEdges != 0;
     }
+
+    // ---- MATERIAL CONSERVATION (T-137) ---------------------------------------
+    // The measured volume of the body the native healer saw, before and after its
+    // passes (divergence theorem over the polygonal faces). These numbers already
+    // existed inside HealReport and were read by nothing; a caller could not see
+    // that a "successful" repair had emptied the part. `inputBoundsVolume` says
+    // whether volumeBefore is a real enclosed volume (the input face set closes) or
+    // merely a surface integral over an open patch — only compare the two when it
+    // is true. `destructionRefused` is set when healBRep DECLINED because its own
+    // output failed that comparison: the shape returned is the INPUT, untouched,
+    // and `reason` names what the repair was about to do to the user's part.
+    double volumeBefore = 0.0;
+    double volumeAfter  = 0.0;
+    bool inputBoundsVolume  = false;
+    bool destructionRefused = false;
 };
 
 // RICH general shape repair, native (the ShapeFix_Shape::Perform() replacement for

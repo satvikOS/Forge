@@ -90,8 +90,23 @@ jobs:
       - uses: actions/checkout@v4
 
       # Prove the ratchet can fail BEFORE trusting the run below. A registration
-      # check that cannot go red is decoration. Three cases, no build, ~1 s.
-      - name: Prove the kernel registration ratchet can fail (3 cases)
+      # check that cannot go red is decoration. Seven cases, no build, ~35 s.
+      #
+      # ── WHY SEVEN AND NOT THREE (T-137 defect C). ────────────────────────────
+      # The three original cases all exercise the SHELL enumeration, and all three
+      # passed for as long as the ratchet has existed — while the ratchet was blind
+      # to every gate written in C++ and to every gate CMake registers with
+      # add_test(). heal_destruction_refusal_gate was committed, compiled, CMake-
+      # registered, green on every check, and had executed zero times; this suite
+      # said nothing, because nothing in it asked. Cases 4-6 ask.
+      #
+      # ★ CASE 7 IS THE SHARP ONE and it is a CONTROL, not a failure case. The old
+      #   search asked "does ANY file name this gate?", which is a one-hop answer to
+      #   a transitive question: a gate invoked only by a second script that nothing
+      #   invokes read as WIRED. Case 7 builds exactly that — an orphan caller — and
+      #   requires the ratchet to stay GREEN. Run it against the one-hop version and
+      #   it goes red-on-an-improvement over a gate that still runs nowhere.
+      - name: Prove the kernel registration ratchet can fail (7 cases)
         shell: bash
         run: |
           # ★ set +e IS LOAD-BEARING. GitHub's `shell: bash` runs
@@ -165,8 +180,63 @@ jobs:
             echo "$OUT"; fails=$((fails+1))
           else echo "  control (unrelated edit) correctly unchanged"; fi
 
-          [ $fails -eq 0 ] || { echo "::error::$fails of 3 proof cases failed"; exit 1; }
-          echo "  all 3 proof cases pass — the ratchet is falsifiable"
+          # 4. A NEW unwired gate written in C++. THE ENUMERATION THAT DID NOT
+          #    EXIST. forge-kernel/test holds eighteen *_gate.cpp files and the
+          #    ratchet globbed only *_gate.sh, so this whole class was invisible to
+          #    the one check built to see it.
+          printf 'int main(){return 0;}\n' > forge-kernel/test/phantom_ci_gate.cpp
+          OUT=$(bash "$R" 2>&1); rc=$?
+          rm -f forge-kernel/test/phantom_ci_gate.cpp
+          if [ $rc -eq 0 ]; then
+            echo "::error::mutation 4 stayed GREEN — a .cpp gate is still invisible to the ratchet"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  mutation 4 (new unwired C++ gate) caught"; fi
+
+          # 5. A NEW CMake-REGISTERED target nothing runs. add_test() puts a gate in
+          #    a diff and in `ctest -N`, and ctest is invoked by no workflow, no
+          #    script and no npm target here — three grep hits, all comments. So
+          #    registration looks like wiring and is not. MEASURED when this case
+          #    was written: 38 of 47 FORGE_AB_GATES entries reach no CI job.
+          cp forge-kernel/CMakeLists.txt /tmp/cm.bak
+          perl -0777 -pi -e 's/(    set\(FORGE_AB_GATES\n)/$1        phantom_registered_gate\n/' \
+            forge-kernel/CMakeLists.txt
+          OUT=$(bash "$R" 2>&1); rc=$?
+          cp /tmp/cm.bak forge-kernel/CMakeLists.txt
+          if [ $rc -eq 0 ]; then
+            echo "::error::mutation 5 stayed GREEN — add_test() registration is checked by nothing"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  mutation 5 (new CMake-registered, unrun gate) caught"; fi
+
+          # 6. An allowlisted C++ gate becoming REACHABLE. The improvement direction
+          #    for the new enumeration, so it cannot silently stop noticing progress.
+          cp .github/workflows/kernel-tests.yml /tmp/kt.bak
+          printf '\n      - name: proof m6\n        run: ./build/forge_gate_sarc_ring_gate\n' \
+            >> .github/workflows/kernel-tests.yml
+          OUT=$(bash "$R" 2>&1); rc=$?
+          cp /tmp/kt.bak .github/workflows/kernel-tests.yml
+          if [ $rc -eq 0 ]; then
+            echo "::error::mutation 6 stayed GREEN — the C++ enumeration cannot notice an improvement"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  mutation 6 (allowlisted C++ gate became reachable) caught"; fi
+
+          # 7. CONTROL — THE TRANSITIVITY ONE. An ORPHAN CALLER: a script that
+          #    invokes an allowlisted gate for real, and that nothing invokes in
+          #    turn. The gate still runs nowhere, so the ratchet must stay GREEN.
+          #    The one-hop search this replaced went red-on-an-improvement here,
+          #    which would have had someone delete a correct ALLOW entry.
+          #    (printf, not a heredoc: this whole block is a YAML block scalar, so a
+          #     heredoc terminator cannot sit at column 0 and would never close.)
+          printf '#!/usr/bin/env bash\nbash forge-kernel/test/run_pipe_drop_gate.sh\n' \
+            > forge-kernel/test/orphan_caller_probe.sh
+          OUT=$(bash "$R" 2>&1); rc=$?
+          rm -f forge-kernel/test/orphan_caller_probe.sh
+          if [ $rc -ne 0 ]; then
+            echo "::error::control 7 FAILED — an orphan caller was counted as CI wiring"
+            echo "$OUT"; fails=$((fails+1))
+          else echo "  control 7 (orphan caller is not wiring) correctly GREEN"; fi
+
+          [ $fails -eq 0 ] || { echo "::error::$fails of 7 proof cases failed"; exit 1; }
+          echo "  all 7 proof cases pass — the ratchet is falsifiable"
 
       - name: Every gate named *_gate is reachable from CI (or pinned with a reason)
         shell: bash

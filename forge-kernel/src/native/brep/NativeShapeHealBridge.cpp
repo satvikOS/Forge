@@ -163,8 +163,34 @@ TopoDS_Shape fixShapeGeneral(const TopoDS_Shape& shape,
         r.reason = "healBRep threw";
         return shape;
     }
+    // Mirror the material-conservation measurement whatever the verdict, so a caller
+    // that DEFERRED can still see what the native healer measured (house style: keep
+    // the diagnostics populated on the refusal path).
+    r.volumeBefore      = hp.volumeBefore;
+    r.volumeAfter       = hp.volumeAfter;
+    r.inputBoundsVolume = hp.inputBoundsVolume;
+    r.destructionRefused = hp.destructionRefused;
     if (!hp.ok || hp.faces.empty()) {
-        r.reason = hp.ok ? "healBRep produced no surviving faces" : "healBRep: malformed input";
+        // T-137: healBRep's ok=false is no longer only "malformed input" — it is also
+        // the DESTRUCTION REFUSAL, whose `reason` names what the repair did to the
+        // part. Quote it verbatim; reporting it as "malformed input" would hide the
+        // one message the user needs. Either way we return the INPUT unchanged and
+        // the OCCT ShapeFix fallback stays authoritative.
+        //
+        // HOW FAR THIS MESSAGE REACHES, stated plainly rather than implied. THIS is
+        // the only one of healBRep's three callers that has anywhere to put it:
+        // GeneralFixReport::reason. The other two wired callers DROP it, because
+        // their signatures have no channel for a string —
+        //   forge-kernel/src/ShapeFix.cpp  tryNativeRepair: `if (!rep.ok) return false;`
+        //   forge-kernel/src/Healing.cpp   tryNativeHeal:   `if (!rep.ok || ...) return false;`
+        // — both returning bare bool with the refusal text discarded. The ROUTING is
+        // still correct on all three paths (false == defer to OCCT, which measurably
+        // returns the plate intact), but the refusal LITERALS below are observable
+        // only through fixShapeGeneral today. Surfacing them in the other two is a
+        // change to files this work does not own; it needs those signatures to grow
+        // a reason field, and is recorded here rather than claimed as done.
+        if (!hp.ok && hp.reason && hp.reason[0] != '\0') r.reason = hp.reason;
+        else r.reason = hp.ok ? "healBRep produced no surviving faces" : "healBRep: malformed input";
         return shape;
     }
     r.healed = true;

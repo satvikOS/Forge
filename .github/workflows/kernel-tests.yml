@@ -98,6 +98,128 @@ jobs:
           ccache --max-size=2G --zero-stats
           bash forge-kernel/test/native/run_native.sh
           ccache --show-stats
+      - name: heal destruction-refusal gate (T-137) + 4 mutations that must turn it RED
+        # ── WHY THIS STEP EXISTS. It is the whole of T-137 defect (C). ────────────
+        # forge-kernel/CMakeLists.txt registers heal_destruction_refusal_gate with
+        # add_executable() AND add_test(NAME kernel.ab.…). `ctest` is invoked by NO
+        # workflow, NO script and NO npm target in this repository — three grep hits,
+        # every one of them a comment — and every forge-kernel CI build names an
+        # explicit `--target`. The string `forge_gate_` appeared in ZERO workflows.
+        # So the gate carrying the only assertion that stops a user's imported plate
+        # from being silently emptied had executed exactly zero times. Registration
+        # is not execution, and the run below is the difference.
+        #
+        # ── WHY ON UBUNTU AND NOT IN THE macOS OCCT JOB. ──────────────────────────
+        # The gate is pure forge::native::brep — Heal, Sew, Topology, Curve, Nurbs
+        # and the exact predicates, eight translation units, no OCCT at all. MEASURED
+        # on a workstation: 2.5 s for the six shared objects, 1.3 s for Heal.cpp plus
+        # the link, 0.17 s to run 162 checks; each mutant reuses the six objects and
+        # costs one Heal.cpp compile. The whole step is ~15 s at ubuntu's 1x
+        # multiplier. The two OCCT heal A/B gates cannot come here and are wired into
+        # the `kernel` job instead, where OCCT already exists.
+        #
+        # ── THE SOURCE LIST IS PART OF THE ASSERTION. ─────────────────────────────
+        # It is spelled out rather than globbed, so if Heal.cpp grows a dependency
+        # this list does not name, the step fails to LINK and goes red. It cannot
+        # silently shrink into a smaller gate, which is this repository's own
+        # recorded failure mode ("a file nothing compiles cannot break").
+        #
+        # ── WHY MUTANTS AND NOT JUST A RUN. ───────────────────────────────────────
+        # MEASURED on the first version of this gate: deleting LEG A outright still
+        # scored 74/74, and reverting the total-destruction branch to ok=true still
+        # scored 74/74. A green gate proves nothing about branches nothing drives.
+        # Each mutant patches a SCRATCH COPY of Heal.cpp (the checkout is never
+        # modified), rebuilds one TU, and requires the gate to go RED.
+        #
+        # ★ AN ANCHOR THAT NO LONGER MATCHES IS RED, NOT A SILENT NO-OP. If Heal.cpp
+        #   is reworded the mutation would otherwise apply nothing, the gate would
+        #   pass, and this step would report the mutant "caught" while having tested
+        #   an unmodified build. `cmp -s` proves the patch landed before the rebuild.
+        run: |
+          set -uo pipefail
+          # Same compiler and standard as run_native.sh (CXX="${CXX:-clang++}",
+          # -std=c++20), the step above, which already compiles every one of these
+          # sources on this runner. A gate built with a different toolchain than the
+          # suite beside it is testing a different program.
+          CXX="${CXX:-clang++}"
+          K=forge-kernel
+          SHARED="$K/src/native/brep/Sew.cpp $K/src/native/brep/Topology.cpp
+                  $K/src/native/brep/Curve.cpp $K/src/native/brep/Nurbs.cpp
+                  $K/src/native/ExactPredicates3D.cpp $K/src/native/ExactReal.cpp
+                  $K/test/heal_destruction_refusal_gate.cpp"
+          mkdir -p /tmp/healgate/obj
+          for s in $SHARED; do
+            n=$(basename "$s" .cpp)
+            "$CXX" -std=c++20 -O1 -I "$K/include" -c "$s" -o "/tmp/healgate/obj/$n.o" \
+              || { echo "::error::the heal gate's own object set does not COMPILE ($n)"; exit 1; }
+          done
+          build() {   # build <Heal.cpp> <out>
+            "$CXX" -std=c++20 -O1 -I "$K/include" -c "$1" -o "$2.heal.o" 2>"$2.cc.err" \
+              && "$CXX" -std=c++20 -O1 "$2.heal.o" /tmp/healgate/obj/*.o -o "$2" 2>>"$2.cc.err"
+          }
+          build "$K/src/native/brep/Heal.cpp" /tmp/healgate/gate \
+            || { echo "::error::the heal destruction-refusal gate does not BUILD"; \
+                 tail -25 /tmp/healgate/gate.cc.err; exit 1; }
+          if /tmp/healgate/gate > /tmp/healgate/base.log 2>&1; then
+            echo "[heal-gate] $(grep '^=== RESULT' /tmp/healgate/base.log | tail -1)"
+          else
+            echo "::error::the heal destruction-refusal gate is RED on the tree"
+            grep '\[FAIL\]' /tmp/healgate/base.log | head -40
+            tail -3 /tmp/healgate/base.log
+            exit 1
+          fi
+          # Each entry: <name>|<perl -0777 substitution>. The four branches that
+          # decide a refusal: leg A (closure), leg B (material), the separate
+          # total-destruction return, and the arming predicate that gates all three.
+          # The arming mutant restores ROUND 1's predicate — Gauss's residual, whose
+          # converse is false — and is what pins the round-2 correction.
+          run_mutant() {  # run_mutant <name> <perl-expr>
+            local m="$1" expr="$2"
+            cp "$K/src/native/brep/Heal.cpp" "/tmp/healgate/Heal.$m.cpp"
+            perl -0777 -pi -e "$expr" "/tmp/healgate/Heal.$m.cpp"
+            if cmp -s "$K/src/native/brep/Heal.cpp" "/tmp/healgate/Heal.$m.cpp"; then
+              echo "::error::mutation '$m' changed NOTHING — its anchor is gone, so Heal.cpp"
+              echo "::error::was reworded and this proof has been testing an unmutated build."
+              echo "::error::Re-anchor the substitution; do not delete the case."
+              return 1
+            fi
+            build "/tmp/healgate/Heal.$m.cpp" "/tmp/healgate/gate_$m" \
+              || { echo "::error::mutant '$m' does not BUILD — a build failure is not a proof"; \
+                   tail -15 "/tmp/healgate/gate_$m.cc.err"; return 1; }
+            if "/tmp/healgate/gate_$m" > "/tmp/healgate/$m.log" 2>&1; then
+              echo "::error::mutation '$m' STAYED GREEN — that branch is covered by nothing"
+              return 1
+            fi
+            echo "  mutant $m: RED — $(grep '^=== RESULT' /tmp/healgate/$m.log | tail -1)"
+            grep '\[FAIL\]' "/tmp/healgate/$m.log" | head -3 | sed 's/^/      /'
+            return 0
+          }
+          fails=0
+          run_mutant legA \
+            's/if \(!rep\.after\.closed\) \{/if (false) {/' || fails=$((fails+1))
+          run_mutant legB \
+            's/\(before - after\) > opt\.maxMaterialLossFrac \* before/false/' || fails=$((fails+1))
+          run_mutant total \
+            's/if \(rep\.inputBoundsVolume\) \{(\s*\/\/ \(9\) TOTAL DESTRUCTION)/if (false) {$1/s' \
+            || fails=$((fails+1))
+          # ★ THE ANCHOR IS \s*, NOT LITERAL SPACES, AND THE CALL CARRIES BOTH ARGUMENTS.
+          # As first written this case was broken twice and could never have proved
+          # anything: the anchor spelled three spaces where Heal.cpp:794 has four, so
+          # the substitution changed NOTHING; and the replacement called
+          # shellBoundsVolume(faces) when it is declared
+          # `bool shellBoundsVolume(const std::vector<Face*>&, double relEps)`, so even
+          # a matching anchor would have produced a mutant that does not COMPILE — and
+          # a build failure is not a proof either. It went unnoticed because the branch
+          # carrying this step had no pull request, so the step had never run once:
+          # exactly the "registration is not execution" defect T-137(C) exists to fix,
+          # turned on T-137's own gate. relEps=0.0 is deliberate — the function reads
+          # `if (relEps <= 0.0) relEps = 1e-9;`, so this restores round 1's predicate at
+          # its own default rather than inventing a tolerance here.
+          run_mutant arming \
+            's/rep\.inputBoundsVolume\s*=\s*inputClosure\.boundsMaterial;/rep.inputBoundsVolume    = shellBoundsVolume(faces, 0.0);/' \
+            || fails=$((fails+1))
+          [ "$fails" -eq 0 ] || { echo "::error::$fails of 4 heal-gate mutation proofs failed"; exit 1; }
+          echo "[heal-gate] green on the tree, RED under all four refusal-branch mutations"
 
   scoring:
     name: ForgeCADScore self-tests (kernel-free)
@@ -697,7 +819,30 @@ jobs:
     # still far below the 180 that let three earlier timeouts read as
     # infrastructure noise. Re-measure when a step is added -- and re-run before
     # concluding, because one sample cannot tell growth from variance.
-    timeout-minutes: 75
+    #
+    # ── RE-MEASURED 2026-09-16, as the line above instructs, because T-137 adds a
+    #    step here (the two OCCT heal A/B gates). The band has MOVED since 75 was
+    #    chosen against 34-41 minutes. Four consecutive green runs of THIS job:
+    #        42m14s  run 35026142160
+    #        43m06s  run 35026426901
+    #        49m34s  run 35026213817
+    #        55m29s  run 35026444347
+    #    so the band is now ~42-55 and 75 leaves 19m30s over the worst sample --
+    #    less headroom than the 13-minute spread the band itself shows. That is a
+    #    ceiling drifting back INTO the variance, which is the exact condition the
+    #    paragraph above says makes a failure unreadable, and the `desktop` job has
+    #    already been through it once (cancelled at 45, raised to 90).
+    #
+    #    The step being added is not what forces this: MEASURED locally, each of
+    #    the two gates is one translation unit, ~1s to compile and under 1s to run
+    #    against the build-verify tree an earlier step has already populated. The
+    #    band moving 41 -> 55 without it is what forces it. 90 restores roughly the
+    #    clearance 75 originally had over a 34-41 band, and is the figure
+    #    desktop-release.yml already carries (line 251). The `desktop` job below is
+    #    still at 75 against its own, different band -- deliberately not touched
+    #    here, because this change re-measured THIS job and nothing else, and a
+    #    ceiling raised without a measurement behind it is how 180 happened.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -1000,6 +1145,46 @@ jobs:
           THICKEN_ORIENT_BUILD: forge-kernel/build-verify
           JOBS: 3
         run: bash forge-kernel/test/build_thicken_orientation_gate.sh --mutations
+
+      - name: the two OCCT heal A/B gates — CMake has registered them, nothing ran them
+        # THE OTHER HALF OF T-137 DEFECT (C). The `native` job now runs the pure-C++
+        # heal destruction-refusal gate. These two need OCCT on both sides — they
+        # exist to compare forge::native::brep::healBRep against ShapeFix_Shape /
+        # ShapeFix_FixSmallFace on the same soup — so they belong here, in the job
+        # that already has OCCT and has already built build-verify two steps above.
+        #
+        # WHAT THEY ARE THE ONLY EVIDENCE FOR. T-137's refusal is a ROUTING decision:
+        # ok=false makes all three callers hand the shape to the OCCT fallback. That
+        # is only correct because OCCT's own repair is NOT broken on these bodies —
+        # MEASURED: pure ShapeFix returns the 100 x 100 x 0.001 plate with V = 10,
+        # 6 faces, BRepCheck VALID. If a future OCCT ever stopped doing that, the
+        # refusal would be routing a user's part to a second destroyer and these are
+        # the two gates that would say so. They had never executed.
+        #
+        # COST, MEASURED locally against a warm object set: each gate is ONE TU,
+        # ~1 s to compile, under 1 s to run. The heavy dependency, forge_kernel_core,
+        # is already built by the "Build forge_kernel_core" step above, so this adds
+        # two compiles and two links to a 75-minute job.
+        env:
+          BUILD: forge-kernel/build-verify
+        run: |
+          set -uo pipefail
+          fails=0
+          for g in native_vs_occt_heal native_vs_occt_heal_ext; do
+            if ! cmake --build "$BUILD" -j3 --target "forge_gate_$g" >"/tmp/$g.build" 2>&1; then
+              echo "::error::forge_gate_$g did not BUILD — its assertions did not run at all"
+              tail -25 "/tmp/$g.build"; fails=$((fails+1)); continue
+            fi
+            if "$BUILD/forge_gate_$g" > "/tmp/$g.log" 2>&1; then
+              echo "  $g: PASS — $(grep -E '^=== (RESULT|VERDICT)' "/tmp/$g.log" | tail -1)"
+            else
+              echo "::error::$g is RED"
+              grep -E '\[FAIL\]|FAIL' "/tmp/$g.log" | head -20
+              tail -5 "/tmp/$g.log"; fails=$((fails+1))
+            fi
+          done
+          [ "$fails" -eq 0 ] || exit 1
+          echo "[heal-ab] both OCCT heal A/B gates BUILT and PASSED"
 
       - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
         # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,

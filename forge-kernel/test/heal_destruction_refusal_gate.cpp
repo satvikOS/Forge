@@ -1,0 +1,1494 @@
+// heal_destruction_refusal_gate.cpp — T-137.
+//
+// THE DEFECT THIS GATE EXISTS FOR
+// ------------------------------------------------------------------------------
+// A valid 100 x 100 x 0.001 plate — V = 10, six planar faces, BRepCheck VALID —
+// entered the native heal path and came back EMPTY, reported as a clean success:
+//
+//   imported=1 healed=1 exported=1 changed=1 faceted=0 reason=""
+//
+// and NativeShapeHealBridge.hpp's own header defines an empty reason as "an exact
+// pass". Inside, healBRep had removed all 8 side triangles of the plate
+// (slivers=8, unfixedFreeEdges=8) and returned ok=true reason="ok".
+//
+// The cause is Heal.cpp pass (3): degenerateAspect() deletes a face whose
+// (longest edge)/(mean altitude) exceeds opt.aspectMax, whose default is the
+// literal 1e4 and which NO caller sets. importOcctSolid hands the healer
+// TRIANGLES, so each side triangle of an L x t plate has area 0.5*L*t and longest
+// edge L, giving mean altitude exactly t and a ratio of exactly L/t. The rule is
+// therefore a hard, scale-free, unit-free "L/t > 10000 => delete this face" —
+// identical for a 1 mm part and a 2 m panel. MEASURED boundary: 100x100x0.0101
+// survives (aspect 9901) and 100x100x0.01 is destroyed (aspect 1e4);
+// 1000x1000x0.11 survives (9090) and 1000x1000x0.09 is destroyed (11111).
+//
+// Nothing refused, for three independent reasons, all of them measured:
+//   (1) the sliver-restore safety net (Heal.cpp, "re-sew with the slivers back and
+//       keep them if the drop opened the shell") keys off `rep.before.closed`,
+//       and every caller of healBRep first clones each face with PRIVATE fresh
+//       vertices, so every edge of the input soup is free and before.closed is
+//       ALWAYS false. The net has never once executed;
+//   (2) HealReport had no vocabulary for "the repair destroyed the body" —
+//       ok=false meant only "malformed input";
+//   (3) healBRep already MEASURED volumeBefore and volumeAfter and then never
+//       compared them; nothing outside this file's tests ever read either field.
+//
+// WHAT THIS GATE ASSERTS
+// ------------------------------------------------------------------------------
+// The fix is a POST-CONDITION on the heal's OWN OUTPUT, in the house style of
+// Chamfer/Draft/Boolean ("rebuild + re-validate — never fake a closed solid"),
+// armed only when the INPUT face set ENCLOSES MATERIAL. Two legs: the healed body
+// must still be CLOSED (leg A), and it must not have lost more than
+// opt.maxMaterialLossFrac of what the input bounded (leg B).
+//
+// THE ARMING PREDICATE, and the one it replaced. The first version of this fix
+// armed on Gauss's residual (SUM of the face area vectors == 0, `shellBoundsVolume`).
+// That reads the theorem backwards: closed => SUM A = 0 is true, the converse is
+// not, and the converse is what was asserted. MEASURED consequences, all now
+// pinned by fixtures below:
+//   FIVE FALSE REFUSALS on legitimately open bodies whose normals cancel — an
+//   open tube, an open tube with a repairable split edge, a hexagonal extruded
+//   profile shell, a zero-thickness sandwich, a pair of parallel opposite plates;
+//   and TWO DISARMS by the very defect classes the healer exists to repair — one
+//   face wound backwards (12/12 flips of the T-137 plate stood the guard down,
+//   6/12 then returned ok=true having lost more than half the part) and a
+//   sub-tolerance gap (identical defect, opposite verdicts, decided by which
+//   corner moved).
+// The replacement, `shellClosure`, asks the topological question topologically:
+// weld the corner positions at the heal's own tolerance, normalise each ring the
+// way pass (2) does, and pair the directed boundary edges. Closed iff every edge
+// is used exactly twice AND the two uses run opposite ways; twice-but-same-way is
+// the distinct verdict INCONSISTENTLY WOUND, which arms (with an
+// orientation-independent volume) instead of disarming.
+//
+//   POSITIVE ARM — five thin bodies that the heal DESTROYS must now REFUSE:
+//     ok == false, a non-empty reason that is not "ok", destructionRefused set.
+//     Thicknesses span the decade the aspect rule cuts across (0.001 / 0.01 /
+//     0.05 / 0.09 / 0.1 mm at footprints from 100 mm to 2 m), and the last body
+//     is an L-BRACKET, not a plate, so the gate is not testing one shape.
+//     Every one of these returned ok=true reason="ok" before the fix.
+//
+//   NEGATIVE ARM — bodies the heal SHOULD still fix must still be fixed:
+//     ok == true and the volume preserved. Six of the seven are the EXISTING
+//     heal fixtures, their constructions copied VERBATIM from
+//     test/native/brep/heal_test.cpp (the defective box, the clean box, the
+//     unclosable missing-face box, the reversed-face box, the duplicate-face box)
+//     so the negative set cannot be accused of being hand-picked friendly. The
+//     seventh is the control that matters most for this defect: a THIN plate that
+//     is NOT destroyed (100 x 100 x 0.1, aspect 1000) must still heal cleanly —
+//     the refusal must be about destruction, never about thinness.
+//
+// Pure forge::native::brep — no OCCT is needed or used; it is registered beside
+// the native_vs_occt_heal gates because those are the heal gates.
+//
+// HONEST SCOPE, stated here so no reader has to infer it:
+//   * This refusal covers the NATIVE arm only, and the OCCT arm IS NOT BROKEN.
+//     MEASURED: pure ShapeFix_Shape and ShapeFix_FixSmallFace return the same
+//     100 x 100 x 0.001 plate with V = 10, 6 faces, BRepCheck VALID, at
+//     precision=0 and at precision=0.001/maxTol=0.01, and likewise at
+//     1000x1000x0.02 and 2000x2000x0.05. The destruction is entirely native.
+//     THAT IS WHAT MAKES DEFERRING A CORRECT ROUTING DECISION rather than a way
+//     of handing the user's part to a second destroyer. (An earlier revision of
+//     this comment claimed the OCCT arm destroys the plate too; that claim
+//     contradicted the measurement and was wrong.)
+//   * The post-condition is ARMED ONLY when the input face set ENCLOSES MATERIAL:
+//     shellClosure — every boundary edge of the welded soup used exactly twice —
+//     and a non-zero bounded volume. A caller that hands healBRep an already-open
+//     or already-incomplete soup gets no material claim, because for an open
+//     surface the divergence-theorem "volume" is an origin-dependent surface
+//     integral, not an amount of material, and refusing on it would be inventing
+//     a measurement. That boundary is deliberate, and the NEGATIVE arm below now
+//     pins it with the five open bodies whose face normals happen to cancel —
+//     the measured false refusals of the Newell-sum predicate this replaced.
+//   * The refusal REASON reaches the caller only through fixShapeGeneral's
+//     GeneralFixReport today. ShapeFix.cpp::tryNativeRepair and
+//     Healing.cpp::tryNativeHeal both `return false` with no string channel in
+//     their signatures, so they route correctly (false == defer to OCCT) but
+//     drop the literal. Stated, not claimed as done.
+
+#include "forge/native/brep/Heal.hpp"
+#include "forge/native/brep/Sew.hpp"
+#include "forge/native/brep/Topology.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+using namespace forge::native::brep;
+
+static int g_pass = 0;
+static int g_total = 0;
+static void check(bool cond, const std::string& name) {
+    ++g_total;
+    if (cond) { ++g_pass; std::printf("  [PASS] %s\n", name.c_str()); }
+    else        std::printf("  [FAIL] %s\n", name.c_str());
+}
+
+// Build one face from an ordered vertex-position ring (private vertices/edges) —
+// copied from test/native/brep/heal_test.cpp so the fixtures below are identical.
+static Face* faceFromRing(TopologyBuilder& tb, const std::vector<Point3>& ring) {
+    Face* f = tb.makeFace();
+    std::vector<Vertex*> vs;
+    vs.reserve(ring.size());
+    for (const Point3& p : ring) vs.push_back(tb.makeVertex(p));
+    tb.addOuterLoopToFace(f, vs);
+    return f;
+}
+
+// ===========================================================================
+// TRIANGULATED bodies — the shape importOcctSolid actually hands the healer.
+// This matters: the aspect rule is evaluated on the RING it is given, and it is
+// the fan-triangulation of a quad side wall (area 0.5*L*t, longest edge L, so
+// altitude exactly t) that makes the ratio exactly L/t. A quad side wall has
+// altitude t as well, so the same rule fires; triangles are used here because
+// that is what the production import path produces.
+// ===========================================================================
+static void pushQuadAsTris(TopologyBuilder& tb, std::vector<Face*>& out,
+                           const Point3& a, const Point3& b,
+                           const Point3& c, const Point3& d) {
+    out.push_back(faceFromRing(tb, {a, b, c}));
+    out.push_back(faceFromRing(tb, {a, c, d}));
+}
+
+// Axis-aligned box [x0,x0+X] x [y0,y0+Y] x [z0,z0+Z] as 12 outward-wound triangles.
+static std::vector<Face*> triBoxAt(TopologyBuilder& tb, double x0, double y0, double z0,
+                                   double X, double Y, double Z) {
+    const Point3 P[8] = {
+        {x0,     y0,     z0    }, {x0 + X, y0,     z0    },
+        {x0 + X, y0 + Y, z0    }, {x0,     y0 + Y, z0    },
+        {x0,     y0,     z0 + Z}, {x0 + X, y0,     z0 + Z},
+        {x0 + X, y0 + Y, z0 + Z}, {x0,     y0 + Y, z0 + Z},
+    };
+    std::vector<Face*> f;
+    pushQuadAsTris(tb, f, P[0], P[3], P[2], P[1]);   // bottom (-Z)
+    pushQuadAsTris(tb, f, P[4], P[5], P[6], P[7]);   // top    (+Z)
+    pushQuadAsTris(tb, f, P[0], P[1], P[5], P[4]);   // front  (-Y)
+    pushQuadAsTris(tb, f, P[2], P[3], P[7], P[6]);   // back   (+Y)
+    pushQuadAsTris(tb, f, P[0], P[4], P[7], P[3]);   // left   (-X)
+    pushQuadAsTris(tb, f, P[1], P[2], P[6], P[5]);   // right  (+X)
+    return f;
+}
+static std::vector<Face*> triBox(TopologyBuilder& tb, double X, double Y, double Z) {
+    return triBoxAt(tb, 0.0, 0.0, 0.0, X, Y, Z);
+}
+
+// A THIN L-BRACKET: the L-shaped profile below, extruded by `t` in Z. Not a plate
+// — a real part with six side walls, so the gate is not asserting one shape. Its
+// volume is profileArea * t = (arm*span*2 - arm*arm) * t.
+static std::vector<Face*> triLBracket(TopologyBuilder& tb, double span, double arm, double t) {
+    // CCW profile in XY (seen from +Z).
+    const Point3 Q[6] = {
+        {0, 0, 0}, {span, 0, 0}, {span, arm, 0},
+        {arm, arm, 0}, {arm, span, 0}, {0, span, 0},
+    };
+    auto lift = [&](int i, double z) { return Point3{Q[i].x, Q[i].y, z}; };
+    std::vector<Face*> f;
+    // bottom cap (-Z): profile wound CW seen from +Z => outward -Z. Fan 0,i+1,i.
+    for (int i = 1; i + 1 < 6; ++i)
+        f.push_back(faceFromRing(tb, {lift(0, 0.0), lift(i + 1, 0.0), lift(i, 0.0)}));
+    // top cap (+Z): fan 0,i,i+1.
+    for (int i = 1; i + 1 < 6; ++i)
+        f.push_back(faceFromRing(tb, {lift(0, t), lift(i, t), lift(i + 1, t)}));
+    // six side walls, each as two triangles, outward-wound.
+    for (int i = 0; i < 6; ++i) {
+        const int j = (i + 1) % 6;
+        pushQuadAsTris(tb, f, lift(i, 0.0), lift(j, 0.0), lift(j, t), lift(i, t));
+    }
+    return f;
+}
+
+// A LARGE cube with ONE vertical edge chamfered by `w`. The point of this body is
+// the ratio between two quantities: the chamfer facet is L long and w wide, so its
+// aspect is L/w and it is dropped as a sliver — which OPENS the shell — while the
+// material that leaves with it is O(w*L^2) against a body of L^3, i.e. a loss of
+// order w/L. At L=1000, w=0.01 that is 3.3e-06, more than three orders of magnitude
+// under leg B's 1% threshold. It is therefore a body on which LEG A IS THE ONLY
+// DEFENCE, which is the one thing the other five positive fixtures could not show.
+static std::vector<Face*> chamferedCube(TopologyBuilder& tb, double L, double w) {
+    // Footprint pentagon, CCW seen from +Z: A(w,0) B(L,0) C(L,L) D(0,L) E(0,w).
+    const Point3 A{w, 0, 0}, B{L, 0, 0}, C{L, L, 0}, D{0, L, 0}, E{0, w, 0};
+    auto up = [&](const Point3& p) { return Point3{p.x, p.y, L}; };
+    std::vector<Face*> f;
+    // bottom cap (-Z), fanned from C so it is wound CW seen from +Z
+    f.push_back(faceFromRing(tb, {C, D, E}));
+    f.push_back(faceFromRing(tb, {C, E, A}));
+    f.push_back(faceFromRing(tb, {C, A, B}));
+    // top cap (+Z), fanned from C, CCW
+    f.push_back(faceFromRing(tb, {up(C), up(E), up(D)}));
+    f.push_back(faceFromRing(tb, {up(C), up(A), up(E)}));
+    f.push_back(faceFromRing(tb, {up(C), up(B), up(A)}));
+    // five outward walls; the last is the chamfer facet.
+    pushQuadAsTris(tb, f, A, B, up(B), up(A));
+    pushQuadAsTris(tb, f, B, C, up(C), up(B));
+    pushQuadAsTris(tb, f, C, D, up(D), up(C));
+    pushQuadAsTris(tb, f, D, E, up(E), up(D));
+    pushQuadAsTris(tb, f, E, A, up(A), up(E));
+    return f;
+}
+
+// Defined with the ARMING ARM at the bottom; the instrument checks in the negative
+// arm need the open-tube counterexample too.
+static std::vector<Face*> openTube(TopologyBuilder& tb, double L, bool splitOneEdge);
+
+static double lBracketVolume(double span, double arm, double t) {
+    return (span * arm + arm * (span - arm)) * t;   // the L profile area * t
+}
+
+// ===========================================================================
+// POSITIVE ARM — the heal destroys these; it must now REFUSE.
+// ===========================================================================
+static void positiveCase(const char* what,
+                         std::vector<Face*> faces,
+                         TopologyBuilder& tb,
+                         double expectVolume,
+                         double tol) {
+    HealOptions opt;
+    opt.tol = tol;
+    HealReport r = healBRep(tb, faces, opt);
+
+    std::printf("    %s: inputBounds=%d ok=%d refused=%d closed=%d faces=%zu "
+                "slivers=%zu free=%zu  V %.6g -> %.6g   reason=\"%s\"\n",
+                what, r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0,
+                r.destructionRefused ? 1 : 0, r.after.closed ? 1 : 0,
+                r.after.faces, r.sliverFacesRemoved, r.unfixedFreeEdgeIds.size(),
+                r.volumeBefore, r.volumeAfter, r.reason ? r.reason : "");
+
+    const std::string w(what);
+    // The input really is the valid body we think it is — otherwise a "refusal"
+    // here would prove nothing (a gate must know its own fixture is sound).
+    check(std::fabs(std::fabs(r.volumeBefore) - expectVolume) <= 1e-6 * expectVolume,
+          w + ": INPUT volume is the part's true volume");
+    check(r.inputBoundsVolume, w + ": input BOUNDS a volume (the post-condition is armed)");
+    // The destruction really happens — this arm is not asserting a refusal on a
+    // body the heal would have handled correctly.
+    check(r.sliverFacesRemoved > 0, w + ": heal did classify walls as slivers (the defect fires)");
+    check(!r.after.closed || std::fabs(r.volumeAfter) < 0.99 * std::fabs(r.volumeBefore),
+          w + ": heal did destroy the body (opened it, or ate its material)");
+    // THE REFUSAL.
+    check(!r.ok, w + ": REFUSED — ok == false (was true before T-137)");
+    check(r.destructionRefused, w + ": refusal is the destruction post-condition");
+    check(r.reason != nullptr && r.reason[0] != '\0' && std::string(r.reason) != "ok",
+          w + ": reason NAMES what happened (non-empty, not \"ok\")");
+    // WHICH LEG. Without this the two legs dual-cover each other and deleting one
+    // of them entirely leaves the gate green — MEASURED on the first version of
+    // this file: removing leg A outright still scored 74/74. These bodies are
+    // all opened by the sliver drop, so it must be leg A that speaks.
+    check(std::string(r.reason).find("opened a closed body") != std::string::npos,
+          w + ": it is LEG A (closure) that fired, and it says so");
+}
+
+static void runPositiveArm() {
+    std::printf("[POSITIVE] thin bodies the heal DESTROYS -> must REFUSE\n");
+    {   // the exact body from the T-137 report.
+        TopologyBuilder tb;
+        positiveCase("plate 100x100x0.001", triBox(tb, 100, 100, 0.001), tb, 10.0, 1e-6);
+    }
+    {   // thickness x10; measured destroyed (aspect exactly 1e4, the boundary).
+        TopologyBuilder tb;
+        positiveCase("plate 100x100x0.01", triBox(tb, 100, 100, 0.01), tb, 100.0, 1e-6);
+    }
+    {   // a 2 m panel 0.05 mm thick; measured V=0 BRepCheck-INVALID end to end.
+        TopologyBuilder tb;
+        positiveCase("panel 2000x2000x0.05", triBox(tb, 2000, 2000, 0.05), tb, 200000.0, 1e-6);
+    }
+    {   // gasket foil on a 1 m plate; 0.09 destroyed where 0.11 survives.
+        TopologyBuilder tb;
+        positiveCase("gasket 1000x1000x0.09", triBox(tb, 1000, 1000, 0.09), tb, 90000.0, 1e-6);
+    }
+    {   // NOT a plate: a thin L-bracket, 0.1 mm on a 2 m span (aspect 20000).
+        TopologyBuilder tb;
+        const double span = 2000.0, arm = 400.0, t = 0.1;
+        positiveCase("L-bracket 2000/400 x 0.1", triLBracket(tb, span, arm, t), tb,
+                     lBracketVolume(span, arm, t), 1e-6);
+    }
+    // ---- THE QUIET VARIANT — the case ONLY the material leg can see. ----------
+    // All five bodies above are caught by LEG A: dropping their walls OPENS them,
+    // so the loss is visible as free edges. The dangerous version is the one the
+    // end-to-end run measured at precision=0.001 — V 10 -> 1.667, BRepCheck VALID,
+    // zero unfixed residuals, reason "" — where the output is a perfectly closed,
+    // perfectly valid solid and the material is simply gone. NO topological or
+    // validity check can see that; only the volume can.
+    //
+    // This fixture is deliberately synthetic, and here is exactly why: a face
+    // dropped from a closed cycle nearly always opens it, so the quiet variant is
+    // hard to reach by thinning a plate. A PART PLUS A HAIR-THIN WHISKER reaches it
+    // honestly — a 1 mm cube and a 1000 x 0.06 x 0.06 whisker, both closed. Every
+    // one of the whisker's 12 triangles is a sliver (its four long walls by ASPECT
+    // at 16667:1, its two end caps by AREA below tol^2), so the whisker vanishes
+    // whole, the cube is left CLOSED with zero free edges, and 78% of the body's
+    // material is gone. Leg A is silent. Leg B is the whole defence.
+    {
+        TopologyBuilder tb;
+        std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);                 // the part, V = 1
+        std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06); // whisker, V = 3.6
+        f.insert(f.end(), w.begin(), w.end());
+
+        HealOptions opt; opt.tol = 0.05;
+        HealReport r = healBRep(tb, f, opt);
+        std::printf("    part+whisker (quiet variant): inputBounds=%d ok=%d refused=%d closed=%d "
+                    "shells=%zu faces=%zu free=%zu slivers=%zu  V %.6g -> %.6g   reason=\"%s\"\n",
+                    r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0, r.destructionRefused ? 1 : 0,
+                    r.after.closed ? 1 : 0, r.after.shellCount, r.after.faces,
+                    r.unfixedFreeEdgeIds.size(), r.sliverFacesRemoved,
+                    r.volumeBefore, r.volumeAfter, r.reason ? r.reason : "");
+        check(r.inputBoundsVolume, "quiet: input bounds a volume (post-condition armed)");
+        // The output is exactly the kind of result that passes every OTHER check.
+        check(r.after.closed, "quiet: output IS closed (leg A cannot see this)");
+        check(r.unfixedFreeEdgeIds.empty(), "quiet: output has ZERO unfixed residuals");
+        check(std::fabs(r.volumeAfter) < 0.5 * std::fabs(r.volumeBefore),
+              "quiet: and yet most of the material is GONE");
+        check(!r.ok, "quiet: REFUSED — ok == false");
+        check(r.destructionRefused, "quiet: refusal is the destruction post-condition");
+        check(std::string(r.reason).find("consumed the body") != std::string::npos,
+              "quiet: it is the MATERIAL leg that fired, naming the loss");
+    }
+    {   // The control for the leg itself: the SAME body with the material threshold
+        //  relaxed past the measured loss must NOT refuse. A leg that fires whatever
+        //  its threshold is would not be measuring anything.
+        TopologyBuilder tb;
+        std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+        std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06);
+        f.insert(f.end(), w.begin(), w.end());
+        HealOptions opt; opt.tol = 0.05; opt.maxMaterialLossFrac = 0.99;
+        HealReport r = healBRep(tb, f, opt);
+        check(r.ok && !r.destructionRefused,
+              "quiet/control: threshold relaxed past the loss -> NOT refused "
+              "(it really is leg B that fires, not leg A)");
+    }
+    // ---- LEG A ALONE — a body that OPENS while losing almost NO material ------
+    // WHY THIS FIXTURE EXISTS, and it is the sharpest gap the round-2 attack found.
+    // On all five bodies above BOTH legs would fire: dropping their walls opens them
+    // AND eats most of their material, so deleting leg A outright still left them
+    // refused — by leg B — and only the "which leg spoke" assertion turned the
+    // mutant red. That is real coverage but it is coverage of a STRING. Nothing
+    // showed that leg A ever changes a VERDICT.
+    //
+    // A 1 m cube with one vertical edge chamfered by 0.01 mm does. The chamfer facet
+    // is 1000 long and 0.01 wide, aspect 1e5, so it and the two cap corner triangles
+    // go as slivers and the shell OPENS with six free edges. The material that left
+    // with them is 3.3e-06 of the body — leg B's threshold is 1e-2, so leg B is
+    // FOUR ORDERS OF MAGNITUDE from firing. MEASURED: bounded 1e9, after 999996666.7.
+    //
+    // And this is not an exotic body. A chamfer or fillet whose width is small
+    // against the part is the single commonest thin feature in mechanical CAD; the
+    // failure mode is "an imported bracket comes back with its chamfer missing and
+    // the shell open", reported as a clean success.
+    {
+        TopologyBuilder tb;
+        const double L = 1000.0, w = 0.01;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, chamferedCube(tb, L, w), opt);
+        const double lossFrac = (r.boundedVolumeBefore - std::fabs(r.volumeAfter))
+                              / r.boundedVolumeBefore;
+        std::printf("    chamfered cube 1000, chamfer 0.01 (LEG A ALONE): armed=%d ok=%d "
+                    "refused=%d closed=%d slivers=%zu free=%zu  bounded %.10g -> %.10g "
+                    "loss=%.3e  reason=\"%s\"\n",
+                    r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0, r.destructionRefused ? 1 : 0,
+                    r.after.closed ? 1 : 0, r.sliverFacesRemoved, r.unfixedFreeEdgeIds.size(),
+                    r.boundedVolumeBefore, r.volumeAfter, lossFrac, r.reason ? r.reason : "");
+        check(r.inputBoundsVolume, "legA-alone: input encloses material (armed)");
+        check(std::fabs(r.boundedVolumeBefore - L * L * L) <= 1e-3 * L * L * L,
+              "legA-alone: the fixture really is a 1 m cube");
+        check(r.sliverFacesRemoved > 0, "legA-alone: the chamfer facet IS dropped as a sliver");
+        check(!r.after.closed, "legA-alone: and the shell is OPENED by the drop");
+        // THE POINT. Leg B's condition is (before - after) > frac * before with
+        // frac defaulting to 0.01. Assert the measured loss is far under it, so
+        // "leg B did not fire" is a computed fact and not a hope.
+        check(lossFrac < 1e-4,
+              "legA-alone: the material loss is BELOW leg B's threshold — leg B CANNOT fire");
+        check(lossFrac < HealOptions{}.maxMaterialLossFrac,
+              "legA-alone: ... stated against the option's own default, not a literal");
+        check(!r.ok && r.destructionRefused, "legA-alone: REFUSED anyway");
+        check(std::string(r.reason).find("opened a closed body") != std::string::npos,
+              "legA-alone: and it is LEG A that says so");
+        // The decisive independence proof, inside the gate rather than only in a
+        // mutant: disable leg B outright (frac = 1.0 makes its test unsatisfiable
+        // for any non-negative loss) and require the refusal to SURVIVE.
+        TopologyBuilder tb2;
+        HealOptions noB; noB.tol = 1e-6; noB.maxMaterialLossFrac = 1.0;
+        HealReport r2 = healBRep(tb2, chamferedCube(tb2, L, w), noB);
+        check(!r2.ok && r2.destructionRefused,
+              "legA-alone: with leg B DISABLED the body is still refused — leg A is "
+              "load-bearing on its own");
+        check(std::string(r2.reason).find("opened a closed body") != std::string::npos,
+              "legA-alone: ... by leg A, named");
+    }
+    // ---- THE TOTAL-DESTRUCTION BRANCH — every face removed as a sliver --------
+    // healBRep has an early exit for "nothing survived the sliver pass" that used
+    // to `return ok = true, reason = "all faces removed as slivers"`. It is a
+    // SEPARATE return from the post-condition at the bottom of the function, so
+    // nothing else in this file covers it: MEASURED on the first version, reverting
+    // that branch to ok=true still scored 74/74. This body reaches it — a 0.01 mm
+    // square 1e-7 thick at tol 0.05, where every one of the 12 triangles is below
+    // the area floor as well as over the aspect limit.
+    {
+        TopologyBuilder tb;
+        std::vector<Face*> f = triBox(tb, 0.01, 0.01, 1e-7);
+        HealOptions opt; opt.tol = 0.05;
+        HealReport r = healBRep(tb, f, opt);
+        std::printf("    total destruction (all faces slivers): armed=%d ok=%d refused=%d "
+                    "survivors=%zu slivers=%zu  V %.6g -> %.6g   reason=\"%s\"\n",
+                    r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0, r.destructionRefused ? 1 : 0,
+                    r.faces.size(), r.sliverFacesRemoved, r.volumeBefore, r.volumeAfter,
+                    r.reason ? r.reason : "");
+        check(r.faces.empty(), "total-destruction: the branch really is reached (0 survivors)");
+        check(r.inputBoundsVolume, "total-destruction: input enclosed material (armed)");
+        check(!r.ok, "total-destruction: REFUSED — ok == false (this branch returned true)");
+        check(r.destructionRefused, "total-destruction: refusal is the destruction post-condition");
+        check(std::string(r.reason).find("emptied the body") != std::string::npos,
+              "total-destruction: reason names the emptying, not \"all faces removed as slivers\"");
+    }
+}
+
+// ===========================================================================
+// NEGATIVE ARM — bodies the heal SHOULD still fix. Constructions (1)-(5) are
+// copied VERBATIM from test/native/brep/heal_test.cpp; (6) is the thin-but-safe
+// control that proves the refusal is about destruction, not about thinness.
+// ===========================================================================
+
+// heal_test.cpp buildDefectiveBox, verbatim.
+static std::vector<Face*> buildDefectiveBox(TopologyBuilder& tb, double L, double tol) {
+    const double a = 0.0, b = L;
+    const double eps = tol * 0.25;
+    const Point3 P[8] = {
+        {a, a, a}, {b, a, a}, {b, b, a}, {a, b, a},
+        {a, a, b}, {b, a, b}, {b, b, b}, {a, b, b},
+    };
+    std::vector<Face*> faces;
+    {
+        std::vector<Point3> ring = {P[0], P[3], P[2], P[1], {L * 0.5, eps, a}};
+        faces.push_back(faceFromRing(tb, ring));
+    }
+    {
+        std::vector<Point3> ring = {P[4], P[5], {P[5].x + eps, P[5].y, P[5].z}, P[6], P[7]};
+        faces.push_back(faceFromRing(tb, ring));
+    }
+    faces.push_back(faceFromRing(tb, {P[0], P[1], P[5], P[4]}));
+    faces.push_back(faceFromRing(tb, {P[2], P[3], P[7], P[6]}));
+    {
+        auto nudge = [&](const Point3& p) { return Point3{p.x + eps, p.y, p.z}; };
+        faces.push_back(faceFromRing(tb, {nudge(P[0]), nudge(P[4]), nudge(P[7]), nudge(P[3])}));
+    }
+    faces.push_back(faceFromRing(tb, {P[1], P[2], P[6], P[5]}));
+    {
+        const double s = tol * 0.5;
+        faces.push_back(faceFromRing(tb, {{a, a, a}, {s, a, a}, {a, s, a}}));
+    }
+    return faces;
+}
+
+static std::vector<Face*> boxRings(TopologyBuilder& tb, double L, int reverseFace, int drop) {
+    const double a = 0.0, b = L;
+    const Point3 P[8] = {
+        {a, a, a}, {b, a, a}, {b, b, a}, {a, b, a},
+        {a, a, b}, {b, a, b}, {b, b, b}, {a, b, b},
+    };
+    const int rings[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
+    std::vector<Face*> faces;
+    for (int fi = 0; fi < 6; ++fi) {
+        if (fi == drop) continue;
+        std::vector<Point3> ring = {P[rings[fi][0]], P[rings[fi][1]], P[rings[fi][2]], P[rings[fi][3]]};
+        if (fi == reverseFace) std::reverse(ring.begin(), ring.end());
+        faces.push_back(faceFromRing(tb, ring));
+    }
+    return faces;
+}
+
+static void negativeReport(const char* what, const HealReport& r) {
+    std::printf("    %s: inputBounds=%d ok=%d refused=%d closed=%d faces=%zu "
+                "free=%zu  V %.6g -> %.6g   reason=\"%s\"\n",
+                what, r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0,
+                r.destructionRefused ? 1 : 0, r.after.closed ? 1 : 0,
+                r.after.faces, r.unfixedFreeEdgeIds.size(),
+                r.volumeBefore, r.volumeAfter, r.reason ? r.reason : "");
+}
+
+static void runNegativeArm() {
+    std::printf("[NEGATIVE] the existing heal fixtures must still be HEALED\n");
+
+    {   // (1) heal_test.cpp [1]: the defective box (sliver + gap + split edge + dup vertex).
+        TopologyBuilder tb;
+        const double L = 4.0, tol = 1e-6;
+        HealOptions opt; opt.tol = tol;
+        HealReport r = healBRep(tb, buildDefectiveBox(tb, L, tol), opt);
+        negativeReport("defective box L=4", r);
+        check(r.ok, "neg/defective-box: still ok == true");
+        check(!r.destructionRefused, "neg/defective-box: NOT refused");
+        check(r.after.closed, "neg/defective-box: still closes");
+        check(std::fabs(std::fabs(r.volumeAfter) - L*L*L) <= tol, "neg/defective-box: volume still L^3");
+        check(r.fullyHealed(), "neg/defective-box: still fullyHealed()");
+    }
+    {   // (2) heal_test.cpp [2]: the clean box — idempotent. THIS ONE IS BOUNDED,
+        //     so it is the negative case that actually exercises the armed path.
+        TopologyBuilder tb;
+        const double L = 2.0;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, boxRings(tb, L, -1, -1), opt);
+        negativeReport("clean box L=2", r);
+        check(r.inputBoundsVolume, "neg/clean-box: input bounds a volume (post-condition ARMED)");
+        check(r.ok, "neg/clean-box: still ok == true WITH the post-condition armed");
+        check(!r.destructionRefused, "neg/clean-box: NOT refused");
+        check(std::fabs(std::fabs(r.volumeAfter) - L*L*L) <= 1e-9, "neg/clean-box: volume still L^3");
+    }
+    {   // (3) heal_test.cpp [3]: the box with the TOP face missing — legitimately
+        //     open. The refusal must NOT fire on an input that never bounded a volume.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 1e-5;
+        HealReport r = healBRep(tb, boxRings(tb, 3.0, -1, 1), opt);
+        negativeReport("open box (top missing)", r);
+        check(r.ok, "neg/open-box: still ok == true (honest unfixed, not a refusal)");
+        check(!r.destructionRefused, "neg/open-box: NOT refused");
+        check(!r.after.closed, "neg/open-box: still reports OPEN");
+        check(r.unfixedFreeEdgeIds.size() == 4, "neg/open-box: still 4 free edges reported UNFIXED");
+    }
+    {   // (4) heal_test.cpp [4]: one face wound backwards. Orientation repair changes
+        //     the SIGN of volumeBefore, which is exactly why the material leg compares
+        //     MAGNITUDES and refuses only on a LOSS.
+        TopologyBuilder tb;
+        const double L = 5.0;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, boxRings(tb, L, 2, -1), opt);
+        negativeReport("reversed-face box L=5", r);
+        check(r.ok, "neg/orientation: still ok == true");
+        check(!r.destructionRefused, "neg/orientation: NOT refused");
+        check(r.facesFlipped >= 1, "neg/orientation: still flips the offender");
+        check(std::fabs(r.volumeAfter - L*L*L) <= 1e-6, "neg/orientation: volume still +L^3");
+    }
+    {   // (5) heal_test.cpp [6b]: box + an EXACT DUPLICATE face -> duplicate dropped.
+        TopologyBuilder tb;
+        const double L = 2.0;
+        std::vector<Face*> faces = boxRings(tb, L, -1, -1);
+        const double a = 0.0, b = L;
+        faces.push_back(faceFromRing(tb, {{a,a,a},{a,b,a},{b,b,a},{b,a,a}}));  // duplicate bottom
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, faces, opt);
+        negativeReport("box + duplicate face", r);
+        check(r.ok, "neg/duplicate-face: still ok == true");
+        check(!r.destructionRefused, "neg/duplicate-face: NOT refused");
+        check(r.duplicateFacesRemoved == 1, "neg/duplicate-face: still drops exactly 1 duplicate");
+        check(r.after.closed, "neg/duplicate-face: still closes");
+    }
+    {   // (6) THE CONTROL THAT MATTERS: a THIN plate that the aspect rule does NOT
+        //     trip (100 x 100 x 0.1 => aspect 1000). The refusal is about
+        //     DESTRUCTION, not about thinness — this must heal cleanly, ok=true,
+        //     with its (small) volume intact.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, triBox(tb, 100, 100, 0.1), opt);
+        negativeReport("thin-but-safe plate 100x100x0.1", r);
+        check(r.inputBoundsVolume, "neg/thin-safe: input bounds a volume (ARMED)");
+        check(r.ok, "neg/thin-safe: a THIN plate still heals — ok == true");
+        check(!r.destructionRefused, "neg/thin-safe: NOT refused (thin is not destroyed)");
+        check(r.sliverFacesRemoved == 0, "neg/thin-safe: no wall classified a sliver");
+        check(r.after.closed, "neg/thin-safe: still closes");
+        check(std::fabs(std::fabs(r.volumeAfter) - 1000.0) <= 1e-6, "neg/thin-safe: volume still 1000");
+    }
+    {   // (7) A GLOBALLY INVERTED closed box — every face wound inward. This is a
+        //     legitimate orientation defect (pass (6) flips it), and its signed
+        //     volume is NEGATIVE, so it is the fixture that separates leg B's
+        //     "magnitudes and LOSS only" rule from a naive |volumeAfter -
+        //     volumeBefore| comparison. MEASURED on the first version of this file:
+        //     swapping leg B for the naive delta still scored 74/74 AND refused
+        //     this body. Nothing covered it.
+        TopologyBuilder tb;
+        const double L = 3.0;
+        std::vector<Face*> f = boxRings(tb, L, -1, -1);
+        std::vector<Face*> inv;
+        for (Face* face : f) {
+            std::vector<Point3> ring;
+            for (Coedge* c = face->outerLoop->first;
+                 ring.size() < face->outerLoop->coedgeCount && c; c = c->next)
+                ring.push_back(c->originVertex()->point);
+            std::reverse(ring.begin(), ring.end());
+            inv.push_back(faceFromRing(tb, ring));
+        }
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, inv, opt);
+        negativeReport("globally INVERTED box L=3", r);
+        check(r.inputBoundsVolume, "neg/inverted-box: input encloses material (ARMED)");
+        check(r.volumeBefore < 0.0, "neg/inverted-box: its signed volume really is NEGATIVE");
+        check(std::fabs(r.boundedVolumeBefore - L*L*L) <= 1e-9,
+              "neg/inverted-box: boundedVolume is +L^3 (orientation-independent)");
+        check(r.ok && !r.destructionRefused,
+              "neg/inverted-box: NOT refused — leg B compares MAGNITUDES and only on LOSS");
+        check(std::fabs(std::fabs(r.volumeAfter) - L*L*L) <= 1e-9,
+              "neg/inverted-box: volume magnitude still L^3");
+        // WHY LEG B'S fabs() IS NOT COVERED BY A MUTANT, stated rather than hidden.
+        // Now that leg B's "before" is shellClosure's orientation-independent
+        // boundedVolume, the ONLY input class on which it differs from a naive
+        // signed |volumeAfter - volumeBefore| is one where the heal returns a
+        // CLOSED shell with NEGATIVE volume — and pass (6) normalises the shell
+        // outward, so that class is empty. MEASURED across all 64 face-winding
+        // masks of a box at two origin offsets: 0 of 128 armed+closed outputs had
+        // a negative volume; the fully inverted case flips all six faces. The
+        // naive-delta mutant is therefore EQUIVALENT, not a survivor. These two
+        // checks pin the property that makes it so, so if the orientation pass
+        // ever stops normalising, the gate says so and the fabs() becomes
+        // load-bearing again.
+        check(r.volumeAfter > 0.0, "neg/inverted-box: pass (6) normalises the shell OUTWARD");
+        check(r.facesFlipped == 6, "neg/inverted-box: and it flipped all six faces to do it");
+    }
+    {   // (7b) THE EQUIVALENCE CLAIM ABOVE, EXECUTED. The paragraph in (7) asserts a
+        //      MEASUREMENT — "across all 64 face-winding masks of a box at two origin
+        //      offsets: 0 of 128 armed+closed outputs had a negative volume" — and a
+        //      measurement that lives only in a comment is a measurement nobody will
+        //      ever repeat. It is what makes the gain-sensitive leg-B mutant
+        //      (|before - after| instead of before - after) an EQUIVALENT mutant
+        //      rather than a survivor the gate cannot see, so it is the one claim in
+        //      this file that a reader has to take on trust. Not any more: the sweep
+        //      runs here, and if the orientation pass ever stops normalising outward
+        //      — or a heal ever returns MORE material than the input bounded — this
+        //      goes red and says the fabs() has become load-bearing.
+        int armedClosed = 0, negative = 0, gainedOverThreshold = 0;
+        const double frac = HealOptions{}.maxMaterialLossFrac;
+        for (int origin = 0; origin < 2; ++origin) {
+            for (int mask = 0; mask < 64; ++mask) {
+                TopologyBuilder tb;
+                const double L = 3.0, o = (origin == 0) ? 0.0 : -1.75;
+                const Point3 P[8] = {
+                    {o,o,o}, {o+L,o,o}, {o+L,o+L,o}, {o,o+L,o},
+                    {o,o,o+L}, {o+L,o,o+L}, {o+L,o+L,o+L}, {o,o+L,o+L},
+                };
+                const int rings[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},
+                                         {2,3,7,6},{0,4,7,3},{1,2,6,5}};
+                std::vector<Face*> f;
+                for (int fi = 0; fi < 6; ++fi) {
+                    std::vector<Point3> ring = {P[rings[fi][0]], P[rings[fi][1]],
+                                                P[rings[fi][2]], P[rings[fi][3]]};
+                    if (mask & (1 << fi)) std::reverse(ring.begin(), ring.end());
+                    f.push_back(faceFromRing(tb, ring));
+                }
+                HealOptions opt; opt.tol = 1e-6;
+                HealReport rr = healBRep(tb, f, opt);
+                if (!rr.inputBoundsVolume || !rr.after.closed) continue;
+                ++armedClosed;
+                if (rr.volumeAfter < 0.0) ++negative;
+                if (rr.volumeAfter - rr.boundedVolumeBefore > frac * rr.boundedVolumeBefore)
+                    ++gainedOverThreshold;
+            }
+        }
+        std::printf("    winding sweep: %d of 128 outputs armed+closed; %d negative, "
+                    "%d gained more than %.3g of the bounded volume\n",
+                    armedClosed, negative, gainedOverThreshold, frac);
+        check(armedClosed == 128, "neg/winding-sweep: every one of the 128 heals is armed and closes");
+        check(negative == 0, "neg/winding-sweep: NOT ONE armed+closed output has a negative volume "
+                             "— which is why leg B's fabs() cannot change a verdict");
+        check(gainedOverThreshold == 0, "neg/winding-sweep: and not one GAINS past the threshold "
+                                        "— which is why a gain-sensitive leg B is an EQUIVALENT "
+                                        "mutant here, not an uncovered one");
+    }
+    {   // (8) BOTH instruments, both ways. A predicate only ever observed saying
+        //     "not armed" would be unfalsifiable — and the pair matters here,
+        //     because the whole round-2 correction is that these two answer
+        //     DIFFERENT questions and only one of them answers closedness.
+        {   TopologyBuilder tb;
+            check(shellBoundsVolume(triBox(tb, 7.0, 3.0, 2.0)),
+                  "instrument/gauss: a complete box soup has a vanishing area-vector sum"); }
+        {   TopologyBuilder tb;
+            check(!shellBoundsVolume(boxRings(tb, 3.0, -1, 1)),
+                  "instrument/gauss: a box missing a face does not"); }
+        {   std::vector<Face*> none;
+            check(!shellBoundsVolume(none), "instrument/gauss: an empty set bounds nothing"); }
+        {   // THE COUNTEREXAMPLE that makes the Gauss test unusable as a closedness
+            //     test, asserted here so nobody re-arms on it: an OPEN tube passes it.
+            TopologyBuilder tb;
+            std::vector<Face*> tube = openTube(tb, 3.0, false);
+            check(shellBoundsVolume(tube),
+                  "instrument/gauss: an OPEN TUBE also passes it — the converse of "
+                  "Gauss's theorem is FALSE, which is why it cannot arm the guard");
+            check(shellClosure(tube, 1e-5).verdict == ShellClosureVerdict::Open,
+                  "instrument/closure: and the topological test calls the same tube OPEN"); }
+        {   TopologyBuilder tb;
+            const ShellClosure c = shellClosure(triBox(tb, 7.0, 3.0, 2.0), 1e-6);
+            check(c.verdict == ShellClosureVerdict::Closed, "instrument/closure: a box soup is CLOSED");
+            check(c.boundsMaterial, "instrument/closure: and it encloses material");
+            check(std::fabs(c.boundedVolume - 42.0) <= 1e-9,
+                  "instrument/closure: boundedVolume == 7*3*2"); }
+        {   TopologyBuilder tb;
+            check(shellClosure(boxRings(tb, 3.0, -1, 1), 1e-6).verdict == ShellClosureVerdict::Open,
+                  "instrument/closure: a box missing a face is OPEN"); }
+        {   TopologyBuilder tb;
+            const ShellClosure c = shellClosure(boxRings(tb, 3.0, 2, -1), 1e-6);
+            check(c.verdict == ShellClosureVerdict::InconsistentlyWound,
+                  "instrument/closure: a box with ONE reversed face is INCONSISTENTLY WOUND, "
+                  "a distinct verdict from OPEN (this is the round-1 disarm)");
+            check(c.boundsMaterial && std::fabs(c.boundedVolume - 27.0) <= 1e-9,
+                  "instrument/closure: it still bounds 27 — the backwards face does not "
+                  "corrupt the number leg B compares against");
+            check(c.misorientedEdges == 4,
+                  "instrument/closure: and it names the 4 edges whose uses agree in direction"); }
+        {   // a 3+-use edge is NON-MANIFOLD, a third distinct verdict.
+            TopologyBuilder tb;
+            std::vector<Face*> f = boxRings(tb, 2.0, -1, -1);
+            f.push_back(faceFromRing(tb, {{0,0,0},{2,0,0},{2,0,2},{0,0,2}}));  // extra wall on an edge
+            check(shellClosure(f, 1e-6).verdict == ShellClosureVerdict::NonManifold,
+                  "instrument/closure: a 3-faces-on-an-edge join is NON-MANIFOLD"); }
+        {   std::vector<Face*> none;
+            check(!shellClosure(none, 1e-6).boundsMaterial,
+                  "instrument/closure: an empty set bounds nothing"); }
+    }
+}
+
+// ===========================================================================
+// THE ARMING ARM — the predicate itself, both ways.
+//
+// Everything above tests the two LEGS. This section tests the thing that decides
+// whether the legs run at all, and it is the part that was wrong in round 1. Two
+// halves, because a predicate can fail in two opposite directions and a gate that
+// only pins one of them is not measuring the predicate:
+//   OVER-ARM  bodies that are NOT closed must not be refused (the five measured
+//             false refusals of the Newell-sum predicate);
+//   UNDER-ARM bodies that ARE closed must stay armed through the two defect
+//             classes that disarmed the Newell-sum predicate (a backwards face,
+//             a sub-tolerance gap).
+// ===========================================================================
+
+// An open rectangular TUBE: the four side walls of a box, no caps. The canonical
+// counterexample to "SUM of the area vectors is zero, therefore closed" — +x/-x
+// and +y/-y cancel exactly while the body is as open as a body can be.
+static std::vector<Face*> openTube(TopologyBuilder& tb, double L, bool splitOneEdge) {
+    const double a = 0.0, b = L;
+    const Point3 P[8] = {
+        {a,a,a},{b,a,a},{b,b,a},{a,b,a},{a,a,b},{b,a,b},{b,b,b},{a,b,b},
+    };
+    std::vector<Face*> f;
+    f.push_back(faceFromRing(tb, {P[0],P[1],P[5],P[4]}));            // front
+    f.push_back(faceFromRing(tb, {P[2],P[3],P[7],P[6]}));            // back
+    if (splitOneEdge) {
+        // A REAL repairable defect: one wall carries a collinear mid-vertex on the
+        // shared vertical edge (heal_test's own split-edge defect class).
+        const Point3 mid{P[0].x, P[0].y, (P[0].z + P[4].z) * 0.5};
+        f.push_back(faceFromRing(tb, {P[0],mid,P[4],P[7],P[3]}));    // left, SPLIT
+    } else {
+        f.push_back(faceFromRing(tb, {P[0],P[4],P[7],P[3]}));        // left
+    }
+    f.push_back(faceFromRing(tb, {P[1],P[2],P[6],P[5]}));            // right
+    return f;
+}
+
+// A hexagonal open tube — an extruded profile shell, the commonest real
+// open-tube CAD artefact, whose six wall normals also cancel by symmetry.
+static std::vector<Face*> hexOpenTube(TopologyBuilder& tb, double R, double H) {
+    std::vector<Point3> lo, hi;
+    for (int i = 0; i < 6; ++i) {
+        const double t = 2.0 * 3.14159265358979323846 * i / 6.0;
+        lo.push_back(Point3{R * std::cos(t), R * std::sin(t), 0.0});
+        hi.push_back(Point3{R * std::cos(t), R * std::sin(t), H});
+    }
+    std::vector<Face*> f;
+    for (int i = 0; i < 6; ++i) {
+        const int j = (i + 1) % 6;
+        f.push_back(faceFromRing(tb, {lo[i], lo[j], hi[j], hi[i]}));
+    }
+    return f;
+}
+
+static void notArmed(const char* what, std::vector<Face*> faces, TopologyBuilder& tb,
+                     double tol, const char* why) {
+    HealOptions opt; opt.tol = tol;
+    HealReport r = healBRep(tb, faces, opt);
+    std::printf("    %s: armed=%d ok=%d refused=%d closed=%d  V %.6g -> %.6g   reason=\"%s\"\n",
+                what, r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0, r.destructionRefused ? 1 : 0,
+                r.after.closed ? 1 : 0, r.volumeBefore, r.volumeAfter, r.reason ? r.reason : "");
+    const std::string w(what);
+    check(!r.inputBoundsVolume, w + std::string(": NOT armed — ") + why);
+    check(!r.destructionRefused, w + ": NOT refused (this was a measured false refusal)");
+    check(r.ok, w + ": still ok == true");
+    // The heal really did leave the body alone — otherwise "not refused" would be
+    // hiding a destruction rather than proving the predicate stood down correctly.
+    check(std::fabs(r.volumeAfter - r.volumeBefore) <= 1e-9 * (1.0 + std::fabs(r.volumeBefore)),
+          w + ": and its volume is untouched");
+}
+
+static void runArmingArm() {
+    std::printf("[ARMING/over] open bodies whose normals CANCEL must NOT be refused\n");
+    {   TopologyBuilder tb;
+        notArmed("open tube (top+bottom missing)", openTube(tb, 3.0, false), tb, 1e-5,
+                 "an open tube is open, whatever Gauss's residual says"); }
+    {   TopologyBuilder tb;
+        notArmed("open tube + SPLIT edge", openTube(tb, 3.0, true), tb, 1e-5,
+                 "a split edge is a repairable defect, not a closure"); }
+    {   TopologyBuilder tb;
+        notArmed("hex open tube (extruded profile)", hexOpenTube(tb, 10.0, 4.0), tb, 1e-5,
+                 "a profile shell with no caps is open"); }
+    {   // zero-thickness sandwich: a closed 2-cycle with NO material in it.
+        TopologyBuilder tb;
+        const Point3 A{0,0,0}, B{10,0,0}, C{10,10,0}, D{0,10,0};
+        std::vector<Face*> f;
+        f.push_back(faceFromRing(tb, {A,B,C,D}));
+        f.push_back(faceFromRing(tb, {A,D,C,B}));
+        notArmed("zero-thickness sandwich", f, tb, 1e-5,
+                 "a closed cycle bounding NO volume has nothing to conserve"); }
+    {   // two parallel opposite-facing plates, 8 free edges.
+        TopologyBuilder tb;
+        std::vector<Face*> f;
+        f.push_back(faceFromRing(tb, {{0,0,0},{10,0,0},{10,10,0},{0,10,0}}));
+        f.push_back(faceFromRing(tb, {{0,0,5},{0,10,5},{10,10,5},{10,0,5}}));
+        notArmed("parallel opposite plate pair", f, tb, 1e-5, "two loose sheets are not a body"); }
+    {   // a closed box PLUS a disjoint open tube: the soup's residual still cancels.
+        TopologyBuilder tb;
+        std::vector<Face*> f = boxRings(tb, 2.0, -1, -1);
+        TopologyBuilder& tb2 = tb;
+        std::vector<Face*> t = openTube(tb2, 3.0, false);
+        for (Face* x : t) f.push_back(x);
+        notArmed("closed box + DISJOINT open tube", f, tb, 1e-5,
+                 "one open component makes the soup open"); }
+
+    std::printf("[ARMING/under] closed bodies must STAY armed through the two disarms\n");
+    {   // (i) ONE BACKWARDS FACE. 12/12 flips of the T-137 plate disarmed the old
+        //     predicate and 6/12 then returned ok=true having lost >half the part.
+        int armed = 0, refused = 0, silent = 0;
+        for (int i = 0; i < 12; ++i) {
+            TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 100.0, 100.0, 0.001);
+            // reverse triangle i in place by rebuilding it backwards
+            std::vector<Face*> g;
+            for (int k = 0; k < (int)f.size(); ++k) {
+                if (k != i) { g.push_back(f[(std::size_t)k]); continue; }
+                std::vector<Point3> ring;
+                for (Coedge* c = f[(std::size_t)k]->outerLoop->first;
+                     ring.size() < f[(std::size_t)k]->outerLoop->coedgeCount && c; c = c->next)
+                    ring.push_back(c->originVertex()->point);
+                std::reverse(ring.begin(), ring.end());
+                g.push_back(faceFromRing(tb, ring));
+            }
+            HealOptions opt; opt.tol = 1e-6;
+            HealReport r = healBRep(tb, g, opt);
+            if (r.inputBoundsVolume) ++armed;
+            if (r.destructionRefused) ++refused;
+            if (r.ok && std::fabs(r.volumeAfter) < 0.5 * 10.0) ++silent;
+            if (i == 0) {
+                std::printf("    flip sweep sample (tri 0): armed=%d refused=%d closure=%d "
+                            "boundedV=%.6g  V %.6g -> %.6g\n",
+                            r.inputBoundsVolume ? 1 : 0, r.destructionRefused ? 1 : 0,
+                            (int)r.inputClosure, r.boundedVolumeBefore,
+                            r.volumeBefore, r.volumeAfter);
+                check(r.inputClosure == ShellClosureVerdict::InconsistentlyWound,
+                      "flip: the verdict is INCONSISTENTLY WOUND, a distinct answer from OPEN");
+                check(std::fabs(r.boundedVolumeBefore - 10.0) <= 1e-9,
+                      "flip: boundedVolume is the part's REAL volume (10), not the "
+                      "corrupted signed sum the backwards face produces");
+            }
+        }
+        std::printf("    flip sweep: armed %d/12, refused %d/12, SILENT >half-loss %d/12\n",
+                    armed, refused, silent);
+        check(armed == 12, "flip sweep: all 12 backwards-face variants stay ARMED (was 0/12)");
+        check(refused == 12, "flip sweep: all 12 are REFUSED");
+        check(silent == 0, "flip sweep: NONE is silently destroyed (was 6/12)");
+    }
+    {   // (ii) A SUB-TOLERANCE GAP. Same plate, one corner nudged 1e-4 at tol 1e-3:
+        //      the old predicate refused on some faces and returned ok=true with the
+        //      part gone on others, decided purely by which corner moved.
+        int armed = 0, refused = 0, silent = 0;
+        for (int i = 0; i < 12; ++i) {
+            TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 100.0, 100.0, 0.001);
+            std::vector<Face*> g;
+            for (int k = 0; k < (int)f.size(); ++k) {
+                if (k != i) { g.push_back(f[(std::size_t)k]); continue; }
+                std::vector<Point3> ring;
+                for (Coedge* c = f[(std::size_t)k]->outerLoop->first;
+                     ring.size() < f[(std::size_t)k]->outerLoop->coedgeCount && c; c = c->next)
+                    ring.push_back(c->originVertex()->point);
+                ring[0].x += 1e-4;
+                g.push_back(faceFromRing(tb, ring));
+            }
+            HealOptions opt; opt.tol = 1e-3;
+            HealReport r = healBRep(tb, g, opt);
+            if (r.inputBoundsVolume) ++armed;
+            if (r.destructionRefused) ++refused;
+            if (r.ok && std::fabs(r.volumeAfter) < 0.5 * 10.0) ++silent;
+        }
+        std::printf("    sub-tol sweep: armed %d/12, refused %d/12, SILENT >half-loss %d/12\n",
+                    armed, refused, silent);
+        check(armed == 12, "sub-tol sweep: all 12 nudge positions stay ARMED (was 8/12)");
+        check(refused == 12, "sub-tol sweep: all 12 are REFUSED, whichever corner moved");
+        check(silent == 0, "sub-tol sweep: NONE is silently destroyed (was 4/12)");
+    }
+    {   // (iii) THE QUIET PRODUCTION SETTING: precision=0.001 on a 0.001-thick plate,
+        //       i.e. opt.tol EQUAL TO the wall thickness. The weld folds the body flat
+        //       before it can be paired, so the single-tolerance verdict is NonManifold
+        //       and the guard would stand down on the very body being destroyed. This
+        //       is what the tolerance sweep in shellClosure exists for.
+        for (double t : {0.001, 0.01}) {
+            TopologyBuilder tb;
+            HealOptions opt; opt.tol = t;
+            HealReport r = healBRep(tb, triBox(tb, 100.0, 100.0, 0.001), opt);
+            char nm[80]; std::snprintf(nm, sizeof nm, "plate 100x100x0.001 at tol==thickness %g", t);
+            std::printf("    %s: armed=%d ok=%d refused=%d  V %.6g -> %.6g\n",
+                        nm, r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0,
+                        r.destructionRefused ? 1 : 0, r.volumeBefore, r.volumeAfter);
+            check(r.inputBoundsVolume, std::string(nm) + ": ARMED (the tolerance sweep fires)");
+            check(!r.ok && r.destructionRefused, std::string(nm) + ": REFUSED");
+        }
+    }
+}
+
+// ===========================================================================
+// THE REASON LITERALS — pinned WHOLE, not by substring.
+//
+// WHY A SEPARATE ARM. Every assertion above matches a short fragment of a reason
+// ("opened a closed body", "consumed the body", "emptied the body"). That is the
+// right check for "which leg fired" and the wrong check for "what does the user
+// read", because the rest of each sentence — the part that names the part class,
+// says what the healer refused to return, and is the only explanation a caller
+// ever sees — can be reworded to anything at all and every one of those
+// assertions still passes.
+//
+// AND TWO OF THE FIVE LITERALS WERE PINNED BY NOTHING AT ALL:
+//   * "all faces removed as slivers" — the UNARMED half of the total-destruction
+//     branch. It sits two lines below the refusal, shares its `if`, and is what
+//     that branch reverts to. The mutant that reverts the refusal (measured:
+//     kills 3 checks via the armed path) would be INVISIBLE on any input that
+//     does not bound material, and nothing asserted this string existed.
+//   * "ok" — the success literal. The gate asserted only `reason != "ok"` on the
+//     refusals, so nothing at all required a SUCCESS to say "ok". Renaming it
+//     would have left 137/137 green while NativeShapeHealBridge.hpp's contract —
+//     an empty or unrecognised reason is "an exact pass" — quietly changed
+//     meaning for every caller.
+//
+// These are compared with ==, deliberately. A reason is a user-facing string in a
+// repository whose standing order is that no developer prose reaches the app; if
+// one is reworded that should be a decision someone made, visible in this diff.
+// ===========================================================================
+static void expectReason(const char* what, const HealReport& r, const char* literal) {
+    const std::string got = r.reason ? r.reason : "";
+    const bool eq = (got == literal);
+    if (!eq) std::printf("      expected: \"%s\"\n         actual: \"%s\"\n", literal, got.c_str());
+    check(eq, std::string(what) + ": reason is the pinned literal, WHOLE");
+}
+
+static void runReasonLiteralArm() {
+    std::printf("[REASONS] the five literals, pinned whole\n");
+    {   // (1) LEG A. The T-137 plate itself.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, triBox(tb, 100, 100, 0.001), opt);
+        expectReason("legA", r,
+            "repair opened a closed body: the healed shell is no longer watertight "
+            "(walls of a thin-walled part dropped as slivers) — refusing rather "
+            "than returning a solid that is not one");
+    }
+    {   // (2) LEG B. The part-plus-whisker quiet variant.
+        TopologyBuilder tb;
+        std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+        std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06);
+        f.insert(f.end(), w.begin(), w.end());
+        HealOptions opt; opt.tol = 0.05;
+        HealReport r = healBRep(tb, f, opt);
+        expectReason("legB", r,
+            "repair consumed the body: a closed solid lost most of its material "
+            "(a thin-walled feature — foil, gasket, web, whisker — removed as "
+            "slivers) — refusing rather than returning a hollowed solid");
+    }
+    {   // (3) TOTAL DESTRUCTION, armed.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 0.05;
+        HealReport r = healBRep(tb, triBox(tb, 0.01, 0.01, 1e-7), opt);
+        expectReason("total-destruction", r,
+            "repair emptied the body: every face of a solid was classified a "
+            "sliver and dropped (a thin-walled part — foil, gasket, membrane — "
+            "whose walls exceed the aspect-ratio limit) — refusing rather than "
+            "returning an empty shell");
+    }
+    {   // (4) TOTAL DESTRUCTION, **UNARMED** — the first of the two literals that
+        //     nothing pinned. A lone needle triangle (1000 long, 0.01 tall, aspect
+        //     1e5) bounds nothing, so every face goes and the honest non-refusal
+        //     answer is returned. MEASURED: armed=0 ok=1 slivers=1.
+        TopologyBuilder tb;
+        std::vector<Face*> f;
+        f.push_back(faceFromRing(tb, {{0, 0, 0}, {1000, 0, 0}, {500, 0.01, 0}}));
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, f, opt);
+        std::printf("    lone needle (unarmed all-sliver): armed=%d ok=%d refused=%d "
+                    "survivors=%zu slivers=%zu  reason=\"%s\"\n",
+                    r.inputBoundsVolume ? 1 : 0, r.ok ? 1 : 0, r.destructionRefused ? 1 : 0,
+                    r.faces.size(), r.sliverFacesRemoved, r.reason ? r.reason : "");
+        check(!r.inputBoundsVolume, "unarmed-slivers: bounds nothing, so the guard stands down");
+        check(r.faces.empty() && r.sliverFacesRemoved == 1,
+              "unarmed-slivers: the all-slivers branch really is the one reached");
+        check(r.ok && !r.destructionRefused,
+              "unarmed-slivers: NOT refused — there was no body to destroy");
+        expectReason("unarmed-slivers", r, "all faces removed as slivers");
+    }
+    {   // (5) SUCCESS — the second unpinned literal. NativeShapeHealBridge.hpp reads
+        //     an empty/unknown reason as "an exact pass", so what a SUCCESS says is
+        //     part of the contract, not decoration.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 1e-6;
+        HealReport r = healBRep(tb, boxRings(tb, 2.0, -1, -1), opt);
+        check(r.ok && !r.destructionRefused, "success-literal: the clean box really does heal");
+        expectReason("success", r, "ok");
+    }
+    {   // (6) The malformed-input literal, for completeness: it is the one reason a
+        //     caller can get with ok == false that is NOT a destruction refusal, and
+        //     the three callers route both the same way. If it ever merged with the
+        //     refusal vocabulary the routing would stop being distinguishable.
+        TopologyBuilder tb;
+        std::vector<Face*> none;
+        HealOptions opt;
+        HealReport r = healBRep(tb, none, opt);
+        check(!r.ok, "empty-input: still ok == false");
+        check(!r.destructionRefused,
+              "empty-input: but NOT a destruction refusal — malformed input is a "
+              "different answer from a destroyed body");
+        expectReason("empty-input", r, "empty face set");
+    }
+}
+
+// ===========================================================================
+// THE TOLERANCE-CONSISTENCY ARM — leg B's "before" must be measured at the
+// tolerance the heal RAN at.
+//
+// THE DEFECT THIS EXISTS FOR (T-137 round 3, measured). shellClosure sweeps the
+// coincidence tolerance DOWNWARDS from opt.tol until some rung sees a closed body,
+// and round 2 handed leg B that rung's volume. Leg B then subtracted an output
+// produced at opt.tol from a volume measured at a tolerance up to 256x finer —
+// which is not the same body. MEASURED: a 10x10x10 box plus a 10x10x0.2 slab
+// separated by a 0.001 gap, healed at tol=0.25. The sweep settles at
+// pairingTol=9.7656e-4, where the two are SEPARATE closed bodies (1000 + 20), so
+// the "before" read 1020. The heal at 0.25 welds the gap, collapses a slab 0.2
+// thick — thinner than its own coincidence tolerance — and returns a clean
+// watertight 12-face box of 1000. Leg A passed. LEG B REFUSED a correct result on
+// a 1.96% loss; base 02de2e15 returns this body with ok=1.
+//
+// AND THE SIGNATURE THAT MAKES IT A DEFECT RATHER THAN A JUDGEMENT CALL: the same
+// body with the slab TOUCHING EXACTLY reads NonManifold at every rung, never arms,
+// and is ACCEPTED — with the identical output. Same result, opposite verdicts,
+// decided by a gap 250x below the tolerance. That is round 1's own "identical
+// defect, opposite verdicts" signature, reproduced in round 2's code.
+//
+// So the fixture below is a PAIR, and its first assertion is that the two agree.
+// A guard whose verdict can be flipped by closing a sub-tolerance gap is not
+// measuring the part.
+// ===========================================================================
+
+// An axis-aligned plate as SIX QUADS (one face per side) — deliberately not the
+// triangulated builder above. Needed by the fallback fixture at the bottom of this
+// arm: when opt.tol welds the plate flat, its two coincident quad caps form a
+// closed 2-cycle, where the triangulated version's caps are exact duplicates that
+// pass (8) removes, leaving an OPEN shell that leg A catches instead.
+static std::vector<Face*> quadPlate(TopologyBuilder& tb, double X, double Y, double Z) {
+    const Point3 P[8] = {{0,0,0},{X,0,0},{X,Y,0},{0,Y,0},{0,0,Z},{X,0,Z},{X,Y,Z},{0,Y,Z}};
+    const int r[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
+    std::vector<Face*> f;
+    for (int i = 0; i < 6; ++i)
+        f.push_back(faceFromRing(tb, {P[r[i][0]], P[r[i][1]], P[r[i][2]], P[r[i][3]]}));
+    return f;
+}
+
+static void runToleranceConsistencyArm() {
+    std::printf("-- TOLERANCE CONSISTENCY: leg B's \"before\" is measured at opt.tol --\n");
+    {   // (1) THE PAIR. Identical bodies but for a 0.001 gap, identical outputs;
+        //     the verdicts must be identical too, and must be "not refused".
+        const double frac = HealOptions{}.maxMaterialLossFrac;
+        HealReport rep[2];
+        for (int i = 0; i < 2; ++i) {
+            TopologyBuilder tb;
+            const double gap = (i == 0) ? 0.001 : 0.0;
+            std::vector<Face*> f = triBoxAt(tb, 0, 0, 0, 10, 10, 10);
+            std::vector<Face*> s = triBoxAt(tb, 0, 0, 10.0 + gap, 10, 10, 0.2);
+            f.insert(f.end(), s.begin(), s.end());
+            HealOptions opt; opt.tol = 0.25;
+            rep[i] = healBRep(tb, f, opt);
+            std::printf("    box 10^3 + 0.2 slab, gap %-5.3g at tol=0.25: armed=%d resolves=%d "
+                        "ok=%d refused=%d closed=%d faces=%zu free=%zu  bounded=%.8g "
+                        "resolved=%.8g  V %.8g -> %.8g\n",
+                        gap, rep[i].inputBoundsVolume ? 1 : 0, rep[i].inputResolvesVolume ? 1 : 0,
+                        rep[i].ok ? 1 : 0, rep[i].destructionRefused ? 1 : 0,
+                        rep[i].after.closed ? 1 : 0, rep[i].after.faces,
+                        rep[i].unfixedFreeEdgeIds.size(), rep[i].boundedVolumeBefore,
+                        rep[i].resolvedVolumeBefore, rep[i].volumeBefore, rep[i].volumeAfter);
+        }
+        const HealReport& G = rep[0];   // gapped
+        const HealReport& T = rep[1];   // touching
+
+        // The two really are the same repair — asserted, not assumed, because the
+        // whole claim is "same result, and therefore it must be the same verdict".
+        check(G.after.closed && T.after.closed,
+              "pair: BOTH heal to a CLOSED shell");
+        check(G.unfixedFreeEdgeIds.empty() && T.unfixedFreeEdgeIds.empty(),
+              "pair: BOTH leave zero unfixed free edges");
+        check(G.after.faces == T.after.faces,
+              "pair: BOTH return the same number of faces (the slab is gone from both)");
+        check(std::fabs(std::fabs(G.volumeAfter) - std::fabs(T.volumeAfter)) <= 1e-9,
+              "pair: BOTH return the SAME volume — it is one repair, twice");
+        check(std::fabs(std::fabs(G.volumeAfter) - 1000.0) <= 1e-9,
+              "pair: and that volume is the 10x10x10 box, 1000, intact");
+
+        // THE ASSERTION THE DEFECT FAILED.
+        check(G.destructionRefused == T.destructionRefused && G.ok == T.ok,
+              "pair: the two verdicts AGREE — a 0.001 gap, 250x below the tolerance, "
+              "cannot decide whether a repair is destruction");
+        check(G.ok && !G.destructionRefused, "pair/gapped: NOT refused");
+        check(T.ok && !T.destructionRefused, "pair/touching: NOT refused");
+
+        // WHY it is not refused — pinned, so that a future "fix" that relaxes the
+        // threshold instead of fixing the measurement cannot pass this fixture.
+        check(G.inputBoundsVolume, "pair/gapped: the sweep DID arm the guard");
+        check(std::fabs(G.boundedVolumeBefore - 1020.0) <= 1e-6,
+              "pair/gapped: the sweep's own before is 1020 — box AND slab, two bodies "
+              "at a tolerance 256x finer than the heal's");
+        check(std::fabs(G.resolvedVolumeBefore - 1000.0) <= 1e-6,
+              "pair/gapped: the before AT opt.tol is 1000 — the slab is 0.2 thick and "
+              "opt.tol is 0.25, so the heal's own weld cannot represent it");
+        check(G.resolvedVolumeBefore < G.boundedVolumeBefore,
+              "pair/gapped: the two numbers really do differ (the sweep fired)");
+        // THE MUTATION TRIP-WIRE: reverting leg B to the sweep's before re-refuses.
+        check((G.boundedVolumeBefore - std::fabs(G.volumeAfter)) > frac * G.boundedVolumeBefore,
+              "pair/gapped: measured against the SWEEP's before the loss is ABOVE the "
+              "threshold — so a leg B that used it would refuse, and this check would "
+              "have caught that");
+        check((G.resolvedVolumeBefore - std::fabs(G.volumeAfter)) <= frac * G.resolvedVolumeBefore,
+              "pair/gapped: measured against opt.tol's before the loss is within the "
+              "threshold — stated against the option's own default, not a literal");
+        check(!T.inputBoundsVolume,
+              "pair/touching: the touching twin is NONMANIFOLD at every rung and never "
+              "arms — which is exactly why it was accepted while its twin was refused");
+    }
+    {   // (2) THE NO-SWEEP INVARIANT. When the guard arms at opt.tol itself there is
+        //     only one tolerance in play and the two "befores" must be the SAME
+        //     NUMBER — not approximately, bit-for-bit, because it is the same
+        //     arithmetic on the same rings. If they ever diverge, the second
+        //     measurement has acquired a bug of its own and every verdict below is
+        //     suspect. Checked on a body that is refused (the quiet variant) and on
+        //     one that is not (a clean box), so neither verdict can hide it.
+        {   TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+            std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06);
+            f.insert(f.end(), w.begin(), w.end());
+            HealOptions opt; opt.tol = 0.05;
+            HealReport r = healBRep(tb, f, opt);
+            check(r.resolvedVolumeBefore == r.boundedVolumeBefore,
+                  "no-sweep: quiet variant — the two befores are the SAME number");
+            check(r.inputResolvesVolume && r.destructionRefused,
+                  "no-sweep: and the whisker (0.06 thick, ABOVE opt.tol 0.05) is still "
+                  "resolvable material that leg B refuses to lose");
+        }
+        {   TopologyBuilder tb;
+            HealOptions opt; opt.tol = 1e-6;
+            HealReport r = healBRep(tb, triBox(tb, 3.0, 3.0, 3.0), opt);
+            check(r.resolvedVolumeBefore == r.boundedVolumeBefore,
+                  "no-sweep: clean box — the two befores are the SAME number");
+            check(r.ok && std::fabs(r.resolvedVolumeBefore - 27.0) <= 1e-9,
+                  "no-sweep: clean box heals, and its before is L^3");
+        }
+    }
+    {   // (3) THE FALLBACK, and why it needs a fixture of its own.
+        //     When opt.tol dissolves the WHOLE part there is no tolerance-consistent
+        //     before to compare against — resolvedVolumeBefore is 0 — and "the
+        //     tolerance cannot represent this part" is not a licence to return
+        //     nothing. Leg B therefore falls back to the material that is really
+        //     there. MEASURED: on every naturally-shaped body that dissolves whole
+        //     (36 plate/prism constructions swept across L, thickness and tol) the
+        //     heal OPENS the shell or empties it, so leg A or the total-destruction
+        //     branch answers first and the fallback never runs — i.e. it would have
+        //     shipped as a branch no gate covers. The mechanism is pass (8): the
+        //     flattened plate's two coincident caps are exact DUPLICATES and one is
+        //     removed, leaving 4 free edges. Turn that one pass off — a real public
+        //     option, not a test hook — and the closed zero-volume shell appears,
+        //     with zero residuals, and leg B's fallback is the only thing between the
+        //     user and an empty part reported as a clean repair.
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 0.001;      // == the plate's own thickness
+        opt.resolveNonManifold = false;        // (8) off: keep the duplicate cap
+        HealReport r = healBRep(tb, quadPlate(tb, 100.0, 100.0, 0.001), opt);
+        std::printf("    flattened quad plate 100x100x0.001 at tol=0.001, pass (8) OFF: "
+                    "armed=%d resolves=%d closed=%d faces=%zu free=%zu bounded=%.8g "
+                    "resolved=%.8g V %.8g -> %.8g\n",
+                    r.inputBoundsVolume ? 1 : 0, r.inputResolvesVolume ? 1 : 0,
+                    r.after.closed ? 1 : 0, r.after.faces, r.unfixedFreeEdgeIds.size(),
+                    r.boundedVolumeBefore, r.resolvedVolumeBefore,
+                    r.volumeBefore, r.volumeAfter);
+        check(r.inputBoundsVolume, "fallback: armed — the sweep sees the 10 mm^3 plate");
+        check(!r.inputResolvesVolume,
+              "fallback: and opt.tol resolves NONE of it — the weld folds the plate flat");
+        check(r.after.closed && !r.faces.empty(),
+              "fallback: the output is a CLOSED, non-empty shell — leg A is silent and "
+              "the total-destruction branch is not reached");
+        check(r.unfixedFreeEdgeIds.empty(), "fallback: with zero unfixed residuals");
+        check(std::fabs(r.volumeAfter) < 0.01 * r.boundedVolumeBefore,
+              "fallback: and the material is gone");
+        check(!r.ok && r.destructionRefused, "fallback: REFUSED anyway");
+        check(std::string(r.reason).find("consumed the body") != std::string::npos,
+              "fallback: by LEG B, comparing against the material that is really there");
+    }
+}
+
+// ===========================================================================
+// SUM vs UNION — the fixture that would have caught round 3's defect.
+// ===========================================================================
+// Round 3 shipped, for the third consecutive time, the signature every adversary
+// has found: A BODY IS REFUSED WHILE A NEAR-IDENTICAL BODY PRODUCING BYTE-IDENTICAL
+// OUTPUT IS ACCEPTED, AND THE DIFFERENCE BETWEEN THEM IS FAR BELOW THE TOLERANCE.
+// Two coincident 10x10x10 boxes offset by (d,d,d) — a solid emitted twice by an
+// exporter with float noise, the most ordinary real defect there is — were refused
+// at tol 0.25 / 0.1 / 0.05 / 0.01 / 1e-6 on an offset 2500x below the tolerance,
+// while the EXACTLY coincident twin (d = 0) reads NonManifold, never arms, and is
+// accepted with byte-identical output. Base 02de2e15 returns ok=1 on both.
+//
+// THE ROOT CAUSE, and it is one sentence: LEG B COMPARES A SUM AGAINST A UNION.
+// Both "before" volumes are a sum over the connected components of the edge
+// pairing, each component counted IN FULL, so two coincident boxes bounding 1000
+// report 2000. `volumeAfter` is a UNION — the weld is entitled, and correct, to
+// merge the duplicate into one watertight 12-face body of 1000, which is the very
+// repair heal_test [6b] blesses one level down. Leg B read a 50% loss. EVERY input
+// with overlapping, duplicated or nested components has an over-counted before.
+//
+// THE PRECONDITION: leg B arms only when the components are PROVABLY pairwise
+// disjoint, because only then is the sum the material actually present. Pairwise
+// disjoint AABBs is the cheap sufficient condition; when they overlap the solids
+// still may not, and we cannot tell without a boolean engine, so the leg stands
+// down — and LEG A, which is unconditional, still runs. That last clause is the
+// point, and check (4) below is its fixture.
+static void runUnionSumArm() {
+    std::printf("-- SUM vs UNION: leg B's \"before\" must be material, not a count of copies --\n");
+
+    auto dupBoxes = [](TopologyBuilder& tb, double d) {
+        std::vector<Face*> f = triBoxAt(tb, 0, 0, 0, 10, 10, 10);
+        std::vector<Face*> g = triBoxAt(tb, d, d, d, 10, 10, 10);
+        f.insert(f.end(), g.begin(), g.end());
+        return f;
+    };
+
+    {   // (1) THE PAIR, over the whole grid. Every (tol, d) row must land the SAME
+        //     verdict as its EXACTLY-coincident twin at the same tolerance, and that
+        //     verdict must be ACCEPT — which is what base 02de2e15 returns for both.
+        //     `d` runs from 2500x below the coarsest tolerance up to the tolerance
+        //     itself, so no row can be dismissed as "outside the modelling tolerance".
+        int twinAccepted = 0, agreed = 0, accepted = 0, sameRepair = 0, weldRows = 0;
+        for (double tol : {1e-6, 0.01, 0.05, 0.1, 0.25}) {
+            TopologyBuilder tw;
+            HealOptions opt; opt.tol = tol;
+            const HealReport twin = healBRep(tw, dupBoxes(tw, 0.0), opt);
+            if (twin.ok && !twin.destructionRefused) ++twinAccepted;
+            for (double d : {1e-4, 1e-3, 1e-2}) {
+                TopologyBuilder tb;
+                const HealReport r = healBRep(tb, dupBoxes(tb, d), opt);
+                if (r.ok == twin.ok && r.destructionRefused == twin.destructionRefused) ++agreed;
+                if (r.ok && !r.destructionRefused) ++accepted;
+                // WHERE opt.tol ACTUALLY WELDS THE DUPLICATE (every d here is at least
+                // 5x below these tolerances) the two are not merely the same verdict,
+                // they are the same repair, down to the face count and the volume.
+                if (tol >= 0.05) {
+                    ++weldRows;
+                    if (r.after.closed == twin.after.closed &&
+                        r.after.faces  == twin.after.faces  &&
+                        r.unfixedFreeEdgeIds.size() == twin.unfixedFreeEdgeIds.size() &&
+                        std::fabs(std::fabs(r.volumeAfter) - std::fabs(twin.volumeAfter))
+                            <= 1e-9 * std::fabs(twin.volumeAfter) &&
+                        r.after.closed && r.after.faces == 12 &&
+                        r.unfixedFreeEdgeIds.empty() &&
+                        std::fabs(std::fabs(r.volumeAfter) - 1000.0) <= 1e-9 * 1000.0)
+                        ++sameRepair;
+                }
+            }
+        }
+        std::printf("    duplicate-box grid (5 tol x 3 offsets): twin accepted %d/5, "
+                    "verdict agrees with twin %d/15, accepted %d/15, same repair %d/%d\n",
+                    twinAccepted, agreed, accepted, sameRepair, weldRows);
+        check(twinAccepted == 5,
+              "pair: the EXACTLY-coincident twin is accepted at all 5 tolerances "
+              "(it reads NonManifold and never arms) — so it is the bar the others must meet");
+        check(agreed == 15,
+              "pair: all 15 near-coincident rows land the SAME VERDICT as their twin "
+              "(was 11/15 refused where the twin was accepted)");
+        check(accepted == 15,
+              "pair: and that verdict is ACCEPT, matching base 02de2e15 on every row");
+        check(sameRepair == 9 && weldRows == 9,
+              "pair: where opt.tol welds the duplicate the output is the SAME REPAIR as "
+              "the twin's — closed, 12 faces, zero free edges, |V| == 1000");
+    }
+
+    {   // (2) AND WHY — the one row in full, stated against the option's OWN DEFAULT
+        //     so that a future "fix" which relaxes maxMaterialLossFrac instead of
+        //     fixing the measurement cannot pass this check.
+        const double frac = HealOptions{}.maxMaterialLossFrac;
+        TopologyBuilder tb;
+        HealOptions opt; opt.tol = 0.25;
+        const HealReport r = healBRep(tb, dupBoxes(tb, 0.001), opt);
+        TopologyBuilder tw;
+        const HealReport twin = healBRep(tw, dupBoxes(tw, 0.0), opt);
+        const double before = r.resolvedVolumeBefore, after = std::fabs(r.volumeAfter);
+        std::printf("    dup boxes, offset 0.001 at tol=0.25: components=%zu disjointB=%d "
+                    "disjointR=%d armed=%d bounded=%.8g resolved=%.8g -> |V|=%.8g "
+                    "(loss %.4g vs threshold %.4g)  ok=%d refused=%d\n",
+                    r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                    r.resolvedVolumeIsDisjointSum ? 1 : 0, r.inputBoundsVolume ? 1 : 0,
+                    r.boundedVolumeBefore, r.resolvedVolumeBefore, after,
+                    (before > 0.0) ? (before - after) / before : 0.0, frac,
+                    r.ok ? 1 : 0, r.destructionRefused ? 1 : 0);
+        check(r.inputComponents == 2,
+              "why: the input pairs into TWO components — two closed copies of one box");
+        check(!r.boundedVolumeIsDisjointSum && !r.resolvedVolumeIsDisjointSum,
+              "why: whose bounding boxes OVERLAP, so neither before-volume is a "
+              "disjoint sum and neither is the material present");
+        check(std::fabs(r.boundedVolumeBefore - 2000.0) <= 1e-9 * 2000.0 &&
+              std::fabs(r.resolvedVolumeBefore - 2000.0) <= 1e-9 * 2000.0,
+              "why: both read 2000 — the SUM, each copy counted in full");
+        check(std::fabs(after - 1000.0) <= 1e-9 * 1000.0,
+              "why: while the heal returns 1000 — the UNION, which is the CORRECT repair");
+        check(r.after.closed && r.unfixedFreeEdgeIds.empty() && r.after.faces == 12,
+              "why: and it is a clean watertight 12-face body, not a damaged one");
+        check(before > 0.0 && (before - after) > frac * before,
+              "why: so an armed leg B would refuse it on a 50% 'loss' — measured against "
+              "HealOptions' OWN default, so relaxing the threshold cannot pass this check");
+        check(r.inputBoundsVolume,
+              "why: the input DOES bound material, so leg A is armed and did run");
+        check(r.ok && !r.destructionRefused,
+              "why: and the heal is ACCEPTED — the material leg stood down, it did not "
+              "get a softer threshold");
+        check(!twin.inputBoundsVolume && twin.ok,
+              "why: the twin's acceptance comes from never arming at all (NonManifold), "
+              "which is exactly why the two used to disagree");
+        check(twin.after.closed && twin.after.faces == r.after.faces &&
+              std::fabs(std::fabs(twin.volumeAfter) - after) <= 1e-9 * after,
+              "why: on byte-identical output — same closure, same face count, same volume");
+    }
+
+    {   // (3) THE PRECONDITION COSTS AN ORDINARY PART NOTHING. One solid is ONE
+        //     component, so it is trivially a disjoint sum and leg B is unchanged;
+        //     and a genuinely separated multi-body (the whisker, cube at x<=1 and
+        //     whisker at x>=10) is disjoint too, so leg B still refuses it. This is
+        //     the check a mutant that disarms leg B unconditionally dies on.
+        {
+            TopologyBuilder tb;
+            HealOptions opt; opt.tol = 1e-6;
+            const HealReport r = healBRep(tb, triBox(tb, 100.0, 100.0, 0.001), opt);
+            std::printf("    plate 100x100x0.001 at tol=1e-6: components=%zu disjointB=%d "
+                        "disjointR=%d ok=%d refused=%d\n", r.inputComponents,
+                        r.boundedVolumeIsDisjointSum ? 1 : 0,
+                        r.resolvedVolumeIsDisjointSum ? 1 : 0, r.ok ? 1 : 0,
+                        r.destructionRefused ? 1 : 0);
+            check(r.inputComponents == 1,
+                  "single: an ordinary solid is ONE component — nothing to over-count");
+            check(r.boundedVolumeIsDisjointSum && r.resolvedVolumeIsDisjointSum,
+                  "single: so both before-volumes are disjoint sums, trivially");
+            check(!r.ok && r.destructionRefused,
+                  "single: and the T-137 headline is still refused");
+        }
+        {
+            TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+            std::vector<Face*> w = triBoxAt(tb, 10.0, 0.0, 0.0, 1000.0, 0.06, 0.06);
+            f.insert(f.end(), w.begin(), w.end());
+            HealOptions opt; opt.tol = 0.05;
+            const HealReport r = healBRep(tb, f, opt);
+            std::printf("    cube + whisker at tol=0.05: components=%zu disjointB=%d "
+                        "disjointR=%d closed=%d free=%zu V %.6g -> %.6g ok=%d\n",
+                        r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                        r.resolvedVolumeIsDisjointSum ? 1 : 0, r.after.closed ? 1 : 0,
+                        r.unfixedFreeEdgeIds.size(), r.volumeBefore, r.volumeAfter,
+                        r.ok ? 1 : 0);
+            check(r.inputComponents == 2,
+                  "whisker: TWO components — a 1 mm cube and a whisker 9 mm away");
+            check(r.boundedVolumeIsDisjointSum && r.resolvedVolumeIsDisjointSum,
+                  "whisker: separated in x, so the sum IS the material — leg B stays armed");
+            check(r.after.closed && r.unfixedFreeEdgeIds.empty(),
+                  "whisker: the output is closed with zero residuals — leg A is silent");
+            check(!r.ok && r.destructionRefused &&
+                  std::string(r.reason).find("consumed the body") != std::string::npos,
+                  "whisker: and LEG B still refuses the 78% loss — the precondition did "
+                  "NOT disarm the one case only volume can see");
+        }
+    }
+
+    {   // (4) WHEN LEG B STANDS DOWN, LEG A STILL RUNS. This is the whole reason a
+        //     disjointness PRECONDITION is admissible rather than a loss of the guard:
+        //     two 100x100x0.001 plates offset 1e-4 at tol=1e-6 overlap by 0.0009 (900x
+        //     the tolerance), so leg B has no measurement it can justify — and the heal
+        //     drops the walls of both, opens the body, and leg A refuses it anyway.
+        TopologyBuilder tb;
+        std::vector<Face*> f = triBox(tb, 100.0, 100.0, 0.001);
+        std::vector<Face*> g = triBoxAt(tb, 1e-4, 1e-4, 1e-4, 100.0, 100.0, 0.001);
+        f.insert(f.end(), g.begin(), g.end());
+        HealOptions opt; opt.tol = 1e-6;
+        const HealReport r = healBRep(tb, f, opt);
+        std::printf("    two overlapping plates, offset 1e-4 at tol=1e-6: components=%zu "
+                    "disjointB=%d disjointR=%d armed=%d closed=%d free=%zu V %.6g -> %.6g "
+                    "ok=%d reason=\"%.40s\"\n",
+                    r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                    r.resolvedVolumeIsDisjointSum ? 1 : 0, r.inputBoundsVolume ? 1 : 0,
+                    r.after.closed ? 1 : 0, r.unfixedFreeEdgeIds.size(),
+                    r.volumeBefore, r.volumeAfter, r.ok ? 1 : 0, r.reason ? r.reason : "");
+        check(r.inputComponents == 2 && !r.boundedVolumeIsDisjointSum &&
+              !r.resolvedVolumeIsDisjointSum,
+              "legA-survives: the components OVERLAP, so the material leg stands down");
+        check(r.inputBoundsVolume,
+              "legA-survives: but the guard is still ARMED — the precondition gates leg B "
+              "only, never the arming and never leg A");
+        check(!r.after.closed && !r.unfixedFreeEdgeIds.empty(),
+              "legA-survives: and the heal really did open the body");
+        check(!r.ok && r.destructionRefused &&
+              std::string(r.reason).find("opened a closed body") != std::string::npos,
+              "legA-survives: so LEG A refuses it — standing leg B down is not standing "
+              "the guard down");
+    }
+
+    {   // (5) THE OVERLAP IS JUDGED AT opt.tol, LIKE EVERY OTHER DISTANCE IN THIS
+        //     FILE. Two bodies that interfere by LESS THAN the coincidence tolerance
+        //     are not overlapping as far as the heal can tell — the sum over-counts
+        //     by a sliver the heal cannot represent — so they still read as a
+        //     disjoint sum and leg B stays armed. Without this, the commonest real
+        //     assembly defect (a hair of interference between two mating solids)
+        //     would silently switch leg B off, and the switch would be invisible.
+        //
+        //     NOTE WHERE THE BOUNDARY IS, because it is the point: the verdict
+        //     changes between interference 0.01 and 0.06 at opt.tol = 0.05 — AT the
+        //     tolerance, which is where a modelling tolerance is entitled to decide
+        //     things. It does not change on a 0.001 difference 250x below it. That
+        //     is the distinction between a tolerance and the defect this round fixed.
+        int armedDisjoint = 0, refusedBelow = 0, stoodDown = 0;
+        for (double ov : {0.0, 1e-3, 1e-2, 0.06, 0.2}) {
+            TopologyBuilder tb;
+            std::vector<Face*> f = triBox(tb, 1.0, 1.0, 1.0);
+            std::vector<Face*> w = triBoxAt(tb, 1.0 - ov, 0.0, 0.0, 1000.0, 0.06, 0.06);
+            f.insert(f.end(), w.begin(), w.end());
+            HealOptions opt; opt.tol = 0.05;
+            const HealReport r = healBRep(tb, f, opt);
+            std::printf("    cube + whisker, interference %-6.4g at tol=0.05: components=%zu "
+                        "disjointB=%d disjointR=%d ok=%d refused=%d  V %.6g -> %.6g\n",
+                        ov, r.inputComponents, r.boundedVolumeIsDisjointSum ? 1 : 0,
+                        r.resolvedVolumeIsDisjointSum ? 1 : 0, r.ok ? 1 : 0,
+                        r.destructionRefused ? 1 : 0, r.volumeBefore, r.volumeAfter);
+            if (ov <= 0.05) {
+                if (r.boundedVolumeIsDisjointSum && r.resolvedVolumeIsDisjointSum) ++armedDisjoint;
+                if (!r.ok && r.destructionRefused &&
+                    std::string(r.reason).find("consumed the body") != std::string::npos)
+                    ++refusedBelow;
+            } else {
+                if (!r.boundedVolumeIsDisjointSum && !r.resolvedVolumeIsDisjointSum &&
+                    r.ok && !r.destructionRefused) ++stoodDown;
+            }
+        }
+        check(armedDisjoint == 3,
+              "slack: an interference AT OR BELOW opt.tol still reads as a disjoint sum "
+              "(0, 0.001 and 0.01 against tol 0.05) — the over-count is a sliver the heal "
+              "cannot represent");
+        check(refusedBelow == 3,
+              "slack: so leg B stays armed there and still refuses the destroyed whisker — "
+              "a hair of interference does not silently switch the material leg off");
+        check(stoodDown == 2,
+              "slack: while an interference ABOVE opt.tol (0.06 and 0.2) does stand leg B "
+              "down — the boundary sits AT the tolerance, not 250x below it");
+    }
+}
+
+int main() {
+    std::printf("=== heal destruction-refusal gate (T-137) ===\n");
+    std::printf("A repair that empties the user's part must REFUSE, not report success.\n\n");
+    runPositiveArm();
+    std::printf("\n");
+    runNegativeArm();
+    std::printf("\n");
+    runArmingArm();
+    std::printf("\n");
+    runToleranceConsistencyArm();
+    std::printf("\n");
+    runUnionSumArm();
+    std::printf("\n");
+    runReasonLiteralArm();
+    std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
+    return (g_pass == g_total) ? 0 : 1;
+}
