@@ -17,7 +17,23 @@ gate that cannot fail is not a gate.
 import argparse, fnmatch, json, os, subprocess, sys
 
 MANIFEST_NAME = ".forge-manifest.json"
-REQUIRED = ("task_id", "write_set", "acceptance")
+REQUIRED = ("task_id", "write_set", "acceptance", "resource")
+
+# ── doc 07's stop_conditions, VERBATIM. ───────────────────────────────────────
+# T-134 measured the gap: across four workflows of 5-8 agents, EVERY brief carried
+# house rules (own TMPDIR, confirm the mutated build compiled, never read status
+# from a pipeline) and NOT ONE carried these. An agent that does not know when to
+# stop will keep going, and the expensive cases are exactly the ones below --
+# a box already under pressure, an edit reaching outside its declared write set,
+# a tree that was dirty before it started, and a repair loop that is not
+# converging. Supplied by DEFAULT so a brief cannot omit them by silence; a
+# manifest may ADD conditions but the four are always present.
+DEFAULT_STOP_CONDITIONS = (
+    "Guardian reports ORANGE or RED memory pressure",
+    "a required edit falls outside write_set",
+    "the repository is unexpectedly dirty before the change",
+    "three materially identical repair attempts have failed",
+)
 
 
 def _die(msg, code=2):
@@ -75,7 +91,68 @@ def _validate(m):
     both = sorted(set(m.get("write_set", [])) & set(m.get("forbidden_write_set", [])))
     if both:
         _die("these paths are in BOTH write_set and forbidden_write_set: " + ", ".join(both))
+
+    # ── the four stop rules are ADDED, never replaced. A manifest may declare
+    #    extra ones; it may not drop these by omitting the key.
+    declared = list(m.get("stop_conditions", []))
+    for cond in DEFAULT_STOP_CONDITIONS:
+        if cond not in declared:
+            declared.append(cond)
+    m["stop_conditions"] = declared
+
+    # ── the resource estimate, doc 07 step (6). Prose cannot be reserved against;
+    #    a number can. peak_ram_gb_estimate is what forge-job --peak-gb takes, so
+    #    an estimate written here is the same figure Guardian admits on.
+    res = m.get("resource")
+    if isinstance(res, list):
+        res = {kv.split("=", 1)[0].strip(): kv.split("=", 1)[1].strip()
+               for kv in res if "=" in kv}
+    elif isinstance(res, str):
+        res = {kv.split("=", 1)[0].strip(): kv.split("=", 1)[1].strip()
+               for kv in res.split(",") if "=" in kv}
+    if not isinstance(res, dict) or "peak_ram_gb_estimate" not in res:
+        _die("resource must carry peak_ram_gb_estimate (doc 07 step 6). "
+             "Write it as:  resource: peak_ram_gb_estimate=4, build_class=incremental, max_threads=4")
+    try:
+        gb = float(res["peak_ram_gb_estimate"])
+    except ValueError:
+        _die("peak_ram_gb_estimate is not a number: " + repr(res["peak_ram_gb_estimate"]))
+    if gb <= 0:
+        _die("peak_ram_gb_estimate must be positive; an estimate of 0 reserves nothing")
+    res.setdefault("build_class", "incremental")
+    res.setdefault("max_threads", _forge_nproc())
+    m["resource"] = res
     return m
+
+
+def _forge_nproc():
+    """The ONLY sanctioned source of build parallelism (CLAUDE.md). Never a literal."""
+    try:
+        out = subprocess.run(["forge-nproc"], capture_output=True, text=True, timeout=10)
+        n = out.stdout.strip()
+        if n.isdigit() and int(n) > 0:
+            return int(n)
+    except Exception:
+        pass
+    return 2   # the floor this box has measured; deliberately NOT os.cpu_count()
+
+
+def _guardian_state():
+    """Guardian's current colour, or None when the gate is not reachable.
+
+    Returns the STATE, not a verdict: the caller decides. An absent Guardian is
+    reported as unknown rather than silently treated as green -- an absent
+    instrument is not evidence.
+    """
+    for need in ("green", "orange"):
+        try:
+            r = subprocess.run(["forge-gate", "--need", need],
+                               capture_output=True, text=True, timeout=20)
+        except Exception:
+            return None
+        if r.returncode == 0:
+            return need.upper()
+    return "RED_OR_WORSE"
 
 
 def _matches(path, patterns):
@@ -165,6 +242,28 @@ def cmd_write(a):
     print("wrote " + dest + " (task " + str(m["task_id"]) + ", base " + m["_base"][:8] + ")")
     print("  write_set: " + str(len(m.get("write_set", []))) + " patterns"
           + "  forbidden: " + str(len(m.get("forbidden_write_set", []))) + " patterns")
+
+    # ── doc 07 step (7): ASK GUARDIAN BEFORE THE AGENT EXISTS, not after it is
+    #    already competing for the box. This REPORTS rather than blocks, because
+    #    the orchestrator may legitimately spawn a read-only agent under ORANGE --
+    #    but it can no longer do so without being told.
+    res = m["resource"]
+    state = _guardian_state()
+    if state is None:
+        print("  ★ Guardian: UNREACHABLE — forge-gate did not answer. That is a fact "
+              "about the instrument, not a green light; spawn read-only or fix the gate.")
+    elif state == "GREEN":
+        print("  Guardian: GREEN — a " + str(res["peak_ram_gb_estimate"])
+              + "GB " + str(res["build_class"]) + " agent is admissible.")
+    else:
+        print("  ★ Guardian: " + state + " — a " + str(res["peak_ram_gb_estimate"])
+              + "GB build agent should NOT be spawned now. Spawn read-only work, or wait.")
+    print("  reserve with:  forge-job --name " + str(m["task_id"])
+          + " --peak-gb " + str(res["peak_ram_gb_estimate"])
+          + " --restartable -- <command>        # -j from forge-nproc ("
+          + str(res["max_threads"]) + ")")
+    print("  stop_conditions carried: " + str(len(m["stop_conditions"]))
+          + " (the four doc-07 rules are always among them)")
 
 
 def cmd_check(a):
