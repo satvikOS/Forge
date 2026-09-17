@@ -581,6 +581,14 @@ jobs:
       - name: A cooperative shed must not kill the job (forge-job SIGUSR1)
         run: zsh tools/guardian/test/forge_job_usr1_gate.sh
 
+      # forge-job's argument loop ended in `*) break`, so an unrecognised flag became
+      # the COMMAND: `forge-job --help` reached `forge-gate --wait 900` and blocked for
+      # up to fifteen minutes. Measured 2026-09-16: six such processes alive at once,
+      # oldest 13m21s, each holding a gate slot while an agent waited on a usage
+      # string, with two real builds queued behind them.
+      - name: Asking forge-job what it does must not cost fifteen minutes
+        run: zsh tools/guardian/test/forge_job_usage_gate.sh
+
   release_visibility:
     name: could an installed Forge actually SEE the latest release?
     # SEPARATE from desktop_update on purpose. That job documents itself as
