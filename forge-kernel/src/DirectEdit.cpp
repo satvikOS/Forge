@@ -6,6 +6,13 @@
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <Geom2d_Curve.hxx>
+#include <gp_Pnt2d.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Elips.hxx>
+#include <TopAbs_Orientation.hxx>
+#include <TopoDS_Edge.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -510,6 +517,310 @@ ShapeHandle resizeBore(ShapeHandle body, int faceIndex, double newRadius) {
         result = op.Shape();
     }
     return ShapeRegistry::instance().add(heal(result));
+}
+
+
+// ───────────────────────── EDGE IDENTITY ─────────────────────────────────────
+// The mirror of faceInventory above. See DirectEdit.hpp for the id convention
+// (measured: a box's 12 edges occupy 24 TopExp_Explorer ids) and for the
+// dihedral construction and its sources.
+
+const char* edgeConvexityName(EdgeConvexity c) {
+    switch (c) {
+        case EdgeConvexity::Convex:  return "convex";
+        case EdgeConvexity::Concave: return "concave";
+        case EdgeConvexity::Tangent: return "tangent";
+        default:                     return "unknown";
+    }
+}
+
+namespace {
+
+constexpr double kEdgePi = 3.14159265358979323846;
+
+// Outward unit normal of `f` at the parametric point (u,v). OCCT's convention:
+// the natural normal dU x dV of a FORWARD face points OUT of the material, and
+// a REVERSED face carries the opposite sense — the same rule faceInventory uses
+// for FaceInfo::direction, kept here so the two cannot drift apart.
+bool outwardNormalAt(const TopoDS_Face& f, double u, double v, gp_Dir& out) {
+    BRepAdaptor_Surface ad(f);
+    gp_Pnt p;
+    gp_Vec du, dv;
+    ad.D1(u, v, p, du, dv);
+    const gp_Vec n = du.Crossed(dv);
+    if (n.Magnitude() < 1e-12) return false;   // a pole / degenerate parameter
+    gp_Dir d(n);
+    if (f.Orientation() == TopAbs_REVERSED) d.Reverse();
+    out = d;
+    return true;
+}
+
+const char* curveKindName(GeomAbs_CurveType t) {
+    switch (t) {
+        case GeomAbs_Line:         return "line";
+        case GeomAbs_Circle:       return "circle";
+        case GeomAbs_Ellipse:      return "ellipse";
+        case GeomAbs_Hyperbola:    return "hyperbola";
+        case GeomAbs_Parabola:     return "parabola";
+        case GeomAbs_BezierCurve:  return "bezier";
+        case GeomAbs_BSplineCurve: return "bspline";
+        default:                   return "other";
+    }
+}
+
+// One visit of one edge inside one face, in TopExp_Explorer order.
+struct EdgeVisit {
+    int explorerId = 0;                                  // == forge::part::edgeById's id
+    int faceIndex = 0;                                   // 1-based, MapShapes(FACE)
+    TopoDS_Face face;
+    TopAbs_Orientation edgeOrientationInFace = TopAbs_FORWARD;
+};
+
+// theta = atan2( (m1 x m2).t1 , m1.m2 ); interior dihedral = pi + theta.
+// theta < 0 convex, theta > 0 concave, |theta| ~ 0 tangent. Derivation, worked
+// examples and sources are in DirectEdit.hpp.
+EdgeConvexity classifyDihedral(const TopoDS_Edge& e,
+                               const EdgeVisit& a, const EdgeVisit& b,
+                               double& dihedralDegOut) {
+    dihedralDegOut = 0.0;
+
+    BRepAdaptor_Curve curve(e);
+    const double t0 = curve.FirstParameter();
+    const double t1 = curve.LastParameter();
+    if (!(t1 > t0)) return EdgeConvexity::Unknown;
+    const double tm = 0.5 * (t0 + t1);
+
+    gp_Pnt pm;
+    gp_Vec d1;
+    curve.D1(tm, pm, d1);
+    if (d1.Magnitude() < 1e-12) return EdgeConvexity::Unknown;
+    gp_Dir tanDir(d1);
+
+    // The tangent in the direction face A's boundary is TRAVERSED.
+    if (a.edgeOrientationInFace == TopAbs_REVERSED) tanDir.Reverse();
+
+    // The (u,v) of the edge midpoint on each face comes from the edge's own
+    // pcurve, so there is no projection and no search. An edge carrying no
+    // pcurve on one of its faces is left Unknown rather than guessed.
+    auto normalOnFace = [&](const EdgeVisit& vis, gp_Dir& n) -> bool {
+        if (vis.face.IsNull()) return false;
+        Standard_Real f2 = 0.0, l2 = 0.0;
+        Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, vis.face, f2, l2);
+        if (pc.IsNull() || !(l2 > f2)) return false;
+        // Use the FRACTION along the range, not the raw parameter, so a
+        // reparameterised pcurve still lands on the 3D midpoint.
+        const double frac = (tm - t0) / (t1 - t0);
+        const gp_Pnt2d uv = pc->Value(f2 + frac * (l2 - f2));
+        return outwardNormalAt(vis.face, uv.X(), uv.Y(), n);
+    };
+
+    gp_Dir n1, n2;
+    if (!normalOnFace(a, n1) || !normalOnFace(b, n2)) return EdgeConvexity::Unknown;
+
+    // Co-normals: the in-plane direction pointing from the edge INTO each face.
+    // t2 = -t1, because a manifold edge is traversed in opposite senses by its
+    // two faces, so m2 = n2 x t2 = -(n2 x t1).
+    const gp_Vec vt(tanDir);
+    const gp_Vec m1 = gp_Vec(n1).Crossed(vt);
+    const gp_Vec m2 = gp_Vec(n2).Crossed(vt).Multiplied(-1.0);
+    if (m1.Magnitude() < 1e-9 || m2.Magnitude() < 1e-9) return EdgeConvexity::Unknown;
+
+    const gp_Vec m1n = m1.Normalized();
+    const gp_Vec m2n = m2.Normalized();
+    const double sinT = m1n.Crossed(m2n).Dot(vt);
+    const double cosT = m1n.Dot(m2n);
+    // THE INTERIOR ANGLE IS SWEPT ABOUT -t1, NOT +t1, AND IT IS TAKEN IN
+    // [0, 2pi) — the two together are what make a reflex edge a reflex angle
+    // instead of a negative one.
+    //
+    // Worked on the three cases that pin it down (t1 is face A's traversal
+    // direction, m1/m2 the co-normals into each face):
+    //
+    //   box top-front edge  m1=(0,1,0)  m2=(0,0,-1)  t1=(1,0,0)
+    //       sweeping m1 -> m2 through the material passes (0,1,-1): that is a
+    //       +90 degree rotation about -t1.                      alpha =  90  CONVEX
+    //   L-bracket rib root  m1=(0,1,0)  m2=(0,0,1)   t1=(1,0,0)
+    //       (0,1,1) is OUTSIDE the material, so the sweep goes the long way
+    //       round, still about -t1.                             alpha = 270  CONCAVE
+    //   a flat face split by a triangulation diagonal
+    //       m2 = -m1, the faces continue smoothly.              alpha = 180  TANGENT
+    //
+    // A first version of this measured the angle about +t1 and reported
+    // pi + theta. It agreed on the first two cases and broke on the third:
+    // atan2 returns +/-pi for antiparallel co-normals, so a perfectly flat
+    // continuation came out as 360 degrees (or 0) and was classified CONCAVE
+    // (or CONVEX). MEASURED on a triangulated fuse: 16 of 21 edges, every one
+    // of them a coplanar diagonal, reported dih=360.000 concave. Filleting
+    // those is filleting nothing, at a cost of the whole face. The gate now
+    // asserts 180/tangent on exactly that shape.
+    double alpha = std::atan2(-sinT, cosT);
+    if (alpha < 0.0) alpha += 2.0 * kEdgePi;
+    dihedralDegOut = alpha * 180.0 / kEdgePi;
+
+    // 0.5 degree: below this the two faces meet smoothly and there is no edge to
+    // break. A fillet already blended into the wall it rounds sits here, and so
+    // does a tessellation diagonal, which is why "tangent" is a class a user
+    // needs and not a rounding artefact.
+    const double tol = 0.5 * kEdgePi / 180.0;
+    if (std::fabs(alpha - kEdgePi) < tol) return EdgeConvexity::Tangent;
+    return (alpha < kEdgePi) ? EdgeConvexity::Convex : EdgeConvexity::Concave;
+}
+
+}  // namespace
+
+std::vector<EdgeInfo> edgeInventory(ShapeHandle body) {
+    TopoDS_Shape shape;
+    try {
+        shape = ShapeRegistry::instance().get(body);
+    } catch (const std::exception& e) {
+        throw std::runtime_error(
+            std::string("edgeInventory: this body has no OCCT representation to walk (") +
+            e.what() + "). A native solid addresses its edges through a different, "
+            "geometric enumeration (enumerateSharpConvexEdges); the two id spaces are "
+            "not interchangeable, and mixing them selects the wrong edge silently.");
+    }
+    if (shape.IsNull()) throw std::runtime_error("edgeInventory: null shape");
+
+    TopTools_IndexedMapOfShape fmap;
+    TopExp::MapShapes(shape, TopAbs_FACE, fmap);
+    TopTools_IndexedMapOfShape emap;
+    TopExp::MapShapes(shape, TopAbs_EDGE, emap);
+
+    // Walk faces, then the edges of each face — EXACTLY the traversal
+    // TopExp_Explorer(shape, TopAbs_EDGE) performs — so the running counter IS
+    // forge::part::edgeById's id, and the parent face of each visit is known
+    // without a second ancestors map.
+    //
+    // The face index comes from FindIndex on the map, never from the traversal
+    // counter: MapShapes deduplicates and the explorer does not, so the two
+    // orders agree on every ordinary solid but are not the same statement. The
+    // gate asserts the agreement; this code does not depend on it.
+    std::vector<EdgeVisit> visits;
+    std::vector<TopoDS_Edge> uniqueEdges;
+    std::vector<std::vector<std::size_t>> groups;        // -> indices into `visits`
+    std::vector<int> slotOfEdge(static_cast<std::size_t>(emap.Extent()) + 1, -1);
+
+    auto note = [&](const TopoDS_Shape& es, const TopoDS_Face& parent, int faceIndex) {
+        EdgeVisit v;
+        v.explorerId = static_cast<int>(visits.size());
+        v.faceIndex = faceIndex;
+        v.face = parent;
+        v.edgeOrientationInFace = es.Orientation();
+        const std::size_t vi = visits.size();
+        visits.push_back(v);
+
+        const int key = emap.FindIndex(es);
+        if (key <= 0) {                                  // not in the map: stands alone
+            uniqueEdges.push_back(TopoDS::Edge(es));
+            groups.push_back({vi});
+            return;
+        }
+        int& slot = slotOfEdge[static_cast<std::size_t>(key)];
+        if (slot < 0) {
+            slot = static_cast<int>(uniqueEdges.size());
+            uniqueEdges.push_back(TopoDS::Edge(es));
+            groups.emplace_back();
+        }
+        groups[static_cast<std::size_t>(slot)].push_back(vi);
+    };
+
+    bool anyFace = false;
+    for (TopExp_Explorer fx(shape, TopAbs_FACE); fx.More(); fx.Next()) {
+        anyFace = true;
+        const TopoDS_Face f = TopoDS::Face(fx.Current());
+        const int fi = fmap.FindIndex(fx.Current());
+        for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next())
+            note(ex.Current(), f, fi);
+    }
+    // An edge belonging to no face (a free wire handed in as a "body") is still
+    // addressable by edgeById, so it must still be enumerated.
+    if (!anyFace)
+        for (TopExp_Explorer ex(shape, TopAbs_EDGE); ex.More(); ex.Next())
+            note(ex.Current(), TopoDS_Face(), 0);
+
+    // Face kinds, so a selector can say "the edge between the bore and the top".
+    // Read from faceInventory rather than recomputed, so one definition of
+    // "cylinder" serves both halves of the language.
+    std::vector<std::string> faceKind(static_cast<std::size_t>(fmap.Extent()) + 1, "");
+    try {
+        for (const FaceInfo& fi : faceInventory(body))
+            if (fi.index >= 1 && fi.index <= fmap.Extent())
+                faceKind[static_cast<std::size_t>(fi.index)] = fi.kind;
+    } catch (...) { /* additive: an unnameable face kind is no reason to refuse */ }
+
+    auto kindOf = [&](int idx) -> std::string {
+        if (idx >= 1 && idx < static_cast<int>(faceKind.size()))
+            return faceKind[static_cast<std::size_t>(idx)];
+        return std::string();
+    };
+
+    std::vector<EdgeInfo> out;
+    out.reserve(uniqueEdges.size());
+
+    for (std::size_t g = 0; g < uniqueEdges.size(); ++g) {
+        const TopoDS_Edge& e = uniqueEdges[g];
+        const std::vector<std::size_t>& vs = groups[g];
+        if (vs.empty()) continue;
+
+        EdgeInfo ei;
+        ei.ordinal = static_cast<int>(out.size()) + 1;
+        ei.filletId = visits[vs.front()].explorerId;
+        for (std::size_t k = 1; k < vs.size(); ++k)
+            ei.aliasIds.push_back(visits[vs[k]].explorerId);
+
+        ei.faceA = visits[vs.front()].faceIndex;
+        if (vs.size() > 1) ei.faceB = visits[vs[1]].faceIndex;
+        ei.seam = (vs.size() > 1 && ei.faceA == ei.faceB && ei.faceA != 0);
+        ei.faceAKind = kindOf(ei.faceA);
+        ei.faceBKind = kindOf(ei.faceB);
+
+        ei.degenerate = (BRep_Tool::Degenerated(e) == Standard_True);
+
+        try {
+            BRepAdaptor_Curve curve(e);
+            ei.kind = curveKindName(curve.GetType());
+            if (curve.GetType() == GeomAbs_Circle)       ei.radius = curve.Circle().Radius();
+            else if (curve.GetType() == GeomAbs_Ellipse) ei.radius = curve.Ellipse().MajorRadius();
+
+            const double t0 = curve.FirstParameter();
+            const double t1 = curve.LastParameter();
+            if (t1 > t0) {
+                GProp_GProps lp;
+                BRepGProp::LinearProperties(e, lp);
+                ei.length = lp.Mass();
+
+                const double tm = 0.5 * (t0 + t1);
+                gp_Pnt pm;
+                gp_Vec d1;
+                curve.D1(tm, pm, d1);
+                ei.midpoint = {{pm.X(), pm.Y(), pm.Z()}};
+                if (d1.Magnitude() > 1e-12) {
+                    const gp_Dir td(d1);
+                    ei.tangent = {{td.X(), td.Y(), td.Z()}};
+                }
+                // A full circle (a bore rim, a boss rim) is closed when its two
+                // ends coincide. BRep_Tool::IsClosed only answers that for a
+                // seam, so the geometry is checked directly.
+                if (curve.Value(t0).Distance(curve.Value(t1)) < Precision::Confusion())
+                    ei.closed = true;
+            }
+        } catch (...) {
+            if (ei.kind.empty()) ei.kind = "other";
+        }
+
+        if (vs.size() >= 2 && !ei.degenerate && !ei.seam) {
+            try {
+                ei.convexity = classifyDihedral(e, visits[vs[0]], visits[vs[1]],
+                                                ei.dihedralDeg);
+            } catch (...) {
+                ei.convexity = EdgeConvexity::Unknown;
+                ei.dihedralDeg = 0.0;
+            }
+        }
+
+        out.push_back(std::move(ei));
+    }
+    return out;
 }
 
 } // namespace forge

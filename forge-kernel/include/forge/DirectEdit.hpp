@@ -89,4 +89,144 @@ ShapeHandle pushPullFace(ShapeHandle body, int faceIndex,
 // not cylindrical, or if newRadius <= 0.
 ShapeHandle resizeBore(ShapeHandle body, int faceIndex, double newRadius);
 
+
+// ───────────────────────── EDGE IDENTITY ─────────────────────────────────────
+//
+// The face side of this header has had a rich language since the CADGenBench
+// editing family landed: kind, area, centroid, normal, radius, concavity, and a
+// selector grammar on top of it (@name, face:N, +Z, plane:largest, bore/boss,
+// radial:k). The EDGE side had four keywords classified off a TESSELLATED CHORD
+// — ALL | VERTICAL | RIM | HORIZONTAL — of which RIM was a byte-identical alias
+// of HORIZONTAL, and the CONVEX the app offers in its own fillet command was
+// refused by name. MEASURED on a 60x40x20 box, HEAD build, one process per row:
+//
+//   FILLET(%1,3,RIM)        -> 47248.141380  14f/28e
+//   FILLET(%1,3,HORIZONTAL) -> 47248.141380  14f/28e     identical to the digit
+//   FILLET(%1,3,CONVEX)     -> refused: "the keyword has no resolver"
+//
+// So nobody could fillet a rib root and nothing else: the choices were ALL
+// (every edge of the part), VERTICAL, or HORIZONTAL — and at a rib root
+// HORIZONTAL takes volume OFF, because it is dominated by the convex outer
+// edges of the plate. Edge identity is what closes that gap, and it is the
+// mirror of faceInventory, not a new subsystem.
+//
+// ─── THE ID CONVENTION, WHICH IS THE WHOLE TRAP ───
+//
+// Faces are 1-based into TopExp::MapShapes(FACE), which DEDUPLICATES.
+// Edges are addressed by forge::part::filletEdges / chamferEdges / varfillet
+// through forge::part::edgeById, which is a RAW TopExp_Explorer walk with a
+// 0-based counter and NO map. TopExp_Explorer has no dedup member (see
+// TopExp_Explorer.hxx: a stack, a shape, a top, a size, two enums, a flag), so
+// it visits an edge ONCE PER PARENT FACE. MEASURED with OCCT 7.9 directly:
+//
+//   box       EDGE explorer-walk=24  unique=12  MapShapes=12
+//   cylinder  EDGE explorer-walk=6   unique=3   MapShapes=3
+//   box+bore  EDGE explorer-walk=30  unique=15  MapShapes=15
+//
+// A box's twelve edges occupy TWENTY-FOUR ids. That is the id space the fillet
+// ops consume, so an inventory that enumerated unique edges would hand out ids
+// that name a DIFFERENT edge — silently, with ok=true. EdgeInfo::filletId is
+// therefore the explorer id (the FIRST visit of that edge), never a unique-edge
+// ordinal, and `aliasIds` records the other positions the same edge occupies so
+// a caller that needs to reason about the id space can see it rather than
+// rediscover it.
+//
+// Face ids in faceA/faceB are 1-based into TopExp::MapShapes(FACE) — the SAME
+// convention faceInventory publishes — so `edge:3_5` and `face:3` speak one
+// language. The two orders are checked, not assumed: the face index is looked
+// up with FindIndex on the map, not inferred from the traversal counter.
+//
+// ─── CONVEXITY ───
+//
+// The dihedral classification is the point of the whole structure: a rib root
+// is a CONCAVE edge and a plate corner is a CONVEX one, and no amount of
+// VERTICAL/HORIZONTAL can separate them.
+//
+// It cannot be decided from the two outward normals alone. Two planes through
+// an edge always bound two opposite wedges; WHICH wedge holds the material is a
+// topological fact, not a metric one, so the face orientations have to enter.
+// The construction used here is the standard one (Mantyla, "An Introduction to
+// Solid Modeling", 1988, ch. 4 — edge convexity and the dihedral angle; and
+// Hoffmann, "Geometric and Solid Modeling", 1989, ch. 3 — face/edge orientation
+// conventions in a boundary representation):
+//
+//   n1, n2  outward unit normals of the two adjacent faces at the edge
+//           midpoint, each flipped when its face is REVERSED (OCCT's
+//           convention: a FORWARD face's dU x dV points out of the material)
+//   t1      the edge tangent in the direction face 1's boundary is TRAVERSED,
+//           i.e. the curve tangent negated when the edge is REVERSED in face 1
+//   m1 = n1 x t1     the co-normal: the in-plane direction pointing from the
+//   m2 = n2 x t2     edge INTO each face, with t2 = -t1 because a manifold
+//                    edge is traversed in opposite senses by its two faces
+//
+//   theta = atan2( (m1 x m2) . t1 , m1 . m2 )
+//
+// and the interior dihedral angle is pi + theta. theta < 0 is CONVEX, theta > 0
+// is CONCAVE, |theta| ~ 0 is TANGENT (a smooth joint, e.g. a fillet meeting the
+// wall it blends into). Worked on a box's top-front edge this gives theta =
+// -pi/2, interior pi/2 — convex; worked on an L-bracket's rib root it gives
+// theta = +pi/2, interior 3pi/2 — concave. Both are asserted by the gate.
+//
+// The evaluation point on each face comes from the edge's own pcurve
+// (BRep_Tool::CurveOnSurface), so no projection or search is involved. An edge
+// with no pcurve on one of its faces, a non-manifold edge, or a seam is left
+// convexity = Unknown rather than guessed — see EdgeConvexity.
+enum class EdgeConvexity {
+    Unknown = 0,   // undecidable: no pcurve, non-manifold, seam, or degenerate
+    Convex  = 1,   // interior dihedral < pi   — a plate corner, a boss rim
+    Concave = 2,   // interior dihedral > pi   — a rib root, a pocket floor
+    Tangent = 3,   // interior dihedral ~ pi   — a smooth joint, nothing to break
+};
+
+const char* edgeConvexityName(EdgeConvexity c);
+
+struct EdgeInfo {
+    // THE id forge::part::filletEdges / chamferEdges / varfillet consume:
+    // 0-based, TopExp_Explorer(EDGE) order, first visit of this edge.
+    int filletId = 0;
+    // 1-based position of this edge among the UNIQUE edges, in first-visit
+    // order. User-facing (`edge:7` means the 7th edge), never passed to a
+    // kernel op. Deliberately a different name from filletId so the two can
+    // never be confused at a call site.
+    int ordinal = 0;
+    // The other explorer positions this same edge occupies (one per additional
+    // parent face). Empty only for a free edge; one entry for every manifold
+    // edge of a closed solid.
+    std::vector<int> aliasIds;
+
+    // 1-based face ids on faceInventory's convention (TopExp::MapShapes(FACE)).
+    // faceB is 0 for a free/boundary edge; faceA == faceB marks a seam.
+    int faceA = 0;
+    int faceB = 0;
+    std::string faceAKind;   // same vocabulary as FaceInfo::kind
+    std::string faceBKind;
+
+    // line|circle|ellipse|hyperbola|parabola|bspline|bezier|other
+    std::string kind;
+    double length = 0.0;
+    double radius = 0.0;                    // circle: radius. ellipse: major.
+    std::array<double, 3> midpoint{{0, 0, 0}};
+    std::array<double, 3> tangent{{0, 0, 0}};   // unit, at the mid parameter
+
+    EdgeConvexity convexity = EdgeConvexity::Unknown;
+    // Interior dihedral angle in DEGREES at the midpoint (pi + theta above).
+    // 0 when convexity is Unknown.
+    double dihedralDeg = 0.0;
+
+    bool closed = false;     // a full circle / closed spline — a bore or boss rim
+    bool seam = false;       // the same face on both sides (a cylinder's seam)
+    bool degenerate = false; // a pole edge (a sphere's apex), zero length
+};
+
+// Enumerate every edge of `body` with the geometry needed to select one.
+//
+// One entry per UNIQUE edge, ordered by first explorer visit, so
+// out[k].ordinal == k + 1 and out[k].filletId is the id the fillet ops take.
+//
+// Throws std::runtime_error when the body has no OCCT representation to walk
+// (a NativeSolid handle addresses its edges through a different, geometric
+// enumeration — enumerateSharpConvexEdges — and mixing the two id spaces is the
+// exact silent-wrong-edge failure this header exists to prevent).
+std::vector<EdgeInfo> edgeInventory(ShapeHandle body);
+
 } // namespace forge
