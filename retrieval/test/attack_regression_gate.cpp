@@ -30,6 +30,8 @@
 // NO NETWORK. Every transport is an in-process capture.
 // ─────────────────────────────────────────────────────────────────────────────
 #include <algorithm>
+#include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <iostream>
 #include <memory>
@@ -209,6 +211,33 @@ std::string describe(const Sent& s) {
          (s.leaked ? " LEAK: " + s.why : "");
 }
 
+// The oracle for a number written in WORDS: does any of the words that spelled
+// the secret appear, as a whole word, in what the transport received? Written
+// here from the case's own spelling, not from the redactor's numeral tables,
+// so the oracle cannot share the reader's blind spots.
+bool wireHasAnyWord(const Sent& s, const std::vector<std::string>& words, std::string& which) {
+  std::vector<std::string> seen;
+  std::string cur;
+  for (const unsigned char c : s.wire + " ") {
+    if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+      cur.push_back(static_cast<char>(c));
+    } else if (c >= 'A' && c <= 'Z') {
+      cur.push_back(static_cast<char>(c - 'A' + 'a'));
+    } else if (!cur.empty()) {
+      seen.push_back(cur);
+      cur.clear();
+    }
+  }
+  for (const std::string& w : words) {
+    if (std::find(seen.begin(), seen.end(), w) != seen.end()) {
+      which = w;
+      return true;
+    }
+  }
+  which.clear();
+  return false;
+}
+
 bool refusedNothingSent(const Sent& s) {
   return (s.status == RetrievalStatus::REDACTION_REFUSED ||
           s.status == RetrievalStatus::REQUEST_REJECTED) &&
@@ -379,6 +408,111 @@ int main() {
     const Sent r19 = drive(request("M8\xc3\x97" "1.25 bolt preload \xe2\x80\x93 A2-70 stainless"));
     check(r19.sends == 1 && !r19.leaked && r19.wire.find("M8x1.25") != std::string::npos, "R19",
           "a multiplication sign and an en dash are folded (M8x1.25 is sent), not refused (" + describe(r19) + ")");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  section("N. redaction: a registered secret dimension written as WORDS");
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Round 2 of the adversarial review, against b1a5f44f: every Unicode spelling
+  // of 47.625 was folded or refused, but "thickness forty seven point six two
+  // five mm" was transmitted with status=Ok — the default-deny rule was on
+  // DIGITS, and a number in words carries none.
+  {
+    struct WordCase {
+      const char* id;
+      const char* question;
+      std::vector<std::string> spelled;  // the words that spell the secret
+      const char* context;               // a benign word that must still be sent
+      const char* what;
+    };
+    const WordCase cases[] = {
+        {"N01", "thickness forty seven point six two five mm", {"forty", "seven", "point", "six", "two", "five"},
+         "thickness", "PROVED: 'forty seven point six two five' does not reach the transport"},
+        {"N03", "thickness forty-seven point six two five", {"forty", "seven", "point", "six", "two", "five"},
+         "thickness", "PROVED: the hyphenated spelling does not reach the transport"},
+        {"N04", "gap forty seven point six two five", {"forty", "seven", "point", "six", "two", "five"}, "gap",
+         "PROVED: the third phrasing does not reach the transport"},
+        {"N05", "epaisseur quarante-sept virgule six deux cinq mm",
+         {"quarante", "sept", "virgule", "six", "deux", "cinq"}, "epaisseur", "French words do not reach the transport"},
+        {"N06", "wall siebenundvierzig Komma sechs zwei f\xc3\xbcnf mm",
+         {"siebenundvierzig", "komma", "sechs", "zwei", "funf"}, "wall",
+         "German words (one compound, one u-umlaut) do not reach the transport"},
+        {"N07", "espesor cuarenta y siete coma seis dos cinco mm",
+         {"cuarenta", "siete", "coma", "seis", "dos", "cinco"}, "espesor", "Spanish words do not reach the transport"},
+        {"N08", "thickness forty seven and five eighths inch", {"forty", "seven", "five", "eighths"}, "thickness",
+         "a mixed fraction in words does not reach the transport"},
+        {"N09", "thickness xlvii point dcxxv", {"xlvii", "point", "dcxxv"}, "thickness",
+         "Roman numerals do not reach the transport"},
+        {"N10", "thickness four seven six two five", {"four", "seven", "six", "two", "five"}, "thickness",
+         "digit names side by side do not reach the transport"},
+        {"N11", "thickness 47 point six two five mm", {"point", "six", "two", "five"}, "thickness",
+         "digits mixed with words do not reach the transport"},
+        {"N12", "thickness forty-seven.625 mm", {"forty", "seven"}, "thickness",
+         "words glued to digits by a decimal point do not reach the transport"},
+        {"N13", "spessore quarantasette virgola sei due cinque", {"quarantasette", "virgola", "sei", "due", "cinque"},
+         "spessore", "Italian words, two of them also English words, do not reach the transport"},
+    };
+    for (const WordCase& c : cases) {
+      const Sent s = drive(request(c.question));
+      std::string which;
+      const bool spelled_leak = wireHasAnyWord(s, c.spelled, which);
+      check(!s.leaked && !spelled_leak, c.id,
+            std::string(c.what) + " (" + describe(s) + (spelled_leak ? " LEAK: '" + which + "' on the wire" : "") + ")");
+      if (std::string(c.id) == "N01") {
+        // Stripped, not refused: a normaliser that refused every number word
+        // would also keep it off the wire, and would be useless.
+        std::string ctx;
+        check(s.sends == 1 && s.status == RetrievalStatus::Ok && wireHasAnyWord(s, {c.context}, ctx), "N02",
+              "and the number words are STRIPPED like digits: the rest of the question is sent (" + describe(s) + ")");
+      } else {
+        std::string ctx;
+        check(s.sends == 1 && wireHasAnyWord(s, {c.context}, ctx), (std::string(c.id) + "b").c_str(),
+              std::string("and '") + c.context + "' is still sent (" + describe(s) + ")");
+      }
+    }
+
+    // The independent post-condition layer, called directly, reads number words
+    // by VALUE: a classifier bug cannot send them either.
+    const Redactor red(attackLexicon());
+    std::vector<std::string> residue;
+    check(!red.verifyNoResidue("q=thickness+forty+seven+point+six+two+five+mm", residue), "N14",
+          "verifyNoResidue reads 'forty seven point six two five' as the registered 47.625");
+    residue.clear();
+    check(!red.verifyNoResidue("q=gap+four+seven+point+six+two+five", residue), "N15",
+          "verifyNoResidue reads digit names side by side ('four seven point six two five') as 47.625");
+    residue.clear();
+    check(!red.verifyNoResidue("q=forty+seven+and+five+eighths", residue), "N16",
+          "verifyNoResidue reads the fraction 'forty seven and five eighths' as 47.625");
+    residue.clear();
+    const Redactor bare{};
+    check(!bare.verifyQueryFullyRedacted("thickness forty seven", {}, residue), "N17",
+          "the strict query scan refuses number words even when no secret is registered (default-deny)");
+
+    // PRECISION CONTROLS. Words that are numerals somewhere and English here.
+    auto sentIntact = [&](const char* id, const char* question, const char* must_contain, const char* what) {
+      const Sent s = drive(request(question));
+      check(s.sends == 1 && s.status == RetrievalStatus::Ok && s.wire.find(must_contain) != std::string::npos, id,
+            std::string(what) + " (" + describe(s) + ")");
+    };
+    sentIntact("N18", "failure due to fatigue in a pitot tube", "failure due to fatigue in a pitot tube",
+               "'due' (Italian 2), 'to' (Danish 2), 'pitot' are sent unchanged");
+    sentIntact("N19", "hardness conversion Rockwell C to Brinell", "Rockwell C to Brinell",
+               "'to' between two words is sent unchanged");
+    sentIntact("N20", "ISO 2768 to DIN 7168 conversion", "ISO 2768 to DIN 7168",
+               "a designation beside an ambiguous word keeps its number: '2768 to' is not a numeral phrase");
+    sentIntact("N21", "which one is stronger for a one-way clutch", "which one is stronger for a one-way clutch",
+               "'one' as a pronoun is sent unchanged");
+    sentIntact("N22", "second moment of area of a hollow shaft", "second moment of area",
+               "'second' is sent unchanged");
+
+    // Removing a word can JOIN two survivors into a numeral phrase: Boeing is
+    // stripped from "sei Boeing due", which would send "sei due" (Italian 62).
+    const Sent n23 = drive(request("bearing sei Boeing due preload"));
+    std::string which;
+    check(n23.sends == 1 && !n23.leaked && !wireHasAnyWord(n23, {"sei", "due"}, which) &&
+              n23.wire.find("preload") != std::string::npos,
+          "N23", "a numeral phrase formed by a removal is read again and stripped (" + describe(n23) +
+                     (which.empty() ? "" : " '" + which + "' on the wire") + ")");
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -785,6 +919,97 @@ int main() {
   section("M/F/P. mechanisms");
   check(false, "M00", "this tree has no request manifest, no SHA-256 request digest, no Unicode normaliser "
                       "and no corroborationPublisher — the mechanisms the fix consists of are absent");
+#endif
+
+#ifdef FORGE_RETRIEVAL_HAS_NUMERAL_READER
+  section("W. the numeral reader against CLDR");
+  {
+    // Every row: a CLDR spellout of a number, as ICU formatted it
+    // (retrieval/tools/gen_numeral_lexicon.py), soft hyphens removed.
+    const char* kFixture = "retrieval/test/fixtures/numerals/cldr-spellout-sample.tsv";
+    std::FILE* f = std::fopen(kFixture, "rb");
+    std::size_t rows = 0, whole = 0, valued_rows = 0, valued_ok = 0, multi = 0, multi_strip = 0;
+    std::vector<std::string> locales_seen;
+    std::string bad_whole, bad_value, bad_strip;
+    if (f != nullptr) {
+      char buf[4096];
+      while (std::fgets(buf, sizeof buf, f) != nullptr) {
+        std::string line(buf);
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
+        if (line.empty() || line[0] == '#') continue;
+        std::vector<std::string> col;
+        std::size_t at = 0;
+        for (std::size_t tab; (tab = line.find('\t', at)) != std::string::npos; at = tab + 1) col.push_back(line.substr(at, tab - at));
+        col.push_back(line.substr(at));
+        if (col.size() != 6) continue;
+        ++rows;
+        if (std::find(locales_seen.begin(), locales_seen.end(), col[0]) == locales_seen.end()) locales_seen.push_back(col[0]);
+        const double value = std::stod(col[3]);
+        const detail::Folded folded = detail::foldForMatch(col[5]);
+        const std::string label = col[1] + " " + col[2] + " " + col[3] + " '" + col[5] + "'";
+        const std::vector<detail::NumeralSpan> spans = folded.ok() ? detail::readNumerals(folded.text)
+                                                                   : std::vector<detail::NumeralSpan>{};
+        std::size_t first = 0, last = folded.text.size();
+        while (first < last && !std::isalnum(static_cast<unsigned char>(folded.text[first]))) ++first;
+        while (last > first && !std::isalnum(static_cast<unsigned char>(folded.text[last - 1]))) --last;
+        const bool one = spans.size() == 1 && spans[0].begin == first && spans[0].end == last;
+        if (one) ++whole;
+        else if (bad_whole.size() < 400) bad_whole += " " + label + ";";
+        if (col[4] == "1") {
+          ++valued_rows;
+          bool hit = false;
+          for (const auto& s : spans) {
+            for (const double v : s.values) hit = hit || std::fabs(v - value) <= 1e-9 * std::max(1.0, value);
+          }
+          if (hit) ++valued_ok;
+          else if (bad_value.size() < 400) bad_value += " " + label + ";";
+        }
+        std::size_t words = 0;
+        {
+          std::string cur;
+          for (const unsigned char c : folded.text + " ") {
+            if (std::isalpha(c)) { cur.push_back(static_cast<char>(c)); continue; }
+            if (!cur.empty() && detail::classifyNumeralWord(cur).numeral) ++words;
+            cur.clear();
+          }
+        }
+        if (words >= 2) {
+          ++multi;
+          if (one && spans[0].strip) ++multi_strip;
+          else if (bad_strip.size() < 400) bad_strip += " " + label + ";";
+        }
+      }
+      std::fclose(f);
+    }
+    std::cout << "  CLDR " << detail::numeralCldrVersion() << " fixture: " << rows << " rows, " << locales_seen.size()
+              << " table locales\n";
+    check(f != nullptr && rows >= 1500 && locales_seen.size() >= 40, "W00",
+          "the CLDR fixture is present and has not shrunk (" + std::to_string(rows) + " rows, " +
+              std::to_string(locales_seen.size()) + " locales)");
+    check(rows > 0 && whole == rows, "W01",
+          "every CLDR spellout is read as ONE numeral phrase spanning the whole text (" + std::to_string(whole) + "/" +
+              std::to_string(rows) + ")" + bad_whole);
+    check(valued_rows > 0 && valued_ok == valued_rows, "W02",
+          "every value the generator's grammar reproduced, the C++ reader reproduces (" + std::to_string(valued_ok) +
+              "/" + std::to_string(valued_rows) + ")" + bad_value);
+    check(multi > 0 && multi_strip == multi, "W03",
+          "every spellout of two numeral words or more is stripped on sight (" + std::to_string(multi_strip) + "/" +
+              std::to_string(multi) + ")" + bad_strip);
+
+    const auto info = detail::classifyNumeralWord;
+    check(info("to").numeral && info("to").ambiguous && info("seven").numeral && !info("seven").ambiguous &&
+              info("und").joiner && info("komma").decimal && info("eighths").numeral && !info("primes").numeral &&
+              !info("tenon").numeral && !info("onto").numeral && info("xlvii").numeral && !info("xlvii").ambiguous &&
+              !info("iiii").numeral,
+          "W04", "word classes: ambiguous 'to', strong 'seven', joiner 'und', decimal 'komma', English-only plural "
+                 "'eighths', no plural 'primes', no cross-language compound 'tenon'/'onto', canonical Roman only");
+    bool strip_2768 = false;
+    for (const auto& s : detail::readNumerals("ISO 2768 to DIN 7168")) strip_2768 = strip_2768 || s.strip;
+    check(!strip_2768, "W05", "a digit run beside an ambiguous word is not a numeral phrase ('2768 to')");
+  }
+#else
+  section("W. the numeral reader");
+  check(false, "W00", "this tree has no numeral reader: numbers written as words are invisible to every scan");
 #endif
 
   std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";

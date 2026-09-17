@@ -272,6 +272,7 @@ struct NumeralWordInfo {
   std::size_t locales = 0;  // how many locales read it as a numeral
 };
 NumeralWordInfo classifyNumeralWord(const std::string& word);
+const char* numeralCldrVersion();  // the CLDR release the tables were derived from
 #define FORGE_RETRIEVAL_HAS_NUMERAL_READER 1
 }  // namespace detail
 

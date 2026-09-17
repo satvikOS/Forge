@@ -564,6 +564,7 @@ def main():
     ap.add_argument("--corpus", nargs="*", default=[],
                     help="English text files: print words the reader would strip that are not listed as ambiguous")
     ap.add_argument("--no-write", action="store_true")
+    ap.add_argument("--verify-cxx", help="numeral_word_dump binary built against the CURRENT tables")
     args = ap.parse_args()
 
     import json
@@ -685,6 +686,30 @@ def main():
                 print("[corpus] strong %-20s x%-6d %s" % (w, c, ",".join(tables[i][0] for i in sorted(locs))))
             elif not locs and len(w) >= 4 and is_roman(w):
                 print("[corpus] roman  %-20s x%d" % (w, c))
+
+    if args.verify_cxx:
+        # THE TWINS AGREE. The tables were inferred under this file's rules; the
+        # C++ reads text under its own. Every dictionary word, both readers.
+        import subprocess
+        allwords = sorted({w.lower() for w in (line.strip() for line in open(args.web2, encoding="latin-1"))
+                           if re.fullmatch(r"[A-Za-z]{2,}", w)} | vocab | set(EN_WEAK) | set(union))
+        proc = subprocess.run([args.verify_cxx], input="\n".join(allwords) + "\n",
+                              capture_output=True, text=True, check=True)
+        bad = []
+        for line in proc.stdout.splitlines():
+            w, num, amb, _conj, _dec = line.split("\t")
+            py_num = bool(num_locales(w, union, maxlen, en)) or is_roman(w)
+            py_amb = py_num and (len(w) <= 2 or w in ambiguous or
+                                 (is_roman(w) and not num_locales(w, union, maxlen, en) and len(w) <= 3))
+            if (num == "1") != py_num:
+                bad.append("%s numeral c++=%s python=%s" % (w, num, int(py_num)))
+            elif py_amb and amb != "1":
+                bad.append("%s ambiguous c++=%s python=1" % (w, amb))
+        print("[numerals] twin check: %d words through both readers, %d disagreements" % (len(allwords), len(bad)))
+        for b in bad[:40]:
+            print("[numerals]   DISAGREE %s" % b)
+        if bad:
+            return 1
 
     if args.no_write:
         return 0

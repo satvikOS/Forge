@@ -1142,6 +1142,8 @@ int joinOf(const std::string& s, const NumAtom& a, const NumAtom& b) {
 
 namespace detail {
 
+const char* numeralCldrVersion() { return numerals::kNumeralCldrVersion; }
+
 NumeralWordInfo classifyNumeralWord(const std::string& word) {
   std::string lower;
   for (const unsigned char c : word) {
