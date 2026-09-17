@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -620,22 +621,125 @@ std::uint32_t edgesInAxisClass(const EdgeSet& set, EdgeAxisClass cls) noexcept {
   return n;
 }
 
+namespace {
+
+// One ray of the parity test. Returns the number of surface crossings, or -1
+// when the ray is INCONCLUSIVE: it passes within a sliver (barycentric) of a
+// triangle's boundary, lies in a triangle's plane, or starts within `nearT` of a
+// surface -- exactly the places an edge-sharing pair of triangles can be counted
+// twice or not at all. Möller-Trumbore (1997), with the boundary TESTED rather
+// than silently included or excluded.
+int parityCrossings(const MeasureMesh& mesh, const double origin[3], const double dir[3],
+                    double nearT) noexcept {
+  constexpr double kSliver = 1e-7;
+  const std::vector<double>& xyz = mesh.coords();
+  const std::size_t tris = mesh.triangleCount();
+  int crossings = 0;
+  for (std::size_t i = 0; i < tris; ++i) {
+    const double* tri = &xyz[i * 9];
+    const double e1[3] = {tri[3] - tri[0], tri[4] - tri[1], tri[5] - tri[2]};
+    const double e2[3] = {tri[6] - tri[0], tri[7] - tri[1], tri[8] - tri[2]};
+    double nrm[3];
+    cross3(e1, e2, nrm);
+    const double area2 = std::sqrt(dot3(nrm, nrm));
+    if (area2 <= 1e-18) continue;  // a degenerate sliver bounds nothing
+    const double tv[3] = {origin[0] - tri[0], origin[1] - tri[1], origin[2] - tri[2]};
+    double pv[3];
+    cross3(dir, e2, pv);
+    const double det = dot3(e1, pv);
+    if (std::fabs(det) <= 1e-12 * area2) {
+      // Parallel to a real triangle's plane. Lying IN that plane is neither a
+      // crossing nor a miss that can be trusted; beside it, it is a miss.
+      if (std::fabs(dot3(tv, nrm)) <= nearT * area2) return -1;
+      continue;
+    }
+    const double invDet = 1.0 / det;
+    const double u = dot3(tv, pv) * invDet;
+    if (u < -kSliver || u > 1.0 + kSliver) continue;
+    double qv[3];
+    cross3(tv, e1, qv);
+    const double v = dot3(dir, qv) * invDet;
+    if (v < -kSliver || u + v > 1.0 + kSliver) continue;
+    const double t = dot3(e2, qv) * invDet;
+    if (t < -nearT) continue;   // behind the probe point
+    if (t <= nearT) return -1;  // the probe point sits on a surface
+    if (u <= kSliver || v <= kSliver || u + v >= 1.0 - kSliver) return -1;  // on an edge
+    ++crossings;
+  }
+  return crossings;
+}
+
+}  // namespace
+
+int materialSideOfPlane(const MeasureMesh& mesh, const double p[3], const double n[3]) {
+  if (mesh.empty()) return 0;
+  // The step off the face scales with the part: 1e-5 of the diagonal is 1.4 um
+  // on a 120 x 80 x 10 plate. The viewport stream is float, whose spacing near
+  // 60 mm is about 7 nm, so the step is two orders above tessellation noise and
+  // still far below any wall a machined part is made with.
+  MeasureBox box;
+  const std::vector<double>& xyz = mesh.coords();
+  for (std::size_t i = 0; i + 2 < xyz.size(); i += 3) box.grow(&xyz[i]);
+  const double diag = box.diagonal();
+  if (!(diag > 0.0)) return 0;
+  const double step = 1e-5 * diag;
+  const double nearT = 1e-3 * step;
+  // Directions with no rational relation to each other or to the axes, so a
+  // rectilinear part cannot line one of them up with an edge or a face.
+  static constexpr double kDirs[7][3] = {
+      {0.5463, 0.6197, 0.5636},   {-0.7071, 0.3173, 0.6320}, {0.2911, -0.8375, 0.4623},
+      {-0.3637, -0.4190, -0.8321}, {0.8611, 0.1307, -0.4913}, {-0.1579, 0.9403, -0.3013},
+      {0.4127, -0.2269, -0.8822}};
+  const double out[3] = {p[0] + step * n[0], p[1] + step * n[1], p[2] + step * n[2]};
+  const double in[3] = {p[0] - step * n[0], p[1] - step * n[1], p[2] - step * n[2]};
+  int verdict = 0;
+  int conclusive = 0;
+  for (const auto& d : kDirs) {
+    const int a = parityCrossings(mesh, out, d, nearT);
+    const int b = parityCrossings(mesh, in, d, nearT);
+    if (a < 0 || b < 0) continue;
+    const bool outInside = (a % 2) == 1;
+    const bool inInside = (b % 2) == 1;
+    // Both probes on the same side: this ray saw no surface between them, which a
+    // closed surface through p cannot produce. Not believed, and not outvoted.
+    if (outInside == inInside) return 0;
+    const int says = inInside ? 1 : -1;  // material behind the face: n points out
+    if (verdict != 0 && says != verdict) return 0;
+    verdict = says;
+    ++conclusive;
+  }
+  return conclusive >= 3 ? verdict : 0;
+}
+
 PickEvidence faceEvidence(const MeasureMesh& mesh, std::uint32_t faceId, MeshWinding winding,
-                          const double hitPoint[3]) {
+                          const double hitPoint[3], std::uint64_t built) {
   PickEvidence ev;
   ev.valid = true;
+  ev.built = built;
   for (int i = 0; i < 3; ++i) ev.point[i] = hitPoint[i];
   // A face has no axis class; leaving axisClass None and classMembers 0 is the
   // truthful record, and the edge commands check the kind before reading either.
 
   FaceMeasure fm;
-  if (winding == MeshWinding::Unknown || !measureFace(mesh, faceId, fm)) return ev;
+  if (!measureFace(mesh, faceId, fm)) return ev;
+  // ── A CURVED FACE HAS NO AXIS, AND IS RECORDED AS HAVING NONE ─────────────
+  // FaceMeasure::planar is false when any triangle leans more than
+  // kMeasureAngleTolerance off the face's area-weighted normal. On a full bore
+  // wall that normal is zero; on a PARTIAL curved face -- a quarter-round fillet --
+  // it is the bisector, which is the surface normal nowhere but the middle. The
+  // first version of this function tested only for zero and handed the bisector
+  // on as a drilling axis: MEASURED on the shipped worker, a click 10 degrees
+  // round a corner fillet drilled 35 degrees off radial, status Ok. So a face
+  // that is not planar keeps `planar` false and gets no normal, and the commands
+  // refuse it by name.
+  if (!fm.planar) return ev;
   const double n2 = fm.normal[0] * fm.normal[0] + fm.normal[1] * fm.normal[1] +
                     fm.normal[2] * fm.normal[2];
-  if (n2 <= 0.0) return ev;  // see faceOutwardNormal: no single direction to give
+  if (n2 <= 0.0) return ev;
+  ev.planar = true;
   const double inv = 1.0 / std::sqrt(n2);
-  const double sign = (winding == MeshWinding::Outward) ? 1.0 : -1.0;
-  for (int i = 0; i < 3; ++i) ev.normal[i] = sign * fm.normal[i] * inv;
+  double n[3];
+  for (int i = 0; i < 3; ++i) n[i] = fm.normal[i] * inv;
 
   // ── SNAP THE HIT ONTO THE FACE'S OWN PLANE ────────────────────────────────
   // The caller's hit point came out of a ray/triangle solve, usually in float:
@@ -653,17 +757,46 @@ PickEvidence faceEvidence(const MeasureMesh& mesh, std::uint32_t faceId, MeshWin
   //
   // which is the standard point-to-plane projection and is exact for any planar
   // face at any orientation -- it is not a z-snap and does not assume the face is
-  // axis-aligned.
+  // axis-aligned. The SIGN of n does not enter a projection, so it is done before
+  // -- and whether or not -- the side the material lies on can be established.
   //
-  // ONLY WHEN THE FACE IS PLANAR. FaceMeasure::planar means every triangle normal
-  // agreed with the average; when it is false the face is curved and there is no
-  // plane to project onto, so the raw hit stands. Projecting a bore wall onto its
-  // average plane would move the point INTO the material, which is worse than the
-  // micron it would have fixed.
-  if (!fm.planar) return ev;
+  // Only a PLANAR face gets here: a curved face has no plane to project onto, and
+  // projecting a bore wall onto its average plane would move the point INTO the
+  // material, which is worse than the micron it would have fixed.
   double d = 0.0;
-  for (int i = 0; i < 3; ++i) d += (ev.point[i] - fm.centroid[i]) * ev.normal[i];
-  for (int i = 0; i < 3; ++i) ev.point[i] -= d * ev.normal[i];
+  for (int i = 0; i < 3; ++i) d += (ev.point[i] - fm.centroid[i]) * n[i];
+  for (int i = 0; i < 3; ++i) ev.point[i] -= d * n[i];
+
+  // The face's own triangles, so a command can check that a TYPED position lies
+  // on this face and not merely somewhere in its plane.
+  {
+    auto tris = std::make_shared<std::vector<double>>();
+    tris->reserve(fm.triangles * 9);
+    const std::vector<double>& xyz = mesh.coords();
+    const std::vector<std::uint32_t>& ids = mesh.faceIds();
+    for (std::size_t t = 0; t < ids.size(); ++t) {
+      if (ids[t] != faceId) continue;
+      tris->insert(tris->end(), xyz.begin() + static_cast<std::ptrdiff_t>(t * 9),
+                   xyz.begin() + static_cast<std::ptrdiff_t>(t * 9 + 9));
+    }
+    ev.faceTriangles = std::move(tris);
+  }
+
+  // ── THE SIGN: which way is OUT of the material ────────────────────────────
+  // A watertight soup answers from its signed volume (the winding). One that is
+  // not -- as an ordinary filleted part's tessellation can be -- is asked by
+  // parity instead, and a face neither can orient is left with NO normal, which
+  // every command that needs an axis refuses by name.
+  int side = 0;
+  if (winding == MeshWinding::Outward) {
+    side = 1;
+  } else if (winding == MeshWinding::Inward) {
+    side = -1;
+  } else {
+    side = materialSideOfPlane(mesh, ev.point, n);
+  }
+  if (side == 0) return ev;
+  for (int i = 0; i < 3; ++i) ev.normal[i] = static_cast<double>(side) * n[i];
   return ev;
 }
 
@@ -707,12 +840,13 @@ void closestOnSegmentToRay(const double a[3], const double b[3], const double or
 
 }  // namespace
 
-PickEvidence edgeEvidence(const EdgeSet& set, std::size_t index, const double* origin,
-                          const double* direction) {
+PickEvidence edgeEvidence(const EdgeSet& set, std::size_t index, std::uint64_t built,
+                          const double* origin, const double* direction) {
   PickEvidence ev;
   if (index >= set.edges.size()) return ev;
   const MeshEdge& e = set.edges[index];
   ev.valid = true;
+  ev.built = built;
   ev.axisClass = classifyEdgeAxis(e);
   ev.classMembers = edgesInAxisClass(set, ev.axisClass);
   if (origin == nullptr || direction == nullptr) return ev;

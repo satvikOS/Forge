@@ -90,6 +90,18 @@ bool namedViewFromSuffix(const std::string& suffix, NamedView& out) noexcept {
   return false;
 }
 
+// FNV-1a, 64-bit: offset basis 14695981039346656037, prime 1099511628211, each
+// byte XORed in and then multiplied (Fowler/Noll/Vo, IETF draft
+// eastlake-fnv). Only equality is ever asked of it.
+std::uint64_t buildStamp(const std::string& program) noexcept {
+  std::uint64_t h = 14695981039346656037ull;
+  for (unsigned char c : program) {
+    h ^= static_cast<std::uint64_t>(c);
+    h *= 1099511628211ull;
+  }
+  return h == 0 ? 1 : h;
+}
+
 // IDENTITY IS (bodyId, kind, persistentName) AND NOTHING ELSE, and the two
 // functions below are where that is decided. `generation`, `signature` and
 // `pick` are all deliberately absent from both.

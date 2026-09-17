@@ -10,7 +10,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace forge::ui {
 
@@ -189,12 +191,49 @@ struct PickEvidence {
   EdgeAxisClass axisClass = EdgeAxisClass::None;
   std::uint32_t classMembers = 0;  // edges of THIS class on the body, at pick time
 
+  // ── WHICH BUILD OF THE PART THE PICK WAS TAKEN ON ────────────────────────
+  // buildStamp() of the program the viewport was SHOWING when the ray was cast.
+  // Everything above is a fact about that one tessellation, and none of it
+  // survives an edit: MEASURED on the shipped worker, a boss-top pick at z = 28
+  // kept its point after the boss was edited down to z = 16, and a counterbore
+  // placed from it came out as a plain through hole; a pick of all 4 upright
+  // edges kept classMembers = 4 after an edit gave the body 8, and VERTICAL
+  // rounded all 8. The selection survives a rebuild on purpose -- identity is
+  // what must survive -- so the evidence has to say which build it describes, and
+  // a command compares this against the document it is about to append to.
+  // 0 means "never stamped", and matches no document.
+  std::uint64_t built = 0;
+
+  // ── FACE ONLY: what the placement rule needs to refuse honestly ──────────
+  // True when every triangle of the picked face points the same way
+  // (FaceMeasure::planar). A hole needs ONE drilling direction, and a curved face
+  // does not have one: the area-weighted normal of a bore wall cancels to zero,
+  // and that of a quarter-round fillet is the bisector, 45 degrees off the local
+  // normal at its ends. Neither is an axis, so a command refuses a face that is
+  // not planar rather than drilling along either.
+  bool planar = false;
+  // The picked face's own triangles, 9 doubles each, in model units. A position
+  // TYPED for a feature on a picked face must lie ON that face, and the plane
+  // alone cannot say so: the plate top of a plate-and-boss is one plane with a
+  // hole in it where the boss stands, and a point typed there is inside the boss.
+  // Shared, because a reference is copied into the selection, the focus and every
+  // command context, and the triangles never change once recorded.
+  std::shared_ptr<const std::vector<double>> faceTriangles = {};
+
   bool valid = false;
 
   bool hasNormal() const noexcept {
     return normal[0] != 0.0 || normal[1] != 0.0 || normal[2] != 0.0;
   }
 };
+
+// The stamp PickEvidence::built carries: FNV-1a (Fowler, Noll, Vo), 64-bit, over
+// the bytes of a feature-IR program. It is a CONTENT stamp, not a counter, and
+// that is the property wanted: an undo that restores a program restores the
+// geometry a pick was taken on, and a pick from before the edit is valid again,
+// while any edit that changes a single byte of the program invalidates it.
+// Never 0, so an unstamped record can never match a document.
+std::uint64_t buildStamp(const std::string& program) noexcept;
 
 // A stable, rebuild-surviving reference to one topological entity.
 //   bodyId          — persistent body/document-node identity

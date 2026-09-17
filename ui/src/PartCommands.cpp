@@ -574,26 +574,56 @@ SolidTarget solidTarget(const PartDocument& doc, const SelectionService& sel) {
 // this change -- which is what keeps part_commands_test's existing expectations,
 // and those three paths, exactly as they were.
 
-// The ONE picked face a located feature should be placed on: the FOCUS, which
-// SelectionService documents as "the ONE member of the selection that is current"
-// and which every viewport click sets to the face just clicked. With several
-// faces picked that is the only non-arbitrary choice -- a hole goes in one place,
-// and the last face you clicked is the one you meant.
-// Returned BY VALUE, with PickEvidence::valid as the "there is none" answer. A
-// pointer into SelectionService would be a lifetime question at every call site,
-// and the record is a handful of doubles.
-PickEvidence focusFaceHit(const SelectionService& sel) {
-  const std::optional<EntityRef>& f = sel.focus();
-  if (f.has_value() && f->kind == EntityKind::Face && f->pick.valid) return f->pick;
-  // No focus (a selection built by replaceWith from a panel, or restored from a
-  // document) but exactly one face carrying evidence is still unambiguous.
-  PickEvidence only;
+// The ONE picked face a located feature should be placed on, and whether there
+// is one. Three answers, because two were not enough:
+//
+//   Unpicked  no face in the selection went through a ray at all. This is the
+//             feature tree, a macro, Archie -- the typed parameters decide, byte
+//             for byte as before.
+//   Located   the FOCUS is a face picked in the viewport. SelectionService calls
+//             the focus "the ONE member of the selection that is current", and
+//             every click sets it to the face just clicked, so the last face you
+//             clicked is the one you meant. With no focus at all, exactly one
+//             located face is still unambiguous.
+//   Unplaced  a viewport pick IS in the selection, but the focus is a face that
+//             carries no position, or several located faces compete with no focus
+//             to choose. The first version answered this by falling through to
+//             "the one face with evidence": MEASURED, a top face clicked in the
+//             viewport and then a side face shift-clicked from the face LIST put
+//             the hole on the TOP face -- the one the user had moved on from.
+//             Falling back to the typed parameters is no better, since with none
+//             typed that is the world origin. So it is refused.
+enum class FaceFocus : std::uint8_t { Unpicked, Located, Unplaced };
+
+struct FocusedFace {
+  FaceFocus state = FaceFocus::Unpicked;
+  PickEvidence hit{};  // meaningful only when Located; returned BY VALUE, see below
+};
+
+// By value: a pointer into SelectionService would be a lifetime question at every
+// call site, and the record is a handful of doubles and one shared pointer.
+FocusedFace focusFaceHit(const SelectionService& sel) {
+  FocusedFace out;
+  std::size_t located = 0;
   for (const EntityRef& r : sel.selection()) {
-    if (r.kind != EntityKind::Face || !r.pick.valid) continue;
-    if (only.valid) return PickEvidence{};  // two located faces, no one answer
-    only = r.pick;
+    if (r.kind == EntityKind::Face && r.pick.valid) {
+      ++located;
+      out.hit = r.pick;
+    }
   }
-  return only;
+  if (located == 0) return FocusedFace{};
+  const std::optional<EntityRef>& f = sel.focus();
+  if (f.has_value() && f->kind == EntityKind::Face) {
+    if (f->pick.valid) {
+      out.state = FaceFocus::Located;
+      out.hit = f->pick;
+    } else {
+      out.state = FaceFocus::Unplaced;
+    }
+    return out;
+  }
+  out.state = located == 1 ? FaceFocus::Located : FaceFocus::Unplaced;
+  return out;
 }
 
 // Reverse a direction component without producing a NEGATIVE ZERO.
@@ -606,13 +636,116 @@ PickEvidence focusFaceHit(const SelectionService& sel) {
 // under round-to-nearest, while every other value is unchanged.
 double negated(double v) noexcept { return -v + 0.0; }
 
-// Did the caller place this feature by hand? Typing ANY of x/y/z is an explicit
-// placement and it wins over the pick -- a number a user typed must never be
-// overridden by where they happened to click. All three are read together rather
-// than one at a time, because mixing a typed x with a picked y would put the
-// feature somewhere neither of them asked for.
-bool placedByHand(const CommandContext& ctx) {
-  return hasNumber(ctx, "x") || hasNumber(ctx, "y") || hasNumber(ctx, "z");
+// A number for a user to read: "%.6g", so 25 is "25" and 0.1 is "0.1".
+std::string shortNumber(double v) {
+  char buf[32];
+  std::snprintf(buf, sizeof buf, "%.6g", v + 0.0);
+  return buf;
+}
+
+// ── A TYPED POSITION ON A PICKED FACE ───────────────────────────────────────
+// Typing x, y or z is an explicit placement, and a number a user typed is never
+// overridden by where they happened to click. But the picked face still decides
+// the AXIS, and an axis is only right for a point that is ON that face. The first
+// version took the typed numbers as they came and left an untyped z at its
+// default of 0: MEASURED on the shipped worker, a plate 10 thick with its top
+// face clicked, x = 25, y = -15 and a depth of 6 emitted
+// HOLE(%1, 8, 25, -15, 0, 0, 0, -1, 6) -- a cutter hanging below the part,
+// volume unchanged, status Ok.
+//
+// So the typed coordinates are read as a position ON THE PICKED FACE:
+//
+//   * all three typed: the point must lie in the face's plane, within
+//     kOnFacePlane, and is projected onto it (the same micron film the click's
+//     snap removes);
+//   * two typed: the third is solved from the plane n . (p - h) = 0, which needs
+//     that coordinate's normal component to be non-zero -- x and y on a side
+//     face whose plane is x = 60 say nothing about z, so that is refused rather
+//     than defaulted;
+//   * one typed: a point on a plane has two free coordinates, and the second is
+//     not guessed.
+//
+// And then the point must fall INSIDE the face, not merely in its plane: the top
+// of a plate carrying a boss is one plane with the boss's footprint cut out of
+// it, and a point typed in that footprint is inside the boss, where a hole
+// "into the plate top" would hollow out a sealed pocket.
+//
+// Returns "" and writes `p` on success; otherwise the reason, for a sentence.
+constexpr double kOnFacePlane = 1e-3;  // mm: a typed coordinate, not a float solve
+
+bool insideFaceTriangles(const std::vector<double>& tris, const double n[3], const double p[3]) {
+  // Drop the dominant axis of the normal and test in the remaining two, the
+  // standard reduction of a point-in-planar-polygon test to 2D; barycentric
+  // coordinates with a small tolerance so a point ON a shared triangle edge
+  // counts as inside the face.
+  int drop = 0;
+  for (int i = 1; i < 3; ++i) {
+    if (std::fabs(n[i]) > std::fabs(n[drop])) drop = i;
+  }
+  const int a = (drop + 1) % 3;
+  const int b = (drop + 2) % 3;
+  for (std::size_t t = 0; t + 8 < tris.size(); t += 9) {
+    const double x0 = tris[t + a], y0 = tris[t + b];
+    const double x1 = tris[t + 3 + a], y1 = tris[t + 3 + b];
+    const double x2 = tris[t + 6 + a], y2 = tris[t + 6 + b];
+    const double det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    if (std::fabs(det) < 1e-18) continue;
+    const double l1 = ((p[a] - x0) * (y2 - y0) - (x2 - x0) * (p[b] - y0)) / det;
+    const double l2 = ((x1 - x0) * (p[b] - y0) - (p[a] - x0) * (y1 - y0)) / det;
+    constexpr double kEdge = 1e-9;
+    if (l1 >= -kEdge && l2 >= -kEdge && l1 + l2 <= 1.0 + kEdge) return true;
+  }
+  return false;
+}
+
+std::string typedPositionOnFace(const CommandContext& ctx, const PickEvidence& hit, double p[3]) {
+  static constexpr const char* kName[3] = {"x", "y", "z"};
+  bool typed[3] = {false, false, false};
+  int count = 0;
+  for (int i = 0; i < 3; ++i) {
+    typed[i] = hasNumber(ctx, kName[i]);
+    if (typed[i]) {
+      p[i] = num(ctx, kName[i], 0.0);
+      ++count;
+    } else {
+      p[i] = hit.point[i];
+    }
+  }
+  if (count == 0) return {};  // nothing typed: the clicked point, already on the face
+  const double* n = hit.normal;
+  const double* h = hit.point;
+  if (count == 1) {
+    return "one coordinate does not fix a point on a face. Type two of x, y and z, or clear "
+           "them to use the point you clicked";
+  }
+  if (count == 2) {
+    int k = 0;
+    while (typed[k]) ++k;
+    if (std::fabs(n[k]) < 1e-9) {
+      return std::string("on the face you picked, ") + kName[k] + " is not fixed by the other two. " +
+             "Type " + kName[k] + " as well, or clear x, y and z to use the point you clicked";
+    }
+    double rest = 0.0;
+    for (int i = 0; i < 3; ++i) {
+      if (i != k) rest += n[i] * (p[i] - h[i]);
+    }
+    p[k] = h[k] - rest / n[k];
+  } else {
+    double off = 0.0;
+    for (int i = 0; i < 3; ++i) off += n[i] * (p[i] - h[i]);
+    if (std::fabs(off) > kOnFacePlane) {
+      return "the position you typed is " + shortNumber(std::fabs(off)) +
+             " mm away from the face you picked. Type a position on that face, or clear x, y "
+             "and z to use the point you clicked";
+    }
+    for (int i = 0; i < 3; ++i) p[i] -= off * n[i];
+  }
+  if (!hit.faceTriangles || !insideFaceTriangles(*hit.faceTriangles, n, p)) {
+    return "the position you typed, (" + shortNumber(p[0]) + ", " + shortNumber(p[1]) + ", " +
+           shortNumber(p[2]) + "), is not on the face you picked. Type a position on that face, " +
+           "or clear x, y and z to use the point you clicked";
+  }
+  return {};
 }
 
 // ── what the kernel can be TOLD about a set of picked edges ─────────────────

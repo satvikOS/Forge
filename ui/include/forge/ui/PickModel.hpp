@@ -302,11 +302,44 @@ EdgeAxisClass classifyEdgeAxis(const MeshEdge& edge) noexcept;
 // only what the user asked for when they picked every one of them.
 std::uint32_t edgesInAxisClass(const EdgeSet& set, EdgeAxisClass cls) noexcept;
 
+// Which side of a planar face the material is on, decided WITHOUT the mesh's
+// global winding: +1 when `n` points out of the material at `p`, -1 when it
+// points in, 0 when the mesh cannot say.
+//
+// ★ WHY THIS EXISTS. faceOutwardNormal needs the soup to be watertight, and an
+// ordinary part's viewport tessellation often is not: MEASURED on the shipped
+// worker, BOX(60,40,20) + a through HOLE + FILLET(1, HORIZONTAL) tessellates
+// with 152 non-manifold edges. The flat +X side face of that part got no normal,
+// and the hole commands then kept their typed +Z axis and cut a vertical
+// half-notch into a side face, status Ok.
+//
+// THE RULE is the ray-crossing parity test for a point in a closed polyhedron
+// (the Jordan-Brouwer separation theorem: a ray from a point inside a closed
+// surface crosses it an odd number of times, from a point outside an even
+// number). Two probe points are taken a small step either side of the face,
+// p + d*n and p - d*n; exactly one of them must be inside, and that says which
+// way `n` faces. Parity does not read triangle winding at all, which is why it
+// answers where the winding test cannot.
+//
+// A crack in a tessellation lets one ray through, and a ray that grazes an edge
+// or a vertex can be counted twice, so the test is only believed when it is
+// UNANIMOUS: several rays in unrelated directions, a ray that passes within a
+// sliver of a triangle edge discarded as inconclusive, and 0 returned unless at
+// least three rays remain and every one of them agrees for both probe points.
+int materialSideOfPlane(const MeasureMesh& mesh, const double p[3], const double n[3]);
+
 // The evidence a FACE pick hands to a command: the point on the face where the
-// ray struck, plus that face's outward normal when one can be established.
+// ray struck, plus -- when the face is PLANAR and the side the material is on can
+// be established -- that face's outward normal, the face's own triangles, and the
+// stamp of the build it was taken on.
+//
 // `hitPoint` is the intersection the caller's own ray test already produced.
+// `winding` decides the normal's sign when it is known (a watertight soup); when
+// it is Unknown, materialSideOfPlane decides it, and when that cannot either the
+// record carries no normal and every command that needs one refuses.
+// `built` is buildStamp() of the program the picked tessellation was built from.
 PickEvidence faceEvidence(const MeasureMesh& mesh, std::uint32_t faceId, MeshWinding winding,
-                          const double hitPoint[3]);
+                          const double hitPoint[3], std::uint64_t built);
 
 // The evidence an EDGE pick hands to a command: the edge's kernel class and the
 // size of that class on this body, plus -- when a ray is supplied -- the closest
@@ -320,8 +353,11 @@ PickEvidence faceEvidence(const MeasureMesh& mesh, std::uint32_t faceId, MeshWin
 // dress-up commands read; passing no ray leaves `point` at the origin rather than
 // inventing a position, which is why no command reads an edge's point.
 // An index outside the set returns an invalid record.
-PickEvidence edgeEvidence(const EdgeSet& set, std::size_t index, const double* origin = nullptr,
-                          const double* direction = nullptr);
+// `built` is buildStamp() of the program `set` was derived from: classMembers is
+// a census of THAT body, and a command must not compare against it once the
+// document has moved on.
+PickEvidence edgeEvidence(const EdgeSet& set, std::size_t index, std::uint64_t built,
+                          const double* origin = nullptr, const double* direction = nullptr);
 
 }  // namespace forge::ui
 
