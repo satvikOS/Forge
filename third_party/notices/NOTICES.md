@@ -6,7 +6,7 @@ resolved prefix, hashed from that real file on disk. Nothing here is
 transcribed from memory; a license text that is not on disk is reported as
 an INCOMPLETE record rather than reconstructed.
 
-- Lock: `third_party/manifest/deps.lock.json` (sha256 `a19b841465b4d38d34f74a36feeef9b0d19c84efc782799f6ad71cdddf0516c1`)
+- Lock: `third_party/manifest/deps.lock.json` (sha256 `69339cfe2b40422aa40f8abdd8ae4f71f0a3a544256c32e2a873ce225a3001d2`)
 - Triplet: `macos-arm64`
 
 ## opencascade 7.9.3
@@ -32,6 +32,14 @@ an INCOMPLETE record rather than reconstructed.
 - Linkage: static (compiled into forge_kernel)
 - Used for: FreeCAD's 2D plane geometric constraint solver, vendored in-tree so Forge ships a sketch solver without depending on the wider FreeCAD codebase.
 - License text: SPDX-License-Identifier header is present in every vendored source file; provenance and the Forge-local edits are documented in forge-kernel/3rdParty/planegcs/UPSTREAM.md.
+
+## forge_asmsolver ondselsolver-30e9b64-forge1
+
+- SPDX: `LGPL-2.1-only`
+- Upstream: https://github.com/FreeCAD/OndselSolver
+- Linkage: dynamic (libforge_asmsolver.dylib in Contents/Frameworks, @rpath)
+- Used for: The assembly solver: FreeCAD's OndselSolver multibody constraint solver, vendored, stripped to the kinematic position solve Forge uses and MODIFIED for Forge (see MODIFICATIONS.md). Built as the SHARED library libforge_asmsolver, installed in Forge.app/Contents/Frameworks and linked dynamically by forge_desktop through the plain-data header include/forge_asmsolver/AsmSolver.h.
+- License text: `COPYING.LGPL` in the resolved prefix (sha256 `e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c`, 26434 bytes)
 
 ## node-addon-api 8.8.0
 

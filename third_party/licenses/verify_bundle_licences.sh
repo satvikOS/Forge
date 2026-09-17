@@ -33,6 +33,10 @@ need LGPL-2.1.txt              "OCCT (dynamic) AND planegcs (STATIC, in libforge
 need SDL2-zlib.txt             "SDL2, dylib in Contents/Frameworks"
 need MoltenVK-Apache-2.0.txt   "MoltenVK, staged by the packager"
 need INCOMPLETE.md             "names what is still owed -- Dear ImGui's MIT text"
+# The FreeCAD-derived LGPL libraries in Contents/Frameworks, each with its licence
+# and the dated record of what Forge changed in it (LGPL-2.1 s2(a)).
+need freecad-derived/assembly-solver/COPYING.LGPL     "libforge_asmsolver (LGPL-2.1, dylib in Frameworks)"
+need freecad-derived/assembly-solver/MODIFICATIONS.md "what Forge changed in OndselSolver, and when"
 
 # The INCOMPLETE record must keep NAMING the gap. If someone deletes the mention
 # without vendoring the text, the bundle silently stops disclosing it.

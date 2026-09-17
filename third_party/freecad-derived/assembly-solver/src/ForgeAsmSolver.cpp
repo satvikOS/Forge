@@ -235,7 +235,12 @@ EquationCount measure(const std::shared_ptr<MbD::Item>& item) {
             auto wrapped = std::static_pointer_cast<MbD::RedundantConstraint>(con);
             if (wrapped->constraint) eval = wrapped->constraint;
         }
-        eval->calcPostDynCorrectorIteration();
+        // postPosICIteration, NOT calcPostDynCorrectorIteration. A constraint's error
+        // is computed from a cached kinematic function (riIeJeO, aAijIeJe, ...) that
+        // only its postPosICIteration refreshes, and once a constraint is wrapped as
+        // redundant the solver stops calling that. MEASURED: evaluating the cache
+        // reported a hinge whose point sat 10 mm off as holding with error 0.
+        eval->postPosICIteration();
         const double e = std::abs(eval->aG);
         out.largestError = std::max(out.largestError, isFiniteNumber(e) ? e : HUGE_VAL);
     });

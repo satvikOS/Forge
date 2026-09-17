@@ -906,21 +906,36 @@ EditVerdict solveAndVerify(const Assembly& candidate, const PartDocument* docume
         bool collides = false;
         const Freedom f = countFreedom(candidate);
         std::vector<std::string> alsoGrounded;
-        for (int id : suspects) {
-          for (const Freedom::Redundancy& r : f.redundancies) {
-            if (r.jointId != id) continue;
-            for (int h : r.heldBy) {
-              collides = true;
-              if (h > 0) {
-                if (std::find(named.begin(), named.end(), h) == named.end()) named.push_back(h);
-              } else if (const Component* g = candidate.component(-h)) {
-                const std::string s = "grounded " + quoted(g->name);
-                if (std::find(alsoGrounded.begin(), alsoGrounded.end(), s) == alsoGrounded.end()) {
-                  alsoGrounded.push_back(s);
-                }
-              }
+        const auto nameHolder = [&](int h) {
+          if (h > 0) {
+            if (std::find(named.begin(), named.end(), h) == named.end()) named.push_back(h);
+          } else if (const Component* g = candidate.component(-h)) {
+            const std::string s = "grounded " + quoted(g->name);
+            if (std::find(alsoGrounded.begin(), alsoGrounded.end(), s) == alsoGrounded.end()) {
+              alsoGrounded.push_back(s);
             }
           }
+        };
+        const auto isSuspect = [&](int id) {
+          return std::find(suspects.begin(), suspects.end(), id) != suspects.end();
+        };
+        // A dependency is SYMMETRIC, and the rank count only records one direction
+        // of it: rows are taken in order, so when the engine sets aside the EARLIER
+        // joint and keeps the later one, the earlier joint is the one that does not
+        // hold while the redundancy is filed under the later. Both directions are
+        // walked: a suspect's own holders, and every joint that a suspect holds.
+        for (const Freedom::Redundancy& r : f.redundancies) {
+          const bool mine = r.jointId != 0 && isSuspect(r.jointId);
+          bool heldBySuspect = false;
+          for (int h : r.heldBy) heldBySuspect = heldBySuspect || (h > 0 && isSuspect(h));
+          if (!mine && !heldBySuspect) continue;
+          collides = true;
+          if (r.jointId != 0) {
+            nameHolder(r.jointId);
+          } else if (r.componentId != 0) {
+            nameHolder(-r.componentId);
+          }
+          for (int h : r.heldBy) nameHolder(h);
         }
         // "Cannot all hold at once" is a claim about the joints, and it is made only
         // when there is evidence for it: the rank count found a joint that does not

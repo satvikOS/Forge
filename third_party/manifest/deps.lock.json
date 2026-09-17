@@ -317,6 +317,71 @@
       }
     },
     {
+      "name": "forge_asmsolver",
+      "version": "ondselsolver-30e9b64-forge1",
+      "required": false,
+      "purpose": "The assembly solver: FreeCAD's OndselSolver multibody constraint solver, vendored, stripped to the kinematic position solve Forge uses and MODIFIED for Forge (see MODIFICATIONS.md). Built as the SHARED library libforge_asmsolver, installed in Forge.app/Contents/Frameworks and linked dynamically by forge_desktop through the plain-data header include/forge_asmsolver/AsmSolver.h.",
+      "source": {
+        "kind": "vendored",
+        "path": "third_party/freecad-derived/assembly-solver"
+      },
+      "upstream": {
+        "repository": "https://github.com/FreeCAD/OndselSolver",
+        "revision": "30e9b64e8bf881d438d4b88834f9ba3674865418",
+        "pinned_by": "the gitlink FreeCAD commit 0a45a0a008d4af7a85601016c5ab31bd26c25b22 records at src/3rdParty/OndselSolver",
+        "url": null,
+        "archive_sha256": null,
+        "archive_sha256_reason": "Vendored as a source tree cloned at the pinned commit, not as an archive. Identity is the upstream commit plus the fingerprint of the vendored files below; the pristine import is its own commit in Forge's history so every modification is a reviewable diff."
+      },
+      "features": {
+        "library": "SHARED (third_party/freecad-derived/assembly-solver/CMakeLists.txt)",
+        "public_header": "include/forge_asmsolver/AsmSolver.h -- names no OndselSolver type",
+        "joint_kinds": "fixed, revolute, slider, cylindrical, ball, planar, distance, angle",
+        "excludes": "OCCT, Qt, Coin3D, Python -- enforced by third_party/freecad-derived/lgpl_compliance_gate.sh"
+      },
+      "license": {
+        "spdx": "LGPL-2.1-only",
+        "linkage": "dynamic (libforge_asmsolver.dylib in Contents/Frameworks, @rpath)",
+        "file_in_prefix": "COPYING.LGPL",
+        "note": "Every vendored source carries SPDX-License-Identifier: LGPL-2.1-only and the upstream copyright; MODIFICATIONS.md records each change with its date (LGPL-2.1 s2(a)). The upstream LICENSE is kept verbatim at upstream/LICENSE."
+      },
+      "installed": {},
+      "layout": {
+        "presence_marker": "CMakeLists.txt",
+        "verify_globs": [
+          "*.cpp",
+          "*.h",
+          "*.md",
+          "CMakeLists.txt",
+          "COPYING.LGPL",
+          "upstream/LICENSE"
+        ],
+        "anchor_globs": [
+          "CMakeLists.txt",
+          "COPYING.LGPL",
+          "MODIFICATIONS.md",
+          "include/forge_asmsolver/AsmSolver.h",
+          "src/ForgeAsmSolver.cpp"
+        ]
+      },
+      "patches": [],
+      "fingerprint": {
+        "installed_tree_sha256": {
+          "sha256": null,
+          "files": 0,
+          "links": 0,
+          "bytes": 0
+        },
+        "installed_anchor_sha256": {
+          "sha256": null,
+          "files": 0,
+          "links": 0,
+          "bytes": 0
+        },
+        "computed_from_prefix_source": "vendored"
+      }
+    },
+    {
       "name": "node-addon-api",
       "version": "8.8.0",
       "required": true,

@@ -580,24 +580,21 @@ std::size_t registerAssemblyCommands(CommandRegistry& registry, PartDocument& do
                                  .defaultNumber = 0.0, .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "first_z", .type = ParamType::Number, .required = true,
                                  .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "first_axis_x", .type = ParamType::Number, .required = true,
-                                 .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "first_axis_y", .type = ParamType::Number, .required = true,
-                                 .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "first_axis_z", .type = ParamType::Number, .required = true,
-                                 .defaultNumber = 1.0, .hasDefault = true});
+    // The axes are OPTIONAL and default to +z on each part: most mates in a plate
+    // assembly are about the parts' own z, and a plan that states the points and
+    // not the axes means exactly that. The points are required.
+    c.schema.push_back(ParamSpec{"first_axis_x", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"first_axis_y", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"first_axis_z", ParamType::Number, false, 1.0, ""});
     c.schema.push_back(ParamSpec{.name = "second_x", .type = ParamType::Number, .required = true,
                                  .defaultNumber = 0.0, .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "second_y", .type = ParamType::Number, .required = true,
                                  .defaultNumber = 0.0, .hasDefault = true});
     c.schema.push_back(ParamSpec{.name = "second_z", .type = ParamType::Number, .required = true,
                                  .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "second_axis_x", .type = ParamType::Number, .required = true,
-                                 .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "second_axis_y", .type = ParamType::Number, .required = true,
-                                 .defaultNumber = 0.0, .hasDefault = true});
-    c.schema.push_back(ParamSpec{.name = "second_axis_z", .type = ParamType::Number, .required = true,
-                                 .defaultNumber = 1.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{"second_axis_x", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"second_axis_y", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"second_axis_z", ParamType::Number, false, 1.0, ""});
     c.schema.push_back(ParamSpec{"value", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{.name = "name", .type = ParamType::Text, .required = false});
     c.enabled = [d](const CommandContext&) { return d->assembly().components.size() >= 2; };

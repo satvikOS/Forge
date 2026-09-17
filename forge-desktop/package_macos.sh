@@ -233,6 +233,29 @@ done
 [ "$_lic_n" -ge 3 ] || die "only $_lic_n licence file(s) staged -- expected at least the three vendored texts"
 say "staged $_lic_n licence file(s) into Contents/Resources/licenses"
 
+# ── THE FREECAD-DERIVED LIBRARIES: their licence AND their modification record ──
+# Each third_party/freecad-derived/<component>/ is LGPL code MODIFIED for Forge and
+# shipped as a dylib in Contents/Frameworks. LGPL-2.1 requires the licence text to
+# travel with the binary and the changes to be stated with their dates, so both
+# files are staged per component, beside the upstream LICENSE it came with.
+# third_party/freecad-derived/lgpl_compliance_gate.sh --bundle checks the result.
+_fc_n=0
+for _c in "$ROOT"/third_party/freecad-derived/*/; do
+  [ -d "$_c" ] || continue
+  _name="$(basename "$_c")"
+  _dest="$APP/Contents/Resources/licenses/freecad-derived/$_name"
+  mkdir -p "$_dest" || die "mkdir $_dest failed"
+  for _f in COPYING.LGPL MODIFICATIONS.md; do
+    [ -s "$_c/$_f" ] || die "$_c$_f is missing -- refusing to ship an LGPL-derived library without it"
+    cp "$_c/$_f" "$_dest/" || die "cannot stage $_name/$_f"
+  done
+  if [ -f "$_c/upstream/LICENSE" ]; then
+    cp "$_c/upstream/LICENSE" "$_dest/LICENSE.upstream" || die "cannot stage $_name's upstream LICENSE"
+  fi
+  _fc_n=$((_fc_n + 1))
+done
+say "staged the licence and modification record of $_fc_n FreeCAD-derived librar$([ "$_fc_n" -eq 1 ] && echo y || echo ies)"
+
 # ── ★ THE KERNEL WORKER — the process the application is allowed to lose ─────
 # forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md measured a null Geom2d_Curve
 # dereferenced INSIDE OCCT, on Archie's output AND on the gold reference parts.
@@ -283,8 +306,13 @@ QUEUE="$WORK/queue"; : > "$QUEUE"
 
 # Where an @rpath/... dependency can be found. The kernel build dir and OCCT's
 # lib dir are the two that actually matter; the rest are belt and braces.
+#
+# $APP_BUILD is where forge-desktop/CMakeLists.txt writes libforge_asmsolver.dylib,
+# the LGPL assembly solver: forge_desktop loads it as @rpath/libforge_asmsolver.dylib,
+# so the walk below copies it into Contents/Frameworks like any other dylib.
 RPATH_SEARCH="$FW
 $KERNEL_BUILD
+$APP_BUILD
 $BREW/lib
 $BREW/opt/opencascade/lib
 $BREW/opt/tbb/lib"
