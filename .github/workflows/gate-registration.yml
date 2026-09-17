@@ -107,12 +107,13 @@ jobs:
       # (CWE-829). Before this, 24 of the 26 references in this repository were
       # mutable tags and 2 of 18 checkouts dropped their credential.
       #
-      # Selftest first, as everywhere else in this job: six injected defects --
+      # Selftest first, as everywhere else in this job: seven injected defects --
       # a tag, a commit with no version comment, an abbreviated commit, a
-      # checkout that keeps its credential, persist-credentials declared TRUE,
-      # and a third-party action on a branch -- plus a green control on the real
-      # workflows. Both steps are bash + grep against a temp copy, no build.
-      - name: Prove the action-pinning gate can fail (6 defects + control)
+      # checkout that keeps its credential, persist-credentials declared TRUE, a
+      # LIVE true beside a COMMENTED false, and a third-party action on a branch
+      # -- plus a green control on the real workflows. Both steps are bash +
+      # grep against a temp copy, no build.
+      - name: Prove the action-pinning gate can fail (7 defects + control)
         run: bash tools/gates/actions_pinned_selftest.sh
       - name: Every action is pinned to a commit and every checkout drops its credential
         run: bash tools/gates/actions_pinned_gate.sh

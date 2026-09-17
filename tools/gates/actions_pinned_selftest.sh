@@ -18,7 +18,16 @@ PINNED='11d5960a326750d5838078e36cf38b85af677262'
 
 pass=0; fail=0
 tmproot="$(mktemp -d)"
-trap 'rm -rf "$tmproot"' EXIT
+# Verify the cleanup's own post-condition: an `rm -rf` that fails silently leaves
+# a copy of the workflows in /tmp and nobody is told.
+cleanup() {
+  rm -rf "$tmproot"
+  if [ -e "$tmproot" ]; then
+    echo "[actions-pinned-selftest] WARNING: $tmproot survived cleanup" >&2
+    return 1
+  fi
+}
+trap cleanup EXIT
 
 # run <name> <expected-rc> <mutator...>
 run() {
@@ -55,10 +64,15 @@ m_drop_pc() {       # 4: a checkout that keeps its credential
 m_pc_true() {       # 5: declared, and declared wrong
   perl -0pi -e "s/persist-credentials: false/persist-credentials: true/ && \$c++; END{exit(\$c?0:1)}" "$1"/gate-registration.yml
 }
-m_third_party() {   # 6: the clause must not be actions/* only in spirit
+m_commented_pc() {  # 6: a LIVE true beside a COMMENTED false
+  # The first version of the gate grepped the step block and accepted the
+  # comment. GitHub does not read comments; the token stays in .git/config.
+  perl -0pi -e "s/(\n(\s*)persist-credentials: )false/\$1true\n\$2# persist-credentials: false/ && \$c++; END{exit(\$c?0:1)}" "$1"/gate-registration.yml
+}
+m_third_party() {   # 7: the clause must not be actions/* only in spirit
   perl -0pi -e "s{uses: actions/checkout\@$PINNED  # v4}{uses: some-vendor/deploy\@main}g && \$c++; END{exit(\$c?0:1)}" "$1"/desktop-release.yml
 }
-m_control() { :; }  # 7: unmodified -- must stay green
+m_control() { :; }  # 8: unmodified -- must stay green
 
 echo "== actions_pinned_gate.sh mutation proof =="
 run "a mutable tag instead of a commit"            1 m_mutable_tag
@@ -66,6 +80,7 @@ run "a commit with no '# version' comment"          1 m_no_comment
 run "an abbreviated commit"                         1 m_short_sha
 run "a checkout that keeps its credential"          1 m_drop_pc
 run "persist-credentials declared TRUE"             1 m_pc_true
+run "a LIVE true beside a COMMENTED false"          1 m_commented_pc
 run "a third-party action on a branch"              1 m_third_party
 run "GREEN CONTROL -- the real workflows"           0 m_control
 

@@ -65,19 +65,38 @@ for f in "${FILES[@]}"; do
   # ---- 3: every checkout drops its credential -------------------------------
   # The step's keys sit at the column `uses` itself occupies, so the block is
   # everything indented at least that far after the line.
+  #
+  # ★A COMMENT IS NOT A SETTING, and the first version of this gate could not
+  # tell the difference. It grepped the block for `persist-credentials: false`,
+  # so a step carrying a LIVE `persist-credentials: true` next to an indented
+  # `# persist-credentials: false` passed while GitHub kept the token in
+  # .git/config. This repository already knew that shape: one of the nine red
+  # paths in gate_registration_selftest.sh is "an ad-hoc runner named only in a
+  # YAML comment". So the block is filtered to LIVE lines, at least one must set
+  # it, and none may set it true. Found in review.
   while IFS= read -r line; do
     n="${line%%:*}"
     col="$(awk -v ln="$n" 'NR==ln{match($0,/uses:/); print RSTART-1}' "$f")"
     checks=$((checks + 1))
-    if ! awk -v ln="$n" -v col="$col" '
+    block="$(awk -v ln="$n" -v col="$col" '
           NR <= ln { next }
-          { ind = match($0 "x", /[^ ]/) - 1
-            if ($0 ~ /^[[:space:]]*$/) next
+          { if ($0 ~ /^[[:space:]]*$/) next
+            ind = match($0 "x", /[^ ]/) - 1
             if (ind < col) exit
             if (ind == col && $0 ~ /^[[:space:]]*-[[:space:]]/) exit
+            if ($0 ~ /^[[:space:]]*#/) next          # a comment is not a setting
             print }
-        ' "$f" | grep -Eq 'persist-credentials:[[:space:]]*false'; then
-      note "$f:$n actions/checkout does not declare 'persist-credentials: false'"
+        ' "$f")"
+    # Count ANY live setting and the subset that says false; a "not false"
+    # pattern is not worth writing -- `[[:space:]]*[^f]` matched the SPACE in
+    # `persist-credentials: false` and reddened all 18 correct checkouts on the
+    # first attempt. Subtraction cannot misread its own negation.
+    live_any="$(printf '%s\n' "$block" | grep -cE '^[[:space:]]*persist-credentials:')"
+    live_false="$(printf '%s\n' "$block" | grep -cE '^[[:space:]]*persist-credentials:[[:space:]]+false[[:space:]]*(#.*)?$')"
+    if [ "${live_any:-0}" -gt "${live_false:-0}" ]; then
+      note "$f:$n actions/checkout sets persist-credentials to something other than false"
+    elif [ "${live_false:-0}" -eq 0 ]; then
+      note "$f:$n actions/checkout does not declare 'persist-credentials: false' (a commented one does not count)"
     fi
   done < <(grep -nE '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*actions/checkout@' "$f")
 done
