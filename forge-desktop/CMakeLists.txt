@@ -743,6 +743,17 @@ set_target_properties(forge_desktop_quit_guard_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
 # ============================================================================
+# T-122 SAVE-SEED PROBE — not a gate: the instrument that measures, on raw
+# bytes, what a Save panel POINTS AT. Linked like every other headless binary
+# here (forge_desktop_core, no AppKit), and driven one population per process.
+add_executable(forge_desktop_save_seed_probe
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/save_seed_probe.cpp")
+target_compile_options(forge_desktop_save_seed_probe PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_save_seed_probe PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_save_seed_probe PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
+# ============================================================================
 # The CLICK gate, and the ADDRESS-SANITIZED build it needs.
 #
 # The other three gates render frames and assert on the values that come out.
