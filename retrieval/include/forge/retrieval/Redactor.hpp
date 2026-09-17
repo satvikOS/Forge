@@ -24,13 +24,24 @@
 //                  WHERE before approving transmission (20.2 preview duty).
 //
 // POST-CONDITION: verifyNoResidue() re-scans the fully serialized outgoing bytes
-// (percent-decoded) for private residue using checks that do NOT depend on the
-// classifier that produced them — a normalized substring scan for every lexicon
-// term (a term of one or two normalized characters must match a whole
-// alphanumeric run, so precision survives at length 1 without the term becoming
-// exempt) and a parsed-value scan for every registered secret dimension. A bug in
-// redact() therefore cannot silently leak a registered secret; the client refuses
-// to write the socket when residue is found.
+// (percent-decoded) for private residue. THREE ARMS, and they are independent of
+// the classifier to THREE DIFFERENT DEGREES — round 1 called the whole thing
+// "independent" and that was wrong:
+//   (a) a normalized substring scan for every lexicon term (a term of one or two
+//       normalized characters must match a whole alphanumeric run, so precision
+//       survives at length 1 without the term becoming exempt). Fully independent.
+//   (b) a parsed-value scan for every registered secret dimension. Independent of
+//       the classifier's CODE and NOT of its VOCABULARY: it calls the same
+//       readNumerals() over the same closed numeral lexicon, so a numeral word
+//       the lexicon does not model is invisible to redact() and to this arm for
+//       the SAME reason. It cannot catch a vocabulary gap and must not be
+//       described as if it could.
+//   (c) a mixed-script / non-ASCII-digit / zero-width scan. Shares nothing with
+//       the numeral lexicon: it asks whether the outgoing bytes contain a token
+//       mixing ASCII letters with look-alike code points from another script, so
+//       it fires on a disguised word no numeral layer can read.
+// A bug in redact() therefore cannot silently leak a registered secret it CAN
+// read; the client refuses to write the socket when residue is found.
 //
 // Pure C++20 + the standard library.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -146,8 +157,145 @@ private:
   RedactionPolicy policy_;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NUMERALS WRITTEN IN WORDS, AND IN SCRIPTS THAT ARE NOT ASCII
+//
+// The numeric grammar above is DIGIT-ONLY. Measured at 02de2e15 on the real
+// preview->search path, 30 of 42 spellings of a REGISTERED secret dimension
+// reached the wire buffer with status Ok: every English number word
+// ("thickness forty seven point six two five mm"), every ordinal, every
+// word/digit mix, spelled fractions, other Latin-script languages, and every
+// non-ASCII decimal digit (fullwidth, Arabic-Indic, Devanagari). Two classes:
+//
+//   A. NUMBER WORDS. The per-token classifier in redact() splits on whitespace
+//      and decides one token at a time, so a six-token run can never be seen by
+//      any rule living inside that loop. The fix is a SPAN PRODUCER that runs
+//      before the longest-match sort, not another token rule.
+//   B. NON-ASCII DIGITS. normalizeForMatch() keeps only isAsciiAlnum bytes, so
+//      every other code point is DELETED before the value scan ever sees it.
+//      The fix is a fold that runs UPSTREAM of normalization.
+//
+// MATCHING POLICY FOR WORDS — stated, because it differs from the digit stance.
+// Default-deny is free on digits (no ordinary engineering question is made of
+// bare numbers) and RUINOUS on words: measured, a blanket deny over the modelled
+// numeral words destroys 42 of 42 ordinary queries ("one-piece housing",
+// "six degrees of freedom", "nine to five duty cycle"). A numeral-word run is
+// therefore stripped on either of two grounds, NOT on sight:
+//   LAYER 0 — UNNAMEABLE CODE POINT. The run carries a code point no fold table
+//             names. Refused outright, whatever it composes to. See the
+//             unmodelled-code-point rule at the policy site in Redactor.cpp.
+//   LAYER A — VALUE MATCH. The run composes to a value registered in
+//             PrivateLexicon::secret_dimensions, AND the run is a VALUE
+//             EXPRESSION (detail::isValueExpression). Context-free within that
+//             class: no idiom exemption reaches it.
+//   LAYER B — DIMENSIONAL CONTEXT. The run is immediately preceded by a
+//             dimension noun or immediately followed by a unit word, and is not
+//             one of a closed list of public numeric idioms. Heuristic
+//             defence-in-depth for a secret nobody registered.
+// Layer B's idiom exemptions never apply to Layer A: an exemption can weaken the
+// heuristic layer, never the registered one.
+//
+// Non-ASCII DIGITS keep the digit stance — default-deny — because they cost
+// nothing on the control set and are indistinguishable from an evasion attempt.
+//
+// THE VALUE-EXPRESSION QUALIFIER ON LAYER A IS A STATED TRADE-OFF, NOT A FREE
+// IMPROVEMENT (round 2). Applying Layer A to every numeral run is idiom-proof
+// and, measured at an ordinary secret set {12, 3, 0.75, 47.625, 8.5, 2}, damaged
+// 15 of 47 ordinary engineering queries: a registered 2.0 turned "what is the
+// second moment of area" into "what is the moment of area". Restricting it to
+// runs that pin a value down leaves 2 of 47 damaged and opens exactly one
+// channel, below.
+//
+// RESIDUAL RISK, exhaustively, each one measured:
+//   1. A secret dimension of 3 or less, written as a numeral WORD in prose with
+//      no unit after it and no dimension noun immediately before it, reaches the
+//      wire. One such value per query, out of a vocabulary of about forty. Any
+//      digit spelling, any non-ASCII spelling, any decimal composition, any
+//      unit-adjacent spelling, and every value above 3 remain closed.
+//   2. Layer B reads only the token IMMEDIATELY before a run, so "thickness two"
+//      is measurement context and "the thickness we use is two" is not.
+//   3. A secret dimension that is NOT registered and is spelled in a numeral word
+//      this generated lexicon does not model (a language outside en/de/fr) is
+//      stripped only if it lands in a dimensional context. verifyNoResidue's
+//      value arm shares that same vocabulary and so cannot cover this; only the
+//      mixed-script arm, which catches the DISGUISE rather than the word, is
+//      independent of it.
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Exposed for testing and for the request serializer.
 namespace detail {
+// ASCII fold used ONLY by the numeral reader. Unicode decimal digits become
+// their ASCII digit, fullwidth forms become their ASCII counterpart, and vulgar
+// fractions expand to "n/d". Everything else is passed through byte for byte.
+//
+// THE SENTINEL IS LOAD-BEARING. A folded byte can come from a multi-byte code
+// point and one code point can fold to several bytes, so `raw_offset` carries
+// the RAW byte index each folded byte came from PLUS a terminal entry equal to
+// raw.size(). A span's raw end is raw_offset[span.end] read DIRECTLY — never
+// raw_offset[span.end - 1] + 1, which lands inside a UTF-8 sequence.
+//
+// This is deliberately NOT normalizeForMatch/normalizeWithMap. Those two are a
+// strict 1:1 bijection on kept bytes and are the registered-term key; collapsing
+// "forty seven" to "47" inside them would displace every registered-term offset
+// they produce and make redaction delete the wrong bytes.
+//
+// ROUND 2 — THE FOLD IS ALSO A CONFUSABLE SKELETON. A code point that LOOKS like
+// an ASCII letter folds to that letter, and a zero-width or combining code point
+// folds to nothing. Without this, "f<U+043E>rty <U+0441>even <U+0440>oint ..." —
+// one Cyrillic look-alike per numeral word, visually identical to the plain
+// English spelling — folded to \x01 and BROKE the numeral run, so the run was
+// never FORMED and neither the value layer nor the context layer ever saw a
+// number. Measured on this seam: 10 of 16 look-alike spellings of a registered
+// secret transmitted verbatim with status=Ok.
+//
+// THE ASYMMETRY, stated because it is the whole fix: for MATCHING, an unmodelled
+// code point must DENY; for FORMING A RUN, it must never silently SPLIT.
+struct Folded {
+  std::string text;
+  std::vector<std::size_t> raw_offset;   // text.size() + 1 entries
+  std::vector<unsigned char> synthetic;  // 1 when the byte came from a non-ASCII code point
+  // Provenance of each folded byte, for the mixed-script residue scan:
+  //   0          the byte is ASCII and came from an ASCII code point
+  //   1..5       a confusable fold, value = generated script tag + 1
+  //   kSrcFold   a digit / punctuation / vulgar-fraction fold
+  //   kSrcTypoDigit a superscript or subscript digit fold
+  //   kSrcUnknown a code point NO table names; the text byte is \x01
+  std::vector<unsigned char> source;
+  static constexpr unsigned char kSrcFold = 250;
+  // ROUND 3: a super/subscript digit fold. A DIGIT for every value purpose, but
+  // never on its own grounds to refuse a buffer — mm2 and H2O are typography.
+  static constexpr unsigned char kSrcTypoDigit = 249;
+  static constexpr unsigned char kSrcUnknown = 255;
+};
+Folded foldForMatch(const std::string& raw);
+
+// One maximal run of adjacent numeral tokens, in FOLDED byte offsets. Offsets
+// MUST be carried back through Folded::raw_offset before they touch any span
+// vector that indexes the raw string; folded-space and raw-space offsets are
+// both std::size_t and the compiler cannot tell them apart.
+struct NumeralRun {
+  std::size_t begin = 0;
+  std::size_t end = 0;
+  std::vector<double> values;   // every reading the run admits
+  bool has_word = false;        // at least one token was a spelled numeral
+  bool has_nonascii = false;    // at least one byte came from a folded code point
+  bool dimension_context = false;
+  bool public_idiom = false;    // exempt from LAYER B only
+  // ── round 2 ───────────────────────────────────────────────────────────────
+  bool has_unmodelled = false;  // a code point NO fold table names sits in the run
+  bool has_digit = false;       // at least one token was written in digits
+  bool has_point_word = false;  // an explicit decimal-point word: "point", "komma"
+  std::size_t magnitude_tokens = 0;  // numeral tokens carrying magnitude (not "and")
+};
+std::vector<NumeralRun> readNumerals(const Folded& folded);
+
+// THE ONE definition of "this run pins a value down". redact()'s LAYER A and
+// verifyNoResidue()'s value arm both call it, and they must never disagree:
+// narrowing one alone converts every accepted collision into a REFUSED SEND
+// instead of a shortened query, which is strictly worse. See the long note at
+// its definition for the bound and why it is derived rather than chosen.
+bool isValueExpression(const NumeralRun& run);
+
 // Lowercase, drop every non-alphanumeric byte. "ACME-4471 B" -> "acme4471b".
 std::string normalizeForMatch(const std::string& s);
 // Undo every encoding this codebase can emit (percent-encoding including '+'

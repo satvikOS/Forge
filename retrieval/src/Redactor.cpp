@@ -7,9 +7,14 @@
 #include <cstdint>
 #include <set>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace forge::retrieval {
+namespace generated {
+#include "forge/retrieval/generated/NumeralLexicon.inc"
+}  // namespace generated
+
 namespace {
 
 using StrSet = std::unordered_set<std::string>;
@@ -491,6 +496,517 @@ std::size_t findRegisteredTerm(const std::string& norm, const std::vector<std::s
   return std::string::npos;
 }
 
+// ── NUMERALS IN WORDS AND IN OTHER SCRIPTS ──────────────────────────────────
+// See the long note in Redactor.hpp for the policy. Everything below is either
+// a closed generated table or a reader over it.
+
+const std::unordered_map<std::string, generated::NumeralWordEntry>& numeralWords() {
+  static const auto* kMap = [] {
+    auto* m = new std::unordered_map<std::string, generated::NumeralWordEntry>();
+    for (const auto& e : generated::kNumeralWords) m->emplace(e.word, e);
+    return m;
+  }();
+  return *kMap;
+}
+
+// code point -> the ASCII text it folds to.
+const std::unordered_map<unsigned int, std::string>& codePointFolds() {
+  static const auto* kMap = [] {
+    auto* m = new std::unordered_map<unsigned int, std::string>();
+    for (const auto& e : generated::kDigitFolds) m->emplace(e.cp, e.ascii);
+    for (const auto& e : generated::kPunctFolds) m->emplace(e.cp, e.ascii);
+    for (const auto& e : generated::kFractionFolds) m->emplace(e.cp, e.ascii);
+    // ROUND 3, defect 2. Circled, parenthesised, dingbat and enclosed digits are
+    // category No, so the Nd sweep never saw them and six of ten such spellings
+    // of a registered secret transmitted verbatim with the post-condition
+    // reporting CLEAN. They are DERIVED in the generator from the compatibility
+    // decomposition and the Unicode numeric property, never hand-listed.
+    for (const auto& e : generated::kCompatDigitFolds) m->emplace(e.cp, e.ascii);
+    return m;
+  }();
+  return *kMap;
+}
+
+// ROUND 3, defect 2. Superscript and subscript digits, kept SEPARATE from the
+// table above so the residue scan can tell them apart. They fold — so a number
+// written "thickness <sup4><sup7>.<sup6><sup2><sup5> mm" is read, valued and
+// stripped exactly like a fullwidth one — but seeing one in an outgoing buffer
+// is NOT on its own grounds to refuse the send, because mm2, mm4 and H2O are
+// ordinary engineering typography and a blanket refusal would destroy them.
+const std::unordered_map<unsigned int, std::string>& typographicDigitFolds() {
+  static const auto* kMap = [] {
+    auto* m = new std::unordered_map<unsigned int, std::string>();
+    for (const auto& e : generated::kTypographicDigitFolds) m->emplace(e.cp, e.ascii);
+    return m;
+  }();
+  return *kMap;
+}
+
+// ROUND 2. code point -> (ASCII letter it LOOKS like, script tag). Separate from
+// codePointFolds() because the script tag is what the mixed-script residue scan
+// reads, and because a confusable must never displace a DIGIT fold: a code point
+// that is both is a digit first.
+const std::unordered_map<unsigned int, std::pair<std::string, unsigned char>>&
+confusableFolds() {
+  static const auto* kMap = [] {
+    auto* m = new std::unordered_map<unsigned int, std::pair<std::string, unsigned char>>();
+    for (const auto& e : generated::kConfusableFolds) {
+      m->emplace(e.cp, std::make_pair(std::string(e.ascii), e.script));
+    }
+    return m;
+  }();
+  return *kMap;
+}
+
+// Zero-width, format and combining code points. They fold to NOTHING.
+const std::unordered_set<unsigned int>& invisibleCodePoints() {
+  static const auto* kSet = [] {
+    auto* s = new std::unordered_set<unsigned int>();
+    for (const unsigned int cp : generated::kInvisibleCodePoints) s->insert(cp);
+    return s;
+  }();
+  return *kSet;
+}
+
+// LAYER B, left half: a noun that means "this next thing is a measurement".
+const StrSet& dimensionNouns() {
+  static const StrSet kNouns = {
+      "thickness", "width", "height", "depth", "length", "span", "bore", "diameter", "dia",
+      "radius", "gap", "clearance", "pitch", "offset", "spacing", "stroke", "travel", "rib",
+      "web", "wall", "boss", "chamfer", "fillet", "hole", "slot", "groove", "counterbore",
+      "countersink", "backlash", "runout", "flatness", "roughness", "allowance", "interference",
+      "preload", "torque", "load", "force", "pressure", "stress", "strain", "mass", "speed",
+      "feed", "temperature", "hardness", "voltage", "current", "power", "flow", "volume",
+      "area", "weight", "dicke", "breite", "laenge", "epaisseur", "largeur", "longueur"};
+  return kNouns;
+}
+
+// LAYER B, right half: a unit word that means "the thing before me was a value".
+// This is unitWords() MINUS the members that are ordinary English words or bare
+// single letters ("in", "a", "n", "s", "h", "c", "m", ...), because those turn
+// "one in ten" and "a two-stage map" into over-redaction, PLUS the spelled-out
+// unit names a dictated query produces. Every omission here is a false-positive
+// decision; the census row it costs is still caught by LAYER A.
+//
+// "bar" IS EXCLUDED, and it was excluded by MEASUREMENT, not by taste: with the
+// pressure unit "bar" in this set, the control query "four-bar linkage
+// synthesis" went to the wire as "linkage synthesis" — the run "four" was
+// stripped and the word-boundary widening then swallowed "-bar" with it. That is
+// precisely the silent product failure this arm exists to catch. A pressure
+// written "forty seven bar" is consequently reached only by LAYER A.
+const StrSet& numeralContextUnits() {
+  static const StrSet kUnits = {
+      "mm", "cm", "km", "um", "nm", "micron", "microns", "inch", "inches", "ft", "feet", "foot",
+      "mil", "mils", "thou", "deg", "degree", "degrees", "rad", "radian", "radians",
+      "millimetre", "millimetres", "millimeter", "millimeters", "centimetre", "centimetres",
+      "centimeter", "centimeters", "metre", "metres", "meter", "meters", "micrometre",
+      "micrometres", "micrometer", "micrometers", "kg", "mg", "lb", "lbs", "oz", "gram", "grams",
+      "kilogram", "kilograms", "pound", "pounds", "kn", "lbf", "ftlb", "newton", "newtons",
+      "kilonewton", "kilonewtons", "mpa", "gpa", "kpa", "psi", "ksi", "pascal", "pascals",
+      "megapascal", "megapascals", "atm", "mm2", "mm3", "cm2", "cm3", "hz", "khz", "rpm",
+      "kw", "volt", "volts", "amp", "amps", "ampere", "amperes", "joule", "joules", "watt",
+      "watts"};
+  return kUnits;
+}
+
+// PUBLIC NUMERIC IDIOMS — closed list, LAYER B ONLY.
+// A fixed engineering phrase in which a number word sits next to a unit word
+// without expressing a dimension. "six degrees of freedom" is the measured
+// collision: without this exemption the only cost of LAYER B on the 42-query
+// control set is that one row, rendered as "of freedom kinematics".
+// Membership is the test, exactly as for isPublicDesignation(). These exemptions
+// are deliberately powerless against LAYER A: an idiom can stop a GUESS, never a
+// registered secret.
+const StrSet& publicNumeralIdioms() {
+  static const StrSet kIdioms = {"degrees of freedom", "degree of freedom",
+                                 "degrees of rotational freedom"};
+  return kIdioms;
+}
+
+// Decode one UTF-8 sequence at `i`. Returns the code point and advances `len`.
+// An invalid byte decodes as itself in one byte, so the fold never desynchronizes.
+unsigned int decodeUtf8(const std::string& s, std::size_t i, std::size_t& len) {
+  const unsigned char c0 = static_cast<unsigned char>(s[i]);
+  auto cont = [&](std::size_t k) {
+    return i + k < s.size() && (static_cast<unsigned char>(s[i + k]) & 0xC0) == 0x80;
+  };
+  auto bits = [&](std::size_t k) { return static_cast<unsigned int>(s[i + k]) & 0x3Fu; };
+  if (c0 < 0x80) { len = 1; return c0; }
+  if ((c0 & 0xE0) == 0xC0 && cont(1)) { len = 2; return ((c0 & 0x1Fu) << 6) | bits(1); }
+  if ((c0 & 0xF0) == 0xE0 && cont(1) && cont(2)) {
+    len = 3;
+    return ((c0 & 0x0Fu) << 12) | (bits(1) << 6) | bits(2);
+  }
+  if ((c0 & 0xF8) == 0xF0 && cont(1) && cont(2) && cont(3)) {
+    len = 4;
+    return ((c0 & 0x07u) << 18) | (bits(1) << 12) | (bits(2) << 6) | bits(3);
+  }
+  len = 1;
+  return c0;
+}
+
+// One token of the folded text, in FOLDED byte offsets.
+struct FoldTok {
+  std::size_t begin = 0;
+  std::size_t end = 0;
+  std::string text;      // lowercased; may contain \x01 for an unmodelled byte
+  bool is_word = false;  // [a-z\x01]+ beginning and ending on a letter
+  bool is_num = false;   // starts with a digit
+  bool unmodelled = false;  // the token carries at least one \x01
+};
+
+// \x01 — a code point NO fold table names — is a WORD BYTE here, not a
+// separator. That single change is what stops a look-alike from splitting
+// "forty" into nothing; what the run then DOES about it is decided in redact().
+bool isWordByte(unsigned char c) { return isAsciiAlpha(c) || c == '\x01'; }
+
+// ── ROUND 3, defect 2/3: AN EXPONENT IS NOT A NUMERAL ───────────────────────
+// A super/subscript digit IMMEDIATELY AFTER an ASCII letter is an exponent or an
+// index — mm2, mm4, H2O — and is part of the unit or the formula, not a value.
+// The same digit at the start of a token IS a value: `thickness <sup4><sup7>.
+// <sup6><sup2><sup5> mm` and `thickness <sup4><sup7>mm` both begin on the digit
+// and are read, valued and stripped exactly like their ASCII spellings.
+//
+// Note what this does NOT say: it does not exempt super/subscript digits from
+// the fold. They fold, so the value layer and the residue scan can both read
+// them. It only says the exponent position does not START a numeral token, which
+// is why `mm4` written with a superscript survives a query and `<sup4><sup7>mm`
+// does not. The predecessor test walks back through a run of exponent digits, so
+// a two-digit exponent is one exponent and not a number.
+bool isExponentDigit(const detail::Folded& f, std::size_t k) {
+  if (k >= f.text.size() || f.source[k] != detail::Folded::kSrcTypoDigit) return false;
+  if (!isAsciiDigit(static_cast<unsigned char>(f.text[k]))) return false;
+  std::size_t at = k;
+  while (at > 0 && f.source[at - 1] == detail::Folded::kSrcTypoDigit &&
+         isAsciiDigit(static_cast<unsigned char>(f.text[at - 1]))) {
+    --at;
+  }
+  return at > 0 && f.source[at - 1] == 0 &&
+         isAsciiAlpha(static_cast<unsigned char>(f.text[at - 1]));
+}
+
+std::vector<FoldTok> tokenizeFolded(const detail::Folded& f) {
+  const std::string& t = f.text;
+  std::vector<FoldTok> out;
+  std::size_t i = 0;
+  while (i < t.size()) {
+    const unsigned char c = static_cast<unsigned char>(t[i]);
+    // A word starts on a letter, or on an unmodelled byte that is IMMEDIATELY
+    // followed by one ("<look-alike>ne" for "one"). A lone \x01 between two
+    // spaces is not a word and must not become one.
+    if (isAsciiAlpha(c) ||
+        (c == '\x01' && i + 1 < t.size() && isAsciiAlpha(static_cast<unsigned char>(t[i + 1])))) {
+      const std::size_t b = i;
+      while (i < t.size() && isWordByte(static_cast<unsigned char>(t[i]))) ++i;
+      // A TRAILING unmodelled byte belongs to the sentence, not to the word, the
+      // same way a trailing '.' does for a numeric token.
+      std::size_t e = i;
+      while (e > b && t[e - 1] == '\x01') --e;
+      const std::string text = toLower(t.substr(b, e - b));
+      const bool unmod = text.find('\x01') != std::string::npos;
+      out.push_back(FoldTok{b, e, text, true, false, unmod});
+      continue;
+    }
+    if (isAsciiDigit(c)) {
+      if (isExponentDigit(f, i)) { ++i; continue; }  // mm2, mm4, H2O: not a value
+      const std::size_t b = i;
+      // A numeric token absorbs the separators that live INSIDE a number, but a
+      // trailing separator belongs to the sentence, not to the value.
+      while (i < t.size() && (isAsciiDigit(static_cast<unsigned char>(t[i])) || t[i] == '.' ||
+                              t[i] == ',' || t[i] == '/')) {
+        ++i;
+      }
+      std::size_t e = i;
+      while (e > b && !isAsciiDigit(static_cast<unsigned char>(t[e - 1]))) --e;
+      out.push_back(FoldTok{b, e, t.substr(b, e - b), false, true});
+      i = e > b ? i : b + 1;
+      continue;
+    }
+    ++i;
+  }
+  return out;
+}
+
+// The material between two tokens. Whitespace and hyphens keep a run together
+// ("forty-seven", "twenty-three point five"); anything else ends it.
+//
+// ROUND 2: an UNMODELLED code point (\x01) also keeps the run together, and sets
+// `unmodelled_join`. At round 1 it ended the run, which meant a look-alike
+// inserted between two numeral words made the run vanish rather than be judged —
+// the run was never FORMED, so the value layer never saw a value. Joining is not
+// the same as permitting: a run joined this way is refused at the policy site.
+bool adjacencyHolds(const std::string& t, std::size_t from, std::size_t to,
+                    bool& unmodelled_join) {
+  for (std::size_t k = from; k < to; ++k) {
+    const unsigned char c = static_cast<unsigned char>(t[k]);
+    if (std::isspace(c) || c == '-') continue;
+    if (c == '\x01') { unmodelled_join = true; continue; }
+    return false;
+  }
+  return true;
+}
+
+// A numeral token: either a spelled numeral from the closed lexicon, or digits.
+struct RunTok {
+  unsigned char roles = 0;
+  double value = 0.0;
+  std::string digits;  // digit characters, for the concatenated reading
+  bool is_num = false;
+};
+
+// Parse a digit token. "1/2" is a fraction, "47,625" a thousands-separated
+// integer, "47.625" a decimal.
+bool parseNumericToken(const std::string& s, double& value_out, std::string& digits_out) {
+  const std::size_t slash = s.find('/');
+  auto plain = [](const std::string& x, double& v) {
+    std::string cleaned;
+    for (const char c : x) {
+      if (c != ',') cleaned.push_back(c);
+    }
+    if (cleaned.empty()) return false;
+    return std::from_chars(cleaned.data(), cleaned.data() + cleaned.size(), v).ec == std::errc();
+  };
+  if (slash != std::string::npos) {
+    double num = 0.0, den = 0.0;
+    if (!plain(s.substr(0, slash), num)) return false;
+    if (!plain(s.substr(slash + 1), den)) return false;
+    if (den == 0.0) return false;
+    value_out = num / den;
+    digits_out.clear();
+    return true;
+  }
+  if (!plain(s, value_out)) return false;
+  digits_out.clear();
+  for (const char c : s) {
+    if (isAsciiDigit(static_cast<unsigned char>(c))) digits_out.push_back(c);
+  }
+  return true;
+}
+
+// Decompose an unknown all-alphabetic token into >= 2 lexicon numeral words that
+// cover it completely: "fortyseven" -> forty seven, "siebenundvierzig" ->
+// sieben und vierzig, "sechsundneunzig" -> sechs und neunzig. FULL coverage is
+// required, which is what keeps ordinary words ("tension", "onerous") out.
+bool splitRunOnNumeral(const std::string& word, std::vector<RunTok>& out) {
+  const std::size_t n = word.size();
+  if (n < 6) return false;
+  const auto& lex = numeralWords();
+  // dp[k] = length of the lexicon word ending at k, 0 when unreachable.
+  std::vector<std::size_t> dp(n + 1, 0);
+  std::vector<bool> reach(n + 1, false);
+  reach[0] = true;
+  for (std::size_t k = 1; k <= n; ++k) {
+    for (std::size_t len = 2; len <= k; ++len) {
+      if (!reach[k - len]) continue;
+      auto it = lex.find(word.substr(k - len, len));
+      if (it == lex.end()) continue;
+      reach[k] = true;
+      dp[k] = len;
+      break;
+    }
+  }
+  if (!reach[n]) return false;
+  std::vector<std::string> parts;
+  for (std::size_t k = n; k > 0; k -= dp[k]) parts.push_back(word.substr(k - dp[k], dp[k]));
+  if (parts.size() < 2) return false;
+  std::reverse(parts.begin(), parts.end());
+  for (const std::string& p : parts) {
+    const auto& e = lex.find(p)->second;
+    RunTok rt;
+    rt.roles = e.roles;
+    rt.value = e.value;
+    if (e.value >= 0.0 && e.value <= 9.0 && (e.roles & generated::kRoleUnit)) {
+      rt.digits = std::to_string(static_cast<int>(e.value));
+    }
+    out.push_back(rt);
+  }
+  return true;
+}
+
+// ── THE WILDCARD RULE ───────────────────────────────────────────────────────
+// A token carrying \x01 is a word with a code point NO fold table names in it.
+// EXHAUSTIVENESS OF THE CONFUSABLE TABLE IS NOT THE SAFETY PROPERTY, and it must
+// not be: there are thousands of confusables and any curated table is a denylist
+// of the ones somebody thought of. Instead each unmodelled byte is treated as a
+// WILDCARD standing for any ASCII letter OR for nothing at all — which covers
+// both attacks at once: SUBSTITUTION ("f<U+043E>rty" -> "forty", one letter
+// replaced) and INSERTION ("forty<U+0000E9>" -> "forty", one letter added). If
+// ANY assignment yields a numeral word, the token is a numeral token.
+//
+// The reading is deliberately NOT trusted for its value — "f?rty" could be forty
+// or fifty — which is exactly why redact() REFUSES such a run rather than
+// judging it. Cost is bounded: at most 3 wildcards, 27^3 hash lookups, and only
+// for tokens that actually carry one.
+bool resolveWildcardWord(const std::string& word, std::vector<RunTok>& out) {
+  std::vector<std::size_t> holes;
+  for (std::size_t i = 0; i < word.size(); ++i) {
+    if (word[i] == '\x01') holes.push_back(i);
+  }
+  if (holes.empty() || holes.size() > 3) return false;
+  const auto& lex = numeralWords();
+  std::vector<int> pick(holes.size(), -1);  // -1 = deleted, 0..25 = 'a'+n
+  const std::size_t combos = [&] {
+    std::size_t n = 1;
+    for (std::size_t k = 0; k < holes.size(); ++k) n *= 27;
+    return n;
+  }();
+  for (std::size_t c = 0; c < combos; ++c) {
+    std::size_t rest = c;
+    for (std::size_t k = 0; k < holes.size(); ++k) {
+      pick[k] = static_cast<int>(rest % 27) - 1;
+      rest /= 27;
+    }
+    std::string candidate;
+    candidate.reserve(word.size());
+    std::size_t hole = 0;
+    for (std::size_t i = 0; i < word.size(); ++i) {
+      if (hole < holes.size() && holes[hole] == i) {
+        if (pick[hole] >= 0) candidate.push_back(static_cast<char>('a' + pick[hole]));
+        ++hole;
+        continue;
+      }
+      candidate.push_back(word[i]);
+    }
+    if (candidate.empty()) continue;
+    const auto it = lex.find(candidate);
+    if (it != lex.end()) {
+      RunTok rt;
+      rt.roles = it->second.roles;
+      rt.value = it->second.value;
+      if (it->second.value >= 0.0 && it->second.value <= 9.0 &&
+          (it->second.roles & generated::kRoleUnit) != 0) {
+        rt.digits = std::to_string(static_cast<int>(it->second.value));
+      }
+      out.push_back(rt);
+      return true;
+    }
+    std::vector<RunTok> split;
+    if (splitRunOnNumeral(candidate, split)) {
+      out = std::move(split);
+      return true;
+    }
+  }
+  return false;
+}
+
+// Standard cardinal composition. Returns false when a token has no cardinal
+// reading (a bare denominator, a decimal-point word).
+bool composeCardinal(const std::vector<RunTok>& toks, std::size_t from, std::size_t to,
+                     double& out) {
+  double total = 0.0, cur = 0.0;
+  bool any = false;
+  for (std::size_t i = from; i < to; ++i) {
+    const RunTok& t = toks[i];
+    if (t.roles & generated::kRoleAnd) continue;
+    if (t.is_num) { cur += t.value; any = true; continue; }
+    if (t.roles & generated::kRoleScale) {
+      if (t.value <= 100.0) cur = (cur == 0.0 ? 1.0 : cur) * t.value;
+      else { total += (cur == 0.0 ? 1.0 : cur) * t.value; cur = 0.0; }
+      any = true;
+      continue;
+    }
+    if (t.roles & (generated::kRoleUnit | generated::kRoleTeen | generated::kRoleTens)) {
+      cur += t.value;
+      any = true;
+      continue;
+    }
+    return false;
+  }
+  if (!any) return false;
+  out = total + cur;
+  return true;
+}
+
+// The concatenated reading: "four seven point six two five" is 47.625 because a
+// dictated number is a sequence of DIGITS, not a sum.
+bool concatDigits(const std::vector<RunTok>& toks, std::size_t from, std::size_t to,
+                  std::string& out) {
+  out.clear();
+  for (std::size_t i = from; i < to; ++i) {
+    const RunTok& t = toks[i];
+    if (t.roles & generated::kRoleAnd) continue;
+    if (t.digits.empty()) return false;
+    out += t.digits;
+  }
+  return !out.empty();
+}
+
+void addCandidate(std::vector<double>& values, double v) {
+  if (!std::isfinite(v)) return;
+  for (const double existing : values) {
+    if (std::fabs(existing - v) <= 1e-12 * std::max(1.0, std::fabs(v))) return;
+  }
+  values.push_back(v);
+}
+
+// Every value a run of numeral tokens admits.
+std::vector<double> readingsOf(const std::vector<RunTok>& toks) {
+  std::vector<double> values;
+  const std::size_t n = toks.size();
+  if (n == 0) return values;
+
+  std::size_t point = n;
+  for (std::size_t i = 0; i < n; ++i) {
+    if ((toks[i].roles & generated::kRolePoint) != 0 && !toks[i].is_num) { point = i; break; }
+  }
+
+  auto withDecimal = [&](double whole, std::size_t dec_from) {
+    std::string dec;
+    if (!concatDigits(toks, dec_from, n, dec)) return;
+    const std::string joined = std::to_string(static_cast<long long>(whole)) + "." + dec;
+    double v = 0.0;
+    if (std::from_chars(joined.data(), joined.data() + joined.size(), v).ec == std::errc()) {
+      addCandidate(values, whole < 0 ? -v : v);
+    }
+  };
+
+  if (point < n) {
+    double whole = 0.0;
+    if (point == 0) {
+      withDecimal(0.0, point + 1);
+    } else {
+      if (composeCardinal(toks, 0, point, whole)) withDecimal(whole, point + 1);
+      std::string ints;
+      if (concatDigits(toks, 0, point, ints)) {
+        double w = 0.0;
+        if (std::from_chars(ints.data(), ints.data() + ints.size(), w).ec == std::errc()) {
+          withDecimal(w, point + 1);
+        }
+      }
+    }
+    return values;
+  }
+
+  // Trailing fraction: "three quarters", "forty seven and five eighths", "half".
+  if ((toks[n - 1].roles & generated::kRoleFracDen) != 0 && toks[n - 1].value != 0.0) {
+    const double den = toks[n - 1].value;
+    std::size_t split = n - 1;  // index of the "and", or n-1 when there is none
+    for (std::size_t i = 0; i + 1 < n; ++i) {
+      if (toks[i].roles & generated::kRoleAnd) split = i;
+    }
+    const bool has_and = split < n - 1;
+    double num = 1.0;
+    const std::size_t num_from = has_and ? split + 1 : 0;
+    if (num_from < n - 1 && !composeCardinal(toks, num_from, n - 1, num)) num = 1.0;
+    double whole = 0.0;
+    if (has_and) {
+      if (!composeCardinal(toks, 0, split, whole)) whole = 0.0;
+    }
+    addCandidate(values, whole + num / den);
+  }
+
+  double card = 0.0;
+  if (composeCardinal(toks, 0, n, card)) addCandidate(values, card);
+  std::string ints;
+  if (concatDigits(toks, 0, n, ints)) {
+    double v = 0.0;
+    if (std::from_chars(ints.data(), ints.data() + ints.size(), v).ec == std::errc()) {
+      addCandidate(values, v);
+    }
+  }
+  return values;
+}
+
 }  // namespace
 
 const char* redactionKindName(RedactionKind kind) {
@@ -530,6 +1046,274 @@ std::string normalizeForMatch(const std::string& s) {
     if (isAsciiAlnum(c)) out.push_back(static_cast<char>(std::tolower(c)));
   }
   return out;
+}
+
+Folded foldForMatch(const std::string& raw) {
+  Folded f;
+  f.text.reserve(raw.size());
+  f.raw_offset.reserve(raw.size() + 1);
+  f.synthetic.reserve(raw.size() + 1);
+  f.source.reserve(raw.size() + 1);
+  const auto& folds = codePointFolds();
+  const auto& typo_digits = typographicDigitFolds();
+  const auto& confusables = confusableFolds();
+  const auto& invisible = invisibleCodePoints();
+  std::size_t i = 0;
+  while (i < raw.size()) {
+    const unsigned char c = static_cast<unsigned char>(raw[i]);
+    if (c < 0x80) {
+      f.text.push_back(raw[i]);
+      f.raw_offset.push_back(i);
+      f.synthetic.push_back(0);
+      f.source.push_back(0);
+      ++i;
+      continue;
+    }
+    std::size_t len = 1;
+    const unsigned int cp = decodeUtf8(raw, i, len);
+    auto emit = [&](const std::string& bytes, unsigned char src) {
+      // One code point can fold to SEVERAL bytes ("½" -> "1/2"). Every byte of
+      // the expansion points at the FIRST raw byte of the code point it came
+      // from, and the sentinel below is what makes a span's end readable.
+      for (const char b : bytes) {
+        f.text.push_back(b);
+        f.raw_offset.push_back(i);
+        f.synthetic.push_back(1);
+        f.source.push_back(src);
+      }
+    };
+    const auto it = folds.find(cp);
+    if (it != folds.end()) {
+      emit(it->second, Folded::kSrcFold);
+    } else if (const auto td = typo_digits.find(cp); td != typo_digits.end()) {
+      // A SUPERSCRIPT OR SUBSCRIPT DIGIT. Same fold, different provenance: the
+      // residue scan refuses a foreign decimal digit on sight and must not
+      // refuse an exponent. See typographicDigitFolds().
+      emit(td->second, Folded::kSrcTypoDigit);
+    } else if (invisible.count(cp) != 0) {
+      // FOLDS TO NOTHING. A zero-width space or a combining mark inside a
+      // numeral run is not a separator; treating it as one is how
+      // "forty<ZWSP>seven" stopped being a number. It contributes no folded
+      // byte at all, so no offset can point at it and the widening step below
+      // in redact() sweeps it up with the word it is glued to.
+    } else {
+      const auto cf = confusables.find(cp);
+      if (cf != confusables.end()) {
+        // A CONFUSABLE FOLDS TO ITS SKELETON, and is then judged EXACTLY as the
+        // ASCII spelling would be. This is what closes the homoglyph channel for
+        // the two scripts whose glyphs are indistinguishable from Latin; it buys
+        // precision, not safety — see the wildcard rule in readNumerals(), which
+        // is what makes exhaustiveness here not load-bearing.
+        emit(cf->second.first, static_cast<unsigned char>(cf->second.second + 1));
+      } else {
+        // AN UNMODELLED CODE POINT. It becomes \x01 — still not alphanumeric, so
+        // it can never be MATCHED as a letter or a digit (deny on matching) —
+        // but tokenizeFolded() now carries \x01 INSIDE a word and
+        // adjacencyHolds() lets it sit between tokens, so it can no longer
+        // silently SPLIT a numeral run (never deny by breaking). What happens to
+        // the run it lands in is decided once, at the policy site in redact().
+        f.text.push_back('\x01');
+        f.raw_offset.push_back(i);
+        f.synthetic.push_back(1);
+        f.source.push_back(Folded::kSrcUnknown);
+      }
+    }
+    i += len;
+  }
+  // THE SENTINEL. A span's raw end is raw_offset[span.end], read directly.
+  f.raw_offset.push_back(raw.size());
+  f.synthetic.push_back(0);
+  f.source.push_back(0);
+  return f;
+}
+
+std::vector<NumeralRun> readNumerals(const Folded& folded) {
+  std::vector<NumeralRun> runs;
+  const std::string& t = folded.text;
+  const std::vector<FoldTok> toks = tokenizeFolded(folded);
+  const auto& lex = numeralWords();
+
+  // Which tokens are numeral tokens, and what they contribute.
+  struct Classified {
+    bool numeral = false;
+    bool connector_only = false;  // "and"/"point": may sit inside a run, never bound it
+    std::vector<RunTok> parts;    // usually one; a run-on compound expands to several
+  };
+  std::vector<Classified> cls(toks.size());
+  for (std::size_t i = 0; i < toks.size(); ++i) {
+    const FoldTok& tk = toks[i];
+    if (tk.is_num) {
+      RunTok rt;
+      rt.is_num = true;
+      if (!parseNumericToken(tk.text, rt.value, rt.digits)) continue;
+      cls[i].numeral = true;
+      cls[i].parts.push_back(rt);
+      continue;
+    }
+    if (!tk.is_word) continue;
+    const auto it = lex.find(tk.text);
+    if (it != lex.end()) {
+      RunTok rt;
+      rt.roles = it->second.roles;
+      rt.value = it->second.value;
+      if (it->second.value >= 0.0 && it->second.value <= 9.0 &&
+          (it->second.roles & generated::kRoleUnit) != 0) {
+        rt.digits = std::to_string(static_cast<int>(it->second.value));
+      }
+      cls[i].numeral = true;
+      cls[i].connector_only =
+          (rt.roles & (generated::kRoleAnd | generated::kRolePoint)) != 0 &&
+          (rt.roles & (generated::kRoleUnit | generated::kRoleTeen | generated::kRoleTens |
+                       generated::kRoleScale | generated::kRoleFracDen)) == 0;
+      cls[i].parts.push_back(rt);
+      continue;
+    }
+    std::vector<RunTok> split;
+    if (splitRunOnNumeral(tk.text, split)) {
+      cls[i].numeral = true;
+      cls[i].parts = std::move(split);
+      continue;
+    }
+    // The token did not match as written. If it carries an unmodelled code
+    // point, ask whether it matches with that code point read as a wildcard.
+    if (tk.unmodelled) {
+      std::vector<RunTok> guessed;
+      if (resolveWildcardWord(tk.text, guessed)) {
+        cls[i].numeral = true;
+        cls[i].parts = std::move(guessed);
+      }
+    }
+  }
+
+  // Maximal adjacent runs. A run may not begin or end on a bare connector.
+  std::size_t i = 0;
+  while (i < toks.size()) {
+    if (!cls[i].numeral || cls[i].connector_only) { ++i; continue; }
+    // ── ROUND 3, defect 3c: A REJECTED LOOKAHEAD MUST NOT MARK THE RUN ───────
+    // `a ninety<DEGREE SIGN> elbow in the pipe run` lost "ninety". The degree
+    // sign is an unmodelled code point that sits AFTER the run's last numeral
+    // token, and the trailing-\x01 trim in tokenizeFolded() already keeps it out
+    // of the token — but the adjacency probe below ran across it while looking
+    // at "elbow", set `joined_over_unmodelled`, and then REJECTED "elbow". The
+    // flag survived the rejection, so a symbol outside the run made the run
+    // unmodelled and the policy stripped it. A step that does not extend the run
+    // does not get to describe it: the flag is now committed only when the step
+    // is taken.
+    bool joined_over_unmodelled = false;
+    std::size_t j = i + 1;
+    bool step_over_unmodelled = false;
+    while (j < toks.size() &&
+           (step_over_unmodelled = false,
+            adjacencyHolds(t, toks[j - 1].end, toks[j].begin, step_over_unmodelled))) {
+      if (cls[j].numeral) { joined_over_unmodelled |= step_over_unmodelled; ++j; continue; }
+      // THE ONE FILLER WORD. "eight and a half mm" is a dimension and the "a"
+      // is part of the number, but "a" is far too common to put in the lexicon.
+      // It is absorbed ONLY between an and-connector and a fraction word, so it
+      // can neither begin nor end a run and cannot appear without both
+      // neighbours. Without this, "eight and a half" composes to nothing and
+      // only LAYER B's context rule stands between 8.5 and the wire.
+      bool filler_unmodelled = false;
+      if (toks[j].is_word && (toks[j].text == "a" || toks[j].text == "an") &&
+          !cls[j - 1].parts.empty() && (cls[j - 1].parts.back().roles & generated::kRoleAnd) &&
+          j + 1 < toks.size() && cls[j + 1].numeral &&
+          adjacencyHolds(t, toks[j].end, toks[j + 1].begin, filler_unmodelled) &&
+          !cls[j + 1].parts.empty() &&
+          (cls[j + 1].parts.back().roles & generated::kRoleFracDen)) {
+        joined_over_unmodelled |= step_over_unmodelled | filler_unmodelled;
+        j += 2;
+        continue;
+      }
+      break;
+    }
+    while (j > i + 1 && cls[j - 1].connector_only) --j;
+
+    NumeralRun run;
+    run.begin = toks[i].begin;
+    run.end = toks[j - 1].end;
+    std::vector<RunTok> flat;
+    for (std::size_t k = i; k < j; ++k) {
+      run.has_word |= !toks[k].is_num;
+      run.has_digit |= toks[k].is_num;
+      run.has_unmodelled |= toks[k].unmodelled;
+      for (const RunTok& p : cls[k].parts) flat.push_back(p);
+    }
+    run.has_unmodelled |= joined_over_unmodelled;
+    for (const RunTok& p : flat) {
+      if ((p.roles & generated::kRolePoint) != 0 && !p.is_num) run.has_point_word = true;
+      const bool connector =
+          (p.roles & (generated::kRoleAnd | generated::kRolePoint)) != 0 &&
+          (p.roles & (generated::kRoleUnit | generated::kRoleTeen | generated::kRoleTens |
+                      generated::kRoleScale | generated::kRoleFracDen)) == 0;
+      if (!connector) ++run.magnitude_tokens;
+    }
+    // ROUND 3, defect 3c. A FOLDED DASH DOES NOT MAKE A RUN NON-ASCII. This flag
+    // drives a default-deny ("a fullwidth 4 in an engineering question is not an
+    // innocent spelling"), and it used to be set by ANY folded byte — including
+    // the '-' an en dash now folds to, so `a one<EN DASH>two punch` was stripped
+    // where the byte-identical ASCII `a one-two punch` survives. A typeset dash
+    // is the ASCII hyphen: it carries no value and the ASCII spelling of the same
+    // run contains it too. Everything else that folds — digits, separators,
+    // look-alike letters — still sets the flag.
+    for (std::size_t b = run.begin; b < run.end && b < folded.synthetic.size(); ++b) {
+      if (!folded.synthetic[b]) continue;
+      const unsigned char c = static_cast<unsigned char>(folded.text[b]);
+      if (c == '-' || std::isspace(c)) continue;
+      run.has_nonascii = true;
+      break;
+    }
+    run.values = readingsOf(flat);
+
+    // ── LAYER B context, decided on the folded text ──────────────────────────
+    bool ignored_join = false;
+    std::string prev_word;
+    if (i > 0 && toks[i - 1].is_word &&
+        adjacencyHolds(t, toks[i - 1].end, toks[i].begin, ignored_join)) {
+      prev_word = toks[i - 1].text;
+    }
+    std::string next1, following;
+    if (j < toks.size() && adjacencyHolds(t, toks[j - 1].end, toks[j].begin, ignored_join) &&
+        toks[j].is_word) {
+      next1 = toks[j].text;
+      for (std::size_t k = j; k < toks.size() && k < j + 3; ++k) {
+        if (!toks[k].is_word) break;
+        if (!following.empty()) following.push_back(' ');
+        following += toks[k].text;
+        if (publicNumeralIdioms().count(following)) run.public_idiom = true;
+      }
+    }
+    run.dimension_context =
+        (!prev_word.empty() && dimensionNouns().count(prev_word) > 0) ||
+        (!next1.empty() && numeralContextUnits().count(next1) > 0);
+
+    runs.push_back(std::move(run));
+    i = j;
+  }
+  return runs;
+}
+
+// ── THE PROSE BOUND, AND THE ONE DEFINITION OF "VALUE EXPRESSION" ───────────
+// This predicate lives in exactly one place because it is used in TWO, and the
+// two must never disagree. Narrowing LAYER A in redact() alone was measured and
+// is strictly WORSE than not narrowing it at all: verifyNoResidue's value arm
+// still found the surviving "third"/"two", called it residue, and the client
+// refused to send. Fifteen DAMAGED rows became fifteen REFUSED sends — the same
+// loss, now with no query at all instead of a shortened one. A post-condition
+// enforces the policy; it does not get its own, stricter one.
+//
+// A run whose every reading is 3 or less, written in words, with no unit and no
+// dimension noun, is a counting word and not a dimension. The test is ANY
+// reading above the bound rather than all of them, because an extra candidate is
+// fail-CLOSED: a run that can be read as 12 is a value expression even if it can
+// also be read as 3.
+bool isValueExpression(const NumeralRun& run) {
+  constexpr double kProseBound = 3.0;
+  if (run.dimension_context || run.has_digit || run.has_nonascii || run.has_point_word) {
+    return true;
+  }
+  for (const double v : run.values) {
+    if (std::fabs(v) > kProseBound + 1e-9) return true;
+  }
+  return false;
 }
 
 std::string decodeForResidueScan(const std::string& s) {
@@ -651,6 +1435,129 @@ bool isPublicDesignation(const std::string& token, const std::string& previous_t
 
 }  // namespace detail
 
+namespace {
+
+// ── THE MIXED-SCRIPT RESIDUE SCAN (round 2) ─────────────────────────────────
+// verifyNoResidue()'s value arm calls readNumerals() over the same closed
+// numeral lexicon the classifier uses, so it is independent of the CLASSIFIER
+// and NOT independent of its VOCABULARY: a numeral word neither knows cannot be
+// caught by either. This arm shares nothing with that vocabulary. It asks a
+// different question entirely — does the outgoing buffer contain a token that
+// MIXES ASCII letters with code points from another script that look like ASCII
+// letters, or a decimal digit that is not an ASCII digit, or a zero-width code
+// point wedged between two letters? Those are the shapes of an evasion, and the
+// answer does not depend on what any word means.
+//
+// Accented Latin and ligatures are script tag 0 and are NOT flagged: "epaisseur"
+// spelled with an e-acute is a French word, not a disguise.
+// ── ROUND 3, defect 3a: THE TOKEN BOUNDARY ──────────────────────────────────
+// This scan used to tokenize on whitespace ALONE, and at round 2 it was handed
+// the raw encoded body `q=<query>&format=json&...`. The `q=` prefix therefore
+// GLUED AN ASCII 'q' ONTO THE FIRST TOKEN, so "<alpha> taper" was REFUSED (token
+// "q=a", ASCII 'q' beside a Greek letter) while the identical "taper <alpha>
+// angle" was SENT: the verdict depended on WORD ORDER. Defect 1 removes the
+// prefix by scoping the scan to the decoded field VALUE, and this separator set
+// removes the class of bug: a byte that can never occur inside a word — the
+// form-encoding and URL punctuation — ends a token here too.
+bool isTokenBoundary(unsigned char c) {
+  return std::isspace(c) || c == '=' || c == '&' || c == '?' || c == '#' || c == ';' ||
+         c == '/' || c == '\\' || c == ':' || c == ',' || c == '"' || c == '<' || c == '>';
+}
+
+bool findMixedScriptResidue(const std::string& decoded, std::string& why) {
+  const detail::Folded f = detail::foldForMatch(decoded);
+  std::size_t i = 0;
+  while (i < f.text.size()) {
+    // One token of the FOLDED text. See isTokenBoundary.
+    while (i < f.text.size() && isTokenBoundary(static_cast<unsigned char>(f.text[i]))) ++i;
+    const std::size_t b = i;
+    while (i < f.text.size() && !isTokenBoundary(static_cast<unsigned char>(f.text[i]))) ++i;
+    bool ascii_letter = false, foreign_letter = false, folded_digit = false;
+    bool invisible_inside = false;
+    // ── ROUND 3, defect 3b: DISGUISE vs ORDINARY TECHNICAL TYPOGRAPHY ────────
+    // At round 2 ANY ASCII letter anywhere in the token beside ANY non-Latin
+    // letter was a disguise. Measured, that refused `<U+03BC>m surface finish on
+    // the ground journal` outright, while the visually identical MICRO SIGN
+    // U+00B5 passed — not by a principle, but because U+00B5 happens to be
+    // unmodelled. Two spellings of the same micrometre cannot have opposite
+    // verdicts.
+    //
+    // THE LINE, and it is about SUBSTITUTION, not about foreignness. A disguise
+    // is a foreign letter STANDING IN FOR a Latin one inside a word that reads
+    // as English: "f<U+043E>rty" is four ASCII letters with a look-alike in the
+    // place of the fifth. A SYMBOL is a foreign letter carrying its own meaning
+    // at the edge of a short token: mu-m, ohm-m, delta-p, sigma-y. So the token
+    // is a disguise when EITHER
+    //    * the foreign letter sits BETWEEN two ASCII letters (nothing legible is
+    //      spelled that way), OR
+    //    * the token carries at least three OTHER ASCII letters, so the foreign
+    //      letter is a minority hidden inside a word — "<U+0441>even",
+    //      "<U+0440>oint", "<U+043D>inety".
+    // and it is ordinary typography when a foreign letter has at most two ASCII
+    // letters beside it and none on one side.
+    //
+    // WHAT THIS GIVES UP, stated: a two-letter numeral disguise with the foreign
+    // letter at an edge — "<cyr o>ne", "<cyr t>wo" — is no longer caught by THIS
+    // arm. It is still caught, because the fold makes it a numeral run carrying a
+    // non-ASCII code point and redact() default-denies exactly that; measured on
+    // all 16 homoglyph forms and all 4 unmodelled ones below.
+    int ascii_letters = 0;
+    bool foreign_interior = false;
+    for (std::size_t k = b; k < i; ++k) {
+      const unsigned char c = static_cast<unsigned char>(f.text[k]);
+      const unsigned char src = f.source[k];
+      if (src == 0) {
+        if (isAsciiAlpha(c)) { ascii_letter = true; ++ascii_letters; }
+        continue;
+      }
+      if (src == detail::Folded::kSrcFold && isAsciiDigit(c)) folded_digit = true;
+      if (src >= 1 && src <= 5 && (isAsciiAlpha(c) || isAsciiDigit(c))) {
+        // script tag 0 (+1 == 1) is accented Latin: an ordinary spelling.
+        if (src != 1) {
+          foreign_letter = true;
+          const bool left = k > b && f.source[k - 1] == 0 &&
+                            isAsciiAlpha(static_cast<unsigned char>(f.text[k - 1]));
+          const bool right = k + 1 < i && f.source[k + 1] == 0 &&
+                             isAsciiAlpha(static_cast<unsigned char>(f.text[k + 1]));
+          if (left && right) foreign_interior = true;
+        }
+      }
+    }
+    // A zero-width code point folds to nothing, so it cannot be seen in the
+    // FOLDED text. Look for it where it actually is: in the raw bytes this
+    // token came from, between two alphanumerics.
+    if (i > b) {
+      const std::size_t raw_b = f.raw_offset[b];
+      const std::size_t raw_e = f.raw_offset[i];
+      const detail::Folded inner = detail::foldForMatch(decoded.substr(raw_b, raw_e - raw_b));
+      if (inner.text.size() + 1 < raw_e - raw_b && ascii_letter) {
+        // Folding shrank the token by more than plain UTF-8 width would: at
+        // least one code point folded to nothing.
+        std::size_t raw_cp = 0;
+        for (std::size_t k = raw_b; k < raw_e; ++k) {
+          if ((static_cast<unsigned char>(decoded[k]) & 0xC0) != 0x80) ++raw_cp;
+        }
+        if (raw_cp > inner.text.size()) invisible_inside = true;
+      }
+    }
+    if (folded_digit) {
+      why = "a decimal digit that is not an ASCII digit survives in the outgoing buffer";
+      return true;
+    }
+    if (ascii_letter && foreign_letter && (foreign_interior || ascii_letters >= 3)) {
+      why = "a mixed-script look-alike token survives in the outgoing buffer";
+      return true;
+    }
+    if (invisible_inside) {
+      why = "a zero-width or combining code point survives inside a word in the outgoing buffer";
+      return true;
+    }
+  }
+  return false;
+}
+
+}  // namespace
+
 Redactor::Redactor(PrivateLexicon lexicon, RedactionPolicy policy)
     : lexicon_(std::move(lexicon)), policy_(policy) {}
 
@@ -685,6 +1592,105 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   markCategory(lexicon_.supplier_names, RedactionKind::RegisteredSupplier);
   markCategory(lexicon_.part_numbers, RedactionKind::PartNumber);
   markCategory(lexicon_.secret_terms, RedactionKind::RegisteredSecret);
+
+  // ── phase 1b: numerals written in WORDS, and digits written in other scripts
+  // A SPAN PRODUCER, not another token rule. The classifier below tokenizes on
+  // whitespace and decides one token at a time with one token of lookback, so
+  // "forty seven point six two five" — six tokens — can never be seen whole by
+  // anything inside it. Pushing raw-offset spans into the SAME vector the
+  // registered-phrase pass uses means the sort, the overlap drop, the
+  // word-boundary widening and the phase-2 slicing all keep working unchanged.
+  if (policy_.strip_unallowlisted_numbers) {
+    const detail::Folded folded = detail::foldForMatch(raw);
+    for (const detail::NumeralRun& run : detail::readNumerals(folded)) {
+      // A run of PURE ASCII DIGITS with no numeral word is left alone: the
+      // token classifier already strips it, and re-deciding it here would
+      // change behaviour that 193 existing assertions pin down.
+      if (!run.has_word && !run.has_nonascii && !run.has_unmodelled) continue;
+
+      // ── THE UNMODELLED-CODE-POINT RULE (round 2, defect 1) ────────────────
+      // A numeral run carrying a code point NO fold table names is REFUSED: the
+      // run is stripped whatever it composes to, and no exemption reaches it.
+      //
+      // THE CHOICE, and why it is this one. Two answers were available once the
+      // run FORMS instead of silently splitting: join it and let the value layer
+      // judge, or refuse to transmit. Judging is unsound here — the wildcard
+      // reading that recognised the token is ambiguous by construction ("f?rty"
+      // is forty and fifty and forty-something), so a value match would be a
+      // guess in BOTH directions: it could miss the secret, and it could strip
+      // an innocent word for a value it never held. Refusing is sound and its
+      // cost is bounded and measurable: it can only ever remove a NUMERAL RUN,
+      // never ordinary prose, and it is measured at 0 damage over the 47-query
+      // control set. There is also no innocent reason to write an engineering
+      // number with an unnameable code point inside it; there is one obvious
+      // guilty reason, and it is the one that was measured working.
+      bool strip = run.has_unmodelled && !run.values.empty();
+
+      // ── LAYER A — value match against the registered secrets ──────────────
+      // Context-free and idiom-proof: a registered secret is removed however it
+      // is spelled — BUT ONLY WHERE THE RUN IS A VALUE EXPRESSION.
+      //
+      // ROUND 2, defect 2. Layer A was applied to every numeral run, and that
+      // measured 15 of 47 ordinary engineering queries DAMAGED at an ordinary
+      // secret set {12, 3, 0.75, 47.625, 8.5, 2}: a registered 2.0 turns "what
+      // is the second moment of area" into "what is the moment of area" and "a
+      // second opinion on the weld procedure" into "a opinion on the weld
+      // procedure". Round 1 reported "false positives introduced: 0" because its
+      // control arm ran at an EMPTY secret set, where Layer A cannot fire at all.
+      //
+      // The two properties cannot both be had in full, so the line is drawn at
+      // whether the run PINS THE VALUE DOWN. A run does when any of these holds:
+      //   * it is in measurement context (a dimension noun before it or a unit
+      //     word after it) — note the idiom exemptions do NOT apply here, so
+      //     smuggling a registered value inside a public idiom still fails;
+      //   * it is written with digits, or carries a folded non-ASCII code point;
+      //   * it carries an explicit decimal-point word ("two point five" is a
+      //     number in any sentence; "three quarters" is a proportion in most);
+      //   * it composes to more than 3.
+      // A run meeting NONE of these is a bare numeral word for one, two or three
+      // sitting in prose with no unit anywhere near it. That is a WORD, not a
+      // secret: the values 1, 2 and 3 are the counting words of English and the
+      // information they carry about a registered dimension is nil.
+      //
+      // THE BOUND IS DERIVED, NOT CHOSEN. It must be below 12, because this
+      // suite's own positive arm requires "the twelfth rib pitch" to be stripped
+      // when 12.0 is registered — a bare single ordinal in prose with no unit,
+      // structurally IDENTICAL to the control row "the third angle projection
+      // convention", which must survive. Those two rows are the trade-off made
+      // visible: no context-free rule can separate them, and every bound in
+      // [4, 11] is equivalent on both the control set and the census, so the
+      // smallest defensible one is used.
+      if (!strip && detail::isValueExpression(run)) {
+        for (const double secret : lexicon_.secret_dimensions) {
+          const double scale = std::max(1.0, std::fabs(secret));
+          for (const double v : run.values) {
+            if (std::fabs(v - secret) <= 1e-9 * scale) { strip = true; break; }
+          }
+          if (strip) break;
+        }
+      }
+      // Non-ASCII digits keep the DIGIT stance — default-deny. They cost nothing
+      // on the false-positive control set and a fullwidth 4 in an engineering
+      // question is not an innocent spelling.
+      if (!strip && run.has_nonascii && !run.values.empty()) strip = true;
+      // LAYER B — dimensional context, for a secret nobody registered.
+      if (!strip && run.has_word && run.dimension_context && !run.public_idiom &&
+          !run.values.empty()) {
+        strip = true;
+      }
+      if (!strip) continue;
+
+      // FOLDED-SPACE OFFSETS MUST BE CARRIED BACK. Both are std::size_t and the
+      // compiler cannot tell them apart; the end is read from the SENTINEL map
+      // directly, never as raw_offset[end - 1] + 1, which for a multi-byte code
+      // point lands inside the UTF-8 sequence.
+      const std::size_t raw_begin = folded.raw_offset[run.begin];
+      const std::size_t raw_end = folded.raw_offset[run.end];
+      if (raw_end > raw_begin && raw_end <= raw.size()) {
+        spans.push_back(Span{raw_begin, raw_end, RedactionKind::DimensionLiteral});
+      }
+    }
+  }
 
   // Longest-match-wins, then drop overlaps.
   std::sort(spans.begin(), spans.end(), [](const Span& a, const Span& b) {
@@ -878,18 +1884,77 @@ bool Redactor::verifyNoResidue(const std::string& wire, std::vector<std::string>
   scanCategory(lexicon_.part_numbers, "part-number");
   scanCategory(lexicon_.secret_terms, "proprietary-term");
 
+  // (c) MIXED-SCRIPT / NON-ASCII-DIGIT / ZERO-WIDTH residue. THE ONLY ARM HERE
+  //     THAT IS INDEPENDENT OF THE NUMERAL VOCABULARY. Arm (b) below re-reads the
+  //     buffer with readNumerals() over the SAME closed lexicon the classifier
+  //     used, so it is independent of the classifier's CODE and not of its WORDS:
+  //     a numeral word the lexicon does not model is invisible to both, and
+  //     calling that combination an independent post-condition was wrong. This
+  //     arm asks a question the lexicon cannot answer either way — is there a
+  //     look-alike, a foreign decimal digit, or a zero-width code point in the
+  //     bytes we are about to send? — so it catches an evasion carried by a word
+  //     nobody has ever modelled.
+  //
+  //     It runs unconditionally, including when no secret dimension is
+  //     registered, because a homoglyph on the wire is a defect whatever the
+  //     lexicon holds.
+  {
+    std::string why;
+    if (findMixedScriptResidue(decoded, why)) residue.push_back(why);
+  }
+
   // (b) registered secret dimensions, by parsed VALUE — encoding-proof.
+  //
+  // THE SCAN RUNS OVER THE FOLD, NOT THE RAW BYTES. decodeForResidueScan undoes
+  // the encoders; the fold undoes the SCRIPT. Without it every non-ASCII decimal
+  // digit is invisible here for the same reason it is invisible to the
+  // classifier — normalizeForMatch keeps only isAsciiAlnum — and a fullwidth or
+  // Arabic-Indic spelling of a registered secret passes both layers.
+  //
+  // THE WORD LAYER IS OFFSET-FREE ON PURPOSE. A residue report names the lexicon
+  // index and nothing else, so this half needs no map back to the original bytes
+  // and cannot inherit a mapping bug from redact(). That independence is the
+  // whole point of the post-condition (see the header): a bug in the classifier
+  // must not be able to silently leak a registered secret.
   if (!lexicon_.secret_dimensions.empty()) {
-    const auto literals = scanNumericLiterals(decoded);
+    const detail::Folded folded = detail::foldForMatch(decoded);
+    // ROUND 3. MASK THE EXPONENTS FIRST. The classifier deliberately keeps mm<sup2>
+    // (see isExponentDigit), so a post-condition that reads the folded '2' as a
+    // numeric literal refuses the whole send at a registered 2.0 — measured: `area
+    // in mm<sup2> for the third section` transmitted nothing. This file already
+    // records the rule: a post-condition enforces the policy, it does not get its
+    // own stricter one. An exponent digit is not a literal for either.
+    std::string masked = folded.text;
+    for (std::size_t k = 0; k < masked.size(); ++k) {
+      if (isExponentDigit(folded, k)) masked[k] = '\x01';
+    }
+    const auto literals = scanNumericLiterals(masked);
+    std::vector<double> spelled;
+    for (const detail::NumeralRun& run : detail::readNumerals(folded)) {
+      if (!run.has_word) continue;  // digit forms are already covered by `literals`
+      // THE SAME LINE THE CLASSIFIER DREW. See detail::isValueExpression: a
+      // post-condition that is stricter than the policy does not catch more, it
+      // just converts every one of the policy's accepted collisions into a
+      // refused send. Measured: 15 DAMAGED rows became 15 REFUSED sends.
+      if (!detail::isValueExpression(run)) continue;
+      for (const double v : run.values) spelled.push_back(v);
+    }
     for (std::size_t i = 0; i < lexicon_.secret_dimensions.size(); ++i) {
       const double secret = lexicon_.secret_dimensions[i];
+      const double scale = std::max(1.0, std::fabs(secret));
+      bool hit = false;
       for (const auto& [text, value] : literals) {
-        const double scale = std::max(1.0, std::fabs(secret));
-        if (std::fabs(value - secret) <= 1e-9 * scale) {
-          residue.push_back("secret-dimension lexicon entry #" + std::to_string(i) +
-                            " survives in the outgoing buffer");
-          break;
+        (void)text;
+        if (std::fabs(value - secret) <= 1e-9 * scale) { hit = true; break; }
+      }
+      if (!hit) {
+        for (const double value : spelled) {
+          if (std::fabs(value - secret) <= 1e-9 * scale) { hit = true; break; }
         }
+      }
+      if (hit) {
+        residue.push_back("secret-dimension lexicon entry #" + std::to_string(i) +
+                          " survives in the outgoing buffer");
       }
     }
   }
@@ -918,9 +1983,33 @@ bool Redactor::verifyQueryFullyRedacted(const std::string& query_text,
     std::size_t lead = 0;
     const std::string token = trimPunctuation(decoded.substr(start, pos - start), lead);
     if (token.empty()) continue;
+    // FOLD BEFORE ASKING "does this carry a digit?". The default-deny numeric
+    // rule was ASCII-only, so ４７．６２５ carried no digit by this test and the
+    // strict scan waved it through. The fold costs nothing on ordinary text —
+    // ASCII passes through byte for byte — and it is free on the false-positive
+    // control set, none of whose 42 queries contains a digit in any script.
+    // NOTE the deliberate asymmetry with number WORDS: they are NOT denied here.
+    // Measured, extending this blanket deny to the modelled numeral words turns
+    // every one of those 42 ordinary queries into REDACTION_REFUSED, because the
+    // allow-set at the bottom of this function licenses a token only by EXACT
+    // membership and there is no way to bless "one" for "one-piece housing"
+    // without blessing it everywhere. Words are handled by value match and
+    // dimensional context in redact(), and by the offset-free value scan in
+    // verifyNoResidue() above.
+    // ROUND 3: an EXPONENT is not a digit for this rule, exactly as it is not a
+    // numeral token for the run reader. Without this, folding mm<sup4> made the
+    // post-condition deny a token the classifier had deliberately kept, and the
+    // whole query was refused rather than shortened — the round-2 lesson about a
+    // post-condition stricter than the policy, repeated one layer down.
     bool hasDigit = false;
-    for (const unsigned char c : token) {
-      if (isAsciiDigit(c)) { hasDigit = true; break; }
+    {
+      const detail::Folded tf = detail::foldForMatch(token);
+      for (std::size_t k = 0; k < tf.text.size(); ++k) {
+        if (!isAsciiDigit(static_cast<unsigned char>(tf.text[k]))) continue;
+        if (isExponentDigit(tf, k)) continue;
+        hasDigit = true;
+        break;
+      }
     }
     if (!hasDigit) continue;
     // EXACT membership only. A substring test would let keeping "A36" bless the

@@ -24,6 +24,57 @@ bool contains(const std::string& s, const char* needle) {
   return s.find(needle) != std::string::npos;
 }
 
+// ── THE PAYLOAD BOUNDARY ─────────────────────────────────────────────────────
+// ROUND 3, defect 1. A post-condition must scan THE PAYLOAD IT PROTECTS, never
+// the transport frame carrying it. At HEAD, at round 1 and at round 2 the value
+// arm of verifyNoResidue() was handed the ENTIRE encoded body and then the
+// ENTIRE serialized HTTP request. Those buffers carry the redactor's OWN
+// envelope: pageno=1, safesearch=1, HTTP/1.1, 127.0.0.1:8888,
+// forge-retrieval/1.0 and Content-Length: N. Measured on this seam:
+//   * a registered 1.0 kills EVERY query for ever, because pageno=1 is always
+//     present — 127 of 127 honest queries refused, nothing transmits at all;
+//   * a registered 100 kills exactly those queries whose body happens to be 100
+//     bytes long ("schedule eighty pipe versus schedule forty" is one, and it
+//     contains no 100 anywhere).
+// The defence became a denial of service against its own product.
+//
+// THE RULE, stated once and enforced in both gates:
+//
+//   THE PROTECTED PAYLOAD IS THE PERCENT-DECODED VALUE OF EVERY REQUEST-DERIVED
+//   WIRE FIELD, AND NOTHING ELSE.
+//
+//   IN   the values of q, language and site — every byte whose CONTENT came
+//        from the operator's SearchRequest.
+//   OUT  the transport frame: method, HTTP version, Host, Accept, User-Agent,
+//        Content-Type, Content-Length, Connection, and the URL path PREFIX.
+//   OUT  the wire field NAMES, and the values of fields this client authored
+//        from its own literals (format, pageno, safesearch, time_range).
+//
+// A header the client itself wrote is OUT, and the URL path prefix is OUT — but
+// only because neither may carry a request-derived byte, and that is CHECKED,
+// not assumed. GATE 3 reconstructs the whole frame from the endpoint config and
+// the approved payload and requires the actual serialized request to match it
+// BYTE FOR BYTE (see there). So the boundary is not a promise that the envelope
+// is harmless; it is a proof that the envelope is this client's own literals.
+// In GET mode the encoded body lives INSIDE the path, so "the path is out" is
+// specifically the path PREFIX: the query string after '?' is payload and is
+// scanned as payload.
+//
+// Both sets below are CLOSED and are the single place the boundary is written
+// down. A field name that is in neither is refused, so adding a wire field
+// without answering "is this request-derived?" fails closed.
+bool isDeclaredWireField(const std::string& name) {
+  return name == "q" || name == "format" || name == "language" || name == "pageno" ||
+         name == "safesearch" || name == "time_range" || name == "site";
+}
+
+// True for a value this client authored from a literal in this file or from an
+// enumerator name. DEFAULT IS FALSE: an unlisted field is request-derived and is
+// scanned.
+bool isOperatorConstantField(const std::string& name) {
+  return name == "format" || name == "pageno" || name == "safesearch" || name == "time_range";
+}
+
 }  // namespace
 
 const char* retrievalStatusName(RetrievalStatus s) {
@@ -257,19 +308,24 @@ QueryPreview SearxngClient::preview(const SearchRequest& request) const {
     body += formEncode(f.value);
   }
 
-  // ── GATE 1: strict residue scan on the ENTIRE encoded body ────────────────
+  // ── GATE 1: strict residue scan on every REQUEST-DERIVED VALUE ────────────
   // A gate that inspects one field cannot certify a request. This one certifies
   // the BYTES: it parses the body back out of the string that will actually be
   // sent, matches every pair to a field this client declared, refuses any pair
   // it cannot account for, and puts every non-constant value through the strict
   // default-deny scan. `site=` used to bypass all of this because the gate only
   // ever looked at `q=`.
+  //
+  // ROUND 3, defect 1. What it no longer does is scan the WHOLE ENCODED BODY as
+  // one blob. That blob is not the payload — it is the payload plus this
+  // client's own `pageno=1&safesearch=1` — so the blob scan refused every query
+  // in existence at a registered 1.0. See THE PAYLOAD BOUNDARY above. Nothing is
+  // lost by dropping it: the per-pair loop below scans every request-derived
+  // value, accounts for every pair, and refuses any pair it cannot name, so a
+  // byte can only reach the body through a field this loop inspects.
   std::vector<std::string> residue;
   {
     std::vector<std::string> found;
-    if (!redactor_.verifyNoResidue(body, found)) {
-      residue.insert(residue.end(), found.begin(), found.end());
-    }
     std::size_t at = 0;
     std::size_t seen = 0;
     while (at <= body.size()) {
@@ -287,6 +343,16 @@ QueryPreview SearxngClient::preview(const SearchRequest& request) const {
       ++seen;
       if (field == nullptr) {
         residue.push_back("undeclared wire field '" + name + "' is present in the encoded body");
+      } else if (!isDeclaredWireField(name)) {
+        // The creation site above and THE PAYLOAD BOUNDARY must name the same
+        // fields. A field created without being added to the closed set is
+        // refused rather than sent unclassified.
+        residue.push_back("wire field '" + name + "' is not in the declared payload boundary");
+      } else if (field->operator_constant != isOperatorConstantField(name)) {
+        // The two places that decide "is this request-derived?" disagree. That
+        // is exactly the condition under which one of them is scanning the wrong
+        // bytes, so it fails closed instead of picking a winner.
+        residue.push_back("wire field '" + name + "' disagrees with the declared payload boundary");
       } else if (field->value != value) {
         residue.push_back("wire field '" + name + "' does not decode back to the previewed value");
       } else if (!field->operator_constant) {
@@ -386,13 +452,78 @@ RetrievalResult SearxngClient::search(const QueryPreview& preview,
 
   const HttpRequest req = buildHttpRequest(preview);
 
-  // ── GATE 3: envelope-safe residue scan on the FINAL serialized request ────
+  // ── GATE 3: the envelope is ours, and the payload inside it is clean ──────
   // This is the last thing before the socket. It re-derives its verdict from the
   // lexicon and from parsed numeric values, not from the classifier that built
   // the query, so a redactor bug cannot get a registered secret onto the wire.
+  //
+  // ROUND 3, defect 1. It used to hand the WHOLE SERIALIZED REQUEST to the value
+  // arm — request line, Host, User-Agent, Content-Length and all — so the
+  // redactor's own envelope was scanned as if the operator had written it. See
+  // THE PAYLOAD BOUNDARY at the top of this file. The gate is now two checks
+  // that together are strictly stronger than the blob scan was:
+  //
+  //  (3a) THE ENVELOPE IS THIS CLIENT'S OWN LITERALS. The expected frame is
+  //       rebuilt HERE, from the endpoint configuration and the approved
+  //       payload — deliberately NOT by calling buildHttpRequest(), which is the
+  //       thing under test — and the actual bytes must match it EXACTLY. This is
+  //       what licenses "the frame is out of scope": not an assumption that
+  //       headers are harmless, but a proof that every byte outside the payload
+  //       came from a literal in this file or from the endpoint config. Add a
+  //       header in buildHttpRequest(), change the method, or splice one byte of
+  //       request text into the path, and this check refuses the send.
+  //  (3b) THE PAYLOAD IS CLEAN. Every request-derived field value inside the
+  //       payload goes through the independent lexicon/value scan again.
   const std::string final_bytes = req.serialize();
   std::vector<std::string> residue;
-  if (!redactor_.verifyNoResidue(final_bytes, residue)) {
+  {
+    const std::string& payload = preview.encoded_body;
+    std::string expected;
+    expected += endpoint_.use_post ? "POST " : "GET ";
+    expected += endpoint_.path;
+    if (!endpoint_.use_post) { expected += "?"; expected += payload; }
+    expected += " HTTP/1.1\r\n";
+    expected += "Host: " + endpoint_.host + ":" + std::to_string(endpoint_.port) + "\r\n";
+    // HttpRequest::serialize() walks a std::map, so header order is the key
+    // order: Accept < Content-Type < User-Agent.
+    expected += "Accept: application/json\r\n";
+    if (endpoint_.use_post) expected += "Content-Type: application/x-www-form-urlencoded\r\n";
+    expected += "User-Agent: forge-retrieval/1.0\r\n";
+    expected += "Content-Length: " +
+                std::to_string(endpoint_.use_post ? payload.size() : std::size_t{0}) + "\r\n";
+    expected += "Connection: close\r\n\r\n";
+    if (endpoint_.use_post) expected += payload;
+    if (final_bytes != expected) {
+      residue.push_back(
+          "the serialized request is not this client's envelope around the approved payload");
+    }
+  }
+  {
+    // (3b) THE PAYLOAD, field by field. The same closed boundary GATE 1 used.
+    std::size_t at = 0;
+    while (at <= preview.encoded_body.size()) {
+      const std::size_t amp = preview.encoded_body.find('&', at);
+      const std::string pair = preview.encoded_body.substr(
+          at, amp == std::string::npos ? std::string::npos : amp - at);
+      const std::size_t eq = pair.find('=');
+      const std::string name =
+          detail::decodeForResidueScan(eq == std::string::npos ? pair : pair.substr(0, eq));
+      const std::string value = eq == std::string::npos
+                                    ? std::string()
+                                    : detail::decodeForResidueScan(pair.substr(eq + 1));
+      if (!isDeclaredWireField(name)) {
+        residue.push_back("undeclared wire field '" + name + "' reached the final request");
+      } else if (!isOperatorConstantField(name)) {
+        std::vector<std::string> found;
+        if (!redactor_.verifyNoResidue(value, found)) {
+          for (const std::string& s : found) residue.push_back("field '" + name + "': " + s);
+        }
+      }
+      if (amp == std::string::npos) break;
+      at = amp + 1;
+    }
+  }
+  if (!residue.empty()) {
     result.status = RetrievalStatus::REDACTION_REFUSED;
     result.detail = residue.front();
     for (std::size_t i = 1; i < residue.size(); ++i) result.detail += "; " + residue[i];
