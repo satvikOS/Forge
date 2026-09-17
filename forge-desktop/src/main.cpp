@@ -404,9 +404,35 @@ int main(int argc, char** argv) {
   std::string screenshot;
   std::string startWorkspace;
   std::string openPath;
+  // ── the demo driver ───────────────────────────────────────────────────────
+  // --copilot "<sentence>" presses the copilot panel's OWN buttons from the
+  // frame loop: ForgeFrame::copilotType() then copilotSubmit(), which is exactly
+  // what the text field and the Plan button call (they only RECORD a press;
+  // build() runs it). It is a driver for the real UI path, not a second path --
+  // there is no planner call here, no registry call here, and no document call
+  // here. --copilot-apply then presses Apply the same way.
+  //
+  // It exists because this machine has no Screen Recording permission, so a
+  // human-equivalent keystroke run cannot be OBSERVED between steps; the app's
+  // own --screenshot of the live swapchain can be. What is demonstrated is the
+  // app, its window, its planner and its kernel; what is NOT demonstrated by
+  // this flag is the mouse and the keyboard reaching the text field.
+  std::string copilotPrompt;
+  bool copilotApply = false;
+  // Clear the starter part first, through the registry's own "file.new", so a
+  // measurement of the result is a measurement of what the PROMPT built and not
+  // of the 80x50x20 demo plate the app opens with.
+  bool newPartFirst = false;
+  std::string shotPlan;
+  std::string shotApplied;
   for (int i = 1; i < argc; ++i) {
     if (std::strcmp(argv[i], "--frames") == 0 && i + 1 < argc) frameLimit = std::atoi(argv[++i]);
     if (std::strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) screenshot = argv[++i];
+    if (std::strcmp(argv[i], "--copilot") == 0 && i + 1 < argc) copilotPrompt = argv[++i];
+    if (std::strcmp(argv[i], "--copilot-apply") == 0) copilotApply = true;
+    if (std::strcmp(argv[i], "--new-part") == 0) newPartFirst = true;
+    if (std::strcmp(argv[i], "--shot-plan") == 0 && i + 1 < argc) shotPlan = argv[++i];
+    if (std::strcmp(argv[i], "--shot-applied") == 0 && i + 1 < argc) shotApplied = argv[++i];
     if (std::strcmp(argv[i], "--workspace") == 0 && i + 1 < argc) startWorkspace = argv[++i];
     if (std::strcmp(argv[i], "--open") == 0 && i + 1 < argc) openPath = argv[++i];
     if (std::strcmp(argv[i], "--headless") == 0) headless = true;
@@ -416,6 +442,9 @@ int main(int argc, char** argv) {
         std::strcmp(argv[i - 1], "--frames") != 0 &&
         std::strcmp(argv[i - 1], "--screenshot") != 0 &&
         std::strcmp(argv[i - 1], "--workspace") != 0 &&
+        std::strcmp(argv[i - 1], "--copilot") != 0 &&
+        std::strcmp(argv[i - 1], "--shot-plan") != 0 &&
+        std::strcmp(argv[i - 1], "--shot-applied") != 0 &&
         std::strcmp(argv[i - 1], "--open") != 0) {
       openPath = argv[i];
     }
@@ -827,6 +856,12 @@ int main(int argc, char** argv) {
   const int kArchieCaptureEvery = 30;   // ~2 Hz at 60 fps; one capture costs ~a frame
   int lastArchieFrame = -kArchieCaptureEvery;
   bool running = true;
+
+  // Demo-driver state. Stage 0 waits for the FIRST viewport capture so the
+  // request carries the picture a user would have been looking at.
+  int driveStage = copilotPrompt.empty() ? 99 : 0;
+  int driveWakeFrame = 0;
+  std::string pendingShot;
   while (running) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -892,6 +927,124 @@ int main(int argc, char** argv) {
     if (frame.updateApplyRequested()) {
       frame.clearUpdateApplyRequest();
       updates.apply(appBundle);
+    }
+
+    // ── demo driver: one stage per frame, all through ForgeFrame's own presses ─
+    if (driveStage != 99 && frames >= driveWakeFrame) {
+      switch (driveStage) {
+        case 0:
+          if (newPartFirst) {
+            const forge::ui::DispatchResult nr = shell.run("file.new");
+            std::printf("[drive] file.new dispatched: ok=%s  document now %zu statement(s)\n",
+                        nr.ok() ? "yes" : "no", frame.document().records().size());
+            std::fflush(stdout);
+            newPartFirst = false;
+            driveWakeFrame = frames + 40;   // let the viewport re-capture the empty part
+            break;
+          }
+          // Wait for the first Archie viewport capture, so the model is shown
+          // the part AND the fact is printed. Give up after 4 s and say so.
+          if (!frame.copilotFramePath().empty()) {
+            std::printf("[drive] viewport image attached to the request: %s\n",
+                        frame.copilotFramePath().c_str());
+            std::printf("[drive] PROMPT: %s\n", copilotPrompt.c_str());
+            std::fflush(stdout);
+            // Bring the CoPilot tab forward, so a screenshot of the window shows
+            // the panel the plan lands in rather than whichever tab was last left
+            // selected in the saved layout.
+            std::printf("[drive] focusPanel(archie_chat) = %s\n",
+                        frame.focusPanel("archie_chat") ? "ok" : "refused");
+            frame.copilotType(copilotPrompt);
+            frame.copilotSubmit();
+            driveStage = 1;
+          } else if (frames > 240) {
+            std::printf("[drive] NO viewport image after %d frames; submitting text only\n",
+                        frames);
+            std::printf("[drive] PROMPT: %s\n", copilotPrompt.c_str());
+            std::fflush(stdout);
+            frame.copilotType(copilotPrompt);
+            frame.copilotSubmit();
+            driveStage = 1;
+          }
+          break;
+        case 1: {
+          // The submit was consumed by the PREVIOUS build(), which called
+          // planWithFallback() and validated the reply. Read what came back.
+          const forge::ui::ArchieCopilot& cp = frame.copilot();
+          std::printf("[drive] --- PLAN ---\n");
+          if (!cp.hasPlan()) {
+            std::printf("[drive] NO PLAN: the copilot holds no steps\n");
+          } else {
+            const forge::ui::Plan& p = cp.plan();
+            std::printf("[drive] summary: %s\n", p.summary.c_str());
+            std::printf("[drive] steps: %zu\n", p.size());
+            for (std::size_t s = 0; s < p.steps.size(); ++s) {
+              const forge::ui::PlanStep& st = p.steps[s];
+              std::string args;
+              for (std::size_t a = 0; a < st.args.size(); ++a) {
+                if (a) args += ", ";
+                args += st.args[a].display();
+              }
+              std::printf("[drive]   %zu. id=%s ir=%s args=(%s) note=%s\n", s + 1,
+                          st.commandId.c_str(), st.irOp.c_str(), args.c_str(),
+                          st.note.c_str());
+            }
+          }
+          std::printf("[drive] --- VALIDATORS ---\n%s\n", cp.verdict().report().c_str());
+          std::printf("[drive] verdict accepted=%s refusedSteps=%zu explanation=%s\n",
+                      cp.verdict().accepted() ? "yes" : "no",
+                      cp.verdict().refusedSteps(), cp.verdict().explanation.c_str());
+          std::printf("[drive] counters: accepted=%zu refused=%zu\n", cp.plansAccepted(),
+                      cp.plansRefused());
+          std::fflush(stdout);
+          if (!shotPlan.empty()) pendingShot = shotPlan;
+          driveStage = copilotApply ? 2 : 4;
+          driveWakeFrame = frames + 2;
+          break;
+        }
+        case 2:
+          std::printf("[drive] pressing Apply\n");
+          std::fflush(stdout);
+          frame.copilotApplyPlan();
+          driveStage = 3;
+          driveWakeFrame = frames + 60;   // let the kernel rebuild and the view settle
+          break;
+        case 3: {
+          const forge::ui::ArchieCopilot& cp = frame.copilot();
+          std::printf("[drive] --- APPLIED ---\n");
+          std::printf("[drive] stepsApplied=%zu stepsBlocked=%zu\n", cp.stepsApplied(),
+                      cp.stepsBlocked());
+          std::printf("[drive] document: %zu statement(s), %zu command-authored\n",
+                      frame.document().records().size(), frame.document().featureCount());
+          std::printf("[drive] --- TYPED IR PROGRAM ---\n%s\n",
+                      frame.document().irProgram().c_str());
+          const forge::desktop::IrBuildReport& r = scene.lastBuild();
+          std::printf("[drive] --- GEOMETRY (kernel, not the panel) ---\n");
+          std::printf("[drive] ops declared/parsed/compiled %zu/%zu/%zu ok=%s err=%s\n",
+                      r.nDeclared, r.nParsed, r.nCompiled, r.ok() ? "yes" : "no",
+                      r.error.c_str());
+          std::printf("[drive] V=%.4f mm3 faces=%ld edges=%ld valid=%s triangles=%zu\n",
+                      r.volume, r.faceCount, r.edgeCount, r.valid ? "yes" : "no",
+                      r.triangles);
+          std::printf("[drive] bbox min=(%.4f, %.4f, %.4f) max=(%.4f, %.4f, %.4f)"
+                      "  size=(%.4f x %.4f x %.4f)\n",
+                      r.bboxMin[0], r.bboxMin[1], r.bboxMin[2], r.bboxMax[0], r.bboxMax[1],
+                      r.bboxMax[2], r.bboxMax[0] - r.bboxMin[0], r.bboxMax[1] - r.bboxMin[1],
+                      r.bboxMax[2] - r.bboxMin[2]);
+          std::fflush(stdout);
+          if (!shotApplied.empty()) pendingShot = shotApplied;
+          driveStage = 4;
+          driveWakeFrame = frames + 4;
+          break;
+        }
+        case 4:
+        default:
+          std::printf("[drive] done at frame %d\n", frames);
+          std::fflush(stdout);
+          driveStage = 99;
+          running = false;
+          break;
+      }
     }
 
     frame.build(viewport.texture(), platform.dpiScale());
@@ -1012,6 +1165,19 @@ int main(int argc, char** argv) {
       } else {
         std::fprintf(stderr, "[forge] screenshot failed\n");
       }
+    }
+    // The demo driver's shots: same captureSwapchain, same LIVE window, taken at
+    // the frame the driver asked for rather than a fixed frame number.
+    if (!pendingShot.empty()) {
+      vkQueueWaitIdle(g_queue);
+      if (captureSwapchain(imageIndex, pendingShot)) {
+        std::printf("[drive] screenshot of the LIVE window -> %s (%dx%d) at frame %d\n",
+                    pendingShot.c_str(), g_window.Width, g_window.Height, frames);
+      } else {
+        std::fprintf(stderr, "[drive] screenshot failed -> %s\n", pendingShot.c_str());
+      }
+      std::fflush(stdout);
+      pendingShot.clear();
     }
     // ── the picture Archie is shown ───────────────────────────────────────
     // Only when a model-backed planner is actually installed (opt-in via

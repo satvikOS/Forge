@@ -1,5 +1,7 @@
 #include "forge/archie/RemotePlanner.hpp"
 
+#include <cstdio>
+#include <cstdlib>
 #include <utility>
 
 #include "forge/retrieval/Json.hpp"
@@ -18,6 +20,20 @@ namespace {
 // escape() returns the literal WITH its quotes, so this must not add its own.
 std::string jstr(const std::string& raw) {
   return forge::retrieval::json::escape(raw);
+}
+
+// ── FORGE_ARCHIE_TRACE ──────────────────────────────────────────────────────
+// Append the EXACT bytes on the wire to a file, when and only when the variable
+// names one. A plan that "came from the model" is an inference until the request
+// the app posted and the reply it read are both on disk; this is the difference
+// between evidence and prose. Nothing here can change what plan() returns.
+void trace(const char* what, const std::string& payload) {
+  const char* path = std::getenv("FORGE_ARCHIE_TRACE");
+  if (path == nullptr || *path == '\0') return;
+  std::FILE* f = std::fopen(path, "ab");
+  if (f == nullptr) return;
+  std::fprintf(f, "=== %s (%zu bytes) ===\n%s\n", what, payload.size(), payload.c_str());
+  std::fclose(f);
 }
 
 }  // namespace
@@ -139,9 +155,11 @@ PlanResponse RemotePlanner::plan(const PlanRequest& request) {
   http.port = endpoint_.port;
   http.headers["Content-Type"] = "application/json";
   http.body = requestBody(request);
+  trace("REQUEST the app posted", http.body);
 
   const forge::retrieval::HttpResponse reply =
       transport_->send(http, endpoint_.timeout_ms);
+  trace("REPLY the app read", reply.body);
 
   // EVERY FAILURE NAMES ITSELF. "Archie is unavailable" with no cause is how a
   // sidecar that is merely not running gets mistaken for a model that is broken.
