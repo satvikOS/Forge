@@ -106,6 +106,7 @@
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/ModelTree.hpp"
+#include "forge/ui/Parameters.hpp"      // parameterCommandIds -- the SECOND family wirePartCommands registers
 #include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/ToolCatalog.hpp"
@@ -360,9 +361,15 @@ int main(int argc, char** argv) {
   if (g_mutation != 2) frame.wirePartCommands();
 
   // The Part commands went into THE SAME registry the shell dispatches. The
-  // count is READ from partCommandIds(), never spelled here.
-  checkEq(shell.registry().size(), shellCommands + forge::ui::partCommandIds().size(),
-          "Part commands joined the shell's one registry");
+  // count is READ from the id lists, never spelled here -- and there are TWO of
+  // them, because wirePartCommands() registers registerPartCommands() AND
+  // registerParameterCommands() and returns their sum. Reading only
+  // partCommandIds() gave `got 104 want 100` the moment the parameter family
+  // landed: the assertion was one family short, not the lists wrong.
+  checkEq(shell.registry().size(),
+          shellCommands + forge::ui::partCommandIds().size()
+                        + forge::ui::parameterCommandIds().size(),
+          "Part and Parameter commands joined the shell's one registry");
   for (const std::string& id : forge::ui::partCommandIds()) {
     check(shell.registry().contains(id), "registry holds a Part command", id);
   }
@@ -1378,7 +1385,7 @@ int main(int argc, char** argv) {
     check(em.length <= totalLength + 1e-9, "one edge cannot out-length the whole body",
           std::to_string(em.length));
     shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
-    frame.setActiveTabAt({1, 1}, 1);  // Measure
+    frame.setActiveTabAt({1, 1}, 2);  // Measure — third tab since Parameters was inserted at 1
     ImDrawData* d = buildOneFrame(frame, 0);
     check(d != nullptr && d->TotalVtxCount > 500, "the Measure panel draws a real frame", "");
     checkEq(frame.measureEdgeRowsDrawn(), 1u, "the Measure panel drew a row per picked edge");
