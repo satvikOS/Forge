@@ -588,6 +588,16 @@ jobs:
       - name: SECTION op gate (geometry + IR round trip + 3 mutations)
         run: bash forge-kernel/test/build_section_op_gate.sh
 
+      # Features.cpp must COMPILE with FORGE_NATIVE_BREP undefined. TKOffset family
+      # G left shellMultiThickness calling a native-only engine with no guard (3
+      # errors), on top of 11 older errors from watchdog headers included only in
+      # the native block -- a configuration CMakeLists.txt promises to keep free of
+      # undefined-symbol landmines, and one no job compiled. -fsyntax-only on one
+      # TU, headers only (this job installs them), a few seconds; its two mutations
+      # re-expose each defect on a temp copy and must turn it red.
+      - name: Features.cpp compiles without FORGE_NATIVE_BREP (+ 2 mutations)
+        run: bash forge-kernel/test/features_native_brep_off_gate.sh --mutations
+
       - name: NAFEMS ratchet self-test
         run: bash forge-kernel/test/fea_nafems_ratchet_selftest.sh
 
@@ -1285,6 +1295,52 @@ jobs:
           done
           [ "$fails" -eq 0 ] || exit 1
           echo "[heal-ab] both OCCT heal A/B gates BUILT and PASSED"
+      - name: SHELL per-face override — a declined override is refused, never dropped
+        # TKOffset family G left part::shellMultiThickness on the native engine, and
+        # its override loop still did `continue` when a construction came back null
+        # (a skip inherited from OCCT's !IsDone). So box(10), base wall 1, override
+        # 5 / 6 / 20 on one face returned 424 -- the uniform shell with the override
+        # DELETED -- as a success, where OCCT had answered 809.5 / 1000 / 1000.
+        # Proved RED against a library built from the unfixed Features.cpp (24
+        # checks, 12 failed, every refusal arm returning V=424) and GREEN after
+        # (24/0). Controls t = 1.5, -1.5, 4.0, 4.9 must still BUILD to the closed
+        # form 1000 - (9-t)(10-2t)^2 with the envelope exactly [0,10]^3, so it cannot
+        # pass by refusing everything. Links the library built above; builds nothing.
+        env:
+          FORGE_KERNEL_BUILD_DIR: forge-kernel/build-verify
+        run: bash forge-kernel/test/run_shell_override_refusal_gate.sh
+
+      - name: THICKEN refusal — a declined thicken is a NAMED refusal, with a negative control
+        # Family I deleted the OCCT skin-offset fallback, so every input the native
+        # thicken declines must THROW quoting the engine's reason. This gate asserts
+        # that on the three-plate convex corner, and that the concave side of the same
+        # fixture still BUILDS a positively oriented solid. It was registered only in
+        # FORGE_AB_GATES, i.e. ctest -- and no workflow runs ctest, so it had never
+        # executed in CI. One TU against the library built above.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_thicken_refusal_gate
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_thicken_refusal_gate
+          ./forge-kernel/build-verify/forge_gate_thicken_refusal_gate
+
+      - name: THICKEN at 3+-plate corners — correct against closed forms, or refused
+        # Family I was deleted on a 600-part corpus with NO vertex where three plates
+        # meet, and this job then lost THICKEN on every closed box sheet (UNFOLD(BOX)
+        # -> THICKEN, part.thicken, part.surf_trim). This gate runs those four smoke
+        # programs through compileText against Steiner's closed form on the full
+        # vector (volume, area, centroid, six bbox bounds, validity, shells, Euler),
+        # every convex 3/4/5-plate corner OUTWARD at t = 0.01..50 against closed
+        # forms, the same corners INWARD as correct-or-refused (a success must stay
+        # inside the corner's cone AND equal a VALID OCCT answer), the closed box
+        # sheet inward, and the saddle / open-fan declines. RED on the wedge engine
+        # before DERIVATION 5 (508 checks, 12 failed: box inward t=5 -> V=19200 with
+        # material below the sheet, cube corner inward t=50 -> V=13000, both as
+        # success). One TU against the library built above.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_thicken_corner_parity_gate
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_thicken_corner_parity_gate
+          ./forge-kernel/build-verify/forge_gate_thicken_corner_parity_gate
 
       - name: STEP unit context — StepAnalytic must DECLINE a non-millimetre file
         # Pins the 1000x defect: StepAnalytic::read had NO unit handling at all,
@@ -1509,6 +1565,31 @@ jobs:
         # was PASS, so the gate can only ever have got stricter. Pure node, no
         # build, ~2s; it rides this job because this is where the A/B lives.
         run: node forge-kernel/test/corpus_ab_gate_selftest.mjs
+      - name: thick-solid multibody gate (family G's drop, proved on multi-body input)
+        # THE GATE THAT GUARDS THE FAMILY-G DROP. It was committed unwired AND
+        # non-executable, which the kernel registration ratchet caught
+        # (measured=11 pinned=10). A gate that compiles, commits and stays green
+        # while never running once is the exact shape this repo has shipped before.
+        #
+        # SKIP_ARCHIVE=1 reuses libforge_native_ab.a built two steps above, so this
+        # measures the SAME engine objects as the 600-part A/B rather than a
+        # separately-built tree -- a gate built from a different tree than the
+        # number it guards has already cost this repo one discarded corpus run.
+        run: SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicksolid_multibody_gate.sh
+      - name: thicken a COMPOUND (family I's drop must not refuse a boolean's output)
+        # Every OCCT boolean returns a TopAbs_COMPOUND. Family I deleted the OCCT
+        # skin-offset fallback, and the native engine's coplanar path prismed the
+        # RAW input -- which forge::occtPrism refuses for a compound -- so thickening
+        # the direct output of a cut became a hard THROW. Proved RED on the pre-fix
+        # engine object with the gate's first 15 checks: 7 passed, 8 failed
+        # ("coplanar path: the shell prism failed"). Widening that path exposed a
+        # second defect (the same pair of faces is NOT refused as a SHELL either,
+        # so it predates the widening), now also pinned
+        # here: coplanar faces of OPPOSITE orientation were all swept along the
+        # first face's normal, putting the reversed slab on the wrong side as a
+        # "success" (RED 17 passed / 3 failed before the refusal; 20/0 after).
+        # Same archive as the A/B above, for the same reason as the multibody gate.
+        run: SKIP_ARCHIVE=1 bash forge-kernel/test/run_thicken_compound_input_gate.sh
       - name: plane-vs-spline consumer equivalence (the rule, and its negative controls)
         # THE MEASUREMENT BEHIND THE ONE RELAXATION THE FLIP GATE MAKES. The gate
         # compares faces binned by surface KIND, and that term reds FILLING on 407

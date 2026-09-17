@@ -73,6 +73,38 @@ if [ "$NTK" -ne 0 ]; then
   exit 1
 fi
 
+# ── THE DROP LOCK (added 2026-09-14 with the family-C deletion) ─────────────
+# The A/B above proves the ENGINE is TKOffset-free. It says nothing about the
+# CALL SITE, and the call site is where the symbols actually came from: for
+# months src/Healing.cpp carried the OCCT BRepOffsetAPI_MakeFilling path behind
+# #ifndef FORGE_FILLING_DROP_NATIVE, the option sat at OFF, and all 5 family-C
+# symbols shipped. A guarded branch still emits every symbol it names.
+#
+# So compile src/Healing.cpp with the SHIPPED flag set — note that
+# -DFORGE_FILLING_DROP_NATIVE is deliberately ABSENT, because family C must now be
+# native with no opt-in present — and require ZERO TKOffset imports. Re-adding the
+# header or the call turns this red.
+HEAL_DEFS=(-DFORGE_NATIVE_BREP=1 -DFORGE_NATIVE_LAW=1 -DFORGE_NATIVE_NURBS_CONVERT=1
+           -DFORGE_NATIVE_PROJECTION=1 -DFORGE_OFFSET_DROP_MAKEOFFSET=1
+           -DFORGE_SHHEAL_DROP_NATIVE=1 -DNDEBUG)
+HEAL_INCS=(-I"$OCCT_INC" -I"$ROOT/forge-kernel/3rdParty/planegcs_eigen_shim"
+           -I/opt/homebrew/opt/boost/include
+           -I"$ROOT/forge-kernel/3rdParty/planegcs" -I"$INC")
+if ! "$CXX" -std=gnu++20 -O1 -fPIC "${HEAL_DEFS[@]}" "${HEAL_INCS[@]}" \
+      -c forge-kernel/src/Healing.cpp -o "$OUT/Healing.o" 2>"$OUT/healing.err"; then
+  echo "[ab-filling] BUILD/LINK FAIL — src/Healing.cpp did not compile"
+  sed -n '1,60p' "$OUT/healing.err"; exit 1
+fi
+nm -u "$OUT/Healing.o" | sed 's/^ *//' | sort -u > "$OUT/healing.undef"
+NHEAL=$(comm -12 "$OUT/healing.undef" "$OUT/tkoffset.exports" \
+        | tee "$OUT/healing.tkoffset" | grep -c . )
+echo "[ab-filling] CALL SITE src/Healing.cpp.o TKOffset imports: $NHEAL  (must be 0)"
+if [ "$NHEAL" -ne 0 ]; then
+  echo "[ab-filling] FAIL — the OCCT family-C path is back in src/Healing.cpp:"
+  c++filt < "$OUT/healing.tkoffset"
+  exit 1
+fi
+
 DYLD_LIBRARY_PATH="$OCCT_LIB" "$OUT/ab_filling"
 rc=$?
 [ "$rc" -eq 0 ] && echo "[ab-filling] PASS" || echo "[ab-filling] FAIL (exit $rc)"

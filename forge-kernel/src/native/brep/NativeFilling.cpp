@@ -51,7 +51,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <cstdlib>
+#include <string>
 #include <vector>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -77,16 +77,12 @@ const TopoDS_Shape kNull;
 // cubic needs to reveal an out-of-plane excursion, and the test is O(edges).
 constexpr int kSamplesPerEdge = 24;
 
-bool envOn(const char* name) {
-    const char* v = std::getenv(name);
-    return v && (*v == '1' || *v == 'y' || *v == 'Y' || *v == 't' || *v == 'T');
-}
-
 // Every sample point of every edge of `w`. False if the wire has no edge or an
 // edge carries no 3-D curve.
-bool wireSamples(const TopoDS_Wire& w, std::vector<gp_Pnt>& out) {
+bool wireSamples(const TopoDS_Wire& w, std::vector<gp_Pnt>& out, int& nEdgeOut) {
     out.clear();
     int nEdge = 0;
+    nEdgeOut = 0;
     for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
         const TopoDS_Edge e = TopoDS::Edge(ex.Current());
         ++nEdge;
@@ -100,6 +96,7 @@ bool wireSamples(const TopoDS_Wire& w, std::vector<gp_Pnt>& out) {
             out.push_back(c.Value(t));
         }
     }
+    nEdgeOut = nEdge;
     return nEdge > 0 && out.size() >= 3;
 }
 
@@ -202,37 +199,83 @@ bool planeFit(const std::vector<gp_Pnt>& p, gp_Pnt& centroid, gp_Dir& normal) {
 }  // namespace
 
 bool fillingNativeEnabled() {
-#ifdef FORGE_FILLING_DROP_NATIVE
-    return true;   // the OCCT fallback is compiled out; this is the only path
-#else
-    static const bool on = envOn("FORGE_FILLING_NATIVE");
-    return on;
-#endif
+    // RETIRED — see NativeFilling.hpp. The OCCT BRepOffsetAPI_MakeFilling
+    // fallback was DELETED from src/Healing.cpp on 2026-09-14, so there is no
+    // second path to select between and no configuration in which declining is
+    // the right answer. Unconditionally true.
+    return true;
 }
 
-TopoDS_Shape fillC0Boundary(const TopoDS_Wire& w, double tol) {
+FillDiagnosis fillC0BoundaryDiag(const TopoDS_Wire& w, double tol) {
+    FillDiagnosis d;
     const double t = std::max(tol, 1.0e-12);
-    if (w.IsNull()) return kNull;
-    if (!BRep_Tool::IsClosed(w)) return kNull;   // an open boundary bounds nothing
+
+    if (w.IsNull()) {
+        d.reason = "null wire";
+        return d;
+    }
+    if (!BRep_Tool::IsClosed(w)) {
+        // An open boundary bounds no region, so there is no area to cap. OCCT's
+        // MakeFilling would have closed the gap implicitly; declining instead is
+        // deliberate — silently inventing the missing span is exactly the
+        // fabricate-geometry failure this engine refuses to commit.
+        d.reason = "wire is not closed: an open boundary encloses no region";
+        return d;
+    }
 
     std::vector<gp_Pnt> pts;
-    if (!wireSamples(w, pts)) return kNull;
+    if (!wireSamples(w, pts, d.edgeCount)) {
+        d.reason = "wire yielded fewer than 3 curve samples "
+                   "(no edge carries a 3-D curve, or the loop is degenerate)";
+        return d;
+    }
 
     gp_Pnt c;
     gp_Dir n;
-    if (!planeFit(pts, c, n)) return kNull;
+    if (!planeFit(pts, c, n)) {
+        // Rank-deficient scatter matrix: the samples are collinear or coincident,
+        // so a PENCIL of planes fits them equally well and no single plane is
+        // determined. See the RANK GUARD banner on planeFit.
+        d.reason = "no plane is determined by the boundary "
+                   "(samples collinear or coincident: rank-deficient scatter matrix)";
+        return d;
+    }
 
     // WORST-CASE orthogonal residual, not RMS: one point off the plane is enough
     // to make a planar cap the wrong answer.
+    double residual = 0.0;
     for (const gp_Pnt& q : pts) {
-        if (std::fabs(gp_Vec(c, q).Dot(gp_Vec(n))) > t) return kNull;
+        residual = std::max(residual, std::fabs(gp_Vec(c, q).Dot(gp_Vec(n))));
     }
+    d.planeResidual = residual;
+    if (residual > t) {
+        // ★ THE CAPABILITY FRONTIER, NAMED. OCCT's MakeFilling fits an
+        // energy-minimising GeomPlate patch across an arbitrary 3-D loop. This
+        // engine has no such surface, and refuses to flatten a non-planar
+        // boundary into a plane — that would move geometry while reporting
+        // success. The residual is reported so the caller can see HOW far from
+        // planar the boundary was.
+        d.reason = "boundary is NOT planar (max orthogonal residual " +
+                   std::to_string(residual) + " > tol " + std::to_string(t) +
+                   "); a non-planar loop needs a Coons/Gregory plate surface, "
+                   "which this engine does not have — declining rather than "
+                   "flattening it";
+        return d;
+    }
+    d.planar = true;
 
     // Exact: a Geom_Plane support trimmed by the wire itself.
     BRepBuilderAPI_MakeFace mkf(w, /*OnlyPlane*/ Standard_True);
-    if (!mkf.IsDone()) return kNull;
+    if (!mkf.IsDone()) {
+        d.reason = "boundary is planar but BRepBuilderAPI_MakeFace declined it "
+                   "(not a single valid closed boundary on that plane)";
+        return d;
+    }
     const TopoDS_Face f = mkf.Face();
-    if (f.IsNull()) return kNull;
+    if (f.IsNull()) {
+        d.reason = "face builder reported done but returned a null face";
+        return d;
+    }
 
     // A cap that encloses no area is not a cap. Independent of the rank guard
     // above on purpose: that one rejects a degenerate SAMPLE SET, this one
@@ -240,8 +283,24 @@ TopoDS_Shape fillC0Boundary(const TopoDS_Wire& w, double tol) {
     // whose samples span a plane perfectly well).
     GProp_GProps g;
     BRepGProp::SurfaceProperties(f, g);
-    if (!(std::fabs(g.Mass()) > 0.0)) return kNull;
-    return f;
+    if (!(std::fabs(g.Mass()) > 0.0)) {
+        d.reason = "planar cap encloses zero area "
+                   "(self-cancelling or slit boundary)";
+        return d;
+    }
+
+    d.shape = f;
+    d.ok = true;
+    return d;
+}
+
+// Thin wrapper — ONE code path, so the shape-only and diagnosing forms can never
+// disagree about what is fillable. Behaviour is byte-identical to the pre-2026-09-14
+// implementation this replaced, which is what keeps the committed 600-part A/B
+// (test/ab_native_filling_occt.cpp, 80/80) valid without a re-run.
+TopoDS_Shape fillC0Boundary(const TopoDS_Wire& w, double tol) {
+    const FillDiagnosis d = fillC0BoundaryDiag(w, tol);
+    return d.ok ? d.shape : kNull;
 }
 
 }  // namespace occtfill

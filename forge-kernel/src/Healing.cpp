@@ -21,13 +21,21 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
-#ifndef FORGE_FILLING_DROP_NATIVE
-// TKOffset family C header — referenced ONLY by the OCCT baseline path, which is
-// compiled out under -DFORGE_FILLING_DROP_NATIVE. Guarding the include keeps the
-// drop build from pulling any BRepOffsetAPI_MakeFilling declaration (and hence its
-// vtable reference) into the TU.
-#include <BRepOffsetAPI_MakeFilling.hxx>
-#endif
+// ── TKOffset FAMILY C: DELETED 2026-09-14 ───────────────────────────────────
+// <BRepOffsetAPI_MakeFilling.hxx> used to be included here behind
+// #ifndef FORGE_FILLING_DROP_NATIVE. A GUARDED include is not a removal: with the
+// flag defaulting OFF the header was compiled in, the class was referenced, and
+// all 5 TKOffset family-C symbols shipped in libforge_kernel_core.dylib. The
+// include and its call site are now GONE FROM THE SOURCE, which is what actually
+// takes the symbols out of the binary:
+//     BRepOffsetAPI_MakeFilling::BRepOffsetAPI_MakeFilling(int,int,int,bool,
+//                                   double,double,double,double,int,int)
+//     BRepOffsetAPI_MakeFilling::Add(TopoDS_Edge const&, GeomAbs_Shape, bool)
+//     BRepOffsetAPI_MakeFilling::Build(Message_ProgressRange const&)
+//     BRepOffsetAPI_MakeFilling::IsDone() const
+//     vtable for BRepOffsetAPI_MakeFilling
+// Replacement: forge::occtfill::fillC0BoundaryDiag, included below under
+// FORGE_NATIVE_BREP. Do not re-add this header — see autoFillMissingFaces.
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 // DEAD INCLUDES REMOVED 2026-07-31 (verified 0 uses in this TU by grep):
@@ -84,23 +92,20 @@
 // natively; an import that DEFERS (ok==false: Torus/Revolution/non-analytic / non-manifold)
 // HONESTLY falls through to OCCT.
 //
-// THE THREE ENTRIES LEFT ON OCCT — CAPABILITY GAPS surfaced, NOT silently degraded:
+// ★ autoFillMissingFaces IS NOW TKOffset-FREE (2026-09-14). The OCCT
+//   BRepOffsetAPI_MakeFilling code path was DELETED from this file — header
+//   include, construction, Add/Build/IsDone and the try/catch around them. It was
+//   previously only FLAG-GUARDED (#ifndef FORGE_FILLING_DROP_NATIVE, default OFF),
+//   and a guarded branch still emits every symbol it names, so the 5 family-C
+//   symbols shipped. They do not any more; see the tombstone at the include block.
+//   The cap is forge::occtfill::fillC0BoundaryDiag, and a boundary it cannot take
+//   is refused with a NAMED reason in AutoFillReport.deferReasons.
+//
+// THE TWO ENTRIES LEFT ON OCCT — CAPABILITY GAPS surfaced, NOT silently degraded:
 //   * simplifyShape (ShapeUpgrade_UnifySameDomain) — face/edge UNIFICATION (merge
 //     co-planar adjacent faces / co-linear edges, B-spline concatenation) has NO native
 //     equivalent in the brep/ suite (no native ShapeUpgrade_UnifySameDomain). LEFT ON
 //     OCCT. (See KERNEL_PARITY follow-up.)
-//   * autoFillMissingFaces (BRepOffsetAPI_MakeFilling) — PARTLY NATIVE since 2026-08-28
-//     (TKOffset family C, forge::occtfill::fillC0Boundary). The note below was written
-//     when the only native option was healBRep's gap-fill, which merely SNAPS free-edge
-//     endpoints and never fabricates a cap; wiring THAT here would indeed have silently
-//     degraded wide-gap capping to a no-op. What changed is the observation that this
-//     call site adds every boundary edge with GeomAbs_C0 and adds nothing else, so for a
-//     PLANAR free wire the requested patch is exactly the plane region the wire encloses
-//     — an exact analytic answer, no synthesis required, and MEASURABLY more accurate
-//     than OCCT's B-spline plate (area exact vs 6.2e-7 relative error on a circular
-//     boundary; see NativeFilling.hpp). A NON-planar free wire still needs a genuine
-//     N-sided patch and is HONESTLY DEFERRED — SurfaceFill.cpp is 4-sided and G1, so it
-//     does not fit this pipeline, and that remains the documented follow-up.
 //   * harmonizeNormals — runs OCCT ShapeFix_Shape + ShapeAnalysis_Shell for outward
 //     orientation; healBRep pass (6) does native orientation repair, but harmonizeNormals
 //     returns a bare ShapeHandle (no report) and is a narrow orientation-only entry; it is
@@ -457,46 +462,46 @@ AutoFillResult autoFillMissingFaces(ShapeHandle shape, double tolerance) {
     sew.Add(s);
 
     for (TopExp_Explorer wex(closedWires, TopAbs_WIRE); wex.More(); wex.Next()) {
-        TopoDS_Wire w = TopoDS::Wire(wex.Current());
+        const TopoDS_Wire w = TopoDS::Wire(wex.Current());
+        ++rep.wiresSeen;
 #ifdef FORGE_NATIVE_BREP
-        // TKOffset family C — TKOffset-free boundary fill. The call site asks for a
-        // C0 patch through the boundary and nothing else, which for a PLANAR
-        // boundary is exactly the plane region it encloses; the native cap is the
-        // analytic Geom_Plane face and is measurably more accurate than OCCT's
-        // B-spline plate (see NativeFilling.hpp). A null return is an HONEST DEFER
-        // and falls through to the same skip a failed OCCT filling already takes.
-        if (::forge::occtfill::fillingNativeEnabled()) {
-            const TopoDS_Shape cap = ::forge::occtfill::fillC0Boundary(w, tolerance);
-            if (!cap.IsNull()) {
-                sew.Add(cap);
-                ++rep.facesAdded;
-                continue;
-            }
+        // ── TKOffset-FREE BOUNDARY CAP (family C) ───────────────────────────
+        // The OCCT BRepOffsetAPI_MakeFilling block that stood here until
+        // 2026-09-14 has been DELETED, not disabled. What it was asked to do is
+        // narrow and exactly solvable: this call site added every boundary edge
+        // with GeomAbs_C0 and added NOTHING else — no tangency constraint, no
+        // interior point, no interior curve. The weakest patch meeting that
+        // specification through a PLANAR boundary IS the plane region the
+        // boundary encloses, and that region is representable exactly as a
+        // Geom_Plane trimmed by the wire. So the native answer is not an
+        // approximation of OCCT's — OCCT's B-spline plate is an approximation of
+        // the native one, and measurably so (area exact to 1e-12 against
+        // 6.2e-7 relative error on a circular boundary; NativeFilling.hpp).
+        //
+        // REFUSAL IS NAMED, NOT SILENT. A non-planar boundary is DECLINED with a
+        // reason recorded in rep.deferReasons; the wire then stays a residual
+        // open edge counted in rep.openEdgesAfter — the same outcome a failed or
+        // throwing OCCT filling always produced, but now explicable instead of
+        // swallowed by a bare catch(...).
+        const ::forge::occtfill::FillDiagnosis cap =
+            ::forge::occtfill::fillC0BoundaryDiag(w, tolerance);
+        if (cap.ok) {
+            sew.Add(cap.shape);
+            ++rep.facesAdded;
+            continue;
         }
+        ++rep.wiresDeferred;
+        rep.deferReasons.push_back(cap.reason);
+#else
+        // No native B-rep layer compiled in and the OCCT filler is gone, so there
+        // is no cap engine at all in this configuration. Say so per wire rather
+        // than silently producing a shape with an unfilled hole and reporting
+        // success — the kernel has shipped that defect before.
+        (void)w;
+        ++rep.wiresDeferred;
+        rep.deferReasons.emplace_back(
+            "built without FORGE_NATIVE_BREP: no boundary-fill engine is compiled in");
 #endif
-#ifndef FORGE_FILLING_DROP_NATIVE
-        try {
-            BRepOffsetAPI_MakeFilling filling;
-            for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
-                filling.Add(TopoDS::Edge(ex.Current()), GeomAbs_C0);
-            }
-            filling.Build();
-            if (filling.IsDone()) {
-                sew.Add(filling.Shape());
-                ++rep.facesAdded;
-            }
-        } catch (const std::exception&) {
-            // Skip wires the filler can't tame — leaves them as residual
-            // open edges in the after report.
-        } catch (...) {
-            // OCCT throws its own non-std exceptions; swallow them too.
-        }
-#endif  // !FORGE_FILLING_DROP_NATIVE
-        // Under FORGE_FILLING_DROP_NATIVE a wire the native engine declined is
-        // simply SKIPPED — deliberately NOT an error. That is byte-identical to
-        // the path a failed/throwing OCCT filling already takes today, and it is
-        // reported honestly: the wire stays a residual open edge and is counted in
-        // AutoFillReport.openEdgesAfter with facesAdded left unincremented.
     }
 
     sew.Perform();
