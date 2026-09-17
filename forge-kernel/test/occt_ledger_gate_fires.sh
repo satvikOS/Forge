@@ -21,11 +21,18 @@ run(){ bash "$S" "$1" "${@:2}" >/dev/null 2>/tmp/occt_gate_err.$$; echo $?; }
 
 echo "== the shipped artifact is gated at its measured ceilings =="
 if [ -f "$DYLIB" ]; then
-  chk "dylib passes closure 14 / direct 11 / no-phantom" 0 \
-      "$(run "$DYLIB" --assert-closure 14 --assert-direct 11 --assert-no-phantom)"
+  # DIRECT 11 -> 10 when TKPrim left the link line (it named a library nothing calls:
+  # BRepPrimAPI stopped being called on 2026-08-07). The ceiling is RETIGHTENED to the
+  # new measured value rather than left at 11 -- a ratchet that keeps the old ceiling
+  # after the number improves silently permits giving the gain back. CLOSURE stays 14:
+  # TKPrim still loads transitively via TKBO/TKBool/TKFillet/TKOffset, exactly as the
+  # removed note predicted, and PHANTOM stays 0 -- the load-bearing check that dropping
+  # the record did not unmask a real call.
+  chk "dylib passes closure 14 / direct 10 / no-phantom" 0 \
+      "$(run "$DYLIB" --assert-closure 14 --assert-direct 10 --assert-no-phantom)"
   echo "== NEGATIVE CONTROLS: each assertion must actually reject =="
   chk "closure ceiling 13 rejects closure=14" 1 "$(run "$DYLIB" --assert-closure 13)"
-  chk "direct ceiling 10 rejects direct=11"   1 "$(run "$DYLIB" --assert-direct 10)"
+  chk "direct ceiling 9 rejects direct=10"    1 "$(run "$DYLIB" --assert-direct 9)"
   chk "dylib (PHANTOM=0) accepted by --assert-no-phantom" 0 "$(run "$DYLIB" --assert-no-phantom)"
 else
   # FAIL CLOSED. The dylib is the artifact Forge.app ships; if it is missing the
