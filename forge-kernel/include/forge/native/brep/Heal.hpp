@@ -380,6 +380,17 @@ struct HealReport {
     std::size_t selfIntersectingFacesRemoved = 0; // (7) small self-overlapping slivers dropped
     std::size_t duplicateFacesRemoved        = 0; // (8) exact-duplicate faces dropped (de-manifold)
 
+    // ---- (7) self-intersection scan cost, so a speed claim is MEASURED ---------
+    // T-138: the scan is O(F^2) face pairs x O(T_i*T_j) exact triangle tests, and a
+    // box-with-one-bore (400 faces) took 297 s against 0.000 s for a bare box. These
+    // three make the rejection auditable: a scan that got "faster" by testing less
+    // than it should shows up as exactTriTests falling while the REPORTED pairs
+    // change. The bound is a pure rejection -- boxes padded by tol -- so the answer
+    // cannot move, and the gate asserts both halves.
+    std::size_t selfIntersectFacePairs        = 0; // live pairs considered
+    std::size_t selfIntersectFacePairsSkipped = 0; // rejected by the face AABB
+    std::size_t selfIntersectExactTriTests    = 0; // exact tri-tri predicates actually run
+
     // ---- before / after topology+manifold signature (from diagnoseShell) ------
     SewDiagnosis before;   // signature of the defective input shell
     SewDiagnosis after;    // signature after all enabled heal passes

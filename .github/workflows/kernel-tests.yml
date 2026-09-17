@@ -221,6 +221,50 @@ jobs:
           [ "$fails" -eq 0 ] || { echo "::error::$fails of 4 heal-gate mutation proofs failed"; exit 1; }
           echo "[heal-gate] green on the tree, RED under all four refusal-branch mutations"
 
+      - name: heal self-intersection scan stays sub-quadratic (T-138) + the gate can fail
+        # ── WHY A COUNT AND NOT A STOPWATCH. The defect is a 277x cliff: a box with one
+        # through-bore (400 imported faces) took 297.191 s against 0.000 s for a bare
+        # box, because the scan is O(F^2) face pairs x O(T_i*T_j) EXACT triangle tests
+        # with no spatial rejection at either level. The repair is a bounding-box
+        # rejection, and its effect is exactly "how many exact predicates still run" --
+        # which is deterministic and machine-independent. A wall-clock ceiling on a
+        # shared runner would be a flake generator; this is not.
+        #
+        # ── THE CEILINGS ARE MEASURED, and the second one is the adversarial case.
+        # pitch 3.0 separates every box so almost every pair is provably apart (the
+        # FAVOURABLE case for a box test): 216 exact tests. pitch 1.0 makes the boxes
+        # touch so their AABBs overlap and rejection cannot help at face level: 2486.
+        # Both are pinned, because a speed-up measured only on the favourable fixture
+        # is a claim about the fixture.
+        #
+        # ── IT REUSES THE OBJECT SET THE STEP ABOVE JUST BUILT. Same eight TUs, pure
+        # forge::native::brep, no OCCT.
+        shell: bash
+        run: |
+          set -uo pipefail
+          CXX="${CXX:-clang++}"
+          K=forge-kernel
+          "$CXX" -std=c++20 -O2 -Wall -Wextra -Werror -I "$K/include" \
+                 -c "$K/test/heal_selfintersect_scale_probe.cpp" -o /tmp/healgate/probe.o \
+            || { echo "::error::the T-138 scale probe does not COMPILE"; exit 1; }
+          "$CXX" -std=c++20 -O2 /tmp/healgate/probe.o /tmp/healgate/heal.o \
+                 /tmp/healgate/obj/Sew.o /tmp/healgate/obj/Topology.o \
+                 /tmp/healgate/obj/Curve.o /tmp/healgate/obj/Nurbs.o \
+                 /tmp/healgate/obj/ExactPredicates3D.o /tmp/healgate/obj/ExactReal.o \
+                 -o /tmp/healgate/probe \
+            || { echo "::error::the T-138 scale probe does not LINK"; exit 1; }
+          /tmp/healgate/probe 6 3.0 --assert-max-exact 300 \
+            || { echo "::error::separated fixture: the spatial rejection is gone"; exit 1; }
+          /tmp/healgate/probe 6 1.0 --assert-max-exact 4000 \
+            || { echo "::error::touching fixture: the spatial rejection is gone"; exit 1; }
+          # ★ PROVE THE CEILING CAN FAIL. A gate that only ever passes has not been
+          #   shown to measure anything -- the lesson this repository keeps relearning.
+          if /tmp/healgate/probe 6 1.0 --assert-max-exact 10 >/dev/null 2>&1; then
+            echo "::error::the ceiling did not reject an impossible bound -- the gate is unfalsifiable"
+            exit 1
+          fi
+          echo "[heal-scan] sub-quadratic on both fixtures, and the ceiling rejects when it should"
+
   scoring:
     name: ForgeCADScore self-tests (kernel-free)
     # Kernel-side scoring logic. Deliberately does NOT install frontend/ — these
