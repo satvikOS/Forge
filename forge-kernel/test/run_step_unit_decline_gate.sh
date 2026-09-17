@@ -111,6 +111,28 @@ if grep -q "deferring to the foreign reader" "$SRC"; then
   echo "      ★ mutation did not apply (source shape changed) — reporting BROKEN, not green"
   exit 1
 fi
+# ★ THE THIRD CALL SITE, AND THE ONE THAT WAS MISSING IT. [1/4] and restore()
+#   both invalidate the object and touch the source before building, for the
+#   reason each of them documents at length. This round did neither -- and it is
+#   the round whose whole purpose is to compile DIFFERENT code.
+#
+#   The python rewrite above sets the source mtime to NOW. When that lands in the
+#   same second as the [1/4] build, source and libforge_kernel_core.dylib share
+#   an mtime, cmake judges the library current, skips the compile, and the gate
+#   then runs against the UNMUTATED binary -- which passes, and is reported as
+#   "mutation stayed GREEN — the gate does not test the defect". The gate accuses
+#   itself of being blind on a second-boundary race.
+#
+#   MEASURED: on work/T-131-js-write-chokepoint, a branch that changes no C++ at
+#   all, this gate passed at e5f0bd2e, 862485e4 and e4c67e22 and failed at
+#   4d1b8c17. Same base, same runner image, nothing in its diff reachable from
+#   StepAnalytic.cpp. PR #265 was accused of causing it on a single observation;
+#   it did not.
+#
+#   This is the file's own lesson applied to two of its three call sites. When
+#   you fix one anchor, grep the whole file for the same shape.
+invalidate_obj
+touch "$SRC"
 if build_lib && link_gate; then
   /tmp/step_unit_gate >/dev/null 2>&1; m=$?
 else
