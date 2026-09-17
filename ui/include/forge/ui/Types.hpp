@@ -120,6 +120,82 @@ const char* commandSuffix(NamedView view) noexcept;
 // name — a viewport must never silently pick an arbitrary view.
 bool namedViewFromSuffix(const std::string& suffix, NamedView& out) noexcept;
 
+// ── the kernel's edge-selector classes, as forge::ft ACTUALLY resolves them ──
+// forge-kernel/src/ft/FeatureTreeCompiler.cpp selectEdges() offers exactly four
+// keywords -- ALL | VERTICAL | RIM | HORIZONTAL -- and decides VERTICAL and
+// HORIZONTAL from the CHORD between an edge's first and last tessellation point:
+//
+//     dz/len -> vertical when | |dz|/len - 1 | < 1e-2
+//               horizontal when len < 1e-9 (a closed rim) or |dz|/len < 1e-2
+//
+// (RIM is a byte-identical alias of HORIZONTAL on that build; the audit measured
+// both at 47662.772762 on a 60x40x20 box. This enum therefore has three values,
+// not four -- naming a duplicate would be inventing a distinction the kernel does
+// not make.) An edge that is neither -- a chamfer's slant, a loft's silhouette --
+// falls in NO class, and no keyword in the kernel's vocabulary can name it.
+//
+// This enum is here rather than beside EdgeModel because it is the vocabulary a
+// COMMAND has to emit into, and PartCommands must read it off a selection without
+// taking a dependency on the mesh headers.
+enum class EdgeAxisClass : std::uint8_t {
+  None = 0,   // in neither class: the kernel cannot name this edge at all
+  Vertical,   // FILLET/CHAMFER/BLEND keyword VERTICAL
+  Horizontal  // keyword HORIZONTAL (and its alias RIM)
+};
+
+// ── WHAT THE PICK ITSELF SAW ────────────────────────────────────────────────
+// EntityRef above this line is pure IDENTITY: which body, what sort of thing,
+// what it is called. That is what has to survive a rebuild, and it is all that
+// key() and operator== may ever look at.
+//
+// This is the other half, and until now the application threw it away. MEASURED
+// on the real registry at 488e5328: part.hole emits HOLE(%N, 9, 0, 0, 0) for a
+// click on ANY face -- the world origin, on a hard-coded +Z axis
+// (ui/src/PartCommands.cpp) -- because a face reference carried a NAME and no
+// POSITION, while KernelScene::pick() computed the hit point four lines earlier
+// and dropped it on the floor. PickResult::point had zero readers in the tree.
+//
+// So the evidence travels WITH the reference, and stays separable from it:
+//
+//   * It is NOT identity. Two clicks on the same face at different pixels are
+//     the SAME face, and toggling one must remove the other -- so key() and
+//     operator== ignore every field here, deliberately, and
+//     selection_consumed_test.cpp asserts that they do.
+//   * It is OPTIONAL. `valid` false is the honest state of a reference that came
+//     from the feature tree, from a macro or from Archie, none of which involve
+//     a ray. Every command below treats absent evidence as "use the typed
+//     parameters", which is exactly what it did before this record existed, so
+//     those three paths emit byte-identically to the build before this change.
+struct PickEvidence {
+  // Where the ray met the model, in model units (mm). For a face this is a point
+  // ON that face; for an edge it is the closest point on the picked polyline.
+  double point[3] = {0.0, 0.0, 0.0};
+  // The face's OUTWARD unit normal -- outward as in "away from the material",
+  // decided from the closed surface's own winding rather than assumed (see
+  // faceOutwardNormal in PickModel.hpp). All-zero when unknown or not a face.
+  double normal[3] = {0.0, 0.0, 0.0};
+  // ── the two edge fields, and why a COUNT is one of them ──────────────────
+  // The kernel cannot name an individual edge: its whole vocabulary is the three
+  // classes above. So an edge pick can only be honoured when the picked set IS a
+  // whole class -- pick every vertical edge and VERTICAL means exactly that; pick
+  // three of twelve and no keyword in the language says so.
+  //
+  // Deciding that needs the size of the class, which is a property of the BODY
+  // and not of one edge, and the command layer never sees the body's mesh. So the
+  // viewport -- which has just derived the edge set to do the pick at all --
+  // records it here, on each edge it hands over. A command then compares the
+  // number of picked edges against it. That is the whole mechanism, and it is why
+  // a count lives on a reference.
+  EdgeAxisClass axisClass = EdgeAxisClass::None;
+  std::uint32_t classMembers = 0;  // edges of THIS class on the body, at pick time
+
+  bool valid = false;
+
+  bool hasNormal() const noexcept {
+    return normal[0] != 0.0 || normal[1] != 0.0 || normal[2] != 0.0;
+  }
+};
+
 // A stable, rebuild-surviving reference to one topological entity.
 //   bodyId          — persistent body/document-node identity
 //   kind            — what sort of entity this names
@@ -156,6 +232,10 @@ struct EntityRef {
   // not. The initialiser is what makes this change additive instead of a nine-file
   // edit, so do not "tidy" it away.
   std::string signature = {};
+  // LAST, for the same two reasons `signature` is, and with the same default
+  // member initialiser: every aggregate brace-initialiser in the tree that stops
+  // short of it must keep compiling under -Werror -Wmissing-field-initializers.
+  PickEvidence pick = {};
 
   bool valid() const noexcept { return kind != EntityKind::None && !bodyId.empty(); }
   std::string key() const;  // deterministic identity string, used for set membership

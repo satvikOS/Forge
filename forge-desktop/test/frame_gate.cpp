@@ -82,6 +82,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -498,6 +499,41 @@ int main(int argc, char** argv) {
     } else {
       check(false, "the focus is typed as a Face", "no focus");
       check(false, "the selection stores a PERSISTENT NAME, not an index", "no focus");
+    }
+
+    // WHERE the face was hit travels with the pick. drawViewportPanel hands
+    // clickFace the ray/triangle intersection, and part.hole / part.counterbore
+    // place the feature from it; before that, every hole went through the world
+    // origin whichever face was clicked. A vertex of the picked face is a point ON
+    // it, so it stands in for the ray's hit here.
+    {
+      const forge::desktop::SceneVertex& v0 = scene.vertices().front();
+      const double hit[3] = {static_cast<double>(v0.px), static_cast<double>(v0.py),
+                             static_cast<double>(v0.pz)};
+      shell.selection().clearSelection();
+      frame.clickFace(face, false, hit);
+      const std::optional<forge::ui::EntityRef>& f = shell.selection().focus();
+      const bool located = f.has_value() && f->pick.valid;
+      check(located, "a viewport click records where the face was hit",
+            f.has_value() ? "the focus carries no pick evidence" : "no focus");
+      if (located) {
+        double d2 = 0.0;
+        for (int i = 0; i < 3; ++i) d2 += (f->pick.point[i] - hit[i]) * (f->pick.point[i] - hit[i]);
+        check(d2 < 1e-6, "the recorded point is the hit point, on that face",
+              "off by " + std::to_string(std::sqrt(d2)));
+        if (f->pick.hasNormal()) {
+          const double n2 = f->pick.normal[0] * f->pick.normal[0] +
+                            f->pick.normal[1] * f->pick.normal[1] +
+                            f->pick.normal[2] * f->pick.normal[2];
+          checkNear(n2, 1.0, 1e-9, "a recorded face normal is a unit vector");
+        }
+      }
+      // A face chosen from a LIST went through no ray, so it must carry no
+      // position -- a guessed one would place a hole somewhere nobody pointed.
+      frame.clickFace(face, false);
+      const std::optional<forge::ui::EntityRef>& g = shell.selection().focus();
+      check(g.has_value() && !g->pick.valid, "a pick that came from no ray carries no position",
+            g.has_value() ? "the focus claims a hit point" : "no focus");
     }
 
     // The selection FILTER refuses what it is set to refuse.
@@ -1327,10 +1363,25 @@ int main(int argc, char** argv) {
       // map it to an IR value and every solid command greys out.
       check(f.bodyId == frame.activeBodyNode(), "the ref names the document's live body",
             f.bodyId + " vs " + frame.activeBodyNode());
+      // WHAT THE DRESS-UP COMMANDS DECIDE ON travels with the pick: the kernel
+      // class the edge falls in and how many edges of THIS body share it. Without
+      // it part.fillet cannot tell "every upright edge" from "three of them", and
+      // it used to answer both by rounding the whole body. The reference numbers
+      // are the frame's own edge set, not restated here.
+      const forge::ui::EdgeAxisClass cls = forge::ui::classifyEdgeAxis(set.edges.front());
+      check(f.pick.valid, "an edge pick carries its class evidence", "the focus has none");
+      check(f.pick.axisClass == cls, "the evidence names the picked edge's own class",
+            std::to_string(static_cast<int>(f.pick.axisClass)) + " vs " +
+                std::to_string(static_cast<int>(cls)));
+      checkEq(f.pick.classMembers, forge::ui::edgesInAxisClass(set, cls),
+              "the evidence counts that class on this body");
     } else {
       check(false, "the focus is typed as an Edge", "no focus");
       check(false, "the selection stores the edge's PERSISTENT NAME", "no focus");
       check(false, "the ref names the document's live body", "no focus");
+      check(false, "an edge pick carries its class evidence", "no focus");
+      check(false, "the evidence names the picked edge's own class", "no focus");
+      check(false, "the evidence counts that class on this body", "no focus");
     }
 
     // ── THE PAYOFF: the edge tools are now callable ───────────────────────
@@ -1369,6 +1420,28 @@ int main(int argc, char** argv) {
       check(false, "Edge Fillet is CALLABLE with an edge picked", "not listed");
       check(false, "and the panel says Available by name", "not listed");
     }
+    // ── ONE EDGE OF A LARGER CLASS IS REFUSED, THROUGH THE SHELL'S OWN RUN ──
+    // The same ForgeShell::run a Run button reaches, on the selection the click
+    // above produced. The plate's classes all hold more than one edge, so a
+    // single pick is PART of a class: no keyword says it, and rounding the whole
+    // class -- or the whole body -- is the silent widening this closes. Nothing
+    // may be written, and the reason has to offer the route that does run.
+    {
+      const std::optional<forge::ui::EntityRef>& f = shell.selection().focus();
+      const std::uint32_t members = (f.has_value() && f->pick.valid) ? f->pick.classMembers : 0u;
+      checkGe(members, 2u, "the picked edge's class holds more than one edge");
+      const std::size_t before = frame.document().records().size();
+      forge::ui::CommandParams radius;
+      radius.setNumber("radius", 1.0);
+      const forge::ui::DispatchResult refused = shell.run("part.fillet", radius);
+      checkEq(static_cast<int>(refused.status),
+              static_cast<int>(forge::ui::DispatchStatus::EditRefused),
+              "Edge Fillet on one edge of a larger class is REFUSED, not widened");
+      checkEq(frame.document().records().size(), before, "and the refusal wrote nothing");
+      check(refused.detail.find("selector box") != std::string::npos,
+            "the refusal offers the selector box, which does run", refused.detail);
+    }
+
     // ...and a FACE tool must now be refused, or the signature means nothing.
     const forge::ui::ToolEntry* shellTool = live.find("part.shell");
     check(shellTool != nullptr, "part.shell is still listed", "");

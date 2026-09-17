@@ -519,6 +519,32 @@ jobs:
         # translation unit cannot join the application unnoticed.
         run: bash forge-desktop/test/run_syntax_gate.sh --mutations
 
+  ui_selection:
+    name: a pick places the feature (selection gate, mutation-proved)
+    # run_ui.sh in the `ui` job above already runs ui/test/selection_consumed_test.cpp
+    # -- it globs ui/test/*_test.cpp -- so this job is the half a clean pass cannot
+    # give: eight mutations in the real sources must each turn it red, and a
+    # comment-only control must leave it green.
+    #
+    # THE DEFECT, MEASURED ON THE SHIPPED REGISTRY: part.hole emitted
+    # HOLE(%N, 9, 0, 0, 0) for a click on ANY face, part.counterbore made a plain
+    # hole, and picking 3 of 8 edges rounded all 8. Forty-five green UI gates sat
+    # over that, because none of them ever dispatched one command under two
+    # different picks and compared.
+    #
+    # ★ ITS OWN JOB, NOT A STEP IN `ui`, BECAUSE `ui` IS AT ITS BUDGET. MEASURED on
+    #   archdisc's own runs of 2026-09-14: 44m54s, 44m53s and 44m53s against what
+    #   was then timeout-minutes: 45 (see the note on `ui`). This one compiles the
+    #   ui sources ONCE and recompiles only the file a mutation edits, so it costs
+    #   one parallel build plus nine single-file rebuilds, not a full rebuild per
+    #   mutation, and it does not spend the budget of the job that is already full.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: prove the selection gate can fail (8 mutations + 1 control)
+        run: bash ui/test/run_selection_consumed_gate.sh --mutations
+
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
     # Phase 1 runs the gate normally; phase 2 re-runs the ENTIRE gate under an LD_PRELOAD/
