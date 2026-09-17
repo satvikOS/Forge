@@ -15,9 +15,10 @@ one that bears on the question:
   PRODUCING    OCCT COMPUTES THE ANSWER -- BRepAlgoAPI_*, BRepPrimAPI_*,
                BRepOffsetAPI_*, BRepFilletAPI_*, ShapeFix_*, ShapeUpgrade_*,
                GeomAPI_*, GeomFill_*, BRepSweep_*, BRepProj_*, BRepMesh_*.
-  CHECKING     OCCT INSPECTS AN ANSWER SOMEONE ELSE COMPUTED -- BRepCheck_*,
-               BRepClass3d_*, BRepClass_*, BRepExtrema_*, ShapeAnalysis_*,
-               BRepGProp. A validator is not an implementation.
+  CHECKING     OCCT INSPECTS OR MEASURES, rather than constructing the shape
+               that is returned -- BRepCheck_*, BRepClass3d_*, BRepClass_*,
+               BRepExtrema_*, ShapeAnalysis_*, BRepGProp, BRepBndLib. A
+               validator is not an implementation.
   ADAPTER      OCCT CARRIES an answer already computed -- BRepBuilderAPI_Make*,
                BRep_Builder, Sewing, BRepLib, BRepTools.
   REPRESENT    OCCT SPELLS a value -- gp_*, TopoDS_*, TopExp*, Geom_*, TopLoc_*,
@@ -25,9 +26,15 @@ one that bears on the question:
 
 FALSIFIABILITY. `--audit` prints every OCCT-looking identifier that matched no
 bucket. The conclusion is only as good as that list being empty of producers, so
-the list is printed rather than described. When this was written it contained
-macros (FK_DEFER, FORGE_*), enum constants (GeomAbs_*) and TopLoc_Location --
+the list is printed rather than described. It is 13 identifiers, all macros --
 no producer.
+
+★AND THE FIRST VERSION OF THAT CHECK COULD NOT SEE ITS OWN HOLE. The detector
+matched CamelCase_with_underscore plus a six-name allowlist, so underscore-free
+OCCT (BRepBndLib, ShapeFix, GeomConvert, GeomPlate, BRepFill) was invisible to
+BOTH the classifier and --audit: NativeAabbBridge.cpp:111 calls
+`BRepBndLib::Add(shape, box)` and the tool reported zero of everything for that
+file. An audit cannot report a hole its detector cannot see. Caught in review.
 
 Comments and string literals are stripped first: this tree documents its own
 OCCT usage in prose, and counting the prose would count the argument twice.
@@ -50,8 +57,14 @@ BUCKETS = [
         r"^(BRepAlgoAPI_|BRepPrimAPI_|BRepOffsetAPI_|BRepFilletAPI_|BRepOffset_Make|"
         r"BiTgte_|Draft_Modification|ShapeFix_|ShapeUpgrade_|GeomAPI_|GeomFill_|"
         r"GeomConvert_|BRepProj_|BRepSweep_|BRepMesh_)")),
+    # A measurement, not a construction. BRepBndLib::Add sits here beside
+    # BRepGProp for the same reason: it computes a VALUE (a box, a mass) from a
+    # shape rather than constructing the shape that is returned. The one place
+    # that distinction bends is NativeAabbBridge, whose answer IS a box -- see
+    # the report; a token census cannot know that and must not pretend to.
     ("CHECKING", re.compile(
-        r"^(BRepCheck_|BRepClass3d_|BRepClass_|BRepExtrema_|ShapeAnalysis_|BRepGProp)")),
+        r"^(BRepCheck_|BRepClass3d_|BRepClass_|BRepExtrema_|ShapeAnalysis_|BRepGProp"
+        r"|BRepBndLib|BndLib)")),
     ("ADAPTER", re.compile(
         r"^(BRepBuilderAPI_|BRep_Builder|BRepLib|BRepTools)")),
     ("REPRESENT", re.compile(
@@ -62,16 +75,45 @@ BUCKETS = [
         r"XSControl_|STEPControl_|StlAPI|RWStl)")),
 ]
 
-# Anything that looks like an OCCT identifier at all: CamelCase_with_underscore,
-# plus the handful of OCCT names that carry no underscore.
+# Anything that looks like an OCCT identifier at all.
+#
+# ★THE SECOND ALTERNATION IS LOAD-BEARING AND WAS MISSING. The first version
+# matched `CamelCase_with_underscore` plus a hand-written allowlist of six
+# underscore-free names. An OCCT class outside that list -- `BRepBndLib`,
+# `ShapeFix`, `GeomConvert`, `GeomPlate`, `BRepFill` -- was invisible to the
+# CLASSIFIER *and* to `--audit`, so the audit could not report the hole it was
+# built to report. A falsifiability check that cannot see a class cannot fail on
+# it. The prefix list below is the OCCT toolkit naming scheme, not a list of
+# classes, so a new class in a known toolkit is seen without editing this.
+#
+# The `(?=::)` on that alternation matters in the other direction. Without it the
+# prefixes over-match badly -- `Top` swallows the NATIVE `TopologyBuilder`,
+# `Shape` swallows the method name `ShapeType()` -- and an audit list that
+# accuses native code of being OCCT is as useless as one that cannot see OCCT.
+# Underscore-free OCCT is always reached as a static call (`BRepBndLib::Add`,
+# `BRepLib::BuildCurves3d`), so requiring `::` keeps exactly that and nothing else.
 OCCTISH = re.compile(
-    r"\b([A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+|TopoDS|BRepTools|BRepLib|BRep_Tool|"
-    r"BRep_Builder|Precision)\b")
+    r"\b([A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+"
+    r"|(?:BRep|Geom|Geom2d|Shape|Top|Bnd|Poly|GC|GCE2d|GCPnts|ElCLib|ElSLib|Adaptor3d"
+    r"|Approx|AppDef|Extrema|IntAna|IntTools|NCollection|TColgp|TColStd|TColGeom"
+    r"|Precision|Standard|Interface|XSControl|STEPControl|StlAPI|RWStl|OSD|Message)"
+    r"[A-Za-z0-9]*(?=::))\b")
 
-# A native engine that cannot handle an input returns null rather than guessing.
-# In the two engines that label their declines this is an FK_DEFER site, and the
-# count is a far better predictor of what an engine contributes than composition.
-DECLINE = re.compile(r"\bFK_DEFER(?:_F)?\b")
+# A native engine that cannot handle an input returns null rather than guessing,
+# and records WHY. The shared convention across this tree is a `defer(why)`
+# helper -- NativeDraft and NativeThickenShell keep the reason in a thread-local
+# slot, NativeFilletChamfer returns a reason-bearing Result, NativeFilling fills
+# FillDiagnosis.reason -- and FK_DEFER is only the MACRO form of it, used in two
+# files. Counting the macro alone reported `-` for eleven engines that do label
+# their declines, which is how the first version of this tool concluded they
+# "decline without saying why". They do not.
+#
+# ★AND THIS COLUMN IS A COUNT OF SITES IN SOURCE, NOT OF DECLINES AT RUNTIME.
+# A guard may fire for every input, none, or many times per call, so this cannot
+# re-derive coverage and must never be read beside a coverage percentage as
+# though it were the same kind of number. Coverage is measured per family in
+# forge-kernel/reports/CORPUS_AB_COVERAGE.md and nowhere else.
+DECLINE = re.compile(r"\bFK_DEFER(?:_F)?\b|\bdefer\s*\(")
 
 
 def strip_noncode(text):
@@ -119,7 +161,7 @@ def main(argv):
         return 0
 
     print("%-28s %8s %7s %7s %7s %9s  %s"
-          % ("engine", "PRODUCES", "checks", "adapts", "spells", "declines",
+          % ("engine", "PRODUCES", "checks", "adapts", "spells", "sites",
              "producing classes"))
     for name, counts, producing, declines in sorted(rows, key=lambda r: -r[1]["PRODUCING"]):
         print("%-28s %8d %7d %7d %7d %9s  %s"
