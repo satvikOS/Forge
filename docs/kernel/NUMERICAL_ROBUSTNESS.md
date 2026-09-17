@@ -360,6 +360,206 @@ above. (`tools/gates/preflight.sh:44` invokes the gate a second time, without
 
 ---
 
+## Layer 3a — the thin-wall rule: a dimensionless ratio is not a tolerance
+
+Added 2026-09-14, measured at parent `02de2e15` (task T-137/T-138). This section is
+narrower than the rest of the document on purpose: it is one rule in one file. It is
+here because it is the first entry in the epsilon census that was **measured to
+destroy geometry**, and the shape of the mistake generalises to the other 930.
+
+### The defect
+
+`brep/Heal.cpp`'s sliver pass declared a face removable on a **pure dimensionless
+ratio** against a hard-coded constant:
+
+```
+longest_boundary_edge / mean_altitude  =  longest² / (2·area)  >  aspectMax      (aspectMax = 1e4)
+```
+
+Nothing in that comparison is a length. The part's thin dimension is never measured
+against anything, so the rule fires on geometry that is perfectly well resolved and
+merely long. A **valid 100 × 100 × 0.001 mm plate**, handed to `healBRep` as the
+independent-face soup every production caller builds (`ShapeFix.cpp:171-178`,
+`NativeShapeHealBridge.cpp:141-147`, via `cloneFaceIndependent`), has four side walls
+of 100 × 0.001 mm:
+
+```
+100² / (2 · 0.1) = 5.0e4 > 1e4        ->  all four walls dropped as "slivers"
+```
+
+Measured at the parent commit, at the production default `tol = 1e-6`:
+
+| observable | in | out |
+|---|---:|---:|
+| faces | 6 | **2** |
+| volume (mm³) | 10 | **3.3333** |
+| area (mm²) | 20000.4 | 20000 |
+| centroid | (50, 50, 0.0005) | **(37.5, 37.5, 0.00075)** |
+| bbox | [0,100]×[0,100]×[0,0.001] | **unchanged** |
+| shell | — | **OPEN, 8 free edges** |
+| `checkBRep` | 21/21 valid (sewn form) | **INVALID, 19/21** |
+| `HealReport::ok` | — | **TRUE**, `reason = "ok"` |
+
+The bounding box does not move and the area barely does. **Volume would have caught
+this one; bbox alone would not.** That is another measured instance of a single
+observable being the wrong instrument, and it is why the gate for this rule
+(`test/native/brep/heal_truth_test.cpp`) reads the whole vector — volume, area,
+centroid, six bbox bounds, F/E/V counts and `checkBRep` — rather than any one of them.
+
+### The rule is scale-free, which is the tell
+
+The cliff is at `T < L / (2·aspectMax)` — **0.005 mm for a 100 mm plate**; measured,
+`T = 0.00499` is destroyed and `T = 0.005` survives. Because the criterion is a ratio,
+the same plate scaled by 1000 in every direction dies identically: `1 × 1 × 1e-5 mm`
+and `1000 × 1000 × 0.01 mm` both collapse. The modelling tolerance plays no part at
+all: `tol = 1e-9` gives the identical collapse.
+
+**A tolerance that cannot be defeated by changing the tolerance is not a tolerance.**
+
+### The rule as landed
+
+A face is an ASPECT sliver only when **both** hold:
+
+```
+(1)  longest / mean_altitude  >  aspectMax      (the shape is degenerate — unchanged)
+(2)  mean_altitude  <  tol                      (it is below the modelling tolerance — NEW)
+```
+
+Clause (2) is the only one that references a length, and it is the honest statement of
+what a sliver is: *a face thinner than the smallest distance the model resolves.* The
+change can only ever KEEP faces the old rule removed; it never removes more.
+
+| case | mean altitude | `tol` | verdict |
+|---|---:|---:|---|
+| plate wall, 100 × 0.001 mm | 0.002 mm | 1e-6 | **kept** (was dropped) |
+| `heal_test`'s planted sliver | 3.5e-5 mm | 1e-4 | dropped (unchanged) |
+
+No gate in the tree depended on the aspect rule: the planted sliver is *also* caught by
+the area rule, and re-running `heal_test`'s defective box with `aspectMax` neutralised
+to 1e9 gives the identical result (F=6, E=12, V=8, closed, χ=2, volume 64, fully
+healed).
+
+**Blast radius, measured over 45 real STEP parts** (`cadgenbench_deliverables/cua_v1_20260701`
++ `data/cadgenbench_edit_out`, native reader, self-intersection pass off so the sliver
+rule is isolated):
+
+| | parent | with the dimensional rule |
+|---|---:|---:|
+| faces removed as slivers | **1071**, over 19 of 45 parts | **195**, over 16 of 45 parts |
+| shells that close | 7 of 45 | **10 of 45** |
+
+876 of those 1071 removals were the non-dimensional aspect rule deleting real walls.
+Three parts stop being holed and become watertight: `cua_v1/105` (178→272 faces, 156
+free edges→0), `cua_v1/116` (400→530, 386→0), `cua_v1/118` (695→1336, 969→0). No part
+regressed; `ok` is true on all 45 in both arms.
+
+### The second collapse: a tolerance at or above the wall
+
+Independent of the aspect rule, a caller that passes `precision >= the wall thickness`
+(`ShapeFix.cpp:184`, `if (precision > 0.0) opt.tol = precision;`) destroys the same
+plate by a different route: the weld DSU (`dist2 <= tol²`) merges the top corners onto
+the bottom corners, `cleanRing` collapses the side rings below three corners, and
+duplicate-face removal drops one of the two coincident 100 × 100 rings. Result at the
+parent commit: **one face, volume EXACTLY 0, `ok = TRUE`, `reason = "ok"`.**
+
+That is not a bug in a rule — it is a caller asking for the impossible, and the only
+correct answer is a refusal. **The rule: the modelling tolerance must be below the
+part's thinnest dimension.** Where it is not, `healBRep` now refuses and says so:
+
+```
+heal destroyed the shell: enclosed volume 10 mm^3 -> 0 mm^3. The part's thinnest
+dimension is 0.001 mm (Z) and the modelling tolerance is 0.001 mm, which is not
+below it — welding at this tolerance fuses the part's own wall shut. Re-run with
+tol < 0.001 mm.
+```
+
+### The seal — why the refusal cannot be skipped
+
+`rep.ok = true; rep.reason = "ok"` used to be assigned **unconditionally**, on both of
+the heal's success paths — including the one that returns an EMPTY face set. Nothing
+downstream re-derived it: `ShapeFix.cpp:185-190` accepts any
+`rep.ok && !rep.faces.empty()` and never reads `after.closed`, the free-edge list, the
+area or the volume.
+
+`healBRep` is now a thin wrapper. The old body is private (`healBRepCore`) and may still
+be as optimistic as it likes; the public entry point runs `sealHealReport` on the way
+out, and the seal can only ever DOWNGRADE `ok`. There is no path out of the translation
+unit that skips it. It tests the CONTENT VECTOR, never one observable:
+
+| | test | the refusal names |
+|---|---|---|
+| D1 | every face was removed | tolerance, thinnest dimension |
+| D2 | the input carried area, the output carries none | area before → after, tolerance, thinnest dimension |
+| D3 | the input enclosed a volume, the output's is annihilated | volume before → after, tolerance, thinnest dimension |
+| D4 | an axis the input spanned is flattened to zero | which axis, extent before → after, tolerance |
+
+D3 and D4 use a **relative** annihilation test (twelve orders of magnitude below the
+input), not a tuned threshold: they fire on *gone*, never on *moved*. Legitimate sliver
+removal on the real corpus moves volume by ~0.07% and trips none of them; `ok` is true
+on all 45 corpus parts after the change.
+
+The gate sweeps 224 plate configurations (4 plan sizes × 7 thicknesses × 8 tolerances).
+At the parent, **112 of them return `ok = TRUE` over a volume that was annihilated**.
+After the change, zero do — those 112 are refusals, each carrying a reason.
+
+**What the seal does NOT do,** so the next reader does not over-trust it: a heal that
+halves the volume is not annihilation and is not caught. The plate's original 10 → 3.33
+collapse is fixed at its root in the aspect rule, not here. The seal exists so the
+*next* such bug cannot ship as a GREEN report.
+
+### A note for Layer 1: an exact predicate is also a performance tool
+
+The same task replaced `Heal.cpp`'s self-intersection pair scan — O(F²) face pairs ×
+O(Tᵢ·Tⱼ) triangles, no spatial index — with a three-level index. The third level is the
+one that belongs in this document: it **rejects a candidate pair using
+`forge::native::orient3d` signs**, and it is sound precisely because `orient3d` is
+adaptive-exact rather than a float heuristic. Two proofs per (edge, triangle):
+
+* both endpoints strictly on the same side of the triangle's plane → the edge never
+  reaches the plane;
+* the three tetrahedra (p₀,p₁,q₀,q₁), (p₀,p₁,q₁,q₂), (p₀,p₁,q₂,q₀) not all of one
+  strict sign → the pierce point is not in the strict interior. A ZERO there is part of
+  this case, not an exception: it puts the crossing on a boundary line, and the
+  classifier deliberately does not count boundary or coplanar contact.
+
+Everything unresolved still falls through to the exact `ExactReal` classifier, so the
+verdict is never this filter's to give. This matters numerically as well as for speed:
+one exact `trisInterpenetrate` call on real STEP coordinates costs **8.1 ms** (the
+BigInt limb count tracks the coordinate magnitude), while an `orient3d` sign on the
+same coordinates resolves in its double filter. On `cua_v1/105` the box levels cut
+36,856 face pairs to 3,182, and the sign proof cleared all but a handful of those; the
+part went from **50.8 s to 0.003 s** with an identical result vector.
+
+Soundness here is fuzzed rather than argued, because a wrong rejection is invisible —
+it looks like a clean part. `heal_truth_test`'s `filter:*` gates run randomised
+triangle pairs on a coarse integer lattice (so exact coplanarity, vertex-on-edge
+T-junctions and edge-on contact are common rather than measure-zero) through both the
+whole filter chain and an independent oracle built directly on
+`segmentTriangleClassify`, and fail on any pair the chain calls clean and the oracle
+calls intersecting.
+
+### What is still open on this rule
+
+- **`ok` is re-derived, not underivable.** The clean fix is a `HealReport` whose `ok`
+  has no public setter, and `reason` as a `std::string` rather than a `const char*`
+  borrowing a thread-local ring slot. Both need a write to
+  `forge-kernel/include/forge/native/brep/Heal.hpp`, outside T-137's write set.
+- **The sliver-restore safety net is unreachable on the production path.** It is guarded
+  on `rep.before.closed`, which is structurally FALSE for the independent-face soup every
+  production caller builds (measured: `before.closed = FALSE`, `free = 24`, for the plate).
+  Handed the same plate PRE-SEWN it fires correctly and the walls are restored.
+- **A refusal's text stops at the bridge.** `NativeShapeHealBridge::fixShapeGeneral`
+  leaves `GeneralFixReport::reason` empty on its success path, so the named reason above
+  does not currently reach the UI.
+- **`aspectMax` and `sliverAreaEps` still have no caller.** Zero grep hits outside
+  `Heal.cpp`: they are defaults pretending to be options.
+- **The self-intersection pass has no restore net of its own.** Dropping a small
+  self-overlapping face can open a shell that was closed, and nothing re-checks: measured
+  on `data/cadgenbench_edit_out/218`, which goes closed → open (0 → 2642 free edges) when
+  the pass drops 41 faces. The sliver pass has such a net; this pass does not.
+
+---
+
 ## What is NOT built — plainly
 
 - **No shared tolerance constant, header, or policy.** 931 inline epsilons, 21
@@ -371,7 +571,9 @@ above. (`tools/gates/preflight.sh:44` invokes the gate a second time, without
 - **No denormal-safe pre-scaling in `Predicates.cpp`.** The header's TODO stands;
   the subnormal case is printed by the test but not asserted, so it cannot fail.
 - **No differential test between `exactOrient3D` and `orient3d`,** despite the
-  header claiming they agree by construction.
+  header claiming they agree by construction. (`heal_truth_test`'s `filter:*`
+  gates now differential-test `orient3d`-based REJECTION against the
+  `ExactReal` classifier, which is adjacent but is not that test.)
 - **`exactInSphere` and `exactSegmentSegmentIntersection` have zero callers** in
   production or test.
 - **`brep/Hlr.cpp` keeps a private naive `orient2d`** with 11 call sites, and uses

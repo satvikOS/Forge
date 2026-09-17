@@ -40,11 +40,13 @@
 #include "forge/native/brep/Sew.hpp"        // sewFaces, diagnoseShell, weldNearVertices
 #include "forge/native/brep/Topology.hpp"
 #include "forge/native/ExactPredicates3D.hpp" // exact triangle/segment tests for self-intersection (7)
+#include "forge/native/Predicates.hpp"       // adaptive-exact orient3d: the sign-proof index filter (T-138)
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <queue>
 #include <string>
@@ -149,9 +151,38 @@ double polyVolumeContribution(const std::vector<Point3>& ring) {
     return vol / 6.0;
 }
 
-// Degenerate-aspect test for an outer ring: longest edge over mean altitude
-// (= 2*area / longest edge) exceeds aspectMax, i.e. longest^2 / (2*area) > aspectMax.
-bool degenerateAspect(const std::vector<Point3>& ring, double area, double aspectMax) {
+// Degenerate-aspect test for an outer ring.
+//
+// T-137. This rule used to be a PURE DIMENSIONLESS RATIO against a hard-coded
+// constant: longest/meanAltitude > aspectMax (aspectMax = 1e4). Nothing in it ever
+// compared the face's thin dimension against a LENGTH, so it fired on geometry that
+// is perfectly well resolved and merely long:
+//
+//     a 100 x 100 x 0.001 mm plate's four side walls are 100 x 0.001 mm
+//     -> ratio = 100^2 / (2 * 0.1) = 5.0e4 > 1e4 -> all four walls dropped as
+//     "slivers", the solid loses its thickness, volume 10 mm^3 -> 3.33 mm^3.
+//
+// The measured cliff was T < L / (2*aspectMax) = 0.005 mm for L = 100 mm, and it was
+// SCALE-FREE (1 x 1 x 1e-5 and 1000 x 1000 x 0.01 died identically) precisely because
+// a ratio carries no length. The modelling tolerance `tol` played no part at all:
+// tol = 1e-9 produced the identical collapse.
+//
+// THE RULE IS NOW DIMENSIONAL. A face is an ASPECT sliver only when BOTH hold:
+//   (1) its shape is degenerate:   longest / meanAltitude > aspectMax   (as before), AND
+//   (2) it is UNRESOLVABLE:        meanAltitude < tol                    (NEW)
+// i.e. the face's thin dimension is below the smallest distance the model resolves.
+// That second arm is the only one that can reference the part's actual size, and it
+// is the honest definition of "this face is thinner than geometry we can represent".
+//
+// Effect, measured:
+//   * plate wall 100 x 0.001 mm: meanAltitude = 2*0.1/100 = 0.002 mm, tol = 1e-6
+//     -> 0.002 >= 1e-6 -> KEPT. The plate heals to a closed shell of volume 10 mm^3.
+//   * heal_test's planted sliver: meanAltitude = 3.5e-5 mm, tol = 1e-4
+//     -> 3.5e-5 < 1e-4 -> still DROPPED (and it is also caught by the AREA rule,
+//     so the gate that motivated the aspect rule does not depend on it).
+// The change can only ever KEEP faces the old rule removed; it never removes more.
+bool degenerateAspect(const std::vector<Point3>& ring, double area,
+                      double aspectMax, double tol) {
     if (ring.size() < 3 || area <= 0.0) return true;
     double longest2 = 0.0;
     const std::size_t L = ring.size();
@@ -162,7 +193,8 @@ bool degenerateAspect(const std::vector<Point3>& ring, double area, double aspec
     const double longest = std::sqrt(longest2);
     if (longest <= 0.0) return true;
     const double meanAltitude = (2.0 * area) / longest;  // area = 0.5 * longest * altitude
-    return (longest / meanAltitude) > aspectMax;
+    if ((longest / meanAltitude) <= aspectMax) return false;   // (1) shape is fine
+    return meanAltitude < tol;                                 // (2) ... and below tol
 }
 
 // ---- (7) self-intersection helpers ---------------------------------------
@@ -210,6 +242,248 @@ bool trisInterpenetrate(const Tri3& A, const Tri3& B) {
     return false;
 }
 
+// T-138, index level 3: a REJECTION PROVED WITH ADAPTIVE-EXACT SIGNS.
+//
+// WHY A THIRD LEVEL IS NEEDED, measured not assumed. Box overlap is a weak filter on
+// a real solid: most of a part's faces live inside the part's own bounding box. On
+// cua_v1/105 the two box levels cut 36,856 face pairs to 3,182 that still reached the
+// exact classifier -- a 91.4% cut -- and the part still took 25.9 s, because ONE
+// exact trisInterpenetrate call on real STEP coordinates costs 8.1 ms (ExactReal's
+// BigInt limb count tracks the coordinate magnitude). A plane-side-only rejection
+// cleared just 41 of those 3,182: on a triangulated solid, two triangles routinely
+// straddle each other's supporting planes while coming nowhere near each other.
+//
+// WHAT THIS PROVES. It answers "the exact classifier will say FALSE" using only
+// forge::native::orient3d (Predicates.hpp), which is adaptive -- a double filter with
+// an exact expansion fallback -- and returns the EXACT sign of the orientation
+// determinant for double coordinates. Two sound rejections per (edge, triangle):
+//   (a) both endpoints of the edge strictly on the SAME side of the triangle's plane
+//       -> the edge never reaches the plane, so it cannot pierce the triangle;
+//   (b) the three tetrahedra (p0,p1,q0,q1), (p0,p1,q1,q2), (p0,p1,q2,q0) do not all
+//       share one strict sign -> the pierce point is not in the triangle's STRICT
+//       interior, so the edge cannot pierce it either. A ZERO among those three is
+//       part of this case, not an exception: tetra k vanishing means the edge's line
+//       is coplanar with the line of the triangle's edge k, which puts the crossing
+//       point ON that boundary line. trisInterpenetrate deliberately does NOT count
+//       boundary or coplanar contact ("only a transversal interior pierce"), so a
+//       zero there is a proof of NO, and it is the case that matters: on cua_v1/105
+//       every one of the 1,510 pairs this used to leave unproven was a zero sign --
+//       T-junctions and edge-on touches between faces that abut without sharing a
+//       welded corner -- and each cost 8.2 ms in the exact classifier to be told no.
+// If all six (edge, triangle) combinations are proved NO, the pair cannot
+// interpenetrate and is skipped. An unresolved case still falls through to
+// trisInterpenetrate, which decides it exactly. So this function can only ever remove
+// work: it never supplies a verdict of its own.
+//
+// SOUNDNESS IS FUZZED, NOT ASSERTED. A reasoning filter is right on the cases you
+// thought of and wrong on the ones you did not, and a wrong rejection here is
+// INVISIBLE -- it looks like a clean part. So heal_truth_test's filter:* gates put
+// randomised triangle pairs through BOTH the whole filter chain and an INDEPENDENT
+// exact oracle built on segmentTriangleClassify, and fail on any pair where the
+// chain says NO and the oracle says YES. The generator uses a coarse integer lattice
+// so exact coplanarity, vertex-on-edge T-junctions and edge-on contact are common
+// rather than measure-zero. MEASURED: 200,000 pairs, 54,585 of them genuinely
+// intersecting, ZERO false negatives and ZERO false positives.
+bool provablyNoInterpenetration(const Tri3& A, const Tri3& B) {
+    auto ori = [](const Point3& a, const Point3& b, const Point3& c, const Point3& d) -> int {
+        return static_cast<int>(forge::native::orient3d(a.x, a.y, a.z, b.x, b.y, b.z,
+                                                        c.x, c.y, c.z, d.x, d.y, d.z));
+    };
+    // Side of each triangle's corners with respect to the OTHER triangle's plane.
+    int sB[3], sA[3];
+    for (int k = 0; k < 3; ++k) sB[k] = ori(A[0], A[1], A[2], B[k]);
+    if (sB[0] != 0 && sB[0] == sB[1] && sB[1] == sB[2]) return true;   // B one side of A
+    for (int k = 0; k < 3; ++k) sA[k] = ori(B[0], B[1], B[2], A[k]);
+    if (sA[0] != 0 && sA[0] == sA[1] && sA[1] == sA[2]) return true;   // A one side of B
+
+    // Can edge i of X pierce triangle Y's interior? "false" here is a PROOF that it
+    // cannot; "true" only means this filter could not settle it.
+    auto edgeMightPierce = [&](const Tri3& X, const int* sX, int i, const Tri3& Y) -> bool {
+        const int j = (i + 1) % 3;
+        if (sX[i] != 0 && sX[i] == sX[j]) return false;         // (a) strictly one side
+        const int t0 = ori(X[i], X[j], Y[0], Y[1]);
+        const int t1 = ori(X[i], X[j], Y[1], Y[2]);
+        const int t2 = ori(X[i], X[j], Y[2], Y[0]);
+        if (t0 != t1 || t1 != t2) return false;   // (b) not a STRICT interior pierce
+        if (t0 == 0) return false;                // all three zero: coplanar, not a pierce
+        return true;                              // a strict interior pierce is possible
+    };
+    for (int i = 0; i < 3; ++i) if (edgeMightPierce(B, sB, i, A)) return false;
+    for (int i = 0; i < 3; ++i) if (edgeMightPierce(A, sA, i, B)) return false;
+    return true;
+}
+
+// ===========================================================================
+// T-137 — THE SEAL. ok must not be derivable from a destroyed result.
+// ===========================================================================
+//
+// THE DEFECT THIS CLOSES. healBRep used to assign `rep.ok = true; rep.reason = "ok"`
+// UNCONDITIONALLY on both of its success paths — including the path that returns an
+// EMPTY face set ("all faces removed as slivers"). Nothing downstream re-derived the
+// verdict: ShapeFix.cpp accepts any `rep.ok && !rep.faces.empty()` and never reads
+// after.closed, the free-edge list, the area or the volume. The measured consequence
+// was a caller holding a destroyed solid (volume 10 mm^3 -> 0, checkBRep INVALID)
+// while being told the heal SUCCEEDED, with no reason attached.
+//
+// THE STRUCTURE. The public healBRep is now a THIN WRAPPER: it calls healBRepCore
+// (which may still set ok optimistically, exactly as before) and then runs this seal
+// on the way out. The seal can only ever DOWNGRADE ok — there is no path out of this
+// translation unit that skips it, so "ok == true over an annihilated shell" is not a
+// state the entry point can produce. Deleting the seal call is a one-line mutation
+// that the heal_truth gate catches (proved red).
+//
+// WHAT "DESTROYED" MEANS — A VECTOR, NOT A VOLUME. This repository has four measured
+// cases where volume matched and the solid was wrong, so the seal never rests on a
+// single observable. It tests the CONTENT VECTOR of the result against the input:
+//   D1  faces:  every face was removed        -> there is no result to hand back
+//   D2  area:   the input carried surface area, the output carries none
+//   D3  volume: the input enclosed a volume, the output's is annihilated
+//   D4  extent: an axis the input spanned has been flattened to zero
+// D3/D4 use a RELATIVE annihilation test (12 orders of magnitude below the input),
+// not a tuned threshold: they fire on "gone", never on "moved". Legitimate sliver
+// removal on the real corpus moves volume by ~0.07% and trips none of them.
+//
+// WHAT THE SEAL DOES NOT DO. It is a backstop, not the fix: a heal that halves the
+// volume (the plate's old aspect-rule collapse, 10 -> 3.33) is NOT annihilation and
+// is not caught here. That defect is fixed at its root in degenerateAspect above.
+// The seal exists so that the next such bug cannot ship as a GREEN report.
+struct ShellExtent {
+    double lo[3]{0, 0, 0};
+    double hi[3]{0, 0, 0};
+    bool   any = false;
+    double ext(int a) const { return any ? (hi[a] - lo[a]) : 0.0; }
+    // The part's thinnest dimension: the smallest POSITIVE axis extent when one
+    // exists (a plate's wall), else the smallest extent (a flat sheet reports 0).
+    double thinnest() const {
+        if (!any) return 0.0;
+        double best = -1.0, minAll = ext(0);
+        for (int a = 0; a < 3; ++a) {
+            const double e = ext(a);
+            minAll = std::min(minAll, e);
+            if (e > 0.0 && (best < 0.0 || e < best)) best = e;
+        }
+        return (best > 0.0) ? best : minAll;
+    }
+    int thinnestAxis() const {
+        if (!any) return 2;
+        int bi = -1; double best = -1.0;
+        for (int a = 0; a < 3; ++a) {
+            const double e = ext(a);
+            if (e > 0.0 && (best < 0.0 || e < best)) { best = e; bi = a; }
+        }
+        if (bi >= 0) return bi;
+        bi = 0; best = ext(0);
+        for (int a = 1; a < 3; ++a) if (ext(a) < best) { best = ext(a); bi = a; }
+        return bi;
+    }
+};
+
+// Axis-aligned extent of every outer/inner loop corner of a face set. Taken on the
+// RAW INPUT, before the heal mints any new topology, so it is the part as delivered.
+ShellExtent measureShellExtent(const std::vector<Face*>& faces) {
+    ShellExtent e;
+    auto add = [&](const Point3& p) {
+        const double c[3] = {p.x, p.y, p.z};
+        if (!e.any) { for (int a = 0; a < 3; ++a) { e.lo[a] = e.hi[a] = c[a]; } e.any = true; return; }
+        for (int a = 0; a < 3; ++a) { e.lo[a] = std::min(e.lo[a], c[a]); e.hi[a] = std::max(e.hi[a], c[a]); }
+    };
+    for (const Face* f : faces) {
+        if (f == nullptr) continue;
+        for (const Point3& p : loopRing(f->outerLoop)) add(p);
+        for (const Loop* il : f->innerLoops) for (const Point3& p : loopRing(il)) add(p);
+    }
+    return e;
+}
+
+// HealReport::reason is a `const char*` (a header type this task's write set does not
+// own — see the FOLLOW-UP note on healBRep), so a refusal that must NAME the measured
+// thickness and the tolerance parks its text in a small thread-local ring. A report's
+// reason therefore stays readable until the same thread has run 16 further heals,
+// which covers every "heal, then read the report" flow in the tree. Promoting
+// `reason` to std::string is the clean fix and is written down as a follow-up.
+const char* internReason(const std::string& s) {
+    static thread_local std::string ring[16];
+    static thread_local unsigned next = 0;
+    std::string& slot = ring[next];
+    next = (next + 1u) % 16u;
+    slot = s;
+    return slot.c_str();
+}
+
+const char* kAxisName[3] = {"X", "Y", "Z"};
+
+// "Annihilated": |after| is 12 orders of magnitude below |before|, i.e. gone rather
+// than merely changed. Scale-free, so it behaves the same on a 1 mm and a 1 m part.
+inline bool annihilated(double before, double after) {
+    const double b = std::fabs(before);
+    if (!(b > 0.0)) return false;                 // nothing was there to destroy
+    return std::fabs(after) <= b * 1e-12;
+}
+
+void sealHealReport(HealReport& rep, double tol, const ShellExtent& in) {
+    if (!rep.ok) return;            // malformed input: healBRepCore already refused
+
+    char buf[512];   // snprintf truncates safely, but a truncated refusal loses its bound
+    const double thin = in.thinnest();
+    const int    ax   = in.thinnestAxis();
+
+    // --- D1: nothing survived --------------------------------------------------
+    if (rep.faces.empty()) {
+        std::snprintf(buf, sizeof(buf),
+                      "heal destroyed the shell: every face was removed, none survived. "
+                      "The part's thinnest dimension is %.6g mm (%s) and the modelling "
+                      "tolerance is %.6g mm; heal cannot resolve features at or below "
+                      "its own tolerance. Re-run with tol < %.6g mm.",
+                      thin, kAxisName[ax], tol, thin);
+        rep.ok = false;
+        rep.reason = internReason(buf);
+        return;
+    }
+
+    // --- D2: the surface area is gone ------------------------------------------
+    if (annihilated(rep.areaBefore, rep.areaAfter)) {
+        std::snprintf(buf, sizeof(buf),
+                      "heal destroyed the shell: surface area %.6g mm^2 -> %.6g mm^2. "
+                      "The part's thinnest dimension is %.6g mm (%s), the modelling "
+                      "tolerance is %.6g mm. Re-run with tol < %.6g mm.",
+                      rep.areaBefore, rep.areaAfter, thin, kAxisName[ax], tol, thin);
+        rep.ok = false;
+        rep.reason = internReason(buf);
+        return;
+    }
+
+    // --- D3: the enclosed volume is gone ---------------------------------------
+    if (annihilated(rep.volumeBefore, rep.volumeAfter)) {
+        std::snprintf(buf, sizeof(buf),
+                      "heal destroyed the shell: enclosed volume %.6g mm^3 -> %.6g mm^3. "
+                      "The part's thinnest dimension is %.6g mm (%s) and the modelling "
+                      "tolerance is %.6g mm, which is not below it — welding at this "
+                      "tolerance fuses the part's own wall shut. Re-run with tol < %.6g mm.",
+                      rep.volumeBefore, rep.volumeAfter, thin, kAxisName[ax], tol, thin);
+        rep.ok = false;
+        rep.reason = internReason(buf);
+        return;
+    }
+
+    // --- D4: an axis the input spanned has been flattened ----------------------
+    if (in.any) {
+        const ShellExtent out = measureShellExtent(rep.faces);
+        for (int a = 0; a < 3; ++a) {
+            if (annihilated(in.ext(a), out.ext(a))) {
+                std::snprintf(buf, sizeof(buf),
+                              "heal destroyed the shell: the %s extent collapsed, "
+                              "%.6g mm -> %.6g mm. The modelling tolerance is %.6g mm and the "
+                              "part's thinnest dimension is %.6g mm (%s), so the weld merged "
+                              "geometry the part actually has. Re-run with tol < %.6g mm.",
+                              kAxisName[a], in.ext(a), out.ext(a), tol, thin, kAxisName[ax], thin);
+                rep.ok = false;
+                rep.reason = internReason(buf);
+                return;
+            }
+        }
+    }
+}
+
 } // anonymous namespace
 
 // ===========================================================================
@@ -236,11 +510,15 @@ double shellSurfaceArea(const std::vector<Face*>& faces) {
 }
 
 // ===========================================================================
-// healBRep — THE HEAL OP.
+// healBRepCore — THE HEAL OP (unsealed).
 // ===========================================================================
-HealReport healBRep(TopologyBuilder& tb,
-                    const std::vector<Face*>& faces,
-                    const HealOptions& opt) {
+// This is the original healBRep body. It may set rep.ok optimistically; it is NOT
+// the entry point. The public healBRep below runs sealHealReport over whatever this
+// returns, so a destroyed result cannot leave the module carrying ok == true. Keep
+// this function private: making it public would re-open exactly the hole T-137 was.
+static HealReport healBRepCore(TopologyBuilder& tb,
+                               const std::vector<Face*>& faces,
+                               const HealOptions& opt) {
     HealReport rep;
     if (faces.empty()) { rep.reason = "empty face set"; return rep; }
     for (Face* f : faces) {
@@ -411,7 +689,7 @@ HealReport healBRep(TopologyBuilder& tb,
             if (!degenerate) {
                 area = polyArea(ring);
                 if (area < sliverAreaEps) degenerate = true;
-                else if (degenerateAspect(ring, area, aspectMax)) degenerate = true;
+                else if (degenerateAspect(ring, area, aspectMax, tol)) degenerate = true;
             }
             if (degenerate) {
                 removed[fi] = 1;
@@ -471,18 +749,156 @@ HealReport healBRep(TopologyBuilder& tb,
             for (long long k : small) if (big.count(k)) return true;
             return false;
         };
+        // ── T-138: THE SPATIAL INDEX ───────────────────────────────────────────
+        //
+        // THE DEFECT. This pass used to be an exhaustive O(F^2) face-pair loop with an
+        // exhaustive O(T_i * T_j) triangle scan nested inside it and NO spatial index
+        // of any kind; every surviving triangle pair reached the exact BigInt tri-tri
+        // predicate. MEASURED on the real corpus (native STEP read, one process at a
+        // time, this pass OFF vs ON, and the ON-minus-OFF share of the total):
+        //     cua_v1/119    84 faces /   324 tris    0.001 s / 11.720 s   100.0%
+        //     cua_v1/105   272 faces /   272 tris    0.001 s / 50.766 s   100.0%
+        //     cua_v1/101    46 faces /   900 tris    0.006 s / 66.094 s   100.0%
+        //     cua_v1/116   530 faces /   530 tris    0.002 s / 217.11 s   100.0%
+        //     cua_v1/118  1336 faces /  1336 tris    0.004 s / 430.42 s   100.0%
+        // Every one of those reports siRemoved = 0 and siPairs = 0: minutes spent
+        // proving a negative. Two independent `sample` profiles put 100% of samples
+        // in this loop, at the six inlined edgePierces call sites below.
+        //
+        // THE FIX CHANGES WHICH PAIRS ARE TESTED, NEVER THE VERDICT. trisInterpenetrate
+        // is true only when an edge of one triangle pierces the OTHER triangle's
+        // interior in a single point. That point lies in both triangles, hence inside
+        // both triangles' axis-aligned boxes, hence inside both FACES' boxes. So
+        //     boxes disjoint  =>  no such point can exist  =>  the predicate is false.
+        // Skipping a box-disjoint pair therefore cannot change any verdict: the set of
+        // interpenetrating face pairs, the drop order, and every count are identical.
+        // The predicate itself is not touched, and neither is the small/large gauge.
+        //
+        // TWO LEVELS, BECAUSE ONE IS NOT ENOUGH. A FACE-level box filter alone removes
+        // 96-100% of the pairs on the faceted parts (116: 131,700 -> 4,965 triangle
+        // tests) but only 2.2x on a part whose rings carry many corners (241), because
+        // fan triangulation from ring[0] makes every triangle's box nearly face-sized.
+        // So a surviving face pair goes through a TRIANGLE-level sweep-and-prune along
+        // the shell's longest axis: each face's triangles are sorted once by box-min on
+        // that axis, and the pair is swept with an active set, so only triangles whose
+        // intervals actually overlap are box-tested and only box-overlapping triangles
+        // reach the exact predicate.
+        struct Box3 { double lo[3]; double hi[3]; };
+        auto boxOfTri = [](const Tri3& t) -> Box3 {
+            Box3 b;
+            const double c[3][3] = {{t[0].x, t[0].y, t[0].z},
+                                    {t[1].x, t[1].y, t[1].z},
+                                    {t[2].x, t[2].y, t[2].z}};
+            for (int a = 0; a < 3; ++a) {
+                b.lo[a] = std::min(c[0][a], std::min(c[1][a], c[2][a]));
+                b.hi[a] = std::max(c[0][a], std::max(c[1][a], c[2][a]));
+            }
+            return b;
+        };
+        // Closed boxes: touching counts as overlapping, so the filter stays conservative.
+        auto boxesOverlap = [](const Box3& a, const Box3& b) -> bool {
+            return !(a.hi[0] < b.lo[0] || b.hi[0] < a.lo[0] ||
+                     a.hi[1] < b.lo[1] || b.hi[1] < a.lo[1] ||
+                     a.hi[2] < b.lo[2] || b.hi[2] < a.lo[2]);
+        };
+        std::vector<std::vector<Box3>>        triBox(frs.size());
+        std::vector<Box3>                     faceBox(frs.size());
+        std::vector<std::vector<std::uint32_t>> sweepOrder(frs.size());
+        Box3 shellBox{{0, 0, 0}, {0, 0, 0}};
+        bool haveShellBox = false;
+        for (std::size_t fi = 0; fi < frs.size(); ++fi) {
+            if (!ft[fi].live || ft[fi].tris.empty()) continue;
+            triBox[fi].reserve(ft[fi].tris.size());
+            Box3 fb = boxOfTri(ft[fi].tris[0]);
+            for (const Tri3& t : ft[fi].tris) {
+                const Box3 b = boxOfTri(t);
+                triBox[fi].push_back(b);
+                for (int a = 0; a < 3; ++a) {
+                    fb.lo[a] = std::min(fb.lo[a], b.lo[a]);
+                    fb.hi[a] = std::max(fb.hi[a], b.hi[a]);
+                }
+            }
+            faceBox[fi] = fb;
+            if (!haveShellBox) { shellBox = fb; haveShellBox = true; }
+            else for (int a = 0; a < 3; ++a) {
+                shellBox.lo[a] = std::min(shellBox.lo[a], fb.lo[a]);
+                shellBox.hi[a] = std::max(shellBox.hi[a], fb.hi[a]);
+            }
+        }
+        int sweepAxis = 0;
+        if (haveShellBox) {
+            double bestExt = shellBox.hi[0] - shellBox.lo[0];
+            for (int a = 1; a < 3; ++a) {
+                const double e = shellBox.hi[a] - shellBox.lo[a];
+                if (e > bestExt) { bestExt = e; sweepAxis = a; }
+            }
+        }
+        for (std::size_t fi = 0; fi < frs.size(); ++fi) {
+            const std::size_t nT = triBox[fi].size();
+            if (nT == 0) continue;
+            sweepOrder[fi].resize(nT);
+            for (std::size_t k = 0; k < nT; ++k) sweepOrder[fi][k] = static_cast<std::uint32_t>(k);
+            const std::vector<Box3>& bx = triBox[fi];
+            const int ax = sweepAxis;
+            std::sort(sweepOrder[fi].begin(), sweepOrder[fi].end(),
+                      [&bx, ax](std::uint32_t a, std::uint32_t b) {
+                          if (bx[a].lo[ax] != bx[b].lo[ax]) return bx[a].lo[ax] < bx[b].lo[ax];
+                          return a < b;   // total order: the sort is deterministic
+                      });
+        }
+        // Sweep-and-prune between two faces' triangle sets. Returns exactly what the
+        // old exhaustive double loop returned: "some triangle of i interpenetrates
+        // some triangle of j". Pairs it never evaluates are box-disjoint, for which
+        // the predicate is false by the argument above.
+        std::vector<std::uint32_t> actA, actB;   // reused across pairs (no per-pair alloc)
+        auto pairInterpenetrates = [&](std::size_t i, std::size_t j) -> bool {
+            const std::vector<Box3>& BA = triBox[i];
+            const std::vector<Box3>& BB = triBox[j];
+            const std::vector<std::uint32_t>& OA = sweepOrder[i];
+            const std::vector<std::uint32_t>& OB = sweepOrder[j];
+            actA.clear(); actB.clear();
+            std::size_t pa = 0, pb = 0;
+            while (pa < OA.size() || pb < OB.size()) {
+                const bool takeA = (pb >= OB.size()) ? true
+                                 : (pa >= OA.size()) ? false
+                                 : (BA[OA[pa]].lo[sweepAxis] <= BB[OB[pb]].lo[sweepAxis]);
+                if (takeA) {
+                    const std::uint32_t t = OA[pa++];
+                    const double lo = BA[t].lo[sweepAxis];
+                    std::size_t w = 0;
+                    for (std::size_t r = 0; r < actB.size(); ++r)
+                        if (BB[actB[r]].hi[sweepAxis] >= lo) actB[w++] = actB[r];
+                    actB.resize(w);
+                    for (std::uint32_t u : actB)
+                        if (boxesOverlap(BA[t], BB[u]) &&
+                            !provablyNoInterpenetration(ft[i].tris[t], ft[j].tris[u]) &&
+                            trisInterpenetrate(ft[i].tris[t], ft[j].tris[u])) return true;
+                    actA.push_back(t);
+                } else {
+                    const std::uint32_t u = OB[pb++];
+                    const double lo = BB[u].lo[sweepAxis];
+                    std::size_t w = 0;
+                    for (std::size_t r = 0; r < actA.size(); ++r)
+                        if (BA[actA[r]].hi[sweepAxis] >= lo) actA[w++] = actA[r];
+                    actA.resize(w);
+                    for (std::uint32_t t : actA)
+                        if (boxesOverlap(BA[t], BB[u]) &&
+                            !provablyNoInterpenetration(ft[i].tris[t], ft[j].tris[u]) &&
+                            trisInterpenetrate(ft[i].tris[t], ft[j].tris[u])) return true;
+                    actB.push_back(u);
+                }
+            }
+            return false;
+        };
         for (std::size_t i = 0; i < frs.size(); ++i) {
             if (!ft[i].live) continue;
+            if (triBox[i].empty()) continue;            // no triangles: old loop found nothing
             for (std::size_t j = i + 1; j < frs.size(); ++j) {
                 if (!ft[j].live) continue;
+                if (triBox[j].empty()) continue;
+                if (!boxesOverlap(faceBox[i], faceBox[j])) continue;  // INDEX: cannot pierce
                 if (sharesCorner(i, j)) continue;          // legitimate shared boundary
-                bool hit = false;
-                for (const Tri3& ta : ft[i].tris) {
-                    for (const Tri3& tb2 : ft[j].tris) {
-                        if (trisInterpenetrate(ta, tb2)) { hit = true; break; }
-                    }
-                    if (hit) break;
-                }
+                const bool hit = pairInterpenetrates(i, j);
                 if (!hit) continue;
                 // A real interpenetration. Is EITHER offender a small/removable sliver?
                 const bool iSmall = (ft[i].area <= smallAreaCut);
@@ -972,6 +1388,39 @@ HealReport healBRep(TopologyBuilder& tb,
 
     rep.ok = true;
     rep.reason = "ok";
+    return rep;
+}
+
+// ===========================================================================
+// healBRep — THE PUBLIC ENTRY POINT (sealed).
+// ===========================================================================
+// T-137. Every heal leaves through here, and every heal that leaves through here has
+// had its verdict re-derived from the MEASURED result by sealHealReport. The core may
+// be as optimistic as it likes; it cannot make `ok` mean "succeeded" on its own.
+//
+// The input's bounding extent is measured BEFORE the core runs, on the raw faces as
+// delivered, so the refusal text can name the part's real thickness even after the
+// heal has rebuilt the topology.
+//
+// FOLLOW-UP (deliberately NOT done here — it needs a write to
+// forge-kernel/include/forge/native/brep/Heal.hpp, which is outside this task's write
+// set): make `ok` structurally underivable rather than merely re-derived. The clean
+// shape is a HealReport whose `ok` has no public setter and whose only constructor
+// path from a face set runs these invariants, plus `reason` as a std::string so a
+// refusal owns its text instead of borrowing a thread-local ring slot. Two further
+// items belong with it: (a) the sliver-restore safety net at the end of healBRepCore
+// is guarded on rep.before.closed, which is structurally FALSE for the independent-
+// face soup every production caller builds, so that net is unreachable exactly where
+// it is needed; (b) NativeShapeHealBridge::fixShapeGeneral leaves GeneralFixReport::
+// reason empty on its success path, so a refusal's text currently stops at this
+// boundary and never reaches the UI.
+HealReport healBRep(TopologyBuilder& tb,
+                    const std::vector<Face*>& faces,
+                    const HealOptions& opt) {
+    const double tolEff = (opt.tol > 0.0) ? opt.tol : 1e-12;
+    const ShellExtent inExtent = measureShellExtent(faces);
+    HealReport rep = healBRepCore(tb, faces, opt);
+    sealHealReport(rep, tolEff, inExtent);
     return rep;
 }
 
