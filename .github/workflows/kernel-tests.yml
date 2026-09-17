@@ -247,7 +247,7 @@ jobs:
           "$CXX" -std=c++20 -O2 -Wall -Wextra -Werror -I "$K/include" \
                  -c "$K/test/heal_selfintersect_scale_probe.cpp" -o /tmp/healgate/probe.o \
             || { echo "::error::the T-138 scale probe does not COMPILE"; exit 1; }
-          "$CXX" -std=c++20 -O2 /tmp/healgate/probe.o /tmp/healgate/heal.o \
+          "$CXX" -std=c++20 -O2 /tmp/healgate/probe.o /tmp/healgate/gate.heal.o \
                  /tmp/healgate/obj/Sew.o /tmp/healgate/obj/Topology.o \
                  /tmp/healgate/obj/Curve.o /tmp/healgate/obj/Nurbs.o \
                  /tmp/healgate/obj/ExactPredicates3D.o /tmp/healgate/obj/ExactReal.o \
