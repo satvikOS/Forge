@@ -136,6 +136,28 @@ DESKTOP_SKIP=(
   forge-desktop/src/PlatformSDL2.cpp
   forge-desktop/src/ViewportRenderer.cpp
   forge-desktop/src/UpdateService.cpp
+  # ExpressionHost.cpp -- TWO independent reasons, both CHECKABLE, because the
+  # paragraph above is right that "not reached" is a claim with a shelf life:
+  #
+  #  (1) NO LINKED TU REFERENCES ITS SYMBOLS. ForgeFrame holds
+  #      `const forge::ui::ExpressionEngine* exprEngine_ = nullptr` -- the
+  #      INTERFACE -- and reaches the implementation only through it. The only
+  #      code that constructs a concrete forge::desktop::ExpressionHost is
+  #      main.cpp:648 (skipped here; click_gate.cpp owns main) and
+  #      forge-desktop/test/parameters_gate.cpp, which builds and runs it against
+  #      the real library. So in this binary exprEngine_ stays null.
+  #  (2) IT IS THE ONE PLACE FORGE TOUCHES libforge_expr -- the LGPL-2.1 SHARED
+  #      library in third_party/freecad-derived/expressions. Linking it here would
+  #      mean building that library for a headless click walk.
+  #
+  # ★ AND THE NULL PATH IS EXERCISED, NOT HYPOTHETICAL: with exprEngine_ null the
+  #   Parameters panel takes its documented branch and draws "Named values and
+  #   formulas are not available in this copy of Forge, so every dimension keeps
+  #   the number it was given." That is a real user-facing state this gate walks,
+  #   which is why skipping the TU does not leave the panel untested here.
+  #   If anything in DESKTOP_LINK ever names ExpressionHost directly, reason (1)
+  #   expires and the linker will say so -- move it to DESKTOP_LINK then.
+  forge-desktop/src/ExpressionHost.cpp
 )
 # THE DRIFT GUARD. A new desktop source that nobody classifies is the exact
 # failure above. Report it here, by name, instead of letting the linker say it
