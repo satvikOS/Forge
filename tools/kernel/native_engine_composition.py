@@ -171,7 +171,10 @@ def strip_noncode(text):
         else:
             out.append(c); i += 1
     stripped = "".join(out)
-    return "\n".join("" if line.lstrip().startswith("#include") else line
+    # Blank the include line to SPACES, not to nothing: emptying it would shift
+    # every later byte and silently break the offset contract this function
+    # promises two paragraphs up -- which the PRODUCES construction check reads.
+    return "\n".join(" " * len(line) if line.lstrip().startswith("#include") else line
                      for line in stripped.split("\n"))
 
 
@@ -224,6 +227,23 @@ SELFTEST = [
 
 def selftest():
     bad = 0
+    # THE OFFSET CONTRACT, checked rather than asserted. strip_noncode promises
+    # that blanked text keeps its width so a token's position still refers to the
+    # original source -- the PRODUCES construction check reads those positions.
+    # The include-stripping step broke it by emptying the line instead of padding
+    # it, which nothing measured because both the scan and the construction set
+    # are built from the same post-strip text. Found in review.
+    for name, src, _s, _g in SELFTEST:
+        out = strip_noncode(src)
+        if len(out) != len(src):
+            print("  FAIL offsets shift on %r (%d -> %d)" % (name, len(src), len(out)))
+            bad += 1
+    for path in sorted(glob.glob(PATTERN)):
+        raw = open(path).read()
+        if len(strip_noncode(raw)) != len(raw):
+            print("  FAIL offsets shift on %s" % os.path.basename(path)); bad += 1
+    if not bad:
+        print("  ok   stripping preserves every byte offset")
     for name, src, survive, gone in SELFTEST:
         out = strip_noncode(src)
         for t in survive:
