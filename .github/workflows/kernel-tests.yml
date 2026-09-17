@@ -913,6 +913,47 @@ jobs:
           done
           [ "$fails" -eq 0 ] || exit 1
           echo "[shape-seam] green on the tree, red under all 5 mutations"
+      - name: the native-payload seam (nativeSolidOf/nativeMeshOf) + 3 mutations
+        # SAME ASSERTION AS THE STEP ABOVE, ONE LAYER DOWN. forge_shape_seam_gate
+        # proves the TRAVERSAL facade is OCCT-free; this proves the PAYLOAD
+        # accessors are, and the six T-129 sites take the payload, not the facade.
+        # -I is exactly forge-kernel/include with no ${OCCT_INC}, so if
+        # NativeShapeAccess.hpp -- or Topology.hpp / Shape.hpp / HalfEdgeMesh.hpp
+        # beneath it -- ever grows an OCCT include, this step fails to BUILD.
+        #
+        # ★ WHY IT IS WIRED HERE AND NOT LEFT TO ctest. The script's own header
+        #   says "wiring it into ctest is ONE add_executable/add_test block and is
+        #   left named, not done" -- and the gate-registration ratchet caught
+        #   exactly that, RED with `build_native_payload_access_gate` under
+        #   "it will compile, commit, and stay green while never running once."
+        #   ctest is invoked by no workflow in this repository, so registering it
+        #   there would have satisfied the letter and changed nothing.
+        #
+        # It reuses build-verify rather than configuring a second tree: the step
+        # above has already built forge_kernel_core there, and the gate only needs
+        # the dylib to link and load against.
+        env:
+          PAYLOAD_SEAM_BUILD: ${{ github.workspace }}/forge-kernel/build-verify
+        run: bash forge-kernel/test/build_native_payload_access_gate.sh
+      - name: T-129 invalid-handle parity — the seam answers nullptr where kindOf threw
+        # THE BEHAVIOURAL CONTROL, and the reason it is not optional. kindOf()
+        # THROWS on a handle that names nothing; the seam returns nullptr and never
+        # throws. That is a real difference at all six sites, and the likeliest way
+        # this change breaks something quietly is a site that used to throw and now
+        # silently takes another branch. This asserts what an EXTERNAL caller sees.
+        #
+        # FORGE_NATIVE_FEATURES=1 is load-bearing: at the default (off) three of the
+        # six sites are not reached at all, which would make the control vacuous --
+        # it would pass without executing the code it exists for.
+        #
+        # ★ NOTE FOR THE NEXT PERSON: this file is named ..._parity.mjs, not
+        #   ..._gate.mjs, so tools/kernel/js_gate_registration_gate.py does NOT see
+        #   it and would never have reported it unwired. Neither ratchet covers a
+        #   runnable control named outside both conventions; this step is the only
+        #   thing making it run.
+        env:
+          FORGE_NATIVE_FEATURES: '1'
+        run: node forge-kernel/test/t129_invalid_handle_parity.mjs
       - name: native gate guard — a compile must restore every gate it forced
         # WHY HERE AND NOT IN THE APPENDIX B JOB, WHERE THIS FIRST LIVED.
         #   This gate needs a full CMake configure of forge-kernel. The Appendix B job
