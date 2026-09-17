@@ -202,8 +202,21 @@ jobs:
           run_mutant total \
             's/if \(rep\.inputBoundsVolume\) \{(\s*\/\/ \(9\) TOTAL DESTRUCTION)/if (false) {$1/s' \
             || fails=$((fails+1))
+          # ★ THE ANCHOR IS \s*, NOT LITERAL SPACES, AND THE CALL CARRIES BOTH ARGUMENTS.
+          # As first written this case was broken twice and could never have proved
+          # anything: the anchor spelled three spaces where Heal.cpp:794 has four, so
+          # the substitution changed NOTHING; and the replacement called
+          # shellBoundsVolume(faces) when it is declared
+          # `bool shellBoundsVolume(const std::vector<Face*>&, double relEps)`, so even
+          # a matching anchor would have produced a mutant that does not COMPILE — and
+          # a build failure is not a proof either. It went unnoticed because the branch
+          # carrying this step had no pull request, so the step had never run once:
+          # exactly the "registration is not execution" defect T-137(C) exists to fix,
+          # turned on T-137's own gate. relEps=0.0 is deliberate — the function reads
+          # `if (relEps <= 0.0) relEps = 1e-9;`, so this restores round 1's predicate at
+          # its own default rather than inventing a tolerance here.
           run_mutant arming \
-            's/rep\.inputBoundsVolume   = inputClosure\.boundsMaterial;/rep.inputBoundsVolume   = shellBoundsVolume(faces);/' \
+            's/rep\.inputBoundsVolume\s*=\s*inputClosure\.boundsMaterial;/rep.inputBoundsVolume    = shellBoundsVolume(faces, 0.0);/' \
             || fails=$((fails+1))
           [ "$fails" -eq 0 ] || { echo "::error::$fails of 4 heal-gate mutation proofs failed"; exit 1; }
           echo "[heal-gate] green on the tree, RED under all four refusal-branch mutations"
