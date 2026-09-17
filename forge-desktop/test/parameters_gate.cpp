@@ -31,7 +31,9 @@
 #include <vector>
 
 #include "ExpressionHost.hpp"
+#include "PartFile.hpp"
 #include "forge/ui/ArchieCopilot.hpp"
+#include "forge/ui/Drawing.hpp"
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/ExpressionEngine.hpp"
 #include "forge/ui/FeatureIr.hpp"
@@ -452,6 +454,23 @@ int main() {
     r = P("part.parameter_unbind", bindParams(4, "radius", ""));
     CHECK(!r.ok() && contains(r.detail, "not driven"));
 
+    // A DRIVEN number is not typed over by the plain edit command -- the next
+    // parameter change would silently put the formula back. An undriven one is.
+    {
+      CommandParams e;
+      e.setNumber("feature", 2);
+      e.setNumber("index", 0);
+      e.setNumber("value", 9);
+      const DispatchResult edit = shell.run("part.edit_feature", e);
+      CHECK(!edit.ok() && contains(edit.detail, "follows the formula"));
+      if (!edit.ok()) refusals.push_back(edit.detail);
+      CHECK_NEAR(argNumber(doc, 2, 1), 6.0, 1e-12);
+      e.setNumber("feature", 4);
+      e.setNumber("value", 3);
+      CHECK(shell.run("part.edit_feature", e).ok());
+      CHECK_NEAR(argNumber(doc, 4, 1), 3.0, 1e-12);
+    }
+
     // An unused parameter can go.
     CHECK(P("part.parameter_remove", texts({{"name", "mass"}})).ok());
     CHECK(doc.parameters().find("mass") == nullptr);
@@ -479,6 +498,80 @@ int main() {
     CHECK_EQ_STR(doc.irProgram(), "%1 = BOX(60, 40, 20)\n%2 = SHELL(%1, 2)\n"
                                   "%3 = HOLE(%2, 6, 0, 0, 20)\n%4 = FILLET(%3, 1, ALL)\n");
     CHECK(doc.parameters().empty());
+  }
+
+  // ── I. THE RELATIONSHIP SURVIVES SAVE AND OPEN ────────────────────────────
+  // A part saved with its parameters must come back with them: the numbers are
+  // in the statements either way, but a reopened part whose `wall` no longer
+  // drives anything would be a Save that reported success and lost the design.
+  {
+    CHECK(P("part.parameter_set", texts({{"name", "wall"}, {"expression", "3 mm"}})).ok());
+    CHECK(P("part.parameter_set",
+            texts({{"name", "gap"}, {"expression", "wall + 1 mm"}, {"comment", "clearance, all round"}}))
+              .ok());
+    CHECK(P("part.parameter_bind", bindParams(2, "wall", "wall")).ok());
+    CHECK(P("part.parameter_bind", bindParams(3, "dia", "wall * 0.5 + 2 mm")).ok());
+    CHECK(P("part.parameter_bind", bindParams(4, "radius", "wall / 2")).ok());
+    DispatchResult r = P("part.parameter_set", texts({{"name", "bad"}, {"expression", "1 mm\n+ 2 mm"}}));
+    CHECK(!r.ok() && contains(r.detail, "one line"));  // a formula cannot smuggle a record break
+
+    const forge::desktop::PartFileDoc file =
+        forge::desktop::capturePartDocument(doc, "params", DrawingModel{}, "");
+    const std::string text = forge::desktop::writePartFile(file);
+    CHECK(contains(text, "FORGE-PART 5\n"));
+    CHECK(contains(text, "PARAMETER\nPNAME wall\nPEXPR 3 mm\nEND\n"));
+    CHECK(contains(text, "PARAMETER\nPNAME gap\nPEXPR wall + 1 mm\nPNOTE clearance, all round\nEND\n"));
+    CHECK(contains(text, "BINDING\nBFEATURE 3\nBARG dia\nBSLOT 1\nBEXPR wall * 0.5 + 2 mm\nEND\n"));
+
+    forge::desktop::PartFileDoc read;
+    std::string why;
+    CHECK(forge::desktop::readPartFile(text, read, why));
+    CHECK(read.parameters == doc.parameters());
+    CHECK_EQ_STR(forge::desktop::writePartFile(read), text);  // byte for byte
+
+    // Reopen into a FRESH document, registry and undo stack -- a new session.
+    ForgeShell shell2;
+    PartDocument doc2;
+    UndoStack undo2;
+    registerPartCommands(shell2.registry(), doc2, undo2);
+    registerParameterCommands(shell2.registry(), doc2, undo2,
+                              [&host]() -> const ExpressionEngine* { return &host; });
+    CHECK(forge::desktop::restorePartDocument(read, doc2, why));
+    if (!why.empty()) std::printf("  restore: %s\n", why.c_str());
+    CHECK(doc2.parameters() == doc.parameters());
+    CHECK_EQ_STR(doc2.irProgram(), doc.irProgram());
+    // ... and ONE change still moves all three features.
+    CHECK(shell2.run("part.parameter_set", texts({{"name", "wall"}, {"expression", "5 mm"}})).ok());
+    CHECK_NEAR(argNumber(doc2, 2, 1), 5.0, 1e-12);
+    CHECK_NEAR(argNumber(doc2, 3, 1), 4.5, 1e-12);
+    CHECK_NEAR(argNumber(doc2, 4, 1), 2.5, 1e-12);
+    CHECK_EQ_INT(undo2.undoDepth(), 1);
+
+    // A version 4 file carrying the new block is refused, naming the version.
+    std::string v4 = text;
+    v4.replace(0, std::string("FORGE-PART 5").size(), "FORGE-PART 4");
+    forge::desktop::PartFileDoc refused;
+    CHECK(!forge::desktop::readPartFile(v4, refused, why));
+    CHECK(contains(why, "version 5"));
+    // A binding naming a number the statement does not have is refused on open.
+    std::string wrongArg = text;
+    const std::string anchor = "BARG dia\nBSLOT 1\n";
+    wrongArg.replace(wrongArg.find(anchor), anchor.size(), "BARG depth\nBSLOT 8\n");
+    forge::desktop::PartFileDoc wrong;
+    CHECK(forge::desktop::readPartFile(wrongArg, wrong, why));  // the TEXT is well-formed
+    PartDocument doc3;
+    CHECK(!forge::desktop::restorePartDocument(wrong, doc3, why));
+    CHECK(contains(why, "depth"));
+    std::printf("  refusal (reopen): %s\n", why.c_str());
+    refusals.push_back(why);
+    // The same structural check an autosave recovery applies before it trusts the
+    // parameters it finds beside the recovered tree.
+    CHECK(forge::desktop::partFileParametersFit(read.parameters, doc2, why));
+    const PartDocument emptyPart;
+    CHECK(!forge::desktop::partFileParametersFit(read.parameters, emptyPart, why));
+    CHECK(contains(why, "does not have"));
+
+    while (undo.undoDepth() > modelSteps) CHECK(undo.undo(doc));
   }
 
   // ── H. EVERY REFUSAL IS A SENTENCE A PERSON CAN READ ──────────────────────

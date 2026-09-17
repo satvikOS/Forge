@@ -3124,6 +3124,15 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         ctx.fail("no numeric parameter at that feature/index");
         return;
       }
+      // A number a FORMULA drives (forge/ui/Parameters.hpp) is not typed over.
+      // Accepting the edit would last only until the next parameter change
+      // recomputed the formula and silently put the old relationship back --
+      // a change reported as made that quietly un-makes itself.
+      if (const DimensionBinding* driven = d->parameters().bindingFor(t.irId, t.argIndex)) {
+        ctx.fail("this number follows the formula '" + driven->expression +
+                 "' -- change the formula, or stop driving it first");
+        return;
+      }
       std::vector<IrArg> args = rec->line.args;
       args[t.argIndex] = IrArg::num(num(ctx, "value", 0.0));
       std::string label = "Edit " + (rec->label.empty() ? rec->line.op : rec->label);

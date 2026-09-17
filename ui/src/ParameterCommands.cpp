@@ -54,6 +54,18 @@ bool hasText(const CommandContext& ctx, const char* name) {
   return ctx.params().text(name).has_value();
 }
 
+// A formula, a name and a note are each ONE LINE of text. The part file stores one
+// record per line (forge-desktop/src/PartFile.cpp) and turns a control character
+// into a space on the way out, so a line break accepted here would come back from
+// a save as a different formula -- refused here instead, where it can be said.
+bool plainLine(const std::string& text) {
+  for (const char c : text) {
+    const unsigned char u = static_cast<unsigned char>(c);
+    if (u < 0x20 || u == 0x7f) return false;
+  }
+  return true;
+}
+
 CommandDescriptor base(const char* id, const char* label) {
   CommandDescriptor c;
   c.id = id;
@@ -149,6 +161,10 @@ std::size_t registerParameterCommands(CommandRegistry& registry, PartDocument& d
       const ParameterDef* existing = candidate.find(name);
       def.comment = hasText(ctx, "comment") ? txt(ctx, "comment", "")
                                             : (existing != nullptr ? existing->comment : "");
+      if (!plainLine(def.expression) || !plainLine(def.comment)) {
+        ctx.fail("a formula and its note must each fit on one line");
+        return;
+      }
       candidate.upsertParameter(def);
       commit(ctx, *d, *s, *engine, candidate, "Set " + name);
     };
@@ -192,6 +208,10 @@ std::size_t registerParameterCommands(CommandRegistry& registry, PartDocument& d
       binding.argument = argument;
       binding.slot = slot.found ? slot.index : 0;
       binding.expression = txt(ctx, "expression", "");
+      if (!plainLine(binding.expression)) {
+        ctx.fail("a formula must fit on one line");
+        return;
+      }
       candidate.upsertBinding(binding);
       // An unknown argument, an ambiguous one, a unitless one and one the statement
       // never wrote are all refused by recomputeParameters(), with the names the

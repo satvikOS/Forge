@@ -47,7 +47,9 @@
         "ui/src/Parameters.cpp",
         "ui/src/ParameterCommands.cpp",
         "forge-desktop/src/ExpressionHost.hpp",
-        "forge-desktop/src/ExpressionHost.cpp"
+        "forge-desktop/src/ExpressionHost.cpp",
+        "forge-desktop/src/PartFile.cpp (PARAMETER / BINDING records, format version 5)",
+        "forge-desktop/src/ForgeFrame.cpp (the Parameters panel)"
       ],
       "adapted": "2026-09-15"
     }

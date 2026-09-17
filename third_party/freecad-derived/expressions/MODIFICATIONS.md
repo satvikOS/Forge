@@ -88,7 +88,9 @@ header and no Python header.
    (`LEXERROR`) that no rule accepts. Semantic actions build Forge types. A call to an
    unknown function or with the wrong argument count raises `YYERROR` from the
    action rather than throwing from a constructor inside the parser, so bison's own
-   `%destructor` cleanup runs. `YYMAXDEPTH` is 1000. Parser entry points hold a mutex
+   `%destructor` cleanup runs. A parse failure says why and where (`'3 +' is not a
+   formula: <reason> at character 4`) instead of upstream's `Failed to parse
+   expression '...'`. `YYMAXDEPTH` is 1000. Parser entry points hold a mutex
    (the parser state is file-static, as upstream).
 7. *Functions not supported.* `vector`, `matrix`, `placement`, `rotation*`,
    `create`, `list`, `tuple`, `translationm`, every `v*` vector and `m*` matrix

@@ -11,7 +11,9 @@
 #      (forge-desktop/src/ExpressionHost.cpp) + parameters_gate.cpp, links the
 #      library DYNAMICALLY, and runs it: one parameter drives three features in one
 #      undo step; mm + kg is refused; a -> b -> a is refused naming both; Archie's
-#      plan path; a build with no library disables the commands;
+#      plan path; a build with no library disables the commands; the parameters
+#      survive a .fpart save and open (forge-desktop/src/PartFile.cpp, format
+#      version 5) and still drive all three features in the reopened part;
 #   3. proves the link is dynamic ON THE BINARY IT RAN: the executable's load
 #      commands name libforge_expr (otool -L on macOS, readelf -d on Linux), and
 #      it DEFINES no forge::expr symbol -- the library's code is not in it.
@@ -65,7 +67,8 @@ run_tree() {
   mkdir -p "$out/obj"
   local flags=(-std=c++20 -O1 -Wall -Wextra -Werror -I "$tree/ui/include" -I "$tree/ui/test"
                -I "$tree/forge-desktop/src" -I "$tree/third_party/freecad-derived/expressions/include")
-  for src in "$tree"/ui/src/*.cpp "$tree/forge-desktop/src/ExpressionHost.cpp" "$tree/forge-desktop/test/parameters_gate.cpp"; do
+  for src in "$tree"/ui/src/*.cpp "$tree/forge-desktop/src/ExpressionHost.cpp" \
+             "$tree/forge-desktop/src/PartFile.cpp" "$tree/forge-desktop/test/parameters_gate.cpp"; do
     obj="$out/obj/$(basename "$src" .cpp).o"
     objs+=("$obj")
     ( "$CXX" "${flags[@]}" -c "$src" -o "$obj" 2>"$obj.err" || { echo "$src" >> "$fail"; tail -25 "$obj.err"; } ) &
@@ -133,7 +136,8 @@ copy_tree() {  # copy_tree <dest> : the parts of the repo this gate compiles
   mkdir -p "$dest/forge-desktop" "$dest/third_party/freecad-derived"
   cp -R "$ROOT/ui" "$dest/ui"
   mkdir -p "$dest/forge-desktop/src" "$dest/forge-desktop/test"
-  cp "$ROOT/forge-desktop/src/ExpressionHost.hpp" "$ROOT/forge-desktop/src/ExpressionHost.cpp" "$dest/forge-desktop/src/"
+  cp "$ROOT/forge-desktop/src/ExpressionHost.hpp" "$ROOT/forge-desktop/src/ExpressionHost.cpp" \
+     "$ROOT/forge-desktop/src/PartFile.hpp" "$ROOT/forge-desktop/src/PartFile.cpp" "$dest/forge-desktop/src/"
   cp "$ROOT/forge-desktop/test/parameters_gate.cpp" "$dest/forge-desktop/test/"
   cp -R "$ROOT/third_party/freecad-derived/expressions" "$dest/third_party/freecad-derived/expressions"
 }

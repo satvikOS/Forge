@@ -1439,6 +1439,11 @@ bool ForgeFrame::writeAutosaveDrawing() {
   PartFileDoc sidecar;
   sidecar.name = documentName_;
   sidecar.drawing = drawing_;
+  // The part's parameters and formulas ride here too. The autosaved tree is a
+  // forge::ui::DocumentModel document, whose format has no bindings, and this
+  // snapshot is already written by the part-file writer that does. Recovery checks
+  // them against the recovered features before it trusts them.
+  sidecar.parameters = partDoc_.parameters();
   const std::string text = writePartFile(sidecar);
   // The service's own rule, applied to the piece the service cannot see: an
   // unchanged drawing is not rewritten every fifteen seconds.
@@ -1861,6 +1866,30 @@ bool ForgeFrame::recoverFromAutosave(const forge::ui::RecoveryCandidate& candida
   // is "unassigned" whatever the autosave said. Taking it from the model is what
   // keeps a recovered part made of what it was made of.
   partDoc_.setMaterial(recovered.material());
+  // ── THE PARAMETERS, from the snapshot writeAutosaveDrawing() keeps ────────
+  // Only if every formula still names a number the recovered part has: the tree
+  // and the snapshot are two files, and a crash between their writes can leave
+  // them a step apart. A mismatch is REPORTED, never applied, because a binding
+  // that drives the wrong number is worse than one that is gone.
+  {
+    const std::string sidecarPath = autosaveDrawingPath(candidate.autosavePath);
+    std::string sidecarText;
+    std::string sidecarError;
+    PartFileDoc sidecarDoc;
+    if (!sidecarPath.empty() && recoveryStorage_.exists(sidecarPath) &&
+        recoveryStorage_.read(sidecarPath, sidecarText, sidecarError) &&
+        readPartFile(sidecarText, sidecarDoc, sidecarError) && !sidecarDoc.parameters.empty()) {
+      std::string fitError;
+      if (partFileParametersFit(sidecarDoc.parameters, partDoc_, fitError)) {
+        partDoc_.setParameters(sidecarDoc.parameters);
+      } else {
+        shell_.log().error("Autosave",
+                           "The named values and formulas saved with this autosave no longer "
+                           "match its features, so they were not recovered.",
+                           fitError);
+      }
+    }
+  }
   drawing_ = drawing;
   drawingLayoutBuilt_ = false;
   partUndo_.clear();

@@ -88,8 +88,17 @@ namespace forge::desktop {
 //   and the user gets an EMPTY viewport from a Save that reported success. The
 //   file has to carry the path or the most common CAD workflow there is --
 //   import, save, come back tomorrow -- cannot survive a restart.
+//
+// ★ WHY 5. Version 4 had no record of a part's PARAMETERS or of the formulas
+//   driving its dimensions (forge/ui/ParameterSet.hpp). A part whose shell wall
+//   and hole diameter both followed `wall` saved its NUMBERS -- the statements
+//   carry them -- and came back with the relationship gone: change `wall` after
+//   reopening and nothing followed, from a Save that had reported success. The
+//   PARAMETER and BINDING blocks carry it. PARAMETER spells its fields the way
+//   ui/src/DocumentModel.cpp's PARAMETER block already does (PNAME, PEXPR,
+//   PNOTE), so one key means one thing under this format name.
 inline constexpr const char* kPartFileMagic = "FORGE-PART";
-inline constexpr int kPartFileVersion = 4;
+inline constexpr int kPartFileVersion = 5;
 inline constexpr int kOldestReadablePartFileVersion = 1;
 // The version the DRAWING blocks were introduced in. A file older than this may
 // not contain one.
@@ -97,6 +106,8 @@ inline constexpr int kPartFileDrawingVersion = 3;
 // The version INPUT-FILE was introduced in. A file older than this may not
 // contain one, for the same additive-only reason the drawing blocks carry theirs.
 inline constexpr int kPartFileInputVersion = 4;
+// The version the PARAMETER and BINDING blocks were introduced in.
+inline constexpr int kPartFileParametersVersion = 5;
 inline constexpr const char* kPartFileExtension = ".fpart";
 
 // Whether this build can read a file claiming `version`. The accepted SET, not a
@@ -154,6 +165,12 @@ struct PartFileDoc {
   // and the geometric tolerances. Introduced in format version 2; a version 1
   // file loads with this empty.
   forge::ui::DrawingModel drawing;
+  // The part's named parameters and the formulas driving its dimensions
+  // (format version 5). Written only when there are any, so a part with none
+  // saves exactly the records a version 4 writer would have. The formulas are
+  // TEXT: nothing here evaluates one, and restorePartDocument checks only that
+  // every binding names a number its statement really has.
+  forge::ui::ParameterSet parameters;
   // The version the data was READ from, so a caller can tell a v1 document from
   // a v2 one. The writer always emits kPartFileVersion.
   int version = kPartFileVersion;
@@ -231,6 +248,13 @@ PartFileDoc capturePartDocument(const forge::ui::PartDocument& doc, const std::s
 // is refused by the same validator a live command is refused by.
 bool restorePartDocument(const PartFileDoc& file, forge::ui::PartDocument& doc,
                          std::string& error);
+// Does every binding in `parameters` name a number `doc` really has -- a statement
+// it holds, an argument that statement's op has, at that argument's position,
+// holding a number? STRUCTURE only; evaluating a formula needs the expression
+// library. restorePartDocument refuses a file that fails this, and an autosave
+// recovery drops (and reports) parameters that fail it against the recovered part.
+bool partFileParametersFit(const forge::ui::ParameterSet& parameters,
+                           const forge::ui::PartDocument& doc, std::string& why);
 
 // ── disk ────────────────────────────────────────────────────────────────────
 bool savePartFile(const std::string& path, const PartFileDoc& doc, std::string& error);
