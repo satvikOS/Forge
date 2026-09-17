@@ -710,6 +710,62 @@ jobs:
       # string, with two real builds queued behind them.
       - name: Asking forge-job what it does must not cost fifteen minutes
         run: zsh tools/guardian/test/forge_job_usage_gate.sh
+  resilience_family:
+    name: RESOURCE_RESILIENCE family benchmark (scored, + 4-defect falsifiability)
+    # T-136. The directive (§53) makes benchmark evidence a RELEASE GATE and doc 08's
+    # principle is no-visual-demo-only completion. A 13-family sweep of the benchmark
+    # tree credited nine families, FOUR of which were false positives, and
+    # RESOURCE_RESILIENCE was the sharpest genuine absence: "Guardian shed nothing all
+    # session because nothing registered, and there is no harness that would have
+    # caught that either" (T-133).
+    #
+    # WHAT NOW EXECUTES THAT DID NOT BEFORE. The only Guardian job in this file runs
+    # guardian_single_instance_gate.sh -- ONE property (a second governor must refuse
+    # to start), and nothing anywhere scored the ladder's behaviour under pressure.
+    # Both steps below are new coverage:
+    #   the SIGUSR1 cooperative shed preserving work end-to-end through forge-job;
+    #   forge-gate's admission agreeing with the RED ladder's eviction (settling grace,
+    #     one-TERM-per-decision) AND the governor surviving its own eviction decision;
+    #   usage paths not consuming a 900s gate slot, with a real job still gated;
+    #   the ladder having a GREEN attainable on the runner's actual filesystem, being
+    #     monotone, and still able to say RED;
+    #   shed targeting: registered + unprotected only, speculative first, reaped.
+    #
+    # macOS on purpose: the tools are #!/bin/zsh and the probes read `ps`, `sysctl`,
+    # `df` and `pmset`. Everything is hermetic -- a private FORGE_HEALTH_DIR with
+    # stubbed observation commands, following tools/guardian/test/forge_job_usr1_gate.sh
+    # -- so the runner's own load never changes the score and no live daemon is needed.
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: score the tree (ratchet floor)
+        # A FLOOR, not a pass/fail assertion: this family has a number and the number
+        # may rise, never fall. 0.60 is the MEASURED score of origin/archdisc d27aa4b9
+        # on 2026-09-16 (0.617) rounded down by one notch, so the gate is red the moment
+        # resilience regresses and green while the known gaps are still open. Raise it
+        # with the merge that closes one -- never lower it.
+        run: |
+          node forge-kernel/test/resilience_harness.mjs \
+            --json-out resilience.jsonl --label "ci $GITHUB_SHA" --gate 0.60
+      - name: ★ falsifiability — the rubric must tell each measured defect from its fix
+        # THE step that separates a benchmark from an assertion suite. It re-scores the
+        # checked-out tree with each of four REAL production defects put back, one at a
+        # time, and fails unless every one that APPLIES scores strictly lower:
+        #   a  forge-job without the SIGUSR1 trap        (jobs died on the politest signal)
+        #   b  the `*) break` arg loop                   (`--help` reached --wait 900)
+        #   c  admission/eviction disagreement           (admit peak_gb=N, then evict at N)
+        #   d  a ladder whose GREEN is unreachable       (every --need green job waits 900s)
+        # A defect ALREADY PRESENT in the tree is reported as such and does not mask a
+        # rubric failure -- the score floor above is what holds that line.
+        run: |
+          node forge-kernel/test/resilience_harness.mjs --reintroduce --from-tree
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: resilience-family-scores
+          path: resilience.jsonl
+          if-no-files-found: warn
 
   release_visibility:
     name: could an installed Forge actually SEE the latest release?
