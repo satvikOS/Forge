@@ -48,6 +48,16 @@ argument twice.
 > real code, and *a census that silently deletes source is the exact failure this
 > report is about*. `--selftest` carries the four lexical fixtures. Found in
 > review.
+>
+> ★And the self-test that guarded it said **"byte offset"** while measuring
+> **characters** — everything runs on a decoded Python `str`, where `len()` and
+> `re.Match.start()` count characters. Blanking a non-ASCII character with one
+> ASCII space keeps the character count equal while the UTF-8 byte count shrinks.
+> MEASURED across the fifteen files: character drift **0**, byte drift **4,491**,
+> `NativeLoftPipe.cpp` alone off by 1,225 — exactly its non-ASCII byte count. A
+> false statement passing a true test. The assertion deliberately stays on
+> characters, because the only consumer compares `m.start()` values from that
+> same string.
 
 **The falsifiability check is `--audit`**, which prints every OCCT-looking
 identifier that matched no bucket. A producer hiding in that list would

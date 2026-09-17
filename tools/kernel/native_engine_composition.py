@@ -144,8 +144,19 @@ def strip_noncode(text):
     same pattern swallows code. A census that silently deletes source is the
     exact failure this report is about. Found in review.
 
-    Comments become spaces rather than vanishing, so byte offsets stay put and a
-    token's position still means something to the caller.
+    Comments become spaces rather than vanishing, so CHARACTER offsets stay put
+    and a token's position still means something to the caller.
+
+    ★CHARACTER, not byte, and the difference is real in this corpus. Everything
+    here operates on a decoded Python str: len() and re.Match.start() count
+    characters. Blanking a non-ASCII character with one ASCII space keeps the
+    character count equal while the UTF-8 byte count shrinks -- MEASURED across
+    the fifteen census files, character drift 0 and BYTE drift 4,491, with
+    NativeLoftPipe.cpp alone off by 1,225, exactly its non-ASCII byte count. An
+    earlier version of this docstring and its self-test said "byte offsets",
+    which was a false statement passing a true test. The assertion deliberately
+    stays on characters, because the only consumer (classify) compares
+    m.start() values from this same str. Found in review.
     """
     out = []
     i, n = 0, len(text)
@@ -227,23 +238,26 @@ SELFTEST = [
 
 def selftest():
     bad = 0
-    # THE OFFSET CONTRACT, checked rather than asserted. strip_noncode promises
-    # that blanked text keeps its width so a token's position still refers to the
-    # original source -- the PRODUCES construction check reads those positions.
-    # The include-stripping step broke it by emptying the line instead of padding
-    # it, which nothing measured because both the scan and the construction set
-    # are built from the same post-strip text. Found in review.
+    # THE CHARACTER-OFFSET CONTRACT, checked rather than asserted. strip_noncode
+    # promises that blanked text keeps its width so a token's position still
+    # refers to the original source -- the PRODUCES construction check reads
+    # those positions, as character indices into this same str. The
+    # include-stripping step broke it by emptying the line instead of padding it,
+    # which nothing measured because both the scan and the construction set are
+    # built from the same post-strip text. Both found in review; so was the fact
+    # that this said "byte" while measuring characters.
     for name, src, _s, _g in SELFTEST:
         out = strip_noncode(src)
         if len(out) != len(src):
-            print("  FAIL offsets shift on %r (%d -> %d)" % (name, len(src), len(out)))
+            print("  FAIL character offsets shift on %r (%d -> %d)" % (name, len(src), len(out)))
             bad += 1
     for path in sorted(glob.glob(PATTERN)):
         raw = open(path).read()
         if len(strip_noncode(raw)) != len(raw):
             print("  FAIL offsets shift on %s" % os.path.basename(path)); bad += 1
     if not bad:
-        print("  ok   stripping preserves every byte offset")
+        print("  ok   stripping preserves every CHARACTER offset (not byte: "
+              "blanking non-ASCII with a space shrinks the UTF-8 length)")
     for name, src, survive, gone in SELFTEST:
         out = strip_noncode(src)
         for t in survive:
