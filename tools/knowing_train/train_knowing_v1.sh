@@ -308,7 +308,14 @@ while :; do
     echo "name=knowing-v1-lora"
     echo "priority=5"
     echo "can_restart=1"
-    echo "peak_gb=25"
+    # 31, not 25. Guardian budgets against the DECLARED envelope and the protection it
+    # gives a job is scoped to what that envelope says, so a declaration that is 5 GB
+    # short on a machine with 8 GB spare is asking the shedder to be surprised.
+    # MEASURED: the 40-iteration probe peaked at 24.653 GB and a real pass peaks at
+    # 30.204 GB — the same figure expert3d-v6r8 recorded on this box, to three decimals.
+    # A probe peak UNDER-REPORTS because it draws short rows; declare against the full
+    # pass, rounded up.
+    echo "peak_gb=31"
     echo "gpu=1"
     echo "started=$(date +%s)"
     echo "cmd=knowing_v1 LoRA (mlx_vlm, expert LoRA, resumable at ${SAVE_EVERY}-iter checkpoints)"
