@@ -207,6 +207,47 @@ class Planner {
   virtual PlanResponse plan(const PlanRequest& request) = 0;
 };
 
+// ── the model behind Archie, as the panel sees it ───────────────────────────
+// Archie IS the model when one is running on this computer, and the built-in
+// command matcher below is what the panel falls back to when it is not. The
+// panel must always be able to say which of the two is answering, so the model
+// is reached through this interface and never through a bare Planner: a
+// Planner answers synchronously, and a 30B model answering synchronously inside
+// a frame freezes the application for as long as it thinks (21 s measured for
+// one generation on this machine).
+//
+// EVERY MEMBER MUST RETURN WITHOUT WAITING. The host implementation
+// (forge::archie::ArchieLink) owns its sockets and threads; forge::ui still
+// opens none.
+enum class ModelState : std::uint8_t {
+  NotRunning = 0,  // nothing answered on the model's loopback port
+  Loading,         // the model service answered, and its model is not loaded yet
+  Ready,           // the model service answered with its model loaded
+  Off,             // the user switched the model off (FORGE_ARCHIE_ENDPOINT=off)
+};
+
+const char* machineName(ModelState state) noexcept;
+// The ONE sentence the CoPilot panel shows about where answers come from.
+const char* userText(ModelState state) noexcept;
+
+class PlannerService {
+ public:
+  virtual ~PlannerService() = default;
+  // The last thing the service learnt about its model. Never probes inline.
+  virtual ModelState state() const = 0;
+  // Starts asking. False when nothing could be started (not Ready, or a request
+  // is already in flight); the caller then answers some other way.
+  virtual bool start(const PlanRequest& request) = 0;
+  // True exactly once per started request, when its answer is in `out`. A reply
+  // that failed carries ok == false and a non-empty error, as every
+  // PlanResponse must. `transportFailed` says the MODEL could not be reached at
+  // all -- different from the model answering with a refusal -- because only
+  // the first of those is a reason to fall back to the built-in commands.
+  virtual bool poll(PlanResponse& out, bool& transportFailed) = 0;
+  // Whether a started request has not yet been polled back.
+  virtual bool busy() const = 0;
+};
+
 // The planner that ships today: DETERMINISTIC and OFFLINE. Same text, same
 // tools, same plan, always — no network, no model, no clock, no randomness. It
 // matches a small documented verb vocabulary and REFUSES everything else by
@@ -401,6 +442,11 @@ class ArchieCopilot {
   // Named separately from a bad plan because they are different problems.
   void failRequest(std::string why);
 
+  // A sentence from the host about where the answer is coming from ("Archie's
+  // model is not running — using built-in commands."), said into the transcript
+  // BEFORE the answer it explains. Plain words only; the host logs its reasons.
+  void inform(std::string sentence);
+
   bool hasPlan() const noexcept { return !plan_.empty(); }
   const Plan& plan() const noexcept { return plan_; }
 
@@ -420,6 +466,21 @@ class ArchieCopilot {
   // on offer. Every step passes the op-constraint gate again on the way through
   // applyPlan(); a step the gate refuses is never dispatched.
   ApplyOutcome apply(ForgeShell& shell, const PartDocument& document);
+
+  // What the last Accept did, step by step, kept until the next ask. The plan
+  // is consumed by apply(), so without this the panel could show the verdict a
+  // plan was OFFERED under and nothing about what then ran -- which is how a
+  // plan that had just been applied came to be drawn as "NOT OFFERED".
+  const ApplyOutcome& lastOutcome() const noexcept { return outcome_; }
+  // The host's reading of the result AFTER the steps ran: the kernel rebuilt the
+  // part, or it did not and the steps were taken back. Said into the transcript
+  // and kept beside the outcome, because "every step dispatched" is not "Forge
+  // built the part", and reporting the first as the second is a wrong part
+  // reported as success.
+  void recordBuildResult(bool built, std::string sentence);
+  bool lastBuildChecked() const noexcept { return buildChecked_; }
+  bool lastBuildOk() const noexcept { return buildOk_; }
+  const std::string& lastBuildSentence() const noexcept { return buildSentence_; }
 
   const std::vector<TranscriptLine>& transcript() const noexcept { return transcript_; }
   std::size_t plansAccepted() const noexcept { return accepted_; }
@@ -449,6 +510,10 @@ class ArchieCopilot {
   PlanRequest request_;
   Plan plan_;
   PlanVerdict verdict_;
+  ApplyOutcome outcome_;
+  bool buildChecked_ = false;
+  bool buildOk_ = false;
+  std::string buildSentence_;
   bool pending_ = false;
   std::uint64_t nextId_ = 1;
   std::size_t accepted_ = 0;

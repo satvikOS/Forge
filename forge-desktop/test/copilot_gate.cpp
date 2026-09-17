@@ -653,126 +653,145 @@ int main(int argc, char** argv) {
     }
   }
 
-  // ── the model-backed planner, and the fallback it must announce ──────────
+  // ── who answers: the model when it is running, the built-in commands when not ─
   //
   // A silent fallback is the worst outcome available here: the user believes
-  // Archie answered and the plan on screen came from somewhere else. So the
-  // deterministic plan must still arrive, and must SAY that it is the fallback
-  // and why.
+  // Archie answered and the plan on screen came from somewhere else. So every
+  // arm below asserts WHO answered and WHAT the transcript said about it. The
+  // service is an in-process fake -- this gate opens no socket; the real HTTP
+  // path is forge_desktop_archie_model_gate's subject.
   {
-  struct AlwaysRefuses final : forge::ui::Planner {
-    std::string why;
-    forge::ui::PlanResponse plan(const forge::ui::PlanRequest& rq) override {
-      forge::ui::PlanResponse r;
-      r.id = rq.id;
-      r.ok = false;
-      r.error = why;
-      return r;
-    }
-  };
-  struct AlwaysAnswers final : forge::ui::Planner {
-    forge::ui::PlanResponse plan(const forge::ui::PlanRequest& rq) override {
-      forge::ui::PlanResponse r;
-      r.id = rq.id;
-      r.ok = true;
-      r.plan.summary = "from the model";
-      forge::ui::PlanStep st;
-      st.commandId = "part.new";
-      r.plan.steps.push_back(st);
-      return r;
-    }
-  };
-
-  AlwaysRefuses refuser;
-  refuser.why = "sidecar unreachable: ConnectFailed";
-  frame.setCopilotRemotePlanner(&refuser);
-  frame.setCopilotAutoPlan(true);
-  const forge::ui::PlanResponse fb =
-      frame.planWithFallback(*req);
-  check(fb.ok || !fb.error.empty(),
-        "a refusing remote planner still yields an answer, never silence", fb.error);
-  if (fb.ok) {
-    check(fb.plan.summary.find("deterministic fallback") != std::string::npos,
-          "the fallback ANNOUNCES itself in the summary", fb.plan.summary);
-    check(fb.plan.summary.find("ConnectFailed") != std::string::npos,
-          "  ...and carries the reason Archie refused", fb.plan.summary);
-  } else {
-    check(fb.error.find("ConnectFailed") != std::string::npos,
-          "both declined, and the reason survives", fb.error);
-  }
-
-  AlwaysAnswers answerer;
-  frame.setCopilotRemotePlanner(&answerer);
-  const forge::ui::PlanResponse rem =
-      frame.planWithFallback(*req);
-  check(rem.ok && rem.plan.summary == "from the model",
-        "a working remote planner is used AS IS, not merged with the local one",
-        rem.plan.summary);
-
-  frame.setCopilotRemotePlanner(nullptr);
-  const forge::ui::PlanResponse loc =
-      frame.planWithFallback(*req);
-  check(loc.plan.summary.find("deterministic fallback") == std::string::npos,
-        "with no remote planner there is no fallback notice to show",
-        loc.plan.summary);
-  }
-
-  // ── the frame the model is shown ──────────────────────────────────────────
-  // Archie is a VLM and the app could only ever hand it text. These assert the
-  // CARRYING, not the capturing: the host owns the swapchain read-back and this
-  // class only forwards the path it was handed, which is what keeps ForgeFrame
-  // free of Vulkan and this gate free of a window.
-  {
-    struct SpyPlanner final : forge::ui::Planner {
-      std::string sawImage;
-      forge::ui::PlanResponse plan(const forge::ui::PlanRequest& rq) override {
-        sawImage = rq.imagePath;
-        forge::ui::PlanResponse r;
-        r.id = rq.id;
-        r.ok = true;
-        r.plan.summary = "seen";
-        forge::ui::PlanStep st;
-        st.commandId = "part.new";
-        r.plan.steps.push_back(st);
-        return r;
+    struct FakeModel final : forge::ui::PlannerService {
+      forge::ui::ModelState st = forge::ui::ModelState::NotRunning;
+      bool answer = false;        // poll() reports the answer as ready
+      bool transportDown = false; // ...as a transport failure
+      bool refuse = false;        // ...as the model declining
+      std::size_t starts = 0;
+      bool inFlight = false;
+      forge::ui::PlanRequest seen;
+      forge::ui::ModelState state() const override { return st; }
+      bool start(const forge::ui::PlanRequest& rq) override {
+        if (st != forge::ui::ModelState::Ready || inFlight) return false;
+        ++starts;
+        inFlight = true;
+        seen = rq;
+        return true;
       }
+      bool poll(forge::ui::PlanResponse& out, bool& transportFailed) override {
+        if (!inFlight || !answer) return false;
+        inFlight = false;
+        out = forge::ui::PlanResponse{};
+        out.id = seen.id;
+        transportFailed = transportDown;
+        if (transportDown) {
+          out.error = "sidecar unreachable: ConnectFailed";
+          return true;
+        }
+        if (refuse) {
+          out.error = "the model emitted op 'SLOT' and no offered command declares it";
+          return true;
+        }
+        out.ok = true;
+        out.plan.summary = "from the model";
+        forge::ui::PlanStep st1;
+        st1.commandId = "part.fillet";
+        st1.irOp = "FILLET";
+        st1.select = forge::ui::PlanSelect::LatestSolid;
+        st1.args.push_back(forge::ui::PlanArg::num("radius", 1.0));
+        out.plan.steps.push_back(st1);
+        return true;
+      }
+      bool busy() const override { return inFlight; }
     };
-    SpyPlanner spy;
-    frame.setCopilotRemotePlanner(&spy);
+    auto lastSystemLine = [&frame]() {
+      std::string text;
+      for (const forge::ui::TranscriptLine& l : frame.copilot().transcript()) {
+        if (l.role == forge::ui::TranscriptRole::System) text = l.text;
+      }
+      return text;
+    };
+    auto ask = [&frame](const char* words) {
+      frame.copilotType(words);
+      frame.copilotSubmit();
+      buildOneFrame(frame);
+    };
+    frame.setCopilotAutoPlan(true);
 
-    forge::ui::PlanRequest rq;
-    rq.id = 4242;
-    rq.intent = "make a plate";
+    // (a) NO MODEL SERVICE AT ALL: the built-in commands answer, and SAY so.
+    frame.setCopilotModel(nullptr);
+    ask("fillet 2");
+    check(frame.copilotSource() == forge::desktop::ForgeFrame::CopilotSource::BuiltIn,
+          "with no model the built-in commands answered", "");
+    checkStr(lastSystemLine(), forge::ui::userText(forge::ui::ModelState::NotRunning),
+             "  ...and the transcript says the model is not running");
+    check(frame.copilot().hasPlan(), "  ...and their plan is on offer", "");
+    frame.copilotDiscardPlan();
+    buildOneFrame(frame);
 
-    frame.setCopilotFramePath("");
-    frame.planWithFallback(rq);
-    check(spy.sawImage.empty(),
-          "with no captured frame the request carries no image", spy.sawImage);
+    // (b) A SERVICE THAT IS STILL LOADING is not asked.
+    FakeModel model;
+    model.st = forge::ui::ModelState::Loading;
+    frame.setCopilotModel(&model);
+    ask("fillet 2");
+    checkEq(model.starts, 0u, "a model that is still loading is not asked");
+    checkStr(lastSystemLine(), forge::ui::userText(forge::ui::ModelState::Loading),
+             "  ...and the transcript says it is loading");
+    frame.copilotDiscardPlan();
+    buildOneFrame(frame);
 
+    // (c) READY: the model is asked, the frame does not wait for it, and its
+    // plan is the one offered -- not merged with, not replaced by, the verb matcher's.
+    model.st = forge::ui::ModelState::Ready;
+    model.answer = false;
     frame.setCopilotFramePath("/tmp/forge_live_frame.png");
-    frame.planWithFallback(rq);
-    check(spy.sawImage == "/tmp/forge_live_frame.png",
-          "the host-captured frame reaches the model-backed planner", spy.sawImage);
-    check(frame.copilotFramePath() == "/tmp/forge_live_frame.png",
-          "and the frame the host set is readable back", frame.copilotFramePath());
+    ask("round off the edges a little");
+    checkEq(model.starts, 1u, "a READY model is asked");
+    check(frame.copilotAwaitingModel(), "  ...and the panel waits for it without blocking", "");
+    check(frame.copilotRequest() != nullptr, "  ...with the request still open", "");
+    checkStr(model.seen.imagePath, "/tmp/forge_live_frame.png",
+             "  ...and the host-captured frame reaches the model");
+    buildOneFrame(frame);
+    check(frame.copilotAwaitingModel(), "  ...frames keep drawing while it thinks", "");
+    model.answer = true;
+    buildOneFrame(frame);
+    check(!frame.copilotAwaitingModel(), "the model's answer is collected by a frame", "");
+    check(frame.copilotSource() == forge::desktop::ForgeFrame::CopilotSource::Model,
+          "  ...and it is shown as the model's", "");
+    check(frame.copilot().hasPlan() && frame.copilot().plan().steps.size() == 1 &&
+              frame.copilot().plan().steps[0].commandId == "part.fillet",
+          "  ...its plan's steps are offered AS IS", frame.copilot().plan().summary);
+    checkStr(frame.copilot().plan().summary, "Archie proposes 1 step: Edge Fillet",
+             "  ...summarised in the app's own tool labels");
+    frame.copilotDiscardPlan();
+    buildOneFrame(frame);
 
-    // A request that already names an image is OVERWRITTEN by the host's live
-    // frame. That is deliberate -- the host frame is the one the user is looking
-    // at -- so it is asserted rather than left to the order of two assignments.
-    forge::ui::PlanRequest named;
-    named.id = 4243;
-    named.imagePath = "/tmp/caller_chose_this.png";
-    frame.planWithFallback(named);
-    check(spy.sawImage == "/tmp/forge_live_frame.png",
-          "the live host frame wins over a stale path on the request", spy.sawImage);
+    // (d) THE MODEL DECLINES: that is Archie's answer. The verb matcher would
+    // have made a plan out of "fillet 2"; it must not be offered in its place.
+    model.refuse = true;
+    ask("fillet 2");
+    buildOneFrame(frame);
+    check(!frame.copilot().hasPlan(), "a model's refusal is not replaced by a built-in plan", "");
+    check(frame.copilotSource() == forge::desktop::ForgeFrame::CopilotSource::Model,
+          "  ...and the refusal is shown as the model's", "");
+    model.refuse = false;
 
-    // Clearing it returns to text-only, so a host that stops capturing stops
-    // claiming to have shown the model anything.
+    // (e) THE MODEL STOPS ANSWERING MID-ASK: now the built-in commands stand in,
+    // and the sentence says why -- never the socket error.
+    model.transportDown = true;
+    ask("fillet 2");
+    buildOneFrame(frame);
+    check(frame.copilotSource() == forge::desktop::ForgeFrame::CopilotSource::BuiltIn,
+          "a model that stopped answering is replaced by the built-in commands", "");
+    checkStr(lastSystemLine(), "Archie's model stopped answering — using built-in commands.",
+             "  ...and the transcript says so in words");
+    check(lastSystemLine().find("ConnectFailed") == std::string::npos,
+          "  ...without the transport's own error in the chat", lastSystemLine());
+    check(frame.copilot().hasPlan(), "  ...and the built-in plan is on offer", "");
+    frame.copilotDiscardPlan();
+    buildOneFrame(frame);
+
     frame.setCopilotFramePath("");
-    frame.planWithFallback(rq);
-    check(spy.sawImage.empty(),
-          "clearing the frame returns the request to text-only", spy.sawImage);
-    frame.setCopilotRemotePlanner(nullptr);
+    frame.setCopilotModel(nullptr);
   }
   std::printf("\n[copilot] %d checks, %d failures\n", g_checks, g_failures);
   if (g_failures == 0) {

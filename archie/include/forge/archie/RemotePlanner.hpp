@@ -9,22 +9,28 @@
 //
 // WHY IT IS A PLANNER AND NOT A NEW PATH
 //   forge::ui::Planner already exists as an abstract base with one pure virtual
-//   plan(). LocalPlanner is its only implementation. This is the second, so the
-//   app gains a model-backed planner WITHOUT any new seam: everything downstream
+//   plan(). LocalPlanner is its only other implementation. Everything downstream
 //   -- validatePlan() at two doors, the op-constraint bridge, the registry
 //   dispatch, appendFeature's validateIr -- is unchanged and still refuses.
 //
-// WHY IT FAILS OPEN TO THE DETERMINISTIC PLANNER
-//   The sidecar is OPTIONAL (doc 09: "an optional localhost sidecar"). When it is
-//   not listening, or is slow, or answers with something unusable, this returns a
-//   refusal carrying the reason and the caller keeps the deterministic
-//   LocalPlanner it shipped with. A CAD app that stops working because a model is
-//   down is a worse app than one that plans deterministically.
+// ── THE WIRE CONTRACT IS THE SIDECAR'S /plan, AND NOTHING ELSE ──────────────
+// archdisc-Models/tools/archie_sidecar/serve.py documents it:
 //
-// WHY THE DIALECT IS OpenAI-SHAPED
-//   The sidecar speaks POST /v1/chat/completions, the same dialect LM Studio and
-//   Ollama expose. After the adapters are fused, the fused model IS the base and
-//   LM Studio can serve it: this client then changes a PORT, not a line of code.
+//   POST /plan   {"id", "text", "tools":[{id,label,featureIrOp,schema}], "image"?}
+//             -> {"id", "ok":true,  "plan":{intent,summary,steps:[...]}}
+//             -> {"id", "ok":false, "error":"..."}
+//   GET /health  -> {"ok", "model", "adapter", "loaded", "load_error"}
+//
+// This client used to POST /v1/chat/completions and read a plan out of the
+// assistant message's content, on the argument that LM Studio and Ollama speak
+// that dialect. They do -- and what they would put in the content is feature-IR
+// TEXT, never the {"ok","plan"} JSON this parser required, so the claimed
+// portability did not exist. It also sent every tool WITHOUT its schema, and the
+// sidecar's ir_bridge maps an IR statement's literal values onto the schema's
+// parameter NAMES: with no schema it had no names, dropped every value, and
+// handed back steps with no arguments. Those were refused as missing required
+// values at best, and filled from declared defaults at worst -- a hole of the
+// default diameter where the model said 8 mm.
 #pragma once
 
 #include <cstdint>
@@ -38,11 +44,16 @@ namespace forge::archie {
 
 struct Endpoint {
   std::string host = "127.0.0.1";   // loopback ONLY; the transport refuses the rest
-  std::uint16_t port = 8731;
-  std::string path = "/v1/chat/completions";
-  // A 30B VLM measured 21.1 s for one generation on this machine. The existing
-  // retrieval client hardcodes 8000 ms, which would time out every real request.
-  std::uint32_t timeout_ms = 120000;
+  std::uint16_t port = 8731;        // serve.py's default --port
+  std::string path = "/plan";
+  std::string healthPath = "/health";
+  // A 30B VLM measured 21.1 s for one generation on this machine and serve.py's
+  // own --budget defaults to 120 s. The retrieval client's 8000 ms would time
+  // out every real request.
+  std::uint32_t timeout_ms = 150000;
+  // /health answers from a dict in memory. A port that takes longer than this to
+  // accept and answer is not a model service this app can talk to.
+  std::uint32_t health_timeout_ms = 1000;
 };
 
 class RemotePlanner final : public forge::ui::Planner {
@@ -55,19 +66,39 @@ class RemotePlanner final : public forge::ui::Planner {
 
   forge::ui::PlanResponse plan(const forge::ui::PlanRequest& request) override;
 
-  // Why the LAST call failed, for the panel to show. Empty after a success.
+  // Why the LAST call failed. Empty after a success.
   const std::string& lastError() const noexcept { return last_error_; }
+  // True when the last call never reached a model service at all (not
+  // listening, timed out, refused). A model that ANSWERED with a refusal is not
+  // this: that is Archie saying no, and it must be shown as Archie's answer
+  // rather than papered over with the built-in commands.
+  bool lastTransportFailed() const noexcept { return last_transport_failed_; }
 
  private:
   std::shared_ptr<forge::retrieval::HttpTransport> transport_;
   Endpoint endpoint_;
   std::string last_error_;
+  bool last_transport_failed_ = false;
 };
 
-// Exposed for the gate: the request body this planner would send, and the plan it
-// would read out of a reply. A wire format that can only be checked by standing up
-// a model is a wire format nobody checks.
+// ── what GET /health said ───────────────────────────────────────────────────
+struct Health {
+  bool reachable = false;   // something answered HTTP 200 with a JSON object
+  bool loaded = false;      // ...and said its model is loaded
+  std::string model;        // the model PATH the service loaded
+  std::string adapter;      // the adapter path, or empty for a fused/base model
+  std::string loadError;    // why the service could not load its model
+  std::string detail;       // why this probe decided what it decided (logs only)
+};
+
+Health probeHealth(forge::retrieval::HttpTransport& transport, const Endpoint& endpoint);
+
+// Exposed for the gate: the request body this planner sends, the plan it reads
+// out of a reply, and the health reading. A wire format that can only be checked
+// by standing up a model is a wire format nobody checks.
 std::string requestBody(const forge::ui::PlanRequest& request);
-bool parseReply(const std::string& body, forge::ui::Plan& out, std::string& error);
+bool parseReply(const std::string& body, const forge::ui::PlanRequest& request,
+                forge::ui::Plan& out, std::string& error);
+Health parseHealth(const std::string& body);
 
 }  // namespace forge::archie

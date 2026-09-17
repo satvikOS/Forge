@@ -1,0 +1,53 @@
+{
+ "ok": true,
+ "plan": {
+  "intent": "drill two 6 mm through holes, 25 mm either side of the centre bore\nSelection: 0 picked\nDocument: untitled: 5 statement(s), 0 command-authored",
+  "summary": "2 step(s) from 2 feature-IR statement(s)",
+  "steps": [
+   {
+    "commandId": "part.hole",
+    "irOp": "HOLE",
+    "args": [
+     {
+      "name": "diameter",
+      "number": 6.0
+     },
+     {
+      "name": "x",
+      "number": -25.0
+     },
+     {
+      "name": "y",
+      "number": 0.0
+     },
+     {
+      "name": "z",
+      "number": 20.0
+     }
+    ]
+   },
+   {
+    "commandId": "part.hole",
+    "irOp": "HOLE",
+    "args": [
+     {
+      "name": "diameter",
+      "number": 6.0
+     },
+     {
+      "name": "x",
+      "number": 25.0
+     },
+     {
+      "name": "y",
+      "number": 0.0
+     },
+     {
+      "name": "z",
+      "number": 20.0
+     }
+    ]
+   }
+  ]
+ }
+}

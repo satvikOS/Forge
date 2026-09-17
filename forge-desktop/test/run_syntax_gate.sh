@@ -125,6 +125,9 @@ fi
 
 INC="-I forge-desktop/src -I forge-desktop/third_party/imgui -I ui/include -I forge-desktop/test"
 INC="$INC -I forge-kernel/include"
+# The archie module the application links (ArchieLink, RemotePlanner) and the
+# loopback stub its model gate serves from. Header paths only; no SDK.
+INC="$INC -I archie/include -I archie/test -I retrieval/include"
 FLAGS="-std=c++20 -Wall -Wextra -Werror -fsyntax-only"
 
 # The TUs this gate checks. EXPLICIT, not a glob: the skipped four are skipped
@@ -198,6 +201,9 @@ CHECKED=(
   #    the census at the bottom of this file is what forced this line into the same
   #    commit as the gate.
   forge-desktop/test/write_target_gate.cpp
+  # ── ADDED 2026-09-15 (archie-in-forge). The Archie model gate: forge_desktop_core,
+  #    forge/ui, the archie module and a POSIX-socket stub -- no OCCT, no SDK.
+  forge-desktop/test/archie_model_gate.cpp
 )
 # Needs an SDK this gate does not have. Printed, never silent.
 SKIPPED=(

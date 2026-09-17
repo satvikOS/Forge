@@ -363,7 +363,7 @@ jobs:
         shell: bash
         run: FORGE_ORCH_REQUIRE_PHASE2=1 bash orchestration/run_orchestration_tests.sh
 
-      - name: Archie remote planner + JSON number contract (32 checks)
+      - name: Archie remote planner (fake transport + real loopback socket) + JSON number contract
         # This job's own subject is retrieval/, and the gate links exactly
         # retrieval/src/Json.cpp and HttpTransport.cpp -- so it needs no new
         # runner and no new toolchain, and it belongs beside the code it tests.

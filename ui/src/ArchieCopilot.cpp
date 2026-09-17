@@ -30,6 +30,30 @@ const char* toString(PlanSelect select) noexcept {
   return "keep the live selection";
 }
 
+const char* machineName(ModelState state) noexcept {
+  switch (state) {
+    case ModelState::NotRunning: return "not_running";
+    case ModelState::Loading:    return "loading";
+    case ModelState::Ready:      return "ready";
+    case ModelState::Off:        return "off";
+  }
+  return "not_running";
+}
+
+const char* userText(ModelState state) noexcept {
+  switch (state) {
+    case ModelState::Ready:
+      return "Archie's model is running on this computer.";
+    case ModelState::Loading:
+      return "Archie's model is still loading — using built-in commands until it is ready.";
+    case ModelState::Off:
+      return "Archie's model is switched off — using built-in commands.";
+    case ModelState::NotRunning:
+      break;
+  }
+  return "Archie's model is not running — using built-in commands.";
+}
+
 const char* toString(TranscriptRole role) noexcept {
   switch (role) {
     case TranscriptRole::User:    return "you";
@@ -997,6 +1021,10 @@ std::uint64_t ArchieCopilot::submit(std::string intent, std::vector<PlanTool> to
   pending_ = true;
   plan_ = Plan{};        // the old offer was made against an older document
   verdict_ = PlanVerdict{};  // ...and so was the ruling on it
+  outcome_ = ApplyOutcome{};  // ...and what the last Accept did belongs to that
+  buildChecked_ = false;
+  buildOk_ = false;
+  buildSentence_.clear();
   say(TranscriptRole::User, intent);
   return request_.id;
 }
@@ -1069,6 +1097,11 @@ void ArchieCopilot::failRequest(std::string why) {
       "I could not be reached just now, so nothing was changed. Try again in a moment.");
 }
 
+void ArchieCopilot::inform(std::string sentence) {
+  if (sentence.empty()) return;
+  say(TranscriptRole::System, std::move(sentence));
+}
+
 void ArchieCopilot::discardPlan() {
   if (plan_.empty()) return;
   const std::size_t n = plan_.size();
@@ -1089,10 +1122,25 @@ ApplyOutcome ArchieCopilot::apply(ForgeShell& shell, const PartDocument& documen
   stepsApplied_ += out.applied;
   stepsBlocked_ += out.blocked;
   // The plan is CONSUMED whether or not every step landed: the document has
-  // moved, so a plan made against the old one is no longer that plan.
+  // moved, so a plan made against the old one is no longer that plan. The
+  // verdict it was offered under is kept -- the panel draws each step's ruling
+  // beside what that step then did.
   plan_ = Plan{};
+  outcome_ = out;
+  buildChecked_ = false;
+  buildOk_ = false;
+  buildSentence_.clear();
   say(TranscriptRole::Copilot, out.summary());
   return out;
+}
+
+void ArchieCopilot::recordBuildResult(bool built, std::string sentence) {
+  buildChecked_ = true;
+  buildOk_ = built;
+  buildSentence_ = std::move(sentence);
+  if (!buildSentence_.empty()) {
+    say(built ? TranscriptRole::Copilot : TranscriptRole::System, buildSentence_);
+  }
 }
 
 void ArchieCopilot::clear() {
@@ -1100,6 +1148,10 @@ void ArchieCopilot::clear() {
   request_ = PlanRequest{};
   plan_ = Plan{};
   verdict_ = PlanVerdict{};
+  outcome_ = ApplyOutcome{};
+  buildChecked_ = false;
+  buildOk_ = false;
+  buildSentence_.clear();
   pending_ = false;
   accepted_ = 0;
   refused_ = 0;

@@ -1,0 +1,4 @@
+{
+ "ok": false,
+ "error": "the model emitted op 'SLOT' and no offered command declares it"
+}

@@ -259,16 +259,20 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // 3D viewport works -- build() fills a plain ViewportRequest and the renderer
   // reads it afterwards.
   //
-  // A host that wants a real model behind Archie:
-  //     frame.setCopilotAutoPlan(false);            // stop answering locally
-  //     ... build the frame ...
-  //     if (const auto* req = frame.copilotRequest()) {
-  //         PlanResponse reply = myTransport.ask(*req);   // I/O lives HERE
-  //         frame.deliverCopilotPlan(reply);
-  //     }
-  // With auto-plan left on (the default), forge::ui::LocalPlanner answers in
-  // process: deterministic, offline, and honest about the vocabulary it knows,
-  // so the panel is usable and truthful before any model exists.
+  // WHO ANSWERS, in order:
+  //   1. Archie's MODEL, through the host's forge::ui::PlannerService, whenever
+  //      that service reports ModelState::Ready. The ask is started on submit and
+  //      its answer is collected by a later build() -- never waited for inside a
+  //      frame, because a model thinks for tens of seconds.
+  //   2. The built-in commands (forge::ui::LocalPlanner) otherwise, and the
+  //      panel SAYS so in one sentence -- the model is not running, still
+  //      loading, switched off, or stopped answering mid-ask. The verb matcher is
+  //      never presented as the model.
+  //   A model that ANSWERS with a refusal is Archie's answer and is shown as one;
+  //   it is not replaced by whatever the verb matcher makes of the same words.
+  //
+  // With auto-plan off (a gate playing the transport), neither answers and the
+  // request is left for copilotRequest()/deliverCopilotPlan().
   //
   // EVERY plan, whoever produced it, goes through the op-constraint gate in
   // forge::ui::validatePlan() before it is offered, and again in applyPlan()
@@ -277,14 +281,17 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   const forge::ui::ArchieCopilot& copilot() const noexcept { return copilot_; }
   void setCopilotAutoPlan(bool on) noexcept { copilotAutoPlan_ = on; }
   bool copilotAutoPlan() const noexcept { return copilotAutoPlan_; }
-  // Install or remove a model-backed planner. Ownership stays with the caller;
-  // nullptr restores the deterministic planner alone. Set this and the copilot
-  // asks Archie first and falls back, ANNOUNCING the fallback rather than hiding
-  // it -- a user who cannot tell which planner answered cannot trust either.
-  void setCopilotRemotePlanner(forge::ui::Planner* planner) noexcept {
-    copilotRemote_ = planner;
-  }
-  const forge::ui::Planner* copilotRemotePlanner() const noexcept { return copilotRemote_; }
+  // Install or remove the host's model service. Ownership stays with the caller;
+  // nullptr leaves the built-in commands alone, and the panel says so.
+  void setCopilotModel(forge::ui::PlannerService* model) noexcept { copilotModel_ = model; }
+  const forge::ui::PlannerService* copilotModel() const noexcept { return copilotModel_; }
+  // Where answers come from right now, as the panel states it.
+  forge::ui::ModelState copilotModelState() const;
+  // Which planner produced the plan or refusal currently shown.
+  enum class CopilotSource : std::uint8_t { None, Model, BuiltIn };
+  CopilotSource copilotSource() const noexcept { return copilotSource_; }
+  // True while the model has been asked and has not answered yet.
+  bool copilotAwaitingModel() const noexcept { return copilotAwaitingModel_; }
 
   // The most recent frame the HOST captured, as a PNG path, attached to every
   // plan request from here on. The host owns the capture because the swapchain
@@ -299,8 +306,6 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   const std::string& copilotFramePath() const noexcept { return copilotFramePath_; }
 
   const forge::ui::PlanRequest* copilotRequest() const noexcept;
-  // Remote first when installed, deterministic otherwise; announces a fallback.
-  forge::ui::PlanResponse planWithFallback(const forge::ui::PlanRequest& request);
   forge::ui::PlanCheck deliverCopilotPlan(const forge::ui::PlanResponse& response);
   void failCopilotRequest(const std::string& why);
 
@@ -1353,6 +1358,12 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   void runCopilotSubmit();
   void runCopilotApply();
   void runCopilotDiscard();
+  // Collects the model's answer when it is in; called once per build().
+  void pumpCopilotModel();
+  // Answers the request in flight with the built-in commands, saying why.
+  void answerCopilotLocally(const std::string& sentence);
+  // The request as it is sent: the pending one plus the host's live frame.
+  forge::ui::PlanRequest copilotOutgoingRequest() const;
   void drawToolLibraryPanel();
   void drawPostOutputPanel();
   void drawStockPanel();
@@ -2145,10 +2156,13 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // The planner that ships: deterministic, offline, always present. It is the
   // FALLBACK, never removed, so the app still plans when no model is running.
   forge::ui::LocalPlanner copilotPlanner_;
-  // Optional model-backed planner, tried FIRST when set. A pointer to the
-  // abstract base on purpose: forge-desktop gains no dependency on the archie
-  // module, and a build without it is not a build with a hole in it.
-  forge::ui::Planner* copilotRemote_ = nullptr;
+  // The host's model service, asked FIRST whenever it reports Ready. A pointer
+  // to the abstract interface on purpose: forge_desktop_core gains no dependency
+  // on the archie module or on sockets, and every headless gate stays linkable.
+  forge::ui::PlannerService* copilotModel_ = nullptr;
+  CopilotSource copilotSource_ = CopilotSource::None;
+  bool copilotAwaitingModel_ = false;
+  double copilotAskedAt_ = 0.0;     // ImGui time the model was asked, for "Ns"
   bool copilotAutoPlan_ = true;
   std::string copilotFramePath_;   // host-captured PNG of the live window, or empty
   std::string copilotInput_;

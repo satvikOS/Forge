@@ -12,9 +12,14 @@ BIN="${TMPDIR:-/tmp}/archie_remote_planner_gate.$$"
 trap 'rm -f "$BIN"' EXIT
 
 echo "[archie] building the remote-planner gate"
-if ! $CXX -std=c++20 -O2 -Wall -Wextra -Werror \
-      -I archie/include -I ui/include -I retrieval/include \
+# ArchieLink.cpp and the loopback stub are in it because the planner's WIRE is
+# now exercised over a real 127.0.0.1 socket as well as through the fake
+# transport: the fake alone passed while the client posted a path, a body and a
+# tool list the sidecar did not read.
+if ! $CXX -std=c++20 -O2 -Wall -Wextra -Werror -pthread \
+      -I archie/include -I archie/test -I ui/include -I retrieval/include \
       -o "$BIN" archie/test/remote_planner_test.cpp archie/src/RemotePlanner.cpp \
+      archie/src/ArchieLink.cpp \
       retrieval/src/Json.cpp retrieval/src/HttpTransport.cpp ui/src/*.cpp 2>&1; then
   echo "[archie] COMPILE FAILED -- a gate that cannot build cannot fail." >&2
   exit 2

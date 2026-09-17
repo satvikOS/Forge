@@ -343,12 +343,14 @@ target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui
 # RemotePlanner.cpp actually needs are compiled; SearxngClient and its evidence
 # machinery stay out, so nothing about search is pulled into the app.
 add_library(forge_archie STATIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/../archie/src/ArchieLink.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../archie/src/RemotePlanner.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/HttpTransport.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/src/Json.cpp")
 target_include_directories(forge_archie PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/../archie/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/../retrieval/include")
+target_compile_options(forge_archie PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(forge_archie PUBLIC forge_ui)
 
 # ------------------------------------------------------- the GPU-side viewport
@@ -464,6 +466,26 @@ target_compile_options(forge_desktop_copilot_gate PRIVATE -Wall -Wextra -Werror)
 # ORACLE gate: uses OCCT types directly to validate Forge against them.
 target_link_libraries(forge_desktop_copilot_gate PRIVATE forge_desktop_core ${FORGE_DESKTOP_OCCT_PATHS})
 set_target_properties(forge_desktop_copilot_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
+# The Archie MODEL gate. The copilot gate above opens no socket on purpose; this
+# one exists to open exactly one kind: a prompt typed into the CoPilot panel goes
+# over REAL loopback HTTP to a stub that answers in the sidecar's exact format
+# (archie/test/LoopbackSidecarStub.hpp, bound to an ephemeral 127.0.0.1 port in
+# this process), and the plan comes back through Forge's validators into the
+# kernel, where the part is measured. It links forge_archie -- the same link and
+# RemotePlanner the application ships -- and no model, no GPU and no service on
+# the machine's own port 8731. FORGE_DESKTOP_REPO_ROOT locates the recorded
+# replies under test/fixtures/archie.
+add_executable(forge_desktop_archie_model_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/archie_model_gate.cpp")
+target_include_directories(forge_desktop_archie_model_gate PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/../archie/test")
+target_compile_definitions(forge_desktop_archie_model_gate PRIVATE
+    FORGE_DESKTOP_REPO_ROOT="${FORGE_ROOT}")
+target_compile_options(forge_desktop_archie_model_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_archie_model_gate PRIVATE forge_archie forge_desktop_core)
+set_target_properties(forge_desktop_archie_model_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
 # ------------------------------------------------- the MANUFACTURING gate
@@ -980,6 +1002,12 @@ target_link_libraries(forge_desktop_update_gate PRIVATE forge_updater)
 enable_testing()
 add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
 add_test(NAME forge_desktop_copilot_gate COMMAND forge_desktop_copilot_gate)
+add_test(NAME forge_desktop_archie_model_gate COMMAND forge_desktop_archie_model_gate)
+foreach(_am RANGE 1 4)
+    add_test(NAME forge_desktop_archie_model_mutation_${_am}
+             COMMAND forge_desktop_archie_model_gate --mutate ${_am})
+    set_tests_properties(forge_desktop_archie_model_mutation_${_am} PROPERTIES WILL_FAIL TRUE)
+endforeach()
 add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
 add_test(NAME forge_desktop_atomic_save_gate COMMAND forge_desktop_atomic_save_gate)
 add_test(NAME forge_desktop_copilot_input_gate COMMAND forge_desktop_copilot_input_gate)

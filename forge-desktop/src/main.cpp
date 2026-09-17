@@ -63,7 +63,7 @@
 #include "FileExchangeHost.hpp"
 #include "ForgeFrame.hpp"
 
-#include "forge/archie/RemotePlanner.hpp"
+#include "forge/archie/ArchieLink.hpp"
 #include "ImGuiErrorPolicy.hpp"
 #include "KernelScene.hpp"
 #include "PlatformSDL2.hpp"
@@ -641,44 +641,23 @@ int main(int argc, char** argv) {
 
   forge::desktop::ForgeFrame frame(shell, scene);
 
-  // ── Archie, when a sidecar is running ────────────────────────────────────
-  // OPT-IN AT RUNTIME, and absent by default. Doc 09 calls the model service
-  // "an optional localhost sidecar"; an app that REQUIRES one is not optional,
-  // so with FORGE_ARCHIE_ENDPOINT unset the copilot keeps the deterministic
-  // planner it has always had and nothing here reaches for a socket.
+  // ── Archie ───────────────────────────────────────────────────────────────
+  // ARCHIE IS THE MODEL WHEN THE MODEL IS RUNNING. This block used to install
+  // the model-backed planner only when FORGE_ARCHIE_ENDPOINT was set -- and an
+  // app opened from the Finder has no such variable, so every user reached the
+  // built-in verb matcher and the panel never said so.
   //
-  //     FORGE_ARCHIE_ENDPOINT=127.0.0.1:8731 open -a Forge
-  //
-  // The transport refuses anything that is not a loopback LITERAL, so this
-  // cannot be pointed off the machine even by a typo -- and the check is made
-  // here too, so the refusal is legible at startup rather than per request.
-  std::shared_ptr<forge::retrieval::HttpTransport> archieTransport;
-  std::unique_ptr<forge::archie::RemotePlanner> archiePlanner;
-  if (const char* ep = std::getenv("FORGE_ARCHIE_ENDPOINT")) {
-    forge::archie::Endpoint endpoint;
-    const std::string spec(ep);
-    const std::size_t colon = spec.rfind(':');
-    if (colon != std::string::npos) {
-      endpoint.host = spec.substr(0, colon);
-      endpoint.port = static_cast<std::uint16_t>(std::atoi(spec.c_str() + colon + 1));
-    } else {
-      endpoint.host = spec;
-    }
-    if (!forge::retrieval::isLoopbackLiteral(endpoint.host) || endpoint.port == 0) {
-      std::fprintf(stderr,
-                   "[forge] FORGE_ARCHIE_ENDPOINT='%s' is not a loopback host:port; "
-                   "Archie stays off and the deterministic planner is used.\n", ep);
-    } else {
-      archieTransport = std::make_shared<forge::retrieval::LoopbackHttpTransport>();
-      archiePlanner =
-          std::make_unique<forge::archie::RemotePlanner>(archieTransport, endpoint);
-      frame.setCopilotRemotePlanner(archiePlanner.get());
-      std::fprintf(stderr,
-                   "[forge] Archie planner enabled at %s:%u (falls back to the "
-                   "deterministic planner whenever it refuses)\n",
-                   endpoint.host.c_str(), static_cast<unsigned>(endpoint.port));
-    }
-  }
+  // The link looks for the model service on its loopback port at startup and
+  // every few seconds after, on its own thread, and the CoPilot asks it whenever
+  // it reports a loaded model. When nothing answers, the built-in commands do,
+  // and the panel says that in one sentence. FORGE_ARCHIE_ENDPOINT is still
+  // honoured as an override -- another loopback host:port, or `off` -- and a
+  // value that is not loopback is refused rather than followed.
+  const forge::archie::LinkConfig archieConfig =
+      forge::archie::configFromEnvironment(std::getenv("FORGE_ARCHIE_ENDPOINT"));
+  forge::archie::ArchieLink archie(archieConfig);
+  frame.setCopilotModel(&archie);
+  std::fprintf(stderr, "[forge] Archie: %s\n", archieConfig.why.c_str());
 
   // ── auto-update ────────────────────────────────────────────────────────────
   // The FIRST download is meant to be the last manual one. A shipped bundle is
@@ -1014,8 +993,8 @@ int main(int argc, char** argv) {
       }
     }
     // ── the picture Archie is shown ───────────────────────────────────────
-    // Only when a model-backed planner is actually installed (opt-in via
-    // FORGE_ARCHIE_ENDPOINT), and only the 3D VIEWPORT, never the window: a
+    // Only while Archie's model is actually running (the built-in commands never
+    // look at it), and only the 3D VIEWPORT, never the window: a
     // real 1680x1000 capture is 60.5% application chrome, and that chrome
     // displays a bulleted list of COMMAND NAMES. Archie's known failure is
     // copying op names instead of deriving them, so a picture that spells them
@@ -1025,7 +1004,7 @@ int main(int argc, char** argv) {
     // budget at 60 Hz rather than halving the frame rate. The path therefore
     // trails the live view by at most half a second, which is what a user
     // looking at a part and typing a sentence about it is doing anyway.
-    if (frame.copilotRemotePlanner() != nullptr &&
+    if (frame.copilotModelState() == forge::ui::ModelState::Ready &&
         frames - lastArchieFrame >= kArchieCaptureEvery) {
       const forge::desktop::ViewportRequest& vp = frame.viewport();
       if (vp.visible && vp.width > 0 && vp.height > 0) {
