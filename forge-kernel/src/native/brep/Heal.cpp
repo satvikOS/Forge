@@ -932,7 +932,54 @@ HealReport healBRep(TopologyBuilder& tb,
     if (opt.repairSelfIntersection) {
         // Build per-face tessellations + a coarse area for the small/large gauge,
         // and the set of welded corner positions per face (adjacency key).
-        struct FaceTess { std::vector<Tri3> tris; double area; bool live; };
+        // ★ T-138. The pair scan below is O(F^2) face pairs x O(T_i*T_j) triangle
+        //   pairs, and every innermost test is an EXACT predicate (ExactReal ->
+        //   BigInt::mulMag). Measured with a timing probe against
+        //   libforge_kernel_core.dylib, and the parent binary shows the identical hot
+        //   stack, so this is pre-existing and not a regression:
+        //
+        //       box 2x3x5                                   0.000 s
+        //       cylinder r4 h7      (380 imported faces)     1.073 s
+        //       box with ONE through-bore (400 faces)      297.191 s   <- 277x
+        //       through-bore fixture, full wall clock      595     s
+        //       corner-bore fixture, full wall clock       914     s
+        //
+        //   A cone or torus fixture spends >10 minutes at 100% CPU with no timeout and
+        //   no refusal. It was never seen because EVERY existing gate fixture is a bare
+        //   primitive: 400 faces is enough to trigger it and no gate has a fixture that
+        //   large.
+        //
+        //   THE BOUND IS PURELY A REJECTION TEST, so it cannot change the ANSWER. Two
+        //   faces whose axis-aligned boxes do not overlap cannot interpenetrate; the
+        //   boxes are padded by `tol` so a pair that merely touches within tolerance is
+        //   still tested exactly. Nothing is accepted that was previously rejected --
+        //   only pairs that provably cannot intersect are skipped before the exact
+        //   predicate runs.
+        struct Box3 {
+            double lo[3] = { 0, 0, 0 }, hi[3] = { 0, 0, 0 };
+            bool   set   = false;
+            void add(const Point3& p) {
+                const double v[3] = { p.x, p.y, p.z };
+                if (!set) { for (int k = 0; k < 3; ++k) lo[k] = hi[k] = v[k]; set = true; return; }
+                for (int k = 0; k < 3; ++k) { lo[k] = std::min(lo[k], v[k]); hi[k] = std::max(hi[k], v[k]); }
+            }
+        };
+        // Separated on ANY axis by more than the pad => provably disjoint.
+        auto boxesApart = [](const Box3& a, const Box3& b, double pad) -> bool {
+            if (!a.set || !b.set) return false;          // unknown: do the exact test
+            for (int k = 0; k < 3; ++k)
+                if (a.hi[k] < b.lo[k] - pad || b.hi[k] < a.lo[k] - pad) return true;
+            return false;
+        };
+        auto triBox = [](const Tri3& t) -> Box3 {
+            Box3 b; b.add(t[0]); b.add(t[1]); b.add(t[2]); return b;   // Tri3 is std::array<Point3,3>
+        };
+        // Counters, so the effect is MEASURED rather than asserted. A scan that got
+        // faster by testing less than it should would show up here as a drop in
+        // exactPairs with a CHANGE in the reported face pairs; the gate checks both.
+        std::size_t facePairsTotal = 0, facePairsBoxSkipped = 0, exactTriTests = 0;
+
+        struct FaceTess { std::vector<Tri3> tris; double area; bool live; Box3 box; std::vector<Box3> triBoxes; };
         std::vector<FaceTess> ft(frs.size());
         std::vector<std::unordered_set<long long>> cornerKeys(frs.size());
         double maxArea = 0.0;
@@ -950,7 +997,9 @@ HealReport healBRep(TopologyBuilder& tb,
             ft[fi].area = ft[fi].live ? polyArea(frs[fi].outer) : 0.0;
             if (ft[fi].live) {
                 fanTriangulate(frs[fi].outer, ft[fi].tris);
-                for (const Point3& p : frs[fi].outer) cornerKeys[fi].insert(cornerKey(p));
+                for (const Point3& p : frs[fi].outer) { cornerKeys[fi].insert(cornerKey(p)); ft[fi].box.add(p); }
+                ft[fi].triBoxes.reserve(ft[fi].tris.size());
+                for (const Tri3& t : ft[fi].tris) ft[fi].triBoxes.push_back(triBox(t));
                 maxArea = std::max(maxArea, ft[fi].area);
             }
         }
@@ -966,13 +1015,21 @@ HealReport healBRep(TopologyBuilder& tb,
             if (!ft[i].live) continue;
             for (std::size_t j = i + 1; j < frs.size(); ++j) {
                 if (!ft[j].live) continue;
+                ++facePairsTotal;
+                // ★ FACE-LEVEL REJECTION FIRST -- this is the O(F^2) term. Cheapest
+                //   possible test, and it runs before sharesCorner (a set intersection)
+                //   as well as before any exact predicate.
+                if (boxesApart(ft[i].box, ft[j].box, tol)) { ++facePairsBoxSkipped; continue; }
                 if (sharesCorner(i, j)) continue;          // legitimate shared boundary
                 bool hit = false;
-                for (const Tri3& ta : ft[i].tris) {
-                    for (const Tri3& tb2 : ft[j].tris) {
-                        if (trisInterpenetrate(ta, tb2)) { hit = true; break; }
+                for (std::size_t ti = 0; ti < ft[i].tris.size() && !hit; ++ti) {
+                    for (std::size_t tj = 0; tj < ft[j].tris.size(); ++tj) {
+                        // ★ TRIANGLE-LEVEL REJECTION -- the O(T_i*T_j) term. Two faces
+                        //   whose boxes overlap still have mostly-disjoint triangles.
+                        if (boxesApart(ft[i].triBoxes[ti], ft[j].triBoxes[tj], tol)) continue;
+                        ++exactTriTests;
+                        if (trisInterpenetrate(ft[i].tris[ti], ft[j].tris[tj])) { hit = true; break; }
                     }
-                    if (hit) break;
                 }
                 if (!hit) continue;
                 // A real interpenetration. Is EITHER offender a small/removable sliver?
@@ -990,6 +1047,9 @@ HealReport healBRep(TopologyBuilder& tb,
                 }
             }
         }
+        rep.selfIntersectFacePairs        = facePairsTotal;
+        rep.selfIntersectFacePairsSkipped = facePairsBoxSkipped;
+        rep.selfIntersectExactTriTests    = exactTriTests;
     }
 
     // --- 5. REBUILD fresh independent faces from the cleaned outer rings + SEW. ---
