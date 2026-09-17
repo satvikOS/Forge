@@ -42,6 +42,7 @@ OCCT usage in prose, and counting the prose would count the argument twice.
 Usage:
     python3 tools/kernel/native_engine_composition.py            # the table
     python3 tools/kernel/native_engine_composition.py --audit    # the hole check
+    python3 tools/kernel/native_engine_composition.py --selftest # the lexer fixtures
 """
 import collections
 import glob
@@ -120,24 +121,58 @@ OCCTISH = re.compile(
 # `Type defer(const std::string& why)` exactly. The third form is the
 # result-diagnostic one (`d.reason = "..."` in NativeFilling), which neither of
 # the first two patterns can see. All three found in review.
-DECLINE = re.compile(r"\bFK_DEFER(?:_F)?\s*\(|\bdefer\s*\(\s*\"\"|\.reason\s*=")
+# The literal is BLANKED, not removed -- strip_noncode preserves offsets by
+# padding it with spaces -- so match `"` … `"` rather than two adjacent quotes.
+DECLINE = re.compile(r"\bFK_DEFER(?:_F)?\s*\(|\bdefer\s*\(\s*\"[^\"]*\"|\.reason\s*=")
 
 
 def strip_noncode(text):
-    """Comments, string literals and #include lines.
+    r"""Blank comments, string/char literals and #include lines -- in ONE pass.
 
-    ★THE #include LINE IS THE ONE THAT MATTERED. `#include <BRepAlgoAPI_Fuse.hxx>`
-    is not a string literal -- the path sits in angle brackets -- so it survived
-    the first version of this function and was counted as a use of a PRODUCING
-    class. MEASURED: it inflated NativeLoftPipe 19 -> 23, NativeThickenShell
-    5 -> 9 and NativeDraftAngle 3 -> 6. A file that merely INCLUDES a header has
-    not delegated anything to it. Found in review.
+    ★ORDERED REGEXES CANNOT DO THIS, and the first version proved it. It ran
+    `/\*.*?\*/` BEFORE stripping `//` lines, so a line comment containing `/*`
+    opened a phantom block comment that ran to the next `*/` anywhere in the
+    file and deleted every line between. Real text that does it:
+
+        //       if (skin.IsNull()) { /* honest defer */ ...OCCT path... }
+        //                            proj, u, /*adjustToEnds*/false);
+
+    Both of those happen to close on their own line, and MEASURED across all 15
+    census files the ordered version and this one differ by zero characters --
+    so no number in the report moved. It is fixed anyway: the tool is pointed at
+    a directory by argument, and on `src/native/geom/NativeProjection.cpp` the
+    same pattern swallows code. A census that silently deletes source is the
+    exact failure this report is about. Found in review.
+
+    Comments become spaces rather than vanishing, so byte offsets stay put and a
+    token's position still means something to the caller.
     """
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    text = "\n".join(line.split("//")[0] for line in text.split("\n"))
-    text = "\n".join("" if line.lstrip().startswith("#include") else line
-                     for line in text.split("\n"))
-    return re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        two = text[i:i + 2]
+        if two == "//":
+            j = text.find("\n", i)
+            j = n if j == -1 else j
+            out.append(" " * (j - i)); i = j
+        elif two == "/*":
+            j = text.find("*/", i + 2)
+            j = n if j == -1 else j + 2
+            out.append("".join(ch if ch == "\n" else " " for ch in text[i:j])); i = j
+        elif c in "\"'":
+            quote = c
+            j = i + 1
+            while j < n and text[j] != quote:
+                j += 2 if text[j] == "\\" else 1
+            j = min(j + 1, n)
+            out.append(quote + " " * (j - i - 2) + quote if j - i >= 2 else " " * (j - i))
+            i = j
+        else:
+            out.append(c); i += 1
+    stripped = "".join(out)
+    return "\n".join("" if line.lstrip().startswith("#include") else line
+                     for line in stripped.split("\n"))
 
 
 def classify(path):
@@ -166,7 +201,46 @@ def classify(path):
     return counts, producing, unclassified, len(DECLINE.findall(code))
 
 
+SELFTEST = [
+    # (name, source, must_survive, must_not_survive)
+    ("a // comment containing /* must not open a block comment",
+     '// see src/native/*/*.cpp for the rest\n'
+     'BRepAlgoAPI_Fuse fuse(a, b);\n'
+     'int x = 1; /*haveBounds=*/ int y = 2;\n',
+     ["BRepAlgoAPI_Fuse"], ["see src"]),
+    ("a // inside a block comment is not a line comment",
+     '/* a note\n   // not a line comment\n   BRepPrimAPI_MakeBox gone; */\n'
+     'BRepAlgoAPI_Cut cut(a, b);\n',
+     ["BRepAlgoAPI_Cut"], ["BRepPrimAPI_MakeBox"]),
+    ("a /* inside a string literal opens nothing",
+     'const char* s = "/* not a comment";\n'
+     'BRepAlgoAPI_Common com(a, b);\n',
+     ["BRepAlgoAPI_Common"], ["not a comment"]),
+    ("an #include is not a use",
+     '#include <BRepAlgoAPI_Fuse.hxx>\n',
+     [], ["BRepAlgoAPI_Fuse"]),
+]
+
+
+def selftest():
+    bad = 0
+    for name, src, survive, gone in SELFTEST:
+        out = strip_noncode(src)
+        for t in survive:
+            if t not in out:
+                print("  FAIL %s -- %r was removed" % (name, t)); bad += 1
+        for t in gone:
+            if t in out:
+                print("  FAIL %s -- %r survived" % (name, t)); bad += 1
+        if not bad:
+            print("  ok   %s" % name)
+    print("\n%s" % ("selftest FAILED" if bad else "selftest passed"))
+    return 1 if bad else 0
+
+
 def main(argv):
+    if "--selftest" in argv:
+        return selftest()
     audit = "--audit" in argv
     files = sorted(glob.glob(PATTERN))
     if not files:

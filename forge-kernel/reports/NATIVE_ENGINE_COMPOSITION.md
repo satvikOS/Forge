@@ -33,8 +33,21 @@ one of them bears on "did OCCT compute this":
 | adapts | OCCT carries an already-computed answer | `BRepBuilderAPI_Make*`, `BRep_Builder`, `Sewing` |
 | spells | OCCT names a value | `gp_*`, `TopoDS_*`, `Geom_*`, `TopLoc_*` |
 
-Comments and string literals are stripped first — this tree argues about its own
-OCCT usage in prose, and counting the prose counts the argument twice.
+Comments, string literals and `#include` lines are stripped first — this tree
+argues about its own OCCT usage in prose, and counting the prose counts the
+argument twice.
+
+> **★That stripping is a single-pass scanner, and it had to become one.** The
+> first version ran `/\*.*?\*/` *before* removing `//` lines, so a line comment
+> containing `/*` opened a phantom block comment that ran to the next `*/`
+> anywhere in the file and deleted every line between. Two such lines exist in
+> this very corpus (`NativeSectionFill.cpp:28`, `NativeShapeHeal.cpp:578`); both
+> happen to close on their own line, and **measured across all fifteen files the
+> two versions differ by zero characters**, so no number here moved. It is fixed
+> anyway — on `src/native/geom/NativeProjection.cpp` the same pattern swallows
+> real code, and *a census that silently deletes source is the exact failure this
+> report is about*. `--selftest` carries the four lexical fixtures. Found in
+> review.
 
 **The falsifiability check is `--audit`**, which prints every OCCT-looking
 identifier that matched no bucket. A producer hiding in that list would
