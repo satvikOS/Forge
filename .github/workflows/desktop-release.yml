@@ -274,7 +274,7 @@ jobs:
       # The build itself reads nothing privileged.
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           # `git rev-list --count HEAD` is the automatic version's patch number
           # and it is WRONG, silently and by a lot, on the depth-1 clone
@@ -370,7 +370,7 @@ jobs:
           done
 
       - name: Restore compiler cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: /Users/runner/.ccache
           key: ccache-desktop-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
@@ -691,7 +691,7 @@ jobs:
         # Its name has no version in it, so it needs its own line rather than
         # riding the Forge-macos-arm64-* globs. release_contract_gate.sh asserts
         # that some glob here captures it.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: Forge-macos-arm64-${{ steps.ver.outputs.version }}
           path: |

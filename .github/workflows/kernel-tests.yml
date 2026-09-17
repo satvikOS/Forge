@@ -70,7 +70,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: Install ccache
         run: |
           # The runner image ships Microsoft's apt repos. Neither gate needs them, and
@@ -85,7 +87,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq ccache
       - name: Restore compiler cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: ~/.ccache
           key: ccache-native-${{ runner.os }}-${{ hashFiles('forge-kernel/src/native/**', 'forge-kernel/include/forge/native/**') }}
@@ -274,8 +276,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: '22'
       - name: ForgeCADScore v2 canonical-formula self-test
@@ -339,7 +343,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: one parameter drives three features; mm + kg refused; a -> b -> a refused naming both
         run: bash forge-desktop/test/run_parameters_gate.sh --mutations
 
@@ -389,7 +395,9 @@ jobs:
     #   parallel jobs); it unblocks the queue while that is done as its own change.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: forge::ui gates
         run: bash ui/test/run_ui.sh
       - name: run_ui.sh self-protection contracts
@@ -577,7 +585,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: prove the selection gate can fail (8 mutations + 1 control)
         run: bash ui/test/run_selection_consumed_gate.sh --mutations
 
@@ -594,7 +604,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: retrieval gates (phase 1 + network-denied phase 2)
         run: bash retrieval/run_retrieval_tests.sh
 
@@ -651,7 +663,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       # The s0 suite needs only the HEADERS; the SECTION gate below links the
       # toolkits too, and one brew formula carries both.
       - name: Install OCCT
@@ -714,7 +728,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: update gate + all eight negative controls
         run: bash forge-desktop/test/run_update_gate.sh --mutations
       - name: the exit codes and messages a USER sees + six negative controls
@@ -822,7 +838,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: single instance, fail-open, 11 mutations
         # MEASURED on this runner: 633s, against ~240s on the workstation. The
         # watchdog exists to reap leaked daemons, which matters on a machine that
@@ -878,7 +896,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: score the tree (ratchet floor)
         # A FLOOR, not a pass/fail assertion: this family has a number and the number
         # may rise, never fall. 0.60 is the MEASURED score of origin/archdisc d27aa4b9
@@ -900,7 +920,7 @@ jobs:
         # rubric failure -- the score floor above is what holds that line.
         run: |
           node forge-kernel/test/resilience_harness.mjs --reintroduce --from-tree
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         if: always()
         with:
           name: resilience-family-scores
@@ -936,7 +956,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: prove the check fires in BOTH directions (offline, stubbed gh)
         # FIRST, and with no network at all. Against the live repository the
         # check can currently only return one answer -- nothing is published --
@@ -960,7 +982,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
       - name: Install OCCT headers (Debian packages)
         run: |
           # The runner image ships Microsoft's apt repos. Neither gate needs them, and
@@ -1040,8 +1064,10 @@ jobs:
     #    ceiling raised without a measurement behind it is how 180 happened.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: '22'
       - name: Install native build deps (OCCT 7.9 / Eigen / Boost / CMake)
@@ -2031,7 +2057,9 @@ jobs:
       CMAKE_C_COMPILER_LAUNCHER: ccache
       CMAKE_CXX_COMPILER_LAUNCHER: ccache
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
 
       - name: Prove the verdict check itself can fail (7 stub cases, ~1 s)
         # FIRST, before twenty minutes of brew and compiling. The last step of
@@ -2077,7 +2105,7 @@ jobs:
         # misses. Cache keys are immutable, so whichever job saves an exact key
         # first wins and the other logs "Cache already exists"; that is a notice,
         # not a failure.
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
         with:
           path: /Users/runner/.ccache
           key: ccache-desktop-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
