@@ -14,7 +14,7 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1405 | YES |
+| KERNEL | 1412 | YES |
 | TOOLING | 23 | yes, last |
 | ORACLE | 2031 | no — by design |
 | SCRATCH | 0 | no — by design |
@@ -49,7 +49,7 @@ Status is DERIVED from the tree on every run, never typed in.
 | [ ] | Topology / B-Rep | 589 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
 | [x] | Tessellation | 0 | 0 | `forge-kernel/src/native/mesh, forge-kernel/include/forge/native/mesh` |
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
-| [ ] | Kernel core (rest) | 1313 | 62 | `forge-kernel/src` |
+| [ ] | Kernel core (rest) | 1320 | 62 | `forge-kernel/src` |
 
 ## The drop order is a CHAIN, and the demand is GROWING
 
@@ -268,7 +268,7 @@ It was invisible here until it was fixed.
 | `forge-kernel/src/native/brep/NativeVariableFillet.cpp` | 41 |
 | `forge-kernel/src/native/geom/NativeNurbsConvert.cpp` | 41 |
 | `forge-kernel/src/native/brep/NativeDraftLocal.cpp` | 40 |
+| `forge-kernel/src/DirectEdit.cpp` | 36 |
 | `forge-kernel/src/NativeOcctBridge.cpp` | 36 |
-| `forge-kernel/src/DirectEdit.cpp` | 29 |
 | `forge-kernel/src/DirectModeling.cpp` | 29 |
 
