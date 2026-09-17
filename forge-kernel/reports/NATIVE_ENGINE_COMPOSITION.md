@@ -69,21 +69,21 @@ occurrences, **all macros**: `FK_DEFER` (299), `FK_DEFER_F` (74),
 
 ```
 engine                     PRODUCES  checks  adapts  spells  sites
-NativeLoftPipe.cpp               23      21      42     482    294
-NativeThickenShell.cpp            9      19      46     406    106
-NativeDraftAngle.cpp              6       1       3     120     17
-NativeAabbBridge.cpp              0       1       0       6      -
-NativeDraft.cpp                   0       1      10      67     26
-NativeDraftLocal.cpp              0       3       3     271     55
-NativeFilletChamfer.cpp           0      10      47     436     87
-NativeFilling.cpp                 0       1       2      21      -
+NativeLoftPipe.cpp               19      20      36     453    294
+NativeThickenShell.cpp            5      16      36     376    103
+NativeDraftAngle.cpp              3       1       2     106     17
+NativeAabbBridge.cpp              0       1       0       4      -
+NativeDraft.cpp                   0       1       6      52     25
+NativeDraftLocal.cpp              0       2       2     241     54
+NativeFilletChamfer.cpp           0       8      40     409     84
+NativeFilling.cpp                 0       1       1      15      8
 NativeRoute.cpp                   0       0       0       0      -
-NativeSectionFill.cpp             0       0       0      51      -
-NativeShapeHeal.cpp               0       3       5     104      -
-NativeShapeHealBridge.cpp         0       0       0       4      -
-NativeThickSolid.cpp              0      25      56     581     79
-NativeVariableFillet.cpp          0       3      21     153     20
-NativeWireFill.cpp                0       0       2      17      -
+NativeSectionFill.cpp             0       0       0      42      -
+NativeShapeHeal.cpp               0       3       3      88      3
+NativeShapeHealBridge.cpp         0       0       0       3     12
+NativeThickSolid.cpp              0      22      49     555     79
+NativeVariableFillet.cpp          0       3      14     132     21
+NativeWireFill.cpp                0       0       1      12      6
 ```
 
 **OCCT never produces the answer in 12 of the 15 engines.** The open question is
@@ -94,7 +94,15 @@ framed them. The two largest engines — `NativeThickSolid.cpp` (4,105 lines) an
 and 430 OCCT references are `gp_Pnt`, `TopoDS_Face` and friends.
 
 Three engines do delegate, all through booleans and `ShapeUpgrade_UnifySameDomain`:
-`NativeLoftPipe` (23), `NativeThickenShell` (9), `NativeDraftAngle` (6).
+`NativeLoftPipe` (19), `NativeThickenShell` (5), `NativeDraftAngle` (3).
+
+> **★Those three numbers were 23 / 9 / 6 in the first version and the difference
+> is instructive.** `#include <BRepAlgoAPI_Fuse.hxx>` is not a string literal —
+> the path sits in angle brackets — so it survived comment/string stripping and
+> was counted as a *use* of a producing class. A file that merely includes a
+> header has delegated nothing. `PRODUCES` now counts only a **construction or a
+> declared instance**, never a bare mention. The twelve zeros are unaffected:
+> those files do not include the headers either. Found in review.
 
 ## …and it does not matter, which is the finding
 
@@ -126,7 +134,10 @@ than guessing, and records *why*. The shared convention is a `defer(why)` helper
 `NativeFilletChamfer` returns a reason-bearing `Result`, `NativeFilling` fills
 `FillDiagnosis.reason`, and `FK_DEFER` is only the **macro form** of it in two
 files. `NativeLoftPipe` has 294 such sites, `NativeThickenShell` 106,
-`NativeFilletChamfer` 87, `NativeThickSolid` 79. `NativeLoftPipe`'s own comment
+`NativeFilletChamfer` 84, `NativeThickSolid` 79, and twelve of fifteen engines
+label declines once the result-diagnostic form (`FillDiagnosis.reason`) is
+counted too — only `NativeRoute`, `NativeSectionFill` and `NativeAabbBridge` do
+not. `NativeLoftPipe`'s own comment
 states the consequence outright:
 
 > the corpus A/B measured this engine covering **2 of 600 PIPE inputs**
@@ -140,8 +151,14 @@ states the consequence outright:
 > exactly that illegitimate inference; it was caught in review.
 >
 > The same version also claimed the other thirteen engines "decline without
-> saying why", on the strength of them not using one macro. **False** — eight of
-> fifteen label their declines, through the `defer(why)` convention above.
+> saying why", on the strength of them not using one macro. **False** — twelve of
+> fifteen label their declines, across three spellings: the `FK_DEFER` macro, a
+> `defer(why)` helper, and `FillDiagnosis.reason`. Two further corrections came
+> out of review: `\bdefer\s*\(` also matched the helper's own *declaration*
+> (`Result defer(const std::string& why)`), which is not a decline site, and the
+> result-diagnostic form was invisible entirely — so `NativeFilling`, which has
+> some of the most detailed decline reasons in the tree, was reported as having
+> none.
 
 So a native engine is not OCCT-flavoured code wearing a native name. It is
 genuinely native code that **only covers the cases it was written for** and hands
@@ -154,11 +171,10 @@ that set is.
    artefact of counting representation. Reason by coverage — measured per family
    in `CORPUS_AB_COVERAGE.md`, and **not** re-derivable from the static site
    counts above.
-2. **Labelled declines are the right instrument, and seven engines still lack
-   them.** `defer(why)` is the established convention; `FK_DEFER` is its macro
-   form. Eight of fifteen engines record a reason; `NativeRoute`,
-   `NativeSectionFill`, `NativeShapeHeal`, `NativeShapeHealBridge`,
-   `NativeWireFill`, `NativeAabbBridge` and `NativeFilling`'s null paths do not,
+2. **Labelled declines are the right instrument, and three engines still lack
+   them.** `defer(why)` is the established convention, `FK_DEFER` its macro form,
+   and `FillDiagnosis.reason` a third spelling. Twelve of fifteen engines record a
+   reason; `NativeRoute`, `NativeSectionFill` and `NativeAabbBridge` do not,
    which is precisely the condition the convention was introduced to fix — "a
    bare null shape says nothing about WHICH precondition declined, which made the
    largest deletion bucket in the whole drop plan unattributable." **Counting

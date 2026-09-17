@@ -113,12 +113,30 @@ OCCTISH = re.compile(
 # re-derive coverage and must never be read beside a coverage percentage as
 # though it were the same kind of number. Coverage is measured per family in
 # forge-kernel/reports/CORPUS_AB_COVERAGE.md and nowhere else.
-DECLINE = re.compile(r"\bFK_DEFER(?:_F)?\b|\bdefer\s*\(")
+# An INVOCATION, never the helper's own declaration. `\bdefer\s*\(` alone also
+# matched `Result defer(const std::string& why) {` -- the definition, which is not
+# a decline site. String literals are already blanked to "" by strip_noncode, so
+# requiring a literal first argument separates `return defer("...")` from
+# `Type defer(const std::string& why)` exactly. The third form is the
+# result-diagnostic one (`d.reason = "..."` in NativeFilling), which neither of
+# the first two patterns can see. All three found in review.
+DECLINE = re.compile(r"\bFK_DEFER(?:_F)?\s*\(|\bdefer\s*\(\s*\"\"|\.reason\s*=")
 
 
 def strip_noncode(text):
+    """Comments, string literals and #include lines.
+
+    ★THE #include LINE IS THE ONE THAT MATTERED. `#include <BRepAlgoAPI_Fuse.hxx>`
+    is not a string literal -- the path sits in angle brackets -- so it survived
+    the first version of this function and was counted as a use of a PRODUCING
+    class. MEASURED: it inflated NativeLoftPipe 19 -> 23, NativeThickenShell
+    5 -> 9 and NativeDraftAngle 3 -> 6. A file that merely INCLUDES a header has
+    not delegated anything to it. Found in review.
+    """
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
     text = "\n".join(line.split("//")[0] for line in text.split("\n"))
+    text = "\n".join("" if line.lstrip().startswith("#include") else line
+                     for line in text.split("\n"))
     return re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
 
 
@@ -127,12 +145,21 @@ def classify(path):
     counts = collections.Counter()
     producing = collections.Counter()
     unclassified = collections.Counter()
-    for tok in OCCTISH.findall(code):
+    # A PRODUCING class counts only where it is CONSTRUCTED or declared as an
+    # instance -- `BRepAlgoAPI_Fuse(a, b)` or `BRepAlgoAPI_Fuse fuse;` -- never
+    # from a bare mention. See the note on #include in strip_noncode.
+    built = set()
+    for m in re.finditer(r"\b([A-Z][A-Za-z0-9]*_[A-Za-z0-9_]+)\s*(?:\(|[A-Za-z_]\w*)", code):
+        built.add(m.start())
+    for m in OCCTISH.finditer(code):
+        tok = m.group(1)
         for name, rx in BUCKETS:
             if rx.match(tok):
-                counts[name] += 1
                 if name == "PRODUCING":
+                    if m.start() not in built:
+                        continue          # a mention, not a construction
                     producing[tok] += 1
+                counts[name] += 1
                 break
         else:
             unclassified[tok] += 1
