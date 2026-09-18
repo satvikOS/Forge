@@ -882,6 +882,87 @@ static void gateRevolution() {
         }
     }
 
+    // ── R3b. THE CLAIM "A REVOLUTION INHERITS EVERY CURVE KIND" IS MEASURED ──
+    // revolvedProps takes m, m' and m'' from curveProps and nothing else, so it
+    // should carry any meridian the curve side supports. That is a CLAIM until a
+    // fixture drives the kinds it names, and the three above only exercise
+    // Circle / Line / BSpline. These two close the gap on the ELLIPSE and — the
+    // composition that matters most, one T-151 addition feeding the other — the
+    // PARABOLA, whose revolution is a paraboloid. Both are checked against the
+    // same profile forms, with rho and z written out from the meridian's own
+    // closed form rather than read back from the evaluator.
+    {
+        // ELLIPSE meridian in the (X,k) half-plane: centre at distance Rc from
+        // the axis, semi-axes ea along X and eb along k. Its frame is chosen so
+        // binormal = normal x refDir == k, exactly as the circle case.
+        //   rho(v) = Rc + ea cos v,  z(v) = eb sin v
+        const double Rc = 4.0, ea = 1.3, eb = 0.8;
+        const nb::Curve mer =
+            nb::Curve::makeEllipse(A + X * Rc, X, Y * -1.0, ea, eb);
+        const forge::props::PropSurface rev = mkRevolved(mer, A, k, false);
+        for (double v : {0.0, 0.7, 2.1, 4.0}) {
+            const double cvv = std::cos(v), svv = std::sin(v);
+            const double rho = Rc + ea * cvv, r1d = -ea * svv, r2d = -ea * cvv;
+            const double z1 = eb * cvv, z2 = -eb * svv;
+            const SurfProps p = surfaceProps(rev, 1.7, v);
+            const std::string at = " @v=" + std::to_string(v);
+            ckTrue("rev(ELLIPSE meridian) defined" + at,
+                   p.normalDefined && p.curvatureDefined);
+            ckNear("rev(ELLIPSE meridian) K == profile form" + at, p.kGauss,
+                   revK(rho, r1d, r2d, z1, z2), 1.0 / (ea * ea) + 1.0);
+            ckNear("rev(ELLIPSE meridian) H == profile form" + at, p.kMean,
+                   revH(rho, r1d, r2d, z1, z2), 1.0 / ea + 1.0);
+        }
+    }
+    {
+        // PARABOLA meridian -> a PARABOLOID OF REVOLUTION. This is the one
+        // fixture where BOTH T-151 additions are in the same call: the surface of
+        // revolution differentiates a conic that did not exist in the curve model
+        // before this change.
+        //   the meridian's vertex sits at distance Rv from the axis, opening
+        //   along +X, so with C(t) = V + (t^2/4f) X + t k:
+        //     rho(t) = Rv + t^2/(4f),  z(t) = t
+        const double Rv = 2.0, foc = 1.6;
+        const nb::Curve mer =
+            nb::Curve::makeParabola(A + X * Rv, X, Y * -1.0, foc, -2.0, 2.0);
+        const forge::props::PropSurface rev = mkRevolved(mer, A, k, false);
+        for (double t : {-2.0, -0.4, 0.0, 1.1, 2.0}) {
+            const double rho = Rv + t * t / (4.0 * foc);
+            const double r1d = t / (2.0 * foc), r2d = 1.0 / (2.0 * foc);
+            const double z1 = 1.0, z2 = 0.0;
+            const SurfProps p = surfaceProps(rev, 0.6, t);
+            const std::string at = " @v=" + std::to_string(t);
+            ckTrue("rev(PARABOLA meridian) defined" + at,
+                   p.normalDefined && p.curvatureDefined);
+            ckNear("rev(PARABOLA meridian) K == profile form" + at, p.kGauss,
+                   revK(rho, r1d, r2d, z1, z2), 1.0 / (foc * foc) + 1.0);
+            ckNear("rev(PARABOLA meridian) H == profile form" + at, p.kMean,
+                   revH(rho, r1d, r2d, z1, z2), 1.0 / foc + 1.0);
+            // and the point, from the meridian's own closed form.
+            const Vec3 w = p.p - A;
+            ckNear("rev(PARABOLA meridian) distance from axis == rho(t)" + at,
+                   (w - k * w.dot(k)).length(), rho, rho);
+        }
+        // AT THE MERIDIAN'S APEX (t = 0) the general profile form COLLAPSES to a
+        // one-term closed form, and it is worth asserting separately because this
+        // is the single station where the parabola's CONSTANT C'' is the only
+        // non-zero second derivative in the whole expression — a wrong constant
+        // has nothing to hide behind here.
+        //   rho' = 0, z' = 1, z'' = 0, W = 1, rho'' = 1/(2f)
+        //   => K = -rho''/rho = -1/(2 f Rv),  H = (rho/(2f) - 1)/(2 rho)
+        // NOTE the SIGN: K is NEGATIVE. This surface is a saddle-waisted
+        // paraboloid — the meridian bends AWAY from the axis in both directions,
+        // so the two principal curvatures have opposite signs. (The first version
+        // of this assertion claimed K == 0 on the intuition that an apex is flat;
+        // the gate said -0.15625 and the gate was right. The expectation was the
+        // defect, and it is written out above so nobody re-derives it wrongly.)
+        const SurfProps apex = surfaceProps(rev, 0.6, 0.0);
+        ckNear("rev(PARABOLA) meridian APEX: K == -1/(2 f Rv)  [SADDLE, not flat]",
+               apex.kGauss, -1.0 / (2.0 * foc * Rv), 1.0 / (foc * Rv));
+        ckNear("rev(PARABOLA) meridian APEX: H == (rho/(2f) - 1)/(2 rho)",
+               apex.kMean, (Rv / (2.0 * foc) - 1.0) / (2.0 * Rv), 1.0 / foc + 1.0);
+    }
+
     // ── R4. THE POLE, IN BOTH DIRECTIONS ───────────────────────────────────
     // Where the meridian MEETS THE AXIS the whole parallel collapses to a point
     // and S_u is exactly zero: that must be reported UNDEFINED, not as 0.
