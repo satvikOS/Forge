@@ -527,7 +527,22 @@ void testProjectShapeHLR() {
     setForgeNativeBrepEnabled(false);
     unsigned long long before0 = importOcctSolidCallCount();
     ProjectedView occt = projectShape(h, frontView());
-    check(importOcctSolidCallCount() == before0, "gate OFF -> importer NOT hit (pure OCCT)");
+    // ★ T-154, 2026-09-18: THIS USED TO ASSERT "importer NOT hit", and it has been
+    // UNSATISFIABLE BY CONSTRUCTION since dfbfe455 (2026-07-20, "DROP TKHLR --
+    // otool opencascade 14 -> 13"). There is no OCCT HLR path left to fall
+    // back to — src/Drawings.cpp says it in as many words, "HLR is now NATIVE-ONLY
+    // (libTKHLR dropped)" — and with FORGE_NATIVE_BREP off projectShape does not
+    // take an OCCT route, it throws. So the runtime FEAT gate cannot route this
+    // away from the importer, and the old expectation described a build that no
+    // longer exists.
+    //
+    // NOTHING NOTICED FOR TWO MONTHS BECAUSE THIS GATE COULD NOT BUILD: it died on
+    // 2026-07-21 (3aa7aed3), the day AFTER the TKHLR drop, and stayed dead until
+    // T-154. So the check is INVERTED rather than deleted — it asserts the current
+    // contract, and it goes red again if an OCCT HLR fallback is ever
+    // reintroduced or if the native path stops importing.
+    check(importOcctSolidCallCount() > before0,
+          "gate OFF -> importer IS hit (HLR is native-only; TKHLR was dropped)");
     std::size_t occtSegs = occt.visible.size() + occt.hidden.size() + occt.outline.size();
     check(occtSegs > 0, "gate OFF -> OCCT HLR emits visible/hidden/outline segments  n=" +
           std::to_string(occtSegs));
@@ -567,7 +582,22 @@ void testProjectShapeSection() {
     setForgeNativeBrepEnabled(false);
     unsigned long long before0 = importOcctSolidCallCount();
     ProjectedView occt = projectShapeSection(h, topView(), plane, hatch);
-    check(importOcctSolidCallCount() == before0, "gate OFF -> importer NOT hit (pure OCCT)");
+    // ★ T-154, 2026-09-18: THIS USED TO ASSERT "importer NOT hit", and it has been
+    // UNSATISFIABLE BY CONSTRUCTION since dfbfe455 (2026-07-20, "DROP TKHLR --
+    // otool opencascade 14 -> 13"). There is no OCCT section path left to fall
+    // back to — src/Drawings.cpp says it in as many words, "HLR is now NATIVE-ONLY
+    // (libTKHLR dropped)" — and with FORGE_NATIVE_BREP off projectShapeSection does not
+    // take an OCCT route, it throws. So the runtime FEAT gate cannot route this
+    // away from the importer, and the old expectation described a build that no
+    // longer exists.
+    //
+    // NOTHING NOTICED FOR TWO MONTHS BECAUSE THIS GATE COULD NOT BUILD: it died on
+    // 2026-07-21 (3aa7aed3), the day AFTER the TKHLR drop, and stayed dead until
+    // T-154. So the check is INVERTED rather than deleted — it asserts the current
+    // contract, and it goes red again if an OCCT section fallback is ever
+    // reintroduced or if the native path stops importing.
+    check(importOcctSolidCallCount() > before0,
+          "gate OFF -> importer IS hit (section is native-only; TKHLR was dropped)");
     check(!occt.cut.empty(), "gate OFF -> OCCT section emits cut wires  n=" +
           std::to_string(occt.cut.size()));
 

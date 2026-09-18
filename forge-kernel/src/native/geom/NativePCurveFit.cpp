@@ -5,6 +5,16 @@
 // derivation, the drop hygiene, and why the error bound is measured rather than
 // assumed. This file is the code.
 //
+// ★ T-154: THIS TRANSLATION UNIT INCLUDES NO OCCT HEADER AND HAS NO
+//   `#ifdef FORGE_NATIVE_BREP` GUARD. It used to have both, and the pair was
+//   lethal in combination: the guard made a bare compile build an EMPTY file
+//   that returned 0 (two invalid "it compiles" measurements are recorded in
+//   README.NativePCurveFit.rescue.md), while the OCCT includes made every
+//   OCCT-free pass over `src/native` fail outright. The arithmetic below is
+//   byte-for-byte the arithmetic that was here; only the CARRIER types changed.
+//   Callers that need Handle(Geom_Curve) / Handle(Geom2d_Curve) go through
+//   src/PCurveFitOcctBridge.cpp.
+//
 // THE ONE STRUCTURAL DECISION, restated where it is implemented:
 // cylinderPCurve() does NOT case-analyse the plane/cylinder arrangement to
 // decide whether the pcurve is a straight line or a spline. It SAMPLES the
@@ -17,8 +27,6 @@
 // plane perpendicular to the axis -> v = const; a plane containing the axis ->
 // u = const) fall out of the SAME code path with no special case to get wrong.
 
-#ifdef FORGE_NATIVE_BREP
-
 #include "forge/native/geom/NativePCurveFit.hpp"
 
 #include "forge/native/geom/BSplineBasis.hpp"
@@ -26,22 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
-
-#include <ElSLib.hxx>
-#include <Geom2d_BSplineCurve.hxx>
-#include <Geom2d_Circle.hxx>
-#include <Geom2d_Ellipse.hxx>
-#include <Geom2d_Line.hxx>
-#include <Geom_Circle.hxx>
-#include <Geom_Ellipse.hxx>
-#include <TColStd_Array1OfInteger.hxx>
-#include <TColStd_Array1OfReal.hxx>
-#include <TColgp_Array1OfPnt2d.hxx>
-#include <gp_Ax2.hxx>
-#include <gp_Ax22d.hxx>
-#include <gp_Dir2d.hxx>
-#include <gp_Pnt2d.hxx>
-#include <gp_Vec.hxx>
+#include <utility>
 
 namespace forge {
 namespace pcurvefit {
@@ -53,7 +46,7 @@ using forge::bsplinebasis::choleskyFactor;
 using forge::bsplinebasis::choleskySolve;
 using forge::bsplinebasis::findSpan;
 
-constexpr double kPi   = 3.14159265358979323846;
+constexpr double kPi    = 3.14159265358979323846;
 constexpr double kTwoPi = 2.0 * kPi;
 
 // The threshold below which a component of the pcurve is taken to be EXACTLY
@@ -63,26 +56,44 @@ constexpr double kTwoPi = 2.0 * kPi;
 // threshold here would let a genuine sinusoid be emitted as a straight line.
 constexpr double kAffineEps = 1.0e-12;
 
-Handle(Geom2d_BSplineCurve) buildCurve2d(const std::vector<gp_Pnt2d>& poles,
-                                         const std::vector<double>&   knots,
-                                         const std::vector<int>&      mults,
-                                         int                          degree) {
-    const int np = static_cast<int>(poles.size());
-    if (np < 2 || knots.size() < 2 || knots.size() != mults.size())
-        return Handle(Geom2d_BSplineCurve)();
-    TColgp_Array1OfPnt2d P(1, np);
-    for (int i = 0; i < np; ++i) P.SetValue(i + 1, poles[static_cast<std::size_t>(i)]);
-    TColStd_Array1OfReal    K(1, static_cast<int>(knots.size()));
-    TColStd_Array1OfInteger M(1, static_cast<int>(mults.size()));
-    for (int i = 0; i < static_cast<int>(knots.size()); ++i)
-        K.SetValue(i + 1, knots[static_cast<std::size_t>(i)]);
-    for (int i = 0; i < static_cast<int>(mults.size()); ++i)
-        M.SetValue(i + 1, mults[static_cast<std::size_t>(i)]);
-    try {
-        return new Geom2d_BSplineCurve(P, K, M, degree, Standard_False);
-    } catch (const Standard_Failure&) {
-        return Handle(Geom2d_BSplineCurve)();
+inline double dist2d(const Pnt2d& a, const Pnt2d& b) {
+    const double dx = a.x - b.x, dy = a.y - b.y;
+    return std::sqrt(dx * dx + dy * dy);
+}
+
+// Expand (distinct knots, multiplicities) into the full knot vector the basis
+// routines take. Returns false when the expansion is not a legal clamped vector
+// for `degree` and `nPoles`.
+bool expandKnots(const std::vector<double>& kn, const std::vector<int>& mu,
+                 int degree, int nPoles, std::vector<double>& U) {
+    if (kn.size() < 2 || kn.size() != mu.size() || degree < 1 || nPoles < degree + 1)
+        return false;
+    U.clear();
+    for (std::size_t i = 0; i < kn.size(); ++i) {
+        if (mu[i] < 1) return false;
+        for (int r = 0; r < mu[i]; ++r) U.push_back(kn[i]);
     }
+    return U.size() == static_cast<std::size_t>(nPoles + degree + 1);
+}
+
+// de Boor via the shared basis functions. `U` is the EXPANDED knot vector.
+Pnt2d evalAt(const std::vector<Pnt2d>& poles, const std::vector<double>& U,
+             int degree, double t) {
+    const int n = static_cast<int>(poles.size()) - 1;
+    const double lo = U[static_cast<std::size_t>(degree)];
+    const double hi = U[static_cast<std::size_t>(n + 1)];
+    if (t < lo) t = lo;
+    if (t > hi) t = hi;
+    const int span = findSpan(n, degree, t, U);
+    std::vector<double> N;
+    basisFuns(span, t, degree, U, N);
+    Pnt2d out;
+    for (int j = 0; j <= degree; ++j) {
+        const std::size_t idx = static_cast<std::size_t>(span - degree + j);
+        out.x += N[static_cast<std::size_t>(j)] * poles[idx].x;
+        out.y += N[static_cast<std::size_t>(j)] * poles[idx].y;
+    }
+    return out;
 }
 
 // A uniform CLAMPED knot vector on [t0, t1] with `nCtrl` control points of
@@ -142,34 +153,66 @@ inline double wrapPi(double x) {
 }  // namespace
 
 // ---------------------------------------------------------------------------
+// 0. THE NATIVE CARRIERS
+// ---------------------------------------------------------------------------
+
+bool BSpline2d::valid() const {
+    if (degree < 1) return false;
+    if (poles.size() < 2) return false;
+    if (knots.size() < 2 || knots.size() != mults.size()) return false;
+    std::vector<double> U;
+    return expandKnots(knots, mults, degree, static_cast<int>(poles.size()), U);
+}
+
+double BSpline2d::first() const { return knots.empty() ? 0.0 : knots.front(); }
+double BSpline2d::last()  const { return knots.empty() ? 0.0 : knots.back(); }
+
+Pnt2d BSpline2d::value(double t) const {
+    std::vector<double> U;
+    if (!expandKnots(knots, mults, degree, static_cast<int>(poles.size()), U)) return Pnt2d{};
+    return evalAt(poles, U, degree, t);
+}
+
+Vec3 Conic3::value(double t) const {
+    return centre + xdir * (a * std::cos(t)) + ydir * (b * std::sin(t));
+}
+
+double Conic3::last() const { return kTwoPi; }
+
+Pnt2d PCurve2d::value(double t) const {
+    if (!valid) return Pnt2d{};
+    if (line) return Pnt2d{ origin.x + dir.x * t, origin.y + dir.y * t };
+    return spline.value(t);
+}
+
+// ---------------------------------------------------------------------------
 // 1. THE FITTER
 // ---------------------------------------------------------------------------
 
-Handle(Geom2d_BSplineCurve) fitBSpline2dAt(const TColgp_Array1OfPnt2d& Q,
-                                           const std::vector<double>&  params,
-                                           int                         degree,
-                                           int                         nCtrl,
-                                           double&                     maxResidual) {
+BSpline2d fitBSpline2dAt(const std::vector<Pnt2d>&  Q,
+                         const std::vector<double>& params,
+                         int                        degree,
+                         int                        nCtrl,
+                         double&                    maxResidual) {
     maxResidual = -1.0;
-    const int lo = Q.Lower();
-    const int m  = Q.Length();
-    const int r  = m - 1;
-    if (m < 2 || static_cast<int>(params.size()) != m) return Handle(Geom2d_BSplineCurve)();
+    const int m = static_cast<int>(Q.size());
+    const int r = m - 1;
+    if (m < 2 || static_cast<int>(params.size()) != m) return BSpline2d{};
     for (int k = 1; k <= r; ++k)
         if (!(params[static_cast<std::size_t>(k)] > params[static_cast<std::size_t>(k) - 1]))
-            return Handle(Geom2d_BSplineCurve)();
+            return BSpline2d{};
 
     const int p = degree;
     int n = nCtrl - 1;
-    if (n < p) return Handle(Geom2d_BSplineCurve)();
+    if (n < p) return BSpline2d{};
     if (n > r) n = r;                               // never more poles than data
 
     const double t0 = params.front(), t1 = params.back();
     std::vector<double> U;
-    if (!uniformClampedKnots(t0, t1, p, n + 1, U)) return Handle(Geom2d_BSplineCurve)();
+    if (!uniformClampedKnots(t0, t1, p, n + 1, U)) return BSpline2d{};
 
-    std::vector<gp_Pnt2d> poles(static_cast<std::size_t>(n + 1));
-    const gp_Pnt2d Q0 = Q.Value(lo), Qr = Q.Value(lo + r);
+    std::vector<Pnt2d> poles(static_cast<std::size_t>(n + 1));
+    const Pnt2d Q0 = Q.front(), Qr = Q[static_cast<std::size_t>(r)];
     poles.front() = Q0;
     poles.back()  = Qr;
 
@@ -193,9 +236,9 @@ Handle(Geom2d_BSplineCurve) fitBSpline2dAt(const TColgp_Array1OfPnt2d& Q,
                 else if (idx == n) Nn = Nb[static_cast<std::size_t>(t)];
                 else               row.emplace_back(idx - 1, Nb[static_cast<std::size_t>(t)]);
             }
-            const gp_Pnt2d Qk = Q.Value(lo + k);
-            const double rx = Qk.X() - N0 * Q0.X() - Nn * Qr.X();
-            const double ry = Qk.Y() - N0 * Q0.Y() - Nn * Qr.Y();
+            const Pnt2d Qk = Q[static_cast<std::size_t>(k)];
+            const double rx = Qk.x - N0 * Q0.x - Nn * Qr.x;
+            const double ry = Qk.y - N0 * Q0.y - Nn * Qr.y;
             for (auto& a : row) {
                 Rx[static_cast<std::size_t>(a.first)] += a.second * rx;
                 Ry[static_cast<std::size_t>(a.first)] += a.second * ry;
@@ -205,54 +248,55 @@ Handle(Geom2d_BSplineCurve) fitBSpline2dAt(const TColgp_Array1OfPnt2d& Q,
             }
         }
         std::vector<double> L = NtN;
-        if (!choleskyFactor(L, I)) return Handle(Geom2d_BSplineCurve)();
+        if (!choleskyFactor(L, I)) return BSpline2d{};
         choleskySolve(L, I, Rx);
         choleskySolve(L, I, Ry);
         for (int i = 1; i <= n - 1; ++i)
             poles[static_cast<std::size_t>(i)] =
-                gp_Pnt2d(Rx[static_cast<std::size_t>(i) - 1], Ry[static_cast<std::size_t>(i) - 1]);
+                Pnt2d{ Rx[static_cast<std::size_t>(i) - 1], Ry[static_cast<std::size_t>(i) - 1] };
     }
 
-    std::vector<double> kn; std::vector<int> mu;
-    distinctKnots(U, kn, mu);
-    Handle(Geom2d_BSplineCurve) c = buildCurve2d(poles, kn, mu, p);
-    if (c.IsNull()) return c;
+    BSpline2d c;
+    c.degree = p;
+    c.poles  = poles;
+    distinctKnots(U, c.knots, c.mults);
+    if (!c.valid()) return BSpline2d{};
 
     maxResidual = 0.0;
     for (int k = 0; k <= r; ++k)
         maxResidual = std::max(maxResidual,
-                               c->Value(params[static_cast<std::size_t>(k)])
-                                   .Distance(Q.Value(lo + k)));
+                               dist2d(evalAt(c.poles, U, p, params[static_cast<std::size_t>(k)]),
+                                      Q[static_cast<std::size_t>(k)]));
     return c;
 }
 
-Handle(Geom2d_BSplineCurve) pointsToBSpline2d(const TColgp_Array1OfPnt2d& Q,
-                                              const std::vector<double>&  paramsIn,
-                                              int degMin, int degMax, double tol) {
-    const int lo = Q.Lower();
-    const int m  = Q.Length();
-    const int r  = m - 1;
-    if (m < 2) return Handle(Geom2d_BSplineCurve)();
+BSpline2d pointsToBSpline2d(const std::vector<Pnt2d>&  Q,
+                            const std::vector<double>& paramsIn,
+                            int degMin, int degMax, double tol) {
+    const int m = static_cast<int>(Q.size());
+    const int r = m - 1;
+    if (m < 2) return BSpline2d{};
 
     // Parameters: given, or chord length on [0,1] (what the 3-D sibling does).
     std::vector<double> params;
     if (!paramsIn.empty()) {
-        if (static_cast<int>(paramsIn.size()) != m) return Handle(Geom2d_BSplineCurve)();
+        if (static_cast<int>(paramsIn.size()) != m) return BSpline2d{};
         params = paramsIn;
     } else {
         params.assign(static_cast<std::size_t>(m), 0.0);
         double total = 0.0;
-        for (int k = 1; k <= r; ++k) total += Q.Value(lo + k).Distance(Q.Value(lo + k - 1));
-        if (total <= 0.0) return Handle(Geom2d_BSplineCurve)();
+        for (int k = 1; k <= r; ++k)
+            total += dist2d(Q[static_cast<std::size_t>(k)], Q[static_cast<std::size_t>(k) - 1]);
+        if (total <= 0.0) return BSpline2d{};
         for (int k = 1; k <= r; ++k)
             params[static_cast<std::size_t>(k)] =
                 params[static_cast<std::size_t>(k) - 1]
-                + Q.Value(lo + k).Distance(Q.Value(lo + k - 1)) / total;
+                + dist2d(Q[static_cast<std::size_t>(k)], Q[static_cast<std::size_t>(k) - 1]) / total;
         params[static_cast<std::size_t>(r)] = 1.0;
     }
     for (int k = 1; k <= r; ++k)
         if (!(params[static_cast<std::size_t>(k)] > params[static_cast<std::size_t>(k) - 1]))
-            return Handle(Geom2d_BSplineCurve)();
+            return BSpline2d{};
 
     int p = std::min(degMax, r);
     if (p < degMin) p = std::min(degMin, r);
@@ -264,51 +308,50 @@ Handle(Geom2d_BSplineCurve) pointsToBSpline2d(const TColgp_Array1OfPnt2d& Q,
     // consumer that interpolates POLES.
     double blo[2] = { 1e300, 1e300 }, bhi[2] = { -1e300, -1e300 };
     for (int k = 0; k <= r; ++k) {
-        const gp_Pnt2d P = Q.Value(lo + k);
-        const double c[2] = { P.X(), P.Y() };
+        const Pnt2d P = Q[static_cast<std::size_t>(k)];
+        const double c[2] = { P.x, P.y };
         for (int a = 0; a < 2; ++a) { blo[a] = std::min(blo[a], c[a]); bhi[a] = std::max(bhi[a], c[a]); }
     }
     const double diag = std::sqrt((bhi[0] - blo[0]) * (bhi[0] - blo[0])
                                 + (bhi[1] - blo[1]) * (bhi[1] - blo[1]));
-    auto polesSane = [&](const Handle(Geom2d_BSplineCurve)& c) -> bool {
-        if (c.IsNull()) return false;
+    auto polesSane = [&](const BSpline2d& c) -> bool {
+        if (!c.valid()) return false;
         const double lim = 2.0 * diag + 1e-9;
-        for (Standard_Integer i = 1; i <= c->NbPoles(); ++i) {
-            const gp_Pnt2d P = c->Pole(i);
-            const double cc[2] = { P.X(), P.Y() };
+        for (const Pnt2d& P : c.poles) {
+            const double cc[2] = { P.x, P.y };
             for (int a = 0; a < 2; ++a)
                 if (cc[a] < blo[a] - lim || cc[a] > bhi[a] + lim) return false;
         }
         return true;
     };
 
-    Handle(Geom2d_BSplineCurve) best;
+    BSpline2d best;
     for (int nCtrl = std::max(p + 1, (r + 4) / 4); nCtrl <= r + 1;
          nCtrl = std::min(r + 1, nCtrl + std::max(1, (r + 1 - nCtrl) / 2))) {
         double res = -1.0;
-        Handle(Geom2d_BSplineCurve) fit = fitBSpline2dAt(Q, params, p, nCtrl, res);
-        if (!fit.IsNull() && polesSane(fit)) {
+        BSpline2d fit = fitBSpline2dAt(Q, params, p, nCtrl, res);
+        if (fit.valid() && polesSane(fit)) {
             best = fit;
             if (res >= 0.0 && res <= tol) return fit;
         }
         if (nCtrl >= r + 1) break;
     }
-    return best;   // may be null: every net size was rank-deficient or insane
+    return best;   // may be invalid: every net size was rank-deficient or insane
 }
 
 // ---------------------------------------------------------------------------
 // 2. THE EXACT SECTION
 // ---------------------------------------------------------------------------
 
-PlaneCylSection planeCylinderSection(const gp_Dir& n, double d,
-                                     const gp_Ax3& cylAx, double radius,
+PlaneCylSection planeCylinderSection(const Vec3& n, double d,
+                                     const Ax3& cylAx, double radius,
                                      double tol) {
     PlaneCylSection out;
     if (!(radius > 0.0)) { out.defer = "the cylinder radius is not positive"; return out; }
 
-    const gp_Dir  a  = cylAx.Direction();
-    const gp_Pnt  L  = cylAx.Location();
-    const double  c  = n.Dot(a);
+    const Vec3   a  = cylAx.dir;
+    const Vec3   L  = cylAx.loc;
+    const double c  = n.dot(a);
     out.cosAxis = c;
     const double s2 = 1.0 - c * c;
 
@@ -317,7 +360,7 @@ PlaneCylSection planeCylinderSection(const gp_Dir& n, double d,
     // one curve, and choosing a branch for the caller is exactly the kind of
     // plausible guess this engine refuses. Named, and declined.
     if (s2 >= 1.0 - tol) {
-        const double dist = std::fabs(d - n.XYZ().Dot(L.XYZ()));
+        const double dist = std::fabs(d - n.dot(L));
         if (dist > radius + tol)       { out.kind = SectionKind::None;
                                          out.defer = "the plane is parallel to the axis and misses the cylinder"; }
         else if (dist > radius - tol)  { out.kind = SectionKind::Tangent;
@@ -328,15 +371,28 @@ PlaneCylSection planeCylinderSection(const gp_Dir& n, double d,
     }
 
     // The centre: where the axis meets the plane. |c| > 0 here, so this is safe.
-    const double sPar = (d - n.XYZ().Dot(L.XYZ())) / c;
-    const gp_Pnt O(L.XYZ() + sPar * a.XYZ());
+    const double sPar = (d - n.dot(L)) / c;
+    const Vec3   O    = L + a * sPar;
 
     // |c| ~ 1: plane perpendicular to the axis -> a CIRCLE of radius r.
     if (s2 <= tol) {
-        out.kind = SectionKind::Circle;
         // Frame: normal = the axis (== +-n here); X taken from the cylinder's own
-        // frame so the section's parameterisation tracks the cylinder's u.
-        out.curve = new Geom_Circle(gp_Ax2(O, a, cylAx.XDirection()), radius);
+        // frame so the section's parameterisation tracks the cylinder's u. This
+        // reproduces gp_Ax2(O, a, cylAx.XDirection()) exactly: gp_Ax2 orthogonalises
+        // the given X against the main direction and takes Y = N ^ X.
+        Vec3 X = cylAx.xdir - a * cylAx.xdir.dot(a);
+        if (!X.normalize()) {
+            out.defer = "the cylinder frame's X direction is parallel to its axis";
+            return out;
+        }
+        out.kind          = SectionKind::Circle;
+        out.curve.valid   = true;
+        out.curve.circle  = true;
+        out.curve.centre  = O;
+        out.curve.xdir    = X;
+        out.curve.ydir    = a.cross(X);
+        out.curve.a       = radius;
+        out.curve.b       = radius;
         return out;
     }
 
@@ -344,37 +400,45 @@ PlaneCylSection planeCylinderSection(const gp_Dir& n, double d,
     // semi-major r/|c| along M = (a - c n)/s. Both derived in the header; the
     // caller can re-check them numerically with sectionResidual().
     const double s = std::sqrt(s2);
-    const gp_XYZ mXYZ = a.XYZ().Crossed(n.XYZ()) / s;
-    const gp_XYZ MXYZ = (a.XYZ() - c * n.XYZ()) / s;
+    Vec3 md = a.cross(n) / s;
+    Vec3 Md = (a - n * c) / s;
+    if (!md.normalize() || !Md.normalize()) {
+        out.defer = "the plane/cylinder frame degenerated";
+        return out;
+    }
     const double A = radius / std::fabs(c);
     const double B = radius;
 
-    // gp_Ax2(location, N, Vx): the ellipse is C(t) = O + A cos t * Vx + B sin t * Vy
-    // with Vy = N x Vx. Choosing N so that N x M == m makes Vy == m exactly and
-    // keeps the semi-minor direction the one the derivation names.
-    gp_Dir Md(MXYZ), md(mXYZ);
-    gp_Dir Nd(Md.XYZ().Crossed(md.XYZ()));
-    out.kind  = SectionKind::Ellipse;
-    out.curve = new Geom_Ellipse(gp_Ax2(O, Nd, Md), A, B);
+    // The OCCT form was gp_Ax2(O, Nd, Md) with Nd = Md x md, which yields
+    // XDirection == Md and YDirection == Nd x Md == md. Carrying Md and md
+    // directly is the same frame with the intermediate step removed.
+    out.kind         = SectionKind::Ellipse;
+    out.curve.valid  = true;
+    out.curve.circle = false;
+    out.curve.centre = O;
+    out.curve.xdir   = Md;
+    out.curve.ydir   = md;
+    out.curve.a      = A;
+    out.curve.b      = B;
     return out;
 }
 
-double sectionResidual(const PlaneCylSection& sec, const gp_Dir& n, double d,
-                       const gp_Ax3& cylAx, double radius, int nSamples) {
-    if (sec.curve.IsNull() || nSamples < 2) return std::numeric_limits<double>::infinity();
-    const gp_Dir a = cylAx.Direction();
-    const gp_Pnt L = cylAx.Location();
-    const double t0 = sec.curve->FirstParameter();
-    const double t1 = sec.curve->LastParameter();
+double sectionResidual(const PlaneCylSection& sec, const Vec3& n, double d,
+                       const Ax3& cylAx, double radius, int nSamples) {
+    if (!sec.curve.valid || nSamples < 2) return std::numeric_limits<double>::infinity();
+    const Vec3 a = cylAx.dir;
+    const Vec3 L = cylAx.loc;
+    const double t0 = sec.curve.first();
+    const double t1 = sec.curve.last();
     double worst = 0.0;
     for (int k = 0; k < nSamples; ++k) {
         const double t = t0 + (t1 - t0) * double(k) / double(nSamples - 1);
-        const gp_Pnt P = sec.curve->Value(t);
-        const gp_XYZ w = P.XYZ() - L.XYZ();
-        const double axial = w.Dot(a.XYZ());
-        const gp_XYZ rad = w - axial * a.XYZ();
-        worst = std::max(worst, std::fabs(std::sqrt(rad.Dot(rad)) - radius));
-        worst = std::max(worst, std::fabs(P.XYZ().Dot(n.XYZ()) - d));
+        const Vec3 P = sec.curve.value(t);
+        const Vec3 w = P - L;
+        const double axial = w.dot(a);
+        const Vec3 rad = w - a * axial;
+        worst = std::max(worst, std::fabs(std::sqrt(rad.dot(rad)) - radius));
+        worst = std::max(worst, std::fabs(P.dot(n) - d));
     }
     return worst;
 }
@@ -383,11 +447,11 @@ double sectionResidual(const PlaneCylSection& sec, const gp_Dir& n, double d,
 // 3. THE PCURVE
 // ---------------------------------------------------------------------------
 
-PCurveFit cylinderPCurve(const Handle(Geom_Curve)& c3, double t0, double t1,
-                         const gp_Ax3& cylAx, double radius,
+PCurveFit cylinderPCurve(const Curve3dEval& c3, double t0, double t1,
+                         const Ax3& cylAx, double radius,
                          double tol3d, double uNear) {
     PCurveFit R;
-    if (c3.IsNull())      { R.defer = "no 3-D curve"; return R; }
+    if (!c3)              { R.defer = "no 3-D curve"; return R; }
     if (!(t1 > t0))       { R.defer = "the parameter range is empty"; return R; }
     if (!(radius > 0.0))  { R.defer = "the cylinder radius is not positive"; return R; }
     if (!(tol3d > 0.0))   { R.defer = "the requested deviation bound is not positive"; return R; }
@@ -406,13 +470,13 @@ PCurveFit cylinderPCurve(const Handle(Geom_Curve)& c3, double t0, double t1,
         double uPrev = 0.0;
         for (int k = 0; k < m; ++k) {
             const double t = t0 + (t1 - t0) * double(k) / double(m - 1);
-            gp_Pnt P;
-            try { P = c3->Value(t); } catch (const Standard_Failure&) { return false; }
-            Standard_Real u = 0.0, v = 0.0;
-            ElSLib::CylinderParameters(cylAx, radius, P, u, v);
-            // Unwrap: ElSLib returns u in [0, 2pi), and a section that crosses
-            // the seam would otherwise jump by 2pi mid-edge. The unwrapped u is
-            // the only one that can be affine in t.
+            Vec3 P;
+            if (!c3(t, P)) return false;
+            double u = 0.0, v = 0.0;
+            cylinderParameters(cylAx, radius, P, u, v);
+            // Unwrap: cylinderParameters returns u in [0, 2pi), and a section
+            // that crosses the seam would otherwise jump by 2pi mid-edge. The
+            // unwrapped u is the only one that can be affine in t.
             if (k == 0) uPrev = u;
             else { u = uPrev + wrapPi(u - uPrev); uPrev = u; }
             tt.push_back(t); uu.push_back(u); vv.push_back(v);
@@ -426,20 +490,19 @@ PCurveFit cylinderPCurve(const Handle(Geom_Curve)& c3, double t0, double t1,
     };
 
     // The 3-D deviation of a candidate pcurve, over the dense offset audit set.
-    auto audit3d = [&](const Handle(Geom2d_Curve)& c2, int nAudit,
+    auto audit3d = [&](const PCurve2d& c2, int nAudit,
                        double& devU, double aU, double bU) -> double {
         devU = 0.0;
         double worst = 0.0;
         for (int k = 0; k < nAudit; ++k) {
             // half-step offset: never a fit sample, never an endpoint.
             const double t = t0 + (t1 - t0) * (double(k) + 0.5) / double(nAudit);
-            gp_Pnt2d q;
-            gp_Pnt   P3;
-            try { q = c2->Value(t); P3 = c3->Value(t); }
-            catch (const Standard_Failure&) { return std::numeric_limits<double>::infinity(); }
-            const gp_Pnt S = ElSLib::CylinderValue(q.X(), q.Y(), cylAx, radius);
-            worst = std::max(worst, S.Distance(P3));
-            devU  = std::max(devU, std::fabs(q.X() - (aU + bU * t)));
+            Vec3 P3;
+            if (!c3(t, P3)) return std::numeric_limits<double>::infinity();
+            const Pnt2d q = c2.value(t);
+            const Vec3  S = cylinderValue(q.x, q.y, cylAx, radius);
+            worst = std::max(worst, S.distance(P3));
+            devU  = std::max(devU, std::fabs(q.x - (aU + bU * t)));
         }
         return worst;
     };
@@ -466,18 +529,21 @@ PCurveFit cylinderPCurve(const Handle(Geom_Curve)& c3, double t0, double t1,
     if (devU <= epsU && devV <= epsV) {
         const double du = bU, dv = bV;
         const double nrm = std::sqrt(du * du + dv * dv);
-        Handle(Geom2d_Curve) line;
-        if (nrm > 0.0 && std::fabs(nrm - 1.0) <= 1e-12) {
-            line = new Geom2d_Line(gp_Pnt2d(aU, aV), gp_Dir2d(du, dv));
-        } else if (nrm > 0.0) {
-            // A unit-direction Geom2d_Line cannot carry a non-unit affine map at
-            // the edge's own parameter. A degree-1 two-pole B-spline can, and it
-            // is just as exact.
-            std::vector<gp_Pnt2d> poles = { gp_Pnt2d(aU + du * t0, aV + dv * t0),
-                                            gp_Pnt2d(aU + du * t1, aV + dv * t1) };
-            line = buildCurve2d(poles, { t0, t1 }, { 2, 2 }, 1);
-        }
-        if (line.IsNull()) { R.defer = "the affine pcurve is degenerate (zero direction)"; return R; }
+        if (!(nrm > 0.0)) { R.defer = "the affine pcurve is degenerate (zero direction)"; return R; }
+
+        // The affine map t -> (aU + du t, aV + dv t). `dir` is deliberately NOT
+        // normalised: the pcurve must share the 3-D curve's parameter, and the
+        // OCCT bridge picks Geom2d_Line vs a degree-1 two-pole B-spline from
+        // exactly this — a unit-direction Geom2d_Line cannot carry a non-unit
+        // affine map, a degree-1 B-spline can, and it is just as exact.
+        PCurve2d line;
+        line.valid  = true;
+        line.line   = true;
+        line.origin = Pnt2d{ aU, aV };
+        line.dir    = Pnt2d{ du, dv };
+        line.tFirst = t0;
+        line.tLast  = t1;
+
         double dU = 0;
         const int nAudit = kAuditPer * mProbe;
         R.curve    = line;
@@ -490,7 +556,7 @@ PCurveFit cylinderPCurve(const Handle(Geom_Curve)& c3, double t0, double t1,
         R.maxDevU  = dU;
         if (!(R.maxDev3d <= tol3d)) {
             R.defer = "the closed-form straight pcurve did not meet the deviation bound";
-            R.curve.Nullify();
+            R.curve = PCurve2d{};
         }
         return R;
     }
@@ -518,23 +584,30 @@ PCurveFit cylinderPCurve(const Handle(Geom_Curve)& c3, double t0, double t1,
         std::vector<double> st, su, sv;
         if (!sampleUV(m, st, su, sv)) { R.defer = "the 3-D curve could not be evaluated"; return R; }
 
-        TColgp_Array1OfPnt2d Q(1, m);
+        std::vector<Pnt2d> Q(static_cast<std::size_t>(m));
         for (int k = 0; k < m; ++k)
-            Q.SetValue(k + 1, gp_Pnt2d(su[static_cast<std::size_t>(k)],
-                                       sv[static_cast<std::size_t>(k)]));
+            Q[static_cast<std::size_t>(k)] = Pnt2d{ su[static_cast<std::size_t>(k)],
+                                                    sv[static_cast<std::size_t>(k)] };
 
         double res = -1.0;
-        Handle(Geom2d_BSplineCurve) fit = fitBSpline2dAt(Q, st, p, nCtrl, res);
-        if (fit.IsNull()) continue;               // rank-deficient at this net size
+        BSpline2d fit = fitBSpline2dAt(Q, st, p, nCtrl, res);
+        if (!fit.valid()) continue;               // rank-deficient at this net size
+
+        PCurve2d cand;
+        cand.valid  = true;
+        cand.line   = false;
+        cand.spline = fit;
+        cand.tFirst = fit.first();
+        cand.tLast  = fit.last();
 
         double dU = 0;
         const int nAudit = kAuditPer * m;
-        const double dev = audit3d(fit, nAudit, dU, aU, bU);
+        const double dev = audit3d(cand, nAudit, dU, aU, bU);
 
-        R.curve    = fit;
+        R.curve    = cand;
         R.exact    = false;
         R.degree   = p;
-        R.nPoles   = fit->NbPoles();
+        R.nPoles   = fit.nPoles();
         R.nSpans   = nSpans;
         R.nAudit   = nAudit;
         R.maxDev3d = dev;
@@ -547,41 +620,65 @@ PCurveFit cylinderPCurve(const Handle(Geom_Curve)& c3, double t0, double t1,
         if (dev <= tol3d && dU <= std::max(epsU, 1e-11)) return R;
     }
 
-    R.curve.Nullify();
+    R.curve = PCurve2d{};
     R.defer = "the pcurve fit did not reach the requested deviation bound within the span cap";
     return R;
 }
 
-Handle(Geom2d_Curve) planePCurve(const Handle(Geom_Curve)& c3,
-                                 const gp_Pnt& O, const gp_Dir& px, const gp_Dir& py) {
-    if (c3.IsNull()) return Handle(Geom2d_Curve)();
-    auto to2d = [&](const gp_Pnt& P) {
-        const gp_XYZ w = P.XYZ() - O.XYZ();
-        return gp_Pnt2d(w.Dot(px.XYZ()), w.Dot(py.XYZ()));
+Conic2 planePCurve(const Conic3& c3, const Vec3& O, const Vec3& px, const Vec3& py) {
+    Conic2 out;
+    if (!c3.valid) return out;
+    auto to2d = [&](const Vec3& P) {
+        const Vec3 w = P - O;
+        return Pnt2d{ w.dot(px), w.dot(py) };
     };
-    auto dir2d = [&](const gp_Dir& D) {
-        return gp_Dir2d(D.XYZ().Dot(px.XYZ()), D.XYZ().Dot(py.XYZ()));
+    // gp_Dir2d normalises and REFUSES a null vector; the same refusal, made
+    // explicit, is what keeps a conic whose frame does not lie in this plane
+    // from being emitted as a plausible wrong pcurve.
+    auto dir2d = [&](const Vec3& D, Pnt2d& q) -> bool {
+        const double x = D.dot(px), y = D.dot(py);
+        const double n = std::sqrt(x * x + y * y);
+        if (!(n > 1.0e-15)) return false;
+        q = Pnt2d{ x / n, y / n };
+        return true;
     };
-    try {
-        if (Handle(Geom_Ellipse) el = Handle(Geom_Ellipse)::DownCast(c3); !el.IsNull()) {
-            const gp_Ax2 ax = el->Position();
-            return new Geom2d_Ellipse(
-                gp_Ax22d(to2d(ax.Location()), dir2d(ax.XDirection()), dir2d(ax.YDirection())),
-                el->MajorRadius(), el->MinorRadius());
-        }
-        if (Handle(Geom_Circle) ci = Handle(Geom_Circle)::DownCast(c3); !ci.IsNull()) {
-            const gp_Ax2 ax = ci->Position();
-            return new Geom2d_Circle(
-                gp_Ax22d(to2d(ax.Location()), dir2d(ax.XDirection()), dir2d(ax.YDirection())),
-                ci->Radius());
-        }
-    } catch (const Standard_Failure&) {
-        return Handle(Geom2d_Curve)();
-    }
-    return Handle(Geom2d_Curve)();   // honest defer: not a conic this file emits
+    Pnt2d X, Y;
+    if (!dir2d(c3.xdir, X) || !dir2d(c3.ydir, Y)) return out;
+    out.valid  = true;
+    out.circle = c3.circle;
+    out.centre = to2d(c3.centre);
+    out.xdir   = X;
+    out.ydir   = Y;
+    out.a      = c3.a;
+    out.b      = c3.b;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// 4. THE CYLINDER'S OWN PARAMETERISATION — the native ElSLib
+// ---------------------------------------------------------------------------
+
+void cylinderParameters(const Ax3& cylAx, double /*radius*/, const Vec3& p,
+                        double& u, double& v) {
+    const Vec3 w = p - cylAx.loc;
+    const double x = w.dot(cylAx.xdir);
+    const double y = w.dot(cylAx.ydir);
+    u = std::atan2(y, x);
+    // ElSLib's exact seam handling, transcribed: a u just below zero is lifted
+    // by a full turn, and a u inside the negative epsilon band is clamped to 0
+    // rather than to 2pi. Reproducing the band matters — the two rules differ by
+    // a whole period on points that sit exactly on the seam.
+    if (u < -1.0e-16) u += kTwoPi;
+    else if (u < 0.0) u = 0.0;
+    v = w.dot(cylAx.dir);
+}
+
+Vec3 cylinderValue(double u, double v, const Ax3& cylAx, double radius) {
+    return cylAx.loc
+         + cylAx.xdir * (radius * std::cos(u))
+         + cylAx.ydir * (radius * std::sin(u))
+         + cylAx.dir  * v;
 }
 
 }  // namespace pcurvefit
 }  // namespace forge
-
-#endif  // FORGE_NATIVE_BREP

@@ -15,7 +15,11 @@
 // because a fit graded on its own sample points is graded on the one set where a
 // least-squares solution is guaranteed to look good. maxDev3d is that number, in
 // model units, and this gate asserts on it.
-#include "forge/native/geom/NativePCurveFit.hpp"
+// ★ T-154: the pcurve fit itself is now NATIVE and OCCT-FREE. This gate drives it
+// through gp_Ax3 / Handle(Geom_Curve) fixtures, so it exercises the OCCT BRIDGE —
+// which is the right seam to test: it covers the native arithmetic AND the type
+// conversion the draft engine actually depends on.
+#include "forge/PCurveFitOcctBridge.hpp"
 
 #include <cmath>
 #include <cstdio>
@@ -33,7 +37,7 @@ static void ok(bool c, const std::string& what) {
 }
 
 int main() {
-  using namespace forge::pcurvefit;
+  using namespace forge::pcurvefit::occt;
 
   const gp_Ax3 cyl(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
   const double R = 20.0;

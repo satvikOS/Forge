@@ -84,6 +84,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 2
 # Each list is the live measurement. REMOVE an entry when you wire the gate up.
 # Do NOT add one without a reason.
 #
+# ★★ build_hlr_import_gate AND build_import_surfaces_gate LEFT THIS LIST on
+#   2026-09-18 (T-154), and they are the sharpest illustration yet of what a
+#   "merely unwired" pin can hide. Both were pinned as UNWIRED. Both were also
+#   UNBUILDABLE — they exited 1 at their first step, along with four sibling
+#   builders, and had done since 2026-07-21. The pin recorded the lesser fault and
+#   made the greater one invisible: a gate nobody runs looks exactly like a gate
+#   nobody CAN run, and this list could not tell the two apart. They are now built,
+#   run and proved red-able (two mutations, both measured) by kernel-tests.yml.
+#   ★ The lesson for the next entry added here: a pin says "not reached yet". It
+#     does NOT say the thing still works, and nothing on this list has been asked.
+
 # ★ run_pcurve_fit_gate LEFT THIS LIST on 2026-09-03 and the ratchet is what said
 #   so — it went RED ON THE IMPROVEMENT, which is the half of a ratchet nobody
 #   writes and this one has. It is now run by kernel-tests.yml beside
@@ -98,8 +109,6 @@ run_thicksolid_nesting_gate
 run_thrusections_quadrature_gate
 run_thrusections_xlate_label_gate
 build_aabb_bridge_gate
-build_hlr_import_gate
-build_import_surfaces_gate
 build_kernel_correctness_gate"
 
 # forge-kernel/test/*_gate.cpp that no CI job reaches. Each of these is built only
@@ -143,6 +152,19 @@ thrusections_xlate_label_gate"
 #   construction, and only once run_ab_all.sh is itself CI-reachable. If this
 #   list ever grows those four back, the thing that broke is the ab-all wiring,
 #   not the gates.
+# ★★ THREE ENTRIES LEFT THIS LIST ON 2026-09-18 (T-154), and the ratchet is what
+#   said so — it went RED ON THE IMPROVEMENT, which is the half nobody writes.
+#   native_vs_occt_hlr_import, native_vs_occt_import_surfaces and
+#   native_vs_occt_interference are the A/B oracles that build_hlr_import_gate.sh,
+#   build_import_surfaces_gate.sh and build_interference_ab_test.sh COMPILE AND
+#   RUN, and those three builders are now wired into kernel-tests.yml. They were
+#   never reachable through ctest and still are not; they are reachable because a
+#   shell gate builds them directly, which is the distinction this list exists to
+#   make.
+#   ★ native_vs_occt_hlr STAYED, and that took a fix to the matcher above rather
+#     than a judgement call: a bare substring search called it reachable purely
+#     because "native_vs_occt_hlr_import" contains it. Nothing builds it.
+
 ALLOW_CMAKE="\
 io_stl_binary_solid_header
 matelib_quat_ab
@@ -162,10 +184,7 @@ native_vs_occt_gear
 native_vs_occt_gregory_nsided
 native_vs_occt_helical
 native_vs_occt_hlr
-native_vs_occt_hlr_import
 native_vs_occt_hlr_persp
-native_vs_occt_import_surfaces
-native_vs_occt_interference
 native_vs_occt_loftsweep
 native_vs_occt_nurbs_ssi
 native_vs_occt_offset_shape
@@ -260,7 +279,22 @@ while : ; do
 done
 
 # named_by_ci <name> — does any file in the CI-reachable set mention this name?
-named_by_ci() { grep -qF -- "$1" "$BLOB"; }
+#
+# ★ THE MATCH MUST NOT BE A BARE SUBSTRING, and T-154 measured why. A plain
+#   `grep -F <name>` calls a gate reachable when its name is merely a PREFIX of a
+#   different gate's name. Wiring build_hlr_import_gate.sh into CI put the string
+#   "native_vs_occt_hlr_import" into the reachable blob, and this function then
+#   reported `native_vs_occt_hlr` — a SEPARATE add_test target that nothing builds
+#   — as newly reachable, asking for it to be unpinned. Unpinning it would have
+#   recorded a gate as wired on the strength of four characters of another gate's
+#   name. (`native_vs_occt_hlr_persp` was unaffected: it is not a prefix.)
+#
+#   So the name must not be followed by an identifier character. The three
+#   spellings this test exists to cover all still match, because each EXTENDS the
+#   name on the LEFT or ends it with punctuation: `forge_gate_<b>`, `forge_<b>`,
+#   and `<b>.cpp`. Every gate name in this tree is [A-Za-z0-9_] only, so there is
+#   nothing here for a regex metacharacter to do.
+named_by_ci() { grep -qE -- "$1([^A-Za-z0-9_]|$)" "$BLOB"; }
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PHASE 2 — THE THREE ENUMERATIONS.
