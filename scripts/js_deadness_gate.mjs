@@ -66,9 +66,15 @@ if (fs.existsSync(CENSUS)) {
 
 // ---- read every text file once ----
 const SKIP_BIN = /\.(png|jpe?g|gif|pdf|docx|zip|step|stp|stl|node|ico|woff2?|mp4|bin|wasm)$/i
+// A file cannot be kept alive by the instrument that judges it. This gate's own
+// source lists every control path, and the census lists every bundled module,
+// so leaving them in the corpus lets C5 "find a mention" that is nothing but
+// this gate reading itself: e2e/push-116-bom-aggregator.spec.js was named in
+// exactly one non-markdown file, and that file was js_deadness_gate.mjs.
+const SELF_REFS = new Set(['scripts/js_deadness_gate.mjs', 'scripts/js_live_bundle.txt'])
 const texts = new Map()
 for (const f of tracked) {
-  if (SKIP_BIN.test(f)) continue
+  if (SKIP_BIN.test(f) || SELF_REFS.has(f)) continue
   const abs = path.join(ROOT, f)
   try {
     if (!fs.statSync(abs).isFile()) continue
@@ -216,7 +222,28 @@ if (argv.includes('--selftest')) {
     }
     console.log(`\naudit: ${CONTROLS.length - broken}/${CONTROLS.length} controls verified to exercise their intended check in isolation`)
     if (broken) console.log('audit: RED — a control does not exercise the check it is named for')
-    process.exit(broken === 0 ? 0 : 1)
+
+    // DISCRIMINATION. The test above proves each check FIRES. It cannot tell a
+    // real check from one that refuses everything, and "refuses everything" is
+    // the failure mode that silently makes a deletion gate useless. So every
+    // check must also ABSTAIN on at least one control. C5 failed this at first
+    // (12/12) for a circular reason: the gate's own source lists every control
+    // path, so C5 was reading this file and calling it a mention. Excluding the
+    // instrument from its own corpus dropped it to 11/12.
+    let flat = 0
+    console.log('\nDISCRIMINATION — a check that never abstains cannot be told from "always refuse"')
+    console.log('  check  fires on  abstains on  verdict')
+    for (const c of ALL_CHECKS) {
+      const fires = CONTROLS.filter(({ f }) => check(f, new Set([c])).fails.some(x => x.startsWith(c)))
+      const n = fires.length, total = CONTROLS.length
+      const ok = n > 0 && n < total
+      if (!ok) flat++
+      console.log(`  ${c}     ${String(n).padStart(2)}/${total}     ${String(total - n).padStart(2)}/${total}       ` +
+                  (ok ? 'discriminates' : n === 0 ? '** NEVER FIRES **' : '** FIRES ON EVERYTHING **'))
+    }
+    console.log(`\ndiscrimination: ${ALL_CHECKS.length - flat}/${ALL_CHECKS.length} checks both fire and abstain`)
+    if (flat) console.log('discrimination: RED — a check that never abstains proves nothing by refusing')
+    process.exit(broken === 0 && flat === 0 ? 0 : 1)
   }
 
   let bad = 0
