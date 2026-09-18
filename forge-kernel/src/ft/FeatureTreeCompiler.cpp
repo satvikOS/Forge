@@ -54,6 +54,10 @@
 
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"
+#include "forge/native/brep/Fillet.hpp"           // enumerateSharpConvexEdges
+#include "forge/native/brep/SolidTessellate.hpp"  // tessellateSolid
+#include "forge/ShapeRegistry.hpp"                // getNativeSolid
+#include "forge/ShapeHandle.hpp"                  // shapeKind — names no OCCT type
 #endif
 
 #include <Standard_Failure.hxx>   // OCCT's raise root. It is NOT a std::exception:
@@ -64,6 +68,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <functional>
@@ -2168,8 +2173,169 @@ private:
     // ids forge::part::filletEdges / chamferEdges / varfillet consume — one per
     // UNIQUE edge, never the duplicate explorer positions (a box's 12 edges
     // occupy 24 ids; see DirectEdit.hpp).
+    // ── A NATIVE SOLID ADDRESSES ITS EDGES IN A DIFFERENT ID SPACE ───────────
+    //
+    // edgeInventory (DirectEdit.cpp) walks ShapeRegistry::get(body) -- the OCCT
+    // representation -- and its ids are TopExp_Explorer visit ids. A NativeSolid
+    // has no such walk: forge::part::filletEdges routes it through
+    // enumerateSharpConvexEdges, whose ids are indices into THAT vector.
+    // edgeInventory's own failure path states the consequence verbatim:
+    //
+    //   "A native solid addresses its edges through a different, geometric
+    //    enumeration (enumerateSharpConvexEdges); the two id spaces are not
+    //    interchangeable, and mixing them selects the wrong edge silently."
+    //
+    // The registry still HOLDS an OCCT copy for a native body, so get() succeeds
+    // rather than throwing, and the explorer ids reach a native fillet path: the
+    // wrong edges are rounded with ok=true. MEASURED before this dispatch, on
+    // forge_desktop_document_gate's own body (RECT 80x50 -> EXTRUDE 20 ->
+    // CYL r6 -> CUT, native-only operands, so a NativeSolid): VERTICAL selected
+    // 27 edges -- the whole body -- and radius 3 was then declined at a ceiling
+    // of 2.9883 on an edge set that should have been four corner verticals.
+    //
+    // Resolving natively also removes an OCCT dependency from the native path
+    // instead of adding one, which is what doc 11 §4.2 asks for: "Do not continue
+    // creating native algorithms that immediately reconstruct their outputs back
+    // into OCCT types as the normal internal path."
+    //
+    // WHAT THIS ENUMERATION CAN AND CANNOT SAY. It yields sharp CONVEX feature
+    // edges with a unit direction, so ALL, CONVEX, VERTICAL, HORIZONTAL and
+    // edge:<n> are answerable from it exactly. CONCAVE and TANGENT are NOT: the
+    // enumeration is convex by construction, so "no concave edges here" would be
+    // a statement about the instrument, not the body. RIM needs closedness and
+    // curve kind, and edge:<faceA>_<faceB> needs a face enumeration, neither of
+    // which this vector carries. Those four REFUSE BY NAME on this path rather
+    // than returning an empty set that reads as "your body has none".
+#ifdef FORGE_NATIVE_BREP
+    std::vector<std::uint32_t> resolveEdgeSelectorNative(Handle body,
+                                                         const std::string& selRaw,
+                                                         int opId,
+                                                         const std::string& opName) {
+        namespace nb = ::forge::native::brep;
+        std::vector<double> pos;
+        std::vector<std::uint32_t> idx;
+        try {
+            nb::tessellateSolid(
+                forge::ShapeRegistry::instance().getNativeSolid(body), pos, idx);
+        } catch (const std::exception& e) {
+            throw OpError(opId, opName + ": could not tessellate this native solid to "
+                                "enumerate its edges: " + e.what());
+        }
+        const std::vector<nb::SharpConvexEdge> inv = nb::enumerateSharpConvexEdges(pos, idx);
+        if (inv.empty())
+            throw OpError(opId, opName + ": this native body exposes no sharp convex edge "
+                                "to select (enumerateSharpConvexEdges returned none; the "
+                                "soup may not be a closed 2-manifold).");
+
+        const std::string selAll = lower(trim(selRaw));
+        if (selAll.empty()) throw OpError(opId, opName + ": empty edge selector");
+
+        std::vector<std::uint32_t> out;
+        std::vector<char> taken(inv.size(), 0);
+        auto take = [&](std::size_t k) {
+            if (taken[k]) return;
+            taken[k] = 1;
+            out.push_back(inv[k].id);
+        };
+
+        std::vector<std::string> terms;
+        {
+            std::size_t p = 0;
+            while (p <= selAll.size()) {
+                const std::size_t c = selAll.find(',', p);
+                const std::string t = trim(selAll.substr(p, c == std::string::npos
+                                                                ? std::string::npos
+                                                                : c - p));
+                if (!t.empty()) terms.push_back(t);
+                if (c == std::string::npos) break;
+                p = c + 1;
+            }
+        }
+        if (terms.empty()) throw OpError(opId, opName + ": empty edge selector");
+
+        auto refuseHere = [&](const std::string& term, const std::string& why) {
+            throw OpError(opId, opName + ": `" + term + "` is NOT APPLIED on a NATIVE solid -- "
+                          + why + " This body's edges come from the native geometric "
+                          "enumeration (enumerateSharpConvexEdges), which is what "
+                          "filletEdges honours here; the OCCT edge walk that answers "
+                          "this keyword names a different id space and selecting "
+                          "through it would round a different edge. Use "
+                          "ALL | CONVEX | VERTICAL | HORIZONTAL | edge:<n> on a native "
+                          "body, or import the body through OCCT for the full grammar.");
+        };
+
+        for (const std::string& term : terms) {
+            const std::size_t before = out.size();
+
+            if (!term.empty() && term[0] == '@')
+                refuseHere(term, "a persistent @name binds a FACE signature, and this "
+                                 "enumeration carries no face table.");
+            if (term == "concave")
+                refuseHere(term, "this enumeration is CONVEX by construction, so an empty "
+                                 "result would describe the instrument and not the body.");
+            if (term == "tangent")
+                refuseHere(term, "a tangent (smooth) edge is by definition not a sharp "
+                                 "feature edge, so this enumeration cannot contain one.");
+            if (term == "rim")
+                refuseHere(term, "RIM means a CLOSED circular edge, and this enumeration "
+                                 "carries neither closedness nor curve kind.");
+
+            if (term == "all") {
+                for (std::size_t k = 0; k < inv.size(); ++k) take(k);
+            } else if (term == "convex") {
+                // Free: every edge this enumeration yields is sharp and convex.
+                for (std::size_t k = 0; k < inv.size(); ++k) take(k);
+            } else if (term == "vertical" || term == "horizontal") {
+                // From the edge's own unit direction, the same quantity the OCCT
+                // path reads off the curve tangent at mid parameter.
+                const bool wantVert = (term == "vertical");
+                for (std::size_t k = 0; k < inv.size(); ++k) {
+                    const double az = std::fabs(inv[k].dz);
+                    if (wantVert ? (az > 0.99) : (az < 0.01)) take(k);
+                }
+            } else if (term.rfind("edge:", 0) == 0) {
+                const std::string spec = trim(term.substr(5));
+                if (spec.find('_') != std::string::npos)
+                    refuseHere(term, "the face-pair form edge:<faceA>_<faceB> needs a face "
+                                     "enumeration, which this vector does not carry.");
+                double v = 0;
+                if (!parseDouble(spec, v))
+                    throw OpError(opId, opName + ": bad edge selector `" + term + "`");
+                const int n = static_cast<int>(v);
+                if (n < 1 || n > static_cast<int>(inv.size()))
+                    throw OpError(opId, opName + ": edge:" + std::to_string(n) +
+                                        " out of range (1.." + std::to_string(inv.size()) +
+                                        " on this native body; the ordinal is 1-based over "
+                                        "the sharp-convex enumeration).");
+                take(static_cast<std::size_t>(n - 1));
+            } else {
+                throw OpError(opId, opName + ": edge selector `" + term +
+                    "` is NOT IMPLEMENTED on a native solid -- this path resolves "
+                    "ALL | CONVEX | VERTICAL | HORIZONTAL | edge:<n>. It is not that no "
+                    "edge matched; the keyword has no resolver here.");
+            }
+
+            if (out.size() == before)
+                throw OpError(opId, opName + ": selector `" + term +
+                                    "` matched no edge on this native body (" +
+                                    std::to_string(inv.size()) + " sharp convex edges).");
+        }
+
+        if (out.empty())
+            throw OpError(opId, opName + ": selector `" + selRaw + "` matched no edge.");
+        return out;
+    }
+#endif
+
     std::vector<std::uint32_t> resolveEdgeSelector(Handle body, const std::string& selRaw,
                                                    int opId, const std::string& opName) {
+#ifdef FORGE_NATIVE_BREP
+        // Branch on the BACKEND before touching any OCCT walk. shapeKind() lives
+        // in ShapeHandle.hpp and names no OCCT type.
+        if (forge::shapeKind(static_cast<forge::ShapeHandle>(body))
+                == forge::ShapeKind::NativeSolid)
+            return resolveEdgeSelectorNative(body, selRaw, opId, opName);
+#endif
         std::vector<forge::EdgeInfo> inv;
         try {
             inv = forge::edgeInventory(body);
