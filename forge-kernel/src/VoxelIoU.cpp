@@ -15,6 +15,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <vector>
 
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -97,6 +101,58 @@ bool normalise(const TopoDS_Shape& in, const Box& b, IoUAlign align,
         return false;
     }
 }
+
+// ------------------------------------------------------- per-cell digest
+// WHY A DIGEST AND NOT JUST THE COUNTS
+//
+// The four counts this file returns (inA, inB, intersection, union) are SUMS.
+// Two different occupancy grids can produce the same four sums -- one cell
+// gained here and one lost there cancels exactly -- so "the counts matched" is
+// a weaker claim than "every cell matched", and the difference is precisely
+// what a parallelisation bug would look like. The digest below folds the
+// per-cell (inA,inB) state pair, in the canonical i-j-k order of the serial
+// loop, into one 64-bit value, and reports HOW MANY CELLS it folded. A claim of
+// bit-identity is then checkable against a stated denominator rather than
+// against the absence of a complaint.
+//
+// It is OFF unless FORGE_VOXEL_CELL_DIGEST=1, so it costs a branch-free byte
+// store per cell only when a caller is actually checking.
+struct CellDigest {
+    bool on = false;
+    std::vector<unsigned char> cells;   // one byte per cell, canonical order
+    long n = 0;
+
+    void arm(long gridN) {
+        const char* e = std::getenv("FORGE_VOXEL_CELL_DIGEST");
+        on = (e && e[0] == '1' && e[1] == '\0');
+        if (!on) return;
+        n = gridN * gridN * gridN;
+        cells.assign(static_cast<std::size_t>(n), 0);
+    }
+    // index is the canonical serial-loop position (i*gridN + j)*gridN + k
+    inline void set(long index, bool a, bool b) {
+        if (!on) return;
+        cells[static_cast<std::size_t>(index)] =
+            static_cast<unsigned char>((a ? 1 : 0) | (b ? 2 : 0));
+    }
+    // FNV-1a 64. Order-DEPENDENT on purpose: a permutation of the same cells is
+    // a different grid and must not hash the same.
+    void report(long gridN, long inA, long inB, long both, long either,
+                long errs, long performCalls) const {
+        if (!on) return;
+        std::uint64_t h = 0xcbf29ce484222325ULL;
+        for (std::size_t i = 0; i < cells.size(); ++i) {
+            h ^= static_cast<std::uint64_t>(cells[i]);
+            h *= 0x100000001b3ULL;
+        }
+        std::fprintf(stderr,
+                     "VOXELIOU_CELL_DIGEST gridN=%ld cells=%ld digest=%016llx "
+                     "inA=%ld inB=%ld intersection=%ld union=%ld errs=%ld "
+                     "classifierCalls=%ld\n",
+                     gridN, n, static_cast<unsigned long long>(h), inA, inB, both,
+                     either, errs, performCalls);
+    }
+};
 
 }  // namespace
 
@@ -190,6 +246,9 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
 
     const double tol = 1e-7;
     long inA = 0, inB = 0, both = 0, either = 0, errs = 0;
+    long performCalls = 0;
+    CellDigest digest;
+    digest.arm(gridN);
     for (int i = 0; i < gridN; ++i) {
         const double x = lo[0] + (i + 0.5) * step[0];
         for (int j = 0; j < gridN; ++j) {
@@ -198,10 +257,12 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
                 const gp_Pnt p(x, y, lo[2] + (k + 0.5) * step[2]);
                 bool a = false, b = false;
                 try {
+                    ++performCalls;
                     ca.Perform(p, tol);
                     a = (ca.State() == TopAbs_IN || ca.State() == TopAbs_ON);
                 } catch (...) { ++errs; }
                 try {
+                    ++performCalls;
                     cb.Perform(p, tol);
                     b = (cb.State() == TopAbs_IN || cb.State() == TopAbs_ON);
                 } catch (...) { ++errs; }
@@ -209,9 +270,11 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
                 if (b) ++inB;
                 if (a && b) ++both;
                 if (a || b) ++either;
+                digest.set((static_cast<long>(i) * gridN + j) * gridN + k, a, b);
             }
         }
     }
+    digest.report(gridN, inA, inB, both, either, errs, performCalls);
 
     // Both empty means neither solid occupied a single cell — a real failure to
     // measure, not an IoU of zero, and the caller must be able to tell them apart.
