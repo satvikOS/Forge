@@ -15,6 +15,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
+#include <string>
 
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
@@ -189,7 +191,54 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     }
 
     const double tol = 1e-7;
-    long inA = 0, inB = 0, both = 0, either = 0, errs = 0;
+
+    // A THROWN CLASSIFICATION IS A FAILURE, NEVER AN EXCLUSION.
+    //
+    // This loop used to read:
+    //
+    //     try { ca.Perform(p, tol); a = (...IN || ...ON); } catch (...) { ++errs; }
+    //
+    // and `a` was initialised false, so a probe that THREW was counted as a probe
+    // that came back OUTSIDE. The counts inA/inB/both/either then absorbed it,
+    // voxelIoU returned TRUE with a fully populated result, and the only trace was
+    // a `failure` string set beside a number the caller had every reason to read.
+    //
+    // That is the worst available shape for this defect, for three reasons:
+    //   * OUTSIDE is the answer that REMOVES material, so every throw shrinks the
+    //     solid it happened on, and it shrinks the CANDIDATE and the REFERENCE by
+    //     different amounts — the IoU moves in an uncontrolled direction.
+    //   * the result was `true`, and every caller that checks the return value and
+    //     not the string consumed a silently biased number as a measurement.
+    //   * the count was reported but the CAUSE was not: `catch (...)` discarded
+    //     what() and the point, so nothing could be diagnosed afterwards.
+    //
+    // So a throw now ENDS the measurement and names the cause and the point. The
+    // file's own header states the standard this restores: "a measurement tool
+    // that cannot say why it declined is not a measurement tool".
+    auto probe = [&](BRepClass3d_SolidClassifier& cls, const char* which,
+                     const gp_Pnt& p, bool& inside) -> bool {
+        try {
+            cls.Perform(p, tol);
+            const TopAbs_State st = cls.State();
+            inside = (st == TopAbs_IN || st == TopAbs_ON);
+            return true;
+        } catch (const std::exception& e) {
+            out.failure = std::string("classifying the ") + which + " at (" +
+                          std::to_string(p.X()) + ", " + std::to_string(p.Y()) + ", " +
+                          std::to_string(p.Z()) + ") threw: " + e.what() +
+                          " — a failed probe is a failure, not an outside";
+            return false;
+        } catch (...) {
+            out.failure = std::string("classifying the ") + which + " at (" +
+                          std::to_string(p.X()) + ", " + std::to_string(p.Y()) + ", " +
+                          std::to_string(p.Z()) +
+                          ") threw a non-standard exception"
+                          " — a failed probe is a failure, not an outside";
+            return false;
+        }
+    };
+
+    long inA = 0, inB = 0, both = 0, either = 0;
     for (int i = 0; i < gridN; ++i) {
         const double x = lo[0] + (i + 0.5) * step[0];
         for (int j = 0; j < gridN; ++j) {
@@ -197,14 +246,8 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
             for (int k = 0; k < gridN; ++k) {
                 const gp_Pnt p(x, y, lo[2] + (k + 0.5) * step[2]);
                 bool a = false, b = false;
-                try {
-                    ca.Perform(p, tol);
-                    a = (ca.State() == TopAbs_IN || ca.State() == TopAbs_ON);
-                } catch (...) { ++errs; }
-                try {
-                    cb.Perform(p, tol);
-                    b = (cb.State() == TopAbs_IN || cb.State() == TopAbs_ON);
-                } catch (...) { ++errs; }
+                if (!probe(ca, "candidate", p, a)) return false;
+                if (!probe(cb, "reference", p, b)) return false;
                 if (a) ++inA;
                 if (b) ++inB;
                 if (a && b) ++both;
@@ -228,10 +271,10 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     out.unionCount = either;
     out.iou = static_cast<double>(both) / static_cast<double>(either);
     out.cellVolume = step[0] * step[1] * step[2];
-    if (errs) {
-        out.failure = "measured, but " + std::to_string(errs) +
-                      " point classifications threw and were counted as outside";
-    }
+    // No `errs` epilogue any more: a throw returned false above, so reaching here
+    // means every probe of both solids answered. A true return from this function
+    // now carries an unqualified measurement, and out.failure is empty exactly
+    // when out.iou is meaningful.
     return true;
 }
 

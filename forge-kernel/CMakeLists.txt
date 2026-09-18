@@ -1976,6 +1976,7 @@ set(FORGE_KERNEL_SOURCES
     src/Tessellate.cpp
     src/MassProps.cpp
     src/ShapeHandle.cpp
+    src/ShapeClassify.cpp        # T-145 — the ONE handle -> in/out seam (native pointInSolid; no OCCT classifier)
     src/NativeShapeAccess.cpp
     src/ShapeQuery.cpp
     src/Transform.cpp
