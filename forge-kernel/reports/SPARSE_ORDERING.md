@@ -14,7 +14,7 @@ RCM lost. Over 16 matrices — 14 of them real FE stiffness matrices assembled f
 
 AMD, implemented here from Amestoy/Davis/Duff 1996 with no new dependency, fills less than RCM on 14 of 16 — by 2.3x on an annular solid — but it LOSES by 1.4x on a long thin cantilever, where the mesher's own lexicographic numbering is already near-optimal. So no fixed ordering wins either.
 
-What landed is therefore not an ordering but a CHOICE: the default now forms all three candidate permutations, runs the exact symbolic factorization on each (cheap: elimination tree and column counts, no numeric work, no allocation of L), and factors with whichever fills least. Measured over the corpus that is **0.596x the fill and 1.94x the factor speed of RCM**, it is beaten by no fixed ordering on any single matrix, and the worst solution difference against the solver exactly as it shipped is 1.5e-13 relative — round-off, as a permutation must be.
+What landed is therefore not an ordering but a CHOICE: the default now forms all three candidate permutations, runs the exact symbolic factorization on each (cheap: elimination tree and column counts, no numeric work, no allocation of L), and factors with whichever fills least. Measured over the corpus that is **0.596x the fill of RCM and about 1.9x its factor speed** (fill is deterministic; wall-times vary a few percent run to run), it is beaten by no fixed ordering on any single matrix, and the worst solution difference against the solver exactly as it shipped is 1.5e-13 relative — round-off, as a permutation must be.
 
 ---
 
@@ -36,10 +36,10 @@ n = 3993 &nbsp;|&nbsp; nnz(A) = 242535 &nbsp;|&nbsp; density = 1.521e-02 &nbsp;|
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 1306101 | 5.39 | 0.00 | 6.25 | 101.03 | 1.368 | 0.795x | (control) |
-| RCM | 1642503 | 6.77 | 3.36 | 6.89 | 166.03 | 1.729 | 1.000x | 2.14e-20 |
-| AMD | 963417 | 3.97 | 4.62 | 6.20 | 88.81 | 1.024 | 0.587x | 9.11e-21 |
-| **Default (Auto)** | 963417 | 3.97 | 15.58 | 6.23 | 96.80 | 1.029 | 0.587x | 9.11e-21 |
+| Natural | 1306101 | 5.39 | 0.00 | 6.18 | 101.73 | 1.376 | 0.795x | (control) |
+| RCM | 1642503 | 6.77 | 3.39 | 7.05 | 166.27 | 1.720 | 1.000x | 2.14e-20 |
+| AMD | 963417 | 3.97 | 4.61 | 6.23 | 89.68 | 1.019 | 0.587x | 9.11e-21 |
+| **Default (Auto)** | 963417 | 3.97 | 15.50 | 6.20 | 96.98 | 1.019 | 0.587x | 9.11e-21 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 1.24e-20 (the default vs the solver exactly as it shipped).
 
@@ -51,10 +51,10 @@ n = 3933 &nbsp;|&nbsp; nnz(A) = 221931 &nbsp;|&nbsp; density = 1.435e-02 &nbsp;|
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 718416 | 3.24 | 0.00 | 4.81 | 35.75 | 0.776 | 0.873x | (control) |
-| RCM | 823329 | 3.71 | 3.15 | 5.19 | 47.64 | 0.874 | 1.000x | 1.37e-16 |
-| AMD | 464643 | 2.09 | 3.88 | 4.55 | 25.43 | 0.503 | 0.564x | 1.98e-16 |
-| **Default (Auto)** | 464643 | 2.09 | 10.85 | 4.58 | 30.50 | 0.510 | 0.564x | 1.98e-16 |
+| Natural | 718416 | 3.24 | 0.00 | 4.76 | 35.85 | 0.775 | 0.873x | (control) |
+| RCM | 823329 | 3.71 | 3.08 | 5.10 | 47.47 | 0.874 | 1.000x | 1.37e-16 |
+| AMD | 464643 | 2.09 | 3.82 | 4.56 | 25.35 | 0.502 | 0.564x | 1.98e-16 |
+| **Default (Auto)** | 464643 | 2.09 | 10.77 | 4.51 | 30.45 | 0.502 | 0.564x | 1.98e-16 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 9.60e-17 (the default vs the solver exactly as it shipped).
 
@@ -66,10 +66,10 @@ n = 4335 &nbsp;|&nbsp; nnz(A) = 263973 &nbsp;|&nbsp; density = 1.405e-02 &nbsp;|
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 1144767 | 4.34 | 0.00 | 6.23 | 73.21 | 1.222 | 0.936x | (control) |
-| RCM | 1223238 | 4.63 | 3.60 | 6.48 | 88.54 | 1.312 | 1.000x | 7.49e-18 |
-| AMD | 877323 | 3.32 | 4.96 | 6.37 | 67.83 | 0.940 | 0.717x | 2.49e-18 |
-| **Default (Auto)** | 877323 | 3.32 | 14.74 | 6.42 | 74.38 | 0.938 | 0.717x | 2.49e-18 |
+| Natural | 1144767 | 4.34 | 0.00 | 6.26 | 72.94 | 1.214 | 0.936x | (control) |
+| RCM | 1223238 | 4.63 | 3.65 | 6.48 | 88.05 | 1.311 | 1.000x | 7.49e-18 |
+| AMD | 877323 | 3.32 | 4.76 | 6.34 | 67.45 | 0.929 | 0.717x | 2.49e-18 |
+| **Default (Auto)** | 877323 | 3.32 | 14.80 | 6.31 | 74.62 | 0.949 | 0.717x | 2.49e-18 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 4.99e-18 (the default vs the solver exactly as it shipped).
 
@@ -81,10 +81,10 @@ n = 5757 &nbsp;|&nbsp; nnz(A) = 367575 &nbsp;|&nbsp; density = 1.109e-02 &nbsp;|
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 3204684 | 8.72 | 0.00 | 13.68 | 369.19 | 3.457 | 1.754x | (control) |
-| RCM | 1827081 | 4.97 | 5.20 | 9.96 | 136.90 | 1.928 | 1.000x | 2.80e-20 |
-| AMD | 1636137 | 4.45 | 7.26 | 9.94 | 173.42 | 1.818 | 0.895x | 5.57e-20 |
-| **Default (Auto)** | 1636137 | 4.45 | 25.22 | 9.84 | 186.93 | 1.796 | 0.895x | 5.57e-20 |
+| Natural | 3204684 | 8.72 | 0.00 | 11.98 | 373.47 | 3.460 | 1.754x | (control) |
+| RCM | 1827081 | 4.97 | 5.55 | 9.45 | 136.46 | 1.926 | 1.000x | 2.80e-20 |
+| AMD | 1636137 | 4.45 | 7.30 | 9.85 | 174.61 | 1.822 | 0.895x | 5.57e-20 |
+| **Default (Auto)** | 1636137 | 4.45 | 25.14 | 9.91 | 186.22 | 1.791 | 0.895x | 5.57e-20 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 5.16e-20 (the default vs the solver exactly as it shipped).
 
@@ -96,10 +96,10 @@ n = 9828 &nbsp;|&nbsp; nnz(A) = 586710 &nbsp;|&nbsp; density = 6.074e-03 &nbsp;|
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 6231114 | 10.62 | 0.00 | 21.22 | 789.23 | 6.654 | 1.269x | (control) |
-| RCM | 4911507 | 8.37 | 8.36 | 19.21 | 532.33 | 5.262 | 1.000x | 2.36e-17 |
-| AMD | 2129418 | 3.63 | 11.69 | 17.91 | 184.33 | 2.327 | 0.434x | 4.91e-19 |
-| **Default (Auto)** | 2129418 | 3.63 | 46.02 | 15.05 | 209.11 | 2.324 | 0.434x | 4.91e-19 |
+| Natural | 6231114 | 10.62 | 0.00 | 21.46 | 790.61 | 6.708 | 1.269x | (control) |
+| RCM | 4911507 | 8.37 | 8.42 | 19.11 | 532.66 | 5.294 | 1.000x | 2.36e-17 |
+| AMD | 2129418 | 3.63 | 11.68 | 15.02 | 183.12 | 2.349 | 0.434x | 4.91e-19 |
+| **Default (Auto)** | 2129418 | 3.63 | 45.99 | 15.00 | 210.14 | 2.338 | 0.434x | 4.91e-19 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 2.36e-17 (the default vs the solver exactly as it shipped).
 
@@ -111,10 +111,10 @@ n = 12288 &nbsp;|&nbsp; nnz(A) = 819660 &nbsp;|&nbsp; density = 5.428e-03 &nbsp;
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 8809731 | 10.75 | 0.00 | 29.90 | 1237.29 | 9.819 | 0.716x | (control) |
-| RCM | 12301992 | 15.01 | 12.04 | 36.82 | 2701.99 | 13.607 | 1.000x | 7.59e-19 |
-| AMD | 5794524 | 7.07 | 15.82 | 26.42 | 1018.84 | 6.412 | 0.471x | 4.38e-20 |
-| **Default (Auto)** | 5794524 | 7.07 | 78.62 | 26.24 | 1067.39 | 6.471 | 0.471x | 4.38e-20 |
+| Natural | 8809731 | 10.75 | 0.00 | 31.92 | 1244.31 | 9.647 | 0.716x | (control) |
+| RCM | 12301992 | 15.01 | 12.00 | 36.70 | 2719.50 | 13.689 | 1.000x | 7.59e-19 |
+| AMD | 5794524 | 7.07 | 15.76 | 26.14 | 1021.83 | 6.527 | 0.471x | 4.38e-20 |
+| **Default (Auto)** | 5794524 | 7.07 | 78.95 | 26.33 | 1069.21 | 6.483 | 0.471x | 4.38e-20 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 7.26e-19 (the default vs the solver exactly as it shipped).
 
@@ -126,10 +126,10 @@ n = 19683 &nbsp;|&nbsp; nnz(A) = 1338993 &nbsp;|&nbsp; density = 3.456e-03 &nbsp
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 5194071 | 3.88 | 0.00 | 32.18 | 316.81 | 5.538 | 0.960x | (control) |
-| RCM | 5413131 | 4.04 | 19.68 | 32.91 | 350.35 | 5.764 | 1.000x | 7.14e-14 |
-| AMD | 7611435 | 5.68 | 30.08 | 40.21 | 967.03 | 8.426 | 1.406x | 4.76e-14 |
-| **Default (Auto)** | 5194071 | 3.88 | 79.86 | 31.42 | 362.51 | 5.482 | 0.960x | 0.00e+00 |
+| Natural | 5194071 | 3.88 | 0.00 | 31.89 | 318.58 | 5.522 | 0.960x | (control) |
+| RCM | 5413131 | 4.04 | 19.96 | 32.98 | 350.78 | 5.786 | 1.000x | 7.14e-14 |
+| AMD | 7611435 | 5.68 | 25.27 | 39.09 | 970.79 | 8.330 | 1.406x | 4.76e-14 |
+| **Default (Auto)** | 5194071 | 3.88 | 81.97 | 31.57 | 366.17 | 5.533 | 0.960x | 0.00e+00 |
 
 Auto chose: **Natural**. Max |x_default - x_RCM| / max|x| = 7.14e-14 (the default vs the solver exactly as it shipped).
 
@@ -147,10 +147,10 @@ n = 1331 &nbsp;|&nbsp; nnz(A) = 27029 &nbsp;|&nbsp; density = 1.526e-02 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 144719 | 5.35 | 0.00 | 0.63 | 4.75 | 0.156 | 0.795x | (control) |
-| RCM | 182097 | 6.74 | 0.34 | 0.72 | 7.70 | 0.194 | 1.000x | 2.48e-14 |
-| AMD | 106643 | 3.95 | 0.92 | 0.68 | 5.42 | 0.114 | 0.586x | 4.85e-15 |
-| **Default (Auto)** | 106643 | 3.95 | 2.17 | 0.63 | 6.31 | 0.114 | 0.586x | 4.85e-15 |
+| Natural | 144719 | 5.35 | 0.00 | 0.63 | 4.75 | 0.157 | 0.795x | (control) |
+| RCM | 182097 | 6.74 | 0.34 | 0.71 | 7.85 | 0.195 | 1.000x | 2.48e-14 |
+| AMD | 106643 | 3.95 | 0.92 | 0.67 | 5.45 | 0.113 | 0.586x | 4.85e-15 |
+| **Default (Auto)** | 106643 | 3.95 | 2.18 | 0.63 | 6.24 | 0.114 | 0.586x | 4.85e-15 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 2.39e-14 (the default vs the solver exactly as it shipped).
 
@@ -162,10 +162,10 @@ n = 1311 &nbsp;|&nbsp; nnz(A) = 24697 &nbsp;|&nbsp; density = 1.437e-02 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 79406 | 3.22 | 0.00 | 0.49 | 1.72 | 0.087 | 0.872x | (control) |
-| RCM | 91063 | 3.69 | 0.31 | 0.53 | 2.35 | 0.101 | 1.000x | 1.55e-14 |
-| AMD | 51209 | 2.07 | 0.60 | 0.46 | 1.91 | 0.056 | 0.562x | 2.32e-14 |
-| **Default (Auto)** | 51209 | 2.07 | 1.37 | 0.44 | 2.46 | 0.056 | 0.562x | 2.32e-14 |
+| Natural | 79406 | 3.22 | 0.00 | 0.49 | 1.72 | 0.088 | 0.872x | (control) |
+| RCM | 91063 | 3.69 | 0.30 | 0.52 | 2.39 | 0.100 | 1.000x | 1.55e-14 |
+| AMD | 51209 | 2.07 | 0.62 | 0.47 | 1.92 | 0.056 | 0.562x | 2.32e-14 |
+| **Default (Auto)** | 51209 | 2.07 | 1.39 | 0.44 | 2.47 | 0.056 | 0.562x | 2.32e-14 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 3.75e-14 (the default vs the solver exactly as it shipped).
 
@@ -177,10 +177,10 @@ n = 1445 &nbsp;|&nbsp; nnz(A) = 29387 &nbsp;|&nbsp; density = 1.407e-02 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 126743 | 4.31 | 0.00 | 0.62 | 3.39 | 0.137 | 0.936x | (control) |
-| RCM | 135462 | 4.61 | 0.36 | 0.67 | 4.28 | 0.147 | 1.000x | 2.15e-14 |
-| AMD | 97027 | 3.30 | 0.89 | 0.67 | 4.35 | 0.105 | 0.716x | 1.27e-14 |
-| **Default (Auto)** | 97027 | 3.30 | 2.02 | 0.63 | 5.11 | 0.105 | 0.716x | 1.27e-14 |
+| Natural | 126743 | 4.31 | 0.00 | 0.63 | 3.40 | 0.137 | 0.936x | (control) |
+| RCM | 135462 | 4.61 | 0.35 | 0.66 | 4.28 | 0.148 | 1.000x | 2.15e-14 |
+| AMD | 97027 | 3.30 | 0.88 | 0.69 | 4.32 | 0.104 | 0.716x | 1.27e-14 |
+| **Default (Auto)** | 97027 | 3.30 | 2.05 | 0.64 | 5.07 | 0.104 | 0.716x | 1.27e-14 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 3.05e-14 (the default vs the solver exactly as it shipped).
 
@@ -192,10 +192,10 @@ n = 1919 &nbsp;|&nbsp; nnz(A) = 40905 &nbsp;|&nbsp; density = 1.111e-02 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 355468 | 8.69 | 0.00 | 1.27 | 16.85 | 0.376 | 1.756x | (control) |
-| RCM | 202401 | 4.95 | 0.49 | 1.02 | 6.83 | 0.219 | 1.000x | 9.79e-15 |
-| AMD | 197531 | 4.83 | 1.45 | 1.13 | 11.77 | 0.208 | 0.976x | 1.42e-14 |
-| **Default (Auto)** | 197531 | 4.83 | 3.72 | 1.10 | 13.31 | 0.208 | 0.976x | 1.42e-14 |
+| Natural | 355468 | 8.69 | 0.00 | 1.26 | 16.88 | 0.376 | 1.756x | (control) |
+| RCM | 202401 | 4.95 | 0.49 | 1.00 | 6.86 | 0.219 | 1.000x | 9.79e-15 |
+| AMD | 197531 | 4.83 | 1.44 | 1.12 | 11.74 | 0.208 | 0.976x | 1.42e-14 |
+| **Default (Auto)** | 197531 | 4.83 | 3.74 | 1.08 | 13.35 | 0.209 | 0.976x | 1.42e-14 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 9.26e-15 (the default vs the solver exactly as it shipped).
 
@@ -207,10 +207,10 @@ n = 3276 &nbsp;|&nbsp; nnz(A) = 65274 &nbsp;|&nbsp; density = 6.082e-03 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 691296 | 10.59 | 0.00 | 2.07 | 35.17 | 0.744 | 1.269x | (control) |
-| RCM | 544673 | 8.34 | 0.79 | 1.89 | 24.55 | 0.588 | 1.000x | 4.00e-14 |
-| AMD | 253345 | 3.88 | 2.46 | 1.64 | 12.99 | 0.269 | 0.465x | 5.05e-15 |
-| **Default (Auto)** | 253345 | 3.88 | 6.34 | 1.58 | 16.04 | 0.269 | 0.465x | 5.05e-15 |
+| Natural | 691296 | 10.59 | 0.00 | 2.07 | 35.26 | 0.747 | 1.269x | (control) |
+| RCM | 544673 | 8.34 | 0.79 | 1.90 | 24.46 | 0.581 | 1.000x | 4.00e-14 |
+| AMD | 253345 | 3.88 | 2.45 | 1.61 | 13.03 | 0.272 | 0.465x | 5.05e-15 |
+| **Default (Auto)** | 253345 | 3.88 | 6.31 | 1.58 | 15.87 | 0.272 | 0.465x | 5.05e-15 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 4.18e-14 (the default vs the solver exactly as it shipped).
 
@@ -222,10 +222,10 @@ n = 4096 &nbsp;|&nbsp; nnz(A) = 91244 &nbsp;|&nbsp; density = 5.439e-03 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 977579 | 10.71 | 0.00 | 3.22 | 56.49 | 1.055 | 0.716x | (control) |
-| RCM | 1365608 | 14.97 | 1.13 | 3.96 | 113.67 | 1.456 | 1.000x | 7.61e-14 |
-| AMD | 681987 | 7.47 | 3.04 | 2.90 | 55.46 | 0.722 | 0.499x | 2.13e-14 |
-| **Default (Auto)** | 681987 | 7.47 | 10.51 | 2.95 | 60.53 | 0.724 | 0.499x | 2.13e-14 |
+| Natural | 977579 | 10.71 | 0.00 | 3.20 | 56.11 | 1.049 | 0.716x | (control) |
+| RCM | 1365608 | 14.97 | 1.09 | 3.92 | 114.50 | 1.450 | 1.000x | 7.61e-14 |
+| AMD | 681987 | 7.47 | 3.03 | 2.91 | 55.04 | 0.727 | 0.499x | 2.13e-14 |
+| **Default (Auto)** | 681987 | 7.47 | 10.67 | 2.87 | 64.37 | 0.724 | 0.499x | 2.13e-14 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 5.91e-14 (the default vs the solver exactly as it shipped).
 
@@ -237,10 +237,10 @@ n = 6561 &nbsp;|&nbsp; nnz(A) = 148831 &nbsp;|&nbsp; density = 3.457e-03 &nbsp;|
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 574959 | 3.86 | 0.00 | 3.28 | 15.64 | 0.650 | 0.959x | (control) |
-| RCM | 599299 | 4.03 | 1.77 | 3.40 | 17.67 | 0.675 | 1.000x | 1.48e-13 |
-| AMD | 843555 | 5.67 | 4.44 | 4.09 | 50.21 | 0.971 | 1.408x | 3.51e-13 |
-| **Default (Auto)** | 574959 | 3.86 | 10.93 | 3.25 | 23.31 | 0.632 | 0.959x | 0.00e+00 |
+| Natural | 574959 | 3.86 | 0.00 | 3.27 | 15.63 | 0.635 | 0.959x | (control) |
+| RCM | 599299 | 4.03 | 1.77 | 3.39 | 17.71 | 0.672 | 1.000x | 1.48e-13 |
+| AMD | 843555 | 5.67 | 4.41 | 4.09 | 50.28 | 0.912 | 1.408x | 3.51e-13 |
+| **Default (Auto)** | 574959 | 3.86 | 10.86 | 3.23 | 23.10 | 0.632 | 0.959x | 0.00e+00 |
 
 Auto chose: **Natural**. Max |x_default - x_RCM| / max|x| = 1.48e-13 (the default vs the solver exactly as it shipped).
 
@@ -260,10 +260,10 @@ n = 1331 &nbsp;|&nbsp; nnz(A) = 27029 &nbsp;|&nbsp; density = 1.526e-02 &nbsp;|&
 
 | ordering | nnz(L)+nnz(U) | fill ratio | order ms | factor ms | solve ms | vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 290769 | 10.76 | 0.00 | 15.80 | 0.098 | 0.795x | (control) |
-| RCM | 365525 | 13.52 | 0.36 | 27.58 | 0.123 | 1.000x | 2.44e-14 |
-| AMD | 214617 | 7.94 | 0.94 | 14.15 | 0.080 | 0.587x | 4.67e-15 |
-| **Default (Auto)** | 214617 | 7.94 | 2.14 | 15.03 | 0.076 | 0.587x | 4.67e-15 |
+| Natural | 290769 | 10.76 | 0.00 | 15.72 | 0.099 | 0.795x | (control) |
+| RCM | 365525 | 13.52 | 0.34 | 27.53 | 0.123 | 1.000x | 2.44e-14 |
+| AMD | 214617 | 7.94 | 0.95 | 16.01 | 0.078 | 0.587x | 4.67e-15 |
+| **Default (Auto)** | 214617 | 7.94 | 2.20 | 14.92 | 0.076 | 0.587x | 4.67e-15 |
 
 ### plate-with-hole (scalar, through SparseLU)
 
@@ -273,10 +273,10 @@ n = 1311 &nbsp;|&nbsp; nnz(A) = 24697 &nbsp;|&nbsp; density = 1.437e-02 &nbsp;|&
 
 | ordering | nnz(L)+nnz(U) | fill ratio | order ms | factor ms | solve ms | vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 160123 | 6.48 | 0.00 | 5.27 | 0.053 | 0.873x | (control) |
-| RCM | 183437 | 7.43 | 0.31 | 7.25 | 0.062 | 1.000x | 1.59e-14 |
-| AMD | 103729 | 4.20 | 0.65 | 3.88 | 0.040 | 0.565x | 2.16e-14 |
-| **Default (Auto)** | 103729 | 4.20 | 1.41 | 4.37 | 0.039 | 0.565x | 2.16e-14 |
+| Natural | 160123 | 6.48 | 0.00 | 5.33 | 0.053 | 0.873x | (control) |
+| RCM | 183437 | 7.43 | 0.31 | 7.30 | 0.062 | 1.000x | 1.59e-14 |
+| AMD | 103729 | 4.20 | 0.65 | 3.91 | 0.040 | 0.565x | 2.16e-14 |
+| **Default (Auto)** | 103729 | 4.20 | 1.43 | 4.42 | 0.038 | 0.565x | 2.16e-14 |
 
 ### cylinder (scalar, through SparseLU)
 
@@ -286,10 +286,10 @@ n = 1919 &nbsp;|&nbsp; nnz(A) = 40905 &nbsp;|&nbsp; density = 1.111e-02 &nbsp;|&
 
 | ordering | nnz(L)+nnz(U) | fill ratio | order ms | factor ms | solve ms | vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 712855 | 17.43 | 0.00 | 61.85 | 0.238 | 1.753x | (control) |
-| RCM | 406721 | 9.94 | 0.51 | 22.93 | 0.134 | 1.000x | 9.04e-15 |
-| AMD | 396981 | 9.70 | 1.45 | 33.95 | 0.146 | 0.976x | 1.46e-14 |
-| **Default (Auto)** | 396981 | 9.70 | 3.69 | 35.62 | 0.142 | 0.976x | 1.46e-14 |
+| Natural | 712855 | 17.43 | 0.00 | 59.90 | 0.237 | 1.753x | (control) |
+| RCM | 406721 | 9.94 | 0.52 | 22.27 | 0.136 | 1.000x | 9.04e-15 |
+| AMD | 396981 | 9.70 | 1.48 | 33.61 | 0.146 | 0.976x | 1.46e-14 |
+| **Default (Auto)** | 396981 | 9.70 | 3.73 | 35.16 | 0.147 | 0.976x | 1.46e-14 |
 
 ---
 
@@ -305,10 +305,10 @@ n = 8100 &nbsp;|&nbsp; nnz(A) = 40140 &nbsp;|&nbsp; density = 6.118e-04 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 720989 | 17.96 | 0.00 | 2.29 | 17.67 | 0.829 | 1.472x | (control) |
-| RCM | 489945 | 12.21 | 0.69 | 1.60 | 10.19 | 0.561 | 1.000x | 1.87e-15 |
-| AMD | 149560 | 3.73 | 2.33 | 1.08 | 6.41 | 0.167 | 0.305x | 2.14e-15 |
-| **Default (Auto)** | 149560 | 3.73 | 5.79 | 1.05 | 9.11 | 0.177 | 0.305x | 2.14e-15 |
+| Natural | 720989 | 17.96 | 0.00 | 2.19 | 17.09 | 0.797 | 1.472x | (control) |
+| RCM | 489945 | 12.21 | 0.68 | 1.58 | 10.17 | 0.556 | 1.000x | 1.87e-15 |
+| AMD | 149560 | 3.73 | 2.31 | 1.05 | 6.13 | 0.167 | 0.305x | 2.14e-15 |
+| **Default (Auto)** | 149560 | 3.73 | 5.75 | 1.03 | 9.00 | 0.165 | 0.305x | 2.14e-15 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 2.81e-15 (the default vs the solver exactly as it shipped).
 
@@ -320,10 +320,10 @@ n = 8000 &nbsp;|&nbsp; nnz(A) = 53600 &nbsp;|&nbsp; density = 8.375e-04 &nbsp;|&
 
 | ordering | nnz(L) | fill ratio nnz(L)/nnz(A) | order ms | symbolic ms | factor ms (total) | solve ms | nnz(L) vs RCM | max soln diff vs control |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| Natural | 3047619 | 56.86 | 0.00 | 7.03 | 236.03 | 3.246 | 1.696x | (control) |
-| RCM | 1796849 | 33.52 | 0.85 | 4.62 | 96.55 | 1.926 | 1.000x | 1.10e-14 |
-| AMD | 814022 | 15.19 | 4.71 | 2.65 | 66.60 | 0.877 | 0.453x | 1.33e-14 |
-| **Default (Auto)** | 814022 | 15.19 | 17.03 | 2.66 | 76.95 | 0.872 | 0.453x | 1.33e-14 |
+| Natural | 3047619 | 56.86 | 0.00 | 7.05 | 237.46 | 3.254 | 1.696x | (control) |
+| RCM | 1796849 | 33.52 | 0.88 | 4.62 | 96.47 | 1.910 | 1.000x | 1.10e-14 |
+| AMD | 814022 | 15.19 | 4.69 | 2.64 | 66.81 | 0.871 | 0.453x | 1.33e-14 |
+| **Default (Auto)** | 814022 | 15.19 | 17.07 | 2.65 | 77.36 | 0.866 | 0.453x | 1.33e-14 |
 
 Auto chose: **AMD**. Max |x_default - x_RCM| / max|x| = 1.31e-14 (the default vs the solver exactly as it shipped).
 
@@ -350,9 +350,9 @@ Denominator: **16** symmetric matrices measured through `SparseLDLT` (14 of them
 
 | total factor wall-time over the corpus | ms |
 |---|---:|
-| RCM | 4307.6 |
-| AMD | 2740.8 |
-| **Default (Auto)** | **2240.8** |
+| RCM | 4325.9 |
+| AMD | 2747.5 |
+| **Default (Auto)** | **2250.6** |
 
 Worst solution difference between the DEFAULT and the solver exactly as it shipped (RCM), over the whole corpus: **1.48e-13** relative, on `cantilever-beam (scalar, 1 DOF/node)`. A reordering is a permutation, so this is round-off and nothing else.
 

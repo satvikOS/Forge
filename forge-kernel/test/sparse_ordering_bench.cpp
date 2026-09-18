@@ -638,8 +638,10 @@ int main(int argc, char** argv) {
                     "forms all three candidate permutations, runs the exact symbolic "
                     "factorization on each (cheap: elimination tree and column counts, no "
                     "numeric work, no allocation of L), and factors with whichever fills least. "
-                    "Measured over the corpus that is **0.596x the fill and 1.94x the factor "
-                    "speed of RCM**, it is beaten by no fixed ordering on any single matrix, "
+                    "Measured over the corpus that is **0.596x the fill of RCM and about "
+                    "1.9x its factor speed** (fill is deterministic; wall-times vary a few "
+                    "percent run to run), it is beaten by no fixed ordering on any single "
+                    "matrix, "
                     "and the worst solution difference against the solver exactly as it shipped "
                     "is 1.5e-13 relative \u2014 round-off, as a permutation must be.\n\n"
                     "---\n\n"
@@ -794,6 +796,41 @@ int main(int argc, char** argv) {
                              "above the %.2f bar\n", ratioDefaultRcm, kMaxDefaultOverRcm);
         ++gFails;
     }
+    // ---- THE PROSE IS PINNED TO THE MEASUREMENT -----------------------------
+    // "The answer" section above quotes numbers this same run recomputes. A
+    // number copied into a second place goes stale silently, so each one is
+    // asserted here: if the corpus or the algorithm changes, this goes RED and
+    // names the sentence that has to be rewritten, instead of the report quietly
+    // becoming a claim nothing supports. Only DETERMINISTIC quantities are
+    // pinned — fill counts, not wall-times.
+    struct Pin { const char* claim; long got; long want; };
+    const Pin pins[] = {
+        {"'fills MORE than doing nothing on 10 of them'", gT.rcmWorseThanNatural, 10},
+        {"'fills less than RCM on 14 of 16'",             gT.amdBeatsRcm,         14},
+        {"'it LOSES ... on a long thin cantilever' (AMD worse on 2)", gT.amdWorseThanRcm, 2},
+        {"'beaten by no fixed ordering on any single matrix'", gT.defaultWorseThanBestFixed, 0},
+        {"corpus size quoted as 'over 16 matrices'",      gT.matrices,            16},
+    };
+    for (const Pin& pin : pins)
+        if (pin.got != pin.want) {
+            std::fprintf(stderr, "  [FAIL] the report's prose says %s, but this run measured "
+                                 "%ld. Rewrite the sentence and update the pin.\n",
+                         pin.claim, pin.got);
+            ++gFails;
+        }
+    if (std::fabs(ratioDefaultRcm - 0.596) > 0.001) {
+        std::fprintf(stderr, "  [FAIL] the report's prose says the default is 0.596x the fill "
+                             "of RCM, but this run measured %.4f. Rewrite the sentence.\n",
+                     ratioDefaultRcm);
+        ++gFails;
+    }
+    if (std::fabs(ratioRcmNat - 1.0067) > 0.0005) {
+        std::fprintf(stderr, "  [FAIL] the report's prose says RCM fills 0.7%% more than "
+                             "nothing (rcm/natural = 1.0067), but this run measured %.4f. "
+                             "Rewrite the sentence.\n", ratioRcmNat);
+        ++gFails;
+    }
+
     if (gElemBlockExactZeros != 0) {
         std::fprintf(stderr, "  [FAIL] %ld of %ld element-stiffness entries are exactly zero "
                              "\u2014 the element block is NOT structurally dense, so the claim "
