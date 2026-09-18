@@ -283,13 +283,20 @@ jobs:
         # torus K=cos v/(r(R+r cos v)), cone K=0 with H=-h/(2 r sqrt(dr^2+h^2)),
         # plane 0, the ellipse/circle/rational-arc curvatures.
         #
-        # ── WHY THE MUTATIONS. Six mutants of the CODE (never the test) must each
-        # turn it red on its OWN assertion, and two of them (the signs of M^2 and of
-        # the -2FM cross term) are invisible to every orthogonal quadric in the
-        # gate -- only the shear-reparameterisation fixture can see them. Those two
-        # mutants are what prove that fixture is load-bearing rather than scenery.
-        # NOBUILD is never accepted as a kill, and the mutated source is proven to
-        # differ from the tree (cmp) before each rebuild.
+        # ── WHY THE MUTATIONS. Mutants of the CODE (never the test) must each turn
+        # it red on its OWN assertion, and several are invisible to every orthogonal
+        # quadric in the gate -- the signs of M^2 and of the -2FM cross term, which
+        # only the shear-reparameterisation fixture can see, and the revolution's
+        # mixed partial S_uv, which reaches H not at all (F == 0 there) and K only
+        # as -M^2. Those are what prove the fixtures load-bearing rather than
+        # scenery. NOBUILD is never accepted as a kill, and the mutated source is
+        # proven to differ from the tree (cmp) before each rebuild.
+        #
+        # THE COUNT IS DELIBERATELY NOT WRITTEN HERE. It was "six" while T-151 took
+        # it to fourteen, and this file states elsewhere why a number copied into a
+        # second place goes stale (D-027). The authority is the script, which prints
+        # its own roster and fails if any mutant survives or dies on the wrong
+        # assertion.
         shell: bash
         run: bash forge-kernel/test/run_surface_props_closed_form_gate.sh
 
