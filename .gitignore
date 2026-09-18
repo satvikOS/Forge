@@ -195,3 +195,9 @@ forge-desktop/.build-*/
 __pycache__/
 *.pyc
 
+
+# T-149 foreign-STEP tail census: the private object cache and the raw
+# manifest/census NDJSON. The DERIVED report (forge-kernel/reports/
+# FOREIGN_STEP_TAIL.md) is committed; the multi-hundred-MB intermediates are not.
+forge-kernel/.build-foreign-step-tail/
+forge-kernel/.foreign-step-tail-out/
