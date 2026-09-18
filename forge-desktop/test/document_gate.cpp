@@ -79,7 +79,9 @@
 #include "PartFile.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Parameters.hpp"      // parameterCommandIds -- the SECOND family wirePartCommands registers
+#include "forge/ui/EngineeringCalculators.hpp"  // calculatorCommandIds -- the THIRD family
 #include "forge/ui/PartCommands.hpp"
+#include "forge/ui/WorkspaceProfile.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
 
@@ -277,9 +279,14 @@ int main(int argc, char** argv) {
   // not that either list was wrong. The two id lists are separately paired with
   // their own register functions (the vocabulary generator enforces exactly that
   // and REFUSES to derive if either pair disagrees), so the sum is what balances.
+  // T-169 added a THIRD family behind the same call -- the engineering
+  // calculators -- and the trap above repeats exactly: two of the three lists
+  // would read `got 78 want 75`, and the assertion, not the lists, would be
+  // wrong. Each list is paired with its own register function.
   checkEq(partCommands,
-          forge::ui::partCommandIds().size() + forge::ui::parameterCommandIds().size(),
-          "every Part and Parameter command went into the shell's ONE registry");
+          forge::ui::partCommandIds().size() + forge::ui::parameterCommandIds().size() +
+              forge::ui::calculatorCommandIds().size(),
+          "every Part, Parameter and calculator command went into the shell's ONE registry");
   check(shell.documentHost() == &frame, "the frame is installed as the document host", "");
 
   // The document the app SEEDED and the program the scene BUILT are the same
@@ -1098,8 +1105,23 @@ int main(int argc, char** argv) {
     // The ribbon the Part workspace claims is the category those commands are
     // filed under. While it named "Model" the toolbar offered the three counter
     // stubs and none of the sixteen commands that emit.
-    const std::vector<std::string> cats =
-        forge::ui::workspaceCategories(forge::ui::WorkspaceProfile::Part);
+    // ── EVERY COMMAND IS ON SOME WORKSPACE'S RIBBON, NOT ALL ON ONE ───────
+    // This used to sum only the Part workspace's categories and require the
+    // total to equal the whole registry -- which silently asserted that every
+    // command Forge has belongs to Part. That was true while every family was a
+    // Part family. T-169 files the engineering calculators under "Simulation",
+    // a category the Simulation workspace has claimed since the eight
+    // workspaces were written and nothing had ever filled, so the old sum would
+    // now read short by three and the honest fix is to state the invariant the
+    // application actually holds: a registered command is on the ribbon of SOME
+    // workspace. A command under a category NO workspace claims is still
+    // caught, which is the hole the check exists to close.
+    std::vector<std::string> cats;
+    for (forge::ui::WorkspaceProfile profile : forge::ui::allWorkspaceProfiles()) {
+      for (const std::string& cat : forge::ui::workspaceCategories(profile)) {
+        if (std::find(cats.begin(), cats.end(), cat) == cats.end()) cats.push_back(cat);
+      }
+    }
     std::size_t ribbonCommands = 0;
     for (const std::string& cat : cats) {
       ribbonCommands += keyShell.registry().idsInCategory(cat).size();
@@ -1112,7 +1134,12 @@ int main(int argc, char** argv) {
     checkEq(keyShell.registry().idsInCategory("Model").size(), 0u,
             "and no command is filed under the retired Model category");
     checkEq(ribbonCommands, keyShell.registry().size(),
-            "every registered command is reachable from the Part workspace ribbon");
+            "every registered command is reachable from some workspace's ribbon");
+    // And the new family is on the one that claims it, rather than swept into
+    // the default workspace by ribbonCategories()' catch-all.
+    checkEq(keyShell.registry().idsInCategory("Simulation").size(),
+            forge::ui::calculatorCommandIds().size(),
+            "the Simulation ribbon category holds every engineering calculator");
   }
 
   std::remove(path.c_str());

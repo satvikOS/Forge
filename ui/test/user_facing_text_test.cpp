@@ -102,6 +102,7 @@
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/EngineeringCalculators.hpp"
 #include "forge/ui/CommandSurface.hpp"
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/ForgeShell.hpp"
@@ -671,7 +672,18 @@ struct App {
   ForgeShell shell;
   PartDocument document;
   UndoStack stack;
-  App() { registerPartCommands(shell.registry(), document, stack); }
+  // The engineering calculators are registry commands like any other, so their
+  // labels, hints and refusal reasons are drawn by the ribbon, the menu and the
+  // palette -- and check F below is what scans those three fields on every
+  // command there is. Registering them here is what puts a family whose labels
+  // are DERIVED FROM KERNEL HEADERS under the same scanner as a label somebody
+  // typed. The bench needs no evaluator: F reads what the surface SAYS about a
+  // command, never what it computes.
+  CalculatorBench calculators;
+  App() {
+    registerPartCommands(shell.registry(), document, stack);
+    registerCalculatorCommands(shell.registry(), calculators);
+  }
   SurfaceContext context() {
     SurfaceContext ctx;
     ctx.registry = &shell.registry();

@@ -33,6 +33,8 @@ run "op vocabulary matches its sources" \
     python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
 run "op constraint table matches the vocabulary" \
     python3 implementation/sacrosanct/tools/gen_op_constraint_table.py --check
+run "calculator form schema matches the kernel headers" \
+    python3 implementation/sacrosanct/tools/gen_calculator_schema.py --check
 run "OCCT removal tracker matches the code" \
     python3 tools/kernel/occt_dependency_graph.py --check
 run "the header surface a COMPILER sees matches the tracker's walk" \

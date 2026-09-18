@@ -45,6 +45,7 @@
 #include "forge/ui/DocumentStore.hpp"
 #include "forge/ui/Drawing.hpp"
 #include "forge/ui/EdgeModel.hpp"
+#include "forge/ui/EngineeringCalculators.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MachineProgram.hpp"
@@ -1794,7 +1795,21 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // back through setText lands in a map the handler's params().flag() never
   // reads, which is a box that silently does nothing -- worse than no box.
   struct PromptField {
+    // The MACHINE key: it addresses this value in a CommandParams. Never drawn.
     std::string name;
+    // ── WHAT IS DRAWN, AND WHY IT IS NOT `name` ──────────────────────────
+    // The sheet used to draw `name` beside every box. That is fine for the
+    // Part commands, whose parameters are already words a person writes
+    // ("width", "radius", "distance"), and it is NOT fine for a calculation
+    // whose inputs are the kernel's own member names -- a box labelled
+    // `upstreamDensityKgM3` is an identifier where a name belongs, which the
+    // standing order forbids. `label` defaults to `name`, so every command
+    // that had no schema label draws exactly what it drew before, and a
+    // calculator draws the label the generated schema carries.
+    std::string label;
+    // The unit as a person writes it ("m", "kg/m3"), or empty. Drawn beside
+    // the label so nobody has to guess whether a pressure is Pa or bar.
+    std::string unit;
     forge::ui::ParamType type = forge::ui::ParamType::Text;
     std::array<char, 256> value{};
   };
@@ -1813,6 +1828,12 @@ class ForgeFrame final : public forge::ui::DocumentHost,
   // strip reads it through buildStatusSummary(), so a future long operation
   // reports itself by begin()/end() and needs no new status plumbing.
   forge::ui::ProgressTracker progress_;
+
+  // ── the engineering calculations ────────────────────────────────────────
+  // Holds the seam to the kernel's calculators and the last answer one gave.
+  // The evaluator is installed in wirePartCommands(), so every build that has a
+  // frame can reach them -- including every headless gate.
+  forge::ui::CalculatorBench calculators_;
 
   // The three surfaces this frame draws from, all derived from the ONE registry.
   forge::ui::CommandSurface menuSurface_;
