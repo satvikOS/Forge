@@ -178,9 +178,12 @@ insertLocked(ShapeHandle h, CacheEntry&& e) {
         lruOrder().push_front(h);
         it->second.lru = lruOrder().begin();
         evictLocked();
-        it = cache().find(h);          // evictLocked never drops the entry just
-                                       // pushed to the FRONT, but re-find rather
-                                       // than reason about rehashing.
+        // RE-FIND, and the result MAY BE end(). The comment that used to sit here
+        // said "evictLocked never drops the entry just pushed to the FRONT" — that
+        // is false at capacity 0, where eviction empties the cache including this
+        // entry, and the caller then dereferenced an end() iterator. A caller must
+        // treat end() as "not cached" and use its own ownership; see the call site.
+        it = cache().find(h);
     } else {
         touchLocked(it);
     }
@@ -272,6 +275,11 @@ PointClass classifyPoint(ShapeHandle h, double x, double y, double z,
             std::lock_guard<std::mutex> lk(cacheMutex());
             auto it = cache().find(h);
             if (it != cache().end() && !it->second.ok) {
+                // A CACHED REFUSAL IS A CACHE HIT. Without this touch a handle
+                // that is refused often drifts to the LRU tail, gets evicted, and
+                // pays a full importOcctSolid again — the exact re-import this
+                // negative cache exists to prevent.
+                touchLocked(it);
                 // Decided already, and the answer cannot change: the shape behind a
                 // live handle is immutable (see fact 2 above). Refuse immediately
                 // instead of re-running the import.
@@ -326,9 +334,18 @@ PointClass classifyPoint(ShapeHandle h, double x, double y, double z,
             pos.ok = true;
             pos.owner = imported.owner;
             pos.solid = imported.solid;
+            // `pos` COPIED imported.owner/solid before being moved from, so the
+            // import's own handles stay valid whether or not the entry survived
+            // insertion. At capacity 0 it does not survive — and a cache that
+            // declines to keep the entry must still let this call answer.
             auto it = insertLocked(h, std::move(pos));
-            keepAlive = it->second.owner;
-            solid = it->second.solid;
+            if (it != cache().end()) {
+                keepAlive = it->second.owner;
+                solid     = it->second.solid;
+            } else {
+                keepAlive = imported.owner;
+                solid     = imported.solid;
+            }
         }
 
         // keepAlive is load-bearing: it is the reference that keeps *solid's

@@ -1960,6 +1960,29 @@ static ImportResult importOcctSolidBody(const TopoDS_Shape& shape) {
         staged.resize(w);
     }
 
+    // ---- T-152: EVERY SOURCE BODY MUST HAVE CONTRIBUTED SOMETHING ------------
+    // Without this, a body that stages no pieces is silently dropped while ok
+    // stays true — which is this task's ORIGINAL DEFECT wearing a new shape. The
+    // per-shell pre-check below iterates that shell's (empty) edge maps and is
+    // vacuously satisfied; the global post-build checks then pass on the OTHER
+    // bodies' topology. So the aggregate looks healthy and one body is gone.
+    // Checked AFTER fin cancellation, because cancellation is what can empty a
+    // shell that had staged pieces a moment earlier.
+    {
+        std::vector<char> hasPiece(shells.size(), 0);
+        for (const StagedFace& sf : staged)     hasPiece[(std::size_t)sf.shellIdx] = 1;
+        for (const StagedPoly& sp : stagedPoly) hasPiece[(std::size_t)sp.shellIdx] = 1;
+        for (std::size_t k = 0; k < hasPiece.size(); ++k) {
+            if (!hasPiece[k]) {
+                res.reason = "body " + std::to_string(k) + " of " +
+                             std::to_string(shells.size()) +
+                             " produced no geometry (importing it would drop that body "
+                             "while reporting success)";
+                return res;
+            }
+        }
+    }
+
     // ---- COMBINATORIAL 2-MANIFOLD PRE-CHECK (mirrors Boolean.cpp's stitch) -----
     // Build only AFTER proving every directed edge (a->b) is matched by exactly
     // one opposite (b->a) and no undirected edge appears more than twice, so we

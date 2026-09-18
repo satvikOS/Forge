@@ -1965,6 +1965,10 @@ set(FORGE_KERNEL_SOURCES
     src/OcctPrimBuilder.cpp       # TKPrim-free analytic OCCT primitive solids (Geom_ + BRepBuilderAPI)
     src/OcctPipeSweep.cpp         # TKOffset-free analytic polyline pipe sweep
     src/NativeOcctBridge.cpp
+    src/PCurveFitOcctBridge.cpp   # T-154 — the OCCT face of the NATIVE pcurve fit. Pure type conversion:
+                                  # gp_Ax3/Handle(Geom_Curve) <-> forge::pcurvefit's own carriers. It exists so
+                                  # src/native/geom/NativePCurveFit.cpp can be OCCT-FREE; if a formula ever appears
+                                  # in it, the split has been undone.
     src/OcctImport.cpp
     src/Primitives.cpp
     src/Booleans.cpp
@@ -2285,10 +2289,13 @@ set(FORGE_KERNEL_SOURCES
     src/native/geom/NativeProjection.cpp   # R1 — native point->surface + point->curve-2d projection (Gauss-Newton; drops TKGeomAlgo GeomAPI_Project* + TKGeomBase Extrema)
     src/native/geom/NativeNurbsConvert.cpp # R2 — native analytic->NURBS + points->NURBS lsq fit (drops TKGeomBase GeomConvert + TKGeomAlgo PointsToBSpline)
     src/native/geom/NativePCurveFit.cpp    # R2b — native 2-D lsq B-spline PCURVE fit + exact plane/cylinder section (TKOffset family J, the DRAFT blocker).
-                                           #       Guarded by FORGE_NATIVE_BREP like its siblings; with the guard OFF the TU is EMPTY, which is safe only
-                                           #       because nothing calls it yet. Its numerics are gated by test/run_pcurve_fit_gate.sh, which asserts on a
-                                           #       PREPROCESSED SYMBOL COUNT rather than an exit status — a bare compile of this file builds NOTHING and
-                                           #       returns 0. ★ It does NOT move OCCT_CLOSURE: it replaces a Geom2dAPI_PointsToBSpline call in TKGeomAlgo,
+                                           #       ★ T-154: NO OCCT INCLUDE AND NO FORGE_NATIVE_BREP GUARD. It used to have both, and the pair disabled the
+                                           #       six "compile the native tree OCCT-free" builders while making a bare compile build an EMPTY file that
+                                           #       returned 0. The OCCT types moved to src/PCurveFitOcctBridge.cpp; this TU is now compiled FOR REAL by every
+                                           #       OCCT-free pass over src/native, and those builders assert the symbol is present.
+                                           #       test/run_pcurve_fit_gate.sh still asserts on a PREPROCESSED SYMBOL COUNT rather than an exit status — now in
+                                           #       BOTH directions: the native TU must be guard-INDEPENDENT, the bridge TU must stay guarded.
+                                           #       ★ It does NOT move OCCT_CLOSURE: it replaces a Geom2dAPI_PointsToBSpline call in TKGeomAlgo,
                                            #       which is already a FREE RIDER exporting zero symbols the kernel still needs.
     src/native/geom/NativeLaw.cpp          # R3 — native 1-D evolution laws (Law_Linear/Law_S) for VarFillet — pure std, unguarded (drops TKGeomAlgo Law_*)
     src/native/geom/Delaunay.cpp

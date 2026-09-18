@@ -375,8 +375,24 @@ int main() {
         TopoDS_Shape rv = BRepPrimAPI_MakeRevol(pf, zax).Shape();
         ImportResult ir = importOcctSolid(rv);
         check(!ir.ok, std::string("revolution deferred (ok=false), reason=\"") + ir.reason + "\"");
-        check(ir.reason.find("Revolution") != std::string::npos,
-              "deferral reason names the Revolution face");
+        // ★ T-154, 2026-09-18: this used to assert the reason NAMES "Revolution".
+        // When it was written (d98e6f28, 2026-06-26) the importer had no
+        // surface-of-revolution support and deferred on the face KIND. e0c19b19
+        // (2026-07-25) ADDED first-class revolved-surface support — an exact
+        // rational tensor B-spline, "the first-class revolved-surface support the
+        // earlier defer note called for" — so the revolution face is now READ, and
+        // this body defers one step LATER, on the 2-manifold precondition that a
+        // full 360-degree revolution's seam edge fails. The old string can no
+        // longer be produced for this shape in any configuration.
+        //
+        // This gate could not say so: it stopped building on 2026-07-21 (3aa7aed3),
+        // FOUR DAYS BEFORE the change that invalidated the assertion.
+        //
+        // Still asserted, and still able to go red: the deferral must be NAMED, and
+        // it must name the precondition that actually refused the body. A silent or
+        // unnamed defer is the defect this check exists for, and that is unchanged.
+        check(ir.reason.find("not 2-manifold") != std::string::npos,
+              "deferral reason names the precondition that refused it");
         check(ir.solid == nullptr, "deferred revolution import yields no solid");
     }
 

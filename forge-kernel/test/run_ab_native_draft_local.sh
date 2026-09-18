@@ -68,6 +68,33 @@ HARNESS=forge-kernel/test/ab_native_draft_local.cpp
 # too. build_draft_local_probe.sh:7 still says the engine "has no first-party"
 # dependency -- that sentence is now false and is flagged, not quietly deleted.
 FITTER=forge-kernel/src/native/geom/NativePCurveFit.cpp
+# ★ AND AS OF T-154 THERE IS A SECOND ONE, for the same reason and caught the same
+# way. NativePCurveFit is now OCCT-FREE: it returns native carriers, and the OCCT
+# types the engine needs (Handle(Geom_Curve), Handle(Geom2d_Curve)) come from the
+# bridge. So the engine's call sites moved to forge::pcurvefit::occt:: and every
+# place that compiles the engine must compile the bridge too.
+#
+# I MISSED THIS AND run_ab_all.sh CAUGHT IT: "[ab-all] RED draft_local: DID NOT
+# BUILD/LINK — its assertions did not run at all". That is the PR #64 defect class
+# exactly — an engine made to call into a TU its standalone harness does not
+# compile — which is the case this gate was written for. It works.
+#
+# ★ AND THE SCOPE IS TWO FILES, MEASURED, NOT THE SEVEN IT LOOKED LIKE. My first
+#   reflex was to add the bridge to every script that sweeps src/native with an
+#   OCCT include path — build_corpus_ab_coverage, build_draft_defer_probe,
+#   build_fillet_defer_census, build_offsetshape_defer_census,
+#   run_foreign_step_tail_census. Each was then run WITHOUT the bridge and each
+#   still exited 0: they put the sweep in an ARCHIVE, none of their harnesses
+#   references the draft-local engine, nothing else calls it either, so
+#   NativeDraftLocal.o is never pulled and the bridge is never needed. Those five
+#   edits were reverted. build_corpus_ab_coverage.sh states the rule they would
+#   have broken: "Each entry is here because the LINK named it, never because it
+#   looked likely."
+#   The only other place that needs it is build_draft_local_probe.sh, which links
+#   the engine object DIRECTLY rather than through an archive — measured at rc=1
+#   with "Undefined symbols: forge::pcurvefit::occt::cylinderPCurve". No CI job
+#   runs that probe, so nothing but this enumeration would have found it.
+BRIDGE=forge-kernel/src/PCurveFitOcctBridge.cpp
 
 OCCT_LIBS=(-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKGeomAlgo
            -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool)
@@ -81,7 +108,7 @@ build_one() {   # build_one <engine.cpp> <out-binary>
   "$CXX" -std=c++20 -O1 -Wall -Wextra -Wno-deprecated-declarations \
       -DFORGE_NATIVE_BREP=1 \
       -I "$INC" -I "$OCCT_INC" \
-      "$HARNESS" "$1" "$FITTER" \
+      "$HARNESS" "$1" "$FITTER" "$BRIDGE" \
       -L "$OCCT_LIB" "${OCCT_LIBS[@]}" -o "$2" 2>"$OUT/build.err"
 }
 

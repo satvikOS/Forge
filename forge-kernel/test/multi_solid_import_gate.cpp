@@ -462,6 +462,35 @@ int main(int argc, char** argv) {
         }
         ++measured;
 
+        // CAPACITY 0 — "do not cache at all" is a legitimate setting and it is the
+        // one that broke: eviction removes the entry that was just inserted, so the
+        // insert helper returns end() and the caller used to dereference it. The
+        // call must still ANSWER (the import's own ownership is valid either way),
+        // and nothing may be retained. The gate at capacity 8 never reaches this.
+        forge::classifyCacheClear();
+        forge::classifyCacheSetCapacity(0);
+        {
+            bool answered = false, threw = false;
+            TopoDS_Shape s0 = BRepPrimAPI_MakeBox(4.0, 5.0, 6.0).Shape();
+            const forge::ShapeHandle h0 = forge::ShapeRegistry::instance().add(s0);
+            try {
+                const forge::PointClass pc = forge::classifyPoint(h0, 2.0, 2.5, 3.0, 1e-9);
+                answered = (pc == forge::PointClass::Inside);
+            } catch (...) { threw = true; }
+            const std::size_t cached = forge::classifyCacheSize();
+            const bool pass0 = (answered && !threw && cached == 0);
+            std::printf("  %-22s answeredInside=%d threw=%d cached=%zu  %s\n",
+                        "classify cache cap=0", (int)answered, (int)threw, cached,
+                        pass0 ? "PASS" : "FAIL");
+            if (!pass0) {
+                std::printf("      ^ at capacity 0 the call must still answer and retain "
+                            "nothing (this is the end()-iterator path)\n");
+                ++failures;
+            }
+            ++measured;
+            forge::ShapeRegistry::instance().release(h0);
+        }
+
         forge::classifyCacheClear();
         forge::classifyCacheSetCapacity(savedCap);
     }
