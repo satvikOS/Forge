@@ -14,9 +14,9 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1413 | YES |
+| KERNEL | 1414 | YES |
 | TOOLING | 23 | yes, last |
-| ORACLE | 2120 | no — by design |
+| ORACLE | 2124 | no — by design |
 | SCRATCH | 0 | no — by design |
 | OTHER | 0 | no — by design |
 
@@ -49,7 +49,7 @@ Status is DERIVED from the tree on every run, never typed in.
 | [ ] | Topology / B-Rep | 586 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
 | [x] | Tessellation | 0 | 0 | `forge-kernel/src/native/mesh, forge-kernel/include/forge/native/mesh` |
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
-| [ ] | Kernel core (rest) | 1320 | 62 | `forge-kernel/src` |
+| [ ] | Kernel core (rest) | 1321 | 62 | `forge-kernel/src` |
 
 ## The drop order is a CHAIN, and the demand is GROWING
 
@@ -258,8 +258,8 @@ It was invisible here until it was fixed.
 |---|---:|
 | `forge-kernel/src/native/brep/StepReadOcct.cpp` | 71 |
 | `forge-kernel/src/native/brep/NativeThickenShell.cpp` | 64 |
+| `forge-kernel/src/OcctImport.cpp` | 63 |
 | `forge-kernel/src/Features.cpp` | 62 |
-| `forge-kernel/src/OcctImport.cpp` | 62 |
 | `forge-kernel/src/native/brep/NativeThickSolid.cpp` | 55 |
 | `forge-kernel/src/native/brep/NativeFilletChamfer.cpp` | 52 |
 | `forge-kernel/src/native/brep/NativeLoftPipe.cpp` | 51 |
