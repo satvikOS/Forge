@@ -173,7 +173,7 @@ if (argv.includes('--selftest')) {
     'frontend/src/main.jsx',                       // the HTML entry
     'frontend/src/App.jsx',                        // bundled
     'frontend/src/kernel/forge/index.js',          // bundled
-    'frontend/src/forge-v4/RibbonBar.jsx',         // bundled UI
+    'frontend/src/forge-v4/ForgeShellV4.jsx',      // bundled UI shell
     'frontend/vite.config.js',                     // the build config itself
     'frontend/public/sw.js',                       // referenced by a string in index.html
     'electron/main.js',                            // package.json "main"
@@ -186,12 +186,24 @@ if (argv.includes('--selftest')) {
   console.log('SELFTEST — every file below MUST be refused\n')
   for (const f of mustRefuse) {
     const r = check(f)
-    const verdict = r.fails.length ? 'REFUSED ' : '*** CERTIFIED (GATE IS BROKEN) ***'
-    if (!r.fails.length) bad++
+    // A path that is not tracked is refused by NOT_TRACKED before any live-file
+    // reasoning happens, so it would "pass" this selftest while proving
+    // nothing. That is a guard arming on input it never examined: the original
+    // list carried frontend/src/forge-v4/RibbonBar.jsx, a file that does not
+    // exist, and it counted as one of eleven passes. A missing entry is now a
+    // HARD FAILURE, so a typo or a renamed file can never again be scored as
+    // evidence that the gate refuses live code.
+    const untracked = r.fails.some(x => x.startsWith('NOT_TRACKED'))
+    const real = r.fails.filter(x => !x.startsWith('NOT_TRACKED'))
+    let verdict
+    if (untracked) { verdict = '*** BROKEN SELFTEST (path not tracked) ***'; bad++ }
+    else if (!real.length) { verdict = '*** CERTIFIED (GATE IS BROKEN) ***'; bad++ }
+    else verdict = 'REFUSED '
     console.log(`${verdict} ${f}`)
     for (const x of r.fails) console.log(`          ${x}`)
   }
-  console.log(`\nselftest: ${mustRefuse.length - bad}/${mustRefuse.length} correctly refused`)
+  console.log(`\nselftest: ${mustRefuse.length - bad}/${mustRefuse.length} correctly refused` +
+              ` (each for a reason other than "the path does not exist")`)
   process.exit(bad === 0 ? 0 : 1)
 }
 
