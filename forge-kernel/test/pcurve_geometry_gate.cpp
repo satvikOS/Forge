@@ -26,6 +26,8 @@
 #include <string>
 
 #include <Geom_Curve.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <gp_Pnt2d.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -75,6 +77,66 @@ int main() {
     // because only v is approximated. A drifting u is a wrong edge, not a coarse one.
     ok(fit.maxDevU >= 0.0 && fit.maxDevU < 1e-9,
        "u is reproduced exactly, maxDevU=" + std::to_string(fit.maxDevU) + tag);
+  }
+
+  // ── 1b. ★ A LEFT-HANDED (INDIRECT) gp_Ax3, CHECKED AGAINST OCCT'S OWN SURFACE ──
+  // T-154. The native fit carries its own frame and STORES ydir rather than deriving
+  // `dir x xdir`, because gp_Ax3 may be INDIRECT: its YDirection() is the NEGATIVE of
+  // that cross product when Direct() is false. Deriving it would mirror the u
+  // parameterisation of every indirect cylinder — a pcurve that is wrong and
+  // perfectly well-formed, which is the one shape this engine must never emit.
+  //
+  // ★★ AND THE OBVIOUS TEST FOR THAT DOES NOT WORK — MEASURED, after writing it.
+  //    Asserting on `fit.maxDev3d` catches NOTHING, because maxDev3d is computed by
+  //    mapping the pcurve back through the SAME frame the fit used: mirror ydir and
+  //    the sampling and the audit mirror together, the error cancels exactly, and a
+  //    gate built from the engine's own numbers reports 78 checks / 0 failed over the
+  //    defect. A self-consistent check cannot see a consistent mistake.
+  //
+  //    So the oracle has to be EXTERNAL, and the right external oracle is the one the
+  //    contract is actually about: a pcurve exists to be attached to an OCCT FACE, so
+  //    it is checked against Geom_CylindricalSurface::Value(u, v) — OCCT's own
+  //    parameterisation of this very cylinder, which honours YDirection(). With ydir
+  //    derived instead of carried, that lands the point on the wrong side of the axis.
+  {
+    gp_Ax3 lh(gp_Pnt(2.0, 1.0, -3.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+    lh.YReverse();
+    ok(!lh.Direct(), "the left-handed fixture really is INDIRECT (else this block proves nothing)");
+    const double Rlh = 13.0;
+    for (const double deg : {4.0, 18.0, 40.0}) {
+      const double th = deg * 3.14159265358979323846 / 180.0;
+      const gp_Dir n(std::sin(th), 0.0, std::cos(th));
+      const std::string tag = " [left-handed " + std::to_string(int(deg)) + " deg]";
+      const PlaneCylSection sec = planeCylinderSection(n, 6.0, lh, Rlh);
+      ok(sec.kind == SectionKind::Ellipse, "an indirect frame still sections in an ELLIPSE" + tag);
+      if (sec.curve.IsNull()) { ok(false, "the section exists" + tag); continue; }
+      ok(sectionResidual(sec, n, 6.0, lh, Rlh) < 1e-9,
+         "the section lies on both surfaces" + tag);
+      const PCurveFit fit =
+          cylinderPCurve(sec.curve, sec.curve->FirstParameter(), sec.curve->LastParameter(),
+                         lh, Rlh, 1.0e-7);
+      ok(!fit.curve.IsNull(), "the pcurve on an INDIRECT cylinder exists" + tag +
+                              (fit.curve.IsNull() ? " defer=\"" + fit.defer + "\"" : ""));
+      ok(fit.maxDev3d >= 0.0 && fit.maxDev3d <= 1.0e-7,
+         "the engine's own bound holds" + tag + " (NOTE: this one cannot see a "
+         "mirrored frame — see the block comment): " + std::to_string(fit.maxDev3d));
+      // ★ THE ASSERTION THAT ACTUALLY CATCHES A DERIVED ydir: OCCT's own surface.
+      if (!fit.curve.IsNull()) {
+        const Handle(Geom_CylindricalSurface) surf = new Geom_CylindricalSurface(lh, Rlh);
+        const double a0 = sec.curve->FirstParameter(), a1 = sec.curve->LastParameter();
+        double worst = 0.0;
+        for (int k = 0; k < 64; ++k) {
+          const double t = a0 + (a1 - a0) * (double(k) + 0.5) / 64.0;   // off-sample
+          const gp_Pnt2d q = fit.curve->Value(t);
+          worst = std::max(worst, surf->Value(q.X(), q.Y()).Distance(sec.curve->Value(t)));
+        }
+        ok(worst <= 1.0e-6,
+           "the pcurve is valid on OCCT'S OWN Geom_CylindricalSurface (u,v): "
+           + std::to_string(worst) + tag);
+      }
+      ok(fit.maxDevU >= 0.0 && fit.maxDevU < 1e-9,
+         "u comes through exactly on an indirect frame: " + std::to_string(fit.maxDevU) + tag);
+    }
   }
 
   // ── 2. THE EXACT CASE falls out of the same code path ────────────────────
