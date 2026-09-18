@@ -674,17 +674,38 @@ NurbsCurve isoCurveV(const NurbsSurface& surf, double v) {
 // surfaceCurvature — first + second fundamental form, Gauss/mean/principal.
 // ===========================================================================
 SurfaceCurvature surfaceCurvature(const NurbsSurface& surf, double u, double v) {
-    SurfaceCurvature out;
     const auto D = surfaceDerivatives(surf, u, v, 2);
-    const Vec3 Su = D[1][0];
-    const Vec3 Sv = D[0][1];
-    const Vec3 Suu = D[2][0];
-    const Vec3 Suv = D[1][1];
-    const Vec3 Svv = D[0][2];
+    // The NURBS net is one SUPPLIER of derivatives; the algebra below is shared
+    // with the analytic brep::Surface kinds via forge/SurfaceProps.cpp.
+    return surfaceCurvatureFromForms(D[1][0], D[0][1], D[2][0], D[1][1], D[0][2]);
+}
+
+// ===========================================================================
+// surfaceCurvatureFromForms — THE first + second fundamental form algebra.
+// The ONE place in the kernel that turns (S_u,S_v,S_uu,S_uv,S_vv) into K/H/k1/k2.
+// ===========================================================================
+SurfaceCurvature surfaceCurvatureFromForms(const Vec3& Su, const Vec3& Sv,
+                                           const Vec3& Suu, const Vec3& Suv,
+                                           const Vec3& Svv,
+                                           double relTol) {
+    SurfaceCurvature out;
 
     const Vec3 cr = vcross(Su, Sv);
     const double crLen = vnorm(cr);
     if (crLen <= 1e-300) return out;             // degenerate tangent plane
+    // Scale-RELATIVE degeneracy, measured against the SQUARE OF THE LARGER
+    // partial. That denominator is deliberate and was chosen after the obvious
+    // one failed: |Su| * |Sv| measures only PARALLELISM (sin of the angle), and
+    // at a pole the partials stay perpendicular while ONE OF THEM COLLAPSES --
+    // |Su x Sv| and |Su||Sv| shrink together, their ratio stays ~1, and the test
+    // never fires. max(|Su|,|Sv|)^2 sees BOTH degeneracy classes: a collapsed
+    // partial (sphere phi->0, cone apex, pinched seam) and two parallel ones.
+    // An absolute threshold alone sees neither until the frame underflows, so it
+    // hands back a plausible curvature where there is none. relTol == 0.0
+    // disables this and leaves only the absolute guard above, which is the
+    // pre-existing behaviour of surfaceCurvature().
+    const double sMax = std::max(vnorm(Su), vnorm(Sv));
+    if (relTol > 0.0 && crLen <= relTol * sMax * sMax) return out;
     const Vec3 n = vscale(cr, 1.0 / crLen);
 
     // First fundamental form.

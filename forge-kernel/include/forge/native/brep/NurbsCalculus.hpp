@@ -95,6 +95,17 @@ Vec3 curveTangent(const NurbsCurve& curve, double u);
 // returns ~1. Asserts |C'| > 0.
 double curveCurvature(const NurbsCurve& curve, double u);
 
+// THE curvature-from-derivatives expression, kappa = |d1 x d2| / |d1|^3, in ONE
+// place so every curve family shares it rather than restating it.
+// curveCurvature() above is now a two-line caller of this, and forge/SurfaceProps
+// (which must produce the same number for the ANALYTIC Line/Circle/Ellipse kinds
+// that carry no NurbsCurve at all) is the other. PRECONDITION |d1| > 0: the
+// caller owns the cusp decision, because only the caller knows whether a zero
+// first derivative is a degeneracy to report or a parameterisation to fix. With
+// |d1| == 0 this returns 0.0 rather than a NaN, which is why the caller must
+// test |d1| itself and not read a 0 here as "straight".
+double curvatureFromDerivatives(const Vec3& d1, const Vec3& d2);
+
 // ---------------------------------------------------------------------------
 // Surface derivatives.
 //
