@@ -1841,6 +1841,59 @@ jobs:
         # one on the ellipse itself (semi-major r/|c| -> r, the circle), each of
         # which must turn the gate red. Seconds, on a runner that already has OCCT.
         run: bash forge-kernel/test/run_pcurve_fit_gate.sh --mutations
+      - name: the six OCCT-free native-tree builders (T-154 — all six were UNBUILDABLE)
+        # ★ THESE SIX GATES EXIST TO PROVE `src/native` COMPILES WITH NO OCCT, AND NOT
+        #   ONE OF THEM COULD BUILD. Each exited 1 at its first step with 18 "SRC FAIL"
+        #   lines, and had done since 2026-07-21 (3aa7aed3) — roughly two months during
+        #   which the assertion they carry was not being made at all. No workflow ran
+        #   any of them, so nothing said so; two were even PINNED in
+        #   gate_registration_ratchet.sh as merely "unwired", which concealed that they
+        #   were also unbuildable. Both pins are removed in the same change as this step.
+        #
+        # THE CAUSE was one flag. Their native pass inherited -DFORGE_NATIVE_BREP from
+        # the OCCT passes that share its FLAGS variable, which switches ON the OCCT-BRIDGE
+        # half of src/native (18 of 156 sources). Their own headers say the native sweep is
+        # compiled "OCCT-free, like run_native.sh", and run_native.sh uses no such define.
+        # Measured both ways: with the guard the pass cannot COMPILE, and given an OCCT
+        # include path it then cannot LINK either, because the guarded code calls the bridge
+        # layer these scripts deliberately do not compile.
+        #
+        # ★ AND A PASS THAT COMPILES GUARDED CODE WITH THE GUARD OFF CAN BE GREEN OVER AN
+        #   EMPTY TRANSLATION UNIT. Each script therefore carries a POSITIVE CONTROL
+        #   (step 1b) asserting object count, forge:: symbol count, and the presence of
+        #   forge::pcurvefit::cylinderPCurve — the symbol T-154 made OCCT-free, which an
+        #   OCCT-free compile could not emit before. Both halves were proved able to fail:
+        #   re-adding one OCCT include to the native header turns all six red at step 1,
+        #   and re-adding the FORGE_NATIVE_BREP guard to the pcurve TU leaves the compile
+        #   SUCCEEDING (156/156 objects) while the control catches cylinderPCurve=0.
+        #
+        # COST: 95 s wall for all six on an M-series workstation, on a runner that already
+        # has OCCT and inside a job budgeted at 90 minutes.
+        #
+        # ★ THE PATHS ARE SPELLED OUT IN FULL ON PURPOSE. gate_registration_ratchet.sh
+        #   computes CI reachability by grepping the workflow text for the literal
+        #   basename "<gate>.sh"; a path built from a loop variable is invisible to it.
+        #   Written as `"forge-kernel/test/$g.sh"` this step ran all six and the ratchet
+        #   still reported two of them unwired — measured, not predicted. Do not fold
+        #   these back into a variable.
+        run: |
+          set -u
+          rc=0
+          for s in forge-kernel/test/build_occt_import_test.sh \
+                   forge-kernel/test/build_golden_corpus_measure.sh \
+                   forge-kernel/test/build_interference_ab_test.sh \
+                   forge-kernel/test/build_import_surfaces_gate.sh \
+                   forge-kernel/test/build_hlr_import_gate.sh \
+                   forge-kernel/test/build_occt_wire_activation_test.sh
+          do
+            g=$(basename "$s" .sh)
+            bash "$s" > "/tmp/t154_$g.log" 2>&1
+            r=$?
+            echo "$g rc=$r"
+            grep -m1 'native OCCT-free pass' "/tmp/t154_$g.log" || true
+            if [ "$r" -ne 0 ]; then rc=1; echo "--- last 30 lines of $g ---"; tail -30 "/tmp/t154_$g.log"; fi
+          done
+          exit $rc
       - name: corpus A/B harness builds, and its 32 controls are green
         # ★ RETRACTION, MEASURED ON THIS RUNNER. This step was added claiming that
         #   "nothing in CI compiled test/corpus_ab_coverage.cpp". THAT WAS WRONG and

@@ -53,6 +53,12 @@
 
 #include "forge/native/brep/NativeDraftLocal.hpp"
 
+// The pcurve fit is NATIVE and OCCT-free (forge/native/geom/NativePCurveFit.hpp).
+// This engine builds BRep edges, so it genuinely needs Handle(Geom_Curve) and
+// Handle(Geom2d_Curve), and it takes them from the bridge rather than pushing
+// OCCT back down into src/native. T-154.
+#include "forge/PCurveFitOcctBridge.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -71,7 +77,6 @@
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_CylindricalSurface.hxx>
-#include "forge/native/geom/NativePCurveFit.hpp"
 #include <Geom_Ellipse.hxx>
 #include <Geom_Hyperbola.hxx>
 #include <Geom_Line.hxx>
@@ -1009,14 +1014,14 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                 const Plane&  wp = two[0];
                 const gp_Dir  wn(wp.nx, wp.ny, wp.nz);
 
-                const forge::pcurvefit::PlaneCylSection sec =
-                    forge::pcurvefit::planeCylinderSection(wn, wp.d, cylAx, radius);
+                const forge::pcurvefit::occt::PlaneCylSection sec =
+                    forge::pcurvefit::occt::planeCylinderSection(wn, wp.d, cylAx, radius);
                 if (sec.curve.IsNull())
                     return defer("the wall plane does not section this cylinder in one curve: " +
                                  sec.defer);
                 // The section must lie on BOTH surfaces before anything is built on
                 // it: a wrong 3-D curve with a perfect pcurve is still a wrong edge.
-                if (forge::pcurvefit::sectionResidual(sec, wn, wp.d, cylAx, radius) > resTol)
+                if (forge::pcurvefit::occt::sectionResidual(sec, wn, wp.d, cylAx, radius) > resTol)
                     return defer("the plane/cylinder section does not lie on its own surfaces");
 
                 // The two vertices were solved earlier against these same surfaces
@@ -1162,8 +1167,8 @@ TopoDS_Shape draftFacesLocal(const TopoDS_Shape& shape,
                     std::max(std::max(tol, BRep_Tool::Tolerance(oldE)),
                              BRep_Tool::Tolerance(cylFace));
                 const double pcTol = std::min(resTol, edgeTol);
-                const forge::pcurvefit::PCurveFit fit =
-                    forge::pcurvefit::cylinderPCurve(secCurve, t0, t1, cylAx, radius, pcTol, uNear);
+                const forge::pcurvefit::occt::PCurveFit fit =
+                    forge::pcurvefit::occt::cylinderPCurve(secCurve, t0, t1, cylAx, radius, pcTol, uNear);
                 if (fit.curve.IsNull())
                     return defer("the pcurve on the cylinder could not be built: " + fit.defer);
                 if (!(fit.maxDev3d >= 0.0) || fit.maxDev3d > pcTol)

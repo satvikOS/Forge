@@ -14,9 +14,9 @@ overstate the work by roughly threefold on this tree.
 | class | OCCT include lines | counts against removal? |
 |---|---:|---|
 | APP | 0 | YES |
-| KERNEL | 1414 | YES |
+| KERNEL | 1413 | YES |
 | TOOLING | 23 | yes, last |
-| ORACLE | 2124 | no — by design |
+| ORACLE | 2126 | no — by design |
 | SCRATCH | 0 | no — by design |
 | OTHER | 0 | no — by design |
 
@@ -43,13 +43,13 @@ Status is DERIVED from the tree on every run, never typed in.
 | | subsystem | production OCCT include lines | files | paths |
 |---|---|---:|---:|---|
 | [x] | Math | 0 | 0 | `forge-kernel/include/forge/math` |
-| [ ] | Geometry primitives | 77 | 6 | `forge-kernel/include/forge/native/geom, forge-kernel/src/native/geom` |
+| [ ] | Geometry primitives | 55 | 4 | `forge-kernel/include/forge/native/geom, forge-kernel/src/native/geom` |
 | [x] | Transforms | 0 | 0 | `forge-kernel/include/forge/math` |
 | [x] | Predicates | 0 | 0 | `forge-kernel/include/forge/native/Predicates.hpp, forge-kernel/include/forge/native/ExactPredicates3D.hpp` |
 | [ ] | Topology / B-Rep | 586 | 31 | `forge-kernel/include/forge/native/brep, forge-kernel/src/native/brep` |
 | [x] | Tessellation | 0 | 0 | `forge-kernel/src/native/mesh, forge-kernel/include/forge/native/mesh` |
 | [x] | CSG / booleans | 0 | 0 | `forge-kernel/src/native/csg` |
-| [ ] | Kernel core (rest) | 1321 | 62 | `forge-kernel/src` |
+| [ ] | Kernel core (rest) | 1320 | 62 | `forge-kernel/src` |
 
 ## The drop order is a CHAIN, and the demand is GROWING
 
@@ -130,8 +130,8 @@ migration:
 | | |
 |---|---:|
 | distinct `struct Vec3` declarations in the tree | **1** |
-| files including `forge/math/Vec3.hpp` | 16 |
-| of those, under `native/` | **9** |
+| files including `forge/math/Vec3.hpp` | 17 |
+| of those, under `native/` | **10** |
 | `gp_Pnt` uses in `src/native/brep` | **625** |
 | `Vec3` uses there (now the canonical type) | **2450** |
 
@@ -213,6 +213,7 @@ with the code. The gate reports them; the document says where to look.
 - `forge-kernel/include/forge/BodyInventoryOcct.hpp`
 - `forge-kernel/include/forge/Drawings.hpp`
 - `forge-kernel/include/forge/Mold.hpp`
+- `forge-kernel/include/forge/PCurveFitOcctBridge.hpp`
 - `forge-kernel/include/forge/ShapeRegistry.hpp`
 - `forge-kernel/include/forge/Sketcher.hpp`
 - `forge-kernel/include/forge/native/brep/FaceNormal.hpp`
@@ -231,7 +232,6 @@ with the code. The gate reports them; the document says where to look.
 - `forge-kernel/include/forge/native/brep/NativeWireFill.hpp`
 - `forge-kernel/include/forge/native/brep/StepReadOcct.hpp`
 - `forge-kernel/include/forge/native/geom/NativeNurbsConvert.hpp`
-- `forge-kernel/include/forge/native/geom/NativePCurveFit.hpp`
 - `forge-kernel/include/forge/native/geom/NativeProjection.hpp`
 
 ### The headers that force OCCT WITHOUT naming it
