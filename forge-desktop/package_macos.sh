@@ -230,7 +230,12 @@ for _l in "$LIC_SRC"/*.txt "$LIC_SRC"/*.md; do
   cp "$_l" "$APP/Contents/Resources/licenses/" || die "cannot stage $(basename "$_l")"
   _lic_n=$((_lic_n + 1))
 done
-[ "$_lic_n" -ge 3 ] || die "only $_lic_n licence file(s) staged -- expected at least the three vendored texts"
+# Seven vendored .txt texts (LGPL-2.1, SDL2-zlib, MoltenVK, DearImGui,
+# ProggyClean, ProggyForever, stb) plus README.md and INCOMPLETE.md. Raised from
+# 3 on 2026-09-18 when Dear ImGui's MIT text and the three further notices it
+# carries -- two embedded fonts and stb -- were vendored. A floor that never
+# moves stops being a floor.
+[ "$_lic_n" -ge 9 ] || die "only $_lic_n licence file(s) staged -- expected at least the nine vendored records"
 say "staged $_lic_n licence file(s) into Contents/Resources/licenses"
 # ── THE FreeCAD-DERIVED SHARED LIBRARIES (LGPL-2.1-or-later) ─────────────────
 # libforge_expr and every other library under third_party/freecad-derived ships in
