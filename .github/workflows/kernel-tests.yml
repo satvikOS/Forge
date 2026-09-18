@@ -355,6 +355,18 @@ jobs:
           node-version: '22'
       - name: tool-call write intent + the Electron consent ledger
         run: node --test frontend/test/tool_write_intent_gate.mjs
+      # T-168. The JS deletion gate has to keep REFUSING live files, or the
+      # 226-file deletion it certified stops being evidence of anything. The
+      # selftest points it at eleven files that are alive for six different
+      # reasons -- the Vite entry, a bundled kernel barrel, the build config,
+      # the service worker (reached only by a string in index.html), the
+      # Electron main, the Playwright config, an e2e spec, an OCCT-ratchet
+      # kernel test, a research asset -- and requires all eleven to be refused.
+      # A gate that has only ever said yes is not a gate, and this repository
+      # has shipped one before (forge_verify, which could not start).
+      # Needs no install: node, git and the checkout.
+      - name: the JS deadness gate still refuses live files (T-168)
+        run: node scripts/js_deadness_gate.mjs --selftest
 
   parameters:
     name: parameters and expressions (libforge_expr, LGPL, dynamic)
