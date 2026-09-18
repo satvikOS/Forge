@@ -15,7 +15,9 @@
 #include "forge/ShapeRegistry.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <stdexcept>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -332,12 +334,21 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     // false sharing on the counters can cost more than the classification they count.
     struct Tally {
         long inA = 0, inB = 0, both = 0, either = 0, errs = 0, calls = 0, culled = 0;
+        // A THROWN CLASSIFICATION IS A FAILURE, NEVER AN EXCLUSION (see below).
+        // Per worker so nothing is shared; `failIdx` is the CELL index, which is
+        // what makes the reported failure deterministic under a work-stealing
+        // tile cursor — see the merge after the parallel region.
+        bool        failed  = false;
+        long        failIdx = 0;
+        std::string reason;
     };
     struct alignas(64) PaddedTally { Tally t; };
     std::vector<PaddedTally> tallies(static_cast<std::size_t>(workers));
 
     const long cells = static_cast<long>(gridN) * gridN * gridN;
+    std::atomic<bool> abortAll{false};
     parallelForTiles(cells, 0, workers, [&](long begin, long end, int w) {
+        if (abortAll.load(std::memory_order_relaxed)) return;   // a peer already failed
         Tally& t = tallies[static_cast<std::size_t>(w)].t;
         BRepClass3d_SolidClassifier& ca = *cas[static_cast<std::size_t>(w)];
         BRepClass3d_SolidClassifier& cb = *cbs[static_cast<std::size_t>(w)];
@@ -372,20 +383,69 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
             // whenever the candidate and the reference differ in size or placement —
             // which is every interesting row — a large part of that union is empty for
             // at least one of them, and the serial code classified all of it anyway.
-            if (inBox(ba, x, y, z, tol)) {
+            // A THROWN CLASSIFICATION IS A FAILURE, NEVER AN EXCLUSION.
+            //
+            // These two blocks used to read `catch (...) { ++t.errs; }` with `a`/`b`
+            // initialised false, so a probe that THREW was counted as a probe that
+            // came back OUTSIDE. The counts absorbed it, voxelIoU returned TRUE with
+            // a fully populated result, and the only trace was a `failure` string
+            // beside a number every caller had reason to read.
+            //
+            // That is the worst available shape for this defect: OUTSIDE is the
+            // answer that REMOVES material, so each throw shrinks the solid it
+            // happened on -- and shrinks candidate and reference by different
+            // amounts, moving the IoU in an uncontrolled direction. `catch (...)`
+            // also discarded what() and the point, so nothing could be diagnosed.
+            //
+            // MEASURED on the pre-thread version with a fault injected into the
+            // candidate classifier: the old handler returned status=ok with
+            // IoU 0.250000 -> 0.000000 and inA 320 -> 0; the refusal names cause and
+            // coordinates and returns false. Behaviour is identical on healthy input.
+            if (!t.failed && inBox(ba, x, y, z, tol)) {
                 try {
                     ++t.calls;
                     ca.Perform(p, tol);
                     a = (ca.State() == TopAbs_IN || ca.State() == TopAbs_ON);
-                } catch (...) { ++t.errs; }
-            } else { ++t.culled; }
-            if (inBox(bb, x, y, z, tol)) {
+                } catch (const std::exception& e) {
+                    t.failed = true; t.failIdx = idx;
+                    t.reason = std::string("classifying the candidate at (") +
+                               std::to_string(x) + ", " + std::to_string(y) + ", " +
+                               std::to_string(z) + ") threw: " + e.what() +
+                               " -- a failed probe is a failure, not an outside";
+                } catch (...) {
+                    t.failed = true; t.failIdx = idx;
+                    t.reason = std::string("classifying the candidate at (") +
+                               std::to_string(x) + ", " + std::to_string(y) + ", " +
+                               std::to_string(z) + ") threw a non-standard exception"
+                               " -- a failed probe is a failure, not an outside";
+                }
+            } else if (!t.failed) { ++t.culled; }
+            if (!t.failed && inBox(bb, x, y, z, tol)) {
                 try {
                     ++t.calls;
                     cb.Perform(p, tol);
                     b = (cb.State() == TopAbs_IN || cb.State() == TopAbs_ON);
-                } catch (...) { ++t.errs; }
-            } else { ++t.culled; }
+                } catch (const std::exception& e) {
+                    t.failed = true; t.failIdx = idx;
+                    t.reason = std::string("classifying the reference at (") +
+                               std::to_string(x) + ", " + std::to_string(y) + ", " +
+                               std::to_string(z) + ") threw: " + e.what() +
+                               " -- a failed probe is a failure, not an outside";
+                } catch (...) {
+                    t.failed = true; t.failIdx = idx;
+                    t.reason = std::string("classifying the reference at (") +
+                               std::to_string(x) + ", " + std::to_string(y) + ", " +
+                               std::to_string(z) + ") threw a non-standard exception"
+                               " -- a failed probe is a failure, not an outside";
+                }
+            } else if (!t.failed) { ++t.culled; }
+            if (t.failed) {
+                // Stop this worker and tell the others to stop too. The result is
+                // discarded, so finishing the grid would only cost time -- and on a
+                // 64^3 grid that is a quarter of a million pointless classifications.
+                abortAll.store(true, std::memory_order_relaxed);
+                break;
+            }
             if (a) ++t.inA;
             if (b) ++t.inB;
             if (a && b) ++t.both;
@@ -405,6 +465,30 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
         inA += t.inA; inB += t.inB; both += t.both; either += t.either;
         errs += t.errs; performCalls += t.calls; culled += t.culled;
     }
+
+    // A THROW ENDS THE MEASUREMENT, AND THE REPORTED ONE IS DETERMINISTIC.
+    //
+    // Which WORKER sees a failure first is not reproducible -- tiles come off one
+    // atomic cursor, so the assignment varies run to run. The CELL INDEX does not:
+    // reporting the smallest failing idx names the first cell the serial loop would
+    // have reached, which is the same answer on every run and at every worker count.
+    // This file's own contract is that threading changed nothing observable; a
+    // refusal whose text depended on scheduling would break exactly that.
+    {
+        bool any = false;
+        long firstIdx = 0;
+        std::string firstReason;
+        for (int w = 0; w < workers; ++w) {
+            const Tally& t = tallies[static_cast<std::size_t>(w)].t;
+            if (!t.failed) continue;
+            if (!any || t.failIdx < firstIdx) { firstIdx = t.failIdx; firstReason = t.reason; }
+            any = true;
+        }
+        if (any) {
+            out.failure = firstReason;
+            return false;
+        }
+    }
     digest.report(gridN, inA, inB, both, either, errs, performCalls, culled);
 
     // Both empty means neither solid occupied a single cell — a real failure to
@@ -422,10 +506,11 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     out.unionCount = either;
     out.iou = static_cast<double>(both) / static_cast<double>(either);
     out.cellVolume = step[0] * step[1] * step[2];
-    if (errs) {
-        out.failure = "measured, but " + std::to_string(errs) +
-                      " point classifications threw and were counted as outside";
-    }
+    // No `errs` epilogue any more: a throw returned false above, so reaching here
+    // means every probe of both solids that was not culled actually answered. A
+    // true return from this function now carries an unqualified measurement, and
+    // out.failure is empty exactly when out.iou is meaningful. `errs` survives only
+    // as a digest field, and is necessarily 0 on this path.
     return true;
 }
 

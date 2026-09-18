@@ -985,19 +985,90 @@ unsigned long long importOcctSolidCallCount() {
     return g_importCallCount.load(std::memory_order_relaxed);
 }
 
+static ImportResult importOcctSolidBody(const TopoDS_Shape& shape);
+
+// T-152. THE PUBLIC ENTRY IS A WRAPPER FOR ONE REASON: every refusal path inside
+// the body must name the solid count on a multi-solid shape, and the body has
+// twenty-odd `return res` sites. Prefixing here covers all of them at once — a
+// per-site prefix would have covered the two I remembered to edit.
 ImportResult importOcctSolid(const TopoDS_Shape& shape) {
     g_importCallCount.fetch_add(1, std::memory_order_relaxed);
+    ImportResult res = importOcctSolidBody(shape);
+    // `!shape.IsNull()` is belt-and-braces, and the braces were MEASURED rather
+    // than assumed. The body rejects a null shape on its first line, so without
+    // this guard a null input would reach the explorer below. TopExp_Explorer.hxx
+    // documents no raise condition and Init is exported, so the header cannot
+    // answer it; a probe on this OCCT can:
+    //
+    //     TopoDS_Shape nul;                       // IsNull() == 1
+    //     TopExp_Explorer se(nul, TopAbs_SOLID);  -> no throw, More() == 0
+    //     TopExp_Explorer().Init(nul, TopAbs_SOLID) -> no throw, More() == 0
+    //
+    // and that null result is evidence rather than silence because three controls
+    // in the same catch shape DID fire (an explicit throw, gp_Dir(0,0,0), and an
+    // out-of-range NCollection_Array1) — so OCCT's raise mechanism is live in this
+    // build and the detector was not simply blind.
+    //
+    // The guard stays anyway. It costs one predictable branch on an error path,
+    // it does not depend on that measurement holding for every OCCT version this
+    // ships against, and the header's promise it protects — "Never throws ...
+    // returns ok=false with a reason so the caller can defer" — is what thirteen
+    // of the fifteen call sites use to fall through to OCCT.
+    if (!res.ok && !shape.IsNull()) {
+        std::size_t n = 0;
+        for (TopExp_Explorer se(shape, TopAbs_SOLID); se.More(); se.Next()) ++n;
+        static const std::string kPfx = "multi-solid shape (";
+        if (n > 1 && res.reason.rfind(kPfx, 0) != 0) {
+            res.reason = kPfx + std::to_string(n) + " solids): " + res.reason;
+        }
+    }
+    return res;
+}
+
+static ImportResult importOcctSolidBody(const TopoDS_Shape& shape) {
     ImportResult res;
     if (shape.IsNull()) { res.reason = "null shape"; return res; }
 
-    // Pick the faces to import: prefer a TopoDS_Solid; else use the shape's faces.
-    TopExp_Explorer solidEx(shape, TopAbs_SOLID);
-    TopoDS_Shape src = shape;
-    if (solidEx.More()) src = solidEx.Current();
+    // ── T-152: EVERY SOLID, OR AN HONEST REFUSAL THAT NAMES THE COUNT ─────────
+    // This used to read:
+    //
+    //     TopExp_Explorer solidEx(shape, TopAbs_SOLID);
+    //     TopoDS_Shape src = shape;
+    //     if (solidEx.More()) src = solidEx.Current();
+    //
+    // — the FIRST solid, with solids 2..N dropped and ok=true returned anyway.
+    // OcctImport.hpp documented that faithfully and it changed nothing: every
+    // caller read ok=true as "the whole shape is now native". MEASURED on the
+    // gold corpus by test/multi_solid_import_gate.cpp: ho1 (2 solids) lost 96.0%
+    // of its material to a silent Outside, ho1005 (3 solids) 98.7%, and NOTHING
+    // refused. A header is not a guard.
+    //
+    // So each TopoDS_Solid now becomes its OWN native Shell inside ONE native
+    // Solid. That is representable (brep::Solid holds `std::vector<Shell*>`) and
+    // every native consumer already iterates it — Query.cpp (pointInSolid,
+    // minDistance, the analytic inventory), SolidTessellate.cpp and
+    // MassProps.cpp all loop `for (Shell* sh : solid.shells)`. One shell per
+    // solid also keeps the Euler-Poincare relation true: two disjoint boxes are
+    // V-E+F = 4 = 2*(S-G) with S=2, and would be invalid folded into one shell.
+    //
+    // For a shape with exactly ONE solid this is byte-identical to the old path:
+    // the same face set, the same adjacency map, one shell. For a shape with NO
+    // TopoDS_Solid it is also unchanged — the shape's own faces, one shell.
+    // (The solid COUNT is not needed here: the public wrapper above re-derives it
+    // and is what puts it into the reason string, so that every refusal path in
+    // this body carries it rather than only the ones edited by hand.)
+    std::vector<TopoDS_Shape> srcs;
+    for (TopExp_Explorer se(shape, TopAbs_SOLID); se.More(); se.Next())
+        srcs.push_back(se.Current());
+    if (srcs.empty()) srcs.push_back(shape);
 
     std::vector<TopoDS_Face> faces;
-    for (TopExp_Explorer fe(src, TopAbs_FACE); fe.More(); fe.Next())
-        faces.push_back(TopoDS::Face(fe.Current()));
+    std::vector<std::size_t> shellStartFace;   // faces[shellStartFace[k]] begins shell k
+    for (const TopoDS_Shape& s : srcs) {
+        shellStartFace.push_back(faces.size());
+        for (TopExp_Explorer fe(s, TopAbs_FACE); fe.More(); fe.Next())
+            faces.push_back(TopoDS::Face(fe.Current()));
+    }
     if (faces.empty()) { res.reason = "no faces in shape"; return res; }
 
     // ---- edge -> "every adjacent face is PLANAR" map --------------------------
@@ -1013,7 +1084,10 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
     // edge's neighbourhood (not the per-face surface) keeps BOTH faces' sample counts
     // identical, so every shared edge still welds into one oppositely-mated edge.
     TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
-    TopExp::MapShapesAndAncestors(src, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    // Accumulated over EVERY source body (one call per solid fills the same map),
+    // so for a single-solid shape this is identical to the old single `src` call.
+    for (const TopoDS_Shape& s : srcs)
+        TopExp::MapShapesAndAncestors(s, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
     auto allAdjacentPlanar = [&](const TopoDS_Edge& e) -> bool {
         if (!edgeFaces.Contains(e)) return false;
         const TopTools_ListOfShape& adj = edgeFaces.FindFromKey(e);
@@ -1028,8 +1102,15 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
     // ---- global vertex weld: one native Vertex per unique 3-D position --------
     auto owner = std::make_shared<nb::TopologyBuilder>();
     nb::Solid* solid = owner->makeSolid();
-    nb::Shell* shell = owner->makeShell();
-    owner->addShellToSolid(solid, shell);
+    // ONE native Shell per source body, in source order, so shells[k] holds the
+    // faces of srcs[k]. With one source this is exactly the old single shell.
+    std::vector<nb::Shell*> shells;
+    shells.reserve(srcs.size());
+    for (std::size_t k = 0; k < srcs.size(); ++k) {
+        nb::Shell* sh = owner->makeShell();
+        owner->addShellToSolid(solid, sh);
+        shells.push_back(sh);
+    }
 
     // model-scale weld tolerance from the shape's overall extent.
     double diag = 1.0;
@@ -1076,6 +1157,7 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         bool reversed = false, paramTri = false;
         std::array<std::array<double, 2>, 3> uv{};
         std::shared_ptr<const nb::NurbsSurface> nurbs; // valid iff kind==Nurbs
+        int shellIdx = 0;                // T-152: which source body this came from
     };
     std::vector<StagedFace> staged;
 
@@ -1094,12 +1176,28 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         std::vector<std::array<double, 2>> uv;
         double u0 = 0, u1 = 0, v0 = 0, v1 = 0;
         std::shared_ptr<const nb::NurbsSurface> nurbs; // valid iff kind==Nurbs
+        int shellIdx = 0;                // T-152: which source body this came from
     };
     std::vector<StagedPoly> stagedPoly;
 
+    // T-152 — WHICH BODY DID THIS STAGED PIECE COME FROM? `faces` is built body by
+    // body, and every piece a face stages is appended in face order, so recording
+    // the staged watermark at each body boundary is enough to label every piece
+    // afterwards. The labels are written into the structs BEFORE the fin-cancelling
+    // compaction below, which moves entries and would invalidate any index-based map.
+    std::vector<std::size_t> shellStartStaged(srcs.size(), 0);
+    std::vector<std::size_t> shellStartPoly(srcs.size(), 0);
+    std::size_t nextBody = 0;
+
     // Per-face import: triangulate the (u,v) domain (wires + Steiner grid for
     // curvature) and STAGE one native triangle sub-face per inside CDT triangle.
-    for (const TopoDS_Face& face : faces) {
+    for (std::size_t faceIdx = 0; faceIdx < faces.size(); ++faceIdx) {
+        const TopoDS_Face& face = faces[faceIdx];
+        while (nextBody < srcs.size() && shellStartFace[nextBody] == faceIdx) {
+            shellStartStaged[nextBody] = staged.size();
+            shellStartPoly[nextBody]   = stagedPoly.size();
+            ++nextBody;
+        }
         FaceSurf fs;
         std::string why;
         if (!readSurface(face, fs, why)) { res.reason = why; return res; }
@@ -1762,6 +1860,23 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
 
     if (staged.empty() && stagedPoly.empty()) { res.reason = "no faces produced triangles"; return res; }
 
+    // ---- T-152: LABEL EVERY STAGED PIECE WITH ITS SOURCE BODY -----------------
+    // Done here, while the watermarks still line up with the vectors, and before
+    // the fin-cancelling compaction below moves entries about. A trailing body
+    // that staged nothing (or contributed no faces at all) still gets a watermark
+    // so the ranges stay monotone.
+    while (nextBody < srcs.size()) {
+        shellStartStaged[nextBody] = staged.size();
+        shellStartPoly[nextBody]   = stagedPoly.size();
+        ++nextBody;
+    }
+    for (std::size_t k = 0; k < srcs.size(); ++k) {
+        const std::size_t sEnd = (k + 1 < srcs.size()) ? shellStartStaged[k + 1] : staged.size();
+        const std::size_t pEnd = (k + 1 < srcs.size()) ? shellStartPoly[k + 1]   : stagedPoly.size();
+        for (std::size_t i = shellStartStaged[k]; i < sEnd; ++i)     staged[i].shellIdx = (int)k;
+        for (std::size_t i = shellStartPoly[k];   i < pEnd; ++i) stagedPoly[i].shellIdx = (int)k;
+    }
+
     // ---- DEGENERATE-FIN (back-to-back overlap) REMOVAL -------------------------
     // Where two ANALYTIC fillet faces meet at a shared box/cylinder corner, OCCT's
     // trimming of the two blend surfaces OVERLAPS in a sliver lens at the corner:
@@ -1810,12 +1925,20 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             return ccw ? +1 : -1;
         };
         // Group staged-triangle indices by their vertex set, tracking orientation.
+        // T-152 — THE KEY CARRIES THE SHELL. The vertex weld is GLOBAL, so two
+        // source bodies whose geometry touches get the SAME vertex ids, and a
+        // vertex-set-only key would let a triangle of body A cancel against an
+        // oppositely wound triangle of body B. That deletes real material from
+        // both and can leave the survivors looking manifold — a per-body property
+        // decided globally, which is the exact defect this task exists to remove.
+        // A fin is a TRIM OVERLAP BETWEEN TWO FACES OF ONE BODY; it has no
+        // cross-body meaning. With one source body the key is the old key.
         struct Slot { std::vector<int> pos, neg; };
-        std::map<std::array<int, 3>, Slot> groups;
+        std::map<std::pair<int, std::array<int, 3>>, Slot> groups;
         for (std::size_t i = 0; i < staged.size(); ++i) {
             int o = orient(staged[i].vid);
             if (o == 0) continue;                       // degenerate — handled elsewhere
-            Slot& s = groups[sortedKey(staged[i].vid)];
+            Slot& s = groups[{staged[i].shellIdx, sortedKey(staged[i].vid)}];
             (o > 0 ? s.pos : s.neg).push_back((int)i);
         }
         std::vector<char> drop(staged.size(), 0);
@@ -1837,35 +1960,88 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         staged.resize(w);
     }
 
+    // ---- T-152: EVERY SOURCE BODY MUST HAVE CONTRIBUTED SOMETHING ------------
+    // Without this, a body that stages no pieces is silently dropped while ok
+    // stays true — which is this task's ORIGINAL DEFECT wearing a new shape. The
+    // per-shell pre-check below iterates that shell's (empty) edge maps and is
+    // vacuously satisfied; the global post-build checks then pass on the OTHER
+    // bodies' topology. So the aggregate looks healthy and one body is gone.
+    // Checked AFTER fin cancellation, because cancellation is what can empty a
+    // shell that had staged pieces a moment earlier.
+    {
+        std::vector<char> hasPiece(shells.size(), 0);
+        for (const StagedFace& sf : staged)     hasPiece[(std::size_t)sf.shellIdx] = 1;
+        for (const StagedPoly& sp : stagedPoly) hasPiece[(std::size_t)sp.shellIdx] = 1;
+        for (std::size_t k = 0; k < hasPiece.size(); ++k) {
+            if (!hasPiece[k]) {
+                res.reason = "body " + std::to_string(k) + " of " +
+                             std::to_string(shells.size()) +
+                             " produced no geometry (importing it would drop that body "
+                             "while reporting success)";
+                return res;
+            }
+        }
+    }
+
     // ---- COMBINATORIAL 2-MANIFOLD PRE-CHECK (mirrors Boolean.cpp's stitch) -----
     // Build only AFTER proving every directed edge (a->b) is matched by exactly
     // one opposite (b->a) and no undirected edge appears more than twice, so we
     // never hit TopologyBuilder's non-manifold assert. On failure -> honest defer.
+    // T-152 — PER SHELL, PLUS ONE GLOBAL QUESTION THAT IS GENUINELY GLOBAL.
+    // Each source body becomes its own native Shell, so "closed 2-manifold" is a
+    // property OF EACH BODY and is checked per shell. Pooling every body's edges
+    // into one map let bodies satisfy each other's counts: an edge used once in
+    // body A and once in body B summed to two and passed a check neither body
+    // passed alone.
+    //
+    // The one thing that IS global: no edge may be shared BETWEEN bodies. The
+    // weld is global, so coincident geometry in two bodies yields one edge with
+    // four coedges, and TopologyBuilder asserts on that rather than returning.
+    // The whole point of this pre-check is that the builder is never handed such
+    // a graph, so the cross-shell collision is refused here, by name.
+    //
+    // With a single source body both halves reduce to exactly the old global
+    // check, so a single-solid import is unchanged.
     {
-        std::map<std::pair<int, int>, int> directed, undirected;
+        const std::size_t nShell = shells.size();
+        std::vector<std::map<std::pair<int, int>, int>> directed(nShell), undirected(nShell);
+        std::map<std::pair<int, int>, int> edgeShell;   // undirected edge -> owning shell
+        int collideA = -1, collideB = -1;               // the two shells that collided
+
+        auto addEdge = [&](int k, int a, int b) {
+            directed[(std::size_t)k][{a, b}]++;
+            const std::pair<int, int> u{std::min(a, b), std::max(a, b)};
+            undirected[(std::size_t)k][u]++;
+            auto it = edgeShell.find(u);
+            if (it == edgeShell.end()) edgeShell.emplace(u, k);
+            else if (it->second != k && collideA < 0) { collideA = it->second; collideB = k; }
+        };
         for (const StagedFace& sf : staged)
-            for (int i = 0; i < 3; ++i) {
-                int a = sf.vid[i], b = sf.vid[(i + 1) % 3];
-                directed[{a, b}]++;
-                undirected[{std::min(a, b), std::max(a, b)}]++;
-            }
+            for (int i = 0; i < 3; ++i)
+                addEdge(sf.shellIdx, sf.vid[i], sf.vid[(i + 1) % 3]);
         for (const StagedPoly& sp : stagedPoly) {
-            std::size_t n = sp.vids.size();
-            for (std::size_t i = 0; i < n; ++i) {
-                int a = sp.vids[i], b = sp.vids[(i + 1) % n];
-                directed[{a, b}]++;
-                undirected[{std::min(a, b), std::max(a, b)}]++;
-            }
+            const std::size_t n = sp.vids.size();
+            for (std::size_t i = 0; i < n; ++i)
+                addEdge(sp.shellIdx, sp.vids[i], sp.vids[(i + 1) % n]);
         }
-        for (const auto& kv : undirected)
-            if (kv.second != 2) {
-                res.reason = "import not 2-manifold (edge shared by != 2 faces)"; return res; }
-        for (const auto& kv : directed) {
-            if (kv.second != 1) {
-                res.reason = "import not 2-manifold (duplicated directed edge)"; return res; }
-            auto opp = directed.find({kv.first.second, kv.first.first});
-            if (opp == directed.end() || opp->second != 1) {
-                res.reason = "import not 2-manifold (edge not oppositely mated)"; return res;
+
+        if (collideA >= 0) {
+            res.reason = "import not 2-manifold (bodies " + std::to_string(collideA) +
+                         " and " + std::to_string(collideB) +
+                         " share an edge after the vertex weld)";
+            return res;
+        }
+        for (std::size_t k = 0; k < nShell; ++k) {
+            for (const auto& kv : undirected[k])
+                if (kv.second != 2) {
+                    res.reason = "import not 2-manifold (edge shared by != 2 faces)"; return res; }
+            for (const auto& kv : directed[k]) {
+                if (kv.second != 1) {
+                    res.reason = "import not 2-manifold (duplicated directed edge)"; return res; }
+                auto opp = directed[k].find({kv.first.second, kv.first.first});
+                if (opp == directed[k].end() || opp->second != 1) {
+                    res.reason = "import not 2-manifold (edge not oppositely mated)"; return res;
+                }
             }
         }
     }
@@ -1877,7 +2053,7 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
 
     for (const StagedFace& sf : staged) {
         nb::Face* f = owner->makeFace();
-        owner->addFaceToShell(shell, f);
+        owner->addFaceToShell(shells[(std::size_t)sf.shellIdx], f);
         std::vector<nb::Vertex*> ring = {verts[sf.vid[0]], verts[sf.vid[1]], verts[sf.vid[2]]};
         owner->addOuterLoopToFace(f, ring);
 
@@ -1898,7 +2074,7 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
 
     for (const StagedPoly& sp : stagedPoly) {
         nb::Face* f = owner->makeFace();
-        owner->addFaceToShell(shell, f);
+        owner->addFaceToShell(shells[(std::size_t)sp.shellIdx], f);
         std::vector<nb::Vertex*> ring;
         ring.reserve(sp.vids.size());
         for (int id : sp.vids) ring.push_back(verts[id]);

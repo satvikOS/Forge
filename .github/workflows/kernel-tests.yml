@@ -1407,6 +1407,43 @@ jobs:
           cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
                 -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
           cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: multi-solid import — ok=true must never mean "most of it" (T-152)
+        # THE DEFECT: src/OcctImport.cpp imported the FIRST TopoDS_Solid and returned
+        # ok=true with the rest of the shape dropped. include/forge/OcctImport.hpp said
+        # so, in those words, and it changed nothing -- every caller read ok=true as
+        # "the whole shape is now native". MEASURED on the gold corpus before the fix:
+        # ho1 (2 solids) lost 96.0% of its material to a silent Outside, ho1005 (3
+        # solids) 98.7%, and NOTHING refused.
+        #
+        # The gate's fixtures are built IN CODE from OCCT primitives, so this needs no
+        # corpus -- the 600-part gold corpus is not in CI and never will be -- and it
+        # still carries a two-solid, a three-solid and a curved multi-solid case, plus
+        # a single-solid control that catches a regression on the ordinary path.
+        #
+        # ★ IT PRINTS BOTH DIRECTIONS IN ONE RUN. "before" re-classifies the identical
+        #   probe set against the FIRST SOLID ONLY -- the exact shape the old code
+        #   selected -- using OCCT alone. So the log always shows what the old rule
+        #   would have lost beside what the importer actually loses now, and a fixture
+        #   that stopped being multi-solid FAILS rather than passing quietly.
+        #
+        # Reuses build-verify, which the step above already populates, so the marginal
+        # cost is one clang++ pass and about two seconds of probes.
+        run: BUILD=forge-kernel/build-verify bash forge-kernel/test/run_multi_solid_import_gate.sh
+      - name: the native point-classification seam is real, and imports no OCCT classifier
+        # T-145's seam (src/ShapeClassify.cpp): a ShapeRegistry handle -> importOcctSolid
+        # -> native::brep::pointInSolid, so the four TUs that call
+        # BRepClass3d_SolidClassifier have somewhere OCCT-free to go.
+        #
+        # ★ WHAT RUNS HERE IS THE STRUCTURAL HALF, AND IT IS THE HALF THAT CAN GO RED
+        #   ON A CODE CHANGE. The concordance half needs the 600-part gold corpus,
+        #   which is not in CI, so the script SKIPS it and says so. What remains is an
+        #   nm question and needs no corpus: the seam's own object file must import
+        #   ZERO BRepClass3d symbols -- otherwise "the native arm" is the OCCT
+        #   classifier wearing a new name and the whole exercise measures nothing --
+        #   and the gate TU must import more than zero, or its "arm A" is not the
+        #   incumbent. Both are assertions, both fail the job, and the first one is
+        #   exactly what a careless fallback branch inside the seam would trip.
+        run: BUILD=forge-kernel/build-verify bash forge-kernel/test/run_point_classify_ab.sh
       - name: the OCCT-free shape seam, and prove all six mutations turn it red
         # THE SINGLE HIGHEST-UNLOCK ITEM of the OCCT removal programme, gated.
         # docs/kernel/OCCT_REMOVAL_TRACKER.md says an owning OCCT-free shape
