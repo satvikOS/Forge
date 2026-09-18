@@ -120,25 +120,30 @@ for (const [f, t] of texts) {
   }
 }
 
-function check(file) {
+const ALL_CHECKS = ['C1', 'C2', 'C3', 'C4', 'C5', 'C6']
+
+// `enabled` exists so each check can be run IN ISOLATION. A positive control
+// that refuses because some OTHER check happened to fire is not exercising the
+// check it is named for -- see --audit.
+function check(file, enabled = new Set(ALL_CHECKS)) {
   const fails = []
   const warns = []
   if (!JSSET.has(file)) return { file, fails: ['NOT_TRACKED: not a tracked js-family file'], warns }
 
   // C1 nothing outside the deletion set imports it
-  const imps = [...(importers.get(file) || [])].filter(i => !SET.has(i))
+  const imps = enabled.has('C1') ? [...(importers.get(file) || [])].filter(i => !SET.has(i)) : []
   if (imps.length) fails.push(`C1 NOT_IMPORTED: imported by ${imps.length} live file(s): ${imps.slice(0, 4).join(', ')}`)
 
   // C2 not in the shipped Rollup bundle
-  if (bundle.has(file)) fails.push('C2 NOT_IN_BUNDLE: present in the shipped Rollup bundle census')
+  if (enabled.has('C2') && bundle.has(file)) fails.push('C2 NOT_IN_BUNDLE: present in the shipped Rollup bundle census')
 
   // C3 not a test/fixture
-  if (TEST_RE.test(file)) fails.push('C3 NOT_TEST: lives under a test/fixture path (entered by a runner, not an import)')
+  if (enabled.has('C3') && TEST_RE.test(file)) fails.push('C3 NOT_TEST: lives under a test/fixture path (entered by a runner, not an import)')
 
   // C4 not a config/tool entry
-  if (TOOL_ENTRY_RE.test(file)) fails.push('C4 NOT_TOOL_ENTRY: a config/tool entry point')
+  if (enabled.has('C4') && TOOL_ENTRY_RE.test(file)) fails.push('C4 NOT_TOOL_ENTRY: a config/tool entry point')
   const base = path.basename(file)
-  if (namedByConfig.has(file) || namedByConfig.has(base)) {
+  if (enabled.has('C4') && (namedByConfig.has(file) || namedByConfig.has(base))) {
     fails.push(`C4 NOT_TOOL_ENTRY: named by a CI/config/shell file`)
   }
 
@@ -150,7 +155,7 @@ function check(file) {
   const GENERIC = /^(index|main|utils?|types?|constants|helpers)$/i.test(stem)
   const token = GENERIC ? `${path.basename(path.dirname(file))}/${base}` : base
   const mentions = []
-  for (const [f, t] of texts) {
+  for (const [f, t] of (enabled.has('C5') ? texts : [])) {
     if (f === file || SET.has(f)) continue
     if (t.includes(token)) { mentions.push(f); continue }
     if (!GENERIC && (t.includes(`'${stem}'`) || t.includes(`"${stem}"`))) mentions.push(f)
@@ -161,7 +166,7 @@ function check(file) {
   if (docs.length) warns.push(`C5 doc-only mention in ${docs.length} markdown file(s) (not a refusal)`)
 
   // C6 not a research asset
-  if (RESEARCH_RE.test(file)) fails.push('C6 NOT_RESEARCH: lives under a research/corpus/benchmark path')
+  if (enabled.has('C6') && RESEARCH_RE.test(file)) fails.push('C6 NOT_RESEARCH: lives under a research/corpus/benchmark path')
 
   return { file, fails, warns }
 }
@@ -169,19 +174,51 @@ function check(file) {
 // ------------------------------------------------------------------ selftest
 if (argv.includes('--selftest')) {
   // Files that MUST be refused. If any is certified deletable the gate is broken.
-  const mustRefuse = [
-    'frontend/src/main.jsx',                       // the HTML entry
-    'frontend/src/App.jsx',                        // bundled
-    'frontend/src/kernel/forge/index.js',          // bundled
-    'frontend/src/forge-v4/ForgeShellV4.jsx',      // bundled UI shell
-    'frontend/vite.config.js',                     // the build config itself
-    'frontend/public/sw.js',                       // referenced by a string in index.html
-    'electron/main.js',                            // package.json "main"
-    'playwright.config.js',                        // the test runner config
-    'e2e/push-116-bom-aggregator.spec.js',         // a test
-    'forge-kernel/test/smoke.js',                  // OCCT ratchet anchor test
-    'projects/ge9x/lib/simulate.mjs',              // research asset
+  // Each control names the ONE check it exists to exercise. --audit proves that
+  // check refuses it IN ISOLATION, with all five others switched off.
+  const CONTROLS = [
+    { f: 'frontend/src/main.jsx',                  c: 'C2', why: 'the HTML entry; in the bundle' },
+    { f: 'frontend/src/App.jsx',                   c: 'C2', why: 'bundled root component' },
+    { f: 'frontend/src/kernel/forge/index.js',     c: 'C1', why: 'imported by 17 live files' },
+    { f: 'frontend/src/forge-v4/ForgeShellV4.jsx', c: 'C2', why: 'bundled UI shell' },
+    { f: 'frontend/vite.config.js',                c: 'C4', why: 'the build config itself' },
+    { f: 'frontend/public/sw.js',                  c: 'C4', why: 'public/, reached by a string in index.html' },
+    { f: 'electron/main.js',                       c: 'C4', why: 'package.json "main"' },
+    { f: 'playwright.config.js',                   c: 'C4', why: 'the test-runner config' },
+    { f: 'e2e/push-116-bom-aggregator.spec.js',    c: 'C3', why: 'a test, entered by a runner' },
+    { f: 'forge-kernel/test/smoke.js',             c: 'C3', why: 'OCCT-ratchet kernel test' },
+    { f: 'projects/ge9x/lib/simulate.mjs',         c: 'C6', why: 'research asset' },
+    // C5 had NO control until the audit measured it: deleting the C5 body left
+    // both --selftest and --audit green, and C5 is the check that produced 81
+    // of the 82 real refusals. MoldFlow.js is unreachable by import graph yet
+    // named by two live UI files (WorkbenchRail.jsx, i18n.js) -- string-keyed
+    // dispatch, which is the only thing C5 exists to catch.
+    { f: 'frontend/src/kernel/manufacturing/MoldFlow.js', c: 'C5', why: 'named by live UI (string dispatch)' },
   ]
+  const mustRefuse = CONTROLS.map(x => x.f)
+  if (argv.includes('--audit')) {
+    // For each control: does its INTENDED check refuse it with every other
+    // check disabled? A control carried by some other check is not testing
+    // what its name claims. Also reports whether the intended check is the
+    // SOLE reason, i.e. whether removing it flips the case to accept.
+    let broken = 0
+    console.log('AUDIT — does each control exercise the check it is named for?\n')
+    console.log('  control                                      intended  alone?  sole?  also-fires')
+    for (const { f, c, why } of CONTROLS) {
+      const alone = check(f, new Set([c]))
+      const without = check(f, new Set(ALL_CHECKS.filter(x => x !== c)))
+      const aloneRefuses = alone.fails.some(x => x.startsWith(c))
+      const untracked = alone.fails.some(x => x.startsWith('NOT_TRACKED'))
+      const sole = without.fails.length === 0
+      const also = [...new Set(without.fails.map(x => x.slice(0, 2)))].join(',') || '-'
+      if (!aloneRefuses || untracked) broken++
+      console.log(`  ${f.padEnd(44)} ${c}        ${aloneRefuses && !untracked ? 'YES   ' : '**NO**'}  ${sole ? 'yes  ' : 'no   '}  ${also}`)
+    }
+    console.log(`\naudit: ${CONTROLS.length - broken}/${CONTROLS.length} controls verified to exercise their intended check in isolation`)
+    if (broken) console.log('audit: RED — a control does not exercise the check it is named for')
+    process.exit(broken === 0 ? 0 : 1)
+  }
+
   let bad = 0
   console.log('SELFTEST — every file below MUST be refused\n')
   for (const f of mustRefuse) {
