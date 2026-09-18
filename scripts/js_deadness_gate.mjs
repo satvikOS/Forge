@@ -28,6 +28,26 @@
  *   C5 NOT_MENTIONED   its basename/stem appears in no non-markdown file
  *                      outside the set — catches string-keyed dispatch.
  *   C6 NOT_RESEARCH    not under a research/corpus/benchmark asset path.
+ *
+ * THE MIRROR TEST, which --selftest and --audit both miss. Every automated
+ * check here asserts the gate says NO. A gate that refused EVERY file would
+ * pass all of them and be equally useless. It cannot be a committed test
+ * without committing a dead file to a repository whose point is deleting them,
+ * so it is a recipe -- run it if you change C1-C6:
+ *
+ *   printf 'export const p = () => 42;\\n' > frontend/src/__probe.js
+ *   git add -f frontend/src/__probe.js
+ *   node scripts/js_deadness_gate.mjs frontend/src/__probe.js   # must CERTIFY, rc=0
+ *   git rm -q -f --cached frontend/src/__probe.js && rm frontend/src/__probe.js
+ *
+ * Measured 2026-09-18: 1 certified, 0 refused, rc=0, while all 12 live
+ * controls were refused. The gate discriminates in both directions.
+ *
+ * STILL OPEN: --audit proves each check fires and abstains across the twelve
+ * controls, but those controls were chosen as positives. A check with a subtly
+ * wrong predicate could still fire and abstain in the right proportions. That
+ * wants negative controls chosen adversarially per check, which this file does
+ * not have.
  */
 import fs from 'node:fs'
 import path from 'node:path'
