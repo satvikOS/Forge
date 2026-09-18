@@ -725,7 +725,17 @@ int main(int argc, char** argv) {
                     "(Gilbert-Peierls, partial pivoting), whose COLUMN pre-ordering is the "
                     "same helper. Fill here is nnz(L)+nnz(U). Measured on the real scalar "
                     "matrices because LU with partial pivoting is far more expensive than "
-                    "LDLT and these keep the run inside a CI budget.\n");
+                    "LDLT and these keep the run inside a CI budget.\n\n"
+                    "**A regression lives in this section, and it is not being hidden.** On "
+                    "`cylinder`, the default picks AMD for a 2.4%% fill saving and the LU "
+                    "factorization comes out ~1.6x SLOWER than RCM's. Gilbert-Peierls cost is "
+                    "not nnz(L)+nnz(U) alone \u2014 the depth-first reach computation and the "
+                    "partial-pivot row choices both depend on the structure in ways the "
+                    "symmetric symbolic proxy cannot see. Across the three cases the default "
+                    "is still a net win on time and never worse on fill, which is why it is "
+                    "used on this path too; but the per-case number is in the table above and "
+                    "a reader should see it. Closing it properly means a real COLAMD on the "
+                    "A\u1d40A column-fill graph, which is a separate piece of work.\n");
     else
         std::printf("\n== REAL FEA through SparseLU ==\n");
 
