@@ -208,12 +208,21 @@ Vec3 curveTangent(const NurbsCurve& curve, double u) {
     return vscale(d[1], 1.0 / s);
 }
 
+// The expression itself, factored out so the ANALYTIC curve kinds in
+// forge/SurfaceProps.cpp (Line/Circle/Ellipse, which have no NurbsCurve) use the
+// SAME one instead of a second copy. Returns 0.0 on |d1| == 0 instead of a NaN;
+// the caller owns the cusp decision (see the header).
+double curvatureFromDerivatives(const Vec3& d1, const Vec3& d2) {
+    const double s = vnorm(d1);
+    if (!(s > 0.0)) return 0.0;
+    const Vec3 cr = vcross(d1, d2);
+    return vnorm(cr) / (s * s * s);
+}
+
 double curveCurvature(const NurbsCurve& curve, double u) {
     const auto d = curveDerivatives(curve, u, 2);
-    const double s = vnorm(d[1]);
-    assert(s > 0.0 && "curveCurvature: zero first derivative (cusp)");
-    const Vec3 cr = vcross(d[1], d[2]);
-    return vnorm(cr) / (s * s * s);
+    assert(vnorm(d[1]) > 0.0 && "curveCurvature: zero first derivative (cusp)");
+    return curvatureFromDerivatives(d[1], d[2]);
 }
 
 // ===========================================================================

@@ -172,6 +172,32 @@ struct SurfaceCurvature {
 };
 SurfaceCurvature surfaceCurvature(const NurbsSurface& surf, double u, double v);
 
+// THE fundamental-form algebra, reachable WITHOUT a NurbsSurface.
+//
+// surfaceCurvature() above could only be called with a rational tensor-product
+// net, so the six ANALYTIC surface kinds (brep::Surface: Plane/Cylinder/Cone/
+// Sphere/Torus/EllipseExtrusion), whose derivatives are closed forms and not a
+// control net at all, had no way to reach it. forge/SurfaceProps.cpp needs it for
+// exactly those. So the algebra moved DOWN into this overload and
+// surfaceCurvature() became a caller of it: one expression for E,F,G / L,M,N /
+// K,H,k1,k2 in the kernel, two suppliers of derivatives.
+//
+// `relTol` is the DEGENERACY threshold, relative to the surface's own scale:
+// the tangent plane is refused when |S_u x S_v| <= relTol * max(|S_u|,|S_v|)^2.
+// The square of the LARGER partial is the denominator, not |S_u||S_v|: the
+// latter measures parallelism only, and at a pole the partials stay
+// perpendicular while one COLLAPSES, so that ratio stays ~1 and never fires. The
+// default 0.0 reproduces the pre-existing absolute-only guard EXACTLY (so
+// surfaceCurvature's behaviour is byte-unchanged), and a caller that must
+// distinguish a pole from a plane passes a real tolerance -- an absolute
+// threshold alone cannot, because it passes a near-collapsed frame and returns
+// a plausible number, and "a curvature of 0" and "no curvature here" are then
+// indistinguishable.
+SurfaceCurvature surfaceCurvatureFromForms(const Vec3& Su, const Vec3& Sv,
+                                           const Vec3& Suu, const Vec3& Suv,
+                                           const Vec3& Svv,
+                                           double relTol = 0.0);
+
 // ===========================================================================
 // CURVE point PROJECTION (closest point) — Newton on the foot-point.
 //

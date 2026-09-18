@@ -74,9 +74,13 @@
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Edge.hxx>
 
 #include "forge/native/brep/Topology.hpp"   // brep::TopologyBuilder, brep::Solid
 #include "forge/native/brep/Sweep.hpp"      // brep::Profile (CCW outer + CW holes, Point2)
+#include "forge/native/brep/Surface.hpp"    // brep::Surface  (the per-face bridge below)
+#include "forge/native/brep/Curve.hpp"      // brep::Curve    (the per-edge bridge below)
+#include "forge/SurfaceProps.hpp"           // props::PropSurface (the per-face result)
 
 namespace forge {
 
@@ -96,11 +100,21 @@ struct ImportResult {
     std::shared_ptr<native::brep::TopologyBuilder> owner;
 };
 
-// Import EVERY TopoDS_Solid in `shape` (or, if the shape carries no TopoDS_Solid,
-// the shape's faces directly) into ONE native analytic B-rep Solid — one native
-// Shell per source body, so `solid->shells` has as many entries as `shape` has
-// solids. Never throws on an unsupported face — returns ok=false with a reason so
-// the caller can defer.
+// Import EVERY TopoDS_Solid in `shape` into ONE native analytic B-rep Solid — one
+// native Shell per source body. Never throws on an unsupported face (nor on a null
+// shape) — returns ok=false with a reason so the caller can defer.
+//
+// SHELL COUNT, exactly:
+//   * shape carries N >= 1 TopoDS_Solid  ->  solid->shells.size() == N, in
+//     exploration order, shells[k] holding the faces of the k-th solid.
+//   * shape carries NO TopoDS_Solid      ->  the shape's own faces are imported
+//     as ONE fallback shell, so shells.size() == 1, NOT 0. (This is the
+//     face-soup path a bare shell/compound of faces takes.)
+//
+// Each shell must be a closed 2-manifold ON ITS OWN, and no edge may be shared
+// BETWEEN two shells — the vertex weld is global, so two bodies with coincident
+// geometry would otherwise produce one edge with four coedges. Either violation
+// is an honest ok=false, never a partial import.
 //
 // ── T-152: ok=true IS A CLAIM ABOUT THE WHOLE SHAPE ─────────────────────────
 // This used to import the FIRST solid only and return ok=true anyway. That is
@@ -177,6 +191,100 @@ ProfileImportResult importOcctProfile(const TopoDS_Face& face);
 // (i.e. it took the native branch, not silently deferred to OCCT). Zero behavioral impact
 // on production — it only reads/writes a counter.
 unsigned long long importOcctSolidCallCount();
+
+// ---------------------------------------------------------------------------
+// PER-FACE / PER-EDGE GEOMETRY BRIDGE — what a PROPERTY QUERY needs.
+//
+// WHY THESE EXIST, and why importOcctSolid could not serve (T-147, measured).
+// The LProp property call sites (ClassASurfacing's zebra/comb/continuity/
+// curvature readouts, Nurbs.cpp's evalSurface/classAAnalyse) are handed ONE
+// FACE or ONE EDGE and asked for differential properties on it. importOcctSolid
+// is the SOLID bridge: it requires a closed 2-manifold and DECLINES a lone face
+// (ok=false, "not a closed 2-manifold after import"), so routing a single-face
+// property query through it would defer 100% of the time and the caller would
+// have to keep OCCT's LProp — exactly the outcome §7 prohibits. These two
+// entry points are the same bridge at the granularity the callers actually have.
+//
+// NO NEW GEOMETRY READER. importOcctFaceSurface REUSES the solid importer's own
+// readSurface() — the identical analytic extraction (plane/cylinder/cone/sphere/
+// torus frames, the exact B-spline/Bezier/extrusion tensor forms) plus the same
+// cone re-anchor the solid path applies — so a face imports to the SAME native
+// surface whichever way it is reached. importOcctEdgeCurve is genuinely new:
+// nothing in the tree produced a native brep::Curve from an OCCT edge (grepped
+// for brep::Curve / GeomCurveKind against every src/*.cpp — zero converters).
+//
+// ── THE (u,v) MAP IS THE WHOLE SUBTLETY ────────────────────────────────────
+// A caller holds OCCT parameters and reports them back to its user, so the
+// native surface must be evaluated at the NATIVE parameters naming the same
+// point. MEASURED against the solid importer's own occtToNative: the map is
+// AXIS-SEPARABLE AFFINE for every kind it supports —
+//   Plane / Cylinder / Torus / B-spline / Bezier / extrusion : IDENTITY
+//   Sphere : native v is COLATITUDE, vn = pi/2 - vo          (scale -1)
+//   Cone   : native v is NORMALISED t in [0,1] over the face's OCCT v-window
+//                                   vn = (vo - vmin)/(vmax - vmin)
+// so one (scale, shift) per axis carries it exactly.
+//
+// A SURFACE OF REVOLUTION used to be the one case whose u map is NON-affine, and
+// T-147 deferred it for that reason. T-151 removed the reason rather than the
+// capability: the non-affinity was an artefact of routing a revolution through
+// the SOLID importer's tensor-NURBS approximation (whose u is the rational arc's
+// projective parameter). Read as ITSELF — a meridian curve plus an axis, which is
+// props::PropSurface::Form::Revolved — its parameters are OCCT's own
+// (u = revolution angle, v = meridian parameter) and the map is the IDENTITY.
+// An OFFSET surface likewise: its base's (u,v) is preserved by construction, so
+// the map is the base's own.
+//
+// CONSEQUENCE THE CALLER MUST APPLY, stated once here because getting it wrong
+// silently flips a curvature sign:
+//   * `surface.base.reversed` is PRE-SET to (uScale*vScale < 0) so that
+//     surfaceProps()'s own normal/H/kMin/kMax convention comes back in OCCT's
+//     frame. S_uo x S_vo = (uScale*vScale)(S_un x S_vn), so an orientation-
+//     reversing map (the sphere) flips the normal, negates H, and negates AND
+//     SWAPS the principals — which is precisely the algebra surfaceProps already
+//     applies for `reversed`. Nothing is re-derived at the call site.
+//   * FIRST DERIVATIVES are in the NATIVE basis: d/duo = uScale * d1u,
+//     d/dvo = vScale * d1v. Curvatures need no such scaling (they are geometric
+//     invariants of the surface and the chosen normal, not of the parameters).
+struct SurfaceImportResult {
+    bool ok = false;
+    std::string reason;                  // honest deferral cause when !ok
+    // The surface in the form the PROPERTY FACADE differentiates. For the seven
+    // analytic/NURBS kinds this is Form::Native and `surface.base` is exactly the
+    // brep::Surface this field used to be, with `reversed` pre-set as described
+    // above. T-151 added the two COMPOSITE forms that a brep::Surface cannot
+    // express — a surface of REVOLUTION (meridian + axis) and an OFFSET (base +
+    // distance) — because the OCCT classes this bridge feeds the replacement of
+    // differentiated those too, and declining them would have paid for the symbol
+    // delta in capability. Call sites are unchanged: they pass this straight to
+    // forge::props::surfaceProps, which dispatches on the form.
+    props::PropSurface surface;
+
+    // OCCT -> native:  un = uScale*uo + uShift,  vn = vScale*vo + vShift.
+    double uScale = 1.0, uShift = 0.0;
+    double vScale = 1.0, vShift = 0.0;
+
+    void toNative(double uo, double vo, double& un, double& vn) const {
+        un = uScale * uo + uShift;
+        vn = vScale * vo + vShift;
+    }
+    // True iff the map reverses the tangent frame (so the normal flipped).
+    bool orientationReversed() const { return (uScale * vScale) < 0.0; }
+};
+
+// One OCCT face -> the native surface carrying its geometry, plus the parameter
+// map. Never throws; an unsupported surface type defers with a named reason.
+SurfaceImportResult importOcctFaceSurface(const TopoDS_Face& face);
+
+// One OCCT edge -> the native tagged curve carrying its geometry. The curve's
+// PARAMETERISATION IS PRESERVED EXACTLY (OCCT's line/circle/ellipse/B-spline
+// parameter IS the native t), so no map is needed and t0/t1 carry the edge's
+// own trim range. Never throws; defers with a named reason.
+struct CurveImportResult {
+    bool ok = false;
+    std::string reason;
+    native::brep::Curve curve;
+};
+CurveImportResult importOcctEdgeCurve(const TopoDS_Edge& edge);
 
 }  // namespace forge
 

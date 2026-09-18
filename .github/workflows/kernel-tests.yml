@@ -266,6 +266,39 @@ jobs:
             exit 1
           fi
           echo "[heal-scan] sub-quadratic on both fixtures, and the ceiling rejects when it should"
+      - name: native differential properties vs TEXTBOOK closed forms (T-147) + 6 mutations
+        # ── WHY HERE. forge/SurfaceProps is the native replacement for the
+        # GeomLProp_/BRepLProp_ family: one place in the kernel that turns a native
+        # surface or curve into differential properties, so that the 61-symbol
+        # LProp/Adaptor/GProp cluster (33 distinct owners, MEASURED on
+        # libforge_kernel_core) has ONE place to be deleted from. It is pure
+        # forge::native + forge::props -- nine translation units, no OCCT at all --
+        # so it belongs on ubuntu beside the other pure-C++ gates, not in the macOS
+        # OCCT job.
+        #
+        # ── WHY IT IS NOT CHECKED AGAINST OCCT. A facade verified against the thing
+        # it exists to delete can only ever be as right as that thing, and the gate
+        # would leave the repository on the same day OCCT does. Every expected value
+        # is a textbook closed form: sphere K=1/R^2 H=1/R, cylinder {1/R,0},
+        # torus K=cos v/(r(R+r cos v)), cone K=0 with H=-h/(2 r sqrt(dr^2+h^2)),
+        # plane 0, the ellipse/circle/rational-arc curvatures.
+        #
+        # ── WHY THE MUTATIONS. Mutants of the CODE (never the test) must each turn
+        # it red on its OWN assertion, and several are invisible to every orthogonal
+        # quadric in the gate -- the signs of M^2 and of the -2FM cross term, which
+        # only the shear-reparameterisation fixture can see, and the revolution's
+        # mixed partial S_uv, which reaches H not at all (F == 0 there) and K only
+        # as -M^2. Those are what prove the fixtures load-bearing rather than
+        # scenery. NOBUILD is never accepted as a kill, and the mutated source is
+        # proven to differ from the tree (cmp) before each rebuild.
+        #
+        # THE COUNT IS DELIBERATELY NOT WRITTEN HERE. It was "six" while T-151 took
+        # it to fourteen, and this file states elsewhere why a number copied into a
+        # second place goes stale (D-027). The authority is the script, which prints
+        # its own roster and fails if any mutant survives or dies on the wrong
+        # assertion.
+        shell: bash
+        run: bash forge-kernel/test/run_surface_props_closed_form_gate.sh
 
   scoring:
     name: ForgeCADScore self-tests (kernel-free)
@@ -1151,10 +1184,57 @@ jobs:
         # builds libforge_kernel_core.dylib at 539 / DIRECT 10, which is exactly
         # why this step names its artifact instead of letting the fallback search
         # choose one.
+        #
+        # ★ 539 -> 514, T-147. The ceiling is lowered in the same commit that earns
+        #   it, as the note below requires. It is a CI-ARTIFACT number and it was
+        #   MEASURED ON THE CI ARTIFACT, not converted from the dylib: forge-kernel.node
+        #   was built locally at 015dd83c (FORGE_BUILD_NODE_ADDON=ON, DESKTOP_FOUNDATION
+        #   default OFF -- the same configuration this job uses) and reproduced this
+        #   job's own published numbers exactly -- OCCT_DIRECT 8, OCCT_CLOSURE 14,
+        #   OCCT_PHANTOM 2, OCCT_SYMBOLS 539 -- which is what licenses using the same
+        #   local build to set the new one. The migrated addon then measures 514, with
+        #   25 departures and ZERO arrivals; its undefined-OCCT set is byte-identical
+        #   to libforge_kernel_core.dylib's, so the two artifacts do not disagree here.
+        #   The comment two blocks down warns that this same command reads 546/DIRECT 11
+        #   on the dylib: that is no longer true of this tree. Measured today at
+        #   015dd83c with -DFORGE_BUILD_DESKTOP_FOUNDATION=ON, the dylib reads
+        #   539/DIRECT 10 -- the same symbol total as the addon, two more link records
+        #   (it names TKBO and TKG2d, which is why its PHANTOM is 0 and the addon's 2).
+        #   DIRECT 8 and CLOSURE 14 are unchanged by T-147 and are left alone.
+        #
+        #   T-151 RE-MEASURED THIS CEILING rather than inheriting it, because T-147's
+        #   -25 turned out to be part-paid in CAPABILITY (a 19-kind geometry probe
+        #   carried 19 before the migration and 14 after) and restoring the five
+        #   missing kinds could have cost symbols back. It did not: the restored
+        #   addon measures OCCT_SYMBOLS 514 again -- same 25 departures, ARRIVALS
+        #   still EMPTY, verified per-OBJECT with nm as well as on the binary. Every
+        #   OCCT accessor the five new routes name (Geom_Parabola::Parab,
+        #   Geom_Hyperbola::Hypr, Geom_TrimmedCurve::BasisCurve,
+        #   Geom_ConicalSurface::RefRadius/SemiAngle and the typeinfos their
+        #   DownCasts use) was ALREADY an undefined symbol of the pre-migration
+        #   build, named by other owners, so adding an owner cost nothing. The
+        #   pre-migration addon still FAILS this ceiling at 539 and 513 still fails
+        #   on the migrated one, so the ratchet measures this work rather than drift.
+        #
+        #   MERGE MEASUREMENT (T-151 onto T-146). These two changes removed DISJOINT
+        #   symbol sets from the same artifact -- T-146 took six Geom_*
+        #   get_type_descriptor plus Standard_Transient::IsKind out of NativeLoftPipe,
+        #   T-147/T-151 took the 25 GeomLProp_/BRepLProp_ members out of the property
+        #   call sites -- so the merged ceiling is NEITHER branch's. It was NOT
+        #   computed as 532 - 25: the addon was rebuilt FROM THE MERGED TREE and
+        #   MEASURES 507. Against the shared pre-both 539 baseline that is 32
+        #   departures and ZERO arrivals, and the 32 partition EXACTLY into T-146's
+        #   seven RTTI symbols and T-147/T-151's twenty-five LProp members -- so
+        #   neither change undid the other. That mattered here and was not assumed:
+        #   the restored conic routes DownCast Geom_Parabola/Geom_Hyperbola/
+        #   Geom_TrimmedCurve handles, and six of T-146's seven departures are
+        #   Geom_*::get_type_descriptor. If opencascade::handle::DownCast reached
+        #   the type descriptor rather than typeinfo, this merge would have handed
+        #   T-146's symbols straight back. The census says it does not.
         run: |
           bash forge-kernel/scripts/occt_closure_count.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --assert-closure 14 --assert-direct 8 --assert-symbols 532
+            --assert-closure 14 --assert-direct 8 --assert-symbols 507
       # ── AND THE GATE THAT WAS WRITTEN FOR THIS AND NEVER CALLED ────────────────
       # The comment above states the hole and does not close it: PHANTOM is still
       # unguarded, and forge-kernel/scripts/tkoffset_ledger_gate.sh -- which carries
@@ -1225,10 +1305,20 @@ jobs:
         # Geom_*::get_type_descriptor symbols plus Standard_Transient::IsKind).
         # Both ceilings govern the SAME artifact, so leaving this one at 539 would
         # have kept seven symbols of slack in the gate that exists to remove it.
+        #
+        # ★ --max-symbols 539 -> 514, T-147, same measurement as the step above and
+        #   on the same artifact. --max-tkoffset stays 29: the census shows TKOffset
+        #   unmoved (the 25 that left are 14 TKBRep + 11 TKG3d and nothing else), and
+        #   lowering a ceiling no work earned is how a later honest change gets
+        #   blamed for a red gate.
+        #   After the merge it tracks the ratchet above at the MEASURED merged
+        #   number. --max-tkoffset stays 29 on both sides: neither change moved
+        #   TKOffset, and lowering a ceiling no work earned is how a later honest
+        #   change gets blamed for a red gate.
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 532
+            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 507
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Physics validation gates (known-answer, against textbook closed forms)
@@ -1545,6 +1635,65 @@ jobs:
           rm -f forge-kernel/build-verify/forge_gate_thicken_refusal_gate
           cmake --build forge-kernel/build-verify -j3 --target forge_gate_thicken_refusal_gate
           ./forge-kernel/build-verify/forge_gate_thicken_refusal_gate
+
+      - name: SURFACE PROPS vs live OCCT — the T-147 property migration moved no number
+        # ── WHY THIS RUNS HERE AND NOT BESIDE THE CLOSED-FORM GATE. The
+        # surface_props_closed_form gate (ubuntu job above) proves forge::props is
+        # RIGHT against textbook forms, deliberately without OCCT. This gate proves
+        # something different and it needs OCCT in the process: that the six
+        # property call sites T-147 migrated — ClassASurfacing's zebraStripes,
+        # curvatureComb, continuityCheck and gaussianAndMeanCurvature, plus
+        # Nurbs.cpp's evalSurface and classAAnalyse — still report the SAME NUMBERS
+        # they reported when they were built on BRepLProp_SLProps /
+        # BRepLProp_CLProps / GeomLProp_SLProps. Those sites publish a Class-A
+        # continuity report and a curvature readout, so a moved number is a changed
+        # product claim.
+        #
+        # ── WHY IT IS THE ONLY INSTRUMENT THAT COULD SAY SO. The existing Class-A
+        # coverage (push07_classa_smoke.js, classa_continuity_orientation_test.js)
+        # needs forge-kernel.node, which the app build does not produce
+        # (-DFORGE_BUILD_NODE_ADDON=OFF) and which NO workflow in this repository
+        # runs. "The numbers did not move" was therefore unmeasurable through them.
+        # This gate measures it directly and harder: not the four aggregate report
+        # fields, but EVERY quantity the LProp classes were asked for — Value, D1U,
+        # D1V, Normal, IsNormalDefined, Gaussian/Mean/Min/MaxCurvature, and the
+        # curve's Value/D1/D2/D3/Curvature/Normal — on a station grid across plane,
+        # cylinder, sphere, trimmed sphere, cone, TRIMMED cone, torus and B-spline
+        # faces, and line/circle/ellipse/placed-circle edges. 2914 comparisons.
+        #
+        # ── THE TWO THINGS IT EXISTS TO CATCH. (1) The native surface's (u,v) is
+        # NOT OCCT's for a sphere (colatitude) or a cone (normalised over the face's
+        # v-window), so the bridge carries an affine map; a wrong map shows up as a
+        # wrong POINT, which is asserted first. (2) An orientation-reversing map
+        # flips S_u x S_v, negating H and negating-and-swapping the principals; the
+        # bridge pre-sets Surface::reversed so surfaceProps' own algebra undoes it,
+        # and the sphere's signed H is the assertion that catches that being lost.
+        # Both are mutation-proved: removing the colatitude map, the orientation
+        # flip, or the cone re-anchor each turns this gate RED on its own signature.
+        # The trimmed-cone fixture exists because the UNTRIMMED cone has vmin == 0,
+        # which makes the re-anchor arithmetically inert — measured, not assumed.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_native_vs_occt_surface_props
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_native_vs_occt_surface_props
+          ./forge-kernel/build-verify/forge_gate_native_vs_occt_surface_props
+
+      - name: CLASS-A property reports END TO END — closed forms, not golden values
+        # The gate above proves the INPUTS agree with OCCT. It says nothing about
+        # whether they were wired correctly into the aggregate reports: a comb that
+        # read cp.d2 where it meant cp.d1, or a continuity report that lost the
+        # mean-curvature sign flip, would leave it perfectly green. This gate covers
+        # the arithmetic in between, at the level the user sees — zebra buckets on a
+        # sphere, kappa == 1/r and an INWARD comb tip on a circular edge, K == 1/R^2
+        # on a sphere and K == 0 on a cylinder, and g0/g1/g2 == 0 across a coplanar
+        # join. Every expectation is a closed form or a structural invariant; none is
+        # a value recorded from the implementation, because a golden file captured
+        # from the code under test only proves it still does what it did.
+        run: |
+          set -euo pipefail
+          rm -f forge-kernel/build-verify/forge_gate_native_vs_occt_classa_props_e2e
+          cmake --build forge-kernel/build-verify -j3 --target forge_gate_native_vs_occt_classa_props_e2e
+          ./forge-kernel/build-verify/forge_gate_native_vs_occt_classa_props_e2e
 
       - name: THICKEN at 3+-plate corners — correct against closed forms, or refused
         # Family I was deleted on a 600-part corpus with NO vertex where three plates

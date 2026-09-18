@@ -154,7 +154,25 @@ std::vector<Fixture> builtinFixtures() {
         out.push_back({"fx_three_boxes", c, 3});
     }
 
-    // (3) A CURVED multi-solid: box + cylinder. Proves the all-solids import is
+    // (3) TWO BOXES SHARING A FACE — the CROSS-BODY hazard, made constructible.
+    //     The vertex weld is GLOBAL, so body A's +X wall and body B's -X wall land
+    //     on the SAME welded vertex ids with OPPOSITE winding. Keyed only by the
+    //     vertex set, fin removal cancels both walls: each body is left OPEN, and
+    //     a manifold check pooled over both bodies sees the union close and says
+    //     yes. That is ok=true over two open shells — a per-body property decided
+    //     globally, which is the defect class this whole task removes.
+    //     Scoped per shell, the walls survive, the shared edges are caught as a
+    //     cross-body collision, and the import REFUSES by name.
+    {
+        TopoDS_Compound c;
+        BRep_Builder bb;
+        bb.MakeCompound(c);
+        bb.Add(c, BRepPrimAPI_MakeBox(10.0, 10.0, 10.0).Shape());
+        bb.Add(c, movedBox(10.0, 10.0, 10.0, 10.0));   // touches at x = 10
+        out.push_back({"fx_two_boxes_touching", c, 2});
+    }
+
+    // (4) A CURVED multi-solid: box + cylinder. Proves the all-solids import is
     //     not a planar-only trick, and that a curved second body's interior is
     //     recovered too.
     {
