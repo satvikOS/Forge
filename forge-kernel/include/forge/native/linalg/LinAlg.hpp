@@ -595,6 +595,65 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// FILL-REDUCING ORDERINGS for the sparse direct solvers.
+//
+// A sparse direct factorization's cost is set by nnz(L), and nnz(L) is set by
+// the elimination order, not by the matrix values. The three orderings below are
+// the ones this kernel can choose between; every one of them is a PERMUTATION,
+// so the computed solution is unchanged up to floating-point round-off.
+//
+//   Natural — the identity. The control arm: it measures what the assembly's own
+//             DOF numbering already gives you (an FE mesh numbered
+//             lexicographically is already fairly banded, so this is NOT a
+//             straw man — it must be measured, not assumed bad).
+//   RCM     — Reverse Cuthill-McKee. Minimises BANDWIDTH/PROFILE, which is the
+//             right objective for a BAND solver and only indirectly related to
+//             fill in a general sparse factorization.
+//   AMD     — Approximate Minimum Degree. Minimises FILL directly, by greedily
+//             eliminating the vertex of smallest (approximate) degree in the
+//             quotient graph. This is the objective a sparse direct solver
+//             actually has.
+//
+// Which one this kernel uses by default is a MEASURED choice; see
+// forge-kernel/reports/SPARSE_ORDERING.md for the table, and
+// test/native/linalg/sparse_ordering_gate.cpp for the gate that holds it.
+// ---------------------------------------------------------------------------
+//   Auto    — MEASURED per matrix: form all three candidate permutations, run the
+//             EXACT symbolic factorization on each (elimination tree + column
+//             counts — cheap, no numeric work, no allocation of L), and factor
+//             with whichever gives the smallest nnz(L). This is the default,
+//             because the measurement says no single fixed ordering wins on this
+//             repo's FE matrices: AMD wins by up to 2.3x on bulky and annular
+//             3-D solids and LOSES by 1.4x on a long thin beam, where the
+//             assembly's own numbering is already near-optimal. See the report.
+enum class SparseOrdering {
+    Natural,   // identity permutation (no reordering)
+    RCM,       // Reverse Cuthill-McKee (bandwidth/profile reducing)
+    AMD,       // Approximate Minimum Degree (fill reducing)
+    Auto       // try all three, keep the one with the smallest exact nnz(L)
+};
+
+// The ordering the sparse direct solvers use when the caller does not name one.
+inline constexpr SparseOrdering kDefaultSparseOrdering = SparseOrdering::Auto;
+
+// Compute a fill-reducing permutation of the SYMMETRIZED pattern of A (that is,
+// of A + Aᵀ; values are irrelevant, only the structure is read).
+//   perm[k] = ORIGINAL index that is eliminated k-th.
+// With SparseOrdering::Auto this runs the symbolic analysis of all three
+// candidates and returns the one with the least fill.
+// Public because the ordering benchmark/gate must be able to run every arm
+// against the same matrix; the solvers below call it internally.
+std::vector<std::size_t> fillReducingOrdering(const SparseCSR<double>& A,
+                                              SparseOrdering ord);
+
+// EXACT symbolic nonzero count of the strictly-lower LDLᵀ factor of P A Pᵀ for
+// the permutation `perm` (elimination tree + column counts — the same symbolic
+// analysis SparseLDLT::compute runs, with no numeric work). This is the fill-in
+// number: an ordering is better iff this is smaller.
+std::size_t symbolicFactorNnz(const SparseCSR<double>& A,
+                              const std::vector<std::size_t>& perm);
+
+// ---------------------------------------------------------------------------
 // Sparse SPD direct solver — up-looking sparse Cholesky (LDLT form), factor
 // once / solve many. Operates on the symmetric SPD matrix given in CSR.
 //   <- Eigen SimplicialLDLT  (the 10 FE/CFD/normal-equation sites)
@@ -603,13 +662,21 @@ class SparseLDLT {
 public:
     SparseLDLT() = default;
     explicit SparseLDLT(const SparseCSR<double>& A) { compute(A); }
-    void compute(const SparseCSR<double>& A);
+    // `ord` selects the fill-reducing ordering; the default is the kernel-wide
+    // measured choice (kDefaultSparseOrdering). Every ordering is a permutation,
+    // so solve() returns the same answer to round-off whichever is used.
+    void compute(const SparseCSR<double>& A,
+                 SparseOrdering ord = kDefaultSparseOrdering);
     bool ok() const { return ok_; }              // false if not SPD
     std::vector<double> solve(const std::vector<double>& b) const;
 
     // Diagnostic (for the large-scale test): number of stored nonzeros in the
     // strictly-lower factor L. Memory footprint is O(nnz(L)), NOT O(n²).
     std::size_t factorNnz() const { return Lx_.size(); }
+
+    // Which ordering was actually used. Equal to the `ord` argument except for
+    // SparseOrdering::Auto, where it names the candidate that won on fill.
+    SparseOrdering chosenOrdering() const { return chosen_; }
 
 private:
     // TRUE sparse LDLᵀ. The matrix is reordered by a fill-reducing permutation
@@ -627,6 +694,7 @@ private:
     std::vector<double>      d_;    // diagonal D of the permuted factorization
     std::size_t n_ = 0;
     bool ok_ = false;
+    SparseOrdering chosen_ = kDefaultSparseOrdering;
 };
 
 // ---------------------------------------------------------------------------
@@ -643,13 +711,18 @@ class SparseLU {
 public:
     SparseLU() = default;
     explicit SparseLU(const SparseCSR<double>& A) { compute(A); }
-    void compute(const SparseCSR<double>& A);
+    // `ord` selects the COLUMN pre-ordering (on the symmetrized pattern A+Aᵀ).
+    void compute(const SparseCSR<double>& A,
+                 SparseOrdering ord = kDefaultSparseOrdering);
     bool ok() const { return ok_; }                  // false if non-square or singular
     std::vector<double> solve(const std::vector<double>& b) const;
 
     // Diagnostic (for the large-scale test): stored nonzeros in the factors L
     // (unit lower) + U (upper). Memory footprint is O(this), NOT O(n²).
     std::size_t factorNnz() const { return Lx_.size() + Ux_.size(); }
+
+    // Which column pre-ordering was actually used (see SparseLDLT above).
+    SparseOrdering chosenOrdering() const { return chosen_; }
 
 private:
     // TRUE sparse LU with partial pivoting. The matrix is COLUMN-pre-ordered by
@@ -675,6 +748,7 @@ private:
     std::vector<double>      Ux_;   // numeric values of U
     std::size_t n_ = 0;
     bool ok_ = false;
+    SparseOrdering chosen_ = kDefaultSparseOrdering;
 };
 
 // ---------------------------------------------------------------------------

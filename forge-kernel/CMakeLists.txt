@@ -3125,6 +3125,44 @@ if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
         TIMEOUT 300
         FAIL_REGULAR_EXPRESSION "FAIL ")
 
+    # sparse_ordering_bench.cpp — T-163. The sparse direct solvers' fill-reducing
+    # ordering, MEASURED on this repo's own FE matrices rather than argued about.
+    # It assembles real stiffness matrices from meshes produced by
+    # forge::fea::meshFromBRep() on real solids, then runs {Natural, RCM, AMD,
+    # kernel default} over every one of them and reports nnz(L), the fill ratio,
+    # and the ordering / symbolic / factor / solve times for each.
+    #
+    # It is BOTH the report generator (--markdown, see reports/SPARSE_ORDERING.md)
+    # and the gate, because the measurement and the assertion should not be two
+    # different programs that can drift apart. As a gate it asserts:
+    #   * every arm factors, and its symbolic fill equals the fill it allocates;
+    #   * every arm's solution matches the control arm's to 1e-8 relative (a
+    #     reordering is a permutation — anything else is a bug, not a trade-off);
+    #   * the arms are DISTINGUISHABLE (three identical fill numbers on a
+    #     non-trivial matrix is a broken harness far more often than a real tie);
+    #   * the DEFAULT ordering is beaten by no fixed ordering on any matrix, and
+    #     over the corpus fills at most 0.80x what RCM fills.
+    # The last two cannot be satisfied by any fixed ordering: reverting the
+    # default to RCM makes the ratio exactly 1.000 and the gate goes red. That
+    # mutation was RUN, not asserted — see reports/SPARSE_ORDERING.md.
+    add_executable(forge_sparse_ordering_bench
+        "${FORGE_TEST_DIR}/sparse_ordering_bench.cpp")
+    target_include_directories(forge_sparse_ordering_bench PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}")
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_sparse_ordering_bench PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_sparse_ordering_bench PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_sparse_ordering_bench PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+    endif()
+    add_test(NAME kernel.sparse_ordering COMMAND forge_sparse_ordering_bench)
+    set_tests_properties(kernel.sparse_ordering PROPERTIES
+        TIMEOUT 900
+        FAIL_REGULAR_EXPRESSION "\\[FAIL\\]")
+
     # capi/forge_capi_smoke.cpp — the K7 opaque-handle C-API black box, end to
     # end. It #includes ONLY the C header, which is the boundary proof, so its
     # include path is deliberately just include/ (no OCCT headers).

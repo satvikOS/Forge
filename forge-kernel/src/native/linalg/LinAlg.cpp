@@ -1223,9 +1223,447 @@ reverseCuthillMcKee(const std::vector<std::vector<std::size_t>>& adj) {
     return order;
 }
 
+// ---------------------------------------------------------------------------
+// APPROXIMATE MINIMUM DEGREE (AMD) — a FILL-reducing ordering.
+//
+// PROVENANCE (no third-party code). Implemented here from the published
+// algorithm, treated as documented mathematics:
+//
+//   P. R. Amestoy, T. A. Davis and I. S. Duff, "An Approximate Minimum Degree
+//   Ordering Algorithm", SIAM J. Matrix Anal. Appl. 17(4):886-905, 1996.
+//
+// on the quotient-graph elimination model of
+//
+//   J. A. George and J. W. H. Liu, "The Evolution of the Minimum Degree
+//   Ordering Algorithm", SIAM Review 31(1):1-19, 1989.
+//
+// NOTHING is copied or adapted from SuiteSparse/AMD, COLAMD, METIS or any other
+// implementation, and the kernel gains NO new dependency: this is C++20 and the
+// standard library, like the rest of forge::native::linalg. The paper's packed
+// `iw`/`pe`/`len` workspace is replaced by std::vector adjacency lists — more
+// memory, far more legible, and it changes no result.
+//
+// WHY IT EXISTS. RCM (above) minimises BANDWIDTH. A band solver cares about
+// bandwidth; a general sparse factorization does not — it cares about nnz(L),
+// and the two objectives diverge badly on 3-D FE meshes, where a small profile
+// still fills a dense band. AMD attacks nnz(L) directly by eliminating, at each
+// step, the vertex whose elimination introduces the fewest new edges (greedy
+// minimum degree), computed on the quotient graph so the elimination graph is
+// never formed explicitly.
+//
+// THE MODEL. After k eliminations the elimination graph is represented by
+//   * live VARIABLES i, each carrying
+//       Av[i] — adjacent live variables not yet covered by an element,
+//       Ae[i] — adjacent live elements;
+//   * live ELEMENTS e (one per pivot, stored at the pivot's own index), each
+//       carrying its pattern Le[e] = the live variables it touches.
+// Eliminating pivot p creates element p with pattern
+//   Lp = (Av[p] ∪ ⋃_{e ∈ Ae[p]} Le[e]) \ {p},
+// absorbs every e ∈ Ae[p] into it, and updates the degrees of Lp.
+//
+// THE APPROXIMATION. The EXACT external degree |A_i ∪ ⋃_{e∈E_i} L_e \ i|
+// requires a set union per candidate and is what makes true minimum degree
+// slow. AMD instead uses the upper bound (paper §3, eq. 3.1)
+//   d_i ≈ min( n_remaining − i's own mass,
+//              d_i^old + |Lp \ i|,
+//              |Av[i]| + |Lp \ i| + Σ_{e ∈ Ae[i], e ≠ p} |Le \ Lp| ),
+// every term of which is computable in one pass with the w[] counter below.
+//
+// MASS (supervariables). Indistinguishable variables — identical Av and Ae —
+// are merged into one supervariable carrying the mass of its members and
+// eliminated together. This is not an optimisation detail on FE matrices: a
+// 3-DOF-per-node elasticity assembly makes the three DOFs of every node exactly
+// indistinguishable, so the quotient graph collapses ~3x immediately.
+//
+// All degrees below are MASS-weighted (they count original variables, not
+// supervariables), which is what the degree comparison must mean.
+// ---------------------------------------------------------------------------
+static std::vector<std::size_t>
+approximateMinimumDegree(const std::vector<std::vector<std::size_t>>& adj) {
+    const std::size_t n = adj.size();
+    std::vector<std::size_t> perm;
+    perm.reserve(n);
+    if (n == 0) return perm;
+
+    enum : int { ST_VAR = 0, ST_VAR_DEAD = 1, ST_ELEM = 2, ST_ELEM_DEAD = 3 };
+    std::vector<int>         state(n, ST_VAR);
+    std::vector<std::size_t> nv(n, 1);               // supervariable mass
+    std::vector<std::vector<std::size_t>> Av(n);     // live variable neighbours
+    std::vector<std::vector<std::size_t>> Ae(n);     // live element neighbours
+    std::vector<std::vector<std::size_t>> Le(n);     // element patterns
+    std::vector<std::vector<std::size_t>> members(n);// original vars per supervar
+    for (std::size_t i = 0; i < n; ++i) {
+        Av[i] = adj[i];
+        members[i].push_back(i);
+    }
+
+    // ---- degree bucket lists (min-degree selection in O(1) amortised) ------
+    std::vector<std::size_t>   deg(n, 0);
+    std::vector<std::ptrdiff_t> head(n + 1, -1), nxt(n, -1), prv(n, -1);
+    std::size_t minDeg = 0;
+    auto bucketInsert = [&](std::size_t i) {
+        const std::size_t d = deg[i];
+        nxt[i] = head[d];
+        prv[i] = -1;
+        if (head[d] >= 0) prv[static_cast<std::size_t>(head[d])] = static_cast<std::ptrdiff_t>(i);
+        head[d] = static_cast<std::ptrdiff_t>(i);
+        if (d < minDeg) minDeg = d;
+    };
+    auto bucketRemove = [&](std::size_t i) {
+        const std::size_t d = deg[i];
+        if (prv[i] >= 0) nxt[static_cast<std::size_t>(prv[i])] = nxt[i];
+        else             head[d] = nxt[i];
+        if (nxt[i] >= 0) prv[static_cast<std::size_t>(nxt[i])] = prv[i];
+        nxt[i] = prv[i] = -1;
+    };
+    for (std::size_t i = 0; i < n; ++i) {
+        // initial degree = number of neighbours (all masses are 1 at the start)
+        deg[i] = std::min(adj[i].size(), n - 1);
+    }
+    for (std::size_t i = 0; i < n; ++i) bucketInsert(i);
+
+    // ---- per-pivot scratch -------------------------------------------------
+    std::vector<std::size_t>    mark(n, 0);      // Lp membership stamp
+    std::size_t                 markRound = 0;
+    std::vector<std::ptrdiff_t> w(n, 0);         // |Le \ Lp| accumulator
+    std::vector<std::size_t>    wtouch(n, 0);    // stamp for w[]
+    std::size_t                 wRound = 0;
+    std::vector<std::ptrdiff_t> hhead(n, -1), hnext(n, -1);
+    std::vector<std::size_t>    hused;
+    std::vector<std::size_t>    Lp, touchedElems;
+
+    std::size_t massRemaining = n;
+    std::vector<std::size_t> order;              // eliminated supervariables
+    order.reserve(n);
+
+    while (massRemaining > 0) {
+        // ---- 1. pivot = live variable of smallest approximate degree -------
+        while (minDeg <= n && head[minDeg] < 0) ++minDeg;
+        if (minDeg > n) break;                   // no live variable left
+        const std::size_t p = static_cast<std::size_t>(head[minDeg]);
+        bucketRemove(p);
+
+        // ---- 2. form the new element's pattern Lp --------------------------
+        ++markRound;
+        Lp.clear();
+        mark[p] = markRound;                     // p is never in its own pattern
+        {
+            auto& a = Av[p];
+            std::size_t keep = 0;
+            for (std::size_t j : a) {
+                if (state[j] != ST_VAR) continue;
+                a[keep++] = j;
+                if (mark[j] != markRound) { mark[j] = markRound; Lp.push_back(j); }
+            }
+            a.resize(keep);
+        }
+        {
+            auto& es = Ae[p];
+            std::size_t keep = 0;
+            for (std::size_t e : es) {
+                if (state[e] != ST_ELEM) continue;
+                es[keep++] = e;
+                auto& L = Le[e];
+                std::size_t lk = 0;
+                for (std::size_t j : L) {
+                    if (state[j] != ST_VAR) continue;
+                    L[lk++] = j;
+                    if (mark[j] != markRound) { mark[j] = markRound; Lp.push_back(j); }
+                }
+                L.resize(lk);
+            }
+            es.resize(keep);
+        }
+        // every element p touched is now subsumed by element p (absorption)
+        for (std::size_t e : Ae[p]) state[e] = ST_ELEM_DEAD;
+        state[p] = ST_ELEM;                      // p becomes the new element
+
+        std::size_t massLp = 0;
+        for (std::size_t j : Lp) massLp += nv[j];
+        const std::size_t massAfter = massRemaining - nv[p];
+
+        // ---- 3. one pass over Lp giving |Le \ Lp| for every touched element -
+        ++wRound;
+        touchedElems.clear();
+        for (std::size_t i : Lp) {
+            auto& es = Ae[i];
+            std::size_t keep = 0;
+            for (std::size_t e : es) {
+                if (state[e] != ST_ELEM) continue;
+                es[keep++] = e;
+                if (e == p) continue;            // the element just created
+                if (wtouch[e] != wRound) {
+                    wtouch[e] = wRound;
+                    auto& L = Le[e];
+                    std::size_t lk = 0;
+                    std::ptrdiff_t m = 0;
+                    for (std::size_t j : L) {
+                        if (state[j] != ST_VAR) continue;
+                        L[lk++] = j;
+                        m += static_cast<std::ptrdiff_t>(nv[j]);
+                    }
+                    L.resize(lk);
+                    w[e] = m;                    // full remaining mass of Le
+                    touchedElems.push_back(e);
+                }
+                w[e] -= static_cast<std::ptrdiff_t>(nv[i]);   // ... minus |Le ∩ Lp|
+            }
+            es.resize(keep);
+        }
+        // AGGRESSIVE ABSORPTION (paper §4): Le ⊆ Lp ⇒ e adds nothing element p
+        // does not already carry, so it can be dropped outright.
+        for (std::size_t e : touchedElems) if (w[e] <= 0) state[e] = ST_ELEM_DEAD;
+
+        // ---- 4. approximate degree update for every i in Lp ----------------
+        for (std::size_t i : Lp) {
+            if (state[i] != ST_VAR) continue;
+            // Av[i] loses everything element p now covers (Lp itself, and p).
+            auto& a = Av[i];
+            std::size_t keep = 0;
+            std::ptrdiff_t dVar = 0;
+            for (std::size_t j : a) {
+                if (state[j] != ST_VAR) continue;
+                if (mark[j] == markRound) continue;     // in Lp ∪ {p}
+                a[keep++] = j;
+                dVar += static_cast<std::ptrdiff_t>(nv[j]);
+            }
+            a.resize(keep);
+
+            std::ptrdiff_t d = dVar + static_cast<std::ptrdiff_t>(massLp - nv[i]);
+            auto& es = Ae[i];
+            std::size_t ekeep = 0;
+            for (std::size_t e : es) {
+                if (state[e] != ST_ELEM) continue;      // dropped by absorption
+                es[ekeep++] = e;
+                if (e == p) continue;
+                d += w[e];
+            }
+            es.resize(ekeep);
+
+            // the two upper bounds of eq. 3.1
+            const std::ptrdiff_t capRemaining =
+                static_cast<std::ptrdiff_t>(massAfter - nv[i]);
+            const std::ptrdiff_t capOld =
+                static_cast<std::ptrdiff_t>(deg[i]) +
+                static_cast<std::ptrdiff_t>(massLp - nv[i]);
+            d = std::min(d, std::min(capRemaining, capOld));
+            if (d < 0) d = 0;
+
+            bucketRemove(i);
+            deg[i] = static_cast<std::size_t>(d);
+            bucketInsert(i);
+            es.push_back(p);                            // i is now in element p
+        }
+
+        // ---- 5. supervariable detection (indistinguishable variables) ------
+        hused.clear();
+        for (std::size_t i : Lp) {
+            if (state[i] != ST_VAR) continue;
+            std::sort(Av[i].begin(), Av[i].end());
+            std::sort(Ae[i].begin(), Ae[i].end());
+            std::size_t h = 0;
+            for (std::size_t j : Av[i]) h += j + 1;
+            for (std::size_t e : Ae[i]) h += e + 1;
+            h %= n;
+            if (hhead[h] < 0) hused.push_back(h);
+            hnext[i] = hhead[h];
+            hhead[h] = static_cast<std::ptrdiff_t>(i);
+        }
+        for (std::size_t h : hused) {
+            for (std::ptrdiff_t ai = hhead[h]; ai >= 0; ai = hnext[ai]) {
+                const std::size_t a = static_cast<std::size_t>(ai);
+                if (state[a] != ST_VAR) continue;
+                bool merged = false;
+                for (std::ptrdiff_t bi = hnext[ai]; bi >= 0; bi = hnext[bi]) {
+                    const std::size_t b = static_cast<std::size_t>(bi);
+                    if (state[b] != ST_VAR) continue;
+                    if (Av[a] != Av[b] || Ae[a] != Ae[b]) continue;
+                    // a and b are indistinguishable: fuse b into a.
+                    if (!merged) { bucketRemove(a); merged = true; }
+                    bucketRemove(b);
+                    deg[a] = (deg[a] > nv[b]) ? deg[a] - nv[b] : 0;
+                    nv[a] += nv[b];
+                    members[a].insert(members[a].end(),
+                                      members[b].begin(), members[b].end());
+                    members[b].clear();
+                    Av[b].clear(); Ae[b].clear();
+                    nv[b] = 0;
+                    state[b] = ST_VAR_DEAD;
+                }
+                if (merged) bucketInsert(a);
+            }
+            hhead[h] = -1;
+        }
+
+        // ---- 6. commit the pivot -------------------------------------------
+        {
+            auto& L = Le[p];
+            L.clear();
+            for (std::size_t j : Lp) if (state[j] == ST_VAR) L.push_back(j);
+        }
+        Av[p].clear();
+        Ae[p].clear();
+        massRemaining -= nv[p];
+        order.push_back(p);
+    }
+
+    // ---- 7. expand supervariables into the final permutation ---------------
+    for (std::size_t p : order)
+        for (std::size_t v : members[p]) perm.push_back(v);
+    if (perm.size() != n) {
+        // Defensive completion: any variable the loop never reached (only
+        // possible if the bucket lists were left inconsistent) is appended in
+        // natural order so the result is ALWAYS a valid permutation.
+        std::vector<char> seen(n, 0);
+        for (std::size_t v : perm) seen[v] = 1;
+        for (std::size_t v = 0; v < n; ++v) if (!seen[v]) perm.push_back(v);
+    }
+    return perm;
+}
+
+// Exact symbolic analysis of the LDLᵀ factor of P A Pᵀ — Davis "ldl_symbolic".
+// Builds the elimination tree `parent` and the per-column nonzero count of the
+// strictly-lower L, from the SYMMETRIZED pattern `adj` and the permutation's
+// inverse `iperm` (iperm[original] = position). This is the exact fill: the
+// numeric factorization allocates precisely sum(Lcount).
+//
+// SparseLDLT::compute and symbolicFactorNnz BOTH call this, so the fill number
+// the ordering benchmark reports and the fill the solver actually allocates
+// cannot drift apart.
+static void ldltSymbolic(const std::vector<std::vector<std::size_t>>& adj,
+                         const std::vector<std::size_t>& iperm,
+                         std::vector<std::ptrdiff_t>& parent,
+                         std::vector<std::size_t>& Lcount) {
+    const std::size_t n = adj.size();
+    parent.assign(n, -1);
+    Lcount.assign(n, 0);
+    if (n == 0) return;
+
+    // Per permuted row k, the permuted columns j<k where A(k,j) is structural.
+    std::vector<std::vector<std::size_t>> ApatRow(n);
+    for (std::size_t oi = 0; oi < n; ++oi) {
+        const std::size_t i = iperm[oi];
+        for (std::size_t oj : adj[oi]) {
+            const std::size_t j = iperm[oj];
+            if (j < i) ApatRow[i].push_back(j);
+        }
+    }
+    for (auto& v : ApatRow) std::sort(v.begin(), v.end());
+
+    std::vector<std::size_t> flag(n, 0);
+    for (std::size_t k = 0; k < n; ++k) {
+        flag[k] = k + 1;
+        for (std::size_t j : ApatRow[k]) {
+            std::size_t jj = j;
+            while (flag[jj] != k + 1) {
+                if (parent[jj] == -1) parent[jj] = static_cast<std::ptrdiff_t>(k);
+                ++Lcount[jj];
+                flag[jj] = k + 1;
+                jj = static_cast<std::size_t>(parent[jj]);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// THE FACTORIZATION PLAN: which permutation, and the symbolic analysis that goes
+// with it. For a NAMED ordering this is one ordering pass plus one symbolic
+// pass. For SparseOrdering::Auto it is three of each, and the winner on nnz(L)
+// is kept — the symbolic analysis is exact and costs no numeric work and no
+// allocation of L, so "guess which ordering is right for this matrix" is
+// replaced by "measure it, per matrix, every time".
+//
+// WHY Auto EXISTS (measured; forge-kernel/reports/SPARSE_ORDERING.md): over this
+// repo's own FE matrices, NO fixed ordering wins. AMD cuts fill 2.3x on an
+// annular solid and 1.5x on a cube, and LOSES 1.4x on a long thin cantilever,
+// where the mesher's own lexicographic numbering is already close to optimal.
+// RCM — what this kernel used to do unconditionally — is WORSE than doing
+// nothing at all on most of the corpus.
+//
+// Candidates are tried in the order {Natural, RCM, AMD} and a later candidate
+// must be STRICTLY better to win, so ties go to the cheapest to compute and the
+// choice is deterministic.
+// ---------------------------------------------------------------------------
+struct FactorPlan {
+    std::vector<std::size_t>    perm;
+    std::vector<std::size_t>    iperm;
+    std::vector<std::ptrdiff_t> parent;
+    std::vector<std::size_t>    Lcount;
+    std::size_t                 nnzL = 0;
+    SparseOrdering              chosen = SparseOrdering::Natural;
+};
+
+static std::vector<std::size_t>
+orderingFor(const std::vector<std::vector<std::size_t>>& adj, SparseOrdering ord) {
+    const std::size_t n = adj.size();
+    if (ord == SparseOrdering::RCM) return reverseCuthillMcKee(adj);
+    if (ord == SparseOrdering::AMD) return approximateMinimumDegree(adj);
+    std::vector<std::size_t> p(n);
+    for (std::size_t i = 0; i < n; ++i) p[i] = i;
+    return p;   // Natural (and the degenerate Auto-with-one-candidate case)
+}
+
+static FactorPlan planFactorization(const std::vector<std::vector<std::size_t>>& adj,
+                                    SparseOrdering ord) {
+    const std::size_t n = adj.size();
+    auto evaluate = [&](SparseOrdering cand) {
+        FactorPlan fp;
+        fp.chosen = cand;
+        fp.perm = orderingFor(adj, cand);
+        fp.iperm.assign(n, 0);
+        for (std::size_t k = 0; k < n; ++k) fp.iperm[fp.perm[k]] = k;
+        ldltSymbolic(adj, fp.iperm, fp.parent, fp.Lcount);
+        fp.nnzL = 0;
+        for (std::size_t c : fp.Lcount) fp.nnzL += c;
+        return fp;
+    };
+    if (ord != SparseOrdering::Auto) return evaluate(ord);
+
+    FactorPlan best = evaluate(SparseOrdering::Natural);
+    for (SparseOrdering cand : {SparseOrdering::RCM, SparseOrdering::AMD}) {
+        FactorPlan fp = evaluate(cand);
+        if (fp.nnzL < best.nnzL) best = std::move(fp);
+    }
+    return best;
+}
+
 }  // namespace
 
-void SparseLDLT::compute(const SparseCSR<double>& A) {
+// ---------------------------------------------------------------------------
+// PUBLIC ordering entry points. These exist so the ordering benchmark/gate can
+// run EVERY arm against the SAME matrix through the SAME code the solver uses —
+// a table with an arm the solver cannot actually be asked to run is not a
+// measurement of the solver.
+// ---------------------------------------------------------------------------
+std::vector<std::size_t> fillReducingOrdering(const SparseCSR<double>& A,
+                                              SparseOrdering ord) {
+    const std::size_t n = A.rows();
+    if (ord == SparseOrdering::Natural) {
+        std::vector<std::size_t> p(n);
+        for (std::size_t i = 0; i < n; ++i) p[i] = i;
+        return p;
+    }
+    const std::vector<std::vector<std::size_t>> adj = buildAdjacency(A);
+    if (ord == SparseOrdering::Auto) return planFactorization(adj, ord).perm;
+    return orderingFor(adj, ord);
+}
+
+std::size_t symbolicFactorNnz(const SparseCSR<double>& A,
+                              const std::vector<std::size_t>& perm) {
+    const std::size_t n = A.rows();
+    if (n == 0 || perm.size() != n) return 0;
+    const std::vector<std::vector<std::size_t>> adj = buildAdjacency(A);
+    std::vector<std::size_t> iperm(n, 0);
+    for (std::size_t k = 0; k < n; ++k) iperm[perm[k]] = k;
+    std::vector<std::ptrdiff_t> parent;
+    std::vector<std::size_t>    Lcount;
+    ldltSymbolic(adj, iperm, parent, Lcount);
+    std::size_t total = 0;
+    for (std::size_t c : Lcount) total += c;
+    return total;
+}
+
+void SparseLDLT::compute(const SparseCSR<double>& A, SparseOrdering ord) {
     const std::size_t n = A.rows();
     n_ = n;
     ok_ = (A.rows() == A.cols());
@@ -1235,55 +1673,25 @@ void SparseLDLT::compute(const SparseCSR<double>& A) {
     if (!ok_) return;
     if (n == 0) { Lp_.assign(1, 0); ok_ = true; return; }
 
-    // ---- 1. FILL-REDUCING ORDERING (Reverse Cuthill-McKee) ----------------
+    // ---- 1+2. FILL-REDUCING ORDERING AND SYMBOLIC FACTORIZATION -------------
+    // `ord` selects the permutation (see SparseOrdering in the header); the
+    // default, Auto, measures all three candidates on this very matrix and keeps
+    // the least-fill one. The fill and time table behind that default is
+    // forge-kernel/reports/SPARSE_ORDERING.md. Whichever arm is used, this is a
+    // symmetric permutation P A Pᵀ, so the solution is unchanged to round-off.
+    //
+    // The symbolic analysis (Davis "ldl_symbolic": etree parent[] + per-column
+    // nonzero counts) is the EXACT fill; the numeric phase below allocates
+    // precisely this much. It is shared with symbolicFactorNnz(), so the number
+    // the ordering benchmark reports is the number this factorization allocates.
     std::vector<std::vector<std::size_t>> adj = buildAdjacency(A);
-    perm_ = reverseCuthillMcKee(adj);
-    iperm_.assign(n, 0);
-    for (std::size_t k = 0; k < n; ++k) iperm_[perm_[k]] = k;
+    FactorPlan plan = planFactorization(adj, ord);
+    chosen_ = plan.chosen;
+    perm_   = std::move(plan.perm);
+    iperm_  = std::move(plan.iperm);
+    const std::vector<std::ptrdiff_t>& parent = plan.parent;
+    const std::vector<std::size_t>&    Lcount = plan.Lcount;
 
-    // Permuted strictly-lower structural pattern, grouped by COLUMN: for a
-    // structural entry (oi,oj) of A, its permuted indices (i,j). When j<i it is
-    // a sub-diagonal entry of the permuted A sitting in column j; we want, per
-    // column, the set of below-diagonal row indices that seed the etree.
-    std::vector<std::vector<std::size_t>> ApatCol(n);   // col j -> rows i>j
-    for (std::size_t oi = 0; oi < n; ++oi) {
-        std::size_t i = iperm_[oi];
-        for (std::size_t oj : adj[oi]) {
-            std::size_t j = iperm_[oj];
-            if (j < i) ApatCol[j].push_back(i);
-        }
-    }
-    for (auto& v : ApatCol) std::sort(v.begin(), v.end());
-
-    // ---- 2. SYMBOLIC FACTORIZATION (elimination tree + column counts) ------
-    // Davis "ldl_symbolic": build the etree parent[] and the per-column nonzero
-    // count of L. For each row k, walk every below-diagonal A entry up the etree
-    // (marking with flag==k+1) — each ancestor column ii visited gains one L
-    // entry in row k, giving Lcount[ii] = nnz of column ii of L. This is exact;
-    // numeric factorization then allocates precisely this much (the fill).
-    std::vector<std::ptrdiff_t> parent(n, -1);
-    std::vector<std::size_t>    flag(n, 0);    // per-row visit marker (=k+1)
-    std::vector<std::size_t>    Lcount(n, 0);  // nonzeros in column k of L
-
-    // For the row-k etree walk we need, per row k, the columns j<k where A(k,j)
-    // is structural — i.e. the transpose of ApatCol. Build it once.
-    std::vector<std::vector<std::size_t>> ApatRow(n);   // row k -> cols j<k
-    for (std::size_t j = 0; j < n; ++j)
-        for (std::size_t i : ApatCol[j]) ApatRow[i].push_back(j);
-    for (auto& v : ApatRow) std::sort(v.begin(), v.end());
-
-    for (std::size_t k = 0; k < n; ++k) {
-        flag[k] = k + 1;                       // mark self
-        for (std::size_t j : ApatRow[k]) {     // j<k : entry A(k,j) present
-            std::size_t jj = j;
-            while (flag[jj] != k + 1) {         // climb etree to the root
-                if (parent[jj] == -1) parent[jj] = static_cast<std::ptrdiff_t>(k);
-                ++Lcount[jj];                  // column jj gains an entry (row k)
-                flag[jj] = k + 1;
-                jj = static_cast<std::size_t>(parent[jj]);
-            }
-        }
-    }
     Lp_.assign(n + 1, 0);
     for (std::size_t k = 0; k < n; ++k) Lp_[k + 1] = Lp_[k] + Lcount[k];
     const std::size_t lnz = Lp_[n];
@@ -1316,8 +1724,8 @@ void SparseLDLT::compute(const SparseCSR<double>& A) {
     std::vector<double>      Y(n, 0.0);        // dense scatter of row k
     std::vector<std::size_t> reach(n, 0);      // etree reach pattern of row k
     std::vector<std::size_t> Lnext(n);         // next free slot per L column
+    std::vector<std::size_t> flag(n, 0);       // per-row visit marker (=k+1)
     for (std::size_t k = 0; k < n; ++k) Lnext[k] = Lp_[k];
-    std::fill(flag.begin(), flag.end(), 0);
 
     for (std::size_t k = 0; k < n; ++k) {
         flag[k] = k + 1;
@@ -1463,7 +1871,7 @@ luDfs(std::size_t j, const std::vector<std::size_t>& Lp,
 
 }  // namespace
 
-void SparseLU::compute(const SparseCSR<double>& A) {
+void SparseLU::compute(const SparseCSR<double>& A, SparseOrdering ord) {
     const std::size_t n = A.rows();
     n_ = n;
     ok_ = (A.rows() == A.cols());
@@ -1495,12 +1903,30 @@ void SparseLU::compute(const SparseCSR<double>& A) {
     }
 
     // ---- 1. COLUMN PRE-ORDERING (fill-reducing) ------------------------------
-    // RCM on the symmetrized pattern A+Aᵀ — the same proven helper SparseLDLT
-    // uses. colperm_[k] = original column at factored position k. (A true COLAMD
-    // would order specifically for the LU column-fill graph; RCM-on-A+Aᵀ is the
-    // accepted simpler substitute and keeps banded FE/CFD systems banded.)
+    // Ordered on the symmetrized pattern A+Aᵀ — the same helper SparseLDLT uses,
+    // with the same `ord` selector. colperm_[k] = original column at factored
+    // position k.
+    //
+    // HONEST LIMIT, unchanged by this task: a true COLAMD orders specifically for
+    // the LU COLUMN-fill graph of AᵀA, which is the right objective when partial
+    // pivoting can choose any row. Ordering A+Aᵀ instead is the accepted simpler
+    // substitute, and it is what every candidate below does — so the comparison
+    // between them is fair, but none of them is COLAMD.
+    //
+    // A SECOND HONEST LIMIT, specific to Auto here: the candidate chosen is the
+    // one with the least LDLᵀ fill on the SYMMETRIZED pattern, which is a PROXY
+    // for nnz(L)+nnz(U) under partial pivoting, not the quantity itself (the
+    // pivot rows are not known until the numeric phase). MEASURED on this repo's
+    // real scalar FE matrices, the proxy picks the same winner the LU fill does
+    // — see the SparseLU section of forge-kernel/reports/SPARSE_ORDERING.md,
+    // which reports nnz(L)+nnz(U) per arm so the proxy can be checked, not
+    // trusted.
     std::vector<std::vector<std::size_t>> adj = buildAdjacency(A);
-    colperm_ = reverseCuthillMcKee(adj);
+    {
+        FactorPlan plan = planFactorization(adj, ord);
+        chosen_  = plan.chosen;
+        colperm_ = std::move(plan.perm);
+    }
     std::vector<std::size_t> qinv(n);          // qinv[orig col] = factored col
     for (std::size_t k = 0; k < n; ++k) qinv[colperm_[k]] = k;
 
