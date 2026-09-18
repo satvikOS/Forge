@@ -1104,9 +1104,35 @@ jobs:
       # closure, so demanding zero here would fail the build for a defect this
       # step exists to REPORT rather than to forbid.
       - name: OCCT ledger ratchet (CLOSURE is the number; DIRECT is gameable)
+        # ★ THE CEILINGS ARE NOW THE MEASURED VALUES, AND THE ARTIFACT IS NAMED.
+        #
+        # Until this change every ceiling here sat ABOVE the tree, so doc 11 §4.3
+        # -- "OCCT symbol demand may stay equal or decrease. It may never
+        # increase" -- was unenforced in the only direction that matters.
+        # MEASURED from this workflow's own log, run 35276299108 / job
+        # 105387654810 on 37e24fcb:
+        #
+        #   OCCT_SYMBOLS  = 539  (ceiling was 550)   → 11 symbols of slack
+        #   TKOffset syms = 29   (ceiling was 42)    → 13 symbols of slack
+        #   OCCT_DIRECT   = 8    (asserted 9)        →  1 of slack
+        #   OCCT_CLOSURE  = 14   (ceiling 14)        →  0, already tight
+        #   OCCT_PHANTOM  = 2    (ceiling 2)         →  0, already tight
+        #
+        # Eleven symbols could therefore arrive with every check green, which is
+        # how 541 → 550 happened once already.
+        #
+        # AND THE ARTIFACT IS PASSED EXPLICITLY. occt_closure_count.sh:75-81
+        # resolves its binary by a FALLBACK SEARCH, so the same command measures
+        # libforge_kernel_core.dylib locally (546 symbols, DIRECT 11) and
+        # forge-kernel.node here (539, DIRECT 8) -- two different numbers for one
+        # command. The script's own header warns about "the stale-artifact trap"
+        # and records that it happened anyway. CI builds only the addon
+        # (FORGE_BUILD_DESKTOP_FOUNDATION defaults OFF, CMakeLists.txt:77), so
+        # the addon is what this step measures and it now says so.
         run: |
           bash forge-kernel/scripts/occt_closure_count.sh \
-            --assert-closure 14 --assert-direct 9
+            forge-kernel/build/Release/forge-kernel.node \
+            --assert-closure 14 --assert-direct 8 --assert-symbols 539
       # ── AND THE GATE THAT WAS WRITTEN FOR THIS AND NEVER CALLED ────────────────
       # The comment above states the hole and does not close it: PHANTOM is still
       # unguarded, and forge-kernel/scripts/tkoffset_ledger_gate.sh -- which carries
@@ -1154,7 +1180,7 @@ jobs:
         run: |
           bash forge-kernel/scripts/tkoffset_ledger_gate.sh \
             forge-kernel/build/Release/forge-kernel.node \
-            --max-closure 14 --max-phantom 2 --max-tkoffset 42
+            --max-closure 14 --max-phantom 2 --max-tkoffset 29 --max-symbols 539
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
       - name: Physics validation gates (known-answer, against textbook closed forms)
