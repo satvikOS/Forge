@@ -52,6 +52,19 @@ Vec3 Curve::evaluate(double t) const {
         return cAdd(origin,
                     cAdd(cScale(refDir, a * c), cScale(bn, b * s)));
     }
+    case GeomCurveKind::Parabola: {
+        // y^2 = 4 f x in the (refDir, binormal) frame, parameterised by y = t:
+        // C(t) = vertex + (t^2/(4f)) refDir + t binormal.  a == f.
+        const Vec3 bn = binormal();
+        const double x = (a != 0.0) ? (t * t) / (4.0 * a) : 0.0;
+        return cAdd(origin, cAdd(cScale(refDir, x), cScale(bn, t)));
+    }
+    case GeomCurveKind::Hyperbola: {
+        // x^2/a^2 - y^2/b^2 = 1, +refDir branch, x = a cosh t, y = b sinh t.
+        const Vec3 bn = binormal();
+        return cAdd(origin, cAdd(cScale(refDir, a * std::cosh(t)),
+                                 cScale(bn, b * std::sinh(t))));
+    }
     case GeomCurveKind::BSpline:
         return nurbs.evaluate(t);
     }
@@ -87,6 +100,36 @@ Curve Curve::makeEllipse(const Vec3& centre, const Vec3& refDir,
                          double t0, double t1) {
     Curve c;
     c.kind = GeomCurveKind::Ellipse;
+    c.origin = centre;
+    c.refDir = cNorm(refDir);
+    c.normal = cNorm(normal);
+    c.a = semiA;
+    c.b = semiB;
+    c.t0 = t0;
+    c.t1 = t1;
+    return c;
+}
+
+Curve Curve::makeParabola(const Vec3& vertex, const Vec3& refDir,
+                          const Vec3& normal, double focal,
+                          double t0, double t1) {
+    Curve c;
+    c.kind = GeomCurveKind::Parabola;
+    c.origin = vertex;
+    c.refDir = cNorm(refDir);
+    c.normal = cNorm(normal);
+    c.a = focal;          // f
+    c.b = 0.0;            // unused by this kind, kept explicit rather than stale
+    c.t0 = t0;
+    c.t1 = t1;
+    return c;
+}
+
+Curve Curve::makeHyperbola(const Vec3& centre, const Vec3& refDir,
+                           const Vec3& normal, double semiA, double semiB,
+                           double t0, double t1) {
+    Curve c;
+    c.kind = GeomCurveKind::Hyperbola;
     c.origin = centre;
     c.refDir = cNorm(refDir);
     c.normal = cNorm(normal);

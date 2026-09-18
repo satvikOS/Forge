@@ -44,7 +44,12 @@
 #include <Geom_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
-#include <GeomLProp_SLProps.hxx>
+// T-147: GeomLProp_SLProps is GONE from this file — evalSurface and
+// classAAnalyse read the native forge::props facade through the per-face
+// OCCT->native bridge instead. No OCCT fallback: a face the bridge cannot
+// carry throws with its reason (an `else` branch would re-name the symbol).
+#include "forge/OcctImport.hpp"     // importOcctFaceSurface
+#include "forge/SurfaceProps.hpp"   // forge::props::surfaceProps
 #include <Precision.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
@@ -181,6 +186,37 @@ Handle(Geom_Surface) surfaceOf(const TopoDS_Face& f, const char* what) {
     }
     return s;
 }
+
+// ---------------------------------------------------------------------------
+// T-147 — the native property bridge for this file's two curvature readouts.
+// NAMED nativePropsSurfaceOf, NOT nativeSurfaceOf: this file ALREADY has a
+// nativeSurfaceOf(ShapeHandle) -> optional<NurbsSurface> (the Phase-D gate seam,
+// ~70 lines below) which means something entirely different. They would have
+// resolved as overloads and compiled, which is exactly why the collision is
+// worth avoiding rather than relying on.
+// GeomLProp_SLProps is gone from here; evalSurface and classAAnalyse now read
+// forge::props. As in ClassASurfacing, a face the bridge cannot carry THROWS
+// with the bridge's own reason: an OCCT fallback would re-name the symbol and
+// make the measured delta zero (§7).
+#ifdef FORGE_NATIVE_BREP
+forge::SurfaceImportResult nativePropsSurfaceOf(const TopoDS_Face& f, const char* what) {
+    forge::SurfaceImportResult r = forge::importOcctFaceSurface(f);
+    if (!r.ok) {
+        throw std::runtime_error(
+            std::string("forge.surfacing.") + what +
+            ": this face has no native surface, so its differential properties "
+            "cannot be computed without OCCT — " + r.reason);
+    }
+    return r;
+}
+#else
+forge::SurfaceImportResult nativePropsSurfaceOf(const TopoDS_Face&, const char* what) {
+    throw std::runtime_error(
+        std::string("forge.surfacing.") + what +
+        ": built without FORGE_NATIVE_BREP, so the native property facade has no "
+        "surface bridge (this build cannot answer differential-property queries)");
+}
+#endif
 
 // Lift a Handle(Geom_BSplineSurface) — throws if the face isn't a NURBS
 // patch (e.g. it's an analytic plane / cylinder).
@@ -646,34 +682,41 @@ SurfaceEval evalSurface(ShapeHandle face, double u, double v) {
     }
 #endif
     TopoDS_Face f = firstFaceOf(fetch(face), "evalSurface");
-    Handle(Geom_Surface) s = surfaceOf(f, "evalSurface");
-    GeomLProp_SLProps props(s, u, v, /*derivOrder*/ 2, Precision::Confusion());
+    // NATIVE eval (T-147). `u`/`v` stay the caller's OCCT parameters — the bridge
+    // maps them to the native ones naming the same point, so nothing about this
+    // function's INPUT contract changes.
+    const forge::SurfaceImportResult imp = nativePropsSurfaceOf(f, "evalSurface");
+    double un, vn;
+    imp.toNative(u, v, un, vn);
+    const forge::props::SurfProps sp = forge::props::surfaceProps(imp.surface, un, vn);
+
+    // du/dv are the ONE pair that is not a geometric invariant: the facade
+    // reports them in the NATIVE parameter basis, so they are converted back to
+    // the caller's OCCT basis by the chain rule (d/du_occt = uScale * d1u).
+    // Everything else below is basis-independent.
+    const gp_Vec du(sp.d1u.x * imp.uScale, sp.d1u.y * imp.uScale, sp.d1u.z * imp.uScale);
+    const gp_Vec dv(sp.d1v.x * imp.vScale, sp.d1v.y * imp.vScale, sp.d1v.z * imp.vScale);
 
     SurfaceEval out{};
-    if (!props.IsNormalDefined()) {
-        // Fall back to first-order eval; curvature stays NaN/0.
-        gp_Pnt p; gp_Vec du, dv;
-        s->D1(u, v, p, du, dv);
-        out.point  = {p.X(), p.Y(), p.Z()};
-        out.du     = {du.X(), du.Y(), du.Z()};
-        out.dv     = {dv.X(), dv.Y(), dv.Z()};
+    out.point = {sp.p.x, sp.p.y, sp.p.z};
+    out.du    = {du.X(), du.Y(), du.Z()};
+    out.dv    = {dv.X(), dv.Y(), dv.Z()};
+
+    if (!sp.normalDefined) {
+        // The SAME degraded contract as before, deliberately reproduced rather
+        // than tightened: first-order values are still reported, the normal is
+        // du x dv left UN-normalised when it is degenerate (not forced to a zero
+        // vector), and the curvatures stay 0.
         gp_Vec n = du.Crossed(dv);
         if (n.Magnitude() > Precision::Confusion()) n.Normalize();
-        out.normal = {n.X(), n.Y(), n.Z()};
+        out.normal   = {n.X(), n.Y(), n.Z()};
         out.gaussian = 0.0;
         out.mean     = 0.0;
         return out;
     }
-    gp_Pnt p = props.Value();
-    gp_Vec du = props.D1U();
-    gp_Vec dv = props.D1V();
-    gp_Dir n  = props.Normal();
-    out.point    = {p.X(), p.Y(), p.Z()};
-    out.du       = {du.X(), du.Y(), du.Z()};
-    out.dv       = {dv.X(), dv.Y(), dv.Z()};
-    out.normal   = {n.X(), n.Y(), n.Z()};
-    out.gaussian = props.GaussianCurvature();
-    out.mean     = props.MeanCurvature();
+    out.normal   = {sp.normal.x, sp.normal.y, sp.normal.z};
+    out.gaussian = sp.kGauss;
+    out.mean     = sp.kMean;
     return out;
 }
 
@@ -744,6 +787,9 @@ ClassASummary classAAnalyse(ShapeHandle face, std::uint32_t samples) {
 #endif
     TopoDS_Face f = firstFaceOf(fetch(face), "classAAnalyse");
     Handle(Geom_Surface) s = surfaceOf(f, "classAAnalyse");
+    // NATIVE Gaussian curvature (T-147). The sample grid below still walks the
+    // Geom_Surface's OWN bounds, unchanged, so the stations sampled do not move.
+    const forge::SurfaceImportResult imp = nativePropsSurfaceOf(f, "classAAnalyse");
 
     Standard_Real u0, u1, v0, v1;
     s->Bounds(u0, u1, v0, v1);
@@ -775,9 +821,16 @@ ClassASummary classAAnalyse(ShapeHandle face, std::uint32_t samples) {
             double k = 0.0;
             bool ok = false;
             try {
-                GeomLProp_SLProps props(s, u, v, 2, Precision::Confusion());
-                if (!props.IsNormalDefined()) continue;
-                k = props.GaussianCurvature();
+                double un, vn;
+                imp.toNative(u, v, un, vn);
+                const forge::props::SurfProps sp =
+                    forge::props::surfaceProps(imp.surface, un, vn);
+                if (!sp.normalDefined) continue;
+                // GAUSSIAN curvature only. K is a parameterisation INVARIANT and
+                // is independent of the normal's sign, so it is the one curvature
+                // this migration cannot move: measured equal to OCCT's to ~1e-16
+                // relative on every kind in the A/B oracle.
+                k = sp.kGauss;
                 ok = std::isfinite(k);
             } catch (...) {
                 continue;
